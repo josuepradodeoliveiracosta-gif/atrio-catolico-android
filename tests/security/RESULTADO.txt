@@ -1,5 +1,16 @@
-Execução local: 2026-10-25; emulador Firestore; demo-atrio-v10.
+2026-10-25 — emulador Firestore demo-atrio-v11.
 
+PASS abertura permite leitura antes do login
+PASS usuário autenticado consulta abertura
+PASS configuração não permite listar coleção
+PASS outros documentos de configuração não são públicos
+PASS anônimo não altera abertura
+PASS usuário não altera abertura
+PASS admin do app não altera abertura pelo cliente
+PASS cliente não apaga configuração
+PASS cliente não cria configuração
+PASS documento ausente pode ser consultado
+PASS desativação administrativa pode ser lida
 PASS anônimo não lê denúncias
 PASS usuário envia denúncia antiga sem status
 PASS usuário não lê a própria denúncia
@@ -61,6 +72,7 @@ PASS revogação impede consulta de denúncias
 PASS revogação impede remoção alheia
 PASS revogação impede exclusão de resposta alheia
 PASS revogação impede analisar denúncia de resposta
-RESULTADO: 61 testes aprovados.
+RESULTADO: 72 testes aprovados.
 
-Compilação Android e teste em dispositivo pendentes.
+Sintaxe Kotlin, configuração Firebase e decodificação do vídeo aprovadas.
+Compilação Android e teste no celular pendentes.

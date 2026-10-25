@@ -150,6 +150,7 @@ class MainActivity : ComponentActivity() {
             } else {
                 AtrioDemoApp(prefs)
             }
+            OpeningVideo(this@MainActivity)
         }
     }
 }

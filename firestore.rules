@@ -13,6 +13,11 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/admins/$(request.auth.uid))
         && get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.enabled == true;
     }
+    // Public, non-sensitive switch; changes only through Console/Admin SDK.
+    match /app_config/opening_video {
+      allow get: if true;
+      allow list, create, update, delete: if false;
+    }
     match /admins/{uid} {
       allow get: if me(uid);
       allow list, create, update, delete: if false;

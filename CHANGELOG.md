@@ -1,5 +1,12 @@
 # Registro de versões — Átrio Católico
 
+## v0.11.0
+- Vídeo de abertura local, com Fechar, som opcional e fechamento ao terminar.
+- Uma exibição por nova sessão, preservando fechamento ao navegar ou alternar apps.
+- Controle público de leitura app_config/opening_video; escrita somente no Console/Admin SDK.
+- Última configuração armazenada para uso sem internet.
+- Inclui vídeo original do usuário, sem recorte ou recompressão.
+
 ## v0.10.0
 - Denúncias de respostas com motivo e identificação exata do alvo.
 - Moderação distingue publicações e respostas e mostra contexto da discussão.

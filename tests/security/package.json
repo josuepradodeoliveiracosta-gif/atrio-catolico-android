@@ -6,6 +6,6 @@
   },
   "private": true,
   "scripts": {
-    "test": "node prepare.mjs && firebase emulators:exec --only firestore --project demo-atrio-v10 \"node moderation.test.mjs\""
+    "test": "node prepare.mjs && firebase emulators:exec --only firestore --project demo-atrio-v11 \"node moderation.test.mjs\""
   }
 }

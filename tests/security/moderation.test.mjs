@@ -2,7 +2,7 @@ import {readFileSync} from 'node:fs';
 import assert from 'node:assert/strict';
 import {initializeTestEnvironment,assertFails,assertSucceeds} from '@firebase/rules-unit-testing';
 import {doc,setDoc,getDoc,getDocs,collection,updateDoc,deleteDoc,writeBatch,serverTimestamp,Timestamp} from 'firebase/firestore';
-const env=await initializeTestEnvironment({projectId:'demo-atrio-v10',firestore:{host:'127.0.0.1',port:8089,rules:readFileSync('firestore.rules','utf8')}});
+const env=await initializeTestEnvironment({projectId:'demo-atrio-v11',firestore:{host:'127.0.0.1',port:8089,rules:readFileSync('firestore.rules','utf8')}});
 let passed=0;
 async function test(name,fn){await fn();passed++;console.log('PASS',name);}
 const admin=env.authenticatedContext('admin').firestore();
@@ -19,6 +19,29 @@ try {
   await setDoc(doc(db,'profiles/alice'),{displayName:'Alice',createdAt:Timestamp.now()});
   await setDoc(doc(db,'profiles/bob'),{displayName:'Bob',createdAt:Timestamp.now()});
   for(const id of ['p','p2','p3'])await setDoc(doc(db,'posts/'+id),{uid:'alice',authorName:'Alice',title:'Título teste',body:'Conteúdo de teste',category:'Liturgia',createdAt:Timestamp.now()});
+ });
+ await env.withSecurityRulesDisabled(async c=>{
+  await setDoc(doc(c.firestore(),'app_config/opening_video'),{enabled:true,videoId:'abertura_v1'});
+  await setDoc(doc(c.firestore(),'app_config/private'),{secret:'test'});
+ });
+ await test('abertura permite leitura antes do login',async()=>{
+  const d=await assertSucceeds(getDoc(doc(anon,'app_config/opening_video')));assert.equal(d.data().enabled,true);
+ });
+ await test('usuário autenticado consulta abertura',()=>assertSucceeds(getDoc(doc(bob,'app_config/opening_video'))));
+ await test('configuração não permite listar coleção',()=>assertFails(getDocs(collection(anon,'app_config'))));
+ await test('outros documentos de configuração não são públicos',()=>assertFails(getDoc(doc(anon,'app_config/private'))));
+ await test('anônimo não altera abertura',()=>assertFails(updateDoc(doc(anon,'app_config/opening_video'),{enabled:false})));
+ await test('usuário não altera abertura',()=>assertFails(updateDoc(doc(bob,'app_config/opening_video'),{enabled:false})));
+ await test('admin do app não altera abertura pelo cliente',()=>assertFails(updateDoc(doc(admin,'app_config/opening_video'),{enabled:false})));
+ await test('cliente não apaga configuração',()=>assertFails(deleteDoc(doc(admin,'app_config/opening_video'))));
+ await env.withSecurityRulesDisabled(async c=>deleteDoc(doc(c.firestore(),'app_config/opening_video')));
+ await test('cliente não cria configuração',()=>assertFails(setDoc(doc(bob,'app_config/opening_video'),{enabled:true})));
+ await test('documento ausente pode ser consultado',async()=>{
+  const d=await assertSucceeds(getDoc(doc(anon,'app_config/opening_video')));assert.equal(d.exists(),false);
+ });
+ await env.withSecurityRulesDisabled(async c=>setDoc(doc(c.firestore(),'app_config/opening_video'),{enabled:false}));
+ await test('desativação administrativa pode ser lida',async()=>{
+  const d=await assertSucceeds(getDoc(doc(anon,'app_config/opening_video')));assert.equal(d.data().enabled,false);
  });
  await test('anônimo não lê denúncias',()=>assertFails(getDocs(collection(anon,'reports'))));
  await test('usuário envia denúncia antiga sem status',()=>assertSucceeds(setDoc(doc(bob,'reports/r'),report())));
