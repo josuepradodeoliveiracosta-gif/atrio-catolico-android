@@ -192,6 +192,13 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
     val context = LocalContext.current
     var isAdmin by remember(uid) { mutableStateOf(false) }
     var moderationOpen by remember(uid) { mutableStateOf(false) }
+    var founderUid by remember(uid) { mutableStateOf("") }
+    DisposableEffect(db, uid) {
+        val registration = db.document("app_config/founder").addSnapshotListener { snapshot, failure ->
+            founderUid = if (failure == null) snapshot?.getString("uid").orEmpty() else ""
+        }
+        onDispose { registration.remove() }
+    }
     DisposableEffect(db, uid) {
         var active = true
         val registration = db.collection("admins").document(uid).addSnapshotListener { snapshot, failure ->
@@ -243,6 +250,7 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
     } else if (moderationOpen && isAdmin) {
         ModerationScreen(db, uid, onBack = { moderationOpen = false })
     } else {
+        CompositionLocalProvider(LocalFounderUid provides founderUid) {
         OnlineCommunity(db = db, uid = uid, name = name!!, email = user.email.orEmpty(),
             biography = biography,
             onModeration = if (isAdmin) ({ moderationOpen = true }) else null,
@@ -256,6 +264,7 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
         if (error.isNotBlank()) {
             // Erros são comunicados sem impedir que o usuário continue a navegar.
             LaunchedEffect(error) { Toast.makeText(context, error, Toast.LENGTH_LONG).show(); error = "" }
+        }
         }
     }
 }
@@ -418,7 +427,8 @@ private fun OnlineCommunity(
                             detailReplies = data?.documents?.take(replyLimit)?.map {
                                 Reply(author = it.getString("authorName") ?: "Membro",
                                     message = it.getString("body") ?: "", id = it.id,
-                                    mine = it.getString("uid") == uid)
+                                    mine = it.getString("uid") == uid,
+                                    ownerUid = it.getString("uid").orEmpty())
                             } ?: emptyList()
                         }
                     }
@@ -580,7 +590,7 @@ private fun OnlineCommunity(
                         if (savedPending.isEmpty() && savedDisplay.size < visibleSavedIds.size && savedFailures.isEmpty() && !savesError)
                             Text("Algumas publicações salvas foram removidas.", color = Muted, fontSize = 12.sp)
                     })
-                Tab.PROFILE -> OnlineProfileScreen(name, email, biography, posts,
+                Tab.PROFILE -> OnlineProfileScreen(uid, name, email, biography, posts,
                     onRename = { renameOpen = true }, onEditBiography = { bioEditorOpen = true },
                     onSignOut = onSignOut, onModeration = onModeration,
                     onCreate = { navigate(Tab.PUBLISH) }, onOpen = { detailId = it },
@@ -814,7 +824,7 @@ private fun ReplyNotificationScreen(
 
 @Composable
 private fun OnlineProfileScreen(
-    name: String, email: String, biography: String, posts: List<Post>, onRename: () -> Unit,
+    uid: String, name: String, email: String, biography: String, posts: List<Post>, onRename: () -> Unit,
     onEditBiography: () -> Unit, onSignOut: () -> Unit, onModeration: (() -> Unit)?,
     onCreate: () -> Unit, onOpen: (String) -> Unit,
     onLike: (String) -> Unit, onSave: (String) -> Unit
@@ -828,6 +838,7 @@ private fun OnlineProfileScreen(
                 Icon(Icons.Outlined.AccountCircle, contentDescription = null,
                     modifier = Modifier.size(72.dp), tint = Wine)
                 Text(name, fontFamily = FontFamily.Serif, fontSize = 23.sp, fontWeight = FontWeight.Bold)
+                MemberBadgeRow(uid, Modifier.fillMaxWidth())
                 Text(email, fontSize = 12.sp, color = Muted)
                 Spacer(Modifier.height(10.dp))
                 Text(
@@ -840,6 +851,9 @@ private fun OnlineProfileScreen(
                     OutlinedButton(onClick = onEditBiography) { Text("Editar apresentação") }
                 }
             }
+        }
+        item {
+            BadgeSettings(uid)
         }
         item {
             if (onModeration != null) {
