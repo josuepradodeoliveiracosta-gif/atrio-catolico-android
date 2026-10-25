@@ -71,7 +71,8 @@ private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
 
     Column(
         Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Wine, Color(0xFF8B4B5A))))
-            .verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 26.dp)
+            .statusBarsPadding().verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp, vertical = 26.dp)
     ) {
         Text("✝", fontFamily = FontFamily.Serif, fontSize = 52.sp, color = Gold)
         Text("Átrio Católico", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,

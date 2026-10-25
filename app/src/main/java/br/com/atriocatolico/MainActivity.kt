@@ -274,7 +274,7 @@ private fun WelcomeScreen(onEnter: (String) -> Unit) {
     var nickname by remember { mutableStateOf("") }
     Column(
         Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Wine, Color(0xFF864453))))
-            .padding(horizontal = 26.dp, vertical = 40.dp),
+            .statusBarsPadding().padding(horizontal = 26.dp, vertical = 40.dp),
         verticalArrangement = Arrangement.SpaceBetween
     ) {
         Column {
@@ -310,7 +310,8 @@ private fun WelcomeScreen(onEnter: (String) -> Unit) {
 
 @Composable
 internal fun AtrioTopBar(details: Boolean, onBack: () -> Unit, onSearch: () -> Unit, onNotification: () -> Unit) {
-    Surface(color = Paper) {
+    // O Android desenha o app sob a barra de status; reserva a área do relógio.
+    Surface(color = Paper, modifier = Modifier.statusBarsPadding()) {
         Row(Modifier.fillMaxWidth().height(68.dp).padding(horizontal = 17.dp), verticalAlignment = Alignment.CenterVertically) {
             if (details) {
                 IconButton(onClick = onBack) { Icon(Icons.Outlined.ArrowBack, contentDescription = "Voltar", tint = Wine) }
