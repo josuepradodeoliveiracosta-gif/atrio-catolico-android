@@ -73,6 +73,7 @@ service cloud.firestore {
     function approvedClergyGrant(uid, clergy) {
       let requestPath = /databases/$(database)/documents/badge_requests/$(uid);
       return isAdmin()
+        && request.auth.uid != uid
         && exists(requestPath)
         && get(requestPath).data.status == 'pending'
         && get(requestPath).data.kind == clergy
@@ -128,6 +129,7 @@ service cloud.firestore {
         && request.resource.data.status == 'pending'
         && validTime())
         || (isAdmin()
+          && request.auth.uid != uid
           && resource.data.status == 'pending'
           && request.resource.data.diff(resource.data).affectedKeys()
               .hasOnly(['status', 'reviewedBy', 'reviewedAt', 'reviewNote'])
