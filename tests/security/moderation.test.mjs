@@ -49,6 +49,80 @@ try {
  await test('usuário não lista denúncias',()=>assertFails(getDocs(collection(bob,'reports'))));
  await test('usuário consulta somente seu registro de acesso',()=>assertSucceeds(getDoc(doc(bob,'admins/bob'))));
  await test('usuário não lê acesso de outra conta',()=>assertFails(getDoc(doc(bob,'admins/admin'))));
+ // Selos — leitura individual; ninguém recebe privilégios por atualizar o cliente.
+ await test('selos públicos exigem login',()=>assertFails(getDoc(doc(anon,'badges/alice'))));
+ await test('selos não podem ser enumerados',()=>assertFails(getDocs(collection(bob,'badges'))));
+ await test('usuário cria apenas sua autodeclaração leiga',()=>assertSucceeds(
+   setDoc(doc(bob,'badges/bob'),{lay:'leigo'})));
+ await test('usuário atualiza Leigo para Leiga',()=>assertSucceeds(
+   updateDoc(doc(bob,'badges/bob'),{lay:'leiga'})));
+ await test('usuário pode limpar sua autodeclaração',()=>assertSucceeds(
+   updateDoc(doc(bob,'badges/bob'),{lay:''})));
+ await test('usuário não concede Padre a si próprio',()=>assertFails(
+   updateDoc(doc(bob,'badges/bob'),{clergy:'padre'})));
+ await test('usuário não concede Moderador a si próprio',()=>assertFails(
+   updateDoc(doc(bob,'badges/bob'),{moderator:true})));
+ await test('usuário não altera selo alheio',()=>assertFails(
+   setDoc(doc(bob,'badges/alice'),{lay:'leigo'})));
+ await test('usuário não cria perfil com selo privilegiado',()=>assertFails(
+   setDoc(doc(bob,'badges/bob'),{lay:'leigo',clergy:'padre'}, {merge:true})));
+ await test('usuário não apaga registro de selos',()=>assertFails(
+   deleteDoc(doc(bob,'badges/bob'))));
+ await test('admin no aplicativo não concede selo via SDK cliente',()=>assertFails(
+   setDoc(doc(admin,'badges/alice'),{moderator:true})));
+ await env.withSecurityRulesDisabled(async c=>{
+   await setDoc(doc(c.firestore(),'badges/alice'),{clergy:'padre',moderator:true});
+   await setDoc(doc(c.firestore(),'app_config/founder'),{uid:'founder'});
+ });
+ await test('selo de Padre confirmado é legível por membro autenticado',async()=>{
+   const data=(await assertSucceeds(getDoc(doc(bob,'badges/alice')))).data();
+   assert.equal(data.clergy,'padre');assert.equal(data.moderator,true);
+ });
+ await test('selo verificado de Padre não pode ser mudado pelo titular',()=>assertFails(
+   updateDoc(doc(alice,'badges/alice'),{clergy:'diacono'})));
+ await test('preferência leiga não remove selo verificado',async()=>{
+   await assertSucceeds(updateDoc(doc(alice,'badges/alice'),{lay:'leiga'}));
+   assert.equal((await getDoc(doc(alice,'badges/alice'))).data().clergy,'padre');
+ });
+ await test('configuração oficial do fundador exige login',()=>assertFails(
+   getDoc(doc(anon,'app_config/founder'))));
+ await test('conta autenticada consulta identidade do fundador',()=>assertSucceeds(
+   getDoc(doc(bob,'app_config/founder'))));
+ await test('ninguém se torna fundador escrevendo no cliente',()=>assertFails(
+   setDoc(doc(bob,'app_config/founder'),{uid:'bob'})));
+ await test('solicitações de selo não podem ser enumeradas',()=>assertFails(
+   getDocs(collection(bob,'badge_requests'))));
+ await test('titular solicita verificação sacerdotal',()=>assertSucceeds(
+   setDoc(doc(bob,'badge_requests/bob'),{
+     kind:'padre',status:'pending',createdAt:serverTimestamp()
+   })));
+ await test('solicitação não é pública',()=>assertFails(
+   getDoc(doc(alice,'badge_requests/bob'))));
+ await test('usuário não solicita selo na conta alheia',()=>assertFails(
+   setDoc(doc(bob,'badge_requests/alice'),{
+     kind:'padre',status:'pending',createdAt:serverTimestamp()
+   })));
+ await test('usuário não solicita selo de moderador',()=>assertFails(
+   setDoc(doc(alice,'badge_requests/alice'),{
+     kind:'moderador',status:'pending',createdAt:serverTimestamp()
+   })));
+ await test('usuário não aprova seu próprio pedido',()=>assertFails(
+   updateDoc(doc(bob,'badge_requests/bob'),{status:'approved'})));
+ await test('administrador no cliente não aprova pedido diretamente',()=>assertFails(
+   updateDoc(doc(admin,'badge_requests/bob'),{status:'approved'})));
+ await test('pedido pendente não pode ser reescrito',()=>assertFails(
+   updateDoc(doc(bob,'badge_requests/bob'),{kind:'diacono'})));
+ await test('usuário não remove o pedido para ocultar auditoria',()=>assertFails(
+   deleteDoc(doc(bob,'badge_requests/bob'))));
+ await env.withSecurityRulesDisabled(async c=>{
+   await updateDoc(doc(c.firestore(),'badge_requests/bob'),{status:'rejected'});
+ });
+ await test('titular pode reapresentar pedido recusado',()=>assertSucceeds(
+   updateDoc(doc(bob,'badge_requests/bob'),{
+     kind:'diacono',status:'pending',createdAt:serverTimestamp()
+   })));
+ await test('pedido reapresentado não pode ser autoaprovado',()=>assertFails(
+   updateDoc(doc(bob,'badge_requests/bob'),{status:'approved'})));
  await test('usuário não se promove',()=>assertFails(setDoc(doc(bob,'admins/bob'),{enabled:true})));
  await test('administrador não promove contas pelo cliente',()=>assertFails(setDoc(doc(admin,'admins/bob'),{enabled:true})));
  await test('administrador não altera seu acesso pelo cliente',()=>assertFails(updateDoc(doc(admin,'admins/admin'),{enabled:false})));
