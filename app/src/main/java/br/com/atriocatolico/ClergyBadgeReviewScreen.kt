@@ -150,10 +150,11 @@ private fun ClergyReviewDialog(
     var verified by remember(request.uid) { mutableStateOf(false) }
     var busy by remember(request.uid) { mutableStateOf(false) }
     var failure by remember(request.uid) { mutableStateOf("") }
+    val ownRequest = request.uid == reviewerUid
 
     fun decide(approve: Boolean) {
         val justification = note.trim()
-        if (busy || justification.length !in 10..300 || (approve && !verified)) return
+        if (busy || ownRequest || justification.length !in 10..300 || (approve && !verified)) return
         busy = true
         failure = ""
         val requestRef = db.collection("badge_requests").document(request.uid)
@@ -189,6 +190,10 @@ private fun ClergyReviewDialog(
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Conta solicitante:", fontSize = 12.sp)
                 SelectionContainer { Text(request.uid, fontSize = 12.sp) }
+                if (ownRequest) {
+                    Text("Você não pode analisar seu próprio pedido. Peça a outro administrador autorizado.",
+                        color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                }
                 Text("Confira este UID no Firebase Authentication e confirme a identidade " +
                     "e ordenação por um contato independente. Não use apenas uma declaração do aplicativo.",
                     fontSize = 12.sp, color = Muted)
@@ -210,13 +215,13 @@ private fun ClergyReviewDialog(
         },
         confirmButton = {
             TextButton(onClick = { decide(true) },
-                enabled = !busy && verified && note.trim().length in 10..300) {
+                enabled = !busy && !ownRequest && verified && note.trim().length in 10..300) {
                 Text(if (busy) "Registrando..." else "Aprovar e conceder")
             }
         },
         dismissButton = {
             Row {
-                TextButton(enabled = !busy && note.trim().length in 10..300,
+                TextButton(enabled = !busy && !ownRequest && note.trim().length in 10..300,
                     onClick = { decide(false) }) { Text("Rejeitar") }
                 TextButton(enabled = !busy, onClick = onClose) { Text("Cancelar") }
             }
