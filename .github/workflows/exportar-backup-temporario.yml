@@ -1,0 +1,43 @@
+name: Exportar backup completo 0.12.0 (temporario)
+
+on:
+  push:
+    branches:
+      - exports/zip-v0.12.0-2026-10-25
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Obter repositorio e historico completo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Arquivar codigo exato de main e historico Git
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/atrio-export
+          git archive --format=zip --prefix=Atrio-Catolico/ --output=/tmp/atrio-export/atrio_catolico_backup_v012.zip 65c48f4f871f6914477db33bcbf67fbcbb055d66
+          git bundle create /tmp/atrio-export/HISTORICO_REPOSITORIO.bundle --all
+          python3 - <<'PY'
+          from zipfile import ZipFile, ZIP_DEFLATED
+          from pathlib import Path
+          p=Path("/tmp/atrio-export/atrio_catolico_backup_v012.zip")
+          bundle=Path("/tmp/atrio-export/HISTORICO_REPOSITORIO.bundle")
+          with ZipFile(p, "a", compression=ZIP_DEFLATED) as z:
+              z.write(bundle, "Atrio-Catolico/HISTORICO_REPOSITORIO.bundle")
+              z.writestr("LEIA-ME-BACKUP.txt", "Backup completo do codigo do Atrio Catolico 0.12.0.\nRepositorio privado: josuepradodeoliveiracosta-gif/atrio-catolico-android\nBranch de origem: main\nCommit: 65c48f4f871f6914477db33bcbf67fbcbb055d66\nContem os arquivos versionados e um git bundle com o historico.\nNao contem dados em tempo real do Firebase nem chaves de assinatura nao versionadas.\nRestaurar historico: git clone Atrio-Catolico/HISTORICO_REPOSITORIO.bundle novo-repositorio\n")
+          print("Backup ZIP", p.stat().st_size, "bytes; git bundle", bundle.stat().st_size, "bytes")
+          PY
+          unzip -t /tmp/atrio-export/atrio_catolico_backup_v012.zip | tail -n 1
+      - name: Disponibilizar ZIP completo
+        uses: actions/upload-artifact@v4
+        with:
+          name: backup-completo-atrio-catolico-v012
+          path: /tmp/atrio-export/atrio_catolico_backup_v012.zip
+          if-no-files-found: error
+          retention-days: 90
