@@ -18,6 +18,12 @@ service cloud.firestore {
       allow get: if true;
       allow list, create, update, delete: if false;
     }
+    // Identifica a conta oficial do fundador; publicação somente via SDK/Console.
+    // O cliente pode consultar o UID, mas nunca apontar para si mesmo.
+    match /app_config/founder {
+      allow get: if signedIn();
+      allow list, create, update, delete: if false;
+    }
     match /admins/{uid} {
       allow get: if me(uid);
       allow list, create, update, delete: if false;
@@ -60,6 +66,43 @@ service cloud.firestore {
         'História da Igreja', 'Liturgia', 'Santos',
         'Juventude', 'Pedidos de oração'
       ];
+    }
+
+    // Selos públicos: o titular só escolhe a identificação leiga.
+    // Clero e moderação são atribuídos por ferramenta administrativa confiável.
+    match /badges/{uid} {
+      allow get: if signedIn();
+      allow list: if false;
+      allow create: if me(uid)
+        && request.resource.data.keys().hasOnly(['lay'])
+        && request.resource.data.keys().hasAll(['lay'])
+        && request.resource.data.lay in ['leigo', 'leiga'];
+      allow update: if me(uid)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lay'])
+        && request.resource.data.keys().hasAll(['lay'])
+        && request.resource.data.lay in ['leigo', 'leiga', ''];
+      allow delete: if false;
+    }
+
+    // Solicitação não confere selo: exige verificação humana pela administração.
+    // O titular enxerga apenas o próprio pedido; novos pedidos após recusa são permitidos.
+    match /badge_requests/{uid} {
+      allow get: if me(uid);
+      allow list: if false;
+      allow create: if me(uid)
+        && request.resource.data.keys().hasOnly(['kind', 'status', 'createdAt'])
+        && request.resource.data.keys().hasAll(['kind', 'status', 'createdAt'])
+        && request.resource.data.kind in ['padre', 'diacono']
+        && request.resource.data.status == 'pending'
+        && validTime();
+      allow update: if me(uid)
+        && resource.data.status in ['rejected', 'dismissed']
+        && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['kind', 'status', 'createdAt'])
+        && request.resource.data.kind in ['padre', 'diacono']
+        && request.resource.data.status == 'pending'
+        && validTime();
+      allow delete: if false;
     }
 
     match /profiles/{uid} {
