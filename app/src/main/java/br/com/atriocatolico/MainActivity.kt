@@ -376,7 +376,7 @@ internal fun Avatar(name: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-internal fun DiscussionCard(post: Post, onOpen: (String) -> Unit, onLike: (String) -> Unit, onSave: (String) -> Unit) {
+internal fun DiscussionCard(post: Post, onOpen: (String) -> Unit, onLike: (String) -> Unit, onSave: (String) -> Unit, fullText: Boolean = false) {
     Card(
         onClick = { onOpen(post.id) }, modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(17.dp), colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -394,7 +394,7 @@ internal fun DiscussionCard(post: Post, onOpen: (String) -> Unit, onLike: (Strin
             Spacer(Modifier.height(14.dp))
             Text(post.title, fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(7.dp))
-            Text(post.body, color = Color(0xFF68625E), fontSize = 13.sp, lineHeight = 20.sp, maxLines = 5, overflow = TextOverflow.Ellipsis)
+            Text(post.body, color = Color(0xFF68625E), fontSize = 13.sp, lineHeight = 20.sp, maxLines = if (fullText) Int.MAX_VALUE else 5, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(10.dp))
             Surface(color = WineSoft, shape = RoundedCornerShape(7.dp)) { Text(post.category, color = Wine, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) }
             Spacer(Modifier.height(13.dp))
@@ -416,7 +416,8 @@ internal fun DiscussionCard(post: Post, onOpen: (String) -> Unit, onLike: (Strin
 @Composable
 internal fun HomeScreen(name: String, posts: List<Post>, filter: String, search: String, searchOpen: Boolean,
     onSearch: (String) -> Unit, onFilter: (String) -> Unit, onCreate: () -> Unit,
-    onForums: () -> Unit, onOpen: (String) -> Unit, onLike: (String) -> Unit, onSave: (String) -> Unit
+    onForums: () -> Unit, onOpen: (String) -> Unit, onLike: (String) -> Unit, onSave: (String) -> Unit,
+    footer: @Composable () -> Unit = {}
 ) {
     val shown = posts.filter { (filter == "Todos" || it.category == filter) &&
         (search.isBlank() || listOf(it.title, it.body, it.category, it.author).any { s -> s.contains(search, ignoreCase = true) }) }
@@ -459,6 +460,7 @@ internal fun HomeScreen(name: String, posts: List<Post>, filter: String, search:
         }
         if (shown.isEmpty()) item { EmptyState("🕊️", "Nenhuma discussão", "Mude o filtro ou comece uma conversa.", "Criar publicação", onCreate) }
         items(shown, key = { it.id }) { p -> DiscussionCard(p, onOpen, onLike, onSave) }
+        item { footer() }
     }
 }
 
@@ -529,11 +531,13 @@ internal fun PublishScreen(onPublish: (String, String, String) -> Unit) {
 }
 
 @Composable
-internal fun SavedScreen(posts: List<Post>, onDiscover: () -> Unit, onOpen: (String) -> Unit, onLike: (String) -> Unit, onSave: (String) -> Unit) {
+internal fun SavedScreen(posts: List<Post>, onDiscover: () -> Unit, onOpen: (String) -> Unit, onLike: (String) -> Unit, onSave: (String) -> Unit,
+    loading: Boolean = false, footer: @Composable () -> Unit = {}) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { SectionTitle("Publicações salvas") }
-        if (posts.isEmpty()) item { EmptyState("🔖", "Nada salvo ainda", "Toque no marcador de uma publicação para encontrá-la aqui.", "Explorar discussões", onDiscover) }
+        if (posts.isEmpty() && !loading) item { EmptyState("🔖", "Nada salvo ainda", "Toque no marcador de uma publicação para encontrá-la aqui.", "Explorar discussões", onDiscover) }
         items(posts, key = { it.id }) { p -> DiscussionCard(p, onOpen, onLike, onSave) }
+        item { footer() }
     }
 }
 
@@ -589,12 +593,13 @@ internal fun DetailScreen(
     post: Post, name: String, onLike: () -> Unit, onSave: () -> Unit,
     onReply: (String, (Boolean) -> Unit) -> Unit, onReport: (() -> Unit)? = null,
     onEdit: (() -> Unit)? = null, onDelete: (() -> Unit)? = null,
-    onDeleteReply: ((String) -> Unit)? = null
+    onDeleteReply: ((String) -> Unit)? = null,
+    repliesFooter: @Composable () -> Unit = {}
 ) {
     var response by remember(post.id) { mutableStateOf("") }
     var sendingReply by remember(post.id) { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
-        DiscussionCard(post, onOpen = {}, onLike = { onLike() }, onSave = { onSave() })
+        DiscussionCard(post, onOpen = {}, onLike = { onLike() }, onSave = { onSave() }, fullText = true)
         if (post.mine && (onEdit != null || onDelete != null)) {
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -607,7 +612,7 @@ internal fun DetailScreen(
             }
         }
         Spacer(Modifier.height(20.dp))
-        SectionTitle("Respostas (${post.replies.size})")
+        SectionTitle(if (post.remote) "Respostas carregadas (${post.replies.size})" else "Respostas (${post.replies.size})")
         Spacer(Modifier.height(11.dp))
         if (post.replies.isEmpty()) Text("Seja a primeira pessoa a responder!", fontSize = 13.sp, color = Muted)
         post.replies.forEach { r ->
@@ -627,6 +632,7 @@ internal fun DetailScreen(
             HorizontalDivider(color = Line)
         }
         Spacer(Modifier.height(14.dp))
+        repliesFooter()
         Text("Responder como $name", color = Wine, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
         OutlinedTextField(value = response, onValueChange = { if (it.length <= 600) response = it },
             modifier = Modifier.fillMaxWidth(), label = { Text("Sua resposta") }, minLines = 2)

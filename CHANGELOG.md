@@ -1,5 +1,14 @@
 # Registro de versões — Átrio Católico
 
+## v0.8.0
+- Abertura direta de discussões por ID, inclusive por notificações antigas.
+- Texto completo no detalhe da publicação.
+- Carregamento progressivo de publicações e respostas em blocos de 30.
+- Salvos consultados independentemente do feed, em blocos visíveis de 30.
+- Tratamento de carregamento, falha e publicação removida.
+- Isolamento de estado por conta e descarte das novas consultas.
+- Regras Firestore e dependências mantidas da versão 0.7.
+
 ## v0.7.0
 - Avisos de respostas dentro do app, com contador de não lidas no sino.
 - Gravação atômica de resposta e notificação quando o autor e quem responde são pessoas diferentes.

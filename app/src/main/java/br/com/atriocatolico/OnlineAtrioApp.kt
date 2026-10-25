@@ -30,6 +30,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.UserProfileChangeRequest
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.FieldValue
 import java.util.concurrent.TimeUnit
@@ -64,7 +65,7 @@ internal fun OnlineAtrioApp() {
         if (user == null) {
             OnlineAuthScreen(auth = auth, db = db)
         } else {
-            OnlineUserScreen(auth = auth, db = db, user = user)
+            key(user.uid) { OnlineUserScreen(auth = auth, db = db, user = user) }
         }
     }
 }
@@ -260,7 +261,7 @@ private fun OnlineCommunity(
     var search by remember { mutableStateOf("") }
     var searchOpen by remember { mutableStateOf(false) }
     var detailId by remember { mutableStateOf<String?>(null) }
-    var detailReplies by remember { mutableStateOf<List<Reply>>(emptyList()) }
+    var detailReplies by remember(uid, detailId) { mutableStateOf<List<Reply>>(emptyList()) }
     var reportPost by remember { mutableStateOf<String?>(null) }
     var editingPostId by remember(uid) { mutableStateOf<String?>(null) }
     var deletingPostId by remember(uid) { mutableStateOf<String?>(null) }
@@ -269,32 +270,64 @@ private fun OnlineCommunity(
     var renameOpen by remember { mutableStateOf(false) }
     var bioEditorOpen by remember { mutableStateOf(false) }
     var working by remember { mutableStateOf(false) }
+    var feedLimit by remember(uid) { mutableStateOf(30) }
+    var feedLoading by remember(uid) { mutableStateOf(true) }
+    var feedMore by remember(uid) { mutableStateOf(false) }
+    var feedError by remember(uid) { mutableStateOf(false) }
+    var feedRetry by remember(uid) { mutableStateOf(0) }
+    var replyLimit by remember(uid, detailId) { mutableStateOf(30) }
+    var repliesLoading by remember(uid, detailId) { mutableStateOf(true) }
+    var repliesMore by remember(uid, detailId) { mutableStateOf(false) }
+    var repliesError by remember(uid, detailId) { mutableStateOf(false) }
+    var repliesRetry by remember(uid, detailId) { mutableStateOf(0) }
+    var openedPost by remember(uid, detailId) { mutableStateOf<Post?>(null) }
+    var detailLoading by remember(uid, detailId) { mutableStateOf(true) }
+    var detailError by remember(uid, detailId) { mutableStateOf(false) }
+    var detailRetry by remember(uid, detailId) { mutableStateOf(0) }
+    var savedOrder by remember(uid) { mutableStateOf<List<String>>(emptyList()) }
+    var savedLimit by remember(uid) { mutableStateOf(30) }
+    var savedPosts by remember(uid) { mutableStateOf<Map<String, Post>>(emptyMap()) }
+    var savedPending by remember(uid) { mutableStateOf<Set<String>>(emptySet()) }
+    var savedFailures by remember(uid) { mutableStateOf<Set<String>>(emptySet()) }
+    var savesLoading by remember(uid) { mutableStateOf(true) }
+    var savesError by remember(uid) { mutableStateOf(false) }
+    var savedRetry by remember(uid) { mutableStateOf(0) }
 
-    DisposableEffect(db, uid) {
+    DisposableEffect(db, uid, feedLimit, feedRetry) {
+        var active = true
+        feedLoading = true
+        feedError = false
         val feed = db.collection("posts").orderBy("createdAt", Query.Direction.DESCENDING)
-            .limit(100).addSnapshotListener { data, failure ->
-                if (failure != null) message = "Não foi possível carregar o fórum: ${failure.localizedMessage}"
-                else sourcePosts = data?.documents?.mapNotNull { item ->
-                    val title = item.getString("title") ?: return@mapNotNull null
-                    Post(
-                        id = item.id, author = item.getString("authorName") ?: "Membro",
-                        title = title, body = item.getString("body") ?: "",
-                        category = item.getString("category") ?: "Vida espiritual",
-                        age = timestampLabel(item.getTimestamp("createdAt")),
-                        mine = item.getString("uid") == uid, remote = true,
-                        ownerUid = item.getString("uid").orEmpty()
-                    )
-                } ?: emptyList()
+            .limit(feedLimit.toLong() + 1).addSnapshotListener { data, failure ->
+                if (active) {
+                    feedLoading = false
+                    feedError = failure != null
+                    if (failure != null) message = "Não foi possível carregar o fórum: ${failure.localizedMessage}"
+                    else {
+                        feedMore = (data?.size() ?: 0) > feedLimit
+                        sourcePosts = data?.documents?.take(feedLimit)?.mapNotNull { it.toAtrioPost(uid) } ?: emptyList()
+                    }
+                }
             }
+        onDispose { active = false; feed.remove() }
+    }
+    DisposableEffect(db, uid, savedRetry) {
+        savesLoading = true
+        savesError = false
         val likes = db.collection("users").document(uid).collection("likedPosts")
             .addSnapshotListener { data, failure ->
                 if (failure != null) message = "Curtidas indisponíveis: ${failure.localizedMessage}"
                 else likedIds = data?.documents?.map { it.id }?.toSet() ?: emptySet()
             }
         val saves = db.collection("users").document(uid).collection("savedPosts")
-            .addSnapshotListener { data, failure ->
+            .orderBy("createdAt", Query.Direction.DESCENDING).addSnapshotListener { data, failure ->
+                savesLoading = false
+                savesError = failure != null
                 if (failure != null) message = "Salvos indisponíveis: ${failure.localizedMessage}"
-                else savedIds = data?.documents?.map { it.id }?.toSet() ?: emptySet()
+                else {
+                    savedOrder = data?.documents?.map { it.id } ?: emptyList()
+                    savedIds = savedOrder.toSet()
+                }
             }
         val notifications = db.collection("users").document(uid).collection("notifications")
             .orderBy("createdAt", Query.Direction.DESCENDING).limit(100)
@@ -310,28 +343,77 @@ private fun OnlineCommunity(
                     )
                 } ?: emptyList()
             }
-        onDispose { feed.remove(); likes.remove(); saves.remove(); notifications.remove() }
+        onDispose { likes.remove(); saves.remove(); notifications.remove() }
     }
-    DisposableEffect(db, detailId) {
-        val id = detailId
-        detailReplies = emptyList()
-        val registration = if (id == null) null else
-            db.collection("posts").document(id).collection("replies")
-                .orderBy("createdAt", Query.Direction.ASCENDING).limit(100)
-                .addSnapshotListener { data, failure ->
-                    if (failure != null) message = "Respostas indisponíveis: ${failure.localizedMessage}"
-                    else detailReplies = data?.documents?.map {
-                        Reply(
-                            author = it.getString("authorName") ?: "Membro",
-                            message = it.getString("body") ?: "",
-                            id = it.id,
-                            mine = it.getString("uid") == uid
-                        )
-                    } ?: emptyList()
+    // Os salvos carregam os documentos por ID, sem depender do feed.
+    val visibleSavedIds = if (tab == Tab.SAVED && detailId == null && !noticesOpen)
+        savedOrder.take(savedLimit) else emptyList()
+    DisposableEffect(db, uid, visibleSavedIds, savedRetry) {
+        var active = true
+        savedPosts = emptyMap()
+        savedPending = visibleSavedIds.toSet()
+        savedFailures = emptySet()
+        val registrations = visibleSavedIds.map { id ->
+            db.collection("posts").document(id).addSnapshotListener { snapshot, failure ->
+                if (active) {
+                    savedPending = savedPending - id
+                    if (failure != null) savedFailures = savedFailures + id
+                    else {
+                        savedFailures = savedFailures - id
+                        val post = snapshot?.toAtrioPost(uid)
+                        savedPosts = if (post == null) savedPosts - id else savedPosts + (id to post)
+                    }
                 }
-        onDispose { registration?.remove() }
+            }
+        }
+        onDispose { active = false; registrations.forEach { it.remove() } }
+    }
+    DisposableEffect(db, uid, detailId, detailRetry) {
+        var active = true
+        detailLoading = true
+        detailError = false
+        val registration = detailId?.let { id ->
+            db.collection("posts").document(id).addSnapshotListener { snapshot, failure ->
+                if (active) {
+                    detailLoading = false
+                    detailError = failure != null
+                    openedPost = if (failure == null) snapshot?.toAtrioPost(uid) else null
+                }
+            }
+        }
+        onDispose { active = false; registration?.remove() }
+    }
+    DisposableEffect(db, uid, detailId, replyLimit, repliesRetry) {
+        var active = true
+        repliesLoading = true
+        repliesError = false
+        val registration = detailId?.let { id ->
+            db.collection("posts").document(id).collection("replies")
+                .orderBy("createdAt", Query.Direction.ASCENDING).limit(replyLimit.toLong() + 1)
+                .addSnapshotListener { data, failure ->
+                    if (active) {
+                        repliesLoading = false
+                        repliesError = failure != null
+                        if (failure != null) message = "Respostas indisponíveis: ${failure.localizedMessage}"
+                        else {
+                            repliesMore = (data?.size() ?: 0) > replyLimit
+                            detailReplies = data?.documents?.take(replyLimit)?.map {
+                                Reply(author = it.getString("authorName") ?: "Membro",
+                                    message = it.getString("body") ?: "", id = it.id,
+                                    mine = it.getString("uid") == uid)
+                            } ?: emptyList()
+                        }
+                    }
+                }
+        }
+        onDispose { active = false; registration?.remove() }
     }
     val posts = sourcePosts.map { it.copy(liked = it.id in likedIds, saved = it.id in savedIds) }
+    val allPosts = (sourcePosts + savedPosts.values + listOfNotNull(openedPost))
+        .associateBy { it.id }.values.map { it.copy(liked = it.id in likedIds, saved = it.id in savedIds) }
+    val savedDisplay = savedOrder.take(savedLimit).mapNotNull { id ->
+        savedPosts[id]?.copy(liked = id in likedIds, saved = id in savedIds)
+    }
     fun navigate(destination: Tab) {
         tab = destination; detailId = null; noticesOpen = false
         filter = "Todos"; search = ""; searchOpen = false
@@ -357,7 +439,7 @@ private fun OnlineCommunity(
         }
     }
     fun reply(id: String, body: String, done: (Boolean) -> Unit) {
-        val post = sourcePosts.firstOrNull { it.id == id }
+        val post = openedPost?.takeIf { it.id == id }
         if (post == null) {
             message = "Discussão indisponível. Atualize o fórum e tente novamente."
             done(false)
@@ -414,22 +496,27 @@ private fun OnlineCommunity(
         )
     }, bottomBar = { AtrioBottomBar(selected = tab, onSelect = ::navigate) }) { inset ->
         Box(Modifier.padding(inset)) {
-            val detail = posts.firstOrNull { it.id == detailId }
+            val detail = openedPost?.copy(liked = detailId in likedIds, saved = detailId in savedIds)
             if (noticesOpen) {
                 ReplyNotificationScreen(
                     notices = notices,
                     postTitles = posts.associate { it.id to it.title },
                     onOpen = { notice ->
                         markNoticeRead(notice)
-                        if (posts.any { it.id == notice.postId }) {
-                            noticesOpen = false
-                            detailId = notice.postId
-                        } else message = "Essa discussão não está disponível no feed atual."
+                        noticesOpen = false
+                        detailId = notice.postId
                     },
                     onRead = ::markNoticeRead,
                     onRemove = ::removeNotice,
                     onBack = { noticesOpen = false }
                 )
+            } else if (detailId != null && detail == null) {
+                if (detailLoading) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                } else EmptyState("📖", if (detailError) "Não foi possível abrir" else "Discussão removida",
+                    if (detailError) "Confira sua conexão e tente novamente." else "Esta publicação não está mais disponível.",
+                    if (detailError) "Tentar novamente" else "Voltar",
+                    { if (detailError) detailRetry++ else detailId = null })
             } else if (detail != null) {
                 DetailScreen(detail.copy(replies = detailReplies), name,
                     onLike = { toggle("likedPosts", detail.id, detail.liked) },
@@ -438,7 +525,12 @@ private fun OnlineCommunity(
                     onReport = { reportPost = detail.id },
                     onEdit = if (detail.mine) ({ editingPostId = detail.id }) else null,
                     onDelete = if (detail.mine) ({ deletingPostId = detail.id }) else null,
-                    onDeleteReply = { deletingReplyId = it }
+                    onDeleteReply = { deletingReplyId = it },
+                    repliesFooter = {
+                        LoadMore(repliesLoading, repliesMore, repliesError, "Carregar mais respostas") {
+                            if (repliesError) repliesRetry++ else replyLimit += 30
+                        }
+                    }
                 )
             } else when (tab) {
                 Tab.HOME -> HomeScreen(name, posts, filter, search, searchOpen,
@@ -446,13 +538,27 @@ private fun OnlineCommunity(
                     onCreate = { navigate(Tab.PUBLISH) }, onForums = { navigate(Tab.COMMUNITIES) },
                     onOpen = { detailId = it },
                     onLike = { id -> posts.firstOrNull { it.id == id }?.let { toggle("likedPosts", id, it.liked) } },
-                    onSave = { id -> posts.firstOrNull { it.id == id }?.let { toggle("savedPosts", id, it.saved) } })
+                    onSave = { id -> posts.firstOrNull { it.id == id }?.let { toggle("savedPosts", id, it.saved) } },
+                    footer = {
+                        LoadMore(feedLoading, feedMore, feedError, "Carregar mais publicações") {
+                            if (feedError) feedRetry++ else feedLimit += 30
+                        }
+                    })
                 Tab.COMMUNITIES -> CommunityScreen(posts) { category -> navigate(Tab.HOME); filter = category }
                 Tab.PUBLISH -> PublishScreen { title, body, category -> publish(title, body, category) }
-                Tab.SAVED -> SavedScreen(posts.filter { it.saved },
+                Tab.SAVED -> SavedScreen(savedDisplay,
                     onDiscover = { navigate(Tab.HOME) }, onOpen = { detailId = it },
-                    onLike = { id -> posts.firstOrNull { it.id == id }?.let { toggle("likedPosts", id, it.liked) } },
-                    onSave = { id -> posts.firstOrNull { it.id == id }?.let { toggle("savedPosts", id, it.saved) } })
+                    onLike = { id -> allPosts.firstOrNull { it.id == id }?.let { toggle("likedPosts", id, it.liked) } },
+                    onSave = { id -> allPosts.firstOrNull { it.id == id }?.let { toggle("savedPosts", id, it.saved) } },
+                    loading = savesLoading || savedPending.isNotEmpty(),
+                    footer = {
+                        LoadMore(savesLoading || savedPending.isNotEmpty(), savedOrder.size > savedLimit,
+                            savesError || savedFailures.isNotEmpty(), "Carregar mais salvos") {
+                            if (savesError || savedFailures.isNotEmpty()) savedRetry++ else savedLimit += 30
+                        }
+                        if (savedPending.isEmpty() && savedDisplay.size < visibleSavedIds.size && savedFailures.isEmpty() && !savesError)
+                            Text("Algumas publicações salvas foram removidas.", color = Muted, fontSize = 12.sp)
+                    })
                 Tab.PROFILE -> OnlineProfileScreen(name, email, biography, posts,
                     onRename = { renameOpen = true }, onEditBiography = { bioEditorOpen = true },
                     onSignOut = onSignOut,
@@ -463,7 +569,7 @@ private fun OnlineCommunity(
         }
     }
     // A autoria é verificada também nas regras do Firestore, não apenas nos botões.
-    val editablePost = posts.firstOrNull { it.id == editingPostId && it.mine }
+    val editablePost = allPosts.firstOrNull { it.id == editingPostId && it.mine }
     if (editablePost != null) {
         var editedTitle by remember(editablePost.id) { mutableStateOf(editablePost.title) }
         var editedBody by remember(editablePost.id) { mutableStateOf(editablePost.body) }
@@ -661,7 +767,7 @@ private fun ReplyNotificationScreen(
                             if (!notice.read) Badge { Text("Nova") }
                         }
                         Spacer(Modifier.height(5.dp))
-                        Text(postTitles[notice.postId] ?: "Discussão não carregada ou removida",
+                        Text(postTitles[notice.postId] ?: "Toque para abrir a discussão",
                             color = Wine, fontSize = 13.sp)
                         Spacer(Modifier.height(5.dp))
                         Text(notice.age, color = Muted, fontSize = 12.sp)
@@ -738,5 +844,24 @@ private fun timestampLabel(timestamp: Timestamp?): String {
         elapsed < TimeUnit.HOURS.toMillis(1) -> "há ${TimeUnit.MILLISECONDS.toMinutes(elapsed)} min"
         elapsed < TimeUnit.DAYS.toMillis(1) -> "há ${TimeUnit.MILLISECONDS.toHours(elapsed)} h"
         else -> "há ${TimeUnit.MILLISECONDS.toDays(elapsed)} dias"
+    }
+}
+
+private fun DocumentSnapshot.toAtrioPost(uid: String): Post? {
+    if (!exists()) return null
+    val title = getString("title") ?: return null
+    return Post(id = id, author = getString("authorName") ?: "Membro",
+        title = title, body = getString("body").orEmpty(),
+        category = getString("category") ?: "Vida espiritual",
+        age = timestampLabel(getTimestamp("createdAt")),
+        mine = getString("uid") == uid, remote = true, ownerUid = getString("uid").orEmpty())
+}
+
+@Composable
+private fun LoadMore(loading: Boolean, more: Boolean, failed: Boolean, label: String, action: () -> Unit) {
+    if (loading || more || failed) {
+        OutlinedButton(onClick = action, enabled = !loading, modifier = Modifier.fillMaxWidth()) {
+            Text(if (loading) "Carregando..." else if (failed) "Tentar novamente" else label)
+        }
     }
 }
