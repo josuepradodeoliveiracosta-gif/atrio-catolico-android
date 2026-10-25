@@ -2,7 +2,7 @@ import {readFileSync} from 'node:fs';
 import assert from 'node:assert/strict';
 import {initializeTestEnvironment,assertFails,assertSucceeds} from '@firebase/rules-unit-testing';
 import {doc,setDoc,getDoc,getDocs,collection,updateDoc,deleteDoc,writeBatch,serverTimestamp,Timestamp} from 'firebase/firestore';
-const env=await initializeTestEnvironment({projectId:'demo-atrio-v09',firestore:{host:'127.0.0.1',port:8089,rules:readFileSync('firestore.rules','utf8')}});
+const env=await initializeTestEnvironment({projectId:'demo-atrio-v10',firestore:{host:'127.0.0.1',port:8089,rules:readFileSync('firestore.rules','utf8')}});
 let passed=0;
 async function test(name,fn){await fn();passed++;console.log('PASS',name);}
 const admin=env.authenticatedContext('admin').firestore();
@@ -56,8 +56,80 @@ try {
  });
  await test('administrador não lê biografia privada alheia',()=>assertFails(getDoc(doc(admin,'profiles/alice'))));
  await test('autor ainda exclui sua publicação',()=>assertSucceeds(deleteDoc(doc(alice,'posts/p3'))));
+
+ const replyReport=(id='a',parent='p2')=>({...report(parent),replyId:id});
+ const replyReview=(status='dismissed')=>({...review(status),reviewTarget:'reply'});
+ await env.withSecurityRulesDisabled(async c=>{
+  const db=c.firestore();
+  for(const id of ['a','b','c','d','e']) await setDoc(doc(db,'posts/p2/replies/'+id),{uid:'bob',authorName:'Bob',body:'Resposta '+id,createdAt:Timestamp.now()});
+  await setDoc(doc(db,'posts/missing/replies/orphan'),{uid:'bob',authorName:'Bob',body:'Órfã de teste',createdAt:Timestamp.now()});
+ });
+ await test('usuário denuncia resposta existente',()=>assertSucceeds(setDoc(doc(bob,'reports/rr'),replyReport())));
+ await test('denúncia de resposta é privada',()=>assertFails(getDoc(doc(bob,'reports/rr'))));
+ await test('anônimo não denuncia respostas',()=>assertFails(setDoc(doc(anon,'reports/anon'),replyReport())));
+ await test('resposta inexistente não pode ser denunciada',()=>assertFails(setDoc(doc(bob,'reports/missing'),replyReport('missing'))));
+ await test('resposta de outra discussão não valida alvo',()=>assertFails(setDoc(doc(bob,'reports/wrongparent'),replyReport('a','p3'))));
+ await test('nova denúncia exige discussão existente',()=>assertFails(setDoc(doc(bob,'reports/orphan'),replyReport('orphan','missing'))));
+ for(const bad of ['',null,42,'nested/id']) {
+  await test('replyId inválido recusado: '+JSON.stringify(bad),()=>assertFails(setDoc(doc(bob,'reports/bad'),{...report('p2'),replyId:bad})));
+ }
+ await test('postId com caminho aninhado recusado',()=>assertFails(setDoc(doc(bob,'reports/badparent'),replyReport('a','p2/replies/a'))));
+ await test('identidade do denunciante não pode ser forjada',()=>assertFails(setDoc(doc(bob,'reports/spoof'),{...replyReport(),reporterUid:'alice'})));
+ await test('decisão não pode ser inserida na criação',()=>assertFails(setDoc(doc(bob,'reports/ready'),{...replyReport(),...replyReview()})));
+ await test('autor da discussão não exclui resposta alheia',()=>assertFails(deleteDoc(doc(alice,'posts/p2/replies/b'))));
+ await test('autor da resposta mantém exclusão própria',()=>assertSucceeds(deleteDoc(doc(bob,'posts/p2/replies/c'))));
+ await test('administrador consulta resposta para análise',()=>assertSucceeds(getDoc(doc(admin,'posts/p2/replies/a'))));
+ await test('administrador não edita resposta',()=>assertFails(updateDoc(doc(admin,'posts/p2/replies/a'),{body:'Alterada'})));
+ await test('cliente antigo não encerra denúncia de resposta como publicação',()=>assertFails(updateDoc(doc(admin,'reports/rr'),review())));
+ await test('tipo de alvo incorreto não encerra denúncia',()=>assertFails(updateDoc(doc(admin,'reports/rr'),{...review(),reviewTarget:'post'})));
+ await test('alvo da resposta é imutável',()=>assertFails(updateDoc(doc(admin,'reports/rr'),{...replyReview(),replyId:'b'})));
+ await test('usuário não modera resposta',()=>assertFails(updateDoc(doc(bob,'reports/rr'),{...replyReview(),reviewedBy:'bob'})));
+ await test('resposta não pode ser marcada removida sem exclusão',()=>assertFails(updateDoc(doc(admin,'reports/rr'),replyReview('removed'))));
+ await test('cliente antigo não apaga discussão pela denúncia de resposta',async()=>{
+  const b=writeBatch(admin);b.delete(doc(admin,'posts/p2'));b.update(doc(admin,'reports/rr'),review('removed'));
+  await assertFails(b.commit());assert.equal((await getDoc(doc(admin,'posts/p2'))).exists(),true);
+ });
+ await test('remover resposta errada não resolve denúncia',async()=>{
+  const b=writeBatch(admin);b.delete(doc(admin,'posts/p2/replies/b'));b.update(doc(admin,'reports/rr'),replyReview('removed'));
+  await assertFails(b.commit());assert.equal((await getDoc(doc(admin,'posts/p2/replies/b'))).exists(),true);
+ });
+ await test('remoção da resposta preserva a discussão na mesma operação',async()=>{
+  const b=writeBatch(admin);b.delete(doc(admin,'posts/p2'));b.delete(doc(admin,'posts/p2/replies/a'));b.update(doc(admin,'reports/rr'),replyReview('removed'));
+  await assertFails(b.commit());assert.equal((await getDoc(doc(admin,'posts/p2/replies/a'))).exists(),true);
+ });
+ await test('remoção correta exclui só a resposta e registra decisão',async()=>{
+  const original=(await getDoc(doc(admin,'posts/p2'))).data();
+  const b=writeBatch(admin);b.delete(doc(admin,'posts/p2/replies/a'));b.update(doc(admin,'reports/rr'),replyReview('removed'));
+  await assertSucceeds(b.commit());
+  assert.equal((await getDoc(doc(admin,'posts/p2/replies/a'))).exists(),false);
+  assert.equal((await getDoc(doc(admin,'posts/p2/replies/b'))).exists(),true);
+  assert.deepEqual((await getDoc(doc(admin,'posts/p2'))).data(),original);
+  const decision=(await getDoc(doc(admin,'reports/rr'))).data();assert.equal(decision.status,'removed');assert.equal(decision.reviewTarget,'reply');
+ });
+ await test('decisão de resposta concluída é imutável',()=>assertFails(updateDoc(doc(admin,'reports/rr'),replyReview())));
+ await setDoc(doc(bob,'reports/rr2'),replyReport('b'));
+ await test('encerrar denúncia mantém resposta',async()=>{
+  await assertSucceeds(updateDoc(doc(admin,'reports/rr2'),replyReview()));assert.equal((await getDoc(doc(admin,'posts/p2/replies/b'))).exists(),true);
+ });
+ await setDoc(doc(bob,'reports/rr3'),replyReport('d'));
+ await deleteDoc(doc(bob,'posts/p2/replies/d'));
+ await test('resposta já removida não registra nova remoção',()=>assertFails(updateDoc(doc(admin,'reports/rr3'),replyReview('removed'))));
+ await test('denúncia de resposta já removida pode ser encerrada',()=>assertSucceeds(updateDoc(doc(admin,'reports/rr3'),replyReview())));
+ await env.withSecurityRulesDisabled(async c=>{
+  const db=c.firestore();
+  await setDoc(doc(db,'posts/p4'),{uid:'alice',authorName:'Alice',title:'Órfã futura',body:'Publicação de teste',category:'Liturgia',createdAt:Timestamp.now()});
+  await setDoc(doc(db,'posts/p4/replies/a'),{uid:'bob',authorName:'Bob',body:'Resposta de teste',createdAt:Timestamp.now()});
+ });
+ await setDoc(doc(bob,'reports/rr4'),replyReport('a','p4'));
+ await deleteDoc(doc(alice,'posts/p4'));
+ await test('denúncia existente permite remover resposta de discussão já excluída',async()=>{
+  const b=writeBatch(admin);b.delete(doc(admin,'posts/p4/replies/a'));b.update(doc(admin,'reports/rr4'),replyReview('removed'));await assertSucceeds(b.commit());
+ });
+ await setDoc(doc(bob,'reports/rr5'),replyReport('e'));
  await env.withSecurityRulesDisabled(async c=>updateDoc(doc(c.firestore(),'admins/admin'),{enabled:false}));
  await test('revogação impede consulta de denúncias',()=>assertFails(getDocs(collection(admin,'reports'))));
  await test('revogação impede remoção alheia',()=>assertFails(deleteDoc(doc(admin,'posts/p2'))));
+ await test('revogação impede exclusão de resposta alheia',()=>assertFails(deleteDoc(doc(admin,'posts/p2/replies/e'))));
+ await test('revogação impede analisar denúncia de resposta',()=>assertFails(updateDoc(doc(admin,'reports/rr5'),replyReview())));
  console.log(`RESULTADO: ${passed} testes aprovados.`);
 } finally { await env.cleanup(); }

@@ -11,6 +11,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.google.firebase.Timestamp
+import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -18,15 +20,30 @@ import com.google.firebase.firestore.Query
 
 private data class ModerationReport(
     val id: String, val postId: String, val reason: String,
-    val status: String, val reviewNote: String, val reviewedBy: String
+    val status: String, val reviewNote: String, val reviewedBy: String,
+    val replyId: String?
+) {
+    val isReply: Boolean get() = replyId != null
+    val kind: String get() = if (isReply) "Resposta" else "Publicação"
+}
+
+private data class ModerationContent(
+    val title: String, val body: String, val author: String, val uid: String, val createdAt: Timestamp?
 )
 
-private data class ModerationPost(val title: String, val body: String, val author: String, val uid: String)
+private fun validModerationId(id: String): Boolean = id.length in 1..128 && !id.contains('/')
 
-private fun DocumentSnapshot.moderationPost(): ModerationPost? {
+private fun ModerationReport.targetReference(db: FirebaseFirestore): DocumentReference? {
+    if (!validModerationId(postId)) return null
+    val parent = db.collection("posts").document(postId)
+    return if (replyId == null) parent else if (validModerationId(replyId))
+        parent.collection("replies").document(replyId) else null
+}
+
+private fun DocumentSnapshot.moderationContent(): ModerationContent? {
     if (!exists()) return null
-    return ModerationPost(getString("title").orEmpty(), getString("body").orEmpty(),
-        getString("authorName").orEmpty(), getString("uid").orEmpty())
+    return ModerationContent(getString("title").orEmpty(), getString("body").orEmpty(),
+        getString("authorName").orEmpty(), getString("uid").orEmpty(), getTimestamp("createdAt"))
 }
 
 @Composable
@@ -59,7 +76,7 @@ internal fun ModerationScreen(db: FirebaseFirestore, uid: String, onBack: () -> 
                         reports = snapshot?.documents?.take(limit)?.map {
                             ModerationReport(it.id, it.getString("postId").orEmpty(),
                                 it.getString("reason").orEmpty(), it.getString("status") ?: "pending",
-                                it.getString("reviewNote").orEmpty(), it.getString("reviewedBy").orEmpty())
+                                it.getString("reviewNote").orEmpty(), it.getString("reviewedBy").orEmpty(), it.getString("replyId"))
                         } ?: emptyList()
                     }
                 }
@@ -79,7 +96,7 @@ internal fun ModerationScreen(db: FirebaseFirestore, uid: String, onBack: () -> 
         LazyColumn(Modifier.fillMaxSize().padding(insets), contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
-                Text("Analise o conteúdo antes de decidir. Uma denúncia não remove a publicação automaticamente.", color = Muted)
+                Text("Analise o conteúdo antes de decidir. Uma denúncia não remove o conteúdo automaticamente.", color = Muted)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(!showReviewed, { showReviewed = false }, label = { Text("Pendentes") })
                     FilterChip(showReviewed, { showReviewed = true }, label = { Text("Analisadas") })
@@ -92,9 +109,10 @@ internal fun ModerationScreen(db: FirebaseFirestore, uid: String, onBack: () -> 
             items(shown, key = { it.id }) { report ->
                 Card(onClick = { selectedId = report.id }, modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Denúncia de ${report.kind.lowercase()}", color = Wine)
                         Text(report.reason)
                         Text(when (report.status) {
-                            "removed" -> "Analisada — publicação removida"
+                            "removed" -> "Analisada — ${report.kind.lowercase()} removida"
                             "dismissed" -> "Analisada — encerrada sem remoção"
                             else -> "Pendente de análise"
                         }, color = Wine, fontSize = 12.sp)
@@ -125,31 +143,42 @@ private fun ReportReviewDialog(
     db: FirebaseFirestore, uid: String, report: ModerationReport,
     onClose: () -> Unit, onMessage: (String) -> Unit
 ) {
-    var post by remember(report.id) { mutableStateOf<ModerationPost?>(null) }
+    var content by remember(report.id) { mutableStateOf<ModerationContent?>(null) }
     var loading by remember(report.id) { mutableStateOf(true) }
     var loadFailed by remember(report.id) { mutableStateOf(false) }
     var note by remember(report.id) { mutableStateOf("") }
     var busy by remember(report.id) { mutableStateOf(false) }
     var confirmRemove by remember(report.id) { mutableStateOf(false) }
     var retry by remember(report.id) { mutableStateOf(0) }
-    DisposableEffect(db, report.postId, retry) {
+    var parentContext by remember(report.id) { mutableStateOf("Carregando discussão...") }
+    val targetRef = remember(db, report.postId, report.replyId) { report.targetReference(db) }
+    DisposableEffect(db, report.postId, report.replyId, retry) {
         var active = true
         loading = true
         loadFailed = false
-        val registration = if (report.postId.isBlank() || report.postId.contains('/')) {
+        val registration = if (targetRef == null) {
             loading = false
             loadFailed = true
             null
-        } else db.collection("posts").document(report.postId).addSnapshotListener { snapshot, failure ->
+        } else targetRef.addSnapshotListener { snapshot, failure ->
             if (active) {
                 loading = false
                 loadFailed = failure != null
-                post = if (failure == null) snapshot?.moderationPost() else null
+                content = if (failure == null) snapshot?.moderationContent() else null
             }
         }
-        onDispose { active = false; registration?.remove() }
+        val parentRegistration = if (report.isReply && validModerationId(report.postId)) {
+            db.collection("posts").document(report.postId).addSnapshotListener { snapshot, failure ->
+                if (active) parentContext = when {
+                    failure != null -> "Não foi possível carregar o título da discussão."
+                    snapshot == null || !snapshot.exists() -> "Discussão principal removida."
+                    else -> "Discussão: ${snapshot.getString("title").orEmpty()}"
+                }
+            }
+        } else null
+        onDispose { active = false; registration?.remove(); parentRegistration?.remove() }
     }
-    fun review(remove: Boolean, expected: ModerationPost?) {
+    fun review(remove: Boolean, expected: ModerationContent?) {
         if (busy || note.trim().length !in 5..300) return
         busy = true
         val noteToSave = note.trim()
@@ -159,18 +188,22 @@ private fun ReportReviewDialog(
             check(currentReport.exists() && (currentReport.getString("status") ?: "pending") == "pending") {
                 "Esta denúncia já foi analisada."
             }
-            check(currentReport.getString("postId") == report.postId) { "A denúncia foi alterada. Reabra a análise." }
+            check(currentReport.getString("postId") == report.postId &&
+                currentReport.getString("replyId") == report.replyId) {
+                "O alvo da denúncia foi alterado. Reabra a análise."
+            }
             if (remove) {
-                val postRef = db.collection("posts").document(report.postId)
-                val current = tx.get(postRef).moderationPost()
+                val removalRef = checkNotNull(targetRef) { "Conteúdo inválido para remoção." }
+                val current = tx.get(removalRef).moderationContent()
                 check(current != null && current == expected) {
-                    "A publicação foi alterada ou removida. Reabra a análise antes de decidir."
+                    "O conteúdo foi alterado ou removido. Reabra a análise antes de decidir."
                 }
-                tx.delete(postRef)
+                tx.delete(removalRef)
             }
             tx.update(reportRef, mapOf(
                 "status" to if (remove) "removed" else "dismissed",
-                "reviewedBy" to uid, "reviewedAt" to FieldValue.serverTimestamp(), "reviewNote" to noteToSave
+                "reviewedBy" to uid, "reviewedAt" to FieldValue.serverTimestamp(), "reviewNote" to noteToSave,
+                "reviewTarget" to if (report.isReply) "reply" else "post"
             ))
             true
         }.addOnCompleteListener { result ->
@@ -178,37 +211,41 @@ private fun ReportReviewDialog(
             confirmRemove = false
             if (result.isSuccessful) {
                 onClose()
-                onMessage(if (remove) "Publicação removida e análise registrada." else "Denúncia encerrada sem remover a publicação.")
+                onMessage(if (remove) "${report.kind} removida e análise registrada." else "Denúncia encerrada sem remover o conteúdo.")
             } else onMessage("Não foi possível concluir: ${result.exception?.localizedMessage ?: "confira sua conexão e permissão"}")
         }
     }
     AlertDialog(
         onDismissRequest = { if (!busy) onClose() },
-        title = { Text("Analisar denúncia") },
+        title = { Text("Analisar ${report.kind.lowercase()}") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Motivo: ${report.reason}")
+                if (report.isReply) Text(parentContext, fontSize = 12.sp, color = Muted)
                 when {
-                    loading -> Text("Carregando publicação...")
+                    loading -> Text("Carregando ${report.kind.lowercase()}...")
                     loadFailed -> {
-                        Text("Não foi possível ler a publicação.")
+                        Text("Não foi possível ler o conteúdo denunciado.")
                         TextButton(onClick = { retry++ }) { Text("Tentar novamente") }
                     }
-                    post == null -> Text("A publicação já não está disponível.")
+                    content == null -> Text("${report.kind} já não está disponível. Você pode encerrar a denúncia sem remoção.")
                     else -> {
-                        Text(post!!.author, color = Wine)
-                        Text(post!!.title, style = MaterialTheme.typography.titleMedium)
-                        Text(post!!.body)
+                        Text(content!!.author, color = Wine)
+                        if (!report.isReply) Text(content!!.title, style = MaterialTheme.typography.titleMedium)
+                        Text(content!!.body)
                     }
                 }
                 if (report.status == "pending") {
                     OutlinedTextField(note, { note = it.take(300) }, enabled = !busy,
                         label = { Text("Justificativa da decisão") }, minLines = 2,
                         supportingText = { Text("De 5 a 300 caracteres; registro restrito à moderação.") })
-                    Text("Remover retira a publicação do fórum. Respostas e referências podem permanecer armazenadas até uma limpeza administrativa.", fontSize = 12.sp, color = Muted)
+                    Text(if (report.isReply)
+                        "A remoção se aplica somente à resposta denunciada. A discussão e as outras respostas são preservadas."
+                        else "Remover retira a publicação do fórum. Respostas e referências podem permanecer armazenadas até uma limpeza administrativa.",
+                        fontSize = 12.sp, color = Muted)
                     OutlinedButton(onClick = { confirmRemove = true },
-                        enabled = !busy && !loading && !loadFailed && post != null && note.trim().length >= 5) {
-                        Text("Remover publicação", color = MaterialTheme.colorScheme.error)
+                        enabled = !busy && !loading && !loadFailed && content != null && note.trim().length >= 5) {
+                        Text("Remover ${report.kind.lowercase()}", color = MaterialTheme.colorScheme.error)
                     }
                 } else {
                     Text("Decisão: ${if (report.status == "removed") "Removida" else "Encerrada sem remoção"}")
@@ -226,10 +263,18 @@ private fun ReportReviewDialog(
     )
     if (confirmRemove) {
         // Captura o conteúdo mostrado ao abrir a confirmação. A transação recusa alterações posteriores.
-        val expected = remember { post }
+        val expected = remember { content }
         AlertDialog(onDismissRequest = { if (!busy) confirmRemove = false },
-            title = { Text("Remover esta publicação?") },
-            text = { Text("A remoção de “${expected?.title.orEmpty()}” não poderá ser desfeita pelo aplicativo. A decisão ficará registrada na denúncia.") },
+            title = { Text("Remover esta ${report.kind.lowercase()}?") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (report.isReply) {
+                        Text("Resposta de ${expected?.author.orEmpty()}")
+                        Text(expected?.body.orEmpty())
+                    } else Text(expected?.title.orEmpty())
+                    Text("A remoção não poderá ser desfeita pelo aplicativo. A decisão ficará registrada na denúncia.")
+                }
+            },
             confirmButton = { TextButton(enabled = !busy, onClick = { review(true, expected) }) {
                 Text(if (busy) "Removendo..." else "Confirmar remoção", color = MaterialTheme.colorScheme.error)
             } },

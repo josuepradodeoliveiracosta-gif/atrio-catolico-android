@@ -594,6 +594,7 @@ internal fun DetailScreen(
     onReply: (String, (Boolean) -> Unit) -> Unit, onReport: (() -> Unit)? = null,
     onEdit: (() -> Unit)? = null, onDelete: (() -> Unit)? = null,
     onDeleteReply: ((String) -> Unit)? = null,
+    onReportReply: ((Reply) -> Unit)? = null,
     repliesFooter: @Composable () -> Unit = {}
 ) {
     var response by remember(post.id) { mutableStateOf("") }
@@ -622,10 +623,17 @@ internal fun DetailScreen(
                 Column(Modifier.weight(1f)) {
                     Text(r.author, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     Text(r.message, fontSize = 13.sp, lineHeight = 19.sp, color = Ink)
-                }
-                if (r.mine && r.id.isNotBlank() && onDeleteReply != null) {
-                    TextButton(onClick = { onDeleteReply(r.id) }) {
-                        Text("Excluir", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (r.id.isNotBlank() && onReportReply != null) {
+                            TextButton(onClick = { onReportReply(r) }) {
+                                Text("Denunciar", color = Wine, fontSize = 12.sp)
+                            }
+                        }
+                        if (r.mine && r.id.isNotBlank() && onDeleteReply != null) {
+                            TextButton(onClick = { onDeleteReply(r.id) }) {
+                                Text("Excluir", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                            }
+                        }
                     }
                 }
             }

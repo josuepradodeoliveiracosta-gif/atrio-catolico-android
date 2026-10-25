@@ -20,6 +20,28 @@ service cloud.firestore {
     function validText(value, minimum, maximum) {
       return value is string && value.size() >= minimum && value.size() <= maximum;
     }
+    function validId(value) {
+      return validText(value, 1, 128) && !value.matches('.*[/].*');
+    }
+    // A decisão de uma resposta não pode apagar nem alterar a publicação principal.
+    function reportParentUnchanged() {
+      let path = /databases/$(database)/documents/posts/$(resource.data.postId);
+      return (exists(path) && existsAfter(path) && get(path).data == getAfter(path).data)
+        || (!exists(path) && !existsAfter(path));
+    }
+    function reportTargetRemoved() {
+      return resource.data.keys().hasAny(['replyId'])
+        ? (exists(/databases/$(database)/documents/posts/$(resource.data.postId)/replies/$(resource.data.replyId))
+          && !existsAfter(/databases/$(database)/documents/posts/$(resource.data.postId)/replies/$(resource.data.replyId))
+          && reportParentUnchanged())
+        : !existsAfter(/databases/$(database)/documents/posts/$(resource.data.postId));
+    }
+    function validReviewTarget() {
+      // Clientes antigos não podem tratar denúncia de resposta como publicação.
+      return resource.data.keys().hasAny(['replyId'])
+        ? request.resource.data.get('reviewTarget', '') == 'reply'
+        : request.resource.data.get('reviewTarget', 'post') == 'post';
+    }
     function validTime() {
       return request.resource.data.createdAt == request.time;
     }
@@ -90,7 +112,7 @@ service cloud.firestore {
           && validText(request.resource.data.body, 1, 600)
           && validTime();
         allow update: if false;
-        allow delete: if signedIn() && resource.data.uid == request.auth.uid;
+        allow delete: if signedIn() && (resource.data.uid == request.auth.uid || isAdmin());
       }
     }
 
@@ -153,26 +175,31 @@ service cloud.firestore {
       allow read: if isAdmin();
       allow create: if signedIn()
         && request.resource.data.keys().hasOnly([
-          'postId', 'reporterUid', 'reason', 'createdAt'
+          'postId', 'replyId', 'reporterUid', 'reason', 'createdAt'
         ])
         && request.resource.data.keys().hasAll([
           'postId', 'reporterUid', 'reason', 'createdAt'
         ])
         && request.resource.data.reporterUid == request.auth.uid
-        && validText(request.resource.data.postId, 1, 128)
+        && validId(request.resource.data.postId)
+        && (!request.resource.data.keys().hasAny(['replyId'])
+          || (validId(request.resource.data.replyId)
+            && exists(/databases/$(database)/documents/posts/$(request.resource.data.postId))
+            && exists(/databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(request.resource.data.replyId))))
         && validText(request.resource.data.reason, 5, 300)
         && validTime();
       allow update: if isAdmin()
         && resource.data.get('status', 'pending') == 'pending'
         && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['status', 'reviewedBy', 'reviewedAt', 'reviewNote'])
+          .hasOnly(['status', 'reviewedBy', 'reviewedAt', 'reviewNote', 'reviewTarget'])
         && request.resource.data.keys().hasAll(['status', 'reviewedBy', 'reviewedAt', 'reviewNote'])
         && request.resource.data.status in ['dismissed', 'removed']
         && request.resource.data.reviewedBy == request.auth.uid
         && request.resource.data.reviewedAt == request.time
         && validText(request.resource.data.reviewNote, 5, 300)
+        && validReviewTarget()
         && (request.resource.data.status != 'removed'
-          || !existsAfter(/databases/$(database)/documents/posts/$(resource.data.postId)));
+          || reportTargetRemoved());
       allow delete: if false;
     }
 

@@ -1,4 +1,4 @@
-Testes executados localmente em emulador, sem acesso ao Firebase real.
+Execução local: 2026-10-25; emulador Firestore; demo-atrio-v10.
 
 PASS anônimo não lê denúncias
 PASS usuário envia denúncia antiga sem status
@@ -26,6 +26,41 @@ PASS encerrar sem remoção mantém publicação
 PASS resposta e aviso da v07 continuam funcionando
 PASS administrador não lê biografia privada alheia
 PASS autor ainda exclui sua publicação
+PASS usuário denuncia resposta existente
+PASS denúncia de resposta é privada
+PASS anônimo não denuncia respostas
+PASS resposta inexistente não pode ser denunciada
+PASS resposta de outra discussão não valida alvo
+PASS nova denúncia exige discussão existente
+PASS replyId inválido recusado: ""
+PASS replyId inválido recusado: null
+PASS replyId inválido recusado: 42
+PASS replyId inválido recusado: "nested/id"
+PASS postId com caminho aninhado recusado
+PASS identidade do denunciante não pode ser forjada
+PASS decisão não pode ser inserida na criação
+PASS autor da discussão não exclui resposta alheia
+PASS autor da resposta mantém exclusão própria
+PASS administrador consulta resposta para análise
+PASS administrador não edita resposta
+PASS cliente antigo não encerra denúncia de resposta como publicação
+PASS tipo de alvo incorreto não encerra denúncia
+PASS alvo da resposta é imutável
+PASS usuário não modera resposta
+PASS resposta não pode ser marcada removida sem exclusão
+PASS cliente antigo não apaga discussão pela denúncia de resposta
+PASS remover resposta errada não resolve denúncia
+PASS remoção da resposta preserva a discussão na mesma operação
+PASS remoção correta exclui só a resposta e registra decisão
+PASS decisão de resposta concluída é imutável
+PASS encerrar denúncia mantém resposta
+PASS resposta já removida não registra nova remoção
+PASS denúncia de resposta já removida pode ser encerrada
+PASS denúncia existente permite remover resposta de discussão já excluída
 PASS revogação impede consulta de denúncias
 PASS revogação impede remoção alheia
-RESULTADO: 28 testes aprovados.
+PASS revogação impede exclusão de resposta alheia
+PASS revogação impede analisar denúncia de resposta
+RESULTADO: 61 testes aprovados.
+
+Compilação Android e teste em dispositivo pendentes.

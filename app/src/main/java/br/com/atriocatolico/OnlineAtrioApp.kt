@@ -278,6 +278,7 @@ private fun OnlineCommunity(
     var detailId by remember { mutableStateOf<String?>(null) }
     var detailReplies by remember(uid, detailId) { mutableStateOf<List<Reply>>(emptyList()) }
     var reportPost by remember { mutableStateOf<String?>(null) }
+    var reportReply by remember(uid) { mutableStateOf<ReplyReportTarget?>(null) }
     var editingPostId by remember(uid) { mutableStateOf<String?>(null) }
     var deletingPostId by remember(uid) { mutableStateOf<String?>(null) }
     var deletingReplyId by remember(uid) { mutableStateOf<String?>(null) }
@@ -541,6 +542,9 @@ private fun OnlineCommunity(
                     onEdit = if (detail.mine) ({ editingPostId = detail.id }) else null,
                     onDelete = if (detail.mine) ({ deletingPostId = detail.id }) else null,
                     onDeleteReply = { deletingReplyId = it },
+                    onReportReply = { reply ->
+                        reportReply = ReplyReportTarget(detail.id, reply.id, reply.author, reply.message)
+                    },
                     repliesFooter = {
                         LoadMore(repliesLoading, repliesMore, repliesError, "Carregar mais respostas") {
                             if (repliesError) repliesRetry++ else replyLimit += 30
@@ -710,6 +714,13 @@ private fun OnlineCommunity(
             },
             dismissButton = { TextButton(onClick = { bioEditorOpen = false }) { Text("Cancelar") } }
         )
+    }
+    reportReply?.let { target ->
+        key(target.postId, target.replyId) {
+            ReplyReportDialog(db, uid, target,
+                onClose = { reportReply = null },
+                onSuccess = { reportReply = null; message = "Denúncia da resposta enviada para análise." })
+        }
     }
     if (reportPost != null) {
         var reason by remember { mutableStateOf("") }
@@ -885,4 +896,50 @@ private fun LoadMore(loading: Boolean, more: Boolean, failed: Boolean, label: St
             Text(if (loading) "Carregando..." else if (failed) "Tentar novamente" else label)
         }
     }
+}
+
+private data class ReplyReportTarget(
+    val postId: String, val replyId: String, val author: String, val body: String
+)
+
+@Composable
+private fun ReplyReportDialog(
+    db: FirebaseFirestore, uid: String, target: ReplyReportTarget,
+    onClose: () -> Unit, onSuccess: () -> Unit
+) {
+    var reason by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var failure by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = { if (!busy) onClose() },
+        title = { Text("Denunciar resposta") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Resposta de ${target.author}", color = Wine)
+                Text(target.body, fontSize = 13.sp)
+                OutlinedTextField(reason, { reason = it.take(300) }, enabled = !busy,
+                    label = { Text("Motivo da denúncia") }, minLines = 2,
+                    modifier = Modifier.fillMaxWidth())
+                Text("A moderação analisará esta resposta. O envio não a remove automaticamente.", fontSize = 12.sp, color = Muted)
+                if (failure.isNotBlank()) Text(failure, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = !busy && reason.trim().length in 5..300, onClick = {
+                busy = true
+                failure = ""
+                db.collection("reports").add(mapOf(
+                    "postId" to target.postId, "replyId" to target.replyId,
+                    "reporterUid" to uid, "reason" to reason.trim(),
+                    "createdAt" to FieldValue.serverTimestamp()
+                )).addOnCompleteListener { result ->
+                    busy = false
+                    if (result.isSuccessful) onSuccess()
+                    else failure = "Não foi possível enviar. Confira a conexão e tente novamente. " +
+                        "A resposta ou a discussão pode ter sido removida."
+                }
+            }) { Text(if (busy) "Enviando..." else "Enviar denúncia") }
+        },
+        dismissButton = { TextButton(enabled = !busy, onClick = onClose) { Text("Cancelar") } }
+    )
 }

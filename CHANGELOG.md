@@ -1,5 +1,12 @@
 # Registro de versões — Átrio Católico
 
+## v0.10.0
+- Denúncias de respostas com motivo e identificação exata do alvo.
+- Moderação distingue publicações e respostas e mostra contexto da discussão.
+- Remoção de resposta preserva a publicação e as outras respostas.
+- Proteção contra decisões de clientes antigos sobre denúncias de respostas.
+- 61 testes de regras aprovados no emulador local do Firestore.
+
 ## v0.9.0
 - Moderação em Perfil, restrita a administradores autorizados no Firestore.
 - Consulta de denúncias pendentes e analisadas, incluindo denúncias antigas.
