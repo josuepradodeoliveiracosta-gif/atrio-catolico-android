@@ -10,6 +10,13 @@ if (file("google-services.json").exists()) {
     apply(plugin = "com.google.gms.google-services")
 }
 
+// Dados de assinatura chegam somente como variaveis de ambiente do CI.
+// Sem eles, o build debug continua identico e o release nao e assinado.
+val atrioStoreFile = System.getenv("ATRIO_SIGNING_STORE_FILE")
+val atrioStorePassword = System.getenv("ATRIO_SIGNING_STORE_PASSWORD")
+val atrioKeyAlias = System.getenv("ATRIO_SIGNING_KEY_ALIAS")
+val atrioKeyPassword = System.getenv("ATRIO_SIGNING_KEY_PASSWORD")
+
 android {
     namespace = "br.com.atriocatolico"
     compileSdk = 36
@@ -20,6 +27,24 @@ android {
         targetSdk = 35
         versionCode = 12
         versionName = "0.12.0"
+    }
+
+    signingConfigs {
+        if (listOf(atrioStoreFile, atrioStorePassword, atrioKeyAlias, atrioKeyPassword)
+                .all { !it.isNullOrBlank() }) {
+            create("atrioRelease") {
+                storeFile = file(atrioStoreFile!!)
+                storePassword = atrioStorePassword!!
+                keyAlias = atrioKeyAlias!!
+                keyPassword = atrioKeyPassword!!
+            }
+        }
+    }
+
+    buildTypes {
+        getByName("release") {
+            signingConfigs.findByName("atrioRelease")?.let { signingConfig = it }
+        }
     }
 
     buildFeatures { compose = true }
