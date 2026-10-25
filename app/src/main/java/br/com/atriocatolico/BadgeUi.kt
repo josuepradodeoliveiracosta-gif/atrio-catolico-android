@@ -40,7 +40,8 @@ private data class BadgeDescription(
     val details: String,
     val tint: Color,
     val isFounder: Boolean = false,
-    val isPriest: Boolean = false
+    val isPriest: Boolean = false,
+    val isDeacon: Boolean = false
 )
 
 private fun listBadges(value: PublicBadges, founder: Boolean): List<BadgeDescription> = buildList {
@@ -51,7 +52,7 @@ private fun listBadges(value: PublicBadges, founder: Boolean): List<BadgeDescrip
         "padre" -> add(BadgeDescription("✝", "Padre",
             "Identidade sacerdotal verificada pela administração.", Wine, isPriest = true))
         "diacono" -> add(BadgeDescription("✝", "Diácono",
-            "Identidade diaconal verificada pela administração.", Wine))
+            "Identidade diaconal verificada pela administração.", Wine, isDeacon = true))
     }
     if (value.moderator) add(BadgeDescription("⬟", "Moderador",
         "Identificação atribuída pela administração da comunidade.", Color(0xFF315C91)))
@@ -92,6 +93,7 @@ internal fun MemberBadgeRow(uid: String, modifier: Modifier = Modifier) {
                             when {
                                 badge.isFounder -> FounderBadgeArt(Modifier.size(27.dp), compact = true)
                                 badge.isPriest -> PriestBadgeArt(Modifier.size(27.dp), compact = true)
+                                badge.isDeacon -> DeaconBadgeArt(Modifier.size(27.dp), compact = true)
                                 else -> Text(badge.symbol, color = badge.tint, fontSize = 12.sp)
                             }
                             Text(badge.name, color = badge.tint, fontSize = 10.sp)
