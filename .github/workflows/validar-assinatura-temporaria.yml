@@ -1,0 +1,51 @@
+name: Validar assinatura release - temporario
+on:
+  push:
+    branches:
+      - feature/assinatura-permanente-2026-10-25
+permissions:
+  contents: read
+jobs:
+  validar-assinatura:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - name: Preparar SDK
+        run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+      - name: Validar Firebase
+        run: python3 scripts/validar_firebase.py
+      - name: Testar assinatura permanente sem expor chave ou senhas
+        shell: bash
+        env:
+          ATRIO_KEYSTORE_BASE64: ${{ secrets.ATRIO_KEYSTORE_BASE64 }}
+          ATRIO_STORE_PASSWORD: ${{ secrets.ATRIO_STORE_PASSWORD }}
+          ATRIO_KEY_PASSWORD: ${{ secrets.ATRIO_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$ATRIO_KEYSTORE_BASE64" || -z "$ATRIO_STORE_PASSWORD" || -z "$ATRIO_KEY_PASSWORD" ]]; then
+            echo "::error::Falta pelo menos um segredo de assinatura"
+            exit 1
+          fi
+          umask 077
+          KEYSTORE="$RUNNER_TEMP/atrio-release.jks"
+          trap 'rm -f "$KEYSTORE"' EXIT
+          printf '%s' "$ATRIO_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE"
+          export ATRIO_SIGNING_STORE_FILE="$KEYSTORE"
+          export ATRIO_SIGNING_STORE_PASSWORD="$ATRIO_STORE_PASSWORD"
+          export ATRIO_SIGNING_KEY_ALIAS="atrio"
+          export ATRIO_SIGNING_KEY_PASSWORD="$ATRIO_KEY_PASSWORD"
+          gradle :app:assembleRelease --no-daemon --stacktrace
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs app/build/outputs/apk/release/app-release.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: validacao-atrio-release-assinado
+          path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
