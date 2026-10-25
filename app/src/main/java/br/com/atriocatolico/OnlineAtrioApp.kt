@@ -192,6 +192,7 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
     val context = LocalContext.current
     var isAdmin by remember(uid) { mutableStateOf(false) }
     var moderationOpen by remember(uid) { mutableStateOf(false) }
+    var clergyReviewOpen by remember(uid) { mutableStateOf(false) }
     var founderUid by remember(uid) { mutableStateOf("") }
     DisposableEffect(db, uid) {
         val registration = db.document("app_config/founder").addSnapshotListener { snapshot, failure ->
@@ -204,7 +205,7 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
         val registration = db.collection("admins").document(uid).addSnapshotListener { snapshot, failure ->
             if (active) {
                 isAdmin = failure == null && snapshot?.getBoolean("enabled") == true
-                if (!isAdmin) moderationOpen = false
+                if (!isAdmin) { moderationOpen = false; clergyReviewOpen = false }
             }
         }
         onDispose { active = false; registration.remove() }
@@ -249,11 +250,14 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
         }
     } else if (moderationOpen && isAdmin) {
         ModerationScreen(db, uid, onBack = { moderationOpen = false })
+    } else if (clergyReviewOpen && isAdmin) {
+        ClergyBadgeReviewScreen(db, uid, onBack = { clergyReviewOpen = false })
     } else {
         CompositionLocalProvider(LocalFounderUid provides founderUid) {
         OnlineCommunity(db = db, uid = uid, name = name!!, email = user.email.orEmpty(),
             biography = biography,
             onModeration = if (isAdmin) ({ moderationOpen = true }) else null,
+            onClergyReview = if (isAdmin) ({ clergyReviewOpen = true }) else null,
             onSignOut = { auth.signOut() }, onProfileChange = { replacement ->
                 db.collection("profiles").document(uid).update("displayName", replacement.trim())
                     .addOnFailureListener { error = it.localizedMessage ?: "Falha ao atualizar nome" }
@@ -273,7 +277,8 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
 private fun OnlineCommunity(
     db: FirebaseFirestore, uid: String, name: String, email: String, biography: String,
     onSignOut: () -> Unit, onProfileChange: (String) -> Unit,
-    onBiographyChange: (String) -> Unit, onModeration: (() -> Unit)?
+    onBiographyChange: (String) -> Unit, onModeration: (() -> Unit)?,
+    onClergyReview: (() -> Unit)?
 ) {
     val context = LocalContext.current
     var sourcePosts by remember(uid) { mutableStateOf<List<Post>>(emptyList()) }
@@ -593,6 +598,7 @@ private fun OnlineCommunity(
                 Tab.PROFILE -> OnlineProfileScreen(uid, name, email, biography, posts,
                     onRename = { renameOpen = true }, onEditBiography = { bioEditorOpen = true },
                     onSignOut = onSignOut, onModeration = onModeration,
+                    onClergyReview = onClergyReview,
                     onCreate = { navigate(Tab.PUBLISH) }, onOpen = { detailId = it },
                     onLike = { id -> posts.firstOrNull { it.id == id }?.let { toggle("likedPosts", id, it.liked) } },
                     onSave = { id -> posts.firstOrNull { it.id == id }?.let { toggle("savedPosts", id, it.saved) } })
@@ -826,6 +832,7 @@ private fun ReplyNotificationScreen(
 private fun OnlineProfileScreen(
     uid: String, name: String, email: String, biography: String, posts: List<Post>, onRename: () -> Unit,
     onEditBiography: () -> Unit, onSignOut: () -> Unit, onModeration: (() -> Unit)?,
+    onClergyReview: (() -> Unit)?,
     onCreate: () -> Unit, onOpen: (String) -> Unit,
     onLike: (String) -> Unit, onSave: (String) -> Unit
 ) {
@@ -864,6 +871,12 @@ private fun OnlineProfileScreen(
             if (onModeration != null) {
                 OutlinedButton(onClick = onModeration, modifier = Modifier.fillMaxWidth()) {
                     Text("Moderação — denúncias")
+                }
+                Spacer(Modifier.height(12.dp))
+            }
+            if (onClergyReview != null) {
+                OutlinedButton(onClick = onClergyReview, modifier = Modifier.fillMaxWidth()) {
+                    Text("Administração — solicitações de selos")
                 }
                 Spacer(Modifier.height(12.dp))
             }
