@@ -75,7 +75,8 @@ internal data class Post(
     val saved: Boolean = false,
     val mine: Boolean = false,
     val replies: List<Reply> = emptyList(),
-    val remote: Boolean = false
+    val remote: Boolean = false,
+    val ownerUid: String = ""
 )
 internal enum class Tab(val label: String) {
     HOME("Início"), COMMUNITIES("Fóruns"), PUBLISH("Publicar"), SAVED("Salvos"), PROFILE("Perfil")
@@ -211,8 +212,9 @@ internal fun AtrioDemoApp(prefs: SharedPreferences) {
                             post = details, name = name,
                             onLike = { replacePost(details.id) { it.copy(liked = !it.liked, likes = it.likes + if (it.liked) -1 else 1) } },
                             onSave = { replacePost(details.id) { it.copy(saved = !it.saved) } },
-                            onReply = { reply ->
+                            onReply = { reply, done ->
                                 replacePost(details.id) { it.copy(replies = it.replies + Reply(name, reply)) }
+                                done(true)
                                 Toast.makeText(context, "Resposta publicada!", Toast.LENGTH_SHORT).show()
                             }
                         )
@@ -314,13 +316,16 @@ private fun WelcomeScreen(onEnter: (String) -> Unit) {
 }
 
 @Composable
-internal fun AtrioTopBar(details: Boolean, onBack: () -> Unit, onSearch: () -> Unit, onNotification: () -> Unit) {
+internal fun AtrioTopBar(
+    details: Boolean, onBack: () -> Unit, onSearch: () -> Unit, onNotification: () -> Unit,
+    unreadCount: Int = 0, detailsTitle: String = "Discussão"
+) {
     // O Android desenha o app sob a barra de status; reserva a área do relógio.
     Surface(color = Paper, modifier = Modifier.statusBarsPadding()) {
         Row(Modifier.fillMaxWidth().height(68.dp).padding(horizontal = 17.dp), verticalAlignment = Alignment.CenterVertically) {
             if (details) {
                 IconButton(onClick = onBack) { Icon(Icons.Outlined.ArrowBack, contentDescription = "Voltar", tint = Wine) }
-                Text("Discussão", fontSize = 23.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Serif, color = Wine)
+                Text(detailsTitle, fontSize = 23.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Serif, color = Wine)
             } else {
                 Box(Modifier.size(39.dp).clip(RoundedCornerShape(12.dp)).background(Wine), contentAlignment = Alignment.Center) {
                     Text("✝", fontSize = 25.sp, fontFamily = FontFamily.Serif, color = Gold)
@@ -330,7 +335,15 @@ internal fun AtrioTopBar(details: Boolean, onBack: () -> Unit, onSearch: () -> U
             }
             Spacer(Modifier.weight(1f))
             IconButton(onClick = onSearch) { Icon(Icons.Outlined.Search, "Buscar", tint = Wine) }
-            IconButton(onClick = onNotification) { Icon(Icons.Outlined.NotificationsNone, "Notificações", tint = Wine) }
+            IconButton(onClick = onNotification) {
+                BadgedBox(badge = {
+                    if (unreadCount > 0) Badge {
+                        Text(if (unreadCount > 99) "99+" else unreadCount.toString())
+                    }
+                }) {
+                    Icon(Icons.Outlined.NotificationsNone, "Notificações", tint = Wine)
+                }
+            }
         }
     }
 }
@@ -574,11 +587,12 @@ private fun Statistic(value: String, label: String) {
 @Composable
 internal fun DetailScreen(
     post: Post, name: String, onLike: () -> Unit, onSave: () -> Unit,
-    onReply: (String) -> Unit, onReport: (() -> Unit)? = null,
+    onReply: (String, (Boolean) -> Unit) -> Unit, onReport: (() -> Unit)? = null,
     onEdit: (() -> Unit)? = null, onDelete: (() -> Unit)? = null,
     onDeleteReply: ((String) -> Unit)? = null
 ) {
     var response by remember(post.id) { mutableStateOf("") }
+    var sendingReply by remember(post.id) { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
         DiscussionCard(post, onOpen = {}, onLike = { onLike() }, onSave = { onSave() })
         if (post.mine && (onEdit != null || onDelete != null)) {
@@ -617,7 +631,17 @@ internal fun DetailScreen(
         OutlinedTextField(value = response, onValueChange = { if (it.length <= 600) response = it },
             modifier = Modifier.fillMaxWidth(), label = { Text("Sua resposta") }, minLines = 2)
         Spacer(Modifier.height(9.dp))
-        Button(onClick = { onReply(response.trim()); response = "" }, enabled = response.isNotBlank(), modifier = Modifier.align(Alignment.End)) { Text("Enviar resposta") }
+        Button(
+            onClick = {
+                sendingReply = true
+                onReply(response.trim()) { success ->
+                    sendingReply = false
+                    if (success) response = ""
+                }
+            },
+            enabled = response.isNotBlank() && !sendingReply,
+            modifier = Modifier.align(Alignment.End)
+        ) { Text(if (sendingReply) "Enviando..." else "Enviar resposta") }
         if (onReport != null) {
             TextButton(onClick = onReport, modifier = Modifier.align(Alignment.End)) { Text("Denunciar discussão") }
         }

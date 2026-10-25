@@ -1,6 +1,7 @@
 package br.com.atriocatolico
 
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -32,6 +33,15 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.FieldValue
 import java.util.concurrent.TimeUnit
+
+/** Notificações são exibidas dentro do aplicativo, não são push do Android. */
+private data class ReplyNotice(
+    val id: String,
+    val postId: String,
+    val actorName: String,
+    val read: Boolean,
+    val age: String
+)
 
 /**
  * O modo conectado só é exibido se um google-services.json válido estiver instalado.
@@ -173,6 +183,7 @@ private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
 private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: FirebaseUser) {
     val uid = user.uid
     var name by remember(uid) { mutableStateOf<String?>(null) }
+    var biography by remember(uid) { mutableStateOf("") }
     var profileLoading by remember(uid) { mutableStateOf(true) }
     var error by remember(uid) { mutableStateOf("") }
     val context = LocalContext.current
@@ -181,7 +192,10 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
         val registration = db.collection("profiles").document(uid).addSnapshotListener { snapshot, failure ->
             profileLoading = false
             if (failure != null) error = "Erro ao ler perfil: ${failure.localizedMessage}"
-            else name = snapshot?.getString("displayName")
+            else {
+                name = snapshot?.getString("displayName")
+                biography = snapshot?.getString("bio").orEmpty()
+            }
         }
         onDispose { registration.remove() }
     }
@@ -213,9 +227,13 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
         }
     } else {
         OnlineCommunity(db = db, uid = uid, name = name!!, email = user.email.orEmpty(),
+            biography = biography,
             onSignOut = { auth.signOut() }, onProfileChange = { replacement ->
                 db.collection("profiles").document(uid).update("displayName", replacement.trim())
                     .addOnFailureListener { error = it.localizedMessage ?: "Falha ao atualizar nome" }
+            }, onBiographyChange = { replacement ->
+                db.collection("profiles").document(uid).update("bio", replacement.trim())
+                    .addOnFailureListener { error = it.localizedMessage ?: "Falha ao atualizar biografia" }
             })
         if (error.isNotBlank()) {
             // Erros são comunicados sem impedir que o usuário continue a navegar.
@@ -226,13 +244,16 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
 
 @Composable
 private fun OnlineCommunity(
-    db: FirebaseFirestore, uid: String, name: String, email: String,
-    onSignOut: () -> Unit, onProfileChange: (String) -> Unit
+    db: FirebaseFirestore, uid: String, name: String, email: String, biography: String,
+    onSignOut: () -> Unit, onProfileChange: (String) -> Unit,
+    onBiographyChange: (String) -> Unit
 ) {
     val context = LocalContext.current
     var sourcePosts by remember(uid) { mutableStateOf<List<Post>>(emptyList()) }
     var likedIds by remember(uid) { mutableStateOf<Set<String>>(emptySet()) }
     var savedIds by remember(uid) { mutableStateOf<Set<String>>(emptySet()) }
+    var notices by remember(uid) { mutableStateOf<List<ReplyNotice>>(emptyList()) }
+    var noticesOpen by remember(uid) { mutableStateOf(false) }
     var message by remember(uid) { mutableStateOf("") }
     var tab by remember { mutableStateOf(Tab.HOME) }
     var filter by remember { mutableStateOf("Todos") }
@@ -246,6 +267,7 @@ private fun OnlineCommunity(
     var deletingReplyId by remember(uid) { mutableStateOf<String?>(null) }
     var mutationBusy by remember(uid) { mutableStateOf(false) }
     var renameOpen by remember { mutableStateOf(false) }
+    var bioEditorOpen by remember { mutableStateOf(false) }
     var working by remember { mutableStateOf(false) }
 
     DisposableEffect(db, uid) {
@@ -259,7 +281,8 @@ private fun OnlineCommunity(
                         title = title, body = item.getString("body") ?: "",
                         category = item.getString("category") ?: "Vida espiritual",
                         age = timestampLabel(item.getTimestamp("createdAt")),
-                        mine = item.getString("uid") == uid, remote = true
+                        mine = item.getString("uid") == uid, remote = true,
+                        ownerUid = item.getString("uid").orEmpty()
                     )
                 } ?: emptyList()
             }
@@ -273,7 +296,21 @@ private fun OnlineCommunity(
                 if (failure != null) message = "Salvos indisponíveis: ${failure.localizedMessage}"
                 else savedIds = data?.documents?.map { it.id }?.toSet() ?: emptySet()
             }
-        onDispose { feed.remove(); likes.remove(); saves.remove() }
+        val notifications = db.collection("users").document(uid).collection("notifications")
+            .orderBy("createdAt", Query.Direction.DESCENDING).limit(100)
+            .addSnapshotListener { data, failure ->
+                if (failure != null) message = "Notificações indisponíveis: ${failure.localizedMessage}"
+                else notices = data?.documents?.map { item ->
+                    ReplyNotice(
+                        id = item.id,
+                        postId = item.getString("postId").orEmpty(),
+                        actorName = item.getString("actorName") ?: "Alguém",
+                        read = item.getBoolean("read") ?: false,
+                        age = timestampLabel(item.getTimestamp("createdAt"))
+                    )
+                } ?: emptyList()
+            }
+        onDispose { feed.remove(); likes.remove(); saves.remove(); notifications.remove() }
     }
     DisposableEffect(db, detailId) {
         val id = detailId
@@ -296,7 +333,8 @@ private fun OnlineCommunity(
     }
     val posts = sourcePosts.map { it.copy(liked = it.id in likedIds, saved = it.id in savedIds) }
     fun navigate(destination: Tab) {
-        tab = destination; detailId = null; filter = "Todos"; search = ""; searchOpen = false
+        tab = destination; detailId = null; noticesOpen = false
+        filter = "Todos"; search = ""; searchOpen = false
     }
     fun toggle(kind: String, id: String, currentlyActive: Boolean) {
         val ref = db.collection("users").document(uid).collection(kind).document(id)
@@ -318,25 +356,85 @@ private fun OnlineCommunity(
             } else message = result.exception?.localizedMessage ?: "Não foi possível publicar."
         }
     }
-    fun reply(id: String, body: String) {
-        db.collection("posts").document(id).collection("replies").add(mapOf(
+    fun reply(id: String, body: String, done: (Boolean) -> Unit) {
+        val post = sourcePosts.firstOrNull { it.id == id }
+        if (post == null) {
+            message = "Discussão indisponível. Atualize o fórum e tente novamente."
+            done(false)
+            return
+        }
+        // Uma resposta e sua notificação são gravadas atomicamente.
+        val replyRef = db.collection("posts").document(id).collection("replies").document()
+        val batch = db.batch()
+        batch.set(replyRef, mapOf(
             "uid" to uid, "authorName" to name, "body" to body,
             "createdAt" to FieldValue.serverTimestamp()
-        )).addOnFailureListener { message = it.localizedMessage ?: "Não foi possível responder." }
+        ))
+        if (post.ownerUid.isNotBlank() && post.ownerUid != uid) {
+            val noticeRef = db.collection("users").document(post.ownerUid)
+                .collection("notifications").document(replyRef.id)
+            batch.set(noticeRef, mapOf(
+                "postId" to id,
+                "replyId" to replyRef.id,
+                "actorUid" to uid,
+                "actorName" to name,
+                "read" to false,
+                "createdAt" to FieldValue.serverTimestamp()
+            ))
+        }
+        batch.commit().addOnCompleteListener { result ->
+            done(result.isSuccessful)
+            if (!result.isSuccessful) {
+                message = result.exception?.localizedMessage ?: "Não foi possível responder. Confira as regras."
+            }
+        }
+    }
+    fun markNoticeRead(notice: ReplyNotice) {
+        if (!notice.read) db.collection("users").document(uid).collection("notifications")
+            .document(notice.id).update("read", true)
+            .addOnFailureListener { message = it.localizedMessage ?: "Falha ao marcar como lida." }
+    }
+    fun removeNotice(notice: ReplyNotice) {
+        db.collection("users").document(uid).collection("notifications")
+            .document(notice.id).delete()
+            .addOnFailureListener { message = it.localizedMessage ?: "Falha ao remover notificação." }
+    }
+    BackHandler(enabled = detailId != null || noticesOpen) {
+        if (detailId != null) detailId = null else noticesOpen = false
     }
 
     Scaffold(containerColor = Paper, topBar = {
-        AtrioTopBar(details = detailId != null, onBack = { detailId = null },
+        AtrioTopBar(
+            details = detailId != null || noticesOpen,
+            detailsTitle = if (noticesOpen) "Notificações" else "Discussão",
+            unreadCount = notices.count { !it.read },
+            onBack = { if (detailId != null) detailId = null else noticesOpen = false },
             onSearch = { val open = !searchOpen; navigate(Tab.HOME); searchOpen = open },
-            onNotification = { Toast.makeText(context, "Notificações chegarão em uma próxima versão.", Toast.LENGTH_SHORT).show() })
+            onNotification = { detailId = null; noticesOpen = !noticesOpen; searchOpen = false }
+        )
     }, bottomBar = { AtrioBottomBar(selected = tab, onSelect = ::navigate) }) { inset ->
         Box(Modifier.padding(inset)) {
             val detail = posts.firstOrNull { it.id == detailId }
-            if (detail != null) {
+            if (noticesOpen) {
+                ReplyNotificationScreen(
+                    notices = notices,
+                    postTitles = posts.associate { it.id to it.title },
+                    onOpen = { notice ->
+                        markNoticeRead(notice)
+                        if (posts.any { it.id == notice.postId }) {
+                            noticesOpen = false
+                            detailId = notice.postId
+                        } else message = "Essa discussão não está disponível no feed atual."
+                    },
+                    onRead = ::markNoticeRead,
+                    onRemove = ::removeNotice,
+                    onBack = { noticesOpen = false }
+                )
+            } else if (detail != null) {
                 DetailScreen(detail.copy(replies = detailReplies), name,
                     onLike = { toggle("likedPosts", detail.id, detail.liked) },
                     onSave = { toggle("savedPosts", detail.id, detail.saved) },
-                    onReply = { reply(detail.id, it) },
+                    onReply = { body, done -> reply(detail.id, body, done) },
                     onReport = { reportPost = detail.id },
                     onEdit = if (detail.mine) ({ editingPostId = detail.id }) else null,
                     onDelete = if (detail.mine) ({ deletingPostId = detail.id }) else null,
@@ -355,8 +453,9 @@ private fun OnlineCommunity(
                     onDiscover = { navigate(Tab.HOME) }, onOpen = { detailId = it },
                     onLike = { id -> posts.firstOrNull { it.id == id }?.let { toggle("likedPosts", id, it.liked) } },
                     onSave = { id -> posts.firstOrNull { it.id == id }?.let { toggle("savedPosts", id, it.saved) } })
-                Tab.PROFILE -> OnlineProfileScreen(name, email, posts,
-                    onRename = { renameOpen = true }, onSignOut = onSignOut,
+                Tab.PROFILE -> OnlineProfileScreen(name, email, biography, posts,
+                    onRename = { renameOpen = true }, onEditBiography = { bioEditorOpen = true },
+                    onSignOut = onSignOut,
                     onCreate = { navigate(Tab.PUBLISH) }, onOpen = { detailId = it },
                     onLike = { id -> posts.firstOrNull { it.id == id }?.let { toggle("likedPosts", id, it.liked) } },
                     onSave = { id -> posts.firstOrNull { it.id == id }?.let { toggle("savedPosts", id, it.saved) } })
@@ -467,6 +566,30 @@ private fun OnlineCommunity(
                 onClick = { onProfileChange(edited.trim()); renameOpen = false }) { Text("Salvar") } },
             dismissButton = { TextButton(onClick = { renameOpen = false }) { Text("Cancelar") } })
     }
+    if (bioEditorOpen) {
+        var editedBio by remember(bioEditorOpen) { mutableStateOf(biography) }
+        AlertDialog(
+            onDismissRequest = { bioEditorOpen = false },
+            title = { Text("Minha apresentação") },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        editedBio, { editedBio = it.take(180) },
+                        label = { Text("Sobre mim (opcional)") },
+                        minLines = 3, maxLines = 5, modifier = Modifier.fillMaxWidth()
+                    )
+                    Text("Até 180 caracteres. Evite publicar dados pessoais.", fontSize = 12.sp, color = Muted)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    onBiographyChange(editedBio.trim())
+                    bioEditorOpen = false
+                }) { Text("Salvar") }
+            },
+            dismissButton = { TextButton(onClick = { bioEditorOpen = false }) { Text("Cancelar") } }
+        )
+    }
     if (reportPost != null) {
         var reason by remember { mutableStateOf("") }
         val id = reportPost!!
@@ -497,10 +620,69 @@ private fun OnlineCommunity(
     }
 }
 
+
+@Composable
+private fun ReplyNotificationScreen(
+    notices: List<ReplyNotice>, postTitles: Map<String, String>,
+    onOpen: (ReplyNotice) -> Unit, onRead: (ReplyNotice) -> Unit,
+    onRemove: (ReplyNotice) -> Unit, onBack: () -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            Text("Respostas recebidas", fontSize = 24.sp,
+                fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, color = Wine)
+            Text("Avisos dentro do aplicativo, disponíveis enquanto você estiver conectado.",
+                fontSize = 12.sp, color = Muted)
+        }
+        if (notices.isEmpty()) {
+            item {
+                EmptyState("🔔", "Nenhuma notificação",
+                    "Quando outra pessoa responder a uma de suas discussões, o aviso aparecerá aqui.",
+                    "Voltar", onBack)
+            }
+        } else {
+            items(notices, key = { it.id }) { notice ->
+                Card(
+                    onClick = { onOpen(notice) },
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (notice.read) Color.White else WineSoft
+                    ),
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(1.dp, Line)
+                ) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("${notice.actorName} respondeu à sua discussão",
+                                modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold, color = Ink)
+                            if (!notice.read) Badge { Text("Nova") }
+                        }
+                        Spacer(Modifier.height(5.dp))
+                        Text(postTitles[notice.postId] ?: "Discussão não carregada ou removida",
+                            color = Wine, fontSize = 13.sp)
+                        Spacer(Modifier.height(5.dp))
+                        Text(notice.age, color = Muted, fontSize = 12.sp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            if (!notice.read) {
+                                TextButton(onClick = { onRead(notice) }) { Text("Marcar como lida") }
+                            }
+                            TextButton(onClick = { onRemove(notice) }) { Text("Dispensar") }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun OnlineProfileScreen(
-    name: String, email: String, posts: List<Post>, onRename: () -> Unit,
-    onSignOut: () -> Unit, onCreate: () -> Unit, onOpen: (String) -> Unit,
+    name: String, email: String, biography: String, posts: List<Post>, onRename: () -> Unit,
+    onEditBiography: () -> Unit, onSignOut: () -> Unit,
+    onCreate: () -> Unit, onOpen: (String) -> Unit,
     onLike: (String) -> Unit, onSave: (String) -> Unit
 ) {
     val mine = posts.filter { it.mine }
@@ -514,7 +696,15 @@ private fun OnlineProfileScreen(
                 Text(name, fontFamily = FontFamily.Serif, fontSize = 23.sp, fontWeight = FontWeight.Bold)
                 Text(email, fontSize = 12.sp, color = Muted)
                 Spacer(Modifier.height(10.dp))
-                OutlinedButton(onClick = onRename) { Text("Editar nome") }
+                Text(
+                    biography.ifBlank { "Conte um pouco sobre sua caminhada na fé." },
+                    fontSize = 13.sp, color = Muted, textAlign = TextAlign.Center
+                )
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = onRename) { Text("Editar nome") }
+                    OutlinedButton(onClick = onEditBiography) { Text("Editar apresentação") }
+                }
             }
         }
         item {

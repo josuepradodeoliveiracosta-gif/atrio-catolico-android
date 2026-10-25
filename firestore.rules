@@ -35,8 +35,10 @@ service cloud.firestore {
         && validText(request.resource.data.displayName, 2, 35)
         && validTime();
       allow update: if me(uid)
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName'])
-        && validText(request.resource.data.displayName, 2, 35);
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'bio'])
+        && validText(request.resource.data.displayName, 2, 35)
+        && request.resource.data.get('bio', '') is string
+        && request.resource.data.get('bio', '').size() <= 180;
       allow delete: if false;
     }
 
@@ -102,6 +104,38 @@ service cloud.firestore {
         && validTime();
       allow delete: if me(uid);
       allow update: if false;
+    }
+
+    match /users/{recipientUid}/notifications/{notificationId} {
+      // Somente o destinatário consulta, marca como lida ou dispensa notificações.
+      allow get, list: if me(recipientUid);
+      // O remetente não pode inventar notificações: a resposta relacionada
+      // precisa nascer no mesmo batch, pertencer a ele e ter data atual.
+      allow create: if signedIn()
+        && request.auth.uid != recipientUid
+        && request.resource.data.keys().hasOnly([
+          'postId', 'replyId', 'actorUid', 'actorName', 'read', 'createdAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'postId', 'replyId', 'actorUid', 'actorName', 'read', 'createdAt'
+        ])
+        && request.resource.data.actorUid == request.auth.uid
+        && request.resource.data.read == false
+        && notificationId == request.resource.data.replyId
+        && validText(request.resource.data.postId, 1, 128)
+        && validText(request.resource.data.replyId, 1, 128)
+        && request.resource.data.actorName ==
+          get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.displayName
+        && validTime()
+        && get(/databases/$(database)/documents/posts/$(request.resource.data.postId)).data.uid == recipientUid
+        && getAfter(/databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(notificationId)).data.uid == request.auth.uid
+        && getAfter(/databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(notificationId)).data.authorName == request.resource.data.actorName
+        && getAfter(/databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(notificationId)).data.createdAt == request.time;
+      allow update: if me(recipientUid)
+        && resource.data.read == false
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])
+        && request.resource.data.read == true;
+      allow delete: if me(recipientUid);
     }
 
     match /reports/{reportId} {
