@@ -57,7 +57,12 @@ internal val Ink = Color(0xFF292526)
 internal val Muted = Color(0xFF827B77)
 internal val Line = Color(0xFFEEE8E3)
 
-internal data class Reply(val author: String, val message: String)
+internal data class Reply(
+    val author: String,
+    val message: String,
+    val id: String = "",
+    val mine: Boolean = false
+)
 internal data class Post(
     val id: String,
     val author: String,
@@ -567,10 +572,26 @@ private fun Statistic(value: String, label: String) {
 }
 
 @Composable
-internal fun DetailScreen(post: Post, name: String, onLike: () -> Unit, onSave: () -> Unit, onReply: (String) -> Unit, onReport: (() -> Unit)? = null) {
+internal fun DetailScreen(
+    post: Post, name: String, onLike: () -> Unit, onSave: () -> Unit,
+    onReply: (String) -> Unit, onReport: (() -> Unit)? = null,
+    onEdit: (() -> Unit)? = null, onDelete: (() -> Unit)? = null,
+    onDeleteReply: ((String) -> Unit)? = null
+) {
     var response by remember(post.id) { mutableStateOf("") }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
         DiscussionCard(post, onOpen = {}, onLike = { onLike() }, onSave = { onSave() })
+        if (post.mine && (onEdit != null || onDelete != null)) {
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (onEdit != null) {
+                    OutlinedButton(onClick = onEdit) { Text("Editar discussão") }
+                }
+                if (onDelete != null) {
+                    TextButton(onClick = onDelete) { Text("Excluir discussão", color = MaterialTheme.colorScheme.error) }
+                }
+            }
+        }
         Spacer(Modifier.height(20.dp))
         SectionTitle("Respostas (${post.replies.size})")
         Spacer(Modifier.height(11.dp))
@@ -579,9 +600,14 @@ internal fun DetailScreen(post: Post, name: String, onLike: () -> Unit, onSave: 
             Row(verticalAlignment = Alignment.Top, modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
                 Avatar(r.author, Modifier.size(36.dp))
                 Spacer(Modifier.width(10.dp))
-                Column {
+                Column(Modifier.weight(1f)) {
                     Text(r.author, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     Text(r.message, fontSize = 13.sp, lineHeight = 19.sp, color = Ink)
+                }
+                if (r.mine && r.id.isNotBlank() && onDeleteReply != null) {
+                    TextButton(onClick = { onDeleteReply(r.id) }) {
+                        Text("Excluir", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                    }
                 }
             }
             HorizontalDivider(color = Line)

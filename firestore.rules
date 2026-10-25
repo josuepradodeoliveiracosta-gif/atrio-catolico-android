@@ -55,8 +55,13 @@ service cloud.firestore {
         && validText(request.resource.data.body, 5, 1200)
         && validCategory(request.resource.data.category)
         && validTime();
-      // Edição, exclusão e remoção após denúncia dependerão de moderação posterior.
-      allow update, delete: if false;
+      // Somente o criador pode mudar título e texto: identidade, categoria e data são imutáveis.
+      allow update: if signedIn()
+        && resource.data.uid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'body'])
+        && validText(request.resource.data.title, 5, 120)
+        && validText(request.resource.data.body, 5, 1200);
+      allow delete: if signedIn() && resource.data.uid == request.auth.uid;
 
       match /replies/{replyId} {
         allow get, list: if signedIn();
@@ -72,7 +77,8 @@ service cloud.firestore {
           && publicNameMatchesProfile()
           && validText(request.resource.data.body, 1, 600)
           && validTime();
-        allow update, delete: if false;
+        allow update: if false;
+        allow delete: if signedIn() && resource.data.uid == request.auth.uid;
       }
     }
 

@@ -241,6 +241,10 @@ private fun OnlineCommunity(
     var detailId by remember { mutableStateOf<String?>(null) }
     var detailReplies by remember { mutableStateOf<List<Reply>>(emptyList()) }
     var reportPost by remember { mutableStateOf<String?>(null) }
+    var editingPostId by remember(uid) { mutableStateOf<String?>(null) }
+    var deletingPostId by remember(uid) { mutableStateOf<String?>(null) }
+    var deletingReplyId by remember(uid) { mutableStateOf<String?>(null) }
+    var mutationBusy by remember(uid) { mutableStateOf(false) }
     var renameOpen by remember { mutableStateOf(false) }
     var working by remember { mutableStateOf(false) }
 
@@ -280,7 +284,12 @@ private fun OnlineCommunity(
                 .addSnapshotListener { data, failure ->
                     if (failure != null) message = "Respostas indisponíveis: ${failure.localizedMessage}"
                     else detailReplies = data?.documents?.map {
-                        Reply(it.getString("authorName") ?: "Membro", it.getString("body") ?: "")
+                        Reply(
+                            author = it.getString("authorName") ?: "Membro",
+                            message = it.getString("body") ?: "",
+                            id = it.id,
+                            mine = it.getString("uid") == uid
+                        )
                     } ?: emptyList()
                 }
         onDispose { registration?.remove() }
@@ -328,7 +337,10 @@ private fun OnlineCommunity(
                     onLike = { toggle("likedPosts", detail.id, detail.liked) },
                     onSave = { toggle("savedPosts", detail.id, detail.saved) },
                     onReply = { reply(detail.id, it) },
-                    onReport = { reportPost = detail.id }
+                    onReport = { reportPost = detail.id },
+                    onEdit = if (detail.mine) ({ editingPostId = detail.id }) else null,
+                    onDelete = if (detail.mine) ({ deletingPostId = detail.id }) else null,
+                    onDeleteReply = { deletingReplyId = it }
                 )
             } else when (tab) {
                 Tab.HOME -> HomeScreen(name, posts, filter, search, searchOpen,
@@ -350,6 +362,102 @@ private fun OnlineCommunity(
                     onSave = { id -> posts.firstOrNull { it.id == id }?.let { toggle("savedPosts", id, it.saved) } })
             }
         }
+    }
+    // A autoria é verificada também nas regras do Firestore, não apenas nos botões.
+    val editablePost = posts.firstOrNull { it.id == editingPostId && it.mine }
+    if (editablePost != null) {
+        var editedTitle by remember(editablePost.id) { mutableStateOf(editablePost.title) }
+        var editedBody by remember(editablePost.id) { mutableStateOf(editablePost.body) }
+        AlertDialog(
+            onDismissRequest = { if (!mutationBusy) editingPostId = null },
+            title = { Text("Editar minha discussão") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        editedTitle, { editedTitle = it.take(120) },
+                        label = { Text("Título") }, modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        editedBody, { editedBody = it.take(1200) },
+                        label = { Text("Texto") }, modifier = Modifier.fillMaxWidth(),
+                        minLines = 3, maxLines = 7
+                    )
+                    Text("A categoria e a autoria não podem ser alteradas.", fontSize = 12.sp, color = Muted)
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !mutationBusy && editedTitle.trim().length in 5..120 &&
+                        editedBody.trim().length in 5..1200,
+                    onClick = {
+                        mutationBusy = true
+                        db.collection("posts").document(editablePost.id).update(
+                            mapOf("title" to editedTitle.trim(), "body" to editedBody.trim())
+                        ).addOnCompleteListener { result ->
+                            mutationBusy = false
+                            if (result.isSuccessful) {
+                                editingPostId = null
+                                Toast.makeText(context, "Discussão atualizada!", Toast.LENGTH_SHORT).show()
+                            } else message = result.exception?.localizedMessage ?: "Não foi possível editar. Confira as regras."
+                        }
+                    }
+                ) { Text(if (mutationBusy) "Salvando..." else "Salvar") }
+            },
+            dismissButton = {
+                TextButton(enabled = !mutationBusy, onClick = { editingPostId = null }) { Text("Cancelar") }
+            }
+        )
+    }
+    if (deletingPostId != null) {
+        val postId = deletingPostId!!
+        // Se a publicação sumir enquanto o diálogo estiver aberto, o servidor ainda valida o proprietário.
+        AlertDialog(
+            onDismissRequest = { if (!mutationBusy) deletingPostId = null },
+            title = { Text("Excluir discussão?") },
+            text = { Text("A publicação desaparecerá do fórum. Não será possível desfazer. " +
+                "As respostas já enviadas poderão permanecer armazenadas até uma limpeza administrativa.") },
+            confirmButton = {
+                TextButton(enabled = !mutationBusy, onClick = {
+                    mutationBusy = true
+                    db.collection("posts").document(postId).delete().addOnCompleteListener { result ->
+                        mutationBusy = false
+                        if (result.isSuccessful) {
+                            detailId = null
+                            deletingPostId = null
+                            Toast.makeText(context, "Discussão excluída do fórum.", Toast.LENGTH_SHORT).show()
+                        } else message = result.exception?.localizedMessage ?: "Não foi possível excluir. Confira as regras."
+                    }
+                }) { Text(if (mutationBusy) "Excluindo..." else "Excluir", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(enabled = !mutationBusy, onClick = { deletingPostId = null }) { Text("Cancelar") }
+            }
+        )
+    }
+    if (deletingReplyId != null && detailId != null) {
+        val replyId = deletingReplyId!!
+        val postId = detailId!!
+        AlertDialog(
+            onDismissRequest = { if (!mutationBusy) deletingReplyId = null },
+            title = { Text("Excluir resposta?") },
+            text = { Text("Sua resposta será excluída permanentemente.") },
+            confirmButton = {
+                TextButton(enabled = !mutationBusy, onClick = {
+                    mutationBusy = true
+                    db.collection("posts").document(postId).collection("replies").document(replyId)
+                        .delete().addOnCompleteListener { result ->
+                            mutationBusy = false
+                            if (result.isSuccessful) {
+                                deletingReplyId = null
+                                Toast.makeText(context, "Resposta excluída!", Toast.LENGTH_SHORT).show()
+                            } else message = result.exception?.localizedMessage ?: "Não foi possível excluir resposta."
+                        }
+                }) { Text(if (mutationBusy) "Excluindo..." else "Excluir", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(enabled = !mutationBusy, onClick = { deletingReplyId = null }) { Text("Cancelar") }
+            }
+        )
     }
     if (renameOpen) {
         var edited by remember { mutableStateOf(name) }
@@ -409,7 +517,11 @@ private fun OnlineProfileScreen(
                 OutlinedButton(onClick = onRename) { Text("Editar nome") }
             }
         }
-        item { SectionTitle("Minhas publicações") }
+        item {
+            SectionTitle("Minhas publicações")
+            Spacer(Modifier.height(5.dp))
+            Text("Abra uma publicação para editar ou excluir.", fontSize = 12.sp, color = Muted)
+        }
         if (mine.isEmpty()) item {
             EmptyState("✍️", "Comece uma conversa", "Sua primeira discussão estará aqui.",
                 "Criar discussão", onCreate)
