@@ -1,0 +1,31 @@
+Testes executados localmente em emulador, sem acesso ao Firebase real.
+
+PASS anônimo não lê denúncias
+PASS usuário envia denúncia antiga sem status
+PASS usuário não lê a própria denúncia
+PASS usuário não lista denúncias
+PASS usuário consulta somente seu registro de acesso
+PASS usuário não lê acesso de outra conta
+PASS usuário não se promove
+PASS administrador não promove contas pelo cliente
+PASS administrador não altera seu acesso pelo cliente
+PASS administrador consulta denúncias
+PASS usuário não exclui publicação alheia
+PASS usuário não encerra denúncia
+PASS autor mantém edição própria
+PASS administrador não reescreve texto alheio
+PASS denunciante não insere decisão pronta
+PASS administrador não forja identidade do revisor
+PASS administrador não altera motivo da denúncia
+PASS decisão exige justificativa válida
+PASS remoção exige que publicação deixe de existir
+PASS remoção e decisão atômicas autorizadas
+PASS decisão concluída é imutável
+PASS registro de denúncia não pode ser apagado
+PASS encerrar sem remoção mantém publicação
+PASS resposta e aviso da v07 continuam funcionando
+PASS administrador não lê biografia privada alheia
+PASS autor ainda exclui sua publicação
+PASS revogação impede consulta de denúncias
+PASS revogação impede remoção alheia
+RESULTADO: 28 testes aprovados.

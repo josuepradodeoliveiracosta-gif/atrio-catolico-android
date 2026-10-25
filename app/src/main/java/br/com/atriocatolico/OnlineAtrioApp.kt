@@ -188,6 +188,18 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
     var profileLoading by remember(uid) { mutableStateOf(true) }
     var error by remember(uid) { mutableStateOf("") }
     val context = LocalContext.current
+    var isAdmin by remember(uid) { mutableStateOf(false) }
+    var moderationOpen by remember(uid) { mutableStateOf(false) }
+    DisposableEffect(db, uid) {
+        var active = true
+        val registration = db.collection("admins").document(uid).addSnapshotListener { snapshot, failure ->
+            if (active) {
+                isAdmin = failure == null && snapshot?.getBoolean("enabled") == true
+                if (!isAdmin) moderationOpen = false
+            }
+        }
+        onDispose { active = false; registration.remove() }
+    }
 
     DisposableEffect(uid) {
         val registration = db.collection("profiles").document(uid).addSnapshotListener { snapshot, failure ->
@@ -226,9 +238,12 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
             }, modifier = Modifier.fillMaxWidth()) { Text("Começar") }
             TextButton(onClick = { auth.signOut() }) { Text("Sair desta conta") }
         }
+    } else if (moderationOpen && isAdmin) {
+        ModerationScreen(db, uid, onBack = { moderationOpen = false })
     } else {
         OnlineCommunity(db = db, uid = uid, name = name!!, email = user.email.orEmpty(),
             biography = biography,
+            onModeration = if (isAdmin) ({ moderationOpen = true }) else null,
             onSignOut = { auth.signOut() }, onProfileChange = { replacement ->
                 db.collection("profiles").document(uid).update("displayName", replacement.trim())
                     .addOnFailureListener { error = it.localizedMessage ?: "Falha ao atualizar nome" }
@@ -247,7 +262,7 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
 private fun OnlineCommunity(
     db: FirebaseFirestore, uid: String, name: String, email: String, biography: String,
     onSignOut: () -> Unit, onProfileChange: (String) -> Unit,
-    onBiographyChange: (String) -> Unit
+    onBiographyChange: (String) -> Unit, onModeration: (() -> Unit)?
 ) {
     val context = LocalContext.current
     var sourcePosts by remember(uid) { mutableStateOf<List<Post>>(emptyList()) }
@@ -561,7 +576,7 @@ private fun OnlineCommunity(
                     })
                 Tab.PROFILE -> OnlineProfileScreen(name, email, biography, posts,
                     onRename = { renameOpen = true }, onEditBiography = { bioEditorOpen = true },
-                    onSignOut = onSignOut,
+                    onSignOut = onSignOut, onModeration = onModeration,
                     onCreate = { navigate(Tab.PUBLISH) }, onOpen = { detailId = it },
                     onLike = { id -> posts.firstOrNull { it.id == id }?.let { toggle("likedPosts", id, it.liked) } },
                     onSave = { id -> posts.firstOrNull { it.id == id }?.let { toggle("savedPosts", id, it.saved) } })
@@ -713,7 +728,7 @@ private fun OnlineCommunity(
                     "postId" to id, "reporterUid" to uid,
                     "reason" to reason.trim(), "createdAt" to FieldValue.serverTimestamp()
                 )).addOnCompleteListener { result ->
-                    message = if (result.isSuccessful) "Denúncia registrada para futura análise." else
+                    message = if (result.isSuccessful) "Denúncia enviada para análise da moderação." else
                         result.exception?.localizedMessage ?: "Falha ao enviar denúncia."
                 }
                 reportPost = null
@@ -787,7 +802,7 @@ private fun ReplyNotificationScreen(
 @Composable
 private fun OnlineProfileScreen(
     name: String, email: String, biography: String, posts: List<Post>, onRename: () -> Unit,
-    onEditBiography: () -> Unit, onSignOut: () -> Unit,
+    onEditBiography: () -> Unit, onSignOut: () -> Unit, onModeration: (() -> Unit)?,
     onCreate: () -> Unit, onOpen: (String) -> Unit,
     onLike: (String) -> Unit, onSave: (String) -> Unit
 ) {
@@ -814,6 +829,12 @@ private fun OnlineProfileScreen(
             }
         }
         item {
+            if (onModeration != null) {
+                OutlinedButton(onClick = onModeration, modifier = Modifier.fillMaxWidth()) {
+                    Text("Moderação — denúncias")
+                }
+                Spacer(Modifier.height(12.dp))
+            }
             SectionTitle("Minhas publicações")
             Spacer(Modifier.height(5.dp))
             Text("Abra uma publicação para editar ou excluir.", fontSize = 12.sp, color = Muted)

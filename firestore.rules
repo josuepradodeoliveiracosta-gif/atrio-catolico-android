@@ -7,6 +7,16 @@ service cloud.firestore {
     function me(uid) {
       return signedIn() && request.auth.uid == uid;
     }
+    // Provisionamento e revogação somente pelo Console/Admin SDK autorizado.
+    function isAdmin() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+        && get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.enabled == true;
+    }
+    match /admins/{uid} {
+      allow get: if me(uid);
+      allow list, create, update, delete: if false;
+    }
     function validText(value, minimum, maximum) {
       return value is string && value.size() >= minimum && value.size() <= maximum;
     }
@@ -63,7 +73,7 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'body'])
         && validText(request.resource.data.title, 5, 120)
         && validText(request.resource.data.body, 5, 1200);
-      allow delete: if signedIn() && resource.data.uid == request.auth.uid;
+      allow delete: if signedIn() && (resource.data.uid == request.auth.uid || isAdmin());
 
       match /replies/{replyId} {
         allow get, list: if signedIn();
@@ -139,8 +149,8 @@ service cloud.firestore {
     }
 
     match /reports/{reportId} {
-      // Envia para revisão via Console; usuários não podem ler denúncias.
-      allow read: if false;
+      // Denúncias são privadas; somente administradores ativos podem consultá-las.
+      allow read: if isAdmin();
       allow create: if signedIn()
         && request.resource.data.keys().hasOnly([
           'postId', 'reporterUid', 'reason', 'createdAt'
@@ -152,7 +162,18 @@ service cloud.firestore {
         && validText(request.resource.data.postId, 1, 128)
         && validText(request.resource.data.reason, 5, 300)
         && validTime();
-      allow update, delete: if false;
+      allow update: if isAdmin()
+        && resource.data.get('status', 'pending') == 'pending'
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'reviewedBy', 'reviewedAt', 'reviewNote'])
+        && request.resource.data.keys().hasAll(['status', 'reviewedBy', 'reviewedAt', 'reviewNote'])
+        && request.resource.data.status in ['dismissed', 'removed']
+        && request.resource.data.reviewedBy == request.auth.uid
+        && request.resource.data.reviewedAt == request.time
+        && validText(request.resource.data.reviewNote, 5, 300)
+        && (request.resource.data.status != 'removed'
+          || !existsAfter(/databases/$(database)/documents/posts/$(resource.data.postId)));
+      allow delete: if false;
     }
 
     match /{document=**} {

@@ -1,0 +1,11 @@
+{
+  "dependencies": {
+    "@firebase/rules-unit-testing": "^4.0.1",
+    "firebase": "^11.10.0",
+    "firebase-tools": "^13.35.1"
+  },
+  "private": true,
+  "scripts": {
+    "test": "node prepare.mjs && firebase emulators:exec --only firestore --project demo-atrio-v09 \"node moderation.test.mjs\""
+  }
+}

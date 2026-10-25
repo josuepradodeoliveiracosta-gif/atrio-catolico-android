@@ -1,5 +1,15 @@
 # Registro de versões — Átrio Católico
 
+## v0.9.0
+- Moderação em Perfil, restrita a administradores autorizados no Firestore.
+- Consulta de denúncias pendentes e analisadas, incluindo denúncias antigas.
+- Leitura integral da publicação denunciada.
+- Encerramento sem remoção ou remoção confirmada, com justificativa obrigatória.
+- Remoção e decisão em transação; rejeita conteúdo alterado após confirmação.
+- Registro privado de decisão, administrador e data, sem reedição pelo aplicativo.
+- Acesso administrativo provisionado somente pelo Console/Admin SDK autorizado.
+- 28 testes de regras aprovados no emulador local do Firestore.
+
 ## v0.8.0
 - Abertura direta de discussões por ID, inclusive por notificações antigas.
 - Texto completo no detalhe da publicação.
