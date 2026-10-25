@@ -42,7 +42,9 @@ private data class BadgeDescription(
     val isFounder: Boolean = false,
     val isPriest: Boolean = false,
     val isDeacon: Boolean = false,
-    val isModerator: Boolean = false
+    val isModerator: Boolean = false,
+    val isLayMale: Boolean = false,
+    val isLayFemale: Boolean = false
 )
 
 private fun listBadges(value: PublicBadges, founder: Boolean): List<BadgeDescription> = buildList {
@@ -60,9 +62,9 @@ private fun listBadges(value: PublicBadges, founder: Boolean): List<BadgeDescrip
     if (value.clergy.isBlank()) {
         when (value.lay) {
             "leigo" -> add(BadgeDescription("◈", "Leigo",
-                "Identificação opcional declarada pelo próprio membro.", Muted))
+                "Identificação opcional declarada pelo próprio membro.", Muted, isLayMale = true))
             "leiga" -> add(BadgeDescription("◈", "Leiga",
-                "Identificação opcional declarada pela própria integrante.", Muted))
+                "Identificação opcional declarada pela própria integrante.", Muted, isLayFemale = true))
         }
     }
 }
@@ -96,6 +98,8 @@ internal fun MemberBadgeRow(uid: String, modifier: Modifier = Modifier) {
                                 badge.isPriest -> PriestBadgeArt(Modifier.size(27.dp), compact = true)
                                 badge.isDeacon -> DeaconBadgeArt(Modifier.size(27.dp), compact = true)
                                 badge.isModerator -> ModeratorBadgeArt(Modifier.size(27.dp), compact = true)
+                                badge.isLayMale -> LayBadgeArt("leigo", Modifier.size(27.dp))
+                                badge.isLayFemale -> LayBadgeArt("leiga", Modifier.size(27.dp))
                                 else -> Text(badge.symbol, color = badge.tint, fontSize = 12.sp)
                             }
                             Text(badge.name, color = badge.tint, fontSize = 10.sp)
