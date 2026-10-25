@@ -1,5 +1,7 @@
 package br.com.atriocatolico
 
+import android.graphics.BitmapFactory
+import android.util.Base64
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.Text
@@ -8,33 +10,33 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.sp
 
 /**
- * Medalha do Fundador.
+ * Imagem aprovada do Fundador: catedral dourada, vinho profundo, louros.
  *
- * Os PNG oficiais ficam em res/drawable-nodpi:
- *   selo_fundador.png (perfil)
- *   selo_fundador_icone.png (discussoes e respostas)
- *
- * Enquanto os arquivos ainda nao forem adicionados nesta branch, mantemos
- * o simbolo antigo para nao quebrar a compilacao e nao exibir imagem incorreta.
+ * O arquivo WEBP e incluido em res/raw como texto Base64 para manter os
+ * recursos oficiais versionados com a ferramenta de edicao de codigo.
+ * A decodificacao ocorre so uma vez por contexto, nao em cada recomposicao.
  */
 @Composable
 internal fun FounderBadgeArt(modifier: Modifier = Modifier, compact: Boolean = true) {
     val context = LocalContext.current
-    val resourceName = if (compact) "selo_fundador_icone" else "selo_fundador"
-    @Suppress("DiscouragedApi")
-    val resourceId = remember(context, resourceName) {
-        context.resources.getIdentifier(resourceName, "drawable", context.packageName)
+    val badgeImage = remember(context) {
+        runCatching {
+            val encoded = context.resources.openRawResource(R.raw.selo_fundador_base64)
+                .bufferedReader().use { it.readText() }
+            val bytes = Base64.decode(encoded, Base64.DEFAULT)
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+        }.getOrNull()
     }
-    if (resourceId != 0) {
+    if (badgeImage != null) {
         Image(
-            painter = painterResource(resourceId),
-            contentDescription = "Medalha dourada do Fundador do Átrio Católico",
+            bitmap = badgeImage,
+            contentDescription = "Medalha do Fundador com catedral dourada",
             modifier = modifier,
             contentScale = ContentScale.Fit
         )
