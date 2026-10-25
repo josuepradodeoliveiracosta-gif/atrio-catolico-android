@@ -146,11 +146,10 @@ class MainActivity : ComponentActivity() {
         val prefs = getSharedPreferences("atrio-demo", Context.MODE_PRIVATE)
         setContent {
             if (com.google.firebase.FirebaseApp.getApps(this).isNotEmpty()) {
-                OnlineAtrioApp()
+                OnlineAtrioApp(this@MainActivity)
             } else {
                 AtrioDemoApp(prefs)
             }
-            OpeningVideo(this@MainActivity)
         }
     }
 }

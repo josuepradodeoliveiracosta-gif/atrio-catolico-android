@@ -49,7 +49,7 @@ private data class ReplyNotice(
  * Nenhuma chave nem projeto Firebase é embutido no repositório de exemplo.
  */
 @Composable
-internal fun OnlineAtrioApp() {
+internal fun OnlineAtrioApp(activity: androidx.activity.ComponentActivity) {
     val auth = remember { FirebaseAuth.getInstance() }
     val db = remember { FirebaseFirestore.getInstance() }
     var signedUser by remember { mutableStateOf(auth.currentUser) }
@@ -67,6 +67,8 @@ internal fun OnlineAtrioApp() {
         } else {
             key(user.uid) { OnlineUserScreen(auth = auth, db = db, user = user) }
         }
+        // Keep session state outside the login branch and user key.
+        OpeningVideo(activity, authenticated = user != null)
     }
 }
 

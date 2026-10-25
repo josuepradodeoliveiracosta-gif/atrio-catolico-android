@@ -27,16 +27,18 @@ import kotlinx.coroutines.delay
 
 /** State belongs to this task, not a navigation screen or an individual login. */
 @Composable
-internal fun OpeningVideo(activity: ComponentActivity) {
+internal fun OpeningVideo(activity: ComponentActivity, authenticated: Boolean) {
     val prefs = remember { activity.getSharedPreferences("atrio-opening", Context.MODE_PRIVATE) }
     var enabled by remember { mutableStateOf(prefs.getBoolean("enabled", true)) }
     var ready by rememberSaveable { mutableStateOf(false) }
     var consumed by rememberSaveable { mutableStateOf(false) }
     // A short, non-blocking opportunity to receive the remote switch before showing.
-    LaunchedEffect(Unit) { delay(1200); ready = true }
-    DisposableEffect(activity) {
+    LaunchedEffect(authenticated) {
+        if (authenticated) { delay(1200); ready = true }
+    }
+    DisposableEffect(activity, authenticated) {
         var active = true
-        val registration = if (FirebaseApp.getApps(activity).isNotEmpty()) {
+        val registration = if (authenticated && FirebaseApp.getApps(activity).isNotEmpty()) {
             FirebaseFirestore.getInstance().document("app_config/opening_video")
                 .addSnapshotListener { snapshot, error ->
                     if (active && error == null && snapshot != null && !snapshot.metadata.isFromCache) {
@@ -50,10 +52,10 @@ internal fun OpeningVideo(activity: ComponentActivity) {
         } else null
         onDispose { active = false; registration?.remove() }
     }
-    LaunchedEffect(ready, enabled) {
-        if (ready && !enabled) consumed = true
+    LaunchedEffect(ready, enabled, authenticated) {
+        if (authenticated && ready && !enabled) consumed = true
     }
-    if (ready && enabled && !consumed) {
+    if (authenticated && ready && enabled && !consumed) {
         AtrioTheme { OpeningVideoDialog(activity, onClose = { consumed = true }) }
     }
 }

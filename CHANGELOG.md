@@ -1,5 +1,11 @@
 # Registro de versões — Átrio Católico
 
+## v0.12.0
+- Pop-up de vídeo somente após autenticação, nunca na tela de login.
+- Sessão já autenticada exibe ao iniciar; fechamento persiste na mesma tarefa.
+- Configuração remota consultada somente após autenticação.
+- Sem mudanças no vídeo ou nas regras Firestore da v0.11.
+
 ## v0.11.0
 - Vídeo de abertura local, com Fechar, som opcional e fechamento ao terminar.
 - Uma exibição por nova sessão, preservando fechamento ao navegar ou alternar apps.
