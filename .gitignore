@@ -9,3 +9,10 @@
 
 # O google-services.json e uma configuracao publica de cliente, nao uma chave admin.
 # Este pacote se destina somente a um repositorio PRIVADO.
+
+# Nunca versionar chaves de assinatura ou senhas.
+*.jks
+*.keystore
+*.p12
+keystore.properties
+key.properties
