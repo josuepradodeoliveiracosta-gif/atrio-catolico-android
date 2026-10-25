@@ -129,7 +129,7 @@ internal fun BadgeSettings(uid: String) {
         for ((label, value) in listOf("Leigo" to "leigo", "Leiga" to "leiga", "Nenhum" to "")) {
             FilterChip(
                 selected = badges.lay == value, onClick = {
-                    if (!busy) {
+                    if (!busy && badges.lay != value) {
                         busy = true
                         db.collection("badges").document(uid)
                             .set(mapOf("lay" to value), SetOptions.merge())
