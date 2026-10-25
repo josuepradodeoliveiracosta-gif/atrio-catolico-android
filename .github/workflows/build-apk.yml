@@ -32,6 +32,39 @@ jobs:
         run: python3 scripts/validar_firebase.py
       - name: Compilar APK de testes
         run: gradle :app:assembleDebug --no-daemon --stacktrace
+      - name: Compilar APK release com chave permanente (quando configurada)
+        shell: bash
+        env:
+          ATRIO_KEYSTORE_BASE64: ${{ secrets.ATRIO_KEYSTORE_BASE64 }}
+          ATRIO_STORE_PASSWORD: ${{ secrets.ATRIO_STORE_PASSWORD }}
+          ATRIO_KEY_PASSWORD: ${{ secrets.ATRIO_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$ATRIO_KEYSTORE_BASE64" && -z "$ATRIO_STORE_PASSWORD" && -z "$ATRIO_KEY_PASSWORD" ]]; then
+            echo "::notice::Assinatura permanente ainda nao configurada; APK debug segue disponivel."
+            exit 0
+          fi
+          if [[ -z "$ATRIO_KEYSTORE_BASE64" || -z "$ATRIO_STORE_PASSWORD" || -z "$ATRIO_KEY_PASSWORD" ]]; then
+            echo "::error::Configuracao incompleta. Necessarios os 3 secrets ATRIO_KEYSTORE_BASE64, ATRIO_STORE_PASSWORD e ATRIO_KEY_PASSWORD."
+            exit 1
+          fi
+          KEYSTORE="$RUNNER_TEMP/atrio-release.jks"
+          trap 'rm -f "$KEYSTORE"' EXIT
+          umask 077
+          printf '%s' "$ATRIO_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE"
+          chmod 600 "$KEYSTORE"
+          export ATRIO_SIGNING_STORE_FILE="$KEYSTORE"
+          export ATRIO_SIGNING_STORE_PASSWORD="$ATRIO_STORE_PASSWORD"
+          export ATRIO_SIGNING_KEY_ALIAS="atrio"
+          export ATRIO_SIGNING_KEY_PASSWORD="$ATRIO_KEY_PASSWORD"
+          gradle :app:assembleRelease --no-daemon --stacktrace
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs app/build/outputs/apk/release/app-release.apk
+      - name: Disponibilizar APK com assinatura permanente
+        uses: actions/upload-artifact@v4
+        with:
+          name: atrio-catolico-release-assinado
+          path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: ignore
       - name: Disponibilizar APK
         uses: actions/upload-artifact@v4
         with:
