@@ -835,8 +835,13 @@ private fun OnlineProfileScreen(
         item {
             Column(Modifier.fillMaxWidth().padding(vertical = 20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(Icons.Outlined.AccountCircle, contentDescription = null,
-                    modifier = Modifier.size(72.dp), tint = Wine)
+                if (LocalFounderUid.current.isNotBlank() && LocalFounderUid.current == uid) {
+                    FounderBadgeArt(Modifier.size(108.dp), compact = false)
+                    Spacer(Modifier.height(8.dp))
+                } else {
+                    Icon(Icons.Outlined.AccountCircle, contentDescription = null,
+                        modifier = Modifier.size(72.dp), tint = Wine)
+                }
                 Text(name, fontFamily = FontFamily.Serif, fontSize = 23.sp, fontWeight = FontWeight.Bold)
                 MemberBadgeRow(uid, Modifier.fillMaxWidth())
                 Text(email, fontSize = 12.sp, color = Muted)
