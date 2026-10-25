@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
+import androidx.compose.ui.Alignment
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -37,12 +38,13 @@ private data class BadgeDescription(
     val symbol: String,
     val name: String,
     val details: String,
-    val tint: Color
+    val tint: Color,
+    val isFounder: Boolean = false
 )
 
 private fun listBadges(value: PublicBadges, founder: Boolean): List<BadgeDescription> = buildList {
     if (founder) add(BadgeDescription(
-        "⛪", "Fundador do Átrio", "Conta oficial do criador do Átrio Católico.", Color(0xFF927020)
+        "⛪", "Fundador", "Conta oficial do criador do Átrio Católico.", Color(0xFF927020), isFounder = true
     ))
     when (value.clergy) {
         "padre" -> add(BadgeDescription("✝", "Padre",
@@ -83,7 +85,17 @@ internal fun MemberBadgeRow(uid: String, modifier: Modifier = Modifier) {
             items(visible, key = { it.name }) { badge ->
                 AssistChip(
                     onClick = { info = badge },
-                    label = { Text("${badge.symbol} ${badge.name}", color = badge.tint, fontSize = 10.sp) }
+                    label = {
+                        Row(verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                            if (badge.isFounder) {
+                                FounderBadgeArt(Modifier.size(27.dp), compact = true)
+                            } else {
+                                Text(badge.symbol, color = badge.tint, fontSize = 12.sp)
+                            }
+                            Text(badge.name, color = badge.tint, fontSize = 10.sp)
+                        }
+                    }
                 )
             }
         }
@@ -91,7 +103,7 @@ internal fun MemberBadgeRow(uid: String, modifier: Modifier = Modifier) {
     info?.let { badge ->
         AlertDialog(
             onDismissRequest = { info = null },
-            title = { Text("${badge.symbol} ${badge.name}") },
+            title = { Text(badge.name) },
             text = { Text(badge.details) },
             confirmButton = { TextButton(onClick = { info = null }) { Text("Entendi") } }
         )
