@@ -1,0 +1,122 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+    function me(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+    function validText(value, minimum, maximum) {
+      return value is string && value.size() >= minimum && value.size() <= maximum;
+    }
+    function validTime() {
+      return request.resource.data.createdAt == request.time;
+    }
+    function publicNameMatchesProfile() {
+      return request.resource.data.authorName ==
+        get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.displayName;
+    }
+    function validCategory(category) {
+      return category in [
+        'Sagradas Escrituras', 'Apologética', 'Vida espiritual',
+        'História da Igreja', 'Liturgia', 'Santos',
+        'Juventude', 'Pedidos de oração'
+      ];
+    }
+
+    match /profiles/{uid} {
+      // Os perfis não podem ser enumerados, apenas lidos pelo proprietário.
+      allow get: if me(uid);
+      allow list: if false;
+      allow create: if me(uid)
+        && request.resource.data.keys().hasOnly(['displayName', 'createdAt'])
+        && request.resource.data.keys().hasAll(['displayName', 'createdAt'])
+        && validText(request.resource.data.displayName, 2, 35)
+        && validTime();
+      allow update: if me(uid)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName'])
+        && validText(request.resource.data.displayName, 2, 35);
+      allow delete: if false;
+    }
+
+    match /posts/{postId} {
+      allow get, list: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly([
+          'uid', 'authorName', 'title', 'body', 'category', 'createdAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'uid', 'authorName', 'title', 'body', 'category', 'createdAt'
+        ])
+        && request.resource.data.uid == request.auth.uid
+        && publicNameMatchesProfile()
+        && validText(request.resource.data.title, 5, 120)
+        && validText(request.resource.data.body, 5, 1200)
+        && validCategory(request.resource.data.category)
+        && validTime();
+      // Edição, exclusão e remoção após denúncia dependerão de moderação posterior.
+      allow update, delete: if false;
+
+      match /replies/{replyId} {
+        allow get, list: if signedIn();
+        allow create: if signedIn()
+          && exists(/databases/$(database)/documents/posts/$(postId))
+          && request.resource.data.keys().hasOnly([
+            'uid', 'authorName', 'body', 'createdAt'
+          ])
+          && request.resource.data.keys().hasAll([
+            'uid', 'authorName', 'body', 'createdAt'
+          ])
+          && request.resource.data.uid == request.auth.uid
+          && publicNameMatchesProfile()
+          && validText(request.resource.data.body, 1, 600)
+          && validTime();
+        allow update, delete: if false;
+      }
+    }
+
+    match /users/{uid}/likedPosts/{postId} {
+      allow get, list: if me(uid);
+      allow create: if me(uid)
+        && exists(/databases/$(database)/documents/posts/$(postId))
+        && request.resource.data.keys().hasOnly(['createdAt'])
+        && request.resource.data.keys().hasAll(['createdAt'])
+        && validTime();
+      allow delete: if me(uid);
+      allow update: if false;
+    }
+
+    match /users/{uid}/savedPosts/{postId} {
+      allow get, list: if me(uid);
+      allow create: if me(uid)
+        && exists(/databases/$(database)/documents/posts/$(postId))
+        && request.resource.data.keys().hasOnly(['createdAt'])
+        && request.resource.data.keys().hasAll(['createdAt'])
+        && validTime();
+      allow delete: if me(uid);
+      allow update: if false;
+    }
+
+    match /reports/{reportId} {
+      // Envia para revisão via Console; usuários não podem ler denúncias.
+      allow read: if false;
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly([
+          'postId', 'reporterUid', 'reason', 'createdAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'postId', 'reporterUid', 'reason', 'createdAt'
+        ])
+        && request.resource.data.reporterUid == request.auth.uid
+        && validText(request.resource.data.postId, 1, 128)
+        && validText(request.resource.data.reason, 5, 300)
+        && validTime();
+      allow update, delete: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

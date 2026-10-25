@@ -1,0 +1,11 @@
+.gradle/
+.idea/
+/build/
+**/build/
+/local.properties
+*.iml
+*.apk
+.DS_Store
+
+# O google-services.json e uma configuracao publica de cliente, nao uma chave admin.
+# Este pacote se destina somente a um repositorio PRIVADO.

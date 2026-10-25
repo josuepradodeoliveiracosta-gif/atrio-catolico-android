@@ -1,0 +1,40 @@
+name: Gerar APK do Atrio Catolico
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  apk-firebase:
+    name: Compilar aplicativo Android
+    runs-on: ubuntu-latest
+    steps:
+      - name: Obter codigo
+        uses: actions/checkout@v4
+      - name: Configurar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Preparar Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Configurar Gradle 8.13
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - name: Instalar plataforma Android 36
+        run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+      - name: Validar configuracao Firebase
+        run: python3 scripts/validar_firebase.py
+      - name: Compilar APK de testes
+        run: gradle :app:assembleDebug --no-daemon --stacktrace
+      - name: Disponibilizar APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: atrio-catolico-firebase-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error

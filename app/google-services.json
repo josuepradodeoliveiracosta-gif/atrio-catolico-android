@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "256733686427",
+    "project_id": "atrio-catolico",
+    "storage_bucket": "atrio-catolico.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:256733686427:android:cf31ca5bf3798f72adf43e",
+        "android_client_info": {
+          "package_name": "br.com.atriocatolico"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDDktq1JwQYCLuKVFpl203hCvURzI8U87I"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
