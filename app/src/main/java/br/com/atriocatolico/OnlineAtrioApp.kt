@@ -65,7 +65,7 @@ internal fun OnlineAtrioApp(activity: androidx.activity.ComponentActivity) {
         if (user == null) {
             OnlineAuthScreen(auth = auth, db = db)
         } else {
-            key(user.uid) { OnlineUserScreen(auth = auth, db = db, user = user) }
+            key(user.uid) { BadgeProvider(db, user.uid) { OnlineUserScreen(auth = auth, db = db, user = user) } }
         }
         // Keep session state outside the login branch and user key.
         OpeningVideo(activity, authenticated = user != null)
@@ -418,7 +418,7 @@ private fun OnlineCommunity(
                             detailReplies = data?.documents?.take(replyLimit)?.map {
                                 Reply(author = it.getString("authorName") ?: "Membro",
                                     message = it.getString("body") ?: "", id = it.id,
-                                    mine = it.getString("uid") == uid)
+                                    mine = it.getString("uid") == uid, ownerUid = it.getString("uid").orEmpty())
                             } ?: emptyList()
                         }
                     }
@@ -580,7 +580,7 @@ private fun OnlineCommunity(
                         if (savedPending.isEmpty() && savedDisplay.size < visibleSavedIds.size && savedFailures.isEmpty() && !savesError)
                             Text("Algumas publicações salvas foram removidas.", color = Muted, fontSize = 12.sp)
                     })
-                Tab.PROFILE -> OnlineProfileScreen(name, email, biography, posts,
+                Tab.PROFILE -> OnlineProfileScreen(uid, name, email, biography, posts,
                     onRename = { renameOpen = true }, onEditBiography = { bioEditorOpen = true },
                     onSignOut = onSignOut, onModeration = onModeration,
                     onCreate = { navigate(Tab.PUBLISH) }, onOpen = { detailId = it },
@@ -814,7 +814,7 @@ private fun ReplyNotificationScreen(
 
 @Composable
 private fun OnlineProfileScreen(
-    name: String, email: String, biography: String, posts: List<Post>, onRename: () -> Unit,
+    uid: String, name: String, email: String, biography: String, posts: List<Post>, onRename: () -> Unit,
     onEditBiography: () -> Unit, onSignOut: () -> Unit, onModeration: (() -> Unit)?,
     onCreate: () -> Unit, onOpen: (String) -> Unit,
     onLike: (String) -> Unit, onSave: (String) -> Unit
@@ -828,6 +828,7 @@ private fun OnlineProfileScreen(
                 Icon(Icons.Outlined.AccountCircle, contentDescription = null,
                     modifier = Modifier.size(72.dp), tint = Wine)
                 Text(name, fontFamily = FontFamily.Serif, fontSize = 23.sp, fontWeight = FontWeight.Bold)
+                BadgeProfilePanel(uid, admin = onModeration != null)
                 Text(email, fontSize = 12.sp, color = Muted)
                 Spacer(Modifier.height(10.dp))
                 Text(
@@ -945,3 +946,4 @@ private fun ReplyReportDialog(
         dismissButton = { TextButton(enabled = !busy, onClick = onClose) { Text("Cancelar") } }
     )
 }
+

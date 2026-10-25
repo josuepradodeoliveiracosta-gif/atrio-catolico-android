@@ -18,6 +18,46 @@ service cloud.firestore {
       allow get: if true;
       allow list, create, update, delete: if false;
     }
+    // Non-sensitive singleton: one founder UID, maintained only by the project owner.
+    match /app_config/community {
+      allow get: if signedIn();
+      allow list, create, update, delete: if false;
+    }
+    function activeModerator(uid) {
+      return exists(/databases/$(database)/documents/admins/$(uid))
+        && get(/databases/$(database)/documents/admins/$(uid)).data.enabled == true;
+    }
+    function validBadges() {
+      return request.resource.data.keys().hasOnly(['identity', 'layLabel'])
+        && request.resource.data.keys().hasAll(['identity', 'layLabel'])
+        && request.resource.data.identity in ['none', 'priest', 'deacon']
+        && request.resource.data.layLabel in ['none', 'lay_man', 'lay_woman']
+        && (request.resource.data.identity == 'none' || request.resource.data.layLabel == 'none');
+    }
+    match /member_badges/{uid} {
+      allow get: if signedIn();
+      allow list: if false;
+      allow create: if exists(/databases/$(database)/documents/profiles/$(uid))
+        && validBadges()
+        && (isAdmin() || (me(uid) && request.resource.data.identity == 'none'));
+      allow update: if validBadges() && (isAdmin() || (me(uid)
+        && resource.data.identity == 'none'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['layLabel'])));
+      allow delete: if isAdmin();
+    }
+    match /moderator_badges/{uid} {
+      // Re-evaluated when admins/uid changes. Revoked access cannot keep a visible badge.
+      allow get: if signedIn() && (!exists(/databases/$(database)/documents/moderator_badges/$(uid))
+        || resource.data.enabled == false || activeModerator(uid));
+      allow list: if false;
+      allow create, update: if isAdmin()
+        && exists(/databases/$(database)/documents/profiles/$(uid))
+        && request.resource.data.keys().hasOnly(['enabled'])
+        && request.resource.data.keys().hasAll(['enabled'])
+        && request.resource.data.enabled is bool
+        && (request.resource.data.enabled == false || activeModerator(uid));
+      allow delete: if isAdmin();
+    }
     match /admins/{uid} {
       allow get: if me(uid);
       allow list, create, update, delete: if false;
@@ -213,3 +253,4 @@ service cloud.firestore {
     }
   }
 }
+

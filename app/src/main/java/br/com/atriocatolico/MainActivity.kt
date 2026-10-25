@@ -61,7 +61,8 @@ internal data class Reply(
     val author: String,
     val message: String,
     val id: String = "",
-    val mine: Boolean = false
+    val mine: Boolean = false,
+    val ownerUid: String = ""
 )
 internal data class Post(
     val id: String,
@@ -388,6 +389,7 @@ internal fun DiscussionCard(post: Post, onOpen: (String) -> Unit, onLike: (Strin
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
                     Text(post.author, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    MemberBadges(post.ownerUid)
                     Text("${post.category} · ${post.age}", fontSize = 11.sp, color = Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
@@ -622,6 +624,7 @@ internal fun DetailScreen(
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
                     Text(r.author, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    MemberBadges(r.ownerUid)
                     Text(r.message, fontSize = 13.sp, lineHeight = 19.sp, color = Ink)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (r.id.isNotBlank() && onReportReply != null) {
@@ -675,3 +678,4 @@ internal fun EmptyState(emoji: String, title: String, description: String, butto
         OutlinedButton(onClick = action) { Text(button) }
     }
 }
+

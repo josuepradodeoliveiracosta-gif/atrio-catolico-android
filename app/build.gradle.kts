@@ -25,8 +25,8 @@ android {
         applicationId = "br.com.atriocatolico"
         minSdk = 26
         targetSdk = 35
-        versionCode = 13
-        versionName = "0.12.1"
+        versionCode = 14
+        versionName = "0.14.0"
     }
 
     signingConfigs {
@@ -77,3 +77,4 @@ kotlin {
         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
 }
+

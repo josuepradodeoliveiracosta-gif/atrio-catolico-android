@@ -2,7 +2,7 @@ import {readFileSync} from 'node:fs';
 import assert from 'node:assert/strict';
 import {initializeTestEnvironment,assertFails,assertSucceeds} from '@firebase/rules-unit-testing';
 import {doc,setDoc,getDoc,getDocs,collection,updateDoc,deleteDoc,writeBatch,serverTimestamp,Timestamp} from 'firebase/firestore';
-const env=await initializeTestEnvironment({projectId:'demo-atrio-v11',firestore:{host:'127.0.0.1',port:8089,rules:readFileSync('firestore.rules','utf8')}});
+const env=await initializeTestEnvironment({projectId:'demo-atrio-badges',firestore:{host:'127.0.0.1',port:8089,rules:readFileSync('firestore.rules','utf8')}});
 let passed=0;
 async function test(name,fn){await fn();passed++;console.log('PASS',name);}
 const admin=env.authenticatedContext('admin').firestore();
@@ -42,6 +42,60 @@ try {
  await env.withSecurityRulesDisabled(async c=>setDoc(doc(c.firestore(),'app_config/opening_video'),{enabled:false}));
  await test('desativação administrativa pode ser lida',async()=>{
   const d=await assertSucceeds(getDoc(doc(anon,'app_config/opening_video')));assert.equal(d.data().enabled,false);
+ });
+
+ await env.withSecurityRulesDisabled(async c=>{
+   const d=c.firestore();
+   await setDoc(doc(d,'profiles/admin'),{displayName:'Administrador',createdAt:Timestamp.now()});
+   await setDoc(doc(d,'app_config/community'),{founderUid:'alice'});
+ });
+ const badge=(identity='none',layLabel='none')=>({identity,layLabel});
+ await test('selos: anônimo não lê identidade',()=>assertFails(getDoc(doc(anon,'member_badges/alice'))));
+ await test('selos: membro não enumera identidades',()=>assertFails(getDocs(collection(bob,'member_badges'))));
+ await test('selos: escolha Leiga própria autorizada',()=>assertSucceeds(setDoc(doc(alice,'member_badges/alice'),badge('none','lay_woman'))));
+ await test('selos: outro membro lê apenas selo público',async()=>{
+   const d=await assertSucceeds(getDoc(doc(bob,'member_badges/alice')));assert.equal(d.data().layLabel,'lay_woman');
+ });
+ await test('selos: membro remove autodeclaração',()=>assertSucceeds(updateDoc(doc(alice,'member_badges/alice'),{layLabel:'none'})));
+ await test('selos: usuário não se torna padre',()=>assertFails(updateDoc(doc(alice,'member_badges/alice'),{identity:'priest'})));
+ await test('selos: usuário não se torna diácono na criação',()=>assertFails(setDoc(doc(bob,'member_badges/bob'),badge('deacon'))));
+ await test('selos: usuário não edita identificação alheia',()=>assertFails(updateDoc(doc(bob,'member_badges/alice'),{layLabel:'lay_man'})));
+ await test('selos: administrador concede Padre',()=>assertSucceeds(setDoc(doc(admin,'member_badges/alice'),badge('priest'))));
+ await test('selos: padre não pode se autodeclarar leigo simultaneamente',()=>assertFails(updateDoc(doc(alice,'member_badges/alice'),{layLabel:'lay_man'})));
+ await test('selos: padre não pode revogar próprio selo verificado',()=>assertFails(updateDoc(doc(alice,'member_badges/alice'),{identity:'none'})));
+ await test('selos: administrador troca Padre por Diácono',()=>assertSucceeds(updateDoc(doc(admin,'member_badges/alice'),{identity:'deacon'})));
+ await test('selos: concessão não permite UID inexistente',()=>assertFails(setDoc(doc(admin,'member_badges/not-a-member'),badge('priest'))));
+ await test('selos: campos extras são bloqueados',()=>assertFails(updateDoc(doc(admin,'member_badges/alice'),{founder:true})));
+ await test('selos: identidade inválida é bloqueada',()=>assertFails(updateDoc(doc(admin,'member_badges/alice'),{identity:'founder'})));
+ await test('selos: selo de diácono não concede moderação',()=>assertFails(getDocs(collection(alice,'reports'))));
+ await test('selos: selo não abre perfil privado',()=>assertFails(getDoc(doc(bob,'profiles/alice'))));
+ await test('selos: administrador revoga selo clerical',()=>assertSucceeds(setDoc(doc(admin,'member_badges/alice'),badge())));
+ await test('selos: identidade opcional volta após revogação',()=>assertSucceeds(updateDoc(doc(alice,'member_badges/alice'),{layLabel:'lay_man'})));
+ await test('selos: fundador único pode ser consultado',async()=>{
+   const d=await assertSucceeds(getDoc(doc(bob,'app_config/community')));assert.equal(d.data().founderUid,'alice');
+ });
+ await test('selos: anônimo não consulta fundador',()=>assertFails(getDoc(doc(anon,'app_config/community'))));
+ await test('selos: usuário não altera fundador',()=>assertFails(updateDoc(doc(alice,'app_config/community'),{founderUid:'bob'})));
+ await test('selos: administrador do app não altera fundador',()=>assertFails(updateDoc(doc(admin,'app_config/community'),{founderUid:'admin'})));
+ await test('selos: administrador não apaga configuração do fundador',()=>assertFails(deleteDoc(doc(admin,'app_config/community'))));
+ await test('selos: usuário não concede selo moderador',()=>assertFails(setDoc(doc(bob,'moderator_badges/bob'),{enabled:true})));
+ await test('selos: admin não concede selo moderador a conta sem cargo',()=>assertFails(setDoc(doc(admin,'moderator_badges/bob'),{enabled:true})));
+ await test('selos: concessão moderador ativo funciona',()=>assertSucceeds(setDoc(doc(admin,'moderator_badges/admin'),{enabled:true})));
+ await test('selos: membro pode consultar selo moderador ativo',async()=>{
+   const d=await assertSucceeds(getDoc(doc(bob,'moderator_badges/admin')));assert.equal(d.data().enabled,true);
+ });
+ await test('selos: anônimo não lê moderador',()=>assertFails(getDoc(doc(anon,'moderator_badges/admin'))));
+ await test('selos: membro não lista moderadores',()=>assertFails(getDocs(collection(bob,'moderator_badges'))));
+ await test('selos: ausência de marcador pode ser consultada',()=>assertSucceeds(getDoc(doc(bob,'moderator_badges/alice'))));
+ await test('selos: campo extra no marcador é recusado',()=>assertFails(updateDoc(doc(admin,'moderator_badges/admin'),{identity:'priest'})));
+ await env.withSecurityRulesDisabled(async c=>updateDoc(doc(c.firestore(),'admins/admin'),{enabled:false}));
+ await test('selos: cargo revogado impede leitura de selo antigo',()=>assertFails(getDoc(doc(bob,'moderator_badges/admin'))));
+ await test('selos: admin revogado não concede Padre',()=>assertFails(setDoc(doc(admin,'member_badges/bob'),badge('priest'))));
+ await env.withSecurityRulesDisabled(async c=>updateDoc(doc(c.firestore(),'admins/admin'),{enabled:true}));
+ await test('selos: admin retira marcador',()=>assertSucceeds(updateDoc(doc(admin,'moderator_badges/admin'),{enabled:false})));
+ await test('selos: retirada de marcador não revoga permissão',async()=>{
+   await assertSucceeds(getDocs(collection(admin,'reports')));
+   const d=await assertSucceeds(getDoc(doc(bob,'moderator_badges/admin')));assert.equal(d.data().enabled,false);
  });
  await test('anônimo não lê denúncias',()=>assertFails(getDocs(collection(anon,'reports'))));
  await test('usuário envia denúncia antiga sem status',()=>assertSucceeds(setDoc(doc(bob,'reports/r'),report())));
@@ -156,3 +210,4 @@ try {
  await test('revogação impede analisar denúncia de resposta',()=>assertFails(updateDoc(doc(admin,'reports/rr5'),replyReview())));
  console.log(`RESULTADO: ${passed} testes aprovados.`);
 } finally { await env.cleanup(); }
+

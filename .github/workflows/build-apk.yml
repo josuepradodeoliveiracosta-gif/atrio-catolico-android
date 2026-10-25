@@ -2,7 +2,7 @@ name: Gerar APK do Atrio Catolico
 
 on:
   push:
-    branches: [main]
+    branches: [main, feature/member-badges-v014]
   workflow_dispatch:
 
 permissions:
@@ -71,3 +71,4 @@ jobs:
           name: atrio-catolico-firebase-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+

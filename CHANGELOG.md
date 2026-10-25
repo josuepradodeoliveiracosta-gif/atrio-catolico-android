@@ -1,5 +1,12 @@
 # Registro de versões — Átrio Católico
 
+## v0.14.0
+- Selos de Padre, Diácono, Leigo/Leiga, Moderador e Fundador do Átrio.
+- Identificação pública por UID em perfil, publicações e respostas.
+- Administração manual de selos, autodeclaração leiga e fundador exclusivo configurado no Console.
+- Revogação do acesso administrativo impede exibição do selo Moderador.
+- Assinatura release permanente preservada; versionCode 14.
+
 ## v0.12.0
 - Pop-up de vídeo somente após autenticação, nunca na tela de login.
 - Sessão já autenticada exibe ao iniciar; fechamento persiste na mesma tarefa.
@@ -50,3 +57,4 @@
 ## v0.6.0
 - Edição e exclusão de conteúdo próprio.
 - Regras de autoria no servidor.
+
