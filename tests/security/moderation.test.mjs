@@ -162,6 +162,23 @@ try {
    });
    await assertFails(batch.commit());
  });
+ await setDoc(doc(admin,'badge_requests/admin'),{
+   kind:'padre',status:'pending',createdAt:serverTimestamp()
+ });
+ await test('administrador não aprova o próprio pedido de selo',async()=>{
+   const batch=writeBatch(admin);
+   batch.set(doc(admin,'badges/admin'),{clergy:'padre'});
+   batch.update(doc(admin,'badge_requests/admin'),{
+     status:'approved',reviewedBy:'admin',reviewedAt:serverTimestamp(),
+     reviewNote:'Mesmo administrador não pode validar o próprio pedido.'
+   });
+   await assertFails(batch.commit());
+ });
+ await test('administrador não rejeita o próprio pedido',()=>assertFails(
+   updateDoc(doc(admin,'badge_requests/admin'),{
+     status:'rejected',reviewedBy:'admin',reviewedAt:serverTimestamp(),
+     reviewNote:'Mesmo administrador não pode julgar o próprio pedido.'
+   })));
  await test('administrador aprova e concede Diácono atomicamente',async()=>{
    const batch=writeBatch(admin);
    batch.set(doc(admin,'badges/bob'),{clergy:'diacono'},{merge:true});
