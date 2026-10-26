@@ -237,3 +237,107 @@ test('fluxo completo autenticado, deduplicação e falha FCM sem credenciais rea
   assert.deepEqual(await failed.json(),{status:'delivery_failed'});
   assert.equal(sent,2);
 });
+
+
+test('comunicado geral permanece bloqueado mesmo com push individual ativado',async()=>{
+  globalThis.fetch=async()=>{throw Error('rede não deveria ser acessada');};
+  const response=await worker.fetch(req('{"title":"Aviso do Átrio","body":"Comunicado importante de teste.","requestId":"8c14e77a-3668-4d55-8000-dd5196a55c9b"}'),
+    {...configured,BROADCAST_ENABLED:'false'});
+  // A requisição acima tem /event; testar o caminho de comunicado.
+  const request=new Request('https://example.workers.dev/broadcast',{method:'POST',
+    body:JSON.stringify({title:'Aviso do Átrio',body:'Comunicado importante de teste.',
+      requestId:'8c14e77a-3668-4d55-8000-dd5196a55c9b'})});
+  const blocked=await worker.fetch(request,{...configured,BROADCAST_ENABLED:'false'});
+  assert.equal(blocked.status,503);
+  assert.deepEqual(await blocked.json(),{status:'broadcast_disabled'});
+  assert.equal(response.status,400,'eventos comuns não aceitam corpo de comunicado');
+});
+
+test('somente fundador administrador envia a tópico FCM e há limitação de frequência',async()=>{
+  const pair=await crypto.subtle.generateKey(
+    {name:'RSASSA-PKCS1-v1_5',modulusLength:2048,publicExponent:new Uint8Array([1,0,1]),hash:'SHA-256'},
+    true,['sign','verify']);
+  const pkcs8=await crypto.subtle.exportKey('pkcs8',pair.privateKey);
+  const service=JSON.stringify({
+    project_id:'atrio-catolico',
+    client_email:'test-push@atrio-catolico.iam.gserviceaccount.com',
+    private_key:'-----BEGIN PRIVATE KEY-----\n'+Buffer.from(pkcs8).toString('base64')+'\n-----END PRIVATE KEY-----',
+  });
+  let actor='intruso';
+  let isAdmin=true;
+  let isFounder=true;
+  let sent=0;
+  let locked=false;
+  const db={prepare(sql){
+    assert.match(sql,/broadcast:cooldown/);
+    return {bind(now,cutoff){return {async run(){
+      if(locked) return {meta:{changes:0}};
+      locked=true;
+      return {meta:{changes:1}};
+    }};}};
+  }};
+  globalThis.fetch=async (input,options={})=>{
+    const url=String(input);
+    if(url.startsWith('https://identitytoolkit.googleapis.com/'))
+      return new Response(JSON.stringify({users:[{localId:actor,disabled:false}]}),{status:200});
+    if(url==='https://oauth2.googleapis.com/token')
+      return new Response(JSON.stringify({access_token:'fake-oauth',expires_in:3600}),{status:200});
+    if(url.includes('/documents/admins/'))
+      return new Response(JSON.stringify(doc({enabled:isAdmin})),{status:200});
+    if(url.endsWith('/documents/app_config/founder'))
+      return new Response(JSON.stringify(doc({uid:isFounder?actor:'outro'})),{status:200});
+    if(url.includes('fcm.googleapis.com/')) {
+      sent++;
+      const body=JSON.parse(options.body).message;
+      assert.equal(body.topic,'atrio_comunicados_v1');
+      assert.equal(body.data.kind,'broadcast');
+      assert.equal(body.data.title,'Novidades do Átrio');
+      assert.equal(body.data.body,'Confira o nosso comunicado de teste.');
+      assert.equal(body.token,undefined);
+      return new Response('{}',{status:200});
+    }
+    throw Error('Unexpected request '+url);
+  };
+  const env={PUSH_ENABLED:'true',BROADCAST_ENABLED:'true',PUSH_DB:db,
+    FIREBASE_WEB_API_KEY:'test',FIREBASE_SERVICE_ACCOUNT_JSON:service};
+  const url='https://example.workers.dev/broadcast';
+  const payload={title:'Novidades do Átrio',body:'Confira o nosso comunicado de teste.',
+    requestId:'8c14e77a-3668-4d55-8000-dd5196a55c9b'};
+  const make=()=>new Request(url,{method:'POST',headers:{
+    Authorization:'Bearer '+'a'.repeat(120)},body:JSON.stringify(payload)});
+
+  assert.equal((await worker.fetch(make(),env)).status,403);
+  assert.equal(sent,0);
+  actor='fundador';isAdmin=false;
+  assert.equal((await worker.fetch(make(),env)).status,403);
+  assert.equal(sent,0);
+  isAdmin=true;isFounder=false;
+  assert.equal((await worker.fetch(make(),env)).status,403);
+  assert.equal(sent,0);
+  isFounder=true;
+  assert.deepEqual(await (await worker.fetch(make(),env)).json(),{status:'accepted_by_fcm'});
+  assert.equal(sent,1);
+  assert.equal((await worker.fetch(make(),env)).status,429);
+  assert.equal(sent,1);
+  assert.equal((await worker.fetch(new Request(url,{method:'POST',body:JSON.stringify(payload)}),env)).status,401);
+  assert.equal(sent,1);
+});
+
+test('comunicado rejeita título, corpo e identificador inválidos antes de acessar Google',async()=>{
+  globalThis.fetch=async()=>{throw Error('Não deveria acessar rede');};
+  const env={...configured,BROADCAST_ENABLED:'true'};
+  const url='https://example.workers.dev/broadcast';
+  const base={title:'Aviso do Átrio',body:'Uma mensagem geral de teste.',
+    requestId:'8c14e77a-3668-4d55-8000-dd5196a55c9b'};
+  const invalid=[
+    {...base,title:'oi'},
+    {...base,title:'\nAviso do Átrio'},
+    {...base,body:'x'.repeat(181)},
+    {...base,requestId:'forjado'},
+    {...base,actorUid:'hacker'},
+  ];
+  for(const data of invalid){
+    const result=await worker.fetch(new Request(url,{method:'POST',body:JSON.stringify(data)}),env);
+    assert.equal(result.status,400);
+  }
+});
