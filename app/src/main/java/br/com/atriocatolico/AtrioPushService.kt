@@ -102,7 +102,8 @@ internal object PushRegistry {
     }
 
     fun show(context: Context, uid: String, kind: String) {
-        if (!enabled(context, uid) || FirebaseAuth.getInstance().currentUser?.uid != uid) return
+        if (!(enabled(context, uid) || BackgroundNoticeScheduler.enabled(context, uid))
+            || FirebaseAuth.getInstance().currentUser?.uid != uid) return
         if (Build.VERSION.SDK_INT >= 33 &&
             context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
             return
