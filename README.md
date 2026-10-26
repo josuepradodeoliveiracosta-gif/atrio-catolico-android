@@ -1,49 +1,83 @@
-# Átrio Católico — APK pelo celular Android (versão 0.4)
+# Átrio Católico — aplicativo Android
 
-Este pacote prepara o projeto nativo Android Kotlin/Jetpack Compose/Firebase para compilar por **GitHub Actions**, usando **somente o celular**.
+Comunidade católica desenvolvida em Kotlin/Jetpack Compose com Firebase Authentication
+e Cloud Firestore. O repositório é privado e os APKs release são assinados pelo
+fluxo de GitHub Actions.
 
-**Projeto Firebase:** `atrio-catolico` | **Aplicativo Android:** `br.com.atriocatolico`
+## Qual é a última versão? (fonte única, sem número congelado)
 
-## Tutorial rápido no Android
+**Não use um número copiado deste README, de um chat, da última PR ou do nome de
+um arquivo para declarar a versão atual.**
 
-1. Crie uma conta em https://github.com e faça login no Chrome.
-2. Instale Termux pela página oficial https://f-droid.org/packages/com.termux/ .
-3. Salve o ZIP deste projeto na pasta Downloads do celular.
-4. No Termux, rode:
+- **Versão integrada no código principal:** os valores `versionName` e
+  `versionCode` em
+  [app/build.gradle.kts da main](app/build.gradle.kts). Essa é a única fonte
+  de versão do código oficialmente integrado.
+- **Compilação disponível:** conferir a execução correspondente ao mesmo commit
+  em [GitHub Actions](../../actions/workflows/build-apk.yml) e o artefato
+  `atrio-catolico-release-assinado`. Código integrado não comprova que a
+  compilação terminou ou que a instalação ocorreu.
+- **Versão em desenvolvimento:** PRs e branches, como os projetos 0.19.x, são
+  propostas e **não** versões já integradas.
+- **Versão instalada:** conferir dentro do próprio Android em
+  **Perfil > Minha conta > Átrio Católico · versão**. GitHub não consegue
+  confirmar sozinho qual APK está no aparelho do proprietário.
+
+### Consultar sempre a versão do GitHub, inclusive no Termux
+
+Se o repositório já estiver disponível no Termux e o GitHub CLI autenticado:
 
 ```sh
-pkg update -y && pkg install -y git gh unzip
-termux-setup-storage
-mkdir -p ~/atrio && cd ~/atrio
-unzip -o ~/storage/downloads/atrio_catolico_android_github_v04.zip
-gh auth login --web
+python3 scripts/status_versao.py
 ```
 
-Em `gh auth login`, selecione **GitHub.com**, **HTTPS**, **Login with a web browser**. Copie o código que aparecer, autorize no navegador e volte ao Termux.
+A consulta padrão acessa **o GitHub remoto** e informa versão, commit e
+compilação do mesmo commit, além das PRs abertas. Se não conseguir consultar
+a API do repositório privado, apresenta **erro em vez de presumir uma versão antiga**.
 
-5. No Termux, execute:
+Para conferir somente uma cópia local (que pode estar desatualizada):
 
 ```sh
-cd ~/atrio
-bash scripts/publicar_github_termux.sh
+python3 scripts/status_versao.py --local
 ```
 
-Esse script cria um **repositório privado** chamado `atrio-catolico-android`, envia os arquivos e dispara a compilação pela atualização de `main`.
+Toda PR e atualização de `main` passa por
+[`conferir-versao.yml`](.github/workflows/conferir-versao.yml), que confere
+a sintaxe do Gradle e impede regressões de `versionCode` e `versionName`.
 
-6. No Chrome, vá a `https://github.com/SEU_USUARIO/atrio-catolico-android/actions`, abra a execução do workflow **Gerar APK do Atrio Catolico**, veja se ficou verde e baixe o artefato **atrio-catolico-firebase-apk**. Ele é um ZIP; extraia para obter `app-debug.apk`.
-7. Abra o APK em Downloads e autorize instalar de fonte desconhecida para o gerenciador de arquivos usado.
-8. Crie uma conta de testes no Átrio Católico e confira publicações. Para validar sincronização, repita com outra conta.
+## Estado das notificações — confira a versão antes de responder
 
-## Segurança
+- Desde a **0.16.0**, existe uma central de notificações dentro do app.
+- A **0.17.0** adicionou o recebimento opcional de FCM e registro protegido
+  de tokens; isso **não** ativa um emissor automático por si só.
+- A **0.18.0** adicionou verificação voluntária em segundo plano com
+  WorkManager, aproximadamente a cada 30 minutos quando o Android permitir.
+  Pode avisar com o aplicativo fora da tela, sem ser push instantâneo.
+  Consulte [documentação do funcionamento e limites](docs/avisos-background-v0180.md).
+- Recursos propostos em **0.19.0** precisam ser examinados quanto a PR,
+  integração, compilação, infraestrutura e custos antes de se dizer que estão ativos.
 
-O arquivo `app/google-services.json` é configuração de cliente Android, que fica embutida no APK. Não é uma chave privada de administrador. Ainda assim, o projeto é criado como **repositório privado** e requer regras Firestore seguras. **Não publique arquivos de contas de serviço ou credenciais administrativas.**
+Nenhum backend pago é ativado por este README ou pela consulta de versão.
 
-O ZIP **não é um APK**. A compilação no GitHub ainda não foi executada nem validada com um aparelho real. Eventuais erros aparecerão na aba Actions. O APK de testes é assinado com chave de depuração; não está pronto para publicar na Play Store.
+## Compilar e instalar
 
-## Arquivos principais
+1. Consulte o commit principal e a versão pelo script.
+2. Entre no [workflow de APK](../../actions/workflows/build-apk.yml) e
+   confira **conclusão success para o commit correspondente**.
+3. Baixe o artefato **atrio-catolico-release-assinado** do workflow validado.
+4. Instale o APK com o mesmo identificador `br.com.atriocatolico`, assinado
+   com a mesma chave JKS permanente e com `versionCode` maior. Assim a
+   atualização pode ocorrer sobre o aplicativo anterior sem desinstalação.
+5. Confirme a versão efetivamente instalada em **Perfil > Minha conta**.
+6. Teste as funções novas no aparelho; sucesso de compilação não substitui
+   essa validação.
 
-- `.github/workflows/build-apk.yml` — build automático do APK em cada push na branch `main`.
-- `scripts/publicar_github_termux.sh` — publicação inicial segura como repo privado.
-- `app/google-services.json` — configuração Firebase fornecida pelo proprietário.
-- `app/src/main/java/br/com/atriocatolico/` — código do app.
-- `firestore.rules` — cópia das regras de segurança, a publicar separadamente no Firebase se necessário.
+**Segurança:** não publicar keystore, senhas, chaves privadas nem
+credenciais administrativas no GitHub, no APK ou nas conversas. Alterações
+de regras e infraestrutura Firebase em produção exigem autorização separada.
+O branch de backup protegido deve permanecer intocado.
+
+## Histórico
+
+O [tutorial da fase inicial (0.4)](docs/tutorial-inicial-v04.md) foi preservado
+como registro histórico. Ele não descreve o estado atual do aplicativo.
