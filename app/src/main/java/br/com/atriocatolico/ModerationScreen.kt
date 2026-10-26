@@ -21,7 +21,7 @@ import com.google.firebase.firestore.Query
 private data class ModerationReport(
     val id: String, val postId: String, val reason: String,
     val status: String, val reviewNote: String, val reviewedBy: String,
-    val replyId: String?, val source: String = ""
+    val replyId: String?, val source: String = "", val aiAssessment: String = ""
 ) {
     val fromGuardiao: Boolean get() = source == "guardiao"
     val isReply: Boolean get() = replyId != null
@@ -78,7 +78,8 @@ internal fun ModerationScreen(db: FirebaseFirestore, uid: String, onBack: () -> 
                             ModerationReport(it.id, it.getString("postId").orEmpty(),
                                 it.getString("reason").orEmpty(), it.getString("status") ?: "pending",
                                 it.getString("reviewNote").orEmpty(), it.getString("reviewedBy").orEmpty(),
-                                it.getString("replyId"), it.getString("source").orEmpty())
+                                it.getString("replyId"), it.getString("source").orEmpty(),
+                                it.getString("aiAssessment").orEmpty())
                         } ?: emptyList()
                     }
                 }
@@ -227,6 +228,13 @@ private fun ReportReviewDialog(
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (report.fromGuardiao) Text("Átrio Guardião: alerta automático sujeito a enganos. Confira o contexto antes de decidir.",
                     color = Wine, fontSize = 12.sp)
+                if (report.fromGuardiao && report.aiAssessment.isNotBlank()) Text(
+                    when (report.aiAssessment) {
+                        "concern" -> "IA: possível risco no contexto. Avaliação humana necessária."
+                        "contextual" -> "IA: pode ser citação, relato ou prevenção. Confira o contexto; o alerta continua pendente."
+                        "uncertain" -> "IA: contexto insuficiente para avaliar."
+                        else -> "Análise contextual indisponível. Alerta baseado nas regras iniciais."
+                    }, fontSize = 12.sp, color = Muted)
                 Text("Motivo: ${report.reason}")
                 if (report.isReply) Text(parentContext, fontSize = 12.sp, color = Muted)
                 when {
@@ -288,3 +296,4 @@ private fun ReportReviewDialog(
             dismissButton = { TextButton(enabled = !busy, onClick = { confirmRemove = false }) { Text("Cancelar") } })
     }
 }
+

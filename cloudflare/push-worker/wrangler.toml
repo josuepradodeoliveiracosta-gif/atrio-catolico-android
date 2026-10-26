@@ -4,6 +4,7 @@ compatibility_date = "2026-10-26"
 workers_dev = true
 
 [vars]
+GUARDIAO_AI_ENABLED = "false"
 PUSH_ENABLED = "false"
 
 # Banco já criado; não contém credenciais.
@@ -14,3 +15,7 @@ database_id = "6b04fad3-619a-4cc5-a4b3-d31c3a18e911"
 
 # Secrets privados: FIREBASE_SERVICE_ACCOUNT_JSON e FIREBASE_WEB_API_KEY
 # Nunca armazene credenciais reais neste arquivo ou em commits Git.
+
+# Capacidade de IA; inferência depende do switch explícito acima.
+[ai]
+binding = "AI"

@@ -4,6 +4,7 @@ compatibility_date = "2026-10-26"
 workers_dev = true
 
 [vars]
+GUARDIAO_AI_ENABLED = "false"
 PUSH_ENABLED = "false"
 # Broadcast exige ativação separada, depois de testes e auditoria.
 BROADCAST_ENABLED = "false"
@@ -17,3 +18,7 @@ database_id = "COLOQUE_O_DATABASE_ID_AQUI"
 # Secrets privados: FIREBASE_SERVICE_ACCOUNT_JSON e FIREBASE_WEB_API_KEY
 # Nunca armazene credenciais reais neste arquivo ou em commits Git.
 
+
+# Capacidade de IA; inferência depende do switch explícito acima.
+[ai]
+binding = "AI"

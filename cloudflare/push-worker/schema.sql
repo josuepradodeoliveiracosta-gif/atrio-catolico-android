@@ -18,3 +18,12 @@ CREATE TABLE IF NOT EXISTS push_delivery_stats (
   PRIMARY KEY (hour_bucket, kind, outcome, fcm_http_status)
 );
 CREATE INDEX IF NOT EXISTS push_delivery_stats_hour ON push_delivery_stats(hour_bucket);
+
+
+-- Reservas limitadas de inferência. Sem texto, UID ou resposta do modelo.
+CREATE TABLE IF NOT EXISTS guardiao_ai_budget (
+  event_key TEXT PRIMARY KEY NOT NULL,
+  day_bucket INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS guardiao_ai_budget_day ON guardiao_ai_budget(day_bucket);
+
