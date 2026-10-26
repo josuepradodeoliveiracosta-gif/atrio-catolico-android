@@ -117,6 +117,7 @@ internal object PushRegistry {
                                     FirebaseMessaging.getInstance().unsubscribeFromTopic(COMMUNICATION_TOPIC)
                                     done(false, PushRegistrationProblem.SESSION_CHANGED)
                                 } else if (subscribed.isSuccessful) {
+                                    ThreadPushSubscriptions.sync(context, uid)
                                     done(true, null)
                                 } else {
                                     // O cadastro pessoal funciona, mas não ativamos a opção
@@ -171,6 +172,7 @@ internal object PushRegistry {
         prefs(context).edit().putBoolean(enabledKey(uid), false).apply()
         FirebaseMessaging.getInstance().isAutoInitEnabled = false
         FirebaseMessaging.getInstance().unsubscribeFromTopic(COMMUNICATION_TOPIC)
+        ThreadPushSubscriptions.unsubscribeAll(context, uid)
         // A exclusao remota e a rotacao do token sao tentativas assincronas.
         // Nao mostramos informacoes pessoais no corpo de avisos enviados.
         document(db, uid, context).delete()
@@ -208,6 +210,44 @@ internal object PushRegistry {
             .build()
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.notify((System.currentTimeMillis() % Int.MAX_VALUE).toInt(), notification)
+    }
+
+    fun showDiscussionReply(context: Context, uid: String, postId: String,
+                            replyId: String, actorUid: String, topicDelivery: Boolean) {
+        if (!enabled(context, uid) ||
+            FirebaseAuth.getInstance().currentUser?.uid != uid ||
+            actorUid == uid || actorUid.isBlank() ||
+            !postId.matches(Regex("^[A-Za-z0-9_-]{1,128}$")) ||
+            !replyId.matches(Regex("^[A-Za-z0-9_-]{1,128}$"))) return
+        if (topicDelivery && !ThreadPushSubscriptions.contains(context, uid, postId)) return
+        if (Build.VERSION.SDK_INT >= 33 &&
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+            != PackageManager.PERMISSION_GRANTED) return
+
+        // O mesmo aviso pode chegar pelo Push individual legado e pelo tópico
+        // da discussão: exibir apenas uma vez neste aparelho.
+        val prefs = context.getSharedPreferences("atrio_discussion_seen", Context.MODE_PRIVATE)
+        val key = "seen_$uid"
+        val id = "$postId:$replyId"
+        synchronized(this) {
+            val before = prefs.getStringSet(key, emptySet()).orEmpty()
+            if (id in before) return
+            prefs.edit().putStringSet(key, (before.toList().takeLast(999) + id).toSet()).apply()
+        }
+        createChannel(context)
+        val intent = PendingIntent.getActivity(context, 0,
+            Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            }, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val notice = Notification.Builder(context, CHANNEL)
+            .setSmallIcon(R.drawable.ic_atrio)
+            .setContentTitle("Nova resposta em uma discussão")
+            .setContentText("Uma conversa da qual você participa recebeu uma nova resposta.")
+            .setAutoCancel(true)
+            .setContentIntent(intent)
+            .build()
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.notify(id.hashCode(), notice)
     }
 
     fun show(context: Context, uid: String, kind: String) {
@@ -258,7 +298,20 @@ class AtrioPushService : FirebaseMessagingService() {
                 message.data["title"].orEmpty(), message.data["body"].orEmpty())
             return
         }
+        if (message.data["kind"] == "discussion_reply") {
+            PushRegistry.showDiscussionReply(applicationContext, uid,
+                message.data["postId"].orEmpty(), message.data["replyId"].orEmpty(),
+                message.data["actorUid"].orEmpty(), topicDelivery = true)
+            return
+        }
         if (message.data["uid"] != uid) return
-        PushRegistry.show(applicationContext, uid, message.data["kind"].orEmpty())
+        if (message.data["kind"] == "reply" &&
+            message.data["replyId"].orEmpty().isNotBlank()) {
+            PushRegistry.showDiscussionReply(applicationContext, uid,
+                message.data["postId"].orEmpty(), message.data["replyId"].orEmpty(),
+                message.data["actorUid"].orEmpty(), topicDelivery = false)
+        } else {
+            PushRegistry.show(applicationContext, uid, message.data["kind"].orEmpty())
+        }
     }
 }
