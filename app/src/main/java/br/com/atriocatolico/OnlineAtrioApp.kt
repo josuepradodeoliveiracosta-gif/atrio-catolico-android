@@ -274,6 +274,7 @@ private fun OnlineCommunity(
     val notificationAdmin = onModeration != null && onClergyReview != null
     val inbox = rememberNotificationInbox(db, uid, notificationAdmin)
     var noticeBadgesOpen by remember(uid) { mutableStateOf(false) }
+    var guardiaoAppealsOpen by remember(uid) { mutableStateOf(false) }
     var returnToNotices by remember(uid) { mutableStateOf(false) }
     var noticesOpen by remember(uid) { mutableStateOf(false) }
     var message by remember(uid) { mutableStateOf("") }
@@ -431,6 +432,7 @@ private fun OnlineCommunity(
     }
     fun navigate(destination: Tab) {
         tab = destination; detailId = null; noticesOpen = false
+        guardiaoAppealsOpen = false
         noticeBadgesOpen = false; returnToNotices = false
         filter = "Todos"; search = ""; searchOpen = false
     }
@@ -499,7 +501,9 @@ private fun OnlineCommunity(
         }
     }
     fun closeNoticeDestination() {
-        if (detailId != null || noticeBadgesOpen) {
+        if (guardiaoAppealsOpen) {
+            guardiaoAppealsOpen = false
+        } else if (detailId != null || noticeBadgesOpen) {
             detailId = null
             noticeBadgesOpen = false
             noticesOpen = returnToNotices
@@ -508,12 +512,12 @@ private fun OnlineCommunity(
     }
     // Preserve the central state while the separate admin panel is displayed.
     if (!visible) return
-    BackHandler(enabled = detailId != null || noticesOpen || noticeBadgesOpen) { closeNoticeDestination() }
+    BackHandler(enabled = detailId != null || noticesOpen || noticeBadgesOpen || guardiaoAppealsOpen) { closeNoticeDestination() }
 
     Scaffold(containerColor = Paper, topBar = {
         AtrioTopBar(
-            details = detailId != null || noticesOpen || noticeBadgesOpen,
-            detailsTitle = if (noticeBadgesOpen) "Meus selos" else if (noticesOpen) "Notificações" else "Discussão",
+            details = detailId != null || noticesOpen || noticeBadgesOpen || guardiaoAppealsOpen,
+            detailsTitle = if (guardiaoAppealsOpen) "Minhas revisões" else if (noticeBadgesOpen) "Meus selos" else if (noticesOpen) "Notificações" else "Discussão",
             unreadCount = inbox.groups(notificationAdmin).count { it.unread },
             onBack = ::closeNoticeDestination,
             onSearch = { val open = !searchOpen; navigate(Tab.HOME); searchOpen = open },
@@ -522,7 +526,9 @@ private fun OnlineCommunity(
     }, bottomBar = { AtrioBottomBar(selected = tab, onSelect = ::navigate) }) { inset ->
         Box(Modifier.padding(inset)) {
             val detail = openedPost?.copy(liked = detailId in likedIds, saved = detailId in savedIds)
-            if (noticeBadgesOpen) {
+            if (guardiaoAppealsOpen) {
+                GuardiaoAppealsScreen(db, uid)
+            } else if (noticeBadgesOpen) {
                 LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     item { MemberBadgeRow(uid, Modifier.fillMaxWidth(), centered = true) }
@@ -594,7 +600,13 @@ private fun OnlineCommunity(
                         if (savedPending.isEmpty() && savedDisplay.size < visibleSavedIds.size && savedFailures.isEmpty() && !savesError)
                             Text("Algumas publicações salvas foram removidas.", color = Muted, fontSize = 12.sp)
                     })
-                Tab.PROFILE -> OnlineProfileScreen(db, uid, name, email, biography, posts,
+                Tab.PROFILE -> Column(Modifier.fillMaxSize()) {
+                    OutlinedButton(onClick = { guardiaoAppealsOpen = true },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                        Text("Minhas revisões — Átrio Guardião")
+                    }
+                    Box(Modifier.weight(1f)) {
+                    OnlineProfileScreen(db, uid, name, email, biography, posts,
                     publicationsFooter = {
                         LoadMore(feedLoading, feedMore, feedError, "Buscar mais publicações") {
                             if (feedError) feedRetry++ else feedLimit += 30
@@ -605,6 +617,8 @@ private fun OnlineCommunity(
                     onCreate = { navigate(Tab.PUBLISH) }, onOpen = { detailId = it },
                     onLike = { id -> posts.firstOrNull { it.id == id }?.let { toggle("likedPosts", id, it.liked) } },
                     onSave = { id -> posts.firstOrNull { it.id == id }?.let { toggle("savedPosts", id, it.saved) } })
+                    }
+                }
             }
         }
     }
