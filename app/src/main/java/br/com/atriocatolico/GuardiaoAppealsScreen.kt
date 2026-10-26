@@ -6,6 +6,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -21,6 +22,7 @@ private data class RetainedCase(
  */
 @Composable
 internal fun GuardiaoAppealsScreen(db: FirebaseFirestore, uid: String) {
+    val context = LocalContext.current
     var cases by remember(uid) { mutableStateOf<List<RetainedCase>>(emptyList()) }
     var loading by remember(uid) { mutableStateOf(true) }
     var error by remember(uid) { mutableStateOf("") }
@@ -58,6 +60,9 @@ internal fun GuardiaoAppealsScreen(db: FirebaseFirestore, uid: String) {
             Text("Minhas revisões de moderação", style = MaterialTheme.typography.titleMedium)
             Text("Se uma discussão ou resposta for retida, você poderá solicitar revisão. " +
                 "Somente administradores decidem remover ou restaurar conteúdos.",
+                style = MaterialTheme.typography.bodySmall)
+            Text("Último diagnóstico da triagem no aparelho: " +
+                InstantPushRelay.lastGuardiaoStatus(context, uid),
                 style = MaterialTheme.typography.bodySmall)
         }
         if (loading) item { CircularProgressIndicator() }
