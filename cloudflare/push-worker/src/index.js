@@ -207,8 +207,13 @@ export async function cleanupInvalidDevice(oauthToken, device, sendResult) {
   let error;
   try { error=(await sendResult.json())?.error; }
   catch { return false; }
-  const isUnregistered=error?.status==='UNREGISTERED'
-    && Number(error?.code)===404;
+  // Algumas respostas HTTP v1 usam status NOT_FOUND com detalhe FcmError.
+  // Nunca tratar NOT_FOUND sem o detalhe tipado como prova de token invalido.
+  const confirmedByDetail=Array.isArray(error?.details)
+    &&error.details.some(x=>x?.['@type']==='type.googleapis.com/google.firebase.fcm.v1.FcmError'
+      &&x.errorCode==='UNREGISTERED');
+  const isUnregistered=Number(error?.code)===404
+    &&(error?.status==='UNREGISTERED'||confirmedByDetail);
   if(!isUnregistered) return false;
   try {
     const params=new URLSearchParams({'currentDocument.updateTime':device.updateTime});
