@@ -1015,3 +1015,40 @@ test('provisionamento não acessa Google sem sinalizador e sem confirmação exa
     TEST_BOTS_ENABLED:'true'});
   assert.equal(unauthorized.status,401);
 });
+
+
+test('somente fundador administrador pode provisionar bots, não um administrador comum',async()=>{
+  const calls=[];
+  globalThis.fetch=async(input,opts={})=>{
+    const url=String(input);calls.push(url);
+    if(url.includes('identitytoolkit.googleapis.com/v1/accounts:lookup'))
+      return Response.json({users:[{localId:'admin_comum',disabled:false}]});
+    if(url==='https://oauth2.googleapis.com/token')
+      return Response.json({access_token:'oauth_test',expires_in:3600});
+    if(url.includes('/documents/admins/admin_comum'))
+      return Response.json(doc({enabled:true}));
+    if(url.includes('/documents/app_config/founder'))
+      return Response.json(doc({uid:'fundador_real'}));
+    throw Error('Provisionamento indevido tentou '+url);
+  };
+  const priv=await crypto.subtle.generateKey({
+    name:'RSASSA-PKCS1-v1_5',modulusLength:2048,
+    publicExponent:new Uint8Array([1,0,1]),hash:'SHA-256'
+  },true,['sign','verify']);
+  const key=await crypto.subtle.exportKey('pkcs8',priv.privateKey);
+  const service=JSON.stringify({project_id:'atrio-catolico',
+    client_email:'bot-test@atrio-catolico.iam.gserviceaccount.com',
+    private_key:'-----BEGIN PRIVATE KEY-----\n'+
+      Buffer.from(key).toString('base64')+'\n-----END PRIVATE KEY-----'});
+  const res=await worker.fetch(new Request('https://example.workers.dev/test-bots/provision',{
+    method:'POST',headers:{Authorization:'Bearer '+'t'.repeat(130)},
+    body:JSON.stringify({confirm:'create_three_test_bots_v1'}),
+  }),{TEST_BOTS_ENABLED:'true',FIREBASE_WEB_API_KEY:'test',
+    FIREBASE_SERVICE_ACCOUNT_JSON:service,PUSH_DB:{}});
+  assert.equal(res.status,403);
+  assert.deepEqual(await res.json(),{status:'founder_only'});
+  assert.ok(calls.some(x=>x.includes('app_config/founder')));
+  assert.ok(!calls.some(x=>x.includes('/accounts:lookup')));
+  assert.ok(!calls.some(x=>x.includes('/projects/atrio-catolico/accounts')));
+  assert.ok(!calls.some(x=>x.endsWith('documents:commit')));
+});
