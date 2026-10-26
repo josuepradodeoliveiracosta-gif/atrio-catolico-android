@@ -136,7 +136,8 @@ export async function threadParticipants(token, postId, actor, owner, replyTime)
     for(const doc of body.documents||[]) {
       const uid=stringField(doc,'uid');
       const time=timeField(doc,'createdAt');
-      if(uidPart(uid)&&uid!==actor&&time>0&&time<=replyTime+1000)
+      // Uma resposta criada depois deste evento não era participante ainda.
+      if(uidPart(uid)&&uid!==actor&&time>0&&time<=replyTime)
         users.add(uid);
       if(users.size>THREAD_MAX_RECIPIENTS) throw Error('thread_capacity');
     }
@@ -195,7 +196,18 @@ export async function resolveEvent(event, actor, token) {
         ||stringField(notice,'replyId')!==event.replyId) return null;
     }
     const replyTime=timeField(reply,'createdAt');
-    const recipients=await threadParticipants(token,event.postId,actor,owner,replyTime);
+    let recipients;
+    try {
+      recipients=await threadParticipants(token,event.postId,actor,owner,replyTime);
+    } catch(error) {
+      // Em discussão maior que os limites seguros do Worker Free, conservar
+      // o envio individual que funcionava para o criador, em vez de regressão
+      // total. Não alegar ter notificado todos os demais participantes.
+      if(error?.message==='thread_capacity'||error?.message==='thread_reply_limit')
+        return {key:'reply:'+event.postId+':'+event.replyId,
+          kind:'reply',recipients:owner===actor?[]:[owner],degraded:true};
+      throw error;
+    }
     return {key:'reply:'+event.postId+':'+event.replyId,kind:'reply',
       topic:'atrio_thread_'+event.postId,recipients,legacyOwner:owner===actor?null:owner,
       notice:{postId:event.postId,replyId:event.replyId,actorUid:actor,
@@ -402,6 +414,7 @@ export default {
       }
       if(event.recipients.length>(event.topic?THREAD_MAX_RECIPIENTS:MAX_ADMINS))
         return response(503,'capacity_limit');
+      if(event.degraded) await auditDelivery(env,'thread','capacity_fallback');
       // Em caso de falha do fan-out de avisos internos, preservar o Push
       // individual que já funciona na versão anterior.
       let fanoutOk=true;
