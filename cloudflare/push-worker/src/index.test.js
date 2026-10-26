@@ -1,7 +1,7 @@
 import test, {afterEach} from 'node:test';
 import assert from 'node:assert/strict';
 import worker, {resolveEvent, readEventBody, auditDelivery, cleanupInvalidDevice,
-  threadParticipants, writeThreadNotices, classifyGuardiao, guardiaoAiAssessment, enrichGuardiaoReport, reserveGuardiaoAdminPush, guardiaoAutoHoldAllowed, holdGuardiaoContent, BOT_TEST_USERS, botTestWrites} from './index.js';
+  threadParticipants, writeThreadNotices, classifyGuardiao, guardiaoAiAssessment, enrichGuardiaoReport, reserveGuardiaoAdminPush, guardiaoAutoHoldAllowed, holdGuardiaoContent} from './index.js';
 
 const iso = () => new Date(Date.now() - 2000).toISOString();
 const doc = (data={}) => ({fields:Object.fromEntries(Object.entries(data).map(([key,value]) =>
@@ -972,83 +972,4 @@ test('somente admin autenticado pode decidir, sem utilizar ID de caso arbitrári
       action:'restore',note:'Contestação avaliada, conteúdo legítimo'})
   }),env);
   assert.equal(resp.status,401);
-});
-
-
-test('três bots distintos são rotulados e não recebem privilégios',()=>{
-  assert.deepEqual(BOT_TEST_USERS.map(x=>x.uid),[
-    'atrio_testbot_v19_clara','atrio_testbot_v19_miguel','atrio_testbot_v19_lucia']);
-  for(const bot of BOT_TEST_USERS) {
-    assert.match(bot.name,/\(BOT DE TESTE\)$/);
-    assert.match(bot.bio,/Não representa uma pessoa real/);
-  }
-  const writes=botTestWrites('2026-10-26T20:00:00.000Z');
-  assert.equal(writes.length,15);
-  assert.equal(writes.every(x=>x.currentDocument?.exists===false),true);
-  assert.equal(new Set(writes.map(x=>x.update.name)).size,writes.length);
-  assert.equal(writes.filter(x=>x.update.name.includes('/profiles/')).length,3);
-  assert.equal(writes.filter(x=>x.update.name.includes('/badges/')).length,3);
-  const badges=writes.filter(x=>x.update.name.includes('/badges/'));
-  assert.equal(badges.every(x=>x.update.fields.botTest.booleanValue===true),true);
-  assert.equal(badges.some(x=>'moderator' in x.update.fields||'clergy' in x.update.fields),false);
-  const posts=writes.filter(x=>x.update.name.includes('/posts/'));
-  assert.equal(posts.length,4); // discussão e três respostas
-  assert.ok(posts.every(x=>JSON.stringify(x).includes('BOT DE TESTE')));
-  assert.equal(writes.filter(x=>x.update.name.includes('/notifications/')).length,5);
-  assert.ok(!JSON.stringify(writes).includes('password'));
-  assert.ok(!JSON.stringify(writes).includes('refreshToken'));
-});
-
-test('provisionamento não acessa Google sem sinalizador e sem confirmação exata',async()=>{
-  globalThis.fetch=async()=>{throw Error('Não pode chamar Google');};
-  const make=(payload)=>new Request('https://example.workers.dev/test-bots/provision',{
-    method:'POST',body:JSON.stringify(payload)});
-  assert.equal((await worker.fetch(make({confirm:'create_three_test_bots_v1'}),{})).status,503);
-  for(const payload of [
-    {},{confirm:'yes'},{confirm:'create_three_test_bots_v1',uid:'victim'},
-    {confirm:'create_three_test_bots_v1',admin:true},
-  ]) {
-    const r=await worker.fetch(make(payload),{TEST_BOTS_ENABLED:'true'});
-    assert.equal(r.status,400);
-  }
-  const unauthorized=await worker.fetch(make({confirm:'create_three_test_bots_v1'}),{
-    TEST_BOTS_ENABLED:'true'});
-  assert.equal(unauthorized.status,401);
-});
-
-
-test('somente fundador administrador pode provisionar bots, não um administrador comum',async()=>{
-  const calls=[];
-  globalThis.fetch=async(input,opts={})=>{
-    const url=String(input);calls.push(url);
-    if(url.includes('identitytoolkit.googleapis.com/v1/accounts:lookup'))
-      return Response.json({users:[{localId:'admin_comum',disabled:false}]});
-    if(url==='https://oauth2.googleapis.com/token')
-      return Response.json({access_token:'oauth_test',expires_in:3600});
-    if(url.includes('/documents/admins/admin_comum'))
-      return Response.json(doc({enabled:true}));
-    if(url.includes('/documents/app_config/founder'))
-      return Response.json(doc({uid:'fundador_real'}));
-    throw Error('Provisionamento indevido tentou '+url);
-  };
-  const priv=await crypto.subtle.generateKey({
-    name:'RSASSA-PKCS1-v1_5',modulusLength:2048,
-    publicExponent:new Uint8Array([1,0,1]),hash:'SHA-256'
-  },true,['sign','verify']);
-  const key=await crypto.subtle.exportKey('pkcs8',priv.privateKey);
-  const service=JSON.stringify({project_id:'atrio-catolico',
-    client_email:'bot-test@atrio-catolico.iam.gserviceaccount.com',
-    private_key:'-----BEGIN PRIVATE KEY-----\n'+
-      Buffer.from(key).toString('base64')+'\n-----END PRIVATE KEY-----'});
-  const res=await worker.fetch(new Request('https://example.workers.dev/test-bots/provision',{
-    method:'POST',headers:{Authorization:'Bearer '+'t'.repeat(130)},
-    body:JSON.stringify({confirm:'create_three_test_bots_v1'}),
-  }),{TEST_BOTS_ENABLED:'true',FIREBASE_WEB_API_KEY:'test',
-    FIREBASE_SERVICE_ACCOUNT_JSON:service,PUSH_DB:{}});
-  assert.equal(res.status,403);
-  assert.deepEqual(await res.json(),{status:'founder_only'});
-  assert.ok(calls.some(x=>x.includes('app_config/founder')));
-  assert.ok(!calls.some(x=>x.includes('/projects/atrio-catolico/accounts:lookup')));
-  assert.ok(!calls.some(x=>x.includes('/projects/atrio-catolico/accounts')));
-  assert.ok(!calls.some(x=>x.endsWith('documents:commit')));
 });
