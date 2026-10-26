@@ -54,8 +54,8 @@ def api(path):
     return json.loads(run(["gh", "api", "--method", "GET", f"repos/{REPO}/{path}"]))
 
 
-def remote_gradle():
-    content = api(f"contents/{GRADLE}?ref=main")
+def remote_gradle(sha):
+    content = api(f"contents/{GRADLE}?ref={sha}")
     encoded = content.get("content")
     if content.get("encoding") != "base64" or not encoded:
         raise RuntimeError("GitHub não forneceu conteúdo verificável da main")
@@ -65,17 +65,26 @@ def remote_gradle():
 def status_remoto():
     branch = api("branches/main")
     sha = branch["commit"]["sha"]
-    code, name = parse_gradle(remote_gradle())
-    runs = api("actions/runs?branch=main&per_page=10").get("workflow_runs", [])
+    code, name = parse_gradle(remote_gradle(sha))
+    runs = api(f"actions/workflows/build-apk.yml/runs?branch=main&head_sha={sha}&per_page=100").get("workflow_runs", [])
     builds = [r for r in runs if r.get("head_sha") == sha
-              and r.get("name") == "Gerar APK do Atrio Catolico"]
-    build = builds[0] if builds else None
+              and r.get("head_branch") == "main"]
+    build = max(builds, key=lambda r: r["id"]) if builds else None
+    artifact = None
+    if build and build.get("status") == "completed" and build.get("conclusion") == "success":
+        artifacts = api(f"actions/runs/{build['id']}/artifacts?name=atrio-catolico-release-assinado&per_page=100")
+        artifact = next((a for a in artifacts.get("artifacts", [])
+                         if a.get("name") == "atrio-catolico-release-assinado"
+                         and a.get("expired") is False and a.get("size_in_bytes", 0) > 0
+                         and a.get("workflow_run", {}).get("head_sha") == sha), None)
     pulls = api("pulls?state=open&per_page=40")
     return {
         "fonte": "GitHub main, consultado agora",
         "versionName": name,
         "versionCode": code,
         "commit": sha,
+        "apk_disponivel": artifact is not None,
+        "artefato": {"id": artifact["id"], "nome": artifact["name"]} if artifact else None,
         "build": {
             "status": build.get("status"),
             "conclusao": build.get("conclusion"),
@@ -95,12 +104,17 @@ def main():
                        help="Mostra a versão nesta cópia (não necessariamente a atual)")
     group.add_argument("--validate-base", action="store_true",
                        help="CI: impede regressão perante origin/main")
+    parser.add_argument("--base-ref", default="origin/main",
+                        help="Referência de comparação usada com --validate-base")
     args = parser.parse_args()
 
     try:
-        current = parse_gradle((ROOT / GRADLE).read_text(encoding="utf-8"))
+        if args.validate_base or args.local:
+            current = parse_gradle((ROOT / GRADLE).read_text(encoding="utf-8"))
         if args.validate_base:
-            previous = parse_gradle(run(["git", "show", f"origin/main:{GRADLE}"]))
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_./-]*", args.base_ref):
+                raise ValueError("Referência de comparação inválida")
+            previous = parse_gradle(run(["git", "show", f"{args.base_ref}:{GRADLE}"]))
             compare_versions(current, previous)
             print(f"OK: {current[1]} (code {current[0]}) sem regressão ante "
                   f"{previous[1]} (code {previous[0]})")
@@ -119,6 +133,11 @@ def main():
                 print(f"Build: {build['url']}")
             else:
                 print("Compilação deste commit: NÃO CONFIRMADA")
+            if data["apk_disponivel"]:
+                print("APK RELEASE DISPONÍVEL: artefato não expirado do mesmo commit.")
+                print("A existência do artefato não comprova instalação nem valida sua assinatura.")
+            else:
+                print("APK RELEASE deste commit: NÃO CONFIRMADO como disponível.")
             print("PROPOSTAS ABERTAS (não são a versão integrada):")
             for pr in data["propostas"]:
                 print(f"  #{pr['numero']}: {pr['titulo']} "
@@ -134,3 +153,4 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+
