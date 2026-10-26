@@ -473,6 +473,9 @@ private fun OnlineCommunity(
             ))
         }
         batch.commit().addOnCompleteListener { result ->
+            if (result.isSuccessful && post.ownerUid.isNotBlank() && post.ownerUid != uid) {
+                InstantPushRelay.reply(id, replyRef.id)
+            }
             done(result.isSuccessful)
             if (!result.isSuccessful) {
                 message = result.exception?.localizedMessage ?: "Não foi possível responder. Confira as regras."
@@ -709,6 +712,7 @@ private fun OnlineCommunity(
                     "postId" to id, "reporterUid" to uid,
                     "reason" to reason.trim(), "createdAt" to FieldValue.serverTimestamp()
                 )).addOnCompleteListener { result ->
+                    if (result.isSuccessful) result.result?.id?.let { InstantPushRelay.report(it) }
                     message = if (result.isSuccessful) "Denúncia enviada para análise da moderação." else
                         result.exception?.localizedMessage ?: "Falha ao enviar denúncia."
                 }
@@ -789,7 +793,10 @@ private fun ReplyReportDialog(
                     "createdAt" to FieldValue.serverTimestamp()
                 )).addOnCompleteListener { result ->
                     busy = false
-                    if (result.isSuccessful) onSuccess()
+                    if (result.isSuccessful) {
+                        result.result?.id?.let { InstantPushRelay.report(it) }
+                        onSuccess()
+                    }
                     else failure = "Não foi possível enviar. Confira a conexão e tente novamente. " +
                         "A resposta ou a discussão pode ter sido removida."
                 }
