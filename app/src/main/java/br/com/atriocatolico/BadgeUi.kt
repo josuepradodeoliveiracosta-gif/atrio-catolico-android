@@ -25,13 +25,15 @@ internal val LocalFounderUid = compositionLocalOf { "" }
 private data class PublicBadges(
     val lay: String = "",
     val clergy: String = "",
-    val moderator: Boolean = false
+    val moderator: Boolean = false,
+    val botTest: Boolean = false
 )
 
 private fun DocumentSnapshot?.asPublicBadges() = PublicBadges(
     lay = this?.getString("lay").orEmpty(),
     clergy = this?.getString("clergy").orEmpty(),
-    moderator = this?.getBoolean("moderator") == true
+    moderator = this?.getBoolean("moderator") == true,
+    botTest = this?.getBoolean("botTest") == true
 )
 
 private data class BadgeDescription(
@@ -48,6 +50,10 @@ private data class BadgeDescription(
 )
 
 private fun listBadges(value: PublicBadges, founder: Boolean): List<BadgeDescription> = buildList {
+    if (value.botTest) add(BadgeDescription(
+        "🤖", "Bot de teste", "Identidade automatizada de testes. Não é uma pessoa real.",
+        Color(0xFF315C91)
+    ))
     if (founder) add(BadgeDescription(
         "⛪", "Fundador", "Conta oficial do criador do Átrio Católico.", Color(0xFF927020), isFounder = true
     ))
@@ -59,7 +65,7 @@ private fun listBadges(value: PublicBadges, founder: Boolean): List<BadgeDescrip
     }
     if (value.moderator) add(BadgeDescription("⬟", "Moderador",
         "Identificação atribuída pela administração da comunidade.", Color(0xFF315C91), isModerator = true))
-    if (value.clergy.isBlank()) {
+    if (value.clergy.isBlank() && !value.botTest) {
         when (value.lay) {
             "leigo" -> add(BadgeDescription("◈", "Leigo",
                 "Identificação opcional declarada pelo próprio membro.", Muted, isLayMale = true))
