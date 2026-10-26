@@ -21,8 +21,9 @@ import com.google.firebase.firestore.Query
 private data class ModerationReport(
     val id: String, val postId: String, val reason: String,
     val status: String, val reviewNote: String, val reviewedBy: String,
-    val replyId: String?
+    val replyId: String?, val source: String = ""
 ) {
+    val fromGuardiao: Boolean get() = source == "guardiao"
     val isReply: Boolean get() = replyId != null
     val kind: String get() = if (isReply) "Resposta" else "Publicação"
 }
@@ -76,7 +77,8 @@ internal fun ModerationScreen(db: FirebaseFirestore, uid: String, onBack: () -> 
                         reports = snapshot?.documents?.take(limit)?.map {
                             ModerationReport(it.id, it.getString("postId").orEmpty(),
                                 it.getString("reason").orEmpty(), it.getString("status") ?: "pending",
-                                it.getString("reviewNote").orEmpty(), it.getString("reviewedBy").orEmpty(), it.getString("replyId"))
+                                it.getString("reviewNote").orEmpty(), it.getString("reviewedBy").orEmpty(),
+                                it.getString("replyId"), it.getString("source").orEmpty())
                         } ?: emptyList()
                     }
                 }
@@ -96,7 +98,7 @@ internal fun ModerationScreen(db: FirebaseFirestore, uid: String, onBack: () -> 
         LazyColumn(Modifier.fillMaxSize().padding(insets), contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
-                Text("Analise o conteúdo antes de decidir. Uma denúncia não remove o conteúdo automaticamente.", color = Muted)
+                Text("Analise o conteúdo antes de decidir. O Átrio Guardião apenas sinaliza possíveis violações; não exclui conteúdos automaticamente.", color = Muted)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(!showReviewed, { showReviewed = false }, label = { Text("Pendentes") })
                     FilterChip(showReviewed, { showReviewed = true }, label = { Text("Analisadas") })
@@ -109,8 +111,11 @@ internal fun ModerationScreen(db: FirebaseFirestore, uid: String, onBack: () -> 
             items(shown, key = { it.id }) { report ->
                 Card(onClick = { selectedId = report.id }, modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Denúncia de ${report.kind.lowercase()}", color = Wine)
+                        Text(if (report.fromGuardiao) "🛡 Átrio Guardião · ${report.kind}"
+                            else "Denúncia de ${report.kind.lowercase()}", color = Wine)
                         Text(report.reason)
+                        if (report.fromGuardiao) Text("Sinalização automática — análise humana obrigatória.",
+                            fontSize = 12.sp, color = Muted)
                         Text(when (report.status) {
                             "removed" -> "Analisada — ${report.kind.lowercase()} removida"
                             "dismissed" -> "Analisada — encerrada sem remoção"
@@ -220,6 +225,8 @@ private fun ReportReviewDialog(
         title = { Text("Analisar ${report.kind.lowercase()}") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (report.fromGuardiao) Text("Átrio Guardião: sugestão automática, não decisão.",
+                    color = Wine, fontSize = 12.sp)
                 Text("Motivo: ${report.reason}")
                 if (report.isReply) Text(parentContext, fontSize = 12.sp, color = Muted)
                 when {
