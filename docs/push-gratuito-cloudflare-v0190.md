@@ -84,3 +84,11 @@ https://firebase.google.com/docs/reference/rest/auth
 - Branch atualizada com orientações AGENTS.md e correções de consulta de versão da main. A principal permanece 0.18.0 até concluir a ativação/teste da 0.19.0.
 
 A conferência HTTP externa neste ambiente retornou 503 de conexão upstream, não a resposta JSON do Worker. A API Cloudflare confirma o subdomínio habilitado; validar /health por outra conexão antes de ativar o envio.
+
+## Continuidade da configuração (26/10/2026)
+- Proprietário confirmou pelo painel os planos Cloudflare Workers Free e Firebase Spark.
+- Worker `atrio-push` passou a ter `FIREBASE_SERVICE_ACCOUNT_JSON` e `FIREBASE_WEB_API_KEY` cadastradas como `secret_text`, além de `PUSH_DB` D1; `PUSH_ENABLED=false` foi preservado.
+- Usuário verificou `GET /health` em seu navegador e recebeu `{"status":"disabled"}`. Isso comprova alcance do endpoint, não o envio de mensagens FCM.
+- A integração GitHub conectada não oferece edição de variáveis de Actions nas configurações. Como alternativa funcional, **somente na branch 0.19.0**, os workflows `build-apk.yml` e `selos-ci.yml` usam a URL `https://atrio-push.atrio-catolico.workers.dev` como valor padrão de `ATRIO_PUSH_WORKER_URL`; uma variável GitHub Actions com esse nome, se adicionada futuramente, continua tendo prioridade.
+- **Nenhuma variável de Actions foi criada nas configurações** e nenhum APK de produção foi publicado por esta alteração.
+- O envio push segue DESATIVADO; ainda faltam testes integrados com contas reais, revisão de segurança das credenciais e aprovação do merge antes da publicação 0.19.0.
