@@ -100,6 +100,7 @@ internal object InstantPushRelay {
                                     "ignored" -> "Cloudflare ignorou o evento após validar o Firestore."
                                     "unauthorized" -> "Sessão do Firebase recusada pelo Cloudflare."
                                     "delivery_failed" -> "Firebase FCM recusou a entrega."
+                                    "fanout_failed" -> "Avisos dos participantes incompletos no Firestore; Push enviado quando possível."
                                     "unavailable" -> "Cloudflare ou integração com Firebase indisponível."
                                     "disabled" -> "Envio de Push desativado no servidor."
                                     "capacity_limit" -> "Limite de destinatários no servidor."
