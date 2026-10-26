@@ -30,7 +30,7 @@ android {
         val relayUrl = System.getenv("ATRIO_PUSH_WORKER_URL").orEmpty()
         val allowed = Regex("^https://[a-zA-Z0-9-]+\\.[a-zA-Z0-9-]+\\.workers\\.dev$")
         require(relayUrl.isBlank() || allowed.matches(relayUrl)) { "ATRIO_PUSH_WORKER_URL invalida" }
-        buildConfigField("String", "PUSH_RELAY_URL", "\\\"$relayUrl\\\"")
+        buildConfigField("String", "PUSH_RELAY_URL", "\"$relayUrl\"")
     }
 
     signingConfigs {
