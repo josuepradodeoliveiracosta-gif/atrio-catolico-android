@@ -241,6 +241,21 @@ try {
   const b=writeBatch(bob);b.set(doc(bob,'posts/p2/replies/answer'),{uid:'bob',authorName:'Bob',body:'Resposta de teste',createdAt:serverTimestamp()});
   b.set(doc(bob,'users/alice/notifications/answer'),{postId:'p2',replyId:'answer',actorUid:'bob',actorName:'Bob',read:false,createdAt:serverTimestamp()});await assertSucceeds(b.commit());
  });
+ // Notification center: reads/deletes never cross account boundaries.
+ await test('destinatário consulta seus avisos',()=>assertSucceeds(getDocs(collection(alice,'users/alice/notifications'))));
+ await test('remetente não consulta avisos do destinatário',()=>assertFails(getDocs(collection(bob,'users/alice/notifications'))));
+ await test('administrador não consulta avisos pessoais alheios',()=>assertFails(getDocs(collection(admin,'users/alice/notifications'))));
+ await test('remetente não marca aviso alheio como lido',()=>assertFails(updateDoc(doc(bob,'users/alice/notifications/answer'),{read:true})));
+ await test('destinatário marca lote de avisos como lido',async()=>{
+  const b=writeBatch(alice);b.update(doc(alice,'users/alice/notifications/answer'),{read:true});await assertSucceeds(b.commit());
+  assert.equal((await getDoc(doc(alice,'users/alice/notifications/answer'))).data().read,true);
+ });
+ await test('leitura não permite modificar autoria do aviso',()=>assertFails(updateDoc(doc(alice,'users/alice/notifications/answer'),{actorName:'Falso'})));
+ await test('terceiro não dispensa aviso alheio',()=>assertFails(deleteDoc(doc(bob,'users/alice/notifications/answer'))));
+ await test('dispensar aviso mantém a resposta',async()=>{
+  await assertSucceeds(deleteDoc(doc(alice,'users/alice/notifications/answer')));
+  assert.equal((await getDoc(doc(alice,'posts/p2/replies/answer'))).exists(),true);
+ });
  await test('administrador não lê biografia privada alheia',()=>assertFails(getDoc(doc(admin,'profiles/alice'))));
  await test('autor ainda exclui sua publicação',()=>assertSucceeds(deleteDoc(doc(alice,'posts/p3'))));
 
@@ -326,3 +341,4 @@ try {
  await test('revogação impede analisar denúncia de resposta',()=>assertFails(updateDoc(doc(admin,'reports/rr5'),replyReview())));
  console.log(`RESULTADO: ${passed} testes aprovados.`);
 } finally { await env.cleanup(); }
+

@@ -53,4 +53,5 @@ jobs:
       - name: Validar configuracao Firebase
         run: python3 scripts/validar_firebase.py
       - name: Compilar sem alterar a assinatura de producao
-        run: gradle :app:assembleDebug --no-daemon --stacktrace
+        run: gradle :app:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace
+

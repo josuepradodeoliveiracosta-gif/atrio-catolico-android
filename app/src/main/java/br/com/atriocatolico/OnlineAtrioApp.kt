@@ -35,15 +35,6 @@ import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.FieldValue
 import java.util.concurrent.TimeUnit
 
-/** Notificações são exibidas dentro do aplicativo, não são push do Android. */
-private data class ReplyNotice(
-    val id: String,
-    val postId: String,
-    val actorName: String,
-    val read: Boolean,
-    val age: String
-)
-
 /**
  * O modo conectado só é exibido se um google-services.json válido estiver instalado.
  * Nenhuma chave nem projeto Firebase é embutido no repositório de exemplo.
@@ -248,17 +239,16 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
             }, modifier = Modifier.fillMaxWidth()) { Text("Começar") }
             TextButton(onClick = { auth.signOut() }) { Text("Sair desta conta") }
         }
-    } else if (moderationOpen && isAdmin) {
-        ModerationScreen(db, uid, onBack = { moderationOpen = false })
-    } else if (clergyReviewOpen && isAdmin) {
-        ClergyBadgeReviewScreen(db, uid, onBack = { clergyReviewOpen = false })
     } else {
         CompositionLocalProvider(LocalFounderUid provides founderUid) {
         OnlineCommunity(db = db, uid = uid, name = name!!, email = user.email.orEmpty(),
             biography = biography,
+            visible = !(isAdmin && (moderationOpen || clergyReviewOpen)),
             onModeration = if (isAdmin) ({ moderationOpen = true }) else null,
             onClergyReview = if (isAdmin) ({ clergyReviewOpen = true }) else null,
             onSignOut = { auth.signOut() })
+        if (moderationOpen && isAdmin) ModerationScreen(db, uid, onBack = { moderationOpen = false })
+        else if (clergyReviewOpen && isAdmin) ClergyBadgeReviewScreen(db, uid, onBack = { clergyReviewOpen = false })
         if (error.isNotBlank()) {
             // Erros são comunicados sem impedir que o usuário continue a navegar.
             LaunchedEffect(error) { Toast.makeText(context, error, Toast.LENGTH_LONG).show(); error = "" }
@@ -270,14 +260,17 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
 @Composable
 private fun OnlineCommunity(
     db: FirebaseFirestore, uid: String, name: String, email: String, biography: String,
-    onSignOut: () -> Unit, onModeration: (() -> Unit)?,
+    visible: Boolean, onSignOut: () -> Unit, onModeration: (() -> Unit)?,
     onClergyReview: (() -> Unit)?
 ) {
     val context = LocalContext.current
     var sourcePosts by remember(uid) { mutableStateOf<List<Post>>(emptyList()) }
     var likedIds by remember(uid) { mutableStateOf<Set<String>>(emptySet()) }
     var savedIds by remember(uid) { mutableStateOf<Set<String>>(emptySet()) }
-    var notices by remember(uid) { mutableStateOf<List<ReplyNotice>>(emptyList()) }
+    val notificationAdmin = onModeration != null && onClergyReview != null
+    val inbox = rememberNotificationInbox(db, uid, notificationAdmin)
+    var noticeBadgesOpen by remember(uid) { mutableStateOf(false) }
+    var returnToNotices by remember(uid) { mutableStateOf(false) }
     var noticesOpen by remember(uid) { mutableStateOf(false) }
     var message by remember(uid) { mutableStateOf("") }
     var tab by remember { mutableStateOf(Tab.HOME) }
@@ -352,21 +345,7 @@ private fun OnlineCommunity(
                     savedIds = savedOrder.toSet()
                 }
             }
-        val notifications = db.collection("users").document(uid).collection("notifications")
-            .orderBy("createdAt", Query.Direction.DESCENDING).limit(100)
-            .addSnapshotListener { data, failure ->
-                if (failure != null) message = "Notificações indisponíveis: ${failure.localizedMessage}"
-                else notices = data?.documents?.map { item ->
-                    ReplyNotice(
-                        id = item.id,
-                        postId = item.getString("postId").orEmpty(),
-                        actorName = item.getString("actorName") ?: "Alguém",
-                        read = item.getBoolean("read") ?: false,
-                        age = timestampLabel(item.getTimestamp("createdAt"))
-                    )
-                } ?: emptyList()
-            }
-        onDispose { likes.remove(); saves.remove(); notifications.remove() }
+        onDispose { likes.remove(); saves.remove() }
     }
     // Os salvos carregam os documentos por ID, sem depender do feed.
     val visibleSavedIds = if (tab == Tab.SAVED && detailId == null && !noticesOpen)
@@ -440,6 +419,7 @@ private fun OnlineCommunity(
     }
     fun navigate(destination: Tab) {
         tab = destination; detailId = null; noticesOpen = false
+        noticeBadgesOpen = false; returnToNotices = false
         filter = "Todos"; search = ""; searchOpen = false
     }
     fun toggle(kind: String, id: String, currentlyActive: Boolean) {
@@ -495,52 +475,57 @@ private fun OnlineCommunity(
             }
         }
     }
-    fun markNoticeRead(notice: ReplyNotice) {
-        if (!notice.read) db.collection("users").document(uid).collection("notifications")
-            .document(notice.id).update("read", true)
-            .addOnFailureListener { message = it.localizedMessage ?: "Falha ao marcar como lida." }
+    fun closeNoticeDestination() {
+        if (detailId != null || noticeBadgesOpen) {
+            detailId = null
+            noticeBadgesOpen = false
+            noticesOpen = returnToNotices
+            returnToNotices = false
+        } else noticesOpen = false
     }
-    fun removeNotice(notice: ReplyNotice) {
-        db.collection("users").document(uid).collection("notifications")
-            .document(notice.id).delete()
-            .addOnFailureListener { message = it.localizedMessage ?: "Falha ao remover notificação." }
-    }
-    BackHandler(enabled = detailId != null || noticesOpen) {
-        if (detailId != null) detailId = null else noticesOpen = false
-    }
+    // Preserve the central state while the separate admin panel is displayed.
+    if (!visible) return
+    BackHandler(enabled = detailId != null || noticesOpen || noticeBadgesOpen) { closeNoticeDestination() }
 
     Scaffold(containerColor = Paper, topBar = {
         AtrioTopBar(
-            details = detailId != null || noticesOpen,
-            detailsTitle = if (noticesOpen) "Notificações" else "Discussão",
-            unreadCount = notices.count { !it.read },
-            onBack = { if (detailId != null) detailId = null else noticesOpen = false },
+            details = detailId != null || noticesOpen || noticeBadgesOpen,
+            detailsTitle = if (noticeBadgesOpen) "Meus selos" else if (noticesOpen) "Notificações" else "Discussão",
+            unreadCount = inbox.groups(notificationAdmin).count { it.unread },
+            onBack = ::closeNoticeDestination,
             onSearch = { val open = !searchOpen; navigate(Tab.HOME); searchOpen = open },
-            onNotification = { detailId = null; noticesOpen = !noticesOpen; searchOpen = false }
+            onNotification = { detailId = null; noticeBadgesOpen = false; returnToNotices = false; noticesOpen = !noticesOpen; searchOpen = false }
         )
     }, bottomBar = { AtrioBottomBar(selected = tab, onSelect = ::navigate) }) { inset ->
         Box(Modifier.padding(inset)) {
             val detail = openedPost?.copy(liked = detailId in likedIds, saved = detailId in savedIds)
-            if (noticesOpen) {
-                ReplyNotificationScreen(
-                    notices = notices,
-                    postTitles = posts.associate { it.id to it.title },
+            if (noticeBadgesOpen) {
+                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    item { MemberBadgeRow(uid, Modifier.fillMaxWidth(), centered = true) }
+                    item { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { BadgeSettings(uid) } }
+                }
+            } else if (noticesOpen) {
+                NotificationCenter(inbox, notificationAdmin, posts.associate { it.id to it.title },
                     onOpen = { notice ->
-                        markNoticeRead(notice)
-                        noticesOpen = false
-                        detailId = notice.postId
-                    },
-                    onRead = ::markNoticeRead,
-                    onRemove = ::removeNotice,
-                    onBack = { noticesOpen = false }
-                )
+                        when (notice.kind) {
+                            NoticeKind.REPLY -> {
+                                noticesOpen = false; returnToNotices = true; detailId = notice.target
+                            }
+                            NoticeKind.REVIEW -> {
+                                noticesOpen = false; returnToNotices = true; noticeBadgesOpen = true
+                            }
+                            NoticeKind.REPORTS -> onModeration?.invoke()
+                            NoticeKind.REQUESTS -> onClergyReview?.invoke()
+                        }
+                    })
             } else if (detailId != null && detail == null) {
                 if (detailLoading) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 } else EmptyState("📖", if (detailError) "Não foi possível abrir" else "Discussão removida",
                     if (detailError) "Confira sua conexão e tente novamente." else "Esta publicação não está mais disponível.",
                     if (detailError) "Tentar novamente" else "Voltar",
-                    { if (detailError) detailRetry++ else detailId = null })
+                    { if (detailError) detailRetry++ else closeNoticeDestination() })
             } else if (detail != null) {
                 DetailScreen(detail.copy(replies = detailReplies), name,
                     onLike = { toggle("likedPosts", detail.id, detail.liked) },
@@ -734,63 +719,6 @@ private fun OnlineCommunity(
 }
 
 
-@Composable
-private fun ReplyNotificationScreen(
-    notices: List<ReplyNotice>, postTitles: Map<String, String>,
-    onOpen: (ReplyNotice) -> Unit, onRead: (ReplyNotice) -> Unit,
-    onRemove: (ReplyNotice) -> Unit, onBack: () -> Unit
-) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        item {
-            Text("Respostas recebidas", fontSize = 24.sp,
-                fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, color = Wine)
-            Text("Avisos dentro do aplicativo, disponíveis enquanto você estiver conectado.",
-                fontSize = 12.sp, color = Muted)
-        }
-        if (notices.isEmpty()) {
-            item {
-                EmptyState("🔔", "Nenhuma notificação",
-                    "Quando outra pessoa responder a uma de suas discussões, o aviso aparecerá aqui.",
-                    "Voltar", onBack)
-            }
-        } else {
-            items(notices, key = { it.id }) { notice ->
-                Card(
-                    onClick = { onOpen(notice) },
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (notice.read) Color.White else WineSoft
-                    ),
-                    shape = RoundedCornerShape(16.dp),
-                    border = BorderStroke(1.dp, Line)
-                ) {
-                    Column(Modifier.fillMaxWidth().padding(16.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("${notice.actorName} respondeu à sua discussão",
-                                modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold, color = Ink)
-                            if (!notice.read) Badge { Text("Nova") }
-                        }
-                        Spacer(Modifier.height(5.dp))
-                        Text(postTitles[notice.postId] ?: "Toque para abrir a discussão",
-                            color = Wine, fontSize = 13.sp)
-                        Spacer(Modifier.height(5.dp))
-                        Text(notice.age, color = Muted, fontSize = 12.sp)
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            if (!notice.read) {
-                                TextButton(onClick = { onRead(notice) }) { Text("Marcar como lida") }
-                            }
-                            TextButton(onClick = { onRemove(notice) }) { Text("Dispensar") }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
 private fun timestampLabel(timestamp: Timestamp?): String {
     if (timestamp == null) return "agora"
     val elapsed = (System.currentTimeMillis() - timestamp.toDate().time).coerceAtLeast(0)
@@ -866,4 +794,5 @@ private fun ReplyReportDialog(
         dismissButton = { TextButton(enabled = !busy, onClick = onClose) { Text("Cancelar") } }
     )
 }
+
 
