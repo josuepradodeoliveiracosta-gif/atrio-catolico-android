@@ -176,9 +176,10 @@ class AtrioBackgroundNoticeWorker(
             BackgroundNoticeScheduler.completed(context, uid, now, pending)
             return Result.success()
         } catch (_: Exception) {
-            // No partial checkpoint; a later run may recover missed events.
-            // Never log UIDs, notification bodies or tokens.
-            return Result.retry()
+            // A falha nao avanca o checkpoint. Aguarda o proximo periodo normal
+            // em vez de tentar repetidamente e esgotar a cota gratuita.
+            // Nunca registrar UIDs, corpos de mensagens ou tokens.
+            return Result.success()
         }
     }
 }
