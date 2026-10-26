@@ -155,3 +155,11 @@ O Worker está provisionado e recebe GET /health; as duas credenciais estão cad
 6. Confirmar resposta `accepted_by_fcm` apenas como aceite do FCM e observar aparelhos reais; confirmar frequência e permissão, e desligar de novo caso necessário.
 
 **Estado no repositório**: código preparado em PR #15. O Worker publicado deve continuar sem o endpoint novo até conclusão da homologação. O Worker de push individual pode permanecer ativado independentemente.
+
+## Ativação do endpoint de comunicados gerais em 26/10/2026
+- Mediante pedido explícito do proprietário, o novo código de `src/index.js` foi publicado em `atrio-push` via API Cloudflare, com herança estrita dos bindings anteriores e inicialmente `BROADCAST_ENABLED=false`.
+- A API confirmou deployment da nova versão em 100% do tráfego, `PUSH_ENABLED=true` (eventos individuais) e depois `BROADCAST_ENABLED=true` (comunicados gerais). As duas credenciais Firebase seguem `secret_text`, o D1 segue vinculado.
+- `POST /broadcast` exige usuário autenticado, `admins/{uid}.enabled=true` e `app_config/founder.uid` coincidente, confirma título/mensagem na interface e aplica cooldown atômico no D1 (um comunicado por hora). Chave `BROADCAST_ENABLED` permite desligar somente comunicados gerais, preservando push individual.
+- Após ativação, consulta D1 encontrou **zero tentativas de comunicado geral**. **Nenhuma mensagem foi enviada nesta etapa.** Não confundir habilitação do endpoint ou aceite FCM com entrega efetiva ao aparelho.
+- Alcance não é literalmente todos os usuários: somente versões do app com inscrição no tópico `atrio_comunicados_v1`, notificações habilitadas e aparelho com FCM funcional podem mostrar o aviso. A 0.18.0 não contém esse mecanismo e precisa de atualização futura.
+- Os testes de CI da PR ficaram verdes antes da implantação; teste real de entrega do comunicado a um aparelho permanece pendente. PR #15 continua aberta, sem merge nem release de produção.
