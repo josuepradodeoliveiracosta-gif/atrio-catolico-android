@@ -40,6 +40,7 @@ internal enum class PushRegistrationProblem {
 internal object PushRegistry {
     private const val PREFS = "atrio_push_devices"
     private const val CHANNEL = "atrio_avisos"
+    private const val COMMUNICATION_TOPIC = "atrio_comunicados_v1"
 
     // Exibe somente categorias conhecidas; jamais a mensagem bruta da exceção.
     private fun diagnoseFcm(context: Context, error: Throwable?): PushRegistrationProblem {
@@ -109,7 +110,20 @@ internal object PushRegistry {
                     if (FirebaseAuth.getInstance().currentUser?.uid != uid || !enabled(context, uid)) {
                         done(false, PushRegistrationProblem.SESSION_CHANGED)
                     } else if (result.isSuccessful) {
-                        done(true, null)
+                        FirebaseMessaging.getInstance().subscribeToTopic(COMMUNICATION_TOPIC)
+                            .addOnCompleteListener { subscribed ->
+                                if (FirebaseAuth.getInstance().currentUser?.uid != uid
+                                    || !enabled(context, uid)) {
+                                    FirebaseMessaging.getInstance().unsubscribeFromTopic(COMMUNICATION_TOPIC)
+                                    done(false, PushRegistrationProblem.SESSION_CHANGED)
+                                } else if (subscribed.isSuccessful) {
+                                    done(true, null)
+                                } else {
+                                    // O cadastro pessoal funciona, mas não ativamos a opção
+                                    // enquanto a inscrição nos comunicados não estiver confirmada.
+                                    done(false, PushRegistrationProblem.TOKEN_SERVICE_UNAVAILABLE)
+                                }
+                            }
                     } else {
                         val issue = when ((result.exception as? FirebaseFirestoreException)?.code) {
                             FirebaseFirestoreException.Code.PERMISSION_DENIED ->
@@ -156,6 +170,7 @@ internal object PushRegistry {
         if (uid.isBlank()) return
         prefs(context).edit().putBoolean(enabledKey(uid), false).apply()
         FirebaseMessaging.getInstance().isAutoInitEnabled = false
+        FirebaseMessaging.getInstance().unsubscribeFromTopic(COMMUNICATION_TOPIC)
         // A exclusao remota e a rotacao do token sao tentativas assincronas.
         // Nao mostramos informacoes pessoais no corpo de avisos enviados.
         document(db, uid, context).delete()
@@ -167,6 +182,32 @@ internal object PushRegistry {
         manager.createNotificationChannel(NotificationChannel(
             CHANNEL, "Avisos do Átrio", NotificationManager.IMPORTANCE_DEFAULT
         ).apply { description = "Avisos gerais de respostas, verificações e administração" })
+    }
+
+    fun showBroadcast(context: Context, uid: String, title: String, body: String) {
+        if (!enabled(context, uid) || FirebaseAuth.getInstance().currentUser?.uid != uid) return
+        if (Build.VERSION.SDK_INT >= 33 &&
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) return
+        val heading = title.trim()
+        val details = body.trim()
+        if (heading.length !in 5..60 || details.length !in 10..180 ||
+            (heading + details).any { it.isISOControl() }) return
+        createChannel(context)
+        val destination = PendingIntent.getActivity(context, 0,
+            Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            }, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val notification = Notification.Builder(context, CHANNEL)
+            .setSmallIcon(R.drawable.ic_atrio)
+            .setContentTitle(heading)
+            .setContentText(details)
+            .setStyle(Notification.BigTextStyle().bigText(details))
+            .setAutoCancel(true)
+            .setContentIntent(destination)
+            .build()
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.notify((System.currentTimeMillis() % Int.MAX_VALUE).toInt(), notification)
     }
 
     fun show(context: Context, uid: String, kind: String) {
@@ -212,6 +253,11 @@ class AtrioPushService : FirebaseMessagingService() {
         // Apenas mensagens DATA, com UID correspondente a sessao atual.
         // Nunca use texto fornecido no payload como conteudo da notificacao.
         val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
+        if (message.data["kind"] == "broadcast") {
+            PushRegistry.showBroadcast(applicationContext, uid,
+                message.data["title"].orEmpty(), message.data["body"].orEmpty())
+            return
+        }
         if (message.data["uid"] != uid) return
         PushRegistry.show(applicationContext, uid, message.data["kind"].orEmpty())
     }
