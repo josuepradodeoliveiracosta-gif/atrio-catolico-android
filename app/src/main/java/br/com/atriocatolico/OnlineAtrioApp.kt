@@ -181,6 +181,7 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
     var profileLoading by remember(uid) { mutableStateOf(true) }
     var error by remember(uid) { mutableStateOf("") }
     val context = LocalContext.current
+    LaunchedEffect(uid) { PushRegistry.refreshIfEnabled(context, uid, db) }
     var isAdmin by remember(uid) { mutableStateOf(false) }
     var moderationOpen by remember(uid) { mutableStateOf(false) }
     var clergyReviewOpen by remember(uid) { mutableStateOf(false) }
@@ -237,7 +238,7 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
                     if (!task.isSuccessful) error = task.exception?.localizedMessage ?: "Não foi possível salvar."
                 }
             }, modifier = Modifier.fillMaxWidth()) { Text("Começar") }
-            TextButton(onClick = { auth.signOut() }) { Text("Sair desta conta") }
+            TextButton(onClick = { PushRegistry.deactivate(context, uid, db); auth.signOut() }) { Text("Sair desta conta") }
         }
     } else {
         CompositionLocalProvider(LocalFounderUid provides founderUid) {
@@ -246,7 +247,7 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
             visible = !(isAdmin && (moderationOpen || clergyReviewOpen)),
             onModeration = if (isAdmin) ({ moderationOpen = true }) else null,
             onClergyReview = if (isAdmin) ({ clergyReviewOpen = true }) else null,
-            onSignOut = { auth.signOut() })
+            onSignOut = { PushRegistry.deactivate(context, uid, db); auth.signOut() })
         if (moderationOpen && isAdmin) ModerationScreen(db, uid, onBack = { moderationOpen = false })
         else if (clergyReviewOpen && isAdmin) ClergyBadgeReviewScreen(db, uid, onBack = { clergyReviewOpen = false })
         if (error.isNotBlank()) {
