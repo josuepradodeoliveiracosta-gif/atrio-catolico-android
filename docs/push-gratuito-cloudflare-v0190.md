@@ -82,3 +82,5 @@ https://firebase.google.com/docs/reference/rest/auth
 - Limpeza limitada a 100 marcadores com mais de um dia por evento válido; mantém idempotência dentro da janela de eventos. Falha total do FCM não é reportada como envio aceito.
 - 20 testes Node locais aprovados; testes integrados com credenciais e cotas reais continuam pendentes.
 - Branch atualizada com orientações AGENTS.md e correções de consulta de versão da main. A principal permanece 0.18.0 até concluir a ativação/teste da 0.19.0.
+
+A conferência HTTP externa neste ambiente retornou 503 de conexão upstream, não a resposta JSON do Worker. A API Cloudflare confirma o subdomínio habilitado; validar /health por outra conexão antes de ativar o envio.
