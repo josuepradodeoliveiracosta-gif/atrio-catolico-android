@@ -171,3 +171,14 @@ O Worker está provisionado e recebe GET /health; as duas credenciais estão cad
 - Worker agora registra `accepted_by_fcm`, `delivery_failed`, `no_devices_or_duplicate` e `ignored` (melhor esforço, sem alterar a entrega caso a auditoria falhe). API Cloudflare confirmou implantação em 100%; `PUSH_ENABLED=true` e `BROADCAST_ENABLED=true` foram preservados.
 - O próximo evento novo de resposta, criado por cliente Android 0.19.0 com relay configurado, vai gerar uma linha agregada de telemetria. Confirmar se há aceite HTTP FCM. Mesmo aceite 200 não garante exibição no Android; verificar permissões, dispositivo cadastrado, restrições de bateria e versão no celular recebedor.
 - Testes Node do Worker aprovados no GitHub. A modificação é somente de servidor; não é necessário novo APK para que o diagnóstico do próximo evento funcione.
+
+## Limpeza segura de tokens FCM inválidos (26/10/2026)
+
+- Após teste real confirmado pelo proprietário de que o Push chegou com o aplicativo fora da tela, observou-se telemetria agregada com alguns retornos HTTP 404 junto a entregas FCM aceitas.
+- O Cloudflare agora reconhece exclusivamente um retorno **HTTP 404** cujo JSON de erro do FCM contenha `error.status=UNREGISTERED` e `error.code=404`. HTTP 404 genérico (`NOT_FOUND`), HTTP 400 (`INVALID_ARGUMENT`), timeouts, erros temporários, de autenticação ou de projeto **não** apagam tokens.
+- O Worker obtém a identidade do registro `users/{uid}/pushDevices/{deviceId}` a partir de `name` retornado pelo Firestore, restringindo a rota ao projeto, usuário e dispositivo consultados; exige `updateTime` completo do documento.
+- Aplica `DELETE` no Firestore via API REST com precondição `currentDocument.updateTime`; caso uma versão atualizada do mesmo dispositivo tenha sido gravada entre leitura e tentativa de remoção, a exclusão falha e o novo token é preservado.
+- Falhas no processo de limpeza não bloqueiam os demais destinatários, não alteram a aceitação do Push e não são expostas ao aplicativo. Contadores anônimos agregados de `cleanup / unregistered_removed` são registrados no D1 quando houver exclusão efetiva.
+- Testes automatizados incluem UNREGISTERED, NOT_FOUND, INVALID_ARGUMENT, falha de rede/resposta inválida, falta de metadados e disputa por atualização do cadastro. Nenhum token foi copiado para logs.
+- Essa correção altera somente o Worker Cloudflare. A versão Android instalada não precisa ser reinstalada para receber o benefício. A PR #15 segue em homologação e não altera a versão 0.18.0 publicada.
+- Referências: https://firebase.google.com/docs/cloud-messaging/manage-tokens ; https://firebase.google.com/docs/cloud-messaging/error-codes ; https://firebase.google.com/docs/firestore/reference/rest/v1/projects.databases.documents/delete
