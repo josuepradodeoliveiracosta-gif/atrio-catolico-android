@@ -70,7 +70,7 @@ private fun listBadges(value: PublicBadges, founder: Boolean): List<BadgeDescrip
 }
 
 @Composable
-internal fun MemberBadgeRow(uid: String, modifier: Modifier = Modifier) {
+internal fun MemberBadgeRow(uid: String, modifier: Modifier = Modifier, centered: Boolean = false) {
     if (uid.isBlank()) return
     val db = remember { FirebaseFirestore.getInstance() }
     val founderUid = LocalFounderUid.current
@@ -86,7 +86,7 @@ internal fun MemberBadgeRow(uid: String, modifier: Modifier = Modifier) {
     }
     val visible = listBadges(badges, founderUid.isNotBlank() && founderUid == uid)
     if (visible.isNotEmpty()) {
-        LazyRow(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        LazyRow(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(6.dp, if (centered) Alignment.CenterHorizontally else Alignment.Start)) {
             items(visible, key = { it.name }) { badge ->
                 AssistChip(
                     onClick = { info = badge },
@@ -126,6 +126,8 @@ internal fun BadgeSettings(uid: String) {
     var requestKind by remember(uid) { mutableStateOf("") }
     var requestStatus by remember(uid) { mutableStateOf("") }
     var busy by remember(uid) { mutableStateOf(false) }
+    var choosingKind by remember(uid) { mutableStateOf(false) }
+    var selectedKind by remember(uid) { mutableStateOf("padre") }
     var feedback by remember(uid) { mutableStateOf("") }
 
     DisposableEffect(db, uid) {
@@ -183,29 +185,47 @@ internal fun BadgeSettings(uid: String) {
                     Text("Solicitação anterior não aprovada. Você pode enviar uma nova.",
                         color = Muted, fontSize = 12.sp)
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    for ((label, kind) in listOf("Sou Padre" to "padre", "Sou Diácono" to "diacono")) {
-                        OutlinedButton(
-                            onClick = {
-                                busy = true
-                                db.collection("badge_requests").document(uid).set(
-                                    mapOf("kind" to kind, "status" to "pending",
-                                        "createdAt" to FieldValue.serverTimestamp()),
-                                    SetOptions.merge()
-                                ).addOnCompleteListener { result ->
-                                    busy = false
-                                    feedback = if (result.isSuccessful) "Pedido enviado para verificação."
-                                        else "Não foi possível registrar o pedido."
-                                }
-                            },
-                            enabled = !busy
-                        ) { Text(label) }
-                    }
+                OutlinedButton(onClick = { choosingKind = true }, enabled = !busy) {
+                    Text("Solicitar verificação")
                 }
             }
         }
     }
+    if (choosingKind) AlertDialog(
+        onDismissRequest = { if (!busy) choosingKind = false },
+        title = { Text("Solicitar verificação") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Selecione a identificação que deseja verificar. O selo será concedido após análise da administração.",
+                    fontSize = 13.sp, color = Muted)
+                for ((label, kind) in listOf("Padre" to "padre", "Diácono" to "diacono")) {
+                    FilterChip(selected = selectedKind == kind,
+                        onClick = { selectedKind = kind }, enabled = !busy,
+                        label = { Text(label) })
+                }
+                if (feedback.isNotBlank()) Text(feedback, fontSize = 12.sp, color = Wine)
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = !busy, onClick = {
+                busy = true
+                feedback = ""
+                db.collection("badge_requests").document(uid).set(
+                    mapOf("kind" to selectedKind, "status" to "pending",
+                        "createdAt" to FieldValue.serverTimestamp()), SetOptions.merge()
+                ).addOnCompleteListener { result ->
+                    busy = false
+                    if (result.isSuccessful) {
+                        choosingKind = false
+                        feedback = "Pedido enviado. Status: em análise."
+                    } else feedback = "Não foi possível enviar. Confira a conexão e tente novamente."
+                }
+            }) { Text(if (busy) "Enviando..." else "Enviar solicitação") }
+        },
+        dismissButton = { TextButton(enabled = !busy, onClick = { choosingKind = false }) { Text("Cancelar") } }
+    )
     Text("Os selos de Fundador e Moderador são definidos apenas pela administração.",
         color = Muted, fontSize = 11.sp)
     if (feedback.isNotBlank()) Text(feedback, color = Wine, fontSize = 12.sp)
 }
+

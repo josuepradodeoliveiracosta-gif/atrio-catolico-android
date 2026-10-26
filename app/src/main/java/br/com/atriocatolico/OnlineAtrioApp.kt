@@ -258,13 +258,7 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
             biography = biography,
             onModeration = if (isAdmin) ({ moderationOpen = true }) else null,
             onClergyReview = if (isAdmin) ({ clergyReviewOpen = true }) else null,
-            onSignOut = { auth.signOut() }, onProfileChange = { replacement ->
-                db.collection("profiles").document(uid).update("displayName", replacement.trim())
-                    .addOnFailureListener { error = it.localizedMessage ?: "Falha ao atualizar nome" }
-            }, onBiographyChange = { replacement ->
-                db.collection("profiles").document(uid).update("bio", replacement.trim())
-                    .addOnFailureListener { error = it.localizedMessage ?: "Falha ao atualizar biografia" }
-            })
+            onSignOut = { auth.signOut() })
         if (error.isNotBlank()) {
             // Erros são comunicados sem impedir que o usuário continue a navegar.
             LaunchedEffect(error) { Toast.makeText(context, error, Toast.LENGTH_LONG).show(); error = "" }
@@ -276,8 +270,7 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
 @Composable
 private fun OnlineCommunity(
     db: FirebaseFirestore, uid: String, name: String, email: String, biography: String,
-    onSignOut: () -> Unit, onProfileChange: (String) -> Unit,
-    onBiographyChange: (String) -> Unit, onModeration: (() -> Unit)?,
+    onSignOut: () -> Unit, onModeration: (() -> Unit)?,
     onClergyReview: (() -> Unit)?
 ) {
     val context = LocalContext.current
@@ -299,8 +292,6 @@ private fun OnlineCommunity(
     var deletingPostId by remember(uid) { mutableStateOf<String?>(null) }
     var deletingReplyId by remember(uid) { mutableStateOf<String?>(null) }
     var mutationBusy by remember(uid) { mutableStateOf(false) }
-    var renameOpen by remember { mutableStateOf(false) }
-    var bioEditorOpen by remember { mutableStateOf(false) }
     var working by remember { mutableStateOf(false) }
     var feedLimit by remember(uid) { mutableStateOf(30) }
     var feedLoading by remember(uid) { mutableStateOf(true) }
@@ -595,8 +586,12 @@ private fun OnlineCommunity(
                         if (savedPending.isEmpty() && savedDisplay.size < visibleSavedIds.size && savedFailures.isEmpty() && !savesError)
                             Text("Algumas publicações salvas foram removidas.", color = Muted, fontSize = 12.sp)
                     })
-                Tab.PROFILE -> OnlineProfileScreen(uid, name, email, biography, posts,
-                    onRename = { renameOpen = true }, onEditBiography = { bioEditorOpen = true },
+                Tab.PROFILE -> OnlineProfileScreen(db, uid, name, email, biography, posts,
+                    publicationsFooter = {
+                        LoadMore(feedLoading, feedMore, feedError, "Buscar mais publicações") {
+                            if (feedError) feedRetry++ else feedLimit += 30
+                        }
+                    },
                     onSignOut = onSignOut, onModeration = onModeration,
                     onClergyReview = onClergyReview,
                     onCreate = { navigate(Tab.PUBLISH) }, onOpen = { detailId = it },
@@ -701,38 +696,6 @@ private fun OnlineCommunity(
             }
         )
     }
-    if (renameOpen) {
-        var edited by remember { mutableStateOf(name) }
-        AlertDialog(onDismissRequest = { renameOpen = false }, title = { Text("Editar nome público") },
-            text = { OutlinedTextField(edited, { if (it.length <= 35) edited = it }, label = { Text("Nome") }) },
-            confirmButton = { TextButton(enabled = edited.trim().length >= 2,
-                onClick = { onProfileChange(edited.trim()); renameOpen = false }) { Text("Salvar") } },
-            dismissButton = { TextButton(onClick = { renameOpen = false }) { Text("Cancelar") } })
-    }
-    if (bioEditorOpen) {
-        var editedBio by remember(bioEditorOpen) { mutableStateOf(biography) }
-        AlertDialog(
-            onDismissRequest = { bioEditorOpen = false },
-            title = { Text("Minha apresentação") },
-            text = {
-                Column {
-                    OutlinedTextField(
-                        editedBio, { editedBio = it.take(180) },
-                        label = { Text("Sobre mim (opcional)") },
-                        minLines = 3, maxLines = 5, modifier = Modifier.fillMaxWidth()
-                    )
-                    Text("Até 180 caracteres. Evite publicar dados pessoais.", fontSize = 12.sp, color = Muted)
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    onBiographyChange(editedBio.trim())
-                    bioEditorOpen = false
-                }) { Text("Salvar") }
-            },
-            dismissButton = { TextButton(onClick = { bioEditorOpen = false }) { Text("Cancelar") } }
-        )
-    }
     reportReply?.let { target ->
         key(target.postId, target.replyId) {
             ReplyReportDialog(db, uid, target,
@@ -828,80 +791,6 @@ private fun ReplyNotificationScreen(
     }
 }
 
-@Composable
-private fun OnlineProfileScreen(
-    uid: String, name: String, email: String, biography: String, posts: List<Post>, onRename: () -> Unit,
-    onEditBiography: () -> Unit, onSignOut: () -> Unit, onModeration: (() -> Unit)?,
-    onClergyReview: (() -> Unit)?,
-    onCreate: () -> Unit, onOpen: (String) -> Unit,
-    onLike: (String) -> Unit, onSave: (String) -> Unit
-) {
-    val mine = posts.filter { it.mine }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item {
-            Column(Modifier.fillMaxWidth().padding(vertical = 20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally) {
-                if (LocalFounderUid.current.isNotBlank() && LocalFounderUid.current == uid) {
-                    FounderBadgeArt(Modifier.size(108.dp), compact = false)
-                    Spacer(Modifier.height(8.dp))
-                } else {
-                    Icon(Icons.Outlined.AccountCircle, contentDescription = null,
-                        modifier = Modifier.size(72.dp), tint = Wine)
-                }
-                Text(name, fontFamily = FontFamily.Serif, fontSize = 23.sp, fontWeight = FontWeight.Bold)
-                MemberBadgeRow(uid, Modifier.fillMaxWidth())
-                Text(email, fontSize = 12.sp, color = Muted)
-                Spacer(Modifier.height(10.dp))
-                Text(
-                    biography.ifBlank { "Conte um pouco sobre sua caminhada na fé." },
-                    fontSize = 13.sp, color = Muted, textAlign = TextAlign.Center
-                )
-                Spacer(Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = onRename) { Text("Editar nome") }
-                    OutlinedButton(onClick = onEditBiography) { Text("Editar apresentação") }
-                }
-            }
-        }
-        item {
-            BadgeSettings(uid)
-        }
-        item {
-            if (onModeration != null) {
-                OutlinedButton(onClick = onModeration, modifier = Modifier.fillMaxWidth()) {
-                    Text("Moderação — denúncias")
-                }
-                Spacer(Modifier.height(12.dp))
-            }
-            if (onClergyReview != null) {
-                OutlinedButton(onClick = onClergyReview, modifier = Modifier.fillMaxWidth()) {
-                    Text("Administração — solicitações de selos")
-                }
-                Spacer(Modifier.height(12.dp))
-            }
-            SectionTitle("Minhas publicações")
-            Spacer(Modifier.height(5.dp))
-            Text("Abra uma publicação para editar ou excluir.", fontSize = 12.sp, color = Muted)
-        }
-        if (mine.isEmpty()) item {
-            EmptyState("✍️", "Comece uma conversa", "Sua primeira discussão estará aqui.",
-                "Criar discussão", onCreate)
-        }
-        items(mine, key = { it.id }) { DiscussionCard(it, onOpen, onLike, onSave) }
-        item {
-            Text("Versão de testes: os dados são compartilhados pela internet. " +
-                "Nunca publique informações pessoais sensíveis.", fontSize = 12.sp,
-                color = Muted, lineHeight = 18.sp)
-            OutlinedButton(onClick = onSignOut, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Outlined.Logout, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text("Sair da conta")
-            }
-        }
-    }
-}
-
 private fun timestampLabel(timestamp: Timestamp?): String {
     if (timestamp == null) return "agora"
     val elapsed = (System.currentTimeMillis() - timestamp.toDate().time).coerceAtLeast(0)
@@ -977,3 +866,4 @@ private fun ReplyReportDialog(
         dismissButton = { TextButton(enabled = !busy, onClick = onClose) { Text("Cancelar") } }
     )
 }
+
