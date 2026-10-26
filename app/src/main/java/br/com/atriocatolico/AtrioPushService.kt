@@ -13,6 +13,7 @@ import androidx.core.app.NotificationManagerCompat
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
@@ -22,6 +23,14 @@ import java.util.UUID
  * FCM e apenas o transportador: nao envia mensagens nem concede autorizacao.
  * A entrega depende da ativacao controlada do relay confiavel Cloudflare.
  */
+internal enum class PushRegistrationProblem {
+    SESSION_CHANGED,
+    TOKEN_UNAVAILABLE,
+    FIRESTORE_PERMISSION_DENIED,
+    FIRESTORE_UNAVAILABLE,
+    FIRESTORE_WRITE_FAILED
+}
+
 internal object PushRegistry {
     private const val PREFS = "atrio_push_devices"
     private const val CHANNEL = "atrio_avisos"
@@ -41,42 +50,71 @@ internal object PushRegistry {
     private fun document(db: FirebaseFirestore, uid: String, context: Context) =
         db.collection("users").document(uid).collection("pushDevices").document(deviceId(context))
 
-    fun register(context: Context, uid: String, db: FirebaseFirestore, done: (Boolean) -> Unit = {}) {
+    // Nunca exibimos token FCM, chave, UID ou mensagem bruta de exceção na interface.
+    fun register(
+        context: Context,
+        uid: String,
+        db: FirebaseFirestore,
+        done: (Boolean, PushRegistrationProblem?) -> Unit = { _, _ -> }
+    ) {
         if (FirebaseAuth.getInstance().currentUser?.uid != uid || !enabled(context, uid)) {
-            done(false)
+            done(false, PushRegistrationProblem.SESSION_CHANGED)
             return
         }
         FirebaseMessaging.getInstance().isAutoInitEnabled = true
         FirebaseMessaging.getInstance().token
             .addOnSuccessListener { token ->
-                if (token.isBlank() || FirebaseAuth.getInstance().currentUser?.uid != uid
-                    || !enabled(context, uid)) {
-                    done(false)
+                if (FirebaseAuth.getInstance().currentUser?.uid != uid || !enabled(context, uid)) {
+                    done(false, PushRegistrationProblem.SESSION_CHANGED)
+                    return@addOnSuccessListener
+                }
+                if (token.isBlank()) {
+                    done(false, PushRegistrationProblem.TOKEN_UNAVAILABLE)
                     return@addOnSuccessListener
                 }
                 document(db, uid, context).set(mapOf(
                     "token" to token,
                     "updatedAt" to FieldValue.serverTimestamp()
                 )).addOnCompleteListener { result ->
-                    done(result.isSuccessful && enabled(context, uid)
-                        && FirebaseAuth.getInstance().currentUser?.uid == uid)
+                    if (FirebaseAuth.getInstance().currentUser?.uid != uid || !enabled(context, uid)) {
+                        done(false, PushRegistrationProblem.SESSION_CHANGED)
+                    } else if (result.isSuccessful) {
+                        done(true, null)
+                    } else {
+                        val issue = when ((result.exception as? FirebaseFirestoreException)?.code) {
+                            FirebaseFirestoreException.Code.PERMISSION_DENIED ->
+                                PushRegistrationProblem.FIRESTORE_PERMISSION_DENIED
+                            FirebaseFirestoreException.Code.UNAVAILABLE,
+                            FirebaseFirestoreException.Code.DEADLINE_EXCEEDED ->
+                                PushRegistrationProblem.FIRESTORE_UNAVAILABLE
+                            else -> PushRegistrationProblem.FIRESTORE_WRITE_FAILED
+                        }
+                        done(false, issue)
+                    }
                 }
             }
-            .addOnFailureListener { done(false) }
+            .addOnFailureListener {
+                done(false, PushRegistrationProblem.TOKEN_UNAVAILABLE)
+            }
     }
 
-    fun enable(context: Context, uid: String, db: FirebaseFirestore, done: (Boolean) -> Unit) {
+    fun enable(
+        context: Context,
+        uid: String,
+        db: FirebaseFirestore,
+        done: (Boolean, PushRegistrationProblem?) -> Unit
+    ) {
         if (FirebaseAuth.getInstance().currentUser?.uid != uid) {
-            done(false)
+            done(false, PushRegistrationProblem.SESSION_CHANGED)
             return
         }
         prefs(context).edit().putBoolean(enabledKey(uid), true).apply()
-        register(context, uid, db) { ok ->
+        register(context, uid, db) { ok, issue ->
             if (!ok && FirebaseAuth.getInstance().currentUser?.uid == uid) {
                 prefs(context).edit().putBoolean(enabledKey(uid), false).apply()
                 FirebaseMessaging.getInstance().isAutoInitEnabled = false
             }
-            done(ok)
+            done(ok, issue)
         }
     }
 
