@@ -30,6 +30,7 @@ internal fun PushSettings(uid: String, db: FirebaseFirestore) {
     var feedback by remember(uid) { mutableStateOf("") }
     var backgroundEnabled by remember(uid) { mutableStateOf(BackgroundNoticeScheduler.enabled(context, uid)) }
     var permissionForBackground by remember { mutableStateOf(false) }
+    var lastRelayStatus by remember(uid) { mutableStateOf(InstantPushRelay.lastStatus(context, uid)) }
 
     fun turnOn() {
         busy = true
@@ -148,6 +149,16 @@ internal fun PushSettings(uid: String, db: FirebaseFirestore) {
                 Text("O token identifica este aparelho como destino de mensagens, não a sua " +
                     "identidade. Mantenha-o privado.", fontSize = 11.sp, color = Muted)
             }
+            HorizontalDivider()
+            Text("Diagnóstico do Push enviado", color = Wine,
+                style = MaterialTheme.typography.titleMedium)
+            Text("Veja a resposta do Cloudflare no aparelho que publicou uma resposta. " +
+                "Não mostra dados privados e não envia notificações extras.",
+                fontSize = 12.sp, color = Muted)
+            Text(lastRelayStatus, fontSize = 12.sp, color = Wine)
+            OutlinedButton(onClick = {
+                lastRelayStatus = InstantPushRelay.lastStatus(context, uid)
+            }, modifier = Modifier.fillMaxWidth()) { Text("Atualizar diagnóstico do Push") }
         }
     }
 }
