@@ -119,3 +119,11 @@ A conferência HTTP externa neste ambiente retornou 503 de conexão upstream, n�
 
 ### Situação atual do envio
 O Worker está provisionado e recebe GET /health; as duas credenciais estão cadastradas como Secrets e D1 existe. O envio permanece `PUSH_ENABLED=false`; a entrega real entre usuários ainda está pendente.
+
+## Ativação do Worker para homologação em 26/10/2026
+- A pedido expresso do proprietário, `PUSH_ENABLED` foi alterado de `false` para `true` no Worker Cloudflare `atrio-push`, usando PATCH de configuração com herança das demais bindings.
+- A API confirmou `PUSH_ENABLED=true`, `PUSH_DB` (D1) e as duas credenciais de serviço/Identity Toolkit como `secret_text`. A origem publicada do Worker foi comparada com `src/index.js` desta PR e coincidiu exatamente antes da ativação.
+- Teste dos endpoints a partir do navegador do proprietário e **entrega FCM em aparelho real ainda pendentes**; não confundir `enabled` com `accepted_by_fcm` ou mensagem efetivamente exibida.
+- A ativação **não é limitada a contas de teste**: qualquer cliente compatível 0.19.0 com evento autorizado pode solicitar envio para destinatários já cadastrados com opt-in. Os clientes 0.18.0 não disparam este relay.
+- Para desativação imediata em incidente, alterar somente `PUSH_ENABLED` para `false`; não remover segredos nem modificar regras Firestore.
+- A chave JSON da conta de serviço foi inicialmente exposta como variável comum antes de virar Secret; rotacionar antes do lançamento público. Não mesclar PR #15 nem distribuir release assinado até executar e documentar teste real de duas contas e revisar a segurança.
