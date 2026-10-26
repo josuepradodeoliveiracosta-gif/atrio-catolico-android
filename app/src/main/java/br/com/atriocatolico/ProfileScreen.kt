@@ -91,6 +91,7 @@ internal fun OnlineProfileScreen(
                     }
                 }
             }
+            item { PushSettings(uid, db) }
             item {
                 SectionTitle("Minhas publicações")
                 Text("Publicações encontradas entre as discussões carregadas. Abra uma para editar ou excluir.",

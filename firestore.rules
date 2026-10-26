@@ -226,6 +226,20 @@ service cloud.firestore {
       allow update: if false;
     }
 
+    // Tokens de destino FCM privados por conta e dispositivo.
+    // NENHUM cliente pode enviar mensagens FCM ou listar tokens alheios.
+    // O envio exige backend de confianca com credenciais fora do aplicativo.
+    match /users/{uid}/pushDevices/{deviceId} {
+      allow get, list: if me(uid);
+      allow create, update: if me(uid)
+        && validId(deviceId)
+        && request.resource.data.keys().hasOnly(['token', 'updatedAt'])
+        && request.resource.data.keys().hasAll(['token', 'updatedAt'])
+        && validText(request.resource.data.token, 20, 4096)
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if me(uid);
+    }
+
     match /users/{recipientUid}/notifications/{notificationId} {
       // Somente o destinatário consulta, marca como lida ou dispensa notificações.
       allow get, list: if me(recipientUid);

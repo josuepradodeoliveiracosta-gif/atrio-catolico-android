@@ -213,6 +213,51 @@ try {
    updateDoc(doc(carol,'badge_requests/carol'),{kind:'diacono',status:'pending',createdAt:serverTimestamp()})));
  await test('solicitante não apaga trilha da revisão administrativa',()=>assertFails(
    deleteDoc(doc(carol,'badge_requests/carol'))));
+ // FCM: tokens privados apenas para o titular, sem operacoes entre contas.
+ await test('token FCM requer autenticacao',()=>assertFails(
+   getDoc(doc(anon,'users/bob/pushDevices/android-1'))));
+ await test('usuário registra apenas seu próprio destino FCM',()=>assertSucceeds(
+   setDoc(doc(bob,'users/bob/pushDevices/android-1'),{
+     token:'fcm_demo_token_for_test_123456789',updatedAt:serverTimestamp()
+   })));
+ await test('usuário pode consultar seu destino FCM',()=>assertSucceeds(
+   getDoc(doc(bob,'users/bob/pushDevices/android-1'))));
+ await test('usuário pode listar seus próprios dispositivos FCM',()=>assertSucceeds(
+   getDocs(collection(bob,'users/bob/pushDevices'))));
+ await test('token FCM de outra conta é privado',()=>assertFails(
+   getDoc(doc(alice,'users/bob/pushDevices/android-1'))));
+ await test('ninguém lista tokens de outros usuários',()=>assertFails(
+   getDocs(collection(alice,'users/bob/pushDevices'))));
+ await test('nem admin lista token de usuário comum',()=>assertFails(
+   getDocs(collection(admin,'users/bob/pushDevices'))));
+ await test('usuário não registra token em conta alheia',()=>assertFails(
+   setDoc(doc(alice,'users/bob/pushDevices/estranho'),{
+     token:'fcm_demo_token_for_test_123456789',updatedAt:serverTimestamp()
+   })));
+ await test('registro FCM não aceita flags administrativas',()=>assertFails(
+   setDoc(doc(bob,'users/bob/pushDevices/android-2'),{
+     token:'fcm_demo_token_for_test_123456789',updatedAt:serverTimestamp(),admin:true
+   })));
+ await test('registro FCM recusa token curto',()=>assertFails(
+   setDoc(doc(bob,'users/bob/pushDevices/android-2'),{
+     token:'fraco',updatedAt:serverTimestamp()
+   })));
+ await test('registro FCM recusa data forjada',()=>assertFails(
+   setDoc(doc(bob,'users/bob/pushDevices/android-2'),{
+     token:'fcm_demo_token_for_test_123456789',updatedAt:Timestamp.now()
+   })));
+ await test('usuário renova token de seu dispositivo',()=>assertSucceeds(
+   updateDoc(doc(bob,'users/bob/pushDevices/android-1'),{
+     token:'fcm_demo_token_after_refresh_123456789',updatedAt:serverTimestamp()
+   })));
+ await test('usuário pode desativar seu destino FCM',()=>assertSucceeds(
+   deleteDoc(doc(bob,'users/bob/pushDevices/android-1'))));
+ await test('outro usuário não pode excluir token FCM',async()=>{
+   await assertSucceeds(setDoc(doc(bob,'users/bob/pushDevices/android-1'),{
+     token:'fcm_demo_token_for_test_123456789',updatedAt:serverTimestamp()
+   }));
+   await assertFails(deleteDoc(doc(alice,'users/bob/pushDevices/android-1')));
+ });
  await test('usuário não se promove',()=>assertFails(setDoc(doc(bob,'admins/bob'),{enabled:true})));
  await test('administrador não promove contas pelo cliente',()=>assertFails(setDoc(doc(admin,'admins/bob'),{enabled:true})));
  await test('administrador não altera seu acesso pelo cliente',()=>assertFails(updateDoc(doc(admin,'admins/admin'),{enabled:false})));
