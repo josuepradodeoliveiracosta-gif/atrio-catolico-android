@@ -461,12 +461,13 @@ export async function enrichGuardiaoReport(env, service, reportId, created, text
     const assessment=await guardiaoAiAssessment(env,reportId,text);
     const params=new URLSearchParams({'updateMask.fieldPaths':'aiAssessment',
       'currentDocument.updateTime':updateTime});
-    await fetch(ROOT+'/reports/'+enc(reportId)+'?'+params.toString(),{
+    const update=await fetch(ROOT+'/reports/'+enc(reportId)+'?'+params.toString(),{
       method:'PATCH',headers:{Authorization:'Bearer '+service,'Content-Type':'application/json'},
       body:JSON.stringify({fields:{aiAssessment:{stringValue:assessment}}}),
     });
     // Falha ou conflito conserva a denúncia e a decisão humana já registrada.
-  } catch { /* Não registrar texto, resposta livre do modelo ou credenciais. */ }
+    return update.ok ? assessment : 'unavailable';
+  } catch { return 'unavailable'; /* Não registrar texto livre ou credenciais. */ }
 }
 
 async function guardiaoDocId(event) {
@@ -541,9 +542,19 @@ export async function handleGuardiaoEvent(request,env) {
     if(result.status===409) return response(202,'already_queued');
     if(!result.ok) return response(503,'review_queue_unavailable');
     // A fila é persistida ANTES da IA; indisponibilidade nunca perde o alerta.
+    let aiAssessment='disabled';
     if(env.GUARDIAO_AI_ENABLED==='true') {
-      try { await enrichGuardiaoReport(env,service,reportId,await result.json(),value); }
-      catch { /* Resposta de criação inválida: manter triagem básica. */ }
+      try { aiAssessment=await enrichGuardiaoReport(env,service,reportId,await result.json(),value); }
+      catch { aiAssessment='unavailable'; }
+    }
+    // Em produção a quarentena exige explicitamente duas chaves habilitadas,
+    // uma regra grave E parecer da IA indicando preocupação contextual.
+    // Sem confirmação, só cria a denúncia tradicional para revisão.
+    if(guardiaoAutoHoldAllowed(env,decision,aiAssessment)) {
+      try {
+        if(await holdGuardiaoContent(env,service,reportId,data,doc,decision))
+          await auditDelivery(env,'guardiao','held');
+      } catch { /* Nenhuma falha na quarentena apaga a denúncia original. */ }
     }
     await auditDelivery(env,'guardiao','queued');
     // Reaproveita a infraestrutura de avisos já existente: não anexa texto,
@@ -565,6 +576,117 @@ export async function handleGuardiaoEvent(request,env) {
   }
 }
 
+
+// Terceira etapa — quarentena reversível. Por padrão o switch é DESLIGADO.
+// A retirada é atômica: guardar cópia privada antes de excluir da leitura pública.
+export function guardiaoAutoHoldAllowed(env,decision,assessment) {
+  return env.GUARDIAO_AUTOHIDE_ENABLED==='true' &&
+    env.GUARDIAO_AI_ENABLED==='true' && assessment==='concern' &&
+    ['threat','credential_scam'].includes(decision?.code);
+}
+async function firestoreCommit(service,writes) {
+  const r=await fetch(ROOT+':commit',{
+    method:'POST',headers:{Authorization:'Bearer '+service,'Content-Type':'application/json'},
+    body:JSON.stringify({writes}),
+  });
+  return r.ok;
+}
+export async function holdGuardiaoContent(env,service,reportId,event,document,decision) {
+  if(!document?.updateTime || !document?.name ||
+    !uidPart(stringField(document,'uid'))) return false;
+  const report=await firestoreGet(service,'reports/'+enc(reportId));
+  if(!report||stringField(report,'status')!=='pending'||
+    stringField(report,'source')!=='guardiao'||
+    stringField(report,'postId')!==event.postId||
+    stringField(report,'replyId')!==(event.replyId||'')) return false;
+  // Não retém uma resposta se a discussão principal já deixou de existir.
+  if(event.type==='reply' &&
+    !await firestoreGet(service,'posts/'+enc(event.postId))) return false;
+  const fields={
+    ownerUid:{stringValue:stringField(document,'uid')},
+    postId:{stringValue:event.postId},
+    targetType:{stringValue:event.type},
+    targetPath:{stringValue:document.name},
+    status:{stringValue:'held'},
+    ruleCode:{stringValue:decision.code},
+    reason:{stringValue:decision.reason},
+    heldAt:{timestampValue:new Date().toISOString()},
+    originalFields:{mapValue:{fields:document.fields}},
+  };
+  if(event.replyId) fields.replyId={stringValue:event.replyId};
+  // Não há exposição no feed: commit somente se o conteúdo NÃO mudou.
+  return firestoreCommit(service,[
+    {update:{name:ROOT+'/guardiao_quarantine/'+enc(reportId),fields},
+      currentDocument:{exists:false}},
+    {delete:document.name,currentDocument:{updateTime:document.updateTime}},
+  ]);
+}
+export async function handleGuardiaoReview(request,env) {
+  if(env.GUARDIAO_ENABLED!=='true') return response(503,'guardiao_disabled');
+  let input;
+  try { input=await readEventBody(request); }
+  catch { return response(400,'invalid_request'); }
+  if(!input||typeof input!=='object'||Array.isArray(input)||
+    Object.keys(input).sort().join(',')!=='action,caseId,note' ||
+    !/^guard_[a-f0-9]{32}$/.test(input.caseId||'')||
+    !['restore','confirm'].includes(input.action)||
+    typeof input.note!=='string'||input.note.trim().length<5||input.note.length>300)
+    return response(400,'invalid_review');
+  try {
+    const uid=await verifyIdentity(request,env);
+    if(!uid) return response(401,'unauthorized');
+    const service=await oauth(env);
+    const admin=await firestoreGet(service,'admins/'+enc(uid));
+    if(!admin||!boolField(admin,'enabled')) return response(403,'not_admin');
+    const [guard,report]=await Promise.all([
+      firestoreGet(service,'guardiao_quarantine/'+enc(input.caseId)),
+      firestoreGet(service,'reports/'+enc(input.caseId)),
+    ]);
+    if(!guard||!report||stringField(guard,'status')!=='held'||
+      stringField(report,'status')!=='pending'||
+      stringField(report,'source')!=='guardiao'||
+      stringField(report,'reporterUid')!=='atrio_guardiao'||
+      !guard.updateTime||!report.updateTime) return response(409,'already_reviewed');
+    if(stringField(guard,'ownerUid')===uid)
+      return response(403,'self_review_forbidden');
+    const postId=stringField(guard,'postId');
+    const replyId=stringField(guard,'replyId');
+    const type=stringField(guard,'targetType');
+    if(!uidPart(postId)||!['post','reply'].includes(type)||
+      (type==='reply'&&!uidPart(replyId))||
+      (type==='post'&&replyId)||
+      stringField(report,'postId')!==postId||
+      stringField(report,'replyId')!==replyId) return response(409,'inconsistent_case');
+    const target=ROOT+'/posts/'+enc(postId)+(type==='reply'?'/replies/'+enc(replyId):'');
+    if(stringField(guard,'targetPath')!==target||
+      !guard.fields?.originalFields?.mapValue?.fields) return response(409,'invalid_archive');
+    const writes=[];
+    if(input.action==='restore') {
+      if(type==='reply'&&!await firestoreGet(service,'posts/'+enc(postId)))
+        return response(409,'parent_missing');
+      writes.push({update:{name:target,
+        fields:guard.fields.originalFields.mapValue.fields},
+        currentDocument:{exists:false}});
+    }
+    const reviewedAt={timestampValue:new Date().toISOString()};
+    writes.push({update:{name:guard.name,fields:{
+      status:{stringValue:input.action==='restore'?'restored':'removed'},
+      reviewedBy:{stringValue:uid},reviewNote:{stringValue:input.note.trim()},
+      reviewedAt,
+    }},updateMask:{fieldPaths:['status','reviewedBy','reviewNote','reviewedAt']},
+      currentDocument:{updateTime:guard.updateTime}});
+    writes.push({update:{name:report.name,fields:{
+      status:{stringValue:input.action==='restore'?'dismissed':'removed'},
+      reviewedBy:{stringValue:uid},reviewNote:{stringValue:input.note.trim()},
+      reviewedAt,reviewTarget:{stringValue:type},
+    }},updateMask:{fieldPaths:['status','reviewedBy','reviewNote','reviewedAt','reviewTarget']},
+      currentDocument:{updateTime:report.updateTime}});
+    if(!await firestoreCommit(service,writes))return response(409,'review_conflict');
+    await auditDelivery(env,'guardiao','reviewed');
+    return response(200,input.action==='restore'?'restored':'confirmed_removed');
+  } catch { return response(503,'review_unavailable'); }
+}
+
 export default {
   async fetch(request, env) {
     const configured = !!(env.PUSH_DB && env.FIREBASE_WEB_API_KEY && env.FIREBASE_SERVICE_ACCOUNT_JSON);
@@ -575,6 +697,8 @@ export default {
       return handleBroadcast(request,env);
     if (request.method === 'POST' && path === '/moderation/event')
       return handleGuardiaoEvent(request,env);
+    if (request.method === 'POST' && path === '/moderation/review')
+      return handleGuardiaoReview(request,env);
     if(request.method!=='POST'||path!=='/event')
       return response(404,'not_found');
     if(env.PUSH_ENABLED!=='true') return response(503,'disabled');
