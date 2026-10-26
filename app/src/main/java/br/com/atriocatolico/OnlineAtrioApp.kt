@@ -415,6 +415,14 @@ private fun OnlineCommunity(
         }
         onDispose { active = false; registration?.remove() }
     }
+    // Usuários que já participavam antes desta atualização passam a receber
+    // novos avisos ao reabrir uma discussão da qual são autores/comentaristas.
+    LaunchedEffect(uid, detailId, openedPost?.ownerUid, detailReplies.any { it.mine }) {
+        val id = detailId
+        if (id != null && id == openedPost?.id &&
+            (openedPost?.ownerUid == uid || detailReplies.any { it.mine }))
+            ThreadPushSubscriptions.track(context, uid, id)
+    }
     val posts = sourcePosts.map { it.copy(liked = it.id in likedIds, saved = it.id in savedIds) }
     val allPosts = (sourcePosts + savedPosts.values + listOfNotNull(openedPost))
         .associateBy { it.id }.values.map { it.copy(liked = it.id in likedIds, saved = it.id in savedIds) }
@@ -441,6 +449,7 @@ private fun OnlineCommunity(
         )).addOnCompleteListener { result ->
             working = false
             if (result.isSuccessful) {
+                result.result?.id?.let { ThreadPushSubscriptions.track(context, uid, it) }
                 navigate(Tab.HOME)
                 Toast.makeText(context, "Discussão publicada!", Toast.LENGTH_SHORT).show()
             } else message = result.exception?.localizedMessage ?: "Não foi possível publicar."
@@ -473,7 +482,10 @@ private fun OnlineCommunity(
             ))
         }
         batch.commit().addOnCompleteListener { result ->
-            if (result.isSuccessful && post.ownerUid.isNotBlank() && post.ownerUid != uid) {
+            if (result.isSuccessful) {
+                ThreadPushSubscriptions.track(context, uid, id)
+                // Inclui respostas feitas pelo próprio autor da discussão:
+                // os demais participantes também precisam receber o evento.
                 InstantPushRelay.reply(id, replyRef.id)
             }
             done(result.isSuccessful)
