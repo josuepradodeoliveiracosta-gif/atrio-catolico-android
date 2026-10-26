@@ -118,7 +118,10 @@ internal fun OnlineProfileScreen(
                 }
             }
             // Somente o fundador que também é administrador vê a opção.
-            if (founderCanBroadcast) item { AdminBroadcastPanel() }
+            if (founderCanBroadcast) {
+                item { AdminBroadcastPanel() }
+                item { AdminTestBotsPanel() }
+            }
             item {
                 HorizontalDivider(color = Line)
                 Spacer(Modifier.height(16.dp))
