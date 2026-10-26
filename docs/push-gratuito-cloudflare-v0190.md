@@ -163,3 +163,11 @@ O Worker está provisionado e recebe GET /health; as duas credenciais estão cad
 - Após ativação, consulta D1 encontrou **zero tentativas de comunicado geral**. **Nenhuma mensagem foi enviada nesta etapa.** Não confundir habilitação do endpoint ou aceite FCM com entrega efetiva ao aparelho.
 - Alcance não é literalmente todos os usuários: somente versões do app com inscrição no tópico `atrio_comunicados_v1`, notificações habilitadas e aparelho com FCM funcional podem mostrar o aviso. A 0.18.0 não contém esse mecanismo e precisa de atualização futura.
 - Os testes de CI da PR ficaram verdes antes da implantação; teste real de entrega do comunicado a um aparelho permanece pendente. PR #15 continua aberta, sem merge nem release de produção.
+
+## Diagnóstico de falha de recebimento FCM — 26/10/2026
+
+- Relato do proprietário: aparelho não exibiu aviso imediato. Antes desta correção, D1 continha quatro marcadores de eventos do tipo `reply` entre 18:52 e 19:35 UTC. Um marcador demonstra que houve aparelho elegível no momento da tentativa, **não** que o FCM aceitou ou entregou a mensagem. Não havia tentativa `broadcast` no D1.
+- Implementada e publicada instrumentação não identificável, usando tabela D1 `push_delivery_stats` agregada por hora, categoria, resultado, código HTTP do FCM, quantidade de tentativas e aceites. Não armazenar UID, chave de evento, token ou conteúdo.
+- Worker agora registra `accepted_by_fcm`, `delivery_failed`, `no_devices_or_duplicate` e `ignored` (melhor esforço, sem alterar a entrega caso a auditoria falhe). API Cloudflare confirmou implantação em 100%; `PUSH_ENABLED=true` e `BROADCAST_ENABLED=true` foram preservados.
+- O próximo evento novo de resposta, criado por cliente Android 0.19.0 com relay configurado, vai gerar uma linha agregada de telemetria. Confirmar se há aceite HTTP FCM. Mesmo aceite 200 não garante exibição no Android; verificar permissões, dispositivo cadastrado, restrições de bateria e versão no celular recebedor.
+- Testes Node do Worker aprovados no GitHub. A modificação é somente de servidor; não é necessário novo APK para que o diagnóstico do próximo evento funcione.
