@@ -25,8 +25,12 @@ android {
         applicationId = "br.com.atriocatolico"
         minSdk = 26
         targetSdk = 35
-        versionCode = 24
-        versionName = "0.18.0"
+        versionCode = 25
+        versionName = "0.19.0"
+        val relayUrl = System.getenv("ATRIO_PUSH_WORKER_URL").orEmpty()
+        val allowed = Regex("^https://[a-zA-Z0-9-]+\\.[a-zA-Z0-9-]+\\.workers\\.dev$")
+        require(relayUrl.isBlank() || allowed.matches(relayUrl)) { "ATRIO_PUSH_WORKER_URL invalida" }
+        buildConfigField("String", "PUSH_RELAY_URL", "\\\"$relayUrl\\\"")
     }
 
     signingConfigs {
@@ -47,7 +51,7 @@ android {
         }
     }
 
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; buildConfig = true }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
