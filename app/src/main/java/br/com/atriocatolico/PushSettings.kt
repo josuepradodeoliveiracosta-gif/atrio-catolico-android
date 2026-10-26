@@ -60,7 +60,7 @@ internal fun PushSettings(uid: String, db: FirebaseFirestore) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Avisos no celular", color = Wine, style = MaterialTheme.typography.titleMedium)
             Text("Recepção FCM: prepara avisos enviados por um servidor confiável. " +
-                "O envio automático em tempo real ainda não foi ativado.",
+                "O envio depende da ativação do servidor e do cadastro deste aparelho.",
                 color = Muted, fontSize = 12.sp)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(if (active) "Dispositivo cadastrado" else "Desativado", fontSize = 14.sp)
