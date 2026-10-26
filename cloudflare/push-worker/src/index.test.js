@@ -1,7 +1,7 @@
 import test, {afterEach} from 'node:test';
 import assert from 'node:assert/strict';
 import worker, {resolveEvent, readEventBody, auditDelivery, cleanupInvalidDevice,
-  threadParticipants, writeThreadNotices, classifyGuardiao, guardiaoAiAssessment, enrichGuardiaoReport, reserveGuardiaoAdminPush} from './index.js';
+  threadParticipants, writeThreadNotices, classifyGuardiao, guardiaoAiAssessment, enrichGuardiaoReport, reserveGuardiaoAdminPush, guardiaoAutoHoldAllowed, holdGuardiaoContent} from './index.js';
 
 const iso = () => new Date(Date.now() - 2000).toISOString();
 const doc = (data={}) => ({fields:Object.fromEntries(Object.entries(data).map(([key,value]) =>
@@ -900,4 +900,76 @@ test('Guardião limita Push administrativos sem impedir a fila de revisão',asyn
   assert.equal(await reserveGuardiaoAdminPush(null),false);
   const failing={prepare(){throw Error('D1 indisponível')}};
   assert.equal(await reserveGuardiaoAdminPush(failing),false);
+});
+
+
+test('quarentena automática é sempre fail-closed sem dois flags e IA preocupada',()=>{
+  const concern={code:'threat'}, fraud={code:'credential_scam'};
+  for(const env of [
+    {},{GUARDIAO_AUTOHIDE_ENABLED:'true'},{GUARDIAO_AI_ENABLED:'true'},
+    {GUARDIAO_AUTOHIDE_ENABLED:'false',GUARDIAO_AI_ENABLED:'true'},
+  ]) assert.equal(guardiaoAutoHoldAllowed(env,concern,'concern'),false);
+  const enabled={GUARDIAO_AUTOHIDE_ENABLED:'true',GUARDIAO_AI_ENABLED:'true'};
+  assert.equal(guardiaoAutoHoldAllowed(enabled,concern,'concern'),true);
+  assert.equal(guardiaoAutoHoldAllowed(enabled,fraud,'concern'),true);
+  for(const assessment of ['unavailable','uncertain','contextual','disabled',undefined])
+    assert.equal(guardiaoAutoHoldAllowed(enabled,concern,assessment),false);
+  for(const type of ['privacy','link_spam','flood'])
+    assert.equal(guardiaoAutoHoldAllowed(enabled,{code:type},'concern'),false);
+});
+
+test('CPF fictício válido identifica sinal mas não autoriza ocultação sem parecer IA',()=>{
+  const decision=classifyGuardiao('Exemplo numérico 123.456.789-00');
+  assert.equal(decision.code,'privacy');
+  assert.equal(guardiaoAutoHoldAllowed({
+    GUARDIAO_AUTOHIDE_ENABLED:'true',GUARDIAO_AI_ENABLED:'true'
+  },decision,'concern'),false);
+});
+
+test('quarentena somente por commit atômico, sem modificar fonte se denúncia não pendente',async()=>{
+  const calls=[];
+  const post={...doc({uid:'maria',title:'Discussão',body:'Eu vou te matar amanhã.',
+    createdAt:iso()}),name:'https://firestore.googleapis.com/v1/projects/atrio-catolico/databases/(default)/documents/posts/p1',
+    updateTime:iso()};
+  globalThis.fetch=async(input,opts={})=>{
+    const url=String(input);calls.push({url,opts});
+    if(url.endsWith('/documents/reports/guard_abc'))
+      return Response.json({...doc({status:'pending',source:'guardiao',postId:'p1'}),
+        name:'reports/guard_abc',updateTime:iso()});
+    if(url.endsWith('/documents:commit')) {
+      const payload=JSON.parse(opts.body);
+      assert.equal(payload.writes.length,2);
+      assert.ok(payload.writes[0].update.name.endsWith('/guardiao_quarantine/guard_abc'));
+      assert.equal(payload.writes[0].currentDocument.exists,false);
+      assert.equal(payload.writes[1].delete,post.name);
+      assert.equal(payload.writes[1].currentDocument.updateTime,post.updateTime);
+      assert.equal(payload.writes[0].update.fields.originalFields.mapValue.fields.body.stringValue,'Eu vou te matar amanhã.');
+      return Response.json({});
+    }
+    throw Error('unexpected URL '+url);
+  };
+  const result=await holdGuardiaoContent({},'oauth','guard_abc',
+    {type:'post',postId:'p1'},post,{code:'threat',reason:'Possível ameaça'});
+  assert.equal(result,true);
+  assert.ok(!calls.some(x=>x.opts.method==='DELETE'));
+});
+
+test('somente admin autenticado pode decidir, sem utilizar ID de caso arbitrário',async()=>{
+  globalThis.fetch=async()=>{throw Error('Sem rede para entrada inválida');};
+  const env={GUARDIAO_ENABLED:'true'};
+  const invalid=[{}, {caseId:'../../../posts/p1',action:'restore',note:'Precisa revisar'},
+    {caseId:'guard_'+'a'.repeat(32),action:'delete',note:'Precisa revisar'},
+    {caseId:'guard_'+'a'.repeat(32),action:'restore',note:'ok'},
+  ];
+  for(const entry of invalid) {
+    const response=await worker.fetch(new Request('https://test.workers.dev/moderation/review',{
+      method:'POST',body:JSON.stringify(entry)
+    }),env);
+    assert.equal(response.status,400);
+  }
+  const resp=await worker.fetch(new Request('https://test.workers.dev/moderation/review',{
+    method:'POST',body:JSON.stringify({caseId:'guard_'+'a'.repeat(32),
+      action:'restore',note:'Contestação avaliada, conteúdo legítimo'})
+  }),env);
+  assert.equal(resp.status,401);
 });
