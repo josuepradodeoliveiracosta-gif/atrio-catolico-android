@@ -1,7 +1,7 @@
 import test, {afterEach} from 'node:test';
 import assert from 'node:assert/strict';
 import worker, {resolveEvent, readEventBody, auditDelivery, cleanupInvalidDevice,
-  threadParticipants, writeThreadNotices} from './index.js';
+  threadParticipants, writeThreadNotices, classifyGuardiao} from './index.js';
 
 const iso = () => new Date(Date.now() - 2000).toISOString();
 const doc = (data={}) => ({fields:Object.fromEntries(Object.entries(data).map(([key,value]) =>
@@ -552,4 +552,116 @@ test('discussao acima de 250 participantes preserva push legado ao dono',async()
   assert.equal(event.topic,undefined);
   assert.equal(event.degraded,true);
   assert.deepEqual(event.recipients,['dono']);
+});
+
+
+test('Átrio Guardião não confunde divergências religiosas, denúncias ou Bíblia com infração',()=>{
+  const allowed=[
+    'Podemos discutir a doutrina católica sem ofender os demais.',
+    'A Bíblia relata violência e perseguição dos primeiros cristãos.',
+    'Concordo em parte, mas não acho correto interpretar esta passagem assim.',
+    'Denunciei uma ameaça de morte à polícia e rezei pela vítima.',
+    'A paróquia arrecada doações para sua campanha de caridade.',
+    'Há um alerta sobre pornografia infantil nas redes sociais.',
+  ];
+  for(const item of allowed)
+    assert.equal(classifyGuardiao(item),null,item);
+});
+
+test('Guardião identifica sinais explícitos para revisão, mas nunca remove conteúdo',()=>{
+  const candidates=[
+    ['Eu vou te matar amanhã.','threat'],
+    ['Envie sua senha para liberar o seu acesso.','credential_scam'],
+    ['Veja o CPF 123.456.789-00 desta pessoa.','privacy'],
+    ['https://a.test https://b.test https://c.test https://d.test','link_spam'],
+  ];
+  for(const [content,rule] of candidates) {
+    const result=classifyGuardiao(content);
+    assert.equal(result?.code,rule,content);
+    assert.equal(result.level,'review');
+    assert.match(result.reason,/Revisão humana necessária/);
+  }
+  assert.equal(classifyGuardiao(''),null);
+});
+
+test('moderação inativa não consulta Firebase nem grava denúncias',async()=>{
+  globalThis.fetch=async()=>{throw Error('Não deve utilizar Firebase');};
+  const res=await worker.fetch(new Request('https://example.workers.dev/moderation/event',{
+    method:'POST',body:JSON.stringify({type:'post',postId:'p1'}),
+  }),{...configured,GUARDIAO_ENABLED:'false'});
+  assert.equal(res.status,503);
+  assert.deepEqual(await res.json(),{status:'guardiao_disabled'});
+});
+
+test('moderação não aceita campos extras, IDs manipulados ou autoria falsificada',async()=>{
+  const payloads=[
+    {type:'post',postId:'../admins'},
+    {type:'post',postId:'p1',recipient:'admin'},
+    {type:'reply',postId:'p1'},
+    {type:'reply',postId:'p1',replyId:'r1',forceRemove:true},
+  ];
+  globalThis.fetch=async()=>{throw Error('Não deve consultar Firebase');};
+  for(const data of payloads) {
+    const req=new Request('https://example.workers.dev/moderation/event',{
+      method:'POST',body:JSON.stringify(data),
+    });
+    const res=await worker.fetch(req,{...configured,GUARDIAO_ENABLED:'true'});
+    assert.equal(res.status,400,JSON.stringify(data));
+  }
+});
+
+test('moderador automático autentica e cria uma única denúncia com título seguro',async()=>{
+  const pair=await crypto.subtle.generateKey(
+    {name:'RSASSA-PKCS1-v1_5',modulusLength:2048,
+     publicExponent:new Uint8Array([1,0,1]),hash:'SHA-256'},
+    true,['sign','verify']);
+  const pkcs8=await crypto.subtle.exportKey('pkcs8',pair.privateKey);
+  const service=JSON.stringify({
+    project_id:'atrio-catolico',client_email:'bot-test@atrio-catolico.iam.gserviceaccount.com',
+    private_key:'-----BEGIN PRIVATE KEY-----\n'+Buffer.from(pkcs8).toString('base64')+'\n-----END PRIVATE KEY-----',
+  });
+  let created=0, actor='maria', available=true;
+  globalThis.fetch=async(input,options={})=>{
+    const url=String(input);
+    if(url.startsWith('https://identitytoolkit.googleapis.com/'))
+      return new Response(JSON.stringify({users:[{localId:actor,disabled:false}]}),{status:200});
+    if(url==='https://oauth2.googleapis.com/token')
+      return new Response(JSON.stringify({access_token:'fake-oauth',expires_in:3600}),{status:200});
+    if(url.endsWith('/documents/posts/p1'))
+      return new Response(JSON.stringify(doc({uid:'maria',title:'Discussão',
+        body:'Eu vou te matar amanhã.',createdAt:iso()})),{status:200});
+    if(url.includes('/documents/reports?documentId=guard_')) {
+      assert.equal(options.method,'POST');
+      assert.equal(options.headers.Authorization,'Bearer fake-oauth');
+      const report=JSON.parse(options.body);
+      assert.equal(report.fields.reporterUid.stringValue,'atrio_guardiao');
+      assert.equal(report.fields.source.stringValue,'guardiao');
+      assert.equal(report.fields.status.stringValue,'pending');
+      assert.equal(report.fields.ruleCode.stringValue,'threat');
+      assert.equal(report.fields.replyId,undefined);
+      assert.equal(report.fields.postId.stringValue,'p1');
+      assert.equal(report.fields.body,undefined);
+      created++;
+      return new Response('{}',{status:created===1?200:409});
+    }
+    if(url.endsWith('/documents/admins'))
+      return new Response(JSON.stringify({documents:[]}),{status:200});
+    throw Error('Unexpected request '+url);
+  };
+  const env={...configured,GUARDIAO_ENABLED:'true',PUSH_DB:{
+    prepare(){return {bind(){return {async run(){return {meta:{changes:1}};}};}};},
+  },FIREBASE_WEB_API_KEY:'test',FIREBASE_SERVICE_ACCOUNT_JSON:service};
+  const make=()=>new Request('https://example.workers.dev/moderation/event',{
+    method:'POST',headers:{Authorization:'Bearer '+'a'.repeat(120)},
+    body:JSON.stringify({type:'post',postId:'p1'}),
+  });
+  const first=await worker.fetch(make(),env);
+  assert.deepEqual(await first.json(),{status:'queued_for_review'});
+  assert.equal(created,1);
+  const second=await worker.fetch(make(),env);
+  assert.deepEqual(await second.json(),{status:'already_queued'});
+  assert.equal(created,2);
+  actor='intruso';
+  assert.deepEqual(await (await worker.fetch(make(),env)).json(),{status:'ignored'});
+  assert.equal(created,2);
 });
