@@ -24,14 +24,18 @@ function urlSafeBase64(input) {
   return btoa(binary).replaceAll('+','-').replaceAll('/','_').replace(/=+$/g,'');
 }
 
+let cachedOAuth = null;
+let cachedSigningKey = null;
 async function oauth(env) {
+  if (cachedOAuth && cachedOAuth.expiresAt > Date.now() + 60_000) return cachedOAuth.token;
   const service = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT_JSON);
   if (service.project_id !== PROJECT || !service.client_email || !service.private_key)
     throw Error('Configuração de identidade inválida');
   const privateDer = Uint8Array.from(atob(service.private_key
     .replace(/-----BEGIN PRIVATE KEY-----|-----END PRIVATE KEY-----|\s/g,'')), c=>c.charCodeAt(0));
-  const privateKey = await crypto.subtle.importKey('pkcs8', privateDer,
+  const privateKey = cachedSigningKey || await crypto.subtle.importKey('pkcs8', privateDer,
     {name:'RSASSA-PKCS1-v1_5', hash:'SHA-256'},false,['sign']);
+  cachedSigningKey = privateKey;
   const issued = Math.floor(Date.now()/1000);
   const header = urlSafeBase64(JSON.stringify({alg:'RS256',typ:'JWT'}));
   const claim = urlSafeBase64(JSON.stringify({
@@ -49,7 +53,9 @@ async function oauth(env) {
   if (!token.ok) throw Error('Falha de autenticação de serviço');
   const payload = await token.json();
   if (!payload.access_token) throw Error('Token de serviço ausente');
-  return payload.access_token;
+  cachedOAuth = {token:payload.access_token,
+    expiresAt:Date.now() + Math.min(50*60_000,Math.max(120_000,Number(payload.expires_in||3600)*1000-120_000))};
+  return cachedOAuth.token;
 }
 
 async function verifyIdentity(req,env) {
