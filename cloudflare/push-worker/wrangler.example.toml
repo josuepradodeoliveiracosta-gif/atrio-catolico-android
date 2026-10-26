@@ -5,6 +5,8 @@ workers_dev = true
 
 [vars]
 PUSH_ENABLED = "false"
+# Broadcast exige ativação separada, depois de testes e auditoria.
+BROADCAST_ENABLED = "false"
 
 # Substitua pelo ID do banco Cloudflare D1 criado na sua conta gratuita.
 [[d1_databases]]
