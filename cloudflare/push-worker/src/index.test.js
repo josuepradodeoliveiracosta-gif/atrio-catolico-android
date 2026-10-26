@@ -1,7 +1,7 @@
 import test, {afterEach} from 'node:test';
 import assert from 'node:assert/strict';
 import worker, {resolveEvent, readEventBody, auditDelivery, cleanupInvalidDevice,
-  threadParticipants, writeThreadNotices, classifyGuardiao, guardiaoAiAssessment, enrichGuardiaoReport} from './index.js';
+  threadParticipants, writeThreadNotices, classifyGuardiao, guardiaoAiAssessment, enrichGuardiaoReport, reserveGuardiaoAdminPush} from './index.js';
 
 const iso = () => new Date(Date.now() - 2000).toISOString();
 const doc = (data={}) => ({fields:Object.fromEntries(Object.entries(data).map(([key,value]) =>
@@ -880,4 +880,24 @@ test('integração chama IA somente após denúncia nova, nunca para conteúdo c
     const result=await guardiaoScenario({...options,ai:true});
     assert.equal(result.aiCalls,0);
   }
+});
+
+
+test('Guardião limita Push administrativos sem impedir a fila de revisão',async()=>{
+  const db={
+    latest:0,
+    prepare(sql) {
+      assert.match(sql,/guardiao:admin-push:cooldown/);
+      return {bind(now,minAge){return {run:async()=>{
+        if(db.latest && db.latest>=minAge) return {meta:{changes:0}};
+        db.latest=now;
+        return {meta:{changes:1}};
+      }};}};
+    },
+  };
+  assert.equal(await reserveGuardiaoAdminPush(db),true);
+  assert.equal(await reserveGuardiaoAdminPush(db),false);
+  assert.equal(await reserveGuardiaoAdminPush(null),false);
+  const failing={prepare(){throw Error('D1 indisponível')}};
+  assert.equal(await reserveGuardiaoAdminPush(failing),false);
 });
