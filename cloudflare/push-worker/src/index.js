@@ -247,6 +247,24 @@ export async function handleBroadcast(request, env) {
   }
 }
 
+// Estatística horária anônima, sem identificação de usuários/dispositivos/eventos.
+// Falhas no diagnóstico NUNCA interrompem a entrega existente.
+export async function auditDelivery(env, kind, outcome, attempted=0, accepted=0, httpStatus=0) {
+  if (!env.PUSH_DB) return;
+  try {
+    const hour = Math.floor(Date.now() / 3600_000) * 3600_000;
+    await env.PUSH_DB.prepare(
+      'INSERT INTO push_delivery_stats ' +
+      '(hour_bucket,kind,outcome,fcm_http_status,events,attempted,accepted) ' +
+      'VALUES (?,?,?,?,1,?,?) ' +
+      'ON CONFLICT(hour_bucket,kind,outcome,fcm_http_status) DO UPDATE SET ' +
+      'events=events+1,attempted=attempted+excluded.attempted,accepted=accepted+excluded.accepted'
+    ).bind(hour,kind,outcome,httpStatus,attempted,accepted).run();
+  } catch {
+    // O monitoramento e opcional. Dados pessoais nao sao registrados nem em falha.
+  }
+}
+
 export default {
   async fetch(request, env) {
     const configured = !!(env.PUSH_DB && env.FIREBASE_WEB_API_KEY && env.FIREBASE_SERVICE_ACCOUNT_JSON);
@@ -273,7 +291,10 @@ export default {
       if(!uid) return response(401,'unauthorized');
       const token=await oauth(env);
       const event=await resolveEvent(data,uid,token);
-      if(!event) return response(202,'ignored');
+      if(!event) {
+        await auditDelivery(env,data.type,'ignored');
+        return response(202,'ignored');
+      }
       if(event.recipients.length>MAX_ADMINS) return response(503,'capacity_limit');
       // Events expire after five minutes; keep delivery markers for one day.
       // Bounded cleanup prevents an unbounded D1 retention table.
@@ -282,6 +303,7 @@ export default {
         .bind(Date.now() - 86400_000).run();
       let attempted=0;
       let accepted=0;
+      let failedHttp=0;
       for(const recipient of event.recipients) {
         if(!uidPart(recipient)||recipient===uid) continue;
         const list=await devices(token,recipient);
@@ -296,11 +318,14 @@ export default {
           const result=await send(token,target.token,recipient,event.kind);
           attempted++;
           if(result.ok) accepted++;
+          else failedHttp = result.status;
           if(!result.ok && result.status>=500) break;
         }
       }
-      if (attempted && !accepted) return response(503,'delivery_failed');
-      return response(202,accepted ? 'accepted_by_fcm' : 'no_devices_or_duplicate');
+      const outcome=attempted && !accepted ? 'delivery_failed'
+        : accepted ? 'accepted_by_fcm' : 'no_devices_or_duplicate';
+      await auditDelivery(env,event.kind,outcome,attempted,accepted,failedHttp);
+      return response(outcome==='delivery_failed' ? 503 : 202,outcome);
     } catch {
       // Não registrar ID tokens, chaves, UID, FCM tokens nem payloads em logs.
       return response(503,'unavailable');
