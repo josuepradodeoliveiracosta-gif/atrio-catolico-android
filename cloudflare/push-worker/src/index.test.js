@@ -265,7 +265,7 @@ test('somente fundador administrador envia a tópico FCM e há limitação de fr
   });
   let actor='intruso';
   let isAdmin=true;
-  let isFounder=true;
+  let isFounder=false;
   let sent=0;
   let locked=false;
   const db={prepare(sql){
