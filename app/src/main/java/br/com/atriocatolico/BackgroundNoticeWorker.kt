@@ -14,11 +14,13 @@ import androidx.work.WorkerParameters
 import androidx.work.Data
 import androidx.work.WorkManager
 import com.google.android.gms.tasks.Tasks
+import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.Source
+import java.util.Date
 import java.util.concurrent.TimeUnit
 
 /** Per-account, explicit opt-in. No server, service credentials or Firebase rules required. */
@@ -103,6 +105,7 @@ class AtrioBackgroundNoticeWorker(
             enrolled, BackgroundNoticeScheduler.lastChecked(context, uid)
         )
         val seen = BackgroundNoticeScheduler.seen(context, uid)
+        val cutoffTimestamp = Timestamp(Date(cutoff))
         val pending = mutableListOf<String>()
         val kinds = mutableSetOf<String>()
         val settings = context.getSharedPreferences("atrio_notices_$uid", Context.MODE_PRIVATE)
@@ -124,6 +127,7 @@ class AtrioBackgroundNoticeWorker(
         try {
             if (settings.getBoolean("replies", true)) {
                 val replies = fetch(db.collection("users").document(uid).collection("notifications")
+                    .whereGreaterThan("createdAt", cutoffTimestamp)
                     .orderBy("createdAt", Query.Direction.DESCENDING)
                     .limit(BackgroundNoticePolicy.MAX_DOCS).get(Source.SERVER))
                 replies.documents.forEach { doc ->
@@ -145,6 +149,7 @@ class AtrioBackgroundNoticeWorker(
                 val role = fetchOne(db.collection("admins").document(uid).get(Source.SERVER))
                 if (role.getBoolean("enabled") == true) {
                     val reports = fetch(db.collection("reports")
+                        .whereGreaterThan("createdAt", cutoffTimestamp)
                         .orderBy("createdAt", Query.Direction.DESCENDING)
                         .limit(BackgroundNoticePolicy.MAX_DOCS).get(Source.SERVER))
                     reports.documents.forEach { doc ->
@@ -154,6 +159,7 @@ class AtrioBackgroundNoticeWorker(
                         }
                     }
                     val requests = fetch(db.collection("badge_requests")
+                        .whereGreaterThan("createdAt", cutoffTimestamp)
                         .orderBy("createdAt", Query.Direction.DESCENDING)
                         .limit(BackgroundNoticePolicy.MAX_DOCS).get(Source.SERVER))
                     requests.documents.forEach { doc ->
