@@ -239,17 +239,16 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
             }, modifier = Modifier.fillMaxWidth()) { Text("Começar") }
             TextButton(onClick = { auth.signOut() }) { Text("Sair desta conta") }
         }
-    } else if (moderationOpen && isAdmin) {
-        ModerationScreen(db, uid, onBack = { moderationOpen = false })
-    } else if (clergyReviewOpen && isAdmin) {
-        ClergyBadgeReviewScreen(db, uid, onBack = { clergyReviewOpen = false })
     } else {
         CompositionLocalProvider(LocalFounderUid provides founderUid) {
         OnlineCommunity(db = db, uid = uid, name = name!!, email = user.email.orEmpty(),
             biography = biography,
+            visible = !(isAdmin && (moderationOpen || clergyReviewOpen)),
             onModeration = if (isAdmin) ({ moderationOpen = true }) else null,
             onClergyReview = if (isAdmin) ({ clergyReviewOpen = true }) else null,
             onSignOut = { auth.signOut() })
+        if (moderationOpen && isAdmin) ModerationScreen(db, uid, onBack = { moderationOpen = false })
+        else if (clergyReviewOpen && isAdmin) ClergyBadgeReviewScreen(db, uid, onBack = { clergyReviewOpen = false })
         if (error.isNotBlank()) {
             // Erros são comunicados sem impedir que o usuário continue a navegar.
             LaunchedEffect(error) { Toast.makeText(context, error, Toast.LENGTH_LONG).show(); error = "" }
@@ -261,7 +260,7 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
 @Composable
 private fun OnlineCommunity(
     db: FirebaseFirestore, uid: String, name: String, email: String, biography: String,
-    onSignOut: () -> Unit, onModeration: (() -> Unit)?,
+    visible: Boolean, onSignOut: () -> Unit, onModeration: (() -> Unit)?,
     onClergyReview: (() -> Unit)?
 ) {
     val context = LocalContext.current
@@ -484,6 +483,8 @@ private fun OnlineCommunity(
             returnToNotices = false
         } else noticesOpen = false
     }
+    // Preserve the central state while the separate admin panel is displayed.
+    if (!visible) return
     BackHandler(enabled = detailId != null || noticesOpen || noticeBadgesOpen) { closeNoticeDestination() }
 
     Scaffold(containerColor = Paper, topBar = {
