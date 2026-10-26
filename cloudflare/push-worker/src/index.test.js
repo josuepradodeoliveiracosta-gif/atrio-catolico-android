@@ -1,6 +1,6 @@
 import test, {afterEach} from 'node:test';
 import assert from 'node:assert/strict';
-import worker, {resolveEvent, readEventBody, auditDelivery} from './index.js';
+import worker, {resolveEvent, readEventBody, auditDelivery, cleanupInvalidDevice} from './index.js';
 
 const iso = () => new Date(Date.now() - 2000).toISOString();
 const doc = (data={}) => ({fields:Object.fromEntries(Object.entries(data).map(([key,value]) =>
@@ -364,4 +364,60 @@ test('auditoria horaria agrega resultados sem armazenar UID, token nem mensagem'
 test('falha de auditoria nao bloqueia entrega',async()=>{
   const env={PUSH_DB:{prepare(){throw Error('Tabela ainda nao criada');}}};
   await assert.doesNotReject(()=>auditDelivery(env,'reply','delivery_failed',1,0,503));
+});
+
+
+test('UNREGISTERED 404 remove somente o documento exato e a versão observada',async()=>{
+  const updateTime='2026-10-26T19:30:10.123456Z';
+  const path='users/dono/pushDevices/device-uuid-123';
+  const doc={path,updateTime};
+  let deletes=0;
+  globalThis.fetch=async(url,options)=>{
+    deletes++;
+    assert.equal(options.method,'DELETE');
+    assert.equal(options.headers.Authorization,'Bearer fake-oauth');
+    const parsed=new URL(String(url));
+    assert.equal(parsed.pathname.split('/documents/')[1],path);
+    assert.equal(parsed.searchParams.get('currentDocument.updateTime'),updateTime);
+    assert.equal(options.body,undefined);
+    return new Response('{}',{status:200});
+  };
+  const fcm=new Response(JSON.stringify({error:{code:404,status:'UNREGISTERED',
+    details:[{'@type':'type.googleapis.com/google.firebase.fcm.v1.FcmError',errorCode:'UNREGISTERED'}]}}),
+    {status:404,headers:{'Content-Type':'application/json'}});
+  assert.equal(await cleanupInvalidDevice('fake-oauth',doc,fcm),true);
+  assert.equal(deletes,1);
+});
+
+test('outros erros FCM nao removem tokens, inclusive HTTP 404 NOT_FOUND e INVALID_ARGUMENT',async()=>{
+  let deletions=0;
+  globalThis.fetch=async()=>{deletions++;throw Error('Nao deve deletar');};
+  const doc={path:'users/dono/pushDevices/device1',
+    updateTime:'2026-10-26T19:30:10.123456Z'};
+  for(const [http,status] of [[404,'NOT_FOUND'],[400,'INVALID_ARGUMENT'],
+      [401,'UNAUTHENTICATED'],[403,'SENDER_ID_MISMATCH'],[503,'UNAVAILABLE']]){
+    const fcm=new Response(JSON.stringify({error:{code:http,status}}),{status:http});
+    assert.equal(await cleanupInvalidDevice('fake-oauth',doc,fcm),false);
+  }
+  assert.equal(await cleanupInvalidDevice('fake-oauth',doc,new Response('html', {status:404})),false);
+  assert.equal(deletions,0);
+});
+
+test('sem identificador seguro ou updateTime nenhuma exclusao e autorizada',async()=>{
+  globalThis.fetch=async()=>{throw Error('Nao deveria chamar Firestore');};
+  const resp=()=>new Response(JSON.stringify({error:{code:404,status:'UNREGISTERED'}}),{status:404});
+  assert.equal(await cleanupInvalidDevice('fake',{path:null,updateTime:'2026-10-26T19:00:00Z'},resp()),false);
+  assert.equal(await cleanupInvalidDevice('fake',{path:'users/dono/pushDevices/device1',updateTime:null},resp()),false);
+});
+
+test('precondicao Firestore falha quando o dispositivo e atualizado antes da limpeza',async()=>{
+  globalThis.fetch=async(url,options)=>{
+    assert.equal(options.method,'DELETE');
+    assert.ok(new URL(String(url)).searchParams.has('currentDocument.updateTime'));
+    return new Response('{"error":{"status":"FAILED_PRECONDITION"}}',{status:412});
+  };
+  const fcm=new Response(JSON.stringify({error:{code:404,status:'UNREGISTERED'}}),{status:404});
+  assert.equal(await cleanupInvalidDevice('fake',{
+    path:'users/dono/pushDevices/device1',updateTime:'2026-10-26T19:00:00Z',
+  },fcm),false);
 });
