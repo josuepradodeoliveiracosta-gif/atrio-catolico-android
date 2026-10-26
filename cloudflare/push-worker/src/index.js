@@ -70,7 +70,7 @@ async function oauth(env) {
   const header = urlSafeBase64(JSON.stringify({alg:'RS256',typ:'JWT'}));
   const claim = urlSafeBase64(JSON.stringify({
     iss:service.client_email,sub:service.client_email,
-    scope:'https://www.googleapis.com/auth/datastore https://www.googleapis.com/auth/firebase.messaging https://www.googleapis.com/auth/identitytoolkit',
+    scope:'https://www.googleapis.com/auth/datastore https://www.googleapis.com/auth/firebase.messaging',
     aud:'https://oauth2.googleapis.com/token',iat:issued,exp:issued+3000,
   }));
   const signed = new TextEncoder().encode(header+'.'+claim);
@@ -688,127 +688,6 @@ export async function handleGuardiaoReview(request,env) {
 }
 
 
-// Contas de teste oficiais, sem senha e desativadas para login.
-// São identidades reais no Firebase Auth, mas só o serviço cria seus conteúdos.
-// Identificação BOT DE TESTE é obrigatória em todo conteúdo e perfil.
-export const BOT_TEST_USERS = Object.freeze([
-  {uid:'atrio_testbot_v19_clara',name:'Clara (BOT DE TESTE)',
-    bio:'Conta automatizada de testes de discussões. Não representa uma pessoa real.'},
-  {uid:'atrio_testbot_v19_miguel',name:'Miguel (BOT DE TESTE)',
-    bio:'Conta automatizada de testes de respostas. Não representa uma pessoa real.'},
-  {uid:'atrio_testbot_v19_lucia',name:'Lúcia (BOT DE TESTE)',
-    bio:'Conta automatizada de testes de conversas. Não representa uma pessoa real.'},
-]);
-const BOT_TEST_POST_ID='atrio_simulacao_trio_v19';
-function botStr(s) {return {stringValue:s};}
-async function botAuthEnsure(service,bot) {
-  const endpoint='https://identitytoolkit.googleapis.com/v1/projects/'+PROJECT+'/accounts';
-  const lookup=await fetch(endpoint+':lookup',{
-    method:'POST',headers:{Authorization:'Bearer '+service,'Content-Type':'application/json'},
-    body:JSON.stringify({localId:[bot.uid]}),
-  });
-  if(!lookup.ok) return false;
-  const found=(await lookup.json()).users?.[0];
-  if(found) return found.localId===bot.uid && found.disabled===true &&
-    found.displayName===bot.name;
-  const created=await fetch(endpoint,{
-    method:'POST',headers:{Authorization:'Bearer '+service,'Content-Type':'application/json'},
-    body:JSON.stringify({localId:bot.uid,displayName:bot.name,disabled:true}),
-  });
-  if(created.ok) return (await created.json()).localId===bot.uid;
-  // Se outra solicitação chegou simultaneamente, só aceitar um bot com
-  // a identidade exata e desativado para login.
-  const again=await fetch(endpoint+':lookup',{
-    method:'POST',headers:{Authorization:'Bearer '+service,'Content-Type':'application/json'},
-    body:JSON.stringify({localId:[bot.uid]}),
-  });
-  if(!again.ok) return false;
-  const current=(await again.json()).users?.[0];
-  return current?.localId===bot.uid && current?.disabled===true &&
-    current?.displayName===bot.name;
-}
-export function botTestWrites(now=new Date().toISOString()) {
-  const path=ROOT+'/posts/'+BOT_TEST_POST_ID;
-  const post=(name,fields)=>({update:{name,fields},
-    currentDocument:{exists:false}});
-  const writes=[];
-  for(const bot of BOT_TEST_USERS) {
-    writes.push(post(ROOT+'/profiles/'+bot.uid,{
-      displayName:botStr(bot.name),bio:botStr(bot.bio),createdAt:{timestampValue:now},
-    }));
-    writes.push(post(ROOT+'/badges/'+bot.uid,{
-      botTest:{booleanValue:true},
-    }));
-  }
-  writes.push(post(path,{
-    uid:botStr(BOT_TEST_USERS[0].uid),authorName:botStr(BOT_TEST_USERS[0].name),
-    title:botStr('[SIMULAÇÃO] Acolhimento na comunidade'),
-    body:botStr('Esta discussão foi criada por três bots oficiais para testar respostas e moderação do Átrio. Como acolher novos membros com respeito e caridade?'),
-    category:botStr('Vida espiritual'),createdAt:{timestampValue:now},
-  }));
-  const replies=[
-    {id:'resposta_miguel',bot:BOT_TEST_USERS[1],
-      body:'[BOT DE TESTE] Acho importante acolher cada pessoa com respeito e ouvir suas dúvidas antes de responder.'},
-    {id:'resposta_lucia',bot:BOT_TEST_USERS[2],
-      body:'[BOT DE TESTE] Concordo. A caridade e a paciência ajudam a tornar nossa comunidade mais acolhedora.'},
-    {id:'resposta_clara',bot:BOT_TEST_USERS[0],
-      body:'[BOT DE TESTE] Obrigada pelas respostas! Esta é uma conversa simulada para validar o aplicativo.'},
-  ];
-  for(const item of replies) writes.push(post(path+'/replies/'+item.id,{
-    uid:botStr(item.bot.uid),authorName:botStr(item.bot.name),
-    body:botStr(item.body),createdAt:{timestampValue:now},
-  }));
-  // Notificações privadas são geradas para o dono e outros participantes,
-  // exatamente como em uma discussão normal; bots desativados não recebem FCM.
-  for(const item of replies) {
-    const recipients=item.bot.uid===BOT_TEST_USERS[0].uid ?
-      [BOT_TEST_USERS[1].uid,BOT_TEST_USERS[2].uid] :
-      [BOT_TEST_USERS[0].uid,...(item.id==='resposta_lucia'?[BOT_TEST_USERS[1].uid]:[])];
-    for(const recipient of recipients) writes.push(post(
-      ROOT+'/users/'+recipient+'/notifications/'+item.id,{
-        postId:botStr(BOT_TEST_POST_ID),replyId:botStr(item.id),
-        actorUid:botStr(item.bot.uid),actorName:botStr(item.bot.name),
-        read:{booleanValue:false},createdAt:{timestampValue:now},
-      }));
-  }
-  return writes;
-}
-export async function handleTestBotProvision(request,env) {
-  if(env.TEST_BOTS_ENABLED!=='true') return response(503,'test_bots_disabled');
-  let body;
-  try { body=await readEventBody(request); }
-  catch { return response(400,'invalid_request'); }
-  if(!body||typeof body!=='object'||Array.isArray(body)||
-    Object.keys(body).join(',')!=='confirm'||
-    body.confirm!=='create_three_test_bots_v1')
-    return response(400,'invalid_request');
-  try {
-    const actor=await verifyIdentity(request,env);
-    if(!actor) return response(401,'unauthorized');
-    const service=await oauth(env);
-    const [admin,founder]=await Promise.all([
-      firestoreGet(service,'admins/'+enc(actor)),
-      firestoreGet(service,'app_config/founder'),
-    ]);
-    if(!admin||!boolField(admin,'enabled')||
-      stringField(founder,'uid')!==actor)
-      return response(403,'founder_only');
-    const existing=await firestoreGet(service,'posts/'+BOT_TEST_POST_ID);
-    if(existing) return response(stringField(existing,'uid')===BOT_TEST_USERS[0].uid
-      ?200:409,stringField(existing,'uid')===BOT_TEST_USERS[0].uid
-      ?'test_bots_existing':'test_id_conflict');
-    // Antes de qualquer escrita pública, criar e conferir usuários desativados
-    // na autenticação do mesmo projeto. Sem isso, não simular contas reais.
-    for(const bot of BOT_TEST_USERS)
-      if(!await botAuthEnsure(service,bot))
-        return response(503,'bot_identity_unavailable');
-    const done=await firestoreCommit(service,botTestWrites());
-    if(!done) return response(503,'bot_seed_unavailable');
-    await auditDelivery(env,'test_bots','created');
-    return response(200,'test_bots_created');
-  } catch { return response(503,'bot_seed_unavailable'); }
-}
-
 export default {
   async fetch(request, env) {
     const configured = !!(env.PUSH_DB && env.FIREBASE_WEB_API_KEY && env.FIREBASE_SERVICE_ACCOUNT_JSON);
@@ -821,8 +700,6 @@ export default {
       return handleGuardiaoEvent(request,env);
     if (request.method === 'POST' && path === '/moderation/review')
       return handleGuardiaoReview(request,env);
-    if (request.method === 'POST' && path === '/test-bots/provision')
-      return handleTestBotProvision(request,env);
     if(request.method!=='POST'||path!=='/event')
       return response(404,'not_found');
     if(env.PUSH_ENABLED!=='true') return response(503,'disabled');
