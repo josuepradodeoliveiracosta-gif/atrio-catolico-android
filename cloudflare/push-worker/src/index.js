@@ -382,6 +382,98 @@ export async function auditDelivery(env, kind, outcome, attempted=0, accepted=0,
   }
 }
 
+
+// Átrio Guardião — fase gratuita: triagem conservadora, sem remoção automática.
+// Nenhuma alegação doutrinária, opinião ou citação religiosa é uma infração por si.
+export function classifyGuardiao(input) {
+  const text=String(input||'').normalize('NFC').slice(0,2000);
+  const ruleSets=[
+    ['threat','Possível ameaça pessoal explícita',/\b(?:vou|vamos|irei|quero)\s+(?:(?:te|lhe|voce|você)\s+)?(?:matar|esfaquear|agredir|espancar)\b|\b(?:voce|você|vc)\s+(?:merece|vai)\s+(?:morrer|apanhar)\b/iu],
+    ['credential_scam','Possível tentativa de roubo de senha ou código',/\b(?:envie|mande|compartilhe|informe)\s+(?:sua?\s+)?(?:senha|c[oó]digo\s+de\s+(?:verifica[cç][aã]o|acesso))\b/iu],
+    ['privacy','Possível divulgação de dado pessoal (CPF)',/\b\d{3}[.\s]?\d{3}[.\s]?\d{3}[-\s]?\d{2}\b/u],
+  ];
+  const findings=ruleSets.filter(x=>x[2].test(text));
+  const urls=[...text.matchAll(/https?:\/\/[^\s]+/giu)];
+  if(urls.length>=4) findings.push(['link_spam','Possível divulgação excessiva de links']);
+  const duplicated=text.match(/(.{15,70})\s+\1\s+\1/iu);
+  if(duplicated) findings.push(['flood','Possível envio repetitivo de texto']);
+  if(!findings.length) return null;
+  return {code:findings[0][0],reason:'Átrio Guardião: '+findings[0][1]+'. Revisão humana necessária.',
+    level:'review'};
+}
+async function guardiaoDocId(event) {
+  const data=new TextEncoder().encode('atrio-guardiao-v1:'+event.type+':'+event.postId+
+    ':'+(event.replyId||''));
+  const digest=new Uint8Array(await crypto.subtle.digest('SHA-256',data));
+  return 'guard_'+[...digest].slice(0,16).map(x=>x.toString(16).padStart(2,'0')).join('');
+}
+function guardiaoReportFields(event,document,decision) {
+  const fields={
+    postId:{stringValue:event.postId},
+    reporterUid:{stringValue:'atrio_guardiao'},
+    reason:{stringValue:decision.reason},
+    source:{stringValue:'guardiao'},
+    ruleCode:{stringValue:decision.code},
+    status:{stringValue:'pending'},
+    createdAt:{timestampValue:new Date().toISOString()},
+  };
+  if(event.type==='reply') fields.replyId={stringValue:event.replyId};
+  return {fields};
+}
+export async function handleGuardiaoEvent(request,env) {
+  if(env.GUARDIAO_ENABLED!=='true') return response(503,'guardiao_disabled');
+  if(!(env.FIREBASE_SERVICE_ACCOUNT_JSON&&env.FIREBASE_WEB_API_KEY&&env.PUSH_DB))
+    return response(503,'not_configured');
+  let data;
+  try { data=await readEventBody(request); }
+  catch(error) { return response(error instanceof RangeError?413:400,'invalid_request'); }
+  if(!data||typeof data!=='object'||Array.isArray(data)||
+    !['post','reply'].includes(data.type)||
+    !uidPart(data.postId)||
+    (data.type==='reply'&&!uidPart(data.replyId))||
+    (data.type==='post'&&Object.keys(data).sort().join(',')!=='postId,type')||
+    (data.type==='reply'&&Object.keys(data).sort().join(',')!=='postId,replyId,type'))
+    return response(400,'invalid_event');
+  try {
+    const actor=await verifyIdentity(request,env);
+    if(!actor) return response(401,'unauthorized');
+    const service=await oauth(env);
+    const path='posts/'+enc(data.postId)+(data.type==='reply'?'/replies/'+enc(data.replyId):'');
+    const doc=await firestoreGet(service,path);
+    if(!doc||stringField(doc,'uid')!==actor||!recent(timeField(doc,'createdAt')))
+      return response(202,'ignored');
+    const value=(data.type==='post'?stringField(doc,'title')+' ': '')+stringField(doc,'body');
+    const decision=classifyGuardiao(value);
+    if(!decision) {
+      await auditDelivery(env,'guardiao','clear');
+      return response(202,'clear');
+    }
+    const reportId=await guardiaoDocId(data);
+    const result=await fetch(ROOT+'/reports?documentId='+enc(reportId),{
+      method:'POST',headers:{Authorization:'Bearer '+service,'Content-Type':'application/json'},
+      body:JSON.stringify(guardiaoReportFields(data,doc,decision)),
+    });
+    if(result.status===409) return response(202,'already_queued');
+    if(!result.ok) return response(503,'review_queue_unavailable');
+    await auditDelivery(env,'guardiao','queued');
+    // Reaproveita a infraestrutura de avisos já existente: não anexa texto,
+    // dados pessoais nem conteúdo suspeito ao FCM dos administradores.
+    try {
+      for(const admin of await adminUids(service,actor)) {
+        for(const device of await devices(service,admin)) {
+          const delivered=await send(service,device.token,admin,'admin');
+          if(!delivered.ok) await cleanupInvalidDevice(service,device,delivered);
+        }
+      }
+    } catch {
+      // Falha na notificação não perde a denúncia criada no Firestore.
+    }
+    return response(202,'queued_for_review');
+  } catch {
+    return response(503,'unavailable');
+  }
+}
+
 export default {
   async fetch(request, env) {
     const configured = !!(env.PUSH_DB && env.FIREBASE_WEB_API_KEY && env.FIREBASE_SERVICE_ACCOUNT_JSON);
@@ -390,6 +482,8 @@ export default {
     const path = new URL(request.url).pathname;
     if (request.method === 'POST' && path === '/broadcast')
       return handleBroadcast(request,env);
+    if (request.method === 'POST' && path === '/moderation/event')
+      return handleGuardiaoEvent(request,env);
     if(request.method!=='POST'||path!=='/event')
       return response(404,'not_found');
     if(env.PUSH_ENABLED!=='true') return response(503,'disabled');
