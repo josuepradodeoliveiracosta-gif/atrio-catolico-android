@@ -311,6 +311,11 @@ service cloud.firestore {
         && validTime();
       allow update: if isAdmin()
         && resource.data.get('status', 'pending') == 'pending'
+        // Um APK antigo não pode encerrar um caso cuja publicação está
+        // retida: restauração/remoção só por decisão atômica do Worker.
+        && !(resource.data.get('source', '') == 'guardiao'
+          && exists(/databases/$(database)/documents/guardiao_quarantine/$(reportId))
+          && get(/databases/$(database)/documents/guardiao_quarantine/$(reportId)).data.status == 'held')
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['status', 'reviewedBy', 'reviewedAt', 'reviewNote', 'reviewTarget'])
         && request.resource.data.keys().hasAll(['status', 'reviewedBy', 'reviewedAt', 'reviewNote'])
