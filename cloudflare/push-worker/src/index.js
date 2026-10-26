@@ -9,6 +9,10 @@ const MAX_AGE_MS = 5 * 60_000;
 const MAX_SUBJECT = 128;
 const BROADCAST_TOPIC = 'atrio_comunicados_v1';
 const BROADCAST_COOLDOWN_MS = 60 * 60_000;
+// Fan-out: limite explícito para respeitar o plano Workers Free e o tamanho do batchWrite.
+const THREAD_REPLY_PAGE_SIZE = 200;
+const THREAD_MAX_PAGES = 10;
+const THREAD_MAX_RECIPIENTS = 250;
 
 
 const stringField = (doc, key) => doc?.fields?.[key]?.stringValue ?? '';
@@ -113,6 +117,58 @@ async function firestoreList(token, path, max) {
   if (data.nextPageToken) throw Error('Limite de consulta excedido');
   return data.documents || [];
 }
+
+export async function threadParticipants(token, postId, actor, owner, replyTime) {
+  if(!uidPart(postId)||!uidPart(actor)||!uidPart(owner)) throw Error('thread_invalid');
+  const users=new Set();
+  if(owner!==actor) users.add(owner);
+  let next='';
+  for(let page=0;page<THREAD_MAX_PAGES;page++) {
+    const params=new URLSearchParams({pageSize:String(THREAD_REPLY_PAGE_SIZE)});
+    params.append('mask.fieldPaths','uid');
+    params.append('mask.fieldPaths','createdAt');
+    if(next) params.set('pageToken',next);
+    const res=await fetch(ROOT+'/posts/'+enc(postId)+'/replies?'+params.toString(),
+      {headers:{Authorization:'Bearer '+token}});
+    if(res.status===404 && page===0) return [...users];
+    if(!res.ok) throw Error('thread_replies_unavailable');
+    const body=await res.json();
+    for(const doc of body.documents||[]) {
+      const uid=stringField(doc,'uid');
+      const time=timeField(doc,'createdAt');
+      if(uidPart(uid)&&uid!==actor&&time>0&&time<=replyTime+1000)
+        users.add(uid);
+      if(users.size>THREAD_MAX_RECIPIENTS) throw Error('thread_capacity');
+    }
+    next=body.nextPageToken||'';
+    if(!next) return [...users];
+  }
+  throw Error('thread_reply_limit');
+}
+
+export async function writeThreadNotices(token, event) {
+  if(!event.topic || !event.recipients?.length) return;
+  const {postId,replyId,actorUid,actorName,createdAt}=event.notice;
+  const writes=event.recipients.map(uid=>({
+    update:{name:'projects/'+PROJECT+'/databases/(default)/documents/users/'+uid+
+      '/notifications/'+replyId,
+      fields:{
+        postId:{stringValue:postId},replyId:{stringValue:replyId},
+        actorUid:{stringValue:actorUid},actorName:{stringValue:actorName},
+        read:{booleanValue:false},createdAt:{timestampValue:createdAt},
+      }},
+    currentDocument:{exists:false},
+  }));
+  const res=await fetch(ROOT+':batchWrite',{
+    method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+    body:JSON.stringify({writes}),
+  });
+  if(!res.ok) throw Error('thread_fanout_unavailable');
+  const result=await res.json();
+  if((result.status||[]).some(x=>x && x.code && x.code!==6))
+    throw Error('thread_fanout_partial');
+}
+
 async function adminUids(token, origin) {
   const docs = await firestoreList(token,'admins',MAX_ADMINS+1);
   if (docs.length > MAX_ADMINS) throw Error('Limite administrativo excedido');
@@ -129,13 +185,22 @@ export async function resolveEvent(event, actor, token) {
     const reply = await firestoreGet(token,'posts/'+enc(event.postId)+'/replies/'+enc(event.replyId));
     if (!post||!reply||stringField(reply,'uid')!==actor||!recent(timeField(reply,'createdAt'))) return null;
     const owner=stringField(post,'uid');
-    if(!uidPart(owner)||owner===actor) return null;
-    const notice=await firestoreGet(token,'users/'+enc(owner)+'/notifications/'+enc(event.replyId));
-    if(!notice||stringField(notice,'actorUid')!==actor
-      ||stringField(notice,'postId')!==event.postId
-      ||stringField(notice,'replyId')!==event.replyId
-      ||boolField(notice,'read')) return null;
-    return {key:'reply:'+event.postId+':'+event.replyId,kind:'reply',recipients:[owner]};
+    if(!uidPart(owner)) return null;
+    // Cliente antigo cria aviso para o dono em batch, mas respostas do próprio
+    // dono também devem ser entregues aos demais participantes.
+    if(owner!==actor) {
+      const notice=await firestoreGet(token,'users/'+enc(owner)+'/notifications/'+enc(event.replyId));
+      if(!notice||stringField(notice,'actorUid')!==actor
+        ||stringField(notice,'postId')!==event.postId
+        ||stringField(notice,'replyId')!==event.replyId) return null;
+    }
+    const replyTime=timeField(reply,'createdAt');
+    const recipients=await threadParticipants(token,event.postId,actor,owner,replyTime);
+    return {key:'reply:'+event.postId+':'+event.replyId,kind:'reply',
+      topic:'atrio_thread_'+event.postId,recipients,legacyOwner:owner===actor?null:owner,
+      notice:{postId:event.postId,replyId:event.replyId,actorUid:actor,
+        actorName:stringField(reply,'authorName').slice(0,35),
+        createdAt:reply.fields.createdAt.timestampValue}};
   }
   if (type==='badge_request') {
     const request=await firestoreGet(token,'badge_requests/'+enc(actor));
@@ -335,7 +400,11 @@ export default {
         await auditDelivery(env,data.type,'ignored');
         return response(202,'ignored');
       }
-      if(event.recipients.length>MAX_ADMINS) return response(503,'capacity_limit');
+      if(event.recipients.length>(event.topic?THREAD_MAX_RECIPIENTS:MAX_ADMINS))
+        return response(503,'capacity_limit');
+      // Notificações de participantes são gravadas pelo servidor confiável,
+      // sem abrir permissão de criar avisos arbitrários no Firestore.
+      if(event.topic) await writeThreadNotices(token,event);
       // Events expire after five minutes; keep delivery markers for one day.
       // Bounded cleanup prevents an unbounded D1 retention table.
       await env.PUSH_DB.prepare('DELETE FROM delivered WHERE event_key IN ' +
@@ -345,7 +414,27 @@ export default {
       let accepted=0;
       let failedHttp=0;
       let cleaned=0;
-      for(const recipient of event.recipients) {
+      if(event.topic) {
+        // Um único envio por tópico para todos os participantes inscritos.
+        const marker='topic:'+event.key;
+        const insert=await env.PUSH_DB.prepare(
+          'INSERT OR IGNORE INTO delivered (event_key,created_at) VALUES (?,?)'
+        ).bind(marker,Date.now()).run();
+        if(insert.meta?.changes) {
+          const res=await fetch('https://fcm.googleapis.com/v1/projects/'+PROJECT+'/messages:send',{
+            method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+            body:JSON.stringify({message:{
+              topic:event.topic,
+              data:{kind:'discussion_reply',postId:event.notice.postId,
+                replyId:event.notice.replyId,actorUid:event.notice.actorUid},
+              android:{priority:'HIGH',ttl:'3600s'},
+            }}),
+          });
+          attempted++;
+          if(res.ok) accepted++; else failedHttp=res.status;
+        }
+      }
+      for(const recipient of (event.topic?event.legacyOwner?[event.legacyOwner]:[]:event.recipients)) {
         if(!uidPart(recipient)||recipient===uid) continue;
         const list=await devices(token,recipient);
         if(!list.length) continue;
@@ -356,7 +445,17 @@ export default {
         ).bind(marker,Date.now()).run();
         if(!record.meta?.changes) continue;
         for(const target of list) {
-          const result=await send(token,target.token,recipient,event.kind);
+          const result=event.topic
+            ? await fetch('https://fcm.googleapis.com/v1/projects/'+PROJECT+'/messages:send',{
+                method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+                body:JSON.stringify({message:{
+                  token:target.token,
+                  data:{uid:recipient,kind:'reply',postId:event.notice.postId,
+                    replyId:event.notice.replyId,actorUid:event.notice.actorUid},
+                  android:{priority:'HIGH',ttl:'3600s'},
+                }}),
+              })
+            : await send(token,target.token,recipient,event.kind);
           attempted++;
           if(result.ok) accepted++;
           else {
