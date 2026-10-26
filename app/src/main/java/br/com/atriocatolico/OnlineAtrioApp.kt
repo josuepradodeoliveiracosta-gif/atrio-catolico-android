@@ -449,7 +449,10 @@ private fun OnlineCommunity(
         )).addOnCompleteListener { result ->
             working = false
             if (result.isSuccessful) {
-                result.result?.id?.let { ThreadPushSubscriptions.track(context, uid, it) }
+                result.result?.id?.let {
+                    ThreadPushSubscriptions.track(context, uid, it)
+                    InstantPushRelay.moderatePost(it)
+                }
                 navigate(Tab.HOME)
                 Toast.makeText(context, "Discussão publicada!", Toast.LENGTH_SHORT).show()
             } else message = result.exception?.localizedMessage ?: "Não foi possível publicar."
@@ -487,6 +490,7 @@ private fun OnlineCommunity(
                 // Inclui respostas feitas pelo próprio autor da discussão:
                 // os demais participantes também precisam receber o evento.
                 InstantPushRelay.reply(id, replyRef.id)
+                InstantPushRelay.moderateReply(id, replyRef.id)
             }
             done(result.isSuccessful)
             if (!result.isSuccessful) {
