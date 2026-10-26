@@ -208,3 +208,11 @@ Quando uma resposta é publicada, o criador da discussão **e todos os outros co
 - Post criado por Maria; Maria responde: João, Ana e Pedro recebem; Maria não recebe.
 - Múltiplas respostas de João produzem somente um aviso por nova resposta, e não um aviso por comentário antigo.
 - Central de avisos não sobrescre aviso existente/lido; Firebase tópico envia aviso genérico, com deduplicação local da mensagem individual.
+
+## Publicação de fan-out de participantes — 26/10/2026
+
+- Tests completos no GitHub passaram na revisão de código `33610b85880974927e829ae2082d1a810f60a2ff`: Worker (Node), Android de testes, regras Firestore, versão.
+- O Worker `atrio-push` foi publicado no Cloudflare com a lógica `threadParticipants` / `writeThreadNotices` e entrega por tópico, confirmada em 100% de tráfego às 20:33:32Z. Os bindings `PUSH_ENABLED=true`, `BROADCAST_ENABLED=true`, secrets Firebase e D1 foram preservados.
+- O artefato Debug deste commit foi compilado e disponibilizado para testes. A versão oficial 0.18.0 continua inalterada e a PR segue aberta, em homologação.
+- **O recebimento real em todos os participantes ainda exige teste com contas e celulares de verdade**. FCM topic e a escrita batch do Firestore só podem ser confirmados ponta a ponta após um evento real autenticado.
+- Os novos tópicos exigem o APK atualizado e participação inscrita no aparelho; instalações antigas ainda podem receber o aviso individual do dono, e devem atualizar para o Push coletivo. O limite provisório continua sendo 250 destinatários e 2.000 respostas por evento, sem entrega coletiva garantida além desses limites.
