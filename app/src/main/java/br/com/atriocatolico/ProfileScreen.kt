@@ -49,6 +49,8 @@ internal fun OnlineProfileScreen(
             }
         }
     } else {
+        val founderCanBroadcast = onModeration != null && onClergyReview != null &&
+            LocalFounderUid.current.isNotBlank() && LocalFounderUid.current == uid
         val mine = posts.filter { it.mine }
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -116,10 +118,7 @@ internal fun OnlineProfileScreen(
                 }
             }
             // Somente o fundador que também é administrador vê a opção.
-            if (onModeration != null && onClergyReview != null &&
-                LocalFounderUid.current.isNotBlank() && LocalFounderUid.current == uid) {
-                item { AdminBroadcastPanel() }
-            }
+            if (founderCanBroadcast) item { AdminBroadcastPanel() }
             item {
                 HorizontalDivider(color = Line)
                 Spacer(Modifier.height(16.dp))
