@@ -149,3 +149,91 @@ test('token ausente é recusado sem obter credencial administrativa',async()=>{
 test('corpo válido é lido corretamente',async()=>{
   assert.deepEqual(await readEventBody(req('{"type":"badge_request"}')),{type:'badge_request'});
 });
+
+
+test('fluxo completo autenticado, deduplicação e falha FCM sem credenciais reais',async()=>{
+  // Credenciais RSA efêmeras apenas para o JWT simulado. Nenhuma API real é acessada.
+  const pair=await crypto.subtle.generateKey(
+    {name:'RSASSA-PKCS1-v1_5',modulusLength:2048,publicExponent:new Uint8Array([1,0,1]),hash:'SHA-256'},
+    true,['sign','verify']);
+  const pkcs8=await crypto.subtle.exportKey('pkcs8',pair.privateKey);
+  const service=JSON.stringify({
+    project_id:'atrio-catolico',
+    client_email:'test-push@atrio-catolico.iam.gserviceaccount.com',
+    private_key:'-----BEGIN PRIVATE KEY-----\n'+Buffer.from(pkcs8).toString('base64')+'\n-----END PRIVATE KEY-----',
+  });
+  const records=new Set();
+  const db={prepare(sql){return {bind(...params){return {async run(){
+    if(sql.startsWith('DELETE FROM delivered')) return {meta:{changes:0}};
+    if(!sql.startsWith('INSERT OR IGNORE INTO delivered')) throw Error('SQL inesperado');
+    if(records.has(params[0])) return {meta:{changes:0}};
+    records.add(params[0]);
+    return {meta:{changes:1}};
+  }};}};}};
+  const documents={
+    'posts/p1':doc({uid:'dono'}),
+    'posts/p1/replies/r1':doc({uid:'autor',createdAt:iso()}),
+    'posts/p1/replies/r2':doc({uid:'autor',createdAt:iso()}),
+    'users/dono/notifications/r1':doc({
+      actorUid:'autor',postId:'p1',replyId:'r1',read:false,
+    }),
+    'users/dono/notifications/r2':doc({
+      actorUid:'autor',postId:'p1',replyId:'r2',read:false,
+    }),
+    'users/dono/pushDevices':{documents:[doc({token:'token-test-device-1234567890',updatedAt:iso()})]},
+  };
+  let sent=0;
+  let failFCM=false;
+  globalThis.fetch=async (input,options={})=>{
+    const url=String(input);
+    if(url.startsWith('https://identitytoolkit.googleapis.com/')) {
+      assert.equal(new URL(url).searchParams.get('key'),'only-identity-toolkit');
+      return new Response(JSON.stringify({users:[{localId:'autor',disabled:false}]}),{status:200});
+    }
+    if(url==='https://oauth2.googleapis.com/token') {
+      assert.match(String(options.body),/jwt-bearer/);
+      return new Response(JSON.stringify({access_token:'fake-oauth',expires_in:3600}),{status:200});
+    }
+    if(url.includes('firestore.googleapis.com/')) {
+      assert.equal(options.headers.Authorization,'Bearer fake-oauth');
+      const u=new URL(url);
+      const path=decodeURIComponent(u.pathname).split('/documents/')[1];
+      const content=documents[path];
+      return content
+        ? new Response(JSON.stringify(content),{status:200})
+        : new Response('{}',{status:404});
+    }
+    if(url.includes('fcm.googleapis.com/')) {
+      assert.equal(options.headers.Authorization,'Bearer fake-oauth');
+      const message=JSON.parse(options.body).message;
+      assert.deepEqual(message.data,{uid:'dono',kind:'reply'});
+      assert.equal(message.token,'token-test-device-1234567890');
+      sent++;
+      return new Response('{}',{status:failFCM ? 503 : 200});
+    }
+    throw Error('Acesso inesperado: '+url);
+  };
+  const env={
+    PUSH_ENABLED:'true',PUSH_DB:db,
+    FIREBASE_WEB_API_KEY:'only-identity-toolkit',
+    FIREBASE_SERVICE_ACCOUNT_JSON:service,
+  };
+  const headers={Authorization:'Bearer '+'a'.repeat(120)};
+  const emit=(replyId)=>worker.fetch(req(JSON.stringify({type:'reply',postId:'p1',replyId}),headers),env);
+
+  const ok=await emit('r1');
+  assert.equal(ok.status,202);
+  assert.deepEqual(await ok.json(),{status:'accepted_by_fcm'});
+  assert.equal(sent,1);
+
+  const duplicate=await emit('r1');
+  assert.equal(duplicate.status,202);
+  assert.deepEqual(await duplicate.json(),{status:'no_devices_or_duplicate'});
+  assert.equal(sent,1,'evento repetido não pode duplicar o push');
+
+  failFCM=true;
+  const failed=await emit('r2');
+  assert.equal(failed.status,503);
+  assert.deepEqual(await failed.json(),{status:'delivery_failed'});
+  assert.equal(sent,2);
+});
