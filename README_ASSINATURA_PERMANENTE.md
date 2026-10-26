@@ -58,11 +58,11 @@ usa a chave somente durante a compilação de release.
 
 ## 4. Ativar a integração no GitHub
 
-A proposta de assinatura está na branch
-`feature/assinatura-permanente-2026-10-25`.
-Depois de conferir a chave e gravar os três secrets, revise e integre o pull request
-dessa branch em `main`. A integração não modifica o backup
-`backup/v0.12.0-2026-10-25`.
+A integração de assinatura está em `app/build.gradle.kts` e
+`.github/workflows/build-apk.yml`. Não é necessário reaplicar a antiga branch
+de implantação. Confira o resultado do workflow e o certificado do APK de cada
+release; a presença do código não comprova que os secrets estão configurados.
+O backup `backup/v0.12.0-2026-10-25` deve permanecer intocado.
 
 O build gera dois artefatos separados:
 
@@ -77,8 +77,8 @@ sinalizar configuração incompleta.
 
 ## 5. Migração da instalação antiga
 
-O APK 0.12 que você instalou anteriormente provavelmente foi assinado
-com uma chave **debug diferente**. O Android exige o mesmo identificador
+Se a instalação anterior for um APK debug, ela pode ter sido assinada
+com uma chave diferente. O Android exige o mesmo identificador
 (`br.com.atriocatolico`), certificado compatível e `versionCode`
 igual ou superior para permitir instalar por cima.
 
@@ -96,7 +96,8 @@ não inferior.
 - Nunca adicione o `.jks` ou senhas ao GitHub, mesmo em repositório privado.
 - Não envie uma chave de assinatura pelo chat.
 - Os secrets do Actions não substituem o seu backup offline do `.jks`.
-- A configuração está proposta, mas só será comprovada após o build de
-  `assembleRelease` e a validação do certificado no Android.
+- Para cada release, confira o build de `assembleRelease` e a validação do
+  certificado; isso não substitui o teste de atualização no aparelho.
 - Chave de assinatura **não é** a mesma coisa que `google-services.json`
   ou a configuração de autenticação do Firebase.
+

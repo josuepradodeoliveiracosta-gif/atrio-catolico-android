@@ -16,3 +16,16 @@
 *.p12
 keystore.properties
 key.properties
+
+
+# Dependências, caches e resultados reproduzíveis de desenvolvimento.
+node_modules/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.firebase/
+firebase-debug*.log
+firestore-debug*.log
+ui-debug*.log
+/tests/security/firestore.rules
+/tests/security/RESULTADO.txt
