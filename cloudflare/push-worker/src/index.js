@@ -7,6 +7,9 @@ const MAX_ADMINS = 8;
 const MAX_TOKENS = 3;
 const MAX_AGE_MS = 5 * 60_000;
 const MAX_SUBJECT = 128;
+const BROADCAST_TOPIC = 'atrio_comunicados_v1';
+const BROADCAST_COOLDOWN_MS = 60 * 60_000;
+
 
 const stringField = (doc, key) => doc?.fields?.[key]?.stringValue ?? '';
 const boolField = (doc, key) => doc?.fields?.[key]?.booleanValue === true;
@@ -184,12 +187,75 @@ async function send(token,device,uid,kind) {
   });
 }
 
+function safeAnnouncementText(input, min, max) {
+  return typeof input === 'string' && input.length >= min && input.length <= max
+    && input.trim() === input && !/[\u0000-\u001F\u007F\u202A-\u202E\u2066-\u2069]/u.test(input);
+}
+
+export async function handleBroadcast(request, env) {
+  // Separado do kill switch de notificações individuais, desligado por padrão.
+  if (env.PUSH_ENABLED !== 'true' || env.BROADCAST_ENABLED !== 'true')
+    return response(503,'broadcast_disabled');
+  if (!(env.PUSH_DB && env.FIREBASE_WEB_API_KEY && env.FIREBASE_SERVICE_ACCOUNT_JSON))
+    return response(503,'not_configured');
+  let data;
+  try { data = await readEventBody(request); }
+  catch (error) { return response(error instanceof RangeError ? 413 : 400,
+    error instanceof RangeError ? 'too_large' : 'invalid_json'); }
+  if (!data || typeof data !== 'object' || Array.isArray(data)
+      || Object.keys(data).sort().join(',') !== 'body,requestId,title'
+      || !safeAnnouncementText(data.title,5,60)
+      || !safeAnnouncementText(data.body,10,180)
+      || typeof data.requestId !== 'string'
+      || !/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(data.requestId))
+    return response(400,'invalid_broadcast');
+
+  try {
+    const actor = await verifyIdentity(request,env);
+    if (!actor) return response(401,'unauthorized');
+    const token = await oauth(env);
+    const [admin,founder] = await Promise.all([
+      firestoreGet(token,'admins/'+enc(actor)),
+      firestoreGet(token,'app_config/founder'),
+    ]);
+    if (!admin || !boolField(admin,'enabled') || !founder
+        || stringField(founder,'uid') !== actor)
+      return response(403,'forbidden');
+
+    // Um envio no máximo por hora, inclusive se dois aparelhos do fundador tentarem.
+    // O banco realiza o teste e o bloqueio num único comando atômico.
+    const now = Date.now();
+    const inserted = await env.PUSH_DB.prepare(
+      "INSERT INTO delivered (event_key,created_at) VALUES ('broadcast:cooldown',?) " +
+      "ON CONFLICT(event_key) DO UPDATE SET created_at=excluded.created_at " +
+      "WHERE delivered.created_at < ?"
+    ).bind(now,now-BROADCAST_COOLDOWN_MS).run();
+    if (inserted.meta?.changes !== 1) return response(429,'broadcast_cooldown');
+
+    const res = await fetch('https://fcm.googleapis.com/v1/projects/'+PROJECT+'/messages:send',{
+      method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+      body:JSON.stringify({message:{
+        topic:BROADCAST_TOPIC,
+        data:{kind:'broadcast',title:data.title,body:data.body,messageId:data.requestId},
+        android:{priority:'HIGH',ttl:'3600s'},
+      }}),
+    });
+    return response(res.ok ? 202 : 503,res.ok ? 'accepted_by_fcm' : 'delivery_failed');
+  } catch {
+    // Nunca retornar UID, token FCM, ID token, chave ou detalhes do provedor.
+    return response(503,'unavailable');
+  }
+}
+
 export default {
   async fetch(request, env) {
     const configured = !!(env.PUSH_DB && env.FIREBASE_WEB_API_KEY && env.FIREBASE_SERVICE_ACCOUNT_JSON);
     if(request.method==='GET' && new URL(request.url).pathname==='/health')
       return response(200, env.PUSH_ENABLED==='true' && configured ? 'configured' : 'disabled');
-    if(request.method!=='POST'||new URL(request.url).pathname!=='/event')
+    const path = new URL(request.url).pathname;
+    if (request.method === 'POST' && path === '/broadcast')
+      return handleBroadcast(request,env);
+    if(request.method!=='POST'||path!=='/event')
       return response(404,'not_found');
     if(env.PUSH_ENABLED!=='true') return response(503,'disabled');
     if(!configured) return response(503,'not_configured');
