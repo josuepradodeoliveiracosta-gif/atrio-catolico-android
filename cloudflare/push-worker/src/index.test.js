@@ -522,3 +522,34 @@ test('limite de participantes impede fanout incompleto ou silencioso',async()=>{
   mocked({'posts/p1/replies':{documents:docs}});
   await assert.rejects(()=>threadParticipants('fake','p1','autor','dono',Date.now()),/thread_capacity/);
 });
+
+test('uma resposta posterior ao evento nao recebe notificacao retroativa',async()=>{
+  const replyAt=new Date(Date.now()-4000).toISOString();
+  const future=new Date(Date.now()-1000).toISOString();
+  mocked({
+    'posts/p1':doc({uid:'dono'}),
+    'posts/p1/replies/r1':doc({uid:'autor',authorName:'Autor',createdAt:replyAt}),
+    'users/dono/notifications/r1':doc({actorUid:'autor',postId:'p1',replyId:'r1',read:false}),
+    'posts/p1/replies':{documents:[
+      doc({uid:'ana',createdAt:replyAt}),
+      doc({uid:'joao',createdAt:future}),
+    ]},
+  });
+  const event=await resolveEvent({type:'reply',postId:'p1',replyId:'r1'},'autor','fake');
+  assert.deepEqual(event.recipients.sort(),['ana','dono']);
+});
+
+test('discussao acima de 250 participantes preserva push legado ao dono',async()=>{
+  const now=iso();
+  mocked({
+    'posts/p1':doc({uid:'dono'}),
+    'posts/p1/replies/r1':doc({uid:'autor',authorName:'Autor',createdAt:now}),
+    'users/dono/notifications/r1':doc({actorUid:'autor',postId:'p1',replyId:'r1',read:false}),
+    'posts/p1/replies':{documents:Array.from({length:251},(_,i)=>
+      doc({uid:'member'+i,createdAt:now}))},
+  });
+  const event=await resolveEvent({type:'reply',postId:'p1',replyId:'r1'},'autor','fake');
+  assert.equal(event.topic,undefined);
+  assert.equal(event.degraded,true);
+  assert.deepEqual(event.recipients,['dono']);
+});
