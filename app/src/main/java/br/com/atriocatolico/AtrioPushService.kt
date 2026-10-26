@@ -20,7 +20,7 @@ import java.util.UUID
 
 /**
  * FCM e apenas o transportador: nao envia mensagens nem concede autorizacao.
- * O emissor confiavel ainda sera implementado em etapa separada.
+ * A entrega depende da ativacao controlada do relay confiavel Cloudflare.
  */
 internal object PushRegistry {
     private const val PREFS = "atrio_push_devices"
@@ -102,7 +102,7 @@ internal object PushRegistry {
     }
 
     fun show(context: Context, uid: String, kind: String) {
-        if (!(enabled(context, uid) || BackgroundNoticeScheduler.enabled(context, uid))
+        if (!enabled(context, uid)
             || FirebaseAuth.getInstance().currentUser?.uid != uid) return
         if (Build.VERSION.SDK_INT >= 33 &&
             context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
