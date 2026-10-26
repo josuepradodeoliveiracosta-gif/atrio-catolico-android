@@ -4,6 +4,8 @@ compatibility_date = "2026-10-26"
 workers_dev = true
 
 [vars]
+# Ativar somente com implantação controlada e CI verde. Deploys via CLI permanecem fail-closed.
+GUARDIAO_ENABLED = "false"
 GUARDIAO_AI_ENABLED = "false"
 PUSH_ENABLED = "false"
 
