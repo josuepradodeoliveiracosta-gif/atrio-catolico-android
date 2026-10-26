@@ -43,7 +43,13 @@ internal fun PushSettings(uid: String, db: FirebaseFirestore) {
                 PushRegistrationProblem.SESSION_CHANGED ->
                     "Sua sessão mudou. Entre novamente na conta e tente ativar os avisos."
                 PushRegistrationProblem.TOKEN_UNAVAILABLE ->
-                    "Etapa 1/2 falhou: não foi possível obter o token FCM. Confira a internet, os Serviços do Google Play e a configuração da chave Android deste APK."
+                    "Etapa 1/2: erro FCM não identificado. Confira a conexão e tente novamente."
+                PushRegistrationProblem.PLAY_SERVICES_UNAVAILABLE ->
+                    "Etapa 1/2: os Serviços do Google Play estão ausentes, desativados ou desatualizados. Verifique-os nas configurações do celular."
+                PushRegistrationProblem.TOKEN_SERVICE_UNAVAILABLE ->
+                    "Etapa 1/2: o serviço FCM não está acessível. Confira a internet e os Serviços do Google Play."
+                PushRegistrationProblem.TOKEN_CONFIG_OR_AUTH ->
+                    "Etapa 1/2: o Firebase recusou a configuração ou autorização do aplicativo. É necessário conferir as credenciais Android e o projeto."
                 PushRegistrationProblem.FIRESTORE_PERMISSION_DENIED ->
                     "Etapa 2/2 falhou: o token FCM foi obtido, mas o Firestore negou o cadastro. Confira as regras publicadas do projeto."
                 PushRegistrationProblem.FIRESTORE_UNAVAILABLE ->
