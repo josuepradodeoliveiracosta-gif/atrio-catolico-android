@@ -38,6 +38,14 @@ internal object InstantPushRelay {
     fun reply(postId: String, replyId: String) =
         post("reply", mapOf("postId" to postId, "replyId" to replyId))
 
+    // Triagem gratuita no servidor. Conteúdo não é enviado pelo APK:
+    // Worker lê e valida a publicação recém-gravada no Firestore.
+    fun moderatePost(postId: String) =
+        post("post", mapOf("postId" to postId), "moderation/event")
+
+    fun moderateReply(postId: String, replyId: String) =
+        post("reply", mapOf("postId" to postId, "replyId" to replyId), "moderation/event")
+
     fun badgeRequest() = post("badge_request", emptyMap())
 
     fun badgeResult(targetUid: String) =
@@ -46,7 +54,8 @@ internal object InstantPushRelay {
     fun report(reportId: String) =
         post("report", mapOf("reportId" to reportId))
 
-    private fun post(type: String, args: Map<String, String>) {
+    private fun post(type: String, args: Map<String, String>,
+                     route: String = "event") {
         val actor = FirebaseAuth.getInstance().currentUser ?: return
         val origin = BuildConfig.PUSH_RELAY_URL
         if (!origin.startsWith("https://") || !origin.endsWith(".workers.dev")) {
@@ -74,7 +83,7 @@ internal object InstantPushRelay {
                 try {
                     executor.execute {
                         try {
-                            val connection = URL("$origin/event").openConnection() as HttpURLConnection
+                            val connection = URL("$origin/$route").openConnection() as HttpURLConnection
                             try {
                                 connection.requestMethod = "POST"
                                 connection.connectTimeout = 5000
@@ -101,6 +110,12 @@ internal object InstantPushRelay {
                                     "unauthorized" -> "Sessão do Firebase recusada pelo Cloudflare."
                                     "delivery_failed" -> "Firebase FCM recusou a entrega."
                                     "fanout_failed" -> "Avisos dos participantes incompletos no Firestore; Push enviado quando possível."
+                                    "guardiao_disabled" -> "Átrio Guardião está desativado no servidor."
+                                    "queued_for_review" -> "Átrio Guardião encaminhou conteúdo à moderação."
+                                    "already_queued" -> "Este conteúdo já está na fila de revisão."
+                                    "clear" -> "Átrio Guardião não identificou alerta pelas regras atuais."
+                                    "ignored" -> "Servidor ignorou o evento após verificação."
+                                    "review_queue_unavailable" -> "Fila de análise indisponível."
                                     "unavailable" -> "Cloudflare ou integração com Firebase indisponível."
                                     "disabled" -> "Envio de Push desativado no servidor."
                                     "capacity_limit" -> "Limite de destinatários no servidor."
