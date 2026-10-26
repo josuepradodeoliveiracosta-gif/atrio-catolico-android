@@ -31,3 +31,18 @@ O relatório de terminal mostra **PASS BOT-QA** para cada cenário e termina com
 - Nenhum destes testes executa o app Android em um aparelho nem mede entrega real de Push FCM. O comportamento do Push no backend é verificado por outros testes unitários. Para testes E2E com três celulares, seria necessário infraestrutura adicional de dispositivos e contas de teste separadas.
 - Não há bots publicando mensagens a cada hora no ambiente real, respostas automáticas em discussões de usuários, nem perfis falsos que se passam por humanos. Todo conteúdo simulado é isolado e etiquetado como teste.
 - O teste de CPF valida a regra local `classifyGuardiao`, **não prova** recebimento de eventos pelo Cloudflare em produção. O problema anterior de detecção no APK exige depuração separada.
+
+## Política obrigatória: execução exclusivamente solicitada nesta conversa
+
+**Clara, Miguel e Lúcia só podem atuar mediante pedido explícito do fundador nesta conversa.**
+Nenhum job de CI, agendamento, Cron do Cloudflare, tarefa recorrente, inicialização de APK, evento de publicação ou serviço em segundo plano poderá disparar interações na comunidade oficial por conta própria.
+
+- Uma autorização é limitada a **uma única sessão de teste**, com os cenários indicados no pedido. Não significa permissão para executar novamente em datas posteriores.
+- Cada execução real precisará de autorização explícita na conversa, mesmo que o usuário tenha aprovado uma execução anterior.
+- Somente bots claramente identificados como `BOT DE TESTE` podem gerar dados na comunidade. Não interagir com discussões de pessoas reais sem um pedido específico e consciente.
+- **Nenhum agendamento é permitido.** Após completar a sessão, os bots permanecem inativos.
+- O ambiente isolado de QA continua disponível para verificação do código, mas a execução de cenários na comunidade oficial deve ser feita apenas mediante comando na conversa.
+- A existência de testes de CI para novas versões **não constitui** autorização para publicação real na comunidade.
+- Não criar painel, botão ou configuração no perfil do fundador.
+- **Estado atual:** a automação que cria contas e conteúdos na produção ainda não está instalada. Esta política é uma restrição de arquitetura, não uma confirmação de que a invocação pela conversa já está operacional.
+
