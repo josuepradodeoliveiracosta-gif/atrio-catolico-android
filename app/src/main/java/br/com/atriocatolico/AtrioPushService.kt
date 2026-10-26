@@ -220,6 +220,9 @@ internal object PushRegistry {
             !postId.matches(Regex("^[A-Za-z0-9_-]{1,128}$")) ||
             !replyId.matches(Regex("^[A-Za-z0-9_-]{1,128}$"))) return
         if (topicDelivery && !ThreadPushSubscriptions.contains(context, uid, postId)) return
+        // Preferência de respostas da Central de Avisos também vale fora do app.
+        if (!context.getSharedPreferences("atrio_notices_$uid", Context.MODE_PRIVATE)
+                .getBoolean("replies", true)) return
         if (Build.VERSION.SDK_INT >= 33 &&
             context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
             != PackageManager.PERMISSION_GRANTED) return
