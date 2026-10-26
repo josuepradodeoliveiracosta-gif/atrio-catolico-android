@@ -1,0 +1,23 @@
+name: Testar relay push gratuito
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "cloudflare/push-worker/**"
+      - ".github/workflows/cloudflare-push-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Testes isolados sem Firebase ou Cloudflare de produção
+        run: node --test cloudflare/push-worker/src/index.test.js
