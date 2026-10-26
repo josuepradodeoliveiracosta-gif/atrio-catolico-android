@@ -157,6 +157,10 @@ private fun ReportReviewDialog(
     var confirmRemove by remember(report.id) { mutableStateOf(false) }
     var retry by remember(report.id) { mutableStateOf(0) }
     var parentContext by remember(report.id) { mutableStateOf("Carregando discussão...") }
+    var heldStatus by remember(report.id) { mutableStateOf("") }
+    var archivedContent by remember(report.id) { mutableStateOf<ModerationContent?>(null) }
+    var appealText by remember(report.id) { mutableStateOf("") }
+    val held = report.fromGuardiao && heldStatus == "held"
     val targetRef = remember(db, report.postId, report.replyId) { report.targetReference(db) }
     DisposableEffect(db, report.postId, report.replyId, retry) {
         var active = true
@@ -183,6 +187,37 @@ private fun ReportReviewDialog(
             }
         } else null
         onDispose { active = false; registration?.remove(); parentRegistration?.remove() }
+    }
+    DisposableEffect(db, report.id, report.fromGuardiao) {
+        if (!report.fromGuardiao) {
+            onDispose { }
+        } else {
+            val subscription = db.collection("guardiao_quarantine").document(report.id)
+                .addSnapshotListener { snapshot, failure ->
+                    if (failure == null) {
+                        heldStatus = snapshot?.getString("status").orEmpty()
+                        appealText = snapshot?.getString("appealText").orEmpty()
+                        val original = snapshot?.get("originalFields") as? Map<*, *>
+                        archivedContent = if (original == null) null else ModerationContent(
+                            original["title"] as? String ?: "",
+                            original["body"] as? String ?: "",
+                            original["authorName"] as? String ?: "",
+                            original["uid"] as? String ?: "",
+                            original["createdAt"] as? Timestamp
+                        )
+                    }
+                }
+            onDispose { subscription.remove() }
+        }
+    }
+    fun decideHeld(restore: Boolean) {
+        if (busy || !held || note.trim().length !in 5..300) return
+        busy = true
+        GuardiaoReviewClient.decide(report.id, restore, note.trim()) { ok, info ->
+            busy = false
+            if (ok) onClose()
+            onMessage(info)
+        }
     }
     fun review(remove: Boolean, expected: ModerationContent?) {
         if (busy || note.trim().length !in 5..300) return
@@ -236,12 +271,21 @@ private fun ReportReviewDialog(
                         else -> "Análise contextual indisponível. Alerta baseado nas regras iniciais."
                     }, fontSize = 12.sp, color = Muted)
                 Text("Motivo: ${report.reason}")
+                if (held) Text("Conteúdo retido em quarentena privada. Pode ser restaurado.",
+                    color = Wine, fontSize = 12.sp)
+                if (held && appealText.isNotBlank()) Text("Contestação do autor: $appealText",
+                    color = Wine, fontSize = 12.sp)
                 if (report.isReply) Text(parentContext, fontSize = 12.sp, color = Muted)
                 when {
                     loading -> Text("Carregando ${report.kind.lowercase()}...")
                     loadFailed -> {
                         Text("Não foi possível ler o conteúdo denunciado.")
                         TextButton(onClick = { retry++ }) { Text("Tentar novamente") }
+                    }
+                    held && archivedContent != null -> {
+                        Text(archivedContent!!.author, color = Wine)
+                        if (!report.isReply) Text(archivedContent!!.title, style = MaterialTheme.typography.titleMedium)
+                        Text(archivedContent!!.body)
                     }
                     content == null -> Text("${report.kind} já não está disponível. Você pode encerrar a denúncia sem remoção.")
                     else -> {
@@ -258,8 +302,13 @@ private fun ReportReviewDialog(
                         "A remoção se aplica somente à resposta denunciada. A discussão e as outras respostas são preservadas."
                         else "Remover retira a publicação do fórum. Respostas e referências podem permanecer armazenadas até uma limpeza administrativa.",
                         fontSize = 12.sp, color = Muted)
+                    if (held) OutlinedButton(
+                        onClick = { decideHeld(true) },
+                        enabled = !busy && archivedContent != null && note.trim().length >= 5
+                    ) { Text("Restaurar conteúdo ao fórum") }
                     OutlinedButton(onClick = { confirmRemove = true },
-                        enabled = !busy && !loading && !loadFailed && content != null && note.trim().length >= 5) {
+                        enabled = !busy && note.trim().length >= 5 &&
+                            (if (held) archivedContent != null else !loading && !loadFailed && content != null)) {
                         Text("Remover ${report.kind.lowercase()}", color = MaterialTheme.colorScheme.error)
                     }
                 } else {
@@ -270,7 +319,7 @@ private fun ReportReviewDialog(
             }
         },
         confirmButton = {
-            if (report.status == "pending") TextButton(
+            if (report.status == "pending" && !held) TextButton(
                 enabled = !busy && !loading && !loadFailed && note.trim().length >= 5,
                 onClick = { review(false, null) }) { Text(if (busy) "Salvando..." else "Encerrar sem remover") }
         },
@@ -278,7 +327,7 @@ private fun ReportReviewDialog(
     )
     if (confirmRemove) {
         // Captura o conteúdo mostrado ao abrir a confirmação. A transação recusa alterações posteriores.
-        val expected = remember { content }
+        val expected = remember { if (held) archivedContent else content }
         AlertDialog(onDismissRequest = { if (!busy) confirmRemove = false },
             title = { Text("Remover esta ${report.kind.lowercase()}?") },
             text = {
@@ -287,10 +336,14 @@ private fun ReportReviewDialog(
                         Text("Resposta de ${expected?.author.orEmpty()}")
                         Text(expected?.body.orEmpty())
                     } else Text(expected?.title.orEmpty())
-                    Text("A remoção não poderá ser desfeita pelo aplicativo. A decisão ficará registrada na denúncia.")
+                    Text(if (held)
+                        "Confirmar exclusão do conteúdo retido? A cópia protegida permanece para auditoria."
+                        else "A remoção não poderá ser desfeita pelo aplicativo. A decisão ficará registrada na denúncia.")
                 }
             },
-            confirmButton = { TextButton(enabled = !busy, onClick = { review(true, expected) }) {
+            confirmButton = { TextButton(enabled = !busy, onClick = {
+                if (held) decideHeld(false) else review(true, expected)
+            }) {
                 Text(if (busy) "Removendo..." else "Confirmar remoção", color = MaterialTheme.colorScheme.error)
             } },
             dismissButton = { TextButton(enabled = !busy, onClick = { confirmRemove = false }) { Text("Cancelar") } })
