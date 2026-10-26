@@ -21,7 +21,7 @@ internal fun groupNotices(events: List<NoticeEvent>, admin: Boolean): List<Notic
     .map { (key, values) ->
         val latest = values.maxByOrNull { it.at }!!
         val title = when (latest.kind) {
-            NoticeKind.REPLY -> if (values.size == 1) latest.title else "${values.size} respostas à sua discussão"
+            NoticeKind.REPLY -> if (values.size == 1) latest.title else "${values.size} respostas nesta discussão"
             NoticeKind.REPORTS -> "${values.size} denúncia(s) aguardando análise"
             NoticeKind.REQUESTS -> "${values.size} solicitação(ões) de selo aguardando análise"
             NoticeKind.REVIEW -> latest.title
