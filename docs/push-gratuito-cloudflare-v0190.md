@@ -182,3 +182,29 @@ O Worker está provisionado e recebe GET /health; as duas credenciais estão cad
 - Testes automatizados incluem UNREGISTERED, NOT_FOUND, INVALID_ARGUMENT, falha de rede/resposta inválida, falta de metadados e disputa por atualização do cadastro. Nenhum token foi copiado para logs.
 - Essa correção altera somente o Worker Cloudflare. A versão Android instalada não precisa ser reinstalada para receber o benefício. A PR #15 segue em homologação e não altera a versão 0.18.0 publicada.
 - Referências: https://firebase.google.com/docs/cloud-messaging/manage-tokens ; https://firebase.google.com/docs/cloud-messaging/error-codes ; https://firebase.google.com/docs/firestore/reference/rest/v1/projects.databases.documents/delete
+
+## Participantes de uma discussão recebem respostas — versão de testes 0.19.0
+
+### Regra funcional
+Quando uma resposta é publicada, o criador da discussão **e todos os outros comentaristas identificados nas respostas existentes** recebem um aviso (um por UID), exceto o autor da nova resposta. Se o próprio criador responder, os demais participantes também são avisados. A funcionalidade inclui Central de Avisos (documentos privados `users/{uid}/notifications/{replyId}`) e Push FCM para dispositivos inscritos no tópico daquela discussão.
+
+### Modelo de distribuição no plano gratuito
+- O Android chama `InstantPushRelay.reply()` após **toda resposta bem-sucedida**, inclusive do dono.
+- O Worker verifica Firebase Auth, lê a resposta recém-criada e o post real no Firestore; se o autor da resposta for diferente do dono, continua verificando a notificação atômica ao dono criada pelo cliente.
+- O backend enumera e valida os participantes nas respostas da discussão, removendo duplicados e o remetente, e registra central de notificações através de **uma operação Firestore batchWrite**, com precondição `exists=false` para não sobrescrever avisos lidos ou descartados.
+- O Worker envia uma notificação FCM genérica por **tópico `atrio_thread_{postId}`**, em vez de efetuar uma chamada por token de todos os comentaristas. O destinatário Android só exibe se a conta atual estiver cadastrada como participante no dispositivo, se o Push estiver ativado e se não tiver sido o autor da resposta.
+- O push **individual legado para o dono da discussão** é preservado para versões anteriores do app. No Android atualizado, um identificador de evento evita aviso duplicado quando tanto o tópico quanto a mensagem individual chegarem.
+- O Android inscreve a conta em um tópico quando ela cria um post ou responde. Para participações antigas, também registra quando o usuário reabre um post de sua autoria ou em que suas próprias respostas estejam entre as carregadas. Ao ativar Push, reinscreve os tópicos registrados, e ao sair ou desativar notificações cancela suas inscrições.
+- A mensagem por tópico contém somente o identificador público do post/resposta e o UID de quem respondeu; **não contém o texto da discussão, a resposta nem dados de perfil privados**. Usuários que conhecem o identificador do tópico podem tentar se inscrever por conta própria; tópicos não são mecanismo de autorização ou sigilo. O aviso no Android é genérico e exige participação local para exibição.
+
+### Limites e rollout
+- Este primeiro fan-out tem limite intencional de **250 destinatários distintos** e **2.000 respostas verificadas** por evento, para respeitar a cota do Cloudflare Workers Free e manter um lote Firestore administrável. Se ultrapassar um limite, o Worker deve falhar com `unavailable` sem notificar um subconjunto silenciosamente; será necessário processamento em lotes/filas para suportar discussões maiores.
+- Firestore já autoriza leitura de respostas por usuários autenticados e leitura de notificações apenas ao próprio destinatário; **nenhuma regra de escrita privilegiada para clientes foi adicionada**.
+- Push para os demais participantes exige APK novo com inscrição em tópicos. Instalações antigas continuam podendo receber o Push individual para o dono e acessar os avisos novos quando abrirem a Central, desde que a chamada ao Worker seja feita por um cliente compatível.
+- A publicação do Worker para o ambiente ativo só deve ocorrer após os testes de Node, compilação Android, segurança Firestore e teste real em duas ou mais contas. **NÃO CONFUNDIR código no PR com publicação em produção ou entrega confirmada no aparelho.**
+
+### Casos testados
+- Post criado por Maria; João, Ana e Pedro respondem: Maria, João e Ana recebem quando Pedro responder; Pedro não recebe sua própria mensagem.
+- Post criado por Maria; Maria responde: João, Ana e Pedro recebem; Maria não recebe.
+- Múltiplas respostas de João produzem somente um aviso por nova resposta, e não um aviso por comentário antigo.
+- Central de avisos não sobrescre aviso existente/lido; Firebase tópico envia aviso genérico, com deduplicação local da mensagem individual.
