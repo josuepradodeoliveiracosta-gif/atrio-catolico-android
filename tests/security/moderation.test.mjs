@@ -373,6 +373,43 @@ try {
   const b=writeBatch(admin);b.delete(doc(admin,'posts/p4/replies/a'));b.update(doc(admin,'reports/rr4'),replyReview('removed'));await assertSucceeds(b.commit());
  });
  await setDoc(doc(bob,'reports/rr5'),replyReport('e'));
+
+ // Guardião etapa 3: quarentena privada e direito de contestação do autor.
+ await env.withSecurityRulesDisabled(async ctx=>{
+  await setDoc(doc(ctx.firestore(),'guardiao_quarantine/guard_case1'),{
+   ownerUid:'alice',postId:'p2',targetType:'post',status:'held',
+   body:'Conteúdo arquivado para revisão',ruleCode:'threat',
+   heldAt:Timestamp.now(),
+  });
+ });
+ await test('autor consulta sua quarentena',()=>assertSucceeds(
+  getDoc(doc(alice,'guardiao_quarantine/guard_case1'))));
+ await test('terceiro não lê quarentena do autor',()=>assertFails(
+  getDoc(doc(bob,'guardiao_quarantine/guard_case1'))));
+ await test('terceiro não enumera quarentenas',()=>assertFails(
+  getDocs(collection(bob,'guardiao_quarantine'))));
+ await test('administrador consulta caso para revisão',()=>assertSucceeds(
+  getDoc(doc(admin,'guardiao_quarantine/guard_case1'))));
+ await test('membro não fabrica registro de quarentena',()=>assertFails(
+  setDoc(doc(bob,'guardiao_quarantine/forged'),{ownerUid:'alice',status:'held',postId:'p2'})));
+ await test('administrador não cria quarentena no SDK',()=>assertFails(
+  setDoc(doc(admin,'guardiao_quarantine/guard_manual'),{ownerUid:'bob',status:'held',postId:'p2'})));
+ await test('autor contesta conteúdo retido uma vez',()=>assertSucceeds(
+  updateDoc(doc(alice,'guardiao_quarantine/guard_case1'),{
+   appealText:'A suposta ameaça era uma citação jornalística.',appealedAt:serverTimestamp(),
+  })));
+ await test('terceiro não contesta pelo autor',()=>assertFails(
+  updateDoc(doc(bob,'guardiao_quarantine/guard_case1'),{
+   appealText:'Devolva a publicação, por favor.',appealedAt:serverTimestamp(),
+  })));
+ await test('recurso não pode ser reescrito',()=>assertFails(
+  updateDoc(doc(alice,'guardiao_quarantine/guard_case1'),{
+   appealText:'Quero alterar minha primeira contestação.',appealedAt:serverTimestamp(),
+  })));
+ await test('autor não remove arquivo de moderação',()=>assertFails(
+  deleteDoc(doc(alice,'guardiao_quarantine/guard_case1'))));
+ await test('administrador não restaura caso por SDK cliente',()=>assertFails(
+  updateDoc(doc(admin,'guardiao_quarantine/guard_case1'),{status:'restored'})));
  await env.withSecurityRulesDisabled(async c=>updateDoc(doc(c.firestore(),'admins/admin'),{enabled:false}));
  await test('revogação impede ver a fila de solicitações',()=>assertFails(
    getDocs(query(collection(admin,'badge_requests'),where('status','==','pending')))));
