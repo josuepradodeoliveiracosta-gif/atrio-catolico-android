@@ -171,8 +171,17 @@ export async function resolveEvent(event, actor, token) {
 async function devices(token,uid) {
   const docs=await firestoreList(token,'users/'+enc(uid)+'/pushDevices',MAX_TOKENS+1);
   if(docs.length>MAX_TOKENS) throw Error('Limite de dispositivos excedido');
-  return docs.map(x=>({token:stringField(x,'token'),time:timeField(x,'updatedAt')}))
-    .filter(x=>x.token.length>=20&&x.token.length<=4096
+  // O nome e a versão do documento só serão usados para remoção condicional
+  // se o FCM comprovar que o token já não está registrado.
+  const prefix='projects/'+PROJECT+'/databases/(default)/documents/users/'+uid+'/pushDevices/';
+  return docs.map(x=>({
+    token:stringField(x,'token'),time:timeField(x,'updatedAt'),
+    path:typeof x.name==='string'&&x.name.startsWith(prefix)
+      &&uidPart(x.name.slice(prefix.length))
+      ? 'users/'+uid+'/pushDevices/'+x.name.slice(prefix.length) : null,
+    updateTime:typeof x.updateTime==='string'
+      &&Number.isFinite(Date.parse(x.updateTime)) ? x.updateTime : null,
+  })).filter(x=>x.token.length>=20&&x.token.length<=4096
       &&x.time>Date.now()-60*86400_000&&x.time<=Date.now()+60_000);
 }
 
@@ -185,6 +194,32 @@ async function send(token,device,uid,kind) {
       android:{priority:'HIGH',ttl:'3600s'},
     }}),
   });
+}
+
+/**
+ * Excluir apenas registros que o FCM reconhece explicitamente como
+ * UNREGISTERED. Um HTTP 404 generico (NOT_FOUND) nao e prova suficiente.
+ * A precondicao updateTime impede remover token novo salvo simultaneamente.
+ * Nunca consultar, registrar ou devolver token/UID ao diagnostico.
+ */
+export async function cleanupInvalidDevice(oauthToken, device, sendResult) {
+  if (sendResult.status!==404 || !device?.path || !device?.updateTime) return false;
+  let error;
+  try { error=(await sendResult.json())?.error; }
+  catch { return false; }
+  const isUnregistered=error?.status==='UNREGISTERED'
+    && Number(error?.code)===404;
+  if(!isUnregistered) return false;
+  try {
+    const params=new URLSearchParams({'currentDocument.updateTime':device.updateTime});
+    const result=await fetch(ROOT+'/'+device.path+'?'+params.toString(),{
+      method:'DELETE',headers:{Authorization:'Bearer '+oauthToken},
+    });
+    return result.ok;
+  } catch {
+    // Falha ou conflito de versao: manter registro; nunca prejudicar o Push.
+    return false;
+  }
 }
 
 function safeAnnouncementText(input, min, max) {
@@ -304,6 +339,7 @@ export default {
       let attempted=0;
       let accepted=0;
       let failedHttp=0;
+      let cleaned=0;
       for(const recipient of event.recipients) {
         if(!uidPart(recipient)||recipient===uid) continue;
         const list=await devices(token,recipient);
@@ -318,13 +354,17 @@ export default {
           const result=await send(token,target.token,recipient,event.kind);
           attempted++;
           if(result.ok) accepted++;
-          else failedHttp = result.status;
+          else {
+            failedHttp=result.status;
+            if(await cleanupInvalidDevice(token,target,result)) cleaned++;
+          }
           if(!result.ok && result.status>=500) break;
         }
       }
       const outcome=attempted && !accepted ? 'delivery_failed'
         : accepted ? 'accepted_by_fcm' : 'no_devices_or_duplicate';
       await auditDelivery(env,event.kind,outcome,attempted,accepted,failedHttp);
+      if(cleaned) await auditDelivery(env,'cleanup','unregistered_removed',cleaned,0,404);
       return response(outcome==='delivery_failed' ? 503 : 202,outcome);
     } catch {
       // Não registrar ID tokens, chaves, UID, FCM tokens nem payloads em logs.
