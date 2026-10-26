@@ -127,3 +127,31 @@ O Worker está provisionado e recebe GET /health; as duas credenciais estão cad
 - A ativação **não é limitada a contas de teste**: qualquer cliente compatível 0.19.0 com evento autorizado pode solicitar envio para destinatários já cadastrados com opt-in. Os clientes 0.18.0 não disparam este relay.
 - Para desativação imediata em incidente, alterar somente `PUSH_ENABLED` para `false`; não remover segredos nem modificar regras Firestore.
 - A chave JSON da conta de serviço foi inicialmente exposta como variável comum antes de virar Secret; rotacionar antes do lançamento público. Não mesclar PR #15 nem distribuir release assinado até executar e documentar teste real de duas contas e revisar a segurança.
+
+
+## Comunicados gerais ao público (implementação em PR #15)
+
+### Modelo e consentimento
+- Novo painel **Perfil → Administração → Notificações gerais**, visível apenas se o UID da sessão for o mesmo de `app_config/founder.uid` e a conta estiver cadastrada como `admins/{uid}.enabled=true`.
+- O aplicativo 0.19.0 inscreve aparelhos no tópico `atrio_comunicados_v1` quando o usuário ativa o FCM em **Avisos no celular**. O aplicativo cancela a inscrição ao desativar os avisos ou sair da conta; o recebimento local exige novamente que avisos continuem ativos.
+- A inscrição no tópico é exclusiva dos clientes compatíveis que fazem opt-in; instalações antigas (inclusive anteriores à mudança da PR) precisam atualizar e voltar a executar o registro/inscrição. FCM não fornece contagem exata de destinatários nem garantia de entrega.
+- O tópico é um mecanismo de distribuição, não uma autorização. Permissões de envio estão exclusivamente no Worker.
+- Título de 5 a 60 caracteres e mensagem de 10 a 180 caracteres, ambos sem controles/caracteres de direção. O conteúdo geral é apresentado no aviso do próprio Android; não incluir informações privadas.
+
+### Segurança do servidor
+- `POST /broadcast` exige `PUSH_ENABLED=true` **e** `BROADCAST_ENABLED=true` (novo kill switch independente, padrão `false`).
+- O Worker valida ID token via Firebase Auth, revalida `admins/{uid}.enabled` e o documento `app_config/founder.uid` pelo serviço autenticado, limita o corpo a 512 bytes, valida campos e UUID v4 e recusa ações não autorizadas.
+- Cloudflare D1 usa a tabela `delivered` já existente para permitir no máximo uma tentativa geral por hora, de modo atômico, mesmo com solicitações concorrentes. Solicitações repetidas ficam bloqueadas por frequência; uma falha FCM pode consumir a janela de tempo. A operação não garante entrega nem informa destinatários pessoais.
+- O Worker usa FCM HTTP v1 para mensagem **data-only** com `topic: atrio_comunicados_v1`, e nunca envia tokens FCM ou chaves para o aplicativo.
+- Só exibir ao fundador após confirmação na interface do título/mensagem e informação de irreversibilidade.
+- Não será ativado automaticamente no Worker já publicado. Antes de ativar `BROADCAST_ENABLED=true`, validar revisão de segurança, simulação de usuário não fundador e administrador revogado, testes de aparelho, consentimento e aprovação explícita.
+
+### Homologação
+1. Conferir os testes Node, regras Firestore, Android e controle de versões da PR #15.
+2. Instalar nova compilação 0.19.0 num aparelho de testes; conferir opt-in, inscrição no tópico e cancelamento da inscrição ao desativar.
+3. Implantar novo Worker preservando variáveis/secrets e `PUSH_ENABLED`. Manter `BROADCAST_ENABLED=false` inicialmente, confirmar que `POST /broadcast` devolve `broadcast_disabled`.
+4. Usar dispositivo do fundador e conta administrativa ativa para validar a interface e rejeição enquanto desabilitado.
+5. Habilitar `BROADCAST_ENABLED=true` somente numa janela controlada, preparar texto de teste não sensível e garantir receptores de teste inscritos; avisos gerais atingem todos os inscritos, não existe filtro para duas contas. Se houver risco de usuários externos inscritos, **não executar envio de teste em produção**.
+6. Confirmar resposta `accepted_by_fcm` apenas como aceite do FCM e observar aparelhos reais; confirmar frequência e permissão, e desligar de novo caso necessário.
+
+**Estado no repositório**: código preparado em PR #15. O Worker publicado deve continuar sem o endpoint novo até conclusão da homologação. O Worker de push individual pode permanecer ativado independentemente.
