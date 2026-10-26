@@ -225,7 +225,7 @@ private fun ReportReviewDialog(
         title = { Text("Analisar ${report.kind.lowercase()}") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                if (report.fromGuardiao) Text("Átrio Guardião: sugestão automática, não decisão.",
+                if (report.fromGuardiao) Text("Átrio Guardião: alerta automático sujeito a enganos. Confira o contexto antes de decidir.",
                     color = Wine, fontSize = 12.sp)
                 Text("Motivo: ${report.reason}")
                 if (report.isReply) Text(parentContext, fontSize = 12.sp, color = Muted)

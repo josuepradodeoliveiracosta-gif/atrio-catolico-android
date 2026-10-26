@@ -665,3 +665,107 @@ test('moderador automático autentica e cria uma única denúncia com título se
   assert.deepEqual(await (await worker.fetch(make(),env)).json(),{status:'ignored'});
   assert.equal(created,2);
 });
+
+
+// Exercita o endpoint completo: somente criação de reports, nunca alteração
+// ou exclusão de posts/respostas. Cada cenário isola estado e chamadas de rede.
+async function guardiaoScenario({payload={type:'reply',postId:'p1',replyId:'r1'},
+  actor='maria', disabled=false, parent=true, content=true, age=2000,
+  body='Eu vou te matar amanhã.', push=false, queueStatus=200, failPush=false}={}) {
+  const writes=[], requests=[];
+  globalThis.fetch=async(input,options={})=>{
+    const url=new URL(String(input));
+    requests.push({url:String(url),method:options.method||'GET'});
+    if(url.hostname==='identitytoolkit.googleapis.com')
+      return Response.json({users:[{localId:actor,disabled}]});
+    if(url.hostname==='oauth2.googleapis.com')
+      return Response.json({access_token:'fake-oauth',expires_in:3600});
+    if(url.pathname.endsWith('/posts/p1/replies/r1'))
+      return Response.json(content?doc({uid:'maria',body,
+        createdAt:new Date(Date.now()-age).toISOString()}):{}, {status:content?200:404});
+    if(url.pathname.endsWith('/posts/p1'))
+      return Response.json(parent?doc({uid:'maria',title:'Discussão',body,
+        createdAt:new Date(Date.now()-age).toISOString()}):{}, {status:parent?200:404});
+    if(url.pathname.endsWith('/reports')) {
+      assert.equal(options.method,'POST');
+      writes.push(JSON.parse(options.body));
+      return Response.json({}, {status:queueStatus});
+    }
+    if(url.pathname.endsWith('/admins'))
+      return Response.json({documents:[{...doc({enabled:true}),name:'admins/admin1'}]});
+    if(url.pathname.endsWith('/users/admin1/pushDevices'))
+      return Response.json({documents:[doc({token:'t'.repeat(30),updatedAt:iso()})]});
+    if(url.hostname==='fcm.googleapis.com') {
+      if(failPush) throw Error('offline');
+      const message=JSON.parse(options.body).message;
+      assert.deepEqual(message.data,{uid:'admin1',kind:'admin'});
+      return Response.json({});
+    }
+    throw Error('Unexpected request '+url);
+  };
+  const env={...configured,GUARDIAO_ENABLED:'true',PUSH_ENABLED:String(push),
+    PUSH_DB:{prepare(){return {bind(){return {run:async()=>({meta:{changes:1}})};}};}}};
+  const result=await worker.fetch(new Request('https://example.workers.dev/moderation/event',{
+    method:'POST',headers:{Authorization:'Bearer '+'a'.repeat(120)},body:JSON.stringify(payload),
+  }),env);
+  // Falha o teste se qualquer caminho de remoção for introduzido na triagem.
+  assert.ok(requests.every(r=>!['DELETE','PATCH','PUT'].includes(r.method)));
+  return {status:result.status,result:await result.json(),writes,requests};
+}
+
+test('Guardião com push desligado mantém fila, sem consultar administradores ou FCM',async()=>{
+  const {result,writes,requests}=await guardiaoScenario();
+  assert.deepEqual(result,{status:'queued_for_review'});
+  assert.equal(writes.length,1);
+  assert.equal(writes[0].fields.replyId.stringValue,'r1');
+  assert.equal(writes[0].fields.source.stringValue,'guardiao');
+  assert.ok(!JSON.stringify(writes).includes('amanhã'));
+  assert.ok(!requests.some(r=>/fcm.googleapis.com|\/admins/.test(r.url)));
+});
+
+test('Guardião ignora conteúdo ausente, antigo, futuro ou de outra pessoa',async()=>{
+  for(const config of [{content:false},{age:360000},{age:-120000},{actor:'intruso'}]) {
+    const {result,writes}=await guardiaoScenario(config);
+    assert.deepEqual(result,{status:'ignored'});
+    assert.equal(writes.length,0);
+  }
+});
+
+test('Guardião não cria denúncia de resposta órfã',async()=>{
+  const {result,writes}=await guardiaoScenario({parent:false});
+  assert.deepEqual(result,{status:'ignored'});
+  assert.equal(writes.length,0);
+});
+
+test('Guardião recusa conta desativada sem consultar Firestore',async()=>{
+  const {status,writes,requests}=await guardiaoScenario({disabled:true});
+  assert.equal(status,401);
+  assert.equal(writes.length,0);
+  assert.ok(!requests.some(r=>r.url.includes('firestore.googleapis.com')));
+});
+
+test('Guardião não cria denúncia para conteúdo sem sinal detectado',async()=>{
+  const {result,writes}=await guardiaoScenario({body:'Vamos rezar juntos pela paz.'});
+  assert.deepEqual(result,{status:'clear'});
+  assert.equal(writes.length,0);
+});
+
+test('Guardião não anuncia fila gravada quando Firestore falha',async()=>{
+  const {status,result,requests}=await guardiaoScenario({queueStatus:503,push:true});
+  assert.equal(status,503);
+  assert.deepEqual(result,{status:'review_queue_unavailable'});
+  assert.ok(!requests.some(r=>r.url.includes('fcm.googleapis.com')));
+});
+
+test('Guardião não repete aviso de denúncia já existente nem sobrescreve decisão',async()=>{
+  const {result,requests}=await guardiaoScenario({queueStatus:409,push:true});
+  assert.deepEqual(result,{status:'already_queued'});
+  assert.ok(!requests.some(r=>r.url.includes('fcm.googleapis.com')));
+});
+
+test('falha de push não perde encaminhamento do Guardião à fila',async()=>{
+  const {result,writes,requests}=await guardiaoScenario({push:true,failPush:true});
+  assert.deepEqual(result,{status:'queued_for_review'});
+  assert.equal(writes.length,1);
+  assert.ok(requests.some(r=>r.url.includes('fcm.googleapis.com')));
+});

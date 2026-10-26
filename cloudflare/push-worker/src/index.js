@@ -407,7 +407,7 @@ async function guardiaoDocId(event) {
   const digest=new Uint8Array(await crypto.subtle.digest('SHA-256',data));
   return 'guard_'+[...digest].slice(0,16).map(x=>x.toString(16).padStart(2,'0')).join('');
 }
-function guardiaoReportFields(event,document,decision) {
+function guardiaoReportFields(event,decision) {
   const fields={
     postId:{stringValue:event.postId},
     reporterUid:{stringValue:'atrio_guardiao'},
@@ -442,6 +442,9 @@ export async function handleGuardiaoEvent(request,env) {
     const doc=await firestoreGet(service,path);
     if(!doc||stringField(doc,'uid')!==actor||!recent(timeField(doc,'createdAt')))
       return response(202,'ignored');
+    // Não encaminhar respostas órfãs de uma discussão já removida.
+    if(data.type==='reply' && !await firestoreGet(service,'posts/'+enc(data.postId)))
+      return response(202,'ignored');
     const value=(data.type==='post'?stringField(doc,'title')+' ': '')+stringField(doc,'body');
     const decision=classifyGuardiao(value);
     if(!decision) {
@@ -451,14 +454,14 @@ export async function handleGuardiaoEvent(request,env) {
     const reportId=await guardiaoDocId(data);
     const result=await fetch(ROOT+'/reports?documentId='+enc(reportId),{
       method:'POST',headers:{Authorization:'Bearer '+service,'Content-Type':'application/json'},
-      body:JSON.stringify(guardiaoReportFields(data,doc,decision)),
+      body:JSON.stringify(guardiaoReportFields(data,decision)),
     });
     if(result.status===409) return response(202,'already_queued');
     if(!result.ok) return response(503,'review_queue_unavailable');
     await auditDelivery(env,'guardiao','queued');
     // Reaproveita a infraestrutura de avisos já existente: não anexa texto,
     // dados pessoais nem conteúdo suspeito ao FCM dos administradores.
-    try {
+    if(env.PUSH_ENABLED==='true') try {
       for(const admin of await adminUids(service,actor)) {
         for(const device of await devices(service,admin)) {
           const delivered=await send(service,device.token,admin,'admin');
@@ -591,4 +594,5 @@ export default {
     }
   },
 };
+
 
