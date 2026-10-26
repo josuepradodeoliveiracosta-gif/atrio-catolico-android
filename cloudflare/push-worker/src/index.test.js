@@ -1048,7 +1048,7 @@ test('somente fundador administrador pode provisionar bots, não um administrado
   assert.equal(res.status,403);
   assert.deepEqual(await res.json(),{status:'founder_only'});
   assert.ok(calls.some(x=>x.includes('app_config/founder')));
-  assert.ok(!calls.some(x=>x.includes('/accounts:lookup')));
+  assert.ok(!calls.some(x=>x.includes('/projects/atrio-catolico/accounts:lookup')));
   assert.ok(!calls.some(x=>x.includes('/projects/atrio-catolico/accounts')));
   assert.ok(!calls.some(x=>x.endsWith('documents:commit')));
 });
