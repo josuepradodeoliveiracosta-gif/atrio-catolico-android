@@ -10,6 +10,8 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.app.NotificationManagerCompat
+import com.google.android.gms.common.ConnectionResult
+import com.google.android.gms.common.GoogleApiAvailability
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -17,6 +19,7 @@ import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
+import java.util.Locale
 import java.util.UUID
 
 /**
@@ -26,6 +29,9 @@ import java.util.UUID
 internal enum class PushRegistrationProblem {
     SESSION_CHANGED,
     TOKEN_UNAVAILABLE,
+    PLAY_SERVICES_UNAVAILABLE,
+    TOKEN_SERVICE_UNAVAILABLE,
+    TOKEN_CONFIG_OR_AUTH,
     FIRESTORE_PERMISSION_DENIED,
     FIRESTORE_UNAVAILABLE,
     FIRESTORE_WRITE_FAILED
@@ -34,6 +40,25 @@ internal enum class PushRegistrationProblem {
 internal object PushRegistry {
     private const val PREFS = "atrio_push_devices"
     private const val CHANNEL = "atrio_avisos"
+
+    // Exibe somente categorias conhecidas; jamais a mensagem bruta da exceção.
+    private fun diagnoseFcm(context: Context, error: Throwable?): PushRegistrationProblem {
+        if (GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(context)
+            != ConnectionResult.SUCCESS) return PushRegistrationProblem.PLAY_SERVICES_UNAVAILABLE
+        var cause = error
+        repeat(5) {
+            if (cause == null) return@repeat
+            val marker = cause?.message.orEmpty().uppercase(Locale.ROOT)
+            if (listOf("BAD_CONFIG", "FIS_AUTH_ERROR", "AUTHENTICATION_FAILED",
+                    "INVALID_SENDER", "INVALID_ARGUMENT").any { marker.contains(it) })
+                return PushRegistrationProblem.TOKEN_CONFIG_OR_AUTH
+            if (listOf("SERVICE_NOT_AVAILABLE", "UNAVAILABLE", "TIMEOUT",
+                    "TOO_MANY_REGISTRATIONS").any { marker.contains(it) })
+                return PushRegistrationProblem.TOKEN_SERVICE_UNAVAILABLE
+            cause = cause?.cause
+        }
+        return PushRegistrationProblem.TOKEN_UNAVAILABLE
+    }
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     private fun enabledKey(uid: String) = "enabled_$uid"
 
@@ -59,6 +84,11 @@ internal object PushRegistry {
     ) {
         if (FirebaseAuth.getInstance().currentUser?.uid != uid || !enabled(context, uid)) {
             done(false, PushRegistrationProblem.SESSION_CHANGED)
+            return
+        }
+        if (GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(context)
+            != ConnectionResult.SUCCESS) {
+            done(false, PushRegistrationProblem.PLAY_SERVICES_UNAVAILABLE)
             return
         }
         FirebaseMessaging.getInstance().isAutoInitEnabled = true
@@ -93,8 +123,8 @@ internal object PushRegistry {
                     }
                 }
             }
-            .addOnFailureListener {
-                done(false, PushRegistrationProblem.TOKEN_UNAVAILABLE)
+            .addOnFailureListener { error ->
+                done(false, diagnoseFcm(context, error))
             }
     }
 
