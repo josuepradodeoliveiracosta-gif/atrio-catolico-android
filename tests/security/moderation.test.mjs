@@ -1,7 +1,7 @@
 import {readFileSync} from 'node:fs';
 import assert from 'node:assert/strict';
 import {initializeTestEnvironment,assertFails,assertSucceeds} from '@firebase/rules-unit-testing';
-import {doc,setDoc,getDoc,getDocs,collection,updateDoc,deleteDoc,writeBatch,serverTimestamp,Timestamp} from 'firebase/firestore';
+import {doc,setDoc,getDoc,getDocs,collection,updateDoc,deleteDoc,writeBatch,serverTimestamp,Timestamp,query,where} from 'firebase/firestore';
 const env=await initializeTestEnvironment({projectId:'demo-atrio-v11',firestore:{host:'127.0.0.1',port:8089,rules:readFileSync('firestore.rules','utf8')}});
 let passed=0;
 async function test(name,fn){await fn();passed++;console.log('PASS',name);}
@@ -123,6 +123,96 @@ try {
    })));
  await test('pedido reapresentado não pode ser autoaprovado',()=>assertFails(
    updateDoc(doc(bob,'badge_requests/bob'),{status:'approved'})));
+ // Aprovação de clero: só administrador ativo, por batch atômico.
+ await test('anônimo não lista solicitações de selo',()=>assertFails(
+   getDocs(collection(anon,'badge_requests'))));
+ await test('administrador vê somente pedidos de verificação na fila',async()=>{
+   const snap=await assertSucceeds(getDocs(query(collection(admin,'badge_requests'),where('status','==','pending'))));
+   assert.ok(snap.docs.some(d=>d.id==='bob'));
+ });
+ await test('terceiros não leem pedido alheio após reapresentação',()=>assertFails(
+   getDoc(doc(alice,'badge_requests/bob'))));
+ await test('administrador não concede clero fora de uma aprovação atômica',()=>assertFails(
+   updateDoc(doc(admin,'badges/bob'),{clergy:'diacono'})));
+ await test('administrador não aprova sem gravar o selo na mesma operação',()=>assertFails(
+   updateDoc(doc(admin,'badge_requests/bob'),{
+     status:'approved',reviewedBy:'admin',reviewedAt:serverTimestamp(),reviewNote:'Identidade verificada externamente.'
+   })));
+ await test('administrador não concede clero incorreto',async()=>{
+   const batch=writeBatch(admin);
+   batch.set(doc(admin,'badges/bob'),{clergy:'padre'},{merge:true});
+   batch.update(doc(admin,'badge_requests/bob'),{
+     status:'approved',reviewedBy:'admin',reviewedAt:serverTimestamp(),reviewNote:'Verificação efetuada por contato pastoral.'
+   });
+   await assertFails(batch.commit());
+ });
+ await test('não se aprova indicando outro revisor',async()=>{
+   const batch=writeBatch(admin);
+   batch.set(doc(admin,'badges/bob'),{clergy:'diacono'},{merge:true});
+   batch.update(doc(admin,'badge_requests/bob'),{
+     status:'approved',reviewedBy:'bob',reviewedAt:serverTimestamp(),reviewNote:'Identidade verificada externamente.'
+   });
+   await assertFails(batch.commit());
+ });
+ await test('solicitante não consegue aprovar com lote falso',async()=>{
+   const batch=writeBatch(bob);
+   batch.set(doc(bob,'badges/bob'),{clergy:'diacono'},{merge:true});
+   batch.update(doc(bob,'badge_requests/bob'),{
+     status:'approved',reviewedBy:'bob',reviewedAt:serverTimestamp(),reviewNote:'Declaração do próprio solicitante.'
+   });
+   await assertFails(batch.commit());
+ });
+ await setDoc(doc(admin,'badge_requests/admin'),{
+   kind:'padre',status:'pending',createdAt:serverTimestamp()
+ });
+ await test('administrador não aprova o próprio pedido de selo',async()=>{
+   const batch=writeBatch(admin);
+   batch.set(doc(admin,'badges/admin'),{clergy:'padre'});
+   batch.update(doc(admin,'badge_requests/admin'),{
+     status:'approved',reviewedBy:'admin',reviewedAt:serverTimestamp(),
+     reviewNote:'Mesmo administrador não pode validar o próprio pedido.'
+   });
+   await assertFails(batch.commit());
+ });
+ await test('administrador não rejeita o próprio pedido',()=>assertFails(
+   updateDoc(doc(admin,'badge_requests/admin'),{
+     status:'rejected',reviewedBy:'admin',reviewedAt:serverTimestamp(),
+     reviewNote:'Mesmo administrador não pode julgar o próprio pedido.'
+   })));
+ await test('administrador aprova e concede Diácono atomicamente',async()=>{
+   const batch=writeBatch(admin);
+   batch.set(doc(admin,'badges/bob'),{clergy:'diacono'},{merge:true});
+   batch.update(doc(admin,'badge_requests/bob'),{
+     status:'approved',reviewedBy:'admin',reviewedAt:serverTimestamp(),reviewNote:'Identidade conferida com a paróquia.'
+   });
+   await assertSucceeds(batch.commit());
+   const result=(await getDoc(doc(bob,'badges/bob'))).data();
+   assert.equal(result.clergy,'diacono');assert.equal(result.lay,'');
+   assert.equal((await getDoc(doc(bob,'badge_requests/bob'))).data().status,'approved');
+ });
+ await test('decisão aprovada não pode ser sobrescrita',()=>assertFails(
+   updateDoc(doc(admin,'badge_requests/bob'),{status:'rejected',reviewedBy:'admin',reviewedAt:serverTimestamp(),reviewNote:'Outra decisão posterior.'})));
+ await test('solicitante não remove clero concedido',()=>assertFails(
+   updateDoc(doc(bob,'badges/bob'),{clergy:''})));
+ await test('admin não lista todos os selos de membros',()=>assertFails(
+   getDocs(collection(admin,'badges'))));
+ const carol=env.authenticatedContext('carol').firestore();
+ await setDoc(doc(carol,'badge_requests/carol'),{kind:'padre',status:'pending',createdAt:serverTimestamp()});
+ await test('rejeição exige justificativa suficiente',()=>assertFails(
+   updateDoc(doc(admin,'badge_requests/carol'),{
+     status:'rejected',reviewedBy:'admin',reviewedAt:serverTimestamp(),reviewNote:'Não'
+   })));
+ await test('administrador rejeita sem atribuir selo',async()=>{
+   await assertSucceeds(updateDoc(doc(admin,'badge_requests/carol'),{
+     status:'rejected',reviewedBy:'admin',reviewedAt:serverTimestamp(),reviewNote:'Verificação pastoral não confirmada.'
+   }));
+   assert.equal((await getDoc(doc(carol,'badge_requests/carol'))).data().status,'rejected');
+   assert.equal((await getDoc(doc(carol,'badges/carol'))).exists(),false);
+ });
+ await test('pedido rejeitado pode ser reapresentado pelo solicitante',()=>assertSucceeds(
+   updateDoc(doc(carol,'badge_requests/carol'),{kind:'diacono',status:'pending',createdAt:serverTimestamp()})));
+ await test('solicitante não apaga trilha da revisão administrativa',()=>assertFails(
+   deleteDoc(doc(carol,'badge_requests/carol'))));
  await test('usuário não se promove',()=>assertFails(setDoc(doc(bob,'admins/bob'),{enabled:true})));
  await test('administrador não promove contas pelo cliente',()=>assertFails(setDoc(doc(admin,'admins/bob'),{enabled:true})));
  await test('administrador não altera seu acesso pelo cliente',()=>assertFails(updateDoc(doc(admin,'admins/admin'),{enabled:false})));
@@ -224,6 +314,12 @@ try {
  });
  await setDoc(doc(bob,'reports/rr5'),replyReport('e'));
  await env.withSecurityRulesDisabled(async c=>updateDoc(doc(c.firestore(),'admins/admin'),{enabled:false}));
+ await test('revogação impede ver a fila de solicitações',()=>assertFails(
+   getDocs(query(collection(admin,'badge_requests'),where('status','==','pending')))));
+ await test('revogação impede rejeitar pedido de clero',()=>assertFails(
+   updateDoc(doc(admin,'badge_requests/carol'),{
+     status:'rejected',reviewedBy:'admin',reviewedAt:serverTimestamp(),reviewNote:'Revogado não pode decidir.'
+   })));
  await test('revogação impede consulta de denúncias',()=>assertFails(getDocs(collection(admin,'reports'))));
  await test('revogação impede remoção alheia',()=>assertFails(deleteDoc(doc(admin,'posts/p2'))));
  await test('revogação impede exclusão de resposta alheia',()=>assertFails(deleteDoc(doc(admin,'posts/p2/replies/e'))));

@@ -68,40 +68,80 @@ service cloud.firestore {
       ];
     }
 
-    // Selos públicos: o titular só escolhe a identificação leiga.
-    // Clero e moderação são atribuídos por ferramenta administrativa confiável.
+    // Atribuição de clero e aprovação devem ocorrer no mesmo batch.
+    // Verificamos estados ANTES e DEPOIS, nunca apenas flags da interface.
+    function approvedClergyGrant(uid, clergy) {
+      let requestPath = /databases/$(database)/documents/badge_requests/$(uid);
+      return isAdmin()
+        && request.auth.uid != uid
+        && exists(requestPath)
+        && get(requestPath).data.status == 'pending'
+        && get(requestPath).data.kind == clergy
+        && getAfter(requestPath).data.status == 'approved'
+        && getAfter(requestPath).data.reviewedBy == request.auth.uid;
+    }
+    function approvedRequestHasGrant(uid) {
+      let badgePath = /databases/$(database)/documents/badges/$(uid);
+      return existsAfter(badgePath)
+        && getAfter(badgePath).data.clergy == resource.data.kind
+        && (!exists(badgePath)
+          || get(badgePath).data.get('clergy', '') != resource.data.kind);
+    }
+
+    // Identificação leiga é autodeclarada; selo clerical exige admin e batch.
     match /badges/{uid} {
       allow get: if signedIn();
       allow list: if false;
-      allow create: if me(uid)
+      allow create: if (me(uid)
         && request.resource.data.keys().hasOnly(['lay'])
         && request.resource.data.keys().hasAll(['lay'])
-        && request.resource.data.lay in ['leigo', 'leiga'];
-      allow update: if me(uid)
+        && request.resource.data.lay in ['leigo', 'leiga'])
+        || (approvedClergyGrant(uid, request.resource.data.get('clergy', ''))
+          && request.resource.data.keys().hasOnly(['clergy'])
+          && request.resource.data.clergy in ['padre', 'diacono']);
+      allow update: if (me(uid)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lay'])
         && request.resource.data.keys().hasAll(['lay'])
-        && request.resource.data.lay in ['leigo', 'leiga', ''];
+        && request.resource.data.lay in ['leigo', 'leiga', ''])
+        || (approvedClergyGrant(uid, request.resource.data.get('clergy', ''))
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['clergy'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasAll(['clergy'])
+          && request.resource.data.clergy in ['padre', 'diacono']);
       allow delete: if false;
     }
 
-    // Solicitação não confere selo: exige verificação humana pela administração.
-    // O titular enxerga apenas o próprio pedido; novos pedidos após recusa são permitidos.
+    // Os pedidos são privados para terceiros e consultáveis por admins ativos.
+    // Rejeitar altera só o pedido; aprovar exige gravar o selo no mesmo batch.
     match /badge_requests/{uid} {
-      allow get: if me(uid);
-      allow list: if false;
+      allow get: if me(uid) || isAdmin();
+      allow list: if isAdmin();
       allow create: if me(uid)
         && request.resource.data.keys().hasOnly(['kind', 'status', 'createdAt'])
         && request.resource.data.keys().hasAll(['kind', 'status', 'createdAt'])
         && request.resource.data.kind in ['padre', 'diacono']
         && request.resource.data.status == 'pending'
         && validTime();
-      allow update: if me(uid)
+      allow update: if (me(uid)
         && resource.data.status in ['rejected', 'dismissed']
         && request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly(['kind', 'status', 'createdAt'])
         && request.resource.data.kind in ['padre', 'diacono']
         && request.resource.data.status == 'pending'
-        && validTime();
+        && validTime())
+        || (isAdmin()
+          && request.auth.uid != uid
+          && resource.data.status == 'pending'
+          && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['status', 'reviewedBy', 'reviewedAt', 'reviewNote'])
+          && request.resource.data.keys().hasAll([
+              'status', 'reviewedBy', 'reviewedAt', 'reviewNote'
+            ])
+          && request.resource.data.status in ['approved', 'rejected']
+          && request.resource.data.reviewedBy == request.auth.uid
+          && request.resource.data.reviewedAt == request.time
+          && validText(request.resource.data.reviewNote, 10, 300)
+          && (request.resource.data.status == 'rejected'
+              || approvedRequestHasGrant(uid)));
       allow delete: if false;
     }
 
