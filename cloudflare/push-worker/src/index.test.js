@@ -1,6 +1,7 @@
 import test, {afterEach} from 'node:test';
 import assert from 'node:assert/strict';
-import worker, {resolveEvent, readEventBody, auditDelivery, cleanupInvalidDevice} from './index.js';
+import worker, {resolveEvent, readEventBody, auditDelivery, cleanupInvalidDevice,
+  threadParticipants, writeThreadNotices} from './index.js';
 
 const iso = () => new Date(Date.now() - 2000).toISOString();
 const doc = (data={}) => ({fields:Object.fromEntries(Object.entries(data).map(([key,value]) =>
@@ -14,6 +15,8 @@ function mocked(docs) {
     const path = decodeURIComponent(new URL(url).pathname).split('/documents/')[1]
       +new URL(url).search;
     const result = docs[path] ?? docs[path.split('?')[0]];
+    if(!result && path.split('?')[0].endsWith('/replies'))
+      return new Response(JSON.stringify({documents:[]}),{status:200});
     if(!result) return new Response('{}',{status:404});
     return new Response(JSON.stringify(result),{status:200});
   };
@@ -36,13 +39,14 @@ test('um usuário não simula aviso de resposta escrita por outro',async()=>{
   });
   assert.equal(await resolveEvent({type:'reply',postId:'p1',replyId:'r1'},'intruso','fake'),null);
 });
-test('não notifica resposta já lida',async()=>{
+test('leitura do aviso do autor não bloqueia avisos para outros participantes',async()=>{
   mocked({
     'posts/p1':doc({uid:'dono'}),
     'posts/p1/replies/r1':doc({uid:'autor',createdAt:iso()}),
     'users/dono/notifications/r1':doc({actorUid:'autor',postId:'p1',replyId:'r1',read:true}),
   });
-  assert.equal(await resolveEvent({type:'reply',postId:'p1',replyId:'r1'},'autor','fake'),null);
+  const event=await resolveEvent({type:'reply',postId:'p1',replyId:'r1'},'autor','fake');
+  assert.deepEqual(event.recipients,['dono']);
 });
 test('não notifica resposta sem notificação atômica',async()=>{
   mocked({
@@ -181,8 +185,10 @@ test('fluxo completo autenticado, deduplicação e falha FCM sem credenciais rea
       actorUid:'autor',postId:'p1',replyId:'r2',read:false,
     }),
     'users/dono/pushDevices':{documents:[doc({token:'token-test-device-1234567890',updatedAt:iso()})]},
+    'posts/p1/replies':{documents:[]},
   };
   let sent=0;
+  let fanouts=0;
   let failFCM=false;
   globalThis.fetch=async (input,options={})=>{
     const url=String(input);
@@ -196,6 +202,13 @@ test('fluxo completo autenticado, deduplicação e falha FCM sem credenciais rea
     }
     if(url.includes('firestore.googleapis.com/')) {
       assert.equal(options.headers.Authorization,'Bearer fake-oauth');
+      if(url.includes('/documents:batchWrite')) {
+        const payload=JSON.parse(options.body);
+        assert.equal(payload.writes.length,1);
+        assert.equal(payload.writes[0].currentDocument.exists,false);
+        fanouts++;
+        return new Response(JSON.stringify({status:[{code:6}]}),{status:200});
+      }
       const u=new URL(url);
       const path=decodeURIComponent(u.pathname).split('/documents/')[1];
       const content=documents[path];
@@ -206,8 +219,15 @@ test('fluxo completo autenticado, deduplicação e falha FCM sem credenciais rea
     if(url.includes('fcm.googleapis.com/')) {
       assert.equal(options.headers.Authorization,'Bearer fake-oauth');
       const message=JSON.parse(options.body).message;
-      assert.deepEqual(message.data,{uid:'dono',kind:'reply'});
-      assert.equal(message.token,'token-test-device-1234567890');
+      if(message.topic) {
+        assert.equal(message.topic,'atrio_thread_p1');
+        assert.equal(message.data.kind,'discussion_reply');
+        assert.equal(message.data.actorUid,'autor');
+      } else {
+        assert.deepEqual(message.data,{uid:'dono',kind:'reply',
+          postId:'p1',replyId:sent<2?'r1':'r2',actorUid:'autor'});
+        assert.equal(message.token,'token-test-device-1234567890');
+      }
       sent++;
       return new Response('{}',{status:failFCM ? 503 : 200});
     }
@@ -224,18 +244,19 @@ test('fluxo completo autenticado, deduplicação e falha FCM sem credenciais rea
   const ok=await emit('r1');
   assert.equal(ok.status,202);
   assert.deepEqual(await ok.json(),{status:'accepted_by_fcm'});
-  assert.equal(sent,1);
+  assert.equal(sent,2);
+  assert.equal(fanouts,1);
 
   const duplicate=await emit('r1');
   assert.equal(duplicate.status,202);
   assert.deepEqual(await duplicate.json(),{status:'no_devices_or_duplicate'});
-  assert.equal(sent,1,'evento repetido não pode duplicar o push');
+  assert.equal(sent,2,'evento repetido não pode duplicar o push');
 
   failFCM=true;
   const failed=await emit('r2');
   assert.equal(failed.status,503);
   assert.deepEqual(await failed.json(),{status:'delivery_failed'});
-  assert.equal(sent,2);
+  assert.equal(sent,4);
 });
 
 
@@ -438,4 +459,66 @@ test('precondicao Firestore falha quando o dispositivo e atualizado antes da lim
   assert.equal(await cleanupInvalidDevice('fake',{
     path:'users/dono/pushDevices/device1',updateTime:'2026-10-26T19:00:00Z',
   },fcm),false);
+});
+
+
+test('fanout inclui dono e cada comentarista apenas uma vez, mas exclui remetente',async()=>{
+  const now=iso();
+  mocked({
+    'posts/p1':doc({uid:'dono'}),
+    'posts/p1/replies/r9':doc({uid:'ana',authorName:'Ana',createdAt:now}),
+    'users/dono/notifications/r9':doc({actorUid:'ana',postId:'p1',replyId:'r9',read:false}),
+    'posts/p1/replies':{documents:[
+      doc({uid:'joao',createdAt:now}),doc({uid:'joao',createdAt:now}),
+      doc({uid:'ana',createdAt:now}),doc({uid:'maria',createdAt:now}),
+      doc({uid:'dono',createdAt:now})
+    ]},
+  });
+  const event=await resolveEvent({type:'reply',postId:'p1',replyId:'r9'},'ana','fake');
+  assert.deepEqual(event.recipients.sort(),['dono','joao','maria']);
+  assert.equal(event.topic,'atrio_thread_p1');
+  assert.equal(event.legacyOwner,'dono');
+  assert.equal(event.notice.actorName,'Ana');
+});
+
+test('resposta do criador notifica demais participantes sem aviso para si',async()=>{
+  const now=iso();
+  mocked({
+    'posts/p1':doc({uid:'dono'}),
+    'posts/p1/replies/r9':doc({uid:'dono',authorName:'Dono',createdAt:now}),
+    'posts/p1/replies':{documents:[
+      doc({uid:'joao',createdAt:now}),doc({uid:'joao',createdAt:now}),
+      doc({uid:'dono',createdAt:now}),doc({uid:'ana',createdAt:now})
+    ]},
+  });
+  const event=await resolveEvent({type:'reply',postId:'p1',replyId:'r9'},'dono','fake');
+  assert.deepEqual(event.recipients.sort(),['ana','joao']);
+  assert.equal(event.legacyOwner,null);
+});
+
+test('Firestore fanout usa precondicao de criacao e somente participantes verificados',async()=>{
+  let writes=[];
+  globalThis.fetch=async(url,opts)=>{
+    assert.ok(String(url).endsWith('/documents:batchWrite'));
+    assert.equal(opts.method,'POST');
+    writes=JSON.parse(opts.body).writes;
+    return new Response(JSON.stringify({writeResults:[{},{}],status:[{},{}]}),{status:200});
+  };
+  await writeThreadNotices('fake',{
+    topic:'atrio_thread_p1',recipients:['joao','maria'],
+    notice:{postId:'p1',replyId:'r2',actorUid:'ana',
+      actorName:'Ana',createdAt:iso()},
+  });
+  assert.equal(writes.length,2);
+  assert.deepEqual(writes.map(w=>w.currentDocument),[{exists:false},{exists:false}]);
+  assert.ok(writes[0].update.name.endsWith('/users/joao/notifications/r2'));
+  assert.ok(writes[1].update.name.endsWith('/users/maria/notifications/r2'));
+  assert.equal(writes[0].update.fields.read.booleanValue,false);
+});
+
+test('limite de participantes impede fanout incompleto ou silencioso',async()=>{
+  const now=iso();
+  const docs=Array.from({length:251},(_,i)=>doc({uid:'membro'+i,createdAt:now}));
+  mocked({'posts/p1/replies':{documents:docs}});
+  await assert.rejects(()=>threadParticipants('fake','p1','autor','dono',Date.now()),/thread_capacity/);
 });
