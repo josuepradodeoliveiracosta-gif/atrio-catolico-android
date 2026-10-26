@@ -83,8 +83,15 @@ credenciais administrativas no GitHub, no APK ou nas conversas. Alterações
 de regras e infraestrutura Firebase em produção exigem autorização separada.
 O branch de backup protegido deve permanecer intocado.
 
+## Manutenção
+
+Consulte o [guia de manutenção](docs/manutencao.md) para configuração administrativa,
+vídeo de abertura, testes e navegação da documentação. Os guias de patches
+antigos foram substituídos por essas orientações.
+
 ## Histórico
 
 O [tutorial da fase inicial (0.4)](docs/tutorial-inicial-v04.md) foi preservado
 como registro histórico. Ele não descreve o estado atual do aplicativo.
+
 
