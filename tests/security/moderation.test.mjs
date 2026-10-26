@@ -410,6 +410,16 @@ try {
   deleteDoc(doc(alice,'guardiao_quarantine/guard_case1'))));
  await test('administrador não restaura caso por SDK cliente',()=>assertFails(
   updateDoc(doc(admin,'guardiao_quarantine/guard_case1'),{status:'restored'})));
+ await env.withSecurityRulesDisabled(async ctx=>{
+  await setDoc(doc(ctx.firestore(),'reports/guard_case1'),{
+   postId:'p2',reporterUid:'atrio_guardiao',status:'pending',source:'guardiao',
+   reason:'Ameaça explícita a revisar',createdAt:Timestamp.now(),
+  });
+ });
+ await test('APK antigo não encerra denúncia com quarentena ainda ativa',()=>assertFails(
+  updateDoc(doc(admin,'reports/guard_case1'),review())));
+ await test('APK antigo não confirma remoção de caso retido',()=>assertFails(
+  updateDoc(doc(admin,'reports/guard_case1'),review('removed'))));
  await env.withSecurityRulesDisabled(async c=>updateDoc(doc(c.firestore(),'admins/admin'),{enabled:false}));
  await test('revogação impede ver a fila de solicitações',()=>assertFails(
    getDocs(query(collection(admin,'badge_requests'),where('status','==','pending')))));
