@@ -389,6 +389,24 @@ test('UNREGISTERED 404 remove somente o documento exato e a versão observada',a
   assert.equal(deletes,1);
 });
 
+
+test('NOT_FOUND HTTP 404 com detalhe FcmError UNREGISTERED confirma token invalido',async()=>{
+  let deleted=0;
+  globalThis.fetch=async(url,options)=>{
+    deleted++;
+    assert.equal(options.method,'DELETE');
+    assert.match(String(url),/currentDocument.updateTime=/);
+    return new Response('{}',{status:200});
+  };
+  const fcm=new Response(JSON.stringify({error:{code:404,status:'NOT_FOUND',
+    details:[{'@type':'type.googleapis.com/google.firebase.fcm.v1.FcmError',
+      errorCode:'UNREGISTERED'}]}}),{status:404});
+  assert.equal(await cleanupInvalidDevice('fake-oauth',{
+    path:'users/dono/pushDevices/device1',updateTime:'2026-10-26T19:00:00Z',
+  },fcm),true);
+  assert.equal(deleted,1);
+});
+
 test('outros erros FCM nao removem tokens, inclusive HTTP 404 NOT_FOUND e INVALID_ARGUMENT',async()=>{
   let deletions=0;
   globalThis.fetch=async()=>{deletions++;throw Error('Nao deve deletar');};
