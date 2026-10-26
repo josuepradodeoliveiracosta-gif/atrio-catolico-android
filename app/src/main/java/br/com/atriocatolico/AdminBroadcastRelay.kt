@@ -38,7 +38,8 @@ internal object AdminBroadcastRelay {
             .put("body", message)
             .put("requestId", UUID.randomUUID().toString()).toString()
         actor.getIdToken(false).addOnCompleteListener { idResult ->
-            val token = idResult.result?.token?.takeIf { idResult.isSuccessful && it.isNotBlank() }
+            val token = if (idResult.isSuccessful) idResult.result?.token?.takeIf { it.isNotBlank() }
+                else null
             if (token == null || FirebaseAuth.getInstance().currentUser?.uid != actor.uid) {
                 done("unauthorized")
                 return@addOnCompleteListener
