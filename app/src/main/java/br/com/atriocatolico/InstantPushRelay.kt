@@ -24,11 +24,19 @@ internal object InstantPushRelay {
 
     // Somente codigos tecnicos fixos sao guardados localmente. Nunca salvar
     // ID tokens, UID de destino, corpo de mensagens ou token FCM.
-    private fun record(uid: String, status: String) {
+    private fun record(uid: String, status: String, route: String = "event") {
         if (uid.isBlank()) return
-        FirebaseApp.getInstance().applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit().putString("status_$uid", status).apply()
+        val edit = FirebaseApp.getInstance().applicationContext
+            .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putString("status_$uid", status)
+        if (route == "moderation/event") edit.putString("guardiao_$uid", status)
+        edit.apply()
     }
+
+    fun lastGuardiaoStatus(context: Context, uid: String): String =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString("guardiao_$uid", "Nenhuma triagem registrada neste aparelho.")
+            .orEmpty()
 
     fun lastStatus(context: Context, uid: String): String =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -59,23 +67,23 @@ internal object InstantPushRelay {
         val actor = FirebaseAuth.getInstance().currentUser ?: return
         val origin = BuildConfig.PUSH_RELAY_URL
         if (!origin.startsWith("https://") || !origin.endsWith(".workers.dev")) {
-            record(actor.uid, "Sem endereço Cloudflare configurado neste APK.")
+            record(actor.uid, "Sem endereço Cloudflare configurado neste APK.", route)
             return
         }
         if (args.values.any { it.isBlank() || it.length > 128 }) {
-            record(actor.uid, "Evento inválido. O envio não foi iniciado.")
+            record(actor.uid, "Evento inválido. O envio não foi iniciado.", route)
             return
         }
-        record(actor.uid, "Preparando comunicação com Cloudflare...")
+        record(actor.uid, "Preparando comunicação com Cloudflare...", route)
         actor.getIdToken(false)
             .addOnSuccessListener { result ->
                 val idToken = result.token?.takeIf { it.isNotBlank() }
                 if (idToken == null) {
-                    record(actor.uid, "Firebase Auth não forneceu token de sessão.")
+                    record(actor.uid, "Firebase Auth não forneceu token de sessão.", route)
                     return@addOnSuccessListener
                 }
                 if (FirebaseAuth.getInstance().currentUser?.uid != actor.uid) {
-                    record(actor.uid, "Conta alterada antes do envio.")
+                    record(actor.uid, "Conta alterada antes do envio.", route)
                     return@addOnSuccessListener
                 }
                 val payload = JSONObject().put("type", type)
@@ -121,19 +129,19 @@ internal object InstantPushRelay {
                                     "capacity_limit" -> "Limite de destinatários no servidor."
                                     else -> "Resposta recebida do servidor."
                                 }
-                                record(actor.uid, "HTTP $http: $detail")
+                                record(actor.uid, "HTTP $http: $detail", route)
                             } finally {
                                 connection.disconnect()
                             }
                         } catch (_: Exception) {
-                            record(actor.uid, "Falha de conexão com Cloudflare (rede ou tempo limite).")
+                            record(actor.uid, "Falha de conexão com Cloudflare (rede ou tempo limite).", route)
                         }
                     }
                 } catch (_: RejectedExecutionException) {
-                    record(actor.uid, "Fila de envio ocupada. Tente após alguns segundos.")
+                    record(actor.uid, "Fila de envio ocupada. Tente após alguns segundos.", route)
                 }
             }.addOnFailureListener {
-                record(actor.uid, "Não foi possível autenticar o envio no Firebase.")
+                record(actor.uid, "Não foi possível autenticar o envio no Firebase.", route)
             }
     }
 }
