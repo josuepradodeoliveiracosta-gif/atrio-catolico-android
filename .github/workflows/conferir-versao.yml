@@ -26,6 +26,11 @@ jobs:
       - name: Impedir regressão em pull request
         if: github.event_name == 'pull_request'
         run: python3 scripts/status_versao.py --validate-base
+      - name: Impedir regressão em atualização direta da principal
+        if: github.event_name == 'push' && github.event.before != '0000000000000000000000000000000000000000'
+        env:
+          ATRIO_PREVIOUS_COMMIT: ${{ github.event.before }}
+        run: python3 scripts/status_versao.py --validate-base --base-ref "$ATRIO_PREVIOUS_COMMIT"
       - name: Exibir versão do código compilado sem documentação desatualizada
         shell: bash
         run: |
@@ -33,3 +38,4 @@ jobs:
           python3 scripts/status_versao.py --local >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "Em desenvolvimento: branches/PRs são propostas, não versões lançadas." >> "$GITHUB_STEP_SUMMARY"
+

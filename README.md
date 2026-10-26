@@ -32,7 +32,10 @@ python3 scripts/status_versao.py
 ```
 
 A consulta padrão acessa **o GitHub remoto** e informa versão, commit e
-compilação do mesmo commit, além das PRs abertas. Se não conseguir consultar
+compilação e disponibilidade do artefato release do mesmo commit, além das PRs abertas.
+A consulta fixa o commit antes de ler a versão, evitando misturar resultados
+quando outra atualização chega durante a consulta. O modo remoto não depende
+de existir um Gradle válido na cópia local. Se não conseguir consultar
 a API do repositório privado, apresenta **erro em vez de presumir uma versão antiga**.
 
 Para conferir somente uma cópia local (que pode estar desatualizada):
@@ -43,7 +46,10 @@ python3 scripts/status_versao.py --local
 
 Toda PR e atualização de `main` passa por
 [`conferir-versao.yml`](.github/workflows/conferir-versao.yml), que confere
-a sintaxe do Gradle e impede regressões de `versionCode` e `versionName`.
+a sintaxe do Gradle e detecta regressões de `versionCode` e `versionName`: nas
+PRs compara com `origin/main`; no push compara com o commit anterior ao envio.
+O resultado do CI é uma verificação, não um bloqueio automático de pushes:
+impedir a integração de um resultado reprovado depende das proteções da branch.
 
 ## Estado das notificações — confira a versão antes de responder
 
@@ -81,3 +87,4 @@ O branch de backup protegido deve permanecer intocado.
 
 O [tutorial da fase inicial (0.4)](docs/tutorial-inicial-v04.md) foi preservado
 como registro histórico. Ele não descreve o estado atual do aplicativo.
+
