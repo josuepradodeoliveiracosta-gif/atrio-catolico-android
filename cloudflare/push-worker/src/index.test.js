@@ -1,6 +1,6 @@
 import test, {afterEach} from 'node:test';
 import assert from 'node:assert/strict';
-import worker, {resolveEvent, readEventBody} from './index.js';
+import worker, {resolveEvent, readEventBody, auditDelivery} from './index.js';
 
 const iso = () => new Date(Date.now() - 2000).toISOString();
 const doc = (data={}) => ({fields:Object.fromEntries(Object.entries(data).map(([key,value]) =>
@@ -340,4 +340,28 @@ test('comunicado rejeita título, corpo e identificador inválidos antes de aces
     const result=await worker.fetch(new Request(url,{method:'POST',body:JSON.stringify(data)}),env);
     assert.equal(result.status,400);
   }
+});
+
+test('auditoria horaria agrega resultados sem armazenar UID, token nem mensagem',async()=>{
+  const records=[];
+  const env={PUSH_DB:{prepare(sql){
+    assert.match(sql,/INSERT INTO push_delivery_stats/);
+    assert.ok(!sql.includes('uid')&&!sql.includes('token'));
+    return {bind(...args){
+      records.push(args);
+      return {run:async()=>({meta:{changes:1}})};
+    }};
+  }}};
+  await auditDelivery(env,'reply','accepted_by_fcm',2,1,404);
+  assert.equal(records.length,1);
+  assert.equal(records[0][1],'reply');
+  assert.equal(records[0][2],'accepted_by_fcm');
+  assert.equal(records[0][3],404);
+  assert.equal(records[0][4],2);
+  assert.equal(records[0][5],1);
+  assert.equal(records[0][0] % 3600000,0);
+});
+test('falha de auditoria nao bloqueia entrega',async()=>{
+  const env={PUSH_DB:{prepare(){throw Error('Tabela ainda nao criada');}}};
+  await assert.doesNotReject(()=>auditDelivery(env,'reply','delivery_failed',1,0,503));
 });
