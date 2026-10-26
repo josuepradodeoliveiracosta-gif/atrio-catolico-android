@@ -46,7 +46,7 @@ A central de notificações dentro do app é a fonte oficial permanente.
 7. Cadastrar FIREBASE_SERVICE_ACCOUNT_JSON como Secret no painel do Worker;
    cadastrar FIREBASE_WEB_API_KEY como variável do Worker.
    NÃO colar as chaves/senhas/tokens nesta conversa ou em GitHub.
-8. Executar npx wrangler deploy e conferir URL *.workers.dev.
+8. Executar npx wrangler deploy e conferir URL *.workers.dev. O padrão PUSH_ENABLED=false mantém o envio desligado. Após configurar credenciais e validar o plano Free, habilitar PUSH_ENABLED=true para o teste controlado.
 9. Configurar variável do repositório GitHub Actions:
    ATRIO_PUSH_WORKER_URL = URL do Worker (sem /event).
 10. Após testes de integração do Worker, finalizar PR e compilar release
@@ -71,3 +71,14 @@ https://developers.cloudflare.com/workers/platform/limits/
 https://developers.cloudflare.com/d1/platform/pricing/
 https://firebase.google.com/docs/cloud-messaging/send/v1-api
 https://firebase.google.com/docs/reference/rest/auth
+
+## Retomada em 26/10/2026
+- Cloudflare conectado; Worker `atrio-push` implantado com envio DESATIVADO (`PUSH_ENABLED=false`).
+- D1 `atrio-push-delivery` criado e esquema aplicado. Endpoint: https://atrio-push.atrio-catolico.workers.dev.
+- `GET /health` indica configuração/desativação; não comprova entrega FCM. `POST /event` recusa envio enquanto desativado.
+- Credencial Google e API key ainda não cadastradas; nenhum teste real de entrega FCM realizado.
+- A conexão OAuth não permite consultar faturamento. Confirmar Workers Free no painel antes de habilitar tráfego real. Nenhuma assinatura paga foi criada ou alterada.
+- Corpo de requisição limitado durante leitura a 512 bytes, inclusive sem Content-Length; JSON inválido recebe 400. Sem configuração/ativação, não acessa Google nem D1.
+- Limpeza limitada a 100 marcadores com mais de um dia por evento válido; mantém idempotência dentro da janela de eventos. Falha total do FCM não é reportada como envio aceito.
+- 20 testes Node locais aprovados; testes integrados com credenciais e cotas reais continuam pendentes.
+- Branch atualizada com orientações AGENTS.md e correções de consulta de versão da main. A principal permanece 0.18.0 até concluir a ativação/teste da 0.19.0.

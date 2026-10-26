@@ -1,6 +1,6 @@
 import test, {afterEach} from 'node:test';
 import assert from 'node:assert/strict';
-import {resolveEvent} from './index.js';
+import worker, {resolveEvent, readEventBody} from './index.js';
 
 const iso = () => new Date(Date.now() - 2000).toISOString();
 const doc = (data={}) => ({fields:Object.fromEntries(Object.entries(data).map(([key,value]) =>
@@ -105,4 +105,47 @@ test('bloqueia IDs inválidos antes de consultar dados',async()=>{
   mocked({});
   assert.equal(await resolveEvent({type:'reply',postId:'../admins',replyId:'a'},'alice','fake'),null);
   assert.equal(await resolveEvent({type:'other'},'alice','fake'),null);
+});
+
+
+const configured = {PUSH_ENABLED:'true', PUSH_DB:{}, FIREBASE_WEB_API_KEY:'test', FIREBASE_SERVICE_ACCOUNT_JSON:'{}'};
+const req = (body, headers={}) => new Request('https://example.workers.dev/event', {method:'POST',body,headers});
+test('emissor desativado nunca acessa Google ou D1',async()=>{
+  globalThis.fetch = async()=>{throw Error('Não deveria acessar rede');};
+  const result=await worker.fetch(req('{}'),{...configured,PUSH_ENABLED:'false'});
+  assert.equal(result.status,503);
+  assert.equal((await result.json()).status,'disabled');
+});
+test('health informa somente estado e não testa envio',async()=>{
+  const result=await worker.fetch(new Request('https://example.workers.dev/health'),{});
+  assert.deepEqual(await result.json(),{status:'disabled'});
+});
+test('sem credenciais não tenta enviar',async()=>{
+  const result=await worker.fetch(req('{}'),{PUSH_ENABLED:'true'});
+  assert.equal((await result.json()).status,'not_configured');
+});
+test('bloqueia corpo grande mesmo sem content-length',async()=>{
+  const result=await worker.fetch(req('x'.repeat(513)),configured);
+  assert.equal(result.status,413);
+});
+test('limite conta bytes UTF-8, não caracteres',async()=>{
+  await assert.rejects(()=>readEventBody(req('é'.repeat(257))),RangeError);
+});
+test('cancela leitura assim que ultrapassa limite',async()=>{
+  let cancelled=false;
+  const stream=new ReadableStream({start(c){c.enqueue(new Uint8Array(513));},cancel(){cancelled=true;}});
+  const request=new Request('https://example.workers.dev/event',{method:'POST',body:stream,duplex:'half'});
+  await assert.rejects(()=>readEventBody(request),RangeError);
+  assert.equal(cancelled,true);
+});
+test('JSON ou tipo inválido são recusados antes de autenticação remota',async()=>{
+  globalThis.fetch=async()=>{throw Error('Não deveria acessar rede');};
+  for(const body of ['{','null','[]','{}','{"type":"unknown"}'])
+    assert.equal((await worker.fetch(req(body),configured)).status,400);
+});
+test('token ausente é recusado sem obter credencial administrativa',async()=>{
+  assert.equal((await worker.fetch(req('{"type":"reply"}'),configured)).status,401);
+});
+test('corpo válido é lido corretamente',async()=>{
+  assert.deepEqual(await readEventBody(req('{"type":"badge_request"}')),{type:'badge_request'});
 });

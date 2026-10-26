@@ -1,0 +1,41 @@
+name: Conferir versão oficial do Átrio
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  version-check:
+    name: Evitar regressão de versionCode e versionName
+    runs-on: ubuntu-latest
+    steps:
+      - name: Obter código e histórico da branch principal
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Conferir formato e testar validador
+        run: |
+          python3 scripts/test_status_versao.py
+          python3 scripts/status_versao.py --local
+      - name: Impedir regressão em pull request
+        if: github.event_name == 'pull_request'
+        run: python3 scripts/status_versao.py --validate-base
+      - name: Impedir regressão em atualização direta da principal
+        if: github.event_name == 'push' && github.event.before != '0000000000000000000000000000000000000000'
+        env:
+          ATRIO_PREVIOUS_COMMIT: ${{ github.event.before }}
+        run: python3 scripts/status_versao.py --validate-base --base-ref "$ATRIO_PREVIOUS_COMMIT"
+      - name: Exibir versão do código compilado sem documentação desatualizada
+        shell: bash
+        run: |
+          echo "## Versão obtida de app/build.gradle.kts" >> "$GITHUB_STEP_SUMMARY"
+          python3 scripts/status_versao.py --local >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Em desenvolvimento: branches/PRs são propostas, não versões lançadas." >> "$GITHUB_STEP_SUMMARY"
+

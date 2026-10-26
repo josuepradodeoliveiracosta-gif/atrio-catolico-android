@@ -24,6 +24,29 @@ function urlSafeBase64(input) {
   return btoa(binary).replaceAll('+','-').replaceAll('/','_').replace(/=+$/g,'');
 }
 
+// Bound bytes while streaming, including chunked bodies without Content-Length.
+export async function readEventBody(request) {
+  if (Number(request.headers.get('content-length') || '0') > 512)
+    throw new RangeError('body_limit');
+  const reader = request.body?.getReader();
+  if (!reader) throw new SyntaxError('empty_body');
+  const chunks = [];
+  let size = 0;
+  try {
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > 512) { await reader.cancel(); throw new RangeError('body_limit'); }
+      chunks.push(value);
+    }
+  } finally { reader.releaseLock(); }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  return JSON.parse(new TextDecoder('utf-8', {fatal:true}).decode(bytes));
+}
+
 let cachedOAuth = null;
 let cachedSigningKey = null;
 async function oauth(env) {
@@ -163,23 +186,36 @@ async function send(token,device,uid,kind) {
 
 export default {
   async fetch(request, env) {
+    const configured = !!(env.PUSH_DB && env.FIREBASE_WEB_API_KEY && env.FIREBASE_SERVICE_ACCOUNT_JSON);
+    if(request.method==='GET' && new URL(request.url).pathname==='/health')
+      return response(200, env.PUSH_ENABLED==='true' && configured ? 'configured' : 'disabled');
     if(request.method!=='POST'||new URL(request.url).pathname!=='/event')
       return response(404,'not_found');
-    if(!env.PUSH_DB||!env.FIREBASE_WEB_API_KEY||!env.FIREBASE_SERVICE_ACCOUNT_JSON)
-      return response(503,'not_configured');
+    if(env.PUSH_ENABLED!=='true') return response(503,'disabled');
+    if(!configured) return response(503,'not_configured');
     if(Number(request.headers.get('content-length')||'0')>512)
       return response(413,'too_large');
     try {
+      let data;
+      try { data = await readEventBody(request); }
+      catch (error) { return response(error instanceof RangeError ? 413 : 400,
+        error instanceof RangeError ? 'too_large' : 'invalid_json'); }
+      if (!data || typeof data !== 'object' || Array.isArray(data)
+        || !['reply','badge_request','badge_result','report'].includes(data.type))
+        return response(400,'invalid_event');
       const uid=await verifyIdentity(request,env);
       if(!uid) return response(401,'unauthorized');
-      const raw=await request.text();
-      if(raw.length>512) return response(413,'too_large');
-      const data=JSON.parse(raw);
       const token=await oauth(env);
       const event=await resolveEvent(data,uid,token);
       if(!event) return response(202,'ignored');
       if(event.recipients.length>MAX_ADMINS) return response(503,'capacity_limit');
+      // Events expire after five minutes; keep delivery markers for one day.
+      // Bounded cleanup prevents an unbounded D1 retention table.
+      await env.PUSH_DB.prepare('DELETE FROM delivered WHERE event_key IN ' +
+        '(SELECT event_key FROM delivered WHERE created_at < ? ORDER BY created_at LIMIT 100)')
+        .bind(Date.now() - 86400_000).run();
       let attempted=0;
+      let accepted=0;
       for(const recipient of event.recipients) {
         if(!uidPart(recipient)||recipient===uid) continue;
         const list=await devices(token,recipient);
@@ -193,13 +229,16 @@ export default {
         for(const target of list) {
           const result=await send(token,target.token,recipient,event.kind);
           attempted++;
+          if(result.ok) accepted++;
           if(!result.ok && result.status>=500) break;
         }
       }
-      return response(202,attempted ? 'queued' : 'no_devices_or_duplicate');
+      if (attempted && !accepted) return response(503,'delivery_failed');
+      return response(202,accepted ? 'accepted_by_fcm' : 'no_devices_or_duplicate');
     } catch {
       // Não registrar ID tokens, chaves, UID, FCM tokens nem payloads em logs.
       return response(503,'unavailable');
     }
   },
 };
+
