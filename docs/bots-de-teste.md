@@ -1,26 +1,33 @@
-# Três contas bot de teste — Átrio Católico 0.19.0
+# Três bots de QA — exclusivamente ambiente de testes
 
-O fundador administrador pode provisionar três identidades artificiais distintas:
-- Clara (BOT DE TESTE): cria uma discussão de simulação;
-- Miguel (BOT DE TESTE): participa respondendo;
-- Lúcia (BOT DE TESTE): responde à mesma conversa.
+Clara, Miguel e Lúcia são três **identidades simuladas** usadas para verificar o funcionamento do Átrio Católico e as regras reais do Firestore em emulador local (projeto Firebase de demonstração `demo-atrio-v11`). **Não são contas de produção** e não aparecem no perfil do fundador nem na comunidade pública.
 
-Os três cadastros são usuários reais no **Firebase Auth** com identificadores de sistema fixos. São criados pelo serviço autorizado com `disabled: true`, **sem e-mail nem senha**; eles não podem fazer login como usuários humanos. O Worker cria também os documentos `profiles` e `badges` com `botTest: true`, uma discussão identificada `[SIMULAÇÃO]`, três respostas com etiqueta BOT DE TESTE e cinco avisos internos para os participantes simulados. Não envia notificações Push reais, pois os bots não possuem dispositivos inscritos.
+## Perfis e responsabilidades
 
-## Como criar
-1. Instale o APK de testes com a nova opção no perfil. Entre na **conta fundadora**, que também deve estar habilitada em `admins/{uid}`.
-2. Na seção Administração, abra **Bots de teste** e confirme **Criar três bots e simular conversa**.
-3. O app envia apenas o ID token da sessão e a confirmação fixa para `POST /test-bots/provision`. Não transmite credenciais privilegiadas.
-4. O Worker exige `TEST_BOTS_ENABLED=true`, verifica token pelo Firebase, consulta o administrador habilitado e a conta fundadora no Firestore.
-5. O Worker confere/cria os três usuários Auth **desativados**, em seguida grava perfis, selos e simulação por uma única transação REST `documents:commit` com `currentDocument.exists=false`. Repetições não geram outra discussão.
+- **Clara (BOT DE TESTE):** publica uma discussão, recebe avisos e marca uma notificação como lida.
+- **Miguel (BOT DE TESTE):** responde na discussão e envia aviso de resposta no mesmo batch. Tenta acessar informações privadas e alterar discussões de terceiros; as regras devem rejeitar.
+- **Lúcia (BOT DE TESTE):** responde, simula denúncias e verifica bloqueios contra identidade falsa e privilégios administrativos.
 
-Para segurança, provisionamento **não deve ser chamado por outros clientes**, nem usado para criar pessoas reais ou perfis religiosos verificados. Se Firebase Auth ou o commit Firestore recusarem a operação, o app mostrará erro; é possível retentar pelo mesmo painel. Não presume sucesso em falhas de rede.
+As três identidades executam operações como **usuários autenticados distintos**, por meio do SDK do Firebase contra o **emulador**. O teste cobre permissões de perfis, publicação, respostas, notificações internas, relatórios e detecção por regex de CPF fictício. Também verifica que a conversa e seus dados permanecem íntegros. Não é necessário um administrador do app para iniciar o teste.
 
-Os selos são puramente identificadores visuais. Bots não recebem selo de padre, diácono, moderador ou fundador. A marca explícita BOT DE TESTE aparece em nomes, selos e mensagens. Nenhuma pessoa real é imitada.
+## Execução e resultados
 
-### Limitações
-- Este mecanismo cria três contas de Auth desativadas e uma **conversa de demonstração**, não processos com login em três telefones. Não mede entrega física de FCM em três aparelhos; essa validação precisa de três contas humanas de teste.
-- A simulação é iniciada **por ação consciente do fundador no app**. O mero deploy do Worker não cria contas sem autorização autenticada. Sem essa ação, as três identidades ainda não existem.
-- Não gera respostas periódicas nem participa de discussões reais de terceiros. Isso evitaria spam e interação enganosa; exigiria um modo de teste separado com controles de volume.
-- Requer que a conta de serviço Firebase tenha permissão IAM de gerir contas Firebase Auth e que a API Identity Toolkit aceite a operação. O Worker **não eleva permissões do projeto automaticamente**.
-- O rollback de Auth após erro de Firestore não é automático; identidades desativadas podem persistir, e retentativa idempotente reusa essas identidades.
+A suíte `tests/security/three-bots.test.mjs` roda junto com os testes de segurança:
+
+```sh
+cd tests/security
+npm ci
+npm test
+```
+
+O comando prepara as regras e executa os testes no emulador Firestore. A rotina também integra o job **Regras de seguranca Firestore** da workflow `.github/workflows/selos-ci.yml`, automaticamente em PRs para main, ou manualmente no GitHub Actions pela opção **Run workflow**, sem adicionar controles ao aplicativo.
+
+O relatório de terminal mostra **PASS BOT-QA** para cada cenário e termina com JSON incluindo `productionWrites: 0`, `realAccountsCreated: 0` e contagem de verificações. Qualquer falha devolve código não-zero e marca o job em vermelho; não publica nada na comunidade real.
+
+## Segurança, limites e escopo
+
+- O antigo botão de criação no perfil fundador, o arquivo `AdminTestBotsPanel.kt` e a rota `POST /test-bots/provision` foram removidos. O Worker não precisa mais do escopo OAuth Identity Toolkit para administrar contas Firebase Auth.
+- O sinalizador `TEST_BOTS_ENABLED` não tem uso no código atualizado e deve permanecer **desabilitado**, ou ser retirado da configuração ativa do Worker.
+- Nenhum destes testes executa o app Android em um aparelho nem mede entrega real de Push FCM. O comportamento do Push no backend é verificado por outros testes unitários. Para testes E2E com três celulares, seria necessário infraestrutura adicional de dispositivos e contas de teste separadas.
+- Não há bots publicando mensagens a cada hora no ambiente real, respostas automáticas em discussões de usuários, nem perfis falsos que se passam por humanos. Todo conteúdo simulado é isolado e etiquetado como teste.
+- O teste de CPF valida a regra local `classifyGuardiao`, **não prova** recebimento de eventos pelo Cloudflare em produção. O problema anterior de detecção no APK exige depuração separada.
