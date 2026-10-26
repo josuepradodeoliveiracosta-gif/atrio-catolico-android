@@ -216,6 +216,7 @@ internal fun BadgeSettings(uid: String) {
                 ).addOnCompleteListener { result ->
                     busy = false
                     if (result.isSuccessful) {
+                        InstantPushRelay.badgeRequest()
                         choosingKind = false
                         feedback = "Pedido enviado. Status: em análise."
                     } else feedback = "Não foi possível enviar. Confira a conexão e tente novamente."
