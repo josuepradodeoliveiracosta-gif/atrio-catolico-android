@@ -92,3 +92,30 @@ A conferência HTTP externa neste ambiente retornou 503 de conexão upstream, n�
 - A integração GitHub conectada não oferece edição de variáveis de Actions nas configurações. Como alternativa funcional, **somente na branch 0.19.0**, os workflows `build-apk.yml` e `selos-ci.yml` usam a URL `https://atrio-push.atrio-catolico.workers.dev` como valor padrão de `ATRIO_PUSH_WORKER_URL`; uma variável GitHub Actions com esse nome, se adicionada futuramente, continua tendo prioridade.
 - **Nenhuma variável de Actions foi criada nas configurações** e nenhum APK de produção foi publicado por esta alteração.
 - O envio push segue DESATIVADO; ainda faltam testes integrados com contas reais, revisão de segurança das credenciais e aprovação do merge antes da publicação 0.19.0.
+
+
+## Roteiro seguro de homologação 0.19.0
+
+### Resultado das verificações automatizadas
+- Os testes de unidade do relay simulam autenticação Firebase, leitura Firestore, aceitação FCM, rejeição FCM e deduplicação D1, sem consultar Google ou Cloudflare reais.
+- A compilação Android, as regras Firestore e a validação de não regressão de versões executam na PR #15.
+- A PR disponibiliza opcionalmente o artefato `atrio-catolico-v0190-debug-testes` após CI verde (retenção de sete dias). A compilação *debug* **não** usa a assinatura de produção: não tente instalá-la sobre a versão 0.18.0 assinada. Não desinstale a 0.18.0 no aparelho principal para isso. Use somente aparelho de testes sem instalação prévia ou emulador.
+- Esse debug aponta para o Firebase configurado do projeto e, se `PUSH_ENABLED=true`, pode gerar eventos reais: prefira contas específicas de teste. Não crie conteúdo sensível nem publique mensagens reais apenas para validar notificações.
+
+### Antes de habilitar o emissor
+1. Revisar armazenamento e rotação das credenciais: a chave da conta de serviço foi inicialmente cadastrada em uma variável comum e posteriormente corrigida para Secret; **rotacionar essa chave antes do lançamento de produção**. Nunca expor o JSON nesta conversa ou no GitHub.
+2. Confirmar o plano Cloudflare Workers Free, permissões IAM limitadas e FCM HTTP v1 habilitado.
+3. Preparar duas contas de teste A/B e um aparelho de teste com app 0.19.0; destinatário opt-in no painel de avisos, permissão de notificação Android concedida.
+4. Conferir `PUSH_DB`, `FIREBASE_SERVICE_ACCOUNT_JSON`, `FIREBASE_WEB_API_KEY` e `PUSH_ENABLED=false`, sem visualizar valores secretos.
+
+### Teste real controlado (não realizado)
+1. Em janela controlada, alterar `PUSH_ENABLED=true` apenas depois dos pré-requisitos acima. O GET /health passará a informar `configured`, mas **isso não prova entrega FCM**.
+2. Conta A publica, conta B responde; A deve receber aviso ao fundo e ao tocar deve abrir o Átrio, sem conteúdo privado no corpo da notificação. Confirmar também notificação persistida na central.
+3. Repetir uma resposta/evento com o mesmo identificador e confirmar ausência de entrega duplicada, quando aplicável.
+4. Testar pedido de selo e denúncia usando conta de teste, observando o administrador destinatário. Testar decisão de selo sem vazar a identidade do solicitante a terceiros.
+5. Desligar o opt-in FCM no destinatário e confirmar ausência de notificação push, mesmo que a verificação periódica continue ativada.
+6. Observar quotas e erros do Worker e Firestore; caso qualquer comportamento esteja incorreto, definir `PUSH_ENABLED=false` imediatamente.
+7. Somente depois de evidência de entrega real, revisão de segurança e aprovação, finalizar PR #15 e gerar **APK release assinado** com a assinatura permanente e `versionCode 25`, apto a atualizar a versão 0.18.0 sem perder dados locais. Não mesclar durante a homologação.
+
+### Situação atual do envio
+O Worker está provisionado e recebe GET /health; as duas credenciais estão cadastradas como Secrets e D1 existe. O envio permanece `PUSH_ENABLED=false`; a entrega real entre usuários ainda está pendente.
