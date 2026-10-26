@@ -115,6 +115,11 @@ internal fun OnlineProfileScreen(
                     OutlinedButton(onClick = action, modifier = Modifier.fillMaxWidth()) { Text("Solicitações de selos") }
                 }
             }
+            // Somente o fundador que também é administrador vê a opção.
+            if (onModeration != null && onClergyReview != null &&
+                LocalFounderUid.current.isNotBlank() && LocalFounderUid.current == uid) {
+                item { AdminBroadcastPanel() }
+            }
             item {
                 HorizontalDivider(color = Line)
                 Spacer(Modifier.height(16.dp))
