@@ -21,5 +21,5 @@ internal object BackgroundNoticePolicy {
         status in setOf("approved", "rejected", "dismissed")
 
     fun boundedSeen(existing: Set<String>, newItems: List<String>): Set<String> =
-        (existing + newItems).sorted().takeLast(500).toSet()
+        (newItems.asReversed() + existing.toList()).distinct().take(500).toSet()
 }
