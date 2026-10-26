@@ -28,6 +28,8 @@ internal fun PushSettings(uid: String, db: FirebaseFirestore) {
     var active by remember(uid) { mutableStateOf(PushRegistry.enabled(context, uid)) }
     var busy by remember(uid) { mutableStateOf(false) }
     var feedback by remember(uid) { mutableStateOf("") }
+    var backgroundEnabled by remember(uid) { mutableStateOf(BackgroundNoticeScheduler.enabled(context, uid)) }
+    var permissionForBackground by remember { mutableStateOf(false) }
 
     fun turnOn() {
         busy = true
@@ -43,8 +45,15 @@ internal fun PushSettings(uid: String, db: FirebaseFirestore) {
     val requestPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (granted) turnOn()
-        else feedback = "Permissão não concedida. Você pode continuar usando o Átrio normalmente."
+        if (granted) {
+            if (permissionForBackground) {
+                BackgroundNoticeScheduler.enable(context, uid)
+                backgroundEnabled = BackgroundNoticeScheduler.enabled(context, uid)
+                feedback = if (backgroundEnabled) "Verificação em segundo plano ativada."
+                    else "Não foi possível ativar a verificação. Confira sua conta."
+            } else turnOn()
+        } else feedback = "Permissão não concedida. Você pode continuar usando o Átrio normalmente."
+        permissionForBackground = false
     }
 
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -72,6 +81,37 @@ internal fun PushSettings(uid: String, db: FirebaseFirestore) {
             }
             if (busy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             if (feedback.isNotBlank()) Text(feedback, color = Wine, fontSize = 12.sp)
+            HorizontalDivider()
+            Text("Verificação em segundo plano", color = Wine,
+                style = MaterialTheme.typography.titleMedium)
+            Text("Consulta novos avisos periodicamente, mesmo sem o Átrio aberto na tela. " +
+                "Intervalo aproximado de 30 minutos; o Android pode atrasar ou impedir a " +
+                "execução se o aplicativo for forçado a parar. Usa leituras da franquia Firestore.",
+                fontSize = 12.sp, color = Muted)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(if (backgroundEnabled) "Verificação ativada" else "Desativada", fontSize = 14.sp)
+                Switch(checked = backgroundEnabled, onCheckedChange = { newValue ->
+                    feedback = ""
+                    if (!newValue) {
+                        BackgroundNoticeScheduler.disable(context, uid)
+                        backgroundEnabled = false
+                        feedback = "Verificação em segundo plano desativada."
+                    } else if (Build.VERSION.SDK_INT >= 33 &&
+                        context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                        != PackageManager.PERMISSION_GRANTED) {
+                        permissionForBackground = true
+                        requestPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    } else {
+                        BackgroundNoticeScheduler.enable(context, uid)
+                        backgroundEnabled = BackgroundNoticeScheduler.enabled(context, uid)
+                        feedback = if (backgroundEnabled) "Verificação em segundo plano ativada."
+                            else "Não foi possível ativar. Confira sua conta."
+                    }
+                })
+            }
+            Text("Esta opção não depende do cadastro FCM e respeita as categorias " +
+                "habilitadas na central de notificações. Não há cobrança ativada.",
+                fontSize = 11.sp, color = Muted)
             if (active) {
                 TextButton(onClick = {
                     FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
