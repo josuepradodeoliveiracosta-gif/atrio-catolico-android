@@ -402,9 +402,16 @@ export default {
       }
       if(event.recipients.length>(event.topic?THREAD_MAX_RECIPIENTS:MAX_ADMINS))
         return response(503,'capacity_limit');
-      // Notificações de participantes são gravadas pelo servidor confiável,
-      // sem abrir permissão de criar avisos arbitrários no Firestore.
-      if(event.topic) await writeThreadNotices(token,event);
+      // Em caso de falha do fan-out de avisos internos, preservar o Push
+      // individual que já funciona na versão anterior.
+      let fanoutOk=true;
+      if(event.topic) {
+        try { await writeThreadNotices(token,event); }
+        catch {
+          fanoutOk=false;
+          await auditDelivery(env,'thread','fanout_failed');
+        }
+      }
       // Events expire after five minutes; keep delivery markers for one day.
       // Bounded cleanup prevents an unbounded D1 retention table.
       await env.PUSH_DB.prepare('DELETE FROM delivered WHERE event_key IN ' +
@@ -469,7 +476,8 @@ export default {
         : accepted ? 'accepted_by_fcm' : 'no_devices_or_duplicate';
       await auditDelivery(env,event.kind,outcome,attempted,accepted,failedHttp);
       if(cleaned) await auditDelivery(env,'cleanup','unregistered_removed',cleaned,0,404);
-      return response(outcome==='delivery_failed' ? 503 : 202,outcome);
+      return response(outcome==='delivery_failed'||!fanoutOk ? 503 : 202,
+        !fanoutOk ? 'fanout_failed' : outcome);
     } catch {
       // Não registrar ID tokens, chaves, UID, FCM tokens nem payloads em logs.
       return response(503,'unavailable');
