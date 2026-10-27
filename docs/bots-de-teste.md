@@ -46,3 +46,12 @@ A comunidade oficial poderá receber uma conversa **claramente identificada como
 - Nenhuma publicação deve ser efetuada durante a preparação da infraestrutura. Somente uma solicitação posterior específica do usuário autoriza inserir a primeira mensagem na fila.
 
 A infraestrutura nova não substitui nem desativa os testes automatizados do emulador. A fila do Cloudflare é distinta desses testes e serve apenas para realizar **uma sessão real solicitada**.
+
+## Resultado do primeiro teste oficial — sessão qa_chat_20261026_01
+
+- Um comando por Cloudflare Queue foi aceito e reprocessado para diagnóstico com o **mesmo identificador idempotente**.
+- O Worker registrou `qa_profile_http_403`: o Firestore negou a criação de perfil de teste. A execução parou **antes do commit das discussões e respostas**, conforme o fluxo `executeQaCommand`.
+- Nenhuma execução foi classificada como `created`.
+- Medidas de contenção: `QA_MANUAL_ENABLED=false`, fila sem backlog, sem Cron. `GUARDIAO_ENABLED` e `PUSH_ENABLED` permaneceram `true`.
+- **Não reativar** antes de corrigir a permissão de gravação para a identidade de serviço no projeto Firebase/Google Cloud (necessária `datastore.entities.create`) e de obter **uma nova autorização explícita do fundador nesta conversa** para uma sessão adicional.
+- Evitar concessão desnecessária de papéis administrativos amplos. Se for preciso um papel predefinido, `roles/datastore.user` permite acesso de leitura e escrita e deve ser avaliado quanto ao alcance. Preferir serviço exclusivo de QA com permissões mínimas.
