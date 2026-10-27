@@ -6,6 +6,7 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -179,7 +180,16 @@ class ThreeBotsOnlineEmulatorTest {
         scrollToPost(postId)
         compose.onNodeWithTag("atrio-post-${postId}",useUnmergedTree=true)
             .performClick()
+        // Abrir a discussão inicia uma leitura assíncrona do documento.
+        // A interface fica em carregamento até o snapshot chegar.
+        compose.waitUntil(30000) {
+            compose.onAllNodesWithTag("atrio-reply-input")
+                .fetchSemanticsNodes().size == 1
+        }
         compose.onNodeWithTag("atrio-reply-input")
+            .performScrollTo()
+            .assertIsDisplayed()
+            .assertIsEnabled()
             .performTextInput("Resposta de Miguel pelo app Android conectado.")
         compose.onNodeWithTag("atrio-reply-submit")
             .performScrollTo()
