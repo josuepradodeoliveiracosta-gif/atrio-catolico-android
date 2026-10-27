@@ -10,6 +10,8 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.printToString
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
@@ -154,12 +156,9 @@ class ThreeBotsAuthenticatedAndroidUiTest {
         compose.onNodeWithTag("atrio-publish-submit")
             .performScrollTo().assertIsDisplayed().assertIsEnabled().performClick()
 
-        // Quando o clique chega ao callback do aplicativo, a tela retorna
-        // ao feed após o Firestore confirmar a gravação. Isso diferencia
-        // um problema de toque de uma falha de autenticação/permissão.
-        waitFor("atrio-home-feed", 35_000)
-
-        // O ID da publicação é gerado pelo aplicativo após o toque.
+        // Primeira prova: o toque e a operação Firestore concluíram.
+        // Só depois testamos o retorno ao feed; caso falhe, registramos
+        // a árvore de interface para saber exatamente qual tela ficou aberta.
         compose.waitUntil(35_000) {
             runCatching {
                 Tasks.await(db.collection("posts").whereEqualTo("uid", claraUid)
@@ -170,6 +169,15 @@ class ThreeBotsAuthenticatedAndroidUiTest {
         val posts = Tasks.await(db.collection("posts").whereEqualTo("uid", claraUid)
             .get(Source.SERVER), 8, TimeUnit.SECONDS)
         val postId = posts.documents.single { it.getString("title") == title }.id
+        try {
+            waitFor("atrio-home-feed", 12_000)
+        } catch (cause: Exception) {
+            val semantics = compose.onRoot(useUnmergedTree = true).printToString()
+            throw AssertionError(
+                "A discussão foi salva no Firestore após o toque, mas o feed não apareceu. " +
+                    "Estado de UI: " + semantics.take(5500),cause
+            )
+        }
 
         logoutByTouch()
         val miguelUid = register("Miguel (BOT DE TESTE)", "miguel")
