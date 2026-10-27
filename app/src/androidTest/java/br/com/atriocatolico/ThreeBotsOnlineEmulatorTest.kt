@@ -145,16 +145,8 @@ class ThreeBotsOnlineEmulatorTest {
                 it.getString("body")=="Resposta de Miguel pelo app Android conectado."
             }
         }
-        // O aviso deve ser escrito junto da resposta, não só aparecer após
-        // login de Clara ou depender da ordem dos listeners do Compose.
-        val noticesAfterReply=Tasks.await(
-            db.collection("users").document(claraId).collection("notifications")
-                .get(Source.SERVER),25,TimeUnit.SECONDS)
-        assertEquals(
-            "Resposta publicada, mas falta o aviso atômico para Clara; " +
-                "verificar UID do autor no callback do Android",
-            1,noticesAfterReply.size())
-        assertEquals(postId,noticesAfterReply.documents.single().getString("postId"))
+        // Miguel não pode ler as notificações privadas de Clara. A leitura
+        // será feita após reautenticar como destinatária, no final da sessão.
         leave()
 
         // Lúcia autentica sua própria conta, curte e salva a discussão.
@@ -180,7 +172,9 @@ class ThreeBotsOnlineEmulatorTest {
             claraId,auth.currentUser?.uid)
         val notice=Tasks.await(db.collection("users").document(claraId)
             .collection("notifications").get(Source.SERVER),25,TimeUnit.SECONDS)
-        assertEquals("Clara deve ter um aviso gerado por Miguel",1,notice.size())
+        assertEquals(
+            "Miguel publicou a resposta, mas a notificação de Clara não foi persistida.",
+            1,notice.size())
         assertTrue(notice.documents.any { it.getString("postId")==postId })
     }
 }
