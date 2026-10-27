@@ -96,9 +96,11 @@ class ThreeBotsAuthenticatedAndroidUiTest {
 
     private fun logoutByTouch() {
         compose.onNodeWithTag("atrio-tab-profile").performClick()
-        waitFor("atrio-profile-signout")
+        waitFor("atrio-profile-list")
+        compose.onNodeWithTag("atrio-profile-list", useUnmergedTree = true)
+            .performScrollToNode(hasTestTag("atrio-profile-signout"))
         compose.onNodeWithTag("atrio-profile-signout")
-            .performScrollTo().performClick()
+            .performClick()
         waitFor("atrio-auth-toggle")
         compose.waitUntil(15_000) { auth.currentUser == null }
     }
