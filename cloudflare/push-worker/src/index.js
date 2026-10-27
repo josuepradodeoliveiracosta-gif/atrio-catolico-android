@@ -707,7 +707,7 @@ export default {
         // Códigos fixos de diagnóstico; nunca registrar conteúdo, UID ou credenciais.
         const safe=new Set(['qa_firestore_read_failed','qa_profile_conflict',
           'qa_profile_create_failed','qa_commit_failed']);
-        const code=safe.has(failure?.message)?failure.message:'qa_service_unavailable';
+        const code=safe.has(failure?.message)||/^qa_profile_http_(400|401|403|404|409|429|500|503)$/.test(failure?.message||'')?failure.message:'qa_service_unavailable';
         await auditDelivery(env,'qa_bots',code);
         message.retry({delaySeconds:30});
       }
