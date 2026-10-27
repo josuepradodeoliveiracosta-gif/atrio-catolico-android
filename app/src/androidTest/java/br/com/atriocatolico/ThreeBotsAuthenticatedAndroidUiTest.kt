@@ -139,7 +139,15 @@ class ThreeBotsAuthenticatedAndroidUiTest {
         compose.onNodeWithTag("atrio-publish-title").performTextInput(title)
         compose.onNodeWithTag("atrio-publish-body")
             .performTextInput("Esta discussão pertence a um emulador e valida toques e Firebase Auth.")
-        compose.onNodeWithTag("atrio-publish-submit").performClick()
+        // O teclado virtual pode cobrir o botão abaixo dos campos.
+        // Rolagem explícita e verificação de clique antes de ler o Firestore.
+        compose.onNodeWithTag("atrio-publish-submit")
+            .performScrollTo().assertIsDisplayed().assertIsEnabled().performClick()
+
+        // Quando o clique chega ao callback do aplicativo, a tela retorna
+        // ao feed após o Firestore confirmar a gravação. Isso diferencia
+        // um problema de toque de uma falha de autenticação/permissão.
+        waitFor("atrio-home-feed", 35_000)
 
         // O ID da publicação é gerado pelo aplicativo após o toque.
         compose.waitUntil(35_000) {
