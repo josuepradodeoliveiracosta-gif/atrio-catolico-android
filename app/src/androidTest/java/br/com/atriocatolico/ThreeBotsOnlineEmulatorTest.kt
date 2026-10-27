@@ -119,11 +119,17 @@ class ThreeBotsOnlineEmulatorTest {
         compose.onNodeWithTag("atrio-publish-body")
             .performTextInput("Publicação fictícia de QA, criada pela interface online do Átrio.")
         compose.onNodeWithTag("atrio-publish-submit").performClick()
-        awaitScreen("Discussão conectada QA ${nonce}")
-        val docs = Tasks.await(db.collection("posts")
-            .whereEqualTo("title","Discussão conectada QA ${nonce}").get(),
-            25, TimeUnit.SECONDS)
-        assertEquals(1,docs.size())
+        // O mesmo texto ainda existe no campo de edição enquanto a gravação
+        // assíncrona ocorre. Não confundir isso com confirmação do Firestore.
+        // A fonte de verdade do teste é uma leitura do SERVIDOR emulado.
+        val title = "Discussão conectada QA ${nonce}"
+        val query = db.collection("posts").whereEqualTo("title", title)
+        compose.waitUntil(45000) {
+            val snapshot = Tasks.await(query.get(Source.SERVER), 5, TimeUnit.SECONDS)
+            snapshot.size() == 1
+        }
+        val docs = Tasks.await(query.get(Source.SERVER), 10, TimeUnit.SECONDS)
+        assertEquals("A publicação não foi persistida pelo Firebase",1,docs.size())
         val postId = docs.documents.single().id
         assertEquals("A discussão deve pertencer à conta Clara",claraId,
             docs.documents.single().getString("uid"))
