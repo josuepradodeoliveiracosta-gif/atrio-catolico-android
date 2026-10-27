@@ -821,7 +821,8 @@ private fun OnlineCommunity(
                 Text("Por que esta discussão deve ser analisada?", fontSize = 13.sp)
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(reason, { reason = it.take(300) },
-                    label = { Text("Motivo da denúncia") }, modifier = Modifier.fillMaxWidth())
+                    label = { Text("Motivo da denúncia") },
+                     modifier = Modifier.fillMaxWidth().testTag("atrio-report-post-reason"))
                 Text("A denúncia será enviada para análise. Não remove a publicação automaticamente.",
                     fontSize = 11.sp, color = Muted)
             } },
@@ -835,7 +836,7 @@ private fun OnlineCommunity(
                         result.exception?.localizedMessage ?: "Falha ao enviar denúncia."
                 }
                 reportPost = null
-            }) { Text("Enviar") } },
+            }, modifier = Modifier.testTag("atrio-report-post-submit")) { Text("Enviar") } },
             dismissButton = { TextButton(onClick = { reportPost = null }) { Text("Cancelar") } })
     }
     if (message.isNotBlank()) {
