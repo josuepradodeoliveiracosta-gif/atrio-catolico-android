@@ -183,9 +183,13 @@ private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
 @Composable
 private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: FirebaseUser) {
     val uid = user.uid
-    var name by remember(uid) { mutableStateOf<String?>(null) }
+    // Firebase Auth mantém displayName entre logins: ele evita que o
+    // usuário fique preso no carregamento enquanto o listener do perfil
+    // reconecta após logout/login da mesma conta.
+    val authName = user.displayName?.trim().orEmpty().takeIf { it.isNotBlank() }
+    var name by remember(uid) { mutableStateOf<String?>(authName) }
     var biography by remember(uid) { mutableStateOf("") }
-    var profileLoading by remember(uid) { mutableStateOf(true) }
+    var profileLoading by remember(uid) { mutableStateOf(authName == null) }
     var error by remember(uid) { mutableStateOf("") }
     val context = LocalContext.current
     LaunchedEffect(uid) {
@@ -217,36 +221,45 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
         onDispose { active = false; registration.remove() }
     }
 
-    DisposableEffect(uid) {
-        val registration = db.collection("profiles").document(uid).addSnapshotListener { snapshot, failure ->
+    DisposableEffect(db, uid) {
+        var active = true
+        val profile = db.collection("profiles").document(uid)
+        fun showProfile(snapshot: DocumentSnapshot?) {
+            if (!active) return
             profileLoading = false
-            if (failure != null) {
-                error = "Erro ao ler perfil: ${failure.localizedMessage}"
-            } else if (snapshot?.exists() == true) {
-                val loadedName = snapshot.getString("displayName")?.trim().orEmpty()
-                if (loadedName.isNotBlank()) {
-                    // Um evento posterior de cache ausente não pode retirar o usuário
-                    // autenticado do fórum depois de publicar ou comentar.
-                    name = loadedName
+            if (snapshot?.exists() == true) {
+                val found = snapshot.getString("displayName")?.trim().orEmpty()
+                if (found.isNotBlank()) {
+                    name = found
                     biography = snapshot.getString("bio").orEmpty()
-                } else if (name.isNullOrBlank()) {
-                    name = null
-                }
-            } else if (name.isNullOrBlank()) {
-                // Cadastro novo: somente quem ainda não tem perfil deve ver
-                // "Concluir seu perfil".
-                name = null
-            } else {
-                // Não reverter para a tela de cadastro após a sessão entrar
-                // no fórum. Um perfil pode ficar temporariamente indisponível
-                // enquanto o listener refaz sua sincronização.
-                if (BuildConfig.DEBUG &&
-                    com.google.firebase.FirebaseApp.getInstance().options.projectId == "demo-atrio-v11") {
-                    android.util.Log.w("AtrioQaProfile", "empty_snapshot_after_profile_loaded")
+                    error = ""
                 }
             }
+            // Não apagar o nome após receber um snapshot temporariamente
+            // vazio: a restauração do cache pode anteceder a resposta remota.
         }
-        onDispose { registration.remove() }
+        val registration = profile.addSnapshotListener { snapshot, failure ->
+            if (!active) return@addSnapshotListener
+            if (failure != null) {
+                error = "Erro ao sincronizar perfil. Verifique sua conexão."
+                // Não ficar no spinner infinito nem derrubar sessão autenticada.
+                if (name != null) profileLoading = false
+            } else {
+                showProfile(snapshot)
+            }
+        }
+        // Caminho independente do listener em reconexões/logout/login.
+        // A leitura direta completa a inicialização se não houver snapshot.
+        profile.get(com.google.firebase.firestore.Source.SERVER)
+            .addOnCompleteListener { result ->
+                if (!active) return@addOnCompleteListener
+                if (result.isSuccessful) showProfile(result.result)
+                else if (name == null) {
+                    profileLoading = false
+                    error = "Não foi possível carregar seu perfil. Tente novamente."
+                }
+            }
+        onDispose { active = false; registration.remove() }
     }
 
     if (profileLoading) {
