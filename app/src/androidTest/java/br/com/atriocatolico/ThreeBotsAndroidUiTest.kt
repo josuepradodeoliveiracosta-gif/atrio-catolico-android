@@ -1,16 +1,19 @@
 package br.com.atriocatolico
 
 import android.content.Context
+import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Before
@@ -119,5 +122,91 @@ class ThreeBotsAndroidUiTest {
             .performScrollToNode(hasText("Qual é a diferença entre veneração e adoração?"))
         compose.onNodeWithText("Qual é a diferença entre veneração e adoração?")
             .assertIsDisplayed()
+    }
+
+    @Test fun miguelCurteEDescurteDiscussaoTocandoNoIcone() {
+        prefs.edit().putString("name", "Miguel BOT DE TESTE").commit()
+        compose.setContent { AtrioDemoApp(prefs) }
+        compose.onNodeWithTag("atrio-home-feed", useUnmergedTree = true)
+            .performScrollToNode(hasTestTag("atrio-post-1"))
+
+        compose.onNodeWithTag("atrio-like-1", useUnmergedTree = true).performClick()
+        compose.runOnIdle {
+            val all = org.json.JSONArray(prefs.getString("posts", "[]").orEmpty())
+            val post = (0 until all.length()).map { all.getJSONObject(it) }
+                .first { it.optString("id") == "1" }
+            org.junit.Assert.assertTrue("O botão curtir não alterou o estado", post.optBoolean("liked"))
+            org.junit.Assert.assertEquals(87, post.optInt("likes"))
+        }
+
+        compose.onNodeWithTag("atrio-like-1", useUnmergedTree = true).performClick()
+        compose.runOnIdle {
+            val all = org.json.JSONArray(prefs.getString("posts", "[]").orEmpty())
+            val post = (0 until all.length()).map { all.getJSONObject(it) }
+                .first { it.optString("id") == "1" }
+            org.junit.Assert.assertFalse("O botão descurtir não respondeu", post.optBoolean("liked"))
+            org.junit.Assert.assertEquals(86, post.optInt("likes"))
+        }
+    }
+
+    @Test fun claraPesquisaPorTituloUsandoBotaoDeBusca() {
+        prefs.edit().putString("name", "Clara BOT DE TESTE").commit()
+        compose.setContent { AtrioDemoApp(prefs) }
+        compose.onNodeWithTag("atrio-top-search").performClick()
+        compose.onNodeWithTag("atrio-search-field").performTextInput("Lectio Divina")
+        compose.onNodeWithText("Como começar a praticar a Lectio Divina?").assertIsDisplayed()
+        compose.onNodeWithTag("atrio-post-1", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    @Test fun luciaAbreDiscussaoEEnviaRespostaComToques() {
+        prefs.edit().putString("name", "Lúcia BOT DE TESTE").commit()
+        compose.setContent { AtrioDemoApp(prefs) }
+        compose.onNodeWithTag("atrio-home-feed", useUnmergedTree = true)
+            .performScrollToNode(hasTestTag("atrio-post-1"))
+        compose.onNodeWithTag("atrio-post-1", useUnmergedTree = true).performClick()
+        compose.onNodeWithTag("atrio-reply-submit").performScrollTo().assertIsNotEnabled()
+        compose.onNodeWithTag("atrio-reply-input").performScrollTo()
+            .performTextInput("Resposta de teste enviada pelo toque no Android.")
+        compose.onNodeWithTag("atrio-reply-submit").performScrollTo().assertIsEnabled()
+            .performClick()
+        compose.runOnIdle {
+            val all = org.json.JSONArray(prefs.getString("posts", "[]").orEmpty())
+            val post = (0 until all.length()).map { all.getJSONObject(it) }
+                .first { it.optString("id") == "1" }
+            val replies = post.getJSONArray("replies")
+            val found = (0 until replies.length()).any {
+                replies.getJSONObject(it).optString("message") ==
+                    "Resposta de teste enviada pelo toque no Android."
+            }
+            org.junit.Assert.assertTrue("O toque não persistiu a resposta no fórum local", found)
+        }
+    }
+
+    @Test fun miguelEditaNomeNoPerfilPelosBotoes() {
+        prefs.edit().putString("name", "Miguel BOT DE TESTE").commit()
+        compose.setContent { AtrioDemoApp(prefs) }
+        compose.onNodeWithTag("atrio-tab-profile").performClick()
+        compose.onNodeWithTag("atrio-profile-rename").performClick()
+        compose.onNodeWithTag("atrio-profile-name-input").performTextClearance()
+        compose.onNodeWithTag("atrio-profile-name-input").performTextInput("Miguel Renovado")
+        compose.onNodeWithText("Salvar").assertIsEnabled().performClick()
+        compose.onNodeWithText("Miguel Renovado").assertIsDisplayed()
+        compose.runOnIdle {
+            org.junit.Assert.assertEquals("Miguel Renovado", prefs.getString("name", null))
+        }
+    }
+
+    @Test fun claraRemoveUmaPublicacaoDosSalvosComToque() {
+        prefs.edit().putString("name", "Clara BOT DE TESTE").commit()
+        compose.setContent { AtrioDemoApp(prefs) }
+        compose.onNodeWithTag("atrio-home-feed", useUnmergedTree = true)
+            .performScrollToNode(hasTestTag("atrio-post-1"))
+        compose.onNodeWithTag("atrio-save-1", useUnmergedTree = true).performClick()
+        compose.onNodeWithTag("atrio-tab-saved").performClick()
+        compose.onNodeWithTag("atrio-saved-list", useUnmergedTree = true)
+            .performScrollToNode(hasTestTag("atrio-post-1"))
+        compose.onNodeWithTag("atrio-save-1", useUnmergedTree = true).performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("Nada salvo ainda").assertIsDisplayed()
     }
 }
