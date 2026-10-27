@@ -442,10 +442,22 @@ private fun OnlineCommunity(
         savedPosts[id]?.copy(liked = id in likedIds, saved = id in savedIds)
     }
     fun navigate(destination: Tab) {
+        if (BuildConfig.DEBUG &&
+            com.google.firebase.FirebaseApp.getInstance().options.projectId == "demo-atrio-v11") {
+            android.util.Log.d("AtrioQaNavigation", "request_${destination.name}_from_${tab.name}")
+        }
         tab = destination; detailId = null; noticesOpen = false
         guardiaoAppealsOpen = false
         noticeBadgesOpen = false; returnToNotices = false
         filter = "Todos"; search = ""; searchOpen = false
+    }
+    LaunchedEffect(tab, detailId, noticesOpen, noticeBadgesOpen, guardiaoAppealsOpen) {
+        if (BuildConfig.DEBUG &&
+            com.google.firebase.FirebaseApp.getInstance().options.projectId == "demo-atrio-v11") {
+            android.util.Log.d("AtrioQaNavigation",
+                "visible_tab=${tab.name}_detail=${detailId != null}_notices=$noticesOpen" +
+                    "_badges=$noticeBadgesOpen_appeals=$guardiaoAppealsOpen")
+        }
     }
     fun toggle(kind: String, id: String, currentlyActive: Boolean) {
         val ref = db.collection("users").document(uid).collection(kind).document(id)
