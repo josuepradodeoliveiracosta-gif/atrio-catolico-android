@@ -59,3 +59,9 @@ O comando de CI `tests/security/npm test` executa os dois conjuntos **sem usar F
 - Corrigidos no teste: botões fora do viewport, consulta do feed antes do snapshot após trocar de conta e digitação antes do carregamento da discussão. Agora há rolagem, verificações de visibilidade/habilitação e esperas condicionais limitadas. Os cliques de envio continuam sendo feitos pela interface.
 - As verificações de versão, relay push e Android/Firestore também passaram nesse commit. O teste do relay não comprova entrega de push em aparelho físico.
 - Esta rodada não executou bots na comunidade oficial, não publicou infraestrutura, não gerou um lançamento e não alterou a assinatura do aplicativo. A PR permanece em rascunho.
+
+## Ampliação autenticada — 27/10/2026
+
+A [execução 40585821095](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/actions/runs/40585821095), no commit `b743cb1d92f46136e0c6f537d984f7af87ab1b7d`, aprovou **13 testes** (9 + 3 + 1), sem falhas ou testes ignorados. Além da evidência anterior, agora há cadastro, login e saída pela UI, marcação de avisos como lidos, edição de apresentação, seleção de selo Leiga e denúncia sem excluir a discussão. Persistência é conferida no Firebase emulado; a denúncia usa a confirmação da interface após a escrita e a preservação do post como evidência.
+
+Detalhes e limites em [qa-android-autenticado.md](qa-android-autenticado.md). A nova evidência não transforma os testes locais em testes de produção nem comprova push em aparelhos físicos. As demais coberturas pendentes continuam pendentes.
