@@ -413,7 +413,13 @@ internal fun DiscussionCard(post: Post, onOpen: (String) -> Unit, onLike: (Strin
                 IconButton(onClick = { onOpen(post.id) }) { Icon(Icons.Outlined.ChatBubbleOutline, "Respostas", tint = Muted, modifier = Modifier.size(20.dp)) }
                 Text(if (post.remote) "Ver respostas" else "${post.replies.size} respostas", color = Muted, fontSize = 12.sp)
                 Spacer(Modifier.weight(1f))
-                IconButton(onClick = { onSave(post.id) }) { Icon(if (post.saved) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder, "Salvar", tint = if (post.saved) Wine else Muted, modifier = Modifier.size(21.dp)) }
+                IconButton(
+                    onClick = { onSave(post.id) },
+                    modifier = Modifier.testTag("atrio-save-${post.id}")
+                ) {
+                    Icon(if (post.saved) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
+                        "Salvar", tint = if (post.saved) Wine else Muted, modifier = Modifier.size(21.dp))
+                }
             }
         }
     }
@@ -539,7 +545,7 @@ internal fun PublishScreen(onPublish: (String, String, String) -> Unit) {
 @Composable
 internal fun SavedScreen(posts: List<Post>, onDiscover: () -> Unit, onOpen: (String) -> Unit, onLike: (String) -> Unit, onSave: (String) -> Unit,
     loading: Boolean = false, footer: @Composable () -> Unit = {}) {
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    LazyColumn(Modifier.fillMaxSize().testTag("atrio-saved-list"), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { SectionTitle("Publicações salvas") }
         if (posts.isEmpty() && !loading) item { EmptyState("🔖", "Nada salvo ainda", "Toque no marcador de uma publicação para encontrá-la aqui.", "Explorar discussões", onDiscover) }
         items(posts, key = { it.id }) { p -> DiscussionCard(p, onOpen, onLike, onSave) }
