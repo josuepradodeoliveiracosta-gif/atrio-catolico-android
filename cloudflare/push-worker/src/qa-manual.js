@@ -26,6 +26,9 @@ export function planQaSession(requestId,now=new Date()) {
   const idx=[...requestId].reduce((s,x)=>s+x.charCodeAt(0),0)%topic.length;
   const [title,body]=topic[idx];
   const postId='qa_'+requestId;
+  // IDs globais de notificação são por usuário, não por discussão.
+  // IDs fixos "qa_miguel"/"qa_lucia" colidiam após a primeira sessão.
+  const replyIds={miguel:'qa_miguel_'+requestId,lucia:'qa_lucia_'+requestId};
   const base=DOC+'/posts/'+postId;
   const reply=(id,bot,text)=>doc(base+'/replies/'+id,{
     uid:str(bot.uid),authorName:str(bot.name),
@@ -46,11 +49,11 @@ export function planQaSession(requestId,now=new Date()) {
       title:str(marker+title),body:str(marker+body),
       category:str('Vida espiritual'),createdAt:timestamp(when),
     }),
-    reply('qa_miguel',miguel,'A escuta respeitosa ajuda a criar um ambiente acolhedor.'),
-    reply('qa_lucia',lucia,'Concordo. É importante conversar com paciência e respeito.'),
-    notice('qa_miguel',miguel),notice('qa_lucia',lucia),
+    reply(replyIds.miguel,miguel,'A escuta respeitosa ajuda a criar um ambiente acolhedor.'),
+    reply(replyIds.lucia,lucia,'Concordo. É importante conversar com paciência e respeito.'),
+    notice(replyIds.miguel,miguel),notice(replyIds.lucia,lucia),
   ];
-  return {postId,writes};
+  return {postId,writes,replyIds};
 }
 function withServerTime(write) {
   const fields={...write.update.fields};
@@ -161,7 +164,7 @@ async function finishRun(serviceToken,command) {
 export async function executeQaCommand(command,env,serviceToken,now=new Date()) {
   if(env.QA_MANUAL_ENABLED!=='true')return 'disabled';
   if(!validQaCommand(command,now.valueOf()))return 'invalid_command';
-  const {postId,writes}=planQaSession(command.requestId,now);
+  const {postId,writes,replyIds}=planQaSession(command.requestId,now);
   const run=await startRun(serviceToken,command,postId,now.toISOString());
   if(run==='already_completed')return 'already_completed';
 
@@ -178,12 +181,12 @@ export async function executeQaCommand(command,env,serviceToken,now=new Date()) 
   const tokenLucia=tokens[lucia.uid];
   await commitOrValidate(tokenClara,[writes[1]],['posts/'+postId]);
   await commitOrValidate(tokenMiguel,[writes[2],writes[4]],[
-    'posts/'+postId+'/replies/qa_miguel',
-    'users/'+clara.uid+'/notifications/qa_miguel',
+    'posts/'+postId+'/replies/'+replyIds.miguel,
+    'users/'+clara.uid+'/notifications/'+replyIds.miguel,
   ],[tokenMiguel,tokenClara]);
   await commitOrValidate(tokenLucia,[writes[3],writes[5]],[
-    'posts/'+postId+'/replies/qa_lucia',
-    'users/'+clara.uid+'/notifications/qa_lucia',
+    'posts/'+postId+'/replies/'+replyIds.lucia,
+    'users/'+clara.uid+'/notifications/'+replyIds.lucia,
   ],[tokenLucia,tokenClara]);
   // Curtir e salvar como usuários autênticos, visíveis no mesmo app.
   await commitOrValidate(tokenMiguel,[doc(DOC+'/users/'+miguel.uid+
