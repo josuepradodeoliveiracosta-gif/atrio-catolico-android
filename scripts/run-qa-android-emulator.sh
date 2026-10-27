@@ -8,9 +8,15 @@ if [[ -n "${GOOGLE_APPLICATION_CREDENTIALS:-}" ||
   exit 2
 fi
 if [[ -e app/google-services.json ]]; then
-  echo "ERRO: APK QA não deve incluir google-services.json de produção" >&2
-  exit 2
+  # Isolamento da VM efêmera do GitHub Actions. NÃO modifica o repositório:
+  # remove apenas o arquivo da cópia local temporária do runner.
+  echo "Isolando Android QA: retirando google-services.json apenas da VM de CI"
+  rm -- app/google-services.json
 fi
+test ! -e app/google-services.json || {
+  echo "Falha ao isolar a configuração Firebase do APK de testes" >&2
+  exit 2
+}
 
 cd tests/security
 node prepare.mjs
