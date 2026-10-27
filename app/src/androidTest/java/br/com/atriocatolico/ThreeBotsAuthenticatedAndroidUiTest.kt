@@ -64,7 +64,16 @@ class ThreeBotsAuthenticatedAndroidUiTest {
         auth = FirebaseAuth.getInstance()
         db = FirebaseFirestore.getInstance()
         auth.useEmulator("10.0.2.2", 9099)
-        db.useEmulator("10.0.2.2", 8089)
+        // Também pode ser executado depois do outro teste conectado;
+        // reconfigurar Firestore já iniciado causa IllegalStateException.
+        val emulatorHost = "10.0.2.2:8089"
+        val host = db.firestoreSettings.host
+        if (host != emulatorHost) {
+            check(host == "firestore.googleapis.com") {
+                "Firestore apontando para host inesperado: $host"
+            }
+            db.useEmulator("10.0.2.2", 8089)
+        }
         auth.signOut()
     }
 
