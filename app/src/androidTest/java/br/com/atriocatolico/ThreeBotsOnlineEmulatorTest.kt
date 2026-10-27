@@ -18,6 +18,7 @@ import com.google.firebase.FirebaseOptions
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.Source
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -111,6 +112,7 @@ class ThreeBotsOnlineEmulatorTest {
 
         // Clara entra pelo formulário real do Átrio e publica tocando na tela.
         enter(claraEmail,"Clara")
+        val claraId=requireNotNull(auth.currentUser?.uid)
         compose.onNodeWithTag("atrio-tab-publish").performClick()
         compose.onNodeWithTag("atrio-publish-title")
             .performTextInput("Discussão conectada QA ${nonce}")
@@ -123,6 +125,8 @@ class ThreeBotsOnlineEmulatorTest {
             25, TimeUnit.SECONDS)
         assertEquals(1,docs.size())
         val postId = docs.documents.single().id
+        assertEquals("A discussão deve pertencer à conta Clara",claraId,
+            docs.documents.single().getString("uid"))
         leave()
 
         // Miguel entra como OUTRO usuário autenticado e responde.
@@ -136,11 +140,21 @@ class ThreeBotsOnlineEmulatorTest {
         compose.onNodeWithTag("atrio-reply-submit").performClick()
         compose.waitUntil(30000) {
             val replies=Tasks.await(db.collection("posts").document(postId)
-                .collection("replies").get(), 20,TimeUnit.SECONDS)
+                .collection("replies").get(Source.SERVER),20,TimeUnit.SECONDS)
             replies.documents.any {
                 it.getString("body")=="Resposta de Miguel pelo app Android conectado."
             }
         }
+        // O aviso deve ser escrito junto da resposta, não só aparecer após
+        // login de Clara ou depender da ordem dos listeners do Compose.
+        val noticesAfterReply=Tasks.await(
+            db.collection("users").document(claraId).collection("notifications")
+                .get(Source.SERVER),25,TimeUnit.SECONDS)
+        assertEquals(
+            "Resposta publicada, mas falta o aviso atômico para Clara; " +
+                "verificar UID do autor no callback do Android",
+            1,noticesAfterReply.size())
+        assertEquals(postId,noticesAfterReply.documents.single().getString("postId"))
         leave()
 
         // Lúcia autentica sua própria conta, curte e salva a discussão.
@@ -162,9 +176,10 @@ class ThreeBotsOnlineEmulatorTest {
 
         // Clara retorna e lê seu aviso interno real no Firestore emulado.
         enter(claraEmail,"Clara")
-        val claraId=requireNotNull(auth.currentUser?.uid)
+        assertEquals("A sessão de Clara deve ser restaurada corretamente",
+            claraId,auth.currentUser?.uid)
         val notice=Tasks.await(db.collection("users").document(claraId)
-            .collection("notifications").get(),25,TimeUnit.SECONDS)
+            .collection("notifications").get(Source.SERVER),25,TimeUnit.SECONDS)
         assertEquals("Clara deve ter um aviso gerado por Miguel",1,notice.size())
         assertTrue(notice.documents.any { it.getString("postId")==postId })
     }
