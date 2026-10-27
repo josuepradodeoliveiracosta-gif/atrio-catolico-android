@@ -55,3 +55,13 @@ A infraestrutura nova não substitui nem desativa os testes automatizados do emu
 - Medidas de contenção: `QA_MANUAL_ENABLED=false`, fila sem backlog, sem Cron. `GUARDIAO_ENABLED` e `PUSH_ENABLED` permaneceram `true`.
 - **Não reativar** antes de corrigir a permissão de gravação para a identidade de serviço no projeto Firebase/Google Cloud (necessária `datastore.entities.create`) e de obter **uma nova autorização explícita do fundador nesta conversa** para uma sessão adicional.
 - Evitar concessão desnecessária de papéis administrativos amplos. Se for preciso um papel predefinido, `roles/datastore.user` permite acesso de leitura e escrita e deve ser avaliado quanto ao alcance. Preferir serviço exclusivo de QA com permissões mínimas.
+
+## Sessão autorizada e concluída: qa_chat_20261027_02
+
+- O fundador concedeu uma **nova autorização explícita nesta conversa** após atualizar a permissão IAM do serviço `id-trio-push`.
+- Mensagem única aceita na fila `atrio-qa-manual-v19` em `2026-10-27T00:46:57.966Z`.
+- Resultado auditado no Cloudflare D1: **`qa_bots / created = 1`**, após `documents:commit` responder com sucesso. Isso confirma uma gravação atômica da discussão, duas respostas e dois avisos internos dos bots.
+- ID da discussão gerada: `qa_qa_chat_20261027_02`; título: `[SIMULAÇÃO — BOT DE TESTE] Acolhimento na comunidade`.
+- Em `2026-10-27T00:49:47Z`, Cloudflare confirmou: fila com **0 comandos pendentes**, **0 agendamentos**, `QA_MANUAL_ENABLED=false`, `GUARDIAO_ENABLED=true`, `PUSH_ENABLED=true`, `GUARDIAO_AUTOHIDE_ENABLED=false`.
+- Esta é **uma sessão única**, não autoriza novas execuções. Os perfis de bot não possuem login humano; o teste não comprova entrega Push a dispositivos reais nem funcionamento da interface Android.
+- Os erros `qa_profile_http_403` registrados em sessões antigas continuam presentes no histórico D1, mas são anteriores à sessão bem-sucedida e não indicam falha atual.
