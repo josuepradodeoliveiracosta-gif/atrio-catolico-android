@@ -80,10 +80,13 @@ function fieldsMatch(actual,expected) {
   return Object.entries(expected).every(([field,value])=>
     field==='createdAt'||JSON.stringify(actual.fields[field])===JSON.stringify(value));
 }
-async function commitOrValidate(token,writes,lookups) {
+async function commitOrValidate(token,writes,lookups,readTokens=[]) {
   if(await commit(token,writes.map(withServerTime)))return;
-  // Mesmo pedido após erro de rede: só aceitar dados exatos previamente gravados.
-  const existing=await Promise.all(lookups.map(p=>getDocument(token,p)));
+  // Mesmo pedido após erro de rede: recuperar com identidade que tem
+  // direito de leitura. Autor da resposta NÃO pode consultar aviso privado
+  // que pertence ao destinatário; nesses casos Clara lê o próprio aviso.
+  const existing=await Promise.all(lookups.map((path,index)=>
+    getDocument(readTokens[index]||token,path)));
   if(existing.every((entry,index)=>fieldsMatch(entry,writes[index].update.fields)))
     return;
   throw Error('qa_authenticated_write_failed');
@@ -164,11 +167,11 @@ export async function executeQaCommand(command,env,serviceToken,now=new Date()) 
   await commitOrValidate(tokenMiguel,[writes[2],writes[4]],[
     'posts/'+postId+'/replies/qa_miguel',
     'users/'+clara.uid+'/notifications/qa_miguel',
-  ]);
+  ],[tokenMiguel,tokenClara]);
   await commitOrValidate(tokenLucia,[writes[3],writes[5]],[
     'posts/'+postId+'/replies/qa_lucia',
     'users/'+clara.uid+'/notifications/qa_lucia',
-  ]);
+  ],[tokenLucia,tokenClara]);
   // Curtir e salvar como usuários autênticos, visíveis no mesmo app.
   await commitOrValidate(tokenMiguel,[doc(DOC+'/users/'+miguel.uid+
     '/likedPosts/'+postId,{})],['users/'+miguel.uid+'/likedPosts/'+postId]);
