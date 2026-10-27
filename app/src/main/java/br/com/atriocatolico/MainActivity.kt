@@ -39,6 +39,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -305,10 +306,11 @@ private fun WelcomeScreen(onEnter: (String) -> Unit) {
                 Spacer(Modifier.height(7.dp))
                 Text("Escolha um nome para a demonstração. Não é necessário criar conta.", fontSize = 12.sp, color = Muted, lineHeight = 19.sp)
                 Spacer(Modifier.height(10.dp))
-                OutlinedTextField(nickname, { if (it.length <= 35) nickname = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Seu nome") }, singleLine = true)
+                OutlinedTextField(nickname, { if (it.length <= 35) nickname = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Seu nome") }, singleLine = true,
+                    modifier = Modifier.fillMaxWidth().testTag("atrio-welcome-name"))
                 Spacer(Modifier.height(12.dp))
                 Button(onClick = { onEnter(nickname) }, enabled = nickname.trim().length >= 2,
-                    modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) { Text("Entrar na comunidade  →") }
+                    modifier = Modifier.fillMaxWidth().testTag("atrio-welcome-enter"), shape = RoundedCornerShape(12.dp)) { Text("Entrar na comunidade  →") }
                 Spacer(Modifier.height(5.dp))
                 Text("Demonstração local · Sem cadastro real", fontSize = 10.sp, color = Muted, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
             }
@@ -362,6 +364,7 @@ internal fun AtrioBottomBar(selected: Tab, onSelect: (Tab) -> Unit) {
             }
             NavigationBarItem(
                 selected = selected == tab, onClick = { onSelect(tab) },
+                modifier = Modifier.testTag("atrio-tab-${tab.name.lowercase()}"),
                 icon = { Icon(icon, contentDescription = null) }, label = { Text(tab.label, fontSize = 11.sp) },
                 colors = NavigationBarItemDefaults.colors(selectedIconColor = Wine, selectedTextColor = Wine, indicatorColor = WineSoft)
             )
@@ -506,7 +509,7 @@ internal fun PublishScreen(onPublish: (String, String, String) -> Unit) {
         Text("Uma boa pergunta pode abrir uma grande conversa.", fontSize = 13.sp, color = Muted)
         Spacer(Modifier.height(16.dp))
         OutlinedTextField(value = title, onValueChange = { if (it.length <= 120) title = it },
-            modifier = Modifier.fillMaxWidth(), label = { Text("Título da publicação") }, placeholder = { Text("Sobre o que deseja conversar?") })
+            modifier = Modifier.fillMaxWidth().testTag("atrio-publish-title"), label = { Text("Título da publicação") }, placeholder = { Text("Sobre o que deseja conversar?") })
         Spacer(Modifier.height(16.dp))
         Text("Escolha um assunto", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(6.dp))
@@ -519,7 +522,7 @@ internal fun PublishScreen(onPublish: (String, String, String) -> Unit) {
         }
         Spacer(Modifier.height(14.dp))
         OutlinedTextField(value = body, onValueChange = { if (it.length <= 1200) body = it },
-            modifier = Modifier.fillMaxWidth().heightIn(min = 180.dp),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 180.dp).testTag("atrio-publish-body"),
             label = { Text("Sua reflexão ou pergunta") },
             placeholder = { Text("Compartilhe sua dúvida ou experiência com respeito...") }, minLines = 5)
         Text("${body.length}/1200", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.End, color = Muted, fontSize = 11.sp)
@@ -528,7 +531,7 @@ internal fun PublishScreen(onPublish: (String, String, String) -> Unit) {
         Spacer(Modifier.height(18.dp))
         Button(onClick = { onPublish(title.trim(), body.trim(), category); title = ""; body = "" },
             enabled = title.trim().length >= 5 && body.trim().length >= 5,
-            modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(12.dp)) { Text("Publicar discussão") }
+            modifier = Modifier.fillMaxWidth().height(48.dp).testTag("atrio-publish-submit"), shape = RoundedCornerShape(12.dp)) { Text("Publicar discussão") }
     }
 }
 
