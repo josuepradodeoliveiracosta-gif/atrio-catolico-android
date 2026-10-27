@@ -38,6 +38,13 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
+      - name: Preparar Node.js para Firebase Emulator Suite
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Instalar Firebase CLI de testes
+        working-directory: tests/security
+        run: npm ci
       - name: Validar que não há segredos de produção no ambiente de QA
         run: |
           test -z "${ATRIO_PUSH_WORKER_URL:-}"
@@ -65,7 +72,28 @@ jobs:
           target: google_apis
           disable-animations: true
           emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -accel on -camera-back none
-          script: gradle :app:connectedDebugAndroidTest --no-daemon --stacktrace
+          script: |
+            set -eu
+            cd tests/security
+            node prepare.mjs
+            ./node_modules/.bin/firebase emulators:start --only auth,firestore --project demo-atrio-v11 > ../../qa-firebase-emulators.log 2>&1 &
+            QA_FIREBASE_PID=$!
+            trap 'kill "$QA_FIREBASE_PID" || true' EXIT
+            ready=0
+            for try in $(seq 1 90); do
+              if curl -s --max-time 1 -o /dev/null http://127.0.0.1:9099/ && curl -s --max-time 1 -o /dev/null http://127.0.0.1:8089/; then
+                ready=1
+                break
+              fi
+              sleep 2
+            done
+            if [ "$ready" -ne 1 ]; then
+              echo "Firebase emulators não iniciaram"
+              tail -60 ../../qa-firebase-emulators.log
+              exit 1
+            fi
+            cd ../..
+            gradle :app:connectedDebugAndroidTest --no-daemon --stacktrace
       - name: Relatório de testes
         if: always()
         uses: actions/upload-artifact@v4
@@ -74,5 +102,6 @@ jobs:
           path: |
             app/build/reports/androidTests
             app/build/outputs/androidTest-results
+            qa-firebase-emulators.log
           retention-days: 7
           if-no-files-found: warn
