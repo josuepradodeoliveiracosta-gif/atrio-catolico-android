@@ -51,9 +51,10 @@ export async function signInQaBot(env,uid) {
   });
   if(!response.ok)throw Error('qa_firebase_auth_signin_http_'+response.status);
   const result=await response.json();
-  if(result.localId!==uid||!result.idToken||
-    typeof result.idToken!=='string'||result.idToken.length<100)
-    throw Error('qa_firebase_auth_identity_mismatch');
+  // signInWithCustomToken não inclui localId na resposta REST oficial.
+  // A identidade é confirmada abaixo via accounts:lookup com o ID token.
+  if(typeof result.idToken!=='string'||result.idToken.length<100)
+    throw Error('qa_firebase_auth_missing_id_token');
   // Garante que o usuário foi registrado e não está desativado.
   const validate=await fetch(LOOKUP_URL+encodeURIComponent(env.FIREBASE_WEB_API_KEY),{
     method:'POST',headers:{'Content-Type':'application/json'},
