@@ -467,44 +467,56 @@ private fun OnlineCommunity(
         }
     }
     fun reply(id: String, body: String, done: (Boolean) -> Unit) {
-        val post = openedPost?.takeIf { it.id == id }
-        if (post == null) {
+        if (openedPost?.id != id) {
             message = "Discussão indisponível. Atualize o fórum e tente novamente."
             done(false)
             return
         }
-        // Uma resposta e sua notificação são gravadas atomicamente.
-        val replyRef = db.collection("posts").document(id).collection("replies").document()
-        val batch = db.batch()
-        batch.set(replyRef, mapOf(
-            "uid" to uid, "authorName" to name, "body" to body,
-            "createdAt" to FieldValue.serverTimestamp()
-        ))
-        if (post.ownerUid.isNotBlank() && post.ownerUid != uid) {
-            val noticeRef = db.collection("users").document(post.ownerUid)
-                .collection("notifications").document(replyRef.id)
-            batch.set(noticeRef, mapOf(
-                "postId" to id,
-                "replyId" to replyRef.id,
-                "actorUid" to uid,
-                "actorName" to name,
-                "read" to false,
-                "createdAt" to FieldValue.serverTimestamp()
-            ))
-        }
-        batch.commit().addOnCompleteListener { result ->
-            if (result.isSuccessful) {
-                ThreadPushSubscriptions.track(context, uid, id)
-                // Inclui respostas feitas pelo próprio autor da discussão:
-                // os demais participantes também precisam receber o evento.
-                InstantPushRelay.reply(id, replyRef.id)
-                InstantPushRelay.moderateReply(id, replyRef.id)
+        // O destinatário é obtido do documento canônico no servidor, não do
+        // estado da tela, que pode estar atrasado durante troca de contas.
+        // Não publicar silenciosamente uma resposta sem o aviso obrigatório.
+        db.collection("posts").document(id).get(com.google.firebase.firestore.Source.SERVER)
+            .addOnCompleteListener { parentResult ->
+                val parent = if (parentResult.isSuccessful) parentResult.result else null
+                val ownerUid = if (parent?.exists() == true)
+                    parent.getString("uid").orEmpty() else ""
+                if (ownerUid.isBlank()) {
+                    message = "Não foi possível confirmar o autor da discussão. Tente novamente."
+                    done(false)
+                    return@addOnCompleteListener
+                }
+                val replyRef = db.collection("posts").document(id)
+                    .collection("replies").document()
+                val batch = db.batch()
+                batch.set(replyRef, mapOf(
+                    "uid" to uid, "authorName" to name, "body" to body,
+                    "createdAt" to FieldValue.serverTimestamp()
+                ))
+                if (ownerUid != uid) {
+                    val noticeRef = db.collection("users").document(ownerUid)
+                        .collection("notifications").document(replyRef.id)
+                    batch.set(noticeRef, mapOf(
+                        "postId" to id,
+                        "replyId" to replyRef.id,
+                        "actorUid" to uid,
+                        "actorName" to name,
+                        "read" to false,
+                        "createdAt" to FieldValue.serverTimestamp()
+                    ))
+                }
+                // Resposta e notificação continuam atômicas.
+                batch.commit().addOnCompleteListener { result ->
+                    if (result.isSuccessful) {
+                        ThreadPushSubscriptions.track(context, uid, id)
+                        InstantPushRelay.reply(id, replyRef.id)
+                        InstantPushRelay.moderateReply(id, replyRef.id)
+                    } else {
+                        message = result.exception?.localizedMessage ?:
+                            "Não foi possível responder. Confira as regras."
+                    }
+                    done(result.isSuccessful)
+                }
             }
-            done(result.isSuccessful)
-            if (!result.isSuccessful) {
-                message = result.exception?.localizedMessage ?: "Não foi possível responder. Confira as regras."
-            }
-        }
     }
     fun closeNoticeDestination() {
         if (guardiaoAppealsOpen) {
