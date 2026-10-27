@@ -92,6 +92,22 @@ class ThreeBotsOnlineEmulatorTest {
         awaitScreen("Paz e bem, ${expectedName.substringBefore(' ')}!")
     }
 
+    private fun scrollToPost(postId: String) {
+        // O cabeçalho de boas-vindas aparece antes do snapshot assíncrono
+        // do feed. Procurar uma única vez pode observar a lista ainda vazia.
+        compose.waitUntil(30000) {
+            try {
+                compose.onNodeWithTag("atrio-home-feed", useUnmergedTree = true)
+                    .performScrollToNode(hasTestTag("atrio-post-${postId}"))
+                true
+            } catch (_: AssertionError) {
+                false
+            }
+        }
+        compose.onNodeWithTag("atrio-post-${postId}", useUnmergedTree = true)
+            .assertIsDisplayed()
+    }
+
     private fun leave() {
         compose.runOnIdle { auth.signOut() }
         awaitScreen("Entrar na comunidade")
@@ -160,8 +176,7 @@ class ThreeBotsOnlineEmulatorTest {
 
         // Miguel entra como OUTRO usuário autenticado e responde.
         enter(miguelEmail,"Miguel")
-        compose.onNodeWithTag("atrio-home-feed",useUnmergedTree=true)
-            .performScrollToNode(hasTestTag("atrio-post-${postId}"))
+        scrollToPost(postId)
         compose.onNodeWithTag("atrio-post-${postId}",useUnmergedTree=true)
             .performClick()
         compose.onNodeWithTag("atrio-reply-input")
@@ -189,17 +204,30 @@ class ThreeBotsOnlineEmulatorTest {
 
         // Lúcia autentica sua própria conta, curte e salva a discussão.
         enter(luciaEmail,"Lúcia")
-        compose.onNodeWithTag("atrio-home-feed",useUnmergedTree=true)
-            .performScrollToNode(hasTestTag("atrio-post-${postId}"))
+        scrollToPost(postId)
         compose.onNodeWithTag("atrio-like-${postId}",useUnmergedTree=true)
+            .performScrollTo()
+            .assertIsDisplayed()
+            .assertIsEnabled()
             .performClick()
         compose.onNodeWithTag("atrio-save-${postId}",useUnmergedTree=true)
+            .performScrollTo()
+            .assertIsDisplayed()
+            .assertIsEnabled()
             .performClick()
         val luciaId=requireNotNull(auth.currentUser?.uid)
+        val likesRef = db.collection("users").document(luciaId)
+            .collection("likedPosts").document(postId)
+        val savesRef = db.collection("users").document(luciaId)
+            .collection("savedPosts").document(postId)
+        compose.waitUntil(30000) {
+            Tasks.await(likesRef.get(Source.SERVER), 5, TimeUnit.SECONDS).exists() &&
+                Tasks.await(savesRef.get(Source.SERVER), 5, TimeUnit.SECONDS).exists()
+        }
         val liked=Tasks.await(db.collection("users").document(luciaId)
-            .collection("likedPosts").document(postId).get(),25,TimeUnit.SECONDS)
+            .collection("likedPosts").document(postId).get(Source.SERVER),25,TimeUnit.SECONDS)
         val saved=Tasks.await(db.collection("users").document(luciaId)
-            .collection("savedPosts").document(postId).get(),25,TimeUnit.SECONDS)
+            .collection("savedPosts").document(postId).get(Source.SERVER),25,TimeUnit.SECONDS)
         assertTrue("Lúcia não curtiu o post no Firestore emulado",liked.exists())
         assertTrue("Lúcia não salvou o post no Firestore emulado",saved.exists())
         leave()
