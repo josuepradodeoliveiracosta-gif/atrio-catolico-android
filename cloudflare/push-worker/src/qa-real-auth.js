@@ -49,7 +49,7 @@ export async function signInQaBot(env,uid) {
     method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({token:customToken,returnSecureToken:true}),
   });
-  if(!response.ok)throw Error('qa_firebase_auth_signin_failed');
+  if(!response.ok)throw Error('qa_firebase_auth_signin_http_'+response.status);
   const result=await response.json();
   if(result.localId!==uid||!result.idToken||
     typeof result.idToken!=='string'||result.idToken.length<100)
@@ -59,7 +59,7 @@ export async function signInQaBot(env,uid) {
     method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({idToken:result.idToken}),
   });
-  if(!validate.ok)throw Error('qa_firebase_auth_lookup_failed');
+  if(!validate.ok)throw Error('qa_firebase_auth_lookup_http_'+validate.status);
   const account=(await validate.json()).users?.[0];
   if(account?.localId!==uid||account.disabled===true)
     throw Error('qa_firebase_auth_disabled_or_mismatch');
