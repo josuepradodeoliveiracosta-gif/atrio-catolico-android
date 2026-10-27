@@ -5,6 +5,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.testTag
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -151,6 +152,7 @@ internal fun BadgeSettings(uid: String) {
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         for ((label, value) in listOf("Leigo" to "leigo", "Leiga" to "leiga", "Nenhum" to "")) {
             FilterChip(
+                modifier = Modifier.testTag("atrio-badge-lay-$value"),
                 selected = badges.lay == value, onClick = {
                     if (!busy && badges.lay != value) {
                         busy = true
