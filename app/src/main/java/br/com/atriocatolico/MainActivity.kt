@@ -383,7 +383,8 @@ internal fun Avatar(name: String, modifier: Modifier = Modifier) {
 @Composable
 internal fun DiscussionCard(post: Post, onOpen: (String) -> Unit, onLike: (String) -> Unit, onSave: (String) -> Unit, fullText: Boolean = false) {
     Card(
-        onClick = { onOpen(post.id) }, modifier = Modifier.fillMaxWidth(),
+        onClick = { onOpen(post.id) },
+        modifier = Modifier.fillMaxWidth().testTag("atrio-post-${post.id}"),
         shape = RoundedCornerShape(17.dp), colors = CardDefaults.cardColors(containerColor = Color.White),
         border = BorderStroke(1.dp, Line), elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
