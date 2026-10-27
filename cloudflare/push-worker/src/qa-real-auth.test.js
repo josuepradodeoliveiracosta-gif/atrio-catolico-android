@@ -49,7 +49,8 @@ test('login real verifica UID e situação Firebase Auth',async()=>{
     const path=String(url);calls.push(path);
     if(path.includes('signInWithCustomToken')){
       const uid=decode(JSON.parse(options.body).token).uid;
-      return Response.json({localId:uid,idToken:'id-token-'+uid+'x'.repeat(130)});
+      // A resposta oficial de signInWithCustomToken NÃO tem localId.
+      return Response.json({idToken:'id-token-'+uid+'x'.repeat(130)});
     }
     if(path.includes('accounts:lookup'))
       return Response.json({users:[{localId:'qa_miguel_v19',disabled:false}]});
@@ -61,16 +62,23 @@ test('login real verifica UID e situação Firebase Auth',async()=>{
     assert.equal(calls.length,2);
   }finally{globalThis.fetch=original;}
 });
-test('login falha fechado em UID diferente, conta desativada ou falha de Auth',async()=>{
+test('login falha fechado se accounts:lookup informa UID diferente ou conta desativada',async()=>{
   const {env}=await fixture();
   const original=globalThis.fetch;
+  let fail='wrong_uid';
   globalThis.fetch=async(url)=>{
     if(String(url).includes('signInWithCustomToken'))
-      return Response.json({localId:'qa_lucia_v19',idToken:'x'.repeat(160)});
-    throw Error('lookup must not be performed');
+      return Response.json({idToken:'x'.repeat(160)});
+    if(String(url).includes('accounts:lookup'))
+      return Response.json({users:[{localId:fail==='wrong_uid'?'qa_lucia_v19':'qa_clara_v19',
+        disabled:fail==='disabled'}]});
+    throw Error('unexpected auth request');
   };
-  try{await assert.rejects(()=>signInQaBot(env,'qa_clara_v19'),/qa_firebase_auth_identity_mismatch/)}
-  finally{globalThis.fetch=original;}
+  try{
+    await assert.rejects(()=>signInQaBot(env,'qa_clara_v19'),/qa_firebase_auth_disabled_or_mismatch/);
+    fail='disabled';
+    await assert.rejects(()=>signInQaBot(env,'qa_clara_v19'),/qa_firebase_auth_disabled_or_mismatch/);
+  } finally {globalThis.fetch=original;}
 });
 
 test('sessão sob demanda cria contas Auth reais e envia operações como os próprios usuários',async()=>{
@@ -86,7 +94,7 @@ test('sessão sob demanda cria contas Auth reais e envia operações como os pr�
     if(path.includes('signInWithCustomToken')) {
       const uid=uidFromJwt(JSON.parse(options.body).token);
       sessionId.set(uid,uid+'-'+String(authLogins++));
-      return Response.json({localId:uid,idToken:'auth-'+uid+'-'+'x'.repeat(160)});
+      return Response.json({idToken:'auth-'+uid+'-'+'x'.repeat(160)});
     }
     if(path.includes('identitytoolkit.googleapis.com')&&path.includes('accounts:lookup')){
       const uid=JSON.parse(options.body).idToken.slice(5).split('-').slice(0,3).join('_');
