@@ -23,7 +23,7 @@ android {
 
     defaultConfig {
         applicationId = "br.com.atriocatolico"
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunner = "br.com.atriocatolico.QaAndroidTestRunner"
         minSdk = 26
         targetSdk = 35
         versionCode = 25
