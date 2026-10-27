@@ -81,7 +81,12 @@ function fieldsMatch(actual,expected) {
     field==='createdAt'||JSON.stringify(actual.fields[field])===JSON.stringify(value));
 }
 async function commitOrValidate(token,writes,lookups,readTokens=[]) {
-  if(await commit(token,writes.map(withServerTime)))return;
+  const response=await fetch(ROOT+':commit',{
+    method:'POST',headers:{Authorization:'Bearer '+token,
+      'Content-Type':'application/json'},
+    body:JSON.stringify({writes:writes.map(withServerTime)}),
+  });
+  if(response.ok)return;
   // Mesmo pedido após erro de rede: recuperar com identidade que tem
   // direito de leitura. Autor da resposta NÃO pode consultar aviso privado
   // que pertence ao destinatário; nesses casos Clara lê o próprio aviso.
@@ -89,7 +94,15 @@ async function commitOrValidate(token,writes,lookups,readTokens=[]) {
     getDocument(readTokens[index]||token,path)));
   if(existing.every((entry,index)=>fieldsMatch(entry,writes[index].update.fields)))
     return;
-  throw Error('qa_authenticated_write_failed');
+  // Diagnóstico sanitizado: somente operação + código HTTP, nunca JWT,
+  // mensagem de erro do Firebase, texto de usuário ou e-mail.
+  const path=writes[0]?.update?.name||'';
+  const operation=path.includes('/profiles/')?'profile':
+    path.includes('/replies/')?'reply':
+    path.includes('/likedPosts/')?'like':
+    path.includes('/savedPosts/')?'save':
+    path.includes('/posts/')?'post':'other';
+  throw Error('qa_write_'+operation+'_http_'+String(response.status));
 }
 async function ensureProfile(token,bot) {
   const path='profiles/'+bot.uid;
