@@ -261,7 +261,7 @@ internal fun AtrioDemoApp(prefs: SharedPreferences) {
                 var edit by remember { mutableStateOf(name) }
                 AlertDialog(
                     onDismissRequest = { renameOpen = false }, title = { Text("Editar nome") },
-                    text = { OutlinedTextField(value = edit, onValueChange = { if (it.length <= 35) edit = it }, label = { Text("Nome") }) },
+                    text = { OutlinedTextField(value = edit, onValueChange = { if (it.length <= 35) edit = it }, label = { Text("Nome") }, modifier = Modifier.testTag("atrio-profile-name-input")) },
                     confirmButton = { TextButton(enabled = edit.trim().length >= 2, onClick = {
                         val old = name
                         name = edit.trim()
@@ -338,7 +338,7 @@ internal fun AtrioTopBar(
                 Text("Átrio", fontSize = 26.sp, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, color = Wine)
             }
             Spacer(Modifier.weight(1f))
-            IconButton(onClick = onSearch) { Icon(Icons.Outlined.Search, "Buscar", tint = Wine) }
+            IconButton(onClick = onSearch, modifier = Modifier.testTag("atrio-top-search")) { Icon(Icons.Outlined.Search, "Buscar", tint = Wine) }
             IconButton(onClick = onNotification) {
                 BadgedBox(badge = {
                     if (unreadCount > 0) Badge {
@@ -407,7 +407,7 @@ internal fun DiscussionCard(post: Post, onOpen: (String) -> Unit, onLike: (Strin
             Spacer(Modifier.height(13.dp))
             HorizontalDivider(color = Line)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { onLike(post.id) }) {
+                IconButton(onClick = { onLike(post.id) }, modifier = Modifier.testTag("atrio-like-${post.id}")) {
                     Icon(if (post.liked) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder, "Curtir", tint = if (post.liked) Wine else Muted, modifier = Modifier.size(20.dp))
                 }
                 Text(if (post.remote) "Curtir" else post.likes.toString(), color = if (post.liked) Wine else Muted, fontSize = 12.sp)
@@ -469,7 +469,7 @@ internal fun HomeScreen(name: String, posts: List<Post>, filter: String, search:
         }
         if (searchOpen) item {
             OutlinedTextField(value = search, onValueChange = onSearch, label = { Text("Buscar discussões") },
-                leadingIcon = { Icon(Icons.Outlined.Search, null) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                leadingIcon = { Icon(Icons.Outlined.Search, null) }, modifier = Modifier.fillMaxWidth().testTag("atrio-search-field"), singleLine = true)
         }
         if (shown.isEmpty()) item { EmptyState("🕊️", "Nenhuma discussão", "Mude o filtro ou comece uma conversa.", "Criar publicação", onCreate) }
         items(shown, key = { it.id }) { p -> DiscussionCard(p, onOpen, onLike, onSave) }
@@ -567,7 +567,7 @@ private fun ProfileScreen(name: String, posts: List<Post>, onRename: () -> Unit,
                 Text(name, fontFamily = FontFamily.Serif, fontSize = 23.sp, fontWeight = FontWeight.Bold)
                 Text("Membro da comunidade Átrio", fontSize = 12.sp, color = Muted)
                 Spacer(Modifier.height(8.dp))
-                OutlinedButton(onClick = onRename) { Text("Editar nome") }
+                OutlinedButton(onClick = onRename, modifier = Modifier.testTag("atrio-profile-rename")) { Text("Editar nome") }
             }
         }
         item {
@@ -657,7 +657,7 @@ internal fun DetailScreen(
         repliesFooter()
         Text("Responder como $name", color = Wine, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
         OutlinedTextField(value = response, onValueChange = { if (it.length <= 600) response = it },
-            modifier = Modifier.fillMaxWidth(), label = { Text("Sua resposta") }, minLines = 2)
+            modifier = Modifier.fillMaxWidth().testTag("atrio-reply-input"), label = { Text("Sua resposta") }, minLines = 2)
         Spacer(Modifier.height(9.dp))
         Button(
             onClick = {
@@ -668,7 +668,7 @@ internal fun DetailScreen(
                 }
             },
             enabled = response.isNotBlank() && !sendingReply,
-            modifier = Modifier.align(Alignment.End)
+            modifier = Modifier.align(Alignment.End).testTag("atrio-reply-submit")
         ) { Text(if (sendingReply) "Enviando..." else "Enviar resposta") }
         if (onReport != null) {
             TextButton(onClick = onReport, modifier = Modifier.align(Alignment.End)) { Text("Denunciar discussão") }
