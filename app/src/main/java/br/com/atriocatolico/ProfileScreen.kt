@@ -14,6 +14,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -128,7 +129,7 @@ internal fun OnlineProfileScreen(
                 Text("Átrio Católico · ${androidx.compose.ui.platform.LocalContext.current.let {
                     it.packageManager.getPackageInfo(it.packageName, 0).versionName.orEmpty()
                 }}", color = Muted, fontSize = 12.sp)
-                OutlinedButton(onClick = onSignOut, modifier = Modifier.fillMaxWidth()) { Text("Sair da conta") }
+                OutlinedButton(onClick = onSignOut, modifier = Modifier.fillMaxWidth().testTag("atrio-profile-signout")) { Text("Sair da conta") }
             }
         }
     }
