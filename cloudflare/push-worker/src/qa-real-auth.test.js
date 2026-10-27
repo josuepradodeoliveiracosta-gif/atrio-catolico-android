@@ -151,9 +151,9 @@ test('sessão sob demanda cria contas Auth reais e envia operações como os pr�
     assert.equal(userCommits,8,'3 profiles + post + 2 reply batches + like + save');
     assert.equal(entries.get('qa_bot_runs/'+requestId)?.fields?.status?.stringValue,'created');
     assert.ok(entries.has('posts/qa_'+requestId));
-    assert.ok(entries.has('posts/qa_'+requestId+'/replies/qa_miguel'));
-    assert.ok(entries.has('posts/qa_'+requestId+'/replies/qa_lucia'));
-    assert.ok(entries.has('users/qa_clara_v19/notifications/qa_miguel'));
+    assert.ok(entries.has('posts/qa_'+requestId+'/replies/qa_miguel_'+requestId'));
+    assert.ok(entries.has('posts/qa_'+requestId+'/replies/qa_lucia_'+requestId'));
+    assert.ok(entries.has('users/qa_clara_v19/notifications/qa_miguel_'+requestId'));
     assert.ok(entries.has('users/qa_miguel_v19/likedPosts/qa_'+requestId));
     assert.ok(entries.has('users/qa_lucia_v19/savedPosts/qa_'+requestId));
     assert.equal(await executeQaCommand(command,env,'service-oauth',now),'already_completed');
