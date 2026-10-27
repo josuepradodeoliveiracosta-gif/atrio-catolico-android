@@ -306,8 +306,9 @@ private fun WelcomeScreen(onEnter: (String) -> Unit) {
                 Spacer(Modifier.height(7.dp))
                 Text("Escolha um nome para a demonstração. Não é necessário criar conta.", fontSize = 12.sp, color = Muted, lineHeight = 19.sp)
                 Spacer(Modifier.height(10.dp))
-                OutlinedTextField(nickname, { if (it.length <= 35) nickname = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Seu nome") }, singleLine = true,
-                    modifier = Modifier.fillMaxWidth().testTag("atrio-welcome-name"))
+                OutlinedTextField(nickname, { if (it.length <= 35) nickname = it },
+                    modifier = Modifier.fillMaxWidth().testTag("atrio-welcome-name"),
+                    label = { Text("Seu nome") }, singleLine = true)
                 Spacer(Modifier.height(12.dp))
                 Button(onClick = { onEnter(nickname) }, enabled = nickname.trim().length >= 2,
                     modifier = Modifier.fillMaxWidth().testTag("atrio-welcome-enter"), shape = RoundedCornerShape(12.dp)) { Text("Entrar na comunidade  →") }
