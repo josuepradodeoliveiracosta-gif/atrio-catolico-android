@@ -64,7 +64,7 @@ function withServerTime(write) {
 async function getDocument(token,path) {
   const response=await fetch(ROOT+'/'+path,{headers:{Authorization:'Bearer '+token}});
   if(response.status===404)return null;
-  if(!response.ok)throw Error('qa_firestore_read_failed');
+  if(!response.ok)throw Error('qa_firestore_read_http_'+response.status);
   return response.json();
 }
 async function commit(token,writes) {
@@ -143,7 +143,7 @@ async function finishRun(serviceToken,command) {
       status:str('created'),finishedAt:timestamp(new Date().toISOString()),
     }}),
   });
-  if(!result.ok)throw Error('qa_marker_finalize_failed');
+  if(!result.ok)throw Error('qa_marker_finalize_http_'+result.status);
 }
 export async function executeQaCommand(command,env,serviceToken,now=new Date()) {
   if(env.QA_MANUAL_ENABLED!=='true')return 'disabled';
