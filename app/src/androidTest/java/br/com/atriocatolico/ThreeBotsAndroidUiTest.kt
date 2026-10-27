@@ -7,6 +7,7 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
@@ -35,9 +36,9 @@ class ThreeBotsAndroidUiTest {
     @Test fun claraPodeEntrarNaDemonstracao() {
         compose.setContent { AtrioDemoApp(prefs) }
         compose.onNodeWithText("Vamos começar?").assertIsDisplayed()
-        compose.onNodeWithText("Entrar na comunidade  →").assertIsNotEnabled()
-        compose.onNodeWithText("Seu nome").performTextInput("Clara BOT DE TESTE")
-        compose.onNodeWithText("Entrar na comunidade  →").assertIsEnabled().performClick()
+        compose.onNodeWithTag("atrio-welcome-enter").assertIsNotEnabled()
+        compose.onNodeWithTag("atrio-welcome-name").performTextInput("Clara BOT DE TESTE")
+        compose.onNodeWithTag("atrio-welcome-enter").assertIsEnabled().performClick()
         compose.onNodeWithText("Paz e bem, Clara!",substring=true).assertIsDisplayed()
     }
 
@@ -45,34 +46,34 @@ class ThreeBotsAndroidUiTest {
         prefs.edit().putString("name","Miguel BOT DE TESTE").commit()
         compose.setContent { AtrioDemoApp(prefs) }
 
-        compose.onNodeWithText("Fóruns",useUnmergedTree=true).performClick()
+        compose.onNodeWithTag("atrio-tab-communities").performClick()
         compose.onNodeWithText("Fóruns da comunidade").assertIsDisplayed()
 
-        compose.onNodeWithText("Publicar",useUnmergedTree=true).performClick()
+        compose.onNodeWithTag("atrio-tab-publish").performClick()
         compose.onNodeWithText("Nova discussão").assertIsDisplayed()
-        compose.onNodeWithText("Publicar discussão").assertIsNotEnabled()
+        compose.onNodeWithTag("atrio-publish-submit").assertIsNotEnabled()
 
-        compose.onNodeWithText("Salvos",useUnmergedTree=true).performClick()
+        compose.onNodeWithTag("atrio-tab-saved").performClick()
         compose.onNodeWithText("Publicações salvas").assertIsDisplayed()
 
-        compose.onNodeWithText("Perfil",useUnmergedTree=true).performClick()
+        compose.onNodeWithTag("atrio-tab-profile").performClick()
         compose.onNodeWithText("Membro da comunidade Átrio").assertIsDisplayed()
     }
 
     @Test fun luciaPublicaESalvaDiscussaoNaDemonstracao() {
         prefs.edit().putString("name","Lúcia BOT DE TESTE").commit()
         compose.setContent { AtrioDemoApp(prefs) }
-        compose.onNodeWithText("Publicar",useUnmergedTree=true).performClick()
+        compose.onNodeWithTag("atrio-tab-publish").performClick()
 
-        compose.onNodeWithText("Título da publicação")
+        compose.onNodeWithTag("atrio-publish-title")
             .performTextInput("Teste Android da comunidade")
-        compose.onNodeWithText("Sua reflexão ou pergunta")
+        compose.onNodeWithTag("atrio-publish-body")
             .performTextInput("Discussão fictícia criada em um emulador Android.")
-        compose.onNodeWithText("Publicar discussão").assertIsEnabled().performClick()
+        compose.onNodeWithTag("atrio-publish-submit").assertIsEnabled().performClick()
         compose.onNodeWithText("Teste Android da comunidade").assertIsDisplayed()
 
         compose.onAllNodesWithContentDescription("Salvar").onFirst().performClick()
-        compose.onNodeWithText("Salvos",useUnmergedTree=true).performClick()
+        compose.onNodeWithTag("atrio-tab-saved").performClick()
         compose.onNodeWithText("Teste Android da comunidade").assertIsDisplayed()
     }
 }
