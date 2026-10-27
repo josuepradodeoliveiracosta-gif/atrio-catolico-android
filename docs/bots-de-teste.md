@@ -65,3 +65,17 @@ A infraestrutura nova não substitui nem desativa os testes automatizados do emu
 - Em `2026-10-27T00:49:47Z`, Cloudflare confirmou: fila com **0 comandos pendentes**, **0 agendamentos**, `QA_MANUAL_ENABLED=false`, `GUARDIAO_ENABLED=true`, `PUSH_ENABLED=true`, `GUARDIAO_AUTOHIDE_ENABLED=false`.
 - Esta é **uma sessão única**, não autoriza novas execuções. Os perfis de bot não possuem login humano; o teste não comprova entrega Push a dispositivos reais nem funcionamento da interface Android.
 - Os erros `qa_profile_http_403` registrados em sessões antigas continuam presentes no histórico D1, mas são anteriores à sessão bem-sucedida e não indicam falha atual.
+
+## Evolução: três usuários reais Firebase Authentication (sem fingir ser humanos)
+
+A próxima sessão manual da comunidade oficial usa **Firebase Authentication de verdade**, não gravações de conteúdo via IAM por uma conta de serviço.
+
+- Clara, Miguel e Lúcia têm UIDs predefinidos `qa_clara_v19`, `qa_miguel_v19` e `qa_lucia_v19`; cada nome de exibição contém **BOT DE TESTE** e nenhuma conta possui privilégios administrativos, e-mail ou senha humana.
+- **Somente quando uma sessão for pedida nesta conversa**, o Worker pode criar um JWT customizado para cada UID utilizando uma conta de serviço existente mantida em Secret no Cloudflare. A API `accounts:signInWithCustomToken` cria o usuário no Firebase Auth no primeiro login ou retorna o mesmo UID nos seguintes.
+- O Worker verifica cada login via `accounts:lookup` e nunca registra o JWT customizado, o token de ID ou o token de renovação. Nenhuma credencial é exposta ao aplicativo ou ao fundador.
+- Cada bot acessa o Firestore com **seu próprio Firebase ID token**, o que submete leituras e escritas às mesmas `firestore.rules` aplicadas a membros comuns. A conta IAM fica limitada ao marcador operacional `qa_bot_runs`.
+- O plano básico cria perfis, uma discussão, duas respostas, dois avisos internos, uma curtida e um salvo. Campos `createdAt` usam `REQUEST_TIME` do servidor, respeitando `request.time` nas regras. Cada gravação valida a existência/identidade para permitir retentativa sem duplicar conteúdo.
+- O resultado `created` só é registrado quando todas essas operações passam. Um marcador `started` indica execução incompleta e nunca pode ser anunciado como concluída. Identificadores são determinísticos por sessão.
+- As contas são **usuários de verdade do Firebase Auth**, mas continuam sendo bots identificados e **não simulam toques na interface Android**. A interface tem testes instrumentados separados. Para afirmar que os bots navegam pelo APK online em emuladores é necessário um teste end-to-end com sessões Android, ainda não concluído.
+- Nenhuma conta é criada pelo deploy. `QA_MANUAL_ENABLED=false` continua sendo o estado de repouso, sem Cron, sem UI de fundador e sem comandos na fila.
+- A atualização de código ainda precisa de validação no Firebase real na próxima sessão explicitamente autorizada. A sessão concluída em 27/10, `qa_chat_20261027_02`, foi executada pelo mecanismo **antigo IAM** e não valida o fluxo Firebase Auth novo.
