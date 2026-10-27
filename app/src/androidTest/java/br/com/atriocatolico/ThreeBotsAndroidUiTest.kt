@@ -95,6 +95,21 @@ class ThreeBotsAndroidUiTest {
         // Alvo estável por ID do post: nunca tocar no primeiro ícone genérico
         // que a LazyColumn tenha carregado durante uma rolagem.
         compose.onNodeWithTag("atrio-save-1",useUnmergedTree = true).performClick()
+        compose.waitForIdle()
+        // Diferencia uma falha real do toque de uma falha na renderização
+        // de item preguiçoso (LazyColumn).
+        compose.runOnIdle {
+            val contents = prefs.getString("posts", "[]").orEmpty()
+            val posts = org.json.JSONArray(contents)
+            val found = (0 until posts.length()).any { index ->
+                val post = posts.getJSONObject(index)
+                post.optString("id") == "1" && post.optBoolean("saved", false)
+            }
+            org.junit.Assert.assertTrue(
+                "O toque no botão atrio-save-1 não persistiu saved=true. " +
+                    "Investigar callback no cartão da discussão.", found
+            )
+        }
         compose.onNodeWithTag("atrio-tab-saved").performClick()
         compose.onNodeWithText("Publicações salvas").assertIsDisplayed()
         // A LazyColumn pode compor o item sem ele estar na área visível;
