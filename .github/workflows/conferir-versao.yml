@@ -9,7 +9,9 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # Uma atualização não pode interromper um teste já iniciado.
+  # O GitHub poderá substituir somente uma execução ainda pendente.
+  cancel-in-progress: false
 
 permissions:
   contents: read
