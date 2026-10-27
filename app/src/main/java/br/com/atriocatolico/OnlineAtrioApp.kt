@@ -59,7 +59,13 @@ internal fun OnlineAtrioApp(activity: androidx.activity.ComponentActivity) {
             key(user.uid) { OnlineUserScreen(auth = auth, db = db, user = user) }
         }
         // Keep session state outside the login branch and user key.
-        OpeningVideo(activity, authenticated = user != null)
+        // O laboratório isolado de instrumentação não deve abrir vídeo,
+        // cujo ciclo de vida atrapalharia os toques no Android virtual.
+        // O projeto oficial mantém a abertura normal (inclusive em builds debug).
+        if (!(BuildConfig.DEBUG &&
+                com.google.firebase.FirebaseApp.getInstance().options.projectId == "demo-atrio-v11")) {
+            OpeningVideo(activity, authenticated = user != null)
+        }
     }
 }
 
