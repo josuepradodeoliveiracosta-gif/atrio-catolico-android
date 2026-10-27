@@ -19,6 +19,21 @@ test('uma solicitação cria no máximo 1 discussão, 2 respostas e 2 avisos int
   assert.ok(plan.writes.every(x=>JSON.stringify(x).includes('BOT DE TESTE')||x.update.name.includes('/qa_bot_runs/')));
   assert.ok(!JSON.stringify(plan).includes('admins/'));
 });
+test('respostas e notificações usam IDs únicos por sessão e compatíveis com regras',()=>{
+  const a=planQaSession('sessao_primeira_01');
+  const b=planQaSession('sessao_segunda_02');
+  assert.notEqual(a.replyIds.miguel,b.replyIds.miguel);
+  assert.notEqual(a.replyIds.lucia,b.replyIds.lucia);
+  for(const plan of [a,b]) {
+    const replyIds=plan.writes.filter(x=>x.update.name.includes('/replies/'))
+      .map(x=>x.update.name.split('/').pop()).sort();
+    const noticeIds=plan.writes.filter(x=>x.update.name.includes('/notifications/'))
+      .map(x=>x.update.name.split('/').pop()).sort();
+    assert.deepEqual(replyIds,noticeIds,
+      'as regras Firestore exigem notificationId igual a replyId');
+    assert.ok(plan.writes.every(x=>x.currentDocument?.exists===false));
+  }
+});
 test('comando só é aceito por solicitação fresca, fechada e sem campos extras',()=>{
   const now=Date.parse('2026-10-26T20:00:00.000Z');
   const good={kind:'manual_chat_qa_v1',requestId:'mensagem-001',createdAt:new Date(now).toISOString()};
