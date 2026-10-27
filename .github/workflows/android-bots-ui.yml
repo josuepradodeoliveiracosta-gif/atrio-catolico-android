@@ -87,6 +87,7 @@ jobs:
           path: |
             app/build/reports/androidTests
             app/build/outputs/androidTest-results
+            qa-android-suite-results
             qa-firebase-emulators.log
           retention-days: 7
           if-no-files-found: warn
