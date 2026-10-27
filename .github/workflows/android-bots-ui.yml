@@ -1,8 +1,20 @@
 name: QA Android dos três bots (emulador isolado)
 
-# Executar sob demanda: nenhuma interação automática com comunidade oficial.
+# CI de UI executa somente em emulador local e NUNCA interage com o Firestore oficial.
+# A comunidade real permanece sob disparo pontual mediante pedido nesta conversa.
 on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/src/main/**'
+      - 'app/src/androidTest/**'
+      - 'app/build.gradle.kts'
+      - '.github/workflows/android-bots-ui.yml'
   workflow_dispatch:
+
+concurrency:
+  group: qa-android-emulator-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
