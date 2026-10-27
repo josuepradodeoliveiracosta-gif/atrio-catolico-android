@@ -43,6 +43,16 @@ jobs:
           test -z "${ATRIO_PUSH_WORKER_URL:-}"
           test -z "${GOOGLE_APPLICATION_CREDENTIALS:-}"
           echo "QA offline: os testes Android usam apenas dados de demonstração."
+      # O emulador x86_64 precisa de aceleração KVM; sem ela o Android
+      # não conclui o boot em CI e nenhum teste de toque chega a iniciar.
+      - name: Habilitar KVM para emulador Android
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -c /dev/kvm || { echo "KVM não disponível no runner"; exit 1; }
+          test -r /dev/kvm && test -w /dev/kvm || { echo "Acesso negado ao /dev/kvm"; exit 1; }
+          ls -l /dev/kvm
       - name: Rodar interface no emulador Android virtual
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -51,7 +61,7 @@ jobs:
           profile: pixel_4
           target: google_apis
           disable-animations: true
-          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -accel on -camera-back none
           script: gradle :app:connectedDebugAndroidTest --no-daemon --stacktrace
       - name: Relatório de testes
         if: always()
