@@ -78,13 +78,13 @@ internal fun OnlineProfileScreen(
                         Text(biography.ifBlank { "Conte um pouco sobre sua caminhada na fé." },
                             color = Muted, fontSize = 14.sp, textAlign = TextAlign.Center)
                         Button(onClick = { savedMessage = false; editorOpen = true },
-                            modifier = Modifier.fillMaxWidth()) { Text("Editar perfil") }
+                            modifier = Modifier.fillMaxWidth().testTag("atrio-profile-edit")) { Text("Editar perfil") }
                         if (savedMessage) Text("Perfil atualizado.", color = Wine, fontSize = 12.sp)
                     }
                 }
             }
             item {
-                Card(onClick = { badgesOpen = true }, modifier = Modifier.fillMaxWidth(),
+                Card(onClick = { badgesOpen = true }, modifier = Modifier.fillMaxWidth().testTag("atrio-profile-badges"),
                     colors = CardDefaults.cardColors(containerColor = WineSoft),
                     shape = RoundedCornerShape(18.dp)) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -155,11 +155,11 @@ private fun ProfileEditor(
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(draftName, { draftName = it.take(35) },
-                    enabled = !busy, modifier = Modifier.fillMaxWidth(), singleLine = true,
+                    enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("atrio-profile-name"), singleLine = true,
                     label = { Text("Nome público") }, isError = !validName,
                     supportingText = { Text("${draftName.trim().length}/35 · mínimo de 2 caracteres") })
                 OutlinedTextField(draftBio, { draftBio = it.take(180) },
-                    enabled = !busy, modifier = Modifier.fillMaxWidth(), minLines = 3, maxLines = 5,
+                    enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("atrio-profile-bio"), minLines = 3, maxLines = 5,
                     label = { Text("Apresentação (opcional)") },
                     supportingText = { Text("${draftBio.length}/180 caracteres") })
                 Text("O nome será usado nas próximas publicações. Sua apresentação permanece privada.",
@@ -168,7 +168,7 @@ private fun ProfileEditor(
             }
         },
         confirmButton = {
-            TextButton(enabled = !busy && validName && changed, onClick = {
+            TextButton(modifier = Modifier.testTag("atrio-profile-save"), enabled = !busy && validName && changed, onClick = {
                 busy = true
                 failure = ""
                 db.collection("profiles").document(uid).update(mapOf(
