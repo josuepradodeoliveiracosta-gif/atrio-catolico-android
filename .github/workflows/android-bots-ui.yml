@@ -51,8 +51,11 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
           test -c /dev/kvm || { echo "KVM não disponível no runner"; exit 1; }
-          test -r /dev/kvm && test -w /dev/kvm || { echo "Acesso negado ao /dev/kvm"; exit 1; }
+          # Alguns runners mantêm as permissões antigas após o udev trigger.
+          # Essa permissão vale só para a VM efêmera de CI, nunca para produção.
+          sudo chmod 0666 /dev/kvm
           ls -l /dev/kvm
+          test -r /dev/kvm && test -w /dev/kvm || { echo "Acesso negado ao /dev/kvm"; exit 1; }
       - name: Rodar interface no emulador Android virtual
         uses: reactivecircus/android-emulator-runner@v2
         with:
