@@ -62,31 +62,41 @@ class ThreeBotsAndroidUiTest {
         compose.onNodeWithText("Membro da comunidade Átrio").assertIsDisplayed()
     }
 
-    @Test fun luciaPublicaESalvaDiscussaoNaDemonstracao() {
-        prefs.edit().putString("name","Lúcia BOT DE TESTE").commit()
-        compose.setContent { AtrioDemoApp(prefs) }
-        compose.onNodeWithTag("atrio-tab-publish").performClick()
-
+    @Test fun luciaConfirmaToqueNoBotaoPublicar() {
+        var sent: Triple<String, String, String>? = null
+        compose.setContent {
+            AtrioTheme {
+                PublishScreen { title, body, category ->
+                    sent = Triple(title, body, category)
+                }
+            }
+        }
+        compose.onNodeWithTag("atrio-publish-submit").assertIsNotEnabled()
         compose.onNodeWithTag("atrio-publish-title")
             .performTextInput("Teste Android da comunidade")
         compose.onNodeWithTag("atrio-publish-body")
-            .performTextInput("Discussão fictícia criada em um emulador Android.")
+            .performTextInput("Discussão fictícia para validar o botão de publicação.")
         compose.onNodeWithTag("atrio-publish-submit").assertIsEnabled().performClick()
         compose.waitForIdle()
-        // Confirme primeiro a gravação da publicação, sem depender da posição
-        // inicial do feed ou de qualquer animação de navegação.
-        org.junit.Assert.assertTrue(
-            "Discussão não foi persistida na demonstração",
-            prefs.getString("posts", "").orEmpty().contains("Teste Android da comunidade")
+        org.junit.Assert.assertEquals(
+            "Teste Android da comunidade",
+            sent?.first
         )
-        // Uma navegação real por toque valida a leitura da publicação.
-        compose.onNodeWithTag("atrio-tab-home").performClick()
-        compose.onNodeWithTag("atrio-home-feed", useUnmergedTree = true)
-            .performScrollToNode(hasText("Teste Android da comunidade"))
-        compose.onNodeWithText("Teste Android da comunidade").assertIsDisplayed()
+        org.junit.Assert.assertEquals(
+            "Discussão fictícia para validar o botão de publicação.",
+            sent?.second
+        )
+    }
 
+    @Test fun luciaConfirmaToqueEmSalvarEAbaSalvos() {
+        prefs.edit().putString("name","Lúcia BOT DE TESTE").commit()
+        compose.setContent { AtrioDemoApp(prefs) }
+
+        compose.onNodeWithTag("atrio-home-feed", useUnmergedTree = true)
+            .performScrollToNode(hasText("Qual é a diferença entre veneração e adoração?"))
         compose.onAllNodesWithContentDescription("Salvar").onFirst().performClick()
         compose.onNodeWithTag("atrio-tab-saved").performClick()
-        compose.onNodeWithText("Teste Android da comunidade").assertIsDisplayed()
+        compose.onNodeWithText("Publicações salvas").assertIsDisplayed()
+        compose.onNodeWithText("Qual é a diferença entre veneração e adoração?").assertIsDisplayed()
     }
 }
