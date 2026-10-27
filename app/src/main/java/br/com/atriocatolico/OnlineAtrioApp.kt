@@ -220,10 +220,30 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
     DisposableEffect(uid) {
         val registration = db.collection("profiles").document(uid).addSnapshotListener { snapshot, failure ->
             profileLoading = false
-            if (failure != null) error = "Erro ao ler perfil: ${failure.localizedMessage}"
-            else {
-                name = snapshot?.getString("displayName")
-                biography = snapshot?.getString("bio").orEmpty()
+            if (failure != null) {
+                error = "Erro ao ler perfil: ${failure.localizedMessage}"
+            } else if (snapshot?.exists() == true) {
+                val loadedName = snapshot.getString("displayName")?.trim().orEmpty()
+                if (loadedName.isNotBlank()) {
+                    // Um evento posterior de cache ausente não pode retirar o usuário
+                    // autenticado do fórum depois de publicar ou comentar.
+                    name = loadedName
+                    biography = snapshot.getString("bio").orEmpty()
+                } else if (name.isNullOrBlank()) {
+                    name = null
+                }
+            } else if (name.isNullOrBlank()) {
+                // Cadastro novo: somente quem ainda não tem perfil deve ver
+                // "Concluir seu perfil".
+                name = null
+            } else {
+                // Não reverter para a tela de cadastro após a sessão entrar
+                // no fórum. Um perfil pode ficar temporariamente indisponível
+                // enquanto o listener refaz sua sincronização.
+                if (BuildConfig.DEBUG &&
+                    com.google.firebase.FirebaseApp.getInstance().options.projectId == "demo-atrio-v11") {
+                    android.util.Log.w("AtrioQaProfile", "empty_snapshot_after_profile_loaded")
+                }
             }
         }
         onDispose { registration.remove() }
