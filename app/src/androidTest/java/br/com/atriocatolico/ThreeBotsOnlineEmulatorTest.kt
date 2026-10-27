@@ -2,6 +2,7 @@ package br.com.atriocatolico
 
 import android.content.Context
 import androidx.activity.ComponentActivity
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -9,6 +10,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
@@ -133,7 +135,13 @@ class ThreeBotsOnlineEmulatorTest {
             .performTextInput("Discussão conectada QA ${nonce}")
         compose.onNodeWithTag("atrio-publish-body")
             .performTextInput("Publicação fictícia de QA, criada pela interface online do Átrio.")
-        compose.onNodeWithTag("atrio-publish-submit").performClick()
+        // Os botões ficam abaixo do formulário em uma coluna rolável.
+        // Um toque fora do viewport não comprova envio pela interface.
+        compose.onNodeWithTag("atrio-publish-submit")
+            .performScrollTo()
+            .assertIsDisplayed()
+            .assertIsEnabled()
+            .performClick()
         // O mesmo texto ainda existe no campo de edição enquanto a gravação
         // assíncrona ocorre. Não confundir isso com confirmação do Firestore.
         // A fonte de verdade do teste é uma leitura do SERVIDOR emulado.
@@ -158,7 +166,11 @@ class ThreeBotsOnlineEmulatorTest {
             .performClick()
         compose.onNodeWithTag("atrio-reply-input")
             .performTextInput("Resposta de Miguel pelo app Android conectado.")
-        compose.onNodeWithTag("atrio-reply-submit").performClick()
+        compose.onNodeWithTag("atrio-reply-submit")
+            .performScrollTo()
+            .assertIsDisplayed()
+            .assertIsEnabled()
+            .performClick()
         // A escrita deve ser confirmada no servidor, não apenas no cache
         // local da tela. A resposta também precisa pertencer a Miguel.
         compose.waitUntil(30000) {
