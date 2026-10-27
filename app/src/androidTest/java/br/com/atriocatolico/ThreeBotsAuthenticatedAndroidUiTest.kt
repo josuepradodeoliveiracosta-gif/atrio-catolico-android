@@ -144,10 +144,20 @@ class ThreeBotsAuthenticatedAndroidUiTest {
 
     private fun openDiscussion(postId: String) {
         waitFor("atrio-home-feed")
-        compose.onNodeWithTag("atrio-home-feed", useUnmergedTree = true)
-            .performScrollToNode(hasTestTag("atrio-post-$postId"))
+        // O contêiner aparece antes do snapshot do feed após trocar de conta.
+        // Aguarde a discussão, inclusive quando ela ainda não foi composta
+        // pela LazyColumn. Não use apenas a presença do cabeçalho como prontidão.
+        compose.waitUntil(35_000) {
+            try {
+                compose.onNodeWithTag("atrio-home-feed", useUnmergedTree = true)
+                    .performScrollToNode(hasTestTag("atrio-post-$postId"))
+                true
+            } catch (_: AssertionError) {
+                false
+            }
+        }
         compose.onNodeWithTag("atrio-post-$postId", useUnmergedTree = true)
-            .performClick()
+            .assertIsDisplayed().performClick()
         waitFor("atrio-reply-input")
     }
 
@@ -345,6 +355,8 @@ class ThreeBotsAuthenticatedAndroidUiTest {
         val post = Tasks.await(db.collection("posts").whereEqualTo("title", title)
             .get(Source.SERVER), 6, TimeUnit.SECONDS).documents.single()
         assertEquals(claraUid, post.getString("uid"))
+        // A confirmação do servidor pode chegar antes da navegação da UI.
+        waitFor("atrio-home-feed")
         logoutByTouch()
 
         val luciaUid = register("Lúcia (BOT DE TESTE)", "report_lucia")
