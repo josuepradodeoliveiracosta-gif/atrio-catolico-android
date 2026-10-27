@@ -703,8 +703,12 @@ export default {
         const result=await executeQaCommand(message.body,env,service);
         await auditDelivery(env,'qa_bots',result);
         message.ack();
-      }catch {
-        await auditDelivery(env,'qa_bots','unavailable');
+      }catch (failure) {
+        // Códigos fixos de diagnóstico; nunca registrar conteúdo, UID ou credenciais.
+        const safe=new Set(['qa_firestore_read_failed','qa_profile_conflict',
+          'qa_profile_create_failed','qa_commit_failed']);
+        const code=safe.has(failure?.message)?failure.message:'qa_service_unavailable';
+        await auditDelivery(env,'qa_bots',code);
         message.retry({delaySeconds:30});
       }
     }
