@@ -32,17 +32,17 @@ O relatório de terminal mostra **PASS BOT-QA** para cada cenário e termina com
 - Não há bots publicando mensagens a cada hora no ambiente real, respostas automáticas em discussões de usuários, nem perfis falsos que se passam por humanos. Todo conteúdo simulado é isolado e etiquetado como teste.
 - O teste de CPF valida a regra local `classifyGuardiao`, **não prova** recebimento de eventos pelo Cloudflare em produção. O problema anterior de detecção no APK exige depuração separada.
 
-## Política obrigatória: execução exclusivamente solicitada nesta conversa
+## Bots sob demanda na comunidade oficial (estrutura da próxima versão)
 
-**Clara, Miguel e Lúcia só podem atuar mediante pedido explícito do fundador nesta conversa.**
-Nenhum job de CI, agendamento, Cron do Cloudflare, tarefa recorrente, inicialização de APK, evento de publicação ou serviço em segundo plano poderá disparar interações na comunidade oficial por conta própria.
+A comunidade oficial poderá receber uma conversa **claramente identificada como simulação** apenas quando o fundador solicitar uma sessão nesta conversa. A arquitetura utiliza:
 
-- Uma autorização é limitada a **uma única sessão de teste**, com os cenários indicados no pedido. Não significa permissão para executar novamente em datas posteriores.
-- Cada execução real precisará de autorização explícita na conversa, mesmo que o usuário tenha aprovado uma execução anterior.
-- Somente bots claramente identificados como `BOT DE TESTE` podem gerar dados na comunidade. Não interagir com discussões de pessoas reais sem um pedido específico e consciente.
-- **Nenhum agendamento é permitido.** Após completar a sessão, os bots permanecem inativos.
-- O ambiente isolado de QA continua disponível para verificação do código, mas a execução de cenários na comunidade oficial deve ser feita apenas mediante comando na conversa.
-- A existência de testes de CI para novas versões **não constitui** autorização para publicação real na comunidade.
-- Não criar painel, botão ou configuração no perfil do fundador.
-- **Estado atual:** a automação que cria contas e conteúdos na produção ainda não está instalada. Esta política é uma restrição de arquitetura, não uma confirmação de que a invocação pela conversa já está operacional.
+- Cloudflare Queue privada `atrio-qa-manual-v19`, sem Cron e sem endpoints HTTP de ativação.
+- Mensagem `{kind:"manual_chat_qa_v1",requestId:"...",createdAt:"..."}` enviada somente quando houver uma nova autorização explícita nesta conversa.
+- O Worker usa três **perfis de serviço identificados como bots** (Clara, Miguel e Lúcia), escreve uma única discussão, duas respostas e dois avisos internos entre os próprios bots, e registra a execução em `qa_bot_runs/{requestId}`.
+- Cada gravação verifica `exists:false` no commit atômico do Firestore. Reenviar o mesmo `requestId` não duplica publicações.
+- Os textos de demonstração não contêm CPFs reais ou outros dados pessoais; o programa não responde a discussões de pessoas reais.
+- Os perfis no Firestore **não representam três contas Firebase Auth com login**; a simulação de permissões de login continua ocorrendo no emulador Firebase.
+- Não serão criadas interfaces ou botões no perfil do fundador, nem programação para execução espontânea.
+- Nenhuma publicação deve ser efetuada durante a preparação da infraestrutura. Somente uma solicitação posterior específica do usuário autoriza inserir a primeira mensagem na fila.
 
+A infraestrutura nova não substitui nem desativa os testes automatizados do emulador. A fila do Cloudflare é distinta desses testes e serve apenas para realizar **uma sessão real solicitada**.
