@@ -1,0 +1,104 @@
+name: QA manual do APK oficial (producao)
+
+# NEVER add push, pull_request, schedule or workflow_run to this workflow.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'preflight: conferir apenas; session: publicar 1 topico e 2 respostas pelos bots'
+        required: true
+        type: choice
+        options: [preflight, session]
+        default: preflight
+      apk_run_id:
+        description: 'ID da compilacao aprovada em Gerar APK do Atrio Catolico'
+        required: true
+        type: string
+      apk_sha256:
+        description: 'SHA-256 do app-release.apk escolhido (nao do ZIP)'
+        required: true
+        type: string
+      session_id:
+        description: 'Identificador unico da sessao autorizada: 8-40 letras minusculas, numeros, _ ou -'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: atrio-official-production-ui
+  cancel-in-progress: false
+
+jobs:
+  official-ui:
+    if: github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      APK_RUN_ID: ${{ inputs.apk_run_id }}
+      APK_SHA256: ${{ inputs.apk_sha256 }}
+      QA_SESSION: ${{ inputs.session_id }}
+      QA_MODE: ${{ inputs.mode }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+      - name: Preparar verificadores do APK
+        run: sdkmanager 'build-tools;35.0.0'
+      - name: Baixar somente o release assinado existente
+        uses: actions/download-artifact@v4
+        with:
+          name: atrio-catolico-release-assinado
+          path: official-apk
+          run-id: ${{ inputs.apk_run_id }}
+          github-token: ${{ github.token }}
+      - name: Conferir origem, assinatura, hash e Firebase do APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ATRIO_RELEASE_CERT_SHA256: ${{ vars.ATRIO_RELEASE_CERT_SHA256 }}
+          ATRIO_QA_BOTS_JSON: ${{ secrets.ATRIO_QA_BOTS_JSON }}
+        run: python3 scripts/qa_official/verify_apk.py
+      - name: Conferir logins dos tres UIDs e ausencia de sessao anterior
+        env:
+          QA_MODE: preflight
+          ATRIO_QA_BOTS_JSON: ${{ secrets.ATRIO_QA_BOTS_JSON }}
+        run: python3 scripts/qa_official/run.py
+      - name: Instalar driver de interface
+        if: inputs.mode == 'session'
+        run: python3 -m pip install -r scripts/qa_official/requirements.txt
+      - name: Habilitar KVM na VM efemera
+        if: inputs.mode == 'session'
+        run: |
+          test -c /dev/kvm
+          sudo chmod 666 /dev/kvm
+      - name: Instalar APK inalterado e executar uma sessao pela tela
+        if: inputs.mode == 'session'
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          ATRIO_QA_BOTS_JSON: ${{ secrets.ATRIO_QA_BOTS_JSON }}
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_4
+          disk-size: 2048M
+          ram-size: 2048M
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -accel on -camera-back none
+          script: bash scripts/qa_official/run-device.sh
+      - name: Guardar apenas evidencias sanitizadas
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-official-evidence-${{ github.run_id }}
+          path: qa-official-results/*.json
+          if-no-files-found: warn
+          retention-days: 7
