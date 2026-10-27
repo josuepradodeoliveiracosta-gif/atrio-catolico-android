@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -97,13 +98,13 @@ private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
                 Spacer(Modifier.height(14.dp))
                 if (registering) {
                     OutlinedTextField(displayName, { if (it.length <= 35) displayName = it },
-                        modifier = Modifier.fillMaxWidth(), label = { Text("Nome público") }, singleLine = true)
+                        modifier = Modifier.fillMaxWidth().testTag("atrio-auth-name"), label = { Text("Nome público") }, singleLine = true)
                     Spacer(Modifier.height(10.dp))
                 }
-                OutlinedTextField(email, { email = it.take(150) }, modifier = Modifier.fillMaxWidth(),
+                OutlinedTextField(email, { email = it.take(150) }, modifier = Modifier.fillMaxWidth().testTag("atrio-auth-email"),
                     label = { Text("E-mail") }, singleLine = true)
                 Spacer(Modifier.height(10.dp))
-                OutlinedTextField(password, { password = it.take(128) }, modifier = Modifier.fillMaxWidth(),
+                OutlinedTextField(password, { password = it.take(128) }, modifier = Modifier.fillMaxWidth().testTag("atrio-auth-password"),
                     label = { Text("Senha (mínimo 6 caracteres)") }, singleLine = true,
                     visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation())
                 if (error.isNotBlank()) {
@@ -116,7 +117,7 @@ private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
                 }
                 Spacer(Modifier.height(16.dp))
                 Button(
-                    modifier = Modifier.fillMaxWidth(), enabled = !busy && email.contains('@') &&
+                    modifier = Modifier.fillMaxWidth().testTag("atrio-auth-submit"), enabled = !busy && email.contains('@') &&
                         password.length >= 6 && (!registering || displayName.trim().length in 2..35),
                     onClick = {
                         busy = true; error = ""; resetInfo = ""
@@ -154,7 +155,7 @@ private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
                     }
                 ) { Text(if (busy) "Aguarde..." else if (registering) "Criar conta" else "Entrar") }
                 Spacer(Modifier.height(6.dp))
-                TextButton(onClick = { registering = !registering; error = ""; resetInfo = "" }, modifier = Modifier.fillMaxWidth()) {
+                TextButton(onClick = { registering = !registering; error = ""; resetInfo = "" }, modifier = Modifier.fillMaxWidth().testTag("atrio-auth-toggle")) {
                     Text(if (registering) "Já tenho conta" else "Ainda não tenho conta")
                 }
                 if (!registering) {
@@ -188,8 +189,12 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
     var error by remember(uid) { mutableStateOf("") }
     val context = LocalContext.current
     LaunchedEffect(uid) {
-        PushRegistry.refreshIfEnabled(context, uid, db)
-        BackgroundNoticeScheduler.sync(context, uid)
+        val isolatedQa = BuildConfig.DEBUG &&
+            com.google.firebase.FirebaseApp.getInstance().options.projectId == "demo-atrio-v11"
+        if (!isolatedQa) {
+            PushRegistry.refreshIfEnabled(context, uid, db)
+            BackgroundNoticeScheduler.sync(context, uid)
+        }
     }
     var isAdmin by remember(uid) { mutableStateOf(false) }
     var moderationOpen by remember(uid) { mutableStateOf(false) }
