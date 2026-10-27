@@ -320,4 +320,54 @@ class ThreeBotsAuthenticatedAndroidUiTest {
             }.getOrDefault(false)
         }
     }
+
+    @Test fun luciaDenunciaDiscussaoPelaTelaSemApagarPost() {
+        compose.setContent { OnlineAtrioApp(compose.activity) }
+        val claraUid = register("Clara (BOT DE TESTE)", "report_clara")
+        compose.onNodeWithTag("atrio-tab-publish").performClick()
+        waitFor("atrio-publish-title")
+        val title = "Teste denúncia E2E $session"
+        val originalBody = "Esta é uma discussão fictícia do laboratório de testes."
+        compose.onNodeWithTag("atrio-publish-title").performTextInput(title)
+        compose.onNodeWithTag("atrio-publish-body").performTextInput(originalBody)
+        compose.onNodeWithTag("atrio-publish-submit")
+            .performScrollTo().assertIsEnabled().performClick()
+
+        // A discussão deve estar gravada no servidor emulado; conteúdo no
+        // formulário não é prova de persistência.
+        compose.waitUntil(35_000) {
+            runCatching {
+                Tasks.await(db.collection("posts").whereEqualTo("title", title)
+                    .get(Source.SERVER), 4, TimeUnit.SECONDS).size() == 1
+            }.getOrDefault(false)
+        }
+        val post = Tasks.await(db.collection("posts").whereEqualTo("title", title)
+            .get(Source.SERVER), 6, TimeUnit.SECONDS).documents.single()
+        assertEquals(claraUid, post.getString("uid"))
+        logoutByTouch()
+
+        val luciaUid = register("Lúcia (BOT DE TESTE)", "report_lucia")
+        openDiscussion(post.id)
+        // Garantir que o botão está no viewport antes de efetuar o toque.
+        compose.onNodeWithTag("atrio-detail-report-post")
+            .performScrollTo().assertIsDisplayed().performClick()
+        waitFor("atrio-report-post-reason")
+        compose.onNodeWithTag("atrio-report-post-reason")
+            .performTextInput("Simulação autorizada de denúncia, sem conteúdo ofensivo.")
+        compose.onNodeWithTag("atrio-report-post-submit")
+            .assertIsEnabled().performClick()
+
+        // A mensagem é exibida somente após o Firestore confirmar a escrita.
+        compose.waitUntil(35_000) {
+            compose.onAllNodesWithText(
+                "Denúncia enviada para análise da moderação.", substring = true
+            ).fetchSemanticsNodes().isNotEmpty()
+        }
+        assertEquals(luciaUid, auth.currentUser?.uid)
+        val unchanged = Tasks.await(db.collection("posts").document(post.id)
+            .get(Source.SERVER), 8, TimeUnit.SECONDS)
+        assertTrue("Uma denúncia de teste não pode excluir o post", unchanged.exists())
+        assertEquals(originalBody, unchanged.getString("body"))
+        assertEquals(claraUid, unchanged.getString("uid"))
+    }
 }
