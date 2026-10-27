@@ -72,7 +72,7 @@ async function createProfile(token,bot,now){
     const conflict=await getDocument(token,'profiles/'+bot.uid);
     if(conflict?.fields?.displayName?.stringValue===bot.name)return;
   }
-  if(!res.ok)throw Error('qa_profile_create_failed');
+  if(!res.ok)throw Error('qa_profile_http_'+String(res.status));
 }
 export function validQaCommand(command,now=Date.now()){
   return command && typeof command==='object'&&!Array.isArray(command) &&
