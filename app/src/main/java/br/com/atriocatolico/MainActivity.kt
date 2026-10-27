@@ -671,7 +671,10 @@ internal fun DetailScreen(
             modifier = Modifier.align(Alignment.End).testTag("atrio-reply-submit")
         ) { Text(if (sendingReply) "Enviando..." else "Enviar resposta") }
         if (onReport != null) {
-            TextButton(onClick = onReport, modifier = Modifier.align(Alignment.End)) { Text("Denunciar discussão") }
+            TextButton(onClick = onReport,
+                modifier = Modifier.align(Alignment.End).testTag("atrio-detail-report-post")) {
+                Text("Denunciar discussão")
+            }
         }
         Spacer(Modifier.height(25.dp))
     }
