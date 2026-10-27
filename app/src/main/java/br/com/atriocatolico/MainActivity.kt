@@ -339,7 +339,7 @@ internal fun AtrioTopBar(
             }
             Spacer(Modifier.weight(1f))
             IconButton(onClick = onSearch, modifier = Modifier.testTag("atrio-top-search")) { Icon(Icons.Outlined.Search, "Buscar", tint = Wine) }
-            IconButton(onClick = onNotification) {
+            IconButton(onClick = onNotification, modifier = Modifier.testTag("atrio-top-notifications")) {
                 BadgedBox(badge = {
                     if (unreadCount > 0) Badge {
                         Text(if (unreadCount > 99) "99+" else unreadCount.toString())
