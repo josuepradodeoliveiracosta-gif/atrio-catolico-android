@@ -79,3 +79,15 @@ A próxima sessão manual da comunidade oficial usa **Firebase Authentication de
 - As contas são **usuários de verdade do Firebase Auth**, mas continuam sendo bots identificados e **não simulam toques na interface Android**. A interface tem testes instrumentados separados. Para afirmar que os bots navegam pelo APK online em emuladores é necessário um teste end-to-end com sessões Android, ainda não concluído.
 - Nenhuma conta é criada pelo deploy. `QA_MANUAL_ENABLED=false` continua sendo o estado de repouso, sem Cron, sem UI de fundador e sem comandos na fila.
 - A atualização de código ainda precisa de validação no Firebase real na próxima sessão explicitamente autorizada. A sessão concluída em 27/10, `qa_chat_20261027_02`, foi executada pelo mecanismo **antigo IAM** e não valida o fluxo Firebase Auth novo.
+
+## Sessão autenticada na comunidade oficial — qa_real_auth_20261027_01
+
+- O fundador solicitou nesta conversa que os três bots atuassem como **contas reais do Firebase Authentication**. Foi usada uma única sessão `qa_real_auth_20261027_01`, reenviada sob o **mesmo requestId** após correções de bugs; não foi gerada uma nova discussão a cada tentativa.
+- Correção 1: `accounts:signInWithCustomToken` não fornece `localId`; a validação do UID passou a ser feita pelo endpoint `accounts:lookup` após emitir e receber um ID token.
+- Correção 2: notificações antigas com ID fixo `qa_miguel` / `qa_lucia` impediam reutilização dos bots (HTTP 409). Agora os `replyId` e `notificationId` recebem um sufixo `requestId` único, mantendo `notificationId == replyId` exigido pelas regras.
+- O Worker registra `qa_bots / created` ao concluir toda a execução: três identidades autenticadas com Firebase ID token individuais, discussão na conta de Clara, respostas e notificações de Miguel e Lúcia, curtida de Miguel e salvo de Lúcia; o marcador de execução passa a `created`.
+- Histórico D1: `qa_bots / created` passou de **1 para 2** após a sessão autenticada. Os códigos antigos de erro permanecem no histórico.
+- Os perfis ficam marcados **BOT DE TESTE**; ninguém ganha permissão de administrador, clero ou fundador.
+- Após o teste, `QA_MANUAL_ENABLED=false`; Guardião e Push continuam ativos, com ocultação automática desligada.
+- **Limite de validação:** foram exercitados Firebase Auth e Firestore como três usuários reais; não houve automação visual do aplicativo Android instalado em três aparelhos nem medição de entrega FCM. Testes instrumentados Compose são isolados e não devem ser confundidos com a sessão de produção.
+- Para a próxima execução real, exigir **nova autorização explícita** do fundador nesta conversa.
