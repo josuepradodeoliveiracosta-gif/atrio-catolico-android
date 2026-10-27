@@ -53,7 +53,7 @@ internal fun OnlineProfileScreen(
         val founderCanBroadcast = onModeration != null && onClergyReview != null &&
             LocalFounderUid.current.isNotBlank() && LocalFounderUid.current == uid
         val mine = posts.filter { it.mine }
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
+        LazyColumn(Modifier.fillMaxSize().testTag("atrio-profile-list"), contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item {
                 Card(colors = CardDefaults.cardColors(containerColor = Color.White),
