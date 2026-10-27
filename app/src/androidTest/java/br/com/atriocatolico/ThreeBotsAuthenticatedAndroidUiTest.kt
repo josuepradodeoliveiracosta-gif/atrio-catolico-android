@@ -256,5 +256,68 @@ class ThreeBotsAuthenticatedAndroidUiTest {
         }
         compose.onNodeWithTag("atrio-top-notifications").performClick()
         compose.onNodeWithText("Notificações", substring = true).assertIsDisplayed()
+        // A central precisa marcar os DOIS avisos depois de um toque visível,
+        // não basta gravar as respostas no Firestore.
+        compose.waitUntil(30_000) {
+            runCatching {
+                compose.onNodeWithText("Marcar todas as carregadas como lidas")
+                    .assertIsEnabled()
+                true
+            }.getOrDefault(false)
+        }
+        compose.onNodeWithText("Marcar todas as carregadas como lidas")
+            .performClick()
+        compose.waitUntil(30_000) {
+            runCatching {
+                val events = Tasks.await(db.collection("users").document(claraUid)
+                    .collection("notifications").get(Source.SERVER),
+                    4, TimeUnit.SECONDS)
+                events.size() == 2 && events.documents.all { it.getBoolean("read") == true }
+            }.getOrDefault(false)
+        }
+    }
+
+    @Test fun claraEditaPerfilESelecionaSeloLeigaPelaTela() {
+        compose.setContent { OnlineAtrioApp(compose.activity) }
+        val claraUid = register("Clara (BOT DE TESTE)", "profile_clara")
+
+        compose.onNodeWithTag("atrio-tab-profile").performClick()
+        waitFor("atrio-profile-list")
+        compose.onNodeWithTag("atrio-profile-list", useUnmergedTree = true)
+            .performScrollToNode(hasTestTag("atrio-profile-edit"))
+        compose.onNodeWithTag("atrio-profile-edit")
+            .assertIsDisplayed().performClick()
+
+        waitFor("atrio-profile-bio")
+        compose.onNodeWithTag("atrio-profile-bio")
+            .performTextInput("Perfil sintético para teste de apresentação no Átrio.")
+        compose.onNodeWithTag("atrio-profile-save")
+            .assertIsEnabled().performClick()
+
+        // O toque do botão Salvar precisa gerar alteração durável no servidor.
+        compose.waitUntil(35_000) {
+            runCatching {
+                val doc = Tasks.await(
+                    db.collection("profiles").document(claraUid).get(Source.SERVER),
+                    4, TimeUnit.SECONDS)
+                doc.getString("bio") == "Perfil sintético para teste de apresentação no Átrio."
+            }.getOrDefault(false)
+        }
+        compose.onNodeWithTag("atrio-profile-list", useUnmergedTree = true)
+            .performScrollToNode(hasTestTag("atrio-profile-badges"))
+        compose.onNodeWithTag("atrio-profile-badges")
+            .assertIsDisplayed().performClick()
+
+        waitFor("atrio-badge-lay-leiga")
+        compose.onNodeWithTag("atrio-badge-lay-leiga")
+            .assertIsEnabled().performClick()
+        compose.waitUntil(35_000) {
+            runCatching {
+                val badge = Tasks.await(
+                    db.collection("badges").document(claraUid).get(Source.SERVER),
+                    4, TimeUnit.SECONDS)
+                badge.getString("lay") == "leiga"
+            }.getOrDefault(false)
+        }
     }
 }
