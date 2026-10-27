@@ -5,6 +5,8 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
@@ -70,6 +72,8 @@ class ThreeBotsAndroidUiTest {
         compose.onNodeWithTag("atrio-publish-body")
             .performTextInput("Discussão fictícia criada em um emulador Android.")
         compose.onNodeWithTag("atrio-publish-submit").assertIsEnabled().performClick()
+        compose.onNodeWithTag("atrio-home-feed")
+            .performScrollToNode(hasText("Teste Android da comunidade"))
         compose.onNodeWithText("Teste Android da comunidade").assertIsDisplayed()
 
         compose.onAllNodesWithContentDescription("Salvar").onFirst().performClick()
