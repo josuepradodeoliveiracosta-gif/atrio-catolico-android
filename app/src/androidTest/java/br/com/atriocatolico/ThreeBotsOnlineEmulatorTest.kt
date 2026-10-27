@@ -113,6 +113,21 @@ class ThreeBotsOnlineEmulatorTest {
         // Clara entra pelo formulário real do Átrio e publica tocando na tela.
         enter(claraEmail,"Clara")
         val claraId=requireNotNull(auth.currentUser?.uid)
+        // Controle: comprova que a mesma conta pode gravar um POST válido
+        // diretamente nas regras Firestore do laboratório. Se falhar, a
+        // causa é Auth/regras e NÃO o toque Compose.
+        val control = db.collection("posts").document("qa_control_${nonce}")
+        Tasks.await(control.set(mapOf(
+            "uid" to claraId,
+            "authorName" to "Clara BOT DE TESTE",
+            "title" to "Controle de escrita Firebase emulado",
+            "body" to "Diagnóstico de permissão para publicar sem depender da interface.",
+            "category" to "Vida espiritual",
+            "createdAt" to FieldValue.serverTimestamp(),
+        )),20,TimeUnit.SECONDS)
+        val controlDoc = Tasks.await(control.get(Source.SERVER),10,TimeUnit.SECONDS)
+        assertTrue("Firebase emulado recusou o post de controle",controlDoc.exists())
+        Tasks.await(control.delete(),10,TimeUnit.SECONDS)
         compose.onNodeWithTag("atrio-tab-publish").performClick()
         compose.onNodeWithTag("atrio-publish-title")
             .performTextInput("Discussão conectada QA ${nonce}")
