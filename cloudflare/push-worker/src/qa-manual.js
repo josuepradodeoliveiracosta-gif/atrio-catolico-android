@@ -1,7 +1,8 @@
 // QA sob demanda: acionado exclusivamente pela fila Cloudflare privada.
 // Não há endpoint público, cron ou interação com publicações de membros.
 const PROJECT = 'atrio-catolico';
-const ROOT = 'https://firestore.googleapis.com/v1/projects/'+PROJECT+'/databases/(default)/documents';
+const DOC = 'projects/'+PROJECT+'/databases/(default)/documents';
+const ROOT = 'https://firestore.googleapis.com/v1/'+DOC;
 export const QA_BOTS = Object.freeze([
   {uid:'qa_clara_v19',name:'Clara (BOT DE TESTE)'},
   {uid:'qa_miguel_v19',name:'Miguel (BOT DE TESTE)'},
@@ -23,16 +24,16 @@ export function planQaSession(requestId,now=new Date()) {
   const idx=[...requestId].reduce((s,x)=>s+x.charCodeAt(0),0)%topic.length;
   const [title,body]=topic[idx];
   const postId='qa_'+requestId;
-  const base=ROOT+'/posts/'+postId;
+  const base=DOC+'/posts/'+postId;
   const reply=(id,bot,text)=>doc(base+'/replies/'+id,{
     uid:str(bot.uid),authorName:str(bot.name),body:str(marker+text),createdAt:timestamp(when),
   });
-  const notice=(id,bot)=>doc(ROOT+'/users/'+clara.uid+'/notifications/'+id,{
+  const notice=(id,bot)=>doc(DOC+'/users/'+clara.uid+'/notifications/'+id,{
     postId:str(postId),replyId:str(id),actorUid:str(bot.uid),
     actorName:str(bot.name),read:{booleanValue:false},createdAt:timestamp(when),
   });
   const writes=[
-    doc(ROOT+'/qa_bot_runs/'+requestId,{
+    doc(DOC+'/qa_bot_runs/'+requestId,{
       status:str('created'),postId:str(postId),createdAt:timestamp(when),
       kind:str('on_demand_chat_qa'),
     }),
