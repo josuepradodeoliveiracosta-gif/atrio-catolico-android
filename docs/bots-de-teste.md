@@ -91,3 +91,15 @@ A próxima sessão manual da comunidade oficial usa **Firebase Authentication de
 - Após o teste, `QA_MANUAL_ENABLED=false`; Guardião e Push continuam ativos, com ocultação automática desligada.
 - **Limite de validação:** foram exercitados Firebase Auth e Firestore como três usuários reais; não houve automação visual do aplicativo Android instalado em três aparelhos nem medição de entrega FCM. Testes instrumentados Compose são isolados e não devem ser confundidos com a sessão de produção.
 - Para a próxima execução real, exigir **nova autorização explícita** do fundador nesta conversa.
+
+
+## Política atual de disponibilidade — alteração solicitada em 27/10/2026
+
+Por solicitação explícita do fundador, **não é mais necessário desligar os bots após cada sessão**. Em produção, `QA_MANUAL_ENABLED=true` indica que o consumidor privado da fila está pronto para receber um comando; **não autoriza execuções espontâneas**. Continuam proibidos disparadores Cron, agendamentos, respostas automáticas fora de escopo e telas de controle no perfil fundador.
+
+- O disparo de cada sessão exige **pedido explícito do fundador nesta conversa**, traduzido manualmente em mensagem pontual na Cloudflare Queue `atrio-qa-manual-v19`. O Worker não escuta a conversa sozinho.
+- Cada comando contém `kind=manual_chat_qa_v1`, `requestId` exclusivo e `createdAt` recente. O backend valida formato e frescor, registra execução e impede reaproveitamento que duplique discussões.
+- Ao finalizar, a flag `QA_MANUAL_ENABLED` **permanece verdadeira**. Isso significa apenas disponibilidade contínua; fila vazia = sem ações. A autorização nunca é permanente para publicar.
+- Desabilitar a flag novamente somente por solicitação, necessidade de manutenção, falha de segurança ou risco de abuso.
+- Esta mudança **não** ativa testes visuais Android, distribuição de APK nem Push em dispositivos; a automação de tela e o uso real de três celulares permanecem limitados às verificações próprias.
+- Validação realizada: Cloudflare `QA_MANUAL_ENABLED=true`, sem Cron, fila vazia, `GUARDIAO_ENABLED=true`, `PUSH_ENABLED=true` e `GUARDIAO_AUTOHIDE_ENABLED=false`.
