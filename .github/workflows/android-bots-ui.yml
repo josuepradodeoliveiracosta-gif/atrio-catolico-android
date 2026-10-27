@@ -69,6 +69,10 @@ jobs:
           api-level: 35
           arch: x86_64
           profile: pixel_4
+          # O AVD padrão exige >7 GB só para userdata no runner.
+          # 2 GB comporta o APK debug e os emuladores locais de QA.
+          disk-size: 2048M
+          ram-size: 2048M
           target: google_apis
           disable-animations: true
           emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -accel on -camera-back none
