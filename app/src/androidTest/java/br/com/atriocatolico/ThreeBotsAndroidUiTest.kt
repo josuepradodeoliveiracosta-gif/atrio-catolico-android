@@ -72,7 +72,16 @@ class ThreeBotsAndroidUiTest {
         compose.onNodeWithTag("atrio-publish-body")
             .performTextInput("Discussão fictícia criada em um emulador Android.")
         compose.onNodeWithTag("atrio-publish-submit").assertIsEnabled().performClick()
-        compose.onNodeWithTag("atrio-home-feed")
+        compose.waitForIdle()
+        // Confirme primeiro a gravação da publicação, sem depender da posição
+        // inicial do feed ou de qualquer animação de navegação.
+        org.junit.Assert.assertTrue(
+            "Discussão não foi persistida na demonstração",
+            prefs.getString("posts", "").orEmpty().contains("Teste Android da comunidade")
+        )
+        // Uma navegação real por toque valida a leitura da publicação.
+        compose.onNodeWithTag("atrio-tab-home").performClick()
+        compose.onNodeWithTag("atrio-home-feed", useUnmergedTree = true)
             .performScrollToNode(hasText("Teste Android da comunidade"))
         compose.onNodeWithText("Teste Android da comunidade").assertIsDisplayed()
 
