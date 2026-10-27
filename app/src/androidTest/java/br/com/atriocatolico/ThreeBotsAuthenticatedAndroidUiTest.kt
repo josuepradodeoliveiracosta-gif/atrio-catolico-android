@@ -171,11 +171,18 @@ class ThreeBotsAuthenticatedAndroidUiTest {
         val postId = posts.documents.single { it.getString("title") == title }.id
         try {
             waitFor("atrio-home-feed", 12_000)
-        } catch (cause: Exception) {
-            val semantics = compose.onRoot(useUnmergedTree = true).printToString()
+        } catch (cause: Throwable) {
+            // ComposeTimeoutException herda de AssertionError, NÃO de Exception.
+            // Registrar a árvore sem e-mails/senhas e sem confundir falha da UI
+            // com falha da transação já confirmada no Firestore.
+            val semantics = runCatching {
+                compose.onRoot(useUnmergedTree = true).printToString()
+            }.getOrDefault("Sem arvore Compose acessivel")
+            android.util.Log.e("AtrioQaNavigation",
+                "feed_missing_after_commit; ui=" + semantics.take(10500))
             throw AssertionError(
-                "A discussão foi salva no Firestore após o toque, mas o feed não apareceu. " +
-                    "Estado de UI: " + semantics.take(5500),cause
+                "A publicação foi salva no Firestore, mas o retorno ao feed falhou. " +
+                    "Árvore Compose: " + semantics.take(10500),cause
             )
         }
 
