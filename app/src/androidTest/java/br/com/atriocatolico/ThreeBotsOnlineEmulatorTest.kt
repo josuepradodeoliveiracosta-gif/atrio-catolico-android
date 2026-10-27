@@ -138,13 +138,18 @@ class ThreeBotsOnlineEmulatorTest {
         compose.onNodeWithTag("atrio-reply-input")
             .performTextInput("Resposta de Miguel pelo app Android conectado.")
         compose.onNodeWithTag("atrio-reply-submit").performClick()
+        // A escrita deve ser confirmada no servidor, não apenas no cache
+        // local da tela. A resposta também precisa pertencer a Miguel.
         compose.waitUntil(30000) {
             val replies=Tasks.await(db.collection("posts").document(postId)
                 .collection("replies").get(Source.SERVER),20,TimeUnit.SECONDS)
             replies.documents.any {
-                it.getString("body")=="Resposta de Miguel pelo app Android conectado."
+                it.getString("body")=="Resposta de Miguel pelo app Android conectado." &&
+                    it.getString("uid")==auth.currentUser?.uid
             }
         }
+        assertTrue("A resposta foi publicada fora da conta de Miguel",
+            auth.currentUser?.uid!=claraId)
         // Miguel não pode ler as notificações privadas de Clara. A leitura
         // será feita após reautenticar como destinatária, no final da sessão.
         leave()
@@ -170,11 +175,19 @@ class ThreeBotsOnlineEmulatorTest {
         enter(claraEmail,"Clara")
         assertEquals("A sessão de Clara deve ser restaurada corretamente",
             claraId,auth.currentUser?.uid)
+        // Espera a sincronização da sessão do Auth + aviso do Firestore.
+        // Não considerar um snapshot inicial vazio como prova de falha.
+        // Se permanecer vazio, informar também o dono e o autor canônicos,
+        // sem expor credenciais nem qualquer conteúdo de usuários reais.
+        compose.waitUntil(30000) {
+            val result=Tasks.await(db.collection("users").document(claraId)
+                .collection("notifications").get(Source.SERVER),20,TimeUnit.SECONDS)
+            result.documents.any { it.getString("postId")==postId }
+        }
         val notice=Tasks.await(db.collection("users").document(claraId)
             .collection("notifications").get(Source.SERVER),25,TimeUnit.SECONDS)
         assertEquals(
             "Miguel publicou a resposta, mas a notificação de Clara não foi persistida.",
-            1,notice.size())
-        assertTrue(notice.documents.any { it.getString("postId")==postId })
+            1,notice.documents.count { it.getString("postId")==postId })
     }
 }
