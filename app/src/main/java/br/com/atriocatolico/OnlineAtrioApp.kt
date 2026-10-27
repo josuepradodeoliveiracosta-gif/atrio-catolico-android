@@ -448,7 +448,15 @@ private fun OnlineCommunity(
         request.addOnFailureListener { message = it.localizedMessage ?: "Não foi possível atualizar." }
     }
     fun publish(title: String, body: String, category: String) {
-        if (working) return
+        // Diagnóstico somente no laboratório Android com Firebase emulado:
+        // não registrar conteúdo de publicação nem dados pessoais.
+        val qaLab = BuildConfig.DEBUG &&
+            com.google.firebase.FirebaseApp.getInstance().options.projectId == "demo-atrio-v11"
+        if (working) {
+            if (qaLab) android.util.Log.d("AtrioQaPublish", "ignored_busy")
+            return
+        }
+        if (qaLab) android.util.Log.d("AtrioQaPublish", "submit_dispatched")
         working = true
         db.collection("posts").add(mapOf(
             "uid" to uid, "authorName" to name, "title" to title,
@@ -456,6 +464,10 @@ private fun OnlineCommunity(
             "createdAt" to FieldValue.serverTimestamp()
         )).addOnCompleteListener { result ->
             working = false
+            if (qaLab) android.util.Log.d("AtrioQaPublish",
+                if (result.isSuccessful) "commit_ok" else "commit_failed_" +
+                    ((result.exception as? com.google.firebase.firestore.FirebaseFirestoreException)
+                        ?.code?.name ?: result.exception?.javaClass?.simpleName ?: "unknown"))
             if (result.isSuccessful) {
                 result.result?.id?.let {
                     ThreadPushSubscriptions.track(context, uid, it)
