@@ -6,6 +6,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -86,7 +87,7 @@ class ThreeBotsAuthenticatedAndroidUiTest {
         compose.onNodeWithTag("atrio-auth-email")
             .performTextInput("$prefix.$session@qa.invalid")
         compose.onNodeWithTag("atrio-auth-password").performTextInput(password)
-        compose.onNodeWithTag("atrio-auth-submit").performClick()
+        compose.onNodeWithTag("atrio-auth-submit").performScrollTo().performClick()
         waitFor("atrio-tab-publish", 45_000)
         val uid = auth.currentUser?.uid ?: error("Login Firebase não criou usuário")
         assertTrue("Conta Firebase criada fora do emulador", uid.isNotBlank())
@@ -107,7 +108,7 @@ class ThreeBotsAuthenticatedAndroidUiTest {
         compose.onNodeWithTag("atrio-auth-email")
             .performTextInput("$prefix.$session@qa.invalid")
         compose.onNodeWithTag("atrio-auth-password").performTextInput(password)
-        compose.onNodeWithTag("atrio-auth-submit").performClick()
+        compose.onNodeWithTag("atrio-auth-submit").performScrollTo().performClick()
         waitFor("atrio-tab-publish", 45_000)
     }
 
@@ -163,7 +164,7 @@ class ThreeBotsAuthenticatedAndroidUiTest {
             }.getOrDefault(false)
         }
         // Regressa ao feed após responder para testar logout pelos controles.
-        compose.onNodeWithText("Voltar", useUnmergedTree = true)
+        compose.onNodeWithContentDescription("Voltar")
             .performClick()
         logoutByTouch()
 
@@ -178,7 +179,7 @@ class ThreeBotsAuthenticatedAndroidUiTest {
                     .get(Source.SERVER), 4, TimeUnit.SECONDS).size() == 1
             }.getOrDefault(false)
         }
-        compose.onNodeWithText("Voltar", useUnmergedTree = true)
+        compose.onNodeWithContentDescription("Voltar")
             .performClick()
         logoutByTouch()
 
