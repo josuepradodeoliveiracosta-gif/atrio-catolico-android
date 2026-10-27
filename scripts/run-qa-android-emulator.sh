@@ -47,4 +47,26 @@ if [[ "$ready" -ne 1 ]]; then
 fi
 cd ../..
 echo "Iniciando toques e login reais pelo Compose em emulador Android"
-gradle :app:connectedDebugAndroidTest --no-daemon --stacktrace
+
+# A suíte de login Android precisa de um processo Firebase/Auth limpo entre
+# cenários. Não reutilizar listeners e credenciais em testes E2E separados:
+# uma troca de conta ainda em trânsito pode deixar avisos invisíveis.
+# Cada invocation cria um AndroidJUnitRunner novo no MESMO emulador local.
+mkdir -p qa-android-suite-results
+run_suite() {
+  local suite="$1"
+  local full="br.com.atriocatolico.$suite"
+  echo "QA Android: iniciando $suite (isolado)"
+  gradle :app:connectedDebugAndroidTest \
+    "-Pandroid.testInstrumentationRunnerArguments.class=$full" \
+    --no-daemon --stacktrace
+  if [[ -d app/build/outputs/androidTest-results/connected/debug ]]; then
+    mkdir -p "qa-android-suite-results/$suite"
+    cp -a app/build/outputs/androidTest-results/connected/debug/. \
+      "qa-android-suite-results/$suite/"
+  fi
+}
+run_suite ThreeBotsAndroidUiTest
+run_suite ThreeBotsAuthenticatedAndroidUiTest
+run_suite ThreeBotsOnlineEmulatorTest
+echo "QA Android: três suítes concluídas com êxito em processos separados"
