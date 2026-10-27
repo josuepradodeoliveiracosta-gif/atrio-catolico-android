@@ -1,3 +1,4 @@
+import {executeQaCommand} from './qa-manual.js';
 // Emissor FCM para Cloudflare Workers Free. Credenciais SOMENTE em Worker Secrets.
 // Recebe eventos autenticados pelo Firebase, confere documentos no Firestore,
 // limita destinatários e evita reenvios com Cloudflare D1.
@@ -689,6 +690,25 @@ export async function handleGuardiaoReview(request,env) {
 
 
 export default {
+  async queue(batch,env) {
+    // A fila não tem produtor HTTP público nem agendamento.
+    // Uma mensagem = uma sessão autorizada explicitamente pelo chat.
+    for(const message of batch.messages) {
+      try {
+        if(env.QA_MANUAL_ENABLED!=='true') {
+          message.ack();
+          continue;
+        }
+        const service=await oauth(env);
+        const result=await executeQaCommand(message.body,env,service);
+        await auditDelivery(env,'qa_bots',result);
+        message.ack();
+      }catch {
+        await auditDelivery(env,'qa_bots','unavailable');
+        message.retry({delaySeconds:30});
+      }
+    }
+  },
   async fetch(request, env) {
     const configured = !!(env.PUSH_DB && env.FIREBASE_WEB_API_KEY && env.FIREBASE_SERVICE_ACCOUNT_JSON);
     if(request.method==='GET' && new URL(request.url).pathname==='/health')
