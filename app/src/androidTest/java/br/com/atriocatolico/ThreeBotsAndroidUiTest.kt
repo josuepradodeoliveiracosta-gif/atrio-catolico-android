@@ -6,6 +6,7 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -91,7 +92,7 @@ class ThreeBotsAndroidUiTest {
         compose.setContent { AtrioDemoApp(prefs) }
 
         compose.onNodeWithTag("atrio-home-feed", useUnmergedTree = true)
-            .performScrollToNode(hasText("Qual é a diferença entre veneração e adoração?"))
+            .performScrollToNode(hasTestTag("atrio-post-1"))
         // Alvo estável por ID do post: nunca tocar no primeiro ícone genérico
         // que a LazyColumn tenha carregado durante uma rolagem.
         compose.onNodeWithTag("atrio-save-1",useUnmergedTree = true).performClick()
