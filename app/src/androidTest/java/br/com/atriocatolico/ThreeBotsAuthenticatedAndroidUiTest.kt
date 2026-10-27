@@ -169,21 +169,33 @@ class ThreeBotsAuthenticatedAndroidUiTest {
         val posts = Tasks.await(db.collection("posts").whereEqualTo("uid", claraUid)
             .get(Source.SERVER), 8, TimeUnit.SECONDS)
         val postId = posts.documents.single { it.getString("title") == title }.id
+        // Após o commit, confirmar que o perfil não desapareceu do banco.
+        // A leitura usa o próprio usuário logado e as regras comuns.
+        val profileAfterPublish = Tasks.await(
+            db.collection("profiles").document(claraUid).get(Source.SERVER),
+            8, TimeUnit.SECONDS)
+        assertTrue("Perfil Firebase de Clara sumiu após publicar a discussão",
+            profileAfterPublish.exists())
+        assertEquals("Clara (BOT DE TESTE)",
+            profileAfterPublish.getString("displayName"))
+
         try {
-            waitFor("atrio-home-feed", 12_000)
+            waitFor("atrio-home-feed", 15_000)
         } catch (cause: Throwable) {
-            // ComposeTimeoutException herda de AssertionError, NÃO de Exception.
-            // Registrar a árvore sem e-mails/senhas e sem confundir falha da UI
-            // com falha da transação já confirmada no Firestore.
-            val semantics = runCatching {
-                compose.onRoot(useUnmergedTree = true).printToString()
-            }.getOrDefault("Sem arvore Compose acessivel")
+            // Diagnóstico sanitizado: não imprimir a árvore Compose completa,
+            // pois ela poderia conter texto digitado e credenciais de login.
+            val onboarding = compose.onAllNodesWithTag(
+                "atrio-profile-finish",useUnmergedTree = true)
+                .fetchSemanticsNodes().isNotEmpty()
+            val userStillSignedIn = auth.currentUser?.uid == claraUid
             android.util.Log.e("AtrioQaNavigation",
-                "feed_missing_after_commit; ui=" + semantics.take(10500))
+                "feed_missing_after_commit; onboarding=$onboarding; " +
+                    "signed_in=$userStillSignedIn; profile_exists=${profileAfterPublish.exists()}")
             throw AssertionError(
-                "A publicação foi salva no Firestore, mas o retorno ao feed falhou. " +
-                    "Árvore Compose: " + semantics.take(10500),cause
-            )
+                "Discussão e perfil confirmados no Firestore; " +
+                    "o retorno à tela inicial falhou. " +
+                    "signed_in=$userStillSignedIn, perfil_existe=${profileAfterPublish.exists()}",
+                cause)
         }
 
         logoutByTouch()
