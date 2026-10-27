@@ -474,12 +474,15 @@ private fun OnlineCommunity(
                     ((result.exception as? com.google.firebase.firestore.FirebaseFirestoreException)
                         ?.code?.name ?: result.exception?.javaClass?.simpleName ?: "unknown"))
             if (result.isSuccessful) {
-                result.result?.id?.let {
+                // O retorno à interface não deve depender de FCM/Push.
+                // Em especial, nenhum serviço externo pode travar a navegação
+                // depois de a publicação já ter sido aceita pelo Firestore.
+                navigate(Tab.HOME)
+                Toast.makeText(context, "Discussão publicada!", Toast.LENGTH_SHORT).show()
+                if (!qaLab) result.result?.id?.let {
                     ThreadPushSubscriptions.track(context, uid, it)
                     InstantPushRelay.moderatePost(it)
                 }
-                navigate(Tab.HOME)
-                Toast.makeText(context, "Discussão publicada!", Toast.LENGTH_SHORT).show()
             } else message = result.exception?.localizedMessage ?: "Não foi possível publicar."
         }
     }
@@ -523,15 +526,20 @@ private fun OnlineCommunity(
                 }
                 // Resposta e notificação continuam atômicas.
                 batch.commit().addOnCompleteListener { result ->
-                    if (result.isSuccessful) {
-                        ThreadPushSubscriptions.track(context, uid, id)
-                        InstantPushRelay.reply(id, replyRef.id)
-                        InstantPushRelay.moderateReply(id, replyRef.id)
-                    } else {
+                    // Confirmar imediatamente o resultado para a interface.
+                    // Inscrições FCM e relay não devem bloquear o botão Responder.
+                    if (!result.isSuccessful) {
                         message = result.exception?.localizedMessage ?:
                             "Não foi possível responder. Confira as regras."
                     }
                     done(result.isSuccessful)
+                    val qaLab = BuildConfig.DEBUG &&
+                        com.google.firebase.FirebaseApp.getInstance().options.projectId == "demo-atrio-v11"
+                    if (result.isSuccessful && !qaLab) {
+                        ThreadPushSubscriptions.track(context, uid, id)
+                        InstantPushRelay.reply(id, replyRef.id)
+                        InstantPushRelay.moderateReply(id, replyRef.id)
+                    }
                 }
             }
     }
