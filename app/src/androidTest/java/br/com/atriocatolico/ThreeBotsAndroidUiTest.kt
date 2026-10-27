@@ -7,8 +7,6 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.performScrollToNode
-import androidx.compose.ui.test.onAllNodesWithContentDescription
-import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -94,9 +92,16 @@ class ThreeBotsAndroidUiTest {
 
         compose.onNodeWithTag("atrio-home-feed", useUnmergedTree = true)
             .performScrollToNode(hasText("Qual é a diferença entre veneração e adoração?"))
-        compose.onAllNodesWithContentDescription("Salvar").onFirst().performClick()
+        // Alvo estável por ID do post: nunca tocar no primeiro ícone genérico
+        // que a LazyColumn tenha carregado durante uma rolagem.
+        compose.onNodeWithTag("atrio-save-1",useUnmergedTree = true).performClick()
         compose.onNodeWithTag("atrio-tab-saved").performClick()
         compose.onNodeWithText("Publicações salvas").assertIsDisplayed()
-        compose.onNodeWithText("Qual é a diferença entre veneração e adoração?").assertIsDisplayed()
+        // A LazyColumn pode compor o item sem ele estar na área visível;
+        // exigir visibilidade somente depois de rolar até o item correto.
+        compose.onNodeWithTag("atrio-saved-list",useUnmergedTree = true)
+            .performScrollToNode(hasText("Qual é a diferença entre veneração e adoração?"))
+        compose.onNodeWithText("Qual é a diferença entre veneração e adoração?")
+            .assertIsDisplayed()
     }
 }
