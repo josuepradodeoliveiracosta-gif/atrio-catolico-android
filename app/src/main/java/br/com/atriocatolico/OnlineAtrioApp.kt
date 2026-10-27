@@ -456,7 +456,7 @@ private fun OnlineCommunity(
             com.google.firebase.FirebaseApp.getInstance().options.projectId == "demo-atrio-v11") {
             android.util.Log.d("AtrioQaNavigation",
                 "visible_tab=${tab.name}_detail=${detailId != null}_notices=$noticesOpen" +
-                    "_badges=$noticeBadgesOpen_appeals=$guardiaoAppealsOpen")
+                    "_badges=${noticeBadgesOpen}_appeals=$guardiaoAppealsOpen")
         }
     }
     fun toggle(kind: String, id: String, currentlyActive: Boolean) {
