@@ -710,7 +710,7 @@ export default {
           'qa_firebase_auth_identity_mismatch','qa_firebase_auth_disabled_or_mismatch',
           'qa_invalid_service_identity','qa_no_api_key',
           'qa_authenticated_write_failed','qa_marker_unavailable','qa_marker_conflict']);
-        const httpCode=/^qa_(?:profile|firebase_auth_signin|firebase_auth_lookup|firestore_read|marker_finalize)_http_(400|401|403|404|409|429|500|503)$/;
+        const httpCode=/^qa_(?:(?:profile|firebase_auth_signin|firebase_auth_lookup|firestore_read|marker_finalize)_http_|write_(?:profile|post|reply|like|save|other)_http_)(400|401|403|404|409|412|429|500|503)$/;
         const code=safe.has(failure?.message)||httpCode.test(failure?.message||'')?failure.message:'qa_service_unavailable';
         await auditDelivery(env,'qa_bots',code);
         message.retry({delaySeconds:30});
