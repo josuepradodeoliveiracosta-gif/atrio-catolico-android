@@ -103,6 +103,21 @@ class ThreeBotsAuthenticatedAndroidUiTest {
         waitFor("atrio-tab-publish", 45_000)
         val uid = auth.currentUser?.uid ?: error("Login Firebase não criou usuário")
         assertTrue("Conta Firebase criada fora do emulador", uid.isNotBlank())
+
+        // A interface pode aparecer antes da última escrita assíncrona do
+        // cadastro. Não publicar nem fazer logout até o perfil constar no
+        // SERVIDOR do emulador, com a identidade correta.
+        compose.waitUntil(35_000) {
+            val current = auth.currentUser?.uid
+            if (current != uid) return@waitUntil false
+            runCatching {
+                val profile = Tasks.await(
+                    db.collection("profiles").document(uid).get(Source.SERVER),
+                    4, TimeUnit.SECONDS)
+                profile.exists() && profile.getString("displayName") == name
+            }.getOrDefault(false)
+        }
+        assertEquals("Sessão do bot mudou durante o cadastro",uid,auth.currentUser?.uid)
         return uid
     }
 
@@ -169,15 +184,25 @@ class ThreeBotsAuthenticatedAndroidUiTest {
         val posts = Tasks.await(db.collection("posts").whereEqualTo("uid", claraUid)
             .get(Source.SERVER), 8, TimeUnit.SECONDS)
         val postId = posts.documents.single { it.getString("title") == title }.id
-        // Após o commit, confirmar que o perfil não desapareceu do banco.
-        // A leitura usa o próprio usuário logado e as regras comuns.
+        // A escrita do post só pode ser validada contra a mesma identidade
+        // de Auth. Em testes de UI com listeners concorrentes, esperar a
+        // leitura do servidor para evitar falso negativo de sincronização.
+        assertEquals("A sessão de Clara mudou durante o envio",claraUid,
+            auth.currentUser?.uid)
+        compose.waitUntil(25_000) {
+            runCatching {
+                val snapshot = Tasks.await(
+                    db.collection("profiles").document(claraUid).get(Source.SERVER),
+                    4, TimeUnit.SECONDS)
+                snapshot.exists() &&
+                    snapshot.getString("displayName") == "Clara (BOT DE TESTE)"
+            }.getOrDefault(false)
+        }
         val profileAfterPublish = Tasks.await(
             db.collection("profiles").document(claraUid).get(Source.SERVER),
             8, TimeUnit.SECONDS)
-        assertTrue("Perfil Firebase de Clara sumiu após publicar a discussão",
+        assertTrue("Perfil de Clara não permaneceu disponível após publicar",
             profileAfterPublish.exists())
-        assertEquals("Clara (BOT DE TESTE)",
-            profileAfterPublish.getString("displayName"))
 
         try {
             waitFor("atrio-home-feed", 15_000)
