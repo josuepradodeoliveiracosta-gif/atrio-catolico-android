@@ -25,8 +25,8 @@ android {
         applicationId = "br.com.atriocatolico"
         minSdk = 26
         targetSdk = 35
-        versionCode = 24
-        versionName = "0.18.0"
+        versionCode = 25
+        versionName = "0.18.1"
     }
 
     signingConfigs {

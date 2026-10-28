@@ -284,11 +284,14 @@ service cloud.firestore {
         ])
         && request.resource.data.reporterUid == request.auth.uid
         && validId(request.resource.data.postId)
-        // Toda denúncia exige uma publicação existente, inclusive sem replyId.
+        // Um ID por pessoa e conteúdo: impede denúncias repetidas por clientes alterados.
+        // Publicar somente depois que os aplicativos compatíveis estiverem distribuídos.
         && exists(/databases/$(database)/documents/posts/$(request.resource.data.postId))
-        && (!request.resource.data.keys().hasAny(['replyId'])
-          || (validId(request.resource.data.replyId)
-            && exists(/databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(request.resource.data.replyId))))
+        && (request.resource.data.keys().hasAny(['replyId'])
+          ? (validId(request.resource.data.replyId)
+            && reportId == request.auth.uid + '_reply_' + request.resource.data.postId + '_' + request.resource.data.replyId
+            && exists(/databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(request.resource.data.replyId)))
+          : reportId == request.auth.uid + '_post_' + request.resource.data.postId)
         && validText(request.resource.data.reason, 5, 300)
         && validTime();
       allow update: if isAdmin()

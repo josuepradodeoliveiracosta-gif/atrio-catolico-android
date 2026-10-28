@@ -694,6 +694,7 @@ private fun OnlineCommunity(
     }
     if (reportPost != null) {
         var reason by remember { mutableStateOf("") }
+        var sendingReport by remember(reportPost) { mutableStateOf(false) }
         val id = reportPost!!
         AlertDialog(onDismissRequest = { reportPost = null }, title = { Text("Denunciar discussão") },
             text = { Column {
@@ -704,15 +705,18 @@ private fun OnlineCommunity(
                 Text("A denúncia será enviada para análise. Não remove a publicação automaticamente.",
                     fontSize = 11.sp, color = Muted)
             } },
-            confirmButton = { TextButton(enabled = reason.trim().length >= 5, onClick = {
-                db.collection("reports").add(mapOf(
+            confirmButton = { TextButton(enabled = !sendingReport && reason.trim().length >= 5, onClick = {
+                sendingReport = true
+                db.collection("reports").document(ReportDocumentIds.post(uid, id)).set(mapOf(
                     "postId" to id, "reporterUid" to uid,
                     "reason" to reason.trim(), "createdAt" to FieldValue.serverTimestamp()
                 )).addOnCompleteListener { result ->
+                    sendingReport = false
                     message = if (result.isSuccessful) "Denúncia enviada para análise da moderação." else
-                        result.exception?.localizedMessage ?: "Falha ao enviar denúncia."
+                        "Não foi possível enviar. Talvez você já tenha denunciado esta discussão, " +
+                        "ou ela não esteja mais disponível."
+                    if (result.isSuccessful) reportPost = null
                 }
-                reportPost = null
             }) { Text("Enviar") } },
             dismissButton = { TextButton(onClick = { reportPost = null }) { Text("Cancelar") } })
     }
@@ -783,15 +787,17 @@ private fun ReplyReportDialog(
             TextButton(enabled = !busy && reason.trim().length in 5..300, onClick = {
                 busy = true
                 failure = ""
-                db.collection("reports").add(mapOf(
+                db.collection("reports").document(
+                    ReportDocumentIds.reply(uid, target.postId, target.replyId)
+                ).set(mapOf(
                     "postId" to target.postId, "replyId" to target.replyId,
                     "reporterUid" to uid, "reason" to reason.trim(),
                     "createdAt" to FieldValue.serverTimestamp()
                 )).addOnCompleteListener { result ->
                     busy = false
                     if (result.isSuccessful) onSuccess()
-                    else failure = "Não foi possível enviar. Confira a conexão e tente novamente. " +
-                        "A resposta ou a discussão pode ter sido removida."
+                    else failure = "Não foi possível enviar. Talvez você já tenha denunciado " +
+                        "esta resposta, ou o conteúdo não esteja mais disponível."
                 }
             }) { Text(if (busy) "Enviando..." else "Enviar denúncia") }
         },
