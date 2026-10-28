@@ -42,6 +42,16 @@ CODEOWNERS não obriga aprovação sozinho: configurar regras no servidor.
 As proteções novas não tornam inofensivos workflows antigos executados em branches
 antigas. Não disparar essas versões com segredos de repositório disponíveis.
 
+## Verificação adicional em 28/10/2026 — acesso direto ao GitHub
+
+- Repositório confirmado **privado**; `main` ainda em `3b4a8a85bba77dc0a1f06e6e9a8578dd07094e60`.
+- Agora existem **24 branches** (a contagem original de 22 neste documento é histórica), incluindo os dois ramos de preparação de segurança. PR #19 e PR #20 continuam **abertas e em rascunho**, não integradas.
+- Verificações nos commits das propostas aparecem como **failure**; jobs examinados não contêm etapas executadas, e a recuperação de logs desses jobs retornou erro de armazenamento. Não interpretar isso como teste executado ou como falha de código comprovada. Há histórico recente de bloqueio de execução por cobrança/limites de Actions a esclarecer.
+- Inspeção complementar das árvores de ponta de **18 branches** não encontrou caminhos com nomes típicos de arquivos de segredo, como `.env`, `.jks`, `.p12`, `credentials.json` e `service-account*.json`. Isso é **checagem de nomes**, não inspeção profunda do conteúdo de cada commit. A auditoria histórica anterior permanece não repetida integralmente após as alterações.
+- A API retornou restrição de plano para a consulta de rulesets em repositório privado e falta de acesso da integração para branch protection. **Não há evidência de branch protection ativa.**
+- Continuam pendentes: revisão dos logs/artefatos antigos e metadados/comentários; verificação externa de Firebase, Cloudflare e chaves de API; segregação de secrets em ambientes protegidos; testes confiáveis e validação de licenças e da mídia MP4.
+- **Decisão:** ainda NÃO tornar o repositório público, não integrar as propostas até validar, não alterar nem reescrever branches de backup.
+
 ## Procedimento antes de mudar a visibilidade
 
 ### 1. Conta e acesso
