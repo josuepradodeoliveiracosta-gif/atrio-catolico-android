@@ -1,0 +1,32 @@
+name: Segurança do repositório público
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Nenhuma credencial de usuário ou de assinatura é repassada a este workflow.
+permissions:
+  contents: read
+
+jobs:
+  scan-public-code:
+    name: Detectar segredos em arquivos e histórico Git
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Obter código e histórico completo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verificar arquivos e objetos históricos sem imprimir credenciais
+        run: python3 scripts/check_public_secrets.py --history
+      - name: Confirmar permissões restritas de GitHub Actions
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! grep -RInE '^\s*pull_request_target\s*:|^\s*permissions\s*:\s*write-all\s*$' .github/workflows
+          echo 'OK: nenhum pull_request_target ou write-all encontrado'
