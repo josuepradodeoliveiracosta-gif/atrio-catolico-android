@@ -284,9 +284,10 @@ service cloud.firestore {
         ])
         && request.resource.data.reporterUid == request.auth.uid
         && validId(request.resource.data.postId)
+        // Toda denúncia exige uma publicação existente, inclusive sem replyId.
+        && exists(/databases/$(database)/documents/posts/$(request.resource.data.postId))
         && (!request.resource.data.keys().hasAny(['replyId'])
           || (validId(request.resource.data.replyId)
-            && exists(/databases/$(database)/documents/posts/$(request.resource.data.postId))
             && exists(/databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(request.resource.data.replyId))))
         && validText(request.resource.data.reason, 5, 300)
         && validTime();
