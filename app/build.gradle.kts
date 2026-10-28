@@ -25,8 +25,8 @@ android {
         applicationId = "br.com.atriocatolico"
         minSdk = 26
         targetSdk = 35
-        versionCode = 25
-        versionName = "0.18.1"
+        versionCode = 26
+        versionName = "0.18.2"
     }
 
     signingConfigs {
@@ -62,6 +62,7 @@ dependencies {
     implementation("com.google.firebase:firebase-auth")
     implementation("com.google.firebase:firebase-firestore")
     implementation("com.google.firebase:firebase-messaging")
+    implementation("com.google.android.gms:play-services-base:18.11.1")
     implementation("androidx.work:work-runtime:2.11.2")
     val composeBom = platform("androidx.compose:compose-bom:2025.12.00")
     implementation(composeBom)

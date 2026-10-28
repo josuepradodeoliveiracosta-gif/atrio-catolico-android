@@ -34,11 +34,11 @@ internal fun PushSettings(uid: String, db: FirebaseFirestore) {
     fun turnOn() {
         busy = true
         feedback = "Registrando este aparelho..."
-        PushRegistry.enable(context, uid, db) { ok ->
+        PushRegistry.enable(context, uid, db) { ok, issue ->
             busy = false
             active = ok
             feedback = if (ok) "Este aparelho foi cadastrado para receber avisos."
-                else "Não foi possível registrar o aparelho. Confira sua conexão e as regras do Firebase."
+                else pushRegistrationMessage(issue)
         }
     }
 
