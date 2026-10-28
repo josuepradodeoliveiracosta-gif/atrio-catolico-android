@@ -1,31 +1,53 @@
+# Artefatos gerados localmente (Android, Gradle e IDE)
 .gradle/
 .idea/
-/build/
 **/build/
 /local.properties
 *.iml
 *.apk
+*.aab
 .DS_Store
 
-# O google-services.json e uma configuracao publica de cliente, nao uma chave admin.
-# Este pacote se destina somente a um repositorio PRIVADO.
-
-# Nunca versionar chaves de assinatura ou senhas.
+# Chaves privadas, assinaturas e credenciais: NUNCA versionar
 *.jks
 *.keystore
+*.jceks
 *.p12
+*.pfx
+*.pem
+*.key
+*.p8
+*.asc
 keystore.properties
 key.properties
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+credentials.json
+*service-account*.json
+*serviceAccount*.json
+*-firebase-adminsdk-*.json
+qa-bots.json
+qa-bots.*.json
+*.secrets.json
 
+# Os arquivos Google Services do aplicativo cliente contêm configuração pública,
+# não chave administrativa. Só são seguros junto de IAM/regras/API keys revisadas.
 
-# Dependências, caches e resultados reproduzíveis de desenvolvimento.
+# Dependências, caches e saídas de execução
 node_modules/
 __pycache__/
 *.py[cod]
 .pytest_cache/
 .firebase/
+.wrangler/
 firebase-debug*.log
 firestore-debug*.log
 ui-debug*.log
+*-debug.log
 /tests/security/firestore.rules
 /tests/security/RESULTADO.txt
+qa-official-results/
+qa-android-suite-results/
