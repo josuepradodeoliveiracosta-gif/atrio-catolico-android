@@ -8,7 +8,7 @@
 .DS_Store
 
 # O google-services.json e uma configuracao publica de cliente, nao uma chave admin.
-# Este pacote se destina somente a um repositorio PRIVADO.
+# A configuracao Firebase do cliente nao substitui regras de autorizacao.
 
 # Nunca versionar chaves de assinatura ou senhas.
 *.jks
@@ -16,3 +16,24 @@
 *.p12
 keystore.properties
 key.properties
+
+# Credenciais locais, exportacoes e estado de ferramentas
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+*.pem
+*.key
+*.pfx
+*service-account*.json
+*serviceAccount*.json
+*-firebase-adminsdk-*.json
+credentials.json
+qa-bots.json
+.wrangler/
+node_modules/
+__pycache__/
+*.pyc
+*-debug.log
+qa-official-results/

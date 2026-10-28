@@ -1,0 +1,26 @@
+name: Segurança do repositório
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: security-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Testar detector sem credenciais
+        run: python3 scripts/test_security_scan.py
+      - name: Examinar arquivos e histórico disponível
+        run: |
+          python3 scripts/security_scan.py
+          python3 scripts/security_scan.py --history
