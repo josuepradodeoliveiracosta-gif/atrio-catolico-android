@@ -18,7 +18,12 @@ MAX_BLOB = 1_000_000
 MAX_HISTORICAL_BLOBS = 25_000
 
 PATTERNS = {
-    "private-key-pem": re.compile(rb"-----BEGIN\s+(?:RSA\s+|EC\s+|OPENSSH\s+)?PRIVATE\s+KEY-----"),
+    # Um cabeçalho isolado é normal em código que processa PEM; exigimos
+    # pelo menos duas linhas reais de conteúdo base64 para sinalizar vazamento.
+    "private-key-pem": re.compile(
+        rb"-----BEGIN[ \\t]+(?:RSA[ \\t]+|EC[ \\t]+|OPENSSH[ \\t]+)?PRIVATE[ \\t]+KEY-----"
+        rb"\\r?\\n(?:[A-Za-z0-9+/=]{40,88}\\r?\\n){2,}"
+    ),
     "github-token": re.compile(rb"\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,})\b"),
     "aws-access-key": re.compile(rb"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b"),
     "slack-token": re.compile(rb"\bxox[baprs]-[A-Za-z0-9-]{20,}\b"),
