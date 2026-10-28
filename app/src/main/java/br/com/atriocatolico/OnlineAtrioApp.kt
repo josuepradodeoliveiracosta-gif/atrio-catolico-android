@@ -815,6 +815,7 @@ private fun OnlineCommunity(
     }
     if (reportPost != null) {
         var reason by remember { mutableStateOf("") }
+        var sendingReport by remember(reportPost) { mutableStateOf(false) }
         val id = reportPost!!
         AlertDialog(onDismissRequest = { reportPost = null }, title = { Text("Denunciar discussão") },
             text = { Column {
@@ -826,16 +827,19 @@ private fun OnlineCommunity(
                 Text("A denúncia será enviada para análise. Não remove a publicação automaticamente.",
                     fontSize = 11.sp, color = Muted)
             } },
-            confirmButton = { TextButton(enabled = reason.trim().length >= 5, onClick = {
-                db.collection("reports").add(mapOf(
+            confirmButton = { TextButton(enabled = !sendingReport && reason.trim().length >= 5, onClick = {
+                sendingReport = true
+                val reportId = ReportDocumentIds.post(uid, id)
+                db.collection("reports").document(reportId).set(mapOf(
                     "postId" to id, "reporterUid" to uid,
                     "reason" to reason.trim(), "createdAt" to FieldValue.serverTimestamp()
                 )).addOnCompleteListener { result ->
-                    if (result.isSuccessful) result.result?.id?.let { InstantPushRelay.report(it) }
+                    sendingReport = false
+                    if (result.isSuccessful) InstantPushRelay.report(reportId)
                     message = if (result.isSuccessful) "Denúncia enviada para análise da moderação." else
-                        result.exception?.localizedMessage ?: "Falha ao enviar denúncia."
+                        "Não foi possível enviar. Talvez você já tenha denunciado esta discussão, ou ela não esteja mais disponível."
+                    if (result.isSuccessful) reportPost = null
                 }
-                reportPost = null
             }, modifier = Modifier.testTag("atrio-report-post-submit")) { Text("Enviar") } },
             dismissButton = { TextButton(onClick = { reportPost = null }) { Text("Cancelar") } })
     }
@@ -906,18 +910,19 @@ private fun ReplyReportDialog(
             TextButton(enabled = !busy && reason.trim().length in 5..300, onClick = {
                 busy = true
                 failure = ""
-                db.collection("reports").add(mapOf(
+                val reportId = ReportDocumentIds.reply(uid, target.postId, target.replyId)
+                db.collection("reports").document(reportId).set(mapOf(
                     "postId" to target.postId, "replyId" to target.replyId,
                     "reporterUid" to uid, "reason" to reason.trim(),
                     "createdAt" to FieldValue.serverTimestamp()
                 )).addOnCompleteListener { result ->
                     busy = false
                     if (result.isSuccessful) {
-                        result.result?.id?.let { InstantPushRelay.report(it) }
+                        InstantPushRelay.report(reportId)
                         onSuccess()
                     }
-                    else failure = "Não foi possível enviar. Confira a conexão e tente novamente. " +
-                        "A resposta ou a discussão pode ter sido removida."
+                    else failure = "Não foi possível enviar. Talvez você já tenha denunciado esta resposta, " +
+                        "ou ela não esteja mais disponível."
                 }
             }) { Text(if (busy) "Enviando..." else "Enviar denúncia") }
         },

@@ -103,3 +103,12 @@ Por solicitação explícita do fundador, **não é mais necessário desligar os
 - Desabilitar a flag novamente somente por solicitação, necessidade de manutenção, falha de segurança ou risco de abuso.
 - Esta mudança **não** ativa testes visuais Android, distribuição de APK nem Push em dispositivos; a automação de tela e o uso real de três celulares permanecem limitados às verificações próprias.
 - Validação realizada: Cloudflare `QA_MANUAL_ENABLED=true`, sem Cron, fila vazia, `GUARDIAO_ENABLED=true`, `PUSH_ENABLED=true` e `GUARDIAO_AUTOHIDE_ENABLED=false`.
+
+## Compatibilidade com regras de denúncias da PR #35 — 28/10/2026
+
+- Esta PR #15 permanece **em rascunho**; nenhuma regra, Worker ou APK v0.19 foi publicado por esta alteração.
+- Regras de criação de `reports` agora exigem ID determinístico: `uid_post_postId` ou `uid_reply_postId_replyId`.
+- O Android de desenvolvimento v0.19 usa esses IDs para posts/respostas e preserva `InstantPushRelay.report(reportId)` após escrita bem-sucedida.
+- Os testes `moderation.test.mjs`, `three-bots.test.mjs` e `three-bots-extended.test.mjs` cobrem identificação, privacidade, repetição e permissões no emulador. A variante de regras da PR #15 mantém as condições adicionais do Guardião.
+- Testes emulados não autorizam disparo de sessão oficial na Cloudflare Queue nem provam notificações FCM recebidas no aparelho.
+- **Atenção:** a PR #15 usa versionCode 25 (v0.19.0), número já utilizado pelo release oficial 0.18.1. Antes de qualquer futura integração ou APK release, corrigir essa numeração e revisar compatibilidade.

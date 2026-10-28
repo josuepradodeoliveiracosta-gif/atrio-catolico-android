@@ -28,6 +28,7 @@ const post=(who,title,body,category='Vida espiritual')=>({
   uid:who.id,authorName:who.name,title,body,category,createdAt:serverTimestamp(),
 });
 const reply=(who,body)=>({uid:who.id,authorName:who.name,body,createdAt:serverTimestamp()});
+const reportId=(uid,postId,replyId)=>uid+(replyId===undefined?'_post_'+postId:'_reply_'+postId+'_'+replyId);
 const report=(who,reason,extra={})=>({
   postId,...extra,reporterUid:who.id,reason,createdAt:serverTimestamp(),
 });
@@ -196,22 +197,31 @@ try {
   });
 
   await verify('Lúcia denuncia uma resposta específica',()=>assertSucceeds(
-    setDoc(doc(lucia,'reports','qa_extended_reply_report'),
+    setDoc(doc(lucia,'reports',reportId(c.id,postId,'qa_extended_reply_m')),
       report(c,'Discussão de teste sujeita a revisão humana.',
         {replyId:'qa_extended_reply_m'}))));
   await verify('Miguel denuncia discussão sem forjar autor',()=>assertSucceeds(
-    setDoc(doc(miguel,'reports','qa_extended_post_report'),
+    setDoc(doc(miguel,'reports',reportId(b.id,postId)),
       report(b,'Simulação de denúncia para checar moderação.'))));
   await verify('Lúcia não consulta denúncias protegidas',()=>assertFails(
-    getDoc(doc(lucia,'reports','qa_extended_reply_report'))));
-  await verify('Admin consulta denúncias para moderação',()=>assertSucceeds(
+    getDoc(doc(lucia,'reports',reportId(c.id,postId,'qa_extended_reply_m')))));
+  await verify('Lúcia não repete denúncia da resposta',()=>assertFails(
+   setDoc(doc(lucia,'reports',reportId(c.id,postId,'qa_extended_reply_m')),
+     report(c,'Segunda denúncia idêntica bloqueada.',{replyId:'qa_extended_reply_m'}))));
+ await verify('Miguel não repete denúncia da discussão',()=>assertFails(
+   setDoc(doc(miguel,'reports',reportId(b.id,postId)),
+     report(b,'Segunda tentativa deve ser bloqueada.'))));
+ await verify('Admin consulta denúncias para moderação',()=>assertSucceeds(
     getDocs(collection(admin,'reports'))));
-  await verify('Lúcia não se apresenta como outro denunciante',()=>assertFails(
-    setDoc(doc(lucia,'reports','qa_extended_identity_fake'),report(b,'Motivo de teste.'))));
+  await verify('Clara também pode denunciar a publicação denunciada por Miguel',()=>assertSucceeds(
+   setDoc(doc(clara,'reports',reportId(a.id,postId)),
+     report(a,'Uma conta diferente pode enviar sua própria denúncia.'))));
+ await verify('Lúcia não se apresenta como outro denunciante',()=>assertFails(
+    setDoc(doc(lucia,'reports',reportId(c.id,postId)),report(b,'Motivo de teste.'))));
   await verify('Anônimo não denuncia post',()=>assertFails(
-    setDoc(doc(anonymous,'reports','qa_extended_anon'),report(c,'Motivo de teste.'))));
+    setDoc(doc(anonymous,'reports',reportId(c.id,postId)),report(c,'Motivo de teste.'))));
   await verify('Membro não encerra denúncia pelo cliente',()=>assertFails(
-    updateDoc(doc(lucia,'reports','qa_extended_reply_report'),{status:'removed'})));
+    updateDoc(doc(lucia,'reports',reportId(c.id,postId,'qa_extended_reply_m')),{status:'removed'})));
 
   await verify('Bot não registra token FCM para dispositivo de outra conta',()=>assertFails(
     setDoc(doc(clara,'users',b.id,'pushDevices','device1'),{

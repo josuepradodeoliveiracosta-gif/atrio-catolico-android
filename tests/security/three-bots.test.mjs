@@ -17,6 +17,7 @@ const bots=Object.freeze([
   {uid:'qa-bot-miguel',name:'Miguel (BOT DE TESTE)',purpose:'respostas'},
   {uid:'qa-bot-lucia',name:'Lúcia (BOT DE TESTE)',purpose:'denúncias e segurança'},
 ]);
+const reportId=(uid,postId,replyId)=>uid+(replyId===undefined?'_post_'+postId:'_reply_'+postId+'_'+replyId);
 const projectId='demo-atrio-v11';
 const env=await initializeTestEnvironment({
   projectId,firestore:{host:'127.0.0.1',port:8089,
@@ -105,15 +106,26 @@ try {
     updateDoc(doc(miguel,'posts',postId),{body:'Conteúdo indevidamente alterado.'})));
 
   await check('Lúcia registra uma denúncia normal autenticada',()=>assertSucceeds(
-    setDoc(doc(lucia,'reports','qa_trio_denuncia'),{
+    setDoc(doc(lucia,'reports',reportId(bots[2].uid,postId)),{
       postId,reporterUid:bots[2].uid,
       reason:'Teste de denúncia encaminhada para análise humana',
       createdAt:serverTimestamp(),
     })));
+  await check('Lúcia não consegue denunciar duas vezes a mesma discussão',()=>assertFails(
+    setDoc(doc(lucia,'reports',reportId(bots[2].uid,postId)),{
+      postId,reporterUid:bots[2].uid,
+      reason:'Segunda denúncia não deve substituir a primeira',
+      createdAt:serverTimestamp(),
+    })));
+  await check('Lúcia não usa identificador aleatório para denunciar novamente',()=>assertFails(
+    setDoc(doc(lucia,'reports','qa_random_legacy'),{
+      postId,reporterUid:bots[2].uid,reason:'Tentativa com identificador antigo',
+      createdAt:serverTimestamp(),
+    })));
   await check('Lúcia não lê a denúncia privada após enviar',()=>assertFails(
-    getDoc(doc(lucia,'reports','qa_trio_denuncia'))));
+    getDoc(doc(lucia,'reports',reportId(bots[2].uid,postId)))));
   await check('Miguel não forja denúncia em nome de outra conta',()=>assertFails(
-    setDoc(doc(miguel,'reports','qa_trio_falsa'),{
+    setDoc(doc(miguel,'reports',reportId(bots[1].uid,postId)),{
       postId,reporterUid:bots[0].uid,reason:'Motivo fictício',
       createdAt:serverTimestamp(),
     })));
