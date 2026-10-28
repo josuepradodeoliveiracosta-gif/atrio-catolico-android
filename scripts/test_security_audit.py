@@ -19,7 +19,7 @@ class PublicRepoSecurityTests(unittest.TestCase):
 
     def test_fake_tokens_detected(self):
         for fake in ["ghp_" + "A"*40, "sk_live_" + "X"*30,
-                     "-----BEGIN " + "PRIVATE KEY-----"]:
+                     "-----BEGIN " + "PRIVATE KEY-----\\n" + "A"*64 + "\\n-----END PRIVATE KEY-----"]:
             self.assertTrue(inspect_text(fake))
 
     def test_no_public_config_false_positive(self):
