@@ -32,7 +32,10 @@ jobs:
         run: python3 scripts/validar_firebase.py
       - name: Compilar APK de testes
         run: gradle :app:assembleDebug --no-daemon --stacktrace
+      # Chave de assinatura não fica disponível para builds automáticos.
+      # Mesmo um workflow_dispatch feito em outra branch não acessa os secrets.
       - name: Compilar APK release com chave permanente (quando configurada)
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
         shell: bash
         env:
           ATRIO_KEYSTORE_BASE64: ${{ secrets.ATRIO_KEYSTORE_BASE64 }}
@@ -60,14 +63,17 @@ jobs:
           gradle :app:assembleRelease --no-daemon --stacktrace
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs app/build/outputs/apk/release/app-release.apk
       - name: Disponibilizar APK com assinatura permanente
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@v4
         with:
           name: atrio-catolico-release-assinado
           path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: ignore
+          retention-days: 7
       - name: Disponibilizar APK
         uses: actions/upload-artifact@v4
         with:
           name: atrio-catolico-firebase-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+          retention-days: 7
