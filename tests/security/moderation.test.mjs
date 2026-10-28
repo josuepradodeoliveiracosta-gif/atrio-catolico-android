@@ -45,6 +45,13 @@ try {
  });
  await test('anônimo não lê denúncias',()=>assertFails(getDocs(collection(anon,'reports'))));
  await test('usuário envia denúncia antiga sem status',()=>assertSucceeds(setDoc(doc(bob,'reports/r'),report())));
+ // Regressão: denúncias de publicações exigem um alvo existente.
+ await test('denúncia de publicação existente é aceita',()=>assertSucceeds(
+   setDoc(doc(bob,'reports/post-valid'),report('p2'))));
+ await test('denúncia de publicação inexistente é recusada',()=>assertFails(
+   setDoc(doc(bob,'reports/post-missing'),report('post-inexistente'))));
+ await test('denúncia com postId aninhado é recusada',()=>assertFails(
+   setDoc(doc(bob,'reports/post-invalid-id'),report('p2/replies/answer'))));
  await test('usuário não lê a própria denúncia',()=>assertFails(getDoc(doc(bob,'reports/r'))));
  await test('usuário não lista denúncias',()=>assertFails(getDocs(collection(bob,'reports'))));
  await test('usuário consulta somente seu registro de acesso',()=>assertSucceeds(getDoc(doc(bob,'admins/bob'))));
@@ -274,6 +281,8 @@ try {
  await test('remoção e decisão atômicas autorizadas',async()=>{
   const b=writeBatch(admin);b.delete(doc(admin,'posts/p'));b.update(doc(admin,'reports/r'),review('removed'));await assertSucceeds(b.commit());
   assert.equal((await getDoc(doc(admin,'posts/p'))).exists(),false);
+  await test('denúncia de publicação excluída é recusada',()=>assertFails(
+    setDoc(doc(bob,'reports/post-deleted'),report('p'))));
   assert.equal((await getDoc(doc(admin,'reports/r'))).data().status,'removed');
  });
  await test('decisão concluída é imutável',()=>assertFails(updateDoc(doc(admin,'reports/r'),review())));
