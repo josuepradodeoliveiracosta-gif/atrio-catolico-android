@@ -3,6 +3,9 @@ name: Validar selos (Android e Firestore)
 on:
   pull_request:
     branches: [main]
+  # QA isolado da PR #15: apenas este ramo, sem deploy nem release.
+  push:
+    branches: [feature/push-gratuito-cloudflare-v0190]
   workflow_dispatch:
 
 concurrency:
