@@ -4,7 +4,7 @@ Este repositório é **público**. Relatórios de vulnerabilidades não devem re
 
 ## Como relatar uma vulnerabilidade
 
-1. Use [GitHub Security Advisories](../../security/advisories/new), quando habilitado, para enviar um relato privado.
+1. Use [GitHub Security Advisories](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/security/advisories/new), quando habilitado, para enviar um relato privado.
 2. Descreva o impacto, as versões afetadas e passos seguros para reproduzir usando dados fictícios.
 3. Não anexe chaves privadas, tokens FCM reais, CPFs, credenciais ou logs de pessoas reais.
 4. Aguarde a correção antes de divulgar detalhes técnicos que permitam exploração.
