@@ -1,8 +1,9 @@
 # Átrio Católico — aplicativo Android
 
 Comunidade católica desenvolvida em Kotlin/Jetpack Compose com Firebase Authentication
-e Cloud Firestore. O repositório é privado e os APKs release são assinados pelo
-fluxo de GitHub Actions.
+e Cloud Firestore. O repositório é **público**; a compilação debug pode ser
+automática, enquanto a assinatura release é iniciada manualmente na branch `main`
+por GitHub Actions, após a configuração do ambiente protegido `release`.
 
 ## Qual é a última versão? (fonte única, sem número congelado)
 
@@ -36,7 +37,7 @@ compilação e disponibilidade do artefato release do mesmo commit, além das PR
 A consulta fixa o commit antes de ler a versão, evitando misturar resultados
 quando outra atualização chega durante a consulta. O modo remoto não depende
 de existir um Gradle válido na cópia local. Se não conseguir consultar
-a API do repositório privado, apresenta **erro em vez de presumir uma versão antiga**.
+a API do repositório remoto, apresenta **erro em vez de presumir uma versão antiga**.
 
 Para conferir somente uma cópia local (que pode estar desatualizada):
 
@@ -70,7 +71,7 @@ Nenhum backend pago é ativado por este README ou pela consulta de versão.
 1. Consulte o commit principal e a versão pelo script.
 2. Entre no [workflow de APK](../../actions/workflows/build-apk.yml) e
    confira **conclusão success para o commit correspondente**.
-3. Baixe o artefato **atrio-catolico-release-assinado** do workflow validado.
+3. Para obter a release, execute o workflow **manualmente na branch main**, após conferir a configuração do ambiente `release`; baixe **atrio-catolico-release-assinado** somente se o job de release terminar com sucesso.
 4. Instale o APK com o mesmo identificador `br.com.atriocatolico`, assinado
    com a mesma chave JKS permanente e com `versionCode` maior. Assim a
    atualização pode ocorrer sobre o aplicativo anterior sem desinstalação.
@@ -82,6 +83,17 @@ Nenhum backend pago é ativado por este README ou pela consulta de versão.
 credenciais administrativas no GitHub, no APK ou nas conversas. Alterações
 de regras e infraestrutura Firebase em produção exigem autorização separada.
 O branch de backup protegido deve permanecer intocado.
+
+
+## Segurança do código público
+
+O APK e `app/google-services.json` podem ser inspecionados por qualquer pessoa. Este arquivo contém configuração de **cliente**, não credenciais do Firebase Admin SDK. As permissões dependem de Security Rules, autenticação e IAM no servidor.
+
+- [Como proteger o repositório e a branch `main`](docs/seguranca-repositorio-publico.md)
+- [Política de reporte privado de vulnerabilidades](SECURITY.md)
+- [Verificações automáticas de segredos](.github/workflows/security-audit.yml)
+
+**Atenção:** para um repositório público, habilite a ruleset ativa de `main` e configure `Settings → Environments → release` antes de mesclar a atualização. O código não consegue habilitar essas proteções por si só.
 
 ## Manutenção
 
