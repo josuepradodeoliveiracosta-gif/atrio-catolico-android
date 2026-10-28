@@ -281,10 +281,10 @@ try {
  await test('remoção e decisão atômicas autorizadas',async()=>{
   const b=writeBatch(admin);b.delete(doc(admin,'posts/p'));b.update(doc(admin,'reports/r'),review('removed'));await assertSucceeds(b.commit());
   assert.equal((await getDoc(doc(admin,'posts/p'))).exists(),false);
-  await test('denúncia de publicação excluída é recusada',()=>assertFails(
-    setDoc(doc(bob,'reports/post-deleted'),report('p'))));
   assert.equal((await getDoc(doc(admin,'reports/r'))).data().status,'removed');
  });
+ await test('denúncia de publicação excluída é recusada',()=>assertFails(
+   setDoc(doc(bob,'reports/post-deleted'),report('p'))));
  await test('decisão concluída é imutável',()=>assertFails(updateDoc(doc(admin,'reports/r'),review())));
  await test('registro de denúncia não pode ser apagado',()=>assertFails(deleteDoc(doc(admin,'reports/r'))));
  await setDoc(doc(bob,'reports/r2'),report('p2'));
