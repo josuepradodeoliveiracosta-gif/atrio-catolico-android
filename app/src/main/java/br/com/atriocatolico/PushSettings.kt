@@ -40,25 +40,7 @@ internal fun PushSettings(uid: String, db: FirebaseFirestore) {
             active = ok
             feedback = if (ok) {
                 "Este aparelho foi cadastrado para receber avisos."
-            } else when (issue) {
-                PushRegistrationProblem.SESSION_CHANGED ->
-                    "Sua sessão mudou. Entre novamente na conta e tente ativar os avisos."
-                PushRegistrationProblem.TOKEN_UNAVAILABLE ->
-                    "Etapa 1/2: erro FCM não identificado. Confira a conexão e tente novamente."
-                PushRegistrationProblem.PLAY_SERVICES_UNAVAILABLE ->
-                    "Etapa 1/2: os Serviços do Google Play estão ausentes, desativados ou desatualizados. Verifique-os nas configurações do celular."
-                PushRegistrationProblem.TOKEN_SERVICE_UNAVAILABLE ->
-                    "Etapa 1/2: o serviço FCM não está acessível. Confira a internet e os Serviços do Google Play."
-                PushRegistrationProblem.TOKEN_CONFIG_OR_AUTH ->
-                    "Etapa 1/2: o Firebase recusou a configuração ou autorização do aplicativo. É necessário conferir as credenciais Android e o projeto."
-                PushRegistrationProblem.FIRESTORE_PERMISSION_DENIED ->
-                    "Etapa 2/2 falhou: o token FCM foi obtido, mas o Firestore negou o cadastro. Confira as regras publicadas do projeto."
-                PushRegistrationProblem.FIRESTORE_UNAVAILABLE ->
-                    "Etapa 2/2 falhou: o token foi obtido, mas o Firestore está indisponível. Confira sua conexão."
-                PushRegistrationProblem.FIRESTORE_WRITE_FAILED ->
-                    "Etapa 2/2 falhou: o token foi obtido, mas não foi possível salvar o aparelho no Firebase."
-                null -> "O registro foi interrompido. Tente novamente."
-            }
+            } else pushRegistrationMessage(issue)
         }
     }
 

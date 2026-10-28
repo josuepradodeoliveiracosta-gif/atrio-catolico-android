@@ -26,17 +26,6 @@ import java.util.UUID
  * FCM e apenas o transportador: nao envia mensagens nem concede autorizacao.
  * A entrega depende da ativacao controlada do relay confiavel Cloudflare.
  */
-internal enum class PushRegistrationProblem {
-    SESSION_CHANGED,
-    TOKEN_UNAVAILABLE,
-    PLAY_SERVICES_UNAVAILABLE,
-    TOKEN_SERVICE_UNAVAILABLE,
-    TOKEN_CONFIG_OR_AUTH,
-    FIRESTORE_PERMISSION_DENIED,
-    FIRESTORE_UNAVAILABLE,
-    FIRESTORE_WRITE_FAILED
-}
-
 internal object PushRegistry {
     private const val PREFS = "atrio_push_devices"
     private const val CHANNEL = "atrio_avisos"
@@ -122,7 +111,7 @@ internal object PushRegistry {
                                 } else {
                                     // O cadastro pessoal funciona, mas não ativamos a opção
                                     // enquanto a inscrição nos comunicados não estiver confirmada.
-                                    done(false, PushRegistrationProblem.TOKEN_SERVICE_UNAVAILABLE)
+                                    done(false, PushRegistrationProblem.TOPIC_SUBSCRIPTION_FAILED)
                                 }
                             }
                     } else {

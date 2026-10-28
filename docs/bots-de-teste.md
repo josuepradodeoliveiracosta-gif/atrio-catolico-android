@@ -119,3 +119,11 @@ Por solicitação explícita do fundador, **não é mais necessário desligar os
 - O módulo Android foi mantido com os recursos de v0.19.0, agora usando `versionCode 26` após a release 0.18.1 (25).
 - As regras adicionais do Guardião e a deduplicação da PR #35 coexistem no ramo de desenvolvimento.
 - CI em `feature/push-gratuito-cloudflare-v0190` valida regras, Android e interface no emulador local; aprovação não equivale a teste real no APK de produção.
+
+## Diagnóstico de registro FCM — 28/10/2026
+
+- Na versão **0.18.1**, a falha de cadastro do celular aparece como erro genérico; sem instalar versão posterior não é possível concluir se falhou token, Firestore ou inscrição em comunicados.
+- A PR #15 v0.19.0 agora informa **Etapa 1/3** (obter token FCM / Google Play), **Etapa 2/3** (registrar token no Firestore) ou **Etapa 3/3** (inscrever nos comunicados).
+- Antes desta correção, a falha na inscrição nos comunicados era mostrada incorretamente como erro do serviço FCM da etapa 1.
+- As mensagens usam categorias fixas e nunca exibem token, UID, credenciais ou detalhes brutos da exceção. O teste unitário verifica todas as categorias.
+- O recurso permanece **somente na PR #15**. Não foi instalado APK no telefone, nem publicado Firestore/Cloudflare. O backup não é alterado.
