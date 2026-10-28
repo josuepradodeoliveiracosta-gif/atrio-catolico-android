@@ -15,7 +15,7 @@ FORBIDDEN_NAMES = {".env", ".dev.vars", "serviceaccountkey.json",
 FORBIDDEN_SUFFIXES = (".jks", ".keystore", ".p12", ".pfx", ".p8", ".pem", ".mobileprovision", ".tfstate")
 SENSITIVE_JSON = re.compile(r"(?i)(?:service.?account|firebase.?adminsdk|credentials|private.?key).*\.json$")
 DETECTORS = [
- ("PRIVATE_KEY_BLOCK", re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |ENCRYPTED )?PRIVATE KEY-----")),
+ ("PRIVATE_KEY_BLOCK", re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |ENCRYPTED )?PRIVATE KEY-----\\r?\\n(?:[A-Za-z0-9+/=]{30,100}\\r?\\n){1,}-----END (?:RSA |EC |OPENSSH |ENCRYPTED )?PRIVATE KEY-----")),
  ("GOOGLE_ADMIN_PRIVATE_KEY", re.compile(r'"private_key"\s*:\s*"-----BEGIN')),
  ("GOOGLE_ADMIN_PRIVATE_KEY_ID", re.compile(r'"private_key_id"\s*:\s*"[a-f0-9]{28,}"')),
  ("GITHUB_ACCESS_TOKEN", re.compile(r"(?:ghp_|gho_|ghu_|ghs_|ghr_|github_pat_)[A-Za-z0-9_]{20,}")),
