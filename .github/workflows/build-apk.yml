@@ -5,16 +5,24 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Repositório público: workflows nunca recebem token de escrita por padrão.
 permissions:
   contents: read
 
+concurrency:
+  group: atrio-build-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: false
+
 jobs:
-  apk-firebase:
-    name: Compilar aplicativo Android
+  apk-debug:
+    name: Compilar APK debug (sem secrets)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - name: Obter codigo
+      - name: Obter código sem manter credenciais GitHub
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Configurar Java 17
         uses: actions/setup-java@v4
         with:
@@ -28,11 +36,47 @@ jobs:
           gradle-version: '8.13'
       - name: Instalar plataforma Android 36
         run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
-      - name: Validar configuracao Firebase
+      - name: Validar configuração Firebase (cliente público)
         run: python3 scripts/validar_firebase.py
-      - name: Compilar APK de testes
+      - name: Compilar debug sem acesso à chave permanente
         run: gradle :app:assembleDebug --no-daemon --stacktrace
-      - name: Compilar APK release com chave permanente (quando configurada)
+      - name: Publicar APK debug para testes
+        uses: actions/upload-artifact@v4
+        with:
+          name: atrio-catolico-firebase-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
+
+  apk-release:
+    # Nunca assinar automaticamente em cada push, nem em uma PR ou branch
+    # não principal. Acionamento manual explícito pelo proprietário.
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    name: Assinar release (manual, main)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: release
+    steps:
+      - name: Obter código sem manter credenciais GitHub
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Configurar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Preparar Android SDK
+        uses: android-actions/setup-android@v4
+      - name: Configurar Gradle 8.13
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - name: Instalar plataforma Android 36
+        run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+      - name: Validar configuração Firebase
+        run: python3 scripts/validar_firebase.py
+      - name: Compilar release com assinatura permanente (somente se completa)
         shell: bash
         env:
           ATRIO_KEYSTORE_BASE64: ${{ secrets.ATRIO_KEYSTORE_BASE64 }}
@@ -41,16 +85,16 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -z "$ATRIO_KEYSTORE_BASE64" && -z "$ATRIO_STORE_PASSWORD" && -z "$ATRIO_KEY_PASSWORD" ]]; then
-            echo "::notice::Assinatura permanente ainda nao configurada; APK debug segue disponivel."
+            echo "::notice::Assinatura não configurada; nenhum APK release assinado foi criado."
             exit 0
           fi
           if [[ -z "$ATRIO_KEYSTORE_BASE64" || -z "$ATRIO_STORE_PASSWORD" || -z "$ATRIO_KEY_PASSWORD" ]]; then
-            echo "::error::Configuracao incompleta. Necessarios os 3 secrets ATRIO_KEYSTORE_BASE64, ATRIO_STORE_PASSWORD e ATRIO_KEY_PASSWORD."
+            echo "::error::Secrets de assinatura incompletos."
             exit 1
           fi
           KEYSTORE="$RUNNER_TEMP/atrio-release.jks"
-          trap 'rm -f "$KEYSTORE"' EXIT
           umask 077
+          trap 'rm -f "$KEYSTORE"' EXIT
           printf '%s' "$ATRIO_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE"
           chmod 600 "$KEYSTORE"
           export ATRIO_SIGNING_STORE_FILE="$KEYSTORE"
@@ -59,15 +103,10 @@ jobs:
           export ATRIO_SIGNING_KEY_PASSWORD="$ATRIO_KEY_PASSWORD"
           gradle :app:assembleRelease --no-daemon --stacktrace
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs app/build/outputs/apk/release/app-release.apk
-      - name: Disponibilizar APK com assinatura permanente
+      - name: Publicar APK release assinado
         uses: actions/upload-artifact@v4
         with:
           name: atrio-catolico-release-assinado
           path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: ignore
-      - name: Disponibilizar APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: atrio-catolico-firebase-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
+          retention-days: 7
