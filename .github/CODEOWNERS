@@ -1,0 +1,10 @@
+# Responsável por revisar alterações sensíveis do repositório público.
+# A proteção real depende da Ruleset de branch configurada no GitHub.
+* @josuepradodeoliveiracosta-gif
+
+.github/workflows/ @josuepradodeoliveiracosta-gif
+.github/dependabot.yml @josuepradodeoliveiracosta-gif
+firestore.rules @josuepradodeoliveiracosta-gif
+app/build.gradle.kts @josuepradodeoliveiracosta-gif
+app/google-services.json @josuepradodeoliveiracosta-gif
+SECURITY.md @josuepradodeoliveiracosta-gif

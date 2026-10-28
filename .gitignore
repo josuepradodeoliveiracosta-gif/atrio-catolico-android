@@ -1,3 +1,4 @@
+# Artefatos de build / ferramentas
 .gradle/
 .idea/
 /build/
@@ -5,27 +6,57 @@
 /local.properties
 *.iml
 *.apk
+*.aab
 .DS_Store
-
-# O google-services.json e uma configuracao publica de cliente, nao uma chave admin.
-# Este pacote se destina somente a um repositorio PRIVADO.
-
-# Nunca versionar chaves de assinatura ou senhas.
-*.jks
-*.keystore
-*.p12
-keystore.properties
-key.properties
-
-
-# Dependências, caches e resultados reproduzíveis de desenvolvimento.
 node_modules/
 __pycache__/
 *.py[cod]
 .pytest_cache/
 .firebase/
+.wrangler/
 firebase-debug*.log
 firestore-debug*.log
 ui-debug*.log
 /tests/security/firestore.rules
 /tests/security/RESULTADO.txt
+
+# Chaves privadas de assinatura / credenciais de infraestrutura
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.p8
+*.pem
+*.key
+*.mobileprovision
+keystore.properties
+key.properties
+service-account*.json
+*service-account*.json
+*firebase-adminsdk*.json
+*credentials*.json
+*admin-credentials*.json
+firebase-service-account.json
+google-application-credentials.json
+
+# Segredos locais (nunca publicar)
+.env
+.env.*
+!.env.example
+!.env.sample
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+secrets/
+private/
+*.secret
+*.secrets
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+*.auto.tfvars
+
+# app/google-services.json é uma configuração CLIENTE (não uma
+# credencial administrativa) necessária ao build. Mantém-se versionada,
+# com restrições de API key, App Check e regras Firebase no servidor.
+# Ela NÃO substitui controle de acesso ou constitui chave privada.
