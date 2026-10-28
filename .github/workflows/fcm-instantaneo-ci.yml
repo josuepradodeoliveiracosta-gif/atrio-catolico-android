@@ -1,0 +1,29 @@
+name: Validar notificações FCM em tempo real
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "functions/**"
+      - "firebase.json"
+      - ".github/workflows/fcm-instantaneo-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    name: Testar lógica das Cloud Functions (sem acessar produção)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Verificar sintaxe
+        run: node --check functions/index.js && node --check functions/events.js
+      - name: Testar transições, destinatários e tokens
+        run: node --test functions/test/events.test.cjs
+      - name: Verificar dependências Firebase e Node 22
+        run: npm install --prefix functions --ignore-scripts --no-audit --no-fund
