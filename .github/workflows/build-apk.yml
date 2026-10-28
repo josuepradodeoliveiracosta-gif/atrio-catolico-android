@@ -43,12 +43,9 @@ jobs:
           ATRIO_KEY_PASSWORD: ${{ secrets.ATRIO_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          if [[ -z "$ATRIO_KEYSTORE_BASE64" && -z "$ATRIO_STORE_PASSWORD" && -z "$ATRIO_KEY_PASSWORD" ]]; then
-            echo "::notice::Assinatura permanente ainda nao configurada; APK debug segue disponivel."
-            exit 0
-          fi
+          # No acionamento manual da main, o release deve falhar se faltar qualquer secret.
           if [[ -z "$ATRIO_KEYSTORE_BASE64" || -z "$ATRIO_STORE_PASSWORD" || -z "$ATRIO_KEY_PASSWORD" ]]; then
-            echo "::error::Configuracao incompleta. Necessarios os 3 secrets ATRIO_KEYSTORE_BASE64, ATRIO_STORE_PASSWORD e ATRIO_KEY_PASSWORD."
+            echo "::error::Release indisponivel: confira os secrets ATRIO_KEYSTORE_BASE64, ATRIO_STORE_PASSWORD e ATRIO_KEY_PASSWORD."
             exit 1
           fi
           KEYSTORE="$RUNNER_TEMP/atrio-release.jks"
@@ -61,14 +58,19 @@ jobs:
           export ATRIO_SIGNING_KEY_ALIAS="atrio"
           export ATRIO_SIGNING_KEY_PASSWORD="$ATRIO_KEY_PASSWORD"
           gradle :app:assembleRelease --no-daemon --stacktrace
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs app/build/outputs/apk/release/app-release.apk
+          RELEASE_APK="app/build/outputs/apk/release/app-release.apk"
+          if [[ ! -s "$RELEASE_APK" ]]; then
+            echo "::error::APK release nao foi gerado ou esta vazio."
+            exit 1
+          fi
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "$RELEASE_APK"
       - name: Disponibilizar APK com assinatura permanente
         if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@v4
         with:
           name: atrio-catolico-release-assinado
           path: app/build/outputs/apk/release/app-release.apk
-          if-no-files-found: ignore
+          if-no-files-found: error
           retention-days: 7
       - name: Disponibilizar APK
         uses: actions/upload-artifact@v4
