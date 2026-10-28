@@ -10,6 +10,9 @@ on:
       - 'app/src/androidTest/**'
       - 'app/build.gradle.kts'
       - '.github/workflows/android-bots-ui.yml'
+  # Executa os testes reais da interface em emulador somente neste ramo de QA.
+  push:
+    branches: [feature/push-gratuito-cloudflare-v0190]
   workflow_dispatch:
 
 concurrency:

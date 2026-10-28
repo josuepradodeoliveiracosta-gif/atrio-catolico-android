@@ -1,3 +1,4 @@
+# Android e ferramentas
 .gradle/
 .idea/
 /build/
@@ -6,13 +7,52 @@
 *.iml
 *.apk
 .DS_Store
+node_modules/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.firebase/
+firebase-debug*.log
+firestore-debug*.log
+ui-debug*.log
+/tests/security/firestore.rules
+/tests/security/RESULTADO.txt
 
-# O google-services.json e uma configuracao publica de cliente, nao uma chave admin.
-# Este pacote se destina somente a um repositorio PRIVADO.
-
-# Nunca versionar chaves de assinatura ou senhas.
+# Segredos e certificados privados — nunca enviar para Git/GitHub
 *.jks
 *.keystore
 *.p12
+*.pfx
+*.pem
+*.p8
+*.key
 keystore.properties
 key.properties
+.env
+.env.*
+!.env.example
+!.env.sample
+**/service-account*.json
+**/*service-account*.json
+**/firebase-adminsdk-*.json
+**/*adminsdk*private*.json
+**/google-credentials*.json
+**/credentials.json
+**/secrets.json
+**/*secret*.env
+**/qa-bots-credentials*.json
+**/qa-bots-logins*.json
+**/qa-official-results/
+*.sqlite
+*.sqlite3
+*.db
+
+# Arquivos empacotados: não confundir backup local com código público
+*.zip
+*.tar
+*.tar.gz
+
+# app/google-services.json é configuração CLIENTE do Firebase e é pública
+# por desenho do SDK Android. A chave de API deve estar restringida por
+# aplicativo (pacote/certificado) e por APIs no Google Cloud.
+# Nunca coloque JSON de conta de serviço Firebase Admin neste local.

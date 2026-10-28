@@ -65,3 +65,10 @@ O comando de CI `tests/security/npm test` executa os dois conjuntos **sem usar F
 A [execução 40585821095](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/actions/runs/40585821095), no commit `b743cb1d92f46136e0c6f537d984f7af87ab1b7d`, aprovou **13 testes** (9 + 3 + 1), sem falhas ou testes ignorados. Além da evidência anterior, agora há cadastro, login e saída pela UI, marcação de avisos como lidos, edição de apresentação, seleção de selo Leiga e denúncia sem excluir a discussão. Persistência é conferida no Firebase emulado; a denúncia usa a confirmação da interface após a escrita e a preservação do post como evidência.
 
 Detalhes e limites em [qa-android-autenticado.md](qa-android-autenticado.md). A nova evidência não transforma os testes locais em testes de produção nem comprova push em aparelhos físicos. As demais coberturas pendentes continuam pendentes.
+
+## Sincronização de QA com a main — 28/10/2026
+
+- Branch de desenvolvimento atualizada com as mudanças de segurança e documentação da main, sem integrar a PR #15.
+- A versão em desenvolvimento é 0.19.0, com `versionCode=26` (superior à release 0.18.1, código 25).
+- Teste autenticado de denúncia no Android virtual agora envia a denúncia válida e tenta repeti-la pela interface, verificando rejeição. Todo o tráfego fica no Firebase Auth/Firestore Emulator.
+- Workflow de QA Android virtual pode rodar por push somente na branch isolada `feature/push-gratuito-cloudflare-v0190`; não envia comandos para a Cloudflare Queue real.

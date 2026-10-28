@@ -112,3 +112,10 @@ Por solicitação explícita do fundador, **não é mais necessário desligar os
 - Os testes `moderation.test.mjs`, `three-bots.test.mjs` e `three-bots-extended.test.mjs` cobrem identificação, privacidade, repetição e permissões no emulador. A variante de regras da PR #15 mantém as condições adicionais do Guardião.
 - Testes emulados não autorizam disparo de sessão oficial na Cloudflare Queue nem provam notificações FCM recebidas no aparelho.
 - **Atenção:** a PR #15 usa versionCode 25 (v0.19.0), número já utilizado pelo release oficial 0.18.1. Antes de qualquer futura integração ou APK release, corrigir essa numeração e revisar compatibilidade.
+
+## Sincronização de código com main — 28/10/2026
+
+- PR #15 permanece isolada e não publica APK, Worker ou regras.
+- O módulo Android foi mantido com os recursos de v0.19.0, agora usando `versionCode 26` após a release 0.18.1 (25).
+- As regras adicionais do Guardião e a deduplicação da PR #35 coexistem no ramo de desenvolvimento.
+- CI em `feature/push-gratuito-cloudflare-v0190` valida regras, Android e interface no emulador local; aprovação não equivale a teste real no APK de produção.

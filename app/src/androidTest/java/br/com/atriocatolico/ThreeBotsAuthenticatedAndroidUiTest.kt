@@ -377,6 +377,21 @@ class ThreeBotsAuthenticatedAndroidUiTest {
             ).fetchSemanticsNodes().isNotEmpty()
         }
         assertEquals(luciaUid, auth.currentUser?.uid)
+        // PR #35: a segunda tentativa deve ser recusada pela regra real
+        // do Firestore emulado, mesmo após o usuário reenviar pela interface.
+        compose.onNodeWithText("Entendi").performClick()
+        compose.onNodeWithTag("atrio-detail-report-post")
+            .performScrollTo().assertIsDisplayed().performClick()
+        waitFor("atrio-report-post-reason")
+        compose.onNodeWithTag("atrio-report-post-reason")
+            .performTextInput("Segunda denúncia duplicada, deve ser bloqueada.")
+        compose.onNodeWithTag("atrio-report-post-submit")
+            .assertIsEnabled().performClick()
+        compose.waitUntil(35_000) {
+            compose.onAllNodesWithText(
+                "Talvez você já tenha denunciado esta discussão", substring = true
+            ).fetchSemanticsNodes().isNotEmpty()
+        }
         val unchanged = Tasks.await(db.collection("posts").document(post.id)
             .get(Source.SERVER), 8, TimeUnit.SECONDS)
         assertTrue("Uma denúncia de teste não pode excluir o post", unchanged.exists())
