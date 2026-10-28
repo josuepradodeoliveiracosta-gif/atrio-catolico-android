@@ -36,11 +36,19 @@ def git(*args):
 
 def objects(history):
     if history:
-        rows = git('rev-list', '--objects', '--all').decode().splitlines()
-        for row in rows:
-            oid, _, path = row.partition(' ')
-            if git('cat-file', '-t', oid).strip() == b'blob':
-                yield oid, path, git('cat-file', 'blob', oid)
+        # Inspect every historical path, including aliases of identical blobs.
+        seen = set()
+        for commit in git('rev-list', '--all').splitlines():
+            for record in git('ls-tree', '-r', '-z', commit.decode()).split(b'\0'):
+                if not record:
+                    continue
+                metadata, raw_path = record.split(b'\t', 1)
+                _, kind, oid = metadata.split()
+                key = (oid, raw_path)
+                if kind != b'blob' or key in seen:
+                    continue
+                seen.add(key)
+                yield oid.decode(), raw_path.decode(errors='surrogateescape'), git('cat-file', 'blob', oid.decode())
     else:
         for raw in git('ls-files', '-z').split(b'\0'):
             if not raw:
@@ -70,3 +78,4 @@ def main():
 
 if __name__ == '__main__':
     sys.exit(main())
+
