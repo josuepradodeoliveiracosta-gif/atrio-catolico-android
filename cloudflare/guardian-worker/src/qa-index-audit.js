@@ -32,7 +32,12 @@ export async function readQaIndexes({project,approved,accessToken,fetcher=fetch}
    Authorization:'Bearer '+accessToken,Accept:'application/json'
   },redirect:'error',signal:AbortSignal.timeout(8000)});
   if(response.status===404)return null;
-  if(!response.ok)throw Error('api_'+response.status+(path.includes('/indexes?')?'_composite':'_single'));
+  if(!response.ok){
+   const issue=await response.json().catch(()=>({}));
+   const message=String(issue?.error?.message||'').replace(/[^A-Za-z0-9 ._:/()=-]/g,'').slice(0,160);
+   const err=Error('api_'+response.status+(path.includes('/indexes?')?'_composite':'_single'));
+   err.safeDetail=message;throw err;
+  }
   return response.json();
  }
  try{
@@ -61,6 +66,6 @@ export async function readQaIndexes({project,approved,accessToken,fetcher=fetch}
    repliesCreatedAtGroup:summaryOf(field)};
  }catch(e){
   const reason=/^(?:api_[0-9]{3}_(?:composite|single)|index_composite_not_found|invalid_index_response|index_listing_exceeded_limit)$/.test(e?.message||'')?e.message:'network_or_response';
-  return {status:'unavailable',reason};
+  return {status:'unavailable',reason,...(e?.safeDetail?{detail:e.safeDetail}:{})};
  }
 }
