@@ -1,6 +1,7 @@
 import {classify,decide,safeNotice,VALID_ID} from './policy.js';
 import {Firestore,token,actorId,caseId,pathOf,string,bool,str,timestamp,ROOT} from './firestore.js';
 import {qaShadowAllowed,scanQaShadow} from './shadow-qa.js';
+import {qaMonitorAllowed,readQaWorkflowStatus} from './github-qa-monitor.js';
 const json=(status,code)=>new Response(JSON.stringify({status:code}),{status,headers:{'content-type':'application/json','cache-control':'no-store'}});
 const MASK=/^posts\/[A-Za-z0-9_-]{1,128}(?:\/replies\/[A-Za-z0-9_-]{1,128})?$/;
 export function settingsOf(doc,env) {
@@ -155,7 +156,16 @@ export default {
     if(env.GUARDIAN_V2_TEST_MODE==='true'){
       // Independent QA cron. No privilege to change content, even in remote QA.
       if(!qaShadowAllowed(env)){
-        console.log('guardian_v2_qa_cron_tick');
+        // The existing 15-minute QA Cron may inspect public GitHub run status
+        // at most once an hour. It never accesses Firebase, secrets or user data.
+        const when=event?.scheduledTime;
+        if(qaMonitorAllowed(env)&&Number.isFinite(when)
+          && new Date(when).getUTCMinutes()===0) {
+          ctx.waitUntil((async()=>{
+            const status=await readQaWorkflowStatus(env);
+            console.log('guardian_v2_qa_monitor',JSON.stringify(status));
+          })());
+        } else console.log('guardian_v2_qa_cron_tick');
         return;
       }
       ctx.waitUntil((async()=>{
