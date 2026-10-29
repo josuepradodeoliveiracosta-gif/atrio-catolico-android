@@ -275,7 +275,14 @@ try {
  await test('administrador consulta denúncias',()=>assertSucceeds(getDocs(collection(admin,'reports'))));
  await test('usuário não exclui publicação alheia',()=>assertFails(deleteDoc(doc(bob,'posts/p'))));
  await test('usuário não encerra denúncia',()=>assertFails(updateDoc(doc(bob,rpost('bob','p')),review('dismissed','bob'))));
- await test('autor mantém edição própria',()=>assertSucceeds(updateDoc(doc(alice,'posts/p'),{body:'Conteúdo revisado pelo autor'})));
+ await test('autor mantém edição própria com relógio do servidor',()=>assertSucceeds(
+   updateDoc(doc(alice,'posts/p'),{body:'Conteúdo revisado pelo autor',updatedAt:serverTimestamp()})));
+ await test('cliente antigo sem updatedAt não altera discussão',()=>assertFails(
+   updateDoc(doc(alice,'posts/p'),{body:'Alteração sem rastreamento'})));
+ await test('autor não pode falsificar horário de edição',()=>assertFails(
+   updateDoc(doc(alice,'posts/p'),{body:'Data forjada',updatedAt:Timestamp.fromMillis(Date.now()-3600000)})));
+ await test('autor não pode voltar o relógio de uma edição já registrada',()=>assertFails(
+   updateDoc(doc(alice,'posts/p'),{updatedAt:Timestamp.fromMillis(Date.now()-86400000)})));
  await test('administrador não reescreve texto alheio',()=>assertFails(updateDoc(doc(admin,'posts/p'),{body:'Texto de outra pessoa'})));
  await test('denunciante não insere decisão pronta',()=>assertFails(setDoc(doc(bob,rpost('bob','p5')),{...report('p5'),...review()})));
  await test('administrador não forja identidade do revisor',()=>assertFails(updateDoc(doc(admin,rpost('bob','p')),review('dismissed','bob'))));
