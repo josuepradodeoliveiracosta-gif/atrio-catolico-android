@@ -19,7 +19,7 @@ function caseFields(item,finding,now,action) {
 export async function processDocument(db,document,settings,now=new Date().toISOString()) {
   if(!settings.enabled)return 'disabled';
   const item=cleanItem(document);if(!item)return 'invalid';
-  const finding=classify(item.text),policy=decide(finding,settings);
+  const finding=classify(item.text,settings.context||{}),policy=decide(finding,settings);
   if(policy==='clear')return 'clear';
   const id=await caseId(item.path);
   // Nunca retirar um post com subcoleções de respostas de maneira automática.
@@ -38,10 +38,21 @@ export async function processDocument(db,document,settings,now=new Date().toISOS
   try{await db.commit(writes);return action;}
   catch(e){if(e.status===409||e.status===412)return 'duplicate_or_changed';throw e;}
 }
+export async function processReport(db,report,settings) {
+  // Denúncias são pistas, não são prova e nunca contabilizam infração confirmada.
+  if(!settings.enabled)return 'disabled';
+  if(!/^reports\/[A-Za-z0-9_-]{1,128}$/.test(pathOf(report))||
+      string(report,'source')==='guardiao')return 'ignored';
+  const postId=string(report,'postId'),replyId=string(report,'replyId');
+  if(!VALID_ID.test(postId)||(replyId&&!VALID_ID.test(replyId)))return 'invalid';
+  const path='posts/'+postId+(replyId?'/replies/'+replyId:'');
+  const document=await db.get(path);if(!document)return 'missing';
+  return processDocument(db,document,settings);
+}
 export async function scanOnce(db,settings){
   if(!settings.enabled)return {status:'disabled'};
   // Limites explícitos por execução: nenhum documento ilimitado nem varredura retroativa.
-  const counters={clear:0,review:0,warn:0,hold:0,invalid:0,duplicate_or_changed:0,error:0};
+  const counters={clear:0,review:0,warn:0,hold:0,invalid:0,duplicate_or_changed:0,ignored:0,missing:0,error:0};
   for(const group of ['posts','replies']) {
     let docs;try{docs=await db.scan(group,20,30);}catch{counters.error++;continue;}
     for(const doc of docs) {
@@ -49,6 +60,13 @@ export async function scanOnce(db,settings){
       catch{counters.error++;}
     }
   }
+  try {
+    const reports=await db.scan('reports',20,15);
+    for(const report of reports){
+      try{const state=await processReport(db,report,settings);if(state in counters)counters[state]++;}
+      catch{counters.error++;}
+    }
+  }catch{counters.error++;}
   return counters;
 }
 async function admin(request,db,env){
@@ -129,6 +147,17 @@ export default {
   fetch:handleRequest,
   async scheduled(event,env,ctx) {
     if(env.GUARDIAN_V2_ENABLED!=='true')return;
-    ctx.waitUntil((async()=>{try{const db=new Firestore(await token(env));const config=await db.get('guardian_config/policy');await scanOnce(db,settingsOf(config,env));}catch{ /* Fail closed. Monitor by external metrics. */ }})());
+    ctx.waitUntil((async()=>{try{const db=new Firestore(await token(env));const config=await db.get('guardian_config/policy');
+      const metrics=await scanOnce(db,settingsOf(config,env));
+      if(metrics.status!=='disabled'){
+        const current=await db.get('guardian_runtime/last_scan');
+        const fields={scannedAt:timestamp(new Date().toISOString()),
+          review:{integerValue:String(metrics.review)},warn:{integerValue:String(metrics.warn)},
+          error:{integerValue:String(metrics.error)}};
+        try {
+          if(current?.updateTime)await db.update('guardian_runtime/last_scan',fields,current.updateTime);
+          else await db.create('guardian_runtime/last_scan',fields);
+        }catch{}
+      }}catch{ /* Fail closed. Monitor by external metrics. */ }})());
   }
 };
