@@ -2,6 +2,7 @@
 const PROJECT='atrio-catolico';
 const API='https://firestore.googleapis.com/v1';
 const ROOT=API+'/projects/'+PROJECT+'/databases/(default)/documents';
+const RESOURCE='projects/'+PROJECT+'/databases/(default)/documents';
 const projectValid=id=>typeof id==='string' && /^[a-z][a-z0-9-]{4,29}$/.test(id);
 const IDENT=/^[A-Za-z0-9_-]{1,128}$/;
 const field=(doc,key)=>doc?.fields?.[key];
@@ -36,6 +37,8 @@ export class Firestore {
   constructor(access,project=PROJECT,api=API){
     if(!projectValid(project)||!['https://firestore.googleapis.com/v1','http://127.0.0.1:8089/v1'].includes(api))throw Error('invalid_backend');
     this.access=access;this.root=api+'/projects/'+project+'/databases/(default)/documents';
+    // REST endpoint (root) and Firestore resource names (resource) are different.
+    this.resource='projects/'+project+'/databases/(default)/documents';
   }
   async send(path,method='GET',payload){
     const r=await fetch(this.root+path,{method,headers:{Authorization:'Bearer '+this.access,'Content-Type':'application/json'},body:payload?JSON.stringify(payload):undefined});
@@ -62,8 +65,8 @@ export class Firestore {
     return result.map(x=>x.document).filter(Boolean);
   }
   commit(writes){return this.send(':commit','POST',{writes});}
-  async create(path,fields){return this.commit([{update:{name:this.root+'/'+path,fields},currentDocument:{exists:false}}]);}
-  async update(path,fields,oldTime){const keys=Object.keys(fields);return this.commit([{update:{name:this.root+'/'+path,fields},updateMask:{fieldPaths:keys},currentDocument:{updateTime:oldTime}}]);}
+  async create(path,fields){return this.commit([{update:{name:this.resource+'/'+path,fields},currentDocument:{exists:false}}]);}
+  async update(path,fields,oldTime){const keys=Object.keys(fields);return this.commit([{update:{name:this.resource+'/'+path,fields},updateMask:{fieldPaths:keys},currentDocument:{updateTime:oldTime}}]);}
 }
 export async function actorId(request,env){
   const m=/^Bearer ([A-Za-z0-9._-]{100,5000})$/.exec(request.headers.get('authorization')||'');
@@ -72,4 +75,4 @@ export async function actorId(request,env){
   if(!r.ok)return null;const user=(await r.json()).users?.[0];return user&&!user.disabled&&IDENT.test(user.localId)?user.localId:null;
 }
 export async function caseId(path){const digest=new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode('atrio-guardian-v2:'+path)));return 'guard_'+[...digest].slice(0,16).map(n=>n.toString(16).padStart(2,'0')).join('');}
-export {ROOT};
+export {ROOT,RESOURCE};
