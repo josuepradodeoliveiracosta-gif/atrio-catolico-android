@@ -126,33 +126,33 @@ internal fun PushSettings(uid: String, db: FirebaseFirestore) {
                 Text(if (diagnosticsOpen) "Ocultar diagnóstico avançado" else "Diagnóstico avançado")
             }
             if (diagnosticsOpen) {
-            if (active) {
-                TextButton(onClick = {
-                    FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
-                        if (task.isSuccessful) {
-                            val token = task.result.orEmpty()
-                            if (token.isNotBlank()) {
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE)
-                                    as ClipboardManager
-                                clipboard.setPrimaryClip(ClipData.newPlainText("Token FCM de teste", token))
-                                feedback = "Token copiado. Use apenas no Console Firebase; não compartilhe publicamente."
-                            }
-                        } else feedback = "Não foi possível consultar o token de teste."
-                    }
-                }) { Text("Copiar token para teste no Firebase") }
-                Text("O token identifica este aparelho como destino de mensagens, não a sua " +
-                    "identidade. Mantenha-o privado.", fontSize = 11.sp, color = Muted)
-            }
-            HorizontalDivider()
-            Text("Última tentativa de envio", color = Wine,
-                style = MaterialTheme.typography.titleMedium)
-            Text("Veja a resposta do Cloudflare no aparelho que publicou uma resposta. " +
-                "Esse registro não confirma recebimento no outro celular. Consultar não envia avisos extras.",
-                fontSize = 12.sp, color = Muted)
-            Text(lastRelayStatus, fontSize = 12.sp, color = Wine)
-            OutlinedButton(onClick = {
-                lastRelayStatus = InstantPushRelay.lastStatus(context, uid)
-            }, modifier = Modifier.fillMaxWidth()) { Text("Atualizar diagnóstico do Push") }
+                if (active) {
+                    TextButton(onClick = {
+                        FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+                            if (task.isSuccessful) {
+                                val token = task.result.orEmpty()
+                                if (token.isNotBlank()) {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE)
+                                        as ClipboardManager
+                                    clipboard.setPrimaryClip(ClipData.newPlainText("Token FCM de teste", token))
+                                    feedback = "Token copiado. Use apenas no Console Firebase; não compartilhe publicamente."
+                                }
+                            } else feedback = "Não foi possível consultar o token de teste."
+                        }
+                    }) { Text("Copiar token para teste no Firebase") }
+                    Text("O token identifica este aparelho como destino de mensagens, não a sua " +
+                        "identidade. Mantenha-o privado.", fontSize = 11.sp, color = Muted)
+                }
+                HorizontalDivider()
+                Text("Última tentativa de envio", color = Wine,
+                    style = MaterialTheme.typography.titleMedium)
+                Text("Veja a resposta do Cloudflare no aparelho que publicou uma resposta. " +
+                    "Esse registro não confirma recebimento no outro celular. Consultar não envia avisos extras.",
+                    fontSize = 12.sp, color = Muted)
+                Text(lastRelayStatus, fontSize = 12.sp, color = Wine)
+                OutlinedButton(onClick = {
+                    lastRelayStatus = InstantPushRelay.lastStatus(context, uid)
+                }, modifier = Modifier.fillMaxWidth()) { Text("Atualizar diagnóstico do Push") }
             }
         }
     }

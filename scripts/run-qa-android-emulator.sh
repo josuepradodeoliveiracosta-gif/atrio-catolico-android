@@ -66,6 +66,9 @@ run_suite() {
       "qa-android-suite-results/$suite/"
   fi
 }
+run_suite ProfileLayoutUiTest
+mkdir -p qa-android-suite-results/profile-preview
+adb pull /sdcard/Android/data/br.com.atriocatolico/files/profile-preview/. qa-android-suite-results/profile-preview/
 run_suite ProfileEditorUiTest
 run_suite ThreeBotsAndroidUiTest
 run_suite ThreeBotsAuthenticatedAndroidUiTest

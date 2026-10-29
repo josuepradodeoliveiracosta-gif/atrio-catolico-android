@@ -54,7 +54,7 @@ O e-mail e a biografia são privados; o nome é copiado para novas publicações
 - Mesmo `update` de displayName/bio, mesmos limites de 35/180 caracteres. Não grava no Firebase ao apenas abrir o Perfil.
 - Serviços, cadastros, preferências e agendamento de notificações preservados. Expandir diagnóstico não cadastra dispositivos nem envia push.
 - O logout mantém o comportamento existente: desativa o registro e a verificação dessa sessão antes de sair. Não mudamos essa política nesta PR.
-- Os selos e acessos administrativos mantêm os mesmos componentes e condições. Não concedemos novos priviléggios.
+- Os selos e acessos administrativos mantêm os mesmos componentes e condições. Não concedemos novos privilégios.
 - Sem nova consulta para calcular participação. A lista é expandida sob demanda, preservando a paginação do feed.
 - A confirmação de descarte protege Cancelar, toque fora e Voltar no diálogo; não constitui garantia de salvar rascunho após encerramento do aplicativo.
 - Firebase Auth pode apresentar o nome em cache durante reconexão; o listener Firestore continua sendo a fonte do nome atualizado. Esse comportamento anterior não foi reescrito.
@@ -68,7 +68,7 @@ Adicionados quatro testes Compose do editor real com persistência simulada:
 3. Cancelamento exige confirmação, permite continuar e descartar sem gravar.
 4. Troca de UID limpa rascunho e ignora conclusão antiga.
 
-A suíte é chamada no runner Android existente, isolado em `demo-atrio-v11`.
+A suíte é chamada no runner Android existente, isolado em `demo-atrio-v11`. Um teste adicional da tela completa usa fonte a 150%, verifica os atalhos/rolagem e gera capturas de identidade, notificações e conta no artefato de QA.
 Os checks da PR compilam Android, executam testes unitários e testes Firestore no emulador. O job Android virtual também testa os fluxos autenticados existentes, incluindo edição do perfil/selos e logout/login.
 
 Ambiente local desta revisão: Java 17 disponível; Gradle, Android SDK e emulador não instalados. Resultados executados de CI devem ser consultados na aba Checks da PR; não presumir aprovação pela existência dos testes.
