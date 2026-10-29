@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {Firestore} from './firestore.js';
-import {validateRemoteQa} from './remote-gate.js';
+import {validateRemoteQa,validateShadowOutcome} from './remote-gate.js';
 
 const project='atrio-catolico-qa-v2';
 const allow={
@@ -78,4 +78,11 @@ test('read-only query API provides no write handle to classifier',async()=>{
   await reader.scan('posts',20,15);
   assert.equal(calls,1);
  }finally{globalThis.fetch=old;}
+});
+
+test('remote read-only refuses empty QA datasets and failed queries',()=>{
+ const counts={clear:0,review:0,hold_candidate:0,warning:0,reports:0,error:0};
+ assert.throws(()=>validateShadowOutcome({status:'shadow_read_only',counts}),/fixtures_missing/);
+ assert.throws(()=>validateShadowOutcome({status:'shadow_read_only',counts:{...counts,error:1}}),/qa_query_failed/);
+ assert.deepEqual(validateShadowOutcome({status:'shadow_read_only',counts:{...counts,clear:1}}),{...counts,clear:1});
 });
