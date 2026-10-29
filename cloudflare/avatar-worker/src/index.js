@@ -211,7 +211,9 @@ export async function uploadProtected(env,id,bytes) {
     if(returnedId===id && ['upload','authenticated'].includes(result?.type)) {
       try {await destroy(env,id,result.type);}catch{}
     }
-    throw Error('cloudinary_protection_failed');
+    const safetyError=new Error('cloudinary_protection_failed');
+    safetyError.safeCode='cloudinary_protection_failed';
+    throw safetyError;
   }
   return result;
 }
@@ -320,7 +322,7 @@ export default {
     } catch (error) {
       if(error.message==='invalid_image') return json(413,'invalid_image');
       if(typeof error.safeCode==='string' &&
-          /^cloudinary_(environment_not_found|not_found|signature_invalid|credentials_invalid|moderation_error|preset_error|file_error|error_[0-9]{3})$/.test(error.safeCode)) {
+          /^cloudinary_(protection_failed|environment_not_found|not_found|signature_invalid|credentials_invalid|moderation_error|preset_error|file_error|error_[0-9]{3})$/.test(error.safeCode)) {
         return json(502,error.safeCode);
       }
       return json(503,'temporarily_unavailable');
