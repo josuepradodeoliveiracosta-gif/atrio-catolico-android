@@ -92,7 +92,8 @@ test('operações do QA nunca gravam no projeto de produção',async()=>{
   globalThis.fetch=async(url,opts)=>{payload=JSON.parse(opts.body);assert.equal(url,root+':commit');return new Response('{}',{status:200});};
   try{
     await store.create('guardian_runtime/qa-only',{active:{booleanValue:false}});
-    assert.equal(payload.writes[0].update.name,root+'/guardian_runtime/qa-only');
+    assert.equal(payload.writes[0].update.name,'projects/demo-atrio-v11/databases/(default)/documents/guardian_runtime/qa-only');
+    assert.ok(!payload.writes[0].update.name.startsWith('http'));
     assert.ok(!payload.writes[0].update.name.includes('projects/atrio-catolico/'));
   }finally{globalThis.fetch=original;}
 });
