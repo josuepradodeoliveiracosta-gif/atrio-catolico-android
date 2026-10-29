@@ -19,7 +19,12 @@ const fake=(first=composite,second=single)=>{
  const requests=[];
  const fetcher=async (url,opts)=>{
   requests.push({url,opts});
-  return new Response(JSON.stringify(requests.length===1?first:second),{status:200});
+  if(url.endsWith('/replies/fields/createdAt'))
+   return new Response(JSON.stringify(second),{status:200});
+  const group=url.match(/collectionGroups\\/(posts|replies|reports)\\/indexes/);
+  if(!group)throw Error('unexpected URL in test');
+  const filtered=(first.indexes||[]).filter(i=>i.name.includes('/collectionGroups/'+group[1]+'/indexes/'));
+  return new Response(JSON.stringify({indexes:filtered}),{status:200});
  };
  return {requests,fetcher};
 };
@@ -38,7 +43,7 @@ test('auditoria faz apenas GET com token efêmero nas rotas do projeto QA',async
  assert.deepEqual(result,{status:'observed',
   composites:[{group:'posts',state:'ready'},{group:'replies',state:'ready'},{group:'reports',state:'ready'}],
   repliesCreatedAtGroup:'ready'});
- assert.equal(requests.length,2);
+ assert.equal(requests.length,4);
  for(const {url,opts} of requests){
   assert.equal(opts.method,'GET');assert.equal(opts.redirect,'error');
   assert.equal(opts.headers.Authorization,'Bearer '+TOKEN);
