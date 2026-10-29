@@ -96,3 +96,13 @@ test('operações do QA nunca gravam no projeto de produção',async()=>{
     assert.ok(!payload.writes[0].update.name.includes('projects/atrio-catolico/'));
   }finally{globalThis.fetch=original;}
 });
+
+
+import {token} from './firestore.js';
+test('sem autorização expressa credenciais não acessam a produção',async()=>{
+  await assert.rejects(token({GUARDIAN_FIREBASE_PROJECT_ID:'atrio-catolico'}),/production_access_not_approved/);
+});
+test('QA recusa credencial pertencente a outro projeto Firebase',async()=>{
+  await assert.rejects(token({GUARDIAN_FIREBASE_PROJECT_ID:'demo-atrio-v11',
+    GUARDIAN_FIREBASE_SERVICE_ACCOUNT_JSON:JSON.stringify({project_id:'atrio-catolico',client_email:'fake@example.invalid',private_key:'fake'})}),/service_not_configured/);
+});
