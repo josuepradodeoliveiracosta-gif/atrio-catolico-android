@@ -1,6 +1,9 @@
 package br.com.atriocatolico
 
 import androidx.compose.runtime.*
+import android.graphics.Bitmap
+import android.os.Build
+import android.os.ParcelFileDescriptor
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
@@ -49,6 +52,7 @@ class EngagementUiTest {
         }
         compose.onNodeWithTag("atrio-quote-reply").performClick()
         compose.onNodeWithText("Citando Miguel").assertExists()
+        screenshot("08-citacao-engajamento")
         compose.onNodeWithTag("atrio-reply-input").performTextInput("Amém!")
         compose.onNodeWithTag("atrio-reply-submit").performClick()
         compose.runOnIdle { assertEquals("↳ Em resposta a Miguel: Amém!", submitted) }
@@ -70,6 +74,26 @@ class EngagementUiTest {
             }
         }
         compose.onNodeWithTag("atrio-follow-discussion").performClick()
+        screenshot("09-acompanhar-discussao")
         compose.runOnIdle { assertEquals(1, toggles) }
+    }
+
+    private fun screenshot(name: String) {
+        if (Build.VERSION.SDK_INT < 31) return
+        require(name.matches(Regex("[a-z0-9-]+")))
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        ParcelFileDescriptor.AutoCloseInputStream(
+            automation.executeShellCommand("mkdir -p /data/local/tmp/atrio-profile-preview")
+        ).use { it.readBytes() }
+        val bitmap = automation.takeScreenshot() ?: error("Emulador não capturou tela")
+        val fds = automation.executeShellCommandRw(
+            "dd of=/data/local/tmp/atrio-profile-preview/$name.png"
+        )
+        ParcelFileDescriptor.AutoCloseInputStream(fds[0]).use { output ->
+            ParcelFileDescriptor.AutoCloseOutputStream(fds[1]).use { input ->
+                check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, input))
+            }
+            output.readBytes()
+        }
     }
 }
