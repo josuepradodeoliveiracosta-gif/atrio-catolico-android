@@ -65,6 +65,7 @@ internal fun GuardiaoAppealsScreen(db: FirebaseFirestore, uid: String) {
                 InstantPushRelay.lastGuardiaoStatus(context, uid),
                 style = MaterialTheme.typography.bodySmall)
         }
+        item { GuardianNoticeFeed(db, uid) }
         if (loading) item { CircularProgressIndicator() }
         if (error.isNotBlank()) item { Text(error, color = MaterialTheme.colorScheme.error) }
         if (!loading && error.isBlank() && cases.isEmpty())
