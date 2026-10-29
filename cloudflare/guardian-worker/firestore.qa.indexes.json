@@ -59,6 +59,10 @@
         {
           "order": "DESCENDING",
           "queryScope": "COLLECTION_GROUP"
+        },
+        {
+          "arrayConfig": "CONTAINS",
+          "queryScope": "COLLECTION"
         }
       ]
     }
