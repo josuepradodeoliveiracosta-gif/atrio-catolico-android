@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
@@ -630,147 +631,162 @@ internal fun DetailScreen(
     val participants = remember(post.replies, post.ownerUid, currentUid) {
         mentionCandidates(post, currentUid)
     }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
-        DiscussionCard(post, onOpen = {}, onLike = { onLike() }, onSave = { onSave() }, fullText = true)
-        if (onFollow != null) {
-            OutlinedButton(onClick = onFollow,
-                enabled = !followBusy,
-                modifier = Modifier.fillMaxWidth().testTag("atrio-follow-discussion")) {
-                Text(if (followed) "Remover da lista de acompanhadas" else "Acompanhar esta discussão")
-            }
-            Text(if (followIsSynced) "Discussão salva na sua conta. Novos avisos de acompanhamento ainda não estão disponíveis."
-                else "Lista privada deste aparelho. Acompanhar não ativa notificações adicionais.",
-                style = MaterialTheme.typography.bodySmall, color = Muted)
-        }
-        if (post.mine && (onEdit != null || onDelete != null)) {
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (onEdit != null) {
-                    OutlinedButton(onClick = onEdit) { Text("Editar discussão") }
-                }
-                if (onDelete != null) {
-                    TextButton(onClick = onDelete) { Text("Excluir discussão", color = MaterialTheme.colorScheme.error) }
-                }
-            }
-        }
-        Spacer(Modifier.height(20.dp))
-        SectionTitle(if (post.remote) "Respostas carregadas (${post.replies.size})" else "Respostas (${post.replies.size})")
-        Spacer(Modifier.height(11.dp))
-        if (post.replies.isEmpty()) Text("Seja a primeira pessoa a responder!", fontSize = 13.sp, color = Muted)
-        post.replies.forEach { r ->
-            Row(verticalAlignment = Alignment.Top, modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)
-                .then(if (reactionsEnabled && r.id.isNotBlank()) Modifier.combinedClickable(
-                    onClick = {}, onLongClick = { reactionReplyId = r.id },
-                    onLongClickLabel = "Reagir com emoji"
-                ).testTag("reaction-reply-${r.id}") else Modifier)) {
-                MemberAvatar(r.author, r.ownerUid, Modifier.size(36.dp))
-                Spacer(Modifier.width(10.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(r.author, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    MemberBadgeRow(r.ownerUid)
-                    if (r.replyToId.isNotBlank()) {
-                        val target = post.replies.firstOrNull { it.id == r.replyToId }
-                        Text("↳ Em resposta a @${target?.author ?: "participante"}",
-                            style = MaterialTheme.typography.labelSmall, color = Wine)
+    // Replies are composed on demand: off-screen rows do not construct emoji pickers
+    // or attach their Firestore reactions listeners. No data or security rules change.
+    LazyColumn(Modifier.fillMaxSize().testTag("atrio-detail-replies"),
+        contentPadding = PaddingValues(16.dp)) {
+        item(key = "discussion-header") {
+            Column {
+                DiscussionCard(post, onOpen = {}, onLike = { onLike() }, onSave = { onSave() }, fullText = true)
+                if (onFollow != null) {
+                    OutlinedButton(onClick = onFollow,
+                        enabled = !followBusy,
+                        modifier = Modifier.fillMaxWidth().testTag("atrio-follow-discussion")) {
+                        Text(if (followed) "Remover da lista de acompanhadas" else "Acompanhar esta discussão")
                     }
-                    Text(r.message, fontSize = 13.sp, lineHeight = 19.sp, color = Ink)
+                    Text(if (followIsSynced) "Discussão salva na sua conta. Novos avisos de acompanhamento ainda não estão disponíveis."
+                        else "Lista privada deste aparelho. Acompanhar não ativa notificações adicionais.",
+                        style = MaterialTheme.typography.bodySmall, color = Muted)
+                }
+                if (post.mine && (onEdit != null || onDelete != null)) {
+                    Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (r.id.isNotBlank()) {
-                            TextButton(
-                                onClick = { quotedReply = r; mentioned = null },
-                                modifier = Modifier.testTag("atrio-quote-reply")
-                            ) { Text("Responder a este comentário", fontSize = 12.sp, color = Wine) }
+                        if (onEdit != null) {
+                            OutlinedButton(onClick = onEdit) { Text("Editar discussão") }
                         }
-                        if (r.id.isNotBlank() && onReportReply != null) {
-                            TextButton(onClick = { onReportReply(r) }) {
-                                Text("Denunciar", color = Wine, fontSize = 12.sp)
+                        if (onDelete != null) {
+                            TextButton(onClick = onDelete) { Text("Excluir discussão", color = MaterialTheme.colorScheme.error) }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(20.dp))
+                SectionTitle(if (post.remote) "Respostas carregadas (${post.replies.size})" else "Respostas (${post.replies.size})")
+                Spacer(Modifier.height(11.dp))
+                if (post.replies.isEmpty()) Text("Seja a primeira pessoa a responder!", fontSize = 13.sp, color = Muted)
+            }
+        }
+        itemsIndexed(post.replies, key = { index, r ->
+            if (r.id.isNotBlank()) "reply-${r.id}" else "local-reply-$index"
+        }) { _, r ->
+            Column {
+                    Row(verticalAlignment = Alignment.Top, modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)
+                        .then(if (reactionsEnabled && r.id.isNotBlank()) Modifier.combinedClickable(
+                            onClick = {}, onLongClick = { reactionReplyId = r.id },
+                            onLongClickLabel = "Reagir com emoji"
+                        ).testTag("reaction-reply-${r.id}") else Modifier)) {
+                        MemberAvatar(r.author, r.ownerUid, Modifier.size(36.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(r.author, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            MemberBadgeRow(r.ownerUid)
+                            if (r.replyToId.isNotBlank()) {
+                                val target = post.replies.firstOrNull { it.id == r.replyToId }
+                                Text("↳ Em resposta a @${target?.author ?: "participante"}",
+                                    style = MaterialTheme.typography.labelSmall, color = Wine)
                             }
+                            Text(r.message, fontSize = 13.sp, lineHeight = 19.sp, color = Ink)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                if (r.id.isNotBlank()) {
+                                    TextButton(
+                                        onClick = { quotedReply = r; mentioned = null },
+                                        modifier = Modifier.testTag("atrio-quote-reply")
+                                    ) { Text("Responder a este comentário", fontSize = 12.sp, color = Wine) }
+                                }
+                                if (r.id.isNotBlank() && onReportReply != null) {
+                                    TextButton(onClick = { onReportReply(r) }) {
+                                        Text("Denunciar", color = Wine, fontSize = 12.sp)
+                                    }
+                                }
+                                if (r.mine && r.id.isNotBlank() && onDeleteReply != null) {
+                                    TextButton(onClick = { onDeleteReply(r.id) }) {
+                                        Text("Excluir", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                                    }
+                                }
+                            }
+                            if (r.id.isNotBlank()) reactionContent(r, reactionReplyId == r.id) { reactionReplyId = null }
                         }
-                        if (r.mine && r.id.isNotBlank() && onDeleteReply != null) {
-                            TextButton(onClick = { onDeleteReply(r.id) }) {
-                                Text("Excluir", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                    }
+                    HorizontalDivider(color = Line)
+            }
+        }
+        item(key = "discussion-composer") {
+            Column {
+                Spacer(Modifier.height(14.dp))
+                repliesFooter()
+                Text("Responder como $name", color = Wine, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                if (onMentionReply != null && participants.isNotEmpty()) {
+                    Box {
+                        OutlinedButton(
+                            onClick = { mentionMenuOpen = true },
+                            modifier = Modifier.testTag("atrio-mention-pick")
+                        ) { Text("Mencionar participante @") }
+                        DropdownMenu(expanded = mentionMenuOpen, onDismissRequest = { mentionMenuOpen = false }) {
+                            participants.forEach { candidate ->
+                                DropdownMenuItem(
+                                    text = { Text(mentionDisplay(candidate)) },
+                                    onClick = {
+                                        mentioned = candidate
+                                        quotedReply = null
+                                        mentionMenuOpen = false
+                                    }
+                                )
                             }
                         }
                     }
-                    if (r.id.isNotBlank()) reactionContent(r, reactionReplyId == r.id) { reactionReplyId = null }
-                }
-            }
-            HorizontalDivider(color = Line)
-        }
-        Spacer(Modifier.height(14.dp))
-        repliesFooter()
-        Text("Responder como $name", color = Wine, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-        if (onMentionReply != null && participants.isNotEmpty()) {
-            Box {
-                OutlinedButton(
-                    onClick = { mentionMenuOpen = true },
-                    modifier = Modifier.testTag("atrio-mention-pick")
-                ) { Text("Mencionar participante @") }
-                DropdownMenu(expanded = mentionMenuOpen, onDismissRequest = { mentionMenuOpen = false }) {
-                    participants.forEach { candidate ->
-                        DropdownMenuItem(
-                            text = { Text(mentionDisplay(candidate)) },
-                            onClick = {
-                                mentioned = candidate
-                                quotedReply = null
-                                mentionMenuOpen = false
-                            }
-                        )
+                    mentioned?.let { target ->
+                        Text("Mencionando ${mentionDisplay(target)}",
+                            color = Wine, style = MaterialTheme.typography.bodySmall)
+                        TextButton(onClick = { mentioned = null }) { Text("Retirar menção") }
                     }
                 }
-            }
-            mentioned?.let { target ->
-                Text("Mencionando ${mentionDisplay(target)}",
-                    color = Wine, style = MaterialTheme.typography.bodySmall)
-                TextButton(onClick = { mentioned = null }) { Text("Retirar menção") }
+                quotedReply?.let { selected ->
+                    Card(colors = CardDefaults.cardColors(containerColor = WineSoft)) {
+                        Column(Modifier.fillMaxWidth().padding(10.dp)) {
+                            Text("Citando ${selected.author}", fontWeight = FontWeight.Bold, color = Wine)
+                            Text(selected.message.take(100), maxLines = 2, style = MaterialTheme.typography.bodySmall)
+                            TextButton(onClick = { quotedReply = null }) { Text("Remover citação") }
+                        }
+                    }
+                }
+                OutlinedTextField(value = response, onValueChange = { if (it.length <= 600) response = it },
+                    modifier = Modifier.fillMaxWidth().testTag("atrio-reply-input"), label = { Text("Sua resposta") }, minLines = 2)
+                Spacer(Modifier.height(9.dp))
+                Button(
+                    onClick = {
+                        sendingReply = true
+                        val quote = quotedReply
+                        val mention = mentioned
+                        // Compatível com as regras existentes: citação é texto,
+                        // não uma menção certificada nem um novo vínculo no servidor.
+                        val prefix = if (quote == null) "" else "↳ Em resposta a ${quote.author.take(35)}: "
+                        val available = (600 - prefix.length).coerceAtLeast(0)
+                        val callback: (Boolean) -> Unit = { success ->
+                            sendingReply = false
+                            if (success) { response = ""; quotedReply = null; mentioned = null }
+                        }
+                        if (mention != null && onMentionReply != null) {
+                            onMentionReply(mentionBody(mention, response), mention, callback)
+                        } else if (quote != null && onDirectReply != null &&
+                            quote.id.isNotBlank() && quote.ownerUid.isNotBlank()) {
+                            // O backend valida que replyToUid pertence à resposta original.
+                            onDirectReply(response.trim(), quote, callback)
+                        } else {
+                            // Compatível com Firestore de produção antes das novas regras.
+                            onReply(prefix + response.trim().take(available), callback)
+                        }
+                    },
+                    enabled = response.isNotBlank() && !sendingReply,
+                    modifier = Modifier.align(Alignment.End).testTag("atrio-reply-submit")
+                ) { Text(if (sendingReply) "Enviando..." else "Enviar resposta") }
+                if (onReport != null) {
+                    TextButton(onClick = onReport,
+                        modifier = Modifier.align(Alignment.End).testTag("atrio-detail-report-post")) {
+                        Text("Denunciar discussão")
+                    }
+                }
+                Spacer(Modifier.height(25.dp))
             }
         }
-        quotedReply?.let { selected ->
-            Card(colors = CardDefaults.cardColors(containerColor = WineSoft)) {
-                Column(Modifier.fillMaxWidth().padding(10.dp)) {
-                    Text("Citando ${selected.author}", fontWeight = FontWeight.Bold, color = Wine)
-                    Text(selected.message.take(100), maxLines = 2, style = MaterialTheme.typography.bodySmall)
-                    TextButton(onClick = { quotedReply = null }) { Text("Remover citação") }
-                }
-            }
-        }
-        OutlinedTextField(value = response, onValueChange = { if (it.length <= 600) response = it },
-            modifier = Modifier.fillMaxWidth().testTag("atrio-reply-input"), label = { Text("Sua resposta") }, minLines = 2)
-        Spacer(Modifier.height(9.dp))
-        Button(
-            onClick = {
-                sendingReply = true
-                val quote = quotedReply
-                val mention = mentioned
-                // Compatível com as regras existentes: citação é texto,
-                // não uma menção certificada nem um novo vínculo no servidor.
-                val prefix = if (quote == null) "" else "↳ Em resposta a ${quote.author.take(35)}: "
-                val available = (600 - prefix.length).coerceAtLeast(0)
-                val callback: (Boolean) -> Unit = { success ->
-                    sendingReply = false
-                    if (success) { response = ""; quotedReply = null; mentioned = null }
-                }
-                if (mention != null && onMentionReply != null) {
-                    onMentionReply(mentionBody(mention, response), mention, callback)
-                } else if (quote != null && onDirectReply != null &&
-                    quote.id.isNotBlank() && quote.ownerUid.isNotBlank()) {
-                    // O backend valida que replyToUid pertence à resposta original.
-                    onDirectReply(response.trim(), quote, callback)
-                } else {
-                    // Compatível com Firestore de produção antes das novas regras.
-                    onReply(prefix + response.trim().take(available), callback)
-                }
-            },
-            enabled = response.isNotBlank() && !sendingReply,
-            modifier = Modifier.align(Alignment.End).testTag("atrio-reply-submit")
-        ) { Text(if (sendingReply) "Enviando..." else "Enviar resposta") }
-        if (onReport != null) {
-            TextButton(onClick = onReport,
-                modifier = Modifier.align(Alignment.End).testTag("atrio-detail-report-post")) {
-                Text("Denunciar discussão")
-            }
-        }
-        Spacer(Modifier.height(25.dp))
     }
 }
 

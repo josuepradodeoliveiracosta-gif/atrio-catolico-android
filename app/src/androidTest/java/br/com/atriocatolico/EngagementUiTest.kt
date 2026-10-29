@@ -50,7 +50,9 @@ class EngagementUiTest {
                     onFollow = {})
             }
         }
+        compose.onNodeWithTag("atrio-detail-replies").performScrollToIndex(1)
         compose.onNodeWithTag("atrio-quote-reply").performClick()
+        compose.onNodeWithTag("atrio-detail-replies").performScrollToIndex(2)
         compose.onNodeWithText("Citando Miguel").assertExists()
         screenshot("08-citacao-engajamento")
         compose.onNodeWithTag("atrio-reply-input").performTextInput("Amém!")
@@ -86,6 +88,7 @@ class EngagementUiTest {
                 )
             }
         }
+        compose.onNodeWithTag("atrio-detail-replies").performScrollToIndex(2)
         compose.onNodeWithTag("atrio-mention-pick").performClick()
         compose.onNodeWithText("@Miguel").performClick()
         compose.onNodeWithText("Mencionando @Miguel").assertExists()
@@ -115,6 +118,47 @@ class EngagementUiTest {
         compose.onNodeWithTag("atrio-follow-discussion").performClick()
         screenshot("09-acompanhar-discussao")
         compose.runOnIdle { assertEquals(1, toggles) }
+    }
+
+
+    @Test fun longDiscussionComposesOnlyNearbyRepliesAndDisposesOldEmojiRows() {
+        check(FirebaseApp.getInstance().options.projectId == "demo-atrio-v11")
+        val replies = (0 until 120).map { index ->
+            Reply("Participante $index", "Uma breve mensagem de teste.", "qa-lazy-$index")
+        }
+        val mounted = mutableSetOf<String>()
+        var largestMounted = 0
+        compose.setContent {
+            AtrioTheme {
+                DetailScreen(
+                    post = Post("qa-lazy-thread", "Clara", "Vida espiritual", "hoje",
+                        "Discussão com muitas respostas", "Teste de rolagem e reações.", replies = replies),
+                    name = "Clara", onLike = {}, onSave = {},
+                    onReply = { _, done -> done(true) }, reactionsEnabled = true,
+                    reactionContent = { reply, _, _ ->
+                        DisposableEffect(reply.id) {
+                            mounted.add(reply.id)
+                            largestMounted = maxOf(largestMounted, mounted.size)
+                            onDispose { mounted.remove(reply.id) }
+                        }
+                    }
+                )
+            }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithTag("reaction-reply-qa-lazy-95").assertDoesNotExist()
+        compose.onNodeWithTag("atrio-detail-replies").performScrollToIndex(96)
+        compose.onNodeWithTag("reaction-reply-qa-lazy-95").assertExists()
+        compose.runOnIdle {
+            assertTrue("The distant row must be mounted", "qa-lazy-95" in mounted)
+            assertTrue("Do not compose all 120 replies", mounted.size < 15)
+        }
+        compose.onNodeWithTag("atrio-detail-replies").performScrollToIndex(1)
+        compose.onNodeWithTag("reaction-reply-qa-lazy-0").assertExists()
+        compose.runOnIdle {
+            assertFalse("Scrolled-off emoji picker must be disposed", "qa-lazy-95" in mounted)
+            assertTrue("Too many reaction composables", largestMounted < 20)
+        }
     }
 
     private fun screenshot(name: String) {
