@@ -128,3 +128,33 @@ test('mensagem editada antes da advertência não gera alerta desatualizado',asy
  assert.equal(await processDocument(db,stale,enabled),'duplicate_or_changed');
  assert.equal(db.docs.has(ROOT+'/guardian_cases/'+await caseId('posts/ready/replies/warn1')),false);
 });
+
+test('edição verdadeira após advertência gera novo caso sem perder o histórico',async()=>{
+ const path='posts/editable/replies/changed';
+ const source=mkDoc(path,'http://a.test http://b.test http://c.test http://d.test');
+ const db=new FakeStore([source]);
+ const originalId=await caseId(path);
+ assert.equal(await processDocument(db,source,enabled),'warn');
+ const oldCase=db.get('guardian_cases/'+originalId);
+ assert.equal(oldCase.fields.sourceUpdateTime.stringValue,source.updateTime);
+ const edited=db.docs.get(source.name);
+ edited.updateTime='2026-10-29T19:12:03.000000Z';
+ edited.fields.body=str('Vou te matar amanhã');
+ const latest=structuredClone(edited);
+ const revisedId=await caseId(path+'@'+latest.updateTime);
+ assert.equal(await processDocument(db,latest,enabled),'review');
+ assert.ok(db.get('guardian_cases/'+originalId));
+ assert.ok(db.get('guardian_cases/'+revisedId));
+ assert.equal(db.get('guardian_cases/'+revisedId).fields.sourceUpdateTime.stringValue,latest.updateTime);
+ assert.equal(await processDocument(db,latest,enabled),'duplicate_or_changed');
+});
+test('caso legado sem metadados de revisão não é reaberto automaticamente',async()=>{
+ const path='posts/editable/replies/legacy';
+ const source=mkDoc(path,'Vou te matar amanhã');
+ const primary=await caseId(path);
+ const original={name:ROOT+'/guardian_cases/'+primary,updateTime:source.updateTime,fields:{ownerUid:str('alice')}};
+ const db=new FakeStore([source,original]);
+ const count=db.docs.size;
+ assert.equal(await processDocument(db,source,enabled),'duplicate_or_changed');
+ assert.equal(db.docs.size,count);
+});
