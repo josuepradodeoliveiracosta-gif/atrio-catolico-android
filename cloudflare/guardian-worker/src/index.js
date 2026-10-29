@@ -162,7 +162,7 @@ export default {
         try {
           const db=new Firestore(await token(env),env.GUARDIAN_FIREBASE_PROJECT_ID);
           // Only expose scan; no commit/create/update/get reaches this code.
-          const result=await scanQaShadow({scan:(...args)=>db.scan(...args)},env);
+          const result=await scanQaShadow({scan:(...args)=>db.scanQa(...args)},env);
           console.log('guardian_v2_qa_shadow_counts',JSON.stringify(result));
         }catch{console.log('guardian_v2_qa_shadow_unavailable');}
       })());
