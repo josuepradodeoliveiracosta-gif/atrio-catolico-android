@@ -9,6 +9,16 @@ import {processDocument,processReport,reviewCase,scanOnce} from '../../cloudflar
 const project='demo-atrio-v11';
 const api='http://127.0.0.1:8089/v1';
 const server=new Firestore('owner',project,api);
+const rawFetch=globalThis.fetch;
+globalThis.fetch=async(input,options)=>{
+  const response=await rawFetch(input,options);
+  if(!response.ok && String(input).endsWith(':commit')){
+    console.error('Firestore Emulator REST commit refused:',
+      response.status,(await response.clone().text()).slice(0,1200));
+  }
+  return response;
+};
+
 const env=await initializeTestEnvironment({
   projectId:project,
   firestore:{host:'127.0.0.1',port:8089,rules:readFileSync('firestore.rules','utf8')}
