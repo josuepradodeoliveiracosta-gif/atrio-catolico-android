@@ -3,6 +3,7 @@ package br.com.atriocatolico
 import android.graphics.Bitmap
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.Density
@@ -101,7 +102,15 @@ class ProfileLayoutUiTest {
         compose.onNodeWithText("Cancelar").performClick()
         compose.onNodeWithText("Descartar alterações?").assertIsDisplayed()
         compose.onNodeWithText("Continuar editando").performClick()
-        compose.onNodeWithTag("atrio-profile-bio").assertTextContains("Rascunho de apresentação")
+        // O OutlinedTextField expõe rótulo/contador em Text e o rascunho em
+        // EditableText. assertTextContains priorizava o rótulo, apesar de o
+        // relatório provar que o rascunho estava preservado em EditableText.
+        compose.onNodeWithTag("atrio-profile-bio").assert(
+            SemanticsMatcher("rascunho permanece no campo editável") { node ->
+                node.config.getOrNull(SemanticsProperties.EditableText)
+                    ?.text?.contains("Rascunho de apresentação") == true
+            }
+        )
         compose.onNodeWithText("Cancelar").performClick()
         compose.onNodeWithText("Descartar").performClick()
         compose.onNodeWithTag("atrio-profile-edit").assertExists()
