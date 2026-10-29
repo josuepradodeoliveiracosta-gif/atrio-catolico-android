@@ -66,7 +66,8 @@ run_suite() {
       "qa-android-suite-results/$suite/"
   fi
 }
+run_suite ProfileEditorUiTest
 run_suite ThreeBotsAndroidUiTest
 run_suite ThreeBotsAuthenticatedAndroidUiTest
 run_suite ThreeBotsOnlineEmulatorTest
-echo "QA Android: três suítes concluídas com êxito em processos separados"
+echo "QA Android: suítes concluídas com êxito em processos separados"

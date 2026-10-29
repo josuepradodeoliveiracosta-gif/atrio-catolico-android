@@ -688,12 +688,7 @@ private fun OnlineCommunity(
                         if (savedPending.isEmpty() && savedDisplay.size < visibleSavedIds.size && savedFailures.isEmpty() && !savesError)
                             Text("Algumas publicações salvas foram removidas.", color = Muted, fontSize = 12.sp)
                     })
-                Tab.PROFILE -> Column(Modifier.fillMaxSize()) {
-                    OutlinedButton(onClick = { guardiaoAppealsOpen = true },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-                        Text("Minhas revisões — Átrio Guardião")
-                    }
-                    Box(Modifier.weight(1f)) {
+                Tab.PROFILE -> {
                     OnlineProfileScreen(db, uid, name, email, biography, posts,
                     publicationsFooter = {
                         LoadMore(feedLoading, feedMore, feedError, "Buscar mais publicações") {
@@ -702,10 +697,12 @@ private fun OnlineCommunity(
                     },
                     onSignOut = onSignOut, onModeration = onModeration,
                     onClergyReview = onClergyReview,
+                    onSavedPosts = { navigate(Tab.SAVED) },
+                    onNotifications = { noticesOpen = true; returnToNotices = false },
+                    onReviews = { guardiaoAppealsOpen = true },
                     onCreate = { navigate(Tab.PUBLISH) }, onOpen = { detailId = it },
                     onLike = { id -> posts.firstOrNull { it.id == id }?.let { toggle("likedPosts", id, it.liked) } },
                     onSave = { id -> posts.firstOrNull { it.id == id }?.let { toggle("savedPosts", id, it.saved) } })
-                    }
                 }
             }
         }
