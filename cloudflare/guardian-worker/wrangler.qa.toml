@@ -1,0 +1,13 @@
+# QA independente; nenhuma credencial, acesso ao Firebase ou moderação real.
+name = "atrio-guardian-v2-qa"
+main = "src/index.js"
+compatibility_date = "2026-10-29"
+workers_dev = true
+
+[vars]
+GUARDIAN_V2_TEST_MODE = "true"
+GUARDIAN_V2_ENABLED = "false"
+GUARDIAN_V2_HOLD_ENABLED = "false"
+
+[triggers]
+crons = ["*/15 * * * *"]
