@@ -64,6 +64,121 @@ export class Firestore {
     if(!Array.isArray(result))throw Error('invalid_scan');
     return result.map(x=>x.document).filter(Boolean);
   }
+  // Chave composta estável evita saltar registros com o mesmo createdAt.
+  // Cada página avança apenas após um checkpoint confirmado pelo servidor.
+  async scanPage(group,{since,until,after=null,max=30}={}){
+    if(!['posts','replies','reports'].includes(group) ||
+      !Number.isInteger(max)||max<1||max>(group==='reports'?15:30))
+      throw Error('invalid_scan_page');
+    const iso=v=>typeof v==='string' && /^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$/.test(v) &&
+      Number.isFinite(Date.parse(v));
+    if(!iso(since)||!iso(until)||Date.parse(since)>Date.parse(until))
+      throw Error('invalid_scan_window');
+    const prefix=this.resource+'/';
+    const relative=after?.name?.startsWith(prefix)?after.name.slice(prefix.length):'';
+    const nameValid=group==='replies'
+      ? /^posts\\/[A-Za-z0-9_-]{1,128}\\/replies\\/[A-Za-z0-9_-]{1,128}$/.test(relative)
+      : new RegExp('^'+group+'/[A-Za-z0-9_-]{1,128}
+  // Use only via shadow scan, never general production moderation.
+  async scanQa(group,minutes=20,max=15){
+    if(!/^atrio-catolico-qa(?:-[a-z0-9-]+)?$/.test(this.project) || this.project.length>30)
+      throw Error('qa_project_required');
+    if(!['posts','replies','reports'].includes(group) || minutes<1 || minutes>20 ||
+      !Number.isInteger(max) || max<1 || max>15)throw Error('qa_limits_invalid');
+    const cut=new Date(Date.now()-minutes*60_000).toISOString();
+    const eq={fieldFilter:{field:{fieldPath:'qaFixture'},op:'EQUAL',value:{booleanValue:true}}};
+    const recent={fieldFilter:{field:{fieldPath:'createdAt'},op:'GREATER_THAN_OR_EQUAL',value:timestamp(cut)}};
+    const columns=group==='reports'?['qaFixture']:['body','title','qaFixture'];
+    const sq={structuredQuery:{
+      from:[{collectionId:group,allDescendants:group==='replies'}],
+      select:{fields:columns.map(fieldPath=>({fieldPath}))},
+      where:{compositeFilter:{op:'AND',filters:[eq,recent]}},
+      orderBy:[{field:{fieldPath:'createdAt'},direction:'DESCENDING'}],
+      limit:max
+    }};
+    const result=await this.send(':runQuery','POST',sq);
+    if(!Array.isArray(result))throw Error('invalid_qa_query');
+    return result.map(x=>x.document).filter(Boolean);
+  }
+  commit(writes){return this.send(':commit','POST',{writes});}
+  async create(path,fields){return this.commit([{update:{name:this.resource+'/'+path,fields},currentDocument:{exists:false}}]);}
+  async update(path,fields,oldTime){const keys=Object.keys(fields);return this.commit([{update:{name:this.resource+'/'+path,fields},updateMask:{fieldPaths:keys},currentDocument:{updateTime:oldTime}}]);}
+}
+export async function actorId(request,env){
+  const m=/^Bearer ([A-Za-z0-9._-]{100,5000})$/.exec(request.headers.get('authorization')||'');
+  if(!m||!env.FIREBASE_WEB_API_KEY)return null;
+  const r=await fetch('https://identitytoolkit.googleapis.com/v1/accounts:lookup?key='+enc(env.FIREBASE_WEB_API_KEY),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({idToken:m[1]})});
+  if(!r.ok)return null;const user=(await r.json()).users?.[0];return user&&!user.disabled&&IDENT.test(user.localId)?user.localId:null;
+}
+export async function caseId(path){const digest=new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode('atrio-guardian-v2:'+path)));return 'guard_'+[...digest].slice(0,16).map(n=>n.toString(16).padStart(2,'0')).join('');}
+export {ROOT,RESOURCE};).test(relative);
+    if(after!==null && (!iso(after?.time)||!nameValid ||
+        Date.parse(after.time)<Date.parse(since)||Date.parse(after.time)>Date.parse(until)))
+      throw Error('invalid_scan_cursor');
+    const from={collectionId:group,allDescendants:group==='replies'};
+    const where={compositeFilter:{op:'AND',filters:[
+      {fieldFilter:{field:{fieldPath:'createdAt'},op:'GREATER_THAN_OR_EQUAL',value:timestamp(since)}},
+      {fieldFilter:{field:{fieldPath:'createdAt'},op:'LESS_THAN_OR_EQUAL',value:timestamp(until)}}
+    ]}};
+    const orderBy=[
+      {field:{fieldPath:'createdAt'},direction:'DESCENDING'},
+      {field:{fieldPath:'__name__'},direction:'DESCENDING'}
+    ];
+    const query={from:[from],where,orderBy,limit:max+1};
+    if(after)query.startAt={values:[timestamp(after.time),{referenceValue:after.name}],before:false};
+    const data=await this.send(':runQuery','POST',{structuredQuery:query});
+    if(!Array.isArray(data))throw Error('invalid_scan_page_result');
+    const docs=data.map(row=>row.document).filter(Boolean);
+    if(docs.length>max+1)throw Error('invalid_scan_page_limit');
+    // API podem retornar linhas vazias com readTime. Dados com nomes inválidos
+    // não podem se tornar cursor de uma próxima página.
+    const kept=docs.slice(0,max);
+    for(const d of kept) {
+      const name=d?.name;
+      const path=name?.startsWith(prefix)?name.slice(prefix.length):'';
+      const valid=group==='replies'?
+        /^posts\\/[A-Za-z0-9_-]{1,128}\\/replies\\/[A-Za-z0-9_-]{1,128}$/.test(path):
+        new RegExp('^'+group+'/[A-Za-z0-9_-]{1,128}
+  // Use only via shadow scan, never general production moderation.
+  async scanQa(group,minutes=20,max=15){
+    if(!/^atrio-catolico-qa(?:-[a-z0-9-]+)?$/.test(this.project) || this.project.length>30)
+      throw Error('qa_project_required');
+    if(!['posts','replies','reports'].includes(group) || minutes<1 || minutes>20 ||
+      !Number.isInteger(max) || max<1 || max>15)throw Error('qa_limits_invalid');
+    const cut=new Date(Date.now()-minutes*60_000).toISOString();
+    const eq={fieldFilter:{field:{fieldPath:'qaFixture'},op:'EQUAL',value:{booleanValue:true}}};
+    const recent={fieldFilter:{field:{fieldPath:'createdAt'},op:'GREATER_THAN_OR_EQUAL',value:timestamp(cut)}};
+    const columns=group==='reports'?['qaFixture']:['body','title','qaFixture'];
+    const sq={structuredQuery:{
+      from:[{collectionId:group,allDescendants:group==='replies'}],
+      select:{fields:columns.map(fieldPath=>({fieldPath}))},
+      where:{compositeFilter:{op:'AND',filters:[eq,recent]}},
+      orderBy:[{field:{fieldPath:'createdAt'},direction:'DESCENDING'}],
+      limit:max
+    }};
+    const result=await this.send(':runQuery','POST',sq);
+    if(!Array.isArray(result))throw Error('invalid_qa_query');
+    return result.map(x=>x.document).filter(Boolean);
+  }
+  commit(writes){return this.send(':commit','POST',{writes});}
+  async create(path,fields){return this.commit([{update:{name:this.resource+'/'+path,fields},currentDocument:{exists:false}}]);}
+  async update(path,fields,oldTime){const keys=Object.keys(fields);return this.commit([{update:{name:this.resource+'/'+path,fields},updateMask:{fieldPaths:keys},currentDocument:{updateTime:oldTime}}]);}
+}
+export async function actorId(request,env){
+  const m=/^Bearer ([A-Za-z0-9._-]{100,5000})$/.exec(request.headers.get('authorization')||'');
+  if(!m||!env.FIREBASE_WEB_API_KEY)return null;
+  const r=await fetch('https://identitytoolkit.googleapis.com/v1/accounts:lookup?key='+enc(env.FIREBASE_WEB_API_KEY),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({idToken:m[1]})});
+  if(!r.ok)return null;const user=(await r.json()).users?.[0];return user&&!user.disabled&&IDENT.test(user.localId)?user.localId:null;
+}
+export async function caseId(path){const digest=new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode('atrio-guardian-v2:'+path)));return 'guard_'+[...digest].slice(0,16).map(n=>n.toString(16).padStart(2,'0')).join('');}
+export {ROOT,RESOURCE};).test(path);
+      if(!valid||!iso(d.fields?.createdAt?.timestampValue))
+        throw Error('invalid_scan_page_document');
+    }
+    const last=kept.at(-1);
+    return {documents:kept,nextCursor:docs.length>max?
+      {time:last.fields.createdAt.timestampValue,name:last.name}:null};
+  }
   // Strict read-only remote QA query: synthetic fixture flag checked by Firestore.
   // Use only via shadow scan, never general production moderation.
   async scanQa(group,minutes=20,max=15){
