@@ -32,7 +32,7 @@ export async function readQaIndexes({project,approved,accessToken,fetcher=fetch}
    Authorization:'Bearer '+accessToken,Accept:'application/json'
   },redirect:'error',signal:AbortSignal.timeout(8000)});
   if(response.status===404)return null;
-  if(!response.ok)throw Error('index_read_failed');
+  if(!response.ok)throw Error('api_'+response.status+(path.includes('/-/indexes')?'_composite':'_single'));
   return response.json();
  }
  try{
@@ -40,8 +40,9 @@ export async function readQaIndexes({project,approved,accessToken,fetcher=fetch}
   let next='';
   for(let page=0;page<5;page++){
    const payload=await get('/-/indexes?pageSize=100'+(next?'&pageToken='+encodeURIComponent(next):''));
-   if(!payload||!Array.isArray(payload.indexes))throw Error('invalid_index_response');
-   composites.push(...payload.indexes);
+   if(!payload)throw Error('index_composite_not_found');
+   if(payload.indexes!==undefined&&!Array.isArray(payload.indexes))throw Error('invalid_index_response');
+   composites.push(...(payload.indexes||[]));
    next=payload.nextPageToken||'';
    if(!next)break;
    if(page===4)throw Error('index_listing_exceeded_limit');
@@ -53,5 +54,8 @@ export async function readQaIndexes({project,approved,accessToken,fetcher=fetch}
     return {group,state:match?.state==='READY'?'ready':match?'building':'missing'};
    }),
    repliesCreatedAtGroup:summaryOf(field)};
- }catch{return {status:'unavailable'};}
+ }catch(e){
+  const reason=/^(?:api_[0-9]{3}_(?:composite|single)|index_composite_not_found|invalid_index_response|index_listing_exceeded_limit)$/.test(e?.message||'')?e.message:'network_or_response';
+  return {status:'unavailable',reason};
+ }
 }
