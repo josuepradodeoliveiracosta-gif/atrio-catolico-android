@@ -25,8 +25,8 @@ export function classify(text, context={}) {
   if(threat && !quote) return result('review','possible_threat','high');
   const links=(text.match(/https?:\/\/\S+/gi)||[]).length;
   if(links>=4) return result('warning','links_excessive','medium');
-  if(context.duplicateCount>=3) return result('warning','repeated_content','medium');
   if(context.confirmedInfractions>=3 && context.duplicateCount>=5) return result('review','recurrence','medium');
+  if(context.duplicateCount>=3) return result('warning','repeated_content','medium');
   return result('clear','none','none');
 }
 export function decide(finding, settings, flags) {
@@ -38,5 +38,6 @@ export function decide(finding, settings, flags) {
 export function safeNotice(rule,action) {
   const reasons={personal_data:'possível exposição de dados pessoais',possible_phishing:'possível tentativa de fraude',possible_threat:'possível ameaça',links_excessive:'excesso de links',repeated_content:'publicações repetidas',recurrence:'reincidência em conteúdo repetitivo'};
   const why=reasons[rule]||'conteúdo que requer verificação';
-  return {title:'Átrio Guardião',body:'Sinal detectado: '+why+'. Medida: '+(action==='warn'?'orientação educativa.':'encaminhamento para revisão humana.')+' Você pode consultar a administração.',rule,action};
+  const measure=action==='hold'?'resposta ocultada temporariamente, com cópia protegida e direito a recurso.':action==='warn'?'orientação educativa.':'encaminhamento para revisão humana.';
+  return {title:'Átrio Guardião',body:'Sinal detectado: '+why+'. Medida: '+measure+' Você pode consultar a administração.',rule,action};
 }
