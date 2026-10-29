@@ -190,7 +190,7 @@ service cloud.firestore {
         allow create: if signedIn()
           && exists(/databases/$(database)/documents/posts/$(postId))
           && request.resource.data.keys().hasOnly([
-            'uid', 'authorName', 'body', 'createdAt'
+            'uid', 'authorName', 'body', 'createdAt', 'replyToId', 'replyToUid'
           ])
           && request.resource.data.keys().hasAll([
             'uid', 'authorName', 'body', 'createdAt'
@@ -198,9 +198,31 @@ service cloud.firestore {
           && request.resource.data.uid == request.auth.uid
           && publicNameMatchesProfile()
           && validText(request.resource.data.body, 1, 600)
-          && validTime();
+          && validTime()
+          // Alvo obtido da resposta existente, nunca pela string @nome.
+          && (request.resource.data.keys().hasAny(['replyToId', 'replyToUid'])
+            ? (request.resource.data.keys().hasAll(['replyToId', 'replyToUid'])
+              && validId(request.resource.data.replyToId)
+              && validId(request.resource.data.replyToUid)
+              && exists(/databases/$(database)/documents/posts/$(postId)/replies/$(request.resource.data.replyToId))
+              && get(/databases/$(database)/documents/posts/$(postId)/replies/$(request.resource.data.replyToId)).data.uid == request.resource.data.replyToUid)
+            : true);
         allow update: if false;
         allow delete: if signedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+
+        match /reactions/{uid} {
+          allow get, list: if signedIn();
+          allow create: if me(uid)
+            && exists(/databases/$(database)/documents/posts/$(postId)/replies/$(replyId))
+            && request.resource.data.keys().hasOnly(['kind', 'createdAt'])
+            && request.resource.data.keys().hasAll(['kind', 'createdAt'])
+            && request.resource.data.kind in ['heart', 'prayer', 'light']
+            && request.resource.data.createdAt == request.time;
+          allow update: if me(uid)
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['kind'])
+            && request.resource.data.kind in ['heart', 'prayer', 'light'];
+          allow delete: if me(uid);
+        }
       }
     }
 
@@ -218,6 +240,19 @@ service cloud.firestore {
     match /users/{uid}/savedPosts/{postId} {
       allow get, list: if me(uid);
       allow create: if me(uid)
+        && exists(/databases/$(database)/documents/posts/$(postId))
+        && request.resource.data.keys().hasOnly(['createdAt'])
+        && request.resource.data.keys().hasAll(['createdAt'])
+        && validTime();
+      allow delete: if me(uid);
+      allow update: if false;
+    }
+
+    // Acompanhamento persistente: somente o próprio usuário pode editar.
+    match /users/{uid}/followedPosts/{postId} {
+      allow get, list: if me(uid);
+      allow create: if me(uid)
+        && validId(postId)
         && exists(/databases/$(database)/documents/posts/$(postId))
         && request.resource.data.keys().hasOnly(['createdAt'])
         && request.resource.data.keys().hasAll(['createdAt'])

@@ -94,6 +94,48 @@ try {
   await check('Miguel não altera status de notificação da autora',()=>assertFails(
     updateDoc(doc(miguel,'users',bots[0].uid,'notifications',replyB),{read:true})));
 
+  // Novas regras 0.19.3: exclusivamente Firebase emulado.
+  await check('Clara responde diretamente a Miguel usando UID canônico',()=>assertSucceeds(
+    setDoc(doc(clara,'posts',postId,'replies','qa_direct_reply'),{
+      ...answer(bots[0].uid,bots[0].name,'Obrigada pela participação!'),
+      replyToId:replyA,replyToUid:bots[1].uid,
+    })));
+  await check('Lúcia não falsifica alvo de menção',()=>assertFails(
+    setDoc(doc(lucia,'posts',postId,'replies','qa_fake_target'),{
+      ...answer(bots[2].uid,bots[2].name,'Falso alvo'),
+      replyToId:replyA,replyToUid:bots[0].uid,
+    })));
+  await check('Alvo inexistente não é aceito',()=>assertFails(
+    setDoc(doc(lucia,'posts',postId,'replies','qa_missing_target'),{
+      ...answer(bots[2].uid,bots[2].name,'Resposta inválida'),
+      replyToId:'qa_missing_reply',replyToUid:bots[0].uid,
+    })));
+  await check('Miguel acompanha e depois deixa de acompanhar',async()=>{
+    const ref=doc(miguel,'users',bots[1].uid,'followedPosts',postId);
+    await assertSucceeds(setDoc(ref,{createdAt:serverTimestamp()}));
+    assert.equal((await getDoc(ref)).exists(),true);
+    await assertSucceeds(deleteDoc(ref));
+  });
+  await check('Lúcia não segue como Clara',()=>assertFails(
+    setDoc(doc(lucia,'users',bots[0].uid,'followedPosts',postId),{
+      createdAt:serverTimestamp(),
+    })));
+  await check('Miguel reage com oração e pode alterar ou retirar a reação',async()=>{
+    const ref=doc(miguel,'posts',postId,'replies',replyB,'reactions',bots[1].uid);
+    await assertSucceeds(setDoc(ref,{kind:'prayer',createdAt:serverTimestamp()}));
+    assert.equal((await getDoc(ref)).data().kind,'prayer');
+    await assertSucceeds(updateDoc(ref,{kind:'heart'}));
+    await assertSucceeds(deleteDoc(ref));
+  });
+  await check('Lúcia não reage em nome de Miguel',()=>assertFails(
+    setDoc(doc(lucia,'posts',postId,'replies',replyA,'reactions',bots[1].uid),{
+      kind:'heart',createdAt:serverTimestamp(),
+    })));
+  await check('Reação rejeita privilégios artificiais',()=>assertFails(
+    setDoc(doc(miguel,'posts',postId,'replies',replyB,'reactions',bots[1].uid),{
+      kind:'light',createdAt:serverTimestamp(),moderator:true,
+    })));
+
   await check('Miguel não forja uma resposta assinada por Lúcia',()=>assertFails(
     setDoc(doc(miguel,'posts',postId,'replies','tentativa_identidade_falsa'),
       answer(bots[2].uid,bots[2].name,'Tentativa de falsificação de autoria.'))));
