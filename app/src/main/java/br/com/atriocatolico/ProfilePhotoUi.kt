@@ -1,6 +1,7 @@
 package br.com.atriocatolico
 
 import android.graphics.Bitmap
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -64,12 +65,14 @@ internal fun ProfilePhotoManager(
     var y by remember(uid) { mutableFloatStateOf(0f) }
     var busy by remember(uid) { mutableStateOf(false) }
     var error by remember(uid) { mutableStateOf("") }
+    var notice by remember(uid) { mutableStateOf("") }
     var removeConfirm by remember(uid) { mutableStateOf(false) }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) {
             busy = true
             error = ""
+            notice = ""
             scope.launch {
                 val result = withContext(Dispatchers.IO) {
                     runCatching { ProfilePhotoStore.decodeSelection(context, uri) }
@@ -88,7 +91,7 @@ internal fun ProfilePhotoManager(
             }
         }
     }
-    OutlinedButton(onClick = { error = ""; open = true },
+    OutlinedButton(onClick = { error = ""; notice = ""; open = true },
         modifier = Modifier.fillMaxWidth().testTag("atrio-profile-photo-manage")) {
         Text("Gerenciar foto de perfil")
     }
@@ -98,10 +101,31 @@ internal fun ProfilePhotoManager(
             title = { Text("Foto de perfil") },
             text = {
                 Column(
-                    modifier = Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                    modifier = Modifier.heightIn(max = 440.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    // Status FIXO: não fica escondido sob os controles de recorte.
+                    if (busy) {
+                        LinearProgressIndicator(Modifier.fillMaxWidth()
+                            .testTag("atrio-profile-photo-upload-progress"))
+                        Text("Enviando foto, aguarde...",
+                            style = MaterialTheme.typography.bodySmall)
+                    }
+                    if (error.isNotBlank()) {
+                        Text(error, color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.testTag("atrio-profile-photo-upload-error"))
+                    }
+                    if (notice.isNotBlank()) {
+                        Text(notice, color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.testTag("atrio-profile-photo-upload-notice"))
+                    }
+                    Column(
+                        modifier = Modifier.verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
                     Text(if (publicEnabled)
                         "Sua foto poderá ser vista por todos os participantes. Ela será publicada somente depois da aprovação da moderação. A URL pública poderá ser acessada fora do Átrio."
                         else "A foto fica apenas neste aparelho. O serviço de fotos públicas ainda não está configurado.",
@@ -123,9 +147,6 @@ internal fun ProfilePhotoManager(
                         Slider(value = y, onValueChange = { y = it }, valueRange = -1f..1f,
                             enabled = !busy)
                     }
-                    if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-                    if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall)
                     OutlinedButton(onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }, enabled = !busy,
                         modifier = Modifier.fillMaxWidth().testTag("atrio-profile-photo-picker")) {
                         Text(if (source == null) "Escolher foto da galeria" else "Escolher outra foto")
@@ -154,14 +175,17 @@ internal fun ProfilePhotoManager(
                         modifier = Modifier.testTag("atrio-profile-photo-remove")) {
                         Text(if (publicEnabled) "Remover foto pública" else "Remover foto deste aparelho")
                     }
+                    }
                 }
             },
             confirmButton = {
                 val selected = source
                 if (selected != null) {
                     TextButton(onClick = {
+                        if (busy) return@TextButton
                         busy = true
                         error = ""
+                        notice = ""
                         scope.launch {
                             val result = withContext(Dispatchers.IO) {
                                 runCatching {
@@ -174,18 +198,21 @@ internal fun ProfilePhotoManager(
                             result.onSuccess { state ->
                                 source = null
                                 if (state == "pending_moderation") {
-                                    error = "Foto enviada para moderação. Toque em Verificar aprovação após a análise."
+                                    notice = "Foto recebida! Aguarde a aprovação da moderação."
+                                    Toast.makeText(context, "Foto enviada para aprovação.", Toast.LENGTH_LONG).show()
                                 } else {
                                     open = false
                                     if (state == "published") ProfilePhotoStore.remove(context, uid)
+                                    Toast.makeText(context, "Foto salva com sucesso.", Toast.LENGTH_SHORT).show()
                                 }
                                 onChanged()
                             }.onFailure {
-                                error = it.message ?: "Não foi possível salvar a foto."
+                                error = it.message ?: "Não foi possível enviar a foto."
+                                Toast.makeText(context, "Falha ao enviar: " + error, Toast.LENGTH_LONG).show()
                             }
                         }
                     }, enabled = !busy, modifier = Modifier.testTag("atrio-profile-photo-save")) {
-                        Text(if (publicEnabled) "Enviar foto para aprovação" else "Salvar no aparelho")
+                        Text(if (busy) "Enviando..." else if (publicEnabled) "Enviar foto para aprovação" else "Salvar no aparelho")
                     }
                 }
             },
