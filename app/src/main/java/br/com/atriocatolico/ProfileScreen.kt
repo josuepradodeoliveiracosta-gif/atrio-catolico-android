@@ -112,6 +112,10 @@ internal fun OnlineProfileScreen(
                 }
             }
             item {
+                PublicProfilePublicationSettings(db = db, uid = uid, displayName = name,
+                    privateBio = biography)
+            }
+            item {
                 Card(onClick = { badgesOpen = true }, modifier = Modifier.fillMaxWidth().testTag("atrio-profile-badges"),
                     colors = CardDefaults.cardColors(containerColor = WineSoft),
                     shape = RoundedCornerShape(18.dp)) {
@@ -212,7 +216,25 @@ private fun ProfileEditor(
     ProfileEditorDialog(uid, name, biography, onClose, onSaved = onSaved, onSave = { newName, newBio, complete ->
         db.collection("profiles").document(uid).update(mapOf(
             "displayName" to newName, "bio" to newBio
-        )).addOnCompleteListener { result -> complete(result.isSuccessful) }
+        )).addOnCompleteListener { result ->
+            // Perfil privado sempre é a fonte da verdade; atualizar projeção
+            // pública apenas se ela já tiver sido publicada voluntariamente.
+            if (result.isSuccessful) {
+                val public = db.collection("public_profiles").document(uid)
+                public.get().addOnSuccessListener { doc ->
+                    if (doc.exists()) {
+                        val joined = doc.getTimestamp("joinedAt")
+                        if (joined != null) public.set(mapOf(
+                            "displayName" to newName,
+                            "bio" to newBio,
+                            "joinedAt" to joined,
+                            "updatedAt" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+                        ))
+                    }
+                }
+            }
+            complete(result.isSuccessful)
+        }
     })
 }
 
