@@ -58,7 +58,7 @@ internal fun PublicMemberProfileScreen(
             if (!active) return@addOnCompleteListener
             infoLoading = false
             infoError = !result.isSuccessful
-            val doc = result.result
+            val doc = if (result.isSuccessful) result.result else null
             info = if (result.isSuccessful && doc != null && doc.exists()) {
                 PublicMemberInfo(
                     name = doc.getString("displayName").orEmpty(),
