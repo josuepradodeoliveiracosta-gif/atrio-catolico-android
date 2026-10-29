@@ -57,7 +57,7 @@ internal fun AvatarModerationPanel(actorUid: String) {
             if (!loading && error.isBlank() && photos.isEmpty())
                 Text("Nenhuma foto aguardando análise.", color = Muted)
             photos.forEach { photo ->
-                key(photo.uid, photo.createdAt) {
+                key(photo.uid, photo.revision) {
                     AvatarReviewCard(actorUid, photo, busy) { approve ->
                         approving = approve
                         selected = photo
@@ -88,7 +88,7 @@ internal fun AvatarModerationPanel(actorUid: String) {
                     scope.launch {
                         val outcome = runCatching {
                             CloudinaryAvatarClient.moderationReview(
-                                actorUid, target.uid, approving, reason)
+                                actorUid, target.uid, target.revision, approving, reason)
                         }
                         busy = false
                         selected = null
@@ -121,13 +121,13 @@ private fun AvatarReviewCard(
     actorUid: String, photo: CloudinaryAvatarClient.PendingAvatar, busy: Boolean,
     onDecision: (Boolean) -> Unit
 ) {
-    var bitmap by remember(photo.uid, photo.createdAt) { mutableStateOf<ImageBitmap?>(null) }
-    var previewLoading by remember(photo.uid, photo.createdAt) { mutableStateOf(true) }
-    LaunchedEffect(actorUid, photo.uid, photo.createdAt, photo.status) {
+    var bitmap by remember(photo.uid, photo.revision) { mutableStateOf<ImageBitmap?>(null) }
+    var previewLoading by remember(photo.uid, photo.revision) { mutableStateOf(true) }
+    LaunchedEffect(actorUid, photo.uid, photo.revision, photo.status) {
         previewLoading = photo.status == "pending"
         if (photo.status == "pending")
             bitmap = runCatching {
-                CloudinaryAvatarClient.moderationPreview(actorUid, photo.uid)?.asImageBitmap()
+                CloudinaryAvatarClient.moderationPreview(actorUid, photo.uid, photo.revision)?.asImageBitmap()
             }.getOrNull()
         previewLoading = false
     }
