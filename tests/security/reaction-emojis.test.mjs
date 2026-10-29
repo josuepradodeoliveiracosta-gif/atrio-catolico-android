@@ -20,11 +20,25 @@ const ref=doc(a,path,'emoji-a');
 let passed=0;
 async function check(name, action){await action();passed++;console.log('PASS EMOJI',name);}
 function expectLive(db, predicate) {
-  return new Promise((resolve,reject)=>{
-    const timer=setTimeout(()=>{stop();reject(new Error('realtime reaction timeout'));},10000);
-    const stop=onSnapshot(collection(db,path),s=>{
-      if(!s.metadata.fromCache && predicate(s.docs.map(d=>({uid:d.id,...d.data()})))){clearTimeout(timer);stop();resolve();}
-    },e=>{clearTimeout(timer);reject(e);});
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let unsubscribe = () => {};
+    const finish = (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      unsubscribe();
+      if (error) reject(error); else resolve();
+    };
+    // O SDK pode emitir primeiro um snapshot do cache e depois apenas uma
+    // transicao de metadados. Sem includeMetadataChanges o teste aguardava
+    // indefinidamente o proximo evento de dados, mesmo com o servidor OK.
+    const timer = setTimeout(() => finish(new Error('realtime reaction timeout')), 30000);
+    unsubscribe = onSnapshot(collection(db, path), {includeMetadataChanges: true}, snapshot => {
+      if (!snapshot.metadata.fromCache &&
+          predicate(snapshot.docs.map(d => ({uid: d.id, ...d.data()})))) finish();
+    }, error => finish(error));
+    if (settled) unsubscribe();
   });
 }
 try {
