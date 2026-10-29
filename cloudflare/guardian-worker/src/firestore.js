@@ -1,6 +1,8 @@
 // REST Firestore service-account adapter. Never bundle credentials in Android.
 const PROJECT='atrio-catolico';
-const ROOT='https://firestore.googleapis.com/v1/projects/'+PROJECT+'/databases/(default)/documents';
+const API='https://firestore.googleapis.com/v1';
+const ROOT=API+'/projects/'+PROJECT+'/databases/(default)/documents';
+const projectValid=id=>typeof id==='string' && /^[a-z][a-z0-9-]{4,29}$/.test(id);
 const IDENT=/^[A-Za-z0-9_-]{1,128}$/;
 const field=(doc,key)=>doc?.fields?.[key];
 export const string=(doc,key)=>field(doc,key)?.stringValue||'';
@@ -14,7 +16,12 @@ let cached;
 export async function token(env) {
   if(cached?.exp>Date.now()+60_000)return cached.value;
   const config=JSON.parse(env.GUARDIAN_FIREBASE_SERVICE_ACCOUNT_JSON||'null');
-  if(config?.project_id!==PROJECT||!config.client_email||!config.private_key)throw Error('service_not_configured');
+  const intended=env.GUARDIAN_FIREBASE_PROJECT_ID;
+  if(!projectValid(intended)||config?.project_id!==intended||!config.client_email||!config.private_key)
+    throw Error('service_not_configured');
+  // Requer autorização explícita adicional antes de conceder credenciais à produção.
+  if(intended===PROJECT && env.GUARDIAN_V2_PRODUCTION_APPROVED!=='true')
+    throw Error('production_access_not_approved');
   const der=Uint8Array.from(atob(config.private_key.replace(/-----BEGIN PRIVATE KEY-----|-----END PRIVATE KEY-----|\s/g,'')),c=>c.charCodeAt(0));
   const key=await crypto.subtle.importKey('pkcs8',der,{name:'RSASSA-PKCS1-v1_5',hash:'SHA-256'},false,['sign']);
   const iat=Math.floor(Date.now()/1000);
@@ -26,9 +33,12 @@ export async function token(env) {
   cached={value:data.access_token,exp:Date.now()+Math.min(600_000,Number(data.expires_in||900)*1000-60_000)};return cached.value;
 }
 export class Firestore {
-  constructor(access){this.access=access;}
+  constructor(access,project=PROJECT,api=API){
+    if(!projectValid(project)||!['https://firestore.googleapis.com/v1','http://127.0.0.1:8089/v1'].includes(api))throw Error('invalid_backend');
+    this.access=access;this.root=api+'/projects/'+project+'/databases/(default)/documents';
+  }
   async send(path,method='GET',payload){
-    const r=await fetch(ROOT+path,{method,headers:{Authorization:'Bearer '+this.access,'Content-Type':'application/json'},body:payload?JSON.stringify(payload):undefined});
+    const r=await fetch(this.root+path,{method,headers:{Authorization:'Bearer '+this.access,'Content-Type':'application/json'},body:payload?JSON.stringify(payload):undefined});
     if(r.status===404 && method==='GET')return null;
     if(!r.ok){
       // Firestore REST uses 400/409/412 for optimistic-write precondition failures.
@@ -52,8 +62,8 @@ export class Firestore {
     return result.map(x=>x.document).filter(Boolean);
   }
   commit(writes){return this.send(':commit','POST',{writes});}
-  async create(path,fields){return this.commit([{update:{name:ROOT+'/'+path,fields},currentDocument:{exists:false}}]);}
-  async update(path,fields,oldTime){const keys=Object.keys(fields);return this.commit([{update:{name:ROOT+'/'+path,fields},updateMask:{fieldPaths:keys},currentDocument:{updateTime:oldTime}}]);}
+  async create(path,fields){return this.commit([{update:{name:this.root+'/'+path,fields},currentDocument:{exists:false}}]);}
+  async update(path,fields,oldTime){const keys=Object.keys(fields);return this.commit([{update:{name:this.root+'/'+path,fields},updateMask:{fieldPaths:keys},currentDocument:{updateTime:oldTime}}]);}
 }
 export async function actorId(request,env){
   const m=/^Bearer ([A-Za-z0-9._-]{100,5000})$/.exec(request.headers.get('authorization')||'');
