@@ -174,8 +174,10 @@ async function upload(env, uid, request) {
   const bytes=await boundedBytes(request);
   const id='atrio-avatares/'+uid+'/'+crypto.randomUUID();
   // Armazenamento authenticated: nem original nem derivados são acessíveis sem assinatura.
-  const result=await cloudSigned(env,'upload',{public_id:id,
-    type:'authenticated',overwrite:'false',moderation:'manual'},bytes,'upload');
+  // Na REST API Cloudinary, o tipo 'authenticated' integra a ROTA,
+  // não o parâmetro do formulário. Assim a imagem pendente NÃO é pública.
+  const result=await cloudSigned(env,'authenticated',{public_id:id,
+    overwrite:'false',moderation:'manual'},bytes,'upload');
   if(result.public_id!==id || result.type!=='authenticated') throw Error('cloudinary_identity_mismatch');
   const previous=await env.AVATAR_DB.prepare('SELECT public_id FROM avatar_pending WHERE uid=?').bind(uid).first();
   try {
