@@ -87,7 +87,7 @@ async function firestoreDelete(env, uid) {
     headers:{Authorization:'Bearer '+await firestoreToken(env)}});
   if(!r.ok && r.status!==404) throw Error('firestore_delete_failed');
 }
-async function cloudSigned(env, endpoint, parameters, bytes, kind) {
+export async function cloudSigned(env, endpoint, parameters, bytes, kind) {
   const data = {...parameters,timestamp:String(Math.floor(Date.now()/1000))};
   const signatureSource=Object.entries(data).sort(([a],[b])=>a.localeCompare(b))
     .map(([key,value])=>key+'='+value).join('&') + env.CLOUDINARY_API_SECRET;
@@ -158,8 +158,8 @@ async function upload(env, uid, request) {
   const bytes=await boundedBytes(request);
   const id='atrio-avatares/'+uid+'/'+crypto.randomUUID();
   // Armazenamento authenticated: nem original nem derivados são acessíveis sem assinatura.
-  const result=await cloudSigned(env,'authenticated',{public_id:id,
-    overwrite:'false',moderation:'manual'},bytes,'upload');
+  const result=await cloudSigned(env,'upload',{public_id:id,
+    type:'authenticated',overwrite:'false',moderation:'manual'},bytes,'upload');
   if(result.public_id!==id || result.type!=='authenticated') throw Error('cloudinary_identity_mismatch');
   const previous=await env.AVATAR_DB.prepare('SELECT public_id FROM avatar_pending WHERE uid=?').bind(uid).first();
   await env.AVATAR_DB.prepare('INSERT INTO avatar_pending (uid,public_id,created_at) VALUES (?,?,?) ON CONFLICT(uid) DO UPDATE SET public_id=excluded.public_id, created_at=excluded.created_at')
