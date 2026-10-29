@@ -87,23 +87,28 @@ internal fun ReplyReactionBar(
             val validValues = remember(values, data) {
                 values.filterValues { reactionGlyph(it) in data.catalog.byGlyph }
             }
-            ReactionEmojiPicker(data, replyId, reactionGlyph(validValues[uid].orEmpty()),
-                summarizeReactions(validValues, uid), busy || loading,
-                requested = requested, onRequestDismiss = onRequestDismiss,
-                recents = { ReactionEmojiData.recent(context, uid) },
-                onPick = { glyph ->
-                    if (!busy && glyph in data.catalog.byGlyph) {
-                        busy = true
-                        failure = ""
-                        changeReplyReaction(db, uid, postId, replyId, glyph).addOnCompleteListener { task ->
-                            if (session.active) {
-                                busy = false
-                                if (task.isSuccessful) ReactionEmojiData.record(context, uid, glyph)
-                                else failure = "Não foi possível salvar. Confira sua conexão e se as regras de reações estão atualizadas."
+            key(uid, postId, replyId) {
+                ReactionEmojiPicker(data, replyId, reactionGlyph(validValues[uid].orEmpty()),
+                    summarizeReactions(validValues, uid), busy || loading,
+                    requested = requested, onRequestDismiss = onRequestDismiss,
+                    recents = { ReactionEmojiData.recent(context, uid) },
+                    onPick = { glyph ->
+                        if (!busy && glyph in data.catalog.byGlyph) {
+                            busy = true
+                            failure = ""
+                            changeReplyReaction(db, uid, postId, replyId, glyph).addOnCompleteListener { task ->
+                                if (session.active) {
+                                    busy = false
+                                    if (task.isSuccessful) ReactionEmojiData.record(context, uid, glyph)
+                                    else failure = if ((task.exception as? com.google.firebase.firestore.FirebaseFirestoreException)?.code ==
+                                        com.google.firebase.firestore.FirebaseFirestoreException.Code.PERMISSION_DENIED)
+                                        "Esta reação ainda não está disponível. Tente ❤️, 🙏 ou ✨."
+                                    else "Não foi possível salvar a reação. Confira sua conexão e tente novamente."
+                                }
                             }
                         }
-                    }
-                })
+                    })
+            }
             if (fromCache && !loading) Text("Contagem em cache; aguardando sincronização.",
                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }

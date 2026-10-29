@@ -1,6 +1,9 @@
 package br.com.atriocatolico
 
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -72,8 +75,10 @@ internal fun ReactionEmojiPicker(
                 modifier = Modifier.width(minOf(376, LocalConfiguration.current.screenWidthDp - 24).dp)
                     .testTag("reaction-quick-bar")) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    LazyRow(Modifier.weight(1f)) {
-                        items(quickReactionEmojis) { emoji ->
+                    // DropdownMenu measures intrinsic width. A regular scrolling Row supports
+                    // that measurement; a LazyRow does not. There are only six shortcuts.
+                    Row(Modifier.weight(1f).horizontalScroll(rememberScrollState())) {
+                        quickReactionEmojis.forEach { emoji ->
                             EmojiTile(catalog.byGlyph.getValue(emoji), emoji == selectedEmoji,
                                 onClick = { choose(emoji) }, onVariants = {
                                     variantsOf = catalog.byGlyph.getValue(emoji)
@@ -139,10 +144,14 @@ internal fun ReactionEmojiPicker(
             text = {
                 Column {
                     Text(emoji.label, style = MaterialTheme.typography.bodyMedium)
-                    LazyVerticalGrid(columns = GridCells.Adaptive(56.dp), modifier = Modifier.heightIn(max = 300.dp)) {
-                        items(variants, key = { it.glyph }) { variant ->
-                            EmojiTile(variant, variant.glyph == selectedEmoji, onClick = { choose(variant.glyph) },
-                                onVariants = {}, tag = "emoji-variant-${variant.glyph}")
+                    Column(Modifier.heightIn(max = 300.dp).verticalScroll(rememberScrollState())) {
+                        variants.chunked(4).forEach { row ->
+                            Row {
+                                row.forEach { variant ->
+                                    EmojiTile(variant, variant.glyph == selectedEmoji, onClick = { choose(variant.glyph) },
+                                        onVariants = {}, tag = "emoji-variant-${variant.glyph}")
+                                }
+                            }
                         }
                     }
                 }
