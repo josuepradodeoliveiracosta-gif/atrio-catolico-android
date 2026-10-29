@@ -59,6 +59,45 @@ class EngagementUiTest {
         compose.onNodeWithText("Citando Miguel").assertDoesNotExist()
     }
 
+    @Test fun mentionsOnlyLoadedParticipantsAndKeepsCanonicalUid() {
+        check(FirebaseApp.getInstance().options.projectId == "demo-atrio-v11")
+        val post = Post(
+            id = "qa_mentions", author = "Clara", category = "Vida espiritual",
+            age = "hoje", title = "Oração em comunidade",
+            body = "Compartilhem orações e acolhimento.",
+            ownerUid = "qa-uid-clara",
+            replies = listOf(
+                Reply("Miguel", "Estamos juntos!", "qa_reply_miguel",
+                    ownerUid = "qa-uid-miguel"))
+        )
+        var submitted = ""
+        var recipient = ""
+        compose.setContent {
+            AtrioTheme {
+                DetailScreen(
+                    post = post, name = "Lúcia", currentUid = "qa-uid-lucia",
+                    onLike = {}, onSave = {},
+                    onReply = { _, done -> done(true) },
+                    onMentionReply = { body, candidate, done ->
+                        submitted = body
+                        recipient = candidate.uid
+                        done(true)
+                    }
+                )
+            }
+        }
+        compose.onNodeWithTag("atrio-mention-pick").performClick()
+        compose.onNodeWithText("@Miguel").performClick()
+        compose.onNodeWithText("Mencionando @Miguel").assertExists()
+        compose.onNodeWithTag("atrio-reply-input").performTextInput("Amém!")
+        compose.onNodeWithTag("atrio-reply-submit").performClick()
+        compose.runOnIdle {
+            assertEquals("qa-uid-miguel", recipient)
+            assertEquals("@Miguel Amém!", submitted)
+        }
+        compose.onNodeWithText("Mencionando @Miguel").assertDoesNotExist()
+    }
+
     @Test fun followButtonUsesAccountStateWithoutChangingPost() {
         check(FirebaseApp.getInstance().options.projectId == "demo-atrio-v11")
         var toggles = 0

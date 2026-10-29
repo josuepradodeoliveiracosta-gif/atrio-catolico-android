@@ -5,7 +5,8 @@ internal data class NoticeEvent(
     val id: String, val kind: NoticeKind, val target: String = "",
     val title: String, val body: String, val at: Long = 0L,
     val read: Boolean = false, val localToken: String = "",
-    val directReply: Boolean = false
+    val directReply: Boolean = false,
+    val mentioned: Boolean = false
 )
 internal data class NoticeGroup(
     val id: String, val kind: NoticeKind, val target: String,
@@ -20,7 +21,7 @@ internal fun groupNotices(events: List<NoticeEvent>, admin: Boolean): List<Notic
     .filter { admin || it.kind !in listOf(NoticeKind.REPORTS, NoticeKind.REQUESTS) }
     .groupBy {
         if (it.kind == NoticeKind.REPLY)
-            (if (it.directReply) "direct:" else "reply:") + it.target
+            (if (it.mentioned) "mention:" else if (it.directReply) "direct:" else "reply:") + it.target
         else it.kind.name
     }
     .map { (key, values) ->
@@ -28,6 +29,7 @@ internal fun groupNotices(events: List<NoticeEvent>, admin: Boolean): List<Notic
         val title = when (latest.kind) {
             NoticeKind.REPLY -> when {
                 values.size == 1 -> latest.title
+                latest.mentioned -> "${values.size} menções nesta discussão"
                 latest.directReply -> "${values.size} respostas aos seus comentários"
                 else -> "${values.size} respostas nesta discussão"
             }

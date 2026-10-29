@@ -129,12 +129,19 @@ internal fun rememberNotificationInbox(db: FirebaseFirestore, uid: String, admin
                 inbox.replyMore = error == null && (data?.size() ?: 0) > inbox.limit
                 inbox.replies = if (error != null) emptyList() else data?.documents?.take(inbox.limit)?.mapNotNull {
                     val post = it.getString("postId").orEmpty()
-                    if (post.isBlank() || '/' in post) null else NoticeEvent(it.id, NoticeKind.REPLY, post,
-                        "${it.getString("actorName") ?: "Alguém"} respondeu " +
-                            if (it.getString("replyToId").isNullOrBlank())
-                                "à discussão" else "ao seu comentário",
-                        "Toque para abrir a conversa.", it.noticeTime(), it.getBoolean("read") == true,
-                        directReply = !it.getString("replyToId").isNullOrBlank())
+                    if (post.isBlank() || '/' in post) null else {
+                        val mentioned = !it.getString("mentionUid").isNullOrBlank()
+                        val direct = !it.getString("replyToId").isNullOrBlank()
+                        val title = when {
+                            mentioned -> "${it.getString("actorName") ?: "Alguém"} mencionou você"
+                            direct -> "${it.getString("actorName") ?: "Alguém"} respondeu ao seu comentário"
+                            else -> "${it.getString("actorName") ?: "Alguém"} respondeu à discussão"
+                        }
+                        NoticeEvent(it.id, NoticeKind.REPLY, post, title,
+                            "Toque para abrir a conversa.", it.noticeTime(),
+                            it.getBoolean("read") == true,
+                            directReply = direct, mentioned = mentioned)
+                    }
                 } ?: emptyList()
             } }
         onDispose { active = false; listener.remove() }

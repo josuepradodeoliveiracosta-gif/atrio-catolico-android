@@ -35,6 +35,25 @@ class NotificationModelsTest {
         assertEquals(1, groups.last().events.size)
     }
 
+    @Test fun mentionsDoNotMixWithDirectRepliesAndKeepUnreadState() {
+        val mentions = listOf(
+            NoticeEvent("m1", NoticeKind.REPLY, "p", "Você foi mencionado",
+                "Toque para abrir.", at = 3, mentioned = true),
+            NoticeEvent("m2", NoticeKind.REPLY, "p", "Você foi mencionado",
+                "Toque para abrir.", at = 4, read = true, mentioned = true))
+        val direct = NoticeEvent("d1", NoticeKind.REPLY, "p",
+            "Responderam ao seu comentário", "Abrir.", at = 2, directReply = true)
+        val general = NoticeEvent("r1", NoticeKind.REPLY, "p",
+            "Nova resposta", "Abrir.", at = 1)
+        val groups = groupNotices(mentions + direct + general, false)
+        assertEquals(3, groups.size)
+        assertEquals("mention:p", groups.first().id)
+        assertEquals("2 menções nesta discussão", groups.first().title)
+        assertTrue(groups.first().unread)
+        assertEquals("direct:p", groups[1].id)
+        assertEquals("reply:p", groups.last().id)
+    }
+
     @Test fun adminDataNeverAppearsForCommonUserOrRevokedAdmin() {
         val events = listOf(event("a", NoticeKind.REPORTS), event("b", NoticeKind.REQUESTS), event("c", NoticeKind.REPLY, "p"))
         assertEquals(3, groupNotices(events, true).size)
