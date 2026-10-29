@@ -188,16 +188,38 @@ export function publicUrl(env, result) {
     '/image/upload/c_fill,w_400,h_400,q_auto,f_auto/v'+result.version+
     '/'+result.public_id+'.jpg';
 }
+/**
+ * Compatibilidade de endpoints do Cloudinary: algumas configurações rejeitam
+ * /image/authenticated com 404. Alternativa POST /image/upload com delivery
+ * type=authenticated assinado; NUNCA aceitar/publicar resposta type=upload.
+ */
+export async function uploadProtected(env,id,bytes) {
+  const opts={public_id:id,overwrite:'false',moderation:'manual'};
+  let result;
+  try {
+    result=await cloudSigned(env,'authenticated',opts,bytes,'upload');
+  } catch(error) {
+    if(!['cloudinary_error_404','cloudinary_not_found'].includes(error.safeCode)) throw error;
+    // Envio alternativo assinado; o tipo de entrega faz parte da assinatura.
+    result=await cloudSigned(env,'upload',{...opts,type:'authenticated'},bytes,'upload');
+  }
+  if(result?.public_id!==id || result?.type!=='authenticated' ||
+      !result.moderation?.some(m=>m.kind==='manual' && m.status==='pending')) {
+    // Falhar fechado. Se o fornecedor ignorar o tipo de entrega, excluir
+    // imediatamente o recurso criado antes de qualquer publicação.
+    const returnedId=result?.public_id;
+    if(returnedId===id && ['upload','authenticated'].includes(result?.type)) {
+      try {await destroy(env,id,result.type);}catch{}
+    }
+    throw Error('cloudinary_protection_failed');
+  }
+  return result;
+}
 async function upload(env, uid, request) {
   if(!(await quota(env,uid))) return json(429,'rate_limited');
   const bytes=await boundedBytes(request);
   const id='atrio-avatares/'+uid+'/'+crypto.randomUUID();
-  // Armazenamento authenticated: nem original nem derivados são acessíveis sem assinatura.
-  // Na REST API Cloudinary, o tipo 'authenticated' integra a ROTA,
-  // não o parâmetro do formulário. Assim a imagem pendente NÃO é pública.
-  const result=await cloudSigned(env,'authenticated',{public_id:id,
-    overwrite:'false',moderation:'manual'},bytes,'upload');
-  if(result.public_id!==id || result.type!=='authenticated') throw Error('cloudinary_identity_mismatch');
+  const result=await uploadProtected(env,id,bytes);
   const previous=await env.AVATAR_DB.prepare('SELECT public_id FROM avatar_pending WHERE uid=?').bind(uid).first();
   try {
     await env.AVATAR_DB.prepare('INSERT INTO avatar_pending (uid,public_id,created_at) VALUES (?,?,?) ON CONFLICT(uid) DO UPDATE SET public_id=excluded.public_id, created_at=excluded.created_at')
