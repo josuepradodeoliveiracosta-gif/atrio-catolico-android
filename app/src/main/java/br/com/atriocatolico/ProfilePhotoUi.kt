@@ -2,6 +2,7 @@ package br.com.atriocatolico
 
 import android.graphics.Bitmap
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.rememberScrollState
@@ -31,7 +32,11 @@ internal val LocalProfileAvatar = compositionLocalOf<LocalAvatarState?> { null }
 @Composable
 internal fun MemberAvatar(name: String, uid: String, modifier: Modifier = Modifier.size(40.dp)) {
     val current = LocalProfileAvatar.current
-    if (uid.isNotBlank() && current?.ownerUid == uid && current.bitmap != null) {
+    val remote = rememberPublicAvatar(uid)
+    if (remote != null) {
+        Image(remote, contentDescription = "Foto de " + name,
+            contentScale = ContentScale.Crop, modifier = modifier.clip(CircleShape))
+    } else if (uid.isNotBlank() && current?.ownerUid == uid && current.bitmap != null) {
         Image(
             bitmap = current.bitmap,
             contentDescription = "Foto de " + name,
@@ -43,7 +48,7 @@ internal fun MemberAvatar(name: String, uid: String, modifier: Modifier = Modifi
     }
 }
 
-/** Editor que já funciona offline. O upload público é bloqueado até haver regras aprovadas. */
+/** Editor local e público: upload só aparece quando o Worker seguro estiver configurado. */
 @Composable
 internal fun ProfilePhotoManager(
     uid: String,
@@ -51,6 +56,7 @@ internal fun ProfilePhotoManager(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val publicEnabled = CloudinaryAvatarClient.enabled
     var open by rememberSaveable(uid) { mutableStateOf(false) }
     var source by remember(uid) { mutableStateOf<Bitmap?>(null) }
     var zoom by remember(uid) { mutableFloatStateOf(1f) }
@@ -60,7 +66,7 @@ internal fun ProfilePhotoManager(
     var error by remember(uid) { mutableStateOf("") }
     var removeConfirm by remember(uid) { mutableStateOf(false) }
 
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) {
             busy = true
             error = ""
@@ -96,8 +102,9 @@ internal fun ProfilePhotoManager(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text("Sua foto fica privada neste aparelho por enquanto. " +
-                        "A sincronização entre contas depende de armazenamento e regras ainda não publicados.",
+                    Text(if (publicEnabled)
+                        "Sua foto poderá ser vista por todos os participantes. Ela será publicada somente depois da aprovação da moderação. A URL pública poderá ser acessada fora do Átrio."
+                        else "A foto fica apenas neste aparelho. O serviço de fotos públicas ainda não está configurado.",
                         style = MaterialTheme.typography.bodySmall)
                     source?.let { selected ->
                         val cropped = remember(selected, zoom, x, y) {
@@ -119,13 +126,30 @@ internal fun ProfilePhotoManager(
                     if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
                     if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodySmall)
-                    OutlinedButton(onClick = { picker.launch("image/*") }, enabled = !busy,
+                    OutlinedButton(onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }, enabled = !busy,
                         modifier = Modifier.fillMaxWidth().testTag("atrio-profile-photo-picker")) {
                         Text(if (source == null) "Escolher foto da galeria" else "Escolher outra foto")
                     }
+                    if (publicEnabled) OutlinedButton(onClick = {
+                        busy = true; error = ""
+                        scope.launch {
+                            val result = runCatching { CloudinaryAvatarClient.status(uid) }
+                            busy = false
+                            result.onSuccess { state ->
+                                error = when (state) {
+                                    "published" -> "Sua foto foi aprovada e publicada."
+                                    "pending_moderation" -> "Sua foto ainda aguarda aprovação."
+                                    "rejected" -> "A foto foi rejeitada pela moderação."
+                                    else -> "Nenhuma nova foto aguardando aprovação."
+                                }
+                                if (state == "published") onChanged()
+                            }.onFailure { error = it.message ?: "Não foi possível verificar." }
+                        }
+                    }, enabled = !busy, modifier = Modifier.fillMaxWidth()
+                        .testTag("atrio-profile-photo-status")) { Text("Verificar aprovação da foto") }
                     TextButton(onClick = { removeConfirm = true }, enabled = !busy,
                         modifier = Modifier.testTag("atrio-profile-photo-remove")) {
-                        Text("Remover foto deste aparelho")
+                        Text(if (publicEnabled) "Remover foto pública" else "Remover foto deste aparelho")
                     }
                 }
             },
@@ -139,20 +163,26 @@ internal fun ProfilePhotoManager(
                             val result = withContext(Dispatchers.IO) {
                                 runCatching {
                                     val cropped = ProfilePhotoStore.crop(selected, zoom, x, y)
-                                    ProfilePhotoStore.save(context, uid, cropped)
+                                    if (publicEnabled) CloudinaryAvatarClient.upload(uid, cropped)
+                                    else { ProfilePhotoStore.save(context, uid, cropped); "saved_local" }
                                 }
                             }
                             busy = false
-                            result.onSuccess {
+                            result.onSuccess { state ->
                                 source = null
-                                open = false
+                                if (state == "pending_moderation") {
+                                    error = "Foto enviada para moderação. Toque em Verificar aprovação após a análise."
+                                } else {
+                                    open = false
+                                    if (state == "published") ProfilePhotoStore.remove(context, uid)
+                                }
                                 onChanged()
                             }.onFailure {
                                 error = it.message ?: "Não foi possível salvar a foto."
                             }
                         }
                     }, enabled = !busy, modifier = Modifier.testTag("atrio-profile-photo-save")) {
-                        Text("Salvar no aparelho")
+                        Text(if (publicEnabled) "Enviar foto para aprovação" else "Salvar no aparelho")
                     }
                 }
             },
@@ -167,15 +197,19 @@ internal fun ProfilePhotoManager(
         AlertDialog(
             onDismissRequest = { if (!busy) removeConfirm = false },
             title = { Text("Remover foto?") },
-            text = { Text("A foto salva neste aparelho será apagada. Seu avatar voltará à inicial do nome.") },
+            text = { Text(if (publicEnabled) "Sua foto pública será removida para todos os participantes. Seu avatar voltará à inicial do nome."
+                else "A foto salva neste aparelho será apagada. Seu avatar voltará à inicial do nome.") },
             confirmButton = {
                 TextButton(enabled = !busy, onClick = {
                     busy = true
                     scope.launch {
-                        val ok = withContext(Dispatchers.IO) { ProfilePhotoStore.remove(context, uid) }
+                        val result = runCatching {
+                            if (publicEnabled) CloudinaryAvatarClient.remove(uid)
+                            withContext(Dispatchers.IO) { check(ProfilePhotoStore.remove(context, uid)) }
+                        }
                         busy = false
                         removeConfirm = false
-                        if (ok) {
+                        if (result.isSuccess) {
                             source = null
                             open = false
                             onChanged()
