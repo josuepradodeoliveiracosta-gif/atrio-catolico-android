@@ -16,7 +16,7 @@ function cleanItem(document) {
   return {path,parts,owner,text:(parts.length===2?string(document,'title')+' ':'')+string(document,'body'),doc:document,kind:parts.length===2?'post':'reply'};
 }
 function caseFields(item,finding,now,action) {
-  return {engine:str('v2'),ownerUid:str(item.owner),targetPath:str(item.path),targetType:str(item.kind),postId:str(item.parts[1]),...(item.kind==='reply'?{replyId:str(item.parts[3])}:{}),ruleCode:str(finding.rule),reason:str('Possível violação: '+finding.rule),status:str(action==='hold'?'held':action==='warn'?'warned':'review'),source:str('guardiao'),createdAt:timestamp(now)};
+  return {engine:str('v2'),ownerUid:str(item.owner),targetPath:str(item.path),targetType:str(item.kind),postId:str(item.parts[1]),...(item.kind==='reply'?{replyId:str(item.parts[3])}:{}),ruleCode:str(finding.rule),sourceUpdateTime:str(item.doc.updateTime),reason:str('Possível violação: '+finding.rule),status:str(action==='hold'?'held':action==='warn'?'warned':'review'),source:str('guardiao'),createdAt:timestamp(now)};
 }
 // Atua por eventos backend com polling agendado limitado. Não depende do app.
 export async function processDocument(db,document,settings,now=new Date().toISOString()) {
@@ -25,7 +25,14 @@ export async function processDocument(db,document,settings,now=new Date().toISOS
   const root=db.resource||ROOT;
   const finding=classify(item.text,settings.context||{}),policy=decide(finding,settings);
   if(policy==='clear')return 'clear';
-  const id=await caseId(item.path);
+  const primaryId=await caseId(item.path);
+  // Casos novos são versionados: uma edição posterior pode demandar nova revisão.
+  // Casos antigos sem sourceUpdateTime nunca são reabertos automaticamente.
+  const previous=await db.get('guardian_cases/'+primaryId);
+  const oldVersion=string(previous,'sourceUpdateTime');
+  if(previous&&(!oldVersion||oldVersion===item.doc.updateTime))
+    return 'duplicate_or_changed';
+  const id=previous?await caseId(item.path+'@'+item.doc.updateTime):primaryId;
   // Nunca retirar um post com subcoleções de respostas de maneira automática.
   const hold=policy==='review'&&finding.level==='hold_candidate'&&settings.allowHold&&item.kind==='reply';
   const action=hold?'hold':policy;
