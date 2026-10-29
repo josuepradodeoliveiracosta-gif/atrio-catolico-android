@@ -593,8 +593,8 @@ private fun OnlineCommunity(
                     )
                     // Quando o autor da discussão também é o autor citado,
                     // evitar dois avisos e identificar a resposta como direta.
-                    if (advancedEngagement && target?.ownerUid == ownerUid &&
-                        target.id.isNotBlank()) {
+                    if (advancedEngagement && target != null &&
+                        target.ownerUid == ownerUid && target.id.isNotBlank()) {
                         notice["replyToId"] = target.id
                     }
                     batch.set(noticeRef, notice)
