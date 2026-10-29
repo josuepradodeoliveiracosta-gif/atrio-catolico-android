@@ -36,7 +36,7 @@ export async function token(env) {
 export class Firestore {
   constructor(access,project=PROJECT,api=API){
     if(!projectValid(project)||!['https://firestore.googleapis.com/v1','http://127.0.0.1:8089/v1'].includes(api))throw Error('invalid_backend');
-    this.access=access;this.root=api+'/projects/'+project+'/databases/(default)/documents';
+    this.access=access;this.project=project;this.root=api+'/projects/'+project+'/databases/(default)/documents';
     // REST endpoint (root) and Firestore resource names (resource) are different.
     this.resource='projects/'+project+'/databases/(default)/documents';
   }
@@ -62,6 +62,28 @@ export class Firestore {
     const sq={structuredQuery:{from:[{collectionId:group,allDescendants:group==='replies'}],where:{fieldFilter:{field:{fieldPath:'createdAt'},op:'GREATER_THAN_OR_EQUAL',value:timestamp(cut)}},orderBy:[{field:{fieldPath:'createdAt'},direction:'DESCENDING'}],limit:max}};
     const result=await this.send(':runQuery','POST',sq);
     if(!Array.isArray(result))throw Error('invalid_scan');
+    return result.map(x=>x.document).filter(Boolean);
+  }
+  // Strict read-only remote QA query: synthetic fixture flag checked by Firestore.
+  // Use only via shadow scan, never general production moderation.
+  async scanQa(group,minutes=20,max=15){
+    if(!/^atrio-catolico-qa(?:-[a-z0-9-]+)?$/.test(this.project) || this.project.length>30)
+      throw Error('qa_project_required');
+    if(!['posts','replies','reports'].includes(group) || minutes<1 || minutes>20 ||
+      !Number.isInteger(max) || max<1 || max>15)throw Error('qa_limits_invalid');
+    const cut=new Date(Date.now()-minutes*60_000).toISOString();
+    const eq={fieldFilter:{field:{fieldPath:'qaFixture'},op:'EQUAL',value:{booleanValue:true}}};
+    const recent={fieldFilter:{field:{fieldPath:'createdAt'},op:'GREATER_THAN_OR_EQUAL',value:timestamp(cut)}};
+    const columns=group==='reports'?['qaFixture']:['body','title','qaFixture'];
+    const sq={structuredQuery:{
+      from:[{collectionId:group,allDescendants:group==='replies'}],
+      select:{fields:columns.map(fieldPath=>({fieldPath}))},
+      where:{compositeFilter:{op:'AND',filters:[eq,recent]}},
+      orderBy:[{field:{fieldPath:'createdAt'},direction:'DESCENDING'}],
+      limit:max
+    }};
+    const result=await this.send(':runQuery','POST',sq);
+    if(!Array.isArray(result))throw Error('invalid_qa_query');
     return result.map(x=>x.document).filter(Boolean);
   }
   commit(writes){return this.send(':commit','POST',{writes});}
