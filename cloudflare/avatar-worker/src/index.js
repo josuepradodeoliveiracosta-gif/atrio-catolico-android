@@ -271,7 +271,6 @@ async function isModerator(env,uid) {
   if(!r.ok) throw Error('admin_lookup_failed');
   return (await r.json()).fields?.enabled?.booleanValue === true;
 }
-
 // Moderação administrativa de avatares: o cliente nunca recebe segredos Cloudinary
 // ou URL assinada da imagem protegida. Cada endpoint revalida o Firebase e admins/{uid}.
 async function moderationQueue(env, actor) {
@@ -295,72 +294,7 @@ async function moderationQueue(env, actor) {
 }
 function validPendingId(uid,id) {
   return uidOk(uid) && typeof id==='string' &&
-    new RegExp('^atrio-avatares/'+uid+'/[0-9a-f-]{36}
-  if(!(await isModerator(env,actor))) return json(403,'forbidden');
-  const length=Number(request.headers.get('content-length')||0);
-  if(length>256) return json(413,'invalid_request');
-  let payload;
-  try {
-    const raw=await request.text();
-    if(raw.length>256) return json(413,'invalid_request');
-    payload=JSON.parse(raw);
-  } catch {return json(400,'invalid_request');}
-  if(!uidOk(payload?.uid) || typeof payload.reason !== 'string' ||
-    payload.reason.trim().length < 5 || payload.reason.length>100)
-    return json(400,'invalid_request');
-  return withAvatarLock(env,payload.uid,async()=>{
-    await remove(env,payload.uid);
-    await env.AVATAR_DB.prepare(
-      'INSERT INTO avatar_moderation (actor_uid,target_uid,reason,created_at) VALUES (?,?,?,?)'
-    ).bind(actor,payload.uid,payload.reason.trim(),Date.now()).run();
-    return json(200,'moderated');
-  });
-}
-async function remove(env,uid) {
-  const before=await firestoreGet(env,uid);
-  const pending=await env.AVATAR_DB.prepare('SELECT public_id FROM avatar_pending WHERE uid=?').bind(uid).first();
-  await firestoreDelete(env,uid);
-  await env.AVATAR_DB.prepare('DELETE FROM avatar_pending WHERE uid=?').bind(uid).run();
-  if(before?.photoPublicId) {try{await destroy(env,before.photoPublicId,'upload');}catch{}}
-  if(pending?.public_id) {try{await destroy(env,pending.public_id,'authenticated');}catch{}}
-  return json(200,'removed');
-}
-export default {
-  async fetch(request,env) {
-    const pathname=new URL(request.url).pathname;
-    if(!['/avatar/upload','/avatar/status','/avatar','/avatar/moderate',
-      '/avatar/moderation/pending','/avatar/moderation/preview','/avatar/moderation/review'].includes(pathname))
-      return json(404,'not_found');
-    if((pathname==='/avatar/upload' && request.method!=='POST') ||
-      (pathname==='/avatar/status' && request.method!=='POST') ||
-      (pathname==='/avatar/moderate' && request.method!=='POST') ||
-      (pathname==='/avatar/moderation/pending' && request.method!=='GET') ||
-      (pathname==='/avatar/moderation/preview' && request.method!=='GET') ||
-      (pathname==='/avatar/moderation/review' && request.method!=='POST') ||
-      (pathname==='/avatar' && request.method!=='DELETE'))
-      return json(405,'method_not_allowed');
-    try{
-      requireEnv(env);
-      const uid=await verify(request,env);
-      if(!uid) return json(401,'unauthorized');
-      if(pathname==='/avatar/upload') return await withAvatarLock(env,uid,()=>upload(env,uid,request));
-      if(pathname==='/avatar/status') return await withAvatarLock(env,uid,()=>status(env,uid));
-      if(pathname==='/avatar/moderation/pending') return await moderationQueue(env,uid);
-      if(pathname==='/avatar/moderation/preview') return await moderationPreview(env,uid,request);
-      if(pathname==='/avatar/moderation/review') return await moderationReview(env,uid,request);
-      if(pathname==='/avatar/moderate') return await moderateRemove(env,uid,request);
-      return await withAvatarLock(env,uid,()=>remove(env,uid));
-    } catch (error) {
-      if(error.message==='invalid_image') return json(413,'invalid_image');
-      if(typeof error.safeCode==='string' &&
-          /^cloudinary_(protection_failed|environment_not_found|not_found|signature_invalid|credentials_invalid|moderation_error|preset_error|file_error|error_[0-9]{3})$/.test(error.safeCode)) {
-        return json(502,error.safeCode);
-      }
-      return json(503,'temporarily_unavailable');
-    }
-  }
-};
-).test(id);
+    new RegExp('^atrio-avatares/'+uid+'/[0-9a-f-]{36}$').test(id);
 }
 async function moderationPreview(env,actor,request) {
   if(!(await isModerator(env,actor))) return json(403,'forbidden');
@@ -468,11 +402,15 @@ async function remove(env,uid) {
 export default {
   async fetch(request,env) {
     const pathname=new URL(request.url).pathname;
-    if(!['/avatar/upload','/avatar/status','/avatar','/avatar/moderate'].includes(pathname))
+    if(!['/avatar/upload','/avatar/status','/avatar','/avatar/moderate',
+      '/avatar/moderation/pending','/avatar/moderation/preview','/avatar/moderation/review'].includes(pathname))
       return json(404,'not_found');
     if((pathname==='/avatar/upload' && request.method!=='POST') ||
       (pathname==='/avatar/status' && request.method!=='POST') ||
       (pathname==='/avatar/moderate' && request.method!=='POST') ||
+      (pathname==='/avatar/moderation/pending' && request.method!=='GET') ||
+      (pathname==='/avatar/moderation/preview' && request.method!=='GET') ||
+      (pathname==='/avatar/moderation/review' && request.method!=='POST') ||
       (pathname==='/avatar' && request.method!=='DELETE'))
       return json(405,'method_not_allowed');
     try{
@@ -481,6 +419,9 @@ export default {
       if(!uid) return json(401,'unauthorized');
       if(pathname==='/avatar/upload') return await withAvatarLock(env,uid,()=>upload(env,uid,request));
       if(pathname==='/avatar/status') return await withAvatarLock(env,uid,()=>status(env,uid));
+      if(pathname==='/avatar/moderation/pending') return await moderationQueue(env,uid);
+      if(pathname==='/avatar/moderation/preview') return await moderationPreview(env,uid,request);
+      if(pathname==='/avatar/moderation/review') return await moderationReview(env,uid,request);
       if(pathname==='/avatar/moderate') return await moderateRemove(env,uid,request);
       return await withAvatarLock(env,uid,()=>remove(env,uid));
     } catch (error) {
