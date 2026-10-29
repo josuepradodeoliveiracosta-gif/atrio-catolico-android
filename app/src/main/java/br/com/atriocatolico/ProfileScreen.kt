@@ -161,7 +161,7 @@ internal fun OnlineProfileScreen(
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(email.ifBlank { "Conta autenticada" }, style = MaterialTheme.typography.bodyLarge)
-                        Text("Seu e-mail e sua apresentação são privados. Seu nome e seus selos aparecem nas publicações.",
+                        Text("Seu e-mail é privado. Sua apresentação só fica pública após sua autorização.",
                             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text("Átrio Católico · ${BuildConfig.ATRIO_VISIBLE_VERSION}", style = MaterialTheme.typography.labelMedium)
                         OutlinedButton(onClick = onSignOut, modifier = Modifier.fillMaxWidth().testTag("atrio-profile-signout")) {
@@ -220,11 +220,11 @@ private fun ProfileEditor(
             // Perfil privado sempre é a fonte da verdade; atualizar projeção
             // pública apenas se ela já tiver sido publicada voluntariamente.
             if (result.isSuccessful) {
-                val public = db.collection("public_profiles").document(uid)
-                public.get().addOnSuccessListener { doc ->
+                val publicDocRef = db.collection("public_profiles").document(uid)
+                publicDocRef.get().addOnSuccessListener { doc ->
                     if (doc.exists()) {
                         val joined = doc.getTimestamp("joinedAt")
-                        if (joined != null) public.set(mapOf(
+                        if (joined != null) publicDocRef.set(mapOf(
                             "displayName" to newName,
                             "bio" to newBio,
                             "joinedAt" to joined,
@@ -272,7 +272,7 @@ internal fun ProfileEditorDialog(
                     enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("atrio-profile-bio"), minLines = 3, maxLines = 5,
                     label = { Text("Apresentação (opcional)") },
                     supportingText = { Text("${draftBio.length}/180 caracteres") })
-                Text("O nome será usado nas próximas publicações. Sua apresentação permanece privada.",
+                Text("O nome será usado nas próximas publicações. Sua apresentação só é pública com sua autorização.",
                     color = Muted, fontSize = 12.sp)
                 if (failure.isNotBlank()) Text(failure, color = MaterialTheme.colorScheme.error, fontSize = 14.sp,
                     modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
