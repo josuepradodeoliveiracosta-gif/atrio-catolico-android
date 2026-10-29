@@ -14,6 +14,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -49,8 +50,10 @@ internal fun OnlineProfileScreen(
             }
         }
     } else {
+        val founderCanBroadcast = onModeration != null && onClergyReview != null &&
+            LocalFounderUid.current.isNotBlank() && LocalFounderUid.current == uid
         val mine = posts.filter { it.mine }
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
+        LazyColumn(Modifier.fillMaxSize().testTag("atrio-profile-list"), contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item {
                 Card(colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -75,13 +78,13 @@ internal fun OnlineProfileScreen(
                         Text(biography.ifBlank { "Conte um pouco sobre sua caminhada na fé." },
                             color = Muted, fontSize = 14.sp, textAlign = TextAlign.Center)
                         Button(onClick = { savedMessage = false; editorOpen = true },
-                            modifier = Modifier.fillMaxWidth()) { Text("Editar perfil") }
+                            modifier = Modifier.fillMaxWidth().testTag("atrio-profile-edit")) { Text("Editar perfil") }
                         if (savedMessage) Text("Perfil atualizado.", color = Wine, fontSize = 12.sp)
                     }
                 }
             }
             item {
-                Card(onClick = { badgesOpen = true }, modifier = Modifier.fillMaxWidth(),
+                Card(onClick = { badgesOpen = true }, modifier = Modifier.fillMaxWidth().testTag("atrio-profile-badges"),
                     colors = CardDefaults.cardColors(containerColor = WineSoft),
                     shape = RoundedCornerShape(18.dp)) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -115,6 +118,8 @@ internal fun OnlineProfileScreen(
                     OutlinedButton(onClick = action, modifier = Modifier.fillMaxWidth()) { Text("Solicitações de selos") }
                 }
             }
+            // Somente o fundador que também é administrador vê a opção.
+            if (founderCanBroadcast) item { AdminBroadcastPanel() }
             item {
                 HorizontalDivider(color = Line)
                 Spacer(Modifier.height(16.dp))
@@ -124,7 +129,7 @@ internal fun OnlineProfileScreen(
                 Text("Átrio Católico · ${androidx.compose.ui.platform.LocalContext.current.let {
                     it.packageManager.getPackageInfo(it.packageName, 0).versionName.orEmpty()
                 }}", color = Muted, fontSize = 12.sp)
-                OutlinedButton(onClick = onSignOut, modifier = Modifier.fillMaxWidth()) { Text("Sair da conta") }
+                OutlinedButton(onClick = onSignOut, modifier = Modifier.fillMaxWidth().testTag("atrio-profile-signout")) { Text("Sair da conta") }
             }
         }
     }
@@ -150,11 +155,11 @@ private fun ProfileEditor(
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(draftName, { draftName = it.take(35) },
-                    enabled = !busy, modifier = Modifier.fillMaxWidth(), singleLine = true,
+                    enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("atrio-profile-name"), singleLine = true,
                     label = { Text("Nome público") }, isError = !validName,
                     supportingText = { Text("${draftName.trim().length}/35 · mínimo de 2 caracteres") })
                 OutlinedTextField(draftBio, { draftBio = it.take(180) },
-                    enabled = !busy, modifier = Modifier.fillMaxWidth(), minLines = 3, maxLines = 5,
+                    enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("atrio-profile-bio"), minLines = 3, maxLines = 5,
                     label = { Text("Apresentação (opcional)") },
                     supportingText = { Text("${draftBio.length}/180 caracteres") })
                 Text("O nome será usado nas próximas publicações. Sua apresentação permanece privada.",
@@ -163,7 +168,7 @@ private fun ProfileEditor(
             }
         },
         confirmButton = {
-            TextButton(enabled = !busy && validName && changed, onClick = {
+            TextButton(modifier = Modifier.testTag("atrio-profile-save"), enabled = !busy && validName && changed, onClick = {
                 busy = true
                 failure = ""
                 db.collection("profiles").document(uid).update(mapOf(

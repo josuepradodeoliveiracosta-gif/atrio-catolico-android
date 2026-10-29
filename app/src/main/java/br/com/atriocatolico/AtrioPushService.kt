@@ -24,12 +24,14 @@ import java.util.UUID
 
 /**
  * FCM e apenas o transportador: nao envia mensagens nem concede autorizacao.
- * O emissor confiavel ainda sera implementado em etapa separada.
+ * A entrega depende da ativacao controlada do relay confiavel Cloudflare.
  */
 internal object PushRegistry {
     private const val PREFS = "atrio_push_devices"
     private const val CHANNEL = "atrio_avisos"
+    private const val COMMUNICATION_TOPIC = "atrio_comunicados_v1"
 
+    // Exibe somente categorias conhecidas; jamais a mensagem bruta da exceção.
     private fun diagnoseFcm(context: Context, error: Throwable?): PushRegistrationProblem {
         if (GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(context)
             != ConnectionResult.SUCCESS) return PushRegistrationProblem.PLAY_SERVICES_UNAVAILABLE
@@ -63,8 +65,11 @@ internal object PushRegistry {
     private fun document(db: FirebaseFirestore, uid: String, context: Context) =
         db.collection("users").document(uid).collection("pushDevices").document(deviceId(context))
 
+    // Nunca exibimos token FCM, chave, UID ou mensagem bruta de exceção na interface.
     fun register(
-        context: Context, uid: String, db: FirebaseFirestore,
+        context: Context,
+        uid: String,
+        db: FirebaseFirestore,
         done: (Boolean, PushRegistrationProblem?) -> Unit = { _, _ -> }
     ) {
         if (FirebaseAuth.getInstance().currentUser?.uid != uid || !enabled(context, uid)) {
@@ -94,7 +99,21 @@ internal object PushRegistry {
                     if (FirebaseAuth.getInstance().currentUser?.uid != uid || !enabled(context, uid)) {
                         done(false, PushRegistrationProblem.SESSION_CHANGED)
                     } else if (result.isSuccessful) {
-                        done(true, null)
+                        FirebaseMessaging.getInstance().subscribeToTopic(COMMUNICATION_TOPIC)
+                            .addOnCompleteListener { subscribed ->
+                                if (FirebaseAuth.getInstance().currentUser?.uid != uid
+                                    || !enabled(context, uid)) {
+                                    FirebaseMessaging.getInstance().unsubscribeFromTopic(COMMUNICATION_TOPIC)
+                                    done(false, PushRegistrationProblem.SESSION_CHANGED)
+                                } else if (subscribed.isSuccessful) {
+                                    ThreadPushSubscriptions.sync(context, uid)
+                                    done(true, null)
+                                } else {
+                                    // O cadastro pessoal funciona, mas não ativamos a opção
+                                    // enquanto a inscrição nos comunicados não estiver confirmada.
+                                    done(false, PushRegistrationProblem.TOPIC_SUBSCRIPTION_FAILED)
+                                }
+                            }
                     } else {
                         val issue = when ((result.exception as? FirebaseFirestoreException)?.code) {
                             FirebaseFirestoreException.Code.PERMISSION_DENIED ->
@@ -114,7 +133,9 @@ internal object PushRegistry {
     }
 
     fun enable(
-        context: Context, uid: String, db: FirebaseFirestore,
+        context: Context,
+        uid: String,
+        db: FirebaseFirestore,
         done: (Boolean, PushRegistrationProblem?) -> Unit
     ) {
         if (FirebaseAuth.getInstance().currentUser?.uid != uid) {
@@ -139,6 +160,8 @@ internal object PushRegistry {
         if (uid.isBlank()) return
         prefs(context).edit().putBoolean(enabledKey(uid), false).apply()
         FirebaseMessaging.getInstance().isAutoInitEnabled = false
+        FirebaseMessaging.getInstance().unsubscribeFromTopic(COMMUNICATION_TOPIC)
+        ThreadPushSubscriptions.unsubscribeAll(context, uid)
         // A exclusao remota e a rotacao do token sao tentativas assincronas.
         // Nao mostramos informacoes pessoais no corpo de avisos enviados.
         document(db, uid, context).delete()
@@ -152,8 +175,75 @@ internal object PushRegistry {
         ).apply { description = "Avisos gerais de respostas, verificações e administração" })
     }
 
+    fun showBroadcast(context: Context, uid: String, title: String, body: String) {
+        if (!enabled(context, uid) || FirebaseAuth.getInstance().currentUser?.uid != uid) return
+        if (Build.VERSION.SDK_INT >= 33 &&
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) return
+        val heading = title.trim()
+        val details = body.trim()
+        if (heading.length !in 5..60 || details.length !in 10..180 ||
+            (heading + details).any { it.isISOControl() }) return
+        createChannel(context)
+        val destination = PendingIntent.getActivity(context, 0,
+            Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            }, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val notification = Notification.Builder(context, CHANNEL)
+            .setSmallIcon(R.drawable.ic_atrio)
+            .setContentTitle(heading)
+            .setContentText(details)
+            .setStyle(Notification.BigTextStyle().bigText(details))
+            .setAutoCancel(true)
+            .setContentIntent(destination)
+            .build()
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.notify((System.currentTimeMillis() % Int.MAX_VALUE).toInt(), notification)
+    }
+
+    fun showDiscussionReply(context: Context, uid: String, postId: String,
+                            replyId: String, actorUid: String, topicDelivery: Boolean) {
+        if (!enabled(context, uid) ||
+            FirebaseAuth.getInstance().currentUser?.uid != uid ||
+            actorUid == uid || actorUid.isBlank() ||
+            !postId.matches(Regex("^[A-Za-z0-9_-]{1,128}$")) ||
+            !replyId.matches(Regex("^[A-Za-z0-9_-]{1,128}$"))) return
+        if (topicDelivery && !ThreadPushSubscriptions.contains(context, uid, postId)) return
+        // Preferência de respostas da Central de Avisos também vale fora do app.
+        if (!context.getSharedPreferences("atrio_notices_$uid", Context.MODE_PRIVATE)
+                .getBoolean("replies", true)) return
+        if (Build.VERSION.SDK_INT >= 33 &&
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+            != PackageManager.PERMISSION_GRANTED) return
+
+        // O mesmo aviso pode chegar pelo Push individual legado e pelo tópico
+        // da discussão: exibir apenas uma vez neste aparelho.
+        val prefs = context.getSharedPreferences("atrio_discussion_seen", Context.MODE_PRIVATE)
+        val key = "seen_$uid"
+        val id = "$postId:$replyId"
+        synchronized(this) {
+            val before = prefs.getStringSet(key, emptySet()).orEmpty()
+            if (id in before) return
+            prefs.edit().putStringSet(key, (before.toList().takeLast(999) + id).toSet()).apply()
+        }
+        createChannel(context)
+        val intent = PendingIntent.getActivity(context, 0,
+            Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            }, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val notice = Notification.Builder(context, CHANNEL)
+            .setSmallIcon(R.drawable.ic_atrio)
+            .setContentTitle("Nova resposta em uma discussão")
+            .setContentText("Uma conversa da qual você participa recebeu uma nova resposta.")
+            .setAutoCancel(true)
+            .setContentIntent(intent)
+            .build()
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.notify(id.hashCode(), notice)
+    }
+
     fun show(context: Context, uid: String, kind: String) {
-        if (!(enabled(context, uid) || BackgroundNoticeScheduler.enabled(context, uid))
+        if (!enabled(context, uid)
             || FirebaseAuth.getInstance().currentUser?.uid != uid) return
         if (Build.VERSION.SDK_INT >= 33 &&
             context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
@@ -195,7 +285,25 @@ class AtrioPushService : FirebaseMessagingService() {
         // Apenas mensagens DATA, com UID correspondente a sessao atual.
         // Nunca use texto fornecido no payload como conteudo da notificacao.
         val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
+        if (message.data["kind"] == "broadcast") {
+            PushRegistry.showBroadcast(applicationContext, uid,
+                message.data["title"].orEmpty(), message.data["body"].orEmpty())
+            return
+        }
+        if (message.data["kind"] == "discussion_reply") {
+            PushRegistry.showDiscussionReply(applicationContext, uid,
+                message.data["postId"].orEmpty(), message.data["replyId"].orEmpty(),
+                message.data["actorUid"].orEmpty(), topicDelivery = true)
+            return
+        }
         if (message.data["uid"] != uid) return
-        PushRegistry.show(applicationContext, uid, message.data["kind"].orEmpty())
+        if (message.data["kind"] == "reply" &&
+            message.data["replyId"].orEmpty().isNotBlank()) {
+            PushRegistry.showDiscussionReply(applicationContext, uid,
+                message.data["postId"].orEmpty(), message.data["replyId"].orEmpty(),
+                message.data["actorUid"].orEmpty(), topicDelivery = false)
+        } else {
+            PushRegistry.show(applicationContext, uid, message.data["kind"].orEmpty())
+        }
     }
 }

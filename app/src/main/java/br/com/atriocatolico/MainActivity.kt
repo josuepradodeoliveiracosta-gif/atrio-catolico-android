@@ -39,6 +39,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -260,7 +261,7 @@ internal fun AtrioDemoApp(prefs: SharedPreferences) {
                 var edit by remember { mutableStateOf(name) }
                 AlertDialog(
                     onDismissRequest = { renameOpen = false }, title = { Text("Editar nome") },
-                    text = { OutlinedTextField(value = edit, onValueChange = { if (it.length <= 35) edit = it }, label = { Text("Nome") }) },
+                    text = { OutlinedTextField(value = edit, onValueChange = { if (it.length <= 35) edit = it }, label = { Text("Nome") }, modifier = Modifier.testTag("atrio-profile-name-input")) },
                     confirmButton = { TextButton(enabled = edit.trim().length >= 2, onClick = {
                         val old = name
                         name = edit.trim()
@@ -305,10 +306,12 @@ private fun WelcomeScreen(onEnter: (String) -> Unit) {
                 Spacer(Modifier.height(7.dp))
                 Text("Escolha um nome para a demonstração. Não é necessário criar conta.", fontSize = 12.sp, color = Muted, lineHeight = 19.sp)
                 Spacer(Modifier.height(10.dp))
-                OutlinedTextField(nickname, { if (it.length <= 35) nickname = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Seu nome") }, singleLine = true)
+                OutlinedTextField(nickname, { if (it.length <= 35) nickname = it },
+                    modifier = Modifier.fillMaxWidth().testTag("atrio-welcome-name"),
+                    label = { Text("Seu nome") }, singleLine = true)
                 Spacer(Modifier.height(12.dp))
                 Button(onClick = { onEnter(nickname) }, enabled = nickname.trim().length >= 2,
-                    modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) { Text("Entrar na comunidade  →") }
+                    modifier = Modifier.fillMaxWidth().testTag("atrio-welcome-enter"), shape = RoundedCornerShape(12.dp)) { Text("Entrar na comunidade  →") }
                 Spacer(Modifier.height(5.dp))
                 Text("Demonstração local · Sem cadastro real", fontSize = 10.sp, color = Muted, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
             }
@@ -335,8 +338,8 @@ internal fun AtrioTopBar(
                 Text("Átrio", fontSize = 26.sp, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, color = Wine)
             }
             Spacer(Modifier.weight(1f))
-            IconButton(onClick = onSearch) { Icon(Icons.Outlined.Search, "Buscar", tint = Wine) }
-            IconButton(onClick = onNotification) {
+            IconButton(onClick = onSearch, modifier = Modifier.testTag("atrio-top-search")) { Icon(Icons.Outlined.Search, "Buscar", tint = Wine) }
+            IconButton(onClick = onNotification, modifier = Modifier.testTag("atrio-top-notifications")) {
                 BadgedBox(badge = {
                     if (unreadCount > 0) Badge {
                         Text(if (unreadCount > 99) "99+" else unreadCount.toString())
@@ -362,6 +365,7 @@ internal fun AtrioBottomBar(selected: Tab, onSelect: (Tab) -> Unit) {
             }
             NavigationBarItem(
                 selected = selected == tab, onClick = { onSelect(tab) },
+                modifier = Modifier.testTag("atrio-tab-${tab.name.lowercase()}"),
                 icon = { Icon(icon, contentDescription = null) }, label = { Text(tab.label, fontSize = 11.sp) },
                 colors = NavigationBarItemDefaults.colors(selectedIconColor = Wine, selectedTextColor = Wine, indicatorColor = WineSoft)
             )
@@ -379,7 +383,8 @@ internal fun Avatar(name: String, modifier: Modifier = Modifier) {
 @Composable
 internal fun DiscussionCard(post: Post, onOpen: (String) -> Unit, onLike: (String) -> Unit, onSave: (String) -> Unit, fullText: Boolean = false) {
     Card(
-        onClick = { onOpen(post.id) }, modifier = Modifier.fillMaxWidth(),
+        onClick = { onOpen(post.id) },
+        modifier = Modifier.fillMaxWidth().testTag("atrio-post-${post.id}"),
         shape = RoundedCornerShape(17.dp), colors = CardDefaults.cardColors(containerColor = Color.White),
         border = BorderStroke(1.dp, Line), elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
@@ -402,14 +407,20 @@ internal fun DiscussionCard(post: Post, onOpen: (String) -> Unit, onLike: (Strin
             Spacer(Modifier.height(13.dp))
             HorizontalDivider(color = Line)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { onLike(post.id) }) {
+                IconButton(onClick = { onLike(post.id) }, modifier = Modifier.testTag("atrio-like-${post.id}")) {
                     Icon(if (post.liked) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder, "Curtir", tint = if (post.liked) Wine else Muted, modifier = Modifier.size(20.dp))
                 }
                 Text(if (post.remote) "Curtir" else post.likes.toString(), color = if (post.liked) Wine else Muted, fontSize = 12.sp)
                 IconButton(onClick = { onOpen(post.id) }) { Icon(Icons.Outlined.ChatBubbleOutline, "Respostas", tint = Muted, modifier = Modifier.size(20.dp)) }
                 Text(if (post.remote) "Ver respostas" else "${post.replies.size} respostas", color = Muted, fontSize = 12.sp)
                 Spacer(Modifier.weight(1f))
-                IconButton(onClick = { onSave(post.id) }) { Icon(if (post.saved) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder, "Salvar", tint = if (post.saved) Wine else Muted, modifier = Modifier.size(21.dp)) }
+                IconButton(
+                    onClick = { onSave(post.id) },
+                    modifier = Modifier.testTag("atrio-save-${post.id}")
+                ) {
+                    Icon(if (post.saved) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
+                        "Salvar", tint = if (post.saved) Wine else Muted, modifier = Modifier.size(21.dp))
+                }
             }
         }
     }
@@ -423,7 +434,7 @@ internal fun HomeScreen(name: String, posts: List<Post>, filter: String, search:
 ) {
     val shown = posts.filter { (filter == "Todos" || it.category == filter) &&
         (search.isBlank() || listOf(it.title, it.body, it.category, it.author).any { s -> s.contains(search, ignoreCase = true) }) }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    LazyColumn(Modifier.fillMaxSize().testTag("atrio-home-feed"), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Brush.horizontalGradient(listOf(Wine, Color(0xFF824657)))).padding(24.dp)) {
                 Column {
@@ -458,7 +469,7 @@ internal fun HomeScreen(name: String, posts: List<Post>, filter: String, search:
         }
         if (searchOpen) item {
             OutlinedTextField(value = search, onValueChange = onSearch, label = { Text("Buscar discussões") },
-                leadingIcon = { Icon(Icons.Outlined.Search, null) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                leadingIcon = { Icon(Icons.Outlined.Search, null) }, modifier = Modifier.fillMaxWidth().testTag("atrio-search-field"), singleLine = true)
         }
         if (shown.isEmpty()) item { EmptyState("🕊️", "Nenhuma discussão", "Mude o filtro ou comece uma conversa.", "Criar publicação", onCreate) }
         items(shown, key = { it.id }) { p -> DiscussionCard(p, onOpen, onLike, onSave) }
@@ -506,7 +517,7 @@ internal fun PublishScreen(onPublish: (String, String, String) -> Unit) {
         Text("Uma boa pergunta pode abrir uma grande conversa.", fontSize = 13.sp, color = Muted)
         Spacer(Modifier.height(16.dp))
         OutlinedTextField(value = title, onValueChange = { if (it.length <= 120) title = it },
-            modifier = Modifier.fillMaxWidth(), label = { Text("Título da publicação") }, placeholder = { Text("Sobre o que deseja conversar?") })
+            modifier = Modifier.fillMaxWidth().testTag("atrio-publish-title"), label = { Text("Título da publicação") }, placeholder = { Text("Sobre o que deseja conversar?") })
         Spacer(Modifier.height(16.dp))
         Text("Escolha um assunto", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(6.dp))
@@ -519,7 +530,7 @@ internal fun PublishScreen(onPublish: (String, String, String) -> Unit) {
         }
         Spacer(Modifier.height(14.dp))
         OutlinedTextField(value = body, onValueChange = { if (it.length <= 1200) body = it },
-            modifier = Modifier.fillMaxWidth().heightIn(min = 180.dp),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 180.dp).testTag("atrio-publish-body"),
             label = { Text("Sua reflexão ou pergunta") },
             placeholder = { Text("Compartilhe sua dúvida ou experiência com respeito...") }, minLines = 5)
         Text("${body.length}/1200", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.End, color = Muted, fontSize = 11.sp)
@@ -528,14 +539,14 @@ internal fun PublishScreen(onPublish: (String, String, String) -> Unit) {
         Spacer(Modifier.height(18.dp))
         Button(onClick = { onPublish(title.trim(), body.trim(), category); title = ""; body = "" },
             enabled = title.trim().length >= 5 && body.trim().length >= 5,
-            modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(12.dp)) { Text("Publicar discussão") }
+            modifier = Modifier.fillMaxWidth().height(48.dp).testTag("atrio-publish-submit"), shape = RoundedCornerShape(12.dp)) { Text("Publicar discussão") }
     }
 }
 
 @Composable
 internal fun SavedScreen(posts: List<Post>, onDiscover: () -> Unit, onOpen: (String) -> Unit, onLike: (String) -> Unit, onSave: (String) -> Unit,
     loading: Boolean = false, footer: @Composable () -> Unit = {}) {
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    LazyColumn(Modifier.fillMaxSize().testTag("atrio-saved-list"), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { SectionTitle("Publicações salvas") }
         if (posts.isEmpty() && !loading) item { EmptyState("🔖", "Nada salvo ainda", "Toque no marcador de uma publicação para encontrá-la aqui.", "Explorar discussões", onDiscover) }
         items(posts, key = { it.id }) { p -> DiscussionCard(p, onOpen, onLike, onSave) }
@@ -556,7 +567,7 @@ private fun ProfileScreen(name: String, posts: List<Post>, onRename: () -> Unit,
                 Text(name, fontFamily = FontFamily.Serif, fontSize = 23.sp, fontWeight = FontWeight.Bold)
                 Text("Membro da comunidade Átrio", fontSize = 12.sp, color = Muted)
                 Spacer(Modifier.height(8.dp))
-                OutlinedButton(onClick = onRename) { Text("Editar nome") }
+                OutlinedButton(onClick = onRename, modifier = Modifier.testTag("atrio-profile-rename")) { Text("Editar nome") }
             }
         }
         item {
@@ -646,7 +657,7 @@ internal fun DetailScreen(
         repliesFooter()
         Text("Responder como $name", color = Wine, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
         OutlinedTextField(value = response, onValueChange = { if (it.length <= 600) response = it },
-            modifier = Modifier.fillMaxWidth(), label = { Text("Sua resposta") }, minLines = 2)
+            modifier = Modifier.fillMaxWidth().testTag("atrio-reply-input"), label = { Text("Sua resposta") }, minLines = 2)
         Spacer(Modifier.height(9.dp))
         Button(
             onClick = {
@@ -657,10 +668,13 @@ internal fun DetailScreen(
                 }
             },
             enabled = response.isNotBlank() && !sendingReply,
-            modifier = Modifier.align(Alignment.End)
+            modifier = Modifier.align(Alignment.End).testTag("atrio-reply-submit")
         ) { Text(if (sendingReply) "Enviando..." else "Enviar resposta") }
         if (onReport != null) {
-            TextButton(onClick = onReport, modifier = Modifier.align(Alignment.End)) { Text("Denunciar discussão") }
+            TextButton(onClick = onReport,
+                modifier = Modifier.align(Alignment.End).testTag("atrio-detail-report-post")) {
+                Text("Denunciar discussão")
+            }
         }
         Spacer(Modifier.height(25.dp))
     }

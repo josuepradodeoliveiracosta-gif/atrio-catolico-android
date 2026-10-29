@@ -30,6 +30,7 @@ internal fun PushSettings(uid: String, db: FirebaseFirestore) {
     var feedback by remember(uid) { mutableStateOf("") }
     var backgroundEnabled by remember(uid) { mutableStateOf(BackgroundNoticeScheduler.enabled(context, uid)) }
     var permissionForBackground by remember { mutableStateOf(false) }
+    var lastRelayStatus by remember(uid) { mutableStateOf(InstantPushRelay.lastStatus(context, uid)) }
 
     fun turnOn() {
         busy = true
@@ -37,8 +38,9 @@ internal fun PushSettings(uid: String, db: FirebaseFirestore) {
         PushRegistry.enable(context, uid, db) { ok, issue ->
             busy = false
             active = ok
-            feedback = if (ok) "Este aparelho foi cadastrado para receber avisos."
-                else pushRegistrationMessage(issue)
+            feedback = if (ok) {
+                "Este aparelho foi cadastrado para receber avisos."
+            } else pushRegistrationMessage(issue)
         }
     }
 
@@ -60,7 +62,7 @@ internal fun PushSettings(uid: String, db: FirebaseFirestore) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Avisos no celular", color = Wine, style = MaterialTheme.typography.titleMedium)
             Text("Recepção FCM: prepara avisos enviados por um servidor confiável. " +
-                "O envio automático em tempo real ainda não foi ativado.",
+                "O envio depende da ativação do servidor e do cadastro deste aparelho.",
                 color = Muted, fontSize = 12.sp)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(if (active) "Dispositivo cadastrado" else "Desativado", fontSize = 14.sp)
@@ -129,6 +131,16 @@ internal fun PushSettings(uid: String, db: FirebaseFirestore) {
                 Text("O token identifica este aparelho como destino de mensagens, não a sua " +
                     "identidade. Mantenha-o privado.", fontSize = 11.sp, color = Muted)
             }
+            HorizontalDivider()
+            Text("Diagnóstico do Push enviado", color = Wine,
+                style = MaterialTheme.typography.titleMedium)
+            Text("Veja a resposta do Cloudflare no aparelho que publicou uma resposta. " +
+                "Não mostra dados privados e não envia notificações extras.",
+                fontSize = 12.sp, color = Muted)
+            Text(lastRelayStatus, fontSize = 12.sp, color = Wine)
+            OutlinedButton(onClick = {
+                lastRelayStatus = InstantPushRelay.lastStatus(context, uid)
+            }, modifier = Modifier.fillMaxWidth()) { Text("Atualizar diagnóstico do Push") }
         }
     }
 }

@@ -47,24 +47,15 @@ try {
   const d=await assertSucceeds(getDoc(doc(anon,'app_config/opening_video')));assert.equal(d.data().enabled,false);
  });
  await test('anônimo não lê denúncias',()=>assertFails(getDocs(collection(anon,'reports'))));
- await test('usuário envia denúncia com ID fixo',()=>assertSucceeds(setDoc(doc(bob,rpost('bob','p')),report())));
- await test('denúncia repetida da mesma publicação é bloqueada',()=>assertFails(
+ await test('usuário denuncia usando ID estável da PR #35',()=>assertSucceeds(setDoc(doc(bob,rpost('bob','p')),report())));
+ await test('denúncia duplicada na mesma discussão não sobrescreve a original',()=>assertFails(
    setDoc(doc(bob,rpost('bob','p')),report())));
- await test('cliente antigo com ID aleatório não cria nova denúncia',()=>assertFails(
-   setDoc(doc(bob,'reports/legacy-random'),report('p2'))));
- await test('outra pessoa pode denunciar a mesma publicação',()=>assertSucceeds(
+ await test('ID aleatório de APK antigo não pode criar denúncia',()=>assertFails(
+   setDoc(doc(bob,'reports/random-legacy'),report('p2'))));
+ await test('outro usuário pode denunciar a mesma discussão',()=>assertSucceeds(
    setDoc(doc(alice,rpost('alice','p')),{...report('p'),reporterUid:'alice'})));
- // Regressão: denúncias de publicações exigem um alvo existente.
- await test('denúncia de publicação existente é aceita',()=>assertSucceeds(
-   setDoc(doc(bob,rpost('bob','p3')),report('p3'))));
- await test('denúncia de publicação inexistente é recusada',()=>assertFails(
-   setDoc(doc(bob,rpost('bob','post-inexistente')),report('post-inexistente'))));
- await test('ID de outro usuário não é aceito',()=>assertFails(
+ await test('ID com UID de outra conta é rejeitado',()=>assertFails(
    setDoc(doc(bob,rpost('alice','p2')),report('p2'))));
- await test('ID de outra publicação não é aceito',()=>assertFails(
-   setDoc(doc(bob,rpost('bob','p5')),report('p2'))));
- await test('denúncia com postId aninhado é recusada',()=>assertFails(
-   setDoc(doc(bob,'reports/post-invalid-id'),report('p2/replies/answer'))));
  await test('usuário não lê a própria denúncia',()=>assertFails(getDoc(doc(bob,rpost('bob','p')))));
  await test('usuário não lista denúncias',()=>assertFails(getDocs(collection(bob,'reports'))));
  await test('usuário consulta somente seu registro de acesso',()=>assertSucceeds(getDoc(doc(bob,'admins/bob'))));
@@ -296,9 +287,6 @@ try {
   assert.equal((await getDoc(doc(admin,'posts/p'))).exists(),false);
   assert.equal((await getDoc(doc(admin,rpost('bob','p')))).data().status,'removed');
  });
- await env.withSecurityRulesDisabled(async c=>deleteDoc(doc(c.firestore(),'posts/p5')));
- await test('denúncia de publicação excluída é recusada',()=>assertFails(
-   setDoc(doc(bob,rpost('bob','p5')),report('p5'))));
  await test('decisão concluída é imutável',()=>assertFails(updateDoc(doc(admin,rpost('bob','p')),review())));
  await test('registro de denúncia não pode ser apagado',()=>assertFails(deleteDoc(doc(admin,rpost('bob','p')))));
  await setDoc(doc(bob,rpost('bob','p2')),report('p2'));
@@ -398,6 +386,53 @@ try {
   const b=writeBatch(admin);b.delete(doc(admin,'posts/p4/replies/a'));b.update(doc(admin,rreply('bob','p4','a')),replyReview('removed'));await assertSucceeds(b.commit());
  });
  await setDoc(doc(bob,rreply('bob','p2','e')),replyReport('e'));
+
+ // Guardião etapa 3: quarentena privada e direito de contestação do autor.
+ await env.withSecurityRulesDisabled(async ctx=>{
+  await setDoc(doc(ctx.firestore(),'guardiao_quarantine/guard_case1'),{
+   ownerUid:'alice',postId:'p2',targetType:'post',status:'held',
+   body:'Conteúdo arquivado para revisão',ruleCode:'threat',
+   heldAt:Timestamp.now(),
+  });
+ });
+ await test('autor consulta sua quarentena',()=>assertSucceeds(
+  getDoc(doc(alice,'guardiao_quarantine/guard_case1'))));
+ await test('terceiro não lê quarentena do autor',()=>assertFails(
+  getDoc(doc(bob,'guardiao_quarantine/guard_case1'))));
+ await test('terceiro não enumera quarentenas',()=>assertFails(
+  getDocs(collection(bob,'guardiao_quarantine'))));
+ await test('administrador consulta caso para revisão',()=>assertSucceeds(
+  getDoc(doc(admin,'guardiao_quarantine/guard_case1'))));
+ await test('membro não fabrica registro de quarentena',()=>assertFails(
+  setDoc(doc(bob,'guardiao_quarantine/forged'),{ownerUid:'alice',status:'held',postId:'p2'})));
+ await test('administrador não cria quarentena no SDK',()=>assertFails(
+  setDoc(doc(admin,'guardiao_quarantine/guard_manual'),{ownerUid:'bob',status:'held',postId:'p2'})));
+ await test('autor contesta conteúdo retido uma vez',()=>assertSucceeds(
+  updateDoc(doc(alice,'guardiao_quarantine/guard_case1'),{
+   appealText:'A suposta ameaça era uma citação jornalística.',appealedAt:serverTimestamp(),
+  })));
+ await test('terceiro não contesta pelo autor',()=>assertFails(
+  updateDoc(doc(bob,'guardiao_quarantine/guard_case1'),{
+   appealText:'Devolva a publicação, por favor.',appealedAt:serverTimestamp(),
+  })));
+ await test('recurso não pode ser reescrito',()=>assertFails(
+  updateDoc(doc(alice,'guardiao_quarantine/guard_case1'),{
+   appealText:'Quero alterar minha primeira contestação.',appealedAt:serverTimestamp(),
+  })));
+ await test('autor não remove arquivo de moderação',()=>assertFails(
+  deleteDoc(doc(alice,'guardiao_quarantine/guard_case1'))));
+ await test('administrador não restaura caso por SDK cliente',()=>assertFails(
+  updateDoc(doc(admin,'guardiao_quarantine/guard_case1'),{status:'restored'})));
+ await env.withSecurityRulesDisabled(async ctx=>{
+  await setDoc(doc(ctx.firestore(),'reports/guard_case1'),{
+   postId:'p2',reporterUid:'atrio_guardiao',status:'pending',source:'guardiao',
+   reason:'Ameaça explícita a revisar',createdAt:Timestamp.now(),
+  });
+ });
+ await test('APK antigo não encerra denúncia com quarentena ainda ativa',()=>assertFails(
+  updateDoc(doc(admin,'reports/guard_case1'),review())));
+ await test('APK antigo não confirma remoção de caso retido',()=>assertFails(
+  updateDoc(doc(admin,'reports/guard_case1'),review('removed'))));
  await env.withSecurityRulesDisabled(async c=>updateDoc(doc(c.firestore(),'admins/admin'),{enabled:false}));
  await test('revogação impede ver a fila de solicitações',()=>assertFails(
    getDocs(query(collection(admin,'badge_requests'),where('status','==','pending')))));

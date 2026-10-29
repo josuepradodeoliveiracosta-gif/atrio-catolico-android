@@ -1,0 +1,96 @@
+name: QA Android dos três bots (emulador isolado)
+
+# CI de UI executa somente em emulador local e NUNCA interage com o Firestore oficial.
+# A comunidade real permanece sob disparo pontual mediante pedido nesta conversa.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/src/main/**'
+      - 'app/src/androidTest/**'
+      - 'app/build.gradle.kts'
+      - '.github/workflows/android-bots-ui.yml'
+  # Executa os testes reais da interface em emulador somente neste ramo de QA.
+  push:
+    branches: [feature/push-gratuito-cloudflare-v0190]
+  workflow_dispatch:
+
+concurrency:
+  group: qa-android-emulator-${{ github.event.pull_request.number || github.ref }}
+  # Uma atualização não pode interromper um teste já iniciado.
+  # O GitHub poderá substituir somente uma execução ainda pendente.
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  android-ui:
+    name: Testar telas do Átrio em Android virtual
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Obter código
+        uses: actions/checkout@v4
+      - name: Preparar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Preparar Android SDK
+        uses: android-actions/setup-android@v4
+      - name: Configurar Gradle 8.13
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - name: Preparar Node.js para Firebase Emulator Suite
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Instalar Firebase CLI de testes
+        working-directory: tests/security
+        run: npm ci
+      - name: Validar que não há segredos de produção no ambiente de QA
+        run: |
+          test -z "${ATRIO_PUSH_WORKER_URL:-}"
+          test -z "${GOOGLE_APPLICATION_CREDENTIALS:-}"
+          echo "QA offline: os testes Android usam apenas dados de demonstração."
+      # O emulador x86_64 precisa de aceleração KVM; sem ela o Android
+      # não conclui o boot em CI e nenhum teste de toque chega a iniciar.
+      - name: Habilitar KVM para emulador Android
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -c /dev/kvm || { echo "KVM não disponível no runner"; exit 1; }
+          # Alguns runners mantêm as permissões antigas após o udev trigger.
+          # Essa permissão vale só para a VM efêmera de CI, nunca para produção.
+          sudo chmod 0666 /dev/kvm
+          ls -l /dev/kvm
+          test -r /dev/kvm && test -w /dev/kvm || { echo "Acesso negado ao /dev/kvm"; exit 1; }
+      - name: Rodar interface no emulador Android virtual
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_4
+          # O AVD padrão exige >7 GB só para userdata no runner.
+          # 2 GB comporta o APK debug e os emuladores locais de QA.
+          disk-size: 2048M
+          ram-size: 2048M
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -accel on -camera-back none
+          script: bash scripts/run-qa-android-emulator.sh
+      - name: Relatório de testes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-bots-android-ui-reports
+          path: |
+            app/build/reports/androidTests
+            app/build/outputs/androidTest-results
+            qa-android-suite-results
+            qa-firebase-emulators.log
+          retention-days: 7
+          if-no-files-found: warn

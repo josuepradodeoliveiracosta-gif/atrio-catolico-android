@@ -174,6 +174,7 @@ private fun ClergyReviewDialog(
         batch.commit().addOnCompleteListener { result ->
             busy = false
             if (result.isSuccessful) {
+                InstantPushRelay.badgeResult(request.uid)
                 onResult(if (approve) "Identidade verificada. Selo ${request.title} concedido."
                     else "Solicitação rejeitada e registrada.")
             } else {

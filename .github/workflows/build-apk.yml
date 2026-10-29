@@ -31,6 +31,8 @@ jobs:
       - name: Validar configuracao Firebase
         run: python3 scripts/validar_firebase.py
       - name: Compilar APK de testes
+        env:
+          ATRIO_PUSH_WORKER_URL: ${{ vars.ATRIO_PUSH_WORKER_URL || 'https://atrio-push.atrio-catolico.workers.dev' }}
         run: gradle :app:assembleDebug --no-daemon --stacktrace
       # Chave de assinatura não fica disponível para builds automáticos.
       # Mesmo um workflow_dispatch feito em outra branch não acessa os secrets.
@@ -38,6 +40,7 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
         shell: bash
         env:
+          ATRIO_PUSH_WORKER_URL: ${{ vars.ATRIO_PUSH_WORKER_URL || 'https://atrio-push.atrio-catolico.workers.dev' }}
           ATRIO_KEYSTORE_BASE64: ${{ secrets.ATRIO_KEYSTORE_BASE64 }}
           ATRIO_STORE_PASSWORD: ${{ secrets.ATRIO_STORE_PASSWORD }}
           ATRIO_KEY_PASSWORD: ${{ secrets.ATRIO_KEY_PASSWORD }}

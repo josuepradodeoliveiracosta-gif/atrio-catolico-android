@@ -21,8 +21,9 @@ import com.google.firebase.firestore.Query
 private data class ModerationReport(
     val id: String, val postId: String, val reason: String,
     val status: String, val reviewNote: String, val reviewedBy: String,
-    val replyId: String?
+    val replyId: String?, val source: String = "", val aiAssessment: String = ""
 ) {
+    val fromGuardiao: Boolean get() = source == "guardiao"
     val isReply: Boolean get() = replyId != null
     val kind: String get() = if (isReply) "Resposta" else "Publicação"
 }
@@ -76,7 +77,9 @@ internal fun ModerationScreen(db: FirebaseFirestore, uid: String, onBack: () -> 
                         reports = snapshot?.documents?.take(limit)?.map {
                             ModerationReport(it.id, it.getString("postId").orEmpty(),
                                 it.getString("reason").orEmpty(), it.getString("status") ?: "pending",
-                                it.getString("reviewNote").orEmpty(), it.getString("reviewedBy").orEmpty(), it.getString("replyId"))
+                                it.getString("reviewNote").orEmpty(), it.getString("reviewedBy").orEmpty(),
+                                it.getString("replyId"), it.getString("source").orEmpty(),
+                                it.getString("aiAssessment").orEmpty())
                         } ?: emptyList()
                     }
                 }
@@ -96,7 +99,7 @@ internal fun ModerationScreen(db: FirebaseFirestore, uid: String, onBack: () -> 
         LazyColumn(Modifier.fillMaxSize().padding(insets), contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
-                Text("Analise o conteúdo antes de decidir. Uma denúncia não remove o conteúdo automaticamente.", color = Muted)
+                Text("Analise o conteúdo antes de decidir. O Átrio Guardião apenas sinaliza possíveis violações; não exclui conteúdos automaticamente.", color = Muted)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(!showReviewed, { showReviewed = false }, label = { Text("Pendentes") })
                     FilterChip(showReviewed, { showReviewed = true }, label = { Text("Analisadas") })
@@ -109,8 +112,11 @@ internal fun ModerationScreen(db: FirebaseFirestore, uid: String, onBack: () -> 
             items(shown, key = { it.id }) { report ->
                 Card(onClick = { selectedId = report.id }, modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Denúncia de ${report.kind.lowercase()}", color = Wine)
+                        Text(if (report.fromGuardiao) "🛡 Átrio Guardião · ${report.kind}"
+                            else "Denúncia de ${report.kind.lowercase()}", color = Wine)
                         Text(report.reason)
+                        if (report.fromGuardiao) Text("Sinalização automática — análise humana obrigatória.",
+                            fontSize = 12.sp, color = Muted)
                         Text(when (report.status) {
                             "removed" -> "Analisada — ${report.kind.lowercase()} removida"
                             "dismissed" -> "Analisada — encerrada sem remoção"
@@ -151,6 +157,10 @@ private fun ReportReviewDialog(
     var confirmRemove by remember(report.id) { mutableStateOf(false) }
     var retry by remember(report.id) { mutableStateOf(0) }
     var parentContext by remember(report.id) { mutableStateOf("Carregando discussão...") }
+    var heldStatus by remember(report.id) { mutableStateOf("") }
+    var archivedContent by remember(report.id) { mutableStateOf<ModerationContent?>(null) }
+    var appealText by remember(report.id) { mutableStateOf("") }
+    val held = report.fromGuardiao && heldStatus == "held"
     val targetRef = remember(db, report.postId, report.replyId) { report.targetReference(db) }
     DisposableEffect(db, report.postId, report.replyId, retry) {
         var active = true
@@ -177,6 +187,37 @@ private fun ReportReviewDialog(
             }
         } else null
         onDispose { active = false; registration?.remove(); parentRegistration?.remove() }
+    }
+    DisposableEffect(db, report.id, report.fromGuardiao) {
+        if (!report.fromGuardiao) {
+            onDispose { }
+        } else {
+            val subscription = db.collection("guardiao_quarantine").document(report.id)
+                .addSnapshotListener { snapshot, failure ->
+                    if (failure == null) {
+                        heldStatus = snapshot?.getString("status").orEmpty()
+                        appealText = snapshot?.getString("appealText").orEmpty()
+                        val original = snapshot?.get("originalFields") as? Map<*, *>
+                        archivedContent = if (original == null) null else ModerationContent(
+                            original["title"] as? String ?: "",
+                            original["body"] as? String ?: "",
+                            original["authorName"] as? String ?: "",
+                            original["uid"] as? String ?: "",
+                            original["createdAt"] as? Timestamp
+                        )
+                    }
+                }
+            onDispose { subscription.remove() }
+        }
+    }
+    fun decideHeld(restore: Boolean) {
+        if (busy || !held || note.trim().length !in 5..300) return
+        busy = true
+        GuardiaoReviewClient.decide(report.id, restore, note.trim()) { ok, info ->
+            busy = false
+            if (ok) onClose()
+            onMessage(info)
+        }
     }
     fun review(remove: Boolean, expected: ModerationContent?) {
         if (busy || note.trim().length !in 5..300) return
@@ -220,13 +261,31 @@ private fun ReportReviewDialog(
         title = { Text("Analisar ${report.kind.lowercase()}") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (report.fromGuardiao) Text("Átrio Guardião: alerta automático sujeito a enganos. Confira o contexto antes de decidir.",
+                    color = Wine, fontSize = 12.sp)
+                if (report.fromGuardiao && report.aiAssessment.isNotBlank()) Text(
+                    when (report.aiAssessment) {
+                        "concern" -> "IA: possível risco no contexto. Avaliação humana necessária."
+                        "contextual" -> "IA: pode ser citação, relato ou prevenção. Confira o contexto; o alerta continua pendente."
+                        "uncertain" -> "IA: contexto insuficiente para avaliar."
+                        else -> "Análise contextual indisponível. Alerta baseado nas regras iniciais."
+                    }, fontSize = 12.sp, color = Muted)
                 Text("Motivo: ${report.reason}")
+                if (held) Text("Conteúdo retido em quarentena privada. Pode ser restaurado.",
+                    color = Wine, fontSize = 12.sp)
+                if (held && appealText.isNotBlank()) Text("Contestação do autor: $appealText",
+                    color = Wine, fontSize = 12.sp)
                 if (report.isReply) Text(parentContext, fontSize = 12.sp, color = Muted)
                 when {
                     loading -> Text("Carregando ${report.kind.lowercase()}...")
                     loadFailed -> {
                         Text("Não foi possível ler o conteúdo denunciado.")
                         TextButton(onClick = { retry++ }) { Text("Tentar novamente") }
+                    }
+                    held && archivedContent != null -> {
+                        Text(archivedContent!!.author, color = Wine)
+                        if (!report.isReply) Text(archivedContent!!.title, style = MaterialTheme.typography.titleMedium)
+                        Text(archivedContent!!.body)
                     }
                     content == null -> Text("${report.kind} já não está disponível. Você pode encerrar a denúncia sem remoção.")
                     else -> {
@@ -243,8 +302,13 @@ private fun ReportReviewDialog(
                         "A remoção se aplica somente à resposta denunciada. A discussão e as outras respostas são preservadas."
                         else "Remover retira a publicação do fórum. Respostas e referências podem permanecer armazenadas até uma limpeza administrativa.",
                         fontSize = 12.sp, color = Muted)
+                    if (held) OutlinedButton(
+                        onClick = { decideHeld(true) },
+                        enabled = !busy && archivedContent != null && note.trim().length >= 5
+                    ) { Text("Restaurar conteúdo ao fórum") }
                     OutlinedButton(onClick = { confirmRemove = true },
-                        enabled = !busy && !loading && !loadFailed && content != null && note.trim().length >= 5) {
+                        enabled = !busy && note.trim().length >= 5 &&
+                            (if (held) archivedContent != null else !loading && !loadFailed && content != null)) {
                         Text("Remover ${report.kind.lowercase()}", color = MaterialTheme.colorScheme.error)
                     }
                 } else {
@@ -255,7 +319,7 @@ private fun ReportReviewDialog(
             }
         },
         confirmButton = {
-            if (report.status == "pending") TextButton(
+            if (report.status == "pending" && !held) TextButton(
                 enabled = !busy && !loading && !loadFailed && note.trim().length >= 5,
                 onClick = { review(false, null) }) { Text(if (busy) "Salvando..." else "Encerrar sem remover") }
         },
@@ -263,7 +327,7 @@ private fun ReportReviewDialog(
     )
     if (confirmRemove) {
         // Captura o conteúdo mostrado ao abrir a confirmação. A transação recusa alterações posteriores.
-        val expected = remember { content }
+        val expected = remember { if (held) archivedContent else content }
         AlertDialog(onDismissRequest = { if (!busy) confirmRemove = false },
             title = { Text("Remover esta ${report.kind.lowercase()}?") },
             text = {
@@ -272,12 +336,17 @@ private fun ReportReviewDialog(
                         Text("Resposta de ${expected?.author.orEmpty()}")
                         Text(expected?.body.orEmpty())
                     } else Text(expected?.title.orEmpty())
-                    Text("A remoção não poderá ser desfeita pelo aplicativo. A decisão ficará registrada na denúncia.")
+                    Text(if (held)
+                        "Confirmar exclusão do conteúdo retido? A cópia protegida permanece para auditoria."
+                        else "A remoção não poderá ser desfeita pelo aplicativo. A decisão ficará registrada na denúncia.")
                 }
             },
-            confirmButton = { TextButton(enabled = !busy, onClick = { review(true, expected) }) {
+            confirmButton = { TextButton(enabled = !busy, onClick = {
+                if (held) decideHeld(false) else review(true, expected)
+            }) {
                 Text(if (busy) "Removendo..." else "Confirmar remoção", color = MaterialTheme.colorScheme.error)
             } },
             dismissButton = { TextButton(enabled = !busy, onClick = { confirmRemove = false }) { Text("Cancelar") } })
     }
 }
+

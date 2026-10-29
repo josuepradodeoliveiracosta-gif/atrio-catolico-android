@@ -1,0 +1,8 @@
+{
+  "name": "atrio-cloudflare-push-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test src/index.test.js src/qa-manual.test.js src/qa-real-auth.test.js"
+  }
+}

@@ -272,6 +272,25 @@ service cloud.firestore {
       allow delete: if me(recipientUid);
     }
 
+    // Guarda privada de conteúdo temporariamente retirado do fórum.
+    // O Worker cria/restaura via credenciais de serviço: nenhum cliente pode
+    // colocar mensagens em quarentena nem se conceder poderes do bot.
+    match /guardiao_quarantine/{caseId} {
+      allow get, list: if isAdmin() || (signedIn() &&
+        resource.data.ownerUid == request.auth.uid);
+      allow create, delete: if false;
+      // Recurso único do autor, sem alterar conteúdo, status ou decisão humana.
+      allow update: if signedIn()
+        && resource.data.ownerUid == request.auth.uid
+        && resource.data.status == 'held'
+        && !resource.data.keys().hasAny(['appealText','appealedAt'])
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['appealText','appealedAt'])
+        && request.resource.data.keys().hasAll(['appealText','appealedAt'])
+        && validText(request.resource.data.appealText, 10, 500)
+        && request.resource.data.appealedAt == request.time;
+    }
+
     match /reports/{reportId} {
       // Denúncias são privadas; somente administradores ativos podem consultá-las.
       allow read: if isAdmin();
@@ -284,8 +303,7 @@ service cloud.firestore {
         ])
         && request.resource.data.reporterUid == request.auth.uid
         && validId(request.resource.data.postId)
-        // Um ID por pessoa e conteúdo: impede denúncias repetidas por clientes alterados.
-        // Publicar somente depois que os aplicativos compatíveis estiverem distribuídos.
+        // PR #35: somente um registro por denunciante e alvo, inclusive no QA.
         && exists(/databases/$(database)/documents/posts/$(request.resource.data.postId))
         && (request.resource.data.keys().hasAny(['replyId'])
           ? (validId(request.resource.data.replyId)
@@ -296,6 +314,11 @@ service cloud.firestore {
         && validTime();
       allow update: if isAdmin()
         && resource.data.get('status', 'pending') == 'pending'
+        // Um APK antigo não pode encerrar um caso cuja publicação está
+        // retida: restauração/remoção só por decisão atômica do Worker.
+        && !(resource.data.get('source', '') == 'guardiao'
+          && exists(/databases/$(database)/documents/guardiao_quarantine/$(reportId))
+          && get(/databases/$(database)/documents/guardiao_quarantine/$(reportId)).data.status == 'held')
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['status', 'reviewedBy', 'reviewedAt', 'reviewNote', 'reviewTarget'])
         && request.resource.data.keys().hasAll(['status', 'reviewedBy', 'reviewedAt', 'reviewNote'])

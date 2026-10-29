@@ -7,6 +7,12 @@ on:
     branches: [main]
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # Uma atualização não pode interromper um teste já iniciado.
+  # O GitHub poderá substituir somente uma execução ainda pendente.
+  cancel-in-progress: false
+
 permissions:
   contents: read
 

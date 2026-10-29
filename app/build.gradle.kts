@@ -23,10 +23,15 @@ android {
 
     defaultConfig {
         applicationId = "br.com.atriocatolico"
+        testInstrumentationRunner = "br.com.atriocatolico.QaAndroidTestRunner"
         minSdk = 26
         targetSdk = 35
-        versionCode = 26
-        versionName = "0.18.2"
+        versionCode = 27
+        versionName = "0.19.0"
+        val relayUrl = System.getenv("ATRIO_PUSH_WORKER_URL").orEmpty()
+        val allowed = Regex("^https://[a-zA-Z0-9-]+\\.[a-zA-Z0-9-]+\\.workers\\.dev$")
+        require(relayUrl.isBlank() || allowed.matches(relayUrl)) { "ATRIO_PUSH_WORKER_URL invalida" }
+        buildConfigField("String", "PUSH_RELAY_URL", "\"$relayUrl\"")
     }
 
     signingConfigs {
@@ -47,7 +52,7 @@ android {
         }
     }
 
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; buildConfig = true }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -73,6 +78,14 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     debugImplementation("androidx.compose.ui:ui-tooling")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
+
+    // Somente APK instrumentation de teste: nunca integra a versão publicada.
+    androidTestImplementation(composeBom)
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test:core:1.6.1")
 }
 
 

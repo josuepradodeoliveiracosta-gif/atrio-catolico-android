@@ -130,7 +130,7 @@ internal fun rememberNotificationInbox(db: FirebaseFirestore, uid: String, admin
                 inbox.replies = if (error != null) emptyList() else data?.documents?.take(inbox.limit)?.mapNotNull {
                     val post = it.getString("postId").orEmpty()
                     if (post.isBlank() || '/' in post) null else NoticeEvent(it.id, NoticeKind.REPLY, post,
-                        "${it.getString("actorName") ?: "Alguém"} respondeu à sua discussão",
+                        "${it.getString("actorName") ?: "Alguém"} respondeu à discussão",
                         "Toque para abrir a conversa.", it.noticeTime(), it.getBoolean("read") == true)
                 } ?: emptyList()
             } }
