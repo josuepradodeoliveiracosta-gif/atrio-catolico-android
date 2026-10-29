@@ -3,6 +3,7 @@ import {Firestore,token,actorId,caseId,pathOf,string,bool,str,timestamp,ROOT} fr
 import {qaShadowAllowed,scanQaShadow} from './shadow-qa.js';
 import {qaMonitorAllowed,readQaWorkflowStatus} from './github-qa-monitor.js';
 import {qaDispatchAllowed,dispatchQaWorkflow,dueForDailyDispatch} from './github-qa-dispatch.js';
+import {scanPagedCycle} from './scan-paged.js';
 const json=(status,code)=>new Response(JSON.stringify({status:code}),{status,headers:{'content-type':'application/json','cache-control':'no-store'}});
 const MASK=/^posts\/[A-Za-z0-9_-]{1,128}(?:\/replies\/[A-Za-z0-9_-]{1,128})?$/;
 export function settingsOf(doc,env) {
@@ -67,6 +68,7 @@ export async function processReport(db,report,settings) {
 }
 export async function scanOnce(db,settings){
   if(!settings.enabled)return {status:'disabled'};
+  if(typeof db.scanPage==='function')return scanPagedCycle(db,settings,{onDocument:processDocument,onReport:processReport});
   // Limites explícitos por execução: nenhum documento ilimitado nem varredura retroativa.
   const counters={clear:0,review:0,warn:0,hold:0,invalid:0,duplicate_or_changed:0,ignored:0,missing:0,error:0};
   for(const group of ['posts','replies']) {
@@ -210,7 +212,9 @@ export default {
         const current=await db.get('guardian_runtime/last_scan');
         const fields={scannedAt:timestamp(new Date().toISOString()),
           review:{integerValue:String(metrics.review)},warn:{integerValue:String(metrics.warn)},
-          error:{integerValue:String(metrics.error)}};
+          error:{integerValue:String(metrics.error)},
+          backlogGroups:{integerValue:String(metrics.backlogGroups||0)},
+          pausedGroups:{integerValue:String(metrics.pausedGroups||0)}};
         try {
           if(current?.updateTime)await db.update('guardian_runtime/last_scan',fields,current.updateTime);
           else await db.create('guardian_runtime/last_scan',fields);
