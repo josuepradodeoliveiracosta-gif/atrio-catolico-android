@@ -49,8 +49,8 @@ cd ../..
 # O gateway QEMU 10.0.2.2 pode ficar inacessível em alguns runners CI.
 # Encaminhar localhost do próprio emulador ao Auth/Firestore de teste na VM.
 # É um túnel exclusivamente local do ADB: nenhuma chamada a produção.
-curl -fsS --max-time 3 http://127.0.0.1:9099/ >/dev/null
-curl -fsS --max-time 3 http://127.0.0.1:8089/ >/dev/null
+curl -sS --max-time 3 -o /dev/null http://127.0.0.1:9099/
+curl -sS --max-time 3 -o /dev/null http://127.0.0.1:8089/
 adb reverse tcp:9099 tcp:9099
 adb reverse tcp:8089 tcp:8089
 echo "Firebase QA: portas 9099/8089 encaminhadas via ADB reverse (localhost)"
