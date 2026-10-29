@@ -893,7 +893,8 @@ private fun OnlineCommunity(
                     onClick = {
                         mutationBusy = true
                         db.collection("posts").document(editablePost.id).update(
-                            mapOf("title" to editedTitle.trim(), "body" to editedBody.trim())
+                            mapOf("title" to editedTitle.trim(), "body" to editedBody.trim(),
+                                "updatedAt" to FieldValue.serverTimestamp())
                         ).addOnCompleteListener { result ->
                             mutationBusy = false
                             if (result.isSuccessful) {
