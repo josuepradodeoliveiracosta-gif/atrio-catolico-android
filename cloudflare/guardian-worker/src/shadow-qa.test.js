@@ -9,7 +9,7 @@ const flags={
  GUARDIAN_FIREBASE_PROJECT_ID:qa,GUARDIAN_V2_QA_PROJECT_ID:qa
 };
 const prefix='projects/'+qa+'/databases/(default)/documents/';
-const document=(path,text)=>({name:prefix+path,fields:{body:{stringValue:text}}});
+const document=(path,text)=>({name:prefix+path,fields:{body:{stringValue:text},qaFixture:{booleanValue:true}}});
 test('observação remota exige todos os bloqueios QA',()=>{
   assert.equal(qaShadowAllowed(flags),true);
   for(const [k,v] of Object.entries({
@@ -43,7 +43,7 @@ test('apenas agrega classificações sem conteúdo, IDs ou texto pessoal',async(
    document('posts/p1/replies/r1','Vou te matar amanhã'),
    document('posts/p1/replies/r2','O Catecismo explica o Evangelho')
   ]:group==='reports'?[
-   {name:prefix+'reports/report1',fields:{reason:{stringValue:'denúncia falsa'}}}
+   {name:prefix+'reports/report1',fields:{reason:{stringValue:'denúncia falsa'},qaFixture:{booleanValue:true}}}
   ]:[]
  },flags);
  assert.equal(result.counts.review,1);
@@ -90,4 +90,11 @@ test('acesso administrativo permanece bloqueado com flags QA ligadas',async()=>{
  const res=await entrypoint.fetch(new Request('https://qa.invalid/admin/review',{method:'POST',body:'{}'}),flags);
  assert.equal(res.status,503);
  assert.equal((await res.json()).status,'qa_read_only');
+});
+
+test('QA ignora um documento sem marcador de dados sintéticos',async()=>{
+ const out=await scanQaShadow({scan:async group=>group==='posts'?
+   [{name:prefix+'posts/unsafe',fields:{body:{stringValue:'Vou te matar amanhã'}}}]:[]},flags);
+ assert.equal(out.counts.invalid,1);
+ assert.equal(out.counts.review,0);
 });
