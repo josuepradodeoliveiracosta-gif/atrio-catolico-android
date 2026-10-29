@@ -142,7 +142,10 @@ internal fun ProfilePhotoManager(
                                     "rejected" -> "A foto foi rejeitada pela moderação."
                                     else -> "Nenhuma nova foto aguardando aprovação."
                                 }
-                                if (state == "published") onChanged()
+                                if (state == "published") {
+                                    withContext(Dispatchers.IO) { ProfilePhotoStore.remove(context, uid) }
+                                    onChanged()
+                                }
                             }.onFailure { error = it.message ?: "Não foi possível verificar." }
                         }
                     }, enabled = !busy, modifier = Modifier.fillMaxWidth()
