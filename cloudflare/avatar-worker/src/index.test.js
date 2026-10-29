@@ -83,3 +83,16 @@ test('upload REST authenticated usa rota protegida e parâmetros assinados',asyn
     assert.equal(called,true);
   } finally {globalThis.fetch=previous;}
 });
+
+test('Cloudinary rejeita upload sem revelar detalhes ou credenciais',async()=>{
+  const previous=globalThis.fetch;
+  globalThis.fetch=async ()=>new Response(JSON.stringify({error:{message:'Invalid Signature: sample private token'}}),{status:401});
+  try {
+    await assert.rejects(async()=>cloudSigned(env,'authenticated',{public_id:'atrio-avatares/qa/test',moderation:'manual'},Uint8Array.from([255,216,255,217]),'upload'),e=>{
+      assert.equal(e.safeCode,'cloudinary_signature_invalid');
+      assert.equal(e.message,'cloudinary_request_failed');
+      assert.ok(!JSON.stringify(e).includes('private token'));
+      return true;
+    });
+  } finally {globalThis.fetch=previous;}
+});
