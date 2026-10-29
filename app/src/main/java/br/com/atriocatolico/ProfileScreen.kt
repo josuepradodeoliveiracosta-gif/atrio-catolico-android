@@ -13,6 +13,7 @@ import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowForward
 import androidx.compose.material.icons.outlined.BookmarkBorder
+import androidx.compose.material.icons.outlined.Forum
 import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material.icons.outlined.VerifiedUser
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -46,10 +47,14 @@ internal fun OnlineProfileScreen(
     var badgesOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var editorOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var publicationsOpen by rememberSaveable(uid) { mutableStateOf(false) }
+    var discussionsOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var savedMessage by remember(uid) { mutableStateOf(false) }
     BackHandler(enabled = badgesOpen && !editorOpen) { badgesOpen = false }
+    BackHandler(enabled = discussionsOpen) { discussionsOpen = false }
 
-    if (badgesOpen) {
+    if (discussionsOpen) {
+        ProfileDiscussionHistory(db, uid, onBack = { discussionsOpen = false }, onOpen = onOpen)
+    } else if (badgesOpen) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item {
@@ -106,6 +111,9 @@ internal fun OnlineProfileScreen(
             item {
                 ProfileSectionTitle("Minha participação")
                 Card(Modifier.fillMaxWidth()) {
+                    ProfileAction("Minhas discussões", "Consulte até 50 discussões suas no Firestore.",
+                        Icons.Outlined.Forum) { discussionsOpen = true }
+                    HorizontalDivider()
                     ProfileAction("Publicações salvas", "Retome as discussões que você guardou.",
                         Icons.Outlined.BookmarkBorder, onSavedPosts)
                     HorizontalDivider()
