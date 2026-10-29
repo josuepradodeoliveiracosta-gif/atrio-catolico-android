@@ -221,16 +221,21 @@ private fun ProfileEditor(
             // pública apenas se ela já tiver sido publicada voluntariamente.
             if (result.isSuccessful) {
                 val publicDocRef = db.collection("public_profiles").document(uid)
-                publicDocRef.get().addOnSuccessListener { doc ->
-                    if (doc.exists()) {
-                        val joined = doc.getTimestamp("joinedAt")
-                        if (joined != null) publicDocRef.set(mapOf(
-                            "displayName" to newName,
-                            "bio" to newBio,
-                            "joinedAt" to joined,
-                            "updatedAt" to com.google.firebase.firestore.FieldValue.serverTimestamp()
-                        ))
+                // Transação impede recriar a publicação se o usuário a revogar
+                // enquanto uma edição privada ainda está sendo sincronizada.
+                db.runTransaction { transaction ->
+                    val published = transaction.get(publicDocRef)
+                    if (published.exists()) {
+                        published.getTimestamp("joinedAt")?.let { joined ->
+                            transaction.set(publicDocRef, mapOf(
+                                "displayName" to newName,
+                                "bio" to newBio,
+                                "joinedAt" to joined,
+                                "updatedAt" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+                            ))
+                        }
                     }
+                    true
                 }
             }
             complete(result.isSuccessful)
