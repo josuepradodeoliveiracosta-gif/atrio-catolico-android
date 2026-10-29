@@ -90,6 +90,21 @@ try{
    assert.ok(Date.parse(oldPost.fields.updatedAt.timestampValue) >
      Date.parse(oldPost.fields.createdAt.timestampValue));
  });
+ await check('APK legado continua editando sem timestamp novo',async()=>{
+   const path='posts/legacy_old_client';
+   await env.withSecurityRulesDisabled(async ctx=>
+     setDoc(doc(ctx.firestore(),path),{
+       uid:'qa-editor',authorName:'Perfil QA',title:'Discussão antiga',
+       body:'Conteúdo legítimo',category:'Liturgia',
+       createdAt:Timestamp.fromMillis(Date.now()-86400000)
+     })
+   );
+   const editor=env.authenticatedContext('qa-editor').firestore();
+   await updateDoc(doc(editor,path),{body:'Edição sem updatedAt do APK antigo'});
+   const current=await server.get(path);
+   assert.equal(current.fields.body.stringValue,'Edição sem updatedAt do APK antigo');
+   assert.equal(current.fields.updatedAt,undefined);
+ });
  await check('aplicativo não consegue ler nem alterar checkpoint do servidor',async()=>{
   const client=env.authenticatedContext('qa-user').firestore();
   await assertFails(getDoc(doc(client,'guardian_runtime/scan_posts')));
