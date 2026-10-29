@@ -25,6 +25,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
@@ -42,7 +43,7 @@ internal fun OnlineProfileScreen(
     onCreate: () -> Unit, onOpen: (String) -> Unit,
     onLike: (String) -> Unit, onSave: (String) -> Unit,
     onSavedPosts: () -> Unit, onNotifications: () -> Unit, onReviews: () -> Unit,
-    onFollowed: () -> Unit = {}, followedRevision: Int = 0,
+    followedRevision: Int = 0, savedCount: Int = 0,
     onPhotoChanged: () -> Unit = {}
 ) {
     var badgesOpen by rememberSaveable(uid) { mutableStateOf(false) }
@@ -77,6 +78,10 @@ internal fun OnlineProfileScreen(
         val founderCanBroadcast = onModeration != null && onClergyReview != null &&
             LocalFounderUid.current.isNotBlank() && LocalFounderUid.current == uid
         val mine = remember(posts, uid) { posts.filter { it.mine } }
+        val context = LocalContext.current
+        val followedCount = remember(uid, followedRevision) {
+            LocalFollowedDiscussions.ids(context, uid).size
+        }
         LazyColumn(Modifier.fillMaxSize().testTag("atrio-profile-list"), contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item {
@@ -116,6 +121,11 @@ internal fun OnlineProfileScreen(
             }
             item {
                 ProfileSectionTitle("Minha participação")
+                Text("${mine.size} discussões próprias no feed carregado · " +
+                    "$savedCount salvas · $followedCount acompanhadas neste aparelho",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(bottom = 8.dp))
                 Card(Modifier.fillMaxWidth()) {
                     ProfileAction("Minhas discussões", "Consulte até 50 discussões suas no Firestore.",
                         Icons.Outlined.Forum) { discussionsOpen = true }
