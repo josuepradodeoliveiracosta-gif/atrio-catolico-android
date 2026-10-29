@@ -195,7 +195,8 @@ service cloud.firestore {
         allow create: if signedIn()
           && exists(/databases/$(database)/documents/posts/$(postId))
           && request.resource.data.keys().hasOnly([
-            'uid', 'authorName', 'body', 'createdAt', 'replyToId', 'replyToUid'
+            'uid', 'authorName', 'body', 'createdAt', 'replyToId', 'replyToUid',
+            'mentionUid', 'mentionReplyId'
           ])
           && request.resource.data.keys().hasAll([
             'uid', 'authorName', 'body', 'createdAt'
@@ -207,10 +208,24 @@ service cloud.firestore {
           // Alvo obtido da resposta existente, nunca pela string @nome.
           && (request.resource.data.keys().hasAny(['replyToId', 'replyToUid'])
             ? (request.resource.data.keys().hasAll(['replyToId', 'replyToUid'])
+              && !request.resource.data.keys().hasAny(['mentionUid', 'mentionReplyId'])
               && validId(request.resource.data.replyToId)
               && validId(request.resource.data.replyToUid)
               && exists(/databases/$(database)/documents/posts/$(postId)/replies/$(request.resource.data.replyToId))
               && get(/databases/$(database)/documents/posts/$(postId)/replies/$(request.resource.data.replyToId)).data.uid == request.resource.data.replyToUid)
+            : true)
+          // Uma única menção explícita por resposta, somente a um membro
+          // canônico que já participa desta discussão.
+          && (request.resource.data.keys().hasAny(['mentionUid', 'mentionReplyId'])
+            ? (request.resource.data.keys().hasAll(['mentionUid'])
+              && !request.resource.data.keys().hasAny(['replyToId', 'replyToUid'])
+              && validId(request.resource.data.mentionUid)
+              && request.resource.data.mentionUid != request.auth.uid
+              && (request.resource.data.keys().hasAny(['mentionReplyId'])
+                ? (validId(request.resource.data.mentionReplyId)
+                  && exists(/databases/$(database)/documents/posts/$(postId)/replies/$(request.resource.data.mentionReplyId))
+                  && get(/databases/$(database)/documents/posts/$(postId)/replies/$(request.resource.data.mentionReplyId)).data.uid == request.resource.data.mentionUid)
+                : get(/databases/$(database)/documents/posts/$(postId)).data.uid == request.resource.data.mentionUid))
             : true);
         allow update: if false;
         allow delete: if signedIn() && (resource.data.uid == request.auth.uid || isAdmin());
@@ -293,6 +308,21 @@ service cloud.firestore {
           && exists(/databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(targetId))
           && get(/databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(targetId)).data.uid == recipientUid;
       }
+      // Menção explícita, validada contra a publicação ou resposta
+      // de participante já existente (sem permitir buscar perfis privados).
+      function canonicalMentionRecipient() {
+        let currentPath = /databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(notificationId);
+        let sourceId = request.resource.data.get('mentionReplyId', '');
+        return existsAfter(currentPath)
+          && getAfter(currentPath).data.get('mentionUid', '') == recipientUid
+          && request.resource.data.get('mentionUid', '') == recipientUid
+          && getAfter(currentPath).data.get('mentionReplyId', '') == sourceId
+          && (sourceId == ''
+            ? get(/databases/$(database)/documents/posts/$(request.resource.data.postId)).data.uid == recipientUid
+            : (validId(sourceId)
+              && exists(/databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(sourceId))
+              && get(/databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(sourceId)).data.uid == recipientUid));
+      }
       // Somente o destinatário consulta, marca como lida ou dispensa notificações.
       allow get, list: if me(recipientUid);
       // O remetente não pode inventar notificações: a resposta relacionada
@@ -300,7 +330,8 @@ service cloud.firestore {
       allow create: if signedIn()
         && request.auth.uid != recipientUid
         && request.resource.data.keys().hasOnly([
-          'postId', 'replyId', 'actorUid', 'actorName', 'read', 'createdAt', 'replyToId'
+          'postId', 'replyId', 'actorUid', 'actorName', 'read', 'createdAt', 'replyToId',
+          'mentionUid', 'mentionReplyId'
         ])
         && request.resource.data.keys().hasAll([
           'postId', 'replyId', 'actorUid', 'actorName', 'read', 'createdAt'
@@ -315,8 +346,11 @@ service cloud.firestore {
         && validTime()
         && (
           (get(/databases/$(database)/documents/posts/$(request.resource.data.postId)).data.uid == recipientUid
-            && !request.resource.data.keys().hasAny(['replyToId']))
+            && !request.resource.data.keys().hasAny(['replyToId', 'mentionUid', 'mentionReplyId']))
           || (request.resource.data.keys().hasAny(['replyToId']) && canonicalDirectRecipient())
+          || (request.resource.data.keys().hasAny(['mentionUid']) &&
+              !request.resource.data.keys().hasAny(['replyToId']) &&
+              canonicalMentionRecipient())
         )
         && getAfter(/databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(notificationId)).data.uid == request.auth.uid
         && getAfter(/databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(notificationId)).data.authorName == request.resource.data.actorName

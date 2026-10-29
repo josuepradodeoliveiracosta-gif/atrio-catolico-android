@@ -128,6 +128,52 @@ try {
     const notice=await getDoc(doc(clara,'users',bots[0].uid,'notifications',directId));
     assert.equal(notice.data()?.replyToId,'qa_direct_reply');
   });
+  await check('Clara menciona Miguel por uma resposta real e o notifica uma vez',async()=>{
+    const id='qa_mention_miguel';
+    const batch=writeBatch(clara);
+    batch.set(doc(clara,'posts',postId,'replies',id),{
+      ...answer(bots[0].uid,bots[0].name,'@Miguel Obrigada!'),
+      mentionUid:bots[1].uid,mentionReplyId:replyA,
+    });
+    batch.set(doc(clara,'users',bots[1].uid,'notifications',id),{
+      postId,replyId:id,actorUid:bots[0].uid,actorName:bots[0].name,
+      read:false,mentionUid:bots[1].uid,mentionReplyId:replyA,
+      createdAt:serverTimestamp(),
+    });
+    await assertSucceeds(batch.commit());
+    const notification=await getDoc(doc(miguel,'users',bots[1].uid,'notifications',id));
+    assert.equal(notification.data()?.mentionUid,bots[1].uid);
+  });
+  await check('Miguel menciona Clara como autora do post, sem consultar profiles',async()=>{
+    const id='qa_mention_post_owner';
+    const batch=writeBatch(miguel);
+    batch.set(doc(miguel,'posts',postId,'replies',id),{
+      ...answer(bots[1].uid,bots[1].name,'@Clara O que acha?'),
+      mentionUid:bots[0].uid,
+    });
+    batch.set(doc(miguel,'users',bots[0].uid,'notifications',id),{
+      postId,replyId:id,actorUid:bots[1].uid,actorName:bots[1].name,
+      read:false,mentionUid:bots[0].uid,createdAt:serverTimestamp(),
+    });
+    await assertSucceeds(batch.commit());
+  });
+  await check('Lúcia não falsifica destinatário de menção de comentário alheio',()=>assertFails(
+    setDoc(doc(lucia,'posts',postId,'replies','qa_mention_spoof'),{
+      ...answer(bots[2].uid,bots[2].name,'@Clara menção falsa'),
+      mentionUid:bots[0].uid,mentionReplyId:replyA,
+    })));
+  await check('Miguel não consegue mencionar a si mesmo',()=>assertFails(
+    setDoc(doc(miguel,'posts',postId,'replies','qa_mention_self'),{
+      ...answer(bots[1].uid,bots[1].name,'@Miguel auto menção'),
+      mentionUid:bots[1].uid,mentionReplyId:replyA,
+    })));
+  await check('Lúcia não cria notificação de menção sem resposta correspondente',()=>assertFails(
+    setDoc(doc(lucia,'users',bots[1].uid,'notifications','qa_mention_fake'),{
+      postId,replyId:'qa_mention_fake',
+      actorUid:bots[2].uid,actorName:bots[2].name,
+      read:false,mentionUid:bots[1].uid,
+      mentionReplyId:replyA,createdAt:serverTimestamp(),
+    })));
   await check('Lúcia não simula aviso de resposta direta inexistente',()=>assertFails(
     setDoc(doc(lucia,'users',bots[1].uid,'notifications','qa_fake_notice'),{
       postId,replyId:'qa_fake_notice',actorUid:bots[2].uid,
