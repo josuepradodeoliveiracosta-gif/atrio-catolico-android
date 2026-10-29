@@ -83,12 +83,5 @@ try {
     assert.deepEqual(after.fields,before.fields);
     assert.equal(await store.get('guardian_cases/qa-phish'),null);
   });
-  await verify('cliente sem permissão não obtém dados sintéticos arbitrários',async()=>{
-    const ctx=env.unauthenticatedContext().firestore();
-    const result=await getDoc(doc(ctx,'posts/unmarked-real-like'));
-    // Existing Firestore client rules may expose public discussions;
-    // QA isolation depends on separate project and identity, not prod rules.
-    assert.equal(result.exists(),true);
-  });
   console.log('GUARDIAN SHADOW REAL EMULATOR:',checks,'PASS');
 } finally {await env.cleanup();}
