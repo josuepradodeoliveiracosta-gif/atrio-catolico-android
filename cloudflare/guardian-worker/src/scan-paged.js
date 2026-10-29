@@ -1,8 +1,14 @@
 // Bounded, resumable server-only scans; never used in the read-only QA path.
 // A failed page is retried rather than advancing past a failed moderation event.
-const GROUPS=['posts','replies','reports'];
+const SCANS=[
+  {id:'posts',group:'posts',field:'createdAt',max:30},
+  {id:'replies',group:'replies',field:'createdAt',max:30},
+  {id:'reports',group:'reports',field:'createdAt',max:15},
+  // Edits to OLD posts still get scanned even when createdAt is outside 20m.
+  // Replies are not editable in the Android app or client Firestore Rules.
+  {id:'post_edits',group:'posts',field:'updatedAt',max:15}
+];
 const BATCH_PAGES=2;
-const MAX={posts:30,replies:30,reports:15};
 const iso=v=>typeof v==='string'&&Number.isFinite(Date.parse(v))&&/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(v);
 const str=v=>({stringValue:v});
 const value=(d,k)=>d?.fields?.[k]?.stringValue||'';
@@ -38,8 +44,9 @@ export async function scanPagedCycle(db,settings,{onDocument,onReport},now=new D
  const counters={clear:0,review:0,warn:0,hold:0,invalid:0,
    duplicate_or_changed:0,ignored:0,missing:0,error:0,
    pages:0,backlogGroups:0,pausedGroups:0};
- for(const group of GROUPS){
-   const path='guardian_runtime/scan_'+group;
+ for(const task of SCANS){
+   const {id,group,field,max}=task;
+   const path='guardian_runtime/scan_'+id;
    try{
      let current=await db.get(path);
      const window=checkpoint(current,now);
@@ -55,8 +62,8 @@ export async function scanPagedCycle(db,settings,{onDocument,onReport},now=new D
      let after=window.after;
      let lastHadMore=false,failed=false;
      for(let page=0;page<BATCH_PAGES;page++){
-       const result=await db.scanPage(group,{...window,after,max:MAX[group]});
-       if(!Array.isArray(result?.documents)||result.documents.length>MAX[group])
+       const result=await db.scanPage(group,{...window,after,max,field});
+       if(!Array.isArray(result?.documents)||result.documents.length>max)
          throw Error('invalid_page');
        // A query that claims more pages must provide a cursor that advances.
        if(result.nextCursor&&(
