@@ -24,6 +24,11 @@ service cloud.firestore {
       allow get: if signedIn();
       allow list, create, update, delete: if false;
     }
+    // Ativação admin-only após publicação e QA. Negado por padrão.
+    match /app_config/engagement {
+      allow get: if signedIn();
+      allow list, create, update, delete: if false;
+    }
     match /admins/{uid} {
       allow get: if me(uid);
       allow list, create, update, delete: if false;

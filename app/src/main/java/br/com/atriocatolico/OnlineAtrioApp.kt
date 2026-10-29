@@ -325,6 +325,7 @@ private fun OnlineCommunity(
     var likedIds by remember(uid) { mutableStateOf<Set<String>>(emptySet()) }
     var savedIds by remember(uid) { mutableStateOf<Set<String>>(emptySet()) }
     val notificationAdmin = onModeration != null && onClergyReview != null
+    val advancedEngagement = rememberAdvancedEngagementEnabled(db, uid)
     val inbox = rememberNotificationInbox(db, uid, notificationAdmin)
     var noticeBadgesOpen by remember(uid) { mutableStateOf(false) }
     var guardiaoAppealsOpen by remember(uid) { mutableStateOf(false) }
@@ -463,7 +464,9 @@ private fun OnlineCommunity(
                                 Reply(author = it.getString("authorName") ?: "Membro",
                                     message = it.getString("body") ?: "", id = it.id,
                                     mine = it.getString("uid") == uid,
-                                    ownerUid = it.getString("uid").orEmpty())
+                                    ownerUid = it.getString("uid").orEmpty(),
+                                    replyToId = it.getString("replyToId").orEmpty(),
+                                    replyToUid = it.getString("replyToUid").orEmpty())
                             } ?: emptyList()
                         }
                     }
@@ -542,7 +545,7 @@ private fun OnlineCommunity(
             } else message = result.exception?.localizedMessage ?: "Não foi possível publicar."
         }
     }
-    fun reply(id: String, body: String, done: (Boolean) -> Unit) {
+    fun reply(id: String, body: String, done: (Boolean) -> Unit, target: Reply? = null) {
         if (openedPost?.id != id) {
             message = "Discussão indisponível. Atualize o fórum e tente novamente."
             done(false)
@@ -564,10 +567,16 @@ private fun OnlineCommunity(
                 val replyRef = db.collection("posts").document(id)
                     .collection("replies").document()
                 val batch = db.batch()
-                batch.set(replyRef, mapOf(
+                val replyData = mutableMapOf<String, Any>(
                     "uid" to uid, "authorName" to name, "body" to body,
                     "createdAt" to FieldValue.serverTimestamp()
-                ))
+                )
+                if (target != null && advancedEngagement &&
+                    target.id.isNotBlank() && target.ownerUid.isNotBlank()) {
+                    replyData["replyToId"] = target.id
+                    replyData["replyToUid"] = target.ownerUid
+                }
+                batch.set(replyRef, replyData)
                 if (ownerUid != uid) {
                     val noticeRef = db.collection("users").document(ownerUid)
                         .collection("notifications").document(replyRef.id)
@@ -659,6 +668,13 @@ private fun OnlineCommunity(
                     onLike = { toggle("likedPosts", detail.id, detail.liked) },
                     onSave = { toggle("savedPosts", detail.id, detail.saved) },
                     onReply = { body, done -> reply(detail.id, body, done) },
+                    onDirectReply = if (advancedEngagement) ({ body, target, done ->
+                        reply(detail.id, body, done, target)
+                    }) else null,
+                    reactionContent = { item ->
+                        if (advancedEngagement)
+                            ReplyReactionBar(db, uid, detail.id, item.id)
+                    },
                     followed = detail.id in followedIds,
                     onFollow = {
                         LocalFollowedDiscussions.toggle(context, uid, detail.id)

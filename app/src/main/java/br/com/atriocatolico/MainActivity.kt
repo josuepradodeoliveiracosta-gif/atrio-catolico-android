@@ -63,7 +63,9 @@ internal data class Reply(
     val message: String,
     val id: String = "",
     val mine: Boolean = false,
-    val ownerUid: String = ""
+    val ownerUid: String = "",
+    val replyToId: String = "",
+    val replyToUid: String = ""
 )
 internal data class Post(
     val id: String,
@@ -606,6 +608,8 @@ internal fun DetailScreen(
     post: Post, name: String, onLike: () -> Unit, onSave: () -> Unit,
     onReply: (String, (Boolean) -> Unit) -> Unit, onReport: (() -> Unit)? = null,
     followed: Boolean = false, onFollow: (() -> Unit)? = null,
+    onDirectReply: ((String, Reply, (Boolean) -> Unit) -> Unit)? = null,
+    reactionContent: @Composable (Reply) -> Unit = {},
     onEdit: (() -> Unit)? = null, onDelete: (() -> Unit)? = null,
     onDeleteReply: ((String) -> Unit)? = null,
     onReportReply: ((Reply) -> Unit)? = null,
@@ -646,6 +650,11 @@ internal fun DetailScreen(
                 Column(Modifier.weight(1f)) {
                     Text(r.author, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     MemberBadgeRow(r.ownerUid)
+                    if (r.replyToId.isNotBlank()) {
+                        val target = post.replies.firstOrNull { it.id == r.replyToId }
+                        Text("↳ Em resposta a @${target?.author ?: "participante"}",
+                            style = MaterialTheme.typography.labelSmall, color = Wine)
+                    }
                     Text(r.message, fontSize = 13.sp, lineHeight = 19.sp, color = Ink)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (r.id.isNotBlank()) {
@@ -653,6 +662,7 @@ internal fun DetailScreen(
                                 onClick = { quotedReply = r },
                                 modifier = Modifier.testTag("atrio-quote-reply")
                             ) { Text("Responder a este comentário", fontSize = 12.sp, color = Wine) }
+                            reactionContent(r)
                         }
                         if (r.id.isNotBlank() && onReportReply != null) {
                             TextButton(onClick = { onReportReply(r) }) {
@@ -692,9 +702,17 @@ internal fun DetailScreen(
                 // não uma menção certificada nem um novo vínculo no servidor.
                 val prefix = if (quote == null) "" else "↳ Em resposta a ${quote.author.take(35)}: "
                 val available = (600 - prefix.length).coerceAtLeast(0)
-                onReply(prefix + response.trim().take(available)) { success ->
+                val callback: (Boolean) -> Unit = { success ->
                     sendingReply = false
                     if (success) { response = ""; quotedReply = null }
+                }
+                if (quote != null && onDirectReply != null &&
+                    quote.id.isNotBlank() && quote.ownerUid.isNotBlank()) {
+                    // O backend valida que replyToUid pertence à resposta original.
+                    onDirectReply(response.trim(), quote, callback)
+                } else {
+                    // Compatível com Firestore de produção antes das novas regras.
+                    onReply(prefix + response.trim().take(available), callback)
                 }
             },
             enabled = response.isNotBlank() && !sendingReply,
