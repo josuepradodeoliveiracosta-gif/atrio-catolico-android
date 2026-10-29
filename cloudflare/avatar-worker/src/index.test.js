@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import handler, {boundedBytes,publicUrl,cloudSigned} from './index.js';
+import handler, {boundedBytes,publicUrl,cloudSigned,uploadProtected} from './index.js';
 import {createHash,webcrypto} from 'node:crypto';
 if (!globalThis.crypto) globalThis.crypto = webcrypto;
 
@@ -106,4 +106,52 @@ test('Cloudinary 404 classifica ambiente inválido sem expor resposta bruta', as
       assert.equal(e.message,'cloudinary_request_failed');return true;
     });
   }finally{globalThis.fetch=original;}
+});
+
+
+test('404 no endpoint protegido tenta alternativa assinada e continua privada',async()=>{
+  const old=globalThis.fetch;
+  const id='atrio-avatares/test-user/147e7fca-2e75-4a1e-9c32-c11e19f937a7';
+  const calls=[];
+  globalThis.fetch=async(url,opt)=>{
+    calls.push(String(url));
+    const f=opt.body;
+    if(String(url).endsWith('/image/authenticated'))
+      return new Response('Not Found',{status:404,headers:{'Content-Type':'text/plain'}});
+    assert.equal(String(url),'https://api.cloudinary.com/v1_1/atrio-demo/image/upload');
+    assert.equal(f.get('type'),'authenticated');
+    const keys=['moderation','overwrite','public_id','timestamp','type'];
+    const input=keys.map(k=>k+'='+f.get(k)).join('&')+'fake-secret';
+    assert.equal(f.get('signature'),createHash('sha1').update(input).digest('hex'));
+    return new Response(JSON.stringify({type:'authenticated',public_id:id,
+      moderation:[{kind:'manual',status:'pending'}]}),{status:200});
+  };
+  try{
+    const result=await uploadProtected(env,id,Uint8Array.from([255,216,255,217]));
+    assert.equal(result.type,'authenticated');
+    assert.equal(calls.length,2);
+  } finally{ globalThis.fetch=old; }
+});
+test('fallback nunca aceita foto pública e tenta removê-la imediatamente',async()=>{
+  const old=globalThis.fetch;
+  const id='atrio-avatares/test-user/147e7fca-2e75-4a1e-9c32-c11e19f937a7';
+  let destroyed=false;
+  globalThis.fetch=async(url,opt)=>{
+    const path=String(url);
+    if(path.endsWith('/image/authenticated'))
+      return new Response('Not Found',{status:404});
+    if(path.endsWith('/image/upload'))
+      return new Response(JSON.stringify({type:'upload',public_id:id}),{status:200});
+    if(path.endsWith('/image/destroy')){
+      destroyed=true;
+      assert.equal(opt.body.get('type'),'upload');
+      return new Response(JSON.stringify({result:'ok'}),{status:200});
+    }
+    throw Error('Unexpected endpoint '+path);
+  };
+  try{
+    await assert.rejects(()=>uploadProtected(env,id,Uint8Array.from([255,216,255,217])),
+      /cloudinary_protection_failed/);
+    assert.equal(destroyed,true);
+  } finally{ globalThis.fetch=old; }
 });
