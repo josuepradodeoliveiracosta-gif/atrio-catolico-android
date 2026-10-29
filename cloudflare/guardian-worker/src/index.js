@@ -34,6 +34,11 @@ export async function processDocument(db,document,settings,now=new Date().toISOS
   const writes=[{update:{name:root+'/guardian_cases/'+id,fields},currentDocument:{exists:false}},
     {update:{name:root+'/guardian_audit/'+id,fields:{event:str(action),caseId:str(id),at:timestamp(now),actor:str('guardian_v2')}},currentDocument:{exists:false}},
     {update:{name:root+'/guardian_notices/'+item.owner+'/items/'+id,fields:{title:str(notice.title),body:str(notice.body),caseId:str(id),ruleCode:str(finding.rule),action:str(action),createdAt:timestamp(now)}},currentDocument:{exists:false}}];
+  if(!hold){
+    // Mesmo um simples aviso/revisão não deve registrar evidência obsoleta.
+    // O Firestore verifica atomicamente a revisão do documento original.
+    writes.push({verify:root+'/'+item.path,currentDocument:{updateTime:item.doc.updateTime}});
+  }
   if(hold){
     // Copy-on-write atômico: somente o conteúdo da revisão exata pode ser retirado.
     writes.push({update:{name:root+'/guardiao_quarantine/'+id,fields:{ownerUid:str(item.owner),targetType:str(item.kind),targetPath:str(root+'/'+item.path),postId:str(item.parts[1]),replyId:str(item.parts[3]),reason:str('Possível violação: '+finding.rule),ruleCode:str(finding.rule),status:str('held'),heldAt:timestamp(now),originalFields:{mapValue:{fields:item.doc.fields}}}},currentDocument:{exists:false}});
