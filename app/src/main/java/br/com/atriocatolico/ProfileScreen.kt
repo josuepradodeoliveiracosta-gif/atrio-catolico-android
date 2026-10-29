@@ -13,6 +13,7 @@ import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowForward
 import androidx.compose.material.icons.outlined.BookmarkBorder
+import androidx.compose.material.icons.outlined.Forum
 import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material.icons.outlined.VerifiedUser
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -40,15 +41,20 @@ internal fun OnlineProfileScreen(
     onSignOut: () -> Unit, onModeration: (() -> Unit)?, onClergyReview: (() -> Unit)?,
     onCreate: () -> Unit, onOpen: (String) -> Unit,
     onLike: (String) -> Unit, onSave: (String) -> Unit,
-    onSavedPosts: () -> Unit, onNotifications: () -> Unit, onReviews: () -> Unit
+    onSavedPosts: () -> Unit, onNotifications: () -> Unit, onReviews: () -> Unit,
+    onPhotoChanged: () -> Unit = {}
 ) {
     var badgesOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var editorOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var publicationsOpen by rememberSaveable(uid) { mutableStateOf(false) }
+    var discussionsOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var savedMessage by remember(uid) { mutableStateOf(false) }
     BackHandler(enabled = badgesOpen && !editorOpen) { badgesOpen = false }
+    BackHandler(enabled = discussionsOpen) { discussionsOpen = false }
 
-    if (badgesOpen) {
+    if (discussionsOpen) {
+        ProfileDiscussionHistory(db, uid, onBack = { discussionsOpen = false }, onOpen = onOpen)
+    } else if (badgesOpen) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item {
@@ -74,16 +80,9 @@ internal fun OnlineProfileScreen(
                     Column(Modifier.fillMaxWidth().padding(20.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        MemberAvatar(name, uid, Modifier.size(92.dp).testTag("atrio-profile-avatar"))
                         if (LocalFounderUid.current.isNotBlank() && LocalFounderUid.current == uid) {
-                            FounderBadgeArt(Modifier.size(88.dp), compact = false)
-                        } else {
-                            Surface(shape = CircleShape, color = WineSoft, modifier = Modifier.size(76.dp)) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Text(name.trim().take(1).uppercase().ifBlank { "A" }, color = Wine,
-                                        fontFamily = FontFamily.Serif, fontSize = 32.sp,
-                                        fontWeight = FontWeight.Bold)
-                                }
-                            }
+                            FounderBadgeArt(Modifier.size(58.dp), compact = true)
                         }
                         Text(name, fontFamily = FontFamily.Serif, fontSize = 26.sp,
                             fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
@@ -92,6 +91,7 @@ internal fun OnlineProfileScreen(
                             color = Muted, fontSize = 14.sp, textAlign = TextAlign.Center)
                         Button(onClick = { savedMessage = false; editorOpen = true },
                             modifier = Modifier.fillMaxWidth().testTag("atrio-profile-edit")) { Text("Editar perfil") }
+                        ProfilePhotoManager(uid = uid, onChanged = onPhotoChanged)
                         if (savedMessage) Text("Perfil atualizado.", color = Wine, fontSize = 14.sp,
                             modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                     }
@@ -111,6 +111,9 @@ internal fun OnlineProfileScreen(
             item {
                 ProfileSectionTitle("Minha participação")
                 Card(Modifier.fillMaxWidth()) {
+                    ProfileAction("Minhas discussões", "Consulte até 50 discussões suas no Firestore.",
+                        Icons.Outlined.Forum) { discussionsOpen = true }
+                    HorizontalDivider()
                     ProfileAction("Publicações salvas", "Retome as discussões que você guardou.",
                         Icons.Outlined.BookmarkBorder, onSavedPosts)
                     HorizontalDivider()

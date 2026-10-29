@@ -390,7 +390,7 @@ internal fun DiscussionCard(post: Post, onOpen: (String) -> Unit, onLike: (Strin
     ) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Avatar(post.author)
+                MemberAvatar(post.author, post.ownerUid)
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
                     Text(post.author, fontSize = 13.sp, fontWeight = FontWeight.Bold)
@@ -631,7 +631,7 @@ internal fun DetailScreen(
         if (post.replies.isEmpty()) Text("Seja a primeira pessoa a responder!", fontSize = 13.sp, color = Muted)
         post.replies.forEach { r ->
             Row(verticalAlignment = Alignment.Top, modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
-                Avatar(r.author, Modifier.size(36.dp))
+                MemberAvatar(r.author, r.ownerUid, Modifier.size(36.dp))
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
                     Text(r.author, fontSize = 13.sp, fontWeight = FontWeight.Bold)

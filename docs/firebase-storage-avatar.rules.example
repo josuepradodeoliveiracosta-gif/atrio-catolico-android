@@ -1,0 +1,20 @@
+// PROPOSTA PARA REVISÃO — NÃO PUBLICAR SEM AUTORIZAÇÃO.
+// Não está referenciada por firebase.json, nem instalada em produção.
+// Exige um bucket Storage válido e revisão de custos, políticas e testes de emulador.
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /public_avatars/{uid}/avatar.jpg {
+      // Foto pública só para integrantes autenticados; nunca permitir listagem.
+      allow get: if request.auth != null;
+      allow list: if false;
+      // O dono pode substituir apenas o próprio JPEG pequeno.
+      allow create, update: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.size > 0
+        && request.resource.size <= 184320
+        && request.resource.contentType == 'image/jpeg';
+      allow delete: if request.auth != null && request.auth.uid == uid;
+    }
+  }
+}
