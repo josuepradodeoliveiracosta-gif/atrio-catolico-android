@@ -19,7 +19,7 @@ import java.security.MessageDigest
  * Firebase Storage aprovadas. Evita simular uma sincronização que não existe.
  */
 internal object ProfilePhotoStore {
-    private const val MAX_INPUT_BYTES = 12L * 1024 * 1024
+    private const val MAX_INPUT_BYTES = 5L * 1024 * 1024
     private const val MAX_ORIGINAL_SIDE = 10000
     private const val OUTPUT_SIZE = 400
     private const val MAX_OUTPUT_BYTES = 180 * 1024
@@ -59,7 +59,7 @@ internal object ProfilePhotoStore {
             "Escolha uma imagem JPG, PNG ou WebP."
         }
         require(length in -1L..MAX_INPUT_BYTES) {
-            "A imagem deve ter até 12 MB."
+            "A imagem deve ter até 5 MB."
         }
 
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -106,13 +106,19 @@ internal object ProfilePhotoStore {
         return out
     }
 
-    fun save(context: Context, uid: String, bitmap: Bitmap) {
+    /** JPEG 400×400 sem EXIF; também usado para upload privado no backend. */
+    fun encodeUpload(bitmap: Bitmap): ByteArray {
         require(bitmap.width == OUTPUT_SIZE && bitmap.height == OUTPUT_SIZE)
         val image = ByteArrayOutputStream().use { output ->
             check(bitmap.compress(Bitmap.CompressFormat.JPEG, 82, output))
             output.toByteArray()
         }
         require(image.size <= MAX_OUTPUT_BYTES) { "A imagem final excedeu 180 KB." }
+        return image
+    }
+
+    fun save(context: Context, uid: String, bitmap: Bitmap) {
+        val image = encodeUpload(bitmap)
         val dest = file(context, uid)
         check(dest.parentFile?.mkdirs() == true || dest.parentFile?.isDirectory == true)
         val tmp = File(dest.parentFile, dest.name + ".tmp")
