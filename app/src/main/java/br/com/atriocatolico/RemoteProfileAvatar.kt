@@ -66,6 +66,8 @@ private object AvatarImageCache {
 /** Cada item visível observa apenas profile_photos/{uid}; listagem proibida por regras. */
 @Composable
 internal fun rememberPublicAvatar(uid: String): ImageBitmap? {
+    // Nunca consultar collection sem regras publicadas ou Worker configurado.
+    if (!CloudinaryAvatarClient.enabled) return null
     val db = LocalAvatarFirestore.current
     var remoteUrl by remember(db, uid) { mutableStateOf("") }
     var bitmap by remember(db, uid) { mutableStateOf<ImageBitmap?>(null) }
