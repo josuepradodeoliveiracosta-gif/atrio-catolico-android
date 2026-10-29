@@ -191,6 +191,32 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Projeção pública voluntária: nunca conceder acesso de terceiros a /profiles.
+    // A biografia só chega aqui após opt-in pelo titular da conta.
+    match /public_profiles/{uid} {
+      allow get: if signedIn();
+      allow list: if false;
+      allow create, update: if me(uid)
+        && exists(/databases/$(database)/documents/profiles/$(uid))
+        && request.resource.data.keys().hasOnly([
+          'displayName', 'bio', 'joinedAt', 'updatedAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'displayName', 'bio', 'joinedAt', 'updatedAt'
+        ])
+        && validText(request.resource.data.displayName, 2, 35)
+        && request.resource.data.displayName ==
+          get(/databases/$(database)/documents/profiles/$(uid)).data.displayName
+        && request.resource.data.bio is string
+        && request.resource.data.bio.size() <= 180
+        && request.resource.data.bio ==
+          get(/databases/$(database)/documents/profiles/$(uid)).data.get('bio', '')
+        && request.resource.data.joinedAt ==
+          get(/databases/$(database)/documents/profiles/$(uid)).data.createdAt
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if me(uid);
+    }
+
     match /posts/{postId} {
       allow get, list: if signedIn();
       allow create: if signedIn()
