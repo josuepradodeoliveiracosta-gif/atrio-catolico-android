@@ -131,7 +131,7 @@ internal fun OnlineProfileScreen(
                         Text(email.ifBlank { "Conta autenticada" }, style = MaterialTheme.typography.bodyLarge)
                         Text("Seu e-mail e sua apresentação são privados. Seu nome e seus selos aparecem nas publicações.",
                             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("Átrio Católico · ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.labelMedium)
+                        Text("Átrio Católico · ${BuildConfig.ATRIO_VISIBLE_VERSION}", style = MaterialTheme.typography.labelMedium)
                         OutlinedButton(onClick = onSignOut, modifier = Modifier.fillMaxWidth().testTag("atrio-profile-signout")) {
                             Text("Sair da conta")
                         }
