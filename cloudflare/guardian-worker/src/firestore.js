@@ -35,7 +35,7 @@ export class Firestore {
   }
   get(path){return this.send('/'+path.split('/').map(enc).join('/'));}
   async scan(group,minutes=20,max=80){
-    if(!['posts','replies'].includes(group))throw Error('invalid_group');
+    if(!['posts','replies','reports'].includes(group))throw Error('invalid_group');
     const cut=new Date(Date.now()-minutes*60_000).toISOString();
     const sq={structuredQuery:{from:[{collectionId:group,allDescendants:group==='replies'}],where:{fieldFilter:{field:{fieldPath:'createdAt'},op:'GREATER_THAN_OR_EQUAL',value:timestamp(cut)}},orderBy:[{field:{fieldPath:'createdAt'},direction:'DESCENDING'}],limit:max}};
     const result=await this.send(':runQuery','POST',sq);
