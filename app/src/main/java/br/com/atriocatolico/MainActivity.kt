@@ -627,8 +627,8 @@ internal fun DetailScreen(
                 modifier = Modifier.fillMaxWidth().testTag("atrio-follow-discussion")) {
                 Text(if (followed) "Remover da lista de acompanhadas" else "Acompanhar esta discussão")
             }
-            Text(if (followIsSynced) "Lista sincronizada na sua conta. Avisos dependem das suas preferências."
-                else "Lista pessoal deste aparelho. As notificações continuam dependendo das preferências do Android.",
+            Text(if (followIsSynced) "Discussão salva na sua conta. Novos avisos de acompanhamento ainda não estão disponíveis."
+                else "Lista privada deste aparelho. Acompanhar não ativa notificações adicionais.",
                 style = MaterialTheme.typography.bodySmall, color = Muted)
         }
         if (post.mine && (onEdit != null || onDelete != null)) {
