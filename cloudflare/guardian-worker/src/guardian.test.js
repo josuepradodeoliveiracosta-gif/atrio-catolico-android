@@ -7,11 +7,12 @@ const mkDoc=(path,text,extra={})=>({name:ROOT+'/'+path,updateTime:'2026-10-29T18
 class FakeStore{
   constructor(entries=[]){this.docs=new Map(entries.map(d=>[d.name,structuredClone(d)]));this.calls=0;}
   async commit(writes){this.calls++;
-    for(const w of writes){let name=w.update?.name||w.delete;let current=this.docs.get(name);
+    for(const w of writes){let name=w.update?.name||w.delete||w.verify;let current=this.docs.get(name);
       if(w.currentDocument?.exists===false&&current){const e=Error('exists');e.status=409;throw e;}
       if(w.currentDocument?.updateTime&&current?.updateTime!==w.currentDocument.updateTime){const e=Error('conflict');e.status=409;throw e;}
     }
-    for(const w of writes){let name=w.update?.name||w.delete;
+    for(const w of writes){let name=w.update?.name||w.delete||w.verify;
+      if(w.verify)continue;
       if(w.delete){this.docs.delete(name);continue;}
       const old=this.docs.get(name);const d={name,updateTime:'2026-10-29T18:10:00.000000Z',fields:{...(old?.fields||{}),...w.update.fields}};
       this.docs.set(name,d);
@@ -103,4 +104,27 @@ test('denúncia pode conduzir à revisão fundamentada no conteúdo',async()=>{
 test('relatórios automáticos não geram nova punição recursiva',async()=>{
  const db=new FakeStore();const report={name:ROOT+'/reports/guard_fake',fields:{postId:str('p1'),source:str('guardiao')}};
  assert.equal(await processReport(db,report,enabled),'ignored');
+});
+
+test('aviso e revisão exigem precondição atômica de versão sem apagar conteúdo',async()=>{
+ const doc=mkDoc('posts/ready/replies/review1','Vou te matar amanhã');
+ const db=new FakeStore([doc]);
+ const stale=structuredClone(doc);
+ db.docs.get(doc.name).updateTime='2026-10-29T18:08:01.000000Z';
+ assert.equal(await processDocument(db,stale,enabled),'duplicate_or_changed');
+ assert.equal(db.docs.size,1);
+ assert.ok(db.docs.has(doc.name));
+ assert.equal(db.docs.has(ROOT+'/guardian_cases/'+await caseId('posts/ready/replies/review1')),false);
+ const latest=db.docs.get(doc.name);
+ assert.equal(await processDocument(db,latest,enabled),'review');
+ assert.ok(db.docs.has(doc.name));
+ assert.ok(db.docs.has(ROOT+'/guardian_cases/'+await caseId('posts/ready/replies/review1')));
+});
+test('mensagem editada antes da advertência não gera alerta desatualizado',async()=>{
+ const doc=mkDoc('posts/ready/replies/warn1','http://a.test http://b.test http://c.test http://d.test');
+ const db=new FakeStore([doc]);
+ const stale=structuredClone(doc);
+ db.docs.get(doc.name).updateTime='2026-10-29T18:08:01.000000Z';
+ assert.equal(await processDocument(db,stale,enabled),'duplicate_or_changed');
+ assert.equal(db.docs.has(ROOT+'/guardian_cases/'+await caseId('posts/ready/replies/warn1')),false);
 });
