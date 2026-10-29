@@ -204,6 +204,14 @@ service cloud.firestore {
 
     // Projeção pública voluntária: nunca conceder acesso de terceiros a /profiles.
     // A biografia só chega aqui após opt-in pelo titular da conta.
+    // Foto pública independente da biografia voluntária; ninguém grava pelo APK.
+    // O Worker autenticado usa IAM do serviço e verifica a moderação antes de publicar.
+    match /profile_photos/{uid} {
+      allow get: if signedIn();
+      allow list: if false;
+      allow create, update, delete: if false;
+    }
+
     match /public_profiles/{uid} {
       allow get: if signedIn();
       allow list: if false;
