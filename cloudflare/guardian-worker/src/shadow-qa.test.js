@@ -75,7 +75,7 @@ test('observação não usa escrita nem notificações',async()=>{
   async update(){committed=true;throw Error('Write forbidden')}
  };
  const r=await scanQaShadow(reader,flags);
- assert.equal(committed,false);assert.equal(r.counts.hold_candidate,2);assert.equal(r.counts.invalid,1);
+ assert.equal(committed,false);assert.equal(r.counts.hold_candidate,2);assert.equal(r.counts.reports,1);
 });
 test('cron QA padrão permanece inerte mesmo com acesso HTTP indisponível',async()=>{
  const oldFetch=globalThis.fetch,oldLog=console.log;
