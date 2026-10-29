@@ -107,8 +107,10 @@ class ProfileLayoutUiTest {
         // relatório provar que o rascunho estava preservado em EditableText.
         compose.onNodeWithTag("atrio-profile-bio").assert(
             SemanticsMatcher("rascunho permanece no campo editável") { node ->
-                node.config.getOrNull(SemanticsProperties.EditableText)
-                    ?.text?.contains("Rascunho de apresentação") == true
+                runCatching {
+                    node.config[SemanticsProperties.EditableText].text
+                        .contains("Rascunho de apresentação")
+                }.getOrDefault(false)
             }
         )
         compose.onNodeWithText("Cancelar").performClick()
