@@ -187,7 +187,18 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'bio'])
         && validText(request.resource.data.displayName, 2, 35)
         && request.resource.data.get('bio', '') is string
-        && request.resource.data.get('bio', '').size() <= 180;
+        && request.resource.data.get('bio', '').size() <= 180
+        // Se já houve opt-in, impedir que clientes antigos alterem a bio
+        // privada deixando uma cópia pública desatualizada. A edição deve
+        // atualizar ambos os documentos na MESMA transação, ou o usuário
+        // deve primeiro retirar sua apresentação pública.
+        && (!exists(/databases/$(database)/documents/public_profiles/$(uid))
+          || (getAfter(/databases/$(database)/documents/public_profiles/$(uid)).data.displayName
+                == request.resource.data.displayName
+            && getAfter(/databases/$(database)/documents/public_profiles/$(uid)).data.bio
+                == request.resource.data.get('bio', '')
+            && getAfter(/databases/$(database)/documents/public_profiles/$(uid)).data.updatedAt
+                == request.time));
       allow delete: if false;
     }
 
