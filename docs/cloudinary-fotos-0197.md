@@ -1,7 +1,13 @@
 # Átrio Católico 0.19.7 — fotos Cloudinary (branch de desenvolvimento)
 
-## Estado: NÃO IMPLANTADO
-Branch `feature/fotos-cloudinary-0197`. Sem deploy de Firestore, Cloudflare, Cloudinary ou Release. O APK de QA só habilita fotos públicas quando a variável de compilação `ATRIO_AVATAR_WORKER_URL` indicar o Worker aprovado.
+## Estado de implantação (29/10/2026)
+Branch `feature/fotos-cloudinary-0197`, PR #43 em rascunho; **main, backup e Release inalterados**.
+- **Cloudinary:** pasta `atrio-avatares` criada na conta conectada; nenhum upload real de usuários realizado.
+- **Cloudflare:** script `atrio-avatares` publicado, com D1 `atrio-avatar-control` vinculado e as quatro tabelas criadas; `CLOUDINARY_CLOUD_NAME` configurado; **Workers.dev desativado** para evitar uso incompleto. Endereço reservado: `https://atrio-avatares.atrio-catolico.workers.dev` (não está ativo ainda).
+- **Segredos do Worker:** `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`, `FIREBASE_WEB_API_KEY` e `FIREBASE_SERVICE_ACCOUNT_JSON` ainda **não estão configurados**. A ferramenta disponível não autoriza copiá-los automaticamente de outras contas. Não enviá-los em chat, APK, commit, arquivo sem criptografia ou CI.
+- **Firebase Firestore:** novas regras da coleção `profile_photos` aprovadas em emulador, **ainda não publicadas em produção**. O acesso autenticado por UID só passará a funcionar após deploy dessas regras.
+- **Android:** novo APK deve ser compilado com `ATRIO_AVATAR_WORKER_URL` configurada somente quando o Worker e as regras estiverem ativos e validados.
+- **Testes reais entre duas contas:** pendentes por dependência da ativação anterior.
 
 ## Arquitetura
 - Reutiliza o seletor de fotos nativo, recorte 400×400 e geração JPEG 180 KB **sem EXIF**. Entrada JPG, PNG, WebP de até 5 MB.
@@ -42,3 +48,12 @@ A build de APK Debug da PR e da `main` lê a variável pública de repositório 
 O backend usa trava D1 `avatar_mutex` (UID/nonce/expiração) para impedir que substituição, aprovação e exclusão simultâneas entrem em conflito; o cliente mostra mensagem amigável para HTTP 409. Um erro ao gravar pendência após upload tenta excluir o arquivo remoto para evitar órfãos.
 
 O CI inclui testes de fluxo integrado completamente simulados: autenticação Firebase, upload protegido, moderação pendente/aprovada, promoção para URL pública, escrita no Firestore e exclusão. **Isso não comprova uploads reais no Cloudinary sem configuração e autorização de produção.**
+
+## Passos restantes para ativação (dados privados inseridos pelo proprietário)
+
+1. No Cloudflare Dashboard, abra **Workers & Pages → atrio-avatares → Settings → Variables and Secrets**. Defina como **Secret** as quatro variáveis: `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`, `FIREBASE_WEB_API_KEY`, `FIREBASE_SERVICE_ACCOUNT_JSON`. A Cloudinary API Secret só deve sair do console Cloudinary para esse formulário seguro; a conta de serviço do Firebase deve pertencer exclusivamente ao projeto `atrio-catolico` e ter permissões mínimas de leitura/escrita na coleção necessária. Não alterar o Worker `atrio-push`.
+2. Compare `firestore.rules` da PR #43 às regras atualmente implantadas e publique **somente as regras** do projeto `atrio-catolico` usando as credenciais Firebase já configuradas no Termux, após confirmar que não há atualizações remotas não incorporadas ao repositório. Não copiar regras de uma revisão antiga para produção.
+3. Habilite o subdomínio `workers.dev` do **Worker `atrio-avatares`**, conferindo que as credenciais estão presentes e que HTTP sem token é rejeitado. Nunca habilitar `atrio-push` por engano.
+4. Defina `ATRIO_AVATAR_WORKER_URL=https://atrio-avatares.atrio-catolico.workers.dev` como variável pública no repositório GitHub, compile novo **Debug da branch** e teste com duas contas e moderação manual, sem Release.
+
+A ativação só estará concluída após 401 para anônimos, upload da Conta 1, moderação, visualização pela Conta 2, troca, exclusão e teste de negação de operações entre UIDs. Os testes CI com mocks **não substituem** os testes reais.
