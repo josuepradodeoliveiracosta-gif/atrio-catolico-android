@@ -38,7 +38,7 @@ import java.util.concurrent.TimeUnit
  * fazendo toques no fluxo ONLINE do mesmo app.
  *
  * Proteção obrigatória: credenciais e projeto demo-atrio-v11, host emulado
- * 10.0.2.2, nenhum Worker URL ou credencial de produção. Os testes só são
+ * 127.0.0.1 via ADB reverse, nenhum Worker URL ou credencial de produção. Os testes só são
  * executados dentro do workflow que inicia Firebase Auth + Firestore Emulator.
  */
 class ThreeBotsAuthenticatedAndroidUiTest {
@@ -67,16 +67,16 @@ class ThreeBotsAuthenticatedAndroidUiTest {
             "demo-atrio-v11", FirebaseApp.getInstance().options.projectId)
         auth = FirebaseAuth.getInstance()
         db = FirebaseFirestore.getInstance()
-        auth.useEmulator("10.0.2.2", 9099)
+        auth.useEmulator("127.0.0.1", 9099)
         // Também pode ser executado depois do outro teste conectado;
         // reconfigurar Firestore já iniciado causa IllegalStateException.
-        val emulatorHost = "10.0.2.2:8089"
+        val emulatorHost = "127.0.0.1:8089"
         val host = db.firestoreSettings.host
         if (host != emulatorHost) {
             check(host == "firestore.googleapis.com") {
                 "Firestore apontando para host inesperado: $host"
             }
-            db.useEmulator("10.0.2.2", 8089)
+            db.useEmulator("127.0.0.1", 8089)
         }
         auth.signOut()
     }
@@ -102,21 +102,42 @@ class ThreeBotsAuthenticatedAndroidUiTest {
         compose.onNodeWithTag("atrio-auth-password").performTextInput(password)
         compose.onNodeWithTag("atrio-auth-submit").performScrollTo().performClick()
         waitFor("atrio-tab-publish", 45_000)
-        val uid = auth.currentUser?.uid ?: error("Login Firebase não criou usuário")
+        val currentUser = auth.currentUser ?: error("Login Firebase não criou usuário")
+        val uid = currentUser.uid
         assertTrue("Conta Firebase criada fora do emulador", uid.isNotBlank())
 
-        // A interface pode aparecer antes da última escrita assíncrona do
-        // cadastro. Não publicar nem fazer logout até o perfil constar no
-        // SERVIDOR do emulador, com a identidade correta.
-        compose.waitUntil(35_000) {
-            val current = auth.currentUser?.uid
-            if (current != uid) return@waitUntil false
-            runCatching {
-                val profile = Tasks.await(
-                    db.collection("profiles").document(uid).get(Source.SERVER),
-                    4, TimeUnit.SECONDS)
-                profile.exists() && profile.getString("displayName") == name
-            }.getOrDefault(false)
+        // Na segunda conta, a UI pode abrir antes de o Auth propagar o novo
+        // token ao Firestore. Confirmar a sessão atual antes de verificar a
+        // persistência no SERVIDOR; jamais aceitar um snapshot só do cache.
+        Tasks.await(currentUser.getIdToken(false), 12, TimeUnit.SECONDS)
+        var lastServerResult = "sem leitura"
+        try {
+            compose.waitUntil(45_000) {
+                if (auth.currentUser?.uid != uid) {
+                    lastServerResult = "sessão de Auth mudou"
+                    return@waitUntil false
+                }
+                try {
+                    val profile = Tasks.await(
+                        db.collection("profiles").document(uid).get(Source.SERVER),
+                        5, TimeUnit.SECONDS)
+                    val correctName = profile.getString("displayName") == name
+                    lastServerResult = "existe=${profile.exists()}, nome_correto=$correctName"
+                    profile.exists() && correctName
+                } catch (failure: Exception) {
+                    val cause = failure.cause ?: failure
+                    // Apenas classe/código, nunca credenciais nem conteúdo do perfil.
+                    val code = (cause as? com.google.firebase.firestore.FirebaseFirestoreException)
+                        ?.code?.name ?: cause.javaClass.simpleName
+                    lastServerResult = "leitura do servidor falhou: $code"
+                    false
+                }
+            }
+        } catch (timeout: androidx.compose.ui.test.ComposeTimeoutException) {
+            throw AssertionError(
+                "Cadastro autenticado sem confirmação do perfil no Firestore emulado; " +
+                    "diagnóstico: $lastServerResult; sessão_atual=${auth.currentUser?.uid == uid}",
+                timeout)
         }
         assertEquals("Sessão do bot mudou durante o cadastro",uid,auth.currentUser?.uid)
         return uid

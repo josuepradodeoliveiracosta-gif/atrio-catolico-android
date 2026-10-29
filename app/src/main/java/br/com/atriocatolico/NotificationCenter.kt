@@ -288,7 +288,7 @@ internal fun NotificationCenter(
                 if (admin) NoticePreference("Pendências administrativas", inbox.enabledAdmin) { inbox.preference("admin", it) }
                 Text("Estas opções controlam os avisos exibidos na central e no sino. Não apagam pedidos nem denúncias.", fontSize = 12.sp, color = Muted)
                 Text("Preferências e leitura dos avisos de verificação e administração são salvas por conta neste aparelho. " +
-                    "A leitura das respostas é sincronizada na sua conta. Esta versão não envia avisos com o app fechado.", fontSize = 12.sp, color = Muted)
+                    "A leitura das respostas é sincronizada na sua conta. Para avisos fora do aplicativo, confira Avisos neste aparelho no Perfil.", fontSize = 12.sp, color = Muted)
             }
         }, confirmButton = { TextButton(onClick = { preferences = false }) { Text("Concluir") } })
     dismissTarget?.let { target -> AlertDialog(onDismissRequest = { dismissTarget = null },

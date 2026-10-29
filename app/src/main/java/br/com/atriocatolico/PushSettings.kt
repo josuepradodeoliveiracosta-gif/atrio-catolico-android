@@ -11,6 +11,12 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -29,7 +35,8 @@ internal fun PushSettings(uid: String, db: FirebaseFirestore) {
     var busy by remember(uid) { mutableStateOf(false) }
     var feedback by remember(uid) { mutableStateOf("") }
     var backgroundEnabled by remember(uid) { mutableStateOf(BackgroundNoticeScheduler.enabled(context, uid)) }
-    var permissionForBackground by remember { mutableStateOf(false) }
+    var diagnosticsOpen by rememberSaveable(uid) { mutableStateOf(false) }
+    var permissionForBackground by remember(uid) { mutableStateOf(false) }
     var lastRelayStatus by remember(uid) { mutableStateOf(InstantPushRelay.lastStatus(context, uid)) }
 
     fun turnOn() {
@@ -60,13 +67,13 @@ internal fun PushSettings(uid: String, db: FirebaseFirestore) {
 
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("Avisos no celular", color = Wine, style = MaterialTheme.typography.titleMedium)
-            Text("Recepção FCM: prepara avisos enviados por um servidor confiável. " +
-                "O envio depende da ativação do servidor e do cadastro deste aparelho.",
+            Text("Avisos neste aparelho", color = Wine, style = MaterialTheme.typography.titleMedium)
+            Text("Receba avisos mesmo quando o Átrio não estiver aberto. " +
+                "O cadastro do aparelho não confirma a entrega: ela também depende da conexão e das configurações do Android.",
                 color = Muted, fontSize = 12.sp)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(if (active) "Dispositivo cadastrado" else "Desativado", fontSize = 14.sp)
-                Switch(checked = active, enabled = !busy, onCheckedChange = { enabled ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text(if (active) "Dispositivo cadastrado" else "Desativado", fontSize = 14.sp, modifier = Modifier.weight(1f).padding(end = 12.dp))
+                Switch(modifier = Modifier.semantics { contentDescription = "Receber avisos neste aparelho" }, checked = active, enabled = !busy, onCheckedChange = { enabled ->
                     feedback = ""
                     if (enabled) {
                         if (Build.VERSION.SDK_INT >= 33 &&
@@ -82,7 +89,8 @@ internal fun PushSettings(uid: String, db: FirebaseFirestore) {
                 })
             }
             if (busy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-            if (feedback.isNotBlank()) Text(feedback, color = Wine, fontSize = 12.sp)
+            if (feedback.isNotBlank()) Text(feedback, color = Wine, fontSize = 14.sp,
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
             HorizontalDivider()
             Text("Verificação em segundo plano", color = Wine,
                 style = MaterialTheme.typography.titleMedium)
@@ -90,9 +98,9 @@ internal fun PushSettings(uid: String, db: FirebaseFirestore) {
                 "Intervalo aproximado de 30 minutos; o Android pode atrasar ou impedir a " +
                 "execução se o aplicativo for forçado a parar. Usa leituras da franquia Firestore.",
                 fontSize = 12.sp, color = Muted)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(if (backgroundEnabled) "Verificação ativada" else "Desativada", fontSize = 14.sp)
-                Switch(checked = backgroundEnabled, onCheckedChange = { newValue ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text(if (backgroundEnabled) "Verificação ativada" else "Desativada", fontSize = 14.sp, modifier = Modifier.weight(1f).padding(end = 12.dp))
+                Switch(modifier = Modifier.semantics { contentDescription = "Verificação periódica em segundo plano" }, checked = backgroundEnabled, onCheckedChange = { newValue ->
                     feedback = ""
                     if (!newValue) {
                         BackgroundNoticeScheduler.disable(context, uid)
@@ -111,36 +119,41 @@ internal fun PushSettings(uid: String, db: FirebaseFirestore) {
                     }
                 })
             }
-            Text("Esta opção não depende do cadastro FCM e respeita as categorias " +
-                "habilitadas na central de notificações. Não há cobrança ativada.",
+            Text("Esta verificação é complementar ao push e respeita as categorias " +
+                "habilitadas na central de notificações.",
                 fontSize = 11.sp, color = Muted)
-            if (active) {
-                TextButton(onClick = {
-                    FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
-                        if (task.isSuccessful) {
-                            val token = task.result.orEmpty()
-                            if (token.isNotBlank()) {
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE)
-                                    as ClipboardManager
-                                clipboard.setPrimaryClip(ClipData.newPlainText("Token FCM de teste", token))
-                                feedback = "Token copiado. Use apenas no Console Firebase; não compartilhe publicamente."
-                            }
-                        } else feedback = "Não foi possível consultar o token de teste."
-                    }
-                }) { Text("Copiar token para teste no Firebase") }
-                Text("O token identifica este aparelho como destino de mensagens, não a sua " +
-                    "identidade. Mantenha-o privado.", fontSize = 11.sp, color = Muted)
+            OutlinedButton(onClick = { diagnosticsOpen = !diagnosticsOpen }, modifier = Modifier.fillMaxWidth()) {
+                Text(if (diagnosticsOpen) "Ocultar diagnóstico avançado" else "Diagnóstico avançado")
             }
-            HorizontalDivider()
-            Text("Diagnóstico do Push enviado", color = Wine,
-                style = MaterialTheme.typography.titleMedium)
-            Text("Veja a resposta do Cloudflare no aparelho que publicou uma resposta. " +
-                "Não mostra dados privados e não envia notificações extras.",
-                fontSize = 12.sp, color = Muted)
-            Text(lastRelayStatus, fontSize = 12.sp, color = Wine)
-            OutlinedButton(onClick = {
-                lastRelayStatus = InstantPushRelay.lastStatus(context, uid)
-            }, modifier = Modifier.fillMaxWidth()) { Text("Atualizar diagnóstico do Push") }
+            if (diagnosticsOpen) {
+                if (active) {
+                    TextButton(onClick = {
+                        FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+                            if (task.isSuccessful) {
+                                val token = task.result.orEmpty()
+                                if (token.isNotBlank()) {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE)
+                                        as ClipboardManager
+                                    clipboard.setPrimaryClip(ClipData.newPlainText("Token FCM de teste", token))
+                                    feedback = "Token copiado. Use apenas no Console Firebase; não compartilhe publicamente."
+                                }
+                            } else feedback = "Não foi possível consultar o token de teste."
+                        }
+                    }) { Text("Copiar token para teste no Firebase") }
+                    Text("O token identifica este aparelho como destino de mensagens, não a sua " +
+                        "identidade. Mantenha-o privado.", fontSize = 11.sp, color = Muted)
+                }
+                HorizontalDivider()
+                Text("Última tentativa de envio", color = Wine,
+                    style = MaterialTheme.typography.titleMedium)
+                Text("Veja a resposta do Cloudflare no aparelho que publicou uma resposta. " +
+                    "Esse registro não confirma recebimento no outro celular. Consultar não envia avisos extras.",
+                    fontSize = 12.sp, color = Muted)
+                Text(lastRelayStatus, fontSize = 12.sp, color = Wine)
+                OutlinedButton(onClick = {
+                    lastRelayStatus = InstantPushRelay.lastStatus(context, uid)
+                }, modifier = Modifier.fillMaxWidth()) { Text("Atualizar diagnóstico do Push") }
+            }
         }
     }
 }

@@ -17,6 +17,12 @@ val atrioStorePassword = System.getenv("ATRIO_SIGNING_STORE_PASSWORD")
 val atrioKeyAlias = System.getenv("ATRIO_SIGNING_KEY_ALIAS")
 val atrioKeyPassword = System.getenv("ATRIO_SIGNING_KEY_PASSWORD")
 
+// Versão do APK de testes: avançar para 2, 3, ... a cada NOVA atualização Debug.
+// O release permanece com 0.19.0 / versionCode 27 até aprovação explícita.
+val atrioDebugPatch = 1
+val atrioDebugVersionName = "0.19.$atrioDebugPatch"
+val atrioDebugVersionCode = 27 + atrioDebugPatch
+
 android {
     namespace = "br.com.atriocatolico"
     compileSdk = 36
@@ -28,6 +34,7 @@ android {
         targetSdk = 35
         versionCode = 27
         versionName = "0.19.0"
+        buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"0.19.0\"")
         val relayUrl = System.getenv("ATRIO_PUSH_WORKER_URL").orEmpty()
         val allowed = Regex("^https://[a-zA-Z0-9-]+\\.[a-zA-Z0-9-]+\\.workers\\.dev$")
         require(relayUrl.isBlank() || allowed.matches(relayUrl)) { "ATRIO_PUSH_WORKER_URL invalida" }
@@ -47,6 +54,10 @@ android {
     }
 
     buildTypes {
+        getByName("debug") {
+            // A numeração de testes aparece também dentro da aba Perfil.
+            buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"$atrioDebugVersionName\"")
+        }
         getByName("release") {
             signingConfigs.findByName("atrioRelease")?.let { signingConfig = it }
         }
@@ -59,6 +70,17 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+}
+
+// Alterar somente os metadados do APK Debug via API oficial de variantes AGP.
+// O Android permite instalar atualizações quando versionCode cresce e a assinatura coincide.
+androidComponents {
+    onVariants(selector().withBuildType("debug")) { variant ->
+        variant.outputs.forEach { output ->
+            output.versionName.set(atrioDebugVersionName)
+            output.versionCode.set(atrioDebugVersionCode)
+        }
+    }
 }
 
 dependencies {

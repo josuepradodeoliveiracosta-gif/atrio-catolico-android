@@ -61,17 +61,17 @@ class ThreeBotsOnlineEmulatorTest {
         }
         auth = FirebaseAuth.getInstance(app)
         db = FirebaseFirestore.getInstance(app)
-        auth.useEmulator("10.0.2.2", 9099)
+        auth.useEmulator("127.0.0.1", 9099)
         // Há outro teste autenticado no MESMO processo de instrumentação.
         // Firestore não permite chamar useEmulator() após inicialização:
         // reutilizar somente quando o host já aponta para o emulador seguro.
-        val emulatorHost = "10.0.2.2:8089"
+        val emulatorHost = "127.0.0.1:8089"
         val configuredHost = db.firestoreSettings.host
         if (configuredHost != emulatorHost) {
             check(configuredHost == "firestore.googleapis.com") {
                 "Firestore configurado para host inesperado: $configuredHost"
             }
-            db.useEmulator("10.0.2.2", 8089)
+            db.useEmulator("127.0.0.1", 8089)
         }
         auth.signOut()
     }
