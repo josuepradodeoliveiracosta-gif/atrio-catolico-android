@@ -4,19 +4,22 @@ on:
   push:
     branches: [feature/guardiao-autonomo-20261029]
     paths:
-      - 'cloudflare/guardiao-worker/**'
+      - 'cloudflare/guardian-worker/**'
       - 'app/src/main/java/br/com/atriocatolico/Guardiao**'
       - 'app/src/main/java/br/com/atriocatolico/ModerationScreen.kt'
       - 'firestore.rules'
       - 'tests/security/**'
+      - '.github/workflows/guardian-ci.yml'
+      - '.github/workflows/guardiao-autonomo-qa.yml'
   pull_request:
     branches: [main]
     paths:
-      - 'cloudflare/guardiao-worker/**'
+      - 'cloudflare/guardian-worker/**'
       - 'app/src/main/java/br/com/atriocatolico/Guardiao**'
       - 'app/src/main/java/br/com/atriocatolico/ModerationScreen.kt'
       - 'firestore.rules'
       - 'tests/security/**'
+      - '.github/workflows/guardian-ci.yml'
       - '.github/workflows/guardiao-autonomo-qa.yml'
   workflow_dispatch:
 
@@ -37,21 +40,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -f cloudflare/guardiao-worker/package.json || {
+          test -f cloudflare/guardian-worker/package.json || {
             echo "::error::A implementação do Worker Guardião não foi sincronizada nesta branch."
             exit 1
           }
-          test -f cloudflare/guardiao-worker/src/index.js || {
+          test -f cloudflare/guardian-worker/src/index.js || {
             echo "::error::Worker do Guardião ainda não foi enviado ao GitHub."
             exit 1
           }
       - name: Executar testes sem secrets nem acesso a serviços reais
-        working-directory: cloudflare/guardiao-worker
+        working-directory: cloudflare/guardian-worker
         run: |
           if [ -f package-lock.json ]; then npm ci; else npm install --ignore-scripts; fi
           npm test
       - name: Verificar sintaxe do Worker
-        run: node --check cloudflare/guardiao-worker/src/index.js
+        run: node --check cloudflare/guardian-worker/src/index.js
 
   firestore-guardiao:
     name: Regras e recursos do Guardião no emulador
