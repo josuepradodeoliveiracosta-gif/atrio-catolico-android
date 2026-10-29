@@ -16,3 +16,9 @@ CREATE TABLE IF NOT EXISTS avatar_moderation (
   reason TEXT NOT NULL,
   created_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS avatar_mutex (
+  uid TEXT PRIMARY KEY NOT NULL,
+  nonce TEXT NOT NULL,
+  expires_at INTEGER NOT NULL
+);
