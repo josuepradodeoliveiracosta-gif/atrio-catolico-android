@@ -196,6 +196,8 @@ service cloud.firestore {
     match /public_profiles/{uid} {
       allow get: if signedIn();
       allow list: if false;
+      // getAfter valida o perfil privado após a mesma transação de atualização.
+      // Mantém compatibilidade com edições em clientes anteriores.
       allow create, update: if me(uid)
         && exists(/databases/$(database)/documents/profiles/$(uid))
         && request.resource.data.keys().hasOnly([
@@ -206,13 +208,13 @@ service cloud.firestore {
         ])
         && validText(request.resource.data.displayName, 2, 35)
         && request.resource.data.displayName ==
-          get(/databases/$(database)/documents/profiles/$(uid)).data.displayName
+          getAfter(/databases/$(database)/documents/profiles/$(uid)).data.displayName
         && request.resource.data.bio is string
         && request.resource.data.bio.size() <= 180
         && request.resource.data.bio ==
-          get(/databases/$(database)/documents/profiles/$(uid)).data.get('bio', '')
+          getAfter(/databases/$(database)/documents/profiles/$(uid)).data.get('bio', '')
         && request.resource.data.joinedAt ==
-          get(/databases/$(database)/documents/profiles/$(uid)).data.createdAt
+          getAfter(/databases/$(database)/documents/profiles/$(uid)).data.createdAt
         && request.resource.data.updatedAt == request.time;
       allow delete: if me(uid);
     }
