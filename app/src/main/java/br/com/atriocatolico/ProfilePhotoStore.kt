@@ -38,20 +38,39 @@ internal object ProfilePhotoStore {
     }.getOrNull()
 
     fun decodeSelection(context: Context, uri: Uri): Bitmap {
-        val mime = context.contentResolver.getType(uri).orEmpty().lowercase()
-        require(mime == "image/jpeg" || mime == "image/png" || mime == "image/webp") {
+        val resolver = context.contentResolver
+        val mime = resolver.getType(uri).orEmpty().lowercase()
+        // Alguns provedores de nuvem não informam o tamanho antecipadamente.
+        // A falha dessa consulta não deve rejeitar uma foto que pode ser lida.
+        val length = runCatching {
+            resolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
+        }.getOrDefault(-1L)
+        return decodeImage(mime, length) { resolver.openInputStream(uri) }
+    }
+
+    /**
+     * Separar a decodificação do provedor Android permite reproduzir o fluxo
+     * real (JPG/PNG/WebP) no emulador com imagem sintética, sem galeria externa.
+     */
+    internal fun decodeImage(
+        mime: String, length: Long, openStream: () -> java.io.InputStream?
+    ): Bitmap {
+        require(mime in setOf("image/jpeg", "image/png", "image/webp")) {
             "Escolha uma imagem JPG, PNG ou WebP."
         }
-        val length = context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
-        require(length <= MAX_INPUT_BYTES || length == -1L) {
+        require(length in -1L..MAX_INPUT_BYTES) {
             "A imagem deve ter até 12 MB."
         }
+
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        context.contentResolver.openInputStream(uri)?.use {
-            BitmapFactory.decodeStream(it, null, bounds)
-        } ?: error("Não foi possível abrir a imagem.")
-        require(bounds.outWidth in 1..MAX_ORIGINAL_SIDE && bounds.outHeight in 1..MAX_ORIGINAL_SIDE) {
-            "Resolução da imagem não suportada."
+        // BitmapFactory.decodeStream retorna null DE PROPÓSITO com
+        // inJustDecodeBounds=true. O resultado válido são outWidth/outHeight.
+        // Antes, o ?: error() rejeitava TODAS as fotos, mesmo as válidas.
+        val boundsStream = openStream() ?: error("Não foi possível abrir a imagem.")
+        boundsStream.use { BitmapFactory.decodeStream(it, null, bounds) }
+        require(bounds.outWidth in 1..MAX_ORIGINAL_SIDE &&
+            bounds.outHeight in 1..MAX_ORIGINAL_SIDE) {
+            "Imagem inválida ou resolução não suportada."
         }
         var sample = 1
         while (bounds.outWidth / sample > 1200 || bounds.outHeight / sample > 1200) sample *= 2
@@ -59,9 +78,10 @@ internal object ProfilePhotoStore {
             inSampleSize = sample
             inPreferredConfig = Bitmap.Config.ARGB_8888
         }
-        return context.contentResolver.openInputStream(uri)?.use {
+        return (openStream() ?: error("Não foi possível reabrir a imagem.")).use {
             BitmapFactory.decodeStream(it, null, options)
-        } ?: error("Não foi possível decodificar a imagem.")
+                ?: error("Não foi possível decodificar a imagem.")
+        }
     }
 
     /** O recorte quadrado no preview é o mesmo recorte salvo, sem distorção. */

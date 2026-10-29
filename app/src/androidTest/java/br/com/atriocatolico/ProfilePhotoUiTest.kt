@@ -13,12 +13,49 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.google.firebase.FirebaseApp
 import com.google.firebase.firestore.FirebaseFirestore
 import org.junit.Assert.*
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import org.junit.Rule
 import org.junit.Test
 
 /** Fotos de QA são sintéticas e nunca são enviadas ao projeto Firebase de produção. */
 class ProfilePhotoUiTest {
     @get:Rule val compose = createComposeRule()
+
+    @Test fun galleryDecoderAcceptsValidPhotosAndRejectsCorruptOnes() {
+        check(FirebaseApp.getInstance().options.projectId == "demo-atrio-v11")
+        val original = Bitmap.createBitmap(300, 200, Bitmap.Config.ARGB_8888).apply {
+            eraseColor(Color.rgb(99, 45, 57))
+        }
+        try {
+            listOf(
+                Bitmap.CompressFormat.JPEG to "image/jpeg",
+                Bitmap.CompressFormat.PNG to "image/png",
+                Bitmap.CompressFormat.WEBP_LOSSY to "image/webp"
+            ).forEach { (format, mime) ->
+                val bytes = ByteArrayOutputStream().use { stream ->
+                    assertTrue(original.compress(format, 90, stream))
+                    stream.toByteArray()
+                }
+                val decoded = ProfilePhotoStore.decodeImage(mime, bytes.size.toLong()) {
+                    ByteArrayInputStream(bytes)
+                }
+                assertEquals(300, decoded.width)
+                assertEquals(200, decoded.height)
+                decoded.recycle()
+            }
+            try {
+                ProfilePhotoStore.decodeImage("image/png", 3) {
+                    ByteArrayInputStream(byteArrayOf(1, 2, 3))
+                }
+                fail("Imagem corrompida deveria ser recusada")
+            } catch (expected: IllegalArgumentException) {
+                assertTrue(expected.message.orEmpty().contains("Imagem inválida"))
+            }
+        } finally {
+            original.recycle()
+        }
+    }
 
     @Test fun photoIsPrivatePerUidAndCanBeRemoved() {
         check(FirebaseApp.getInstance().options.projectId == "demo-atrio-v11")
