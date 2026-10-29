@@ -43,7 +43,10 @@ internal object CloudinaryAvatarClient {
         }
 
 
-    internal data class PendingAvatar(val uid: String, val createdAt: Long, val status: String)
+    internal data class PendingAvatar(val uid: String, val createdAt: Long, val revision: String, val status: String)
+
+    private val validRevision =
+        Regex("^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 
     /** Fila administrativa: retornada somente a administradores autenticados. */
     suspend fun moderationPending(actorUid: String): List<PendingAvatar> = withContext(Dispatchers.IO) {
@@ -61,9 +64,11 @@ internal object CloudinaryAvatarClient {
                     val item = arr.getJSONObject(i)
                     val target = item.optString("uid")
                     val status = item.optString("status")
+                    val revision = item.optString("revision")
                     if (Regex("^[A-Za-z0-9_-]{1,128}$").matches(target) &&
-                        status in setOf("pending", "approved")) {
-                        add(PendingAvatar(target, item.optLong("createdAt"), status))
+                        status in setOf("pending", "approved") &&
+                        validRevision.matches(revision)) {
+                        add(PendingAvatar(target, item.optLong("createdAt"), revision, status))
                     }
                 }
             }
@@ -73,10 +78,11 @@ internal object CloudinaryAvatarClient {
     }
 
     /** A imagem protegida é entregue pelo Worker ao administrador; nunca há URL pública. */
-    suspend fun moderationPreview(actorUid: String, targetUid: String): Bitmap? =
+    suspend fun moderationPreview(actorUid: String, targetUid: String, revision: String): Bitmap? =
         withContext(Dispatchers.IO) {
             require(Regex("^[A-Za-z0-9_-]{1,128}$").matches(targetUid))
-            val conn = adminConnection(actorUid, "/avatar/moderation/preview?uid=$targetUid",
+            require(validRevision.matches(revision))
+            val conn = adminConnection(actorUid, "/avatar/moderation/preview?uid=$targetUid&revision=$revision",
                 "GET", "image/jpeg")
             try {
                 if (conn.responseCode != 200 ||
@@ -101,12 +107,14 @@ internal object CloudinaryAvatarClient {
             } finally { conn.disconnect() }
         }
 
-    suspend fun moderationReview(actorUid: String, targetUid: String, approve: Boolean,
-                                 reason: String): String = withContext(Dispatchers.IO) {
+    suspend fun moderationReview(actorUid: String, targetUid: String, revision: String,
+                                 approve: Boolean, reason: String): String = withContext(Dispatchers.IO) {
         require(Regex("^[A-Za-z0-9_-]{1,128}$").matches(targetUid)) { "Conta inválida." }
+        require(validRevision.matches(revision)) { "Foto alterada. Atualize a fila." }
         require(reason.trim().length in 5..100) { "Informe o motivo (5 a 100 caracteres)." }
         request(actorUid, "/avatar/moderation/review", "POST", null, JSONObject()
             .put("uid", targetUid)
+            .put("revision", revision)
             .put("action", if (approve) "approved" else "rejected")
             .put("reason", reason.trim()).toString())
     }
