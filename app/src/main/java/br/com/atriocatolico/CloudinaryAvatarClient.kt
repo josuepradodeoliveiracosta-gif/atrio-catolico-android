@@ -77,6 +77,7 @@ internal object CloudinaryAvatarClient {
                 when(code) {
                     401 -> "Entre novamente na sua conta."
                     403 -> "Sem permissão para moderar fotografias."
+                    409 -> "Outra alteração da foto está em andamento. Tente novamente."
                     413 -> "Imagem inválida ou maior que o limite de 5 MB."
                     429 -> "Aguarde um minuto para enviar outra foto."
                     else -> "Serviço de fotos temporariamente indisponível."
