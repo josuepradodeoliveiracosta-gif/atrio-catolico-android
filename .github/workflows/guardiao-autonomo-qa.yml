@@ -148,3 +148,53 @@ jobs:
             --data '{"enabled":true,"allowHold":true,"emergencyStop":false}')
           test "$status" = 503
           grep -F '"status":"qa_read_only"' /tmp/guardian-qa-denied.json
+
+  remote-qa-readonly:
+    if: >-
+      github.ref == 'refs/heads/feature/guardiao-autonomo-20261029' &&
+      github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android' &&
+      vars.GUARDIAN_QA_REMOTE_READY == 'true'
+    runs-on: ubuntu-latest
+    environment: guardian-qa
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      GUARDIAN_QA_REMOTE_READY: ${{ vars.GUARDIAN_QA_REMOTE_READY }}
+      QA_FIREBASE_PROJECT_ID: ${{ vars.GUARDIAN_QA_FIREBASE_PROJECT_ID }}
+      QA_APPROVED_PROJECT_ID: ${{ vars.GUARDIAN_QA_APPROVED_PROJECT_ID }}
+      QA_WIF_PROVIDER: ${{ vars.GUARDIAN_QA_WIF_PROVIDER }}
+      QA_SERVICE_ACCOUNT: ${{ vars.GUARDIAN_QA_SERVICE_ACCOUNT }}
+    steps:
+      - name: Checkout only feature branch
+        uses: actions/checkout@v4
+      - name: Validate project and branch before requesting identity token
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GUARDIAN_QA_REMOTE_READY" == 'true' ]]
+          [[ "$QA_FIREBASE_PROJECT_ID" =~ ^atrio-catolico-qa(-[a-z0-9-]+)?$ ]]
+          [[ "${#QA_FIREBASE_PROJECT_ID}" -le 30 ]]
+          [[ "$QA_FIREBASE_PROJECT_ID" == "$QA_APPROVED_PROJECT_ID" ]]
+          [[ "$QA_WIF_PROVIDER" == projects/*/locations/global/workloadIdentityPools/*/providers/* ]]
+          [[ "$QA_SERVICE_ACCOUNT" == *"@$QA_FIREBASE_PROJECT_ID.iam.gserviceaccount.com" ]]
+      - name: Short-lived access token via GitHub OIDC and Google WIF
+        id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ env.QA_FIREBASE_PROJECT_ID }}
+          workload_identity_provider: ${{ env.QA_WIF_PROVIDER }}
+          service_account: ${{ env.QA_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_lifetime: 300s
+          access_token_scopes: https://www.googleapis.com/auth/datastore
+          create_credentials_file: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Read synthetic QA fixtures only (zero writes)
+        working-directory: cloudflare/guardian-worker
+        env:
+          QA_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+        run: node src/remote-readonly.mjs
