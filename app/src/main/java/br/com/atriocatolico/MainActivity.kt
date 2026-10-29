@@ -605,6 +605,7 @@ private fun Statistic(value: String, label: String) {
 internal fun DetailScreen(
     post: Post, name: String, onLike: () -> Unit, onSave: () -> Unit,
     onReply: (String, (Boolean) -> Unit) -> Unit, onReport: (() -> Unit)? = null,
+    followed: Boolean = false, onFollow: (() -> Unit)? = null,
     onEdit: (() -> Unit)? = null, onDelete: (() -> Unit)? = null,
     onDeleteReply: ((String) -> Unit)? = null,
     onReportReply: ((Reply) -> Unit)? = null,
@@ -612,8 +613,17 @@ internal fun DetailScreen(
 ) {
     var response by remember(post.id) { mutableStateOf("") }
     var sendingReply by remember(post.id) { mutableStateOf(false) }
+    var quotedReply by remember(post.id) { mutableStateOf<Reply?>(null) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
         DiscussionCard(post, onOpen = {}, onLike = { onLike() }, onSave = { onSave() }, fullText = true)
+        if (onFollow != null) {
+            OutlinedButton(onClick = onFollow,
+                modifier = Modifier.fillMaxWidth().testTag("atrio-follow-discussion")) {
+                Text(if (followed) "Remover da lista de acompanhadas" else "Acompanhar esta discussão")
+            }
+            Text("Lista pessoal deste aparelho. As notificações continuam dependendo das preferências do Android.",
+                style = MaterialTheme.typography.bodySmall, color = Muted)
+        }
         if (post.mine && (onEdit != null || onDelete != null)) {
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -638,6 +648,12 @@ internal fun DetailScreen(
                     MemberBadgeRow(r.ownerUid)
                     Text(r.message, fontSize = 13.sp, lineHeight = 19.sp, color = Ink)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (r.id.isNotBlank()) {
+                            TextButton(
+                                onClick = { quotedReply = r },
+                                modifier = Modifier.testTag("atrio-quote-reply")
+                            ) { Text("Responder a este comentário", fontSize = 12.sp, color = Wine) }
+                        }
                         if (r.id.isNotBlank() && onReportReply != null) {
                             TextButton(onClick = { onReportReply(r) }) {
                                 Text("Denunciar", color = Wine, fontSize = 12.sp)
@@ -656,15 +672,29 @@ internal fun DetailScreen(
         Spacer(Modifier.height(14.dp))
         repliesFooter()
         Text("Responder como $name", color = Wine, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        quotedReply?.let { selected ->
+            Card(colors = CardDefaults.cardColors(containerColor = WineSoft)) {
+                Column(Modifier.fillMaxWidth().padding(10.dp)) {
+                    Text("Citando ${selected.author}", fontWeight = FontWeight.Bold, color = Wine)
+                    Text(selected.message.take(100), maxLines = 2, style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = { quotedReply = null }) { Text("Remover citação") }
+                }
+            }
+        }
         OutlinedTextField(value = response, onValueChange = { if (it.length <= 600) response = it },
             modifier = Modifier.fillMaxWidth().testTag("atrio-reply-input"), label = { Text("Sua resposta") }, minLines = 2)
         Spacer(Modifier.height(9.dp))
         Button(
             onClick = {
                 sendingReply = true
-                onReply(response.trim()) { success ->
+                val quote = quotedReply
+                // Compatível com as regras existentes: citação é texto,
+                // não uma menção certificada nem um novo vínculo no servidor.
+                val prefix = if (quote == null) "" else "↳ Em resposta a ${quote.author.take(35)}: "
+                val available = (600 - prefix.length).coerceAtLeast(0)
+                onReply(prefix + response.trim().take(available)) { success ->
                     sendingReply = false
-                    if (success) response = ""
+                    if (success) { response = ""; quotedReply = null }
                 }
             },
             enabled = response.isNotBlank() && !sendingReply,

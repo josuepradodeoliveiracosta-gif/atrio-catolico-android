@@ -366,6 +366,8 @@ private fun OnlineCommunity(
     var savesLoading by remember(uid) { mutableStateOf(true) }
     var savesError by remember(uid) { mutableStateOf(false) }
     var savedRetry by remember(uid) { mutableStateOf(0) }
+    var followedRevision by remember(uid) { mutableIntStateOf(0) }
+    val followedIds = remember(uid, followedRevision) { LocalFollowedDiscussions.ids(context, uid) }
 
     DisposableEffect(db, uid, feedLimit, feedRetry) {
         var active = true
@@ -657,6 +659,11 @@ private fun OnlineCommunity(
                     onLike = { toggle("likedPosts", detail.id, detail.liked) },
                     onSave = { toggle("savedPosts", detail.id, detail.saved) },
                     onReply = { body, done -> reply(detail.id, body, done) },
+                    followed = detail.id in followedIds,
+                    onFollow = {
+                        LocalFollowedDiscussions.toggle(context, uid, detail.id)
+                        followedRevision++
+                    },
                     onReport = { reportPost = detail.id },
                     onEdit = if (detail.mine) ({ editingPostId = detail.id }) else null,
                     onDelete = if (detail.mine) ({ deletingPostId = detail.id }) else null,
@@ -707,6 +714,8 @@ private fun OnlineCommunity(
                     onSignOut = onSignOut, onModeration = onModeration,
                     onClergyReview = onClergyReview,
                     onSavedPosts = { navigate(Tab.SAVED) },
+                    onFollowed = { navigate(Tab.PROFILE) },
+                    followedRevision = followedRevision,
                     onPhotoChanged = onPhotoChanged,
                     onNotifications = { noticesOpen = true; returnToNotices = false },
                     onReviews = { guardiaoAppealsOpen = true },

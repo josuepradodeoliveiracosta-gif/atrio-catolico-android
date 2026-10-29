@@ -42,17 +42,23 @@ internal fun OnlineProfileScreen(
     onCreate: () -> Unit, onOpen: (String) -> Unit,
     onLike: (String) -> Unit, onSave: (String) -> Unit,
     onSavedPosts: () -> Unit, onNotifications: () -> Unit, onReviews: () -> Unit,
+    onFollowed: () -> Unit = {}, followedRevision: Int = 0,
     onPhotoChanged: () -> Unit = {}
 ) {
     var badgesOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var editorOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var publicationsOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var discussionsOpen by rememberSaveable(uid) { mutableStateOf(false) }
+    var followedOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var savedMessage by remember(uid) { mutableStateOf(false) }
     BackHandler(enabled = badgesOpen && !editorOpen) { badgesOpen = false }
     BackHandler(enabled = discussionsOpen) { discussionsOpen = false }
+    BackHandler(enabled = followedOpen) { followedOpen = false }
 
-    if (discussionsOpen) {
+    if (followedOpen) {
+        FollowedDiscussionsScreen(db, uid, followedRevision,
+            onBack = { followedOpen = false }, onOpen = onOpen)
+    } else if (discussionsOpen) {
         ProfileDiscussionHistory(db, uid, onBack = { discussionsOpen = false }, onOpen = onOpen)
     } else if (badgesOpen) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
@@ -113,6 +119,9 @@ internal fun OnlineProfileScreen(
                 Card(Modifier.fillMaxWidth()) {
                     ProfileAction("Minhas discussões", "Consulte até 50 discussões suas no Firestore.",
                         Icons.Outlined.Forum) { discussionsOpen = true }
+                    HorizontalDivider()
+                    ProfileAction("Discussões acompanhadas", "Sua lista pessoal neste aparelho.",
+                        Icons.Outlined.BookmarkBorder) { followedOpen = true }
                     HorizontalDivider()
                     ProfileAction("Publicações salvas", "Retome as discussões que você guardou.",
                         Icons.Outlined.BookmarkBorder, onSavedPosts)
