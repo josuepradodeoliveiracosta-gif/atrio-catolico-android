@@ -28,7 +28,7 @@ Os testes com REST simulado **não são** chamadas a Firebase em produção e n�
 
 ## Condições obrigatórias antes de qualquer teste com Firestore remoto
 
-1. Criar e confirmar um **projeto Firebase/Firestore de QA diferente de `atrio-catolico`**, exclusivamente para contas fictícias e dados sintéticos. O adaptador atual ainda tem o ID de produção fixo: deve ser parametrizado e testado antes de conectar qualquer credencial.
+1. Criar e confirmar um **projeto Firebase/Firestore de QA diferente de `atrio-catolico`**, exclusivamente para contas fictícias e dados sintéticos. O adaptador já aceita a escolha explícita de projeto `GUARDIAN_FIREBASE_PROJECT_ID` e bloqueia acesso ao projeto de produção sem `GUARDIAN_V2_PRODUCTION_APPROVED=true`. Ainda é necessário criar o projeto QA e validar a identidade técnica antes de usar credenciais.
 2. Definir identidade técnica específica do QA com permissões mínimas e testar negativas de escrita/leitura. Atenção: credenciais Admin SDK contornam as Security Rules clientes; validar IAM no backend.
 3. Confirmar índices de `collectionGroup(replies)`, capacidade de paginação e recuperação de janelas quando houver mais de 30 documentos por consulta.
 4. Simular retenção reversível, restauração, duplicidade, erro HTTP 400 `FAILED_PRECONDITION`, falha de rede, recurso e disputa simultânea dentro do projeto QA, com auditoria completa.
