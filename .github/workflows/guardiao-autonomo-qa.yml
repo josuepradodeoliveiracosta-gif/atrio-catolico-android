@@ -1,0 +1,105 @@
+name: QA Guardião Autônomo — testes isolados (sem deploy)
+
+on:
+  push:
+    branches: [feature/guardiao-autonomo-20261029]
+    paths:
+      - 'cloudflare/guardiao-worker/**'
+      - 'app/src/main/java/br/com/atriocatolico/Guardiao**'
+      - 'app/src/main/java/br/com/atriocatolico/ModerationScreen.kt'
+      - 'firestore.rules'
+      - 'tests/security/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'cloudflare/guardiao-worker/**'
+      - 'app/src/main/java/br/com/atriocatolico/Guardiao**'
+      - 'app/src/main/java/br/com/atriocatolico/ModerationScreen.kt'
+      - 'firestore.rules'
+      - 'tests/security/**'
+      - '.github/workflows/guardiao-autonomo-qa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  guardiao-offline:
+    name: Motor do Guardião — testes offline
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Exigir implementação real, não apenas documentação
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f cloudflare/guardiao-worker/package.json || {
+            echo "::error::A implementação do Worker Guardião não foi sincronizada nesta branch."
+            exit 1
+          }
+          test -f cloudflare/guardiao-worker/src/index.js || {
+            echo "::error::Worker do Guardião ainda não foi enviado ao GitHub."
+            exit 1
+          }
+      - name: Executar testes sem secrets nem acesso a serviços reais
+        working-directory: cloudflare/guardiao-worker
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install --ignore-scripts; fi
+          npm test
+      - name: Verificar sintaxe do Worker
+        run: node --check cloudflare/guardiao-worker/src/index.js
+
+  firestore-guardiao:
+    name: Regras e recursos do Guardião no emulador
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Testar regras com Firestore Emulator
+        working-directory: tests/security
+        run: |
+          npm ci
+          npm test
+
+  android-debug:
+    name: Compilar somente Android Debug e testes
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - name: Preparar Android 36
+        run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+      - name: Validar Firebase sem usar produção
+        run: python3 scripts/validar_firebase.py
+      - name: Testes Android locais e APK Debug
+        env:
+          ATRIO_PUSH_WORKER_URL: https://atrio-push.atrio-catolico.workers.dev
+          ATRIO_AVATAR_WORKER_URL: ''
+        run: gradle :app:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace
+      - name: Publicar somente APK Debug, nunca Release assinada
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: guardiao-autonomo-debug-qa
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
