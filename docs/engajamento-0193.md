@@ -41,3 +41,11 @@
 3. Capturar telas reais do emulador e documentar o resultado.
 4. Pedir autorização específica antes de publicar novas regras Firestore ou ativar `app_config/engagement`; não fazer migração automática.
 5. Nunca mesclar PR na `main`, gerar release assinado, ativar faturamento ou alterar backup sem autorização explícita.
+
+## Etapa seguinte implementada na branch — sincronização e avisos diretos
+- **Acompanhamento sincronizado:** a UI passa a observar até 40 documentos em `users/{uid}/followedPosts` se e somente se a configuração administrativa `app_config/engagement.enabled=true` for ativada após publicação das regras. Seguir/deixar de seguir usa `set/delete` idempotentes e trata falhas de rede. Com a configuração desativada, o comportamento local já validado é preservado.
+- **Notificação ao autor do comentário:** em uma resposta direta com `replyToId` e `replyToUid`, a escrita pode criar um aviso interno para o dono da resposta original, além do autor da discussão, quando são pessoas diferentes. Tudo no mesmo batch; as regras conferem que `replyToUid` é o dono da resposta alvo e que o aviso corresponde à nova resposta.
+- **Identificação no Centro de Notificações:** o aviso com `replyToId` válido indica que alguém respondeu ao comentário. O botão abre a discussão existente, sem expor perfil privado ou e-mail.
+- **Limites de custo:** acompanhamento sincronizado gera uma escrita ao seguir e uma exclusão ao deixar de seguir. O listener pessoal observa até 40 documentos, com leituras iniciais e em mudanças. A resposta direta acrescenta **no máximo uma notificação interna** ao destinatário distinto do dono da discussão; uma única operação batch continua agrupando as escritas. O push do Worker não foi alterado e **não existe confirmação de entrega de push para esse novo destinatário**.
+- **Importação local/remota:** não há migração automática da lista local de um aparelho para o banco. Essa escolha evita misturar preferências privadas e não é apresentada como sincronização prévia.
+- **Proteção de produção:** sem publicação explícita de regras e da flag, as novas chamadas sincronizadas e os avisos direcionados não serão usados no aplicativo real. Não habilitar a flag antes de validar as regras em produção.
