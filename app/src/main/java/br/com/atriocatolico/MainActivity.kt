@@ -610,6 +610,8 @@ internal fun DetailScreen(
     followed: Boolean = false, onFollow: (() -> Unit)? = null,
     followBusy: Boolean = false, followIsSynced: Boolean = false,
     onDirectReply: ((String, Reply, (Boolean) -> Unit) -> Unit)? = null,
+    currentUid: String = "",
+    onMentionReply: ((String, MentionCandidate, (Boolean) -> Unit) -> Unit)? = null,
     reactionContent: @Composable (Reply) -> Unit = {},
     onEdit: (() -> Unit)? = null, onDelete: (() -> Unit)? = null,
     onDeleteReply: ((String) -> Unit)? = null,
@@ -619,6 +621,11 @@ internal fun DetailScreen(
     var response by remember(post.id) { mutableStateOf("") }
     var sendingReply by remember(post.id) { mutableStateOf(false) }
     var quotedReply by remember(post.id) { mutableStateOf<Reply?>(null) }
+    var mentioned by remember(post.id) { mutableStateOf<MentionCandidate?>(null) }
+    var mentionMenuOpen by remember(post.id) { mutableStateOf(false) }
+    val participants = remember(post.replies, post.ownerUid, currentUid) {
+        mentionCandidates(post, currentUid)
+    }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
         DiscussionCard(post, onOpen = {}, onLike = { onLike() }, onSave = { onSave() }, fullText = true)
         if (onFollow != null) {
@@ -662,7 +669,7 @@ internal fun DetailScreen(
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (r.id.isNotBlank()) {
                             TextButton(
-                                onClick = { quotedReply = r },
+                                onClick = { quotedReply = r; mentioned = null },
                                 modifier = Modifier.testTag("atrio-quote-reply")
                             ) { Text("Responder a este comentário", fontSize = 12.sp, color = Wine) }
                             reactionContent(r)
@@ -685,6 +692,31 @@ internal fun DetailScreen(
         Spacer(Modifier.height(14.dp))
         repliesFooter()
         Text("Responder como $name", color = Wine, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        if (onMentionReply != null && participants.isNotEmpty()) {
+            Box {
+                OutlinedButton(
+                    onClick = { mentionMenuOpen = true },
+                    modifier = Modifier.testTag("atrio-mention-pick")
+                ) { Text("Mencionar participante @") }
+                DropdownMenu(expanded = mentionMenuOpen, onDismissRequest = { mentionMenuOpen = false }) {
+                    participants.forEach { candidate ->
+                        DropdownMenuItem(
+                            text = { Text(mentionDisplay(candidate)) },
+                            onClick = {
+                                mentioned = candidate
+                                quotedReply = null
+                                mentionMenuOpen = false
+                            }
+                        )
+                    }
+                }
+            }
+            mentioned?.let { target ->
+                Text("Mencionando ${mentionDisplay(target)}",
+                    color = Wine, style = MaterialTheme.typography.bodySmall)
+                TextButton(onClick = { mentioned = null }) { Text("Retirar menção") }
+            }
+        }
         quotedReply?.let { selected ->
             Card(colors = CardDefaults.cardColors(containerColor = WineSoft)) {
                 Column(Modifier.fillMaxWidth().padding(10.dp)) {
@@ -701,15 +733,18 @@ internal fun DetailScreen(
             onClick = {
                 sendingReply = true
                 val quote = quotedReply
+                val mention = mentioned
                 // Compatível com as regras existentes: citação é texto,
                 // não uma menção certificada nem um novo vínculo no servidor.
                 val prefix = if (quote == null) "" else "↳ Em resposta a ${quote.author.take(35)}: "
                 val available = (600 - prefix.length).coerceAtLeast(0)
                 val callback: (Boolean) -> Unit = { success ->
                     sendingReply = false
-                    if (success) { response = ""; quotedReply = null }
+                    if (success) { response = ""; quotedReply = null; mentioned = null }
                 }
-                if (quote != null && onDirectReply != null &&
+                if (mention != null && onMentionReply != null) {
+                    onMentionReply(mentionBody(mention, response), mention, callback)
+                } else if (quote != null && onDirectReply != null &&
                     quote.id.isNotBlank() && quote.ownerUid.isNotBlank()) {
                     // O backend valida que replyToUid pertence à resposta original.
                     onDirectReply(response.trim(), quote, callback)

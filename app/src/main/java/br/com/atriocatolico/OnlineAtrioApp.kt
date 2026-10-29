@@ -548,7 +548,10 @@ private fun OnlineCommunity(
             } else message = result.exception?.localizedMessage ?: "Não foi possível publicar."
         }
     }
-    fun reply(id: String, body: String, done: (Boolean) -> Unit, target: Reply? = null) {
+    fun reply(
+        id: String, body: String, done: (Boolean) -> Unit,
+        target: Reply? = null, mention: MentionCandidate? = null
+    ) {
         if (openedPost?.id != id) {
             message = "Discussão indisponível. Atualize o fórum e tente novamente."
             done(false)
@@ -579,6 +582,12 @@ private fun OnlineCommunity(
                     replyData["replyToId"] = target.id
                     replyData["replyToUid"] = target.ownerUid
                 }
+                if (mention != null && advancedEngagement && mention.uid != uid) {
+                    replyData["mentionUid"] = mention.uid
+                    if (mention.sourceReplyId.isNotBlank()) {
+                        replyData["mentionReplyId"] = mention.sourceReplyId
+                    }
+                }
                 batch.set(replyRef, replyData)
                 if (ownerUid != uid) {
                     val noticeRef = db.collection("users").document(ownerUid)
@@ -597,6 +606,12 @@ private fun OnlineCommunity(
                         target.ownerUid == ownerUid && target.id.isNotBlank()) {
                         notice["replyToId"] = target.id
                     }
+                    if (advancedEngagement && mention?.uid == ownerUid) {
+                        notice["mentionUid"] = ownerUid
+                        if (mention.sourceReplyId.isNotBlank()) {
+                            notice["mentionReplyId"] = mention.sourceReplyId
+                        }
+                    }
                     batch.set(noticeRef, notice)
                 }
                 // O destinatário da resposta direta pode ser distinto do autor
@@ -613,6 +628,24 @@ private fun OnlineCommunity(
                         "read" to false,
                         "createdAt" to FieldValue.serverTimestamp()
                     ))
+                }
+                // Uma menção explícita no tópico pode enviar um aviso privado
+                // ao participante, com UID verificado pelas regras do Firestore.
+                if (advancedEngagement && mention != null &&
+                    mention.uid != uid && mention.uid != ownerUid &&
+                    mention.uid != target?.ownerUid) {
+                    val noticeRef = db.collection("users").document(mention.uid)
+                        .collection("notifications").document(replyRef.id)
+                    val mentionNotice = mutableMapOf<String, Any>(
+                        "postId" to id, "replyId" to replyRef.id,
+                        "actorUid" to uid, "actorName" to name,
+                        "mentionUid" to mention.uid, "read" to false,
+                        "createdAt" to FieldValue.serverTimestamp()
+                    )
+                    if (mention.sourceReplyId.isNotBlank()) {
+                        mentionNotice["mentionReplyId"] = mention.sourceReplyId
+                    }
+                    batch.set(noticeRef, mentionNotice)
                 }
                 // Resposta e notificações continuam atômicas.
                 batch.commit().addOnCompleteListener { result ->
@@ -695,6 +728,10 @@ private fun OnlineCommunity(
                     onReply = { body, done -> reply(detail.id, body, done) },
                     onDirectReply = if (advancedEngagement) ({ body, target, done ->
                         reply(detail.id, body, done, target)
+                    }) else null,
+                    currentUid = uid,
+                    onMentionReply = if (advancedEngagement) ({ body, participant, done ->
+                        reply(detail.id, body, done, mention = participant)
                     }) else null,
                     reactionContent = { item ->
                         if (advancedEngagement)
