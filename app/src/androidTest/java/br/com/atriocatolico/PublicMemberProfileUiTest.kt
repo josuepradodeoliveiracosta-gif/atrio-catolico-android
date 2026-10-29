@@ -56,6 +56,29 @@ class PublicMemberProfileUiTest {
         compose.runOnIdle { assertEquals(listOf("qa-miguel", "qa-miguel"), selected) }
     }
 
+    @Test fun verifiedMentionOpensCanonicalParticipant() {
+        check(FirebaseApp.getInstance().options.projectId == "demo-atrio-v11")
+        var selected = ""
+        compose.setContent {
+            AtrioTheme {
+                DetailScreen(
+                    post = Post("qa-mentioned-thread", "Clara", "Vida espiritual", "hoje",
+                        "Oração em grupo", "Vamos conversar", ownerUid = "qa-clara",
+                        replies = listOf(
+                            Reply("Miguel", "Conte comigo", "qa-first", ownerUid = "qa-miguel"),
+                            Reply("Joana", "@Miguel obrigado!", "qa-second", ownerUid = "qa-joana",
+                                mentionUid = "qa-miguel")
+                        )),
+                    name = "Clara", onLike = {}, onSave = {}, onReply = { _, done -> done(true) },
+                    onOpenProfile = { uid, _ -> selected = uid }
+                )
+            }
+        }
+        compose.onNodeWithTag("atrio-detail-replies").performScrollToIndex(2)
+        compose.onNodeWithTag("atrio-open-mentioned-member-qa-second").performClick()
+        compose.runOnIdle { assertEquals("qa-miguel", selected) }
+    }
+
     @Test fun publicProfileKeepsPrivateAccountControlsHidden() {
         check(FirebaseApp.getInstance().options.projectId == "demo-atrio-v11")
         var returned = false
