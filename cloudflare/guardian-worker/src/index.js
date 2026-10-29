@@ -1,0 +1,110 @@
+import {classify,decide,safeNotice,VALID_ID} from './policy.js';
+import {Firestore,token,actorId,caseId,pathOf,string,bool,str,timestamp,ROOT} from './firestore.js';
+const json=(status,code)=>new Response(JSON.stringify({status:code}),{status,headers:{'content-type':'application/json','cache-control':'no-store'}});
+const MASK=/^posts\/[A-Za-z0-9_-]{1,128}(?:\/replies\/[A-Za-z0-9_-]{1,128})?$/;
+export function settingsOf(doc,env) {
+  const enabled=env.GUARDIAN_V2_ENABLED==='true' && bool(doc,'enabled') && !bool(doc,'emergencyStop');
+  return {enabled,allowHold:enabled&&env.GUARDIAN_V2_HOLD_ENABLED==='true'&&bool(doc,'allowHold')};
+}
+function cleanItem(document) {
+  const path=pathOf(document);if(!MASK.test(path)||!document.updateTime)return null;
+  const parts=path.split('/'),owner=string(document,'uid');
+  if(!VALID_ID.test(owner))return null;
+  return {path,parts,owner,text:(parts.length===2?string(document,'title')+' ':'')+string(document,'body'),doc:document,kind:parts.length===2?'post':'reply'};
+}
+function caseFields(item,finding,now,action) {
+  return {engine:str('v2'),ownerUid:str(item.owner),targetPath:str(item.path),targetType:str(item.kind),postId:str(item.parts[1]),...(item.kind==='reply'?{replyId:str(item.parts[3])}:{}),ruleCode:str(finding.rule),reason:str('Possível violação: '+finding.rule),status:str(action==='hold'?'held':action==='warn'?'warned':'review'),source:str('guardiao'),createdAt:timestamp(now)};
+}
+// Atua por eventos backend com polling agendado limitado. Não depende do app.
+export async function processDocument(db,document,settings,now=new Date().toISOString()) {
+  if(!settings.enabled)return 'disabled';
+  const item=cleanItem(document);if(!item)return 'invalid';
+  const finding=classify(item.text),policy=decide(finding,settings);
+  if(policy==='clear')return 'clear';
+  const id=await caseId(item.path);
+  // Nunca retirar um post com subcoleções de respostas de maneira automática.
+  const hold=policy==='review'&&finding.level==='hold_candidate'&&settings.allowHold&&item.kind==='reply';
+  const action=hold?'hold':policy;
+  const notice=safeNotice(finding.rule,action);
+  const fields=caseFields(item,finding,now,action);
+  const writes=[{update:{name:ROOT+'/guardian_cases/'+id,fields},currentDocument:{exists:false}},
+    {update:{name:ROOT+'/guardian_audit/'+id,fields:{event:str(action),caseId:str(id),at:timestamp(now),actor:str('guardian_v2')}},currentDocument:{exists:false}},
+    {update:{name:ROOT+'/guardian_notices/'+item.owner+'/items/'+id,fields:{title:str(notice.title),body:str(notice.body),caseId:str(id),ruleCode:str(finding.rule),action:str(action),createdAt:timestamp(now)}},currentDocument:{exists:false}}];
+  if(hold){
+    // Copy-on-write atômico: somente o conteúdo da revisão exata pode ser retirado.
+    writes.push({update:{name:ROOT+'/guardiao_quarantine/'+id,fields:{ownerUid:str(item.owner),targetType:str(item.kind),targetPath:str(ROOT+'/'+item.path),postId:str(item.parts[1]),replyId:str(item.parts[3]),reason:str('Possível violação: '+finding.rule),ruleCode:str(finding.rule),status:str('held'),heldAt:timestamp(now),originalFields:{mapValue:{fields:item.doc.fields}}}},currentDocument:{exists:false}});
+    writes.push({delete:ROOT+'/'+item.path,currentDocument:{updateTime:item.doc.updateTime}});
+  }
+  try{await db.commit(writes);return action;}
+  catch(e){if(e.status===409||e.status===412)return 'duplicate_or_changed';throw e;}
+}
+export async function scanOnce(db,settings){
+  if(!settings.enabled)return {status:'disabled'};
+  // Limites explícitos por execução: nenhum documento ilimitado nem varredura retroativa.
+  const counters={clear:0,review:0,warn:0,hold:0,invalid:0,duplicate_or_changed:0,error:0};
+  for(const group of ['posts','replies']) {
+    let docs;try{docs=await db.scan(group,20,30);}catch{counters.error++;continue;}
+    for(const doc of docs) {
+      try{const result=await processDocument(db,doc,settings);if(result in counters)counters[result]++;}
+      catch{counters.error++;}
+    }
+  }
+  return counters;
+}
+async function admin(request,db,env){
+  const uid=await actorId(request,env);if(!uid)return null;
+  const record=await db.get('admins/'+uid);return bool(record,'enabled')?uid:null;
+}
+async function body(request) {
+  if(Number(request.headers.get('content-length')||'0')>2048)throw Error('oversize');
+  const reader=request.body?.getReader();if(!reader)throw Error('empty');
+  const parts=[];let size=0;
+  try {while(true){const {done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>2048){await reader.cancel();throw Error('oversize');}parts.push(value);}}
+  finally{reader.releaseLock();}
+  const b=new Uint8Array(size);let i=0;for(const p of parts){b.set(p,i);i+=p.length;}
+  return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(b));
+}
+export async function handleRequest(request,env) {
+  const path=new URL(request.url).pathname;
+  if(path==='/health')return json(200,'guardian_v2_isolated');
+  if(!['/admin/config','/admin/review'].includes(path)||request.method!=='POST')return json(404,'not_found');
+  try {
+    if(!env.GUARDIAN_FIREBASE_SERVICE_ACCOUNT_JSON)return json(503,'not_configured');
+    const db=new Firestore(await token(env));const uid=await admin(request,db,env);
+    if(!uid)return json(403,'forbidden');
+    const input=await body(request);
+    if(path==='/admin/config') {
+      if(!input||Object.keys(input).sort().join(',')!=='allowHold,emergencyStop,enabled'||
+        ['enabled','allowHold','emergencyStop'].some(k=>typeof input[k]!=='boolean'))return json(400,'invalid_config');
+      const current=await db.get('guardian_config/policy');
+      if(!current?.updateTime)return json(409,'config_not_initialized');
+      await db.update('guardian_config/policy',{enabled:{booleanValue:input.enabled},allowHold:{booleanValue:input.allowHold},emergencyStop:{booleanValue:input.emergencyStop}},current.updateTime);
+      return json(200,'updated');
+    }
+    if(!input||Object.keys(input).sort().join(',')!=='action,caseId,note'||!/^guard_[a-f0-9]{32}$/.test(input.caseId||'')||!['restore','confirm'].includes(input.action)||typeof input.note!=='string'||input.note.trim().length<5||input.note.length>300)return json(400,'invalid_review');
+    const held=await db.get('guardiao_quarantine/'+input.caseId);
+    const c=await db.get('guardian_cases/'+input.caseId);
+    if(!held?.updateTime||!c?.updateTime||string(held,'status')!=='held'||string(c,'status')!=='held')return json(409,'not_pending');
+    if(uid===string(held,'ownerUid'))return json(403,'self_review');
+    const target=string(held,'targetPath');if(!target.startsWith(ROOT+'/posts/')||!MASK.test(target.slice(ROOT.length+1))||target!==ROOT+'/'+string(c,'targetPath'))return json(409,'invalid_target');
+    const fields=held.fields?.originalFields?.mapValue?.fields;if(!fields)return json(409,'evidence_missing');
+    if(input.action==='restore') {
+      if((await db.get(string(c,'targetPath')))!==null)return json(409,'target_exists');
+      const postId=string(c,'postId');if(!await db.get('posts/'+postId))return json(409,'parent_missing');
+    }
+    const at=timestamp(new Date().toISOString()),restored=input.action==='restore';
+    const reviewFields={status:str(restored?'restored':'removed'),reviewedBy:str(uid),reviewNote:str(input.note.trim()),reviewedAt:at};
+    const writes=[];
+    if(restored)writes.push({update:{name:target,fields},currentDocument:{exists:false}});
+    for(const old of [held,c])writes.push({update:{name:old.name,fields:reviewFields},updateMask:{fieldPaths:Object.keys(reviewFields)},currentDocument:{updateTime:old.updateTime}});
+    writes.push({update:{name:ROOT+'/guardian_audit/'+input.caseId+'_'+(restored?'restored':'confirmed'),fields:{caseId:str(input.caseId),actor:str(uid),event:str(input.action),at}},currentDocument:{exists:false}});
+    await db.commit(writes);return json(200,restored?'restored':'confirmed');
+  }catch(e){return json(e.status===409||e.status===412?409:503,'operation_unavailable');}
+}
+export default {
+  fetch:handleRequest,
+  async scheduled(event,env,ctx) {
+    if(env.GUARDIAN_V2_ENABLED!=='true')return;
+    ctx.waitUntil((async()=>{try{const db=new Firestore(await token(env));const config=await db.get('guardian_config/policy');await scanOnce(db,settingsOf(config,env));}catch{ /* Fail closed. Monitor by external metrics. */ }})());
+  }
+};
