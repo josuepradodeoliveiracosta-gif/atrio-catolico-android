@@ -583,14 +583,21 @@ private fun OnlineCommunity(
                 if (ownerUid != uid) {
                     val noticeRef = db.collection("users").document(ownerUid)
                         .collection("notifications").document(replyRef.id)
-                    batch.set(noticeRef, mapOf(
+                    val notice = mutableMapOf<String, Any>(
                         "postId" to id,
                         "replyId" to replyRef.id,
                         "actorUid" to uid,
                         "actorName" to name,
                         "read" to false,
                         "createdAt" to FieldValue.serverTimestamp()
-                    ))
+                    )
+                    // Quando o autor da discussão também é o autor citado,
+                    // evitar dois avisos e identificar a resposta como direta.
+                    if (advancedEngagement && target?.ownerUid == ownerUid &&
+                        target.id.isNotBlank()) {
+                        notice["replyToId"] = target.id
+                    }
+                    batch.set(noticeRef, notice)
                 }
                 // O destinatário da resposta direta pode ser distinto do autor
                 // da discussão. Backend valida o alvo real e a escrita atômica.

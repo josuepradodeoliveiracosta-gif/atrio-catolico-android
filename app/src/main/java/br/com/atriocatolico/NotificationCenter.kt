@@ -133,7 +133,8 @@ internal fun rememberNotificationInbox(db: FirebaseFirestore, uid: String, admin
                         "${it.getString("actorName") ?: "Alguém"} respondeu " +
                             if (it.getString("replyToId").isNullOrBlank())
                                 "à discussão" else "ao seu comentário",
-                        "Toque para abrir a conversa.", it.noticeTime(), it.getBoolean("read") == true)
+                        "Toque para abrir a conversa.", it.noticeTime(), it.getBoolean("read") == true,
+                        directReply = !it.getString("replyToId").isNullOrBlank())
                 } ?: emptyList()
             } }
         onDispose { active = false; listener.remove() }

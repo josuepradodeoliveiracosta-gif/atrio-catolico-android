@@ -16,6 +16,25 @@ class NotificationModelsTest {
         assertTrue(groups.first().unread)
         assertFalse(groups.last().unread)
     }
+    @Test fun directRepliesHaveASeparateGroupFromDiscussionReplies() {
+        val notice = NoticeEvent("d1", NoticeKind.REPLY, "p1",
+            "Clara respondeu ao seu comentário", "Toque para abrir.", 3, false,
+            directReply = true)
+        val other = NoticeEvent("d2", NoticeKind.REPLY, "p1",
+            "Miguel respondeu ao seu comentário", "Toque para abrir.", 4, true,
+            directReply = true)
+        val general = event("r1", NoticeKind.REPLY, "p1", at = 2)
+        val groups = groupNotices(listOf(notice, other, general), false)
+        assertEquals(2, groups.size)
+        assertEquals("direct:p1", groups.first().id)
+        assertEquals("p1", groups.first().target)
+        assertEquals("2 respostas aos seus comentários", groups.first().title)
+        assertEquals(2, groups.first().events.size)
+        assertTrue(groups.first().unread)
+        assertEquals("reply:p1", groups.last().id)
+        assertEquals(1, groups.last().events.size)
+    }
+
     @Test fun adminDataNeverAppearsForCommonUserOrRevokedAdmin() {
         val events = listOf(event("a", NoticeKind.REPORTS), event("b", NoticeKind.REQUESTS), event("c", NoticeKind.REPLY, "p"))
         assertEquals(3, groupNotices(events, true).size)
