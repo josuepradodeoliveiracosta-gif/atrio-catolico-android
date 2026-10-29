@@ -347,7 +347,9 @@ service cloud.firestore {
         && (
           (get(/databases/$(database)/documents/posts/$(request.resource.data.postId)).data.uid == recipientUid
             && !request.resource.data.keys().hasAny(['replyToId', 'mentionUid', 'mentionReplyId']))
-          || (request.resource.data.keys().hasAny(['replyToId']) && canonicalDirectRecipient())
+          || (request.resource.data.keys().hasAny(['replyToId'])
+              && !request.resource.data.keys().hasAny(['mentionUid', 'mentionReplyId'])
+              && canonicalDirectRecipient())
           || (request.resource.data.keys().hasAny(['mentionUid']) &&
               !request.resource.data.keys().hasAny(['replyToId']) &&
               canonicalMentionRecipient())

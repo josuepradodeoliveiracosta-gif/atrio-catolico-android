@@ -52,3 +52,13 @@
 
 - **Diferenciação de avisos:** a central separa respostas gerais de respostas diretas, inclusive quando o destinatário do comentário é também o autor da discussão. Os avisos continuam apontando para o post, sem expor dados privados.
 - **Testes adicionais:** regras emuladas validam resposta direta enviada ao próprio autor do post e confirmam a impossibilidade de criar avisos falsos. Há teste unitário para os agrupamentos e preservação do estado de leitura.
+
+## Etapa 0.19.3 — menções entre participantes da conversa
+
+- **Escolha pelo símbolo @:** o usuário seleciona um participante da própria discussão, sem pesquisa global de usuários, sem carregar e-mails ou perfis privados. A lista mostra o autor do tópico e os autores das respostas já carregadas, até 8 opções únicas por UID.
+- **Seleção canônica:** `mentionUid` identifica a conta real. Quando o participante veio de uma resposta, `mentionReplyId` identifica a mensagem comprovadora. O nome mostrado serve somente para leitura.
+- **Um destinatário por resposta:** reduz a possibilidade de spam e impede combinar menções e resposta direta na mesma mensagem. O Firestore valida UID e documento de origem, inclusive quando a menção se refere ao autor do tópico.
+- **Notificação interna:** a mensagem e a notificação são criadas no mesmo batch, com destinatário conferido pelas regras. A central distingue avisos `mencionou você` de `respondeu ao seu comentário` e `respondeu à discussão`. Não é garantida entrega de push pelo Worker ainda não modificado.
+- **Testes:** cenários dos três bots em Firestore emulado validam menção legítima ao autor e a um respondente, recusa de UID falso, automenção e notificação forjada. Testes unitários checam unicidade, UIDs, comprimento e composição do texto; testes instrumentados cobrem escolha no Android.
+- **Ativação pendente:** seletor e envio por UID só aparecem quando `app_config/engagement.enabled=true` e as novas regras estiverem publicadas sob sua autorização expressa. Sem a flag, a experiência já validada de citação textual e acompanhamento local permanece inalterada.
+- **Custo:** não consulta documentos de perfil adicionais; é gravada no máximo uma notificação interna extra para uma menção fora do autor da discussão. Não altera Cloudflare, FCM, assinatura, backup nem `main`.
