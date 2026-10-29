@@ -111,6 +111,7 @@ internal fun ModerationScreen(db: FirebaseFirestore, uid: String, onBack: () -> 
                     FilterChip(showReviewed, { showReviewed = true }, label = { Text("Analisadas") })
                 }
             }
+            item { GuardianPanel(db, uid) }
             if (CloudinaryAvatarClient.enabled) item {
                 AvatarModerationPanel(uid)
             }
