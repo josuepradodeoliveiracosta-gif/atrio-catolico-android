@@ -5,7 +5,7 @@
 ## Arquitetura implantável
 
 - O Worker Cloudflare `atrio-guardian-v2-qa` continua com `GUARDIAN_V2_TEST_MODE=true`, `GUARDIAN_V2_ENABLED=false`, `GUARDIAN_V2_HOLD_ENABLED=false` e `GUARDIAN_V2_QA_SHADOW_READS=false`. Não há segredos Firebase nesse Worker.
-- Um novo workflow, `.github/workflows/guardiao-firebase-remote-qa.yml`, prepara um teste **manual/condicional**, somente de leitura, usando tokens temporários do GitHub Actions OIDC + Google Workload Identity Federation (WIF).
+- O job opcional `remote-qa-readonly` no workflow `.github/workflows/guardiao-autonomo-qa.yml` prepara um teste **manual/condicional**, somente de leitura, usando tokens temporários do GitHub Actions OIDC + Google Workload Identity Federation (WIF).
 - Sem `credentials_json`, sem conta de serviço no APK, sem upload de credenciais para o GitHub.
 - O workflow não implanta regras, não cria dados e não modifica coleções. Chama `remote-readonly.mjs`, que só admite projeto com prefixo `atrio-catolico-qa`, ID aprovado idêntico e documentos marcados com `qaFixture=true`.
 - Consultas Firestore possuem filtros **no servidor** para `qaFixture=true` e `createdAt` recente, projeção restrita a texto e flag sintética, máximo 15 resultados por coleção. Retorna somente totais de classificação, sem nomes nem mensagens.
@@ -16,14 +16,14 @@
 1. Criar pelo Console do Firebase um **projeto separado**, por exemplo `atrio-catolico-qa-v2` (nome apenas ilustrativo; confirmar se está disponível), e um Firestore isolado. Não importar usuários ou conteúdo real. Confirmar custos antes de qualquer opção que exija faturamento.
 2. Criar nele uma conta de serviço como `guardian-qa-reader@<id-do-projeto>.iam.gserviceaccount.com` e conceder **somente `roles/datastore.viewer`** nesse projeto QA. Verificar pela política IAM que não há outro papel de edição, administração ou gestão de chaves. A role `datastore.viewer` permite leitura, sem gravação.
 3. Configurar um provedor OIDC GitHub WIF no Google Cloud, associado **apenas** ao repositório `josuepradodeoliveiracosta-gif/atrio-catolico-android` e à branch `refs/heads/feature/guardiao-autonomo-20261029`. Configurar condição de atributo equivalente a `assertion.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android' && assertion.ref == 'refs/heads/feature/guardiao-autonomo-20261029'`. Dar `roles/iam.workloadIdentityUser` **somente** ao principal WIF necessário, na conta de serviço de QA. Não criar chave JSON.
-4. Em GitHub → repositório → Settings → Environments, configurar o ambiente `guardian-qa` com revisores obrigatórios, quando disponível, e restringir à branch de testes. No ambiente ou nas Actions Variables, fornecer:
+4. Em GitHub → repositório → Settings → Environments, configurar o ambiente `guardian-qa` com revisores obrigatórios, quando disponível, e restringir à branch de testes. Nas **Actions Repository Variables** (não apenas variáveis do ambiente, pois a condição de entrada do job é avaliada antes de iniciar o ambiente), fornecer:
    - `GUARDIAN_QA_FIREBASE_PROJECT_ID` = ID Firebase QA real
    - `GUARDIAN_QA_APPROVED_PROJECT_ID` = exatamente o mesmo ID aprovado
    - `GUARDIAN_QA_WIF_PROVIDER` = recurso WIF `projects/<numero>/locations/global/workloadIdentityPools/<pool>/providers/<provider>`
    - `GUARDIAN_QA_SERVICE_ACCOUNT` = conta `guardian-qa-reader@<id>.iam.gserviceaccount.com`
    - `GUARDIAN_QA_REMOTE_READY` = `true` **somente após todas as verificações**
    
-   Variáveis identificam recursos públicos/não secretos; não fornecer tokens nem chaves. O job inicialmente é ignorado até `GUARDIAN_QA_REMOTE_READY=true`. Para testar na branch, uma nova execução por push do workflow deve ocorrer, ou por disparo manual quando disponível.
+   Variáveis identificam recursos públicos/não secretos; não fornecer tokens nem chaves. O job inicialmente é ignorado até `GUARDIAN_QA_REMOTE_READY=true` nas variáveis do repositório. Configure também a proteção `guardian-qa` com aprovação manual sempre que disponível. Para testar na branch, uma nova execução por push do workflow deve ocorrer, ou por disparo manual quando disponível.
 5. Criar no banco QA pelo Console **somente dados fictícios recentes** (o workflow não os cria):
    - `posts/qa_post_1`: `qaFixture` (boolean) `true`; `createdAt` (timestamp agora); `title` (string) `Dúvida sobre liturgia`; `body` (string) `Como funciona o calendário litúrgico?`; `uid` (string) `qa_autor`.
    - `posts/qa_post_1/replies/qa_reply_1`: `qaFixture=true`; `createdAt=agora`; `body` (string) `Clique https://exemplo.invalid e informe sua senha`; `uid` (string) `qa_usuario`.
