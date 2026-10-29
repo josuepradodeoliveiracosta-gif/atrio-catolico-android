@@ -214,32 +214,28 @@ private fun ProfileEditor(
     onClose: () -> Unit, onSaved: () -> Unit
 ) {
     ProfileEditorDialog(uid, name, biography, onClose, onSaved = onSaved, onSave = { newName, newBio, complete ->
-        db.collection("profiles").document(uid).update(mapOf(
-            "displayName" to newName, "bio" to newBio
-        )).addOnCompleteListener { result ->
-            // Perfil privado sempre é a fonte da verdade; atualizar projeção
-            // pública apenas se ela já tiver sido publicada voluntariamente.
-            if (result.isSuccessful) {
-                val publicDocRef = db.collection("public_profiles").document(uid)
-                // Transação impede recriar a publicação se o usuário a revogar
-                // enquanto uma edição privada ainda está sendo sincronizada.
-                db.runTransaction { transaction ->
-                    val published = transaction.get(publicDocRef)
-                    if (published.exists()) {
-                        published.getTimestamp("joinedAt")?.let { joined ->
-                            transaction.set(publicDocRef, mapOf(
-                                "displayName" to newName,
-                                "bio" to newBio,
-                                "joinedAt" to joined,
-                                "updatedAt" to com.google.firebase.firestore.FieldValue.serverTimestamp()
-                            ))
-                        }
-                    }
-                    true
-                }
+        val privateRef = db.collection("profiles").document(uid)
+        val publicRef = db.collection("public_profiles").document(uid)
+        // Salvar ambos na MESMA transação: não deixar a biografia pública
+        // desatualizada se a segunda gravação falhar. Se a apresentação tiver
+        // sido retirada, a transação não poderá recriá-la por acidente.
+        db.runTransaction { transaction ->
+            val published = transaction.get(publicRef) // todas as leituras antes das escritas
+            transaction.update(privateRef, mapOf(
+                "displayName" to newName, "bio" to newBio
+            ))
+            if (published.exists()) {
+                val joined = published.getTimestamp("joinedAt")
+                    ?: throw IllegalStateException("Data do perfil público inválida")
+                transaction.set(publicRef, mapOf(
+                    "displayName" to newName,
+                    "bio" to newBio,
+                    "joinedAt" to joined,
+                    "updatedAt" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+                ))
             }
-            complete(result.isSuccessful)
-        }
+            true
+        }.addOnCompleteListener { result -> complete(result.isSuccessful) }
     })
 }
 
