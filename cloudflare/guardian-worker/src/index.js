@@ -1,5 +1,6 @@
 import {classify,decide,safeNotice,VALID_ID} from './policy.js';
 import {Firestore,token,actorId,caseId,pathOf,string,bool,str,timestamp,ROOT} from './firestore.js';
+import {qaShadowAllowed,scanQaShadow} from './shadow-qa.js';
 const json=(status,code)=>new Response(JSON.stringify({status:code}),{status,headers:{'content-type':'application/json','cache-control':'no-store'}});
 const MASK=/^posts\/[A-Za-z0-9_-]{1,128}(?:\/replies\/[A-Za-z0-9_-]{1,128})?$/;
 export function settingsOf(doc,env) {
@@ -152,7 +153,19 @@ export default {
   async scheduled(event,env,ctx) {
     // Cron can be installed in QA to verify scheduling without touching Firebase.
     if(env.GUARDIAN_V2_TEST_MODE==='true'){
-      console.log('guardian_v2_qa_cron_tick');
+      // Independent QA cron. No privilege to change content, even in remote QA.
+      if(!qaShadowAllowed(env)){
+        console.log('guardian_v2_qa_cron_tick');
+        return;
+      }
+      ctx.waitUntil((async()=>{
+        try {
+          const db=new Firestore(await token(env),env.GUARDIAN_FIREBASE_PROJECT_ID);
+          // Only expose scan; no commit/create/update/get reaches this code.
+          const result=await scanQaShadow({scan:(...args)=>db.scan(...args)},env);
+          console.log('guardian_v2_qa_shadow_counts',JSON.stringify(result));
+        }catch{console.log('guardian_v2_qa_shadow_unavailable');}
+      })());
       return;
     }
     if(env.GUARDIAN_V2_ENABLED!=='true')return;
