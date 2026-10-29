@@ -27,6 +27,30 @@ Antes de ativar por completo em produção, revisar e publicar **separadamente**
 
 O APK Debug pode ser compilado em CI e testado no emulador com regras locais, mas **produção não terá a coleção pública habilitada nem o índice até o deploy**. Não escrever em produção por acesso administrativo, não executar migrações ou backfills sem autorização.
 
+## Preparação segura — SEM deploy (Termux)
+
+1. Utilize uma **cópia limpa** do repositório na branch `feature/perfis-publicos-0196`, distinta da antiga pasta `~/atrio-regras-0194`. Não copie versões antigas de `firestore.rules` sobre a PR.
+2. O verificador `bash scripts/preparar_firestore_perfis_0196.sh` **somente lê** os arquivos locais e os índices remotos do projeto `atrio-catolico`. Ele recusa prosseguir se houver índices/overrides inesperados, branch incorreta ou configuração diferente.
+3. Compare manualmente no **Console Firebase > Firestore Database > Regras** a regra **atualmente publicada** com `firestore.rules` da PR #42. A regra em produção pode ter sido alterada pelo Termux/Console e não coincidir com a `main` do GitHub. **Não substituir** a regra publicada sem reconciliar quaisquer diferenças. O verificador não comprova essa equivalência.
+4. Confirme as execuções mais recentes de `Validar selos (Android e Firestore)`, QA Android, segurança e versão para **o mesmo commit** da PR. O emulador não garante disponibilidade do índice em produção.
+5. Só após aprovação separada, planejar duas operações independentes: publicação do **índice** e aguardar que seu status fique pronto; depois publicação das **regras reconciliadas**. Não fazer deploy pela pasta antiga.
+6. Verificar no app com contas de teste: acesso permitido a perfil de outro membro, bio privada inacessível, opt-in/retirada e paginação. Monitorar negações e erros. Para voltar atrás, restaurar regras publicadas anteriormente com revisão e autorização; não mexer no backup protegido.
+
+**Estado:** nenhum comando de deploy foi executado. A listagem de índices de 29/10/2026 estava vazia; repetir a consulta antes de qualquer publicação. A verificação de índices é somente do projeto Firebase `atrio-catolico`, banco padrão.
+
+### Orientações de publicação futura (não executar nesta etapa)
+
+Após confirmação da revisão e autorização expressa, usar **parâmetros de projeto explícitos** e operações de escopo limitado. Exemplos para avaliação, não para execução imediata:
+
+```bash
+# Exemplo FUTURO: somente indices — cria indice sem substituir regras
+firebase deploy --only firestore:indexes --project atrio-catolico
+# Exemplo FUTURO: somente regras, depois de reconciliar as vigentes em producao
+firebase deploy --only firestore:rules --project atrio-catolico
+```
+
+A CLI pode interpretar índices declarados como a configuração desejada; se houver índices remotos não listados no arquivo, primeiro faça a mesclagem, sem exclusões. O arquivo `firebase.json` deve permanecer com as referências revisadas. A publicação das regras pela CLI **sobrescreve** as do Console; por isso a comparação manual é obrigatória.
+
 ## Testes
 - `tests/security/public-profile.test.mjs`: privacidade, tentativa de usurpação, dados extras, opt-in e retirada.
 - `app/src/androidTest/java/br/com/atriocatolico/PublicMemberProfileUiTest.kt`: autores, respostas e ausência de edição de terceiros.
