@@ -22,6 +22,7 @@ internal fun GuardianPanel(db: FirebaseFirestore, uid: String) {
     var result by remember(uid) { mutableStateOf("") }
     var selected by remember(uid) { mutableStateOf<GuardianCase?>(null) }
     var original by remember(uid) { mutableStateOf("") }
+    var enableConfirm by remember(uid) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     DisposableEffect(db, uid) {
@@ -86,6 +87,9 @@ internal fun GuardianPanel(db: FirebaseFirestore, uid: String) {
                     submit("/admin/config", JSONObject().put("enabled", false)
                         .put("allowHold", false).put("emergencyStop", true))
                 }) { Text("Desligamento de emergência") }
+            OutlinedButton(enabled = !busy && GuardianClient.configured &&
+                config != null && (stopped || config?.get("enabled") != true),
+                onClick = { enableConfirm = true }) { Text("Preparar triagem sem retenção") }
             Text("A ativação requer autorização no ambiente Cloudflare e no Firestore. " +
                 "Nenhuma ação automática está liberada apenas pelo painel.",
                 style = MaterialTheme.typography.bodySmall)
@@ -131,7 +135,9 @@ internal fun GuardianPanel(db: FirebaseFirestore, uid: String) {
                 }
             },
             confirmButton = {
-                TextButton(enabled = !busy && note.trim().length in 5..300,
+                TextButton(enabled = !busy && note.trim().length in 5..300 &&
+                    original.isNotBlank() && !original.startsWith("Consultando") &&
+                    !original.startsWith("Não foi possível"),
                     onClick = {
                         submit("/admin/review", JSONObject().put("caseId", case.id)
                             .put("action", action).put("note", note.trim())) { selected = null }
@@ -142,6 +148,26 @@ internal fun GuardianPanel(db: FirebaseFirestore, uid: String) {
             }
         )
     }
+    if (enableConfirm) AlertDialog(
+        onDismissRequest = { if (!busy) enableConfirm = false },
+        title = { Text("Preparar triagem?") },
+        text = { Text("Esta ação só atualiza a configuração administrativa. " +
+            "A automação permanece bloqueada enquanto as flags do servidor estiverem desativadas. " +
+            "A retenção automática continuará desligada.") },
+        confirmButton = {
+            TextButton(enabled = !busy, onClick = {
+                submit("/admin/config", JSONObject().put("enabled", true)
+                    .put("allowHold", false).put("emergencyStop", false)) {
+                    enableConfirm = false
+                }
+            }) { Text("Confirmar") }
+        },
+        dismissButton = {
+            TextButton(enabled = !busy, onClick = { enableConfirm = false }) {
+                Text("Cancelar")
+            }
+        }
+    )
     if (result.isNotBlank()) AlertDialog(
         onDismissRequest = { result = "" }, title = { Text("Átrio Guardião V2") },
         text = { Text(result) },
