@@ -64,6 +64,8 @@ jobs:
       - name: Compilar sem alterar a assinatura de producao
         env:
           ATRIO_PUSH_WORKER_URL: ${{ vars.ATRIO_PUSH_WORKER_URL || 'https://atrio-push.atrio-catolico.workers.dev' }}
+          # Sufixo visível apenas no APK Debug (ex.: 0.19.0-debug.302).
+          ATRIO_DEBUG_BUILD_NUMBER: ${{ github.run_number }}
         run: gradle :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --stacktrace
       - name: Disponibilizar APK debug apenas para testes da PR
         if: ${{ github.event_name == 'pull_request' }}
