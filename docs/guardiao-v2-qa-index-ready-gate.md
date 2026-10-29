@@ -47,3 +47,14 @@ Ou repetir o job **Índices Firebase QA — auditoria WIF somente leitura** no G
 O projeto precisa permanecer no Spark ou com faturamento desativado. Construir índices consome espaço dentro das quotas gratuitas do Firestore; o script não habilita conta de cobrança. Embora o código esteja preparado, **o índice só será criado após o usuário executar o comando no seu Cloud Shell**. Nada altera o Firebase oficial `atrio-catolico`, o Worker `atrio-push` ou os backups.
 
 Referências: [Firestore single-field index definitions](https://firebase.google.com/docs/reference/firestore/indexes), [Field.patch REST API](https://firebase.google.com/docs/firestore/reference/rest/v1/projects.databases.collectionGroups.fields/patch), [Cloud Firestore Spark pricing](https://firebase.google.com/pricing).
+
+
+## Auditoria de query real adicionada (29/10/2026)
+
+- A auditoria foi repetida após o `--apply` manual no projeto QA. No segundo disparo, `repliesCreatedAtGroup=building`, enquanto os três índices compostos permaneceram `ready`.
+- Adicionado `src/qa-query-probe.js`: **somente quando o índice reportar `ready`**, o CI executará uma única consulta real de `replies` no projeto `atrio-catolico-qa-v2` com a mesma ordenação `createdAt DESC, __name__ DESC` do scanner.
+- Essa API Firestore é um **POST de leitura** (`documents:runQuery`), não um comando de escrita. A consulta limita a resposta a um documento e projeta somente `__name__`. Os logs exibem apenas `query_ok` ou `unavailable`, sem ID, texto ou dados de usuários.
+- Se o índice ainda estiver em `building`, a consulta não ocorre. Se o índice estiver `ready` mas a consulta falhar, o CI **não** reportará aprovação e fechará com falha.
+- Não há autorização para escanear dados reais ou aplicar punições. O scanner continua desativado no ambiente oficial.
+
+Não repetir a criação do índice: reexecutar **somente a auditoria de leitura** até obter `repliesCreatedAtGroup=ready` e `guardian_qa_replies_query_probe: query_ok`.
