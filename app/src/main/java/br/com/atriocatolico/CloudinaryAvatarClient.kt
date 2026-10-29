@@ -83,6 +83,8 @@ internal object CloudinaryAvatarClient {
                     502 -> when (state) {
                         "cloudinary_signature_invalid", "cloudinary_credentials_invalid" ->
                             "Falha na configuração das chaves do Cloudinary. Informe o administrador."
+                        "cloudinary_protection_failed" ->
+                            "Envio cancelado por segurança: Cloudinary não confirmou proteção da imagem."
                         "cloudinary_moderation_error" ->
                             "Moderação Cloudinary não disponível ou mal configurada."
                         "cloudinary_file_error" ->
