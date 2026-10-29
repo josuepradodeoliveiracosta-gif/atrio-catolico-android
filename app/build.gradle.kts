@@ -47,6 +47,13 @@ android {
     }
 
     buildTypes {
+        getByName("debug") {
+            // Cada compilação de teste recebe uma identificação visível própria.
+            // Isso NÃO altera a numeração, o código ou a assinatura do release.
+            val buildNumber = System.getenv("ATRIO_DEBUG_BUILD_NUMBER")
+                ?.trim()?.takeIf { it.matches(Regex("[0-9]+")) } ?: "local"
+            versionNameSuffix = "-debug.$buildNumber"
+        }
         getByName("release") {
             signingConfigs.findByName("atrioRelease")?.let { signingConfig = it }
         }
