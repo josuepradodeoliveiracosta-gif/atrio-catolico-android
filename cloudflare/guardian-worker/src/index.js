@@ -19,6 +19,7 @@ function caseFields(item,finding,now,action) {
 export async function processDocument(db,document,settings,now=new Date().toISOString()) {
   if(!settings.enabled)return 'disabled';
   const item=cleanItem(document);if(!item)return 'invalid';
+  const root=db.root||ROOT;
   const finding=classify(item.text,settings.context||{}),policy=decide(finding,settings);
   if(policy==='clear')return 'clear';
   const id=await caseId(item.path);
@@ -27,13 +28,13 @@ export async function processDocument(db,document,settings,now=new Date().toISOS
   const action=hold?'hold':policy;
   const notice=safeNotice(finding.rule,action);
   const fields=caseFields(item,finding,now,action);
-  const writes=[{update:{name:ROOT+'/guardian_cases/'+id,fields},currentDocument:{exists:false}},
-    {update:{name:ROOT+'/guardian_audit/'+id,fields:{event:str(action),caseId:str(id),at:timestamp(now),actor:str('guardian_v2')}},currentDocument:{exists:false}},
-    {update:{name:ROOT+'/guardian_notices/'+item.owner+'/items/'+id,fields:{title:str(notice.title),body:str(notice.body),caseId:str(id),ruleCode:str(finding.rule),action:str(action),createdAt:timestamp(now)}},currentDocument:{exists:false}}];
+  const writes=[{update:{name:root+'/guardian_cases/'+id,fields},currentDocument:{exists:false}},
+    {update:{name:root+'/guardian_audit/'+id,fields:{event:str(action),caseId:str(id),at:timestamp(now),actor:str('guardian_v2')}},currentDocument:{exists:false}},
+    {update:{name:root+'/guardian_notices/'+item.owner+'/items/'+id,fields:{title:str(notice.title),body:str(notice.body),caseId:str(id),ruleCode:str(finding.rule),action:str(action),createdAt:timestamp(now)}},currentDocument:{exists:false}}];
   if(hold){
     // Copy-on-write atômico: somente o conteúdo da revisão exata pode ser retirado.
-    writes.push({update:{name:ROOT+'/guardiao_quarantine/'+id,fields:{ownerUid:str(item.owner),targetType:str(item.kind),targetPath:str(ROOT+'/'+item.path),postId:str(item.parts[1]),replyId:str(item.parts[3]),reason:str('Possível violação: '+finding.rule),ruleCode:str(finding.rule),status:str('held'),heldAt:timestamp(now),originalFields:{mapValue:{fields:item.doc.fields}}}},currentDocument:{exists:false}});
-    writes.push({delete:ROOT+'/'+item.path,currentDocument:{updateTime:item.doc.updateTime}});
+    writes.push({update:{name:root+'/guardiao_quarantine/'+id,fields:{ownerUid:str(item.owner),targetType:str(item.kind),targetPath:str(root+'/'+item.path),postId:str(item.parts[1]),replyId:str(item.parts[3]),reason:str('Possível violação: '+finding.rule),ruleCode:str(finding.rule),status:str('held'),heldAt:timestamp(now),originalFields:{mapValue:{fields:item.doc.fields}}}},currentDocument:{exists:false}});
+    writes.push({delete:root+'/'+item.path,currentDocument:{updateTime:item.doc.updateTime}});
   }
   try{await db.commit(writes);return action;}
   catch(e){if(e.status===409||e.status===412)return 'duplicate_or_changed';throw e;}
@@ -88,6 +89,7 @@ export async function reviewCase(db,uid,input,now=new Date().toISOString()) {
   if(!VALID_ID.test(uid)||!input||!/^guard_[a-f0-9]{32}$/.test(input.caseId||'')||
       !['restore','confirm'].includes(input.action)||typeof input.note!=='string'||
       input.note.trim().length<5||input.note.length>300)throw denial(400,'invalid_review');
+  const root=db.root||ROOT;
   const held=await db.get('guardiao_quarantine/'+input.caseId);
   const c=await db.get('guardian_cases/'+input.caseId);
   if(!held?.updateTime||!c?.updateTime||string(held,'status')!=='held'||
@@ -96,8 +98,8 @@ export async function reviewCase(db,uid,input,now=new Date().toISOString()) {
   if(uid===owner)throw denial(403,'self_review');
   if(owner!==string(c,'ownerUid')||!VALID_ID.test(owner))throw denial(409,'wrong_owner');
   const target=string(held,'targetPath');
-  if(!target.startsWith(ROOT+'/posts/')||!MASK.test(target.slice(ROOT.length+1))||
-      target!==ROOT+'/'+string(c,'targetPath'))throw denial(409,'invalid_target');
+  if(!target.startsWith(root+'/posts/')||!MASK.test(target.slice(root.length+1))||
+      target!==root+'/'+string(c,'targetPath'))throw denial(409,'invalid_target');
   const fields=held.fields?.originalFields?.mapValue?.fields;
   if(!fields||fields.uid?.stringValue!==owner)throw denial(409,'evidence_missing');
   const restored=input.action==='restore';
@@ -113,9 +115,9 @@ export async function reviewCase(db,uid,input,now=new Date().toISOString()) {
   if(restored)writes.push({update:{name:target,fields},currentDocument:{exists:false}});
   for(const old of [held,c])writes.push({update:{name:old.name,fields:reviewFields},
       updateMask:{fieldPaths:Object.keys(reviewFields)},currentDocument:{updateTime:old.updateTime}});
-  writes.push({update:{name:ROOT+'/guardian_audit/'+input.caseId+'_'+(restored?'restored':'confirmed'),
+  writes.push({update:{name:root+'/guardian_audit/'+input.caseId+'_'+(restored?'restored':'confirmed'),
     fields:{caseId:str(input.caseId),actor:str(uid),event:str(input.action),at}},currentDocument:{exists:false}});
-  writes.push({update:{name:ROOT+'/guardian_notices/'+owner+'/items/'+input.caseId+'_review',
+  writes.push({update:{name:root+'/guardian_notices/'+owner+'/items/'+input.caseId+'_review',
     fields:{title:str('Átrio Guardião'),body:str(restored?'Seu conteúdo foi restaurado após revisão.':'A administração concluiu a revisão de sua publicação.'),
       caseId:str(input.caseId),action:str(input.action),createdAt:at}},currentDocument:{exists:false}});
   await db.commit(writes);
@@ -129,7 +131,7 @@ export async function handleRequest(request,env) {
   if(env.GUARDIAN_V2_TEST_MODE==='true')return json(503,'qa_read_only');
   try {
     if(!env.GUARDIAN_FIREBASE_SERVICE_ACCOUNT_JSON)return json(503,'not_configured');
-    const db=new Firestore(await token(env));const uid=await admin(request,db,env);
+    const db=new Firestore(await token(env),env.GUARDIAN_FIREBASE_PROJECT_ID);const uid=await admin(request,db,env);
     if(!uid)return json(403,'forbidden');
     const input=await body(request);
     if(path==='/admin/config') {
@@ -154,7 +156,7 @@ export default {
       return;
     }
     if(env.GUARDIAN_V2_ENABLED!=='true')return;
-    ctx.waitUntil((async()=>{try{const db=new Firestore(await token(env));const config=await db.get('guardian_config/policy');
+    ctx.waitUntil((async()=>{try{const db=new Firestore(await token(env),env.GUARDIAN_FIREBASE_PROJECT_ID);const config=await db.get('guardian_config/policy');
       const metrics=await scanOnce(db,settingsOf(config,env));
       if(metrics.status!=='disabled'){
         const current=await db.get('guardian_runtime/last_scan');
