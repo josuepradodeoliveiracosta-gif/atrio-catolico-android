@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {initializeTestEnvironment, assertFails, assertSucceeds} from '@firebase/rules-unit-testing';
 import {
-  doc, collection, setDoc, updateDoc, getDoc, getDocs, deleteDoc, serverTimestamp, Timestamp
+  doc, collection, setDoc, updateDoc, getDoc, getDocs, deleteDoc, writeBatch, serverTimestamp, Timestamp
 } from 'firebase/firestore';
 
 const env = await initializeTestEnvironment({
@@ -64,6 +64,39 @@ try {
   await check('terceiro não apaga publicação alheia', async () => {
     await assertSucceeds(setDoc(doc(alice,publicPath),publicData));
     await assertFails(deleteDoc(doc(bob,publicPath)));
+  });
+  await check('biografia pública não pode antecipar a edição privada', () => assertFails(
+    updateDoc(doc(alice, publicPath), {bio: 'Apresentação adulterada'})
+  ));
+  await check('nome e bio são atualizados atomicamente no perfil privado e público', async () => {
+    const batch = writeBatch(alice);
+    batch.update(doc(alice, privatePath), {
+      displayName: 'Alice Atualizada', bio: 'Nova apresentação aprovada'
+    });
+    batch.set(doc(alice, publicPath), {
+      displayName: 'Alice Atualizada', bio: 'Nova apresentação aprovada',
+      joinedAt, updatedAt: serverTimestamp()
+    });
+    await assertSucceeds(batch.commit());
+    const privateProfile = await assertSucceeds(getDoc(doc(alice, privatePath)));
+    const publicProfile = await assertSucceeds(getDoc(doc(bob, publicPath)));
+    assert.equal(privateProfile.data().displayName, publicProfile.data().displayName);
+    assert.equal(privateProfile.data().bio, publicProfile.data().bio);
+    assert.equal(publicProfile.data().bio, 'Nova apresentação aprovada');
+  });
+  await check('lote inválido não altera perfil privado parcialmente', async () => {
+    const batch = writeBatch(alice);
+    batch.update(doc(alice, privatePath), {
+      displayName: 'Nome que deve falhar', bio: 'Bio que deve falhar'
+    });
+    batch.set(doc(alice, publicPath), {
+      displayName: 'Nome que deve falhar', bio: 'Bio que deve falhar',
+      joinedAt, updatedAt: serverTimestamp(), email: 'nao-pode@example.test'
+    });
+    await assertFails(batch.commit());
+    const privateProfile = await assertSucceeds(getDoc(doc(alice, privatePath)));
+    assert.equal(privateProfile.data().displayName, 'Alice Atualizada');
+    assert.equal(privateProfile.data().bio, 'Nova apresentação aprovada');
   });
   console.log(`OK: ${count} verificações de perfil público concluídas`);
 } finally { await env.cleanup(); }
