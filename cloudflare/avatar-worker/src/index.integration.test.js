@@ -68,9 +68,9 @@ function fixture() {
       return json({users:[{localId:userId,disabled:false}]});
     if(endpoint.includes('oauth2.googleapis.com/token'))
       return json({access_token:'offline-iam-token',expires_in:3600});
-    if(endpoint.endsWith('/image/upload') && method==='POST') {
+    if(endpoint.endsWith('/image/authenticated') && method==='POST') {
       const form=options.body;
-      assert.equal(form.get('type'),'authenticated');
+      assert.equal(form.get('type'),null);
       assert.equal(form.get('moderation'),'manual');
       assert.equal(form.get('api_key'),'test-key');
       const id=form.get('public_id');
