@@ -29,8 +29,17 @@ export class Firestore {
   constructor(access){this.access=access;}
   async send(path,method='GET',payload){
     const r=await fetch(ROOT+path,{method,headers:{Authorization:'Bearer '+this.access,'Content-Type':'application/json'},body:payload?JSON.stringify(payload):undefined});
-    if(r.status===404)return null;
-    if(!r.ok){const e=Error('firestore_http_'+r.status);e.status=r.status;throw e;}
+    if(r.status===404 && method==='GET')return null;
+    if(!r.ok){
+      // Firestore REST uses 400/409/412 for optimistic-write precondition failures.
+      // Only map documented concurrency codes; do not mask INVALID_ARGUMENT.
+      let reason='';
+      try{reason=(await r.json()).error?.status||'';}catch{}
+      const conflict=['ALREADY_EXISTS','FAILED_PRECONDITION','ABORTED'].includes(reason);
+      const e=Error('firestore_'+(conflict?'conflict':'http_'+r.status));
+      e.status=conflict?409:r.status;
+      throw e;
+    }
     return r.status===204?{}:r.json();
   }
   get(path){return this.send('/'+path.split('/').map(enc).join('/'));}
