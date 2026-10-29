@@ -17,7 +17,7 @@ Esta branch é uma proposta de interface; não é uma versão oficial publicada.
 | Alta | Callback de gravação podia atuar depois da saída/troca do editor | Ignorar callback de sessão descartada, sem cancelar a gravação já enviada |
 | Média | Switches sem nome acessível específico e texto disputando largura | Rótulos para leitor de tela e espaço flexível para texto |
 | Média | Publicações são filtro do feed carregado, não histórico integral | Aviso explícito; nenhuma contagem fictícia nem consulta nova |
-| Média | Preferências por categoria estavam apenas na central | Atalho direto para a central existente |
+| Média | Preferências por categoria estavam apenas na central; texto dizia incorretamente que a versão não enviava avisos com app fechado | Atalho direto e orientação atualizada, sem mudar preferências |
 | Futura | Não há upload, URL ou armazenamento de foto no perfil atual | Manter inicial/arte do Fundador; planejar armazenamento e regras separadamente |
 | Futura | Tema global é fixo claro, com cores fixas em várias telas | Não ativar modo escuro parcialmente; novos cartões usam tokens Material |
 | Futura | Chips dos selos usam texto pequeno e rolagem horizontal | Preservar componente global; revisar acessibilidade em mudança própria |
