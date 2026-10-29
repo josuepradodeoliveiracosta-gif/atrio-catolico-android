@@ -64,6 +64,7 @@ jobs:
       - name: Compilar sem alterar a assinatura de producao
         env:
           ATRIO_PUSH_WORKER_URL: ${{ vars.ATRIO_PUSH_WORKER_URL || 'https://atrio-push.atrio-catolico.workers.dev' }}
+          ATRIO_AVATAR_WORKER_URL: ${{ vars.ATRIO_AVATAR_WORKER_URL || '' }}
         run: gradle :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --stacktrace
       - name: Disponibilizar APK debug apenas para testes da PR
         if: ${{ github.event_name == 'pull_request' }}
