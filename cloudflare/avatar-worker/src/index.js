@@ -104,12 +104,14 @@ export async function cloudSigned(env, endpoint, parameters, bytes, kind) {
     // Diagnóstico seguro: NÃO retornar resposta bruta do fornecedor, tokens,
     // UID ou assinatura. Permite identificar falha de configuração no app.
     const details=await response.json().catch(()=>({}));
-    const message=String(details?.error?.message||'').toLowerCase();
+    const message=(String(details?.error?.message||'')+' '+String(response.headers.get('X-Cld-Error')||'')).toLowerCase();
     let code='cloudinary_error_'+response.status;
-    if(message.includes('signature')) code='cloudinary_signature_invalid';
+    if(message.includes('cloud name') || message.includes('cloud_name') || message.includes('cloud not found')) code='cloudinary_environment_not_found';
+    else if(message.includes('signature')) code='cloudinary_signature_invalid';
     else if(message.includes('api key') || message.includes('api_key') ||
             message.includes('authorization')) code='cloudinary_credentials_invalid';
     else if(message.includes('moderation')) code='cloudinary_moderation_error';
+    else if(message.includes('not found') && response.status===404) code='cloudinary_not_found';
     else if(message.includes('upload preset')) code='cloudinary_preset_error';
     else if(message.includes('file') || message.includes('format')) code='cloudinary_file_error';
     // Não registrar conteúdos privados da resposta do Cloudinary.
@@ -296,7 +298,7 @@ export default {
     } catch (error) {
       if(error.message==='invalid_image') return json(413,'invalid_image');
       if(typeof error.safeCode==='string' &&
-          /^cloudinary_(signature_invalid|credentials_invalid|moderation_error|preset_error|file_error|error_[0-9]{3})$/.test(error.safeCode)) {
+          /^cloudinary_(environment_not_found|not_found|signature_invalid|credentials_invalid|moderation_error|preset_error|file_error|error_[0-9]{3})$/.test(error.safeCode)) {
         return json(502,error.safeCode);
       }
       return json(503,'temporarily_unavailable');
