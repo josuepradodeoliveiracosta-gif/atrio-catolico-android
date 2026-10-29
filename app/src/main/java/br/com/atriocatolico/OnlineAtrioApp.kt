@@ -338,6 +338,9 @@ private fun OnlineCommunity(
     var search by remember { mutableStateOf("") }
     var searchOpen by remember { mutableStateOf(false) }
     var detailId by remember { mutableStateOf<String?>(null) }
+    var publicProfileTarget by remember(uid) { mutableStateOf<PublicMemberTarget?>(null) }
+    var profilePostOpen by remember(uid) { mutableStateOf(false) }
+    var previousDetailId by remember(uid) { mutableStateOf<String?>(null) }
     var detailReplies by remember(uid, detailId) { mutableStateOf<List<Reply>>(emptyList()) }
     var reportPost by remember { mutableStateOf<String?>(null) }
     var reportReply by remember(uid) { mutableStateOf<ReplyReportTarget?>(null) }
@@ -498,9 +501,20 @@ private fun OnlineCommunity(
             android.util.Log.d("AtrioQaNavigation", "request_${destination.name}_from_${tab.name}")
         }
         tab = destination; detailId = null; noticesOpen = false
+        publicProfileTarget = null; profilePostOpen = false; previousDetailId = null
         guardiaoAppealsOpen = false
         noticeBadgesOpen = false; returnToNotices = false
         filter = "Todos"; search = ""; searchOpen = false
+    }
+    fun openMemberProfile(memberUid: String, publishedName: String) {
+        if (memberUid.isBlank()) return
+        if (memberUid == uid) {
+            navigate(Tab.PROFILE)
+        } else {
+            if (publicProfileTarget == null) previousDetailId = detailId
+            publicProfileTarget = PublicMemberTarget(memberUid, publishedName)
+            profilePostOpen = false
+        }
     }
     LaunchedEffect(tab, detailId, noticesOpen, noticeBadgesOpen, guardiaoAppealsOpen) {
         if (BuildConfig.DEBUG &&
@@ -668,7 +682,13 @@ private fun OnlineCommunity(
             }
     }
     fun closeNoticeDestination() {
-        if (guardiaoAppealsOpen) {
+        if (profilePostOpen && publicProfileTarget != null) {
+            profilePostOpen = false
+            detailId = previousDetailId
+        } else if (publicProfileTarget != null) {
+            publicProfileTarget = null
+            previousDetailId = null
+        } else if (guardiaoAppealsOpen) {
             guardiaoAppealsOpen = false
         } else if (detailId != null || noticeBadgesOpen) {
             detailId = null
@@ -679,21 +699,33 @@ private fun OnlineCommunity(
     }
     // Preserve the central state while the separate admin panel is displayed.
     if (!visible) return
-    BackHandler(enabled = detailId != null || noticesOpen || noticeBadgesOpen || guardiaoAppealsOpen) { closeNoticeDestination() }
+    BackHandler(enabled = publicProfileTarget != null || detailId != null || noticesOpen || noticeBadgesOpen || guardiaoAppealsOpen) { closeNoticeDestination() }
 
     Scaffold(containerColor = Paper, topBar = {
         AtrioTopBar(
-            details = detailId != null || noticesOpen || noticeBadgesOpen || guardiaoAppealsOpen,
-            detailsTitle = if (guardiaoAppealsOpen) "Minhas revisões" else if (noticeBadgesOpen) "Meus selos" else if (noticesOpen) "Notificações" else "Discussão",
+            details = publicProfileTarget != null || detailId != null || noticesOpen || noticeBadgesOpen || guardiaoAppealsOpen,
+            detailsTitle = if (publicProfileTarget != null && !profilePostOpen) "Perfil público"
+                else if (guardiaoAppealsOpen) "Minhas revisões" else if (noticeBadgesOpen) "Meus selos"
+                else if (noticesOpen) "Notificações" else "Discussão",
             unreadCount = inbox.groups(notificationAdmin).count { it.unread },
             onBack = ::closeNoticeDestination,
             onSearch = { val open = !searchOpen; navigate(Tab.HOME); searchOpen = open },
-            onNotification = { detailId = null; noticeBadgesOpen = false; returnToNotices = false; noticesOpen = !noticesOpen; searchOpen = false }
+            onNotification = {
+                publicProfileTarget = null; profilePostOpen = false; previousDetailId = null
+                detailId = null; noticeBadgesOpen = false; returnToNotices = false
+                noticesOpen = !noticesOpen; searchOpen = false
+            }
         )
     }, bottomBar = { AtrioBottomBar(selected = tab, onSelect = ::navigate) }) { inset ->
         Box(Modifier.padding(inset)) {
             val detail = openedPost?.copy(liked = detailId in likedIds, saved = detailId in savedIds)
-            if (guardiaoAppealsOpen) {
+            if (publicProfileTarget != null && !profilePostOpen) {
+                PublicMemberProfileScreen(
+                    db = db, target = publicProfileTarget!!,
+                    onBack = ::closeNoticeDestination,
+                    onOpenDiscussion = { postId -> profilePostOpen = true; detailId = postId }
+                )
+            } else if (guardiaoAppealsOpen) {
                 GuardiaoAppealsScreen(db, uid)
             } else if (noticeBadgesOpen) {
                 LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
@@ -769,6 +801,7 @@ private fun OnlineCommunity(
                     onReportReply = { reply ->
                         reportReply = ReplyReportTarget(detail.id, reply.id, reply.author, reply.message)
                     },
+                    onOpenProfile = ::openMemberProfile,
                     repliesFooter = {
                         LoadMore(repliesLoading, repliesMore, repliesError, "Carregar mais respostas") {
                             if (repliesError) repliesRetry++ else replyLimit += 30
@@ -782,6 +815,7 @@ private fun OnlineCommunity(
                     onOpen = { detailId = it },
                     onLike = { id -> posts.firstOrNull { it.id == id }?.let { toggle("likedPosts", id, it.liked) } },
                     onSave = { id -> posts.firstOrNull { it.id == id }?.let { toggle("savedPosts", id, it.saved) } },
+                    onOpenProfile = ::openMemberProfile,
                     footer = {
                         LoadMore(feedLoading, feedMore, feedError, "Carregar mais publicações") {
                             if (feedError) feedRetry++ else feedLimit += 30
@@ -794,6 +828,7 @@ private fun OnlineCommunity(
                     onLike = { id -> allPosts.firstOrNull { it.id == id }?.let { toggle("likedPosts", id, it.liked) } },
                     onSave = { id -> allPosts.firstOrNull { it.id == id }?.let { toggle("savedPosts", id, it.saved) } },
                     loading = savesLoading || savedPending.isNotEmpty(),
+                    onOpenProfile = ::openMemberProfile,
                     footer = {
                         LoadMore(savesLoading || savedPending.isNotEmpty(), savedOrder.size > savedLimit,
                             savesError || savedFailures.isNotEmpty(), "Carregar mais salvos") {
