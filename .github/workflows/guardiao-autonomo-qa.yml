@@ -55,6 +55,8 @@ jobs:
           npm test
       - name: Verificar sintaxe do Worker
         run: node --check cloudflare/guardian-worker/src/index.js
+      - name: Validar sintaxe do script que adiciona somente índice QA
+        run: python3 -m py_compile cloudflare/guardian-worker/scripts/apply-qa-replies-index.py
 
   firestore-guardiao:
     name: Regras e recursos do Guardião no emulador
