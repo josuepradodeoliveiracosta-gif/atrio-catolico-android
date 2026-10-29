@@ -19,7 +19,7 @@ function caseFields(item,finding,now,action) {
 export async function processDocument(db,document,settings,now=new Date().toISOString()) {
   if(!settings.enabled)return 'disabled';
   const item=cleanItem(document);if(!item)return 'invalid';
-  const root=db.root||ROOT;
+  const root=db.resource||ROOT;
   const finding=classify(item.text,settings.context||{}),policy=decide(finding,settings);
   if(policy==='clear')return 'clear';
   const id=await caseId(item.path);
@@ -89,7 +89,7 @@ export async function reviewCase(db,uid,input,now=new Date().toISOString()) {
   if(!VALID_ID.test(uid)||!input||!/^guard_[a-f0-9]{32}$/.test(input.caseId||'')||
       !['restore','confirm'].includes(input.action)||typeof input.note!=='string'||
       input.note.trim().length<5||input.note.length>300)throw denial(400,'invalid_review');
-  const root=db.root||ROOT;
+  const root=db.resource||ROOT;
   const held=await db.get('guardiao_quarantine/'+input.caseId);
   const c=await db.get('guardian_cases/'+input.caseId);
   if(!held?.updateTime||!c?.updateTime||string(held,'status')!=='held'||
