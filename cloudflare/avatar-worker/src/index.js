@@ -100,7 +100,24 @@ export async function cloudSigned(env, endpoint, parameters, bytes, kind) {
   if(bytes) form.append('file',new Blob([bytes],{type:'image/jpeg'}),'avatar.jpg');
   const response = await fetch('https://api.cloudinary.com/v1_1/'+
     env.CLOUDINARY_CLOUD_NAME+'/image/'+endpoint,{method:'POST',body:form});
-  if(!response.ok) throw Error('cloudinary_'+kind+'_failed');
+  if(!response.ok) {
+    // Diagnóstico seguro: NÃO retornar resposta bruta do fornecedor, tokens,
+    // UID ou assinatura. Permite identificar falha de configuração no app.
+    const details=await response.json().catch(()=>({}));
+    const message=String(details?.error?.message||'').toLowerCase();
+    let code='cloudinary_error_'+response.status;
+    if(message.includes('signature')) code='cloudinary_signature_invalid';
+    else if(message.includes('api key') || message.includes('api_key') ||
+            message.includes('authorization')) code='cloudinary_credentials_invalid';
+    else if(message.includes('moderation')) code='cloudinary_moderation_error';
+    else if(message.includes('upload preset')) code='cloudinary_preset_error';
+    else if(message.includes('file') || message.includes('format')) code='cloudinary_file_error';
+    // Não registrar conteúdos privados da resposta do Cloudinary.
+    console.warn('atrio_avatar_cloudinary_failure',kind,code);
+    const err=new Error('cloudinary_request_failed');
+    err.safeCode=code;
+    throw err;
+  }
   return response.json();
 }
 async function cloudGet(env, id, type='authenticated') {
@@ -278,6 +295,10 @@ export default {
       return await withAvatarLock(env,uid,()=>remove(env,uid));
     } catch (error) {
       if(error.message==='invalid_image') return json(413,'invalid_image');
+      if(typeof error.safeCode==='string' &&
+          /^cloudinary_(signature_invalid|credentials_invalid|moderation_error|preset_error|file_error|error_[0-9]{3})$/.test(error.safeCode)) {
+        return json(502,error.safeCode);
+      }
       return json(503,'temporarily_unavailable');
     }
   }
