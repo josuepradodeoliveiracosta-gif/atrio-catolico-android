@@ -53,13 +53,19 @@ echo "Iniciando toques e login reais pelo Compose em emulador Android"
 # uma troca de conta ainda em trânsito pode deixar avisos invisíveis.
 # Cada invocation cria um AndroidJUnitRunner novo no MESMO emulador local.
 mkdir -p qa-android-suite-results
+qa_failed=0
 run_suite() {
   local suite="$1"
   local full="br.com.atriocatolico.$suite"
   echo "QA Android: iniciando $suite (isolado)"
-  gradle :app:connectedDebugAndroidTest \
+  if gradle :app:connectedDebugAndroidTest \
     "-Pandroid.testInstrumentationRunnerArguments.class=$full" \
-    --no-daemon --stacktrace
+    --no-daemon --stacktrace; then
+    echo "QA Android: $suite aprovada"
+  else
+    qa_failed=1
+    echo "QA Android: $suite falhou; preservando relatório e executando as demais"
+  fi
   if [[ -d app/build/outputs/androidTest-results/connected/debug ]]; then
     mkdir -p "qa-android-suite-results/$suite"
     cp -a app/build/outputs/androidTest-results/connected/debug/. \
@@ -68,9 +74,13 @@ run_suite() {
 }
 run_suite ProfileLayoutUiTest
 mkdir -p qa-android-suite-results/profile-preview
-adb pull /sdcard/Android/data/br.com.atriocatolico/files/profile-preview/. qa-android-suite-results/profile-preview/
+if ! adb pull /data/local/tmp/atrio-profile-preview/. qa-android-suite-results/profile-preview/; then
+  qa_failed=1
+  echo "Falha ao coletar capturas; as outras suítes continuarão"
+fi
 run_suite ProfileEditorUiTest
 run_suite ThreeBotsAndroidUiTest
 run_suite ThreeBotsAuthenticatedAndroidUiTest
 run_suite ThreeBotsOnlineEmulatorTest
-echo "QA Android: suítes concluídas com êxito em processos separados"
+echo "QA Android: suítes concluídas em processos separados; status=$qa_failed"
+exit "$qa_failed"

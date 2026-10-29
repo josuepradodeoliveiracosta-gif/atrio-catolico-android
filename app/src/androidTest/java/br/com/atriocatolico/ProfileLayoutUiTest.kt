@@ -1,6 +1,5 @@
 package br.com.atriocatolico
 
-import android.content.Context
 import android.graphics.Bitmap
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.asAndroidBitmap
@@ -8,10 +7,11 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.Density
-import androidx.test.core.app.ApplicationProvider
+import androidx.test.platform.app.InstrumentationRegistry
+import android.os.Build
+import android.os.ParcelFileDescriptor
 import com.google.firebase.FirebaseApp
 import com.google.firebase.firestore.FirebaseFirestore
-import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -66,10 +66,21 @@ class ProfileLayoutUiTest {
     }
 
     private fun screenshot(name: String) {
-        val context = ApplicationProvider.getApplicationContext<Context>()
-        val directory = context.getExternalFilesDir("profile-preview")!!
-        directory.mkdirs()
+        // O Gradle pode desinstalar o APK ao terminar a suíte. Guardar a captura
+        // no diretório do shell de QA evita perdê-la junto com os dados do app.
+        if (Build.VERSION.SDK_INT < 31) return
+        require(name.matches(Regex("[a-z0-9-]+")))
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        ParcelFileDescriptor.AutoCloseInputStream(
+            automation.executeShellCommand("mkdir -p /data/local/tmp/atrio-profile-preview")
+        ).use { it.readBytes() }
         val bitmap = compose.onRoot().captureToImage().asAndroidBitmap()
-        File(directory, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        val pipes = automation.executeShellCommandRw("dd of=/data/local/tmp/atrio-profile-preview/$name.png")
+        ParcelFileDescriptor.AutoCloseInputStream(pipes[0]).use { output ->
+            ParcelFileDescriptor.AutoCloseOutputStream(pipes[1]).use { input ->
+                check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, input))
+            }
+            output.readBytes()
+        }
     }
 }
