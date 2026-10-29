@@ -115,7 +115,7 @@ async function destroy(env, id, type) {
   if(!id || !/^atrio-avatares\/[A-Za-z0-9_-]{1,128}\/[0-9a-f-]{36}$/.test(id)) return;
   await cloudSigned(env,'destroy',{public_id:id,type,invalidate:'true'},null,'destroy');
 }
-async function boundedBytes(request) {
+export async function boundedBytes(request) {
   const length=Number(request.headers.get('Content-Length')||'0');
   if(length > LIMIT || request.headers.get('Content-Type')?.split(';')[0] !== 'image/jpeg')
     throw Error('invalid_image');
@@ -145,7 +145,7 @@ async function quota(env, uid) {
   ).bind(uid,now+60000,now).run();
   return r.meta?.changes === 1;
 }
-function publicUrl(env, result) {
+export function publicUrl(env, result) {
   // Não confiar no endereço fornecido pelo cliente; compor URL do recurso do backend.
   if(!Number.isSafeInteger(result.version) || !/^atrio-avatares\/[A-Za-z0-9_-]{1,128}\/[0-9a-f-]{36}$/.test(result.public_id))
     throw Error('cloudinary_invalid_response');
