@@ -137,6 +137,22 @@ export async function boundedBytes(request) {
     output[count-2]!==0xff || output[count-1]!==0xd9) throw Error('invalid_image');
   return output;
 }
+// Trava por UID evita que uma remoção concorra com a promoção da mesma foto.
+// Não depende de memória local, portanto funciona entre instâncias do Worker.
+async function withAvatarLock(env,uid,action) {
+  const nonce=crypto.randomUUID();
+  const now=Date.now();
+  const acquired=await env.AVATAR_DB.prepare(
+    'INSERT INTO avatar_mutex (uid,nonce,expires_at) VALUES (?,?,?) ON CONFLICT(uid) DO UPDATE SET nonce=excluded.nonce,expires_at=excluded.expires_at WHERE avatar_mutex.expires_at < ?'
+  ).bind(uid,nonce,now+120000,now).run();
+  if(acquired.meta?.changes!==1) return json(409,'avatar_busy');
+  try { return await action(); }
+  finally {
+    await env.AVATAR_DB.prepare('DELETE FROM avatar_mutex WHERE uid=? AND nonce=?')
+      .bind(uid,nonce).run();
+  }
+}
+
 async function quota(env, uid) {
   // Janela de 60 s por UID; UPDATE condicional atômico impede uploads paralelos.
   const now=Date.now();
@@ -162,8 +178,14 @@ async function upload(env, uid, request) {
     type:'authenticated',overwrite:'false',moderation:'manual'},bytes,'upload');
   if(result.public_id!==id || result.type!=='authenticated') throw Error('cloudinary_identity_mismatch');
   const previous=await env.AVATAR_DB.prepare('SELECT public_id FROM avatar_pending WHERE uid=?').bind(uid).first();
-  await env.AVATAR_DB.prepare('INSERT INTO avatar_pending (uid,public_id,created_at) VALUES (?,?,?) ON CONFLICT(uid) DO UPDATE SET public_id=excluded.public_id, created_at=excluded.created_at')
-    .bind(uid,id,Date.now()).run();
+  try {
+    await env.AVATAR_DB.prepare('INSERT INTO avatar_pending (uid,public_id,created_at) VALUES (?,?,?) ON CONFLICT(uid) DO UPDATE SET public_id=excluded.public_id, created_at=excluded.created_at')
+      .bind(uid,id,Date.now()).run();
+  } catch(error) {
+    // Evitar um upload órfão quando o registro D1 falhar.
+    try { await destroy(env,id,'authenticated'); } catch {}
+    throw error;
+  }
   if(previous?.public_id && previous.public_id!==id) {
     try {await destroy(env,previous.public_id,'authenticated');} catch {}
   }
@@ -217,11 +239,13 @@ async function moderateRemove(env,actor,request) {
   if(!uidOk(payload?.uid) || typeof payload.reason !== 'string' ||
     payload.reason.trim().length < 5 || payload.reason.length>100)
     return json(400,'invalid_request');
-  await remove(env,payload.uid);
-  await env.AVATAR_DB.prepare(
-    'INSERT INTO avatar_moderation (actor_uid,target_uid,reason,created_at) VALUES (?,?,?,?)'
-  ).bind(actor,payload.uid,payload.reason.trim(),Date.now()).run();
-  return json(200,'moderated');
+  return withAvatarLock(env,payload.uid,async()=>{
+    await remove(env,payload.uid);
+    await env.AVATAR_DB.prepare(
+      'INSERT INTO avatar_moderation (actor_uid,target_uid,reason,created_at) VALUES (?,?,?,?)'
+    ).bind(actor,payload.uid,payload.reason.trim(),Date.now()).run();
+    return json(200,'moderated');
+  });
 }
 async function remove(env,uid) {
   const before=await firestoreGet(env,uid);
@@ -246,10 +270,10 @@ export default {
       requireEnv(env);
       const uid=await verify(request,env);
       if(!uid) return json(401,'unauthorized');
-      if(pathname==='/avatar/upload') return await upload(env,uid,request);
-      if(pathname==='/avatar/status') return await status(env,uid);
+      if(pathname==='/avatar/upload') return await withAvatarLock(env,uid,()=>upload(env,uid,request));
+      if(pathname==='/avatar/status') return await withAvatarLock(env,uid,()=>status(env,uid));
       if(pathname==='/avatar/moderate') return await moderateRemove(env,uid,request);
-      return await remove(env,uid);
+      return await withAvatarLock(env,uid,()=>remove(env,uid));
     } catch (error) {
       if(error.message==='invalid_image') return json(413,'invalid_image');
       return json(503,'temporarily_unavailable');
