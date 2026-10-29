@@ -68,7 +68,7 @@ test('índices compostos anteriores precisam estar READY',async()=>{
 test('falta de credencial e falhas de API nunca fingem sucesso',async()=>{
  assert.deepEqual(await readQaIndexes({...args,accessToken:'short'}),{status:'unavailable'});
  const result=await readQaIndexes({...args,fetcher:async()=>new Response('forbidden',{status:403})});
- assert.deepEqual(result,{status:'unavailable'});
+ assert.deepEqual(result,{status:'unavailable',reason:'api_403_composite'});
 });
 test('auditoria exige formato de índices esperado',async()=>{
  const result=await readQaIndexes({...args,fetcher:fake({indexes:[]},single).fetcher});
