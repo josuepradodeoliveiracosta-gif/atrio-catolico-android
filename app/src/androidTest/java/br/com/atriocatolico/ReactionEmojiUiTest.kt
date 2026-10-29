@@ -62,6 +62,7 @@ class ReactionEmojiUiTest {
                 )
             }
         }
+        compose.onNodeWithTag("atrio-detail-replies").performScrollToIndex(1)
         compose.onNodeWithText("Vamos orar juntos.", useUnmergedTree = true).performScrollTo()
             .performTouchInput { longClick() }
         waitFor("reaction-quick-bar")
