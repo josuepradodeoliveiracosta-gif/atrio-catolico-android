@@ -253,13 +253,18 @@ service cloud.firestore {
         && validText(request.resource.data.body, 5, 1200)
         && validCategory(request.resource.data.category)
         && validTime();
-      // Novas edições registram horário do servidor; autoria, criação e categoria
-      // permanecem imutáveis. Regras devem ser publicadas junto a APK compatível.
+      // Migração em duas fases: APK novo informa updatedAt gerado no servidor;
+      // APK antigo ainda pode editar título/corpo sem alterar timestamps.
+      // IMPORTANTE: edições legadas não entram na fila automática updatedAt.
+      // Não remover a compatibilidade sem atualizar todos os APKs ativos.
       allow update: if signedIn()
         && resource.data.uid == request.auth.uid
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'body', 'updatedAt'])
-        && request.resource.data.diff(resource.data).affectedKeys().hasAll(['updatedAt'])
-        && request.resource.data.updatedAt == request.time
+        && (
+          (request.resource.data.diff(resource.data).affectedKeys().hasAll(['updatedAt'])
+            && request.resource.data.updatedAt == request.time)
+          || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'body'])
+        )
         && validText(request.resource.data.title, 5, 120)
         && validText(request.resource.data.body, 5, 1200);
       allow delete: if signedIn() && (resource.data.uid == request.auth.uid || isAdmin());
