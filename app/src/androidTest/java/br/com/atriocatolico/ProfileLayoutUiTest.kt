@@ -65,6 +65,49 @@ class ProfileLayoutUiTest {
         compose.runOnIdle { assertEquals("create", destination) }
     }
 
+    @Test fun badgesAndEditorRemainUsableWithLargeText() {
+        // Acessibilidade e navegação testadas apenas no projeto demo isolado.
+        check(FirebaseApp.getInstance().options.projectId == "demo-atrio-v11")
+        compose.setContent {
+            val density = LocalDensity.current.density
+            CompositionLocalProvider(LocalDensity provides Density(density, 1.5f)) {
+                AtrioTheme {
+                    OnlineProfileScreen(
+                        db = FirebaseFirestore.getInstance(), uid = "profile-layout-only",
+                        name = "Maria da Comunidade", email = "maria@example.test",
+                        biography = "Uma caminhada de fé e comunidade.", posts = emptyList(),
+                        publicationsFooter = {}, onSignOut = {},
+                        onModeration = null, onClergyReview = null,
+                        onCreate = {}, onOpen = {}, onLike = {}, onSave = {},
+                        onSavedPosts = {}, onNotifications = {}, onReviews = {}
+                    )
+                }
+            }
+        }
+
+        val list = compose.onNodeWithTag("atrio-profile-list")
+        list.performScrollToNode(hasTestTag("atrio-profile-badges"))
+        compose.onNodeWithTag("atrio-profile-badges").performClick()
+        compose.onNodeWithText("Gerenciar selos").assertIsDisplayed()
+        screenshot("04-selos-fonte-ampliada")
+        compose.onNodeWithText("Voltar ao perfil").performClick()
+
+        list.performScrollToNode(hasTestTag("atrio-profile-edit"))
+        compose.onNodeWithTag("atrio-profile-edit").performClick()
+        compose.onNodeWithTag("atrio-profile-name").assertIsDisplayed()
+        compose.onNodeWithTag("atrio-profile-bio").performTextInput("Rascunho de apresentação")
+        screenshot("05-editor-fonte-ampliada")
+
+        // A saída do editor não pode descartar silenciosamente um rascunho.
+        compose.onNodeWithText("Cancelar").performClick()
+        compose.onNodeWithText("Descartar alterações?").assertIsDisplayed()
+        compose.onNodeWithText("Continuar editando").performClick()
+        compose.onNodeWithTag("atrio-profile-bio").assertTextContains("Rascunho de apresentação")
+        compose.onNodeWithText("Cancelar").performClick()
+        compose.onNodeWithText("Descartar").performClick()
+        compose.onNodeWithTag("atrio-profile-edit").assertExists()
+    }
+
     private fun screenshot(name: String) {
         // O Gradle pode desinstalar o APK ao terminar a suíte. Guardar a captura
         // no diretório do shell de QA evita perdê-la junto com os dados do app.
