@@ -128,3 +128,23 @@ jobs:
         env:
           FIREBASE_PROJECT_ID: demo-atrio-v11
         run: npm run test:guardian-live
+
+  cloudflare-qa-smoke:
+    name: Cloudflare QA — health e acesso negado
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Validar Worker QA separado, sem segredos ou punições
+        env:
+          QA_URL: https://atrio-guardian-v2-qa.atrio-catolico.workers.dev
+        run: |
+          set -euo pipefail
+          curl -fsS --retry 2 --connect-timeout 8 --max-time 20 \
+            "$QA_URL/health" | grep -F '"status":"guardian_v2_qa_safe"'
+          status=$(curl -sS --connect-timeout 8 --max-time 20 \
+            -o /tmp/guardian-qa-denied.json -w '%{http_code}' \
+            -H 'Content-Type: application/json' \
+            -X POST "$QA_URL/admin/config" \
+            --data '{"enabled":true,"allowHold":true,"emergencyStop":false}')
+          test "$status" = 503
+          grep -F '"status":"qa_read_only"' /tmp/guardian-qa-denied.json
