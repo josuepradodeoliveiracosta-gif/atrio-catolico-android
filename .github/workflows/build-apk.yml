@@ -33,6 +33,8 @@ jobs:
       - name: Compilar APK de testes
         env:
           ATRIO_PUSH_WORKER_URL: ${{ vars.ATRIO_PUSH_WORKER_URL || 'https://atrio-push.atrio-catolico.workers.dev' }}
+          # Somente debug: identificação diferente a cada execução.
+          ATRIO_DEBUG_BUILD_NUMBER: ${{ github.run_number }}
         run: gradle :app:assembleDebug --no-daemon --stacktrace
       # Chave de assinatura não fica disponível para builds automáticos.
       # Mesmo um workflow_dispatch feito em outra branch não acessa os secrets.
