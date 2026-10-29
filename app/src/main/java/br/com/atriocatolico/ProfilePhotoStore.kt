@@ -45,7 +45,19 @@ internal object ProfilePhotoStore {
         val length = runCatching {
             resolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
         }.getOrDefault(-1L)
-        return decodeImage(mime, length) { resolver.openInputStream(uri) }
+        // Mesmo provedores que não informam length precisam respeitar os 5 MB.
+        val encoded = (resolver.openInputStream(uri) ?: error("Não foi possível abrir a imagem.")).use { input ->
+            val output = ByteArrayOutputStream()
+            val block = ByteArray(8192)
+            while (true) {
+                val read = input.read(block)
+                if (read < 0) break
+                require(output.size() + read <= MAX_INPUT_BYTES) { "A imagem deve ter até 5 MB." }
+                output.write(block, 0, read)
+            }
+            output.toByteArray()
+        }
+        return decodeImage(mime, encoded.size.toLong()) { java.io.ByteArrayInputStream(encoded) }
     }
 
     /**
