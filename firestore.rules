@@ -208,7 +208,7 @@ service cloud.firestore {
       allow get: if signedIn();
       allow list: if false;
       // getAfter valida o perfil privado após a mesma transação de atualização.
-      // Mantém compatibilidade com edições em clientes anteriores.
+      // APKs antigos devem revogar a publicação antes de editar a bio privada.
       allow create, update: if me(uid)
         && exists(/databases/$(database)/documents/profiles/$(uid))
         && request.resource.data.keys().hasOnly([
