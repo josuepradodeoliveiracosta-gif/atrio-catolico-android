@@ -8,6 +8,7 @@ workers_dev = true
 GUARDIAN_V2_TEST_MODE = "true"
 GUARDIAN_V2_ENABLED = "false"
 GUARDIAN_V2_HOLD_ENABLED = "false"
+GUARDIAN_V2_QA_SHADOW_READS = "false" # Conexão remota desativada até projeto QA separado
 
 [triggers]
 crons = ["*/15 * * * *"]
