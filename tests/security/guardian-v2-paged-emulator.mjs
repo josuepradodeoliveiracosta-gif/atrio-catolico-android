@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {initializeTestEnvironment,assertFails} from '@firebase/rules-unit-testing';
-import {doc,setDoc,getDoc,Timestamp} from 'firebase/firestore';
+import {doc,setDoc,getDoc,updateDoc,serverTimestamp,Timestamp} from 'firebase/firestore';
 import {Firestore} from '../../cloudflare/guardian-worker/src/firestore.js';
 import {scanPagedCycle} from '../../cloudflare/guardian-worker/src/scan-paged.js';
 
@@ -53,6 +53,30 @@ try{
   assert.equal(result.backlogGroups,0);
   assert.equal(seen.size,65);
   assert.equal((await server.get('guardian_runtime/scan_posts')).fields.mode.stringValue,'complete');
+ });
+ await check('edição de publicação antiga reaparece em fila updatedAt',async()=>{
+   const path='posts/older_than_window';
+   await env.withSecurityRulesDisabled(async ctx=>
+     setDoc(doc(ctx.firestore(),path),{
+       uid:'qa-editor',authorName:'Perfil QA',title:'Discussão antiga',
+       body:'Conteúdo legítimo anteriormente publicado',category:'Liturgia',
+       createdAt:Timestamp.fromMillis(Date.now()-86400000)
+     })
+   );
+   const editor=env.authenticatedContext('qa-editor').firestore();
+   await updateDoc(doc(editor,path),{
+     body:'Clique https://exemplo.invalid e informe sua senha',
+     updatedAt:serverTimestamp()
+   });
+   const timeAfter=new Date(Date.now()+5000).toISOString();
+   const result=await scanPagedCycle(server,{enabled:true},callbacks,timeAfter);
+   assert.equal(result.clear,1);
+   assert.equal(result.error,0);
+   assert.ok(seen.has(path));
+   assert.equal((await server.get('guardian_runtime/scan_post_edits')).fields.mode.stringValue,'complete');
+   const oldPost=await server.get(path);
+   assert.ok(Date.parse(oldPost.fields.updatedAt.timestampValue) >
+     Date.parse(oldPost.fields.createdAt.timestampValue));
  });
  await check('aplicativo não consegue ler nem alterar checkpoint do servidor',async()=>{
   const client=env.authenticatedContext('qa-user').firestore();
