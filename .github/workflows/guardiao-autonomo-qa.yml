@@ -220,3 +220,50 @@ jobs:
         env:
           QA_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
         run: node src/remote-readonly.mjs
+
+  qa-index-audit:
+    name: Índices Firebase QA — auditoria WIF somente leitura
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/feature/guardiao-autonomo-20261029' &&
+      github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android'
+    runs-on: ubuntu-latest
+    environment: guardian-qa
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      QA_FIREBASE_PROJECT_ID: ${{ vars.GUARDIAN_QA_FIREBASE_PROJECT_ID }}
+      QA_APPROVED_PROJECT_ID: ${{ vars.GUARDIAN_QA_APPROVED_PROJECT_ID }}
+      QA_WIF_PROVIDER: ${{ vars.GUARDIAN_QA_WIF_PROVIDER }}
+      QA_SERVICE_ACCOUNT: ${{ vars.GUARDIAN_QA_SERVICE_ACCOUNT }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Exigir projeto e serviço de leitura EXATAMENTE QA
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$QA_FIREBASE_PROJECT_ID" = 'atrio-catolico-qa-v2'
+          test "$QA_APPROVED_PROJECT_ID" = 'atrio-catolico-qa-v2'
+          test "$QA_SERVICE_ACCOUNT" = 'guardian-qa-reader@atrio-catolico-qa-v2.iam.gserviceaccount.com'
+          [[ "$QA_WIF_PROVIDER" == projects/*/locations/global/workloadIdentityPools/guardian-github-qa/providers/github-qa ]]
+      - name: Token temporário pelo GitHub OIDC/Google WIF (sem chave JSON)
+        id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ env.QA_FIREBASE_PROJECT_ID }}
+          workload_identity_provider: ${{ env.QA_WIF_PROVIDER }}
+          service_account: ${{ env.QA_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_lifetime: 300s
+          access_token_scopes: https://www.googleapis.com/auth/datastore
+          create_credentials_file: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Conferir índices e reportar READY ou MISSING (apenas GET)
+        working-directory: cloudflare/guardian-worker
+        env:
+          QA_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+        run: node src/qa-index-audit-run.mjs
