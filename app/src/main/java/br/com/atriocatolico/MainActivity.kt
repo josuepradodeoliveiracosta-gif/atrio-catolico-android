@@ -67,7 +67,8 @@ internal data class Reply(
     val mine: Boolean = false,
     val ownerUid: String = "",
     val replyToId: String = "",
-    val replyToUid: String = ""
+    val replyToUid: String = "",
+    val mentionUid: String = ""
 )
 internal data class Post(
     val id: String,
@@ -697,7 +698,22 @@ internal fun DetailScreen(
                             if (r.replyToId.isNotBlank()) {
                                 val target = post.replies.firstOrNull { it.id == r.replyToId }
                                 Text("↳ Em resposta a @${target?.author ?: "participante"}",
-                                    style = MaterialTheme.typography.labelSmall, color = Wine)
+                                    style = MaterialTheme.typography.labelSmall, color = Wine,
+                                    modifier = Modifier.clickable(enabled = target?.ownerUid?.isNotBlank() == true) {
+                                        target?.let { onOpenProfile(it.ownerUid, it.author) }
+                                    }.testTag("atrio-open-quoted-member-${r.id}"))
+                            }
+                            if (r.mentionUid.isNotBlank()) {
+                                val mentioned = if (r.mentionUid == post.ownerUid) {
+                                    post.author
+                                } else post.replies.firstOrNull { it.ownerUid == r.mentionUid }?.author
+                                if (!mentioned.isNullOrBlank()) {
+                                    Text("Mencionou @${mentioned}", color = Wine,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        modifier = Modifier.clickable {
+                                            onOpenProfile(r.mentionUid, mentioned)
+                                        }.testTag("atrio-open-mentioned-member-${r.id}"))
+                                }
                             }
                             Text(r.message, fontSize = 13.sp, lineHeight = 19.sp, color = Ink)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
