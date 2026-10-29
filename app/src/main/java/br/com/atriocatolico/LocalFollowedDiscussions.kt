@@ -50,10 +50,14 @@ internal data class FollowedDiscussion(val id: String, val title: String)
 @Composable
 internal fun FollowedDiscussionsScreen(
     db: FirebaseFirestore, uid: String, revision: Int,
-    onBack: () -> Unit, onOpen: (String) -> Unit
+    onBack: () -> Unit, onOpen: (String) -> Unit,
+    remoteEnabled: Boolean = false, remoteIds: Set<String> = emptySet(),
+    remoteLoading: Boolean = false, remoteFailed: Boolean = false
 ) {
     val context = LocalContext.current
-    val ids = remember(uid, revision) { LocalFollowedDiscussions.ids(context, uid).sorted() }
+    val ids = remember(uid, revision, remoteEnabled, remoteIds) {
+        if (remoteEnabled) remoteIds.sorted() else LocalFollowedDiscussions.ids(context, uid).sorted()
+    }
     var found by remember(uid, revision) { mutableStateOf<List<FollowedDiscussion>>(emptyList()) }
     var loading by remember(uid, revision) { mutableStateOf(ids.isNotEmpty()) }
     var error by remember(uid, revision) { mutableStateOf(false) }
@@ -100,16 +104,21 @@ internal fun FollowedDiscussionsScreen(
         item {
             TextButton(onClick = onBack) { Text("Voltar ao perfil") }
             Text("Discussões acompanhadas", style = MaterialTheme.typography.headlineSmall)
-            Text("Lista privada deste aparelho. Para sincronizar com outros celulares será necessária uma atualização das regras da comunidade.",
+            Text(if (remoteEnabled) "Lista privada sincronizada na sua conta."
+                else "Lista privada deste aparelho. Para sincronizar com outros celulares será necessária uma atualização das regras da comunidade.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall)
         }
-        if (loading) item { CircularProgressIndicator() }
+        if (loading || remoteLoading) item { CircularProgressIndicator() }
+        if (remoteFailed) item {
+            Text("Não foi possível sincronizar suas discussões. Confira a conexão.",
+                color = MaterialTheme.colorScheme.error)
+        }
         if (error) item {
             Text("Algumas discussões não puderam ser carregadas.", color = MaterialTheme.colorScheme.error)
             OutlinedButton(onClick = { retry++ }) { Text("Tentar novamente") }
         }
-        if (!loading && ids.isEmpty()) item {
+        if (!loading && !remoteLoading && !remoteFailed && ids.isEmpty()) item {
             Text("Acompanhe uma discussão pelo botão disponível na conversa.")
         }
         if (!loading && found.isEmpty() && ids.isNotEmpty() && !error) item {

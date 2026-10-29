@@ -44,6 +44,8 @@ internal fun OnlineProfileScreen(
     onLike: (String) -> Unit, onSave: (String) -> Unit,
     onSavedPosts: () -> Unit, onNotifications: () -> Unit, onReviews: () -> Unit,
     followedRevision: Int = 0, savedCount: Int = 0,
+    followedRemoteEnabled: Boolean = false, followedRemoteIds: Set<String> = emptySet(),
+    followedRemoteLoading: Boolean = false, followedRemoteFailed: Boolean = false,
     onPhotoChanged: () -> Unit = {}
 ) {
     var badgesOpen by rememberSaveable(uid) { mutableStateOf(false) }
@@ -58,7 +60,9 @@ internal fun OnlineProfileScreen(
 
     if (followedOpen) {
         FollowedDiscussionsScreen(db, uid, followedRevision,
-            onBack = { followedOpen = false }, onOpen = onOpen)
+            onBack = { followedOpen = false }, onOpen = onOpen,
+            remoteEnabled = followedRemoteEnabled, remoteIds = followedRemoteIds,
+            remoteLoading = followedRemoteLoading, remoteFailed = followedRemoteFailed)
     } else if (discussionsOpen) {
         ProfileDiscussionHistory(db, uid, onBack = { discussionsOpen = false }, onOpen = onOpen)
     } else if (badgesOpen) {
@@ -79,9 +83,8 @@ internal fun OnlineProfileScreen(
             LocalFounderUid.current.isNotBlank() && LocalFounderUid.current == uid
         val mine = remember(posts, uid) { posts.filter { it.mine } }
         val context = LocalContext.current
-        val followedCount = remember(uid, followedRevision) {
-            LocalFollowedDiscussions.ids(context, uid).size
-        }
+        val followedCount = if (followedRemoteEnabled) followedRemoteIds.size
+            else remember(uid, followedRevision) { LocalFollowedDiscussions.ids(context, uid).size }
         LazyColumn(Modifier.fillMaxSize().testTag("atrio-profile-list"), contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item {
@@ -122,7 +125,8 @@ internal fun OnlineProfileScreen(
             item {
                 ProfileSectionTitle("Minha participação")
                 Text("${mine.size} discussões próprias no feed carregado · " +
-                    "$savedCount salvas · $followedCount acompanhadas neste aparelho",
+                    "$savedCount salvas · $followedCount acompanhadas" +
+                        (if (followedRemoteEnabled) " na conta" else " neste aparelho"),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(bottom = 8.dp))
@@ -130,7 +134,9 @@ internal fun OnlineProfileScreen(
                     ProfileAction("Minhas discussões", "Consulte até 50 discussões suas no Firestore.",
                         Icons.Outlined.Forum) { discussionsOpen = true }
                     HorizontalDivider()
-                    ProfileAction("Discussões acompanhadas", "Sua lista pessoal neste aparelho.",
+                    ProfileAction("Discussões acompanhadas",
+                        if (followedRemoteEnabled) "Lista sincronizada na sua conta."
+                        else "Sua lista pessoal neste aparelho.",
                         Icons.Outlined.BookmarkBorder) { followedOpen = true }
                     HorizontalDivider()
                     ProfileAction("Publicações salvas", "Retome as discussões que você guardou.",

@@ -368,7 +368,10 @@ private fun OnlineCommunity(
     var savesError by remember(uid) { mutableStateOf(false) }
     var savedRetry by remember(uid) { mutableStateOf(0) }
     var followedRevision by remember(uid) { mutableIntStateOf(0) }
-    val followedIds = remember(uid, followedRevision) { LocalFollowedDiscussions.ids(context, uid) }
+    val syncedFollow = rememberSyncedFollowedDiscussions(db, uid, advancedEngagement)
+    val followedIds = if (advancedEngagement) syncedFollow.ids
+        else remember(uid, followedRevision) { LocalFollowedDiscussions.ids(context, uid) }
+    var followBusy by remember(uid, detailId) { mutableStateOf(false) }
 
     DisposableEffect(db, uid, feedLimit, feedRetry) {
         var active = true
@@ -676,9 +679,27 @@ private fun OnlineCommunity(
                             ReplyReactionBar(db, uid, detail.id, item.id)
                     },
                     followed = detail.id in followedIds,
+                    followBusy = followBusy || (advancedEngagement && syncedFollow.loading),
+                    followIsSynced = advancedEngagement,
                     onFollow = {
-                        LocalFollowedDiscussions.toggle(context, uid, detail.id)
-                        followedRevision++
+                        if (advancedEngagement) {
+                            if (!followBusy && !syncedFollow.loading && !syncedFollow.failed) {
+                                followBusy = true
+                                SyncedFollowedDiscussions.change(
+                                    db, uid, detail.id, detail.id in followedIds
+                                ) { ok ->
+                                    followBusy = false
+                                    if (!ok) message = "Não foi possível atualizar o acompanhamento."
+                                }
+                            } else if (syncedFollow.failed) {
+                                message = "Não foi possível carregar seus acompanhamentos."
+                            }
+                        } else {
+                            runCatching {
+                                LocalFollowedDiscussions.toggle(context, uid, detail.id)
+                            }.onSuccess { followedRevision++ }
+                                .onFailure { message = it.message ?: "Não foi possível acompanhar." }
+                        }
                     },
                     onReport = { reportPost = detail.id },
                     onEdit = if (detail.mine) ({ editingPostId = detail.id }) else null,
@@ -731,6 +752,10 @@ private fun OnlineCommunity(
                     onClergyReview = onClergyReview,
                     onSavedPosts = { navigate(Tab.SAVED) },
                     followedRevision = followedRevision, savedCount = savedOrder.size,
+                    followedRemoteEnabled = advancedEngagement,
+                    followedRemoteIds = syncedFollow.ids,
+                    followedRemoteLoading = syncedFollow.loading,
+                    followedRemoteFailed = syncedFollow.failed,
                     onPhotoChanged = onPhotoChanged,
                     onNotifications = { noticesOpen = true; returnToNotices = false },
                     onReviews = { guardiaoAppealsOpen = true },

@@ -608,6 +608,7 @@ internal fun DetailScreen(
     post: Post, name: String, onLike: () -> Unit, onSave: () -> Unit,
     onReply: (String, (Boolean) -> Unit) -> Unit, onReport: (() -> Unit)? = null,
     followed: Boolean = false, onFollow: (() -> Unit)? = null,
+    followBusy: Boolean = false, followIsSynced: Boolean = false,
     onDirectReply: ((String, Reply, (Boolean) -> Unit) -> Unit)? = null,
     reactionContent: @Composable (Reply) -> Unit = {},
     onEdit: (() -> Unit)? = null, onDelete: (() -> Unit)? = null,
@@ -622,10 +623,12 @@ internal fun DetailScreen(
         DiscussionCard(post, onOpen = {}, onLike = { onLike() }, onSave = { onSave() }, fullText = true)
         if (onFollow != null) {
             OutlinedButton(onClick = onFollow,
+                enabled = !followBusy,
                 modifier = Modifier.fillMaxWidth().testTag("atrio-follow-discussion")) {
                 Text(if (followed) "Remover da lista de acompanhadas" else "Acompanhar esta discussão")
             }
-            Text("Lista pessoal deste aparelho. As notificações continuam dependendo das preferências do Android.",
+            Text(if (followIsSynced) "Lista sincronizada na sua conta. Avisos dependem das suas preferências."
+                else "Lista pessoal deste aparelho. As notificações continuam dependendo das preferências do Android.",
                 style = MaterialTheme.typography.bodySmall, color = Muted)
         }
         if (post.mine && (onEdit != null || onDelete != null)) {
