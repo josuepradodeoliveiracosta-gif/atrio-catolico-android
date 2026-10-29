@@ -286,7 +286,7 @@ async function moderationQueue(env, actor) {
     const state=image.moderation?.find(m=>m.kind==='manual')?.status;
     if(state!=='pending' && state!=='approved') continue;
     photos.push({uid:row.uid,createdAt:Number(row.created_at)||0,
-      status:state});
+      revision:row.public_id.split('/').at(-1),status:state});
   }
   return new Response(JSON.stringify({photos}),{status:200,headers:{
     'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',
@@ -294,7 +294,161 @@ async function moderationQueue(env, actor) {
 }
 function validPendingId(uid,id) {
   return uidOk(uid) && typeof id==='string' &&
-    new RegExp('^atrio-avatares/'+uid+'/[0-9a-f-]{36}$').test(id);
+    new RegExp('^atrio-avatares/'+uid+'/[0-9a-f-]{36}
+async function moderationPreview(env,actor,request) {
+  if(!(await isModerator(env,actor))) return json(403,'forbidden');
+  const params=new URL(request.url).searchParams;
+  const uid=params.get('uid')||'';
+  const revision=params.get('revision')||'';
+  if(!uidOk(uid) || !validAvatarRevision(revision)) return json(400,'invalid_request');
+  const record=await env.AVATAR_DB.prepare(
+    'SELECT public_id FROM avatar_pending WHERE uid=?'
+  ).bind(uid).first();
+  if(!record || !matchesRevision(uid,record.public_id,revision)) return json(409,'review_conflict');
+  const image=await cloudGet(env,record.public_id);
+  if(!image || image.type!=='authenticated' ||
+    image.moderation?.find(m=>m.kind==='manual')?.status!=='pending') return json(404,'not_found');
+  // URL assinada fornecida pela própria Admin API; nunca devolvê-la ao aplicativo.
+  const signed=String(image.secure_url||'');
+  const u=new URL(signed);
+  if(u.protocol!=='https:' || u.hostname!=='res.cloudinary.com' ||
+    !u.pathname.startsWith('/'+env.CLOUDINARY_CLOUD_NAME+'/image/authenticated/s--') ||
+    !u.pathname.includes('/'+record.public_id+'.') || u.search) return json(503,'preview_unavailable');
+  const response=await fetch(signed,{redirect:'manual',headers:{Accept:'image/jpeg'}});
+  if(response.status!==200 || !response.headers.get('content-type')?.startsWith('image/') ||
+     Number(response.headers.get('content-length')||0)>350000) return json(503,'preview_unavailable');
+  const data=await response.arrayBuffer();
+  if(data.byteLength<100 || data.byteLength>350000) return json(503,'preview_unavailable');
+  return new Response(data,{headers:{
+    'Content-Type':'image/jpeg','Cache-Control':'private, no-store, max-age=0',
+    'X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'}});
+}
+async function moderationReview(env,actor,request) {
+  if(!(await isModerator(env,actor))) return json(403,'forbidden');
+  if(Number(request.headers.get('content-length')||0)>384) return json(413,'invalid_request');
+  const raw=await request.text();
+  if(raw.length>384) return json(413,'invalid_request');
+  let payload;
+  try {payload=JSON.parse(raw);} catch {return json(400,'invalid_request');}
+  const uid=payload?.uid;
+  const revision=payload?.revision;
+  const action=payload?.action;
+  const reason=payload?.reason;
+  if(!uidOk(uid) || !validAvatarRevision(revision) ||
+    !['approved','rejected'].includes(action) ||
+    typeof reason!=='string' || reason.trim().length<5 || reason.length>100)
+    return json(400,'invalid_request');
+  return withAvatarLock(env,uid,async()=>{
+    const record=await env.AVATAR_DB.prepare(
+      'SELECT public_id FROM avatar_pending WHERE uid=?'
+    ).bind(uid).first();
+    if(!record || !matchesRevision(uid,record.public_id,revision))
+      return json(409,'review_conflict');
+    const image=await cloudGet(env,record.public_id);
+    if(!image || image.type!=='authenticated' || image.public_id!==record.public_id)
+      return json(409,'review_conflict');
+    const current=image.moderation?.find(m=>m.kind==='manual')?.status;
+    if(current!== 'pending' && !(current==='approved' && action==='approved'))
+      return json(409,'review_conflict');
+    if(current==='pending') {
+      const url='https://api.cloudinary.com/v1_1/'+env.CLOUDINARY_CLOUD_NAME+
+        '/resources/image/authenticated/'+record.public_id.split('/').map(encode).join('/');
+      const result=await fetch(url,{method:'POST',headers:{
+        Authorization:credential(env),'Content-Type':'application/x-www-form-urlencoded'
+      },body:new URLSearchParams({moderation_status:action})});
+      if(!result.ok) throw Error('cloudinary_review_failed');
+      const updated=await result.json();
+      if(updated.public_id!==record.public_id ||
+        updated.moderation?.find(m=>m.kind==='manual')?.status!==action)
+        throw Error('cloudinary_review_unconfirmed');
+      await env.AVATAR_DB.prepare(
+        'INSERT INTO avatar_moderation (actor_uid,target_uid,reason,created_at) VALUES (?,?,?,?)'
+      ).bind(actor,uid,(action==='approved'?'Aprovação: ':'Rejeição: ')+reason.trim(),Date.now()).run();
+    }
+    if(action==='approved') {
+      // A moderação conclui também a publicação, sem precisar do aparelho do dono.
+      return status(env,uid);
+    }
+    return json(200,'rejected');
+  });
+}
+
+async function moderateRemove(env,actor,request) {
+  if(!(await isModerator(env,actor))) return json(403,'forbidden');
+  const length=Number(request.headers.get('content-length')||0);
+  if(length>256) return json(413,'invalid_request');
+  let payload;
+  try {
+    const raw=await request.text();
+    if(raw.length>256) return json(413,'invalid_request');
+    payload=JSON.parse(raw);
+  } catch {return json(400,'invalid_request');}
+  if(!uidOk(payload?.uid) || typeof payload.reason !== 'string' ||
+    payload.reason.trim().length < 5 || payload.reason.length>100)
+    return json(400,'invalid_request');
+  return withAvatarLock(env,payload.uid,async()=>{
+    await remove(env,payload.uid);
+    await env.AVATAR_DB.prepare(
+      'INSERT INTO avatar_moderation (actor_uid,target_uid,reason,created_at) VALUES (?,?,?,?)'
+    ).bind(actor,payload.uid,payload.reason.trim(),Date.now()).run();
+    return json(200,'moderated');
+  });
+}
+async function remove(env,uid) {
+  const before=await firestoreGet(env,uid);
+  const pending=await env.AVATAR_DB.prepare('SELECT public_id FROM avatar_pending WHERE uid=?').bind(uid).first();
+  await firestoreDelete(env,uid);
+  await env.AVATAR_DB.prepare('DELETE FROM avatar_pending WHERE uid=?').bind(uid).run();
+  if(before?.photoPublicId) {try{await destroy(env,before.photoPublicId,'upload');}catch{}}
+  if(pending?.public_id) {try{await destroy(env,pending.public_id,'authenticated');}catch{}}
+  return json(200,'removed');
+}
+export default {
+  async fetch(request,env) {
+    const pathname=new URL(request.url).pathname;
+    if(!['/avatar/upload','/avatar/status','/avatar','/avatar/moderate',
+      '/avatar/moderation/pending','/avatar/moderation/preview','/avatar/moderation/review'].includes(pathname))
+      return json(404,'not_found');
+    if((pathname==='/avatar/upload' && request.method!=='POST') ||
+      (pathname==='/avatar/status' && request.method!=='POST') ||
+      (pathname==='/avatar/moderate' && request.method!=='POST') ||
+      (pathname==='/avatar/moderation/pending' && request.method!=='GET') ||
+      (pathname==='/avatar/moderation/preview' && request.method!=='GET') ||
+      (pathname==='/avatar/moderation/review' && request.method!=='POST') ||
+      (pathname==='/avatar' && request.method!=='DELETE'))
+      return json(405,'method_not_allowed');
+    try{
+      requireEnv(env);
+      const uid=await verify(request,env);
+      if(!uid) return json(401,'unauthorized');
+      if(pathname==='/avatar/upload') return await withAvatarLock(env,uid,()=>upload(env,uid,request));
+      if(pathname==='/avatar/status') return await withAvatarLock(env,uid,()=>status(env,uid));
+      if(pathname==='/avatar/moderation/pending') return await moderationQueue(env,uid);
+      if(pathname==='/avatar/moderation/preview') return await moderationPreview(env,uid,request);
+      if(pathname==='/avatar/moderation/review') return await moderationReview(env,uid,request);
+      if(pathname==='/avatar/moderate') return await moderateRemove(env,uid,request);
+      return await withAvatarLock(env,uid,()=>remove(env,uid));
+    } catch (error) {
+      if(error.message==='invalid_image') return json(413,'invalid_image');
+      if(typeof error.safeCode==='string' &&
+          /^cloudinary_(protection_failed|environment_not_found|not_found|signature_invalid|credentials_invalid|moderation_error|preset_error|file_error|error_[0-9]{3})$/.test(error.safeCode)) {
+        return json(502,error.safeCode);
+      }
+      return json(503,'temporarily_unavailable');
+    }
+  }
+};
+).test(id);
+}
+// O identificador de revisão não concede acesso à imagem; apenas impede
+// aprovar uma nova foto usando a prévia de uma foto que foi substituída.
+function validAvatarRevision(revision) {
+  return typeof revision==='string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(revision);
+}
+function matchesRevision(uid,id,revision) {
+  return validPendingId(uid,id) && validAvatarRevision(revision) &&
+    id.endsWith('/'+revision);
 }
 async function moderationPreview(env,actor,request) {
   if(!(await isModerator(env,actor))) return json(403,'forbidden');
