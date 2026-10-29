@@ -10,7 +10,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 /**
  * Somente testes instrumentados:
  * inicializa um projeto Firebase DEMO e conecta o APK ao Auth e Firestore
- * emulados, nunca à comunidade oficial. Credenciais são fictícias.
+ * emulados por ADB reverse, nunca à comunidade oficial. Credenciais são fictícias.
  */
 class QaAndroidTestRunner : AndroidJUnitRunner() {
     override fun onCreate(arguments: Bundle?) {
@@ -28,8 +28,8 @@ class QaAndroidTestRunner : AndroidJUnitRunner() {
         require(app != null && app.options.projectId == "demo-atrio-v11") {
             "QA Android recusado: projeto Firebase não é o emulador de teste."
         }
-        FirebaseAuth.getInstance(app).useEmulator("10.0.2.2", 9099)
-        FirebaseFirestore.getInstance(app).useEmulator("10.0.2.2", 8089)
+        FirebaseAuth.getInstance(app).useEmulator("127.0.0.1", 9099)
+        FirebaseFirestore.getInstance(app).useEmulator("127.0.0.1", 8089)
         super.onCreate(arguments)
     }
 }

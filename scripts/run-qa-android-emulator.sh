@@ -46,6 +46,15 @@ if [[ "$ready" -ne 1 ]]; then
   exit 1
 fi
 cd ../..
+# O gateway QEMU 10.0.2.2 pode ficar inacessível em alguns runners CI.
+# Encaminhar localhost do próprio emulador ao Auth/Firestore de teste na VM.
+# É um túnel exclusivamente local do ADB: nenhuma chamada a produção.
+curl -fsS --max-time 3 http://127.0.0.1:9099/ >/dev/null
+curl -fsS --max-time 3 http://127.0.0.1:8089/ >/dev/null
+adb reverse tcp:9099 tcp:9099
+adb reverse tcp:8089 tcp:8089
+echo "Firebase QA: portas 9099/8089 encaminhadas via ADB reverse (localhost)"
+adb reverse --list
 echo "Iniciando toques e login reais pelo Compose em emulador Android"
 
 # A suíte de login Android precisa de um processo Firebase/Auth limpo entre

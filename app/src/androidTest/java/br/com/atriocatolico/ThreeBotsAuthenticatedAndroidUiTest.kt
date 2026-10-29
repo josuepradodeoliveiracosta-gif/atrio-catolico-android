@@ -38,7 +38,7 @@ import java.util.concurrent.TimeUnit
  * fazendo toques no fluxo ONLINE do mesmo app.
  *
  * Proteção obrigatória: credenciais e projeto demo-atrio-v11, host emulado
- * 10.0.2.2, nenhum Worker URL ou credencial de produção. Os testes só são
+ * 127.0.0.1 via ADB reverse, nenhum Worker URL ou credencial de produção. Os testes só são
  * executados dentro do workflow que inicia Firebase Auth + Firestore Emulator.
  */
 class ThreeBotsAuthenticatedAndroidUiTest {
@@ -67,16 +67,16 @@ class ThreeBotsAuthenticatedAndroidUiTest {
             "demo-atrio-v11", FirebaseApp.getInstance().options.projectId)
         auth = FirebaseAuth.getInstance()
         db = FirebaseFirestore.getInstance()
-        auth.useEmulator("10.0.2.2", 9099)
+        auth.useEmulator("127.0.0.1", 9099)
         // Também pode ser executado depois do outro teste conectado;
         // reconfigurar Firestore já iniciado causa IllegalStateException.
-        val emulatorHost = "10.0.2.2:8089"
+        val emulatorHost = "127.0.0.1:8089"
         val host = db.firestoreSettings.host
         if (host != emulatorHost) {
             check(host == "firestore.googleapis.com") {
                 "Firestore apontando para host inesperado: $host"
             }
-            db.useEmulator("10.0.2.2", 8089)
+            db.useEmulator("127.0.0.1", 8089)
         }
         auth.signOut()
     }

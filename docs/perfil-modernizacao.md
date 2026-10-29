@@ -89,3 +89,10 @@ Ambiente local desta revisão: Java 17 disponível; Gradle, Android SDK e emulad
 ## Próximas melhorias, fora desta PR
 
 Foto personalizada exige definição de armazenamento, custo, privacidade e validação. Histórico completo precisa de consultas/índices e avaliação de leituras. Tema escuro deve cobrir o aplicativo inteiro. Estado de permissão/canal do Android, recuperação de senha e gestão de conta merecem fluxos próprios. Não expor um botão de excluir conta sem tratar reautenticação e dados associados.
+
+## Correção do ambiente de QA — 29/10/2026
+
+- Na execução anterior da PR #37, capturas a 150%, 4 testes do editor e 9 de interface passaram; testes de login posteriores falharam ao acessar `10.0.2.2:9099`, mesmo com Firebase Emulator Suite iniciado. O relatório apontou `Failed to connect to /10.0.2.2:9099`.
+- Para evitar depender do gateway QEMU, a suíte Android agora utiliza `adb reverse` para encaminhar exclusivamente as portas 9099 (Auth) e 8089 (Firestore) da VM temporária do CI. O SDK dos testes usa `127.0.0.1` dentro do emulador.
+- A configuração de tráfego HTTP foi ajustada **somente no manifesto DEBUG**, mantendo HTTPS e a segurança do APK release intactos. Antes da suíte, o script confirma que ambos os emuladores de teste respondem.
+- A alteração precisa ser confirmada por um novo GitHub Actions verde; o código alterado **não é prova de sucesso por si só**.
