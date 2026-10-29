@@ -149,6 +149,28 @@ jobs:
           test "$status" = 503
           grep -F '"status":"qa_read_only"' /tmp/guardian-qa-denied.json
 
+  firestore-shadow-integrated:
+    name: Guardião V2 — consultas sintéticas QA no emulador
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Instalar dependências isoladas
+        working-directory: tests/security
+        run: npm ci
+      - name: Confirmar filtro servidor e ausência de escritas
+        working-directory: tests/security
+        env:
+          FIREBASE_PROJECT_ID: atrio-catolico-qa-v2
+        run: npm run test:guardian-shadow
+
   remote-qa-readonly:
     if: >-
       github.ref == 'refs/heads/feature/guardiao-autonomo-20261029' &&
