@@ -8,3 +8,13 @@ export function validateRemoteQa(env={}) {
     throw Error('qa_credentials_unavailable');
   return id;
 }
+export function validateShadowOutcome(result) {
+  if(result?.status!=='shadow_read_only'||!result.counts||result.counts.error!==0)
+    throw Error('qa_query_failed');
+  const c=result.counts;
+  if(!['clear','review','hold_candidate','warning','reports'].every(k=>
+      Number.isSafeInteger(c[k]) && c[k]>=0))throw Error('qa_counts_invalid');
+  if(c.clear+c.review+c.hold_candidate+c.warning+c.reports===0)
+    throw Error('qa_synthetic_fixtures_missing');
+  return c;
+}
