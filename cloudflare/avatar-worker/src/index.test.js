@@ -96,3 +96,14 @@ test('Cloudinary rejeita upload sem revelar detalhes ou credenciais',async()=>{
     });
   } finally {globalThis.fetch=previous;}
 });
+
+test('Cloudinary 404 classifica ambiente inválido sem expor resposta bruta', async()=>{
+  const original=globalThis.fetch;
+  globalThis.fetch=async()=>new Response(JSON.stringify({error:{message:'Cloud name not found'}}),{status:404});
+  try {
+    await assert.rejects(()=>cloudSigned(env,'authenticated',{public_id:'atrio-avatares/test/abc'},Uint8Array.from([255,216,255,217]),'upload'), e=>{
+      assert.equal(e.safeCode,'cloudinary_environment_not_found');
+      assert.equal(e.message,'cloudinary_request_failed');return true;
+    });
+  }finally{globalThis.fetch=original;}
+});
