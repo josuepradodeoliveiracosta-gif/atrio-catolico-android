@@ -4,6 +4,12 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import com.google.firebase.firestore.MetadataChanges
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.google.firebase.firestore.FieldValue
@@ -30,55 +36,103 @@ internal fun rememberAdvancedEngagementEnabled(db: FirebaseFirestore, uid: Strin
 
 @Composable
 internal fun ReplyReactionBar(
-    db: FirebaseFirestore, uid: String, postId: String, replyId: String
+    db: FirebaseFirestore, uid: String, postId: String, replyId: String,
+    requested: Boolean = false, onRequestDismiss: () -> Unit = {}
 ) {
-    val ref = remember(db, uid, postId, replyId) {
-        db.collection("posts").document(postId).collection("replies")
-            .document(replyId).collection("reactions").document(uid)
+    val context = LocalContext.current
+    val view = LocalView.current
+    val collection = remember(db, postId, replyId) {
+        db.collection("posts").document(postId).collection("replies").document(replyId).collection("reactions")
     }
-    var selected by remember(uid, replyId) { mutableStateOf("") }
-    var busy by remember(uid, replyId) { mutableStateOf(false) }
-    var failure by remember(uid, replyId) { mutableStateOf(false) }
-    DisposableEffect(ref) {
+    var catalogFailed by remember { mutableStateOf(false) }
+    val device by produceState<DeviceEmojiCatalog?>(null, context.applicationContext) {
+        try { value = ReactionEmojiData.load(context.applicationContext) }
+        catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+        catch (_: Exception) { catalogFailed = true }
+    }
+    var visible by remember(uid, postId, replyId) { mutableStateOf(false) }
+    var values by remember(uid, postId, replyId) { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var loading by remember(uid, postId, replyId) { mutableStateOf(true) }
+    var fromCache by remember(uid, postId, replyId) { mutableStateOf(true) }
+    var busy by remember(uid, postId, replyId) { mutableStateOf(false) }
+    var failure by remember(uid, postId, replyId) { mutableStateOf("") }
+    var retry by remember(uid, postId, replyId) { mutableStateOf(0) }
+    val session = remember(uid, postId, replyId) { ReactionViewSession() }
+    DisposableEffect(session) { onDispose { session.active = false } }
+    // One realtime collection subscription per visible reply, not one query per emoji.
+    // No arbitrary query limit: counts cover all reactions once the server snapshot arrives.
+    DisposableEffect(collection, uid, visible, retry) {
         var active = true
-        val listener = ref.addSnapshotListener { snap, error ->
+        val registration = if (visible) collection.addSnapshotListener(MetadataChanges.INCLUDE) { snap, error ->
             if (active) {
-                if (error == null) selected = snap?.getString("kind").orEmpty()
-                else failure = true
+                loading = false
+                if (error != null) failure = "Não foi possível atualizar as reações."
+                else if (snap != null) {
+                    failure = ""
+                    fromCache = snap.metadata.isFromCache
+                    values = snap.documents.associate { it.id to it.getString("kind").orEmpty() }
+                }
             }
-        }
-        onDispose { active = false; listener.remove() }
+        } else null
+        onDispose { active = false; registration?.remove() }
     }
-    Column {
-        Text("Minha reação", style = MaterialTheme.typography.labelSmall)
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            listOf(
-                "heart" to "❤️",
-                "prayer" to "🙏",
-                "light" to "✨"
-            ).forEach { (kind, icon) ->
-                OutlinedButton(
-                    onClick = {
-                        if (busy) return@OutlinedButton
-                        busy = true
-                        failure = false
-                        val task = if (kind == selected) ref.delete()
-                        else if (selected.isBlank()) ref.set(mapOf(
-                            "kind" to kind, "createdAt" to FieldValue.serverTimestamp()
-                        )) else ref.update("kind", kind)
-                        task.addOnCompleteListener { done ->
-                            busy = false
-                            failure = !done.isSuccessful
-                        }
-                    },
-                    enabled = !busy,
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-                    modifier = Modifier.testTag("atrio-reaction-$kind-$replyId")
-                ) { Text(if (selected == kind) "$icon ✓" else icon) }
+    val data = device
+    Column(Modifier.fillMaxWidth().onGloballyPositioned { coordinates ->
+        val bounds: Rect = coordinates.boundsInWindow()
+        visible = bounds.height > 0 && bounds.width > 0 && bounds.bottom > 0 && bounds.top < view.height
+    }) {
+        if (data == null) {
+            Text(if (catalogFailed) "Não foi possível carregar os emojis. Reabra a discussão." else "Carregando emojis…", style = MaterialTheme.typography.labelSmall)
+        } else {
+            val validValues = remember(values, data) {
+                values.filterValues { reactionGlyph(it) in data.catalog.byGlyph }
             }
+            key(uid, postId, replyId) {
+                ReactionEmojiPicker(data, replyId, reactionGlyph(validValues[uid].orEmpty()),
+                    summarizeReactions(validValues, uid), busy || loading,
+                    requested = requested, onRequestDismiss = onRequestDismiss,
+                    recents = { ReactionEmojiData.recent(context, uid) },
+                    onPick = { glyph ->
+                        if (!busy && glyph in data.catalog.byGlyph) {
+                            busy = true
+                            failure = ""
+                            changeReplyReaction(db, uid, postId, replyId, glyph).addOnCompleteListener { task ->
+                                if (session.active) {
+                                    busy = false
+                                    if (task.isSuccessful) ReactionEmojiData.record(context, uid, glyph)
+                                    else failure = if ((task.exception as? com.google.firebase.firestore.FirebaseFirestoreException)?.code ==
+                                        com.google.firebase.firestore.FirebaseFirestoreException.Code.PERMISSION_DENIED)
+                                        "Esta reação ainda não está disponível. Tente ❤️, 🙏 ou ✨."
+                                    else "Não foi possível salvar a reação. Confira sua conexão e tente novamente."
+                                }
+                            }
+                        }
+                    })
+            }
+            if (fromCache && !loading) Text("Contagem em cache; aguardando sincronização.",
+                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        if (failure) Text("Não foi possível registrar a reação.",
-            color = MaterialTheme.colorScheme.error,
-            style = MaterialTheme.typography.bodySmall)
+        if (failure.isNotEmpty()) {
+            Text(failure, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            TextButton(onClick = { failure = ""; retry++ }, enabled = !busy) { Text("Atualizar reações") }
+        }
+    }
+}
+
+private class ReactionViewSession(var active: Boolean = true)
+
+/** The latest document is read inside a transaction, so two devices never rely on a stale local selection. */
+internal fun changeReplyReaction(
+    db: FirebaseFirestore, uid: String, postId: String, replyId: String, glyph: String
+): com.google.android.gms.tasks.Task<String> {
+    val ref = db.collection("posts").document(postId).collection("replies").document(replyId)
+        .collection("reactions").document(uid)
+    return db.runTransaction { transaction ->
+        val current = transaction.get(ref)
+        val next = nextReactionKind(current.getString("kind"), glyph)
+        if (next == null) transaction.delete(ref)
+        else if (current.exists()) transaction.update(ref, "kind", next)
+        else transaction.set(ref, mapOf("kind" to next, "createdAt" to FieldValue.serverTimestamp()))
+        next.orEmpty()
     }
 }

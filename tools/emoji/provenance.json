@@ -1,0 +1,17 @@
+{
+  "unicodeVersion": "17.0",
+  "cldrTag": "release-48",
+  "fullyQualifiedCount": 3944,
+  "sources": [
+    "https://www.unicode.org/Public/17.0.0/emoji/emoji-test.txt",
+    "https://raw.githubusercontent.com/unicode-org/cldr/release-48/common/annotations/pt.xml",
+    "https://raw.githubusercontent.com/unicode-org/cldr/release-48/common/annotationsDerived/pt.xml",
+    "https://www.unicode.org/license.txt"
+  ],
+  "sha256": {
+    "LICENSE.txt": "e7a93b009565cfce55919a381437ac4db883e9da2126fa28b91d12732bc53d96",
+    "emoji-test.txt": "1d8a944f88d7952f7ef7c5167fef3c67995bcae24543949710231b03a201acda",
+    "pt.xml": "784be701f969963dc1d8240cd8ae02eb5bad28153bc9d0613e5c5777537e5398",
+    "pt-derived.xml": "8810bb38da561be161413f6292a6ce4a81d815ae9b6906a16a5b38d89f398496"
+  }
+}

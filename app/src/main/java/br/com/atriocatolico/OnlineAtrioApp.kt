@@ -734,9 +734,10 @@ private fun OnlineCommunity(
                     onMentionReply = if (advancedEngagement) ({ body, participant, done ->
                         reply(detail.id, body, done, mention = participant)
                     }) else null,
-                    reactionContent = { item ->
+                    reactionsEnabled = advancedEngagement,
+                    reactionContent = { item, requested, dismiss ->
                         if (advancedEngagement)
-                            ReplyReactionBar(db, uid, detail.id, item.id)
+                            ReplyReactionBar(db, uid, detail.id, item.id, requested, dismiss)
                     },
                     followed = detail.id in followedIds,
                     followBusy = followBusy || (advancedEngagement && syncedFollow.loading),
