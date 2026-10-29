@@ -10,8 +10,12 @@ Branch `feature/fotos-cloudinary-0197`. Sem deploy de Firestore, Cloudflare, Clo
 - Upload inicia no Cloudinary como **authenticated** com moderação **manual**. O arquivo não é entregável sem autenticação. Após aprovação pelo revisor no Console Cloudinary, o botão «Verificar aprovação» manda o Worker conferir status, promover o arquivo para tipo público `upload` e publicar `profile_photos/{uid}`.
 - `profile_photos/{uid}` contém `photoUrl`, `photoPublicId`, `photoUpdatedAt`; leitura por UID autenticado, listagem negada, qualquer gravação por cliente bloqueada. Esta coleção é **independente** de `public_profiles`: a foto é voluntária, sem revelar a biografia privada.
 - Todos os `MemberAvatar` observam o registro de fotos. URLs versionadas invalidam cache após substituição; sem registro retorna ao avatar padrão ou foto privada antiga local.
-- Remoção autenticada apaga a referência Firestore antes da exclusão Cloudinary; solicita invalidação de CDN. **CDNs e dispositivos podem manter cópias por algum tempo**.
+- Remoção autenticada apaga a referência Firestore antes da exclusão Cloudinary; solicita invalidação de CDN.
+- O painel Moderação exibe remoção de foto por UID e motivo com confirmação; o Worker valida a coleção `admins` no Firestore e registra a ação em `avatar_moderation` no D1. Um participante normal não pode invocar essa ação. **CDNs e dispositivos podem manter cópias por algum tempo**.
 - Em caso de falha de upload, mantém a foto anterior. A moderação depende de ação humana; não afirmar que já funciona sem Cloudinary + Worker configurados.
+
+## Compatibilidade com o Cloudinary Free
+A conta conectada foi consultada somente para leitura, sem upload e sem alterações. O plano apresentado é Free, com limite de 10 MB por imagem, superior ao teto de 5 MB aplicado pelo aplicativo. Custos e disponibilidade de moderação manual devem ser conferidos antes da publicação.
 
 ## Antes do primeiro deploy (necessita autorização nova)
 1. Criar/selecionar ambiente Cloudinary, verificar plano e habilitar moderação manual.
@@ -25,6 +29,7 @@ Branch `feature/fotos-cloudinary-0197`. Sem deploy de Firestore, Cloudflare, Clo
 ## Observações de segurança
 - URLs Cloudinary do tipo `upload` tornam-se acessíveis a quem conhecer o link, **mesmo fora do Átrio**; o app avisa antes do upload. Restringir visibilidade exclusivamente a usuários autenticados exigiria distribuição de imagens autenticadas, outra arquitetura.
 - Fotos pendentes não entram no Firestore e ficam no tipo autenticado; aprovação administrativa é mandatória.
+- A rota `/avatar/status` usa POST porque pode promover um arquivo aprovado e publicar no Firestore. A aprovação é feita no Console Cloudinary, nunca pelo APK.
 - A lista de pendências D1 requer revisão periódica e eventual limpeza de arquivos rejeitados/não publicados. Rate limit por UID, não por IP, impede rajadas na mesma conta, mas pode necessitar controles adicionais.
 - Se a gravação Firestore falhar após a promoção, a publicação falha e o Worker tenta remover a imagem; investigar falhas e limpar órfãos se necessário.
 - O fluxo de moderação e exclusão real não pode ser validado em produção sem credenciais e implantação explicitamente aprovadas.
