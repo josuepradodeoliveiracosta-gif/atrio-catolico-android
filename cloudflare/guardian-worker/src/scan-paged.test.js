@@ -22,7 +22,7 @@ class CheckpointDb {
   this.states.set(path,{fields,updateTime:'v'+(++this.modified)})
  }
  async scanPage(group,{since,until,after,max,field='createdAt'}){
-  this.queries.push({group,since,until,after,max});
+  this.queries.push({group,since,until,after,max,field});
   let docs=group==='posts'?this.source.filter(x=>
     x.fields[field]?.timestampValue &&
     Date.parse(x.fields[field].timestampValue)>=Date.parse(since)&&
