@@ -14,14 +14,14 @@ export const pathOf=doc=>doc?.name?.split('/documents/')[1]||'';
 const b64url=bytes=>{const s=(typeof bytes==='string'?new TextEncoder().encode(bytes):new Uint8Array(bytes));let b='';for(const c of s)b+=String.fromCharCode(c);return btoa(b).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');};
 let cached;
 export async function token(env) {
-  if(cached?.exp>Date.now()+60_000)return cached.value;
-  const config=JSON.parse(env.GUARDIAN_FIREBASE_SERVICE_ACCOUNT_JSON||'null');
   const intended=env.GUARDIAN_FIREBASE_PROJECT_ID;
-  if(!projectValid(intended)||config?.project_id!==intended||!config.client_email||!config.private_key)
-    throw Error('service_not_configured');
-  // Requer autorização explícita adicional antes de conceder credenciais à produção.
+  if(!projectValid(intended))throw Error('service_not_configured');
   if(intended===PROJECT && env.GUARDIAN_V2_PRODUCTION_APPROVED!=='true')
     throw Error('production_access_not_approved');
+  if(cached?.project===intended && cached.exp>Date.now()+60_000)return cached.value;
+  const config=JSON.parse(env.GUARDIAN_FIREBASE_SERVICE_ACCOUNT_JSON||'null');
+  if(!projectValid(intended)||config?.project_id!==intended||!config.client_email||!config.private_key)
+    throw Error('service_not_configured');
   const der=Uint8Array.from(atob(config.private_key.replace(/-----BEGIN PRIVATE KEY-----|-----END PRIVATE KEY-----|\s/g,'')),c=>c.charCodeAt(0));
   const key=await crypto.subtle.importKey('pkcs8',der,{name:'RSASSA-PKCS1-v1_5',hash:'SHA-256'},false,['sign']);
   const iat=Math.floor(Date.now()/1000);
@@ -30,7 +30,7 @@ export async function token(env) {
   const response=await fetch('https://oauth2.googleapis.com/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'urn:ietf:params:oauth:grant-type:jwt-bearer',assertion:signed+'.'+sig})});
   if(!response.ok)throw Error('service_auth_failed');const data=await response.json();
   if(!data.access_token)throw Error('service_token_missing');
-  cached={value:data.access_token,exp:Date.now()+Math.min(600_000,Number(data.expires_in||900)*1000-60_000)};return cached.value;
+  cached={project:intended,value:data.access_token,exp:Date.now()+Math.min(600_000,Number(data.expires_in||900)*1000-60_000)};return cached.value;
 }
 export class Firestore {
   constructor(access,project=PROJECT,api=API){
