@@ -80,6 +80,18 @@ internal object CloudinaryAvatarClient {
                     409 -> "Outra alteração da foto está em andamento. Tente novamente."
                     413 -> "Imagem inválida ou maior que o limite de 5 MB."
                     429 -> "Aguarde um minuto para enviar outra foto."
+                    502 -> when (state) {
+                        "cloudinary_signature_invalid", "cloudinary_credentials_invalid" ->
+                            "Falha na configuração das chaves do Cloudinary. Informe o administrador."
+                        "cloudinary_moderation_error" ->
+                            "Moderação Cloudinary não disponível ou mal configurada."
+                        "cloudinary_file_error" ->
+                            "O Cloudinary rejeitou o arquivo. Escolha outra foto."
+                        "cloudinary_preset_error" ->
+                            "Configuração de envio do Cloudinary inválida."
+                        else -> "Cloudinary rejeitou o envio ($state). Informe o administrador."
+                    }
+                    503 -> "O serviço de fotos apresentou erro interno. Informe o administrador."
                     else -> "Serviço de fotos temporariamente indisponível."
                 }
             }
