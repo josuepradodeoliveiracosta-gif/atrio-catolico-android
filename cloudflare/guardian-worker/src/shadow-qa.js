@@ -27,8 +27,10 @@ export async function scanQaShadow(reader,env) {
       if(!Array.isArray(docs)||docs.length>15)throw Error('invalid_scan_limit');
       for(const d of docs) {
         if(!d?.name?.startsWith(prefix)){counts.invalid++;continue;}
-        if(group==='reports'){counts.reports++;continue;}
         const fields=d.fields||{};
+        // Defense in depth in addition to scanQa's server-side qaFixture filter.
+        if(fields.qaFixture?.booleanValue!==true){counts.invalid++;continue;}
+        if(group==='reports'){counts.reports++;continue;}
         const title=fields.title?.stringValue||'';
         const body=fields.body?.stringValue||'';
         const message=group==='posts'?title+' '+body:body;
