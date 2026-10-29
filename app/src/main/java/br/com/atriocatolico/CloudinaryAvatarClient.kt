@@ -1,11 +1,13 @@
 package br.com.atriocatolico
 
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.TimeUnit
@@ -39,6 +41,93 @@ internal object CloudinaryAvatarClient {
             request(actorUid, "/avatar/moderate", "POST", null,
                 JSONObject().put("uid", targetUid).put("reason", reason.trim()).toString())
         }
+
+
+    internal data class PendingAvatar(val uid: String, val createdAt: Long, val status: String)
+
+    /** Fila administrativa: retornada somente a administradores autenticados. */
+    suspend fun moderationPending(actorUid: String): List<PendingAvatar> = withContext(Dispatchers.IO) {
+        val conn = adminConnection(actorUid, "/avatar/moderation/pending", "GET", "application/json")
+        try {
+            val code = conn.responseCode
+            check(code == 200) {
+                if (code == 403) "Sua conta não tem permissão para analisar fotos."
+                else "Não foi possível carregar as fotos pendentes."
+            }
+            val json = conn.inputStream.use { it.bufferedReader().readText().take(20000) }
+            val arr = JSONObject(json).getJSONArray("photos")
+            buildList {
+                for (i in 0 until minOf(arr.length(), 40)) {
+                    val item = arr.getJSONObject(i)
+                    val target = item.optString("uid")
+                    val status = item.optString("status")
+                    if (Regex("^[A-Za-z0-9_-]{1,128}$").matches(target) &&
+                        status in setOf("pending", "approved")) {
+                        add(PendingAvatar(target, item.optLong("createdAt"), status))
+                    }
+                }
+            }
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    /** A imagem protegida é entregue pelo Worker ao administrador; nunca há URL pública. */
+    suspend fun moderationPreview(actorUid: String, targetUid: String): Bitmap? =
+        withContext(Dispatchers.IO) {
+            require(Regex("^[A-Za-z0-9_-]{1,128}$").matches(targetUid))
+            val conn = adminConnection(actorUid, "/avatar/moderation/preview?uid=$targetUid",
+                "GET", "image/jpeg")
+            try {
+                if (conn.responseCode != 200 ||
+                    !conn.contentType.orEmpty().startsWith("image/jpeg") ||
+                    conn.contentLengthLong > 350_000L) return@withContext null
+                val output = ByteArrayOutputStream()
+                conn.inputStream.use { stream ->
+                    val buffer = ByteArray(8192)
+                    while (true) {
+                        val count = stream.read(buffer)
+                        if (count < 0) break
+                        if (output.size() + count > 350_000) return@withContext null
+                        output.write(buffer, 0, count)
+                    }
+                }
+                val bytes = output.toByteArray()
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+                if (bounds.outWidth !in 1..1000 || bounds.outHeight !in 1..1000)
+                    return@withContext null
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            } finally { conn.disconnect() }
+        }
+
+    suspend fun moderationReview(actorUid: String, targetUid: String, approve: Boolean,
+                                 reason: String): String = withContext(Dispatchers.IO) {
+        require(Regex("^[A-Za-z0-9_-]{1,128}$").matches(targetUid)) { "Conta inválida." }
+        require(reason.trim().length in 5..100) { "Informe o motivo (5 a 100 caracteres)." }
+        request(actorUid, "/avatar/moderation/review", "POST", null, JSONObject()
+            .put("uid", targetUid)
+            .put("action", if (approve) "approved" else "rejected")
+            .put("reason", reason.trim()).toString())
+    }
+
+    private fun adminConnection(uid: String, path: String, method: String,
+                                accept: String): HttpURLConnection {
+        check(enabled) { "Serviço de fotografias indisponível." }
+        val actor = FirebaseAuth.getInstance().currentUser
+        check(actor != null && actor.uid == uid) { "Sessão inválida. Entre novamente." }
+        val token = Tasks.await(actor.getIdToken(false), 15, TimeUnit.SECONDS).token
+        check(!token.isNullOrBlank()) { "Autenticação expirada." }
+        return (URL(BuildConfig.AVATAR_WORKER_URL + path).openConnection() as HttpURLConnection).apply {
+            requestMethod = method
+            connectTimeout = 15000
+            readTimeout = 25000
+            instanceFollowRedirects = false
+            setRequestProperty("Authorization", "Bearer $token")
+            setRequestProperty("Accept", accept)
+            setRequestProperty("Cache-Control", "no-store")
+        }
+    }
 
     private fun request(uid: String, path: String, method: String, image: ByteArray?,
                         jsonPayload: String? = null): String {
