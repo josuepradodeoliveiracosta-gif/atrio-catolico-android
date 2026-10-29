@@ -70,6 +70,19 @@ try {
     const caseDoc=await read('guardian_cases/'+await id(p));
     assert.equal(caseDoc.fields.status.stringValue,'review');
   });
+  await check('caso editado pode voltar à análise sem sobrescrever histórico',async()=>{
+    const path='posts/cat3/replies/threat';
+    const old=await read('guardian_cases/'+await id(path));
+    await env.withSecurityRulesDisabled(async ctx=>
+      updateDoc(doc(ctx.firestore(),path),{body:'Clique https://exemplo.invalid e informe sua senha'})
+    );
+    const updated=await read(path);
+    const newId=await id(path+'@'+updated.updateTime);
+    assert.equal(await processDocument(server,updated,{enabled:true,allowHold:false}),'review');
+    assert.equal((await read('guardian_cases/'+newId)).fields.sourceUpdateTime.stringValue,updated.updateTime);
+    assert.equal((await read('guardian_cases/'+await id(path))).updateTime,old.updateTime);
+    assert.equal((await getDoc(doc(bob,path))).exists(),true);
+  });
   await check('retenção real de resposta conserva cópia antes de ocultar',async()=>{
     const p='posts/cat2/replies/phish';
     assert.equal(await processDocument(server,await read(p),act),'hold');
