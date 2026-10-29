@@ -22,6 +22,7 @@ internal fun GuardianPanel(db: FirebaseFirestore, uid: String) {
     var result by remember(uid) { mutableStateOf("") }
     var selected by remember(uid) { mutableStateOf<GuardianCase?>(null) }
     var original by remember(uid) { mutableStateOf("") }
+    var authorAppeal by remember(uid) { mutableStateOf("") }
     var enableConfirm by remember(uid) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
@@ -102,8 +103,10 @@ internal fun GuardianPanel(db: FirebaseFirestore, uid: String) {
                     onClick = {
                         selected = entry
                         original = "Consultando a cópia protegida..."
+                        authorAppeal = ""
                         db.collection("guardiao_quarantine").document(entry.id).get()
                             .addOnSuccessListener {
+                                authorAppeal = it.getString("appealText").orEmpty()
                                 val map = it.get("originalFields") as? Map<*, *>
                                 original = (map?.get("title") as? String).orEmpty() + "\n" +
                                     (map?.get("body") as? String).orEmpty()
@@ -124,6 +127,11 @@ internal fun GuardianPanel(db: FirebaseFirestore, uid: String) {
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(original.take(1200))
+                    if (authorAppeal.isNotBlank()) {
+                        HorizontalDivider()
+                        Text("Contestação do autor", style = MaterialTheme.typography.titleSmall)
+                        Text(authorAppeal.take(500), style = MaterialTheme.typography.bodyMedium)
+                    }
                     OutlinedTextField(note, { note = it.take(300) }, enabled = !busy,
                         label = { Text("Justificativa (5 a 300 caracteres)") })
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
