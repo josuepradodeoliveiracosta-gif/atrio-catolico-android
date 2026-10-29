@@ -110,7 +110,8 @@ private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
                     visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation())
                 if (error.isNotBlank()) {
                     Spacer(Modifier.height(8.dp))
-                    Text(error, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                    Text(error, modifier = Modifier.testTag("atrio-auth-error"),
+                        color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
                 }
                 if (resetInfo.isNotBlank()) {
                     Spacer(Modifier.height(8.dp))
