@@ -25,6 +25,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
@@ -42,17 +43,27 @@ internal fun OnlineProfileScreen(
     onCreate: () -> Unit, onOpen: (String) -> Unit,
     onLike: (String) -> Unit, onSave: (String) -> Unit,
     onSavedPosts: () -> Unit, onNotifications: () -> Unit, onReviews: () -> Unit,
+    followedRevision: Int = 0, savedCount: Int = 0,
+    followedRemoteEnabled: Boolean = false, followedRemoteIds: Set<String> = emptySet(),
+    followedRemoteLoading: Boolean = false, followedRemoteFailed: Boolean = false,
     onPhotoChanged: () -> Unit = {}
 ) {
     var badgesOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var editorOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var publicationsOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var discussionsOpen by rememberSaveable(uid) { mutableStateOf(false) }
+    var followedOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var savedMessage by remember(uid) { mutableStateOf(false) }
     BackHandler(enabled = badgesOpen && !editorOpen) { badgesOpen = false }
     BackHandler(enabled = discussionsOpen) { discussionsOpen = false }
+    BackHandler(enabled = followedOpen) { followedOpen = false }
 
-    if (discussionsOpen) {
+    if (followedOpen) {
+        FollowedDiscussionsScreen(db, uid, followedRevision,
+            onBack = { followedOpen = false }, onOpen = onOpen,
+            remoteEnabled = followedRemoteEnabled, remoteIds = followedRemoteIds,
+            remoteLoading = followedRemoteLoading, remoteFailed = followedRemoteFailed)
+    } else if (discussionsOpen) {
         ProfileDiscussionHistory(db, uid, onBack = { discussionsOpen = false }, onOpen = onOpen)
     } else if (badgesOpen) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
@@ -71,6 +82,9 @@ internal fun OnlineProfileScreen(
         val founderCanBroadcast = onModeration != null && onClergyReview != null &&
             LocalFounderUid.current.isNotBlank() && LocalFounderUid.current == uid
         val mine = remember(posts, uid) { posts.filter { it.mine } }
+        val context = LocalContext.current
+        val followedCount = if (followedRemoteEnabled) followedRemoteIds.size
+            else remember(uid, followedRevision) { LocalFollowedDiscussions.ids(context, uid).size }
         LazyColumn(Modifier.fillMaxSize().testTag("atrio-profile-list"), contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item {
@@ -110,9 +124,20 @@ internal fun OnlineProfileScreen(
             }
             item {
                 ProfileSectionTitle("Minha participação")
+                Text("${mine.size} discussões próprias no feed carregado · " +
+                    "$savedCount salvas · $followedCount acompanhadas" +
+                        (if (followedRemoteEnabled) " na conta" else " neste aparelho"),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(bottom = 8.dp))
                 Card(Modifier.fillMaxWidth()) {
                     ProfileAction("Minhas discussões", "Consulte até 50 discussões suas no Firestore.",
                         Icons.Outlined.Forum) { discussionsOpen = true }
+                    HorizontalDivider()
+                    ProfileAction("Discussões acompanhadas",
+                        if (followedRemoteEnabled) "Lista sincronizada na sua conta."
+                        else "Sua lista pessoal neste aparelho.",
+                        Icons.Outlined.BookmarkBorder) { followedOpen = true }
                     HorizontalDivider()
                     ProfileAction("Publicações salvas", "Retome as discussões que você guardou.",
                         Icons.Outlined.BookmarkBorder, onSavedPosts)

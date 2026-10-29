@@ -83,6 +83,7 @@ run_suite() {
 }
 run_suite ProfileLayoutUiTest
 run_suite ProfilePhotoUiTest
+run_suite EngagementUiTest
 mkdir -p qa-android-suite-results/profile-preview
 if ! adb pull /data/local/tmp/atrio-profile-preview/. qa-android-suite-results/profile-preview/; then
   qa_failed=1

@@ -94,6 +94,128 @@ try {
   await check('Miguel não altera status de notificação da autora',()=>assertFails(
     updateDoc(doc(miguel,'users',bots[0].uid,'notifications',replyB),{read:true})));
 
+  // Novas regras 0.19.3: exclusivamente Firebase emulado.
+  await check('Clara responde diretamente e notifica Miguel no mesmo batch',async()=>{
+    const directId='qa_direct_reply';
+    const batch=writeBatch(clara);
+    batch.set(doc(clara,'posts',postId,'replies',directId),{
+      ...answer(bots[0].uid,bots[0].name,'Obrigada pela participação!'),
+      replyToId:replyA,replyToUid:bots[1].uid,
+    });
+    batch.set(doc(clara,'users',bots[1].uid,'notifications',directId),{
+      postId,replyId:directId,actorUid:bots[0].uid,
+      actorName:bots[0].name,read:false,replyToId:replyA,
+      createdAt:serverTimestamp(),
+    });
+    await assertSucceeds(batch.commit());
+    const notice=await assertSucceeds(getDoc(
+      doc(miguel,'users',bots[1].uid,'notifications',directId)));
+    assert.equal(notice.data()?.replyToId,replyA);
+  });
+  await check('Miguel responde diretamente a Clara e a avisa mesmo sendo autora do post',async()=>{
+    const directId='qa_direct_to_post_owner';
+    const batch=writeBatch(miguel);
+    batch.set(doc(miguel,'posts',postId,'replies',directId),{
+      ...answer(bots[1].uid,bots[1].name,'Responder a um comentário da autora.'),
+      replyToId:'qa_direct_reply',replyToUid:bots[0].uid,
+    });
+    batch.set(doc(miguel,'users',bots[0].uid,'notifications',directId),{
+      postId,replyId:directId,actorUid:bots[1].uid,
+      actorName:bots[1].name,read:false,
+      replyToId:'qa_direct_reply',createdAt:serverTimestamp(),
+    });
+    await assertSucceeds(batch.commit());
+    const notice=await getDoc(doc(clara,'users',bots[0].uid,'notifications',directId));
+    assert.equal(notice.data()?.replyToId,'qa_direct_reply');
+  });
+  await check('Clara menciona Miguel por uma resposta real e o notifica uma vez',async()=>{
+    const id='qa_mention_miguel';
+    const batch=writeBatch(clara);
+    batch.set(doc(clara,'posts',postId,'replies',id),{
+      ...answer(bots[0].uid,bots[0].name,'@Miguel Obrigada!'),
+      mentionUid:bots[1].uid,mentionReplyId:replyA,
+    });
+    batch.set(doc(clara,'users',bots[1].uid,'notifications',id),{
+      postId,replyId:id,actorUid:bots[0].uid,actorName:bots[0].name,
+      read:false,mentionUid:bots[1].uid,mentionReplyId:replyA,
+      createdAt:serverTimestamp(),
+    });
+    await assertSucceeds(batch.commit());
+    const notification=await getDoc(doc(miguel,'users',bots[1].uid,'notifications',id));
+    assert.equal(notification.data()?.mentionUid,bots[1].uid);
+  });
+  await check('Miguel menciona Clara como autora do post, sem consultar profiles',async()=>{
+    const id='qa_mention_post_owner';
+    const batch=writeBatch(miguel);
+    batch.set(doc(miguel,'posts',postId,'replies',id),{
+      ...answer(bots[1].uid,bots[1].name,'@Clara O que acha?'),
+      mentionUid:bots[0].uid,
+    });
+    batch.set(doc(miguel,'users',bots[0].uid,'notifications',id),{
+      postId,replyId:id,actorUid:bots[1].uid,actorName:bots[1].name,
+      read:false,mentionUid:bots[0].uid,createdAt:serverTimestamp(),
+    });
+    await assertSucceeds(batch.commit());
+  });
+  await check('Lúcia não falsifica destinatário de menção de comentário alheio',()=>assertFails(
+    setDoc(doc(lucia,'posts',postId,'replies','qa_mention_spoof'),{
+      ...answer(bots[2].uid,bots[2].name,'@Clara menção falsa'),
+      mentionUid:bots[0].uid,mentionReplyId:replyA,
+    })));
+  await check('Miguel não consegue mencionar a si mesmo',()=>assertFails(
+    setDoc(doc(miguel,'posts',postId,'replies','qa_mention_self'),{
+      ...answer(bots[1].uid,bots[1].name,'@Miguel auto menção'),
+      mentionUid:bots[1].uid,mentionReplyId:replyA,
+    })));
+  await check('Lúcia não cria notificação de menção sem resposta correspondente',()=>assertFails(
+    setDoc(doc(lucia,'users',bots[1].uid,'notifications','qa_mention_fake'),{
+      postId,replyId:'qa_mention_fake',
+      actorUid:bots[2].uid,actorName:bots[2].name,
+      read:false,mentionUid:bots[1].uid,
+      mentionReplyId:replyA,createdAt:serverTimestamp(),
+    })));
+  await check('Lúcia não simula aviso de resposta direta inexistente',()=>assertFails(
+    setDoc(doc(lucia,'users',bots[1].uid,'notifications','qa_fake_notice'),{
+      postId,replyId:'qa_fake_notice',actorUid:bots[2].uid,
+      actorName:bots[2].name,read:false,replyToId:replyA,
+      createdAt:serverTimestamp(),
+    })));
+  await check('Lúcia não falsifica alvo de menção',()=>assertFails(
+    setDoc(doc(lucia,'posts',postId,'replies','qa_fake_target'),{
+      ...answer(bots[2].uid,bots[2].name,'Falso alvo'),
+      replyToId:replyA,replyToUid:bots[0].uid,
+    })));
+  await check('Alvo inexistente não é aceito',()=>assertFails(
+    setDoc(doc(lucia,'posts',postId,'replies','qa_missing_target'),{
+      ...answer(bots[2].uid,bots[2].name,'Resposta inválida'),
+      replyToId:'qa_missing_reply',replyToUid:bots[0].uid,
+    })));
+  await check('Miguel acompanha e depois deixa de acompanhar',async()=>{
+    const ref=doc(miguel,'users',bots[1].uid,'followedPosts',postId);
+    await assertSucceeds(setDoc(ref,{createdAt:serverTimestamp()}));
+    assert.equal((await getDoc(ref)).exists(),true);
+    await assertSucceeds(deleteDoc(ref));
+  });
+  await check('Lúcia não segue como Clara',()=>assertFails(
+    setDoc(doc(lucia,'users',bots[0].uid,'followedPosts',postId),{
+      createdAt:serverTimestamp(),
+    })));
+  await check('Miguel reage com oração e pode alterar ou retirar a reação',async()=>{
+    const ref=doc(miguel,'posts',postId,'replies',replyB,'reactions',bots[1].uid);
+    await assertSucceeds(setDoc(ref,{kind:'prayer',createdAt:serverTimestamp()}));
+    assert.equal((await getDoc(ref)).data().kind,'prayer');
+    await assertSucceeds(updateDoc(ref,{kind:'heart'}));
+    await assertSucceeds(deleteDoc(ref));
+  });
+  await check('Lúcia não reage em nome de Miguel',()=>assertFails(
+    setDoc(doc(lucia,'posts',postId,'replies',replyA,'reactions',bots[1].uid),{
+      kind:'heart',createdAt:serverTimestamp(),
+    })));
+  await check('Reação rejeita privilégios artificiais',()=>assertFails(
+    setDoc(doc(miguel,'posts',postId,'replies',replyB,'reactions',bots[1].uid),{
+      kind:'light',createdAt:serverTimestamp(),moderator:true,
+    })));
+
   await check('Miguel não forja uma resposta assinada por Lúcia',()=>assertFails(
     setDoc(doc(miguel,'posts',postId,'replies','tentativa_identidade_falsa'),
       answer(bots[2].uid,bots[2].name,'Tentativa de falsificação de autoria.'))));

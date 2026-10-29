@@ -101,6 +101,20 @@ class ThreeBotsAuthenticatedAndroidUiTest {
             .performTextInput("$prefix.$session@qa.invalid")
         compose.onNodeWithTag("atrio-auth-password").performTextInput(password)
         compose.onNodeWithTag("atrio-auth-submit").performScrollTo().performClick()
+        // Emulador Auth: às vezes a verificação reCAPTCHA de cadastro falha
+        // por rede externa mesmo quando o Firebase Auth emulado está ativo.
+        // Repetir NO MÁXIMO UMA VEZ, apenas se a UI mostrar falha de
+        // cadastro e não existir sessão autenticada. Nunca tentar em produção.
+        compose.waitUntil(30_000) {
+            auth.currentUser != null || compose.onAllNodesWithTag(
+                "atrio-auth-error", useUnmergedTree = true
+            ).fetchSemanticsNodes().isNotEmpty()
+        }
+        if (auth.currentUser == null) {
+            check(FirebaseApp.getInstance().options.projectId == "demo-atrio-v11")
+            android.util.Log.w("AtrioQaAuth", "temporary_signup_error_retry_once_emulator")
+            compose.onNodeWithTag("atrio-auth-submit").assertIsEnabled().performClick()
+        }
         waitFor("atrio-tab-publish", 45_000)
         val currentUser = auth.currentUser ?: error("Login Firebase não criou usuário")
         val uid = currentUser.uid

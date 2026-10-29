@@ -63,7 +63,9 @@ internal data class Reply(
     val message: String,
     val id: String = "",
     val mine: Boolean = false,
-    val ownerUid: String = ""
+    val ownerUid: String = "",
+    val replyToId: String = "",
+    val replyToUid: String = ""
 )
 internal data class Post(
     val id: String,
@@ -605,6 +607,12 @@ private fun Statistic(value: String, label: String) {
 internal fun DetailScreen(
     post: Post, name: String, onLike: () -> Unit, onSave: () -> Unit,
     onReply: (String, (Boolean) -> Unit) -> Unit, onReport: (() -> Unit)? = null,
+    followed: Boolean = false, onFollow: (() -> Unit)? = null,
+    followBusy: Boolean = false, followIsSynced: Boolean = false,
+    onDirectReply: ((String, Reply, (Boolean) -> Unit) -> Unit)? = null,
+    currentUid: String = "",
+    onMentionReply: ((String, MentionCandidate, (Boolean) -> Unit) -> Unit)? = null,
+    reactionContent: @Composable (Reply) -> Unit = {},
     onEdit: (() -> Unit)? = null, onDelete: (() -> Unit)? = null,
     onDeleteReply: ((String) -> Unit)? = null,
     onReportReply: ((Reply) -> Unit)? = null,
@@ -612,8 +620,24 @@ internal fun DetailScreen(
 ) {
     var response by remember(post.id) { mutableStateOf("") }
     var sendingReply by remember(post.id) { mutableStateOf(false) }
+    var quotedReply by remember(post.id) { mutableStateOf<Reply?>(null) }
+    var mentioned by remember(post.id) { mutableStateOf<MentionCandidate?>(null) }
+    var mentionMenuOpen by remember(post.id) { mutableStateOf(false) }
+    val participants = remember(post.replies, post.ownerUid, currentUid) {
+        mentionCandidates(post, currentUid)
+    }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
         DiscussionCard(post, onOpen = {}, onLike = { onLike() }, onSave = { onSave() }, fullText = true)
+        if (onFollow != null) {
+            OutlinedButton(onClick = onFollow,
+                enabled = !followBusy,
+                modifier = Modifier.fillMaxWidth().testTag("atrio-follow-discussion")) {
+                Text(if (followed) "Remover da lista de acompanhadas" else "Acompanhar esta discussão")
+            }
+            Text(if (followIsSynced) "Discussão salva na sua conta. Novos avisos de acompanhamento ainda não estão disponíveis."
+                else "Lista privada deste aparelho. Acompanhar não ativa notificações adicionais.",
+                style = MaterialTheme.typography.bodySmall, color = Muted)
+        }
         if (post.mine && (onEdit != null || onDelete != null)) {
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -636,8 +660,20 @@ internal fun DetailScreen(
                 Column(Modifier.weight(1f)) {
                     Text(r.author, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     MemberBadgeRow(r.ownerUid)
+                    if (r.replyToId.isNotBlank()) {
+                        val target = post.replies.firstOrNull { it.id == r.replyToId }
+                        Text("↳ Em resposta a @${target?.author ?: "participante"}",
+                            style = MaterialTheme.typography.labelSmall, color = Wine)
+                    }
                     Text(r.message, fontSize = 13.sp, lineHeight = 19.sp, color = Ink)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (r.id.isNotBlank()) {
+                            TextButton(
+                                onClick = { quotedReply = r; mentioned = null },
+                                modifier = Modifier.testTag("atrio-quote-reply")
+                            ) { Text("Responder a este comentário", fontSize = 12.sp, color = Wine) }
+                            reactionContent(r)
+                        }
                         if (r.id.isNotBlank() && onReportReply != null) {
                             TextButton(onClick = { onReportReply(r) }) {
                                 Text("Denunciar", color = Wine, fontSize = 12.sp)
@@ -656,15 +692,65 @@ internal fun DetailScreen(
         Spacer(Modifier.height(14.dp))
         repliesFooter()
         Text("Responder como $name", color = Wine, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        if (onMentionReply != null && participants.isNotEmpty()) {
+            Box {
+                OutlinedButton(
+                    onClick = { mentionMenuOpen = true },
+                    modifier = Modifier.testTag("atrio-mention-pick")
+                ) { Text("Mencionar participante @") }
+                DropdownMenu(expanded = mentionMenuOpen, onDismissRequest = { mentionMenuOpen = false }) {
+                    participants.forEach { candidate ->
+                        DropdownMenuItem(
+                            text = { Text(mentionDisplay(candidate)) },
+                            onClick = {
+                                mentioned = candidate
+                                quotedReply = null
+                                mentionMenuOpen = false
+                            }
+                        )
+                    }
+                }
+            }
+            mentioned?.let { target ->
+                Text("Mencionando ${mentionDisplay(target)}",
+                    color = Wine, style = MaterialTheme.typography.bodySmall)
+                TextButton(onClick = { mentioned = null }) { Text("Retirar menção") }
+            }
+        }
+        quotedReply?.let { selected ->
+            Card(colors = CardDefaults.cardColors(containerColor = WineSoft)) {
+                Column(Modifier.fillMaxWidth().padding(10.dp)) {
+                    Text("Citando ${selected.author}", fontWeight = FontWeight.Bold, color = Wine)
+                    Text(selected.message.take(100), maxLines = 2, style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = { quotedReply = null }) { Text("Remover citação") }
+                }
+            }
+        }
         OutlinedTextField(value = response, onValueChange = { if (it.length <= 600) response = it },
             modifier = Modifier.fillMaxWidth().testTag("atrio-reply-input"), label = { Text("Sua resposta") }, minLines = 2)
         Spacer(Modifier.height(9.dp))
         Button(
             onClick = {
                 sendingReply = true
-                onReply(response.trim()) { success ->
+                val quote = quotedReply
+                val mention = mentioned
+                // Compatível com as regras existentes: citação é texto,
+                // não uma menção certificada nem um novo vínculo no servidor.
+                val prefix = if (quote == null) "" else "↳ Em resposta a ${quote.author.take(35)}: "
+                val available = (600 - prefix.length).coerceAtLeast(0)
+                val callback: (Boolean) -> Unit = { success ->
                     sendingReply = false
-                    if (success) response = ""
+                    if (success) { response = ""; quotedReply = null; mentioned = null }
+                }
+                if (mention != null && onMentionReply != null) {
+                    onMentionReply(mentionBody(mention, response), mention, callback)
+                } else if (quote != null && onDirectReply != null &&
+                    quote.id.isNotBlank() && quote.ownerUid.isNotBlank()) {
+                    // O backend valida que replyToUid pertence à resposta original.
+                    onDirectReply(response.trim(), quote, callback)
+                } else {
+                    // Compatível com Firestore de produção antes das novas regras.
+                    onReply(prefix + response.trim().take(available), callback)
                 }
             },
             enabled = response.isNotBlank() && !sendingReply,

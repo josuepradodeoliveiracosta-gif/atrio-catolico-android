@@ -110,7 +110,8 @@ private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
                     visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation())
                 if (error.isNotBlank()) {
                     Spacer(Modifier.height(8.dp))
-                    Text(error, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                    Text(error, modifier = Modifier.testTag("atrio-auth-error"),
+                        color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
                 }
                 if (resetInfo.isNotBlank()) {
                     Spacer(Modifier.height(8.dp))
@@ -325,6 +326,7 @@ private fun OnlineCommunity(
     var likedIds by remember(uid) { mutableStateOf<Set<String>>(emptySet()) }
     var savedIds by remember(uid) { mutableStateOf<Set<String>>(emptySet()) }
     val notificationAdmin = onModeration != null && onClergyReview != null
+    val advancedEngagement = rememberAdvancedEngagementEnabled(db, uid)
     val inbox = rememberNotificationInbox(db, uid, notificationAdmin)
     var noticeBadgesOpen by remember(uid) { mutableStateOf(false) }
     var guardiaoAppealsOpen by remember(uid) { mutableStateOf(false) }
@@ -366,6 +368,11 @@ private fun OnlineCommunity(
     var savesLoading by remember(uid) { mutableStateOf(true) }
     var savesError by remember(uid) { mutableStateOf(false) }
     var savedRetry by remember(uid) { mutableStateOf(0) }
+    var followedRevision by remember(uid) { mutableIntStateOf(0) }
+    val syncedFollow = rememberSyncedFollowedDiscussions(db, uid, advancedEngagement)
+    val followedIds = if (advancedEngagement) syncedFollow.ids
+        else remember(uid, followedRevision) { LocalFollowedDiscussions.ids(context, uid) }
+    var followBusy by remember(uid, detailId) { mutableStateOf(false) }
 
     DisposableEffect(db, uid, feedLimit, feedRetry) {
         var active = true
@@ -461,7 +468,9 @@ private fun OnlineCommunity(
                                 Reply(author = it.getString("authorName") ?: "Membro",
                                     message = it.getString("body") ?: "", id = it.id,
                                     mine = it.getString("uid") == uid,
-                                    ownerUid = it.getString("uid").orEmpty())
+                                    ownerUid = it.getString("uid").orEmpty(),
+                                    replyToId = it.getString("replyToId").orEmpty(),
+                                    replyToUid = it.getString("replyToUid").orEmpty())
                             } ?: emptyList()
                         }
                     }
@@ -540,7 +549,10 @@ private fun OnlineCommunity(
             } else message = result.exception?.localizedMessage ?: "Não foi possível publicar."
         }
     }
-    fun reply(id: String, body: String, done: (Boolean) -> Unit) {
+    fun reply(
+        id: String, body: String, done: (Boolean) -> Unit,
+        target: Reply? = null, mention: MentionCandidate? = null
+    ) {
         if (openedPost?.id != id) {
             message = "Discussão indisponível. Atualize o fórum e tente novamente."
             done(false)
@@ -562,23 +574,81 @@ private fun OnlineCommunity(
                 val replyRef = db.collection("posts").document(id)
                     .collection("replies").document()
                 val batch = db.batch()
-                batch.set(replyRef, mapOf(
+                val replyData = mutableMapOf<String, Any>(
                     "uid" to uid, "authorName" to name, "body" to body,
                     "createdAt" to FieldValue.serverTimestamp()
-                ))
+                )
+                if (target != null && advancedEngagement &&
+                    target.id.isNotBlank() && target.ownerUid.isNotBlank()) {
+                    replyData["replyToId"] = target.id
+                    replyData["replyToUid"] = target.ownerUid
+                }
+                if (mention != null && advancedEngagement && mention.uid != uid) {
+                    replyData["mentionUid"] = mention.uid
+                    if (mention.sourceReplyId.isNotBlank()) {
+                        replyData["mentionReplyId"] = mention.sourceReplyId
+                    }
+                }
+                batch.set(replyRef, replyData)
                 if (ownerUid != uid) {
                     val noticeRef = db.collection("users").document(ownerUid)
                         .collection("notifications").document(replyRef.id)
-                    batch.set(noticeRef, mapOf(
+                    val notice = mutableMapOf<String, Any>(
                         "postId" to id,
                         "replyId" to replyRef.id,
                         "actorUid" to uid,
                         "actorName" to name,
                         "read" to false,
                         "createdAt" to FieldValue.serverTimestamp()
+                    )
+                    // Quando o autor da discussão também é o autor citado,
+                    // evitar dois avisos e identificar a resposta como direta.
+                    if (advancedEngagement && target != null &&
+                        target.ownerUid == ownerUid && target.id.isNotBlank()) {
+                        notice["replyToId"] = target.id
+                    }
+                    if (advancedEngagement && mention?.uid == ownerUid) {
+                        notice["mentionUid"] = ownerUid
+                        if (mention.sourceReplyId.isNotBlank()) {
+                            notice["mentionReplyId"] = mention.sourceReplyId
+                        }
+                    }
+                    batch.set(noticeRef, notice)
+                }
+                // O destinatário da resposta direta pode ser distinto do autor
+                // da discussão. Backend valida o alvo real e a escrita atômica.
+                if (advancedEngagement && target != null &&
+                    target.id.isNotBlank() && target.ownerUid.isNotBlank() &&
+                    target.ownerUid != uid && target.ownerUid != ownerUid) {
+                    val noticeRef = db.collection("users").document(target.ownerUid)
+                        .collection("notifications").document(replyRef.id)
+                    batch.set(noticeRef, mapOf(
+                        "postId" to id, "replyId" to replyRef.id,
+                        "actorUid" to uid, "actorName" to name,
+                        "replyToId" to target.id,
+                        "read" to false,
+                        "createdAt" to FieldValue.serverTimestamp()
                     ))
                 }
-                // Resposta e notificação continuam atômicas.
+                // Uma menção explícita no tópico pode enviar um aviso privado
+                // ao participante, com UID verificado pelas regras do Firestore.
+                if (advancedEngagement && mention != null &&
+                    mention.uid != uid && mention.uid != ownerUid &&
+                    mention.uid != target?.ownerUid) {
+                    val noticeRef = db.collection("users").document(mention.uid)
+                        .collection("notifications").document(replyRef.id)
+                    val mentionNotice = mutableMapOf<String, Any>(
+                        "postId" to id, "replyId" to replyRef.id,
+                        "actorUid" to uid, "actorName" to name,
+                        "mentionUid" to mention.uid, "read" to false,
+                        "createdAt" to FieldValue.serverTimestamp()
+                    )
+                    if (mention.sourceReplyId.isNotBlank()) {
+                        mentionNotice["mentionReplyId"] = mention.sourceReplyId
+                    }
+                    batch.set(noticeRef, mentionNotice)
+                }
+                // Resposta e notificações continuam atômicas.
                 batch.commit().addOnCompleteListener { result ->
                     // Confirmar imediatamente o resultado para a interface.
                     // Inscrições FCM e relay não devem bloquear o botão Responder.
@@ -657,6 +727,40 @@ private fun OnlineCommunity(
                     onLike = { toggle("likedPosts", detail.id, detail.liked) },
                     onSave = { toggle("savedPosts", detail.id, detail.saved) },
                     onReply = { body, done -> reply(detail.id, body, done) },
+                    onDirectReply = if (advancedEngagement) ({ body, target, done ->
+                        reply(detail.id, body, done, target)
+                    }) else null,
+                    currentUid = uid,
+                    onMentionReply = if (advancedEngagement) ({ body, participant, done ->
+                        reply(detail.id, body, done, mention = participant)
+                    }) else null,
+                    reactionContent = { item ->
+                        if (advancedEngagement)
+                            ReplyReactionBar(db, uid, detail.id, item.id)
+                    },
+                    followed = detail.id in followedIds,
+                    followBusy = followBusy || (advancedEngagement && syncedFollow.loading),
+                    followIsSynced = advancedEngagement,
+                    onFollow = {
+                        if (advancedEngagement) {
+                            if (!followBusy && !syncedFollow.loading && !syncedFollow.failed) {
+                                followBusy = true
+                                SyncedFollowedDiscussions.change(
+                                    db, uid, detail.id, detail.id in followedIds
+                                ) { ok ->
+                                    followBusy = false
+                                    if (!ok) message = "Não foi possível atualizar o acompanhamento."
+                                }
+                            } else if (syncedFollow.failed) {
+                                message = "Não foi possível carregar seus acompanhamentos."
+                            }
+                        } else {
+                            runCatching {
+                                LocalFollowedDiscussions.toggle(context, uid, detail.id)
+                            }.onSuccess { followedRevision++ }
+                                .onFailure { message = it.message ?: "Não foi possível acompanhar." }
+                        }
+                    },
                     onReport = { reportPost = detail.id },
                     onEdit = if (detail.mine) ({ editingPostId = detail.id }) else null,
                     onDelete = if (detail.mine) ({ deletingPostId = detail.id }) else null,
@@ -707,6 +811,11 @@ private fun OnlineCommunity(
                     onSignOut = onSignOut, onModeration = onModeration,
                     onClergyReview = onClergyReview,
                     onSavedPosts = { navigate(Tab.SAVED) },
+                    followedRevision = followedRevision, savedCount = savedOrder.size,
+                    followedRemoteEnabled = advancedEngagement,
+                    followedRemoteIds = syncedFollow.ids,
+                    followedRemoteLoading = syncedFollow.loading,
+                    followedRemoteFailed = syncedFollow.failed,
                     onPhotoChanged = onPhotoChanged,
                     onNotifications = { noticesOpen = true; returnToNotices = false },
                     onReviews = { guardiaoAppealsOpen = true },
