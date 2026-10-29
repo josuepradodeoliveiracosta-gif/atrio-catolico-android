@@ -31,7 +31,7 @@ test('relato de ameaça é contextual',()=>assert.equal(classify('Ele me ameaço
 test('golpe explícito cria candidato restrito',()=>assert.equal(classify('Clique https://exemplo.invalid para informar sua senha').level,'hold_candidate'));
 test('links abusivos geram advertência educativa',()=>assert.equal(classify('http://a.test http://b.test http://c.test http://d.test').level,'warning'));
 test('denúncias falsas não contam como infração',()=>assert.equal(classify('Olá irmãos!',{reports:9000}).level,'clear'));
-test('reincidência não dispara banimento',()=>assert.equal(classify('Olá',{duplicateCount:12,confirmedInfractions:15}).level,'warning'));
+test('reincidência não dispara banimento',()=>assert.equal(classify('Olá',{duplicateCount:12,confirmedInfractions:15}).level,'review'));
 test('notificações são genéricas e não vazam os dados originais',()=>assert.ok(!JSON.stringify(safeNotice('personal_data','review')).includes('52998224725')));
 test('duplo desligamento mantém o motor inativo',()=>{assert.equal(settingsOf({fields:{enabled:{booleanValue:true}}},{GUARDIAN_V2_ENABLED:'false'}).enabled,false);assert.equal(settingsOf({fields:{enabled:{booleanValue:true},emergencyStop:{booleanValue:true}}},{GUARDIAN_V2_ENABLED:'true'}).enabled,false);});
 test('modo padrão registra caso de revisão e preserva resposta',async()=>{
@@ -86,4 +86,21 @@ test('autor não pode revisar sua própria retenção',async()=>{
  const target=mkDoc('posts/p1/replies/r8','Clique https://exemplo.invalid para informar sua senha');
  const db=new FakeStore([target]);await processDocument(db,target,{enabled:true,allowHold:true});
  const id=await caseId('posts/p1/replies/r8');await assert.rejects(reviewCase(db,'alice',{caseId:id,action:'restore',note:'Quero restaurar'}));
+});
+
+
+import {processReport} from './index.js';
+test('denúncia isolada de texto religioso não gera punição',async()=>{
+ const target=mkDoc('posts/p1','Qual é a interpretação do Catecismo?');const db=new FakeStore([target]);
+ const report={name:ROOT+'/reports/bob_post_p1',fields:{postId:str('p1'),reporterUid:str('bob')}};
+ assert.equal(await processReport(db,report,enabled),'clear');assert.ok(db.docs.has(target.name));
+});
+test('denúncia pode conduzir à revisão fundamentada no conteúdo',async()=>{
+ const target=mkDoc('posts/p2','Vou te matar amanhã');const db=new FakeStore([target]);
+ const report={name:ROOT+'/reports/bob_post_p2',fields:{postId:str('p2'),reporterUid:str('bob')}};
+ assert.equal(await processReport(db,report,enabled),'review');assert.ok(db.docs.has(target.name));
+});
+test('relatórios automáticos não geram nova punição recursiva',async()=>{
+ const db=new FakeStore();const report={name:ROOT+'/reports/guard_fake',fields:{postId:str('p1'),source:str('guardiao')}};
+ assert.equal(await processReport(db,report,enabled),'ignored');
 });
