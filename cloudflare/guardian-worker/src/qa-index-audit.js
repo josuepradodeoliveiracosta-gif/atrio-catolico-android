@@ -35,7 +35,7 @@ export async function readQaIndexes({project,approved,accessToken,fetcher=fetch}
   if(!response.ok){
    const issue=await response.json().catch(()=>({}));
    const message=String(issue?.error?.message||'').replace(/[^A-Za-z0-9 ._:/()=-]/g,'').slice(0,160);
-   const err=Error('api_'+response.status+(path.includes('/indexes?')?'_composite':'_single'));
+   const err=Error('api_'+response.status+(path.includes('/indexes')?'_composite':'_single'));
    err.safeDetail=message;throw err;
   }
   return response.json();
@@ -47,8 +47,8 @@ export async function readQaIndexes({project,approved,accessToken,fetcher=fetch}
   for(const [group] of REQUIRED) {
    let next='';
    for(let page=0;page<5;page++){
-    const payload=await get('/'+group+'/indexes?pageSize=100'+
-      (next?'&pageToken='+encodeURIComponent(next):''));
+    const payload=await get('/'+group+'/indexes'+
+      (next?'?pageToken='+encodeURIComponent(next):''));
     if(!payload)throw Error('index_composite_not_found');
     if(payload.indexes!==undefined&&!Array.isArray(payload.indexes))throw Error('invalid_index_response');
     composites.push(...(payload.indexes||[]));
