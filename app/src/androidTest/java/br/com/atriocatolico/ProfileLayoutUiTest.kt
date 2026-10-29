@@ -2,7 +2,6 @@ package br.com.atriocatolico
 
 import android.graphics.Bitmap
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -117,7 +116,10 @@ class ProfileLayoutUiTest {
         ParcelFileDescriptor.AutoCloseInputStream(
             automation.executeShellCommand("mkdir -p /data/local/tmp/atrio-profile-preview")
         ).use { it.readBytes() }
-        val bitmap = compose.onRoot().captureToImage().asAndroidBitmap()
+        // Captura pela automação Android: inclui diálogos, superfícies e selos
+        // sem depender da captura Compose, que pode falhar no emulador de CI.
+        val bitmap = automation.takeScreenshot()
+            ?: error("O emulador Android não conseguiu capturar a tela")
         val pipes = automation.executeShellCommandRw("dd of=/data/local/tmp/atrio-profile-preview/$name.png")
         ParcelFileDescriptor.AutoCloseInputStream(pipes[0]).use { output ->
             ParcelFileDescriptor.AutoCloseOutputStream(pipes[1]).use { input ->
