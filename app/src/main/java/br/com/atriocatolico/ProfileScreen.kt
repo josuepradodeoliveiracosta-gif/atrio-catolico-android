@@ -112,6 +112,10 @@ internal fun OnlineProfileScreen(
                 }
             }
             item {
+                PublicProfilePublicationSettings(db = db, uid = uid, displayName = name,
+                    privateBio = biography)
+            }
+            item {
                 Card(onClick = { badgesOpen = true }, modifier = Modifier.fillMaxWidth().testTag("atrio-profile-badges"),
                     colors = CardDefaults.cardColors(containerColor = WineSoft),
                     shape = RoundedCornerShape(18.dp)) {
@@ -157,7 +161,7 @@ internal fun OnlineProfileScreen(
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(email.ifBlank { "Conta autenticada" }, style = MaterialTheme.typography.bodyLarge)
-                        Text("Seu e-mail e sua apresentação são privados. Seu nome e seus selos aparecem nas publicações.",
+                        Text("Seu e-mail é privado. Sua apresentação só fica pública após sua autorização.",
                             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text("Átrio Católico · ${BuildConfig.ATRIO_VISIBLE_VERSION}", style = MaterialTheme.typography.labelMedium)
                         OutlinedButton(onClick = onSignOut, modifier = Modifier.fillMaxWidth().testTag("atrio-profile-signout")) {
@@ -210,9 +214,28 @@ private fun ProfileEditor(
     onClose: () -> Unit, onSaved: () -> Unit
 ) {
     ProfileEditorDialog(uid, name, biography, onClose, onSaved = onSaved, onSave = { newName, newBio, complete ->
-        db.collection("profiles").document(uid).update(mapOf(
-            "displayName" to newName, "bio" to newBio
-        )).addOnCompleteListener { result -> complete(result.isSuccessful) }
+        val privateRef = db.collection("profiles").document(uid)
+        val publicRef = db.collection("public_profiles").document(uid)
+        // Salvar ambos na MESMA transação: não deixar a biografia pública
+        // desatualizada se a segunda gravação falhar. Se a apresentação tiver
+        // sido retirada, a transação não poderá recriá-la por acidente.
+        db.runTransaction { transaction ->
+            val published = transaction.get(publicRef) // todas as leituras antes das escritas
+            transaction.update(privateRef, mapOf(
+                "displayName" to newName, "bio" to newBio
+            ))
+            if (published.exists()) {
+                val joined = published.getTimestamp("joinedAt")
+                    ?: throw IllegalStateException("Data do perfil público inválida")
+                transaction.set(publicRef, mapOf(
+                    "displayName" to newName,
+                    "bio" to newBio,
+                    "joinedAt" to joined,
+                    "updatedAt" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+                ))
+            }
+            true
+        }.addOnCompleteListener { result -> complete(result.isSuccessful) }
     })
 }
 
@@ -250,7 +273,7 @@ internal fun ProfileEditorDialog(
                     enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("atrio-profile-bio"), minLines = 3, maxLines = 5,
                     label = { Text("Apresentação (opcional)") },
                     supportingText = { Text("${draftBio.length}/180 caracteres") })
-                Text("O nome será usado nas próximas publicações. Sua apresentação permanece privada.",
+                Text("O nome será usado nas próximas publicações. Sua apresentação só é pública com sua autorização.",
                     color = Muted, fontSize = 12.sp)
                 if (failure.isNotBlank()) Text(failure, color = MaterialTheme.colorScheme.error, fontSize = 14.sp,
                     modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })

@@ -187,8 +187,47 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'bio'])
         && validText(request.resource.data.displayName, 2, 35)
         && request.resource.data.get('bio', '') is string
-        && request.resource.data.get('bio', '').size() <= 180;
+        && request.resource.data.get('bio', '').size() <= 180
+        // Se já houve opt-in, impedir que clientes antigos alterem a bio
+        // privada deixando uma cópia pública desatualizada. A edição deve
+        // atualizar ambos os documentos na MESMA transação, ou o usuário
+        // deve primeiro retirar sua apresentação pública.
+        && (!exists(/databases/$(database)/documents/public_profiles/$(uid))
+          || (getAfter(/databases/$(database)/documents/public_profiles/$(uid)).data.displayName
+                == request.resource.data.displayName
+            && getAfter(/databases/$(database)/documents/public_profiles/$(uid)).data.bio
+                == request.resource.data.get('bio', '')
+            && getAfter(/databases/$(database)/documents/public_profiles/$(uid)).data.updatedAt
+                == request.time));
       allow delete: if false;
+    }
+
+    // Projeção pública voluntária: nunca conceder acesso de terceiros a /profiles.
+    // A biografia só chega aqui após opt-in pelo titular da conta.
+    match /public_profiles/{uid} {
+      allow get: if signedIn();
+      allow list: if false;
+      // getAfter valida o perfil privado após a mesma transação de atualização.
+      // APKs antigos devem revogar a publicação antes de editar a bio privada.
+      allow create, update: if me(uid)
+        && exists(/databases/$(database)/documents/profiles/$(uid))
+        && request.resource.data.keys().hasOnly([
+          'displayName', 'bio', 'joinedAt', 'updatedAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'displayName', 'bio', 'joinedAt', 'updatedAt'
+        ])
+        && validText(request.resource.data.displayName, 2, 35)
+        && request.resource.data.displayName ==
+          getAfter(/databases/$(database)/documents/profiles/$(uid)).data.displayName
+        && request.resource.data.bio is string
+        && request.resource.data.bio.size() <= 180
+        && request.resource.data.bio ==
+          getAfter(/databases/$(database)/documents/profiles/$(uid)).data.get('bio', '')
+        && request.resource.data.joinedAt ==
+          getAfter(/databases/$(database)/documents/profiles/$(uid)).data.createdAt
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if me(uid);
     }
 
     match /posts/{postId} {

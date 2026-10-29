@@ -67,7 +67,8 @@ internal data class Reply(
     val mine: Boolean = false,
     val ownerUid: String = "",
     val replyToId: String = "",
-    val replyToUid: String = ""
+    val replyToUid: String = "",
+    val mentionUid: String = ""
 )
 internal data class Post(
     val id: String,
@@ -385,7 +386,8 @@ internal fun Avatar(name: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-internal fun DiscussionCard(post: Post, onOpen: (String) -> Unit, onLike: (String) -> Unit, onSave: (String) -> Unit, fullText: Boolean = false) {
+internal fun DiscussionCard(post: Post, onOpen: (String) -> Unit, onLike: (String) -> Unit, onSave: (String) -> Unit, fullText: Boolean = false,
+    onOpenProfile: (String, String) -> Unit = { _, _ -> }) {
     Card(
         onClick = { onOpen(post.id) },
         modifier = Modifier.fillMaxWidth().testTag("atrio-post-${post.id}"),
@@ -393,7 +395,10 @@ internal fun DiscussionCard(post: Post, onOpen: (String) -> Unit, onLike: (Strin
         border = BorderStroke(1.dp, Line), elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.clickable(enabled = post.ownerUid.isNotBlank()) {
+                    onOpenProfile(post.ownerUid, post.author)
+                }.testTag("atrio-open-author-${post.id}")) {
                 MemberAvatar(post.author, post.ownerUid)
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
@@ -434,7 +439,8 @@ internal fun DiscussionCard(post: Post, onOpen: (String) -> Unit, onLike: (Strin
 internal fun HomeScreen(name: String, posts: List<Post>, filter: String, search: String, searchOpen: Boolean,
     onSearch: (String) -> Unit, onFilter: (String) -> Unit, onCreate: () -> Unit,
     onForums: () -> Unit, onOpen: (String) -> Unit, onLike: (String) -> Unit, onSave: (String) -> Unit,
-    footer: @Composable () -> Unit = {}
+    footer: @Composable () -> Unit = {},
+    onOpenProfile: (String, String) -> Unit = { _, _ -> }
 ) {
     val shown = posts.filter { (filter == "Todos" || it.category == filter) &&
         (search.isBlank() || listOf(it.title, it.body, it.category, it.author).any { s -> s.contains(search, ignoreCase = true) }) }
@@ -476,7 +482,8 @@ internal fun HomeScreen(name: String, posts: List<Post>, filter: String, search:
                 leadingIcon = { Icon(Icons.Outlined.Search, null) }, modifier = Modifier.fillMaxWidth().testTag("atrio-search-field"), singleLine = true)
         }
         if (shown.isEmpty()) item { EmptyState("🕊️", "Nenhuma discussão", "Mude o filtro ou comece uma conversa.", "Criar publicação", onCreate) }
-        items(shown, key = { it.id }) { p -> DiscussionCard(p, onOpen, onLike, onSave) }
+        items(shown, key = { it.id }) { p -> DiscussionCard(p, onOpen, onLike, onSave,
+            onOpenProfile = onOpenProfile) }
         item { footer() }
     }
 }
@@ -549,11 +556,13 @@ internal fun PublishScreen(onPublish: (String, String, String) -> Unit) {
 
 @Composable
 internal fun SavedScreen(posts: List<Post>, onDiscover: () -> Unit, onOpen: (String) -> Unit, onLike: (String) -> Unit, onSave: (String) -> Unit,
-    loading: Boolean = false, footer: @Composable () -> Unit = {}) {
+    loading: Boolean = false, footer: @Composable () -> Unit = {},
+    onOpenProfile: (String, String) -> Unit = { _, _ -> }) {
     LazyColumn(Modifier.fillMaxSize().testTag("atrio-saved-list"), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { SectionTitle("Publicações salvas") }
         if (posts.isEmpty() && !loading) item { EmptyState("🔖", "Nada salvo ainda", "Toque no marcador de uma publicação para encontrá-la aqui.", "Explorar discussões", onDiscover) }
-        items(posts, key = { it.id }) { p -> DiscussionCard(p, onOpen, onLike, onSave) }
+        items(posts, key = { it.id }) { p -> DiscussionCard(p, onOpen, onLike, onSave,
+            onOpenProfile = onOpenProfile) }
         item { footer() }
     }
 }
@@ -620,6 +629,7 @@ internal fun DetailScreen(
     onEdit: (() -> Unit)? = null, onDelete: (() -> Unit)? = null,
     onDeleteReply: ((String) -> Unit)? = null,
     onReportReply: ((Reply) -> Unit)? = null,
+    onOpenProfile: (String, String) -> Unit = { _, _ -> },
     repliesFooter: @Composable () -> Unit = {}
 ) {
     var reactionReplyId by remember(post.id) { mutableStateOf<String?>(null) }
@@ -637,7 +647,8 @@ internal fun DetailScreen(
         contentPadding = PaddingValues(16.dp)) {
         item(key = "discussion-header") {
             Column {
-                DiscussionCard(post, onOpen = {}, onLike = { onLike() }, onSave = { onSave() }, fullText = true)
+                DiscussionCard(post, onOpen = {}, onLike = { onLike() }, onSave = { onSave() },
+                    fullText = true, onOpenProfile = onOpenProfile)
                 if (onFollow != null) {
                     OutlinedButton(onClick = onFollow,
                         enabled = !followBusy,
@@ -674,15 +685,35 @@ internal fun DetailScreen(
                             onClick = {}, onLongClick = { reactionReplyId = r.id },
                             onLongClickLabel = "Reagir com emoji"
                         ).testTag("reaction-reply-${r.id}") else Modifier)) {
-                        MemberAvatar(r.author, r.ownerUid, Modifier.size(36.dp))
+                        MemberAvatar(r.author, r.ownerUid, Modifier.size(36.dp)
+                            .clickable(enabled = r.ownerUid.isNotBlank()) { onOpenProfile(r.ownerUid, r.author) }
+                            .testTag("atrio-open-reply-avatar-${r.id}"))
                         Spacer(Modifier.width(10.dp))
                         Column(Modifier.weight(1f)) {
-                            Text(r.author, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text(r.author, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                                modifier = Modifier.clickable(enabled = r.ownerUid.isNotBlank()) {
+                                    onOpenProfile(r.ownerUid, r.author)
+                                }.testTag("atrio-open-reply-name-${r.id}"))
                             MemberBadgeRow(r.ownerUid)
                             if (r.replyToId.isNotBlank()) {
                                 val target = post.replies.firstOrNull { it.id == r.replyToId }
                                 Text("↳ Em resposta a @${target?.author ?: "participante"}",
-                                    style = MaterialTheme.typography.labelSmall, color = Wine)
+                                    style = MaterialTheme.typography.labelSmall, color = Wine,
+                                    modifier = Modifier.clickable(enabled = target?.ownerUid?.isNotBlank() == true) {
+                                        target?.let { onOpenProfile(it.ownerUid, it.author) }
+                                    }.testTag("atrio-open-quoted-member-${r.id}"))
+                            }
+                            if (r.mentionUid.isNotBlank()) {
+                                val mentioned = if (r.mentionUid == post.ownerUid) {
+                                    post.author
+                                } else post.replies.firstOrNull { it.ownerUid == r.mentionUid }?.author
+                                if (!mentioned.isNullOrBlank()) {
+                                    Text("Mencionou @${mentioned}", color = Wine,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        modifier = Modifier.clickable {
+                                            onOpenProfile(r.mentionUid, mentioned)
+                                        }.testTag("atrio-open-mentioned-member-${r.id}"))
+                                }
                             }
                             Text(r.message, fontSize = 13.sp, lineHeight = 19.sp, color = Ink)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
