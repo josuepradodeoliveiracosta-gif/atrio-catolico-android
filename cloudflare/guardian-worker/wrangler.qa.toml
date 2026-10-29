@@ -9,6 +9,7 @@ GUARDIAN_V2_TEST_MODE = "true"
 GUARDIAN_V2_ENABLED = "false"
 GUARDIAN_V2_HOLD_ENABLED = "false"
 GUARDIAN_V2_QA_SHADOW_READS = "false" # Conexão remota desativada até projeto QA separado
+GUARDIAN_V2_QA_RUN_MONITOR = "true" # Apenas GET de status público GitHub por hora; nunca lê Firebase
 
 [triggers]
 crons = ["*/15 * * * *"]
