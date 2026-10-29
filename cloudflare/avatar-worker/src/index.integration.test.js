@@ -77,7 +77,7 @@ function fixture() {
       const id=form.get('public_id');
       assert.ok(id.startsWith(assetPrefix));
       state.cloudId=id;
-      return json({type:'authenticated',public_id:id,version:1780000000});
+      return json({type:'authenticated',public_id:id,version:1780000000,moderation:[{kind:'manual',status:'pending'}]});
     }
     if(endpoint.includes('/resources/image/authenticated/')) {
       if(!state.cloudId) return json({error:'missing'},404);
