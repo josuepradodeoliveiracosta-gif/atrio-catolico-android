@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {initializeTestEnvironment,assertFails} from '@firebase/rules-unit-testing';
 import {doc,setDoc,getDoc,updateDoc,serverTimestamp,Timestamp} from 'firebase/firestore';
-import {Firestore} from '../../cloudflare/guardian-worker/src/firestore.js';
+import {Firestore,caseId} from '../../cloudflare/guardian-worker/src/firestore.js';
+import {processDocument} from '../../cloudflare/guardian-worker/src/index.js';
 import {scanPagedCycle} from '../../cloudflare/guardian-worker/src/scan-paged.js';
 
 const project='atrio-catolico-qa-v2';
@@ -69,10 +70,21 @@ try{
      updatedAt:serverTimestamp()
    });
    const timeAfter=new Date(Date.now()+5000).toISOString();
-   const result=await scanPagedCycle(server,{enabled:true},callbacks,timeAfter);
-   assert.equal(result.clear,1);
+   const realCallback={
+     ...callbacks,
+     onDocument:async(db,document,settings)=>{
+       const target=document.name.split('/documents/')[1];
+       if(target!==path)throw Error('unexpected target');
+       seen.add(target);
+       return processDocument(db,document,settings);
+     }
+   };
+   const result=await scanPagedCycle(server,{enabled:true,allowHold:false},realCallback,timeAfter);
+   assert.equal(result.review,1);
    assert.equal(result.error,0);
    assert.ok(seen.has(path));
+   assert.equal((await server.get('guardian_cases/'+await caseId(path))).fields.status.stringValue,'review');
+   assert.ok(await server.get(path));
    assert.equal((await server.get('guardian_runtime/scan_post_edits')).fields.mode.stringValue,'complete');
    const oldPost=await server.get(path);
    assert.ok(Date.parse(oldPost.fields.updatedAt.timestampValue) >
