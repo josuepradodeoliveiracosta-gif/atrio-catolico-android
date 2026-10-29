@@ -175,7 +175,7 @@ internal fun OnlineProfileScreen(
                 Spacer(Modifier.height(16.dp))
                 Text("Administração", fontWeight = FontWeight.Bold, color = Wine)
                 onModeration?.let { action ->
-                    OutlinedButton(onClick = action, modifier = Modifier.fillMaxWidth()) { Text("Denúncias") }
+                    OutlinedButton(onClick = action, modifier = Modifier.fillMaxWidth()) { Text("Moderação de conteúdo e fotos") }
                 }
                 onClergyReview?.let { action ->
                     OutlinedButton(onClick = action, modifier = Modifier.fillMaxWidth()) { Text("Solicitações de selos") }
