@@ -32,20 +32,25 @@ export async function readQaIndexes({project,approved,accessToken,fetcher=fetch}
    Authorization:'Bearer '+accessToken,Accept:'application/json'
   },redirect:'error',signal:AbortSignal.timeout(8000)});
   if(response.status===404)return null;
-  if(!response.ok)throw Error('api_'+response.status+(path.includes('/-/indexes')?'_composite':'_single'));
+  if(!response.ok)throw Error('api_'+response.status+(path.includes('/indexes?')?'_composite':'_single'));
   return response.json();
  }
  try{
+  // Firestore API exige um collectionGroup concreto; o wildcard '-' retorna 400.
+  // Faz três listagens read-only, uma por grupo esperado, sem enumerar tudo.
   const composites=[];
-  let next='';
-  for(let page=0;page<5;page++){
-   const payload=await get('/-/indexes?pageSize=100'+(next?'&pageToken='+encodeURIComponent(next):''));
-   if(!payload)throw Error('index_composite_not_found');
-   if(payload.indexes!==undefined&&!Array.isArray(payload.indexes))throw Error('invalid_index_response');
-   composites.push(...(payload.indexes||[]));
-   next=payload.nextPageToken||'';
-   if(!next)break;
-   if(page===4)throw Error('index_listing_exceeded_limit');
+  for(const [group] of REQUIRED) {
+   let next='';
+   for(let page=0;page<5;page++){
+    const payload=await get('/'+group+'/indexes?pageSize=100'+
+      (next?'&pageToken='+encodeURIComponent(next):''));
+    if(!payload)throw Error('index_composite_not_found');
+    if(payload.indexes!==undefined&&!Array.isArray(payload.indexes))throw Error('invalid_index_response');
+    composites.push(...(payload.indexes||[]));
+    next=payload.nextPageToken||'';
+    if(!next)break;
+    if(page===4)throw Error('index_listing_exceeded_limit');
+   }
   }
   const field=await get('/replies/fields/createdAt');
   return {status:'observed',
