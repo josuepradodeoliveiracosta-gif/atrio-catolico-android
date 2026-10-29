@@ -25,14 +25,23 @@ internal object CloudinaryAvatarClient {
     }
 
     suspend fun status(uid: String): String = withContext(Dispatchers.IO) {
-        request(uid, "/avatar/status", "GET", null)
+        request(uid, "/avatar/status", "POST", null)
     }
 
     suspend fun remove(uid: String): String = withContext(Dispatchers.IO) {
         request(uid, "/avatar", "DELETE", null)
     }
 
-    private fun request(uid: String, path: String, method: String, image: ByteArray?): String {
+    suspend fun moderateRemove(actorUid: String, targetUid: String, reason: String): String =
+        withContext(Dispatchers.IO) {
+            check(Regex("^[A-Za-z0-9_-]{1,128}$").matches(targetUid)) { "UID inválido." }
+            require(reason.trim().length in 5..100) { "Informe o motivo da remoção." }
+            request(actorUid, "/avatar/moderate", "POST", null,
+                JSONObject().put("uid", targetUid).put("reason", reason.trim()).toString())
+        }
+
+    private fun request(uid: String, path: String, method: String, image: ByteArray?,
+                        jsonPayload: String? = null): String {
         check(enabled) { "O serviço de fotografias públicas ainda não está configurado." }
         val user = FirebaseAuth.getInstance().currentUser
         check(user != null && user.uid == uid) { "Entre novamente na sua conta." }
@@ -53,6 +62,12 @@ internal object CloudinaryAvatarClient {
                 connection.setRequestProperty("Content-Type", "image/jpeg")
                 connection.setFixedLengthStreamingMode(image.size)
                 connection.outputStream.use { it.write(image) }
+            } else if (jsonPayload != null) {
+                val data = jsonPayload.toByteArray(Charsets.UTF_8)
+                connection.doOutput = true
+                connection.setRequestProperty("Content-Type", "application/json")
+                connection.setFixedLengthStreamingMode(data.size)
+                connection.outputStream.use { it.write(data) }
             }
             val code = connection.responseCode
             val stream = if (code in 200..299) connection.inputStream else connection.errorStream
@@ -61,6 +76,7 @@ internal object CloudinaryAvatarClient {
             check(code in 200..299) {
                 when(code) {
                     401 -> "Entre novamente na sua conta."
+                    403 -> "Sem permissão para moderar fotografias."
                     413 -> "Imagem inválida ou maior que o limite de 5 MB."
                     429 -> "Aguarde um minuto para enviar outra foto."
                     else -> "Serviço de fotos temporariamente indisponível."
