@@ -112,6 +112,9 @@ internal fun ModerationScreen(db: FirebaseFirestore, uid: String, onBack: () -> 
                 }
             }
             if (CloudinaryAvatarClient.enabled) item {
+                AvatarModerationPanel(uid)
+            }
+            if (CloudinaryAvatarClient.enabled) item {
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Moderação de fotos de perfil",
