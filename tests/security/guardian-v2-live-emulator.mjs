@@ -13,8 +13,9 @@ const rawFetch=globalThis.fetch;
 globalThis.fetch=async(input,options)=>{
   const response=await rawFetch(input,options);
   if(!response.ok && String(input).endsWith(':commit')){
-    console.error('Firestore Emulator REST commit refused:',
-      response.status,(await response.clone().text()).slice(0,1200));
+    // QA only. Error category, not document body or evidence, may be logged.
+    const code=(await response.clone().json().catch(()=>({}))).error?.status||'unknown';
+    console.error('Firestore Emulator REST commit:',response.status,code);
   }
   return response;
 };
