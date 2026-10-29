@@ -1,0 +1,26 @@
+name: QA Cloudinary 0.19.7 (sem deploy)
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'cloudflare/avatar-worker/**'
+      - '.github/workflows/avatar-cloudinary-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  avatar-worker:
+    name: Validar Worker isolado de fotos
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Testes offline sem segredos nem acesso à produção
+        working-directory: cloudflare/avatar-worker
+        run: npm test
+      - name: Verificar sintaxe de JavaScript
+        run: node --check cloudflare/avatar-worker/src/index.js
