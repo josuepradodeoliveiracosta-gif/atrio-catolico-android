@@ -50,7 +50,7 @@ internal object CloudinaryAvatarClient {
 
         // Host do Worker é validado em tempo de compilação no Gradle.
         val connection = URL(BuildConfig.AVATAR_WORKER_URL + path).openConnection() as HttpURLConnection
-        try {
+        return try {
             connection.requestMethod = method
             connection.connectTimeout = 15000
             connection.readTimeout = 25000
