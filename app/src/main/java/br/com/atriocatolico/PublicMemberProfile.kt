@@ -210,14 +210,14 @@ internal fun PublicProfilePublicationSettings(
                         if (!task.isSuccessful || task.result?.exists() != true) {
                             busy = false; message = "Perfil privado indisponível."
                         } else {
-                            val private = task.result!!
-                            val joined = private.getTimestamp("createdAt")
-                            val storedName = private.getString("displayName").orEmpty()
+                            val privateDoc = task.result!!
+                            val joined = privateDoc.getTimestamp("createdAt")
+                            val storedName = privateDoc.getString("displayName").orEmpty()
                             if (joined == null || storedName.length !in 2..35) {
                                 busy = false; message = "Não foi possível validar seu cadastro."
                             } else ref.set(mapOf(
                                 "displayName" to storedName,
-                                "bio" to private.getString("bio").orEmpty(),
+                                "bio" to privateDoc.getString("bio").orEmpty(),
                                 "joinedAt" to joined,
                                 "updatedAt" to FieldValue.serverTimestamp()
                             )).addOnCompleteListener { result ->
