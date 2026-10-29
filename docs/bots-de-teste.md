@@ -127,3 +127,7 @@ Por solicitação explícita do fundador, **não é mais necessário desligar os
 - Antes desta correção, a falha na inscrição nos comunicados era mostrada incorretamente como erro do serviço FCM da etapa 1.
 - As mensagens usam categorias fixas e nunca exibem token, UID, credenciais ou detalhes brutos da exceção. O teste unitário verifica todas as categorias.
 - O recurso permanece **somente na PR #15**. Não foi instalado APK no telefone, nem publicado Firestore/Cloudflare. O backup não é alterado.
+
+## Preparação da versão 0.19.0 sobre 0.18.2 — 28/10/2026
+
+A main oficial passou a **0.18.2 (versionCode 26)**. A branch da PR #15 usa agora **0.19.0 (versionCode 27)** para manter a atualização por cima da versão assinada existente. Os testes de bots em emulador não comprovam exibição de push em celulares físicos. O próximo teste exige dois celulares na versão 0.19.0, sem instalar debug sobre release.

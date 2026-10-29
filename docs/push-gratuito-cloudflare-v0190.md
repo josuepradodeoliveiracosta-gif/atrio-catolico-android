@@ -50,7 +50,7 @@ A central de notificações dentro do app é a fonte oficial permanente.
 9. Configurar variável do repositório GitHub Actions:
    ATRIO_PUSH_WORKER_URL = URL do Worker (sem /event).
 10. Após testes de integração do Worker, finalizar PR e compilar release
-    assinado 0.19.0 (versionCode 25), instalando sobre a 0.18.0.
+    assinado 0.19.0 (versionCode 27), instalando sobre a 0.18.2.
 11. Testar resposta entre duas contas, aprovação/rejeição de selo e denúncia
     com destinatário opt-in FCM e o app do destinatário em segundo plano.
 
@@ -115,7 +115,7 @@ A conferência HTTP externa neste ambiente retornou 503 de conexão upstream, n�
 4. Testar pedido de selo e denúncia usando conta de teste, observando o administrador destinatário. Testar decisão de selo sem vazar a identidade do solicitante a terceiros.
 5. Desligar o opt-in FCM no destinatário e confirmar ausência de notificação push, mesmo que a verificação periódica continue ativada.
 6. Observar quotas e erros do Worker e Firestore; caso qualquer comportamento esteja incorreto, definir `PUSH_ENABLED=false` imediatamente.
-7. Somente depois de evidência de entrega real, revisão de segurança e aprovação, finalizar PR #15 e gerar **APK release assinado** com a assinatura permanente e `versionCode 25`, apto a atualizar a versão 0.18.0 sem perder dados locais. Não mesclar durante a homologação.
+7. Somente depois de evidência de entrega real, revisão de segurança e aprovação, finalizar PR #15 e gerar **APK release assinado** com a assinatura permanente e `versionCode 27`, apto a atualizar a versão 0.18.2 sem perder dados locais. Não mesclar durante a homologação.
 
 ### Situação atual do envio
 O Worker está provisionado e recebe GET /health; as duas credenciais estão cadastradas como Secrets e D1 existe. O envio permanece `PUSH_ENABLED=false`; a entrega real entre usuários ainda está pendente.
@@ -216,3 +216,12 @@ Quando uma resposta é publicada, o criador da discussão **e todos os outros co
 - O artefato Debug deste commit foi compilado e disponibilizado para testes. A versão oficial 0.18.0 continua inalterada e a PR segue aberta, em homologação.
 - **O recebimento real em todos os participantes ainda exige teste com contas e celulares de verdade**. FCM topic e a escrita batch do Firestore só podem ser confirmados ponta a ponta após um evento real autenticado.
 - Os novos tópicos exigem o APK atualizado e participação inscrita no aparelho; instalações antigas ainda podem receber o aviso individual do dono, e devem atualizar para o Push coletivo. O limite provisório continua sendo 250 destinatários e 2.000 respostas por evento, sem entrega coletiva garantida além desses limites.
+
+## Preparação segura da versão 0.19.0 sobre a release 0.18.2 — 28/10/2026
+
+- Main oficial integra a PR #36: Átrio **0.18.2 (versionCode 26)**, que corrige o diagnóstico do registro FCM em duas etapas, mas não envia eventos ao Cloudflare.
+- Esta PR de desenvolvimento manteve seu diagnóstico FCM mais completo (três etapas: token, Firestore e inscrição no tópico), preserva sua implementação de push/Guardião e agora usa **versionCode 27**; applicationId e mecanismo de assinatura são os mesmos.
+- A main 0.18.2 foi reconciliada como segundo parent de merge nesta branch; documentação do hotfix também foi mantida. Não publicar outras regras ou serviços sem aprovação.
+- **Teste real com dois aparelhos:** ambos devem instalar release 0.19.0 **assinado com a chave permanente**, ativar FCM e permitir notificações do Android. Conta A cria discussão, conta B responde, e A confirma recebimento com app em segundo plano. Depois inverta os papéis; verifique a central e o diagnóstico de relay no **aparelho que responde**. A versão 0.18.2 receptora não compreende push por tópicos, portanto preferir a 0.19.0 em ambos.
+- Confirmar no Android emissor o resultado Cloudflare: `accepted_by_fcm` significa **aceite para envio**, não comprovação de exibição. Falhas de rede/HTTP devem ser investigadas sem acessar token ou conteúdo pessoal.
+- Esta atualização não integra automaticamente a PR #15 na main e **não publica APK release**: o workflow de assinatura é restrito a execução manual na main, após homologação e autorização de integração.
