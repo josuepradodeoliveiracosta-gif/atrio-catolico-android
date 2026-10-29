@@ -84,6 +84,12 @@ run_suite() {
 run_suite ProfileLayoutUiTest
 run_suite ProfilePhotoUiTest
 run_suite EngagementUiTest
+run_suite ReactionEmojiUiTest
+mkdir -p qa-android-suite-results/reaction-preview
+if ! adb pull /data/local/tmp/atrio-reaction-preview/. qa-android-suite-results/reaction-preview/; then
+  qa_failed=1
+  echo "Falha ao coletar capturas de reações; as outras suítes continuarão"
+fi
 mkdir -p qa-android-suite-results/profile-preview
 if ! adb pull /data/local/tmp/atrio-profile-preview/. qa-android-suite-results/profile-preview/; then
   qa_failed=1

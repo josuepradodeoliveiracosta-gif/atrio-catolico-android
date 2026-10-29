@@ -1,5 +1,6 @@
 package br.com.atriocatolico
 
+import androidx.compose.foundation.combinedClickable
 import android.content.Context
 import android.content.SharedPreferences
 import android.os.Bundle
@@ -603,6 +604,7 @@ private fun Statistic(value: String, label: String) {
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 internal fun DetailScreen(
     post: Post, name: String, onLike: () -> Unit, onSave: () -> Unit,
@@ -612,12 +614,14 @@ internal fun DetailScreen(
     onDirectReply: ((String, Reply, (Boolean) -> Unit) -> Unit)? = null,
     currentUid: String = "",
     onMentionReply: ((String, MentionCandidate, (Boolean) -> Unit) -> Unit)? = null,
-    reactionContent: @Composable (Reply) -> Unit = {},
+    reactionsEnabled: Boolean = false,
+    reactionContent: @Composable (Reply, Boolean, () -> Unit) -> Unit = { _, _, _ -> },
     onEdit: (() -> Unit)? = null, onDelete: (() -> Unit)? = null,
     onDeleteReply: ((String) -> Unit)? = null,
     onReportReply: ((Reply) -> Unit)? = null,
     repliesFooter: @Composable () -> Unit = {}
 ) {
+    var reactionReplyId by remember(post.id) { mutableStateOf<String?>(null) }
     var response by remember(post.id) { mutableStateOf("") }
     var sendingReply by remember(post.id) { mutableStateOf(false) }
     var quotedReply by remember(post.id) { mutableStateOf<Reply?>(null) }
@@ -654,7 +658,11 @@ internal fun DetailScreen(
         Spacer(Modifier.height(11.dp))
         if (post.replies.isEmpty()) Text("Seja a primeira pessoa a responder!", fontSize = 13.sp, color = Muted)
         post.replies.forEach { r ->
-            Row(verticalAlignment = Alignment.Top, modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
+            Row(verticalAlignment = Alignment.Top, modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)
+                .then(if (reactionsEnabled && r.id.isNotBlank()) Modifier.combinedClickable(
+                    onClick = {}, onLongClick = { reactionReplyId = r.id },
+                    onLongClickLabel = "Reagir com emoji"
+                ).testTag("reaction-reply-${r.id}") else Modifier)) {
                 MemberAvatar(r.author, r.ownerUid, Modifier.size(36.dp))
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
@@ -672,7 +680,6 @@ internal fun DetailScreen(
                                 onClick = { quotedReply = r; mentioned = null },
                                 modifier = Modifier.testTag("atrio-quote-reply")
                             ) { Text("Responder a este comentário", fontSize = 12.sp, color = Wine) }
-                            reactionContent(r)
                         }
                         if (r.id.isNotBlank() && onReportReply != null) {
                             TextButton(onClick = { onReportReply(r) }) {
@@ -685,6 +692,7 @@ internal fun DetailScreen(
                             }
                         }
                     }
+                    if (r.id.isNotBlank()) reactionContent(r, reactionReplyId == r.id) { reactionReplyId = null }
                 }
             }
             HorizontalDivider(color = Line)

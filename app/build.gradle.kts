@@ -19,7 +19,7 @@ val atrioKeyPassword = System.getenv("ATRIO_SIGNING_KEY_PASSWORD")
 
 // Versão do APK de testes: avançar para 2, 3, ... a cada NOVA atualização Debug.
 // O release permanece com 0.19.0 / versionCode 27 até aprovação explícita.
-val atrioDebugPatch = 3
+val atrioDebugPatch = 4
 val atrioDebugVersionName = "0.19.$atrioDebugPatch"
 val atrioDebugVersionCode = 27 + atrioDebugPatch
 
