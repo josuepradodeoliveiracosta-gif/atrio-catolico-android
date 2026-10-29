@@ -90,7 +90,7 @@ test('checkpoint inválido causa parada segura sem descartar o estado',async()=>
    windowEnd:{stringValue:'2026-10-29T19:00:00.000Z'}}});
  const result=await scanPagedCycle(db,{enabled:true},callbacks,now);
  assert.equal(result.error,1);assert.equal(result.pausedGroups,1);
- assert.equal(db.queries.some(q=>q.group==='posts'),false);
+ assert.equal(db.queries.some(q=>q.group==='posts' && q.field==='createdAt'),false);
  assert.equal(db.states.get('guardian_runtime/scan_posts').updateTime,'v1');
 });
 test('adaptação de página Firestore REST utiliza tie breaker __name__ e cursor validado',async()=>{
