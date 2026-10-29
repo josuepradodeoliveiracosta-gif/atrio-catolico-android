@@ -42,3 +42,27 @@ No QA não há ações possíveis. Em um ambiente posterior, desligar tanto `GUA
 ## Registros de alterações protegidos
 
 Não houve merge na `main`, mudança de backup, modificação do Worker de notificações, publicação das regras Firebase nem Release assinada.
+
+
+## Próxima fase: observação remota somente leitura (preparada; não ligada)
+
+A branch inclui `src/shadow-qa.js` e a integração ao cron. Este modo lê somente até **15 documentos por coleção** nos últimos **20 minutos** de `posts`, `replies` e `reports`, não grava decisões e não gera notificações. O resultado é apenas a contagem por categoria; corpos de mensagens e identificadores não são registrados em logs. Nenhuma conexão remota está ativa.
+
+A ativação de observação requer **todos** os seguintes parâmetros juntos, mantidos apenas em ambiente de QA separado:
+
+```text
+GUARDIAN_V2_TEST_MODE=true
+GUARDIAN_V2_ENABLED=false
+GUARDIAN_V2_HOLD_ENABLED=false
+GUARDIAN_V2_QA_SHADOW_READS=true
+GUARDIAN_FIREBASE_PROJECT_ID=atrio-catolico-qa-v2
+GUARDIAN_V2_QA_PROJECT_ID=atrio-catolico-qa-v2
+```
+
+O ID acima é um **exemplo reservado para testes**, não prova de que o projeto existe ou está configurado. Sem autenticação Firebase QA válida e correspondência exata dos identificadores, a leitura falha fechada.
+
+**Preparação externa ainda pendente:** criar o projeto Firebase QA isolado no console do Firebase, habilitar Firestore de testes e criar uma identidade de serviço **somente leitura** com IAM `roles/datastore.viewer` limitado ao projeto QA. O projeto não deve conter nem importar publicações ou usuários reais. Antes de provisionar chaves privadas, avaliar um método sem chaves de longa duração; jamais colocar JSON de serviço no GitHub, APK, logs ou arquivos versionados. Nenhum serviço pago ou faturamento deve ser habilitado sem autorização explícita.
+
+**Exigência para a conexão:** confirmar que o projeto Firebase QA existe, identificar seu ID real e provisionar a autenticação com acesso mínimo. Não alterar as três variáveis de segurança em produção nem habilitar o banco oficial. Se o ID não obedecer a `atrio-catolico-qa...`, será necessária uma revisão de segurança antes do suporte.
+
+Depois da observação sem alterações, os próximos testes deverão confirmar métricas, custo de leituras, limites de consultas, desconexão, cron real e ausência de escritas no projeto QA. A moderação automática permanece desativada.
