@@ -1,0 +1,21 @@
+# Átrio Católico 0.19.7 — Worker de avatares provisionado em 29/10/2026.
+# NÃO publicar na URL workers.dev até configurar credenciais e Firestore.
+name = "atrio-avatares"
+main = "src/index.js"
+compatibility_date = "2026-10-29"
+workers_dev = false
+
+[vars]
+# Nome do ambiente Cloudinary (identificador público, não é uma credencial).
+CLOUDINARY_CLOUD_NAME = "oz2xsqov"
+
+[[d1_databases]]
+binding = "AVATAR_DB"
+database_name = "atrio-avatar-control"
+database_id = "cc70f66c-77f8-4339-8cc8-6ad8ef27c968"
+
+# Segredos inseridos pelo responsável diretamente no Cloudflare (nunca no GitHub):
+# CLOUDINARY_API_KEY
+# CLOUDINARY_API_SECRET
+# FIREBASE_WEB_API_KEY
+# FIREBASE_SERVICE_ACCOUNT_JSON
