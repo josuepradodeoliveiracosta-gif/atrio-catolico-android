@@ -34,3 +34,11 @@ A conta conectada foi consultada somente para leitura, sem upload e sem alteraç
 - Se a gravação Firestore falhar após a promoção, a publicação falha e o Worker tenta remover a imagem; investigar falhas e limpar órfãos se necessário.
 - O fluxo de moderação e exclusão real não pode ser validado em produção sem credenciais e implantação explicitamente aprovadas.
 - Nenhum backup protegido deve ser alterado.
+
+## Configurar URL do Worker no CI (após deploy autorizado)
+
+A build de APK Debug da PR e da `main` lê a variável pública de repositório `ATRIO_AVATAR_WORKER_URL`. Enquanto estiver vazia, a interface de fotos permanece **somente local**, e a compilação Debug não tenta acessar o Worker. Não ativar a variável antes de testar e publicar o backend e as regras com autorização. Exemplo de formato: `https://atrio-avatares.NOME-DA-CONTA.workers.dev`.
+
+O backend usa trava D1 `avatar_mutex` (UID/nonce/expiração) para impedir que substituição, aprovação e exclusão simultâneas entrem em conflito; o cliente mostra mensagem amigável para HTTP 409. Um erro ao gravar pendência após upload tenta excluir o arquivo remoto para evitar órfãos.
+
+O CI inclui testes de fluxo integrado completamente simulados: autenticação Firebase, upload protegido, moderação pendente/aprovada, promoção para URL pública, escrita no Firestore e exclusão. **Isso não comprova uploads reais no Cloudinary sem configuração e autorização de produção.**
