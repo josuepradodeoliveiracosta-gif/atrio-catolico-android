@@ -95,10 +95,28 @@ try {
     updateDoc(doc(miguel,'users',bots[0].uid,'notifications',replyB),{read:true})));
 
   // Novas regras 0.19.3: exclusivamente Firebase emulado.
-  await check('Clara responde diretamente a Miguel usando UID canônico',()=>assertSucceeds(
-    setDoc(doc(clara,'posts',postId,'replies','qa_direct_reply'),{
+  await check('Clara responde diretamente e notifica Miguel no mesmo batch',async()=>{
+    const directId='qa_direct_reply';
+    const batch=writeBatch(clara);
+    batch.set(doc(clara,'posts',postId,'replies',directId),{
       ...answer(bots[0].uid,bots[0].name,'Obrigada pela participação!'),
       replyToId:replyA,replyToUid:bots[1].uid,
+    });
+    batch.set(doc(clara,'users',bots[1].uid,'notifications',directId),{
+      postId,replyId:directId,actorUid:bots[0].uid,
+      actorName:bots[0].name,read:false,replyToId:replyA,
+      createdAt:serverTimestamp(),
+    });
+    await assertSucceeds(batch.commit());
+    const notice=await assertSucceeds(getDoc(
+      doc(miguel,'users',bots[1].uid,'notifications',directId)));
+    assert.equal(notice.data()?.replyToId,replyA);
+  });
+  await check('Lúcia não simula aviso de resposta direta inexistente',()=>assertFails(
+    setDoc(doc(lucia,'users',bots[1].uid,'notifications','qa_fake_notice'),{
+      postId,replyId:'qa_fake_notice',actorUid:bots[2].uid,
+      actorName:bots[2].name,read:false,replyToId:replyA,
+      createdAt:serverTimestamp(),
     })));
   await check('Lúcia não falsifica alvo de menção',()=>assertFails(
     setDoc(doc(lucia,'posts',postId,'replies','qa_fake_target'),{

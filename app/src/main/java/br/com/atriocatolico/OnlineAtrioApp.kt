@@ -592,7 +592,22 @@ private fun OnlineCommunity(
                         "createdAt" to FieldValue.serverTimestamp()
                     ))
                 }
-                // Resposta e notificação continuam atômicas.
+                // O destinatário da resposta direta pode ser distinto do autor
+                // da discussão. Backend valida o alvo real e a escrita atômica.
+                if (advancedEngagement && target != null &&
+                    target.id.isNotBlank() && target.ownerUid.isNotBlank() &&
+                    target.ownerUid != uid && target.ownerUid != ownerUid) {
+                    val noticeRef = db.collection("users").document(target.ownerUid)
+                        .collection("notifications").document(replyRef.id)
+                    batch.set(noticeRef, mapOf(
+                        "postId" to id, "replyId" to replyRef.id,
+                        "actorUid" to uid, "actorName" to name,
+                        "replyToId" to target.id,
+                        "read" to false,
+                        "createdAt" to FieldValue.serverTimestamp()
+                    ))
+                }
+                // Resposta e notificações continuam atômicas.
                 batch.commit().addOnCompleteListener { result ->
                     // Confirmar imediatamente o resultado para a interface.
                     // Inscrições FCM e relay não devem bloquear o botão Responder.

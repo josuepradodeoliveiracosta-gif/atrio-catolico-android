@@ -281,6 +281,18 @@ service cloud.firestore {
     }
 
     match /users/{recipientUid}/notifications/{notificationId} {
+      // Resposta direta: o destinatário é o autor canônico da resposta citada.
+      // Requer criação da nova resposta no MESMO batch.
+      function canonicalDirectRecipient() {
+        let currentPath = /databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(notificationId);
+        let targetId = request.resource.data.get('replyToId', '');
+        return validId(targetId)
+          && existsAfter(currentPath)
+          && getAfter(currentPath).data.get('replyToId', '') == targetId
+          && getAfter(currentPath).data.get('replyToUid', '') == recipientUid
+          && exists(/databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(targetId))
+          && get(/databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(targetId)).data.uid == recipientUid;
+      }
       // Somente o destinatário consulta, marca como lida ou dispensa notificações.
       allow get, list: if me(recipientUid);
       // O remetente não pode inventar notificações: a resposta relacionada
@@ -288,7 +300,7 @@ service cloud.firestore {
       allow create: if signedIn()
         && request.auth.uid != recipientUid
         && request.resource.data.keys().hasOnly([
-          'postId', 'replyId', 'actorUid', 'actorName', 'read', 'createdAt'
+          'postId', 'replyId', 'actorUid', 'actorName', 'read', 'createdAt', 'replyToId'
         ])
         && request.resource.data.keys().hasAll([
           'postId', 'replyId', 'actorUid', 'actorName', 'read', 'createdAt'
@@ -301,7 +313,11 @@ service cloud.firestore {
         && request.resource.data.actorName ==
           get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.displayName
         && validTime()
-        && get(/databases/$(database)/documents/posts/$(request.resource.data.postId)).data.uid == recipientUid
+        && (
+          (get(/databases/$(database)/documents/posts/$(request.resource.data.postId)).data.uid == recipientUid
+            && !request.resource.data.keys().hasAny(['replyToId']))
+          || (request.resource.data.keys().hasAny(['replyToId']) && canonicalDirectRecipient())
+        )
         && getAfter(/databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(notificationId)).data.uid == request.auth.uid
         && getAfter(/databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(notificationId)).data.authorName == request.resource.data.actorName
         && getAfter(/databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(notificationId)).data.createdAt == request.time;
