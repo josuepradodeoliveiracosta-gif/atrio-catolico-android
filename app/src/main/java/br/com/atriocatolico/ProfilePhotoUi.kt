@@ -4,6 +4,8 @@ import android.graphics.Bitmap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.*
@@ -27,14 +29,14 @@ internal data class LocalAvatarState(val ownerUid: String, val bitmap: ImageBitm
 internal val LocalProfileAvatar = compositionLocalOf<LocalAvatarState?> { null }
 
 @Composable
-internal fun MemberAvatar(name: String, uid: String, modifier: Modifier = Modifier) {
+internal fun MemberAvatar(name: String, uid: String, modifier: Modifier = Modifier.size(40.dp)) {
     val current = LocalProfileAvatar.current
     if (uid.isNotBlank() && current?.ownerUid == uid && current.bitmap != null) {
         Image(
             bitmap = current.bitmap,
             contentDescription = "Foto de " + name,
             contentScale = ContentScale.Crop,
-            modifier = modifier.size(40.dp).clip(CircleShape)
+            modifier = modifier.clip(CircleShape)
         )
     } else {
         Avatar(name, modifier)
@@ -89,8 +91,11 @@ internal fun ProfilePhotoManager(
             onDismissRequest = { if (!busy) { open = false; source = null } },
             title = { Text("Foto de perfil") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(
+                    modifier = Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
                     Text("Sua foto fica privada neste aparelho por enquanto. " +
                         "A sincronização entre contas depende de armazenamento e regras ainda não publicados.",
                         style = MaterialTheme.typography.bodySmall)

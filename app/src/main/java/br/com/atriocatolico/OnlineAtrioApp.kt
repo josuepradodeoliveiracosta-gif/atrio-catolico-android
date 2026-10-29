@@ -30,6 +30,7 @@ import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.UserProfileChangeRequest
+import androidx.compose.ui.graphics.asImageBitmap
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.Query
@@ -192,6 +193,10 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
     var profileLoading by remember(uid) { mutableStateOf(authName == null) }
     var error by remember(uid) { mutableStateOf("") }
     val context = LocalContext.current
+    var photoRevision by remember(uid) { mutableIntStateOf(0) }
+    val localPhoto = remember(uid, photoRevision) {
+        ProfilePhotoStore.load(context, uid)?.asImageBitmap()
+    }
     LaunchedEffect(uid) {
         val isolatedQa = BuildConfig.DEBUG &&
             com.google.firebase.FirebaseApp.getInstance().options.projectId == "demo-atrio-v11"
@@ -288,9 +293,12 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
             TextButton(onClick = { BackgroundNoticeScheduler.disable(context, uid); PushRegistry.deactivate(context, uid, db); auth.signOut() }) { Text("Sair desta conta") }
         }
     } else {
-        CompositionLocalProvider(LocalFounderUid provides founderUid) {
+        CompositionLocalProvider(
+            LocalFounderUid provides founderUid,
+            LocalProfileAvatar provides LocalAvatarState(uid, localPhoto)
+        ) {
         OnlineCommunity(db = db, uid = uid, name = name!!, email = user.email.orEmpty(),
-            biography = biography,
+            biography = biography, onPhotoChanged = { photoRevision++ },
             visible = !(isAdmin && (moderationOpen || clergyReviewOpen)),
             onModeration = if (isAdmin) ({ moderationOpen = true }) else null,
             onClergyReview = if (isAdmin) ({ clergyReviewOpen = true }) else null,
@@ -308,6 +316,7 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
 @Composable
 private fun OnlineCommunity(
     db: FirebaseFirestore, uid: String, name: String, email: String, biography: String,
+    onPhotoChanged: () -> Unit,
     visible: Boolean, onSignOut: () -> Unit, onModeration: (() -> Unit)?,
     onClergyReview: (() -> Unit)?
 ) {
@@ -698,6 +707,7 @@ private fun OnlineCommunity(
                     onSignOut = onSignOut, onModeration = onModeration,
                     onClergyReview = onClergyReview,
                     onSavedPosts = { navigate(Tab.SAVED) },
+                    onPhotoChanged = onPhotoChanged,
                     onNotifications = { noticesOpen = true; returnToNotices = false },
                     onReviews = { guardiaoAppealsOpen = true },
                     onCreate = { navigate(Tab.PUBLISH) }, onOpen = { detailId = it },
