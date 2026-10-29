@@ -5,7 +5,8 @@ import handler from './index.js';
 if(!globalThis.crypto) globalThis.crypto=webcrypto;
 const actor='trusted-admin';
 const owner='review-owner';
-const publicId='atrio-avatares/'+owner+'/147e7fca-2e75-4a1e-9c32-c11e19f937a7';
+const revision='147e7fca-2e75-4a1e-9c32-c11e19f937a7';
+const publicId='atrio-avatares/'+owner+'/'+revision;
 const token='Bearer '+'z'.repeat(150);
 const jpeg=Uint8Array.from({length:400},(_,i)=>i===0||i===398?255:i===1?216:i===399?217:1);
 const reply=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json'}});
@@ -79,7 +80,7 @@ test('anonimo nao lista nem aprova fotos privadas',async()=>{
   globalThis.fetch=f.fetchMock;
   try {
     for(const [path,method] of [['/avatar/moderation/pending','GET'],
-      ['/avatar/moderation/preview?uid='+owner,'GET'],
+      ['/avatar/moderation/preview?uid='+owner+'&revision='+revision,'GET'],
       ['/avatar/moderation/review','POST']]) {
       const r=await handler.fetch(new Request('https://avatars.invalid'+path,{method}),f.env);
       assert.equal(r.status,401);
@@ -94,10 +95,10 @@ test('usuario comum sem admins.enabled nao recebe fila nem preview',async()=>{
   try {
     const q=await f.call('/avatar/moderation/pending');
     assert.equal(q.status,403);
-    const p=await f.call('/avatar/moderation/preview?uid='+owner);
+    const p=await f.call('/avatar/moderation/preview?uid='+owner+'&revision='+revision);
     assert.equal(p.status,403);
     const d=await f.call('/avatar/moderation/review','POST',{
-      uid:owner,action:'approved',reason:'Foto adequada'});
+      uid:owner,revision,action:'approved',reason:'Foto adequada'});
     assert.equal(d.status,403);
     assert.equal(f.state.approval,'pending');
   }finally{globalThis.fetch=original;}
@@ -109,8 +110,8 @@ test('administrador pode ver fila e preview privado por Worker',async()=>{
   try {
     const q=await f.call('/avatar/moderation/pending');
     assert.equal(q.status,200);
-    assert.deepEqual((await q.json()).photos,[{uid:owner,status:'pending',createdAt:1790000000}]);
-    const p=await f.call('/avatar/moderation/preview?uid='+owner);
+    assert.deepEqual((await q.json()).photos,[{uid:owner,status:'pending',revision,createdAt:1790000000}]);
+    const p=await f.call('/avatar/moderation/preview?uid='+owner+'&revision='+revision);
     assert.equal(p.status,200);
     assert.equal(p.headers.get('Cache-Control'),'private, no-store, max-age=0');
     assert.equal((await p.arrayBuffer()).byteLength,400);
@@ -124,7 +125,7 @@ test('rejeicao guarda auditoria e nunca publica a foto',async()=>{
   globalThis.fetch=f.fetchMock;
   try {
     const response=await f.call('/avatar/moderation/review','POST',{
-      uid:owner,action:'rejected',reason:'Imagem inadequada'});
+      uid:owner,revision,action:'rejected',reason:'Imagem inadequada'});
     assert.equal(response.status,200);
     assert.equal((await response.json()).status,'rejected');
     assert.equal(f.state.publicPhoto,null);
@@ -139,7 +140,7 @@ test('aprovacao pelo administrador publica sem o dono confirmar no celular',asyn
   globalThis.fetch=f.fetchMock;
   try {
     const response=await f.call('/avatar/moderation/review','POST',{
-      uid:owner,action:'approved',reason:'Foto adequada'});
+      uid:owner,revision,action:'approved',reason:'Foto adequada'});
     assert.equal(response.status,200);
     assert.equal((await response.json()).status,'published');
     assert.equal(f.state.publicPhoto.photoPublicId.stringValue,publicId);
@@ -153,8 +154,44 @@ test('decisao rejeita IDs e ações malformadas antes de tocar no Cloudinary',as
   globalThis.fetch=f.fetchMock;
   try {
     const r=await f.call('/avatar/moderation/review','POST',{
-      uid:'../../',action:'approved',reason:'valid reason'});
+      uid:'../../',revision,action:'approved',reason:'valid reason'});
     assert.equal(r.status,400);
     assert.equal(f.state.approval,'pending');
+  }finally{globalThis.fetch=original;}
+});
+
+test('mudança da foto entre prévia e revisão bloqueia decisão desatualizada',async()=>{
+  const f=setup();
+  const original=globalThis.fetch;
+  globalThis.fetch=f.fetchMock;
+  try {
+    const queue=await f.call('/avatar/moderation/pending');
+    assert.equal(queue.status,200);
+    const stale=(await queue.json()).photos[0].revision;
+    const preview=await f.call('/avatar/moderation/preview?uid='+owner+'&revision='+stale);
+    assert.equal(preview.status,200);
+    // Usuário troca a foto antes de o moderador confirmar.
+    f.state.pending='atrio-avatares/'+owner+'/6604da50-b3bc-4f8c-9858-7563ac95f6f1';
+    const decision=await f.call('/avatar/moderation/review','POST',{
+      uid:owner,revision:stale,action:'approved',reason:'Fotografia analisada'});
+    assert.equal(decision.status,409);
+    assert.equal((await decision.json()).status,'review_conflict');
+    assert.equal(f.state.approval,'pending');
+    assert.equal(f.state.log.length,0);
+    assert.equal(f.state.publicPhoto,null);
+    const wrongPreview=await f.call('/avatar/moderation/preview?uid='+owner+'&revision='+stale);
+    assert.equal(wrongPreview.status,409);
+  }finally{globalThis.fetch=original;}
+});
+test('proíbe confirmar sem revisão válida da fotografia',async()=>{
+  const f=setup();
+  const original=globalThis.fetch;
+  globalThis.fetch=f.fetchMock;
+  try {
+    const response=await f.call('/avatar/moderation/review','POST',{
+      uid:owner,action:'approved',reason:'Foto adequada'});
+    assert.equal(response.status,400);
+    assert.equal(f.state.approval,'pending');
+    assert.equal(f.state.log.length,0);
   }finally{globalThis.fetch=original;}
 });
