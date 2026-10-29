@@ -438,7 +438,8 @@ internal fun DiscussionCard(post: Post, onOpen: (String) -> Unit, onLike: (Strin
 internal fun HomeScreen(name: String, posts: List<Post>, filter: String, search: String, searchOpen: Boolean,
     onSearch: (String) -> Unit, onFilter: (String) -> Unit, onCreate: () -> Unit,
     onForums: () -> Unit, onOpen: (String) -> Unit, onLike: (String) -> Unit, onSave: (String) -> Unit,
-    footer: @Composable () -> Unit = {}
+    footer: @Composable () -> Unit = {},
+    onOpenProfile: (String, String) -> Unit = { _, _ -> }
 ) {
     val shown = posts.filter { (filter == "Todos" || it.category == filter) &&
         (search.isBlank() || listOf(it.title, it.body, it.category, it.author).any { s -> s.contains(search, ignoreCase = true) }) }
@@ -480,7 +481,8 @@ internal fun HomeScreen(name: String, posts: List<Post>, filter: String, search:
                 leadingIcon = { Icon(Icons.Outlined.Search, null) }, modifier = Modifier.fillMaxWidth().testTag("atrio-search-field"), singleLine = true)
         }
         if (shown.isEmpty()) item { EmptyState("🕊️", "Nenhuma discussão", "Mude o filtro ou comece uma conversa.", "Criar publicação", onCreate) }
-        items(shown, key = { it.id }) { p -> DiscussionCard(p, onOpen, onLike, onSave) }
+        items(shown, key = { it.id }) { p -> DiscussionCard(p, onOpen, onLike, onSave,
+            onOpenProfile = onOpenProfile) }
         item { footer() }
     }
 }
@@ -553,11 +555,13 @@ internal fun PublishScreen(onPublish: (String, String, String) -> Unit) {
 
 @Composable
 internal fun SavedScreen(posts: List<Post>, onDiscover: () -> Unit, onOpen: (String) -> Unit, onLike: (String) -> Unit, onSave: (String) -> Unit,
-    loading: Boolean = false, footer: @Composable () -> Unit = {}) {
+    loading: Boolean = false, footer: @Composable () -> Unit = {},
+    onOpenProfile: (String, String) -> Unit = { _, _ -> }) {
     LazyColumn(Modifier.fillMaxSize().testTag("atrio-saved-list"), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { SectionTitle("Publicações salvas") }
         if (posts.isEmpty() && !loading) item { EmptyState("🔖", "Nada salvo ainda", "Toque no marcador de uma publicação para encontrá-la aqui.", "Explorar discussões", onDiscover) }
-        items(posts, key = { it.id }) { p -> DiscussionCard(p, onOpen, onLike, onSave) }
+        items(posts, key = { it.id }) { p -> DiscussionCard(p, onOpen, onLike, onSave,
+            onOpenProfile = onOpenProfile) }
         item { footer() }
     }
 }
