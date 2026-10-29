@@ -21,7 +21,7 @@ const fake=(first=composite,second=single)=>{
   requests.push({url,opts});
   if(url.endsWith('/replies/fields/createdAt'))
    return new Response(JSON.stringify(second),{status:200});
-  const group=url.match(/collectionGroups\\/(posts|replies|reports)\\/indexes/);
+  const group=url.match(new RegExp('collectionGroups/(posts|replies|reports)/indexes'));
   if(!group)throw Error('unexpected URL in test');
   const filtered=(first.indexes||[]).filter(i=>i.name.includes('/collectionGroups/'+group[1]+'/indexes/'));
   return new Response(JSON.stringify({indexes:filtered}),{status:200});
