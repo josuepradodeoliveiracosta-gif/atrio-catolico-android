@@ -49,3 +49,6 @@
 - **Limites de custo:** acompanhamento sincronizado gera uma escrita ao seguir e uma exclusão ao deixar de seguir. O listener pessoal observa até 40 documentos, com leituras iniciais e em mudanças. A resposta direta acrescenta **no máximo uma notificação interna** ao destinatário distinto do dono da discussão; uma única operação batch continua agrupando as escritas. O push do Worker não foi alterado e **não existe confirmação de entrega de push para esse novo destinatário**.
 - **Importação local/remota:** não há migração automática da lista local de um aparelho para o banco. Essa escolha evita misturar preferências privadas e não é apresentada como sincronização prévia.
 - **Proteção de produção:** sem publicação explícita de regras e da flag, as novas chamadas sincronizadas e os avisos direcionados não serão usados no aplicativo real. Não habilitar a flag antes de validar as regras em produção.
+
+- **Diferenciação de avisos:** a central separa respostas gerais de respostas diretas, inclusive quando o destinatário do comentário é também o autor da discussão. Os avisos continuam apontando para o post, sem expor dados privados.
+- **Testes adicionais:** regras emuladas validam resposta direta enviada ao próprio autor do post e confirmam a impossibilidade de criar avisos falsos. Há teste unitário para os agrupamentos e preservação do estado de leitura.

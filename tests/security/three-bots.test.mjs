@@ -112,6 +112,22 @@ try {
       doc(miguel,'users',bots[1].uid,'notifications',directId)));
     assert.equal(notice.data()?.replyToId,replyA);
   });
+  await check('Miguel responde diretamente a Clara e a avisa mesmo sendo autora do post',async()=>{
+    const directId='qa_direct_to_post_owner';
+    const batch=writeBatch(miguel);
+    batch.set(doc(miguel,'posts',postId,'replies',directId),{
+      ...answer(bots[1].uid,bots[1].name,'Responder a um comentário da autora.'),
+      replyToId:'qa_direct_reply',replyToUid:bots[0].uid,
+    });
+    batch.set(doc(miguel,'users',bots[0].uid,'notifications',directId),{
+      postId,replyId:directId,actorUid:bots[1].uid,
+      actorName:bots[1].name,read:false,
+      replyToId:'qa_direct_reply',createdAt:serverTimestamp(),
+    });
+    await assertSucceeds(batch.commit());
+    const notice=await getDoc(doc(clara,'users',bots[0].uid,'notifications',directId));
+    assert.equal(notice.data()?.replyToId,'qa_direct_reply');
+  });
   await check('Lúcia não simula aviso de resposta direta inexistente',()=>assertFails(
     setDoc(doc(lucia,'users',bots[1].uid,'notifications','qa_fake_notice'),{
       postId,replyId:'qa_fake_notice',actorUid:bots[2].uid,
