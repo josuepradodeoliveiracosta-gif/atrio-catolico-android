@@ -64,6 +64,45 @@ async function body(request) {
   const b=new Uint8Array(size);let i=0;for(const p of parts){b.set(p,i);i+=p.length;}
   return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(b));
 }
+// Lógica de revisão extraída para ser testável sem chaves Firebase ou contas reais.
+function denial(status,code){const e=Error(code);e.status=status;return e;}
+export async function reviewCase(db,uid,input,now=new Date().toISOString()) {
+  if(!VALID_ID.test(uid)||!input||!/^guard_[a-f0-9]{32}$/.test(input.caseId||'')||
+      !['restore','confirm'].includes(input.action)||typeof input.note!=='string'||
+      input.note.trim().length<5||input.note.length>300)throw denial(400,'invalid_review');
+  const held=await db.get('guardiao_quarantine/'+input.caseId);
+  const c=await db.get('guardian_cases/'+input.caseId);
+  if(!held?.updateTime||!c?.updateTime||string(held,'status')!=='held'||
+      string(c,'status')!=='held')throw denial(409,'not_pending');
+  const owner=string(held,'ownerUid');
+  if(uid===owner)throw denial(403,'self_review');
+  if(owner!==string(c,'ownerUid')||!VALID_ID.test(owner))throw denial(409,'wrong_owner');
+  const target=string(held,'targetPath');
+  if(!target.startsWith(ROOT+'/posts/')||!MASK.test(target.slice(ROOT.length+1))||
+      target!==ROOT+'/'+string(c,'targetPath'))throw denial(409,'invalid_target');
+  const fields=held.fields?.originalFields?.mapValue?.fields;
+  if(!fields||fields.uid?.stringValue!==owner)throw denial(409,'evidence_missing');
+  const restored=input.action==='restore';
+  if(restored) {
+    if((await db.get(string(c,'targetPath')))!==null)throw denial(409,'target_exists');
+    const postId=string(c,'postId');
+    if(!await db.get('posts/'+postId))throw denial(409,'parent_missing');
+  }
+  const at=timestamp(now);
+  const reviewFields={status:str(restored?'restored':'removed'),reviewedBy:str(uid),
+    reviewNote:str(input.note.trim()),reviewedAt:at};
+  const writes=[];
+  if(restored)writes.push({update:{name:target,fields},currentDocument:{exists:false}});
+  for(const old of [held,c])writes.push({update:{name:old.name,fields:reviewFields},
+      updateMask:{fieldPaths:Object.keys(reviewFields)},currentDocument:{updateTime:old.updateTime}});
+  writes.push({update:{name:ROOT+'/guardian_audit/'+input.caseId+'_'+(restored?'restored':'confirmed'),
+    fields:{caseId:str(input.caseId),actor:str(uid),event:str(input.action),at}},currentDocument:{exists:false}});
+  writes.push({update:{name:ROOT+'/guardian_notices/'+owner+'/items/'+input.caseId+'_review',
+    fields:{title:str('Átrio Guardião'),body:str(restored?'Seu conteúdo foi restaurado após revisão.':'A administração concluiu a revisão de sua publicação.'),
+      caseId:str(input.caseId),action:str(input.action),createdAt:at}},currentDocument:{exists:false}});
+  await db.commit(writes);
+  return restored?'restored':'confirmed';
+}
 export async function handleRequest(request,env) {
   const path=new URL(request.url).pathname;
   if(path==='/health')return json(200,'guardian_v2_isolated');
@@ -82,24 +121,9 @@ export async function handleRequest(request,env) {
       return json(200,'updated');
     }
     if(!input||Object.keys(input).sort().join(',')!=='action,caseId,note'||!/^guard_[a-f0-9]{32}$/.test(input.caseId||'')||!['restore','confirm'].includes(input.action)||typeof input.note!=='string'||input.note.trim().length<5||input.note.length>300)return json(400,'invalid_review');
-    const held=await db.get('guardiao_quarantine/'+input.caseId);
-    const c=await db.get('guardian_cases/'+input.caseId);
-    if(!held?.updateTime||!c?.updateTime||string(held,'status')!=='held'||string(c,'status')!=='held')return json(409,'not_pending');
-    if(uid===string(held,'ownerUid'))return json(403,'self_review');
-    const target=string(held,'targetPath');if(!target.startsWith(ROOT+'/posts/')||!MASK.test(target.slice(ROOT.length+1))||target!==ROOT+'/'+string(c,'targetPath'))return json(409,'invalid_target');
-    const fields=held.fields?.originalFields?.mapValue?.fields;if(!fields)return json(409,'evidence_missing');
-    if(input.action==='restore') {
-      if((await db.get(string(c,'targetPath')))!==null)return json(409,'target_exists');
-      const postId=string(c,'postId');if(!await db.get('posts/'+postId))return json(409,'parent_missing');
-    }
-    const at=timestamp(new Date().toISOString()),restored=input.action==='restore';
-    const reviewFields={status:str(restored?'restored':'removed'),reviewedBy:str(uid),reviewNote:str(input.note.trim()),reviewedAt:at};
-    const writes=[];
-    if(restored)writes.push({update:{name:target,fields},currentDocument:{exists:false}});
-    for(const old of [held,c])writes.push({update:{name:old.name,fields:reviewFields},updateMask:{fieldPaths:Object.keys(reviewFields)},currentDocument:{updateTime:old.updateTime}});
-    writes.push({update:{name:ROOT+'/guardian_audit/'+input.caseId+'_'+(restored?'restored':'confirmed'),fields:{caseId:str(input.caseId),actor:str(uid),event:str(input.action),at}},currentDocument:{exists:false}});
-    await db.commit(writes);return json(200,restored?'restored':'confirmed');
-  }catch(e){return json(e.status===409||e.status===412?409:503,'operation_unavailable');}
+    const decision=await reviewCase(db,uid,input);
+    return json(200,decision);
+  }catch(e){return json([400,403,409,412].includes(e.status)?(e.status===412?409:e.status):503,'operation_unavailable');}
 }
 export default {
   fetch:handleRequest,
