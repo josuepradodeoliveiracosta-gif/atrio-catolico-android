@@ -14,7 +14,7 @@
 - Só o próprio membro pode publicar/atualizar/excluir sua apresentação. Regras conferem que nome, bio e data de entrada coincidam com os valores do documento privado (e bloqueiam chaves adicionais como e-mail, telefone, selos e tokens).
 - A bio privada existente **não** se torna pública automaticamente; o titular precisa tocar em **Publicar minha apresentação**. O botão **Retirar apresentação pública** apaga a projeção.
 - O editor grava o perfil privado e a projeção pública na **mesma transação**, somente quando a apresentação já estiver publicada. Se qualquer gravação falhar, nenhuma das duas alterações é confirmada. As regras com `getAfter` comparam a projeção ao estado final do perfil privado.
-- **Compatibilidade:** APKs anteriores que atualizarem somente o perfil privado ainda podem deixar uma apresentação voluntariamente publicada desatualizada. Para atualização atômica, usar o APK Debug corrigido. É possível retirar a apresentação pelo botão de revogação.
+- **Compatibilidade e privacidade:** as regras revisadas **bloqueiam edição isolada do perfil privado** quando já houver apresentação pública publicada. Isso impede que APKs antigos deixem uma bio pública obsoleta. Nessa situação, utilizar o APK Debug corrigido para editar ambos os documentos atomicamente, ou retirar antes a apresentação pelo aplicativo novo. Após a retirada, a edição privada volta a ser permitida.
 - Se a coleção pública ainda não existir ou suas regras não estiverem aplicadas, a tela mostra o nome da publicação, selos e discussões, sem expor a bio.
 
 ## Implantação e índice: ainda não aprovados
@@ -52,7 +52,7 @@ firebase deploy --only firestore:rules --project atrio-catolico
 A CLI pode interpretar índices declarados como a configuração desejada; se houver índices remotos não listados no arquivo, primeiro faça a mesclagem, sem exclusões. O arquivo `firebase.json` deve permanecer com as referências revisadas. A publicação das regras pela CLI **sobrescreve** as do Console; por isso a comparação manual é obrigatória.
 
 ## Testes
-- `tests/security/public-profile.test.mjs`: privacidade, tentativa de usurpação, dados extras, opt-in e retirada.
+- `tests/security/public-profile.test.mjs`: privacidade, tentativa de usurpação, dados extras, opt-in, retirada, atualização atômica e bloqueio de APK legado após publicação.
 - `app/src/androidTest/java/br/com/atriocatolico/PublicMemberProfileUiTest.kt`: autores, respostas e ausência de edição de terceiros.
 - Testes existentes de interações, selos e Firestore devem continuar aprovados.
 
