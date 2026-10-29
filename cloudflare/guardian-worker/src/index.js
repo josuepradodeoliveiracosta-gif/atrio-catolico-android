@@ -3,7 +3,7 @@ import {Firestore,token,actorId,caseId,pathOf,string,bool,str,timestamp,ROOT} fr
 const json=(status,code)=>new Response(JSON.stringify({status:code}),{status,headers:{'content-type':'application/json','cache-control':'no-store'}});
 const MASK=/^posts\/[A-Za-z0-9_-]{1,128}(?:\/replies\/[A-Za-z0-9_-]{1,128})?$/;
 export function settingsOf(doc,env) {
-  const enabled=env.GUARDIAN_V2_ENABLED==='true' && bool(doc,'enabled') && !bool(doc,'emergencyStop');
+  const enabled=env.GUARDIAN_V2_TEST_MODE!=='true' && env.GUARDIAN_V2_ENABLED==='true' && bool(doc,'enabled') && !bool(doc,'emergencyStop');
   return {enabled,allowHold:enabled&&env.GUARDIAN_V2_HOLD_ENABLED==='true'&&bool(doc,'allowHold')};
 }
 function cleanItem(document) {
@@ -123,8 +123,10 @@ export async function reviewCase(db,uid,input,now=new Date().toISOString()) {
 }
 export async function handleRequest(request,env) {
   const path=new URL(request.url).pathname;
-  if(path==='/health')return json(200,'guardian_v2_isolated');
+  if(path==='/health')return json(200,env.GUARDIAN_V2_TEST_MODE==='true'?'guardian_v2_qa_safe':'guardian_v2_isolated');
   if(!['/admin/config','/admin/review'].includes(path)||request.method!=='POST')return json(404,'not_found');
+  // QA has no privileged backend operations, even if someone attaches credentials.
+  if(env.GUARDIAN_V2_TEST_MODE==='true')return json(503,'qa_read_only');
   try {
     if(!env.GUARDIAN_FIREBASE_SERVICE_ACCOUNT_JSON)return json(503,'not_configured');
     const db=new Firestore(await token(env));const uid=await admin(request,db,env);
@@ -146,6 +148,11 @@ export async function handleRequest(request,env) {
 export default {
   fetch:handleRequest,
   async scheduled(event,env,ctx) {
+    // Cron can be installed in QA to verify scheduling without touching Firebase.
+    if(env.GUARDIAN_V2_TEST_MODE==='true'){
+      console.log('guardian_v2_qa_cron_tick');
+      return;
+    }
     if(env.GUARDIAN_V2_ENABLED!=='true')return;
     ctx.waitUntil((async()=>{try{const db=new Firestore(await token(env));const config=await db.get('guardian_config/policy');
       const metrics=await scanOnce(db,settingsOf(config,env));
