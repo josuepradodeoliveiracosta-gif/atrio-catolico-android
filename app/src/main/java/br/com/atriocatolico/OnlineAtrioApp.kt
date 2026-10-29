@@ -473,7 +473,8 @@ private fun OnlineCommunity(
                                     mine = it.getString("uid") == uid,
                                     ownerUid = it.getString("uid").orEmpty(),
                                     replyToId = it.getString("replyToId").orEmpty(),
-                                    replyToUid = it.getString("replyToUid").orEmpty())
+                                    replyToUid = it.getString("replyToUid").orEmpty(),
+                                    mentionUid = it.getString("mentionUid").orEmpty())
                             } ?: emptyList()
                         }
                     }
