@@ -197,6 +197,32 @@ async function status(env,uid) {
   }
   return json(200,'published');
 }
+async function isModerator(env,uid) {
+  const r=await fetch(ROOT+'/admins/'+encode(uid),{
+    headers:{Authorization:'Bearer '+await firestoreToken(env)}});
+  if(r.status===404) return false;
+  if(!r.ok) throw Error('admin_lookup_failed');
+  return (await r.json()).fields?.enabled?.booleanValue === true;
+}
+async function moderateRemove(env,actor,request) {
+  if(!(await isModerator(env,actor))) return json(403,'forbidden');
+  const length=Number(request.headers.get('content-length')||0);
+  if(length>256) return json(413,'invalid_request');
+  let payload;
+  try {
+    const raw=await request.text();
+    if(raw.length>256) return json(413,'invalid_request');
+    payload=JSON.parse(raw);
+  } catch {return json(400,'invalid_request');}
+  if(!uidOk(payload?.uid) || typeof payload.reason !== 'string' ||
+    payload.reason.trim().length < 5 || payload.reason.length>100)
+    return json(400,'invalid_request');
+  await remove(env,payload.uid);
+  await env.AVATAR_DB.prepare(
+    'INSERT INTO avatar_moderation (actor_uid,target_uid,reason,created_at) VALUES (?,?,?,?)'
+  ).bind(actor,payload.uid,payload.reason.trim(),Date.now()).run();
+  return json(200,'moderated');
+}
 async function remove(env,uid) {
   const before=await firestoreGet(env,uid);
   const pending=await env.AVATAR_DB.prepare('SELECT public_id FROM avatar_pending WHERE uid=?').bind(uid).first();
@@ -209,10 +235,11 @@ async function remove(env,uid) {
 export default {
   async fetch(request,env) {
     const pathname=new URL(request.url).pathname;
-    if(!['/avatar/upload','/avatar/status','/avatar'].includes(pathname))
+    if(!['/avatar/upload','/avatar/status','/avatar','/avatar/moderate'].includes(pathname))
       return json(404,'not_found');
     if((pathname==='/avatar/upload' && request.method!=='POST') ||
-      (pathname==='/avatar/status' && request.method!=='GET') ||
+      (pathname==='/avatar/status' && request.method!=='POST') ||
+      (pathname==='/avatar/moderate' && request.method!=='POST') ||
       (pathname==='/avatar' && request.method!=='DELETE'))
       return json(405,'method_not_allowed');
     try{
@@ -221,6 +248,7 @@ export default {
       if(!uid) return json(401,'unauthorized');
       if(pathname==='/avatar/upload') return await upload(env,uid,request);
       if(pathname==='/avatar/status') return await status(env,uid);
+      if(pathname==='/avatar/moderate') return await moderateRemove(env,uid,request);
       return await remove(env,uid);
     } catch (error) {
       if(error.message==='invalid_image') return json(413,'invalid_image');
