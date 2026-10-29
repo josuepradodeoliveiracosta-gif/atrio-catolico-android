@@ -58,3 +58,21 @@ Referências: [Firestore single-field index definitions](https://firebase.google
 - Não há autorização para escanear dados reais ou aplicar punições. O scanner continua desativado no ambiente oficial.
 
 Não repetir a criação do índice: reexecutar **somente a auditoria de leitura** até obter `repliesCreatedAtGroup=ready` e `guardian_qa_replies_query_probe: query_ok`.
+
+
+## Resultado final verificado — 29/10/2026, 23:52 UTC
+
+O job `Índices Firebase QA — auditoria WIF somente leitura` do run **40975934309** concluiu com sucesso:
+
+```text
+posts: ready
+replies: ready
+reports: ready
+repliesCreatedAtGroup: ready
+guardian_qa_replies_query_probe: query_ok
+GUARDIAN_QA_INDEXES_ALL_READY_AND_QUERY_OK
+```
+
+A consulta `documents:runQuery` teve uma resposta válida com projeção restrita a `__name__`, sem retornar conteúdo de publicações nos logs. A verificação usa o projeto QA exato, identidade federada de leitura, janela máxima de 20 minutos e limite de um documento. Nenhum índice precisa ser criado novamente.
+
+**Indexação QA concluída; moderação real segue desligada.** A existência dos índices não autoriza implantar o motor na produção nem aplicar punições.
