@@ -21,16 +21,17 @@ class CheckpointDb {
   if(this.states.get(path)?.updateTime!==oldTime)throw Error('conflict');
   this.states.set(path,{fields,updateTime:'v'+(++this.modified)})
  }
- async scanPage(group,{since,until,after,max}){
+ async scanPage(group,{since,until,after,max,field='createdAt'}){
   this.queries.push({group,since,until,after,max});
   let docs=group==='posts'?this.source.filter(x=>
-    Date.parse(x.fields.createdAt.timestampValue)>=Date.parse(since)&&
-    Date.parse(x.fields.createdAt.timestampValue)<=Date.parse(until)):[];
+    x.fields[field]?.timestampValue &&
+    Date.parse(x.fields[field].timestampValue)>=Date.parse(since)&&
+    Date.parse(x.fields[field].timestampValue)<=Date.parse(until)):[];
   if(after){const idx=docs.findIndex(x=>x.name===after.name);if(idx<0)throw Error('bad cursor');docs=docs.slice(idx+1);}
   const current=docs.slice(0,max);
   const last=current.at(-1);
   return {documents:current,nextCursor:docs.length>max?{
-    name:last.name,time:last.fields.createdAt.timestampValue}:null};
+    name:last.name,time:last.fields[field].timestampValue}:null};
  }
 }
 const callbacks={onDocument:async(db,doc)=>{db.calls.push(doc.name);return 'clear';},
@@ -38,7 +39,7 @@ const callbacks={onDocument:async(db,doc)=>{db.calls.push(doc.name);return 'clea
 test('paginação percorre 65 publicações em várias execuções, sem repetir ou perder',async()=>{
  const db=new CheckpointDb(65);
  const first=await scanPagedCycle(db,{enabled:true},callbacks,now);
- assert.equal(first.clear,60);assert.equal(first.backlogGroups,1);assert.equal(first.pages,4);
+ assert.equal(first.clear,60);assert.equal(first.backlogGroups,1);assert.equal(first.pages,5);
  const state=db.states.get('guardian_runtime/scan_posts');
  assert.equal(state.fields.mode.stringValue,'running');
  assert.ok(state.fields.cursorName.stringValue.endsWith('/posts/p005'));
@@ -118,4 +119,43 @@ test('adaptação de página Firestore REST utiliza tie breaker __name__ e curso
   await assert.rejects(db.scanPage('posts',{since:'2026-10-29T19:40:00.000Z',until:now,
    after:{time:t,name:'projects/atrio-catolico/databases/(default)/documents/posts/p1'}}),/invalid_scan_cursor/);
  }finally{globalThis.fetch=old;}
+});
+
+test('publicação criada ontem mas editada hoje entra pela fila post_edits',async()=>{
+ const db=new CheckpointDb();
+ const path=root+'posts/old1';
+ db.source=[{name:path,fields:{
+  createdAt:{timestampValue:'2026-10-27T12:00:00.000Z'},
+  updatedAt:{timestampValue:'2026-10-29T19:58:00.000Z'}
+ }}];
+ const result=await scanPagedCycle(db,{enabled:true},callbacks,now);
+ assert.equal(result.clear,1);
+ assert.deepEqual(db.calls,[path]);
+ const updated=db.queries.find(q=>q.group==='posts'&&q.field==='updatedAt');
+ assert.ok(updated);
+ assert.equal(db.states.get('guardian_runtime/scan_post_edits').fields.mode.stringValue,'complete');
+});
+test('trilha updatedAt tem checkpoint independente do createdAt',async()=>{
+ const db=new CheckpointDb();
+ db.source=Array.from({length:33},(_,i)=>({
+   name:root+'posts/e'+String(i).padStart(3,'0'),
+   fields:{
+    createdAt:{timestampValue:'2026-10-27T00:00:00.000Z'},
+    updatedAt:{timestampValue:'2026-10-29T19:58:00.000Z'}
+   }
+ })).reverse();
+ const first=await scanPagedCycle(db,{enabled:true},callbacks,now);
+ assert.equal(first.clear,30); // two pages of 15 edits
+ assert.equal(first.backlogGroups,1);
+ assert.equal(db.states.get('guardian_runtime/scan_posts').fields.mode.stringValue,'complete');
+ assert.equal(db.states.get('guardian_runtime/scan_post_edits').fields.mode.stringValue,'running');
+ const second=await scanPagedCycle(db,{enabled:true},callbacks,now);
+ assert.equal(second.clear,3);
+ assert.equal(new Set(db.calls).size,33);
+});
+test('scanPage rejects updatedAt for replies and reports before network',async()=>{
+ const db=new Firestore('dummy','demo-atrio-v11','http://127.0.0.1:8089/v1');
+ const range={since:'2026-10-29T19:40:00.000Z',until:now,max:15,field:'updatedAt'};
+ await assert.rejects(db.scanPage('reports',range),/invalid_scan_page/);
+ await assert.rejects(db.scanPage('replies',range),/invalid_scan_page/);
 });
