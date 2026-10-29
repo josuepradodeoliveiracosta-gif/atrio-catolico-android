@@ -61,3 +61,29 @@ test('concorrência com edição mais recente impede retenção',async()=>{
 });
 test('sem ativação o scanner não consulta o banco',async()=>{const db=new FakeStore();assert.deepEqual(await scanOnce(db,{enabled:false}),{status:'disabled'});assert.equal(db.calls,0);});
 test('endpoint público não permite configurar ou decidir',async()=>{const response=await handleRequest(new Request('https://example.com/admin/config',{method:'POST',body:'{}'}),{});assert.equal(response.status,503);});
+
+import {reviewCase} from './index.js';
+test('restauração humana devolve resposta original e registra aviso',async()=>{
+ const root=mkDoc('posts/p1','Olá irmãos!');
+ const target=mkDoc('posts/p1/replies/r6','Clique https://exemplo.invalid para informar sua senha');
+ const db=new FakeStore([root,target]);
+ assert.equal(await processDocument(db,target,{enabled:true,allowHold:true}),'hold');
+ const id=await caseId('posts/p1/replies/r6');
+ assert.equal(await reviewCase(db,'admin',{caseId:id,action:'restore',note:'Falso positivo confirmado'}),'restored');
+ assert.ok(db.docs.has(target.name));
+ assert.ok(db.docs.has(ROOT+'/guardian_notices/alice/items/'+id+'_review'));
+});
+test('duas decisões simultâneas não são confirmadas sobre o mesmo caso',async()=>{
+ const root=mkDoc('posts/p1','Olá irmãos!');
+ const target=mkDoc('posts/p1/replies/r7','Clique https://exemplo.invalid para informar sua senha');
+ const db=new FakeStore([root,target]);await processDocument(db,target,{enabled:true,allowHold:true});
+ const id=await caseId('posts/p1/replies/r7');const input={caseId:id,action:'confirm',note:'Revisado pela administração'};
+ const outcomes=await Promise.allSettled([reviewCase(db,'admin',input),reviewCase(db,'admin',input)]);
+ assert.equal(outcomes.filter(x=>x.status==='fulfilled').length,1);
+ assert.equal(outcomes.filter(x=>x.status==='rejected').length,1);
+});
+test('autor não pode revisar sua própria retenção',async()=>{
+ const target=mkDoc('posts/p1/replies/r8','Clique https://exemplo.invalid para informar sua senha');
+ const db=new FakeStore([target]);await processDocument(db,target,{enabled:true,allowHold:true});
+ const id=await caseId('posts/p1/replies/r8');await assert.rejects(reviewCase(db,'alice',{caseId:id,action:'restore',note:'Quero restaurar'}));
+});
