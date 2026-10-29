@@ -65,8 +65,10 @@ export class Firestore {
     return result.map(x=>x.document).filter(Boolean);
   }
   // Cursor por timestamp + nome evita saltos em empates de createdAt.
-  async scanPage(group,{since,until,after=null,max=30}={}){
+  async scanPage(group,{since,until,after=null,max=30,field='createdAt'}={}){
     if(!['posts','replies','reports'].includes(group) ||
+      !['createdAt','updatedAt'].includes(field) ||
+      (field==='updatedAt'&&group!=='posts') ||
       !Number.isInteger(max)||max<1||max>(group==='reports'?15:30))
       throw Error('invalid_scan_page');
     const iso=v=>typeof v==='string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(v) &&
@@ -83,10 +85,10 @@ export class Firestore {
       throw Error('invalid_scan_cursor');
     const query={from:[{collectionId:group,allDescendants:group==='replies'}],
       where:{compositeFilter:{op:'AND',filters:[
-        {fieldFilter:{field:{fieldPath:'createdAt'},op:'GREATER_THAN_OR_EQUAL',value:timestamp(since)}},
-        {fieldFilter:{field:{fieldPath:'createdAt'},op:'LESS_THAN_OR_EQUAL',value:timestamp(until)}}
+        {fieldFilter:{field:{fieldPath:field},op:'GREATER_THAN_OR_EQUAL',value:timestamp(since)}},
+        {fieldFilter:{field:{fieldPath:field},op:'LESS_THAN_OR_EQUAL',value:timestamp(until)}}
       ]}},orderBy:[
-        {field:{fieldPath:'createdAt'},direction:'DESCENDING'},
+        {field:{fieldPath:field},direction:'DESCENDING'},
         {field:{fieldPath:'__name__'},direction:'DESCENDING'}
       ],limit:max+1};
     if(after)query.startAt={values:[timestamp(after.time),{referenceValue:after.name}],before:false};
@@ -97,12 +99,12 @@ export class Firestore {
     const kept=docs.slice(0,max);
     for(const d of kept){
       if(!d?.name?.startsWith(prefix)||!pathMatches(d.name.slice(prefix.length))||
-         !iso(d.fields?.createdAt?.timestampValue))
+         !iso(d.fields?.[field]?.timestampValue))
         throw Error('invalid_scan_page_document');
     }
     const last=kept.at(-1);
     return {documents:kept,nextCursor:docs.length>max?
-      {time:last.fields.createdAt.timestampValue,name:last.name}:null};
+      {time:last.fields[field].timestampValue,name:last.name}:null};
   }
   // Strict read-only remote QA query: synthetic fixture flag checked by Firestore.
   // Use only via shadow scan, never general production moderation.
