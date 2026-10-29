@@ -113,5 +113,31 @@ try {
     const publicResult = await assertSucceeds(getDoc(doc(bob, publicPath)));
     assert.equal(publicResult.exists(), false);
   });
+  // Foto é independente da apresentação e somente o Worker com IAM pode gravar.
+  const avatarPath = 'profile_photos/public-alice';
+  const avatarData = {
+    photoUrl:'https://res.cloudinary.com/atrio-demo/image/upload/v1/atrio-avatares/alice.jpg',
+    photoPublicId:'atrio-avatares/public-alice/example',photoUpdatedAt:Timestamp.now()
+  };
+  await check('foto não pode ser publicada diretamente pelo dono',()=>assertFails(
+    setDoc(doc(alice,avatarPath),avatarData)));
+  await check('outro usuário não pode forjar foto alheia',()=>assertFails(
+    setDoc(doc(bob,avatarPath),avatarData)));
+  await check('serviço privilegiado pode preparar fixture de foto',()=>env.withSecurityRulesDisabled(
+    async ctx=>setDoc(doc(ctx.firestore(),avatarPath),avatarData)));
+  await check('outro usuário autenticado pode consultar foto pública por UID',async()=>{
+    const item=await assertSucceeds(getDoc(doc(bob,avatarPath)));
+    assert.equal(item.data().photoPublicId,avatarData.photoPublicId);
+  });
+  await check('usuário anônimo não lê foto pública',()=>assertFails(
+    getDoc(doc(anon,avatarPath))));
+  await check('coleção de fotos não pode ser enumerada',()=>assertFails(
+    getDocs(collection(bob,'profile_photos'))));
+  await check('dono não pode alterar URL Cloudinary sem backend',()=>assertFails(
+    updateDoc(doc(alice,avatarPath),{photoUrl:'https://attacker.invalid'})));
+  await check('dono não pode excluir diretamente o documento público',()=>assertFails(
+    deleteDoc(doc(alice,avatarPath))));
+  await check('outro participante não pode excluir foto',()=>assertFails(
+    deleteDoc(doc(bob,avatarPath))));
   console.log(`OK: ${count} verificações de perfil público concluídas`);
 } finally { await env.cleanup(); }

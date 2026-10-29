@@ -112,9 +112,10 @@ class ProfilePhotoUiTest {
         compose.onNodeWithTag("atrio-profile-photo-manage").performClick()
         compose.onNodeWithText("Escolher foto da galeria").assertIsDisplayed()
         compose.onNodeWithText("Remover foto deste aparelho").assertIsDisplayed()
+        // O APK de QA sem ATRIO_AVATAR_WORKER_URL mantém as fotos somente locais.
+        assertFalse(CloudinaryAvatarClient.enabled)
         compose.onNodeWithText(
-            "Sua foto fica privada neste aparelho por enquanto. " +
-                "A sincronização entre contas depende de armazenamento e regras ainda não publicados."
+            "A foto fica apenas neste aparelho. O serviço de fotos públicas ainda não está configurado."
         ).assertExists()
         capture("07-gerenciar-foto")
         compose.onNodeWithText("Fechar").performClick()

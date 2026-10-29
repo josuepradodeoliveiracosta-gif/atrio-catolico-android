@@ -1,0 +1,17 @@
+# Copiar para wrangler.toml SOMENTE após autorização de implantação.
+name = "atrio-avatares"
+main = "src/index.js"
+compatibility_date = "2026-10-29"
+workers_dev = true
+
+[[d1_databases]]
+binding = "AVATAR_DB"
+database_name = "atrio-avatar-control"
+database_id = "SUBSTITUIR_PELO_ID_DA_BASE_D1"
+
+# Definir como secrets (NUNCA commitar valores reais):
+# wrangler secret put CLOUDINARY_CLOUD_NAME
+# wrangler secret put CLOUDINARY_API_KEY
+# wrangler secret put CLOUDINARY_API_SECRET
+# wrangler secret put FIREBASE_SERVICE_ACCOUNT_JSON
+# wrangler secret put FIREBASE_WEB_API_KEY

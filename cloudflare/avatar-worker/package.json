@@ -1,0 +1,9 @@
+{
+  "name": "atrio-cloudinary-avatar-worker",
+  "version": "0.19.7",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test src/*.test.js"
+  }
+}

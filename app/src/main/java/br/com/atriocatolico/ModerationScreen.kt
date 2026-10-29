@@ -17,6 +17,7 @@ import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
+import kotlinx.coroutines.launch
 
 private data class ModerationReport(
     val id: String, val postId: String, val reason: String,
@@ -58,6 +59,11 @@ internal fun ModerationScreen(db: FirebaseFirestore, uid: String, onBack: () -> 
     var showReviewed by remember(uid) { mutableStateOf(false) }
     var selectedId by remember(uid) { mutableStateOf<String?>(null) }
     var message by remember(uid) { mutableStateOf("") }
+    var photoTarget by remember(uid) { mutableStateOf("") }
+    var photoReason by remember(uid) { mutableStateOf("") }
+    var photoConfirm by remember(uid) { mutableStateOf(false) }
+    var photoBusy by remember(uid) { mutableStateOf(false) }
+    val photoScope = rememberCoroutineScope()
 
     BackHandler { if (selectedId != null) selectedId = null else onBack() }
     DisposableEffect(db, uid, limit, retry) {
@@ -105,6 +111,33 @@ internal fun ModerationScreen(db: FirebaseFirestore, uid: String, onBack: () -> 
                     FilterChip(showReviewed, { showReviewed = true }, label = { Text("Analisadas") })
                 }
             }
+            if (CloudinaryAvatarClient.enabled) item {
+                AvatarModerationPanel(uid)
+            }
+            if (CloudinaryAvatarClient.enabled) item {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Moderação de fotos de perfil",
+                            style = MaterialTheme.typography.titleMedium)
+                        Text("Apenas administradores autorizados podem remover fotos públicas. A ação será auditada.",
+                            style = MaterialTheme.typography.bodySmall)
+                        OutlinedTextField(value = photoTarget,
+                            onValueChange = { if (it.length <= 128) photoTarget = it.trim() },
+                            label = { Text("UID do usuário") }, singleLine = true,
+                            modifier = Modifier.fillMaxWidth())
+                        OutlinedTextField(value = photoReason,
+                            onValueChange = { if (it.length <= 100) photoReason = it },
+                            label = { Text("Motivo da remoção") },
+                            modifier = Modifier.fillMaxWidth())
+                        Button(
+                            onClick = { photoConfirm = true },
+                            enabled = !photoBusy &&
+                                Regex("^[A-Za-z0-9_-]{1,128}$").matches(photoTarget) &&
+                                photoReason.trim().length >= 5
+                        ) { Text("Remover foto inadequada") }
+                    }
+                }
+            }
             if (!loading && !loadError && shown.isEmpty()) item {
                 Text(if (hasMore) "Nenhuma nesta parte da lista. Carregue mais para consultar as anteriores."
                     else "Nenhuma denúncia nesta categoria.", color = Muted)
@@ -139,6 +172,35 @@ internal fun ModerationScreen(db: FirebaseFirestore, uid: String, onBack: () -> 
     if (selected != null) key(selected.id) {
         ReportReviewDialog(db, uid, selected, onClose = { selectedId = null }, onMessage = { message = it })
     }
+    if (photoConfirm) AlertDialog(
+        onDismissRequest = { if (!photoBusy) photoConfirm = false },
+        title = { Text("Confirmar remoção da foto?") },
+        text = { Text("A foto pública do usuário " + photoTarget +
+            " será retirada da comunidade. Essa ação será registrada.") },
+        confirmButton = {
+            TextButton(enabled = !photoBusy, onClick = {
+                photoBusy = true
+                photoScope.launch {
+                    val result = runCatching {
+                        CloudinaryAvatarClient.moderateRemove(uid, photoTarget, photoReason)
+                    }
+                    photoBusy = false
+                    photoConfirm = false
+                    result.onSuccess {
+                        photoTarget = ""; photoReason = ""
+                        message = "Foto removida pela moderação."
+                    }.onFailure {
+                        message = it.message ?: "Não foi possível remover a foto."
+                    }
+                }
+            }) { Text("Confirmar remoção") }
+        },
+        dismissButton = {
+            TextButton(enabled = !photoBusy, onClick = { photoConfirm = false }) {
+                Text("Cancelar")
+            }
+        }
+    )
     if (message.isNotBlank()) AlertDialog(onDismissRequest = { message = "" },
         title = { Text("Moderação") }, text = { Text(message) },
         confirmButton = { TextButton(onClick = { message = "" }) { Text("Entendi") } })

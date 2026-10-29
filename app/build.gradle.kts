@@ -19,7 +19,7 @@ val atrioKeyPassword = System.getenv("ATRIO_SIGNING_KEY_PASSWORD")
 
 // Versão do APK de testes: avançar para 2, 3, ... a cada NOVA atualização Debug.
 // O release permanece com 0.19.0 / versionCode 27 até aprovação explícita.
-val atrioDebugPatch = 6
+val atrioDebugPatch = 7
 val atrioDebugVersionName = "0.19.$atrioDebugPatch"
 val atrioDebugVersionCode = 27 + atrioDebugPatch
 
@@ -39,6 +39,9 @@ android {
         val allowed = Regex("^https://[a-zA-Z0-9-]+\\.[a-zA-Z0-9-]+\\.workers\\.dev$")
         require(relayUrl.isBlank() || allowed.matches(relayUrl)) { "ATRIO_PUSH_WORKER_URL invalida" }
         buildConfigField("String", "PUSH_RELAY_URL", "\"$relayUrl\"")
+        val avatarUrl = System.getenv("ATRIO_AVATAR_WORKER_URL").orEmpty()
+        require(avatarUrl.isBlank() || allowed.matches(avatarUrl)) { "ATRIO_AVATAR_WORKER_URL invalida" }
+        buildConfigField("String", "AVATAR_WORKER_URL", "\"$avatarUrl\"")
     }
 
     signingConfigs {

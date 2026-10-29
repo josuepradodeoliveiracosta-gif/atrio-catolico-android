@@ -1,0 +1,62 @@
+name: Debug 0.19.7 com fotos Cloudinary (sem Release)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/avatar-live-debug-ci.yml'
+      - 'app/build.gradle.kts'
+      - 'app/src/main/java/br/com/atriocatolico/CloudinaryAvatarClient.kt'
+      - 'app/src/main/java/br/com/atriocatolico/ProfilePhotoUi.kt'
+      - 'cloudflare/avatar-worker/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  debug-com-cloudinary:
+    if: github.head_ref == 'feature/fotos-cloudinary-0197' || github.ref == 'refs/heads/feature/fotos-cloudinary-0197'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configurar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Configurar Android SDK
+        uses: android-actions/setup-android@v4
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - name: Preparar Android 36
+        run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+      - name: Verificar Worker rejeita acesso anônimo (sem uploads)
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='https://atrio-avatares.atrio-catolico.workers.dev'
+          for path in /avatar/status /avatar/upload; do
+            status="$(curl -sS --retry 2 --max-time 25 -X POST -o /dev/null -w '%{http_code}' "${BASE}${path}")"
+            if [ "$status" != 401 ]; then
+              echo "::error::Worker respondeu HTTP $status sem autenticação em $path (esperado: 401)"
+              exit 1
+            fi
+            echo "Acesso anônimo bloqueado: $path = HTTP $status"
+          done
+      - name: Verificar projeto Firebase
+        run: python3 scripts/validar_firebase.py
+      - name: Compilar somente APK Debug 0.19.7 com fotos Cloudinary
+        env:
+          ATRIO_PUSH_WORKER_URL: ${{ vars.ATRIO_PUSH_WORKER_URL || 'https://atrio-push.atrio-catolico.workers.dev' }}
+          ATRIO_AVATAR_WORKER_URL: https://atrio-avatares.atrio-catolico.workers.dev
+        run: gradle :app:assembleDebug --no-daemon --stacktrace
+      - name: Disponibilizar APK Debug Cloudinary
+        uses: actions/upload-artifact@v4
+        with:
+          name: atrio-catolico-0197-cloudinary-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7

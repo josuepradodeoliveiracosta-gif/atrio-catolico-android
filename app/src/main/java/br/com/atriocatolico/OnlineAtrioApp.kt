@@ -296,7 +296,8 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
     } else {
         CompositionLocalProvider(
             LocalFounderUid provides founderUid,
-            LocalProfileAvatar provides LocalAvatarState(uid, localPhoto)
+            LocalProfileAvatar provides LocalAvatarState(uid, localPhoto),
+            LocalAvatarFirestore provides db
         ) {
         OnlineCommunity(db = db, uid = uid, name = name!!, email = user.email.orEmpty(),
             biography = biography, onPhotoChanged = { photoRevision++ },

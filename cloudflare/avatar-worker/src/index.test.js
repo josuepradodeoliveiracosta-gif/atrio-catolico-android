@@ -1,0 +1,157 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import handler, {boundedBytes,publicUrl,cloudSigned,uploadProtected} from './index.js';
+import {createHash,webcrypto} from 'node:crypto';
+if (!globalThis.crypto) globalThis.crypto = webcrypto;
+
+const env = {
+  CLOUDINARY_CLOUD_NAME:'atrio-demo',
+  CLOUDINARY_API_KEY:'fake-key',
+  CLOUDINARY_API_SECRET:'fake-secret',
+  FIREBASE_WEB_API_KEY:'fake-firebase',
+  FIREBASE_SERVICE_ACCOUNT_JSON:'{}',
+  AVATAR_DB:{}
+};
+test('rota desconhecida não consulta serviços',async()=>{
+  const r=await handler.fetch(new Request('https://test.invalid/external'),env);
+  assert.equal(r.status,404);
+});
+test('método inválido é recusado antes de autenticar',async()=>{
+  const r=await handler.fetch(new Request('https://test.invalid/avatar/upload'),env);
+  assert.equal(r.status,405);
+});
+test('conta anônima nunca pode apagar foto',async()=>{
+  const r=await handler.fetch(new Request('https://test.invalid/avatar',{method:'DELETE'}),env);
+  assert.equal(r.status,401);
+});
+test('upload com MIME não permitido é recusado',async()=>{
+  await assert.rejects(()=>boundedBytes(new Request('https://test.invalid',{method:'POST',
+    headers:{'Content-Type':'image/svg+xml'},body:'<svg/>',duplex:'half'})),/invalid_image/);
+});
+test('upload com JPEG malformado é recusado',async()=>{
+  await assert.rejects(()=>boundedBytes(new Request('https://test.invalid',{method:'POST',
+    headers:{'Content-Type':'image/jpeg'},body:Uint8Array.from({length:300},()=>0),
+    duplex:'half'})),/invalid_image/);
+});
+test('bloqueia payload com tamanho declarado acima de 5 MB',async()=>{
+  await assert.rejects(()=>boundedBytes(new Request('https://test.invalid',{method:'POST',
+    headers:{'Content-Type':'image/jpeg','Content-Length':String(6*1024*1024)},
+    body:Uint8Array.from([0xff,0xd8,0xff,0xd9]),duplex:'half'})),/invalid_image/);
+});
+test('JPEG normalizado de tamanho permitido passa pela validação',async()=>{
+  const photo=Uint8Array.from({length:400},(_,i)=>(i===0||i===398)?0xff:
+    (i===1)?0xd8:(i===399)?0xd9:1);
+  const bytes=await boundedBytes(new Request('https://test.invalid',{method:'POST',
+    headers:{'Content-Type':'image/jpeg'},body:photo,duplex:'half'}));
+  assert.deepEqual(bytes,photo);
+});
+test('URL pública usa cloud + id versionado do servidor',()=>{
+  const url=publicUrl(env,{version:1740000001,
+    public_id:'atrio-avatares/test-user/147e7fca-2e75-4a1e-9c32-c11e19f937a7'});
+  assert.ok(url.startsWith('https://res.cloudinary.com/atrio-demo/image/upload/'));
+  assert.ok(url.includes('/v1740000001/'));
+});
+test('rejeita identificador Cloudinary externo',()=>{
+  assert.throws(()=>publicUrl(env,{version:1740000001,public_id:'outsider/avatar'}),
+    /invalid_response/);
+});
+
+test('upload REST authenticated usa rota protegida e parâmetros assinados',async()=>{
+  const previous=globalThis.fetch;
+  let called=false;
+  globalThis.fetch=async (url,options)=>{
+    called=true;
+    assert.equal(url,'https://api.cloudinary.com/v1_1/atrio-demo/image/authenticated');
+    assert.equal(options.method,'POST');
+    const p=options.body;
+    assert.equal(p.get('type'),null);
+    assert.equal(p.get('moderation'),'manual');
+    assert.equal(p.get('public_id'),'atrio-avatares/test-user/147e7fca-2e75-4a1e-9c32-c11e19f937a7');
+    assert.equal(p.get('api_key'),'fake-key');
+    const input = ['moderation','overwrite','public_id','timestamp']
+      .map(k=>k+'='+p.get(k)).join('&')+'fake-secret';
+    assert.equal(p.get('signature'),createHash('sha1').update(input).digest('hex'));
+    assert.equal(p.get('file').type,'image/jpeg');
+    return new Response(JSON.stringify({type:'authenticated',public_id:p.get('public_id')}),{status:200});
+  };
+  try {
+    const result=await cloudSigned(env,'authenticated',{
+      moderation:'manual',overwrite:'false',
+      public_id:'atrio-avatares/test-user/147e7fca-2e75-4a1e-9c32-c11e19f937a7'
+    },Uint8Array.from([255,216,255,217]),'upload');
+    assert.equal(result.type,'authenticated');
+    assert.equal(called,true);
+  } finally {globalThis.fetch=previous;}
+});
+
+test('Cloudinary rejeita upload sem revelar detalhes ou credenciais',async()=>{
+  const previous=globalThis.fetch;
+  globalThis.fetch=async ()=>new Response(JSON.stringify({error:{message:'Invalid Signature: sample private token'}}),{status:401});
+  try {
+    await assert.rejects(async()=>cloudSigned(env,'authenticated',{public_id:'atrio-avatares/qa/test',moderation:'manual'},Uint8Array.from([255,216,255,217]),'upload'),e=>{
+      assert.equal(e.safeCode,'cloudinary_signature_invalid');
+      assert.equal(e.message,'cloudinary_request_failed');
+      assert.ok(!JSON.stringify(e).includes('private token'));
+      return true;
+    });
+  } finally {globalThis.fetch=previous;}
+});
+
+test('Cloudinary 404 classifica ambiente inválido sem expor resposta bruta', async()=>{
+  const original=globalThis.fetch;
+  globalThis.fetch=async()=>new Response(JSON.stringify({error:{message:'Cloud name not found'}}),{status:404});
+  try {
+    await assert.rejects(()=>cloudSigned(env,'authenticated',{public_id:'atrio-avatares/test/abc'},Uint8Array.from([255,216,255,217]),'upload'), e=>{
+      assert.equal(e.safeCode,'cloudinary_environment_not_found');
+      assert.equal(e.message,'cloudinary_request_failed');return true;
+    });
+  }finally{globalThis.fetch=original;}
+});
+
+
+test('404 no endpoint protegido tenta alternativa assinada e continua privada',async()=>{
+  const old=globalThis.fetch;
+  const id='atrio-avatares/test-user/147e7fca-2e75-4a1e-9c32-c11e19f937a7';
+  const calls=[];
+  globalThis.fetch=async(url,opt)=>{
+    calls.push(String(url));
+    const f=opt.body;
+    if(String(url).endsWith('/image/authenticated'))
+      return new Response('Not Found',{status:404,headers:{'Content-Type':'text/plain'}});
+    assert.equal(String(url),'https://api.cloudinary.com/v1_1/atrio-demo/image/upload');
+    assert.equal(f.get('type'),'authenticated');
+    const keys=['moderation','overwrite','public_id','timestamp','type'];
+    const input=keys.map(k=>k+'='+f.get(k)).join('&')+'fake-secret';
+    assert.equal(f.get('signature'),createHash('sha1').update(input).digest('hex'));
+    return new Response(JSON.stringify({type:'authenticated',public_id:id,
+      moderation:[{kind:'manual',status:'pending'}]}),{status:200});
+  };
+  try{
+    const result=await uploadProtected(env,id,Uint8Array.from([255,216,255,217]));
+    assert.equal(result.type,'authenticated');
+    assert.equal(calls.length,2);
+  } finally{ globalThis.fetch=old; }
+});
+test('fallback nunca aceita foto pública e tenta removê-la imediatamente',async()=>{
+  const old=globalThis.fetch;
+  const id='atrio-avatares/test-user/147e7fca-2e75-4a1e-9c32-c11e19f937a7';
+  let destroyed=false;
+  globalThis.fetch=async(url,opt)=>{
+    const path=String(url);
+    if(path.endsWith('/image/authenticated'))
+      return new Response('Not Found',{status:404});
+    if(path.endsWith('/image/upload'))
+      return new Response(JSON.stringify({type:'upload',public_id:id}),{status:200});
+    if(path.endsWith('/image/destroy')){
+      destroyed=true;
+      assert.equal(opt.body.get('type'),'upload');
+      return new Response(JSON.stringify({result:'ok'}),{status:200});
+    }
+    throw Error('Unexpected endpoint '+path);
+  };
+  try{
+    await assert.rejects(()=>uploadProtected(env,id,Uint8Array.from([255,216,255,217])),
+      /cloudinary_protection_failed/);
+    assert.equal(destroyed,true);
+  } finally{ globalThis.fetch=old; }
+});
