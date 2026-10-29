@@ -277,8 +277,15 @@ try {
  await test('usuário não encerra denúncia',()=>assertFails(updateDoc(doc(bob,rpost('bob','p')),review('dismissed','bob'))));
  await test('autor mantém edição própria com relógio do servidor',()=>assertSucceeds(
    updateDoc(doc(alice,'posts/p'),{body:'Conteúdo revisado pelo autor',updatedAt:serverTimestamp()})));
- await test('cliente antigo sem updatedAt não altera discussão',()=>assertFails(
-   updateDoc(doc(alice,'posts/p'),{body:'Alteração sem rastreamento'})));
+ await test('cliente antigo continua editando sem quebrar o fórum',async()=>{
+   const before=(await getDoc(doc(alice,'posts/p'))).data().updatedAt;
+   await assertSucceeds(updateDoc(doc(alice,'posts/p'),{body:'Edição de APK antigo'}));
+   const after=(await getDoc(doc(alice,'posts/p'))).data();
+   assert.equal(after.body,'Edição de APK antigo');
+   assert.equal(after.updatedAt.toMillis(),before.toMillis());
+ });
+ await test('APK novo atualiza o relógio do servidor novamente',()=>assertSucceeds(
+   updateDoc(doc(alice,'posts/p'),{body:'Edição do APK novo',updatedAt:serverTimestamp()})));
  await test('autor não pode falsificar horário de edição',()=>assertFails(
    updateDoc(doc(alice,'posts/p'),{body:'Data forjada',updatedAt:Timestamp.fromMillis(Date.now()-3600000)})));
  await test('autor não pode voltar o relógio de uma edição já registrada',()=>assertFails(
