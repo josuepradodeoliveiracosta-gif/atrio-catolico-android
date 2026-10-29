@@ -168,7 +168,7 @@ test('troca preserva foto aprovada se novo envio falhar ou for rejeitado',async(
     f.state.rate=0;
     f.state.failNextUpload=true;
     const unavailable=await f.call('/avatar/upload','POST',image);
-    assert.deepEqual(unavailable,{status:503,body:'temporarily_unavailable'});
+    assert.deepEqual(unavailable,{status:502,body:'cloudinary_error_503'});
     assert.equal(f.state.publicPhoto.photoPublicId.stringValue,first);
     assert.equal(f.state.pending,null);
 
