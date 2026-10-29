@@ -39,6 +39,11 @@ android {
         val allowed = Regex("^https://[a-zA-Z0-9-]+\\.[a-zA-Z0-9-]+\\.workers\\.dev$")
         require(relayUrl.isBlank() || allowed.matches(relayUrl)) { "ATRIO_PUSH_WORKER_URL invalida" }
         buildConfigField("String", "PUSH_RELAY_URL", "\"$relayUrl\"")
+        val guardianUrl = System.getenv("ATRIO_GUARDIAN_WORKER_URL").orEmpty()
+        require(guardianUrl.isBlank() || allowed.matches(guardianUrl)) {
+            "ATRIO_GUARDIAN_WORKER_URL invalida"
+        }
+        buildConfigField("String", "GUARDIAN_WORKER_URL", "\"$guardianUrl\"")
         val avatarUrl = System.getenv("ATRIO_AVATAR_WORKER_URL").orEmpty()
         require(avatarUrl.isBlank() || allowed.matches(avatarUrl)) { "ATRIO_AVATAR_WORKER_URL invalida" }
         buildConfigField("String", "AVATAR_WORKER_URL", "\"$avatarUrl\"")
