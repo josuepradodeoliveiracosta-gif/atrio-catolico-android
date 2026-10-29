@@ -130,6 +130,19 @@ try {
     assert.equal((await getDoc(doc(bob,path))).exists(),true);
     assert.equal(await read('guardian_cases/'+await id(path)),null);
   });
+  await check('edição concorrente invalida revisão obsoleta antes do commit',async()=>{
+    const path='posts/cat3/replies/edited_qa';
+    await env.withSecurityRulesDisabled(async ctx=>
+      setDoc(doc(ctx.firestore(),path),reply('Vou te matar amanhã'))
+    );
+    const beforeEdit=await read(path);
+    await env.withSecurityRulesDisabled(async ctx=>
+      updateDoc(doc(ctx.firestore(),path),{body:'O Catecismo orienta sobre a oração'})
+    );
+    assert.equal(await processDocument(server,beforeEdit,act),'duplicate_or_changed');
+    assert.equal(await read('guardian_cases/'+await id(path)),null);
+    assert.equal((await getDoc(doc(bob,path))).data().body,'O Catecismo orienta sobre a oração');
+  });
   await check('parada de emergência não varre nenhuma coleção',async()=>{
     assert.deepEqual(await scanOnce(server,{enabled:false}),{status:'disabled'});
   });
