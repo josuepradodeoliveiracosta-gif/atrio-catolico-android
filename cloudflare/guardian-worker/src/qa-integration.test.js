@@ -71,3 +71,28 @@ test('conta de produção não se torna QA só por acesso ao health',async()=>{
   const r=await handleRequest(new Request('https://qa.example/health'),{});
   assert.equal((await r.json()).status,'guardian_v2_isolated');
 });
+
+
+test('adaptador QA usa raiz de projeto isolado sem tocar produção',async()=>{
+  const root='http://127.0.0.1:8089/v1/projects/demo-atrio-v11/databases/(default)/documents';
+  const store=new Firestore('emulator-token','demo-atrio-v11','http://127.0.0.1:8089/v1');
+  assert.equal(store.root,root);
+  const original=globalThis.fetch;let requested='';
+  globalThis.fetch=async(url)=>{requested=url;return new Response(JSON.stringify({name:root+'/posts/qa'}),{status:200});};
+  try{await store.get('posts/qa');assert.equal(requested,root+'/posts/qa');}
+  finally{globalThis.fetch=original;}
+});
+test('rejeita URL arbitrária como backend de teste',()=>{
+  assert.throws(()=>new Firestore('fake','demo-atrio-v11','https://untrusted.example/v1'),/invalid_backend/);
+});
+test('operações do QA nunca gravam no projeto de produção',async()=>{
+  const root='http://127.0.0.1:8089/v1/projects/demo-atrio-v11/databases/(default)/documents';
+  const store=new Firestore('fake','demo-atrio-v11','http://127.0.0.1:8089/v1');
+  const original=globalThis.fetch;let payload;
+  globalThis.fetch=async(url,opts)=>{payload=JSON.parse(opts.body);assert.equal(url,root+':commit');return new Response('{}',{status:200});};
+  try{
+    await store.create('guardian_runtime/qa-only',{active:{booleanValue:false}});
+    assert.equal(payload.writes[0].update.name,root+'/guardian_runtime/qa-only');
+    assert.ok(!payload.writes[0].update.name.includes('projects/atrio-catolico/'));
+  }finally{globalThis.fetch=original;}
+});
