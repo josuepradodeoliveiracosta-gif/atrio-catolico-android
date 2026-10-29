@@ -98,5 +98,20 @@ try {
     assert.equal(privateProfile.data().displayName, 'Alice Atualizada');
     assert.equal(privateProfile.data().bio, 'Nova apresentação aprovada');
   });
+  await check('APK legado não altera bio privada deixando projeção pública antiga', () =>
+    assertFails(updateDoc(doc(alice, privatePath), {
+      bio: 'Mudança isolada de APK legado'
+    }))
+  );
+  await check('após revogação, edição privada volta a funcionar', async () => {
+    await assertSucceeds(deleteDoc(doc(alice, publicPath)));
+    await assertSucceeds(updateDoc(doc(alice, privatePath), {
+      bio: 'Biografia reservada à proprietária'
+    }));
+    const own = await assertSucceeds(getDoc(doc(alice, privatePath)));
+    assert.equal(own.data().bio, 'Biografia reservada à proprietária');
+    const publicResult = await assertSucceeds(getDoc(doc(bob, publicPath)));
+    assert.equal(publicResult.exists(), false);
+  });
   console.log(`OK: ${count} verificações de perfil público concluídas`);
 } finally { await env.cleanup(); }
