@@ -364,6 +364,9 @@ private fun OnlineCommunity(
             guardianWarning = alert
             guardianPendingSend = submit
             guardianPendingCancel = onCancel
+        } else {
+            // Não prender o botão Responder se outro aviso já está aberto.
+            onCancel()
         }
     }
     var working by remember { mutableStateOf(false) }
