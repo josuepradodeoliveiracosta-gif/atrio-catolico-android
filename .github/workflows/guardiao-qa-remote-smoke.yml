@@ -41,4 +41,4 @@ jobs:
           test "$fixture_status" = "503"
           grep -Fq '"status":"qa_bridge_disabled"' /tmp/guardian-fixture-denied.json
 
-          echo "GUARDIAN QA REMOTE SMOKE PASS: health 200, admin 503, Firebase bridge 503"
+          echo "GUARDIAN QA REMOTE SMOKE PASS v19: health 200, admin 503, Firebase bridge 503"
