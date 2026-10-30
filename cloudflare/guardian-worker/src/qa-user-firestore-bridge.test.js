@@ -86,9 +86,9 @@ test('classificação limitada e sem texto retornado',async()=>{
  assert.ok(!raw.includes('https://')); // no original content
 });
 test('Firebase nega token/permissão, falha fechado',async()=>{
- for(const status of [401,403,404,409,429,500]){
+ for(const status of [400,401,403,404,409,429,500]){
   const result=await qaFixtureRequest(req(),env,{fetcher:async()=>new Response('{}',{status})});
-  assert.equal(result.status,[401,403].includes(status)?403:status===404?404:503);
+  assert.equal(result.status,[400,401,403].includes(status)?403:status===404?404:503);
   const data=await result.json();
   assert.ok(!JSON.stringify(data).includes(fakeId));
  }

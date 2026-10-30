@@ -116,7 +116,10 @@ export async function qaFixtureRequest(request,env,{fetcher=fetch,clock=Date.now
   const result=await fetcher(QA_URL,{method:'GET',headers:{
    Authorization:'Bearer '+matched[1],Accept:'application/json'
   },redirect:'error',signal:AbortSignal.timeout(6000)});
-  if(result.status===401||result.status===403)return reply(403,'forbidden');
+  // Firebase may report an invalid/malformed ID token as HTTP 400 rather
+  // than 401/403. Treat all these responses as an authorization rejection,
+  // never as a successful classification; do not expose upstream details.
+  if([400,401,403].includes(result.status))return reply(403,'forbidden');
   if(result.status===404)return reply(404,'fixture_missing');
   if(!result.ok)return reply(503,'qa_bridge_unavailable');
   const data=await boundedQaJson(result);
