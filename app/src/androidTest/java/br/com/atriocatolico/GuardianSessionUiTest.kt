@@ -67,4 +67,27 @@ class GuardianSessionUiTest {
         compose.onNodeWithText("Desligamento de emergência").assertIsNotEnabled()
         compose.onNodeWithText("Registrar decisão").assertDoesNotExist()
     }
+
+    @Test fun signedOutModerationHidesPrivateQueue() {
+        compose.setContent { ModerationScreen(db, "qaFakeAdmin", onBack = {}) }
+        compose.onNodeWithText("Sessão alterada. Entre novamente para acessar a moderação.")
+            .assertIsDisplayed()
+        compose.onNodeWithText("Pendentes").assertDoesNotExist()
+        compose.onNodeWithText("Remover foto inadequada").assertDoesNotExist()
+    }
+
+    @Test fun logoutClearsModerationQueueAndButtonsImmediately() {
+        val user = Tasks.await(auth.signInAnonymously(), 15, TimeUnit.SECONDS).user
+        assertTrue(user != null && user.uid.isNotBlank())
+        compose.setContent { ModerationScreen(db, user!!.uid, onBack = {}) }
+        auth.signOut()
+        compose.waitUntil(15_000) {
+            compose.onAllNodesWithText("Sessão alterada. Entre novamente para acessar a moderação.")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText("Sessão alterada. Entre novamente para acessar a moderação.")
+            .assertIsDisplayed()
+        compose.onNodeWithText("Pendentes").assertDoesNotExist()
+        compose.onNodeWithText("Remover foto inadequada").assertDoesNotExist()
+    }
 }

@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.firebase.Timestamp
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
@@ -64,6 +65,27 @@ internal fun ModerationScreen(db: FirebaseFirestore, uid: String, onBack: () -> 
     var photoConfirm by remember(uid) { mutableStateOf(false) }
     var photoBusy by remember(uid) { mutableStateOf(false) }
     val photoScope = rememberCoroutineScope()
+    val observedUid = rememberGuardianAuthUid()
+    val sessionActive = GuardianUiPolicy.sameSession(uid, observedUid)
+
+    // Do not render cached reports in the next account's Compose frame.
+    // Firebase Security Rules still authorize all backend operations.
+    if (!sessionActive) {
+        LaunchedEffect(uid, observedUid) {
+            reports = emptyList()
+            selectedId = null
+            photoTarget = ""
+            photoReason = ""
+            photoConfirm = false
+            message = ""
+            loading = false
+        }
+        Column(Modifier.fillMaxSize().padding(16.dp)) {
+            Text("Sessão alterada. Entre novamente para acessar a moderação.")
+            TextButton(onClick = onBack) { Text("Voltar") }
+        }
+        return
+    }
 
     BackHandler { if (selectedId != null) selectedId = null else onBack() }
     DisposableEffect(db, uid, limit, retry) {
@@ -75,9 +97,14 @@ internal fun ModerationScreen(db: FirebaseFirestore, uid: String, onBack: () -> 
                 if (active) {
                     loading = false
                     loadError = failure != null
-                    if (failure != null) {
+                    if (failure != null || !GuardianUiPolicy.sameSession(
+                            uid, FirebaseAuth.getInstance().currentUser?.uid)) {
                         reports = emptyList()
-                        message = "Não foi possível consultar denúncias. Confira a conexão, as regras e sua permissão."
+                        selectedId = null
+                        photoConfirm = false
+                        photoTarget = ""
+                        photoReason = ""
+                        message = "Não foi possível consultar denúncias. Confira a sessão, as regras e sua permissão."
                     } else {
                         hasMore = (snapshot?.size() ?: 0) > limit
                         reports = snapshot?.documents?.take(limit)?.map {
@@ -111,11 +138,11 @@ internal fun ModerationScreen(db: FirebaseFirestore, uid: String, onBack: () -> 
                     FilterChip(showReviewed, { showReviewed = true }, label = { Text("Analisadas") })
                 }
             }
-            item { GuardianPanel(db, uid) }
-            if (CloudinaryAvatarClient.enabled) item {
+            if (!loading && !loadError) item { GuardianPanel(db, uid) }
+            if (CloudinaryAvatarClient.enabled && !loading && !loadError) item {
                 AvatarModerationPanel(uid)
             }
-            if (CloudinaryAvatarClient.enabled) item {
+            if (CloudinaryAvatarClient.enabled && !loading && !loadError) item {
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Moderação de fotos de perfil",
@@ -132,7 +159,8 @@ internal fun ModerationScreen(db: FirebaseFirestore, uid: String, onBack: () -> 
                             modifier = Modifier.fillMaxWidth())
                         Button(
                             onClick = { photoConfirm = true },
-                            enabled = !photoBusy &&
+                            enabled = !photoBusy && !loading && !loadError &&
+                                GuardianUiPolicy.sameSession(uid, observedUid) &&
                                 Regex("^[A-Za-z0-9_-]{1,128}$").matches(photoTarget) &&
                                 photoReason.trim().length >= 5
                         ) { Text("Remover foto inadequada") }
@@ -179,7 +207,12 @@ internal fun ModerationScreen(db: FirebaseFirestore, uid: String, onBack: () -> 
         text = { Text("A foto pública do usuário " + photoTarget +
             " será retirada da comunidade. Essa ação será registrada.") },
         confirmButton = {
-            TextButton(enabled = !photoBusy, onClick = {
+            TextButton(enabled = !photoBusy && !loading && !loadError &&
+                GuardianUiPolicy.sameSession(uid, observedUid), onClick = {
+                if (!GuardianUiPolicy.sameSession(uid, FirebaseAuth.getInstance().currentUser?.uid)) {
+                    photoConfirm = false
+                    return@TextButton
+                }
                 photoBusy = true
                 photoScope.launch {
                     val result = runCatching {
@@ -187,6 +220,9 @@ internal fun ModerationScreen(db: FirebaseFirestore, uid: String, onBack: () -> 
                     }
                     photoBusy = false
                     photoConfirm = false
+                    if (!GuardianUiPolicy.sameSession(uid, FirebaseAuth.getInstance().currentUser?.uid)) {
+                        return@launch
+                    }
                     result.onSuccess {
                         photoTarget = ""; photoReason = ""
                         message = "Foto removida pela moderação."
@@ -274,16 +310,22 @@ private fun ReportReviewDialog(
         }
     }
     fun decideHeld(restore: Boolean) {
-        if (busy || !held || note.trim().length !in 5..300) return
+        if (!GuardianUiPolicy.sameSession(uid, FirebaseAuth.getInstance().currentUser?.uid) ||
+            busy || !held || note.trim().length !in 5..300) return
         busy = true
         GuardiaoReviewClient.decide(report.id, restore, note.trim()) { ok, info ->
             busy = false
+            if (!GuardianUiPolicy.sameSession(uid, FirebaseAuth.getInstance().currentUser?.uid)) {
+                onClose()
+                return@decide
+            }
             if (ok) onClose()
             onMessage(info)
         }
     }
     fun review(remove: Boolean, expected: ModerationContent?) {
-        if (busy || note.trim().length !in 5..300) return
+        if (!GuardianUiPolicy.sameSession(uid, FirebaseAuth.getInstance().currentUser?.uid) ||
+            busy || note.trim().length !in 5..300) return
         busy = true
         val noteToSave = note.trim()
         val reportRef = db.collection("reports").document(report.id)
@@ -313,6 +355,10 @@ private fun ReportReviewDialog(
         }.addOnCompleteListener { result ->
             busy = false
             confirmRemove = false
+            if (!GuardianUiPolicy.sameSession(uid, FirebaseAuth.getInstance().currentUser?.uid)) {
+                onClose()
+                return@addOnCompleteListener
+            }
             if (result.isSuccessful) {
                 onClose()
                 onMessage(if (remove) "${report.kind} removida e análise registrada." else "Denúncia encerrada sem remover o conteúdo.")
