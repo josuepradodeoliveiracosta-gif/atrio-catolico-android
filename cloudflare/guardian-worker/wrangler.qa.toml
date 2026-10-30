@@ -10,6 +10,7 @@ GUARDIAN_V2_ENABLED = "false"
 GUARDIAN_V2_HOLD_ENABLED = "false"
 GUARDIAN_V2_QA_SHADOW_READS = "false" # Conexão remota desativada até projeto QA separado
 GUARDIAN_V2_QA_RUN_MONITOR = "true" # Apenas GET de status público GitHub por hora; nunca lê Firebase
+GUARDIAN_V2_QA_POLICY_HEARTBEAT = "true" # Classificação local de 5 textos sintéticos por Cron; zero Firestore, nenhuma punição
 GUARDIAN_V2_QA_AUTO_DISPATCH = "false" # Opt-in desativado: não aciona GitHub Actions
 GUARDIAN_QA_DISPATCH_READY = "false" # Segundo bloqueio; manter falso sem autorização explícita
 
