@@ -113,3 +113,20 @@ test('erro ou resposta inválida não devolve texto nem token',async()=>{
   assert.deepEqual(await value.json(),{status:'qa_bridge_unavailable'});
  }
 });
+
+test('rota HTTP do Worker QA não pode ser ativada por configuração normal',async()=>{
+ const {handleRequest}=await import('./index.js');
+ const response=await handleRequest(req(),{
+  ...env,GUARDIAN_V2_QA_FIRESTORE_BRIDGE:'false'
+ });
+ assert.equal(response.status,503);
+ assert.deepEqual(await response.json(),{status:'qa_bridge_disabled'});
+});
+test('todas as rotas de administração continuam fechadas no Worker QA',async()=>{
+ const {handleRequest}=await import('./index.js');
+ const call=new Request('https://qa.example/admin/config',{method:'POST',
+  headers:{'content-type':'application/json'},body:'{"enabled":true,"allowHold":true,"emergencyStop":false}'});
+ const result=await handleRequest(call,env);
+ assert.equal(result.status,503);
+ assert.deepEqual(await result.json(),{status:'qa_read_only'});
+});
