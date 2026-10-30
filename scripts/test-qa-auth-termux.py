@@ -143,7 +143,7 @@ class Check(unittest.TestCase):
  def test_bridge_runs_without_printing_or_persisting_id_token(self):
   from types import SimpleNamespace
   with patch.object(m.pathlib.Path,"is_file",return_value=True),patch.object(
-    m.subprocess,"run",return_value=SimpleNamespace(returncode=0,stdout="QA_BRIDGE_LOCAL_PASS: qa_fixture_clear\\n")) as sp,contextlib.redirect_stdout(io.StringIO()) as out:
+    m.subprocess,"run",return_value=SimpleNamespace(returncode=0,stdout="QA_BRIDGE_LOCAL_PASS: qa_fixture_clear\n")) as sp,contextlib.redirect_stdout(io.StringIO()) as out:
    assert m.qa_bridge_local("T"*120)
   self.assertEqual(sp.call_args.kwargs["input"],"T"*120)
   self.assertNotIn("T"*120,out.getvalue())
