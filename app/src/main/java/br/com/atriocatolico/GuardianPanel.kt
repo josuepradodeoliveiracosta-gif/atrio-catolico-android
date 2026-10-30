@@ -94,6 +94,12 @@ internal fun GuardianPanel(db: FirebaseFirestore, uid: String) {
         }
     }
 
+    // Avoid rendering private case metadata during logout/account switching.
+    if (!GuardianUiPolicy.sameSession(uid, observedUid)) {
+        Text("Sessão alterada. Entre novamente.")
+        return
+    }
+
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Átrio Guardião V2", style = MaterialTheme.typography.titleMedium)
