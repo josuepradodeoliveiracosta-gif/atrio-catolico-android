@@ -36,7 +36,7 @@ def qa_worker_post(id_token=None,opener=None):
     """One POST, no redirects, no JWT in URL/logs or untrusted response text."""
     if id_token is not None and not (
       isinstance(id_token,str) and re.fullmatch(
-        r"[A-Za-z0-9_-]{10,2048}\\.[A-Za-z0-9_-]{10,4096}\\.[A-Za-z0-9_-]{10,2048}",id_token)):
+        r"[A-Za-z0-9_-]{10,2048}\.[A-Za-z0-9_-]{10,4096}\.[A-Za-z0-9_-]{10,2048}",id_token)):
         return (0,"qa_invalid_token")
     if opener is None:
         opener=urllib.request.build_opener(NeverFollowRedirect())
