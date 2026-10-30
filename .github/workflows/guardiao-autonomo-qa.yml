@@ -6,6 +6,9 @@ on:
     paths:
       - 'cloudflare/guardian-worker/**'
       - 'app/src/main/java/br/com/atriocatolico/Guardiao**'
+      - 'app/src/main/java/br/com/atriocatolico/Guardian**'
+      - 'app/src/test/java/br/com/atriocatolico/Guardian**'
+      - 'app/src/androidTest/java/br/com/atriocatolico/Guardian**'
       - 'app/src/main/java/br/com/atriocatolico/ModerationScreen.kt'
       - 'firestore.rules'
       - 'tests/security/**'
@@ -16,6 +19,9 @@ on:
     paths:
       - 'cloudflare/guardian-worker/**'
       - 'app/src/main/java/br/com/atriocatolico/Guardiao**'
+      - 'app/src/main/java/br/com/atriocatolico/Guardian**'
+      - 'app/src/test/java/br/com/atriocatolico/Guardian**'
+      - 'app/src/androidTest/java/br/com/atriocatolico/Guardian**'
       - 'app/src/main/java/br/com/atriocatolico/ModerationScreen.kt'
       - 'firestore.rules'
       - 'tests/security/**'
@@ -104,7 +110,7 @@ jobs:
         env:
           ATRIO_PUSH_WORKER_URL: https://atrio-push.atrio-catolico.workers.dev
           ATRIO_AVATAR_WORKER_URL: ''
-        run: gradle :app:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace
+        run: gradle :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --stacktrace
       - name: Publicar somente APK Debug, nunca Release assinada
         if: success()
         uses: actions/upload-artifact@v4

@@ -26,8 +26,20 @@ internal fun GuardianPanel(db: FirebaseFirestore, uid: String) {
     var authorAppeal by remember(uid) { mutableStateOf("") }
     var enableConfirm by remember(uid) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val observedUid = rememberGuardianAuthUid()
 
-    DisposableEffect(db, uid) {
+    DisposableEffect(db, uid, observedUid) {
+        if (!GuardianUiPolicy.sameSession(uid, observedUid)) {
+            cases = emptyList()
+            config = null
+            selected = null
+            original = ""
+            authorAppeal = ""
+            enableConfirm = false
+            result = ""
+            error = "Sessão alterada. Entre novamente."
+            onDispose { }
+        } else {
         var active = true
         val list = db.collection("guardian_cases").orderBy("createdAt", Query.Direction.DESCENDING)
             .limit(40).addSnapshotListener { snapshot, failure ->
@@ -58,6 +70,7 @@ internal fun GuardianPanel(db: FirebaseFirestore, uid: String) {
                 }
             }
         onDispose { active = false; list.remove(); settings.remove() }
+        }
     }
 
     fun submit(route: String, payload: JSONObject, close: () -> Unit = {}) {
@@ -70,6 +83,10 @@ internal fun GuardianPanel(db: FirebaseFirestore, uid: String) {
         scope.launch {
             val outcome = runCatching { GuardianClient.call(uid, route, payload) }
             busy = false
+            if (!GuardianUiPolicy.sameSession(uid, FirebaseAuth.getInstance().currentUser?.uid)) {
+                result = ""
+                return@launch
+            }
             outcome.onSuccess {
                 close()
                 result = "Operação confirmada pelo servidor: " + it
@@ -97,14 +114,14 @@ internal fun GuardianPanel(db: FirebaseFirestore, uid: String) {
                 "Servidor do Guardião V2 ausente neste APK; ações desativadas.",
                 style = MaterialTheme.typography.bodySmall)
             Button(enabled = !busy && GuardianClient.configured && config != null && !stopped &&
-                GuardianUiPolicy.sameSession(uid, FirebaseAuth.getInstance().currentUser?.uid),
+                GuardianUiPolicy.sameSession(uid, observedUid),
                 onClick = {
                     submit("/admin/config", JSONObject().put("enabled", false)
                         .put("allowHold", false).put("emergencyStop", true))
                 }) { Text("Desligamento de emergência") }
             OutlinedButton(enabled = !busy && GuardianClient.configured &&
                 config != null && (stopped || config?.get("enabled") != true) &&
-                GuardianUiPolicy.sameSession(uid, FirebaseAuth.getInstance().currentUser?.uid),
+                GuardianUiPolicy.sameSession(uid, observedUid),
                 onClick = { enableConfirm = true }) { Text("Preparar triagem sem retenção") }
             Text("A ativação requer autorização no ambiente Cloudflare e no Firestore. " +
                 "Nenhuma ação automática está liberada apenas pelo painel.",
@@ -115,7 +132,7 @@ internal fun GuardianPanel(db: FirebaseFirestore, uid: String) {
                     style = MaterialTheme.typography.bodySmall)
                 if (entry.status == "held") OutlinedButton(
                     enabled = !busy && GuardianClient.configured &&
-                        GuardianUiPolicy.sameSession(uid, FirebaseAuth.getInstance().currentUser?.uid),
+                        GuardianUiPolicy.sameSession(uid, observedUid),
                     onClick = {
                         if (!GuardianUiPolicy.sameSession(uid, FirebaseAuth.getInstance().currentUser?.uid)) return@OutlinedButton
                         selected = entry
@@ -163,7 +180,7 @@ internal fun GuardianPanel(db: FirebaseFirestore, uid: String) {
             },
             confirmButton = {
                 TextButton(enabled = GuardianUiPolicy.canReview(uid,
-                    FirebaseAuth.getInstance().currentUser?.uid, case.status,
+                    observedUid, case.status,
                     GuardianClient.configured, busy, note,
                     original.isNotBlank() && !original.startsWith("Consultando") &&
                         !original.startsWith("Não foi possível")),

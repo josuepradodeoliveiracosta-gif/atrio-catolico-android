@@ -30,11 +30,13 @@ internal fun GuardiaoAppealsScreen(db: FirebaseFirestore, uid: String) {
     var chosen by remember(uid) { mutableStateOf<String?>(null) }
     var busy by remember(uid) { mutableStateOf(false) }
     var result by remember(uid) { mutableStateOf("") }
+    val observedUid = rememberGuardianAuthUid()
 
-    DisposableEffect(db, uid) {
-        if (!GuardianUiPolicy.sameSession(uid, FirebaseAuth.getInstance().currentUser?.uid)) {
+    DisposableEffect(db, uid, observedUid) {
+        if (!GuardianUiPolicy.sameSession(uid, observedUid)) {
             cases = emptyList()
             chosen = null
+            result = ""
             loading = false
             error = "Sessão alterada. Entre novamente."
             onDispose { }
@@ -98,7 +100,7 @@ internal fun GuardiaoAppealsScreen(db: FirebaseFirestore, uid: String) {
                         Text("Sua contestação: ${entry.appealText}")
                     if (entry.status == "held" && entry.appealText.isBlank())
                         OutlinedButton(enabled = !busy && GuardianUiPolicy.sameSession(uid,
-                            FirebaseAuth.getInstance().currentUser?.uid),
+                            observedUid),
                             onClick = { if (GuardianUiPolicy.sameSession(uid,
                                 FirebaseAuth.getInstance().currentUser?.uid)) chosen = entry.id }) {
                             Text("Solicitar revisão")
@@ -123,7 +125,7 @@ internal fun GuardiaoAppealsScreen(db: FirebaseFirestore, uid: String) {
             },
             confirmButton = {
                 TextButton(enabled = GuardianUiPolicy.canAppeal(uid,
-                    FirebaseAuth.getInstance().currentUser?.uid, target.status,
+                    observedUid, target.status,
                     target.appealText, busy, note), onClick = {
                     if (!GuardianUiPolicy.canAppeal(uid, FirebaseAuth.getInstance().currentUser?.uid,
                             target.status, target.appealText, busy, note)) {
@@ -137,6 +139,11 @@ internal fun GuardiaoAppealsScreen(db: FirebaseFirestore, uid: String) {
                             "appealedAt" to FieldValue.serverTimestamp())
                     ).addOnCompleteListener { task ->
                         busy = false
+                        if (!GuardianUiPolicy.sameSession(uid, FirebaseAuth.getInstance().currentUser?.uid)) {
+                            chosen = null
+                            result = ""
+                            return@addOnCompleteListener
+                        }
                         if (task.isSuccessful) {
                             chosen = null
                             result = "Contestação registrada para análise humana."
