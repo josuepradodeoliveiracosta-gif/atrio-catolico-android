@@ -156,8 +156,8 @@ class Check(unittest.TestCase):
   with patch.object(m,"qa_key_from_firebase_cli",return_value="A"*35),patch.object(
     m,"call",return_value=(200,{"projectId":m.PROJECT})) as api,patch.object(
     m,"qa_worker_post",return_value=(503,"qa_bridge_disabled")) as probe,patch(
-    "sys.argv",["qa-auth-termux.py","--test","--bridge-remote"]),patch.object(
-    m,"input",side_effect=AssertionError("must not prompt")),contextlib.redirect_stdout(io.StringIO()) as out:
+    "sys.argv",["qa-auth-termux.py","--test","--bridge-remote"]),patch(
+    "builtins.input",side_effect=AssertionError("must not prompt")),contextlib.redirect_stdout(io.StringIO()) as out:
    self.assertEqual(m.main(),1)
   self.assertEqual(api.call_count,1)
   probe.assert_called_once_with()
