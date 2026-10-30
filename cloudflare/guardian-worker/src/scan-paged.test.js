@@ -159,3 +159,45 @@ test('scanPage rejects updatedAt for replies and reports before network',async()
  await assert.rejects(db.scanPage('reports',range),/invalid_scan_page/);
  await assert.rejects(db.scanPage('replies',range),/invalid_scan_page/);
 });
+
+test('edição concorrente na segunda página não avança cursor e é reprocessada',async()=>{
+ const db=new CheckpointDb(65);
+ let conflicted=false;
+ const flaky={...callbacks,onDocument:async(db,item)=>{
+   if(item.name.endsWith('/posts/p019')&&!conflicted){
+     conflicted=true;
+     return 'changed';
+   }
+   db.calls.push(item.name);
+   return 'clear';
+ }};
+ const first=await scanPagedCycle(db,{enabled:true},flaky,now);
+ assert.equal(first.changed,1);
+ assert.equal(first.pausedGroups,1);
+ assert.equal(first.error,0);
+ const saved=db.states.get('guardian_runtime/scan_posts');
+ assert.equal(saved.fields.mode.stringValue,'running');
+ assert.ok(saved.fields.cursorName.stringValue.endsWith('/posts/p035'));
+ assert.equal(db.calls.includes(root+'posts/p019'),false);
+ const second=await scanPagedCycle(db,{enabled:true},callbacks,now);
+ assert.equal(second.backlogGroups,0);
+ assert.equal(second.error,0);
+ assert.equal(db.states.get('guardian_runtime/scan_posts').fields.mode.stringValue,'complete');
+ assert.equal(new Set(db.calls).size,65);
+ assert.ok(db.calls.includes(root+'posts/p019'));
+});
+test('edição concorrente na primeira página preserva checkpoint inicial',async()=>{
+ const db=new CheckpointDb(5);
+ const first=await scanPagedCycle(db,{enabled:true},{
+  onDocument:async()=> 'changed',
+  onReport:async()=> 'ignored'
+ },now);
+ assert.equal(first.changed,1);
+ assert.equal(first.pausedGroups,1);
+ const state=db.states.get('guardian_runtime/scan_posts');
+ assert.equal(state.fields.cursorName.stringValue,'');
+ assert.equal(state.fields.mode.stringValue,'running');
+ const second=await scanPagedCycle(db,{enabled:true},callbacks,now);
+ assert.equal(second.clear,5);
+ assert.equal(db.states.get('guardian_runtime/scan_posts').fields.mode.stringValue,'complete');
+});
