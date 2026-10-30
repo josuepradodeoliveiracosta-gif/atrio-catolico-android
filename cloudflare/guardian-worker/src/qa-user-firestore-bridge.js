@@ -20,6 +20,35 @@ export const qaBridgeEnabled=env=>env?.GUARDIAN_V2_TEST_MODE==='true'
  && env.GUARDIAN_V2_QA_READER_PROJECT===QA_PROJECT
  && !env.GUARDIAN_FIREBASE_SERVICE_ACCOUNT_JSON
  && !env.GUARDIAN_FIREBASE_PROJECT_ID;
+// Reject unexpectedly large API responses, including streamed replies with a
+// missing or untrustworthy Content-Length. No payload is logged or echoed.
+const MAX_QA_RESPONSE_BYTES=8192;
+async function boundedQaJson(response){
+ const announced=response.headers.get('content-length');
+ if(announced!==null){
+  const length=Number(announced);
+  if(!Number.isSafeInteger(length)||length<0||length>MAX_QA_RESPONSE_BYTES)
+   throw Error('invalid_qa_response_size');
+ }
+ const reader=response.body?.getReader();
+ if(!reader)throw Error('invalid_qa_response_body');
+ const chunks=[];let total=0;
+ try{
+  for(;;){
+   const {done,value}=await reader.read();
+   if(done)break;
+   total+=value.byteLength;
+   if(total>MAX_QA_RESPONSE_BYTES){
+    await reader.cancel();
+    throw Error('invalid_qa_response_size');
+   }
+   chunks.push(value);
+  }
+ }finally{reader.releaseLock();}
+ const data=new Uint8Array(total);let offset=0;
+ for(const chunk of chunks){data.set(chunk,offset);offset+=chunk.byteLength;}
+ return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(data));
+}
 export async function qaFixtureRequest(request,env,{fetcher=fetch}={}){
  if(!qaBridgeEnabled(env))return reply(503,'qa_bridge_disabled');
  if(request.method!=='POST')return reply(404,'not_found');
@@ -36,7 +65,7 @@ export async function qaFixtureRequest(request,env,{fetcher=fetch}={}){
   if(result.status===401||result.status===403)return reply(403,'forbidden');
   if(result.status===404)return reply(404,'fixture_missing');
   if(!result.ok)return reply(503,'qa_bridge_unavailable');
-  const data=await result.json();
+  const data=await boundedQaJson(result);
   if(data?.name!==QA_RESOURCE+'/posts/qa_post_1'||
     data.fields?.qaFixture?.booleanValue!==true ||
     typeof data.fields?.title?.stringValue!=='string'||
