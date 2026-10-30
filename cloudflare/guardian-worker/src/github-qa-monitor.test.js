@@ -85,9 +85,14 @@ test('monitor não inventa aprovação de job ausente',async()=>{
 test('cron QA de 15 min agenda monitor apenas na virada UTC da hora',async()=>{
  const originalFetch=globalThis.fetch,originalLog=console.log;
  let called=0, scheduled=0;const logs=[];
+ // O agendamento simulado usa data fixa, mas o monitor valida a idade da
+ // execução contra Date.now() real. Usar uma resposta atual APENAS neste
+ // teste evita que a fixture expire após 24h e falsifique falha do cron.
+ // Os testes explícitos de resultado antigo continuam cobrindo "stale".
+ const recentCronFeed={workflow_runs:[{...run,updated_at:new Date().toISOString()}]};
  globalThis.fetch=async(url)=>{
   called++;
-  return new Response(JSON.stringify(called===1?feed:jobs),{status:200});
+  return new Response(JSON.stringify(called===1?recentCronFeed:jobs),{status:200});
  };
  console.log=(...a)=>logs.push(a.join(' '));
  try{
