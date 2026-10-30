@@ -1,0 +1,44 @@
+name: Smoke remoto Guardião QA — sem Firebase e sem deploy
+
+on:
+  push:
+    branches: [feature/guardiao-autonomo-20261029]
+    paths:
+      - '.github/workflows/guardiao-qa-remote-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  readonly-qa-smoke:
+    name: Worker de testes — respostas seguras de HTTP
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Confirma isolamento, bloqueio admin e Firebase desligado
+        shell: bash
+        env:
+          QA_BASE: https://atrio-guardian-v2-qa.atrio-catolico.workers.dev
+        run: |
+          set -euo pipefail
+
+          health_status=$(curl -sS --retry 2 --connect-timeout 8 --max-time 20 \
+            -o /tmp/guardian-health.json -w '%{http_code}' "$QA_BASE/health")
+          test "$health_status" = "200"
+          grep -Fq '"status":"guardian_v2_qa_safe"' /tmp/guardian-health.json
+
+          admin_status=$(curl -sS --retry 2 --connect-timeout 8 --max-time 20 \
+            -H 'Content-Type: application/json' -X POST \
+            --data '{"enabled":true,"allowHold":true,"emergencyStop":false}' \
+            -o /tmp/guardian-admin-denied.json -w '%{http_code}' "$QA_BASE/admin/config")
+          test "$admin_status" = "503"
+          grep -Fq '"status":"qa_read_only"' /tmp/guardian-admin-denied.json
+
+          fixture_status=$(curl -sS --retry 2 --connect-timeout 8 --max-time 20 \
+            -H 'Content-Type: application/json' -X POST \
+            -o /tmp/guardian-fixture-denied.json -w '%{http_code}' "$QA_BASE/qa/firebase-fixture")
+          test "$fixture_status" = "503"
+          grep -Fq '"status":"qa_bridge_disabled"' /tmp/guardian-fixture-denied.json
+
+          echo "GUARDIAN QA REMOTE SMOKE PASS: health 200, admin 503, Firebase bridge 503"
