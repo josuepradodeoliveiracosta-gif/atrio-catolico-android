@@ -1,3 +1,5 @@
 Teste remoto de curta duracao aprovado; rota QA, token falso, bloqueio Firestore; desligar ponte apos execucao.
 
 Segundo ensaio de QA com espera de propagacao e retornos sem dados privados.
+
+Terceiro smoke: POST sem corpo via Node fetch, controle de rate-limit e D1 QA.
