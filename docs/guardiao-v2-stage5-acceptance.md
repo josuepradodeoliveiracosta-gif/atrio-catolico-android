@@ -52,3 +52,19 @@
 - Revisão `9be24a423a6bc7e22244953e5ba68ff810eed08d` adicionou à CI testes HTTP remotos sem segredos e sem escrita: `GET /health` retornou `200 guardian_v2_qa_safe`; `POST /qa/firebase-fixture` sem token e com JWT falso retornou `503 qa_bridge_disabled`; `POST /admin/config` e `POST /admin/review` retornaram `503 qa_read_only`.
 - O job `Cloudflare QA — health e acesso negado` da execução [41092075372](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/actions/runs/41092075372) terminou `success`, com marca `GUARDIAN_QA_V19_BRIDGE_DISABLED_REMOTE_HTTP_PASS` no log. Isso **confirma bloqueios remotos**, mas não comprova autenticação positiva Firebase QA nem serviço 24/7.
 - Estado da Cloudflare reconfirmado depois do smoke: versão QA v19 `d73bf7c4-5857-4181-af4b-ca7e3385e142`, **100% de tráfego**, e D1 QA `2026-10-30: used=3` (sem aumento). Nova janela de token QA legítimo **não foi aberta**. Produção continua `NO-GO`.
+
+## Bloqueio definitivo da chave JSON em produção (pré-lançamento)
+- O código anterior de `src/firestore.js` aceitava assinar um OAuth JWT com chave privada de conta de serviço caso as flags de produção e identidade estivessem ativadas. Esse desenho não atende à meta de credencial sem chave permanente.
+- Commit `5fdefa5b`: após as verificações de projeto e aprovação, a função `token()` recusa **sempre** o projeto literal `atrio-catolico` com `production_key_auth_disabled`, **antes** de qualquer assinatura, cache ou chamada externa, mesmo quando as duas flags de aprovação são verdadeiras e o JSON parece válido. A rota de QA existente permanece separada e desligada no Worker publicado.
+- Commit `c55ee0fb`: teste regressivo com conta e chave **fictícias**, flags de aprovação ligadas e `fetch` interceptado. A suíte offline [41094718909](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/actions/runs/41094718909) confirmou o novo teste e o motor (159/159 testes Node), QA offline (12/12) e preflight QA; outros jobs precisam de confirmação de conclusão antes de declarar a execução toda aprovada.
+- **Caminho preferencial a estudar (não implantado):** execução sob identidade de serviço de um ambiente Google Cloud que forneça token OAuth efêmero pelo metadata server (por exemplo, Cloud Run), IAM restrito e sem chave JSON. Requer validação real de IAM, operação, faturamento, cotas e rollback. A existência de cota gratuita **não** significa garantia de custo zero. Não criar serviço ou ligar faturamento com base apenas neste documento.
+- **Alternativa externa a estudar:** Workload Identity Federation exige um provedor de identidade que emita credenciais para a execução concreta; o OIDC temporário do GitHub Actions não autentica automaticamente um Worker Cloudflare em operação contínua.
+- A identidade de servidor OAuth bypassa as Firestore Security Rules de clientes. Nenhum papel IAM deve ser aplicado sem teste de mínimo privilégio no projeto QA; uma verificação do código não substitui limites de autorização do Google.
+- Nenhum deploy, chave, identidade IAM, configuração de billing, moderação real ou alteração no projeto `atrio-catolico` foi realizado.
+
+Fontes oficiais:
+- https://docs.cloud.google.com/run/docs/securing/service-identity
+- https://docs.cloud.google.com/iam/docs/workload-identity-federation
+- https://firebase.google.com/docs/firestore/use-rest-api
+- https://firebase.google.com/docs/firestore/security/iam
+- https://cloud.google.com/run/pricing
