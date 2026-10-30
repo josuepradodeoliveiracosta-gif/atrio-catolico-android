@@ -12,6 +12,7 @@ on:
       - 'app/src/main/java/br/com/atriocatolico/ModerationScreen.kt'
       - 'firestore.rules'
       - 'tests/security/**'
+      - 'scripts/guardian-free-capacity.py'
       - '.github/workflows/guardian-ci.yml'
       - '.github/workflows/guardiao-autonomo-qa.yml'
   pull_request:
@@ -25,6 +26,7 @@ on:
       - 'app/src/main/java/br/com/atriocatolico/ModerationScreen.kt'
       - 'firestore.rules'
       - 'tests/security/**'
+      - 'scripts/guardian-free-capacity.py'
       - '.github/workflows/guardian-ci.yml'
       - '.github/workflows/guardiao-autonomo-qa.yml'
   workflow_dispatch:
@@ -64,6 +66,7 @@ jobs:
           python3 scripts/test-bootstrap-qa-fixture.py
           python3 scripts/check-zero-cost-qa.py
           python3 scripts/test-zero-cost-qa.py
+          python3 ../../tests/security/test-guardian-free-capacity.py
       - name: Verificar sintaxe do Worker
         run: node --check cloudflare/guardian-worker/src/index.js
       - name: Validar sintaxe do script que adiciona somente índice QA
