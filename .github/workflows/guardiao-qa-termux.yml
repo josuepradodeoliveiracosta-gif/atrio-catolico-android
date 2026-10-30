@@ -1,0 +1,22 @@
+name: Testar script Firebase QA no Termux (offline)
+on:
+  push:
+    branches: [feature/guardiao-autonomo-20261029]
+    paths:
+      - 'scripts/qa-auth-termux.py'
+      - 'scripts/test-qa-auth-termux.py'
+      - '.github/workflows/guardiao-qa-termux.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  termux-auth:
+    name: Validar configuração QA sem contato Firebase
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verificar sintaxe e testes unitários, sem segredos ou usuários reais
+        run: |
+          python3 -m py_compile scripts/qa-auth-termux.py
+          python3 scripts/test-qa-auth-termux.py
