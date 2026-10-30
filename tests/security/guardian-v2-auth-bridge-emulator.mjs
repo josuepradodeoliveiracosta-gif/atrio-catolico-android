@@ -21,7 +21,10 @@ const FLAGS={
  GUARDIAN_V2_QA_AUTO_DISPATCH:'false',
  GUARDIAN_QA_DISPATCH_READY:'false',
  GUARDIAN_V2_QA_FIRESTORE_BRIDGE:'true', // Apenas injeção local, nunca deploy.
- GUARDIAN_V2_QA_READER_PROJECT:PROJECT
+ GUARDIAN_V2_QA_READER_PROJECT:PROJECT,
+ // Mock in-process: no remote Cloudflare binding and no paid calls.
+ GUARDIAN_QA_GLOBAL_LIMITER:{limit:async()=>({success:true})},
+ GUARDIAN_QA_TOKEN_LIMITER:{limit:async()=>({success:true})}
 };
 const localHost=v=>/^(?:127\.0\.0\.1|localhost):[0-9]+$/.test(v||'');
 assert.ok(localHost(process.env.FIRESTORE_EMULATOR_HOST),'Firestore Emulator obrigatório');

@@ -44,3 +44,18 @@ GUARDIAN_V2_QA_READER_PROJECT = "atrio-catolico-qa-v2"
 ## Próximo bloqueador real
 
 Para o Guardião aplicar moderação permanente, é preciso uma identidade de servidor com permissões mínimas de leitura e escrita sobre **casos/avisos/quarentena**, sob custo gratuito e quotas conhecidas. O token de usuário não autoriza escrever dados administrativos, corretamente. O WIF atual do GitHub é **somente leitura**. Qualquer solução para execução contínua no projeto real exigirá desenho de identidade, execução de QA e autorização específica antes de liberar qualquer sanção.
+
+## Limites preventivos de leitura na ponte QA (29/10/2026)
+
+Implementação **somente na branch da PR #44**; o Worker remoto NÃO foi alterado nem habilitado.
+
+- Dois bindings da Cloudflare Rate Limiting API devem existir para que a ponte efetue qualquer GET:
+  `GUARDIAN_QA_GLOBAL_LIMITER` — limite nominal **20 leituras/minuto por local da Cloudflare**, mesma chave para todas as requisições QA.
+  `GUARDIAN_QA_TOKEN_LIMITER` — limite nominal **3 leituras/minuto por token**, chave baseada em SHA-256 do token (nenhum JWT ou UID bruto é enviado ao limitador).
+- A implementação recusa requisição com **429** quando um binding nega. Na ausência/falha de qualquer binding, retorna **503** sem consultar Firestore (fail-closed). Com a flag do Worker `false`, não consulta limitação nem banco.
+- Os dois bindings estão descritos no `wrangler.qa.toml` isolado com namespaces distintos; confira colisões de namespace, suporte de plano e Wrangler **4.36+** antes de qualquer deploy.
+- **Não é teto estrito**: a API Rate Limiting é *aproximada e local a cada data center*, podendo aceitar requisições adicionais. Não é suficiente para garantir cota gratuita global sob ataque. Para limite estrito, estudar Durable Objects e custo do plano **antes** de autorizar qualquer conexão remota.
+- O token não é autenticado pelo limitador: somente o Firebase Firestore verifica assinatura e permissões na consulta. Rotação de tokens pode contornar limite por token, por isso existe também o limite agregado, igualmente aproximado.
+- Não criar Auth QA remoto, não ativar a flag, não implantar Worker e não contratar recurso pago nesta etapa.
+
+Documentação oficial: https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/

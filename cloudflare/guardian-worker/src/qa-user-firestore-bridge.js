@@ -49,6 +49,27 @@ async function boundedQaJson(response){
  for(const chunk of chunks){data.set(chunk,offset);offset+=chunk.byteLength;}
  return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(data));
 }
+// Two independent, approximate Cloudflare rate-limit bindings are required.
+// Failure/absence denies Firestore reads; no in-memory per-isolate counters.
+// The opaque Firebase ID token is SHA-256 hashed before becoming a limiter key;
+// token values and unverified JWT claims never enter the rate limiter or logs.
+async function qaReadBudgetGate(env,idToken){
+ const global=env?.GUARDIAN_QA_GLOBAL_LIMITER;
+ const perToken=env?.GUARDIAN_QA_TOKEN_LIMITER;
+ if(typeof global?.limit!=='function'||typeof perToken?.limit!=='function')
+  return 'unavailable';
+ try{
+  const shared=await global.limit({key:'qa-firebase-fixture'});
+  if(shared?.success===false)return 'limited';
+  if(shared?.success!==true)return 'unavailable';
+  const hash=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(idToken));
+  const opaque=Array.from(new Uint8Array(hash),b=>b.toString(16).padStart(2,'0')).join('');
+  const personal=await perToken.limit({key:'qa-fixture:'+opaque});
+  if(personal?.success===false)return 'limited';
+  if(personal?.success!==true)return 'unavailable';
+  return 'allowed';
+ }catch{return 'unavailable';}
+}
 export async function qaFixtureRequest(request,env,{fetcher=fetch}={}){
  if(!qaBridgeEnabled(env))return reply(503,'qa_bridge_disabled');
  if(request.method!=='POST')return reply(404,'not_found');
@@ -56,6 +77,9 @@ export async function qaFixtureRequest(request,env,{fetcher=fetch}={}){
  const header=request.headers.get('authorization')||'';
  const matched=/^Bearer ([A-Za-z0-9_-]{10,2048}\.[A-Za-z0-9_-]{10,4096}\.[A-Za-z0-9_-]{10,2048})$/.exec(header);
  if(!matched)return reply(401,'unauthorized');
+ const budget=await qaReadBudgetGate(env,matched[1]);
+ if(budget==='limited')return reply(429,'qa_rate_limited');
+ if(budget!=='allowed')return reply(503,'qa_rate_limit_unavailable');
  // Firestore is responsible for verifying the JWT signature and Rules. Never
  // use decoded-but-unverified token claims for trust or authorization.
  try{

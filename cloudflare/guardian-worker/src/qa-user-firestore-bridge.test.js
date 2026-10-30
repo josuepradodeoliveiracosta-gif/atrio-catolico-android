@@ -2,11 +2,14 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {qaBridgeEnabled,qaFixtureRequest} from './qa-user-firestore-bridge.js';
 
+const allowLimiter={limit:async()=>({success:true})};
 const env={GUARDIAN_V2_TEST_MODE:'true',GUARDIAN_V2_ENABLED:'false',
  GUARDIAN_V2_HOLD_ENABLED:'false',GUARDIAN_V2_QA_SHADOW_READS:'false',
  GUARDIAN_V2_QA_AUTO_DISPATCH:'false',GUARDIAN_QA_DISPATCH_READY:'false',
  GUARDIAN_V2_QA_FIRESTORE_BRIDGE:'true',
- GUARDIAN_V2_QA_READER_PROJECT:'atrio-catolico-qa-v2'};
+ GUARDIAN_V2_QA_READER_PROJECT:'atrio-catolico-qa-v2',
+ GUARDIAN_QA_GLOBAL_LIMITER:allowLimiter,
+ GUARDIAN_QA_TOKEN_LIMITER:allowLimiter};
 const fakeId='a'.repeat(20)+'.'+'b'.repeat(30)+'.'+'c'.repeat(60);
 const req=(header='Bearer '+fakeId,method='POST')=>new Request('https://qa.example/qa/firebase-fixture',{method,headers:{Authorization:header}});
 const doc=(body='Como funciona a Missa?',fake=true)=>({
@@ -156,4 +159,92 @@ test('rejeita UTF-8 inválido na resposta remota sem exceção pública',async()
   new Response(Uint8Array.of(0xff,0xfe),{status:200})});
  assert.equal(response.status,503);
  assert.deepEqual(await response.json(),{status:'qa_bridge_unavailable'});
+});
+
+test('limites obrigatórios: ausência de binding falha sem consulta Firebase',async()=>{
+ let calls=0;
+ for(const patch of [
+  {GUARDIAN_QA_GLOBAL_LIMITER:undefined},
+  {GUARDIAN_QA_TOKEN_LIMITER:undefined},
+  {GUARDIAN_QA_GLOBAL_LIMITER:{limit:null}},
+  {GUARDIAN_QA_TOKEN_LIMITER:{limit:null}}
+ ]){
+  const res=await qaFixtureRequest(req(),{...env,...patch},{
+   fetcher:async()=>{calls++;throw Error('não deveria consultar');}
+  });
+  assert.equal(res.status,503);
+  assert.deepEqual(await res.json(),{status:'qa_rate_limit_unavailable'});
+ }
+ assert.equal(calls,0);
+});
+test('limite global 429 impede chamada e dispensa limite individual',async()=>{
+ let perToken=0,network=0;
+ const res=await qaFixtureRequest(req(),{
+  ...env,
+  GUARDIAN_QA_GLOBAL_LIMITER:{limit:async({key})=>{
+   assert.equal(key,'qa-firebase-fixture');return {success:false};}},
+  GUARDIAN_QA_TOKEN_LIMITER:{limit:async()=>{perToken++;return {success:true};}}
+ },{fetcher:async()=>{network++;throw Error('no');}});
+ assert.equal(res.status,429);
+ assert.deepEqual(await res.json(),{status:'qa_rate_limited'});
+ assert.equal(perToken,0);
+ assert.equal(network,0);
+});
+test('limite por token 429 impede chamada Firestore',async()=>{
+ let network=0;
+ const res=await qaFixtureRequest(req(),{
+  ...env,GUARDIAN_QA_TOKEN_LIMITER:{limit:async()=>({success:false})}
+ },{fetcher:async()=>{network++;throw Error('no');}});
+ assert.equal(res.status,429);
+ assert.equal(network,0);
+ assert.deepEqual(await res.json(),{status:'qa_rate_limited'});
+});
+test('limites que falham ou retornam resposta inesperada negam por padrão',async()=>{
+ let network=0;
+ for(const patch of [
+  {GUARDIAN_QA_GLOBAL_LIMITER:{limit:async()=>{throw Error(fakeId);}}},
+  {GUARDIAN_QA_GLOBAL_LIMITER:{limit:async()=>({})}},
+  {GUARDIAN_QA_TOKEN_LIMITER:{limit:async()=>{throw Error(fakeId);}}},
+  {GUARDIAN_QA_TOKEN_LIMITER:{limit:async()=>({success:'true'})}}
+ ]){
+  const res=await qaFixtureRequest(req(),{...env,...patch},{
+   fetcher:async()=>{network++;throw Error('no');}
+  });
+  assert.equal(res.status,503);
+  const raw=await res.text();
+  assert.equal(raw,'{"status":"qa_rate_limit_unavailable"}');
+  assert.ok(!raw.includes(fakeId));
+ }
+ assert.equal(network,0);
+});
+test('tokens viram chaves SHA-256 estáveis sem enviar o JWT bruto ao limitador',async()=>{
+ const keys=[];
+ const second='z'.repeat(20)+'.'+'y'.repeat(30)+'.'+'x'.repeat(60);
+ const localEnv={...env,
+  GUARDIAN_QA_GLOBAL_LIMITER:{limit:async({key})=>{
+   assert.equal(key,'qa-firebase-fixture');return {success:true};}},
+  GUARDIAN_QA_TOKEN_LIMITER:{limit:async({key})=>{
+   keys.push(key);return {success:true};}}
+ };
+ const fetcher=async()=>new Response(JSON.stringify(doc()),{status:200});
+ for(const header of ['Bearer '+fakeId,'Bearer '+fakeId,'Bearer '+second]){
+  const res=await qaFixtureRequest(req(header),localEnv,{fetcher});
+  assert.equal(res.status,200);
+ }
+ assert.equal(keys.length,3);
+ assert.match(keys[0],/^qa-fixture:[0-9a-f]{64}$/);
+ assert.equal(keys[0],keys[1]);
+ assert.notEqual(keys[0],keys[2]);
+ assert.ok(keys.every(k=>!k.includes(fakeId)&&!k.includes(second)));
+});
+test('caminho desligado e bearer inválido não consultam quota nem Firestore',async()=>{
+ let checks=0,requests=0;
+ const blocked={...env,GUARDIAN_V2_QA_FIRESTORE_BRIDGE:'false',
+  GUARDIAN_QA_GLOBAL_LIMITER:{limit:async()=>{checks++;throw Error('no');}},
+  GUARDIAN_QA_TOKEN_LIMITER:{limit:async()=>{checks++;throw Error('no');}}};
+ const fetcher=async()=>{requests++;throw Error('no');};
+ assert.equal((await qaFixtureRequest(req(),blocked,{fetcher})).status,503);
+ assert.equal((await qaFixtureRequest(req('Bearer malformed'),env,{fetcher})).status,401);
+ assert.equal(checks,0);
+ assert.equal(requests,0);
 });

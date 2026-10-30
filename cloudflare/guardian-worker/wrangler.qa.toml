@@ -18,3 +18,21 @@ GUARDIAN_QA_DISPATCH_READY = "false" # Segundo bloqueio; manter falso sem autori
 
 [triggers]
 crons = ["*/15 * * * *"]
+
+# Preparado somente para futura ativação QA, com flag FIRESTORE_BRIDGE=false.
+# Cloudflare Rate Limiting API é aproximada por local de atendimento:
+# NÃO configura teto global rígido de leituras nem libera implantação.
+# Wrangler v4.36+ necessário para estes bindings.
+[[ratelimits]]
+name = "GUARDIAN_QA_GLOBAL_LIMITER"
+namespace_id = "874201"
+[ratelimits.simple]
+limit = 20
+period = 60
+
+[[ratelimits]]
+name = "GUARDIAN_QA_TOKEN_LIMITER"
+namespace_id = "874202"
+[ratelimits.simple]
+limit = 3
+period = 60
