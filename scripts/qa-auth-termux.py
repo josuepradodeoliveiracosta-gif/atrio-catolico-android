@@ -7,12 +7,14 @@ import argparse
 import getpass
 import json
 import re
+import subprocess
 import sys
 import urllib.error
 import urllib.parse
 import urllib.request
 
 PROJECT="atrio-catolico-qa-v2"
+APP_ID="1:53068022813:web:57fe6acbf9686fa1b5f2f4"
 DOC=f"projects/{PROJECT}/databases/(default)/documents/posts/qa_post_1"
 FIRESTORE="https://firestore.googleapis.com/v1/"+DOC
 AUTH="https://identitytoolkit.googleapis.com/v1/"
@@ -90,22 +92,49 @@ def test_qa(key,email,password):
                 print("QA_TEST_ACCOUNT_REMOVED:" if status==200 else "QA_TEST_ACCOUNT_CLEANUP_REQUIRED:",
                       "YES" if status==200 else "Verificar Authentication > Users no QA")
 
+def qa_key_from_firebase_cli():
+    """Get QA key without displaying or copying it. Bind to exact app & project."""
+    try:
+        command=["firebase","apps:sdkconfig","WEB",APP_ID,
+                 "--project",PROJECT,"--json"]
+        result=subprocess.run(command, capture_output=True, text=True,
+                              timeout=45, check=False)
+        if result.returncode!=0:return None
+        payload=json.loads(result.stdout)
+        if payload.get("status")!="success":return None
+        sdk=payload.get("result",{}).get("sdkConfig")
+        if isinstance(sdk,str):sdk=json.loads(sdk)
+        if not isinstance(sdk,dict):return None
+        if sdk.get("projectId")!=PROJECT or sdk.get("appId")!=APP_ID:
+            return None
+        key=sdk.get("apiKey")
+        if not isinstance(key,str) or not re.fullmatch(r"[A-Za-z0-9_-]{20,120}",key):
+            return None
+        return key
+    except (OSError,subprocess.TimeoutExpired,ValueError,TypeError,AttributeError):
+        return None
+
+
 def main():
     parser=argparse.ArgumentParser(description="Auth e Firestore QA no Termux, sem produção")
     parser.add_argument("--test",action="store_true",help="cria conta QA temporária, testa e exclui")
     args=parser.parse_args()
-    key=getpass.getpass("Chave Web API do Firebase QA (oculta): ").strip()
-    if not re.fullmatch(r"[A-Za-z0-9_-]{20,120}",key):
-        print("QA_KEY_INVALID_FORMAT")
+    key=qa_key_from_firebase_cli()
+    if key is None:
+        print("QA_CLI_CONFIG_UNAVAILABLE: execute firebase login --no-localhost; confira o app QA")
         return 1
+    # Key & project were verified against Firebase Management with CLI login.
+    # The public Auth configuration check is separate: new projects may return 400.
+    print("QA_PROJECT_VERIFIED:",PROJECT)
     code,conf=call("GET",auth_url("projects",key))
     if code!=200:
-        print("QA_PROJECT_CHECK_BLOCKED:",code)
+        reason=conf.get("error",{}).get("message","HTTP_ERROR") if isinstance(conf,dict) else "HTTP_ERROR"
+        print("QA_AUTH_CONFIGURATION_PENDING:",code,reason)
+        print("QA_AUTH_ACTION: habilite E-mail/senha em Authentication SOMENTE no Firebase QA")
         return 1
     if conf.get("projectId")!=PROJECT:
-        print("QA_PROJECT_MISMATCH: não é atrio-catolico-qa-v2; nada criado")
+        print("QA_AUTH_PROJECT_MISMATCH: nada criado")
         return 1
-    print("QA_PROJECT_VERIFIED:",PROJECT)
     if not args.test:
         print("QA_PRECHECK_PASS: nenhuma conta criada. Para testar, use --test.")
         return 0
