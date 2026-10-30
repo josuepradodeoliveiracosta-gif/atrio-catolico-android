@@ -46,6 +46,7 @@ internal fun OnlineAtrioApp(activity: androidx.activity.ComponentActivity) {
     val auth = remember { FirebaseAuth.getInstance() }
     val db = remember { FirebaseFirestore.getInstance() }
     var signedUser by remember { mutableStateOf(auth.currentUser) }
+    var creatingAccount by remember { mutableStateOf(false) }
 
     DisposableEffect(auth) {
         val listener = FirebaseAuth.AuthStateListener { signedUser = it.currentUser }
@@ -55,8 +56,9 @@ internal fun OnlineAtrioApp(activity: androidx.activity.ComponentActivity) {
 
     AtrioTheme {
         val user = signedUser
-        if (user == null) {
-            OnlineAuthScreen(auth = auth, db = db)
+        if (user == null || creatingAccount) {
+            OnlineAuthScreen(auth = auth, db = db,
+                onRegistrationStateChange = { creatingAccount = it })
         } else {
             key(user.uid) { OnlineUserScreen(auth = auth, db = db, user = user) }
         }
@@ -66,13 +68,16 @@ internal fun OnlineAtrioApp(activity: androidx.activity.ComponentActivity) {
         // O projeto oficial mantém a abertura normal (inclusive em builds debug).
         if (!(BuildConfig.DEBUG &&
                 com.google.firebase.FirebaseApp.getInstance().options.projectId == "demo-atrio-v11")) {
-            OpeningVideo(activity, authenticated = user != null)
+            OpeningVideo(activity, authenticated = user != null && !creatingAccount)
         }
     }
 }
 
 @Composable
-private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
+private fun OnlineAuthScreen(
+    auth: FirebaseAuth, db: FirebaseFirestore,
+    onRegistrationStateChange: (Boolean) -> Unit
+) {
     var registering by remember { mutableStateOf(false) }
     var displayName by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
@@ -80,6 +85,33 @@ private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
     var resetInfo by remember { mutableStateOf("") }
+    var pendingProfile by remember { mutableStateOf<FirebaseUser?>(null) }
+
+    fun saveRegistrationProfile(created: FirebaseUser, publicName: String) {
+        if (auth.currentUser?.uid != created.uid) {
+            busy = false
+            pendingProfile = null
+            onRegistrationStateChange(false)
+            return
+        }
+        db.collection("profiles").document(created.uid).set(mapOf(
+            "displayName" to publicName,
+            "createdAt" to FieldValue.serverTimestamp()
+        )).addOnSuccessListener {
+            val update = UserProfileChangeRequest.Builder()
+                .setDisplayName(publicName).build()
+            // Terminar também a atualização do Auth antes de liberar uma troca
+            // de conta. O perfil já foi confirmado pelo servidor neste ponto.
+            created.updateProfile(update).addOnCompleteListener {
+                busy = false
+                pendingProfile = null
+                onRegistrationStateChange(false)
+            }
+        }.addOnFailureListener {
+            busy = false
+            error = "Sua conta foi criada, mas não foi possível salvar o perfil. Tente concluir o cadastro novamente."
+        }
+    }
 
     Column(
         Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Wine, Color(0xFF8B4B5A))))
@@ -98,14 +130,16 @@ private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
                     fontSize = 22.sp, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(14.dp))
                 if (registering) {
-                    OutlinedTextField(displayName, { if (it.length <= 35) displayName = it },
+                    OutlinedTextField(displayName, { if (it.length <= 35) displayName = it }, enabled = !busy,
                         modifier = Modifier.fillMaxWidth().testTag("atrio-auth-name"), label = { Text("Nome público") }, singleLine = true)
                     Spacer(Modifier.height(10.dp))
                 }
-                OutlinedTextField(email, { email = it.take(150) }, modifier = Modifier.fillMaxWidth().testTag("atrio-auth-email"),
+                OutlinedTextField(email, { email = it.take(150) }, enabled = !busy && pendingProfile == null,
+                    modifier = Modifier.fillMaxWidth().testTag("atrio-auth-email"),
                     label = { Text("E-mail") }, singleLine = true)
                 Spacer(Modifier.height(10.dp))
-                OutlinedTextField(password, { password = it.take(128) }, modifier = Modifier.fillMaxWidth().testTag("atrio-auth-password"),
+                OutlinedTextField(password, { password = it.take(128) }, enabled = !busy && pendingProfile == null,
+                    modifier = Modifier.fillMaxWidth().testTag("atrio-auth-password"),
                     label = { Text("Senha (mínimo 6 caracteres)") }, singleLine = true,
                     visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation())
                 if (error.isNotBlank()) {
@@ -125,28 +159,26 @@ private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
                         busy = true; error = ""; resetInfo = ""
                         if (registering) {
                             val publicName = displayName.trim()
-                            auth.createUserWithEmailAndPassword(email.trim(), password)
-                                .addOnSuccessListener { result ->
-                                    val created = result.user
-                                    if (created == null) {
-                                        busy = false; error = "Não foi possível concluir o cadastro."
-                                    } else {
-                                        db.collection("profiles").document(created.uid).set(mapOf(
-                                            "displayName" to publicName,
-                                            "createdAt" to FieldValue.serverTimestamp()
-                                        )).addOnSuccessListener {
-                                            val update = UserProfileChangeRequest.Builder()
-                                                .setDisplayName(publicName).build()
-                                            created.updateProfile(update)
-                                            busy = false
-                                        }.addOnFailureListener { failure ->
-                                            busy = false
-                                            error = "Conta criada, mas o perfil não foi salvo: ${failure.localizedMessage}. Você pode concluir o perfil na próxima tela."
+                            onRegistrationStateChange(true)
+                            val existing = pendingProfile
+                            if (existing != null) {
+                                saveRegistrationProfile(existing, publicName)
+                            } else {
+                                auth.createUserWithEmailAndPassword(email.trim(), password)
+                                    .addOnSuccessListener { result ->
+                                        val created = result.user
+                                        if (created == null) {
+                                            busy = false; error = "Não foi possível concluir o cadastro."
+                                            onRegistrationStateChange(false)
+                                        } else {
+                                            pendingProfile = created
+                                            saveRegistrationProfile(created, publicName)
                                         }
+                                    }.addOnFailureListener { failure ->
+                                        busy = false; error = failure.localizedMessage ?: "Erro ao cadastrar."
+                                        onRegistrationStateChange(false)
                                     }
-                                }.addOnFailureListener { failure ->
-                                    busy = false; error = failure.localizedMessage ?: "Erro ao cadastrar."
-                                }
+                            }
                         } else {
                             auth.signInWithEmailAndPassword(email.trim(), password)
                                 .addOnCompleteListener { task ->
@@ -155,10 +187,19 @@ private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
                                 }
                         }
                     }
-                ) { Text(if (busy) "Aguarde..." else if (registering) "Criar conta" else "Entrar") }
+                ) { Text(if (busy) "Aguarde..." else if (pendingProfile != null) "Concluir cadastro"
+                    else if (registering) "Criar conta" else "Entrar") }
                 Spacer(Modifier.height(6.dp))
-                TextButton(onClick = { registering = !registering; error = ""; resetInfo = "" }, modifier = Modifier.fillMaxWidth().testTag("atrio-auth-toggle")) {
+                TextButton(enabled = !busy && pendingProfile == null,
+                    onClick = { registering = !registering; error = ""; resetInfo = "" }, modifier = Modifier.fillMaxWidth().testTag("atrio-auth-toggle")) {
                     Text(if (registering) "Já tenho conta" else "Ainda não tenho conta")
+                }
+                if (pendingProfile != null && !busy) {
+                    TextButton(onClick = {
+                        pendingProfile = null
+                        auth.signOut()
+                        onRegistrationStateChange(false)
+                    }, modifier = Modifier.fillMaxWidth()) { Text("Sair desta conta") }
                 }
                 if (!registering) {
                     TextButton(onClick = {
