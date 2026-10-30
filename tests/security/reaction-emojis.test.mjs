@@ -19,38 +19,43 @@ const path='posts/emoji-post/replies/emoji-reply/reactions';
 const ref=doc(a,path,'emoji-a');
 let passed=0;
 async function check(name, action){await action();passed++;console.log('PASS EMOJI',name);}
-function expectLive(db, predicate) {
-  return new Promise((resolve, reject) => {
-    let settled=false,unsubscribe=()=>{},timer;
-    let attempt=0;
-    const finish=(error)=>{
-      if(settled)return;
-      settled=true;
-      clearTimeout(timer);
+// Keep one authenticated listener for the whole realtime scenario.
+// Rapid unsubscribe/resubscribe cycles are known to trigger a transient
+// RESOURCE_EXHAUSTED gRPC frame error in some Firestore Emulator builds.
+// Every state below MUST still come from the other user's onSnapshot callback.
+function openLiveObserver(db) {
+  let closed=false, latest=null, pending=null, failure=null;
+  const settle=(error)=>{
+    if(!pending)return;
+    const current=pending;
+    pending=null;
+    clearTimeout(current.timer);
+    if(error)current.reject(error);else current.resolve();
+  };
+  const unsubscribe=onSnapshot(collection(db,path),{includeMetadataChanges:true},snapshot=>{
+    latest=snapshot.docs.map(d=>({uid:d.id,...d.data()}));
+    if(pending && pending.predicate(latest))settle();
+  },error=>{failure=error;settle(error);});
+  return {
+    wait(predicate) {
+      if(closed)return Promise.reject(new Error('realtime observer closed'));
+      if(failure)return Promise.reject(failure);
+      if(pending)return Promise.reject(new Error('realtime observer already awaiting a change'));
+      return new Promise((resolve,reject)=>{
+        pending={predicate,resolve,reject,
+          timer:setTimeout(()=>settle(new Error('realtime reaction snapshot timeout')),20000)};
+        if(latest!==null && predicate(latest))settle();
+      });
+    },
+    close() {
+      if(closed)return;
+      closed=true;
       unsubscribe();
-      if(error)reject(error);else resolve();
-    };
-    const attach=()=>{
-      attempt++;
-      // O SDK às vezes perde uma transição do stream do Emulator em CI.
-      // O retry RECRIA a escuta do segundo usuário; NÃO substitui a
-      // verificação por um getDocs() e NÃO considera o teste aprovado sem
-      // receber onSnapshot com os dados corretos.
-      unsubscribe=onSnapshot(collection(db,path),{includeMetadataChanges:true},snapshot=>{
-        const rows=snapshot.docs.map(d=>({uid:d.id,...d.data()}));
-        if(predicate(rows))finish();
-      },error=>finish(error));
-      if(settled){unsubscribe();return;}
-      clearTimeout(timer);
-      timer=setTimeout(()=>{
-        unsubscribe();
-        if(attempt>=3)finish(new Error('realtime reaction timeout after 3 subscriptions'));
-        else attach();
-      },9000);
-    };
-    attach();
-  });
+      settle(new Error('realtime observer closed'));
+    }
+  };
 }
+
 try {
   await env.withSecurityRulesDisabled(async ctx=>{
     await setDoc(doc(ctx.firestore(),'posts/emoji-post'),{uid:'emoji-a'});
@@ -58,16 +63,22 @@ try {
   });
   const examples=[...new Set(['heart','prayer','light','👍','❤️','😂','😮','😢','🙏','👨‍👩‍👧‍👦','👩🏽‍💻','🇧🇷','1️⃣','🧑🏾‍🤝‍🧑🏻','👍🏻','👍🏼','👍🏽','👍🏾','👍🏿',...Array.from({length:9},(_,i)=>catalog.find(row=>Number(row[1])===i)[0]),catalog.at(-1)[0]])];
   await check('owner can create, replace and remove without duplicates; second account sees snapshots',async()=>{
-    let seen=expectLive(b,rows=>rows.length===1 && rows[0].kind==='prayer');
-    await assertSucceeds(setDoc(ref,{kind:'prayer',createdAt:serverTimestamp()})); await seen;
-    const created=(await getDoc(ref)).data().createdAt;
-    seen=expectLive(b,rows=>rows.length===1 && rows[0].kind==='👩🏽‍💻');
-    await assertSucceeds(updateDoc(ref,{kind:'👩🏽‍💻'})); await seen;
-    assert.ok((await getDoc(ref)).data().createdAt.isEqual(created));
-    await assertSucceeds(setDoc(doc(b,path,'emoji-b'),{kind:'👩🏽‍💻',createdAt:serverTimestamp()}));
-    assert.equal((await getDocs(collection(a,path))).docs.filter(x=>x.data().kind==='👩🏽‍💻').length,2);
-    seen=expectLive(b,rows=>rows.length===1 && rows[0].uid==='emoji-b');
-    await assertSucceeds(deleteDoc(ref)); await seen;
+    const live=openLiveObserver(b);
+    try {
+      // Wait for an actual initial snapshot before writing, avoiding races
+      // between listen-target registration and the first update.
+      await live.wait(rows=>rows.length===0);
+      let seen=live.wait(rows=>rows.length===1 && rows[0].kind==='prayer');
+      await assertSucceeds(setDoc(ref,{kind:'prayer',createdAt:serverTimestamp()})); await seen;
+      const created=(await getDoc(ref)).data().createdAt;
+      seen=live.wait(rows=>rows.length===1 && rows[0].kind==='👩🏽‍💻');
+      await assertSucceeds(updateDoc(ref,{kind:'👩🏽‍💻'})); await seen;
+      assert.ok((await getDoc(ref)).data().createdAt.isEqual(created));
+      await assertSucceeds(setDoc(doc(b,path,'emoji-b'),{kind:'👩🏽‍💻',createdAt:serverTimestamp()}));
+      assert.equal((await getDocs(collection(a,path))).docs.filter(x=>x.data().kind==='👩🏽‍💻').length,2);
+      seen=live.wait(rows=>rows.length===1 && rows[0].uid==='emoji-b');
+      await assertSucceeds(deleteDoc(ref)); await seen;
+    } finally { live.close(); }
   });
 
   // Avoid accumulating dozens of successful write/delete RPCs before opening
