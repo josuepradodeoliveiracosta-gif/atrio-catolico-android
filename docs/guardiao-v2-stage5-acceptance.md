@@ -8,7 +8,8 @@
 - [x] Worker QA remoto recusa requisições sem token (401), mantém admin fechado (503); D1 QA restringe tentativas; nenhum usuário real foi moderado.
 - [x] Correção do `fetch` do Worker: `redirect: manual`, rejeição explícita de 3xx, sem redirecionar Bearer.
 - [x] **Código na branch de testes** exige `GUARDIAN_V2_QA_BRIDGE_NOT_BEFORE` e `GUARDIAN_V2_QA_BRIDGE_EXPIRES_AT`, ambas ISO 8601 UTC, com janela **até 10 minutos**; fora do intervalo recusa antes de D1/Firebase e confere novamente depois da reserva D1.
-- [ ] Implantar o código com essas duas variáveis **vazias** no Worker QA e demonstrar `qa_bridge_disabled` com a ponte desligada. A versão remota v17 ainda não contém a nova janela.
+- [x] Implantar o código com essas duas variáveis **vazias** no Worker QA, mantendo `GUARDIAN_V2_QA_FIRESTORE_BRIDGE=false`, sem acesso ao Firebase oficial. A versão QA v19 `d73bf7c4-5857-4181-af4b-ca7e3385e142` foi conferida por API com 100% do tráfego.
+- [ ] Confirmar por **smoke HTTP independente** o resultado `503 qa_bridge_disabled` e os bloqueios de administração da versão v19; a implantação por API não substitui esse teste.
 - [ ] Com nova autorização/coordenação de teste, habilitar temporariamente **apenas QA** com um intervalo literal curto, em versão separada, `GUARDIAN_V2_QA_FIRESTORE_BRIDGE=true`, todas as demais flags de moderação `false`; confirmar `GET /health=200`, `POST /admin/config=503`, e `POST /qa/firebase-fixture` anônimo `401`.
 - [ ] Enquanto o intervalo ainda estiver aberto, executar no Termux `python scripts/qa-auth-termux.py --test --bridge-remote` com conta sintética nova, exigir `QA_BRIDGE_REMOTE_PASS`, `QA_TEST_RESULT: PASS` e `QA_TEST_ACCOUNT_REMOVED: YES`. Não compartilhar e-mail, senha, token nem API key.
 - [ ] Confirmar consumo de no máximo **uma reserva D1 adicional** para o teste positivo, sem ultrapassar 12/dia, e verificar o bloqueio por janela expirada. Mesmo com autoexpiração, **restaurar a versão QA com ponte=false** e confirmar pela versão ativa na Cloudflare, não pelo endpoint de configurações da última versão.
@@ -38,3 +39,11 @@
 - Referências: https://docs.cloud.google.com/iam/docs/workload-identity-federation ; https://firebase.google.com/docs/firestore/security/iam ; https://developers.cloudflare.com/workers/runtime-apis/fetch/ .
 
 **GO para produção:** somente quando TODOS os itens pendentes estiverem comprovados e houver nova autorização expressa. Até então: **NO-GO**.
+
+## Nova versão QA segura — 30/10/2026
+- Commit fonte `752fdf251515d5bd24e4fd3f1145bdba235fad4b`: data UTC canônica, janela máxima de 10 minutos e falha fechada. GitHub Actions [41090114698](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/actions/runs/41090114698): **success** para os 6 jobs efetivos; jobs remotos opcionais ignorados, conforme o desenho.
+- Worker `atrio-guardian-v2-qa` versão **19**, ID `d73bf7c4-5857-4181-af4b-ca7e3385e142`, criado a partir de 10 módulos da branch, com **100% do tráfego QA** confirmado por `GET /deployments` (deployment `e5e9320c-2f8b-4a2d-b565-3496eb9fcef2`).
+- Configuração lida por API: `GUARDIAN_V2_TEST_MODE=true`, `GUARDIAN_V2_ENABLED=false`, `GUARDIAN_V2_HOLD_ENABLED=false`, `GUARDIAN_V2_QA_FIRESTORE_BRIDGE=false`, início e fim da janela **vazios**, dispatch desativado, limitadores QA e D1 exclusivo existentes; nenhum binding de segredo.
+- Versão anterior segura para eventual rollback: v17 `b76a79ec-01cc-4a01-9801-a2eb957a07f1`. Não restaurar versões temporárias que tenham ponte habilitada.
+- Workflow de smoke remoto foi provocado por alteração isolada em `.github/workflows/guardiao-qa-remote-smoke.yml`, commit `907c622bd86d9b2508b516e2bf4e02a4e87a76d6`; **verificar resultado antes de afirmar aprovação HTTP**. Nenhum token QA real enviado, nem moderação do Firebase oficial ativada.
+- A ponte com token QA verdadeiro, IAM de servidor, custo zero comprovado, moderação contínua e produção permanecem **NO-GO**. `main`, backups, Workers Push/Avatar, regras oficiais e APK Release intocados.
