@@ -3,6 +3,7 @@
 // does NOT validate arbitrary identity claims or elevate any user privileges.
 // No service accounts, Firestore writes, user content in responses, or log data.
 import {classify,decide} from './policy.js';
+import {reserveQaDailyRead} from './qa-d1-budget.js';
 
 const QA_PROJECT='atrio-catolico-qa-v2';
 const QA_RESOURCE='projects/'+QA_PROJECT+'/databases/(default)/documents';
@@ -70,7 +71,7 @@ async function qaReadBudgetGate(env,idToken){
   return 'allowed';
  }catch{return 'unavailable';}
 }
-export async function qaFixtureRequest(request,env,{fetcher=fetch}={}){
+export async function qaFixtureRequest(request,env,{fetcher=fetch,clock=Date.now}={}){
  if(!qaBridgeEnabled(env))return reply(503,'qa_bridge_disabled');
  if(request.method!=='POST')return reply(404,'not_found');
  if(request.body!==null)return reply(400,'invalid_request');
@@ -80,6 +81,10 @@ export async function qaFixtureRequest(request,env,{fetcher=fetch}={}){
  const budget=await qaReadBudgetGate(env,matched[1]);
  if(budget==='limited')return reply(429,'qa_rate_limited');
  if(budget!=='allowed')return reply(503,'qa_rate_limit_unavailable');
+ // Global daily ceiling is persisted in D1; no memory-local counters or best-effort quotas.
+ const daily=await reserveQaDailyRead(env,{clock});
+ if(daily==='limited')return reply(429,'qa_daily_budget_exhausted');
+ if(daily!=='allowed')return reply(503,'qa_daily_budget_unavailable');
  // Firestore is responsible for verifying the JWT signature and Rules. Never
  // use decoded-but-unverified token claims for trust or authorization.
  try{

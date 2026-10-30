@@ -53,6 +53,7 @@ jobs:
         run: |
           if [ -f package-lock.json ]; then npm ci; else npm install --ignore-scripts; fi
           npm test
+          python3 scripts/check-qa-d1-budget-sql.py
       - name: Verificar sintaxe do Worker
         run: node --check cloudflare/guardian-worker/src/index.js
       - name: Validar sintaxe do script que adiciona somente índice QA

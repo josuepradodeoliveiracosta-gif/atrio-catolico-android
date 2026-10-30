@@ -1,15 +1,25 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {qaBridgeEnabled,qaFixtureRequest} from './qa-user-firestore-bridge.js';
+import {QA_DAILY_READ_LIMIT,QA_D1_RESERVE_SQL,reserveQaDailyRead} from './qa-d1-budget.js';
 
 const allowLimiter={limit:async()=>({success:true})};
+const allowD1={prepare:sql=>{
+ assert.equal(sql,QA_D1_RESERVE_SQL);
+ return {bind:(day,limit)=>{
+  assert.match(day,/^\d{4}-\d{2}-\d{2}$/);
+  assert.equal(limit,12);
+  return {first:async()=>({used:1})};
+ }};
+}};
 const env={GUARDIAN_V2_TEST_MODE:'true',GUARDIAN_V2_ENABLED:'false',
  GUARDIAN_V2_HOLD_ENABLED:'false',GUARDIAN_V2_QA_SHADOW_READS:'false',
  GUARDIAN_V2_QA_AUTO_DISPATCH:'false',GUARDIAN_QA_DISPATCH_READY:'false',
  GUARDIAN_V2_QA_FIRESTORE_BRIDGE:'true',
  GUARDIAN_V2_QA_READER_PROJECT:'atrio-catolico-qa-v2',
  GUARDIAN_QA_GLOBAL_LIMITER:allowLimiter,
- GUARDIAN_QA_TOKEN_LIMITER:allowLimiter};
+ GUARDIAN_QA_TOKEN_LIMITER:allowLimiter,
+ GUARDIAN_QA_BUDGET_DB:allowD1};
 const fakeId='a'.repeat(20)+'.'+'b'.repeat(30)+'.'+'c'.repeat(60);
 const req=(header='Bearer '+fakeId,method='POST')=>new Request('https://qa.example/qa/firebase-fixture',{method,headers:{Authorization:header}});
 const doc=(body='Como funciona a Missa?',fake=true)=>({
@@ -247,4 +257,96 @@ test('caminho desligado e bearer inválido não consultam quota nem Firestore',a
  assert.equal((await qaFixtureRequest(req('Bearer malformed'),env,{fetcher})).status,401);
  assert.equal(checks,0);
  assert.equal(requests,0);
+});
+
+test('D1 obrigatório: ausência ou quebra recusa GET sem tocar Firebase',async()=>{
+ let calls=0;
+ const replacements=[
+  {GUARDIAN_QA_BUDGET_DB:undefined},
+  {GUARDIAN_QA_BUDGET_DB:{prepare:null}},
+  {GUARDIAN_QA_BUDGET_DB:{prepare:()=>({})}},
+  {GUARDIAN_QA_BUDGET_DB:{prepare:()=>({bind:()=>({first:async()=>{throw Error(fakeId)}})})}},
+  {GUARDIAN_QA_BUDGET_DB:{prepare:()=>({bind:()=>({first:async()=>({used:13})})})}}
+ ];
+ for(const patch of replacements){
+  const res=await qaFixtureRequest(req(),{...env,...patch},{fetcher:async()=>{
+   calls++;throw Error('never');
+  }});
+  assert.equal(res.status,503);
+  assert.deepEqual(await res.json(),{status:'qa_daily_budget_unavailable'});
+ }
+ assert.equal(calls,0);
+});
+test('D1 retorna zero linhas com orçamento esgotado: 429 sem GET',async()=>{
+ let calls=0;
+ const exhausted={...env,GUARDIAN_QA_BUDGET_DB:{
+  prepare:sql=>({bind:(date,limit)=>{
+   assert.equal(sql,QA_D1_RESERVE_SQL);
+   assert.equal(limit,QA_DAILY_READ_LIMIT);
+   return {first:async()=>null};
+  }})
+ }};
+ const res=await qaFixtureRequest(req(),exhausted,{fetcher:async()=>{calls++;throw Error('never');}});
+ assert.equal(res.status,429);
+ assert.deepEqual(await res.json(),{status:'qa_daily_budget_exhausted'});
+ assert.equal(calls,0);
+});
+test('D1 utiliza dia UTC e orçamento fixo sem aceitar dados da requisição',async()=>{
+ const observed=[];
+ const store={prepare:sql=>{
+  assert.equal(sql,QA_D1_RESERVE_SQL);
+  return {bind:(day,limit)=>{
+   observed.push({day,limit});
+   return {first:async()=>({used:1})};
+  }};
+ }};
+ assert.equal(await reserveQaDailyRead({GUARDIAN_QA_BUDGET_DB:store},
+  {clock:()=>Date.parse('2026-10-29T23:59:59Z')}),'allowed');
+ assert.equal(await reserveQaDailyRead({GUARDIAN_QA_BUDGET_DB:store},
+  {clock:()=>Date.parse('2026-10-30T00:00:00Z')}),'allowed');
+ assert.deepEqual(observed,[
+  {day:'2026-10-29',limit:12},{day:'2026-10-30',limit:12}
+ ]);
+});
+test('flag desligada, token inválido e limiter 429 não tocam D1',async()=>{
+ let d1=0,network=0;
+ const db={prepare:()=>{d1++;throw Error('no D1 expected');}};
+ const fetcher=async()=>{network++;throw Error('no Firestore expected');};
+ assert.equal((await qaFixtureRequest(req(),{
+  ...env,GUARDIAN_V2_QA_FIRESTORE_BRIDGE:'false',GUARDIAN_QA_BUDGET_DB:db
+ },{fetcher})).status,503);
+ assert.equal((await qaFixtureRequest(req('Bearer malformed'),{
+  ...env,GUARDIAN_QA_BUDGET_DB:db
+ },{fetcher})).status,401);
+ assert.equal((await qaFixtureRequest(req(),{
+  ...env,GUARDIAN_QA_GLOBAL_LIMITER:{limit:async()=>({success:false})},
+  GUARDIAN_QA_BUDGET_DB:db
+ },{fetcher})).status,429);
+ assert.equal(d1,0);assert.equal(network,0);
+});
+test('D1 consome um orçamento por tentativa, inclusive falha no Firebase',async()=>{
+ const days=new Map();let dbCalls=0,fetches=0;
+ const database={prepare:sql=>{
+  assert.equal(sql,QA_D1_RESERVE_SQL);
+  return {bind:(date,limit)=>({first:async()=>{
+   dbCalls++;
+   const used=days.get(date)||0;
+   if(used>=limit)return null;
+   days.set(date,used+1);
+   return {used:used+1};
+  }})};
+ }};
+ const cfg={...env,GUARDIAN_QA_BUDGET_DB:database};
+ const opts={clock:()=>Date.parse('2026-10-29T14:00:00Z'),
+  fetcher:async()=>{fetches++;return new Response('{}',{status:503});}};
+ for(let i=0;i<12;i++){
+  const res=await qaFixtureRequest(req(),cfg,opts);
+  assert.equal(res.status,503);
+  assert.deepEqual(await res.json(),{status:'qa_bridge_unavailable'});
+ }
+ const refused=await qaFixtureRequest(req(),cfg,opts);
+ assert.equal(refused.status,429);
+ assert.equal(fetches,12);
+ assert.equal(dbCalls,13);
+ assert.equal(days.get('2026-10-29'),12);
 });

@@ -59,3 +59,21 @@ Implementação **somente na branch da PR #44**; o Worker remoto NÃO foi altera
 - Não criar Auth QA remoto, não ativar a flag, não implantar Worker e não contratar recurso pago nesta etapa.
 
 Documentação oficial: https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/
+
+## Orçamento global persistente, com teto por dia UTC (preparado, NÃO implantado)
+
+Além dos dois controles aproximados por minuto, a ponte experimental passa a exigir um **terceiro bloqueio independente**, `GUARDIAN_QA_BUDGET_DB`, uma base **D1 exclusiva de testes**. Uma única operação SQL `INSERT ... ON CONFLICT ... DO UPDATE ... WHERE used < 12 RETURNING used` reserva **no máximo 12 tentativas de GET Firestore por data UTC** compartilhadas por todos os usuários, mesmo em localidades diferentes. O teto refere-se **somente a esta rota QA e a este banco D1 único**, não a todo o tráfego Firebase nem a futuras rotas.
+
+- D1 ausente, tabela inexistente, SQL inválido, indisponibilidade ou erro de quota: resposta **503** sem GET Firebase.
+- Orçamento de 12 já consumido: **429** sem GET Firebase. Tentativas gastam crédito mesmo quando a autenticação do Firebase falha ou o GET não retorna documento, pois não há devolução que introduza corrida.
+- As limitações Cloudflare por local continuam antes da consulta D1, para proteger o próprio banco. A reserva atômica de escrita deve operar na base principal D1, sem leitura de réplica e **sem usar um contador de memória no Worker**.
+- Migração SQL local em `cloudflare/guardian-worker/migrations/001_qa_budget.sql`. A suíte executa o mesmo SQL usando SQLite da biblioteca padrão Python, inclusive com múltiplas conexões concorrentes. A integração JavaScript usa mocks de D1; **não equivale a teste D1 real**.
+- **Não foi criada nenhuma base D1** nem inserido `database_id` no `wrangler.qa.toml`: a flag `GUARDIAN_V2_QA_FIRESTORE_BRIDGE=false` continua desligada. Um binding real só poderá ser configurado quando for explicitamente autorizado, após conferir conta, cotas gratuitas e ID do banco isolado. Não usar a base do Átrio.
+- Se vier a ser autorizado, será necessária uma entrada `[[d1_databases]]` com `binding = "GUARDIAN_QA_BUDGET_DB"`, `database_name` QA e `database_id` real do banco de testes, seguida da execução manual da migração **apenas no D1 QA**, e smoke completo com a rota ainda desligada.
+- A documentação atual da Cloudflare informa que D1 está disponível no Workers Free, com quotas diárias que interrompem novas consultas quando atingidas; isso **não significa custo zero garantido em qualquer plano**. Não alterar plano ou habilitar faturamento. Um endpoint público continua sujeito a uso malicioso de D1/Workers mesmo que os GETs Firebase estejam limitados.
+- Tokens Firebase QA reais e permissões de Security Rules ainda não foram testados remotamente. Nenhuma punição, scanner autônomo nem acesso ao banco oficial foi habilitado.
+
+Referências Cloudflare:
+https://developers.cloudflare.com/d1/worker-api/prepared-statements/
+https://developers.cloudflare.com/workers/platform/pricing/
+https://developers.cloudflare.com/changelog/post/2026-09-01-d1-free-tier-limit-enforcement/
