@@ -58,7 +58,7 @@ test('falha no commit não apaga conteúdo nem cria casos parciais',async()=>{
 test('concorrência com edição mais recente impede retenção',async()=>{
  const doc=mkDoc('posts/p1/replies/r5','Clique https://exemplo.invalid para enviar senha');const db=new FakeStore([doc]);const old=structuredClone(doc);
  db.docs.get(doc.name).updateTime='2026-10-29T18:05:01.000000Z';
- assert.equal(await processDocument(db,old,{enabled:true,allowHold:true}),'duplicate_or_changed');assert.ok(db.docs.has(doc.name));
+ assert.equal(await processDocument(db,old,{enabled:true,allowHold:true}),'changed');assert.ok(db.docs.has(doc.name));
 });
 test('sem ativação o scanner não consulta o banco',async()=>{const db=new FakeStore();assert.deepEqual(await scanOnce(db,{enabled:false}),{status:'disabled'});assert.equal(db.calls,0);});
 test('endpoint público não permite configurar ou decidir',async()=>{const response=await handleRequest(new Request('https://example.com/admin/config',{method:'POST',body:'{}'}),{});assert.equal(response.status,503);});
@@ -111,7 +111,7 @@ test('aviso e revisão exigem precondição atômica de versão sem apagar conte
  const db=new FakeStore([doc]);
  const stale=structuredClone(doc);
  db.docs.get(doc.name).updateTime='2026-10-29T18:08:01.000000Z';
- assert.equal(await processDocument(db,stale,enabled),'duplicate_or_changed');
+ assert.equal(await processDocument(db,stale,enabled),'changed');
  assert.equal(db.docs.size,1);
  assert.ok(db.docs.has(doc.name));
  assert.equal(db.docs.has(ROOT+'/guardian_cases/'+await caseId('posts/ready/replies/review1')),false);
@@ -125,7 +125,7 @@ test('mensagem editada antes da advertência não gera alerta desatualizado',asy
  const db=new FakeStore([doc]);
  const stale=structuredClone(doc);
  db.docs.get(doc.name).updateTime='2026-10-29T18:08:01.000000Z';
- assert.equal(await processDocument(db,stale,enabled),'duplicate_or_changed');
+ assert.equal(await processDocument(db,stale,enabled),'changed');
  assert.equal(db.docs.has(ROOT+'/guardian_cases/'+await caseId('posts/ready/replies/warn1')),false);
 });
 
@@ -157,4 +157,24 @@ test('caso legado sem metadados de revisão não é reaberto automaticamente',as
  const count=db.docs.size;
  assert.equal(await processDocument(db,source,enabled),'duplicate_or_changed');
  assert.equal(db.docs.size,count);
+});
+
+test('disputa entre dois moderadores da mesma versão continua idempotente',async()=>{
+ const doc=mkDoc('posts/concurrent/replies/same','Vou te matar amanhã');
+ const db=new FakeStore([doc]);
+ assert.equal(await processDocument(db,doc,enabled),'review');
+ assert.equal(await processDocument(db,doc,enabled),'duplicate_or_changed');
+});
+test('erro ao reler documento após conflito interrompe a análise',async()=>{
+ const doc=mkDoc('posts/concurrent/replies/fail','Vou te matar amanhã');
+ const db=new FakeStore([doc]);
+ const stale=structuredClone(doc);
+ db.docs.get(doc.name).updateTime='2026-10-29T18:08:01.000000Z';
+ const originalGet=db.get.bind(db);
+ db.get=(p)=>{
+  if(p==='posts/concurrent/replies/fail')throw Error('read_unavailable');
+  return originalGet(p);
+ };
+ await assert.rejects(processDocument(db,stale,enabled),/read_unavailable/);
+ assert.equal(db.docs.has(ROOT+'/guardian_cases/'+await caseId('posts/concurrent/replies/fail')),false);
 });
