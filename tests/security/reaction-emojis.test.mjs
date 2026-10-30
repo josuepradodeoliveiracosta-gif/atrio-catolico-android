@@ -30,13 +30,14 @@ function expectLive(db, predicate) {
       unsubscribe();
       if (error) reject(error); else resolve();
     };
-    // O SDK pode emitir primeiro um snapshot do cache e depois apenas uma
-    // transicao de metadados. Sem includeMetadataChanges o teste aguardava
-    // indefinidamente o proximo evento de dados, mesmo com o servidor OK.
+    // No emulador a view autenticada pode iniciar a partir do cache e jamais
+    // emitir um segundo snapshot apenas para a mudança de metadados. Uma
+    // mudança entregue ao observador b e que satisfaz o predicado já comprova
+    // recepção da atualização; não exigir fromCache=false para terminar.
+    // A suite testa separadamente permissões e leituras reais com getDocs().
     const timer = setTimeout(() => finish(new Error('realtime reaction timeout')), 30000);
     unsubscribe = onSnapshot(collection(db, path), {includeMetadataChanges: true}, snapshot => {
-      if (!snapshot.metadata.fromCache &&
-          predicate(snapshot.docs.map(d => ({uid: d.id, ...d.data()})))) finish();
+      if (predicate(snapshot.docs.map(d => ({uid: d.id, ...d.data()})))) finish();
     }, error => finish(error));
     if (settled) unsubscribe();
   });
