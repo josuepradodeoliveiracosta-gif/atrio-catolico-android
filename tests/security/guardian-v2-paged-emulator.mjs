@@ -90,7 +90,7 @@ try{
    assert.ok(Date.parse(oldPost.fields.updatedAt.timestampValue) >
      Date.parse(oldPost.fields.createdAt.timestampValue));
  });
- await check('edição legítima do APK antigo funciona, mas não habilita varredura autônoma',async()=>{
+ await check('edição sem updatedAt é bloqueada no pré-lançamento',async()=>{
    const path='posts/legacy_old_client';
    await env.withSecurityRulesDisabled(async ctx=>
      setDoc(doc(ctx.firestore(),path),{
@@ -100,11 +100,10 @@ try{
      })
    );
    const editor=env.authenticatedContext('qa-editor').firestore();
-   await assertSucceeds(updateDoc(doc(editor,path),{body:'Edição legada permitida'}));
+   await assertFails(updateDoc(doc(editor,path),{body:'Edição sem updatedAt'}));
    const current=await server.get(path);
-   assert.equal(current.fields.body.stringValue,'Edição legada permitida');
-   assert.equal(current.fields.updatedAt,undefined,
-     'Sem updatedAt, scan_post_edits NÃO é cobertura completa; autonomia NO-GO');
+   assert.equal(current.fields.body.stringValue,'Conteúdo legítimo');
+   assert.equal(current.fields.updatedAt,undefined);
  });
  await check('aplicativo não consegue ler nem alterar checkpoint do servidor',async()=>{
   const client=env.authenticatedContext('qa-user').firestore();
