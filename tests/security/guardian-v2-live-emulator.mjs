@@ -6,6 +6,7 @@ import {initializeTestEnvironment,assertFails,assertSucceeds} from '@firebase/ru
 import {doc,setDoc,getDoc,updateDoc,deleteDoc,collection,getDocs,Timestamp} from 'firebase/firestore';
 import {Firestore,caseId,ROOT} from '../../cloudflare/guardian-worker/src/firestore.js';
 import {processDocument,processReport,reviewCase,scanOnce} from '../../cloudflare/guardian-worker/src/index.js';
+import {scanPagedCycle} from '../../cloudflare/guardian-worker/src/scan-paged.js';
 const project='demo-atrio-v11';
 const api='http://127.0.0.1:8089/v1';
 const server=new Firestore('owner',project,api);
@@ -155,6 +156,42 @@ try {
     assert.equal(await processDocument(server,beforeEdit,act),'changed');
     assert.equal(await read('guardian_cases/'+await id(path)),null);
     assert.equal((await getDoc(doc(bob,path))).data().body,'O Catecismo orienta sobre a oração');
+  });
+  await check('varredura com edição concorrente repete página e abre revisão atualizada',async()=>{
+    const path='posts/cat3/replies/retry_race';
+    await env.withSecurityRulesDisabled(async ctx=>
+      setDoc(doc(ctx.firestore(),path),reply('Vou te matar amanhã'))
+    );
+    const stale=await read(path);
+    await env.withSecurityRulesDisabled(async ctx=>
+      updateDoc(doc(ctx.firestore(),path),{
+        body:'Clique https://exemplo.invalid e informe sua senha'
+      })
+    );
+    let first=true;
+    const onlyOne=Object.create(server);
+    onlyOne.scanPage=async (group)=>{
+      if(group!=='replies')return {documents:[],nextCursor:null};
+      if(first){first=false;return {documents:[stale],nextCursor:null};}
+      return {documents:[await read(path)],nextCursor:null};
+    };
+    const when=new Date().toISOString();
+    const initial=await scanPagedCycle(onlyOne,{enabled:true,allowHold:false},{
+      onDocument:processDocument,onReport:processReport
+    },when);
+    assert.equal(initial.changed,1);
+    assert.equal(initial.pausedGroups,1);
+    assert.equal(initial.error,0);
+    assert.equal((await read('guardian_runtime/scan_replies')).fields.mode.stringValue,'running');
+    assert.equal(await read('guardian_cases/'+await id(path)),null);
+    const retry=await scanPagedCycle(onlyOne,{enabled:true,allowHold:false},{
+      onDocument:processDocument,onReport:processReport
+    },when);
+    assert.equal(retry.review,1);
+    assert.equal(retry.changed,0);
+    assert.equal((await read('guardian_runtime/scan_replies')).fields.mode.stringValue,'complete');
+    assert.equal((await read('guardian_cases/'+await id(path))).fields.status.stringValue,'review');
+    assert.equal((await getDoc(doc(bob,path))).exists(),true);
   });
   await check('parada de emergência não varre nenhuma coleção',async()=>{
     assert.deepEqual(await scanOnce(server,{enabled:false}),{status:'disabled'});
