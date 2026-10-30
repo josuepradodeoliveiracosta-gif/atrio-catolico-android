@@ -66,6 +66,13 @@ internal fun GuardiaoAppealsScreen(db: FirebaseFirestore, uid: String) {
         }
     }
 
+    // A private case/notice must never be composed for a different session,
+    // even for a frame before the Firestore snapshot listener is removed.
+    if (!GuardianUiPolicy.sameSession(uid, observedUid)) {
+        Text("Sessão alterada. Entre novamente.")
+        return
+    }
+
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
