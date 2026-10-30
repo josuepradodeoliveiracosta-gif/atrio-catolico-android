@@ -5,6 +5,8 @@ on:
     paths:
       - 'scripts/qa-auth-termux.py'
       - 'scripts/test-qa-auth-termux.py'
+      - 'scripts/qa-bridge-auth-local.mjs'
+      - 'scripts/qa-bridge-auth-local.test.mjs'
       - '.github/workflows/guardiao-qa-termux.yml'
   workflow_dispatch:
 permissions:
@@ -16,7 +18,11 @@ jobs:
     timeout-minutes: 3
     steps:
       - uses: actions/checkout@v4
-      - name: Verificar sintaxe e testes unitários, sem segredos ou usuários reais
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verificar scripts e simular a ponte (sem segredos nem Firebase remoto)
         run: |
           python3 -m py_compile scripts/qa-auth-termux.py
           python3 scripts/test-qa-auth-termux.py
+          node --test scripts/qa-bridge-auth-local.test.mjs

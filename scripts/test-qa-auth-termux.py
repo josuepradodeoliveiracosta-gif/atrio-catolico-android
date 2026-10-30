@@ -109,4 +109,42 @@ class Check(unittest.TestCase):
    self.assertIn("QA_AUTH_CONFIGURATION_PENDING:",out.getvalue())
    self.assertIn("QA_AUTH_ACTION:",out.getvalue())
    self.assertNotIn("A"*35,out.getvalue())
+ def test_bridge_requires_explicit_test_opt_in(self):
+  with patch("sys.argv",["qa-auth-termux.py","--bridge-local"]),patch.object(
+    m,"qa_key_from_firebase_cli",side_effect=AssertionError("no Firebase")):
+   self.assertEqual(m.main(),1)
+ def test_local_bridge_invoked_with_id_token_and_account_cleanup(self):
+  actions=[]
+  def response(method,url,data=None,token=None):
+   actions.append(method)
+   if "accounts:signUp" in url:return (200,{"idToken":"T"*120,"localId":"x"})
+   if "accounts:signInWithPassword" in url:return (200,{"idToken":"R"*120,"localId":"x"})
+   if "accounts:delete" in url:return (200,{})
+   if "firestore.googleapis" in url:
+    return (200,{"name":m.DOC,"fields":{"qaFixture":{"booleanValue":True}}}) if token else (403,{})
+   raise AssertionError(url)
+  with patch.object(m,"call",side_effect=response),patch.object(m,"qa_bridge_local",return_value=True) as probe,contextlib.redirect_stdout(io.StringIO()):
+   self.assertEqual(m.test_qa("A"*34,"temp@example.com","fake_password_123",bridge_local=True),0)
+  probe.assert_called_once_with("R"*120)
+  self.assertEqual(actions,["POST","POST","GET","GET","POST"])
+ def test_failed_local_bridge_still_deletes_account(self):
+  actions=[]
+  def response(method,url,data=None,token=None):
+   actions.append(url)
+   if "accounts:signUp" in url:return (200,{"idToken":"T"*120,"localId":"x"})
+   if "accounts:signInWithPassword" in url:return (200,{"idToken":"R"*120,"localId":"x"})
+   if "accounts:delete" in url:return (200,{})
+   if "firestore.googleapis" in url:
+    return (200,{"name":m.DOC,"fields":{"qaFixture":{"booleanValue":True}}}) if token else (403,{})
+   raise AssertionError(url)
+  with patch.object(m,"call",side_effect=response),patch.object(m,"qa_bridge_local",return_value=False):
+   self.assertEqual(m.test_qa("A"*34,"temp@example.com","fake_password_123",bridge_local=True),1)
+  self.assertEqual(sum("accounts:delete" in x for x in actions),1)
+ def test_bridge_runs_without_printing_or_persisting_id_token(self):
+  from types import SimpleNamespace
+  with patch.object(m.pathlib.Path,"is_file",return_value=True),patch.object(
+    m.subprocess,"run",return_value=SimpleNamespace(returncode=0,stdout="QA_BRIDGE_LOCAL_PASS: qa_fixture_clear\\n")) as sp,contextlib.redirect_stdout(io.StringIO()) as out:
+   assert m.qa_bridge_local("T"*120)
+  self.assertEqual(sp.call_args.kwargs["input"],"T"*120)
+  self.assertNotIn("T"*120,out.getvalue())
 if __name__=="__main__":unittest.main()

@@ -6,6 +6,7 @@ Never saves or prints keys/tokens/passwords. --test creates then deletes one QA 
 import argparse
 import getpass
 import json
+import pathlib
 import re
 import subprocess
 import sys
@@ -47,7 +48,29 @@ def call(method,url,data=None,token=None):
 def auth_url(route,key):
     return AUTH+route+"?key="+urllib.parse.quote(key,safe="")
 
-def test_qa(key,email,password):
+def qa_bridge_local(token):
+    """Run real Worker bridge locally with mocked limits; token only on stdin."""
+    script=pathlib.Path(__file__).with_name("qa-bridge-auth-local.mjs")
+    if not script.is_file():
+        print("QA_BRIDGE_LOCAL_BLOCKED: script ausente")
+        return False
+    try:
+        result=subprocess.run(["node",str(script)],input=token,text=True,
+                              capture_output=True,timeout=20,check=False)
+        line=result.stdout.strip()
+        safe={"QA_BRIDGE_LOCAL_PASS: qa_fixture_clear",
+              "QA_BRIDGE_LOCAL_PASS: qa_fixture_review",
+              "QA_BRIDGE_LOCAL_PASS: qa_fixture_warn"}
+        if result.returncode==0 and line in safe:
+            print(line)
+            return True
+    except (OSError,subprocess.TimeoutExpired):
+        pass
+    print("QA_BRIDGE_LOCAL_BLOCKED: sem leitura QA confirmada")
+    return False
+
+
+def test_qa(key,email,password,bridge_local=False):
     registered_id=None
     token=None
     try:
@@ -86,6 +109,8 @@ def test_qa(key,email,password):
             print("QA_FIXTURE_INVALID")
             return 1
         print("QA_AUTHENTICATED_FIRESTORE_RULES: OK")
+        if bridge_local and not qa_bridge_local(token):
+            return 1
         print("QA_TEST_RESULT: PASS")
         return 0
     finally:
@@ -121,7 +146,12 @@ def qa_key_from_firebase_cli():
 def main():
     parser=argparse.ArgumentParser(description="Auth e Firestore QA no Termux, sem produção")
     parser.add_argument("--test",action="store_true",help="cria conta QA temporária, testa e exclui")
+    parser.add_argument("--bridge-local",action="store_true",
+                        help="com --test, usa a ponte real do Worker localmente; D1/Rate Limits simulados")
     args=parser.parse_args()
+    if args.bridge_local and not args.test:
+        print("QA_BRIDGE_NEEDS_TEST: use --test --bridge-local")
+        return 1
     key=qa_key_from_firebase_cli()
     if key is None:
         print("QA_CLI_CONFIG_UNAVAILABLE: execute firebase login --no-localhost; confira o app QA")
@@ -164,7 +194,7 @@ def main():
         print("QA_TEST_PASSWORD_INVALID")
         return 1
     print("QA_TEMP_ACCOUNT_TEST: cadastro, login, regras, exclusão")
-    return test_qa(key,email,password)
+    return test_qa(key,email,password,bridge_local=args.bridge_local)
 
 if __name__=="__main__":
     try:sys.exit(main())
