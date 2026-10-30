@@ -130,3 +130,30 @@ test('todas as rotas de administração continuam fechadas no Worker QA',async()
  assert.equal(result.status,503);
  assert.deepEqual(await result.json(),{status:'qa_read_only'});
 });
+
+test('rejeita Content-Length excessivo sem carregar payload remoto',async()=>{
+ let calls=0;
+ const response=await qaFixtureRequest(req(),env,{fetcher:async()=>{
+  calls++;
+  return new Response(JSON.stringify(doc()),{status:200,
+   headers:{'content-length':'9000'}});
+ }});
+ assert.equal(calls,1);
+ assert.equal(response.status,503);
+ assert.deepEqual(await response.json(),{status:'qa_bridge_unavailable'});
+});
+test('rejeita resposta grande mesmo sem Content-Length e não devolve dados',async()=>{
+ const payload={...doc(),extra:'SEGREDO_NAO_DEVOLVE_'+'x'.repeat(9000)};
+ const response=await qaFixtureRequest(req(),env,{fetcher:async()=>new Response(
+  JSON.stringify(payload),{status:200})});
+ assert.equal(response.status,503);
+ const raw=await response.text();
+ assert.equal(raw,'{"status":"qa_bridge_unavailable"}');
+ assert.ok(!raw.includes('SEGREDO_NAO_DEVOLVE_'));
+});
+test('rejeita UTF-8 inválido na resposta remota sem exceção pública',async()=>{
+ const response=await qaFixtureRequest(req(),env,{fetcher:async()=>
+  new Response(Uint8Array.of(0xff,0xfe),{status:200})});
+ assert.equal(response.status,503);
+ assert.deepEqual(await response.json(),{status:'qa_bridge_unavailable'});
+});
