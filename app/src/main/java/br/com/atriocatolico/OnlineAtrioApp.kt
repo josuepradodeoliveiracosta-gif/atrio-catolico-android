@@ -349,6 +349,26 @@ private fun OnlineCommunity(
     var deletingPostId by remember(uid) { mutableStateOf<String?>(null) }
     var deletingReplyId by remember(uid) { mutableStateOf<String?>(null) }
     var mutationBusy by remember(uid) { mutableStateOf(false) }
+    // Orientação preventiva, sem enviar texto à rede nem aplicar sanções.
+    var guardianWarning by remember(uid) { mutableStateOf<GuardianPreflight.Warning?>(null) }
+    var guardianPendingSend by remember(uid) { mutableStateOf<(() -> Unit)?>(null) }
+    var guardianPendingCancel by remember(uid) { mutableStateOf<(() -> Unit)?>(null) }
+    fun confirmGuardianBeforeSend(
+        text: String,
+        onCancel: () -> Unit = {},
+        submit: () -> Unit
+    ) {
+        val alert = GuardianPreflight.inspect(text)
+        if (alert == null) submit()
+        else if (guardianPendingSend == null) {
+            guardianWarning = alert
+            guardianPendingSend = submit
+            guardianPendingCancel = onCancel
+        } else {
+            // Não prender o botão Responder se outro aviso já está aberto.
+            onCancel()
+        }
+    }
     var working by remember { mutableStateOf(false) }
     var feedLimit by remember(uid) { mutableStateOf(30) }
     var feedLoading by remember(uid) { mutableStateOf(true) }
@@ -760,13 +780,21 @@ private fun OnlineCommunity(
                 DetailScreen(detail.copy(replies = detailReplies), name,
                     onLike = { toggle("likedPosts", detail.id, detail.liked) },
                     onSave = { toggle("savedPosts", detail.id, detail.saved) },
-                    onReply = { body, done -> reply(detail.id, body, done) },
+                    onReply = { body, done ->
+                        confirmGuardianBeforeSend(body, onCancel = { done(false) }) {
+                            reply(detail.id, body, done)
+                        }
+                    },
                     onDirectReply = if (advancedEngagement) ({ body, target, done ->
-                        reply(detail.id, body, done, target)
+                        confirmGuardianBeforeSend(body, onCancel = { done(false) }) {
+                            reply(detail.id, body, done, target)
+                        }
                     }) else null,
                     currentUid = uid,
                     onMentionReply = if (advancedEngagement) ({ body, participant, done ->
-                        reply(detail.id, body, done, mention = participant)
+                        confirmGuardianBeforeSend(body, onCancel = { done(false) }) {
+                            reply(detail.id, body, done, mention = participant)
+                        }
                     }) else null,
                     reactionsEnabled = advancedEngagement,
                     reactionContent = { item, requested, dismiss ->
@@ -824,7 +852,11 @@ private fun OnlineCommunity(
                         }
                     })
                 Tab.COMMUNITIES -> CommunityScreen(posts) { category -> navigate(Tab.HOME); filter = category }
-                Tab.PUBLISH -> PublishScreen { title, body, category -> publish(title, body, category) }
+                Tab.PUBLISH -> PublishScreen { title, body, category ->
+                    confirmGuardianBeforeSend(title + "\n" + body) {
+                        publish(title, body, category)
+                    }
+                }
                 Tab.SAVED -> SavedScreen(savedDisplay,
                     onDiscover = { navigate(Tab.HOME) }, onOpen = { detailId = it },
                     onLike = { id -> allPosts.firstOrNull { it.id == id }?.let { toggle("likedPosts", id, it.liked) } },
@@ -891,15 +923,18 @@ private fun OnlineCommunity(
                     enabled = !mutationBusy && editedTitle.trim().length in 5..120 &&
                         editedBody.trim().length in 5..1200,
                     onClick = {
-                        mutationBusy = true
-                        db.collection("posts").document(editablePost.id).update(
-                            mapOf("title" to editedTitle.trim(), "body" to editedBody.trim())
-                        ).addOnCompleteListener { result ->
-                            mutationBusy = false
-                            if (result.isSuccessful) {
-                                editingPostId = null
-                                Toast.makeText(context, "Discussão atualizada!", Toast.LENGTH_SHORT).show()
-                            } else message = result.exception?.localizedMessage ?: "Não foi possível editar. Confira as regras."
+                        confirmGuardianBeforeSend(editedTitle + "\n" + editedBody) {
+                            mutationBusy = true
+                            db.collection("posts").document(editablePost.id).update(
+                                mapOf("title" to editedTitle.trim(), "body" to editedBody.trim(),
+                                    "updatedAt" to FieldValue.serverTimestamp())
+                            ).addOnCompleteListener { result ->
+                                mutationBusy = false
+                                if (result.isSuccessful) {
+                                    editingPostId = null
+                                    Toast.makeText(context, "Discussão atualizada!", Toast.LENGTH_SHORT).show()
+                                } else message = result.exception?.localizedMessage ?: "Não foi possível editar. Confira as regras."
+                            }
                         }
                     }
                 ) { Text(if (mutationBusy) "Salvando..." else "Salvar") }
@@ -996,6 +1031,31 @@ private fun OnlineCommunity(
                 }
             }, modifier = Modifier.testTag("atrio-report-post-submit")) { Text("Enviar") } },
             dismissButton = { TextButton(onClick = { reportPost = null }) { Text("Cancelar") } })
+    }
+    if (guardianWarning != null) {
+        fun dismissGuardianWarning(confirmed: Boolean) {
+            val approved = guardianPendingSend
+            val canceled = guardianPendingCancel
+            guardianWarning = null
+            guardianPendingSend = null
+            guardianPendingCancel = null
+            if (confirmed) approved?.invoke() else canceled?.invoke()
+        }
+        AlertDialog(
+            onDismissRequest = { dismissGuardianWarning(false) },
+            title = { Text("Aviso preventivo — Átrio Guardião") },
+            text = { Text(guardianWarning!!.explanation + "\n\n" +
+                "Esta é uma orientação automática local, não uma punição. " +
+                "Você pode revisar o texto ou continuar por sua responsabilidade.") },
+            confirmButton = { TextButton(onClick = { dismissGuardianWarning(true) },
+                modifier = Modifier.testTag("atrio-guardian-continue")) {
+                Text("Publicar mesmo assim")
+            } },
+            dismissButton = { TextButton(onClick = { dismissGuardianWarning(false) },
+                modifier = Modifier.testTag("atrio-guardian-revise")) {
+                Text("Revisar texto")
+            } }
+        )
     }
     if (message.isNotBlank()) {
         AlertDialog(onDismissRequest = { message = "" }, title = { Text("Átrio Católico") },
