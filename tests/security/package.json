@@ -6,6 +6,6 @@
   },
   "private": true,
   "scripts": {
-    "test": "node prepare.mjs && firebase emulators:exec --only firestore --project demo-atrio-v11 \"node public-profile.test.mjs && node moderation.test.mjs && node three-bots.test.mjs && node three-bots-extended.test.mjs && node reaction-emojis.test.mjs\""
+    "test": "node prepare.mjs && firebase emulators:exec --only firestore --project demo-atrio-v11 \"node public-profile.test.mjs && node moderation.test.mjs && node three-bots.test.mjs && node three-bots-extended.test.mjs\" && firebase emulators:exec --only firestore --project demo-atrio-v11 \"node reaction-emojis.test.mjs\""
   }
 }
