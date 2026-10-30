@@ -13,6 +13,6 @@ Esta proposta transfere somente a prevenção local, o endurecimento da sessão 
 
 ## Bloqueios até a liberação
 - Aprovação da compilação, dos testes Firestore, testes unitários e testes Android do recorte. Confirmar administrador ativo e revogado em testes específicos antes de aprovar merge.
-- Comprovação real de Firebase Spark e Workers Free, faturamento desligado e cotas utilizadas; sem cartões, upgrades, serviços ou APIs cobradas.
+- **Custo atual confirmado pelo responsável: R$ 0 (30/10/2026).** Esta informação é uma confirmação do titular, não uma leitura independente do faturamento ou das cotas. Para o escopo atual, não repetir a comprovação financeira como pendência de homologação. Permanecem proibidos upgrades, novos vínculos de faturamento, assinaturas, cartões, serviços cobrados e alterações que criem risco de cobrança. Se surgir novo recurso ou mudar o plano, reavaliar seu custo antes de ativá-lo.
 - Revisão humana da PR, autorização explícita para merge, regras oficiais, assinatura de APK e qualquer mudança em produção.
 - A PR #44 permanece o laboratório experimental e não é substituída por esta proposta; nenhuma operação 24/7 autônoma está autorizada.
