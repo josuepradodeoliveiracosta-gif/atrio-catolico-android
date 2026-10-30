@@ -101,3 +101,17 @@ O `wrangler.qa.toml` agora contém o **ID exato do D1 de testes e seu binding pl
 - Adicionado `.github/workflows/guardiao-qa-remote-smoke.yml`: teste HTTP remoto rápido, sem secrets ou deploy, deve comprovar health 200, rota admin 503 e ponte Firebase 503. Não confundir versão implantada e smoke HTTP: registrar seu resultado separadamente.
 - Se algum teste falhar: manter a flag da ponte desligada e suspender qualquer ativação. Para voltar à versão anterior, usar API Cloudflare Deployments com `be038842-5f7a-40f8-ab2e-d01300043d69` a 100%, mediante revisão da configuração. **Não reverter via alteração de Worker de notificações ou do Firebase oficial.**
 - A etapa 2 requer um projeto Firebase QA realmente existente, regras isoladas, conta fictícia Auth QA, documento `posts/qa_post_1` e validação dos limites; **não habilitar** a ponte Firebase antes de tudo isso.
+
+## Etapa 2 — resultado WIF remoto e preparação da fixture (29/10/2026)
+
+**Consulta real ao projeto QA:** [run 40994180169](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/actions/runs/40994180169) — testes offline e leitura temporária GitHub OIDC/WIF concluídos com sucesso. Resultado fixo `{"fixture":"MISSING","authConfig":"NOT_AUTHORIZED"}`. Logo, `posts/qa_post_1` **não existe** no Firestore QA, e o usuário técnico `guardian-qa-reader` não pode consultar a configuração do Firebase Authentication. Isso **não** prova que o Auth esteja habilitado ou desligado. Nenhuma escrita, conta ou login remoto foi efetuado.
+
+**Preparação para executar só quando houver permissão administrativa própria no Cloud Shell do projeto QA:**
+
+1. Abra o Cloud Shell com o projeto `atrio-catolico-qa-v2` selecionado e confirme que o faturamento está desativado. O script recusa outros projetos e status desconhecido.
+2. Na cópia dessa branch, rode `python3 cloudflare/guardian-worker/scripts/bootstrap-qa-fixture.py` (padrão: **somente GET**, informa ausência sem editar).
+3. Com autorização para criar **somente** a publicação QA e revisão do resultado, execute `python3 cloudflare/guardian-worker/scripts/bootstrap-qa-fixture.py --apply --confirm CREATE_ONLY_QA_FIXTURE`. A execução usa OAuth de usuário do `gcloud`, não muda regras, não cria Auth, não instala chave de serviço e **nunca sobrescreve** documento.
+4. Rode novamente a verificação GitHub `Conferir Firebase QA — apenas leitura WIF` e exija `fixture:READY`. Depois será preciso confirmar Firebase Authentication **no console do QA**, criar uma conta fictícia autorizada e demonstrar leitura com seu Firebase ID token assinado e negação de leitura anônima — o WIF de administrador não comprova Security Rules.
+5. Mantenha `GUARDIAN_V2_QA_FIRESTORE_BRIDGE=false` até os testes com usuário real QA e revisão de cotas e abuso. Não publique novas regras no Firebase oficial.
+
+**Atenção:** mesmo que o documento sintético tenha `qaFixture=true`, ele pode não ser acessível pela identidade de cliente sob as regras atuais. Não enfraquecer regras oficiais para contornar esse teste. A leitura via IAM não substitui autenticação Firebase.
