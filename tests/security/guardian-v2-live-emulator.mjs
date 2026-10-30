@@ -144,6 +144,46 @@ try {
     assert.equal((await getDoc(doc(bob,path))).exists(),true);
     assert.equal(await read('guardian_cases/'+await id(path)),null);
   });
+  await check('colisão em aviso aborta retenção real sem checkpoint falso',async()=>{
+    const path='posts/cat3/replies/notice_collision',target=await id(path);
+    await env.withSecurityRulesDisabled(async ctx=>{
+      const db=ctx.firestore();
+      await setDoc(doc(db,path),reply('Clique https://exemplo.invalid para informar sua senha'));
+      await setDoc(doc(db,'guardian_notices/alice/items/'+target),{
+        title:'Aviso prévio sintético',body:'Conflito intencional de QA'
+      });
+    });
+    await assert.rejects(processDocument(server,await read(path),act),
+      error=>error.status===409);
+    assert.equal((await getDoc(doc(bob,path))).exists(),true);
+    assert.equal(await read('guardian_cases/'+target),null);
+    assert.equal(await read('guardian_audit/'+target),null);
+    assert.equal(await read('guardiao_quarantine/'+target),null);
+    assert.equal((await read('guardian_notices/alice/items/'+target)).fields.title.stringValue,
+      'Aviso prévio sintético');
+  });
+  await check('conflito na auditoria impede restauração humana parcial',async()=>{
+    const path='posts/cat3/replies/review_collision',target=await id(path);
+    await env.withSecurityRulesDisabled(async ctx=>{
+      await setDoc(doc(ctx.firestore(),path),
+        reply('Clique https://exemplo.invalid para informar sua senha'));
+    });
+    assert.equal(await processDocument(server,await read(path),act),'hold');
+    await env.withSecurityRulesDisabled(async ctx=>{
+      await setDoc(doc(ctx.firestore(),'guardian_audit/'+target+'_restored'),{
+        event:'bloqueio de QA preexistente'
+      });
+    });
+    await assert.rejects(reviewCase(server,'admin',{
+      caseId:target,action:'restore',note:'Revisão de segurança com colisão'
+    }),error=>error.status===409);
+    assert.equal((await getDoc(doc(bob,path))).exists(),false,'não restaurou parcialmente');
+    assert.equal((await read('guardian_cases/'+target)).fields.status.stringValue,'held');
+    assert.equal((await read('guardiao_quarantine/'+target)).fields.status.stringValue,'held');
+    assert.equal(await read('guardian_notices/alice/items/'+target+'_review'),null);
+    assert.equal((await read('guardian_audit/'+target+'_restored')).fields.event.stringValue,
+      'bloqueio de QA preexistente');
+  });
   await check('edição concorrente invalida revisão obsoleta antes do commit',async()=>{
     const path='posts/cat3/replies/edited_qa';
     await env.withSecurityRulesDisabled(async ctx=>

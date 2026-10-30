@@ -55,6 +55,21 @@ test('falha no commit não apaga conteúdo nem cria casos parciais',async()=>{
  const doc=mkDoc('posts/p1/replies/r4','Clique https://exemplo.invalid para enviar senha');const db=new FakeStore([doc]);db.commit=async()=>{throw Error('offline')};
  await assert.rejects(processDocument(db,doc,{enabled:true,allowHold:true}));assert.ok(db.docs.has(doc.name));assert.equal(db.docs.size,1);
 });
+test('colisão de aviso não é confundida com moderação concluída',async()=>{
+ const path='posts/p1/replies/notice_conflict';
+ const source=mkDoc(path,'Clique https://exemplo.invalid para informar sua senha');
+ const id=await caseId(path);
+ const note={name:ROOT+'/guardian_notices/alice/items/'+id,
+  updateTime:'2026-10-29T18:00:00.000000Z',fields:{body:str('aviso anterior QA')}};
+ const db=new FakeStore([source,note]);
+ await assert.rejects(processDocument(db,source,{enabled:true,allowHold:true}),
+  error=>error.status===409);
+ assert.ok(db.docs.has(source.name),'resposta original preservada');
+ assert.equal(db.docs.has(ROOT+'/guardian_cases/'+id),false,'nenhum caso órfão');
+ assert.equal(db.docs.has(ROOT+'/guardian_audit/'+id),false,'nenhuma auditoria órfã');
+ assert.equal(db.docs.has(ROOT+'/guardiao_quarantine/'+id),false,'nenhuma retenção parcial');
+ assert.equal(db.docs.size,2,'transação sem efeitos parciais');
+});
 test('concorrência com edição mais recente impede retenção',async()=>{
  const doc=mkDoc('posts/p1/replies/r5','Clique https://exemplo.invalid para enviar senha');const db=new FakeStore([doc]);const old=structuredClone(doc);
  db.docs.get(doc.name).updateTime='2026-10-29T18:05:01.000000Z';

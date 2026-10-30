@@ -61,7 +61,14 @@ export async function processDocument(db,document,settings,now=new Date().toISOS
       // be retried by the scanner; otherwise its checkpoint could skip it.
       const fresh=await db.get(item.path);
       if(fresh?.updateTime&&fresh.updateTime!==item.doc.updateTime)return 'changed';
-      return 'duplicate_or_changed';
+      // A concurrent successful scanner can create the same versioned case.
+      // However, an unrelated conflict (e.g. a pre-existing notice/audit)
+      // must be reported as an error so the paged scan RETRIES this document,
+      // rather than silently checkpointing past content that was never reviewed.
+      const recorded=await db.get('guardian_cases/'+id);
+      if(recorded&&string(recorded,'sourceUpdateTime')===item.doc.updateTime)
+        return 'duplicate_or_changed';
+      throw e;
     }
     throw e;
   }
