@@ -222,4 +222,30 @@ class Check(unittest.TestCase):
    remote.assert_called_once_with("R"*120)
    self.assertEqual(sum("accounts:delete" in x for x in actions),1)
    self.assertNotIn("R"*120,out.getvalue())
+ def test_cleanup_failed_never_reports_qa_pass(self):
+  def response(method,url,data=None,token=None):
+   if "accounts:signUp" in url:return (200,{"idToken":"T"*120,"localId":"x"})
+   if "accounts:signInWithPassword" in url:return (200,{"idToken":"R"*120,"localId":"x"})
+   if "accounts:delete" in url:return (503,{})
+   if "firestore.googleapis" in url:
+    return (200,{"name":m.DOC,"fields":{"qaFixture":{"booleanValue":True}}}) if token else (403,{})
+   raise AssertionError(url)
+  with patch.object(m,"call",side_effect=response),contextlib.redirect_stdout(io.StringIO()) as out:
+   self.assertEqual(m.test_qa("A"*34,"temp@example.com","pw_temp1234"),1)
+  self.assertIn("QA_TEST_ACCOUNT_CLEANUP_REQUIRED",out.getvalue())
+  self.assertIn("QA_TEST_RESULT: FAIL_CLEANUP",out.getvalue())
+  self.assertNotIn("QA_TEST_RESULT: PASS",out.getvalue())
+ def test_cleanup_network_error_never_reports_qa_pass(self):
+  import urllib.error
+  def response(method,url,data=None,token=None):
+   if "accounts:signUp" in url:return (200,{"idToken":"T"*120,"localId":"x"})
+   if "accounts:signInWithPassword" in url:return (200,{"idToken":"R"*120,"localId":"x"})
+   if "accounts:delete" in url:raise urllib.error.URLError("QA unavailable")
+   if "firestore.googleapis" in url:
+    return (200,{"name":m.DOC,"fields":{"qaFixture":{"booleanValue":True}}}) if token else (403,{})
+   raise AssertionError(url)
+  with patch.object(m,"call",side_effect=response),contextlib.redirect_stdout(io.StringIO()) as out:
+   self.assertEqual(m.test_qa("A"*34,"temp@example.com","pw_temp1234"),1)
+  self.assertIn("QA_TEST_RESULT: FAIL_CLEANUP",out.getvalue())
+  self.assertNotIn("QA_TEST_RESULT: PASS",out.getvalue())
 if __name__=="__main__":unittest.main()

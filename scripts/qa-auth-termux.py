@@ -146,6 +146,7 @@ def qa_bridge_local(token):
 def test_qa(key,email,password,bridge_local=False,bridge_remote=False):
     registered_id=None
     token=None
+    completed=False
     try:
         status,created=call("POST",auth_url("accounts:signUp",key),
                            {"email":email,"password":password,"returnSecureToken":True})
@@ -186,14 +187,26 @@ def test_qa(key,email,password,bridge_local=False,bridge_remote=False):
             return 1
         if bridge_remote and not qa_bridge_remote(token):
             return 1
-        print("QA_TEST_RESULT: PASS")
+        completed=True
         return 0
     finally:
+        cleanup_ok=not bool(registered_id)
         if registered_id:
+            status=0
             if token:
-                status,_=call("POST",auth_url("accounts:delete",key),{"idToken":token})
-                print("QA_TEST_ACCOUNT_REMOVED:" if status==200 else "QA_TEST_ACCOUNT_CLEANUP_REQUIRED:",
-                      "YES" if status==200 else "Verificar Authentication > Users no QA")
+                try:
+                    status,_=call("POST",auth_url("accounts:delete",key),{"idToken":token})
+                except (OSError,TimeoutError,ValueError,TypeError):
+                    status=0
+            cleanup_ok=status==200
+            print("QA_TEST_ACCOUNT_REMOVED:" if cleanup_ok else "QA_TEST_ACCOUNT_CLEANUP_REQUIRED:",
+                  "YES" if cleanup_ok else "Verificar Authentication > Users no QA")
+        if completed:
+            if cleanup_ok:
+                print("QA_TEST_RESULT: PASS")
+            else:
+                print("QA_TEST_RESULT: FAIL_CLEANUP")
+                return 1  # A test with a lingering QA account can never PASS.
 
 def qa_key_from_firebase_cli():
     """Get QA key without displaying or copying it. Bind to exact app & project."""
