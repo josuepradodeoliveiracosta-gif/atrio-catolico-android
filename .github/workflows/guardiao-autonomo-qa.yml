@@ -152,7 +152,28 @@ jobs:
             -X POST "$QA_URL/admin/config" \
             --data '{"enabled":true,"allowHold":true,"emergencyStop":false}')
           test "$status" = 503
-          grep -F '"status":"qa_read_only"' /tmp/guardian-qa-denied.json
+          grep -Fq '"status":"qa_read_only"' /tmp/guardian-qa-denied.json
+          # API HTTP real: a ponte QA fica fechada antes de token, D1 e Firebase.
+          bridge_http=$(curl -sS --connect-timeout 8 --max-time 20 \
+            -o /tmp/guardian-qa-bridge-denied.json -w '%{http_code}' \
+            -X POST --data '' "$QA_URL/qa/firebase-fixture")
+          test "$bridge_http" = 503
+          grep -Fq '"status":"qa_bridge_disabled"' /tmp/guardian-qa-bridge-denied.json
+          # Token sintético não pode abrir a ponte nem consumir quota de leitura.
+          forged_token="aaaaaaaaaaaaaaaaaaaa.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+          forged_http=$(curl -sS --connect-timeout 8 --max-time 20 \
+            -o /tmp/guardian-qa-forged-denied.json -w '%{http_code}' \
+            -H "Authorization: Bearer $forged_token" \
+            -X POST --data '' "$QA_URL/qa/firebase-fixture")
+          test "$forged_http" = 503
+          grep -Fq '"status":"qa_bridge_disabled"' /tmp/guardian-qa-forged-denied.json
+          review_http=$(curl -sS --connect-timeout 8 --max-time 20 \
+            -o /tmp/guardian-qa-review-denied.json -w '%{http_code}' \
+            -H 'Content-Type: application/json' -X POST --data '{}' \
+            "$QA_URL/admin/review")
+          test "$review_http" = 503
+          grep -Fq '"status":"qa_read_only"' /tmp/guardian-qa-review-denied.json
+          echo 'GUARDIAN_QA_V19_BRIDGE_DISABLED_REMOTE_HTTP_PASS'
 
   firestore-shadow-integrated:
     name: Guardião V2 — consultas sintéticas QA no emulador
