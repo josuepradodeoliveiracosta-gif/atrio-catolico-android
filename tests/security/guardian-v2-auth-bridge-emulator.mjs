@@ -92,10 +92,10 @@ try{
    assert.equal(url,LIVE);
    assert.equal(options.method,'GET');
    assert.equal(options.headers.Authorization,'Bearer '+TEST_BEARER);
-   assert.equal(options.redirect,'error');
+   assert.equal(options.redirect,'manual');
    return fetch(LOCAL+'/posts/qa_post_1',{
     method:'GET',headers:{...options.headers,Authorization:'Bearer '+emulatorId},
-    redirect:'error',signal:options.signal
+    redirect:'manual',signal:options.signal
    });
   };
   const request=new Request('https://qa.example/qa/firebase-fixture',{
