@@ -1,0 +1,331 @@
+name: QA Guardião Autônomo — testes isolados (sem deploy)
+
+on:
+  push:
+    branches: [feature/guardiao-autonomo-20261029]
+    paths:
+      - 'cloudflare/guardian-worker/**'
+      - 'app/src/main/java/br/com/atriocatolico/Guardiao**'
+      - 'app/src/main/java/br/com/atriocatolico/Guardian**'
+      - 'app/src/test/java/br/com/atriocatolico/Guardian**'
+      - 'app/src/androidTest/java/br/com/atriocatolico/Guardian**'
+      - 'app/src/main/java/br/com/atriocatolico/ModerationScreen.kt'
+      - 'firestore.rules'
+      - 'tests/security/**'
+      - 'app/build.gradle.kts'
+      - 'app/src/main/java/br/com/atriocatolico/MainActivity.kt'
+      - 'scripts/check-guardian-qa-android-isolation.py'
+      - 'tests/security/test-guardian-qa-android-isolation.py'
+      - 'scripts/guardian-free-capacity.py'
+      - '.github/workflows/guardian-ci.yml'
+      - '.github/workflows/guardiao-autonomo-qa.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'cloudflare/guardian-worker/**'
+      - 'app/src/main/java/br/com/atriocatolico/Guardiao**'
+      - 'app/src/main/java/br/com/atriocatolico/Guardian**'
+      - 'app/src/test/java/br/com/atriocatolico/Guardian**'
+      - 'app/src/androidTest/java/br/com/atriocatolico/Guardian**'
+      - 'app/src/main/java/br/com/atriocatolico/ModerationScreen.kt'
+      - 'firestore.rules'
+      - 'tests/security/**'
+      - 'app/build.gradle.kts'
+      - 'app/src/main/java/br/com/atriocatolico/MainActivity.kt'
+      - 'scripts/check-guardian-qa-android-isolation.py'
+      - 'tests/security/test-guardian-qa-android-isolation.py'
+      - 'scripts/guardian-free-capacity.py'
+      - '.github/workflows/guardian-ci.yml'
+      - '.github/workflows/guardiao-autonomo-qa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  guardiao-offline:
+    name: Motor do Guardião — testes offline
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Exigir implementação real, não apenas documentação
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f cloudflare/guardian-worker/package.json || {
+            echo "::error::A implementação do Worker Guardião não foi sincronizada nesta branch."
+            exit 1
+          }
+          test -f cloudflare/guardian-worker/src/index.js || {
+            echo "::error::Worker do Guardião ainda não foi enviado ao GitHub."
+            exit 1
+          }
+      - name: Executar testes sem secrets nem acesso a serviços reais
+        working-directory: cloudflare/guardian-worker
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install --ignore-scripts; fi
+          npm test
+          python3 scripts/check-qa-d1-budget-sql.py
+          python3 scripts/check-qa-release-preflight.py
+          python3 scripts/test-bootstrap-qa-fixture.py
+          python3 scripts/check-zero-cost-qa.py
+          python3 scripts/test-zero-cost-qa.py
+          python3 ../../tests/security/test-guardian-free-capacity.py
+          python3 ../../tests/security/test-guardian-qa-android-isolation.py
+      - name: Verificar sintaxe do Worker
+        run: node --check cloudflare/guardian-worker/src/index.js
+      - name: Validar sintaxe do script que adiciona somente índice QA
+        run: python3 -m py_compile cloudflare/guardian-worker/scripts/apply-qa-replies-index.py
+
+  firestore-guardiao:
+    name: Regras e recursos do Guardião no emulador
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Testar regras com Firestore Emulator
+        working-directory: tests/security
+        run: |
+          npm ci
+          npm run test:guardian-rules
+
+  android-debug:
+    name: Compilar somente Android Debug e testes
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - name: Preparar Android 36
+        run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+      - name: Remover configuração Firebase apenas da VM descartável do GitHub
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Only in the temporary checkout. No changes to the repo or production.
+          rm -f -- app/google-services.json
+          test ! -e app/google-services.json
+      - name: Bloquear credenciais e URLs antes do build de QA
+        env:
+          ATRIO_GUARDIAN_QA_ISOLATED: '1'
+          ATRIO_PUSH_WORKER_URL: ''
+          ATRIO_GUARDIAN_WORKER_URL: ''
+          ATRIO_AVATAR_WORKER_URL: ''
+        run: python3 scripts/check-guardian-qa-android-isolation.py --prebuild
+      - name: Testes Android locais e APK Debug desconectado
+        env:
+          ATRIO_GUARDIAN_QA_ISOLATED: '1'
+          ATRIO_PUSH_WORKER_URL: ''
+          ATRIO_GUARDIAN_WORKER_URL: ''
+          ATRIO_AVATAR_WORKER_URL: ''
+        run: gradle :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --stacktrace
+      - name: Auditar pacote e recursos do APK antes de disponibilizar
+        run: python3 scripts/check-guardian-qa-android-isolation.py --apk app/build/outputs/apk/debug/app-debug.apk
+      - name: Publicar somente APK Debug de DEMO local, nunca Release assinada
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: guardiao-qa-demo-local-isolado
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
+
+  firestore-v2-integrated:
+    name: Guardião V2 — integração real REST no Firestore Emulator
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Instalar dependências de QA
+        working-directory: tests/security
+        run: npm ci
+      - name: Transações reais no emulador, sem credenciais de produção
+        working-directory: tests/security
+        env:
+          FIREBASE_PROJECT_ID: demo-atrio-v11
+        run: npm run test:guardian-live
+
+  cloudflare-qa-smoke:
+    name: Cloudflare QA — health e acesso negado
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Validar Worker QA separado, sem segredos ou punições
+        env:
+          QA_URL: https://atrio-guardian-v2-qa.atrio-catolico.workers.dev
+        run: |
+          set -euo pipefail
+          curl -fsS --retry 2 --connect-timeout 8 --max-time 20 \
+            "$QA_URL/health" | grep -F '"status":"guardian_v2_qa_safe"'
+          status=$(curl -sS --connect-timeout 8 --max-time 20 \
+            -o /tmp/guardian-qa-denied.json -w '%{http_code}' \
+            -H 'Content-Type: application/json' \
+            -X POST "$QA_URL/admin/config" \
+            --data '{"enabled":true,"allowHold":true,"emergencyStop":false}')
+          test "$status" = 503
+          grep -Fq '"status":"qa_read_only"' /tmp/guardian-qa-denied.json
+          # API HTTP real: a ponte QA fica fechada antes de token, D1 e Firebase.
+          bridge_http=$(curl -sS --connect-timeout 8 --max-time 20 \
+            -o /tmp/guardian-qa-bridge-denied.json -w '%{http_code}' \
+            -X POST --data '' "$QA_URL/qa/firebase-fixture")
+          test "$bridge_http" = 503
+          grep -Fq '"status":"qa_bridge_disabled"' /tmp/guardian-qa-bridge-denied.json
+          # Token sintético não pode abrir a ponte nem consumir quota de leitura.
+          forged_token="aaaaaaaaaaaaaaaaaaaa.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+          forged_http=$(curl -sS --connect-timeout 8 --max-time 20 \
+            -o /tmp/guardian-qa-forged-denied.json -w '%{http_code}' \
+            -H "Authorization: Bearer $forged_token" \
+            -X POST --data '' "$QA_URL/qa/firebase-fixture")
+          test "$forged_http" = 503
+          grep -Fq '"status":"qa_bridge_disabled"' /tmp/guardian-qa-forged-denied.json
+          review_http=$(curl -sS --connect-timeout 8 --max-time 20 \
+            -o /tmp/guardian-qa-review-denied.json -w '%{http_code}' \
+            -H 'Content-Type: application/json' -X POST --data '{}' \
+            "$QA_URL/admin/review")
+          test "$review_http" = 503
+          grep -Fq '"status":"qa_read_only"' /tmp/guardian-qa-review-denied.json
+          echo 'GUARDIAN_QA_V19_BRIDGE_DISABLED_REMOTE_HTTP_PASS'
+
+  firestore-shadow-integrated:
+    name: Guardião V2 — consultas sintéticas QA no emulador
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Instalar dependências isoladas
+        working-directory: tests/security
+        run: npm ci
+      - name: Confirmar filtro servidor e ausência de escritas
+        working-directory: tests/security
+        env:
+          FIREBASE_PROJECT_ID: atrio-catolico-qa-v2
+        run: npm run test:guardian-shadow
+
+  remote-qa-readonly:
+    if: >-
+      github.ref == 'refs/heads/feature/guardiao-autonomo-20261029' &&
+      github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android' &&
+      vars.GUARDIAN_QA_REMOTE_READY == 'true'
+    runs-on: ubuntu-latest
+    environment: guardian-qa
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      GUARDIAN_QA_REMOTE_READY: ${{ vars.GUARDIAN_QA_REMOTE_READY }}
+      QA_FIREBASE_PROJECT_ID: ${{ vars.GUARDIAN_QA_FIREBASE_PROJECT_ID }}
+      QA_APPROVED_PROJECT_ID: ${{ vars.GUARDIAN_QA_APPROVED_PROJECT_ID }}
+      QA_WIF_PROVIDER: ${{ vars.GUARDIAN_QA_WIF_PROVIDER }}
+      QA_SERVICE_ACCOUNT: ${{ vars.GUARDIAN_QA_SERVICE_ACCOUNT }}
+    steps:
+      - name: Checkout only feature branch
+        uses: actions/checkout@v4
+      - name: Validate project and branch before requesting identity token
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GUARDIAN_QA_REMOTE_READY" == 'true' ]]
+          [[ "$QA_FIREBASE_PROJECT_ID" =~ ^atrio-catolico-qa(-[a-z0-9-]+)?$ ]]
+          [[ "${#QA_FIREBASE_PROJECT_ID}" -le 30 ]]
+          [[ "$QA_FIREBASE_PROJECT_ID" == "$QA_APPROVED_PROJECT_ID" ]]
+          [[ "$QA_WIF_PROVIDER" == projects/*/locations/global/workloadIdentityPools/*/providers/* ]]
+          [[ "$QA_SERVICE_ACCOUNT" == *"@$QA_FIREBASE_PROJECT_ID.iam.gserviceaccount.com" ]]
+      - name: Short-lived access token via GitHub OIDC and Google WIF
+        id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ env.QA_FIREBASE_PROJECT_ID }}
+          workload_identity_provider: ${{ env.QA_WIF_PROVIDER }}
+          service_account: ${{ env.QA_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_lifetime: 300s
+          access_token_scopes: https://www.googleapis.com/auth/datastore
+          create_credentials_file: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Read synthetic QA fixtures only (zero writes)
+        working-directory: cloudflare/guardian-worker
+        env:
+          QA_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+        run: node src/remote-readonly.mjs
+
+  qa-index-audit:
+    name: Índices Firebase QA — auditoria WIF somente leitura
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/feature/guardiao-autonomo-20261029' &&
+      github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android'
+    runs-on: ubuntu-latest
+    environment: guardian-qa
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      QA_FIREBASE_PROJECT_ID: ${{ vars.GUARDIAN_QA_FIREBASE_PROJECT_ID }}
+      QA_APPROVED_PROJECT_ID: ${{ vars.GUARDIAN_QA_APPROVED_PROJECT_ID }}
+      QA_WIF_PROVIDER: ${{ vars.GUARDIAN_QA_WIF_PROVIDER }}
+      QA_SERVICE_ACCOUNT: ${{ vars.GUARDIAN_QA_SERVICE_ACCOUNT }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Exigir projeto e serviço de leitura EXATAMENTE QA
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$QA_FIREBASE_PROJECT_ID" = 'atrio-catolico-qa-v2'
+          test "$QA_APPROVED_PROJECT_ID" = 'atrio-catolico-qa-v2'
+          test "$QA_SERVICE_ACCOUNT" = 'guardian-qa-reader@atrio-catolico-qa-v2.iam.gserviceaccount.com'
+          [[ "$QA_WIF_PROVIDER" == projects/*/locations/global/workloadIdentityPools/guardian-github-qa/providers/github-qa ]]
+      - name: Token temporário pelo GitHub OIDC/Google WIF (sem chave JSON)
+        id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ env.QA_FIREBASE_PROJECT_ID }}
+          workload_identity_provider: ${{ env.QA_WIF_PROVIDER }}
+          service_account: ${{ env.QA_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_lifetime: 300s
+          access_token_scopes: https://www.googleapis.com/auth/datastore
+          create_credentials_file: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Conferir índices e reportar READY ou MISSING (apenas GET)
+        working-directory: cloudflare/guardian-worker
+        env:
+          QA_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+        run: node src/qa-index-audit-run.mjs

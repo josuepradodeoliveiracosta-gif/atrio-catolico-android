@@ -152,7 +152,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val prefs = getSharedPreferences("atrio-demo", Context.MODE_PRIVATE)
         setContent {
-            if (com.google.firebase.FirebaseApp.getApps(this).isNotEmpty()) {
+            if (!BuildConfig.GUARDIAN_QA_ISOLATED &&
+                com.google.firebase.FirebaseApp.getApps(this).isNotEmpty()) {
                 OnlineAtrioApp(this@MainActivity)
             } else {
                 AtrioDemoApp(prefs)
@@ -548,7 +549,9 @@ internal fun PublishScreen(onPublish: (String, String, String) -> Unit) {
         Spacer(Modifier.height(13.dp))
         Text("🕊️ Seja cordial, evite dados pessoais sensíveis e respeite as regras da comunidade.", color = Muted, fontSize = 12.sp, lineHeight = 19.sp)
         Spacer(Modifier.height(18.dp))
-        Button(onClick = { onPublish(title.trim(), body.trim(), category); title = ""; body = "" },
+        // A confirmação pode ser adiada pelo Guardião ou falhar na rede.
+        // O envio bem-sucedido sai desta tela e descarta o rascunho.
+        Button(onClick = { onPublish(title.trim(), body.trim(), category) },
             enabled = title.trim().length >= 5 && body.trim().length >= 5,
             modifier = Modifier.fillMaxWidth().height(48.dp).testTag("atrio-publish-submit"), shape = RoundedCornerShape(12.dp)) { Text("Publicar discussão") }
     }
@@ -833,3 +836,4 @@ internal fun EmptyState(emoji: String, title: String, description: String, butto
         OutlinedButton(onClick = action) { Text(button) }
     }
 }
+

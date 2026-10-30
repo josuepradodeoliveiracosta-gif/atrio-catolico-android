@@ -1,0 +1,71 @@
+// Read-only audit of the *QA* Firestore index configuration.
+// Uses the existing GitHub OIDC/WIF short-lived token. No writes, no credentials
+// in the repository, and no calls to projects outside atrio-catolico-qa-v2.
+const PROJECT='atrio-catolico-qa-v2';
+const API='https://firestore.googleapis.com/v1/projects/'+PROJECT+'/databases/(default)/collectionGroups';
+const REQUIRED=[
+  ['posts','COLLECTION',[['qaFixture','ASCENDING'],['createdAt','DESCENDING']]],
+  ['replies','COLLECTION_GROUP',[['qaFixture','ASCENDING'],['createdAt','DESCENDING']]],
+  ['reports','COLLECTION',[['qaFixture','ASCENDING'],['createdAt','DESCENDING']]]
+];
+
+export function auditAllowed(project,approved) {
+ return project===PROJECT && approved===PROJECT;
+}
+const indexesOf=(res)=>Array.isArray(res?.indexes)?res.indexes:[];
+const matchComposite=(idx,[group,scope,fields])=>
+ idx?.name?.includes('/collectionGroups/'+group+'/indexes/')
+ && idx.queryScope===scope
+ && fields.every(([name,order],i)=>idx.fields?.[i]?.fieldPath===name&&idx.fields?.[i]?.order===order);
+const summaryOf=(field)=>{
+ const indexes=indexesOf(field?.indexConfig);
+ const found=indexes.find(i=>i.queryScope==='COLLECTION_GROUP'&&
+  i.fields?.some(f=>f.fieldPath==='createdAt'&&f.order==='DESCENDING'));
+ return found?.state==='READY'?'ready':found?'building':'missing';
+};
+export async function readQaIndexes({project,approved,accessToken,fetcher=fetch}) {
+ if(!auditAllowed(project,approved))return {status:'blocked'};
+ if(typeof accessToken!=='string'||accessToken.length<20)return {status:'unavailable'};
+ async function get(path){
+  const url=API+path;
+  const response=await fetcher(url,{method:'GET',headers:{
+   Authorization:'Bearer '+accessToken,Accept:'application/json'
+  },redirect:'error',signal:AbortSignal.timeout(8000)});
+  if(response.status===404)return null;
+  if(!response.ok){
+   const issue=await response.json().catch(()=>({}));
+   const message=String(issue?.error?.message||'').replace(/[^A-Za-z0-9 ._:/()=-]/g,'').slice(0,160);
+   const err=Error('api_'+response.status+(path.includes('/indexes')?'_composite':'_single'));
+   err.safeDetail=message;throw err;
+  }
+  return response.json();
+ }
+ try{
+  // Firestore API exige um collectionGroup concreto; o wildcard '-' retorna 400.
+  // Faz três listagens read-only, uma por grupo esperado, sem enumerar tudo.
+  const composites=[];
+  for(const [group] of REQUIRED) {
+   let next='';
+   for(let page=0;page<5;page++){
+    const payload=await get('/'+group+'/indexes'+
+      (next?'?pageToken='+encodeURIComponent(next):''));
+    if(!payload)throw Error('index_composite_not_found');
+    if(payload.indexes!==undefined&&!Array.isArray(payload.indexes))throw Error('invalid_index_response');
+    composites.push(...(payload.indexes||[]));
+    next=payload.nextPageToken||'';
+    if(!next)break;
+    if(page===4)throw Error('index_listing_exceeded_limit');
+   }
+  }
+  const field=await get('/replies/fields/createdAt');
+  return {status:'observed',
+   composites:REQUIRED.map(([group,scope,fields])=>{
+    const match=composites.find(i=>matchComposite(i,[group,scope,fields]));
+    return {group,state:match?.state==='READY'?'ready':match?'building':'missing'};
+   }),
+   repliesCreatedAtGroup:summaryOf(field)};
+ }catch(e){
+  const reason=/^(?:api_[0-9]{3}_(?:composite|single)|index_composite_not_found|invalid_index_response|index_listing_exceeded_limit)$/.test(e?.message||'')?e.message:'network_or_response';
+  return {status:'unavailable',reason,...(e?.safeDetail?{detail:e.safeDetail}:{})};
+ }
+}

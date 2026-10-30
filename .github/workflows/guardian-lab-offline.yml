@@ -1,0 +1,54 @@
+name: Guardião LAB Android offline — sem Firebase ou deploy
+
+on:
+  push:
+    branches: [feature/guardiao-autonomo-20261029]
+    paths:
+      - 'guardianlab/**'
+      - 'app/src/main/java/br/com/atriocatolico/GuardianPreflight.kt'
+      - 'app/src/main/java/br/com/atriocatolico/GuardianUiPolicy.kt'
+      - 'settings.gradle.kts'
+      - 'scripts/check-guardian-lab-apk.sh'
+      - '.github/workflows/guardian-lab-offline.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'guardianlab/**'
+      - 'app/src/main/java/br/com/atriocatolico/GuardianPreflight.kt'
+      - 'app/src/main/java/br/com/atriocatolico/GuardianUiPolicy.kt'
+      - 'settings.gradle.kts'
+      - 'scripts/check-guardian-lab-apk.sh'
+      - '.github/workflows/guardian-lab-offline.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  guardian-lab:
+    name: Compilar e auditar APK isolado sem internet
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - name: Preparar Android SDK 36
+        run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+      - name: Validar código real e gerar APK offline
+        run: gradle :guardianlab:testDebugUnitTest :guardianlab:assembleDebug --no-daemon --stacktrace
+      - name: Auditar APK gerado e negar permissões de rede
+        run: bash scripts/check-guardian-lab-apk.sh guardianlab/build/outputs/apk/debug/guardianlab-debug.apk
+      - name: Publicar só LAB separado (7 dias)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: guardian-lab-android-offline
+          path: guardianlab/build/outputs/apk/debug/guardianlab-debug.apk
+          if-no-files-found: error
+          retention-days: 7

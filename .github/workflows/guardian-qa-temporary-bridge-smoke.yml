@@ -1,0 +1,64 @@
+name: Guardião QA — teste remoto da ponte temporária (sem segredos)
+on:
+  push:
+    branches: [feature/guardiao-autonomo-20261029]
+    paths:
+      - docs/guardiao-qa-bridge-smoke-trigger.txt
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: guardian-qa-remote-bridge-smoke
+  cancel-in-progress: false
+jobs:
+  forged-token:
+    name: Worker QA real nega anônimo e token forjado
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: HTTP com POST sem corpo e token sintético (Node fetch)
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          const QA='https://atrio-guardian-v2-qa.atrio-catolico.workers.dev';
+          const allowed=new Set(['guardian_v2_qa_safe','qa_read_only',
+            'unauthorized','forbidden','qa_bridge_disabled','invalid_request',
+            'qa_rate_limited','qa_daily_budget_unavailable','qa_rate_limit_unavailable',
+            'qa_bridge_unavailable','qa_upstream_network_unavailable',
+            'qa_upstream_http_unavailable','qa_upstream_response_invalid',
+            'qa_upstream_throttled']);
+          const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+          async function call(path,method,auth){
+            const r=await fetch(QA+path,{
+              method,redirect:'error',
+              ...(auth?{headers:{Authorization:'Bearer '+auth}}:{})
+            });
+            const raw=await r.text();
+            let status='unrecognized';
+            try{
+              const data=JSON.parse(raw);
+              if(allowed.has(data?.status))status=data.status;
+            }catch{}
+            // No credentials, JWTs, response text or user data enter CI logs.
+            console.log('QA_REMOTE_HTTP',method,path,r.status,status);
+            return {http:r.status,code:status};
+          }
+          let ready=false;
+          for(let i=0;i<15;i++){
+            const r=await call('/qa/firebase-fixture','POST');
+            if(r.http===401&&r.code==='unauthorized'){ready=true;break;}
+            if(r.http!==503||r.code!=='qa_bridge_disabled')break;
+            await wait(1400);
+          }
+          assert.equal(ready,true,'QA_BRIDGE_NOT_READY_NO_JWT');
+          assert.deepEqual(await call('/health','GET'),{http:200,code:'guardian_v2_qa_safe'});
+          assert.deepEqual(await call('/admin/config','POST'),{http:503,code:'qa_read_only'});
+          assert.deepEqual(await call('/admin/review','POST'),{http:503,code:'qa_read_only'});
+          const synthetic=[
+            'a'.repeat(30),'b'.repeat(64),'c'.repeat(82)
+          ].join('.');
+          assert.deepEqual(await call('/qa/firebase-fixture','POST',synthetic),
+            {http:403,code:'forbidden'});
+          console.log('GUARDIAN_QA_TEMPORARY_BRIDGE: FAKE_TOKEN_DENIED_WITH_FIRESTORE');
+          NODE

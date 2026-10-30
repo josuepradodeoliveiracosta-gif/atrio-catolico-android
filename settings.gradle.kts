@@ -14,3 +14,4 @@ dependencyResolutionManagement {
 }
 rootProject.name = "AtrioCatolico"
 include(":app")
+include(":guardianlab")

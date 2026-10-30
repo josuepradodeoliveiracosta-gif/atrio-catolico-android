@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -201,6 +202,49 @@ class ThreeBotsAuthenticatedAndroidUiTest {
             .performTextInput(body)
         compose.onNodeWithTag("atrio-reply-submit")
             .performScrollTo().performClick()
+    }
+
+    @Test fun cadastroAguardaConfirmacaoDoPerfilNoServidor() {
+        Tasks.await(db.disableNetwork(), 10, TimeUnit.SECONDS)
+        try {
+            compose.setContent { OnlineAtrioApp(compose.activity) }
+            waitFor("atrio-auth-toggle")
+            compose.onNodeWithTag("atrio-auth-toggle").performClick()
+            compose.onNodeWithTag("atrio-auth-name").performTextInput("Cadastro QA pendente")
+            compose.onNodeWithTag("atrio-auth-email")
+                .performTextInput("pending.$session@qa.invalid")
+            compose.onNodeWithTag("atrio-auth-password").performTextInput(password)
+            compose.onNodeWithTag("atrio-auth-submit").performScrollTo().performClick()
+            // Mesmo tratamento limitado da falha transitória do Auth Emulator
+            // usado por register(); nunca repetir após uma conta ser criada.
+            compose.waitUntil(30_000) {
+                auth.currentUser != null || compose.onAllNodesWithTag("atrio-auth-error")
+                    .fetchSemanticsNodes().isNotEmpty()
+            }
+            if (auth.currentUser == null) {
+                compose.onNodeWithTag("atrio-auth-submit").assertIsEnabled().performClick()
+            }
+            compose.waitUntil(30_000) { auth.currentUser != null }
+            val uid = requireNotNull(auth.currentUser).uid
+            // Há um perfil no cache, mas a escrita ainda não chegou ao servidor.
+            compose.waitUntil(15_000) {
+                runCatching {
+                    Tasks.await(db.collection("profiles").document(uid).get(Source.CACHE),
+                        3, TimeUnit.SECONDS).let { it.exists() && it.metadata.hasPendingWrites() }
+                }.getOrDefault(false)
+            }
+            compose.onNodeWithTag("atrio-tab-publish").assertDoesNotExist()
+            compose.onNodeWithTag("atrio-auth-submit").assertIsNotEnabled()
+
+            Tasks.await(db.enableNetwork(), 10, TimeUnit.SECONDS)
+            waitFor("atrio-tab-publish", 45_000)
+            val profile = Tasks.await(db.collection("profiles").document(uid).get(Source.SERVER),
+                10, TimeUnit.SECONDS)
+            assertEquals("Cadastro QA pendente", profile.getString("displayName"))
+            assertEquals(uid, auth.currentUser?.uid)
+        } finally {
+            Tasks.await(db.enableNetwork(), 10, TimeUnit.SECONDS)
+        }
     }
 
     @Test fun claraMiguelLuciaFazemLoginPublicamRespondemERecebemAvisos() {

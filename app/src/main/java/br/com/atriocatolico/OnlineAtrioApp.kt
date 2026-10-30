@@ -46,6 +46,7 @@ internal fun OnlineAtrioApp(activity: androidx.activity.ComponentActivity) {
     val auth = remember { FirebaseAuth.getInstance() }
     val db = remember { FirebaseFirestore.getInstance() }
     var signedUser by remember { mutableStateOf(auth.currentUser) }
+    var creatingAccount by remember { mutableStateOf(false) }
 
     DisposableEffect(auth) {
         val listener = FirebaseAuth.AuthStateListener { signedUser = it.currentUser }
@@ -55,8 +56,9 @@ internal fun OnlineAtrioApp(activity: androidx.activity.ComponentActivity) {
 
     AtrioTheme {
         val user = signedUser
-        if (user == null) {
-            OnlineAuthScreen(auth = auth, db = db)
+        if (user == null || creatingAccount) {
+            OnlineAuthScreen(auth = auth, db = db,
+                onRegistrationStateChange = { creatingAccount = it })
         } else {
             key(user.uid) { OnlineUserScreen(auth = auth, db = db, user = user) }
         }
@@ -66,13 +68,16 @@ internal fun OnlineAtrioApp(activity: androidx.activity.ComponentActivity) {
         // O projeto oficial mantém a abertura normal (inclusive em builds debug).
         if (!(BuildConfig.DEBUG &&
                 com.google.firebase.FirebaseApp.getInstance().options.projectId == "demo-atrio-v11")) {
-            OpeningVideo(activity, authenticated = user != null)
+            OpeningVideo(activity, authenticated = user != null && !creatingAccount)
         }
     }
 }
 
 @Composable
-private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
+private fun OnlineAuthScreen(
+    auth: FirebaseAuth, db: FirebaseFirestore,
+    onRegistrationStateChange: (Boolean) -> Unit
+) {
     var registering by remember { mutableStateOf(false) }
     var displayName by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
@@ -80,6 +85,33 @@ private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
     var resetInfo by remember { mutableStateOf("") }
+    var pendingProfile by remember { mutableStateOf<FirebaseUser?>(null) }
+
+    fun saveRegistrationProfile(created: FirebaseUser, publicName: String) {
+        if (auth.currentUser?.uid != created.uid) {
+            busy = false
+            pendingProfile = null
+            onRegistrationStateChange(false)
+            return
+        }
+        db.collection("profiles").document(created.uid).set(mapOf(
+            "displayName" to publicName,
+            "createdAt" to FieldValue.serverTimestamp()
+        )).addOnSuccessListener {
+            val update = UserProfileChangeRequest.Builder()
+                .setDisplayName(publicName).build()
+            // Terminar também a atualização do Auth antes de liberar uma troca
+            // de conta. O perfil já foi confirmado pelo servidor neste ponto.
+            created.updateProfile(update).addOnCompleteListener {
+                busy = false
+                pendingProfile = null
+                onRegistrationStateChange(false)
+            }
+        }.addOnFailureListener {
+            busy = false
+            error = "Sua conta foi criada, mas não foi possível salvar o perfil. Tente concluir o cadastro novamente."
+        }
+    }
 
     Column(
         Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Wine, Color(0xFF8B4B5A))))
@@ -98,14 +130,16 @@ private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
                     fontSize = 22.sp, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(14.dp))
                 if (registering) {
-                    OutlinedTextField(displayName, { if (it.length <= 35) displayName = it },
+                    OutlinedTextField(displayName, { if (it.length <= 35) displayName = it }, enabled = !busy,
                         modifier = Modifier.fillMaxWidth().testTag("atrio-auth-name"), label = { Text("Nome público") }, singleLine = true)
                     Spacer(Modifier.height(10.dp))
                 }
-                OutlinedTextField(email, { email = it.take(150) }, modifier = Modifier.fillMaxWidth().testTag("atrio-auth-email"),
+                OutlinedTextField(email, { email = it.take(150) }, enabled = !busy && pendingProfile == null,
+                    modifier = Modifier.fillMaxWidth().testTag("atrio-auth-email"),
                     label = { Text("E-mail") }, singleLine = true)
                 Spacer(Modifier.height(10.dp))
-                OutlinedTextField(password, { password = it.take(128) }, modifier = Modifier.fillMaxWidth().testTag("atrio-auth-password"),
+                OutlinedTextField(password, { password = it.take(128) }, enabled = !busy && pendingProfile == null,
+                    modifier = Modifier.fillMaxWidth().testTag("atrio-auth-password"),
                     label = { Text("Senha (mínimo 6 caracteres)") }, singleLine = true,
                     visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation())
                 if (error.isNotBlank()) {
@@ -125,28 +159,26 @@ private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
                         busy = true; error = ""; resetInfo = ""
                         if (registering) {
                             val publicName = displayName.trim()
-                            auth.createUserWithEmailAndPassword(email.trim(), password)
-                                .addOnSuccessListener { result ->
-                                    val created = result.user
-                                    if (created == null) {
-                                        busy = false; error = "Não foi possível concluir o cadastro."
-                                    } else {
-                                        db.collection("profiles").document(created.uid).set(mapOf(
-                                            "displayName" to publicName,
-                                            "createdAt" to FieldValue.serverTimestamp()
-                                        )).addOnSuccessListener {
-                                            val update = UserProfileChangeRequest.Builder()
-                                                .setDisplayName(publicName).build()
-                                            created.updateProfile(update)
-                                            busy = false
-                                        }.addOnFailureListener { failure ->
-                                            busy = false
-                                            error = "Conta criada, mas o perfil não foi salvo: ${failure.localizedMessage}. Você pode concluir o perfil na próxima tela."
+                            onRegistrationStateChange(true)
+                            val existing = pendingProfile
+                            if (existing != null) {
+                                saveRegistrationProfile(existing, publicName)
+                            } else {
+                                auth.createUserWithEmailAndPassword(email.trim(), password)
+                                    .addOnSuccessListener { result ->
+                                        val created = result.user
+                                        if (created == null) {
+                                            busy = false; error = "Não foi possível concluir o cadastro."
+                                            onRegistrationStateChange(false)
+                                        } else {
+                                            pendingProfile = created
+                                            saveRegistrationProfile(created, publicName)
                                         }
+                                    }.addOnFailureListener { failure ->
+                                        busy = false; error = failure.localizedMessage ?: "Erro ao cadastrar."
+                                        onRegistrationStateChange(false)
                                     }
-                                }.addOnFailureListener { failure ->
-                                    busy = false; error = failure.localizedMessage ?: "Erro ao cadastrar."
-                                }
+                            }
                         } else {
                             auth.signInWithEmailAndPassword(email.trim(), password)
                                 .addOnCompleteListener { task ->
@@ -155,10 +187,19 @@ private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
                                 }
                         }
                     }
-                ) { Text(if (busy) "Aguarde..." else if (registering) "Criar conta" else "Entrar") }
+                ) { Text(if (busy) "Aguarde..." else if (pendingProfile != null) "Concluir cadastro"
+                    else if (registering) "Criar conta" else "Entrar") }
                 Spacer(Modifier.height(6.dp))
-                TextButton(onClick = { registering = !registering; error = ""; resetInfo = "" }, modifier = Modifier.fillMaxWidth().testTag("atrio-auth-toggle")) {
+                TextButton(enabled = !busy && pendingProfile == null,
+                    onClick = { registering = !registering; error = ""; resetInfo = "" }, modifier = Modifier.fillMaxWidth().testTag("atrio-auth-toggle")) {
                     Text(if (registering) "Já tenho conta" else "Ainda não tenho conta")
+                }
+                if (pendingProfile != null && !busy) {
+                    TextButton(onClick = {
+                        pendingProfile = null
+                        auth.signOut()
+                        onRegistrationStateChange(false)
+                    }, modifier = Modifier.fillMaxWidth()) { Text("Sair desta conta") }
                 }
                 if (!registering) {
                     TextButton(onClick = {
@@ -349,6 +390,26 @@ private fun OnlineCommunity(
     var deletingPostId by remember(uid) { mutableStateOf<String?>(null) }
     var deletingReplyId by remember(uid) { mutableStateOf<String?>(null) }
     var mutationBusy by remember(uid) { mutableStateOf(false) }
+    // Orientação preventiva, sem enviar texto à rede nem aplicar sanções.
+    var guardianWarning by remember(uid) { mutableStateOf<GuardianPreflight.Warning?>(null) }
+    var guardianPendingSend by remember(uid) { mutableStateOf<(() -> Unit)?>(null) }
+    var guardianPendingCancel by remember(uid) { mutableStateOf<(() -> Unit)?>(null) }
+    fun confirmGuardianBeforeSend(
+        text: String,
+        onCancel: () -> Unit = {},
+        submit: () -> Unit
+    ) {
+        val alert = GuardianPreflight.inspect(text)
+        if (alert == null) submit()
+        else if (guardianPendingSend == null) {
+            guardianWarning = alert
+            guardianPendingSend = submit
+            guardianPendingCancel = onCancel
+        } else {
+            // Não prender o botão Responder se outro aviso já está aberto.
+            onCancel()
+        }
+    }
     var working by remember { mutableStateOf(false) }
     var feedLimit by remember(uid) { mutableStateOf(30) }
     var feedLoading by remember(uid) { mutableStateOf(true) }
@@ -760,13 +821,21 @@ private fun OnlineCommunity(
                 DetailScreen(detail.copy(replies = detailReplies), name,
                     onLike = { toggle("likedPosts", detail.id, detail.liked) },
                     onSave = { toggle("savedPosts", detail.id, detail.saved) },
-                    onReply = { body, done -> reply(detail.id, body, done) },
+                    onReply = { body, done ->
+                        confirmGuardianBeforeSend(body, onCancel = { done(false) }) {
+                            reply(detail.id, body, done)
+                        }
+                    },
                     onDirectReply = if (advancedEngagement) ({ body, target, done ->
-                        reply(detail.id, body, done, target)
+                        confirmGuardianBeforeSend(body, onCancel = { done(false) }) {
+                            reply(detail.id, body, done, target)
+                        }
                     }) else null,
                     currentUid = uid,
                     onMentionReply = if (advancedEngagement) ({ body, participant, done ->
-                        reply(detail.id, body, done, mention = participant)
+                        confirmGuardianBeforeSend(body, onCancel = { done(false) }) {
+                            reply(detail.id, body, done, mention = participant)
+                        }
                     }) else null,
                     reactionsEnabled = advancedEngagement,
                     reactionContent = { item, requested, dismiss ->
@@ -824,7 +893,11 @@ private fun OnlineCommunity(
                         }
                     })
                 Tab.COMMUNITIES -> CommunityScreen(posts) { category -> navigate(Tab.HOME); filter = category }
-                Tab.PUBLISH -> PublishScreen { title, body, category -> publish(title, body, category) }
+                Tab.PUBLISH -> PublishScreen { title, body, category ->
+                    confirmGuardianBeforeSend(title + "\n" + body) {
+                        publish(title, body, category)
+                    }
+                }
                 Tab.SAVED -> SavedScreen(savedDisplay,
                     onDiscover = { navigate(Tab.HOME) }, onOpen = { detailId = it },
                     onLike = { id -> allPosts.firstOrNull { it.id == id }?.let { toggle("likedPosts", id, it.liked) } },
@@ -891,15 +964,18 @@ private fun OnlineCommunity(
                     enabled = !mutationBusy && editedTitle.trim().length in 5..120 &&
                         editedBody.trim().length in 5..1200,
                     onClick = {
-                        mutationBusy = true
-                        db.collection("posts").document(editablePost.id).update(
-                            mapOf("title" to editedTitle.trim(), "body" to editedBody.trim())
-                        ).addOnCompleteListener { result ->
-                            mutationBusy = false
-                            if (result.isSuccessful) {
-                                editingPostId = null
-                                Toast.makeText(context, "Discussão atualizada!", Toast.LENGTH_SHORT).show()
-                            } else message = result.exception?.localizedMessage ?: "Não foi possível editar. Confira as regras."
+                        confirmGuardianBeforeSend(editedTitle + "\n" + editedBody) {
+                            mutationBusy = true
+                            db.collection("posts").document(editablePost.id).update(
+                                mapOf("title" to editedTitle.trim(), "body" to editedBody.trim(),
+                                    "updatedAt" to FieldValue.serverTimestamp())
+                            ).addOnCompleteListener { result ->
+                                mutationBusy = false
+                                if (result.isSuccessful) {
+                                    editingPostId = null
+                                    Toast.makeText(context, "Discussão atualizada!", Toast.LENGTH_SHORT).show()
+                                } else message = result.exception?.localizedMessage ?: "Não foi possível editar. Confira as regras."
+                            }
                         }
                     }
                 ) { Text(if (mutationBusy) "Salvando..." else "Salvar") }
@@ -996,6 +1072,31 @@ private fun OnlineCommunity(
                 }
             }, modifier = Modifier.testTag("atrio-report-post-submit")) { Text("Enviar") } },
             dismissButton = { TextButton(onClick = { reportPost = null }) { Text("Cancelar") } })
+    }
+    if (guardianWarning != null) {
+        fun dismissGuardianWarning(confirmed: Boolean) {
+            val approved = guardianPendingSend
+            val canceled = guardianPendingCancel
+            guardianWarning = null
+            guardianPendingSend = null
+            guardianPendingCancel = null
+            if (confirmed) approved?.invoke() else canceled?.invoke()
+        }
+        AlertDialog(
+            onDismissRequest = { dismissGuardianWarning(false) },
+            title = { Text("Aviso preventivo — Átrio Guardião") },
+            text = { Text(guardianWarning!!.explanation + "\n\n" +
+                "Esta é uma orientação automática local, não uma punição. " +
+                "Você pode revisar o texto ou continuar por sua responsabilidade.") },
+            confirmButton = { TextButton(onClick = { dismissGuardianWarning(true) },
+                modifier = Modifier.testTag("atrio-guardian-continue")) {
+                Text("Publicar mesmo assim")
+            } },
+            dismissButton = { TextButton(onClick = { dismissGuardianWarning(false) },
+                modifier = Modifier.testTag("atrio-guardian-revise")) {
+                Text("Revisar texto")
+            } }
+        )
     }
     if (message.isNotBlank()) {
         AlertDialog(onDismissRequest = { message = "" }, title = { Text("Átrio Católico") },

@@ -1,0 +1,49 @@
+# QA independente; nenhuma credencial, acesso ao Firebase ou moderação real.
+name = "atrio-guardian-v2-qa"
+main = "src/index.js"
+compatibility_date = "2026-10-29"
+workers_dev = true
+
+[vars]
+GUARDIAN_V2_TEST_MODE = "true"
+GUARDIAN_V2_ENABLED = "false"
+GUARDIAN_V2_HOLD_ENABLED = "false"
+GUARDIAN_V2_QA_SHADOW_READS = "false" # Conexão remota desativada até projeto QA separado
+GUARDIAN_V2_QA_RUN_MONITOR = "true" # Apenas GET de status público GitHub por hora; nunca lê Firebase
+GUARDIAN_V2_QA_POLICY_HEARTBEAT = "true" # Classificação local de 5 textos sintéticos por Cron; zero Firestore, nenhuma punição
+GUARDIAN_V2_QA_FIRESTORE_BRIDGE = "false" # Somente QA e desligado; exige conta de teste Firebase QA para leitura de 1 fixture
+GUARDIAN_V2_QA_BRIDGE_NOT_BEFORE = "" # Uma janela vazia sempre bloqueia a rota
+GUARDIAN_V2_QA_BRIDGE_EXPIRES_AT = "" # Intervalo máximo 10 minutos, nunca produção
+GUARDIAN_V2_QA_READER_PROJECT = "atrio-catolico-qa-v2" # Projeto literal de teste, nunca produção
+GUARDIAN_V2_QA_AUTO_DISPATCH = "false" # Opt-in desativado: não aciona GitHub Actions
+GUARDIAN_QA_DISPATCH_READY = "false" # Segundo bloqueio; manter falso sem autorização explícita
+
+[triggers]
+crons = ["*/15 * * * *"]
+
+# Preparado somente para futura ativação QA, com flag FIRESTORE_BRIDGE=false.
+# Cloudflare Rate Limiting API é aproximada por local de atendimento:
+# NÃO configura teto global rígido de leituras nem libera implantação.
+# Wrangler v4.36+ necessário para estes bindings.
+[[ratelimits]]
+name = "GUARDIAN_QA_GLOBAL_LIMITER"
+namespace_id = "874201"
+[ratelimits.simple]
+limit = 20
+period = 60
+
+[[ratelimits]]
+name = "GUARDIAN_QA_TOKEN_LIMITER"
+namespace_id = "874202"
+[ratelimits.simple]
+limit = 3
+period = 60
+
+# Banco D1 QA exclusivo criado e schema validado na Cloudflare.
+# Preparado para futuro deploy QA EXCLUSIVAMENTE; bridge permanece false.
+# O database_id nao e segredo. Nunca reutilizar os bancos de Push/Avatares.
+[[d1_databases]]
+binding = "GUARDIAN_QA_BUDGET_DB"
+database_name = "atrio-guardian-v2-qa-budget"
+database_id = "5ba3bbe6-e319-4c25-b958-6b53e940fb34"
+migrations_dir = "migrations"
