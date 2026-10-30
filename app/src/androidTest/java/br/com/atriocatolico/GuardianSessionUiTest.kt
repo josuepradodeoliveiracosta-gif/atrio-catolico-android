@@ -142,7 +142,7 @@ class GuardianSessionUiTest {
         assertTrue("Worker oficial proibido em QA", BuildConfig.GUARDIAN_WORKER_URL.isBlank())
         assertEquals("demo-atrio-v11", FirebaseApp.getInstance().options.projectId)
         assertEquals("127.0.0.1:8089", db.firestoreSettings.host)
-        require(Regex("^(admins|reports|posts)/[A-Za-z0-9_-]{1,128}$").matches(path))
+        require(Regex("^(admins|reports|posts|guardiao_quarantine)/[A-Za-z0-9_-]{1,128}$").matches(path))
         val name = "projects/demo-atrio-v11/databases/(default)/documents/$path"
         val write = if (fields == null) {
             """{"delete":"$name"}"""
@@ -307,6 +307,59 @@ class GuardianSessionUiTest {
             qaAdminFixture("reports/$reportId", null)
             qaAdminFixture("posts/$postId", null)
             qaAdminFixture("admins/$uid", null)
+        }
+    }
+
+    /**
+     * Positive author-side appeal UI. Retention is an emulator fixture only:
+     * no production worker is enabled and no real user content is quarantined.
+     */
+    @Test fun authorAppealsHeldFixtureOnceThroughAndroidUi() {
+        val user = Tasks.await(auth.signInAnonymously(), 15, TimeUnit.SECONDS).user
+        assertTrue(user != null && user.uid.isNotBlank())
+        val uid = user!!.uid
+        val caseId = "qaAppeal_${uid}"
+        val reason = "Retenção fictícia para revisão de contexto"
+        val explanation = "Minha resposta apenas citava um trecho religioso; solicito análise do contexto."
+        try {
+            qaAdminFixture("guardiao_quarantine/$caseId", """
+                {"ownerUid":{"stringValue":"$uid"},
+                 "status":{"stringValue":"held"},
+                 "targetType":{"stringValue":"reply"},
+                 "reason":{"stringValue":"$reason"}}
+                """.trimIndent())
+
+            compose.setContent { GuardiaoAppealsScreen(db, uid) }
+            compose.waitUntil(25_000) {
+                compose.onAllNodesWithText(reason)
+                    .fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onNodeWithText("Solicitar revisão").performClick()
+            compose.onNodeWithText("Justificativa (10 a 500 caracteres)")
+                .performTextInput(explanation)
+            compose.onNodeWithText("Enviar contestação").performClick()
+
+            compose.waitUntil(25_000) {
+                val result = Tasks.await(
+                    db.collection("guardiao_quarantine").document(caseId).get(
+                        com.google.firebase.firestore.Source.SERVER
+                    ), 5, TimeUnit.SECONDS)
+                result.getString("appealText") == explanation
+            }
+            val case = Tasks.await(
+                db.collection("guardiao_quarantine").document(caseId).get(
+                    com.google.firebase.firestore.Source.SERVER
+                ), 10, TimeUnit.SECONDS)
+            assertEquals("held", case.getString("status"))
+            assertEquals(explanation, case.getString("appealText"))
+            assertTrue("O recurso precisa de registro temporal", case.getTimestamp("appealedAt") != null)
+            // A tela não pode aceitar outro recurso sobre o mesmo caso.
+            compose.waitUntil(15_000) {
+                compose.onAllNodesWithText("Solicitar revisão")
+                    .fetchSemanticsNodes().isEmpty()
+            }
+        } finally {
+            qaAdminFixture("guardiao_quarantine/$caseId", null)
         }
     }
 
