@@ -1,0 +1,54 @@
+// Firebase Auth ID-token -> Firestore Rules. QA-only fixture proof of connectivity.
+// The caller's token is validated AND authorized by Firestore REST. The Worker
+// does NOT validate arbitrary identity claims or elevate any user privileges.
+// No service accounts, Firestore writes, user content in responses, or log data.
+import {classify,decide} from './policy.js';
+
+const QA_PROJECT='atrio-catolico-qa-v2';
+const QA_RESOURCE='projects/'+QA_PROJECT+'/databases/(default)/documents';
+const QA_URL='https://firestore.googleapis.com/v1/'+QA_RESOURCE+'/posts/qa_post_1';
+const reply=(code,status)=>new Response(JSON.stringify({status}),{status:code,headers:{
+ 'content-type':'application/json','cache-control':'no-store','x-content-type-options':'nosniff'
+}});
+export const qaBridgeEnabled=env=>env?.GUARDIAN_V2_TEST_MODE==='true'
+ && env.GUARDIAN_V2_ENABLED==='false'
+ && env.GUARDIAN_V2_HOLD_ENABLED==='false'
+ && env.GUARDIAN_V2_QA_SHADOW_READS==='false'
+ && env.GUARDIAN_V2_QA_AUTO_DISPATCH==='false'
+ && env.GUARDIAN_QA_DISPATCH_READY==='false'
+ && env.GUARDIAN_V2_QA_FIRESTORE_BRIDGE==='true'
+ && env.GUARDIAN_V2_QA_READER_PROJECT===QA_PROJECT
+ && !env.GUARDIAN_FIREBASE_SERVICE_ACCOUNT_JSON
+ && !env.GUARDIAN_FIREBASE_PROJECT_ID;
+export async function qaFixtureRequest(request,env,{fetcher=fetch}={}){
+ if(!qaBridgeEnabled(env))return reply(503,'qa_bridge_disabled');
+ if(request.method!=='POST')return reply(404,'not_found');
+ if(request.headers.get('content-length') && Number(request.headers.get('content-length'))>0)
+   return reply(400,'invalid_request');
+ const header=request.headers.get('authorization')||'';
+ const matched=/^Bearer ([A-Za-z0-9_-]{10,2048}\.[A-Za-z0-9_-]{10,4096}\.[A-Za-z0-9_-]{10,2048})$/.exec(header);
+ if(!matched)return reply(401,'unauthorized');
+ // Firestore is responsible for verifying the JWT signature and Rules. Never
+ // use decoded-but-unverified token claims for trust or authorization.
+ try{
+  const result=await fetcher(QA_URL,{method:'GET',headers:{
+   Authorization:'Bearer '+matched[1],Accept:'application/json'
+  },redirect:'error',signal:AbortSignal.timeout(6000)});
+  if(result.status===401||result.status===403)return reply(403,'forbidden');
+  if(result.status===404)return reply(404,'fixture_missing');
+  if(!result.ok)return reply(503,'qa_bridge_unavailable');
+  const data=await result.json();
+  if(data?.name!==QA_RESOURCE+'/posts/qa_post_1'||
+    data.fields?.qaFixture?.booleanValue!==true ||
+    typeof data.fields?.title?.stringValue!=='string'||
+    typeof data.fields?.body?.stringValue!=='string')
+    return reply(503,'invalid_qa_fixture');
+  const title=data.fields.title.stringValue,body=data.fields.body.stringValue;
+  if(title.length>120||body.length>1200)return reply(503,'invalid_qa_fixture');
+  const finding=classify(title+' '+body);
+  const action=decide(finding,{enabled:true,allowHold:false});
+  // Only static categories, never content, UID, path, JWT or Firestore fields.
+  if(!['clear','review','warn'].includes(action))return reply(503,'qa_bridge_unavailable');
+  return reply(200,'qa_fixture_'+action);
+ }catch{return reply(503,'qa_bridge_unavailable');}
+}
