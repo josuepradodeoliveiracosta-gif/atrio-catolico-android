@@ -106,6 +106,81 @@ try {
   assert.equal(reviewed.get('status'),'dismissed');
   await assertFails(updateDoc(doc(moderator,reportPath('context')),decision('removed')));
  });
+ await check('falha de decisão humana não exclui publicação nem resolve denúncia',async()=>{
+  const postId='qaFreeInvalidDecision';
+  const target='posts/'+postId;
+  const reportId='reports/qaReporter_post_'+postId;
+  await assertSucceeds(setDoc(doc(author,target),{
+   uid:'qaAuthor',authorName:'Autora QA',title:'Publicação sob análise',
+   body:'Texto legítimo com contexto completo para revisão humana.',
+   category:'Liturgia',createdAt:serverTimestamp()
+  }));
+  await assertSucceeds(setDoc(doc(reporter,reportId),{
+   postId,reporterUid:'qaReporter',reason:'Revisão de conteúdo de teste',
+   createdAt:serverTimestamp()
+  }));
+  // A operação aparentemente apaga o post, mas o relatório inválido faz
+  // TODO o commit falhar sob regras Firestore: não pode existir exclusão parcial.
+  await assertFails(runTransaction(moderator,async tx=>{
+   const report=await tx.get(doc(moderator,reportId));
+   const targetDoc=await tx.get(doc(moderator,target));
+   assert.equal(report.get('status')||'pending','pending');
+   assert.equal(targetDoc.exists(),true);
+   tx.delete(doc(moderator,target));
+   tx.update(doc(moderator,reportId),{
+    status:'invalid_status',reviewedBy:'qaAdmin',
+    reviewedAt:serverTimestamp(),
+    reviewNote:'Não deve ser aceito.',reviewTarget:'post'
+   });
+  }));
+  assert.equal((await getDoc(doc(reporter,target))).exists(),true,
+   'Falha na decisão não pode excluir publicação');
+  const pending=await getDoc(doc(moderator,reportId));
+  assert.equal(pending.get('status'),undefined,'Denúncia deve continuar pendente');
+  // O tipo da denúncia também é validado pelas regras.
+  await assertFails(updateDoc(doc(moderator,reportId),{
+   status:'dismissed',reviewedBy:'qaAdmin',
+   reviewedAt:serverTimestamp(),reviewNote:'Tipo errado de alvo.',
+   reviewTarget:'reply'
+  }));
+  assert.equal((await getDoc(doc(moderator,reportId))).get('status'),undefined);
+ });
+ await check('admin remove post denunciado e marca decisão no mesmo commit',async()=>{
+  const postId='qaFreeRemovedPost';
+  const target='posts/'+postId;
+  const reportId='reports/qaReporter_post_'+postId;
+  await assertSucceeds(setDoc(doc(author,target),{
+   uid:'qaAuthor',authorName:'Autora QA',title:'Discussão fictícia removida',
+   body:'Publicação de teste, sob decisão administrativa humana.',
+   category:'Liturgia',createdAt:serverTimestamp()
+  }));
+  await assertSucceeds(setDoc(doc(reporter,reportId),{
+   postId,reporterUid:'qaReporter',reason:'Solicitação de análise por administrador',
+   createdAt:serverTimestamp()
+  }));
+  await assertSucceeds(runTransaction(moderator,async tx=>{
+   const report=await tx.get(doc(moderator,reportId));
+   const targetDoc=await tx.get(doc(moderator,target));
+   assert.equal(report.get('status')||'pending','pending');
+   assert.equal(report.get('postId'),postId);
+   assert.equal(targetDoc.get('uid'),'qaAuthor');
+   tx.delete(doc(moderator,target));
+   tx.update(doc(moderator,reportId),{
+    status:'removed',reviewedBy:'qaAdmin',
+    reviewedAt:serverTimestamp(),
+    reviewNote:'Decisão humana confirmada no QA.',reviewTarget:'post'
+   });
+  }));
+  assert.equal((await getDoc(doc(reporter,target))).exists(),false);
+  const reviewed=await getDoc(doc(moderator,reportId));
+  assert.equal(reviewed.get('status'),'removed');
+  assert.equal(reviewed.get('reviewTarget'),'post');
+  await assertFails(updateDoc(doc(moderator,reportId),{
+   status:'dismissed',reviewedBy:'qaAdmin',
+   reviewedAt:serverTimestamp(),reviewNote:'Decisão repetida indevida.',
+   reviewTarget:'post'
+  }));
+ });
  await check('modo grátis nunca falsifica caso, aviso ou quarentena do servidor',async()=>{
   for(const path of [
     'guardian_cases/guard_fake','guardian_audit/fake',
