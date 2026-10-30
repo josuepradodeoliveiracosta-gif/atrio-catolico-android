@@ -17,6 +17,7 @@ import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.MetadataChanges
 import com.google.firebase.firestore.Query
 import kotlinx.coroutines.launch
 
@@ -67,11 +68,48 @@ internal fun ModerationScreen(db: FirebaseFirestore, uid: String, onBack: () -> 
     val photoScope = rememberCoroutineScope()
     val observedUid = rememberGuardianAuthUid()
     val sessionActive = GuardianUiPolicy.sameSession(uid, observedUid)
+    var adminApproved by remember(uid) { mutableStateOf(false) }
+    var adminChecking by remember(uid) { mutableStateOf(true) }
+
+    // Cached enabled=true is not evidence of CURRENT admin privileges.
+    // MetadataChanges.INCLUDE permits re-enabling only after a fresh server reply.
+    DisposableEffect(db, uid, observedUid) {
+        if (!sessionActive) {
+            adminApproved = false
+            adminChecking = false
+            onDispose { }
+        } else {
+            var listening = true
+            adminApproved = false
+            adminChecking = true
+            val adminListener = db.collection("admins").document(uid)
+                .addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, failure ->
+                    if (listening) {
+                        val fresh = snapshot != null && !snapshot.metadata.isFromCache &&
+                            !snapshot.metadata.hasPendingWrites()
+                        val permitted = failure == null && fresh &&
+                            snapshot?.getBoolean("enabled") == true &&
+                            GuardianUiPolicy.sameSession(
+                                uid, FirebaseAuth.getInstance().currentUser?.uid)
+                        adminApproved = permitted
+                        adminChecking = failure == null && !fresh
+                        if (!permitted) {
+                            reports = emptyList()
+                            selectedId = null
+                            photoConfirm = false
+                            photoTarget = ""
+                            photoReason = ""
+                        }
+                    }
+                }
+            onDispose { listening = false; adminListener.remove() }
+        }
+    }
 
     // Do not render cached reports in the next account's Compose frame.
     // Firebase Security Rules still authorize all backend operations.
-    if (!sessionActive) {
-        LaunchedEffect(uid, observedUid) {
+    if (!sessionActive || !adminApproved) {
+        LaunchedEffect(uid, observedUid, adminApproved) {
             reports = emptyList()
             selectedId = null
             photoTarget = ""
@@ -81,7 +119,11 @@ internal fun ModerationScreen(db: FirebaseFirestore, uid: String, onBack: () -> 
             loading = false
         }
         Column(Modifier.fillMaxSize().padding(16.dp)) {
-            Text("Sessão alterada. Entre novamente para acessar a moderação.")
+            Text(when {
+                !sessionActive -> "Sessão alterada. Entre novamente para acessar a moderação."
+                adminChecking -> "Conferindo permissão administrativa no servidor..."
+                else -> "Acesso administrativo indisponível. Consulte a administração."
+            })
             TextButton(onClick = onBack) { Text("Voltar") }
         }
         return

@@ -76,6 +76,20 @@ class GuardianSessionUiTest {
         compose.onNodeWithText("Remover foto inadequada").assertDoesNotExist()
     }
 
+    @Test fun authenticatedNonAdminCannotReadReportsOrOperateModeration() {
+        val user = Tasks.await(auth.signInAnonymously(), 15, TimeUnit.SECONDS).user
+        assertTrue(user != null && user.uid.isNotBlank())
+        compose.setContent { ModerationScreen(db, user!!.uid, onBack = {}) }
+        compose.waitUntil(15_000) {
+            compose.onAllNodesWithText(
+                "Acesso administrativo indisponível. Consulte a administração."
+            ).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText("Pendentes").assertDoesNotExist()
+        compose.onNodeWithText("Remover foto inadequada").assertDoesNotExist()
+        compose.onNodeWithText("Preparar triagem sem retenção").assertDoesNotExist()
+    }
+
     @Test fun logoutClearsModerationQueueAndButtonsImmediately() {
         val user = Tasks.await(auth.signInAnonymously(), 15, TimeUnit.SECONDS).user
         assertTrue(user != null && user.uid.isNotBlank())
