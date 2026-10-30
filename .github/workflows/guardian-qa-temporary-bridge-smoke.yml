@@ -32,9 +32,32 @@ jobs:
               http=$(curl -sS -X "$method" --connect-timeout 7 --max-time 15 \
                 -o /tmp/guardian-bridge-resp -w '%{http_code}' "$QA$path")
             fi
-            test "$http" = "$expected"
-            test "$(cat /tmp/guardian-bridge-resp)" = "{\"status\":\"$code\"}"
+            if [ "$http" != "$expected" ]; then
+              echo "QA_HTTP_MISMATCH: $method $path got=$http expected=$expected"
+              return 1
+            fi
+            if [ "$(cat /tmp/guardian-bridge-resp)" != "{\"status\":\"$code\"}" ]; then
+              echo "QA_RESPONSE_MISMATCH: $method $path (body not echoed)"
+              return 1
+            fi
+            echo "QA_HTTP_OK: $method $path $http"
           }
+          # Cloudflare version deployment may require brief global propagation.
+          # Do not send tokens or consume D1 until no-auth returns 401.
+          ready=false
+          for attempt in $(seq 1 20); do
+            current=$(curl -sS -X POST --connect-timeout 7 --max-time 15 \
+              -o /tmp/guardian-bridge-ready -w '%{http_code}' "$QA/qa/firebase-fixture")
+            if [ "$current" = "401" ] && [ "$(cat /tmp/guardian-bridge-ready)" = '{"status":"unauthorized"}' ]; then
+              ready=true
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ready" != true ]; then
+            echo "QA_GATE_NOT_READY: no temporary bridge propagation"
+            exit 1
+          fi
           call GET /health 200 guardian_v2_qa_safe
           call POST /admin/config 503 qa_read_only
           call POST /admin/review 503 qa_read_only
