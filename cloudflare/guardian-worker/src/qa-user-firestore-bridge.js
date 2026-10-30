@@ -18,9 +18,14 @@ const MAX_QA_BRIDGE_WINDOW_MS=10*60*1000;
 export function qaBridgeEnabled(env,now=Date.now()){
  const begin=env?.GUARDIAN_V2_QA_BRIDGE_NOT_BEFORE;
  const finish=env?.GUARDIAN_V2_QA_BRIDGE_EXPIRES_AT;
- const valid=s=>typeof s==='string' &&
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(s) &&
-  Number.isFinite(Date.parse(s));
+ // Date.parse normalizes impossible calendar dates (e.g. February 30).
+ // Accept only the exact canonical UTC instant configured by the operator.
+ const valid=s=>{
+  if(typeof s!=='string'||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(s))
+   return false;
+  const instant=Date.parse(s);
+  return Number.isFinite(instant)&&new Date(instant).toISOString()===s;
+ };
  if(!valid(begin)||!valid(finish)||!Number.isFinite(now))return false;
  const start=Date.parse(begin),end=Date.parse(finish);
  if(end<=start||end-start>MAX_QA_BRIDGE_WINDOW_MS||now<start||now>=end)
