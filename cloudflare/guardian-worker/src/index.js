@@ -222,6 +222,7 @@ export default {
         const fields={scannedAt:timestamp(new Date().toISOString()),
           review:{integerValue:String(metrics.review)},warn:{integerValue:String(metrics.warn)},
           error:{integerValue:String(metrics.error)},
+          changed:{integerValue:String(metrics.changed||0)},
           backlogGroups:{integerValue:String(metrics.backlogGroups||0)},
           pausedGroups:{integerValue:String(metrics.pausedGroups||0)}};
         try {
