@@ -117,11 +117,15 @@ export async function qaFixtureRequest(request,env,{fetcher=fetch,clock=Date.now
  try{
   result=await fetcher(QA_URL,{method:'GET',headers:{
    Authorization:'Bearer '+matched[1],Accept:'application/json'
-  },redirect:'error',signal:AbortSignal.timeout(6000)});
+  },redirect:'manual',signal:AbortSignal.timeout(6000)});
  }catch{return reply(503,'qa_upstream_network_unavailable');}
  if(!Number.isInteger(result?.status)||result.status<100||result.status>599)
   return reply(503,'qa_upstream_response_invalid');
  if([400,401,403].includes(result.status))return reply(403,'forbidden');
+ // Cloudflare Workers does not implement redirect:"error". Using manual keeps
+ // the Authorization header strictly on the original Firebase host.
+ // Never follow (or read Location from) a 3xx response.
+ if(result.status>=300&&result.status<400)return reply(503,'qa_upstream_redirect_blocked');
  if(result.status===404)return reply(404,'fixture_missing');
  if(result.status===429)return reply(503,'qa_upstream_throttled');
  if(!result.ok)return reply(503,'qa_upstream_http_unavailable');

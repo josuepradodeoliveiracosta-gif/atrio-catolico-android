@@ -69,7 +69,7 @@ test('a única consulta é GET do post fictício, com token repassado às regras
   assert.equal(url,'https://firestore.googleapis.com/v1/projects/atrio-catolico-qa-v2/databases/(default)/documents/posts/qa_post_1');
   assert.equal(options.method,'GET');
   assert.equal(options.headers.Authorization,'Bearer '+fakeId);
-  assert.equal(options.redirect,'error');
+  assert.equal(options.redirect,'manual');
   assert.equal(options.body,undefined);
   return new Response(JSON.stringify(doc()),{status:200});
  }});
@@ -94,6 +94,21 @@ test('respostas HTTP da API QA são categorizadas sem revelar dados',async()=>{
   assert.equal(res.status,expected);
   assert.equal(await res.text(),JSON.stringify({status:code}));
  }
+});
+test('redirecionamento do Firebase não encaminha bearer nem faz segundo GET',async()=>{
+ let network=0;
+ const redirectResponse=await qaFixtureRequest(req(),env,{fetcher:async(url,options)=>{
+  network++;
+  assert.equal(options.redirect,'manual');
+  assert.ok(url.startsWith('https://firestore.googleapis.com/'));
+  return new Response(null,{status:302,headers:{
+   Location:'https://untrusted.invalid/?token='+fakeId
+  }});
+ }});
+ assert.equal(network,1);
+ assert.equal(redirectResponse.status,503);
+ assert.deepEqual(await redirectResponse.json(),{status:'qa_upstream_redirect_blocked'});
+ assert.ok(!JSON.stringify(await redirectResponse.headers.entries()).includes(fakeId));
 });
 test('falha de fetch diferencia rede de HTTP, sem retornar o token',async()=>{
  const res=await qaFixtureRequest(req(),env,{fetcher:async()=>{throw Error('secret '+fakeId);}});

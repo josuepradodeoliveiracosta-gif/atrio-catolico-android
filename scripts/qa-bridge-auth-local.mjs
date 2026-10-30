@@ -36,7 +36,7 @@ export async function localBridgeProbe(token,{fetcher=fetch}={}){
  try{
   response=await qaFixtureRequest(req,env,{fetcher:async(url,options)=>{
    if(url!==URL||options?.method!=='GET'||options?.headers?.Authorization!=='Bearer '+token
-     ||options?.redirect!=='error'||gets!==0)
+     ||options?.redirect!=='manual'||gets!==0)
      throw Error('unexpected_firestore_request');
    gets++;
    return fetcher(url,options);

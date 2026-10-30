@@ -18,7 +18,7 @@ test('usa a ponte verdadeira com um único GET e D1/limites simulados',async()=>
  assert.equal(calls[0][0],url);
  assert.equal(calls[0][1].method,'GET');
  assert.equal(calls[0][1].headers.Authorization,'Bearer '+id);
- assert.equal(calls[0][1].redirect,'error');
+ assert.equal(calls[0][1].redirect,'manual');
  assert.ok(!JSON.stringify(r).includes(id));
  assert.ok(!JSON.stringify(r).includes('Missa'));
 });
