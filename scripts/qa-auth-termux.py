@@ -22,6 +22,79 @@ APP_ID="1:53068022813:web:57fe6acbf9686fa1b5f2f4"
 DOC=f"projects/{PROJECT}/databases/(default)/documents/posts/qa_post_1"
 FIRESTORE="https://firestore.googleapis.com/v1/"+DOC
 AUTH="https://identitytoolkit.googleapis.com/v1/"
+# Fixed QA hostname. No caller-supplied URL or production endpoint.
+QA_WORKER="https://atrio-guardian-v2-qa.atrio-catolico.workers.dev"
+QA_BRIDGE_URL=QA_WORKER+"/qa/firebase-fixture"
+QA_BRIDGE_OK={"qa_fixture_clear","qa_fixture_review","qa_fixture_warn"}
+
+class NeverFollowRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self,req,fp,code,msg,headers,newurl):
+        # Never send a Firebase Auth Bearer outside the literal QA Worker.
+        return None
+
+def qa_worker_post(id_token=None,opener=None):
+    """One POST, no redirects, no JWT in URL/logs or untrusted response text."""
+    if id_token is not None and not (
+      isinstance(id_token,str) and re.fullmatch(
+        r"[A-Za-z0-9_-]{10,2048}\\.[A-Za-z0-9_-]{10,4096}\\.[A-Za-z0-9_-]{10,2048}",id_token)):
+        return (0,"qa_invalid_token")
+    if opener is None:
+        opener=urllib.request.build_opener(NeverFollowRedirect())
+    headers={"Accept":"application/json"}
+    if id_token is not None:
+        headers["Authorization"]="Bearer "+id_token
+    req=urllib.request.Request(QA_BRIDGE_URL,data=b"",headers=headers,method="POST")
+    try:
+        with opener.open(req,timeout=12) as response:
+            status=response.status
+            data=response.read(1025)
+    except urllib.error.HTTPError as exc:
+        status=exc.code
+        data=exc.read(1025)
+    except (urllib.error.URLError,TimeoutError,OSError,ValueError):
+        return (0,"qa_remote_network_unavailable")
+    if len(data)>1024:
+        return (0,"qa_remote_invalid_response")
+    try:
+        payload=json.loads(data)
+        category=payload.get("status")
+    except (ValueError,AttributeError,TypeError):
+        return (0,"qa_remote_invalid_response")
+    if not isinstance(category,str):
+        return (0,"qa_remote_invalid_response")
+    allowed={200:QA_BRIDGE_OK,401:{"unauthorized"},403:{"forbidden"},
+      429:{"qa_rate_limited","qa_daily_budget_exhausted"},
+      503:{"qa_bridge_disabled","qa_daily_budget_unavailable",
+        "qa_rate_limit_unavailable","qa_upstream_network_unavailable",
+        "qa_upstream_response_invalid","qa_upstream_http_unavailable",
+        "qa_upstream_redirect_blocked","qa_upstream_throttled",
+        "qa_bridge_unavailable","invalid_qa_fixture"}}
+    if category not in allowed.get(status,set()):
+        return (0,"qa_remote_invalid_response")
+    return (status,category)
+
+def qa_remote_preflight():
+    """No account creation unless the public QA bridge explicitly requires auth."""
+    code,category=qa_worker_post()
+    if code==401 and category=="unauthorized":
+        print("QA_BRIDGE_REMOTE_READY: autenticação obrigatória")
+        return True
+    if code==503 and category=="qa_bridge_disabled":
+        print("QA_BRIDGE_REMOTE_DISABLED: nenhuma conta criada; ponte QA desligada")
+    else:
+        print("QA_BRIDGE_REMOTE_NOT_READY: nenhuma conta criada")
+    return False
+
+def qa_bridge_remote(token):
+    """Exactly one authenticated read through public QA Worker; fail closed."""
+    code,category=qa_worker_post(token)
+    if code==200 and category in QA_BRIDGE_OK:
+        print("QA_BRIDGE_REMOTE_PASS:",category)
+        return True
+    # Fixed short status only; never upstream content, JWT, UID or error detail.
+    print("QA_BRIDGE_REMOTE_BLOCKED:",category)
+    return False
+
 
 def call(method,url,data=None,token=None):
     headers={"Accept":"application/json"}
@@ -70,7 +143,7 @@ def qa_bridge_local(token):
     return False
 
 
-def test_qa(key,email,password,bridge_local=False):
+def test_qa(key,email,password,bridge_local=False,bridge_remote=False):
     registered_id=None
     token=None
     try:
@@ -111,6 +184,8 @@ def test_qa(key,email,password,bridge_local=False):
         print("QA_AUTHENTICATED_FIRESTORE_RULES: OK")
         if bridge_local and not qa_bridge_local(token):
             return 1
+        if bridge_remote and not qa_bridge_remote(token):
+            return 1
         print("QA_TEST_RESULT: PASS")
         return 0
     finally:
@@ -148,9 +223,14 @@ def main():
     parser.add_argument("--test",action="store_true",help="cria conta QA temporária, testa e exclui")
     parser.add_argument("--bridge-local",action="store_true",
                         help="com --test, usa a ponte real do Worker localmente; D1/Rate Limits simulados")
+    parser.add_argument("--bridge-remote",action="store_true",
+                        help="com --test, valida o Worker QA remoto usando o token de uma conta temporária")
     args=parser.parse_args()
-    if args.bridge_local and not args.test:
-        print("QA_BRIDGE_NEEDS_TEST: use --test --bridge-local")
+    if args.bridge_local and args.bridge_remote:
+        print("QA_BRIDGE_MODE_CONFLICT: escolha apenas uma ponte")
+        return 1
+    if (args.bridge_local or args.bridge_remote) and not args.test:
+        print("QA_BRIDGE_NEEDS_TEST: use --test com a ponte escolhida")
         return 1
     key=qa_key_from_firebase_cli()
     if key is None:
@@ -185,6 +265,9 @@ def main():
     if not args.test:
         print("QA_PRECHECK_PASS: nenhuma conta criada. Para testar, use --test.")
         return 0
+    # A closed QA bridge is not a reason to create/delete new Auth accounts.
+    if args.bridge_remote and not qa_remote_preflight():
+        return 1
     email=input("E-mail seu, exclusivo para teste QA: ").strip()
     if len(email)>200 or not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+",email):
         print("QA_TEST_EMAIL_INVALID")
@@ -194,7 +277,8 @@ def main():
         print("QA_TEST_PASSWORD_INVALID")
         return 1
     print("QA_TEMP_ACCOUNT_TEST: cadastro, login, regras, exclusão")
-    return test_qa(key,email,password,bridge_local=args.bridge_local)
+    return test_qa(key,email,password,
+                   bridge_local=args.bridge_local,bridge_remote=args.bridge_remote)
 
 if __name__=="__main__":
     try:sys.exit(main())
