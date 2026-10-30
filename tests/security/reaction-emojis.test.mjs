@@ -57,17 +57,6 @@ try {
     await setDoc(doc(ctx.firestore(),'posts/emoji-post/replies/emoji-reply'),{uid:'emoji-b'});
   });
   const examples=[...new Set(['heart','prayer','light','👍','❤️','😂','😮','😢','🙏','👨‍👩‍👧‍👦','👩🏽‍💻','🇧🇷','1️⃣','🧑🏾‍🤝‍🧑🏻','👍🏻','👍🏼','👍🏽','👍🏾','👍🏿',...Array.from({length:9},(_,i)=>catalog.find(row=>Number(row[1])===i)[0]),catalog.at(-1)[0]])];
-  await check('legacy, categories, families, flags and skin tones accepted by real rules',async()=>{
-    for(const kind of examples){
-      await assertSucceeds(setDoc(ref,{kind,createdAt:serverTimestamp()}));
-      assert.equal((await getDoc(ref)).data().kind,kind);
-      await assertSucceeds(deleteDoc(ref));
-    }
-  });
-  // Keep the live Firestore listener test before deliberate permission-denied
-  // writes. Large bursts of rejected Write RPCs in the same Emulator session
-  // can produce a transient RESOURCE_EXHAUSTED Listen stream (gRPC framing).
-  // This does not remove, skip or soften any security assertions below.
   await check('owner can create, replace and remove without duplicates; second account sees snapshots',async()=>{
     let seen=expectLive(b,rows=>rows.length===1 && rows[0].kind==='prayer');
     await assertSucceeds(setDoc(ref,{kind:'prayer',createdAt:serverTimestamp()})); await seen;
@@ -80,6 +69,19 @@ try {
     seen=expectLive(b,rows=>rows.length===1 && rows[0].uid==='emoji-b');
     await assertSucceeds(deleteDoc(ref)); await seen;
   });
+
+  // Avoid accumulating dozens of successful write/delete RPCs before opening
+  // the realtime Listen stream. Previous CI runs observed an emulator-only
+  // RESOURCE_EXHAUSTED gRPC frame error right after the Unicode catalog loop.
+  // Both the full catalog and the realtime security assertions remain active.
+  await check('legacy, categories, families, flags and skin tones accepted by real rules',async()=>{
+    for(const kind of examples){
+      await assertSucceeds(setDoc(ref,{kind,createdAt:serverTimestamp()}));
+      assert.equal((await getDoc(ref)).data().kind,kind);
+      await assertSucceeds(deleteDoc(ref));
+    }
+  });
+
   await check('text, multiple emojis, incomplete sequences and modifiers alone rejected',async()=>{
     for(const kind of invalid) await assertFails(setDoc(ref,{kind,createdAt:serverTimestamp()}));
   });
