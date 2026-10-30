@@ -1,7 +1,9 @@
 package br.com.atriocatolico
 
 import android.content.Context
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextContains
@@ -20,7 +22,7 @@ import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.test.core.app.ApplicationProvider
-import androidx.test.espresso.Espresso
+import androidx.test.platform.app.InstrumentationRegistry
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
@@ -191,7 +193,7 @@ class ThreeBotsOnlineEmulatorTest {
             .performScrollTo().assertIsEnabled().performClick()
         // Voltar tem o mesmo efeito seguro de revisar, sem consumir o rascunho.
         compose.onNodeWithTag("atrio-guardian-revise").assertIsDisplayed()
-        Espresso.pressBack()
+        InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
         compose.onNodeWithTag("atrio-guardian-continue").assertDoesNotExist()
         compose.onNodeWithTag("atrio-publish-title").assertTextContains(title)
         compose.onNodeWithTag("atrio-publish-body").assertTextContains(draftBody)
