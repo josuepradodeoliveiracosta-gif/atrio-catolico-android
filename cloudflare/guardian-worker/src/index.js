@@ -53,7 +53,16 @@ export async function processDocument(db,document,settings,now=new Date().toISOS
     writes.push({delete:root+'/'+item.path,currentDocument:{updateTime:item.doc.updateTime}});
   }
   try{await db.commit(writes);return action;}
-  catch(e){if(e.status===409||e.status===412)return 'duplicate_or_changed';throw e;}
+  catch(e){
+    if(e.status===409||e.status===412){
+      // Conflict can mean a prior case OR a newer edit. A newer edit must
+      // be retried by the scanner; otherwise its checkpoint could skip it.
+      const fresh=await db.get(item.path);
+      if(fresh?.updateTime&&fresh.updateTime!==item.doc.updateTime)return 'changed';
+      return 'duplicate_or_changed';
+    }
+    throw e;
+  }
 }
 export async function processReport(db,report,settings) {
   // Denúncias são pistas, não são prova e nunca contabilizam infração confirmada.
