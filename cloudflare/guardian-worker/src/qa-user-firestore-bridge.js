@@ -23,8 +23,7 @@ export const qaBridgeEnabled=env=>env?.GUARDIAN_V2_TEST_MODE==='true'
 export async function qaFixtureRequest(request,env,{fetcher=fetch}={}){
  if(!qaBridgeEnabled(env))return reply(503,'qa_bridge_disabled');
  if(request.method!=='POST')return reply(404,'not_found');
- if(request.headers.get('content-length') && Number(request.headers.get('content-length'))>0)
-   return reply(400,'invalid_request');
+ if(request.body!==null)return reply(400,'invalid_request');
  const header=request.headers.get('authorization')||'';
  const matched=/^Bearer ([A-Za-z0-9_-]{10,2048}\.[A-Za-z0-9_-]{10,4096}\.[A-Za-z0-9_-]{10,2048})$/.exec(header);
  if(!matched)return reply(401,'unauthorized');
