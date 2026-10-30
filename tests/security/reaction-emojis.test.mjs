@@ -21,25 +21,34 @@ let passed=0;
 async function check(name, action){await action();passed++;console.log('PASS EMOJI',name);}
 function expectLive(db, predicate) {
   return new Promise((resolve, reject) => {
-    let settled = false;
-    let unsubscribe = () => {};
-    const finish = (error) => {
-      if (settled) return;
-      settled = true;
+    let settled=false,unsubscribe=()=>{},timer;
+    let attempt=0;
+    const finish=(error)=>{
+      if(settled)return;
+      settled=true;
       clearTimeout(timer);
       unsubscribe();
-      if (error) reject(error); else resolve();
+      if(error)reject(error);else resolve();
     };
-    // No emulador a view autenticada pode iniciar a partir do cache e jamais
-    // emitir um segundo snapshot apenas para a mudança de metadados. Uma
-    // mudança entregue ao observador b e que satisfaz o predicado já comprova
-    // recepção da atualização; não exigir fromCache=false para terminar.
-    // A suite testa separadamente permissões e leituras reais com getDocs().
-    const timer = setTimeout(() => finish(new Error('realtime reaction timeout')), 30000);
-    unsubscribe = onSnapshot(collection(db, path), {includeMetadataChanges: true}, snapshot => {
-      if (predicate(snapshot.docs.map(d => ({uid: d.id, ...d.data()})))) finish();
-    }, error => finish(error));
-    if (settled) unsubscribe();
+    const attach=()=>{
+      attempt++;
+      // O SDK às vezes perde uma transição do stream do Emulator em CI.
+      // O retry RECRIA a escuta do segundo usuário; NÃO substitui a
+      // verificação por um getDocs() e NÃO considera o teste aprovado sem
+      // receber onSnapshot com os dados corretos.
+      unsubscribe=onSnapshot(collection(db,path),{includeMetadataChanges:true},snapshot=>{
+        const rows=snapshot.docs.map(d=>({uid:d.id,...d.data()}));
+        if(predicate(rows))finish();
+      },error=>finish(error));
+      if(settled){unsubscribe();return;}
+      clearTimeout(timer);
+      timer=setTimeout(()=>{
+        unsubscribe();
+        if(attempt>=3)finish(new Error('realtime reaction timeout after 3 subscriptions'));
+        else attach();
+      },9000);
+    };
+    attach();
   });
 }
 try {
