@@ -16,6 +16,23 @@ class Check(unittest.TestCase):
   with patch.object(m,"call",return_value=(200,{"projectId":m.PROJECT})) as c,patch.object(m,"qa_key_from_firebase_cli",return_value="A"*34),patch("sys.argv",["qa-auth-termux.py"]):
    self.assertEqual(m.main(),0)
    self.assertEqual(c.call_args.args[0],"GET")
+ def test_auth_project_numeric_identity_matches_exact_qa(self):
+  # Identity Toolkit legacy getProjects may report numeric project identifier.
+  with patch.object(m,"qa_key_from_firebase_cli",return_value="A"*34),patch.object(
+    m,"call",return_value=(200,{"projectId":m.PROJECT_NUMBER,
+                                 "authorizedDomains":["atrio-catolico-qa-v2.firebaseapp.com"]})) as api,patch(
+    "sys.argv",["qa-auth-termux.py"]),contextlib.redirect_stdout(io.StringIO()) as out:
+   self.assertEqual(m.main(),0)
+   self.assertEqual(api.call_count,1)
+   self.assertIn("QA_PRECHECK_PASS:",out.getvalue())
+ def test_foreign_numeric_project_number_is_still_denied(self):
+  with patch.object(m,"qa_key_from_firebase_cli",return_value="A"*34),patch.object(
+    m,"call",return_value=(200,{"projectId":"999888777666"})) as api,patch(
+    "sys.argv",["qa-auth-termux.py","--test"]),contextlib.redirect_stdout(io.StringIO()) as out:
+   self.assertEqual(m.main(),1)
+   self.assertEqual(api.call_count,1)
+   self.assertIn("OTHER_PROJECT_NUMBER",out.getvalue())
+   self.assertNotIn("QA_PRECHECK_PASS:",out.getvalue())
  def test_auth_config_without_project_id_accepts_exact_qa_cli_identity(self):
   # A public Auth config can omit projectId while the Firebase Management
   # SDK config has already proved exact appId+projectId+apiKey.

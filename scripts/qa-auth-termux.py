@@ -14,6 +14,9 @@ import urllib.parse
 import urllib.request
 
 PROJECT="atrio-catolico-qa-v2"
+# Some legacy Identity Toolkit project configurations use the numeric project ID.
+# Both identifiers were verified in the Firebase QA SDK configuration.
+PROJECT_NUMBER="53068022813"
 APP_ID="1:53068022813:web:57fe6acbf9686fa1b5f2f4"
 DOC=f"projects/{PROJECT}/databases/(default)/documents/posts/qa_post_1"
 FIRESTORE="https://firestore.googleapis.com/v1/"+DOC
@@ -139,8 +142,15 @@ def main():
         print("QA_AUTH_CONFIGURATION_INVALID: nada criado")
         return 1
     claimed=conf.get("projectId")
-    if claimed is not None and claimed!=PROJECT:
-        print("QA_AUTH_PROJECT_MISMATCH: nada criado")
+    if claimed is not None and claimed not in (PROJECT,PROJECT_NUMBER):
+        # Only fixed safe diagnostics: never echo API responses, keys or tokens.
+        if isinstance(claimed,str) and claimed.isdecimal():
+            kind="OTHER_PROJECT_NUMBER"
+        elif isinstance(claimed,str):
+            kind="OTHER_PROJECT_ID"
+        else:
+            kind="INVALID_PROJECT_ID"
+        print("QA_AUTH_PROJECT_MISMATCH:",kind,"(nenhuma conta criada)")
         return 1
     if not args.test:
         print("QA_PRECHECK_PASS: nenhuma conta criada. Para testar, use --test.")
