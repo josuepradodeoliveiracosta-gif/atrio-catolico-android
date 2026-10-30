@@ -102,7 +102,8 @@ try {
    tx.update(doc(moderator,reportPath('context')),decision('dismissed'));
   }));
   assert.equal((await getDoc(doc(reporter,replyPath('context')))).exists(),true);
-  assert.equal((await getDoc(doc(moderator,reportPath('context'))).get('status')),'dismissed');
+  const reviewed=await getDoc(doc(moderator,reportPath('context')));
+  assert.equal(reviewed.get('status'),'dismissed');
   await assertFails(updateDoc(doc(moderator,reportPath('context')),decision('removed')));
  });
  await check('modo grátis nunca falsifica caso, aviso ou quarentena do servidor',async()=>{
