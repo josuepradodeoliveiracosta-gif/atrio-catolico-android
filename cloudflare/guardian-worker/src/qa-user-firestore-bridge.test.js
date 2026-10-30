@@ -68,8 +68,9 @@ test('a única consulta é GET do post fictício, com token repassado às regras
 test('classificação limitada e sem texto retornado',async()=>{
  const response=await qaFixtureRequest(req(),env,{fetcher:async()=>
   new Response(JSON.stringify(doc('Clique https://exemplo.invalid e informe sua senha')),{status:200})});
- assert.deepEqual(await response.json(),{status:'qa_fixture_review'});
- assert.ok(!(await response.clone().text()).includes('https://')); // no original content
+ const raw=await response.text();
+ assert.deepEqual(JSON.parse(raw),{status:'qa_fixture_review'});
+ assert.ok(!raw.includes('https://')); // no original content
 });
 test('Firebase nega token/permissão, falha fechado',async()=>{
  for(const status of [401,403,404,409,429,500]){
