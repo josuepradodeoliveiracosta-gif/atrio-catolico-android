@@ -142,7 +142,12 @@ class GuardianSessionUiTest {
         assertTrue("Worker oficial proibido em QA", BuildConfig.GUARDIAN_WORKER_URL.isBlank())
         assertEquals("demo-atrio-v11", FirebaseApp.getInstance().options.projectId)
         assertEquals("127.0.0.1:8089", db.firestoreSettings.host)
-        require(Regex("^(admins|reports|posts|guardiao_quarantine)/[A-Za-z0-9_-]{1,128}$").matches(path))
+        require(
+            Regex("^(admins|reports|posts|guardiao_quarantine)/[A-Za-z0-9_-]{1,128}$")
+                .matches(path) ||
+            Regex("^guardian_notices/[A-Za-z0-9_-]{1,128}/items/[A-Za-z0-9_-]{1,128}$")
+                .matches(path)
+        )
         val name = "projects/demo-atrio-v11/databases/(default)/documents/$path"
         val write = if (fields == null) {
             """{"delete":"$name"}"""
@@ -360,6 +365,37 @@ class GuardianSessionUiTest {
             }
         } finally {
             qaAdminFixture("guardiao_quarantine/$caseId", null)
+        }
+    }
+
+    @Test fun logoutImmediatelyHidesPrivateGuardianNotices() {
+        val user = Tasks.await(auth.signInAnonymously(), 15, TimeUnit.SECONDS).user
+        assertTrue(user != null && user.uid.isNotBlank())
+        val uid = user!!.uid
+        val noticeId = "qaPrivateNotice"
+        val path = "guardian_notices/$uid/items/$noticeId"
+        val privateText = "Aviso privado de teste - não exibir após sair"
+        try {
+            qaAdminFixture(path, """
+                {"createdAt":{"timestampValue":"${Instant.now()}"},
+                 "title":{"stringValue":"Aviso privado QA"},
+                 "body":{"stringValue":"$privateText"}}
+                """.trimIndent())
+            compose.setContent { GuardianNoticeFeed(db, uid) }
+            compose.waitUntil(20_000) {
+                compose.onAllNodesWithText(privateText)
+                    .fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onNodeWithText(privateText).assertIsDisplayed()
+            auth.signOut()
+            compose.waitUntil(15_000) {
+                compose.onAllNodesWithText("Sessão alterada. Entre novamente.")
+                    .fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onNodeWithText(privateText).assertDoesNotExist()
+            compose.onNodeWithText("Aviso privado QA").assertDoesNotExist()
+        } finally {
+            qaAdminFixture(path, null)
         }
     }
 
