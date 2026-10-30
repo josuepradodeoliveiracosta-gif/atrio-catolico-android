@@ -79,18 +79,18 @@ try {
   await assertSucceeds(runTransaction(moderator,async tx=>{
    const report=await tx.get(doc(moderator,reportPath('phish')));
    const target=await tx.get(doc(moderator,replyPath('phish')));
-   assert.equal(report.getString('status')||'pending','pending');
-   assert.equal(report.getString('postId'),'qaFreeTopic');
-   assert.equal(report.getString('replyId'),'phish');
-   assert.equal(target.getString('uid'),'qaAuthor');
+   assert.equal(report.get('status')||'pending','pending');
+   assert.equal(report.get('postId'),'qaFreeTopic');
+   assert.equal(report.get('replyId'),'phish');
+   assert.equal(target.get('uid'),'qaAuthor');
    tx.delete(doc(moderator,replyPath('phish')));
    tx.update(doc(moderator,reportPath('phish')),decision('removed'));
   }));
   assert.equal((await getDoc(doc(reporter,replyPath('phish')))).exists(),false);
   assert.equal((await getDoc(doc(reporter,root))).exists(),true);
   const report=await getDoc(doc(moderator,reportPath('phish')));
-  assert.equal(report.getString('status'),'removed');
-  assert.equal(report.getString('reviewedBy'),'qaAdmin');
+  assert.equal(report.get('status'),'removed');
+  assert.equal(report.get('reviewedBy'),'qaAdmin');
  });
  await check('admin encerra denúncia contextual sem remover texto religioso',async()=>{
   await assertSucceeds(setDoc(doc(author,replyPath('context')),
@@ -98,11 +98,11 @@ try {
   await assertSucceeds(setDoc(doc(reporter,reportPath('context')),makeReport('context')));
   await assertSucceeds(runTransaction(moderator,async tx=>{
    const report=await tx.get(doc(moderator,reportPath('context')));
-   assert.equal(report.getString('status')||'pending','pending');
+   assert.equal(report.get('status')||'pending','pending');
    tx.update(doc(moderator,reportPath('context')),decision('dismissed'));
   }));
   assert.equal((await getDoc(doc(reporter,replyPath('context')))).exists(),true);
-  assert.equal((await getDoc(doc(moderator,reportPath('context'))).getString('status')),'dismissed');
+  assert.equal((await getDoc(doc(moderator,reportPath('context'))).get('status')),'dismissed');
   await assertFails(updateDoc(doc(moderator,reportPath('context')),decision('removed')));
  });
  await check('modo grátis nunca falsifica caso, aviso ou quarentena do servidor',async()=>{
@@ -127,7 +127,7 @@ try {
   assert.equal((await getDoc(doc(reporter,replyPath('pending')))).exists(),true);
   await env.withSecurityRulesDisabled(async ctx=>{
    const snap=await getDoc(doc(ctx.firestore(),reportPath('pending')));
-   assert.equal(snap.getString('status'),null);
+   assert.equal(snap.get('status'),null);
   });
  });
  console.log('GUARDIAN_FREE_MANUAL_EMULATOR',checks,'PASS');
