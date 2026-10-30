@@ -11,7 +11,21 @@ const QA_URL='https://firestore.googleapis.com/v1/'+QA_RESOURCE+'/posts/qa_post_
 const reply=(code,status)=>new Response(JSON.stringify({status}),{status:code,headers:{
  'content-type':'application/json','cache-control':'no-store','x-content-type-options':'nosniff'
 }});
-export const qaBridgeEnabled=env=>env?.GUARDIAN_V2_TEST_MODE==='true'
+// Explicit start and expiry are mandatory even if the bridge flag is true.
+// No delayed activation from a distant expiry: the entire interval <=10 min.
+// Missing or expired windows must fail before rate limits, D1 or Firebase.
+const MAX_QA_BRIDGE_WINDOW_MS=10*60*1000;
+export function qaBridgeEnabled(env,now=Date.now()){
+ const begin=env?.GUARDIAN_V2_QA_BRIDGE_NOT_BEFORE;
+ const finish=env?.GUARDIAN_V2_QA_BRIDGE_EXPIRES_AT;
+ const valid=s=>typeof s==='string' &&
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(s) &&
+  Number.isFinite(Date.parse(s));
+ if(!valid(begin)||!valid(finish)||!Number.isFinite(now))return false;
+ const start=Date.parse(begin),end=Date.parse(finish);
+ if(end<=start||end-start>MAX_QA_BRIDGE_WINDOW_MS||now<start||now>=end)
+  return false;
+ return env?.GUARDIAN_V2_TEST_MODE==='true'
  && env.GUARDIAN_V2_ENABLED==='false'
  && env.GUARDIAN_V2_HOLD_ENABLED==='false'
  && env.GUARDIAN_V2_QA_SHADOW_READS==='false'
@@ -21,6 +35,7 @@ export const qaBridgeEnabled=env=>env?.GUARDIAN_V2_TEST_MODE==='true'
  && env.GUARDIAN_V2_QA_READER_PROJECT===QA_PROJECT
  && !env.GUARDIAN_FIREBASE_SERVICE_ACCOUNT_JSON
  && !env.GUARDIAN_FIREBASE_PROJECT_ID;
+}
 // Reject unexpectedly large API responses, including streamed replies with a
 // missing or untrustworthy Content-Length. No payload is logged or echoed.
 const MAX_QA_RESPONSE_BYTES=8192;
@@ -97,7 +112,7 @@ async function qaEmptyPostBody(request){
  finally{try{reader.releaseLock();}catch{}}
 }
 export async function qaFixtureRequest(request,env,{fetcher=fetch,clock=Date.now}={}){
- if(!qaBridgeEnabled(env))return reply(503,'qa_bridge_disabled');
+ if(!qaBridgeEnabled(env,clock()))return reply(503,'qa_bridge_disabled');
  if(request.method!=='POST')return reply(404,'not_found');
  if(!await qaEmptyPostBody(request))return reply(400,'invalid_request');
  const header=request.headers.get('authorization')||'';
@@ -110,6 +125,8 @@ export async function qaFixtureRequest(request,env,{fetcher=fetch,clock=Date.now
  const daily=await reserveQaDailyRead(env,{clock});
  if(daily==='limited')return reply(429,'qa_daily_budget_exhausted');
  if(daily!=='allowed')return reply(503,'qa_daily_budget_unavailable');
+ // Window may close while D1 is reserving: never start a GET after expiry.
+ if(!qaBridgeEnabled(env,clock()))return reply(503,'qa_bridge_disabled');
  // Firestore is responsible for verifying the JWT signature and Rules. Never
  // use decoded-but-unverified token claims for trust or authorization.
  // QA-only error classes: no upstream body, exception, JWT or UID in output.

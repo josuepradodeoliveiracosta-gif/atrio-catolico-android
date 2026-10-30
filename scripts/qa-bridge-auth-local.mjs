@@ -18,6 +18,8 @@ export async function localBridgeProbe(token,{fetcher=fetch}={}){
   GUARDIAN_V2_HOLD_ENABLED:'false',GUARDIAN_V2_QA_SHADOW_READS:'false',
   GUARDIAN_V2_QA_AUTO_DISPATCH:'false',GUARDIAN_QA_DISPATCH_READY:'false',
   GUARDIAN_V2_QA_FIRESTORE_BRIDGE:'true', // LOCAL ONLY
+  GUARDIAN_V2_QA_BRIDGE_NOT_BEFORE:new Date(Date.now()-1000).toISOString(),
+  GUARDIAN_V2_QA_BRIDGE_EXPIRES_AT:new Date(Date.now()+300000).toISOString(),
   GUARDIAN_V2_QA_READER_PROJECT:'atrio-catolico-qa-v2',
   GUARDIAN_QA_GLOBAL_LIMITER:{limit:async()=>{rateCalls++;return {success:true};}},
   GUARDIAN_QA_TOKEN_LIMITER:{limit:async()=>{rateCalls++;return {success:true};}},

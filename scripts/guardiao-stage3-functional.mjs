@@ -17,6 +17,8 @@ const qaFlags=Object.freeze({
  GUARDIAN_V2_QA_AUTO_DISPATCH:'false',
  GUARDIAN_QA_DISPATCH_READY:'false',
  GUARDIAN_V2_QA_FIRESTORE_BRIDGE:'false',
+ GUARDIAN_V2_QA_BRIDGE_NOT_BEFORE:'2026-10-30T12:09:00.000Z',
+ GUARDIAN_V2_QA_BRIDGE_EXPIRES_AT:'2026-10-30T12:14:00.000Z',
  GUARDIAN_V2_QA_READER_PROJECT:'atrio-catolico-qa-v2',
  GUARDIAN_V2_QA_POLICY_HEARTBEAT:'true',
  GUARDIAN_V2_QA_RUN_MONITOR:'false'
@@ -200,12 +202,14 @@ test('ponte simulada: falta D1 e bloqueio do limite impedem qualquer GET Firebas
   GUARDIAN_QA_GLOBAL_LIMITER:{limit:async()=>({success:true})},
   GUARDIAN_QA_TOKEN_LIMITER:{limit:async()=>({success:true})}};
  const bad=await qaFixtureRequest(request(),cfg,{
+  clock:()=>Date.parse('2026-10-30T12:10:00Z'),
   fetcher:async()=>{fetches++;throw Error('should not fetch');}
  });
  assert.equal(bad.status,503);
  assert.equal((await bad.json()).status,'qa_daily_budget_unavailable');
  const limited=await qaFixtureRequest(request(),{...cfg,GUARDIAN_QA_GLOBAL_LIMITER:{
   limit:async()=>({success:false})}},{
+  clock:()=>Date.parse('2026-10-30T12:10:00Z'),
   fetcher:async()=>{fetches++;throw Error('should not fetch');}
  });
  assert.equal(limited.status,429);

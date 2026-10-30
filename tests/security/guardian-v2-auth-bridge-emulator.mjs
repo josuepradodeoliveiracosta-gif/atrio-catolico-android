@@ -21,6 +21,8 @@ const FLAGS={
  GUARDIAN_V2_QA_AUTO_DISPATCH:'false',
  GUARDIAN_QA_DISPATCH_READY:'false',
  GUARDIAN_V2_QA_FIRESTORE_BRIDGE:'true', // Apenas injeção local, nunca deploy.
+ GUARDIAN_V2_QA_BRIDGE_NOT_BEFORE:new Date(Date.now()-1000).toISOString(),
+ GUARDIAN_V2_QA_BRIDGE_EXPIRES_AT:new Date(Date.now()+300000).toISOString(),
  GUARDIAN_V2_QA_READER_PROJECT:PROJECT,
  // Mock in-process: no remote Cloudflare binding and no paid calls.
  GUARDIAN_QA_GLOBAL_LIMITER:{limit:async()=>({success:true})},

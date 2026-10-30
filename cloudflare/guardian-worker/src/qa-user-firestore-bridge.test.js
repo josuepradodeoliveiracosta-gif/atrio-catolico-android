@@ -16,6 +16,8 @@ const env={GUARDIAN_V2_TEST_MODE:'true',GUARDIAN_V2_ENABLED:'false',
  GUARDIAN_V2_HOLD_ENABLED:'false',GUARDIAN_V2_QA_SHADOW_READS:'false',
  GUARDIAN_V2_QA_AUTO_DISPATCH:'false',GUARDIAN_QA_DISPATCH_READY:'false',
  GUARDIAN_V2_QA_FIRESTORE_BRIDGE:'true',
+ GUARDIAN_V2_QA_BRIDGE_NOT_BEFORE:new Date(Date.now()-1000).toISOString(),
+ GUARDIAN_V2_QA_BRIDGE_EXPIRES_AT:new Date(Date.now()+300000).toISOString(),
  GUARDIAN_V2_QA_READER_PROJECT:'atrio-catolico-qa-v2',
  GUARDIAN_QA_GLOBAL_LIMITER:allowLimiter,
  GUARDIAN_QA_TOKEN_LIMITER:allowLimiter,
@@ -40,6 +42,50 @@ test('somente QA literal e desligado para moderação real',()=>{
   {GUARDIAN_FIREBASE_PROJECT_ID:'atrio-catolico-qa-v2'},
   {GUARDIAN_FIREBASE_SERVICE_ACCOUNT_JSON:'{}'}
  ])assert.equal(qaBridgeEnabled({...env,...patch}),false,JSON.stringify(patch));
+});
+test('janela QA exige início, expiração e duração de no máximo 10 minutos',async()=>{
+ const now=Date.parse('2026-10-30T12:00:00Z');
+ const iso=t=>new Date(now+t).toISOString();
+ const window=(start,end)=>({...env,
+  GUARDIAN_V2_QA_BRIDGE_NOT_BEFORE:start,
+  GUARDIAN_V2_QA_BRIDGE_EXPIRES_AT:end});
+ const valid=window(iso(-1000),iso(590000));
+ assert.equal(qaBridgeEnabled(valid,now),true);
+ for(const wrong of [
+  window('',''),window(iso(5000),iso(10000)),
+  window(iso(-120000),iso(-1000)),window(iso(-1000),iso(650000)),
+  window(iso(0),iso(0)),window(iso(-1000),iso(600000)),
+  window('invalid',iso(10000))
+ ]){
+  let limits=0,network=0;
+  assert.equal(qaBridgeEnabled(wrong,now),false);
+  const response=await qaFixtureRequest(req(),{...wrong,
+   GUARDIAN_QA_GLOBAL_LIMITER:{limit:async()=>{limits++;throw Error('no');}}
+  },{clock:()=>now,fetcher:async()=>{network++;throw Error('no');}});
+  assert.equal(response.status,503);
+  assert.deepEqual(await response.json(),{status:'qa_bridge_disabled'});
+  assert.equal(limits,0);assert.equal(network,0);
+ }
+ assert.equal(qaBridgeEnabled(valid,now+590000),false);
+});
+test('expiração durante reserva D1 impede consulta remota',async()=>{
+ const now=Date.parse('2026-10-30T12:00:00Z');
+ let reservations=0,fetches=0,reads=0;
+ const cfg={...env,
+  GUARDIAN_V2_QA_BRIDGE_NOT_BEFORE:new Date(now-1000).toISOString(),
+  GUARDIAN_V2_QA_BRIDGE_EXPIRES_AT:new Date(now+1000).toISOString(),
+  GUARDIAN_QA_BUDGET_DB:{prepare:()=>({bind:()=>({
+   first:async()=>{reservations++;return {used:1};}
+  })})}
+ };
+ const response=await qaFixtureRequest(req(),cfg,{
+  clock:()=>now+(reads++*1500),
+  fetcher:async()=>{fetches++;throw Error('no remote access after expiry');}
+ });
+ assert.equal(response.status,503);
+ assert.deepEqual(await response.json(),{status:'qa_bridge_disabled'});
+ assert.equal(reservations,1);
+ assert.equal(fetches,0);
 });
 test('desabilitado não acessa rede e não vaza bearer',async()=>{
  let called=false;
@@ -396,8 +442,11 @@ test('D1 consome um orçamento por tentativa, inclusive falha no Firebase',async
    return {used:used+1};
   }})};
  }};
- const cfg={...env,GUARDIAN_QA_BUDGET_DB:database};
- const opts={clock:()=>Date.parse('2026-10-29T14:00:00Z'),
+ const fake=Date.parse('2026-10-29T14:00:00Z');
+ const cfg={...env,GUARDIAN_QA_BUDGET_DB:database,
+  GUARDIAN_V2_QA_BRIDGE_NOT_BEFORE:new Date(fake-1000).toISOString(),
+  GUARDIAN_V2_QA_BRIDGE_EXPIRES_AT:new Date(fake+300000).toISOString()};
+ const opts={clock:()=>fake,
   fetcher:async()=>{fetches++;return new Response('{}',{status:503});}};
  for(let i=0;i<12;i++){
   const res=await qaFixtureRequest(req(),cfg,opts);
