@@ -1,0 +1,53 @@
+name: Guardião V2 — cenários funcionais da etapa 3 (sem deploy)
+
+on:
+  push:
+    branches: [feature/guardiao-autonomo-20261029]
+    paths:
+      - 'scripts/guardiao-stage3-functional.mjs'
+      - '.github/workflows/guardiao-stage3-functional.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  functional:
+    name: Classificações, alertas simulados, segurança e concorrência
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Testar o código real, sem Firebase ou Cloudflare real
+        run: node --test scripts/guardiao-stage3-functional.mjs
+  remote-qa-safe:
+    name: Rotas públicas do Worker QA devem continuar bloqueadas
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      QA_URL: https://atrio-guardian-v2-qa.atrio-catolico.workers.dev
+    steps:
+      - name: Verificar health, admin, revisão e ponte Firebase desligada
+        shell: bash
+        run: |
+          set -euo pipefail
+          call() {
+            local method="$1" path="$2" expected="$3" statusText="$4"
+            local code
+            code=$(curl -fsS --retry 1 --connect-timeout 7 --max-time 15 -X "$method" \
+              --write-out '%{http_code}' -o /tmp/qa-stage3-response.json "$QA_URL$path") || {
+              # HTTP 4xx/5xx are EXPECTED; retry without -f, no payload secrets.
+              code=$(curl -sS --retry 1 --connect-timeout 7 --max-time 15 -X "$method" \
+                --write-out '%{http_code}' -o /tmp/qa-stage3-response.json "$QA_URL$path")
+            }
+            test "$code" = "$expected"
+            grep -Fq "\"status\":\"$statusText\"" /tmp/qa-stage3-response.json
+          }
+          call GET /health 200 guardian_v2_qa_safe
+          call POST /admin/config 503 qa_read_only
+          call POST /admin/review 503 qa_read_only
+          call POST /qa/firebase-fixture 503 qa_bridge_disabled
+          echo "GUARDIAO_QA_STAGE3_REMOTE_PASS: no admin, no Firebase bridge"
