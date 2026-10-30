@@ -45,6 +45,11 @@ export async function token(env) {
   const config=JSON.parse(env.GUARDIAN_FIREBASE_SERVICE_ACCOUNT_JSON||'null');
   if(intended===PROJECT && !guardianProductionIdentityApproved(env,config))
     throw Error('identity_not_approved');
+  // A valid-looking JSON key is NOT authorization to use permanent credentials
+  // in production.  Keep the legacy signer available only for isolated QA
+  // until an independently verified, short-lived identity path replaces it.
+  // This guard is deliberately unconditional even when both flags are true.
+  if(intended===PROJECT)throw Error('production_key_auth_disabled');
   if(config?.project_id!==intended||!config.client_email||!config.private_key)
     throw Error('service_not_configured');
   // Cached tokens are never shared between service accounts or key rotations.
