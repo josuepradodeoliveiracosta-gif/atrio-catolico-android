@@ -36,3 +36,12 @@ namespace_id = "874202"
 [ratelimits.simple]
 limit = 3
 period = 60
+
+# Banco D1 QA exclusivo criado e schema validado na Cloudflare.
+# Preparado para futuro deploy QA EXCLUSIVAMENTE; bridge permanece false.
+# O database_id nao e segredo. Nunca reutilizar os bancos de Push/Avatares.
+[[d1_databases]]
+binding = "GUARDIAN_QA_BUDGET_DB"
+database_name = "atrio-guardian-v2-qa-budget"
+database_id = "5ba3bbe6-e319-4c25-b958-6b53e940fb34"
+migrations_dir = "migrations"

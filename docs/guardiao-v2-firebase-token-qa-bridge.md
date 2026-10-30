@@ -77,3 +77,16 @@ Referências Cloudflare:
 https://developers.cloudflare.com/d1/worker-api/prepared-statements/
 https://developers.cloudflare.com/workers/platform/pricing/
 https://developers.cloudflare.com/changelog/post/2026-09-01-d1-free-tier-limit-enforcement/
+
+## Banco D1 QA efetivamente provisionado, sem ativação de Worker
+
+Em 29/10/2026, a conexão Cloudflare existente foi consultada e demonstrou somente dois bancos anteriores (`atrio-avatar-control`, `atrio-push-delivery`) — nenhum deles foi modificado. Foi criado um **terceiro banco D1 exclusivo**, sem ativar plano pago:
+`atrio-guardian-v2-qa-budget`, ID `5ba3bbe6-e319-4c25-b958-6b53e940fb34`. A migração `001_qa_budget.sql` foi aplicada **somente nesse banco**, e a verificação de `sqlite_master` confirmou a tabela `guardian_qa_daily_budget` vazia.
+
+O SQL exato da reserva diária foi exercitado diretamente pela API D1 usando a data sintética `2099-12-31`: 12 reservas retornaram `used=1..12`, a 13ª retornou lista vazia e o banco registrou 12. O registro sintético foi excluído do QA ao encerrar o ensaio. Não houve consulta Firebase neste ensaio remoto.
+
+O `wrangler.qa.toml` agora contém o **ID exato do D1 de testes e seu binding planejado**, mais os dois rate limits locais. Um validador offline `scripts/check-qa-release-preflight.py` bloqueia CI se o Worker perder suas flags de segurança, os limites divergem, ou o D1 não for o exclusivamente criado.
+
+**Atenção:** editar o Wrangler no GitHub NÃO instala os bindings no Worker já publicado. O Worker QA remoto continua com `GUARDIAN_V2_ENABLED=false`, `GUARDIAN_V2_TEST_MODE=true` e **sem flag de ponte ligada**. Nada foi implantado agora. O Firestore QA não foi acessado no ensaio D1. Antes de um futuro deploy, confirmar variáveis existentes na Cloudflare, validar compatibilidade do Wrangler, verificar custo/plano, preservar todos os desligamentos e fazer inspeção após o deploy. Não permitir moderação real com o usuário fictício.
+
+**Checklist final de autorização futura:** (1) habilitar e conferir Auth/Firestore do projeto QA com fixture falsa e regras restritas; (2) implantar somente Worker `atrio-guardian-v2-qa` mantendo `QA_FIRESTORE_BRIDGE=false`; (3) testar health, rotas administrativas bloqueadas, rate limits e banco D1; (4) solicitar autorização separada antes de qualquer leitura Firebase remota por um cliente autenticado; (5) nunca migrar diretamente esta identidade QA para moderação real.
