@@ -64,9 +64,10 @@ try {
       await assertSucceeds(deleteDoc(ref));
     }
   });
-  await check('text, multiple emojis, incomplete sequences and modifiers alone rejected',async()=>{
-    for(const kind of invalid) await assertFails(setDoc(ref,{kind,createdAt:serverTimestamp()}));
-  });
+  // Keep the live Firestore listener test before deliberate permission-denied
+  // writes. Large bursts of rejected Write RPCs in the same Emulator session
+  // can produce a transient RESOURCE_EXHAUSTED Listen stream (gRPC framing).
+  // This does not remove, skip or soften any security assertions below.
   await check('owner can create, replace and remove without duplicates; second account sees snapshots',async()=>{
     let seen=expectLive(b,rows=>rows.length===1 && rows[0].kind==='prayer');
     await assertSucceeds(setDoc(ref,{kind:'prayer',createdAt:serverTimestamp()})); await seen;
@@ -78,6 +79,9 @@ try {
     assert.equal((await getDocs(collection(a,path))).docs.filter(x=>x.data().kind==='👩🏽‍💻').length,2);
     seen=expectLive(b,rows=>rows.length===1 && rows[0].uid==='emoji-b');
     await assertSucceeds(deleteDoc(ref)); await seen;
+  });
+  await check('text, multiple emojis, incomplete sequences and modifiers alone rejected',async()=>{
+    for(const kind of invalid) await assertFails(setDoc(ref,{kind,createdAt:serverTimestamp()}));
   });
   await check('no write, update or delete in another account identity',async()=>{
     await assertFails(setDoc(doc(b,path,'emoji-a'),{kind:'👍',createdAt:serverTimestamp()}));
