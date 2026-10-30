@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {initializeTestEnvironment,assertFails,assertSucceeds}
   from '@firebase/rules-unit-testing';
-import {doc,setDoc,getDoc,updateDoc,deleteDoc,runTransaction,serverTimestamp}
+import {doc,setDoc,getDoc,getDocFromCache,getDocFromServer,disableNetwork,enableNetwork,updateDoc,deleteDoc,runTransaction,serverTimestamp}
   from 'firebase/firestore';
 
 const env=await initializeTestEnvironment({
@@ -189,6 +189,38 @@ try {
   await assertFails(updateDoc(doc(moderator,'guardian_config/policy'),{
    enabled:true,allowHold:true,emergencyStop:false
   }));
+ });
+ await check('permissão revogada não se restaura via cache após reconexão',async()=>{
+  const cachedAdmin=env.authenticatedContext('qaCacheAdmin').firestore();
+  const path=reportPath('context');
+  await env.withSecurityRulesDisabled(async ctx=>{
+   await setDoc(doc(ctx.firestore(),'admins/qaCacheAdmin'),{enabled:true});
+  });
+  // First verify the role and fetch a report while it is authorized; both
+  // documents are now present in the client cache.
+  const role=await assertSucceeds(getDoc(doc(cachedAdmin,'admins/qaCacheAdmin')));
+  assert.equal(role.get('enabled'),true);
+  const allowed=await assertSucceeds(getDoc(doc(cachedAdmin,path)));
+  assert.equal(allowed.exists(),true);
+  await disableNetwork(cachedAdmin);
+  try{
+   // Revocation is carried out by a separate trusted emulator-only context.
+   // It is intentionally invisible to the disconnected cached client.
+   await env.withSecurityRulesDisabled(async ctx=>{
+    await updateDoc(doc(ctx.firestore(),'admins/qaCacheAdmin'),{enabled:false});
+   });
+   const stale=await getDocFromCache(doc(cachedAdmin,path));
+   assert.equal(stale.exists(),true,
+    'O cache local ainda tem o relatório, mas NÃO comprova autorização atual');
+  }finally{
+   await enableNetwork(cachedAdmin);
+  }
+  await assertFails(getDocFromServer(doc(cachedAdmin,path)));
+  await assertFails(updateDoc(doc(cachedAdmin,path),decision('removed')));
+  await env.withSecurityRulesDisabled(async ctx=>{
+   const reviewed=await getDoc(doc(ctx.firestore(),path));
+   assert.equal(reviewed.get('status'),'dismissed');
+  });
  });
  await check('admin revogado perde direito de decidir; denúncia fica pendente',async()=>{
   await assertSucceeds(setDoc(doc(author,replyPath('pending')),
