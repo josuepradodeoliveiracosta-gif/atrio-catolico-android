@@ -63,3 +63,17 @@ test('sem segredo, acesso de produção continua bloqueado mesmo com flags ligad
  await assert.rejects(token(env),/identity_not_approved/);
  assert.equal(guardianProductionIdentityApproved(env,null),false);
 });
+
+// Positive structural validation of legacy JSON is not authorization to use it.
+// Even a fully approved service account must NEVER sign a production OAuth JWT.
+test('produção bloqueia chave privada permanente mesmo com aprovações completas',async()=>{
+ const request={...env,GUARDIAN_FIREBASE_SERVICE_ACCOUNT_JSON:JSON.stringify(service)};
+ assert.equal(guardianProductionIdentityApproved(request,service),true);
+ const original=globalThis.fetch;
+ let outbound=0;
+ globalThis.fetch=async()=>{outbound++;throw Error('unexpected_external_request');};
+ try{
+  await assert.rejects(token(request),/production_key_auth_disabled/);
+  assert.equal(outbound,0,'no OAuth, metadata, Firestore or network requests');
+ }finally{globalThis.fetch=original;}
+});
