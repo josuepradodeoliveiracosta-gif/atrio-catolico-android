@@ -4,6 +4,7 @@ import {qaShadowAllowed,scanQaShadow} from './shadow-qa.js';
 import {qaMonitorAllowed,readQaWorkflowStatus} from './github-qa-monitor.js';
 import {qaDispatchAllowed,dispatchQaWorkflow,dueForDailyDispatch} from './github-qa-dispatch.js';
 import {scanPagedCycle} from './scan-paged.js';
+import {runQaPolicyHeartbeat} from './qa-policy-heartbeat.js';
 const json=(status,code)=>new Response(JSON.stringify({status:code}),{status,headers:{'content-type':'application/json','cache-control':'no-store'}});
 const MASK=/^posts\/[A-Za-z0-9_-]{1,128}(?:\/replies\/[A-Za-z0-9_-]{1,128})?$/;
 export function settingsOf(doc,env) {
@@ -178,6 +179,11 @@ export default {
   async scheduled(event,env,ctx) {
     // Cron can be installed in QA to verify scheduling without touching Firebase.
     if(env.GUARDIAN_V2_TEST_MODE==='true'){
+      // Self-test of FIXED synthetic examples only. No token, Firebase call,
+      // Firestore write, user content, identity or moderation decision.
+      const heartbeat=runQaPolicyHeartbeat(env);
+      if(heartbeat.status!=='disabled')
+        console.log('guardian_v2_qa_policy_heartbeat',JSON.stringify(heartbeat));
       // Independent QA cron. No privilege to change content, even in remote QA.
       if(!qaShadowAllowed(env)){
         // The existing 15-minute QA Cron may inspect public GitHub run status
