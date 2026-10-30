@@ -1,0 +1,80 @@
+name: QA Firestore rules published — GET only
+on:
+  push:
+    branches: [feature/guardiao-autonomo-20261029]
+    paths:
+      - '.github/workflows/guardian-qa-rules-readonly.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    environment: guardian-qa
+    timeout-minutes: 4
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      PROJECT: ${{ vars.GUARDIAN_QA_FIREBASE_PROJECT_ID }}
+      APPROVED: ${{ vars.GUARDIAN_QA_APPROVED_PROJECT_ID }}
+      PROVIDER: ${{ vars.GUARDIAN_QA_WIF_PROVIDER }}
+      ACCOUNT: ${{ vars.GUARDIAN_QA_SERVICE_ACCOUNT }}
+    steps:
+      - name: QA project identity only
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$PROJECT" = atrio-catolico-qa-v2
+          test "$APPROVED" = atrio-catolico-qa-v2
+          test "$ACCOUNT" = guardian-qa-reader@atrio-catolico-qa-v2.iam.gserviceaccount.com
+      - uses: google-github-actions/auth@v3
+        id: auth
+        with:
+          project_id: ${{ env.PROJECT }}
+          workload_identity_provider: ${{ env.PROVIDER }}
+          service_account: ${{ env.ACCOUNT }}
+          token_format: access_token
+          access_token_lifetime: 300s
+          access_token_scopes: https://www.googleapis.com/auth/cloud-platform
+          create_credentials_file: false
+      - name: Inspect active QA rule release without logging source
+        env:
+          QA_TOKEN: ${{ steps.auth.outputs.access_token }}
+        run: |
+          node --input-type=module <<'NODE'
+          const p='atrio-catolico-qa-v2',root='https://firebaserules.googleapis.com/v1/';
+          if(process.env.PROJECT!==p||process.env.APPROVED!==p)throw Error('wrong project');
+          const headers={Authorization:'Bearer '+process.env.QA_TOKEN};
+          const get=async s=>{
+            const r=await fetch(root+s,{headers,redirect:'error',signal:AbortSignal.timeout(9000)});
+            return {status:r.status,data:r.ok?await r.json():null};
+          };
+          try {
+            const release=await get('projects/'+p+'/releases/cloud.firestore');
+            if(release.status!==200){
+              console.log('QA_RULES_READONLY',JSON.stringify({step:'release',http:release.status}));
+              process.exitCode=1;
+            }else{
+              const n=release.data?.rulesetName;
+              if(typeof n!=='string'||!n.startsWith('projects/'+p+'/rulesets/'))throw Error('unexpected release');
+              const ruleset=await get(n);
+              if(ruleset.status!==200){
+                console.log('QA_RULES_READONLY',JSON.stringify({step:'ruleset',http:ruleset.status}));
+                process.exitCode=1;
+              }else{
+                const files=ruleset.data?.source?.files||[];
+                const src=files.map(x=>x.content||'').join('\n');
+                console.log('QA_RULES_READONLY',JSON.stringify({
+                  step:'ruleset',http:200,files:files.length,
+                  matchesPosts:src.includes('match /posts/{postId}'),
+                  hasAuthCheck:/request\.auth\s*!=\s*null|signedIn\s*\(/.test(src),
+                  note:'text-only heuristic; inspect effective rules before changes'
+                }));
+              }
+            }
+          }catch{
+            console.log('QA_RULES_READONLY {"step":"fetch","status":"UNAVAILABLE"}');
+            process.exitCode=1;
+          }
+          NODE
