@@ -1,5 +1,7 @@
 # Átrio Guardião V2 — Etapa 5: critérios objetivos para ativação oficial
 
+**Política obrigatória:** [custo zero, sem assinatura ou faturamento](guardiao-v2-custo-zero-obrigatorio.md). **Qualquer tecnologia que exija plano pago, cartão, Cloud Billing, Blaze, contratação ou risco de cobrança fica automaticamente descartada, ainda que ofereça free tier.**
+
 **Situação: NÃO APROVADO para produção.** Este arquivo é um roteiro operacional, não uma permissão para deploy, IAM ou faturamento. O projeto ainda está em pré-lançamento e a PR #44 permanece **draft**. Não alterar `main`, APK Release, backups, regras Firebase oficial nem os Workers de Push/Avatar sem autorização expressa.
 
 ## Trava A — ligação entre Firebase QA e Cloudflare QA
@@ -20,7 +22,7 @@
 ## Trava B — identidade de servidor e custo zero
 - [x] Checagens no código de projeto fixo, identidade dedicada, aprovações independentes, chave/conta trocada não reutiliza cache de token.
 - [ ] Selecionar um **método de identidade sem chave permanente** que funcione no ambiente de execução escolhido e comprovar sua autenticação por teste. Google Workload Identity Federation depende de credencial emitida por um provedor externo confiável; o OIDC de GitHub Actions atualmente usado na CI de QA **não é credencial permanente do Worker Cloudflare**.
-- [ ] Verificar com as fontes oficiais as cotas, requisitos de billing e eventual custo do desenho escolhido. Se não for demonstradamente viável no orçamento disponível, **não implantar**. Não afirmar preço zero sem comprovação.
+- [ ] Comprovar em fontes oficiais e na conta concreta que o desenho **não exige conta de faturamento, cartão, upgrade, plano pago ou cobrança possível**, e respeita cotas free. Não basta estar dentro de uma faixa gratuita em produto que exija billing. Se faltar essa prova, **NO-GO**, sem exceção.
 - [ ] Obter parecer sobre permissões realmente mínimas por operação: ler posts, replies, denúncias e admins; gravar apenas cases, audit, notices, estado de varredura e operações restritas de quarentena/revisão. **O papel IAM `roles/datastore.user` é amplo e não restringe por coleção.** O acesso de servidor ao Firestore ignora as Security Rules do APK; não considerá-las compensação para um papel amplo.
 - [ ] Validar em projeto isolado bloqueio de identidade de outro projeto, revogação, rotação e falta de permissões; não criar chave JSON ou conceder papéis no Firebase oficial antes de aprovação específica.
 
@@ -57,7 +59,7 @@
 - O código anterior de `src/firestore.js` aceitava assinar um OAuth JWT com chave privada de conta de serviço caso as flags de produção e identidade estivessem ativadas. Esse desenho não atende à meta de credencial sem chave permanente.
 - Commit `5fdefa5b`: após as verificações de projeto e aprovação, a função `token()` recusa **sempre** o projeto literal `atrio-catolico` com `production_key_auth_disabled`, **antes** de qualquer assinatura, cache ou chamada externa, mesmo quando as duas flags de aprovação são verdadeiras e o JSON parece válido. A rota de QA existente permanece separada e desligada no Worker publicado.
 - Commit `c55ee0fb`: teste regressivo com conta e chave **fictícias**, flags de aprovação ligadas e `fetch` interceptado. A suíte offline [41094718909](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/actions/runs/41094718909) confirmou o novo teste e o motor (159/159 testes Node), QA offline (12/12) e preflight QA; execução finalizada com **success** nos seis jobs efetivos, incluindo Android Debug, regras e integração REST; dois jobs opcionais permaneceram skipped por segurança.
-- **Caminho preferencial a estudar (não implantado):** execução sob identidade de serviço de um ambiente Google Cloud que forneça token OAuth efêmero pelo metadata server (por exemplo, Cloud Run), IAM restrito e sem chave JSON. Requer validação real de IAM, operação, faturamento, cotas e rollback. A existência de cota gratuita **não** significa garantia de custo zero. Não criar serviço ou ligar faturamento com base apenas neste documento.
+- **Caminho Google Cloud Run DESCARTADO por restrição financeira:** embora possa oferecer free tier e identidade efêmera, serviços Google Cloud exigem faturamento habilitado. A exigência de custo zero sem vínculo de billing prevalece; não implantar Cloud Run, Cloud Scheduler, nem pedir cartão ou ativar Blaze. Encontrar alternativa comprovadamente disponível em plano 100% gratuito e sem faturamento antes de habilitar a moderação autônoma.
 - **Alternativa externa a estudar:** Workload Identity Federation exige um provedor de identidade que emita credenciais para a execução concreta; o OIDC temporário do GitHub Actions não autentica automaticamente um Worker Cloudflare em operação contínua.
 - A identidade de servidor OAuth bypassa as Firestore Security Rules de clientes. Nenhum papel IAM deve ser aplicado sem teste de mínimo privilégio no projeto QA; uma verificação do código não substitui limites de autorização do Google.
 - Nenhum deploy, chave, identidade IAM, configuração de billing, moderação real ou alteração no projeto `atrio-catolico` foi realizado.
