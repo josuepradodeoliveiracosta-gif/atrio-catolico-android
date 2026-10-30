@@ -224,20 +224,26 @@ try {
  });
  await check('escrita pendente offline não ultrapassa revogação antes de sincronizar',async()=>{
   const offlineDb=env.authenticatedContext('qaOfflineDecisionAdmin').firestore();
-  const reportRef=doc(offlineDb,reportPath('context'));
+  const queuedReplyId='offlineQueued';
+  const queuedReportPath=reportPath(queuedReplyId);
+  await assertSucceeds(setDoc(doc(author,replyPath(queuedReplyId)),
+   makeReply('Resposta de teste aguardando revisão humana.')));
+  await assertSucceeds(setDoc(doc(reporter,queuedReportPath),
+   makeReport(queuedReplyId)));
+  const reportRef=doc(offlineDb,queuedReportPath);
   await env.withSecurityRulesDisabled(async ctx=>{
    await setDoc(doc(ctx.firestore(),'admins/qaOfflineDecisionAdmin'),{enabled:true});
   });
   const initial=await assertSucceeds(getDoc(reportRef));
-  assert.equal(initial.get('status'),'dismissed');
+  assert.equal(initial.get('status'),undefined,'report starts pending');
   await disableNetwork(offlineDb);
   let completed=false;
   try{
    // An offline write is ONLY a local optimistic event; not proof of a
    // committed admin decision. The returned promise resolves after reconnect.
    const offlineWrite=updateDoc(reportRef,{
-    status:'removed',reviewedBy:'qaOfflineDecisionAdmin',
-    reviewedAt:serverTimestamp(),reviewNote:'Tentativa offline indevida.',
+    status:'dismissed',reviewedBy:'qaOfflineDecisionAdmin',
+    reviewedAt:serverTimestamp(),reviewNote:'Decisão humana de teste offline.',
     reviewTarget:'reply'
    }).then(()=>({committed:true}),e=>({committed:false,error:e}));
    // Attach a rejection handler immediately (above) to avoid an
@@ -257,9 +263,9 @@ try {
   }
   assert.equal(completed,true);
   await env.withSecurityRulesDisabled(async ctx=>{
-   const after=await getDoc(doc(ctx.firestore(),reportPath('context')));
-   assert.equal(after.get('status'),'dismissed',
-    'post-revocation offline admin write must leave reviewed report unchanged');
+   const after=await getDoc(doc(ctx.firestore(),queuedReportPath));
+   assert.equal(after.get('status'),undefined,
+    'post-revocation offline admin write must leave report pending');
   });
  });
  await check('admin revogado perde direito de decidir; denúncia fica pendente',async()=>{
