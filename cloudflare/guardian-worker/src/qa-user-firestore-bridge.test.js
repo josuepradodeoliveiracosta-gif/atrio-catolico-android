@@ -106,6 +106,44 @@ test('dados de outro projeto, sem qaFixture ou com corpo inválido são descarta
   assert.deepEqual(await result.json(),{status:'invalid_qa_fixture'});
  }
 });
+test('POST real com stream vazio nao e confundido com payload',async()=>{
+ let calls=0;
+ const empty=new Request('https://qa.example/qa/firebase-fixture',{
+  method:'POST',headers:{Authorization:'Bearer '+fakeId},body:''
+ });
+ assert.notEqual(empty.body,null); // Emulates Cloudflare's streamed empty POST.
+ const result=await qaFixtureRequest(empty,env,{fetcher:async(url,opts)=>{
+  calls++;
+  assert.equal(opts.method,'GET');
+  return new Response(JSON.stringify(doc()),{status:200});
+ }});
+ assert.equal(result.status,200);
+ assert.deepEqual(await result.json(),{status:'qa_fixture_clear'});
+ assert.equal(calls,1);
+});
+test('POST com stream vazio sem Bearer retorna 401 e nao consome quota',async()=>{
+ let limiter=0,db=0;
+ const response=await qaFixtureRequest(new Request('https://qa.example/qa/firebase-fixture',{
+  method:'POST',body:''
+ }),{...env,GUARDIAN_QA_GLOBAL_LIMITER:{limit:async()=>{limiter++;throw Error('not expected');}},
+   GUARDIAN_QA_BUDGET_DB:{prepare:()=>{db++;throw Error('not expected');}}});
+ assert.equal(response.status,401);
+ assert.deepEqual(await response.json(),{status:'unauthorized'});
+ assert.equal(limiter,0);
+ assert.equal(db,0);
+});
+test('payload nao vazio ainda e negado antes de limitar ou consultar Firebase',async()=>{
+ let calls=0;
+ for(const data of ['{}',' ','00']){
+  const response=await qaFixtureRequest(new Request('https://qa.example/qa/firebase-fixture',{
+    method:'POST',headers:{Authorization:'Bearer '+fakeId},body:data
+   }),{...env,GUARDIAN_QA_GLOBAL_LIMITER:{limit:async()=>{calls++;throw Error('no');}}});
+  assert.equal(response.status,400);
+  assert.deepEqual(await response.json(),{status:'invalid_request'});
+ }
+ assert.equal(calls,0);
+});
+
 test('método diferente e corpo enviado são recusados sem Firestore',async()=>{
  const get=await qaFixtureRequest(new Request('https://qa.example/qa/firebase-fixture'),env,{
   fetcher:async()=>{throw Error('no');}

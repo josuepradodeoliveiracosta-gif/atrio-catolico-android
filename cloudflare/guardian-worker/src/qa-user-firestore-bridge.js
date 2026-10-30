@@ -71,10 +71,35 @@ async function qaReadBudgetGate(env,idToken){
   return 'allowed';
  }catch{return 'unavailable';}
 }
+// Real Cloudflare POST requests may expose an empty ReadableStream even when
+// no body bytes were supplied. Reject data, not the mere presence of a stream.
+// Any nonzero declared Content-Length, unreadable body or stalled stream denies.
+// Never decode, log or store supplied request content.
+async function qaEmptyPostBody(request){
+ const length=request.headers.get('content-length');
+ if(length!==null&&length!=='0')return false;
+ if(request.body===null)return true;
+ const reader=request.body.getReader();
+ try{
+  for(let i=0;i<3;i++){
+   let timer;
+   const next=await Promise.race([
+    reader.read(),
+    new Promise(resolve=>{timer=setTimeout(()=>resolve({timeout:true}),1200);})
+   ]);
+   clearTimeout(timer);
+   if(next.timeout){reader.cancel().catch(()=>{});return false;}
+   if(next.done)return true;
+   if(!next.value||next.value.byteLength!==0)return false;
+  }
+  return false; // Never wait indefinitely for a stream of empty chunks.
+ }catch{return false;}
+ finally{try{reader.releaseLock();}catch{}}
+}
 export async function qaFixtureRequest(request,env,{fetcher=fetch,clock=Date.now}={}){
  if(!qaBridgeEnabled(env))return reply(503,'qa_bridge_disabled');
  if(request.method!=='POST')return reply(404,'not_found');
- if(request.body!==null)return reply(400,'invalid_request');
+ if(!await qaEmptyPostBody(request))return reply(400,'invalid_request');
  const header=request.headers.get('authorization')||'';
  const matched=/^Bearer ([A-Za-z0-9_-]{10,2048}\.[A-Za-z0-9_-]{10,4096}\.[A-Za-z0-9_-]{10,2048})$/.exec(header);
  if(!matched)return reply(401,'unauthorized');
