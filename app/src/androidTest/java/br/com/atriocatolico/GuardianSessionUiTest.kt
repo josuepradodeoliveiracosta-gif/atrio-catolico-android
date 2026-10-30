@@ -69,8 +69,10 @@ class GuardianSessionUiTest {
     @Test fun signedOutAdminCannotActivateGuardianOrReview() {
         compose.setContent { GuardianPanel(db, "qaFakeAdmin") }
         compose.onNodeWithText("Sessão alterada. Entre novamente.").assertIsDisplayed()
-        compose.onNodeWithText("Preparar triagem sem retenção").assertIsNotEnabled()
-        compose.onNodeWithText("Desligamento de emergência").assertIsNotEnabled()
+        // O painel não deve compor sequer botões administrativos fora da sessão;
+        // somente desativá-los ainda revelaria controles privados desnecessários.
+        compose.onNodeWithText("Preparar triagem sem retenção").assertDoesNotExist()
+        compose.onNodeWithText("Desligamento de emergência").assertDoesNotExist()
         compose.onNodeWithText("Registrar decisão").assertDoesNotExist()
     }
 
