@@ -20,6 +20,10 @@ Fluxo disponível no desenho atual:
 
 O script `cloudflare/guardian-worker/scripts/check-zero-cost-qa.py` exige configuração QA fechada, sem segredos de Firebase, sem outro Worker ou banco, com dois limitadores e apenas D1 QA. Testes de mutação verificam que mudanças inseguras falham. **Esse teste é de configuração do repositório, não atestado de plano de cobrança ativo na Cloudflare.**
 
+## Compatibilidade com aplicativos de testes já instalados
+
+A regra Firestore para edição de discussões preserva aplicativos anteriores que não enviam `updatedAt`; a versão nova envia esse campo com horário do servidor. **Edições legadas não podem ser consideradas completamente rastreadas pelo scanner `post_edits`.** Portanto `GUARDIAN_V2_ENABLED=false` e `GUARDIAN_V2_HOLD_ENABLED=false` são condições obrigatórias. Nenhum anúncio de monitoramento autônomo pode ser feito neste lançamento supervisionado.
+
 ## Por que não há autonomia plena 24 horas por dia
 
 - No projeto, `posts` e `replies` requerem usuário autenticado para leitura; `reports` só admite administradores ativos. Um Cron Cloudflare sem identidade legítima **não tem permissão** para ler todo esse conteúdo. Abrir essas coleções ao público para contornar o bloqueio seria uma regressão de privacidade **proibida**.

@@ -253,14 +253,15 @@ service cloud.firestore {
         && validText(request.resource.data.body, 5, 1200)
         && validCategory(request.resource.data.category)
         && validTime();
-      // Aplicativo ainda não publicado: exigir updatedAt em toda edição.
-      // Isso impede edições que não geram evento para o Guardião V2.
-      // Somente para testes até distribuir APK Debug compatível.
+      // Modo inicial supervisionado: APKs já instalados podem editar texto
+      // sem updatedAt. Quando o campo é atualizado, deve vir do servidor.
+      // NÃO ativar varredura autônoma de edições enquanto o legado existir:
+      // edições antigas sem timestamp não aparecem na fila post_edits.
       allow update: if signedIn()
         && resource.data.uid == request.auth.uid
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'body', 'updatedAt'])
-        && request.resource.data.diff(resource.data).affectedKeys().hasAll(['updatedAt'])
-        && request.resource.data.updatedAt == request.time
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['updatedAt'])
+          || request.resource.data.updatedAt == request.time)
         && validText(request.resource.data.title, 5, 120)
         && validText(request.resource.data.body, 5, 1200);
       allow delete: if signedIn() && (resource.data.uid == request.auth.uid || isAdmin());

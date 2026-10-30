@@ -277,8 +277,8 @@ try {
  await test('usuário não encerra denúncia',()=>assertFails(updateDoc(doc(bob,rpost('bob','p')),review('dismissed','bob'))));
  await test('autor mantém edição própria com relógio do servidor',()=>assertSucceeds(
    updateDoc(doc(alice,'posts/p'),{body:'Conteúdo revisado pelo autor',updatedAt:serverTimestamp()})));
- await test('edição sem updatedAt é bloqueada mesmo em contas de teste',()=>assertFails(
-   updateDoc(doc(alice,'posts/p'),{body:'Edição sem rastreamento'})));
+ await test('edição do APK antigo continua permitida no modo supervisionado',()=>assertSucceeds(
+   updateDoc(doc(alice,'posts/p'),{body:'Edição legítima sem updatedAt'})));
  await test('APK novo atualiza o relógio do servidor novamente',()=>assertSucceeds(
    updateDoc(doc(alice,'posts/p'),{body:'Edição do APK novo',updatedAt:serverTimestamp()})));
  await test('autor não pode falsificar horário de edição',()=>assertFails(
