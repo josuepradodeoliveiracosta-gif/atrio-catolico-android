@@ -68,6 +68,29 @@ test('janela QA exige início, expiração e duração de no máximo 10 minutos'
  }
  assert.equal(qaBridgeEnabled(valid,now+590000),false);
 });
+test('datas UTC impossíveis não abrem janela de consulta remota',async()=>{
+ // Date.parse pode normalizar 30 de fevereiro ou a hora 24:00.
+ const cases=[
+  ['2026-02-30T12:00:00.000Z','2026-03-02T12:05:00.000Z','2026-03-02T12:01:00.000Z'],
+  ['2026-03-02T12:00:00.000Z','2026-02-30T12:05:00.000Z','2026-03-02T12:01:00.000Z'],
+  ['2026-03-02T24:00:00.000Z','2026-03-03T00:05:00.000Z','2026-03-03T00:01:00.000Z']
+ ];
+ for(const [begin,end,at] of cases){
+  const instant=Date.parse(at);
+  const configured={...env,
+   GUARDIAN_V2_QA_BRIDGE_NOT_BEFORE:begin,
+   GUARDIAN_V2_QA_BRIDGE_EXPIRES_AT:end};
+  let requests=0,limitChecks=0;
+  const response=await qaFixtureRequest(req(),{
+   ...configured,GUARDIAN_QA_GLOBAL_LIMITER:{limit:async()=>{limitChecks++;throw Error('must not run');}}
+  },{clock:()=>instant,fetcher:async()=>{requests++;throw Error('must not fetch');}});
+  assert.equal(qaBridgeEnabled(configured,instant),false);
+  assert.equal(response.status,503);
+  assert.deepEqual(await response.json(),{status:'qa_bridge_disabled'});
+  assert.equal(requests,0);
+  assert.equal(limitChecks,0);
+ }
+});
 test('expiração durante reserva D1 impede consulta remota',async()=>{
  const now=Date.parse('2026-10-30T12:00:00Z');
  let reservations=0,fetches=0,reads=0;
