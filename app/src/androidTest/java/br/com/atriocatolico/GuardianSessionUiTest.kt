@@ -90,6 +90,40 @@ class GuardianSessionUiTest {
         compose.onNodeWithText("Preparar triagem sem retenção").assertDoesNotExist()
     }
 
+    @Test fun offlineModerationNeverAcceptsUnverifiedAdminStatus() {
+        val user = Tasks.await(auth.signInAnonymously(), 15, TimeUnit.SECONDS).user
+        assertTrue(user != null && user.uid.isNotBlank())
+        // Even an authenticated account cannot use a locally cached
+        // administrative status as authorization while Firestore is offline.
+        Tasks.await(db.disableNetwork(), 10, TimeUnit.SECONDS)
+        try {
+            compose.setContent { ModerationScreen(db, user!!.uid, onBack = {}) }
+            compose.waitUntil(15_000) {
+                compose.onAllNodesWithText(
+                    "Conferindo permissão administrativa no servidor..."
+                ).fetchSemanticsNodes().isNotEmpty() ||
+                compose.onAllNodesWithText(
+                    "Acesso administrativo indisponível. Consulte a administração."
+                ).fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onNodeWithText("Pendentes").assertDoesNotExist()
+            compose.onNodeWithText("Analisadas").assertDoesNotExist()
+            compose.onNodeWithText("Remover foto inadequada").assertDoesNotExist()
+            compose.onNodeWithText("Preparar triagem sem retenção").assertDoesNotExist()
+        } finally {
+            // Restore the local emulator connection even on test failure, so
+            // subsequent suites cannot accidentally inherit an offline DB.
+            Tasks.await(db.enableNetwork(), 10, TimeUnit.SECONDS)
+        }
+        // Without an admin grant, server reconnection must not unlock UI.
+        compose.waitUntil(15_000) {
+            compose.onAllNodesWithText(
+                "Acesso administrativo indisponível. Consulte a administração."
+            ).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText("Pendentes").assertDoesNotExist()
+    }
+
     @Test fun logoutClearsModerationQueueAndButtonsImmediately() {
         val user = Tasks.await(auth.signInAnonymously(), 15, TimeUnit.SECONDS).user
         assertTrue(user != null && user.uid.isNotBlank())
