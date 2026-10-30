@@ -10,6 +10,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.auth.FirebaseAuth
 
 private data class RetainedCase(
     val id: String, val status: String, val targetType: String, val reason: String,
@@ -31,13 +32,21 @@ internal fun GuardiaoAppealsScreen(db: FirebaseFirestore, uid: String) {
     var result by remember(uid) { mutableStateOf("") }
 
     DisposableEffect(db, uid) {
+        if (!GuardianUiPolicy.sameSession(uid, FirebaseAuth.getInstance().currentUser?.uid)) {
+            cases = emptyList()
+            chosen = null
+            loading = false
+            error = "Sessão alterada. Entre novamente."
+            onDispose { }
+        } else {
         val listener = db.collection("guardiao_quarantine")
             .whereEqualTo("ownerUid", uid).limit(30)
             .addSnapshotListener { snapshot, failure ->
                 loading = false
-                if (failure != null) {
-                    error = "Não foi possível consultar os casos. Confira a conexão e as regras."
+                if (failure != null || !GuardianUiPolicy.sameSession(uid, FirebaseAuth.getInstance().currentUser?.uid)) {
+                    error = "Não foi possível consultar os casos. Confira a sessão, conexão e regras."
                     cases = emptyList()
+                    chosen = null
                 } else {
                     error = ""
                     cases = snapshot?.documents?.map { doc ->
@@ -52,6 +61,7 @@ internal fun GuardiaoAppealsScreen(db: FirebaseFirestore, uid: String) {
                 }
             }
         onDispose { listener.remove() }
+        }
     }
 
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
@@ -87,7 +97,12 @@ internal fun GuardiaoAppealsScreen(db: FirebaseFirestore, uid: String) {
                     if (entry.appealText.isNotBlank())
                         Text("Sua contestação: ${entry.appealText}")
                     if (entry.status == "held" && entry.appealText.isBlank())
-                        OutlinedButton(onClick = { chosen = entry.id }) { Text("Solicitar revisão") }
+                        OutlinedButton(enabled = !busy && GuardianUiPolicy.sameSession(uid,
+                            FirebaseAuth.getInstance().currentUser?.uid),
+                            onClick = { if (GuardianUiPolicy.sameSession(uid,
+                                FirebaseAuth.getInstance().currentUser?.uid)) chosen = entry.id }) {
+                            Text("Solicitar revisão")
+                        }
                 }
             }
         }
@@ -107,7 +122,15 @@ internal fun GuardiaoAppealsScreen(db: FirebaseFirestore, uid: String) {
                 }
             },
             confirmButton = {
-                TextButton(enabled = !busy && note.trim().length in 10..500, onClick = {
+                TextButton(enabled = GuardianUiPolicy.canAppeal(uid,
+                    FirebaseAuth.getInstance().currentUser?.uid, target.status,
+                    target.appealText, busy, note), onClick = {
+                    if (!GuardianUiPolicy.canAppeal(uid, FirebaseAuth.getInstance().currentUser?.uid,
+                            target.status, target.appealText, busy, note)) {
+                        chosen = null
+                        result = "Sessão ou situação do recurso alterada. Abra novamente."
+                        return@TextButton
+                    }
                     busy = true
                     db.collection("guardiao_quarantine").document(target.id).update(
                         mapOf("appealText" to note.trim(),
