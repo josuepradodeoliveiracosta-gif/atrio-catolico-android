@@ -16,52 +16,47 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - name: Teste HTTP sem conta, chave, senha ou ID token real
+      - name: HTTP com POST sem corpo e token sintético (Node fetch)
         shell: bash
-        env:
-          QA: https://atrio-guardian-v2-qa.atrio-catolico.workers.dev
         run: |
-          set -euo pipefail
-          call() {
-            local method="$1" path="$2" expected="$3" code="$4" header="${5:-}"
-            local http
-            if [ -n "$header" ]; then
-              http=$(curl -sS -X "$method" --connect-timeout 7 --max-time 15 \
-                -H "Authorization: $header" -o /tmp/guardian-bridge-resp -w '%{http_code}' "$QA$path")
-            else
-              http=$(curl -sS -X "$method" --connect-timeout 7 --max-time 15 \
-                -o /tmp/guardian-bridge-resp -w '%{http_code}' "$QA$path")
-            fi
-            if [ "$http" != "$expected" ]; then
-              echo "QA_HTTP_MISMATCH: $method $path got=$http expected=$expected"
-              return 1
-            fi
-            if [ "$(cat /tmp/guardian-bridge-resp)" != "{\"status\":\"$code\"}" ]; then
-              echo "QA_RESPONSE_MISMATCH: $method $path (body not echoed)"
-              return 1
-            fi
-            echo "QA_HTTP_OK: $method $path $http"
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          const QA='https://atrio-guardian-v2-qa.atrio-catolico.workers.dev';
+          const allowed=new Set(['guardian_v2_qa_safe','qa_read_only',
+            'unauthorized','forbidden','qa_bridge_disabled','invalid_request',
+            'qa_rate_limited','qa_daily_budget_unavailable','qa_rate_limit_unavailable',
+            'qa_bridge_unavailable']);
+          const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+          async function call(path,method,auth){
+            const r=await fetch(QA+path,{
+              method,redirect:'error',
+              ...(auth?{headers:{Authorization:'Bearer '+auth}}:{})
+            });
+            const raw=await r.text();
+            let status='unrecognized';
+            try{
+              const data=JSON.parse(raw);
+              if(allowed.has(data?.status))status=data.status;
+            }catch{}
+            // No credentials, JWTs, response text or user data enter CI logs.
+            console.log('QA_REMOTE_HTTP',method,path,r.status,status);
+            return {http:r.status,code:status};
           }
-          # Cloudflare version deployment may require brief global propagation.
-          # Do not send tokens or consume D1 until no-auth returns 401.
-          ready=false
-          for attempt in $(seq 1 20); do
-            current=$(curl -sS -X POST --connect-timeout 7 --max-time 15 \
-              -o /tmp/guardian-bridge-ready -w '%{http_code}' "$QA/qa/firebase-fixture")
-            if [ "$current" = "401" ] && [ "$(cat /tmp/guardian-bridge-ready)" = '{"status":"unauthorized"}' ]; then
-              ready=true
-              break
-            fi
-            sleep 2
-          done
-          if [ "$ready" != true ]; then
-            echo "QA_GATE_NOT_READY: no temporary bridge propagation"
-            exit 1
-          fi
-          call GET /health 200 guardian_v2_qa_safe
-          call POST /admin/config 503 qa_read_only
-          call POST /admin/review 503 qa_read_only
-          call POST /qa/firebase-fixture 401 unauthorized
-          fake="Bearer aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
-          call POST /qa/firebase-fixture 403 forbidden "$fake"
-          echo 'GUARDIAN_QA_TEMPORARY_BRIDGE: VERIFIED_DENIAL_AND_AUTH_REQUIREMENTS'
+          let ready=false;
+          for(let i=0;i<15;i++){
+            const r=await call('/qa/firebase-fixture','POST');
+            if(r.http===401&&r.code==='unauthorized'){ready=true;break;}
+            if(r.http!==503||r.code!=='qa_bridge_disabled')break;
+            await wait(1400);
+          }
+          assert.equal(ready,true,'QA_BRIDGE_NOT_READY_NO_JWT');
+          assert.deepEqual(await call('/health','GET'),{http:200,code:'guardian_v2_qa_safe'});
+          assert.deepEqual(await call('/admin/config','POST'),{http:503,code:'qa_read_only'});
+          assert.deepEqual(await call('/admin/review','POST'),{http:503,code:'qa_read_only'});
+          const synthetic=[
+            'a'.repeat(30),'b'.repeat(64),'c'.repeat(82)
+          ].join('.');
+          assert.deepEqual(await call('/qa/firebase-fixture','POST',synthetic),
+            {http:403,code:'forbidden'});
+          console.log('GUARDIAN_QA_TEMPORARY_BRIDGE: FAKE_TOKEN_DENIED_WITH_FIRESTORE');
+          NODE
