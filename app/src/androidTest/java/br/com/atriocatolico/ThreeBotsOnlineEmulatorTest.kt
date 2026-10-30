@@ -132,6 +132,19 @@ class ThreeBotsOnlineEmulatorTest {
         awaitScreen("Entrar na comunidade")
     }
 
+    /** Compose closes the warning on the next frame, not in the click's
+     * synchronous semantics snapshot. Wait for the *absence* before asserting
+     * that Review/Back never accidentally publishes the pending draft.
+     */
+    private fun awaitGuardianWarningClosed() {
+        compose.waitUntil(10_000) {
+            compose.onAllNodesWithTag("atrio-guardian-continue", useUnmergedTree = true)
+                .fetchSemanticsNodes().isEmpty()
+        }
+        compose.onNodeWithTag("atrio-guardian-continue").assertDoesNotExist()
+    }
+
+
     @Test fun claraMiguelLuciaFazemLoginENavegamComFirebaseEmulado() {
         prepareEmulators()
         // UUIDs de Auth, perfis e dados são novos a cada execução em ambiente
@@ -186,7 +199,7 @@ class ThreeBotsOnlineEmulatorTest {
         compose.onNodeWithTag("atrio-guardian-revise").assertIsDisplayed()
         assertEquals(0, Tasks.await(query.get(Source.SERVER), 10, TimeUnit.SECONDS).size())
         compose.onNodeWithTag("atrio-guardian-revise").performClick()
-        compose.onNodeWithTag("atrio-guardian-continue").assertDoesNotExist()
+        awaitGuardianWarningClosed()
         compose.onNodeWithTag("atrio-publish-title").assertTextContains(title)
         compose.onNodeWithTag("atrio-publish-body").assertTextContains(draftBody)
         compose.onNodeWithTag("atrio-publish-submit")
@@ -194,7 +207,7 @@ class ThreeBotsOnlineEmulatorTest {
         // Voltar tem o mesmo efeito seguro de revisar, sem consumir o rascunho.
         compose.onNodeWithTag("atrio-guardian-revise").assertIsDisplayed()
         InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
-        compose.onNodeWithTag("atrio-guardian-continue").assertDoesNotExist()
+        awaitGuardianWarningClosed()
         compose.onNodeWithTag("atrio-publish-title").assertTextContains(title)
         compose.onNodeWithTag("atrio-publish-body").assertTextContains(draftBody)
         assertEquals(0, Tasks.await(query.get(Source.SERVER), 10, TimeUnit.SECONDS).size())
