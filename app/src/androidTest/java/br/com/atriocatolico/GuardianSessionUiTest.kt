@@ -346,17 +346,25 @@ class GuardianSessionUiTest {
                 .performTextInput(explanation)
             compose.onNodeWithText("Enviar contestação").performClick()
 
+            // O SDK Firestore mostra appealText localmente ANTES da confirmação.
+            // Um serverTimestamp() pendente aparece como null no primeiro frame,
+            // mesmo numa leitura Source.SERVER com escritas locais sobrepostas.
+            // Exigir ausência de pending writes e timestamp confirmado no servidor.
             compose.waitUntil(25_000) {
                 val result = Tasks.await(
                     db.collection("guardiao_quarantine").document(caseId).get(
                         com.google.firebase.firestore.Source.SERVER
                     ), 5, TimeUnit.SECONDS)
-                result.getString("appealText") == explanation
+                !result.metadata.hasPendingWrites() &&
+                    result.getString("appealText") == explanation &&
+                    result.getTimestamp("appealedAt") != null
             }
             val case = Tasks.await(
                 db.collection("guardiao_quarantine").document(caseId).get(
                     com.google.firebase.firestore.Source.SERVER
                 ), 10, TimeUnit.SECONDS)
+            assertTrue("A contestação ainda não foi confirmada pelo servidor",
+                !case.metadata.hasPendingWrites())
             assertEquals("held", case.getString("status"))
             assertEquals(explanation, case.getString("appealText"))
             assertTrue("O recurso precisa de registro temporal", case.getTimestamp("appealedAt") != null)
