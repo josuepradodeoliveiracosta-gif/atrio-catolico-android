@@ -7,3 +7,5 @@ Terceiro smoke: POST sem corpo via Node fetch, controle de rate-limit e D1 QA.
 Quarto smoke: versao QA v12 com tratamento de POST vazio corrigido, somente token falso.
 
 Quinto smoke v14: testar HTTP 401/403 com Firebase QA, sem token real, com rollback.
+
+Sexto ensaio QA: uma chamada com token sintético e categorias HTTP/rede; desligar ponte.
