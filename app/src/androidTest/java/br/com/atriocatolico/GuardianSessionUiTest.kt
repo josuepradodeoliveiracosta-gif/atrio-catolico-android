@@ -160,6 +160,12 @@ class GuardianSessionUiTest {
                     connection.readTimeout = 5_000
                     connection.doOutput = true
                     connection.setRequestProperty("Content-Type", "application/json")
+                    // "owner" is recognized ONLY by the local Firestore Emulator.
+                    // Production endpoints are impossible: literal 127.0.0.1,
+                    // demo project guard, and emulator host assertion above.
+                    // Without this header, anonymous REST fixture writes are
+                    // correctly denied by the actual Firestore Security Rules.
+                    connection.setRequestProperty("Authorization", "Bearer owner")
                     connection.outputStream.use {
                         it.write(payload.toByteArray(Charsets.UTF_8))
                     }
