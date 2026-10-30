@@ -127,7 +127,7 @@ try {
   assert.equal((await getDoc(doc(reporter,replyPath('pending')))).exists(),true);
   await env.withSecurityRulesDisabled(async ctx=>{
    const snap=await getDoc(doc(ctx.firestore(),reportPath('pending')));
-   assert.equal(snap.get('status'),null);
+   assert.equal(snap.get('status'),undefined);
   });
  });
  console.log('GUARDIAN_FREE_MANUAL_EMULATOR',checks,'PASS');
