@@ -1,0 +1,44 @@
+name: Guardião QA — teste remoto da ponte temporária (sem segredos)
+on:
+  push:
+    branches: [feature/guardiao-autonomo-20261029]
+    paths:
+      - docs/guardiao-qa-bridge-smoke-trigger.txt
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: guardian-qa-remote-bridge-smoke
+  cancel-in-progress: false
+jobs:
+  forged-token:
+    name: Worker QA real nega anônimo e token forjado
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Teste HTTP sem conta, chave, senha ou ID token real
+        shell: bash
+        env:
+          QA: https://atrio-guardian-v2-qa.atrio-catolico.workers.dev
+        run: |
+          set -euo pipefail
+          call() {
+            local method="$1" path="$2" expected="$3" code="$4" header="${5:-}"
+            local http
+            if [ -n "$header" ]; then
+              http=$(curl -sS -X "$method" --connect-timeout 7 --max-time 15 \
+                -H "Authorization: $header" -o /tmp/guardian-bridge-resp -w '%{http_code}' "$QA$path")
+            else
+              http=$(curl -sS -X "$method" --connect-timeout 7 --max-time 15 \
+                -o /tmp/guardian-bridge-resp -w '%{http_code}' "$QA$path")
+            fi
+            test "$http" = "$expected"
+            test "$(cat /tmp/guardian-bridge-resp)" = "{\"status\":\"$code\"}"
+          }
+          call GET /health 200 guardian_v2_qa_safe
+          call POST /admin/config 503 qa_read_only
+          call POST /admin/review 503 qa_read_only
+          call POST /qa/firebase-fixture 401 unauthorized
+          fake="Bearer aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+          call POST /qa/firebase-fixture 403 forbidden "$fake"
+          echo 'GUARDIAN_QA_TEMPORARY_BRIDGE: VERIFIED_DENIAL_AND_AUTH_REQUIREMENTS'
