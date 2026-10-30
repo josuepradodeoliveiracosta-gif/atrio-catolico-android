@@ -42,7 +42,7 @@ export async function scanPagedCycle(db,settings,{onDocument,onReport},now=new D
    typeof onDocument!=='function'||typeof onReport!=='function'||!iso(now))
    throw Error('paged_scanner_not_configured');
  const counters={clear:0,review:0,warn:0,hold:0,invalid:0,
-   duplicate_or_changed:0,ignored:0,missing:0,error:0,
+   duplicate_or_changed:0,changed:0,ignored:0,missing:0,error:0,
    pages:0,backlogGroups:0,pausedGroups:0};
  for(const task of SCANS){
    const {id,group,field,max}=task;
@@ -76,6 +76,13 @@ export async function scanPagedCycle(db,settings,{onDocument,onReport},now=new D
            const action=group==='reports'?
              await onReport(db,doc,settings):
              await onDocument(db,doc,settings);
+           if(action==='changed'){
+             // A newer version invalidates this page. Retry from the last
+             // committed cursor on the next run; never skip an edit.
+             counters.changed++;
+             failed=true;
+             break;
+           }
            if(action in counters)counters[action]++;
          }catch{counters.error++;failed=true;break;}
        }
