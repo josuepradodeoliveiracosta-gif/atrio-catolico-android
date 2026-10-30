@@ -71,8 +71,11 @@ try{
    body:JSON.stringify({fields:{enabled:{booleanValue:true}}})
   });
   assert.equal(r.status,403);
-  const read=await env.withSecurityRulesDisabled(async ctx=>
-   getDoc(doc(ctx.firestore(),'guardian_config/policy')));
+  let read;
+  await env.withSecurityRulesDisabled(async ctx=>{
+   read=await getDoc(doc(ctx.firestore(),'guardian_config/policy'));
+  });
+  assert.ok(read.exists());
   assert.equal(read.data().enabled,false);
  });
  await check('ponte classifica GET autorizado, sem devolver conteúdo nem token',async()=>{
