@@ -9,6 +9,6 @@
     "test": "node prepare.mjs && firebase emulators:exec --only firestore --project demo-atrio-v11 \"node public-profile.test.mjs && node moderation.test.mjs && node three-bots.test.mjs && node three-bots-extended.test.mjs && node reaction-emojis.test.mjs && node guardian-v2.test.mjs\"",
     "test:guardian-live": "node prepare.mjs && firebase emulators:exec --only firestore --project demo-atrio-v11 \"node guardian-v2-live-emulator.mjs && node guardian-v2-e2e-emulator.mjs\"",
     "test:guardian-shadow": "node prepare.mjs && firebase emulators:exec --only firestore,auth --project atrio-catolico-qa-v2 \"node guardian-v2-qa-query-emulator.mjs && node guardian-v2-paged-emulator.mjs && node guardian-v2-auth-bridge-emulator.mjs\"",
-    "test:guardian-rules": "node prepare.mjs && firebase emulators:exec --only firestore --project demo-atrio-v11 \"node guardian-v2.test.mjs\""
+    "test:guardian-rules": "node prepare.mjs && firebase emulators:exec --only firestore --project demo-atrio-v11 \"node guardian-v2.test.mjs && node guardian-v2-free-mode-emulator.mjs\""
   }
 }

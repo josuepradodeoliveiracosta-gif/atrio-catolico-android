@@ -56,6 +56,8 @@ jobs:
           python3 scripts/check-qa-d1-budget-sql.py
           python3 scripts/check-qa-release-preflight.py
           python3 scripts/test-bootstrap-qa-fixture.py
+          python3 scripts/check-zero-cost-qa.py
+          python3 scripts/test-zero-cost-qa.py
       - name: Verificar sintaxe do Worker
         run: node --check cloudflare/guardian-worker/src/index.js
       - name: Validar sintaxe do script que adiciona somente índice QA
