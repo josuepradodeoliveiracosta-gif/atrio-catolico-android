@@ -222,6 +222,46 @@ try {
    assert.equal(reviewed.get('status'),'dismissed');
   });
  });
+ await check('escrita pendente offline não ultrapassa revogação antes de sincronizar',async()=>{
+  const offlineDb=env.authenticatedContext('qaOfflineDecisionAdmin').firestore();
+  const reportRef=doc(offlineDb,reportPath('context'));
+  await env.withSecurityRulesDisabled(async ctx=>{
+   await setDoc(doc(ctx.firestore(),'admins/qaOfflineDecisionAdmin'),{enabled:true});
+  });
+  const initial=await assertSucceeds(getDoc(reportRef));
+  assert.equal(initial.get('status'),'dismissed');
+  await disableNetwork(offlineDb);
+  let completed=false;
+  try{
+   // An offline write is ONLY a local optimistic event; not proof of a
+   // committed admin decision. The returned promise resolves after reconnect.
+   const offlineWrite=updateDoc(reportRef,{
+    status:'removed',reviewedBy:'qaOfflineDecisionAdmin',
+    reviewedAt:serverTimestamp(),reviewNote:'Tentativa offline indevida.',
+    reviewTarget:'reply'
+   }).then(()=>({committed:true}),e=>({committed:false,error:e}));
+   // Attach a rejection handler immediately (above) to avoid an
+   // unhandled rejection if the emulator responds before awaiting.
+   await env.withSecurityRulesDisabled(async ctx=>{
+    await updateDoc(doc(ctx.firestore(),'admins/qaOfflineDecisionAdmin'),{enabled:false});
+   });
+   await enableNetwork(offlineDb);
+   const result=await Promise.race([
+    offlineWrite,
+    new Promise((_,reject)=>setTimeout(()=>reject(new Error('offline_write_reconnect_timeout')),15000))
+   ]);
+   completed=true;
+   assert.equal(result.committed,false,'revoked admin must not commit queued write');
+  }finally{
+   await enableNetwork(offlineDb);
+  }
+  assert.equal(completed,true);
+  await env.withSecurityRulesDisabled(async ctx=>{
+   const after=await getDoc(doc(ctx.firestore(),reportPath('context')));
+   assert.equal(after.get('status'),'dismissed',
+    'post-revocation offline admin write must leave reviewed report unchanged');
+  });
+ });
  await check('admin revogado perde direito de decidir; denúncia fica pendente',async()=>{
   await assertSucceeds(setDoc(doc(author,replyPath('pending')),
    makeReply('Texto legítimo pendente de decisão administrativa.')));
