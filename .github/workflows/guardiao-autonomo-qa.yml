@@ -12,6 +12,10 @@ on:
       - 'app/src/main/java/br/com/atriocatolico/ModerationScreen.kt'
       - 'firestore.rules'
       - 'tests/security/**'
+      - 'app/build.gradle.kts'
+      - 'app/src/main/java/br/com/atriocatolico/MainActivity.kt'
+      - 'scripts/check-guardian-qa-android-isolation.py'
+      - 'tests/security/test-guardian-qa-android-isolation.py'
       - 'scripts/guardian-free-capacity.py'
       - '.github/workflows/guardian-ci.yml'
       - '.github/workflows/guardiao-autonomo-qa.yml'
@@ -26,6 +30,10 @@ on:
       - 'app/src/main/java/br/com/atriocatolico/ModerationScreen.kt'
       - 'firestore.rules'
       - 'tests/security/**'
+      - 'app/build.gradle.kts'
+      - 'app/src/main/java/br/com/atriocatolico/MainActivity.kt'
+      - 'scripts/check-guardian-qa-android-isolation.py'
+      - 'tests/security/test-guardian-qa-android-isolation.py'
       - 'scripts/guardian-free-capacity.py'
       - '.github/workflows/guardian-ci.yml'
       - '.github/workflows/guardiao-autonomo-qa.yml'
@@ -67,6 +75,7 @@ jobs:
           python3 scripts/check-zero-cost-qa.py
           python3 scripts/test-zero-cost-qa.py
           python3 ../../tests/security/test-guardian-free-capacity.py
+          python3 ../../tests/security/test-guardian-qa-android-isolation.py
       - name: Verificar sintaxe do Worker
         run: node --check cloudflare/guardian-worker/src/index.js
       - name: Validar sintaxe do script que adiciona somente índice QA
@@ -107,18 +116,34 @@ jobs:
           gradle-version: '8.13'
       - name: Preparar Android 36
         run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
-      - name: Validar Firebase sem usar produção
-        run: python3 scripts/validar_firebase.py
-      - name: Testes Android locais e APK Debug
+      - name: Remover configuração Firebase apenas da VM descartável do GitHub
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Only in the temporary checkout. No changes to the repo or production.
+          rm -f -- app/google-services.json
+          test ! -e app/google-services.json
+      - name: Bloquear credenciais e URLs antes do build de QA
         env:
-          ATRIO_PUSH_WORKER_URL: https://atrio-push.atrio-catolico.workers.dev
+          ATRIO_GUARDIAN_QA_ISOLATED: '1'
+          ATRIO_PUSH_WORKER_URL: ''
+          ATRIO_GUARDIAN_WORKER_URL: ''
+          ATRIO_AVATAR_WORKER_URL: ''
+        run: python3 scripts/check-guardian-qa-android-isolation.py --prebuild
+      - name: Testes Android locais e APK Debug desconectado
+        env:
+          ATRIO_GUARDIAN_QA_ISOLATED: '1'
+          ATRIO_PUSH_WORKER_URL: ''
+          ATRIO_GUARDIAN_WORKER_URL: ''
           ATRIO_AVATAR_WORKER_URL: ''
         run: gradle :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --stacktrace
-      - name: Publicar somente APK Debug, nunca Release assinada
+      - name: Auditar pacote e recursos do APK antes de disponibilizar
+        run: python3 scripts/check-guardian-qa-android-isolation.py --apk app/build/outputs/apk/debug/app-debug.apk
+      - name: Publicar somente APK Debug de DEMO local, nunca Release assinada
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: guardiao-autonomo-debug-qa
+          name: guardiao-qa-demo-local-isolado
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 7

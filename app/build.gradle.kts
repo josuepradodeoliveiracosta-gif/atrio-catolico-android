@@ -23,6 +23,14 @@ val atrioDebugPatch = 9
 val atrioDebugVersionName = "0.19.$atrioDebugPatch"
 val atrioDebugVersionCode = 27 + atrioDebugPatch
 
+// Only the isolated Guardian QA CI uses this opt-in. A separate package
+// prevents overwriting an installed official APK, even with debug signing.
+val guardianQaIsolationFlag = System.getenv("ATRIO_GUARDIAN_QA_ISOLATED").orEmpty()
+require(guardianQaIsolationFlag.isEmpty() || guardianQaIsolationFlag == "1") {
+    "ATRIO_GUARDIAN_QA_ISOLATED invalida"
+}
+val guardianQaIsolated = guardianQaIsolationFlag == "1"
+
 android {
     namespace = "br.com.atriocatolico"
     compileSdk = 36
@@ -35,6 +43,7 @@ android {
         versionCode = 27
         versionName = "0.19.0"
         buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"0.19.0\"")
+        buildConfigField("boolean", "GUARDIAN_QA_ISOLATED", guardianQaIsolated.toString())
         val relayUrl = System.getenv("ATRIO_PUSH_WORKER_URL").orEmpty()
         val allowed = Regex("^https://[a-zA-Z0-9-]+\\.[a-zA-Z0-9-]+\\.workers\\.dev$")
         require(relayUrl.isBlank() || allowed.matches(relayUrl)) { "ATRIO_PUSH_WORKER_URL invalida" }
@@ -63,6 +72,11 @@ android {
 
     buildTypes {
         getByName("debug") {
+            // Never turn a QA compile into an update of the installed official app.
+            if (guardianQaIsolated) {
+                applicationIdSuffix = ".guardianqa"
+                versionNameSuffix = "-guardianqa-offline"
+            }
             // A numeração de testes aparece também dentro da aba Perfil.
             buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"$atrioDebugVersionName\"")
         }

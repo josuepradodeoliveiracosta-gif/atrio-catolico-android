@@ -152,7 +152,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val prefs = getSharedPreferences("atrio-demo", Context.MODE_PRIVATE)
         setContent {
-            if (com.google.firebase.FirebaseApp.getApps(this).isNotEmpty()) {
+            if (!BuildConfig.GUARDIAN_QA_ISOLATED &&
+                com.google.firebase.FirebaseApp.getApps(this).isNotEmpty()) {
                 OnlineAtrioApp(this@MainActivity)
             } else {
                 AtrioDemoApp(prefs)
