@@ -8,3 +8,8 @@ GUARDIAN_V2_ENABLED = "false"
 GUARDIAN_V2_HOLD_ENABLED = "false"
 # Secrets necessários apenas após revisão: GUARDIAN_FIREBASE_SERVICE_ACCOUNT_JSON, FIREBASE_WEB_API_KEY
 # O papel IAM deve ter escopo mínimo. Regras Firestore NÃO restringem Admin SDK.
+# Contrato de identidade aprovado somente como DOCUMENTAÇÃO — NÃO IMPLANTAR.
+# GUARDIAN_V2_IDENTITY_APPROVED = "false" (default; two-person release review later)
+# GUARDIAN_V2_PRODUCTION_APPROVED = "false" (default)
+# GUARDIAN_V2_SERVICE_ACCOUNT_EMAIL = "guardian-v2-moderator@atrio-catolico.iam.gserviceaccount.com"
+# CRITICAL: nunca incluir GUARDIAN_FIREBASE_SERVICE_ACCOUNT_JSON no repo.

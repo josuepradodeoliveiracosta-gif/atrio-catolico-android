@@ -13,16 +13,44 @@ export const timestamp=v=>({timestampValue:v});
 export const enc=encodeURIComponent;
 export const pathOf=doc=>doc?.name?.split('/documents/')[1]||'';
 const b64url=bytes=>{const s=(typeof bytes==='string'?new TextEncoder().encode(bytes):new Uint8Array(bytes));let b='';for(const c of s)b+=String.fromCharCode(c);return btoa(b).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');};
+// Exact identity allowlist for FUTURE production-only server access.
+// Firestore IAM server calls bypass client Security Rules. Never accept a broad
+// Editor/Owner identity, unrelated Firebase account, or QA credentials here.
+const PRODUCTION_EMAIL=/^guardian-v2-[a-z0-9-]{1,32}@atrio-catolico\.iam\.gserviceaccount\.com$/;
+export function guardianProductionIdentityApproved(env={},config) {
+  const expected=env.GUARDIAN_V2_SERVICE_ACCOUNT_EMAIL;
+  return env.GUARDIAN_FIREBASE_PROJECT_ID===PROJECT
+    && env.GUARDIAN_V2_TEST_MODE!=='true'
+    && env.GUARDIAN_V2_PRODUCTION_APPROVED==='true'
+    && env.GUARDIAN_V2_IDENTITY_APPROVED==='true'
+    && typeof expected==='string' && PRODUCTION_EMAIL.test(expected)
+    && config?.type==='service_account'
+    && config.project_id===PROJECT
+    && config.client_email===expected
+    && config.token_uri==='https://oauth2.googleapis.com/token'
+    && typeof config.private_key_id==='string'
+    && /^[a-f0-9]{40}$/.test(config.private_key_id)
+    && typeof config.private_key==='string'
+    && config.private_key.includes('-----BEGIN PRIVATE KEY-----');
+}
 let cached;
 export async function token(env) {
   const intended=env.GUARDIAN_FIREBASE_PROJECT_ID;
   if(!projectValid(intended))throw Error('service_not_configured');
   if(intended===PROJECT && env.GUARDIAN_V2_PRODUCTION_APPROVED!=='true')
     throw Error('production_access_not_approved');
-  if(cached?.project===intended && cached.exp>Date.now()+60_000)return cached.value;
+  if(intended===PROJECT && (env.GUARDIAN_V2_TEST_MODE==='true'||
+      env.GUARDIAN_V2_IDENTITY_APPROVED!=='true'))
+    throw Error('identity_not_approved');
   const config=JSON.parse(env.GUARDIAN_FIREBASE_SERVICE_ACCOUNT_JSON||'null');
-  if(!projectValid(intended)||config?.project_id!==intended||!config.client_email||!config.private_key)
+  if(intended===PROJECT && !guardianProductionIdentityApproved(env,config))
+    throw Error('identity_not_approved');
+  if(config?.project_id!==intended||!config.client_email||!config.private_key)
     throw Error('service_not_configured');
+  // Cached tokens are never shared between service accounts or key rotations.
+  if(cached?.project===intended && cached?.email===config.client_email &&
+      cached?.keyId===config.private_key_id && cached.exp>Date.now()+60_000)
+    return cached.value;
   const der=Uint8Array.from(atob(config.private_key.replace(/-----BEGIN PRIVATE KEY-----|-----END PRIVATE KEY-----|\s/g,'')),c=>c.charCodeAt(0));
   const key=await crypto.subtle.importKey('pkcs8',der,{name:'RSASSA-PKCS1-v1_5',hash:'SHA-256'},false,['sign']);
   const iat=Math.floor(Date.now()/1000);
@@ -31,7 +59,8 @@ export async function token(env) {
   const response=await fetch('https://oauth2.googleapis.com/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'urn:ietf:params:oauth:grant-type:jwt-bearer',assertion:signed+'.'+sig})});
   if(!response.ok)throw Error('service_auth_failed');const data=await response.json();
   if(!data.access_token)throw Error('service_token_missing');
-  cached={project:intended,value:data.access_token,exp:Date.now()+Math.min(600_000,Number(data.expires_in||900)*1000-60_000)};return cached.value;
+  cached={project:intended,email:config.client_email,keyId:config.private_key_id,
+    value:data.access_token,exp:Date.now()+Math.min(600_000,Number(data.expires_in||900)*1000-60_000)};return cached.value;
 }
 export class Firestore {
   constructor(access,project=PROJECT,api=API){
