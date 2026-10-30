@@ -152,7 +152,7 @@ try {
     await env.withSecurityRulesDisabled(async ctx=>
       updateDoc(doc(ctx.firestore(),path),{body:'O Catecismo orienta sobre a oração'})
     );
-    assert.equal(await processDocument(server,beforeEdit,act),'duplicate_or_changed');
+    assert.equal(await processDocument(server,beforeEdit,act),'changed');
     assert.equal(await read('guardian_cases/'+await id(path)),null);
     assert.equal((await getDoc(doc(bob,path))).data().body,'O Catecismo orienta sobre a oração');
   });
