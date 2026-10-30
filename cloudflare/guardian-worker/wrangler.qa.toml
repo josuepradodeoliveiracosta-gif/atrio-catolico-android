@@ -11,6 +11,8 @@ GUARDIAN_V2_HOLD_ENABLED = "false"
 GUARDIAN_V2_QA_SHADOW_READS = "false" # Conexão remota desativada até projeto QA separado
 GUARDIAN_V2_QA_RUN_MONITOR = "true" # Apenas GET de status público GitHub por hora; nunca lê Firebase
 GUARDIAN_V2_QA_POLICY_HEARTBEAT = "true" # Classificação local de 5 textos sintéticos por Cron; zero Firestore, nenhuma punição
+GUARDIAN_V2_QA_FIRESTORE_BRIDGE = "false" # Somente QA e desligado; exige conta de teste Firebase QA para leitura de 1 fixture
+GUARDIAN_V2_QA_READER_PROJECT = "atrio-catolico-qa-v2" # Projeto literal de teste, nunca produção
 GUARDIAN_V2_QA_AUTO_DISPATCH = "false" # Opt-in desativado: não aciona GitHub Actions
 GUARDIAN_QA_DISPATCH_READY = "false" # Segundo bloqueio; manter falso sem autorização explícita
 
