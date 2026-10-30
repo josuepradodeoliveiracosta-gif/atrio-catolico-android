@@ -47,6 +47,23 @@ class GuardianPreflightTest {
             )?.rule)
     }
 
+    @Test fun excessiveWwwLinksAlsoTriggerWarning() {
+        assertEquals("links_excessive",
+            GuardianPreflight.inspect(
+                "www.um.invalid www.dois.invalid www.tres.invalid www.quatro.invalid"
+            )?.rule)
+    }
+
+    @Test fun mixedSchemesCountAsFourLinksWithoutFlaggingThree() {
+        assertNull(GuardianPreflight.inspect(
+            "www.um.invalid https://dois.invalid http://tres.invalid"
+        ))
+        assertEquals("links_excessive",
+            GuardianPreflight.inspect(
+                "www.um.invalid https://dois.invalid http://tres.invalid www.quatro.invalid"
+            )?.rule)
+    }
+
     @Test fun overlyLongInputsGetWarningWithoutCrashing() {
         assertEquals("input_limit", GuardianPreflight.inspect("a".repeat(4001))?.rule)
     }
