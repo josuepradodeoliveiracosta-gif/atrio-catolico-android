@@ -15,7 +15,7 @@ const env=await initializeTestEnvironment({
  projectId:project,
  firestore:{host:'127.0.0.1',port:8089,rules:readFileSync('firestore.rules','utf8')}
 });
-const reader=new Firestore('emulator-only',project,'http://127.0.0.1:8089/v1');
+const reader=new Firestore('owner',project,'http://127.0.0.1:8089/v1');
 const author=env.authenticatedContext('qa-autor').firestore();
 const reviewer=env.authenticatedContext('qa-revisor').firestore();
 const moderator=env.authenticatedContext('qa-moderador').firestore();
