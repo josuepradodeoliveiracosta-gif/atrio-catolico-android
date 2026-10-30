@@ -25,7 +25,9 @@ jobs:
           const allowed=new Set(['guardian_v2_qa_safe','qa_read_only',
             'unauthorized','forbidden','qa_bridge_disabled','invalid_request',
             'qa_rate_limited','qa_daily_budget_unavailable','qa_rate_limit_unavailable',
-            'qa_bridge_unavailable']);
+            'qa_bridge_unavailable','qa_upstream_network_unavailable',
+            'qa_upstream_http_unavailable','qa_upstream_response_invalid',
+            'qa_upstream_throttled']);
           const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
           async function call(path,method,auth){
             const r=await fetch(QA+path,{

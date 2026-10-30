@@ -85,13 +85,20 @@ test('classificação limitada e sem texto retornado',async()=>{
  assert.deepEqual(JSON.parse(raw),{status:'qa_fixture_review'});
  assert.ok(!raw.includes('https://')); // no original content
 });
-test('Firebase nega token/permissão, falha fechado',async()=>{
- for(const status of [400,401,403,404,409,429,500]){
-  const result=await qaFixtureRequest(req(),env,{fetcher:async()=>new Response('{}',{status})});
-  assert.equal(result.status,[400,401,403].includes(status)?403:status===404?404:503);
-  const data=await result.json();
-  assert.ok(!JSON.stringify(data).includes(fakeId));
+test('respostas HTTP da API QA são categorizadas sem revelar dados',async()=>{
+ const codes={400:[403,'forbidden'],401:[403,'forbidden'],403:[403,'forbidden'],
+  404:[404,'fixture_missing'],409:[503,'qa_upstream_http_unavailable'],
+  429:[503,'qa_upstream_throttled'],500:[503,'qa_upstream_http_unavailable']};
+ for(const [status,[expected,code]] of Object.entries(codes)){
+  const res=await qaFixtureRequest(req(),env,{fetcher:async()=>new Response('secret '+fakeId,{status:Number(status)})});
+  assert.equal(res.status,expected);
+  assert.equal(await res.text(),JSON.stringify({status:code}));
  }
+});
+test('falha de fetch diferencia rede de HTTP, sem retornar o token',async()=>{
+ const res=await qaFixtureRequest(req(),env,{fetcher:async()=>{throw Error('secret '+fakeId);}});
+ assert.equal(res.status,503);
+ assert.deepEqual(await res.json(),{status:'qa_upstream_network_unavailable'});
 });
 test('dados de outro projeto, sem qaFixture ou com corpo inválido são descartados',async()=>{
  const cases=[
@@ -154,14 +161,14 @@ test('método diferente e corpo enviado são recusados sem Firestore',async()=>{
  }),env,{fetcher:async()=>{throw Error('no');}});
  assert.equal(withBody.status,400);
 });
-test('erro ou resposta inválida não devolve texto nem token',async()=>{
+test('falha de rede e resposta inválida não revelam token',async()=>{
  const outputs=[
-  await qaFixtureRequest(req(),env,{fetcher:async()=>{throw Error('secret '+fakeId);}}),
-  await qaFixtureRequest(req(),env,{fetcher:async()=>new Response('no json',{status:200})})
+  [await qaFixtureRequest(req(),env,{fetcher:async()=>{throw Error('secret '+fakeId);}}),'qa_upstream_network_unavailable'],
+  [await qaFixtureRequest(req(),env,{fetcher:async()=>new Response('no json',{status:200})}),'qa_upstream_response_invalid']
  ];
- for(const value of outputs){
-  assert.equal(value.status,503);
-  assert.deepEqual(await value.json(),{status:'qa_bridge_unavailable'});
+ for(const [r,code] of outputs){
+  assert.equal(r.status,503);
+  assert.deepEqual(await r.json(),{status:code});
  }
 });
 
@@ -191,7 +198,7 @@ test('rejeita Content-Length excessivo sem carregar payload remoto',async()=>{
  }});
  assert.equal(calls,1);
  assert.equal(response.status,503);
- assert.deepEqual(await response.json(),{status:'qa_bridge_unavailable'});
+ assert.deepEqual(await response.json(),{status:'qa_upstream_response_invalid'});
 });
 test('rejeita resposta grande mesmo sem Content-Length e não devolve dados',async()=>{
  const payload={...doc(),extra:'SEGREDO_NAO_DEVOLVE_'+'x'.repeat(9000)};
@@ -199,14 +206,14 @@ test('rejeita resposta grande mesmo sem Content-Length e não devolve dados',asy
   JSON.stringify(payload),{status:200})});
  assert.equal(response.status,503);
  const raw=await response.text();
- assert.equal(raw,'{"status":"qa_bridge_unavailable"}');
+ assert.equal(raw,'{"status":"qa_upstream_response_invalid"}');
  assert.ok(!raw.includes('SEGREDO_NAO_DEVOLVE_'));
 });
 test('rejeita UTF-8 inválido na resposta remota sem exceção pública',async()=>{
  const response=await qaFixtureRequest(req(),env,{fetcher:async()=>
   new Response(Uint8Array.of(0xff,0xfe),{status:200})});
  assert.equal(response.status,503);
- assert.deepEqual(await response.json(),{status:'qa_bridge_unavailable'});
+ assert.deepEqual(await response.json(),{status:'qa_upstream_response_invalid'});
 });
 
 test('limites obrigatórios: ausência de binding falha sem consulta Firebase',async()=>{
@@ -380,7 +387,7 @@ test('D1 consome um orçamento por tentativa, inclusive falha no Firebase',async
  for(let i=0;i<12;i++){
   const res=await qaFixtureRequest(req(),cfg,opts);
   assert.equal(res.status,503);
-  assert.deepEqual(await res.json(),{status:'qa_bridge_unavailable'});
+  assert.deepEqual(await res.json(),{status:'qa_upstream_http_unavailable'});
  }
  const refused=await qaFixtureRequest(req(),cfg,opts);
  assert.equal(refused.status,429);

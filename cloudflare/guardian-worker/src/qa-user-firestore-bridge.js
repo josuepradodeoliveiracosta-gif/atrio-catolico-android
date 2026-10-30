@@ -112,27 +112,32 @@ export async function qaFixtureRequest(request,env,{fetcher=fetch,clock=Date.now
  if(daily!=='allowed')return reply(503,'qa_daily_budget_unavailable');
  // Firestore is responsible for verifying the JWT signature and Rules. Never
  // use decoded-but-unverified token claims for trust or authorization.
+ // QA-only error classes: no upstream body, exception, JWT or UID in output.
+ let result;
  try{
-  const result=await fetcher(QA_URL,{method:'GET',headers:{
+  result=await fetcher(QA_URL,{method:'GET',headers:{
    Authorization:'Bearer '+matched[1],Accept:'application/json'
   },redirect:'error',signal:AbortSignal.timeout(6000)});
-  // Firebase may report an invalid/malformed ID token as HTTP 400 rather
-  // than 401/403. Treat all these responses as an authorization rejection,
-  // never as a successful classification; do not expose upstream details.
-  if([400,401,403].includes(result.status))return reply(403,'forbidden');
-  if(result.status===404)return reply(404,'fixture_missing');
-  if(!result.ok)return reply(503,'qa_bridge_unavailable');
-  const data=await boundedQaJson(result);
-  if(data?.name!==QA_RESOURCE+'/posts/qa_post_1'||
+ }catch{return reply(503,'qa_upstream_network_unavailable');}
+ if(!Number.isInteger(result?.status)||result.status<100||result.status>599)
+  return reply(503,'qa_upstream_response_invalid');
+ if([400,401,403].includes(result.status))return reply(403,'forbidden');
+ if(result.status===404)return reply(404,'fixture_missing');
+ if(result.status===429)return reply(503,'qa_upstream_throttled');
+ if(!result.ok)return reply(503,'qa_upstream_http_unavailable');
+ let data;
+ try{data=await boundedQaJson(result);}
+ catch{return reply(503,'qa_upstream_response_invalid');}
+ if(data?.name!==QA_RESOURCE+'/posts/qa_post_1'||
     data.fields?.qaFixture?.booleanValue!==true ||
     typeof data.fields?.title?.stringValue!=='string'||
     typeof data.fields?.body?.stringValue!=='string')
-    return reply(503,'invalid_qa_fixture');
-  const title=data.fields.title.stringValue,body=data.fields.body.stringValue;
-  if(title.length>120||body.length>1200)return reply(503,'invalid_qa_fixture');
+  return reply(503,'invalid_qa_fixture');
+ const title=data.fields.title.stringValue,body=data.fields.body.stringValue;
+ if(title.length>120||body.length>1200)return reply(503,'invalid_qa_fixture');
+ try{
   const finding=classify(title+' '+body);
   const action=decide(finding,{enabled:true,allowHold:false});
-  // Only static categories, never content, UID, path, JWT or Firestore fields.
   if(!['clear','review','warn'].includes(action))return reply(503,'qa_bridge_unavailable');
   return reply(200,'qa_fixture_'+action);
  }catch{return reply(503,'qa_bridge_unavailable');}
