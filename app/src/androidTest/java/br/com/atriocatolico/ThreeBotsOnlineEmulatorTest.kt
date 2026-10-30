@@ -4,7 +4,11 @@ import android.content.Context
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
@@ -14,7 +18,9 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextReplacement
 import androidx.test.core.app.ApplicationProvider
+import androidx.test.espresso.Espresso
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
@@ -157,11 +163,16 @@ class ThreeBotsOnlineEmulatorTest {
         val controlDoc = Tasks.await(control.get(Source.SERVER),10,TimeUnit.SECONDS)
         assertTrue("Firebase emulado recusou o post de controle",controlDoc.exists())
         Tasks.await(control.delete(),10,TimeUnit.SECONDS)
+        val title = "Discussão conectada QA ${nonce}"
+        val links = "https://um.example.test https://dois.example.test " +
+            "https://tres.example.test https://quatro.example.test"
+        val draftBody = "Publicação fictícia de QA, criada pela interface online do Átrio.\n$links"
+        val query = db.collection("posts").whereEqualTo("title", title)
         compose.onNodeWithTag("atrio-tab-publish").performClick()
         compose.onNodeWithTag("atrio-publish-title")
-            .performTextInput("Discussão conectada QA ${nonce}")
+            .performTextInput(title)
         compose.onNodeWithTag("atrio-publish-body")
-            .performTextInput("Publicação fictícia de QA, criada pela interface online do Átrio.")
+            .performTextInput(draftBody)
         // Os botões ficam abaixo do formulário em uma coluna rolável.
         // Um toque fora do viewport não comprova envio pela interface.
         compose.onNodeWithTag("atrio-publish-submit")
@@ -169,11 +180,29 @@ class ThreeBotsOnlineEmulatorTest {
             .assertIsDisplayed()
             .assertIsEnabled()
             .performClick()
+        // Abrir o aviso não publica nem apaga o texto que será revisado.
+        compose.onNodeWithTag("atrio-guardian-revise").assertIsDisplayed()
+        assertEquals(0, Tasks.await(query.get(Source.SERVER), 10, TimeUnit.SECONDS).size())
+        compose.onNodeWithTag("atrio-guardian-revise").performClick()
+        compose.onNodeWithTag("atrio-guardian-continue").assertDoesNotExist()
+        compose.onNodeWithTag("atrio-publish-title").assertTextContains(title)
+        compose.onNodeWithTag("atrio-publish-body").assertTextContains(draftBody)
+        compose.onNodeWithTag("atrio-publish-submit")
+            .performScrollTo().assertIsEnabled().performClick()
+        // Voltar tem o mesmo efeito seguro de revisar, sem consumir o rascunho.
+        compose.onNodeWithTag("atrio-guardian-revise").assertIsDisplayed()
+        Espresso.pressBack()
+        compose.onNodeWithTag("atrio-guardian-continue").assertDoesNotExist()
+        compose.onNodeWithTag("atrio-publish-title").assertTextContains(title)
+        compose.onNodeWithTag("atrio-publish-body").assertTextContains(draftBody)
+        assertEquals(0, Tasks.await(query.get(Source.SERVER), 10, TimeUnit.SECONDS).size())
+        compose.onNodeWithTag("atrio-publish-submit")
+            .performScrollTo().assertIsEnabled().performClick()
+        compose.onNodeWithTag("atrio-guardian-continue")
+            .assertIsDisplayed().performClick()
         // O mesmo texto ainda existe no campo de edição enquanto a gravação
         // assíncrona ocorre. Não confundir isso com confirmação do Firestore.
         // A fonte de verdade do teste é uma leitura do SERVIDOR emulado.
-        val title = "Discussão conectada QA ${nonce}"
-        val query = db.collection("posts").whereEqualTo("title", title)
         compose.waitUntil(45000) {
             val snapshot = Tasks.await(query.get(Source.SERVER), 5, TimeUnit.SECONDS)
             snapshot.size() == 1
@@ -183,6 +212,17 @@ class ThreeBotsOnlineEmulatorTest {
         val postId = docs.documents.single().id
         assertEquals("A discussão deve pertencer à conta Clara",claraId,
             docs.documents.single().getString("uid"))
+        assertEquals("O texto confirmado deve chegar intacto ao servidor emulado",
+            draftBody, docs.documents.single().getString("body"))
+        compose.waitUntil(30000) {
+            compose.onAllNodesWithTag("atrio-publish-title").fetchSemanticsNodes().isEmpty()
+        }
+        // O sucesso sai do formulário: a próxima publicação começa vazia.
+        compose.onNodeWithTag("atrio-tab-publish").performClick()
+        for (tag in listOf("atrio-publish-title", "atrio-publish-body")) {
+            compose.onNodeWithTag(tag).assert(SemanticsMatcher.expectValue(
+                SemanticsProperties.EditableText, AnnotatedString("")))
+        }
         leave()
 
         // Miguel entra como OUTRO usuário autenticado e responde.
@@ -200,12 +240,23 @@ class ThreeBotsOnlineEmulatorTest {
             .performScrollTo()
             .assertIsDisplayed()
             .assertIsEnabled()
-            .performTextInput("Resposta de Miguel pelo app Android conectado.")
+            .performTextInput("Resposta de Miguel pelo app Android conectado.\n$links")
         compose.onNodeWithTag("atrio-reply-submit")
             .performScrollTo()
             .assertIsDisplayed()
             .assertIsEnabled()
             .performClick()
+        compose.onNodeWithTag("atrio-guardian-revise").assertIsDisplayed()
+        assertEquals(0, Tasks.await(db.collection("posts").document(postId)
+            .collection("replies").get(Source.SERVER), 10, TimeUnit.SECONDS).size())
+        compose.onNodeWithTag("atrio-guardian-revise").performClick()
+        // Cancelar devolve o controle ao formulário da resposta, sem perder texto.
+        compose.onNodeWithTag("atrio-reply-input")
+            .assertTextContains("Resposta de Miguel pelo app Android conectado.\n$links")
+            .performScrollTo()
+            .performTextReplacement("Resposta de Miguel pelo app Android conectado.")
+        compose.onNodeWithTag("atrio-reply-submit")
+            .performScrollTo().assertIsEnabled().performClick()
         // A escrita deve ser confirmada no servidor, não apenas no cache
         // local da tela. A resposta também precisa pertencer a Miguel.
         compose.waitUntil(30000) {
@@ -272,3 +323,4 @@ class ThreeBotsOnlineEmulatorTest {
             1,notice.documents.count { it.getString("postId")==postId })
     }
 }
+

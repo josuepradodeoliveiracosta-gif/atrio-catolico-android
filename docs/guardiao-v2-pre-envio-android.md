@@ -22,6 +22,8 @@ Um detector por expressões simples tem falsos negativos e positivos. É uma ori
 
 - `app/src/test/java/br/com/atriocatolico/GuardianPreflightTest.kt`: testes Kotlin para discussão católica legítima, citação teológica, link de coleta de senha, ameaça, CPF válido/aleatório, excesso de links, texto longo e ausência de vazamento de dados no aviso.
 - Os eventos da interface usam `Modifier.testTag("atrio-guardian-continue")` e `Modifier.testTag("atrio-guardian-revise")`, para ensaio visual futuro no Android Emulator.
+- `ThreeBotsOnlineEmulatorTest` exercita o aviso no aplicativo real, conectado apenas aos emuladores locais de Auth e Firestore. Confere que revisar ou pressionar Voltar preserva título e corpo sem gravar; confirmar publica uma única discussão com o texto intacto; o próximo formulário começa vazio. Também confere que revisar uma resposta preserva o rascunho e libera o botão para enviar o texto corrigido. As leituras de verificação usam `Source.SERVER`, não apenas o cache da interface.
+- O formulário mantém o rascunho enquanto a confirmação está pendente ou o envio falha. Ele é descartado quando a publicação bem-sucedida navega para o início. A correção avança somente a versão Debug de testes para `0.19.8`; a Release e sua assinatura permanecem inalteradas.
 - O workflow GitHub `guardiao-autonomo-qa.yml` executa `gradle :app:testDebugUnitTest :app:assembleDebug`. **Não declarar compilação aprovada antes da conclusão do job do HEAD que contém esta alteração.**
 
 ## Isolamento e custos
@@ -29,3 +31,4 @@ Um detector por expressões simples tem falsos negativos e positivos. É uma ori
 Nenhuma alteração na `main`, Firebase oficial `atrio-catolico`, Worker de push `atrio-push`, backups, chaves, contas, índices ou versão Release. A rotina sintética Cloudflare QA permanece ativada, com moderação real desligada. Nenhum serviço pago foi criado ou habilitado.
 
 **Próximo objetivo:** validação dos testes Debug, seguida de teste da experiência de revisão no Android Emulator. Depois será preciso uma autenticação do backend realmente contínua e aprovada para moderar conteúdo do Firebase sem depender do aplicativo do autor.
+
