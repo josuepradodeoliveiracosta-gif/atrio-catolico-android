@@ -14,7 +14,6 @@ internal object GuardianPreflight {
     private val accentMarks = Regex("[\u0300-\u036f]")
     private val cpfPattern = Regex("""\b\d{3}[.\s-]?\d{3}[.\s-]?\d{3}[-.\s]?\d{2}\b""")
     private val urlPattern = Regex("""(?i)(?:https?://|www\.)\S+""")
-    private val httpPattern = Regex("""(?i)https?://\S+""")
     private val credentials = Regex("""\b(senha|codigo de verificacao|token|pix|dados bancarios)\b""")
     private val requestWords = Regex("""\b(envie|mande|informe|clique|confirme|atualize)\b""")
     private val threat = Regex("""\b(vou|iremos)\s+(?:te\s+|lhe\s+|voce\s+)?(?:matar|agredir|machucar)\b""")
@@ -43,7 +42,7 @@ internal object GuardianPreflight {
         if (threat.containsMatchIn(text) && !quotedOrReported) return Warning(
             "possible_threat", "O texto pode soar como uma ameaça. Considere reformular antes de enviar."
         )
-        if (httpPattern.findAll(content).count() >= 4) return Warning(
+        if (urlPattern.findAll(content).count() >= 4) return Warning(
             "links_excessive", "O texto possui vários links. Confira se todos são necessários."
         )
         return null
