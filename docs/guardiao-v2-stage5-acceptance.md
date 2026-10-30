@@ -70,3 +70,13 @@ Fontes oficiais:
 - https://firebase.google.com/docs/firestore/use-rest-api
 - https://firebase.google.com/docs/firestore/security/iam
 - https://cloud.google.com/run/pricing
+
+
+## Etapa 5 — alternativa gratuita de moderação humana validada (30/10/2026)
+
+- **Prova técnica de alternativa sem identidade de servidor:** `tests/security/guardian-v2-free-mode-emulator.mjs` executa somente SDK Firebase Auth + Firestore Security Rules no emulador (sem conta de serviço, IAM, Cloudflare ou API paga). Em [CI 41099380893](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/actions/runs/41099380893), job `Regras e recursos do Guardião no emulador` aprovado: **15 casos de permissões + 7 casos do modo gratuito**. Confirma denúncia autenticada, sigilo, remoção humana de resposta com decisão na **mesma transação**, arquivamento sem exclusão, proteção contra falsificação de caso e revogação administrativa.
+- Proteção preventiva local `GuardianPreflight` e fila de denúncias existente em `ModerationScreen` podem formar um **modo inicial supervisionado** dentro do Firebase Spark, respeitando as cotas; a implementação foi apenas testada em QA e **não constitui ativação oficial**.
+- `cloudflare/guardian-worker/scripts/check-zero-cost-qa.py` verifica de modo conservador isolamento do Worker QA, flags inativas, ausência de segredo Firebase, limitadores e D1 QA fixo. Teste de mutação `test-zero-cost-qa.py` rejeitou **12 configurações inseguras** na CI do motor. Isso valida a *configuração versionada*, não comprova o plano de billing efetivo da conta.
+- **Autonomia 24/7 continua NO-GO.** `firestore.rules` exige `signedIn()` para posts e replies, `isAdmin()` para reports. O Cron Cloudflare anônimo não pode ler dados restritos nem receber permissão de escrita só por possuir cron; tornar a base pública ou embutir credenciais permanentes é proibido.
+- Documentação operacional: [modo gratuito supervisionado](guardiao-v2-operacao-gratuita-supervisionada.md). Fontes oficiais: [Firebase Spark](https://firebase.google.com/docs/projects/billing/firebase-pricing-plans), [REST e regras](https://firebase.google.com/docs/firestore/use-rest-api), [Cloudflare Free](https://developers.cloudflare.com/workers/platform/limits/) e [D1 bloqueia excessos no Free](https://developers.cloudflare.com/changelog/post/2026-09-01-d1-free-tier-limit-enforcement/).
+- Pendente: conferir planos reais das contas, validar testes de UX no aparelho, revisar a PR, autorizar lançamento inicialmente **apenas supervisionado** e decidir um mecanismo permanente e gratuito para automação real. Não criar conta de faturamento, alterar `main`, Firebase oficial, APK Release, Workers Push/Avatar ou backups sem autorização.
