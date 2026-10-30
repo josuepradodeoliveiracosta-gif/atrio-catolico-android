@@ -16,6 +16,23 @@ class Check(unittest.TestCase):
   with patch.object(m,"call",return_value=(200,{"projectId":m.PROJECT})) as c,patch.object(m,"qa_key_from_firebase_cli",return_value="A"*34),patch("sys.argv",["qa-auth-termux.py"]):
    self.assertEqual(m.main(),0)
    self.assertEqual(c.call_args.args[0],"GET")
+ def test_auth_config_without_project_id_accepts_exact_qa_cli_identity(self):
+  # A public Auth config can omit projectId while the Firebase Management
+  # SDK config has already proved exact appId+projectId+apiKey.
+  with patch.object(m,"qa_key_from_firebase_cli",return_value="A"*34),patch.object(
+    m,"call",return_value=(200,{"authorizedDomains":["atrio-catolico-qa-v2.firebaseapp.com"]})) as api,patch(
+    "sys.argv",["qa-auth-termux.py"]),contextlib.redirect_stdout(io.StringIO()) as out:
+   self.assertEqual(m.main(),0)
+   self.assertEqual(api.call_count,1)
+   self.assertIn("QA_PRECHECK_PASS:",out.getvalue())
+ def test_auth_config_malformed_empty_or_explicit_other_project_is_blocked(self):
+  for body in [{},{"projectId":"atrio-catolico"},{"projectId":""},["not-an-object"]]:
+   with patch.object(m,"qa_key_from_firebase_cli",return_value="A"*34),patch.object(
+     m,"call",return_value=(200,body)) as api,patch(
+     "sys.argv",["qa-auth-termux.py","--test"]),contextlib.redirect_stdout(io.StringIO()) as out:
+    self.assertEqual(m.main(),1)
+    self.assertEqual(api.call_count,1)
+    self.assertNotIn("QA_PRECHECK_PASS:",out.getvalue())
  def test_provider_disabled(self):
   with patch.object(m,"call",return_value=(400,{"error":{"message":"OPERATION_NOT_ALLOWED"}})) as c:
    self.assertEqual(m.test_qa("A"*34,"example@example.com","password"),1)

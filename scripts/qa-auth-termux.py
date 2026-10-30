@@ -132,7 +132,14 @@ def main():
         print("QA_AUTH_CONFIGURATION_PENDING:",code,reason)
         print("QA_AUTH_ACTION: habilite E-mail/senha em Authentication SOMENTE no Firebase QA")
         return 1
-    if conf.get("projectId")!=PROJECT:
+    # The public getProjects response may omit projectId; that does NOT
+    # invalidate the already verified Firebase Management SDK config.
+    # Still reject a projectId explicitly supplied by the Auth API if different.
+    if not isinstance(conf,dict) or not conf:
+        print("QA_AUTH_CONFIGURATION_INVALID: nada criado")
+        return 1
+    claimed=conf.get("projectId")
+    if claimed is not None and claimed!=PROJECT:
         print("QA_AUTH_PROJECT_MISMATCH: nada criado")
         return 1
     if not args.test:
