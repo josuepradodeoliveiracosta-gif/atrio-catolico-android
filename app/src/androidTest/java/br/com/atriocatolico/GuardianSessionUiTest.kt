@@ -6,6 +6,8 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.FirebaseApp
@@ -140,7 +142,7 @@ class GuardianSessionUiTest {
         assertTrue("Worker oficial proibido em QA", BuildConfig.GUARDIAN_WORKER_URL.isBlank())
         assertEquals("demo-atrio-v11", FirebaseApp.getInstance().options.projectId)
         assertEquals("127.0.0.1:8089", db.firestoreSettings.host)
-        require(Regex("^(admins|reports)/[A-Za-z0-9_-]{1,128}$").matches(path))
+        require(Regex("^(admins|reports|posts)/[A-Za-z0-9_-]{1,128}$").matches(path))
         val name = "projects/demo-atrio-v11/databases/(default)/documents/$path"
         val write = if (fields == null) {
             """{"delete":"$name"}"""
@@ -234,6 +236,76 @@ class GuardianSessionUiTest {
             Tasks.await(db.enableNetwork(), 10, TimeUnit.SECONDS)
             auth.signOut()
             qaAdminFixture("reports/$reportId", null)
+            qaAdminFixture("admins/$uid", null)
+        }
+    }
+
+    /**
+     * Positive Compose-to-Firestore proof of supervised moderation:
+     * an authorized admin dismisses a synthetic report WITHOUT deleting
+     * its legitimate post. The fixtures use only loopback Emulator REST.
+     */
+    @Test fun authorizedAdminDismissesReportWithoutDeletingLegitimatePost() {
+        val user = Tasks.await(auth.signInAnonymously(), 15, TimeUnit.SECONDS).user
+        assertTrue(user != null && user.uid.isNotBlank())
+        val uid = user!!.uid
+        val postId = "qaContextPost_${uid}"
+        val reportId = "qaReporter_post_${postId}"
+        val reason = "Revisão de contexto católico em QA"
+        val note = "Conteúdo religioso legítimo, denúncia encerrada após análise humana."
+        try {
+            qaAdminFixture("admins/$uid", """{"enabled":{"booleanValue":true}}""")
+            val timestamp = Instant.now().toString()
+            qaAdminFixture("posts/$postId", """
+                {"uid":{"stringValue":"qaAuthorFicticio"},
+                 "authorName":{"stringValue":"Autora fictícia"},
+                 "title":{"stringValue":"Diálogo sobre a caridade"},
+                 "body":{"stringValue":"O Evangelho convida à paz e ao respeito."},
+                 "category":{"stringValue":"Vida espiritual"},
+                 "createdAt":{"timestampValue":"$timestamp"}}
+                """.trimIndent())
+            qaAdminFixture("reports/$reportId", """
+                {"createdAt":{"timestampValue":"$timestamp"},
+                 "postId":{"stringValue":"$postId"},
+                 "reason":{"stringValue":"$reason"},
+                 "status":{"stringValue":"pending"},
+                 "reporterUid":{"stringValue":"qaReporterFicticio"}}
+                """.trimIndent())
+
+            compose.setContent { ModerationScreen(db, uid, onBack = {}) }
+            compose.waitUntil(25_000) {
+                compose.onAllNodesWithText(reason)
+                    .fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onNodeWithText(reason).performClick()
+            compose.onNodeWithText("Analisar publicação").assertIsDisplayed()
+            compose.onNodeWithText("Justificativa da decisão").performTextInput(note)
+            compose.onNodeWithText("Encerrar sem remover").performClick()
+
+            compose.waitUntil(25_000) {
+                val result = Tasks.await(
+                    db.collection("reports").document(reportId).get(
+                        com.google.firebase.firestore.Source.SERVER
+                    ), 5, TimeUnit.SECONDS)
+                result.getString("status") == "dismissed"
+            }
+            val decision = Tasks.await(
+                db.collection("reports").document(reportId).get(
+                    com.google.firebase.firestore.Source.SERVER
+                ), 10, TimeUnit.SECONDS)
+            assertEquals(note, decision.getString("reviewNote"))
+            assertEquals("post", decision.getString("reviewTarget"))
+            assertEquals(uid, decision.getString("reviewedBy"))
+            val post = Tasks.await(
+                db.collection("posts").document(postId).get(
+                    com.google.firebase.firestore.Source.SERVER
+                ), 10, TimeUnit.SECONDS)
+            assertTrue("Uma denúncia improcedente não pode remover o post", post.exists())
+            assertEquals("O Evangelho convida à paz e ao respeito.", post.getString("body"))
+        } finally {
+            // Emulator-only cleanup; do not leave fake reports on the next UI test.
+            qaAdminFixture("reports/$reportId", null)
+            qaAdminFixture("posts/$postId", null)
             qaAdminFixture("admins/$uid", null)
         }
     }
