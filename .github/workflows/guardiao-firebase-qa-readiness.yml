@@ -1,0 +1,67 @@
+name: Conferir Firebase QA — apenas leitura WIF
+
+on:
+  push:
+    branches: [feature/guardiao-autonomo-20261029]
+    paths:
+      - 'cloudflare/guardian-worker/src/qa-firebase-readiness.mjs'
+      - 'cloudflare/guardian-worker/src/qa-firebase-readiness.test.mjs'
+      - '.github/workflows/guardiao-firebase-qa-readiness.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    name: Testes locais do verificador QA
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test cloudflare/guardian-worker/src/qa-firebase-readiness.test.mjs
+
+  readonly:
+    name: Firestore QA sintético e Auth config (GET)
+    needs: unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: guardian-qa
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      QA_FIREBASE_PROJECT_ID: ${{ vars.GUARDIAN_QA_FIREBASE_PROJECT_ID }}
+      QA_APPROVED_PROJECT_ID: ${{ vars.GUARDIAN_QA_APPROVED_PROJECT_ID }}
+      QA_WIF_PROVIDER: ${{ vars.GUARDIAN_QA_WIF_PROVIDER }}
+      QA_SERVICE_ACCOUNT: ${{ vars.GUARDIAN_QA_SERVICE_ACCOUNT }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Impedir acesso a projeto ou conta oficial
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$QA_FIREBASE_PROJECT_ID" = 'atrio-catolico-qa-v2'
+          test "$QA_APPROVED_PROJECT_ID" = 'atrio-catolico-qa-v2'
+          test "$QA_SERVICE_ACCOUNT" = 'guardian-qa-reader@atrio-catolico-qa-v2.iam.gserviceaccount.com'
+          [[ "$QA_WIF_PROVIDER" == projects/*/locations/global/workloadIdentityPools/guardian-github-qa/providers/github-qa ]]
+      - id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ env.QA_FIREBASE_PROJECT_ID }}
+          workload_identity_provider: ${{ env.QA_WIF_PROVIDER }}
+          service_account: ${{ env.QA_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_lifetime: 300s
+          access_token_scopes: https://www.googleapis.com/auth/cloud-platform
+          create_credentials_file: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Só GET; sem criar Auth user, sem escrever Firestore
+        env:
+          QA_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+        run: node cloudflare/guardian-worker/src/qa-firebase-readiness.mjs
