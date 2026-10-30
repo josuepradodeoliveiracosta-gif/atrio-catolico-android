@@ -1,5 +1,16 @@
 # Átrio Guardião V2 — Etapa 5: critérios objetivos para ativação oficial
 
+## Checkpoint operacional consolidado — 30/10/2026 (não repetir testes já aprovados)
+
+**Último código:** branch `feature/guardiao-autonomo-20261029`, PR #44 ainda **DRAFT**; `main`, backup, Firebase oficial, Workers Push/Avatar e APK Release não são alvo desta etapa.
+
+- **Concluído:** [Android Emulator 41135378102](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/actions/runs/41135378102) = `completed/success` na revisão `0ffb9ed4`, e [CI 41136296289](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/actions/runs/41136296289) = sucesso nos seis jobs principais. Não rerodar essas mesmas revisões.
+- **Novo e ainda sem homologação instrumentada:** na revisão `d2d2df1e`, testes Android de decisão administrativa positiva, contestação única do autor e ocultação de avisos privados após logout. [UI 41137036410](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/actions/runs/41137036410) estava `pending` na última consulta; não confundir compilação `assembleDebugAndroidTest` com execução dos testes em Android virtual.
+- **CI da revisão mais recente:** [41137036394](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/actions/runs/41137036394) havia aprovado motor, REST, regras Firestore, consultas QA e smoke; a compilação Android ainda estava em andamento. Verificar desfecho antes de marcar a revisão completa como aprovada.
+- **Custo zero ainda não comprovado:** consulta read-only à conta Cloudflare retornou `200` para Workers Account Settings (`default_usage_model=standard`), mas `403` para assinaturas e uso de cobrança, não permitindo afirmar Workers Free. Plano Firebase Spark real também não foi confirmado. Nenhuma alteração de faturamento foi feita.
+- **Próximas ações únicas:** (1) ler resultado final do UI da revisão `d2d2df1e` e corrigir só falhas reais; (2) confirmar Spark + Workers Free e cotas reais em cada painel, sem vincular billing; (3) revisar exclusivamente o delta da PR #44 e obter autorização específica antes de qualquer integração supervisionada.
+- **Não fazer nesta fase:** ativar cron de moderação real, quarentena automática, ponte QA permanente, IAM/chave JSON, Cloud Run/Blaze, merge, deploy em produção, publicação assinada ou edição de backup. Autonomia 24/7 permanece `NO-GO`.
+
 **Política obrigatória:** [custo zero, sem assinatura ou faturamento](guardiao-v2-custo-zero-obrigatorio.md). **Qualquer tecnologia que exija plano pago, cartão, Cloud Billing, Blaze, contratação ou risco de cobrança fica automaticamente descartada, ainda que ofereça free tier.**
 
 **Situação: NÃO APROVADO para produção.** Este arquivo é um roteiro operacional, não uma permissão para deploy, IAM ou faturamento. O projeto ainda está em pré-lançamento e a PR #44 permanece **draft**. Não alterar `main`, APK Release, backups, regras Firebase oficial nem os Workers de Push/Avatar sem autorização expressa.
