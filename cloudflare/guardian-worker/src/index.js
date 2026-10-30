@@ -5,6 +5,7 @@ import {qaMonitorAllowed,readQaWorkflowStatus} from './github-qa-monitor.js';
 import {qaDispatchAllowed,dispatchQaWorkflow,dueForDailyDispatch} from './github-qa-dispatch.js';
 import {scanPagedCycle} from './scan-paged.js';
 import {runQaPolicyHeartbeat} from './qa-policy-heartbeat.js';
+import {qaFixtureRequest} from './qa-user-firestore-bridge.js';
 const json=(status,code)=>new Response(JSON.stringify({status:code}),{status,headers:{'content-type':'application/json','cache-control':'no-store'}});
 const MASK=/^posts\/[A-Za-z0-9_-]{1,128}(?:\/replies\/[A-Za-z0-9_-]{1,128})?$/;
 export function settingsOf(doc,env) {
@@ -153,6 +154,7 @@ export async function reviewCase(db,uid,input,now=new Date().toISOString()) {
 export async function handleRequest(request,env) {
   const path=new URL(request.url).pathname;
   if(path==='/health')return json(200,env.GUARDIAN_V2_TEST_MODE==='true'?'guardian_v2_qa_safe':'guardian_v2_isolated');
+  if(path==='/qa/firebase-fixture')return qaFixtureRequest(request,env);
   if(!['/admin/config','/admin/review'].includes(path)||request.method!=='POST')return json(404,'not_found');
   // QA has no privileged backend operations, even if someone attaches credentials.
   if(env.GUARDIAN_V2_TEST_MODE==='true')return json(503,'qa_read_only');
