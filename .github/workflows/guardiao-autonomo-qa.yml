@@ -78,7 +78,7 @@ jobs:
         working-directory: tests/security
         run: |
           npm ci
-          npm test
+          npm run test:guardian-rules
 
   android-debug:
     name: Compilar somente Android Debug e testes
