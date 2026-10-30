@@ -144,6 +144,27 @@ class ThreeBotsOnlineEmulatorTest {
         compose.onNodeWithTag("atrio-guardian-continue").assertDoesNotExist()
     }
 
+    /**
+     * A first Android Back can close the software keyboard instead of the
+     * Compose dialog. Require the warning to close after at most TWO real
+     * Back key events (keyboard then dialog); never use an OK/Publish click.
+     * This keeps the no-publish/draft-preservation assertions below intact.
+     */
+    private fun dismissGuardianWarningWithBack() {
+        fun warningVisible() =
+            compose.onAllNodesWithTag("atrio-guardian-continue", useUnmergedTree = true)
+                .fetchSemanticsNodes().isNotEmpty()
+        assertTrue("Aviso preventivo deve estar aberto antes de Voltar", warningVisible())
+        InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        val closedOnFirstBack = runCatching {
+            compose.waitUntil(1_500) { !warningVisible() }
+        }.isSuccess
+        if (!closedOnFirstBack && warningVisible()) {
+            // IME first, dialog second. Any second Back is conditional.
+            InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        }
+        awaitGuardianWarningClosed()
+    }
 
     @Test fun claraMiguelLuciaFazemLoginENavegamComFirebaseEmulado() {
         prepareEmulators()
@@ -206,8 +227,7 @@ class ThreeBotsOnlineEmulatorTest {
             .performScrollTo().assertIsEnabled().performClick()
         // Voltar tem o mesmo efeito seguro de revisar, sem consumir o rascunho.
         compose.onNodeWithTag("atrio-guardian-revise").assertIsDisplayed()
-        InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
-        awaitGuardianWarningClosed()
+        dismissGuardianWarningWithBack()
         compose.onNodeWithTag("atrio-publish-title").assertTextContains(title)
         compose.onNodeWithTag("atrio-publish-body").assertTextContains(draftBody)
         assertEquals(0, Tasks.await(query.get(Source.SERVER), 10, TimeUnit.SECONDS).size())
