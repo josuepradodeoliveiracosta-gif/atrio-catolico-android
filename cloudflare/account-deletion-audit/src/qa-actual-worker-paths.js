@@ -109,7 +109,7 @@ export async function runQaActualWorkerPath(barrier,path,adapter){
         throw Error('qa_unknown_worker_path');
       });
     },
-    verify:async()=>adapter.verify(outcome)===true
+    verify:async()=>(await adapter.verify(outcome))===true
   });
   return Object.freeze({status:'qa_actual_worker_path_verified',
     kind:selection.kind,productionReady:false});
