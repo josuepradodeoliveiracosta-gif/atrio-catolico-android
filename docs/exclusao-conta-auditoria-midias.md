@@ -20,7 +20,7 @@ O armazenamento local `ProfilePhotoStore.kt` também possui fotos privadas, cujo
 ## Tratamentos que ainda faltam
 
 1. **Não conectar os adaptadores aos Workers ativos antes da homologação.** D1, Cloudinary e Firestore devem ser testados em ambiente exclusivamente fictício e sob credenciais de leitura com privilégios mínimos; não aproveitar credenciais administrativas de produção nos testes.
-2. Implementar adaptador para ler `profile_photos/{uid}` usando projeção restrita; o inventário aceita uma interface `photo.getPublicId(uid)`, ainda simulada nos testes.
+2. **Adaptador preparado, ainda não homologado contra serviço real:** `avatar-firestore-photo-read-adapter.js` consulta por REST somente o campo `photoPublicId` do documento `profile_photos/{uid}` e rejeita outros campos, donos e respostas malformadas. O teste usa transporte fictício; não existe IAM real nem rota pública para chamá-lo.
 3. Localizar mídia antiga fora do prefixo, derivados/cache de imagens, recursos em outros tipos Cloudinary, gravações interrompidas e possíveis tabelas D1 futuras. Nenhuma consulta por prefixo prova cobertura de contas legadas.
 4. Moderar retenção de `avatar_moderation`: um caso pode mencionar **dois usuários diferentes**, e não se pode apagar seu histórico por corresponder ao UID de um participante.
 5. Definir operação idempotente e recuperável para o futuro processador, com bloqueio de uploads concorrentes; confirmar a exclusão por consulta **após** cada remoção, jamais assumir sucesso por HTTP 2xx.
