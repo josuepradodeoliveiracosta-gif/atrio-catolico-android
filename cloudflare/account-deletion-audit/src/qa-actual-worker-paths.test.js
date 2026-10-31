@@ -154,7 +154,7 @@ test('unknown Firebase result keeps ticket open and prevents final freeze',async
   await fixture(async({gate,adapter,setFailAvatar})=>{
     setFailAvatar(true);
     await assert.rejects(runQaActualWorkerPath(gate,'avatar_status',
-      adapter('avatar_status')),/qa_firebase_identity_unavailable/);
+      adapter('avatar_status')),/qa_avatar_actual_path_unexpected/);
     assert.equal((await gate.status(A)).inFlight,1);
     await gate.beginFreeze(A);
     await assert.rejects(gate.finalizeFreeze(A),/qa_inflight_or_not_draining/);
