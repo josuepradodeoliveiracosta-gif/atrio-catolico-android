@@ -74,7 +74,11 @@ export class QaDeletionRunner {
     if(!db || typeof journal?.prepare!=='function' ||
       !(media instanceof Set) || !(auth instanceof Set))fail('invalid_fixture_adapters');
     if(lease!==null && (typeof lease.acquire!=='function' ||
-      typeof lease.assertOwned!=='function' || typeof lease.release!=='function'))
+      typeof lease.assertOwned!=='function' ||
+      typeof lease.commitCheckpoint!=='function' ||
+      typeof lease.isBoundTo!=='function' ||
+      lease.isBoundTo(journal)!==true ||
+      typeof lease.release!=='function'))
       fail('invalid_qa_lease');
     this.db=db;this.journal=journal;this.media=media;this.auth=auth;this.context=context;
     this.lease=lease;
@@ -91,11 +95,13 @@ export class QaDeletionRunner {
     guard();
     if(options.approved!==true)fail('explicit_qa_approval_required');
     const ownership=this.lease?.acquire();
+    this.activeLease=ownership;
     const checkLease=()=>{if(this.lease)this.lease.assertOwned(ownership);};
     try{
       return await this.runExclusive(options,checkLease);
     }finally{
       if(this.lease)this.lease.release(ownership);
+      this.activeLease=null;
     }
   }
   async runExclusive({failAfterEffect=null,failBeforeEffect=null,approved=false}={},checkLease=()=>{}){
@@ -128,10 +134,12 @@ export class QaDeletionRunner {
       if(!(await phase.verify()))fail('phase_verification_failed:'+step);
       checkLease();
       if(step===failAfterEffect)throw Error('injected_failure_after_effect:'+step);
-      // Never write a checkpoint after losing the lease.
+      // A leased checkpoint is written atomically with the fencing check.
       checkLease();
-      this.journal.prepare('INSERT INTO qa_deletion_checkpoints (step,finished) VALUES (?,1)')
-        .run(step);
+      if(this.lease)this.lease.commitCheckpoint(this.activeLease,step);
+      else this.journal.prepare(
+        'INSERT INTO qa_deletion_checkpoints (step,finished) VALUES (?,1)'
+      ).run(step);
       done.add(step);
     }
     return {state:'qa_fixture_cleaned_only',completed:[...done],
