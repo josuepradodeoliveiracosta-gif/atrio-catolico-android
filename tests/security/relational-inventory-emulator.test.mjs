@@ -148,12 +148,13 @@ try {
   });
   await check('no accidental production calls or deletions',async()=>{
     assert.ok(requests>=RELATIONAL_QUERY_SPECS.length+2);
-    const owner=await env.withSecurityRulesDisabled(async ctx=>{
-      const {getDoc}=await import('firebase/firestore');
-      const x=await getDoc(doc(ctx.firestore(),'posts','qa_privacy_post_0'));
-      return x.data()?.uid;
-    });
-    assert.equal(owner,uid);
+    // Reconsultar o próprio Firestore Emulator: nenhum registro de teste
+    // pode desaparecer durante o inventário exclusivamente de leitura.
+    const fresh=await adapter.queryPage(spec('owned_posts'),uid,null,4);
+    assert.deepEqual(fresh.items.map(x=>x.path),[
+      'posts/qa_privacy_post_0','posts/qa_privacy_post_1','posts/qa_privacy_post_2'
+    ]);
+    assert.ok(fresh.items.every(x=>x.fields.uid===uid));
   });
   console.log('OK: '+results.length+' cenários no Firestore Emulator, nenhuma exclusão');
 } finally {
