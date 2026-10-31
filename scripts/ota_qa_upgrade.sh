@@ -54,12 +54,17 @@ PY
   emulator)
     [[ -s "$OUT/atrio-old-debug.apk" && -s "$OUT/atrio-new-debug.apk" ]] ||
       fail "Fixtures nao disponiveis"
-    adb install "$OUT/atrio-old-debug.apk" || fail "Falha na instalacao inicial"
+    # Apenas no emulador efemero AOSP: nao depender de verificacao online
+    # da loja/servico de integridade para um APK debug assinado localmente.
+    adb shell settings put global package_verifier_enable 0
+    adb shell settings put global verifier_verify_adb_installs 0
+    adb install --no-streaming "$OUT/atrio-old-debug.apk" ||
+      fail "Falha na instalacao inicial"
     adb shell run-as "$PACKAGE" mkdir -p files ||
       fail "Nao foi possivel criar pasta privada"
     adb shell run-as "$PACKAGE" touch files/ota-qa-sentinel ||
       fail "Nao foi possivel gravar dado local"
-    adb install -r "$OUT/atrio-new-debug.apk" ||
+    adb install -r --no-streaming "$OUT/atrio-new-debug.apk" ||
       fail "O Android nao aceitou atualizar por cima"
     adb shell run-as "$PACKAGE" ls files/ota-qa-sentinel >/dev/null ||
       fail "Dado privado foi perdido"
