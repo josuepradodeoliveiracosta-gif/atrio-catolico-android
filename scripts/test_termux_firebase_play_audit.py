@@ -1,4 +1,5 @@
 """Testes offline do preflight Termux; jamais invocam firebase de verdade."""
+import copy
 import json
 import sys
 import unittest
@@ -59,6 +60,8 @@ class AuditTests(unittest.TestCase):
         remote["indexes"]["indexes"] = []
         self.assertIn("indice_composto_ausente", audit.evaluate(local, remote))
         local, remote = sample()
+        # Mutar apenas a resposta remota, nunca a referencia esperada.
+        remote["indexes"]["fieldOverrides"] = copy.deepcopy(remote["indexes"]["fieldOverrides"])
         remote["indexes"]["fieldOverrides"][0]["indexes"][0]["queryScope"] = "COLLECTION_GROUP"
         self.assertIn("override_indice_ausente", audit.evaluate(local, remote))
 
