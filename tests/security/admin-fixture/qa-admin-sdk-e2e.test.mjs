@@ -173,7 +173,9 @@ try {
         review();
         workerDb.prepare('INSERT INTO avatar_rate(uid,next_at) VALUES (?,?)')
           .run(B,100);
-        const inFlight=workers.begin(A,'push_fanout');
+        // A Push fanout originating from Bob and addressed to Alice is
+        // ALSO an Alice write. Its single durable ticket holds both UIDs.
+        const fanout=workers.beginFanout(B,[A]);
         const independent=workers.begin(B,'avatar_upload');
         journal=new DatabaseSync(':memory:');
         const fakeAuth=new Set([A,B]);
@@ -203,9 +205,12 @@ try {
         assert.equal(await admin.exists(A),true);
         assert.equal(mediaState.has(QA_EXTERNAL_PHOTO),true);
         assert.deepEqual(workers.status(A),{state:'draining',pending:1});
+        assert.deepEqual(workers.status(B),{state:'active',pending:2});
+        assert.throws(()=>workers.beginFanout(B,[A]),
+          /qa_worker_drain_privileged_effect_blocked/);
         assert.throws(()=>workers.begin(A,'avatar_upload'),
           /qa_worker_drain_privileged_effect_blocked/);
-        assert.equal(await workers.complete(inFlight,{
+        assert.equal(await workers.completeFanout(fanout,{
           verify:async()=>true
         }),true);
         assert.equal(workers.seal(A),true);

@@ -92,3 +92,80 @@ test('unsafe environment rejects every new write and freeze',async()=>fixture(as
   }finally{process.env.FIRESTORE_EMULATOR_HOST=original;}
   assert.equal(gate.seal(A),true);
 }));
+
+
+test('cross-account fanout admits actor and recipients atomically on two DB handles',async()=>fixture(async connect=>{
+  const owner=connect().gate,other=connect().gate;
+  const fanout=owner.beginFanout(B,[A]);
+  assert.deepEqual(other.status(A),{state:'active',pending:1});
+  assert.deepEqual(other.status(B),{state:'active',pending:1});
+  assert.throws(()=>other.seal(A),/qa_worker_drain_pending_privileged_effect/);
+  assert.deepEqual(other.status(A),{state:'draining',pending:1});
+  assert.throws(()=>owner.beginFanout(B,[A]),
+    /qa_worker_drain_privileged_effect_blocked/);
+  const unrelated=owner.begin(B,'avatar_upload');
+  assert.equal(await other.completeFanout(fanout,{verify:async()=>true}),true);
+  assert.deepEqual(owner.status(A),{state:'draining',pending:0});
+  assert.deepEqual(owner.status(B),{state:'active',pending:1});
+  assert.equal(other.seal(A),true);
+  assert.throws(()=>owner.beginFanout(B,[A]),
+    /qa_worker_drain_privileged_effect_blocked/);
+  await other.complete(unrelated,{verify:async()=>true});
+  assert.deepEqual(owner.status(B),{state:'active',pending:0});
+  assert.equal(connect().gate.verify(A),true);
+}));
+
+test('multi-user ticket cannot be completed by a partial or forged recipient set',async()=>fixture(async connect=>{
+  const a=connect().gate,b=connect().gate;
+  const t=a.beginFanout(A,[B,A]);
+  await assert.rejects(b.completeFanout({...t,recipients:[A]},{
+    verify:async()=>true
+  }),/qa_worker_drain_already_completed_or_forged/);
+  await assert.rejects(b.completeFanout({...t,recipients:[B,B]},{
+    verify:async()=>true
+  }),/qa_worker_drain_invalid_fanout_completion/);
+  await assert.rejects(b.complete(t,{verify:async()=>true}),
+    /qa_worker_drain_invalid_completion/);
+  assert.deepEqual(a.status(A),{state:'active',pending:1});
+  assert.deepEqual(a.status(B),{state:'active',pending:1});
+  await assert.rejects(b.completeFanout(t,{verify:async()=>false}),
+    /qa_worker_drain_effect_not_reconciled/);
+  assert.throws(()=>a.seal(A),/qa_worker_drain_pending_privileged_effect/);
+  assert.equal(await b.completeFanout(t,{verify:async()=>true}),true);
+  assert.equal(a.seal(A),true);
+}));
+
+test('fanout rejects unknown, missing and duplicated recipients before ledger write',async()=>fixture(async connect=>{
+  const a=connect().gate;
+  for(const recipients of [[],[B,B],['real-user'],[B,'real-user'],[A,B,A]]){
+    assert.throws(()=>a.beginFanout(A,recipients),
+      /qa_worker_drain_(invalid_fanout|unlisted_uid)/);
+  }
+  assert.throws(()=>a.beginFanout('real-user',[A]),/qa_worker_drain_unlisted_uid/);
+  assert.deepEqual(a.status(A),{state:'active',pending:0});
+  assert.deepEqual(a.status(B),{state:'active',pending:0});
+}));
+
+test('uncertain fanout delivery keeps both accounts blocked across restarts',async()=>fixture(async connect=>{
+  const a=connect().gate,b=connect().gate;
+  const t=a.beginFanout(B,[A]);
+  await assert.rejects(a.completeFanout(t,{verify:async()=>{
+    throw Error('qa_unknown_remote_effect');
+  }}),/qa_unknown_remote_effect/);
+  assert.throws(()=>b.seal(A),/qa_worker_drain_pending_privileged_effect/);
+  assert.deepEqual(connect().gate.status(A),{state:'draining',pending:1});
+  assert.throws(()=>b.beginFanout(B,[A]),/qa_worker_drain_privileged_effect_blocked/);
+  assert.equal(await connect().gate.completeFanout(t,{verify:async()=>true}),true);
+  assert.equal(connect().gate.seal(A),true);
+}));
+
+test('legacy single-owner ledger schema is refused until review',async()=>fixture(async connect=>{
+  const {db}=connect();
+  const old=new DatabaseSync(':memory:');
+  try{
+    old.exec("CREATE TABLE qa_worker_drain_effects ("+
+      "id TEXT PRIMARY KEY,uid TEXT NOT NULL,kind TEXT NOT NULL)");
+    assert.throws(()=>createQaWorkerDrainAdapter(old),
+      /qa_worker_drain_legacy_schema_requires_review/);
+  }finally{old.close();}
+}));
