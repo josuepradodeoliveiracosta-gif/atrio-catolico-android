@@ -54,7 +54,8 @@ jobs:
         with:
           api-level: 35
           arch: x86_64
-          target: google_apis
+          # AOSP sem Play Services: nao exigir verificacao online para APKs de QA.
+          target: default
           profile: pixel_4
           disable-animations: true
           disk-size: 2048M
