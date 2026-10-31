@@ -18,10 +18,11 @@ const root='projects/atrio-catolico/databases/(default)/documents';
 const response=(value,status=200)=>({
   status,headers:{get:()=>null},json:async()=>value,text:async()=>JSON.stringify(value)
 });
-const policy=(enabled=true,stop=false,hold=false)=>({
+const policy=(enabled=false,stop=false,hold=false,shadow=true)=>({
   name:root+'/guardian_config/policy',
   fields:{enabled:{booleanValue:enabled},
-    emergencyStop:{booleanValue:stop},allowHold:{booleanValue:hold}}
+    emergencyStop:{booleanValue:stop},allowHold:{booleanValue:hold},
+    shadowEnabled:{booleanValue:shadow}}
 });
 function mocked({config=policy(),docs=[[],[]],count=1,http=200}={}){
   const calls=[];let n=0;
@@ -55,12 +56,32 @@ test('limite cumulativo de execuções deste workflow; falhar fechado sem API',a
   await assert.rejects(checkDailyWorkflowRuns(env,async()=>{throw Error('offline')},'2026-10-31'),/budget_unavailable/);
 });
 test('emergência, desativação ou autorização de retenção pausam antes de consultar posts',async()=>{
-  for(const config of [policy(false,false,false),policy(true,true,false),policy(true,false,true)]){
+  for(const config of [
+    policy(false,false,false,false), // Observador desligado
+    policy(false,true,false,true),  // Emergência geral
+    policy(false,false,true,true),  // Retenção incompatível
+    policy(true,false,false,true),  // Nunca observar com motor ligado
+  ]){
     const {fn,calls}=mocked({config});
     assert.deepEqual(await runShadowCycle(env,fn,undefined,'2026-10-31'),
       {status:'PAUSED_BY_POLICY',documents:0,signals:0});
     assert.equal(calls.filter(c=>c.url.endsWith(':runQuery')).length,0);
   }
+});
+test('política anterior sem shadowEnabled desliga a observação por padrão',async()=>{
+  const legacy={name:root+'/guardian_config/policy',
+    fields:{enabled:{booleanValue:false},emergencyStop:{booleanValue:false},
+      allowHold:{booleanValue:false}}};
+  const {fn,calls}=mocked({config:legacy});
+  assert.deepEqual(await runShadowCycle(env,fn,undefined,'2026-10-31'),
+    {status:'PAUSED_BY_POLICY',documents:0,signals:0});
+  assert.equal(calls.filter(x=>x.url.endsWith(':runQuery')).length,0);
+});
+test('modo sombra aprovado funciona com motor de moderação desligado',async()=>{
+  const {fn,calls}=mocked({config:policy(false,false,false,true)});
+  assert.deepEqual(await runShadowCycle(env,fn,undefined,'2026-10-31'),
+    {status:'READONLY_SHADOW_OK',documents:0,signals:0});
+  assert.equal(calls.filter(x=>x.url.endsWith(':runQuery')).length,2);
 });
 test('apenas dois posts e duas respostas, sem texto ou IDs no resultado',async()=>{
   const docs=[
