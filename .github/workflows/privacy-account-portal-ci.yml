@@ -14,6 +14,8 @@ on:
       - 'tests/security/qa-deletion-reconciliation.mjs'
       - 'tests/security/qa-deletion-auth-fence.mjs'
       - 'tests/security/qa-deletion-auth-fence.test.mjs'
+      - 'tests/security/qa-admin-owned-cleanup.mjs'
+      - 'tests/security/qa-admin-executor.mjs'
       - 'tests/security/qa-deletion-emulator.test.mjs'
       - 'tests/security/qa-deletion-sqlite-lease.mjs'
       - 'tests/security/qa-deletion-sqlite-lease.test.mjs'
