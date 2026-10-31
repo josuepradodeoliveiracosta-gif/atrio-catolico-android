@@ -8,6 +8,8 @@ import {readFileSync,existsSync} from 'node:fs';
 import {resolve,dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {assessPrivacyEvidence,REQUIREMENTS} from './play_privacy_gate.mjs';
+import {qaCoverageSummary,QA_MUTATION_ROUTES,QA_OPEN_WRITE_GAPS}
+  from '../cloudflare/account-deletion-audit/src/qa-worker-coverage-contract.js';
 
 const ROOT=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const PATHS=Object.freeze({
@@ -30,6 +32,13 @@ export function assessClosedTrack({
   const privacy=assessPrivacyEvidence(evidence);
   const present=(key)=>hasOwn(files,key)&&typeof files[key]==='string';
   const blocked=[];
+  const runtimeCoverage=qaCoverageSummary();
+  if(runtimeCoverage.unprotectedWriteEntries>0||
+     !runtimeCoverage.frozenAccountsProtectedInProduction)
+    blocked.push('worker_mutation_freeze_not_integrated:'+
+      runtimeCoverage.unprotectedWriteEntries+'/'+runtimeCoverage.namedWriteEntries);
+  if(runtimeCoverage.openGaps>0)
+    blocked.push('worker_privileged_write_gaps:'+runtimeCoverage.openGaps);
   if(!privacy.ready)blocked.push('privacy_evidence:'+privacy.pending.join(','));
   if(!present('privacyDraft')||
     !/NÃO PUBLICAR/.test(files.privacyDraft))
@@ -68,6 +77,24 @@ export function assessClosedTrack({
     verifiedRequirements:REQUIREMENTS.length-privacy.pending.length,
     outstandingRequirements:privacy.pending,
     blockers:Object.freeze(blocked),
+    workerMutationCoverage:Object.freeze({
+      namedWriteEntries:runtimeCoverage.namedWriteEntries,
+      protectedProductionEntries:runtimeCoverage.namedWriteEntries-
+        runtimeCoverage.unprotectedWriteEntries,
+      unprotectedEntries:runtimeCoverage.unprotectedWriteEntries,
+      openWriteGaps:runtimeCoverage.openGaps,
+      productionIntegrated:runtimeCoverage.productionIntegrated,
+      perService:Object.freeze(['avatar','guardian','push'].map(service=>
+        Object.freeze({
+          service,
+          named:QA_MUTATION_ROUTES.filter(x=>x.service===service).length,
+          unprotected:QA_MUTATION_ROUTES.filter(x=>x.service===service&&
+            x.state!=='integrated').length
+        }))),
+      // Detailed gap labels are local code-review references, never proof
+      // that a callsite is actually fenced in a deployed Worker.
+      reviewGapLabels:Object.freeze([...QA_OPEN_WRITE_GAPS])
+    }),
     externalVerification:verification,
     note:'Source review only; signed AAB, Play Console and live services not inspected.'
   });
