@@ -8,6 +8,10 @@ on:
       - 'scripts/play_store_bundle_check.py'
       - 'scripts/play_release_gate.py'
       - 'scripts/test_play_release_gate.py'
+      - 'docs/google-play-ugc-evidencias.json'
+      - 'docs/google-play-privacidade-evidencias.json'
+      - 'docs/google-play-testes-fechados-preparacao.md'
+      - 'docs/google-play-ficha-loja-teste-fechado.md'
       - '.github/workflows/play-closed-aab-ci.yml'
       - '.github/workflows/play-signed-aab-manual.yml'
   workflow_dispatch:
@@ -29,7 +33,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Testar gate de segurança da futura assinatura sem acesso a segredos
+      - name: Testar separacao dos gates de pre-assinatura e pos-envio sem segredos
         run: |
           python3 -m unittest discover -s scripts -p 'test_play_release_gate.py' -v
           python3 scripts/play_release_gate.py --audit
