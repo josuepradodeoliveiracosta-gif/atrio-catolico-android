@@ -63,3 +63,20 @@ CI existente: `node --test cloudflare/account-deletion-audit/src/*.test.js tests
 São testes offline, sem custo de Cloudflare ou Firebase em produção. Testes Android/Firestore existentes continuam.
 
 Documentação oficial consultada: https://firebase.google.com/docs/firestore/data-model e https://firebase.google.com/docs/auth/admin/manage-users
+
+
+## Etapa complementar — descoberta relacional (PR dependente)
+
+`cloudflare/account-deletion-audit/src/relational-inventory.js` prepara a **descoberta por consultas paginadas** de referências por UID: autoria de posts/respostas, notificações de outros destinatários com `actorUid/mentionUid/replyToUid`, denúncias e casos/auditorias/quarentenas do Guardião. Cada consulta tem escopo e campo fixados pelo servidor, e cada resultado precisa trazer apenas a projeção mínima de identidade. Falha de paginação, caminho fora do escopo, UID divergente, conteúdo privado adicional ou duplicação na mesma consulta interrompe todo o inventário.
+
+Resultados que aparecem em mais de uma consulta são agrupados por caminho e motivo de revisão; não são tratados como várias entidades a apagar. Notificações de outros destinatários exigem revisão de referências e respeito aos dados de terceiros. Relatórios e evidências de moderação exigem decisão de retenção separada. A função de resumo revela **somente contadores por categoria**, sem UID nem IDs de posts.
+
+### Limites intencionais
+
+- Consultas usam um **adaptador de QA injetado e simulado** (`queryPage`), ainda sem conexão à API de consulta por grupo de coleções do Firestore real.
+- Reações cujo UID está no ID do documento, subcoleções órfãs que só podem ser localizadas por varredura global, menções antigas sem campo indexado, mídia Cloudinary/D1 e identidade Firebase Auth continuam **não auditadas**.
+- `globalCoverageComplete=false` e `safeToExecute=false` por construção, mesmo quando todas as consultas descritas retornam vazias.
+- Os resultados com caminhos completos permanecem apenas no código administrativo, jamais na API pública. O cliente só poderá receber contadores quando existir endpoint homologado.
+- Não implementar exclusão destrutiva por inferência do campo `ownerUid` sem confirmar identidade canônica e referências cruzadas.
+
+Essa etapa é preparatória e não prova que a Play Store já esteja apta a receber a aplicação.
