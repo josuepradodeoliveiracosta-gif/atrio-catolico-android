@@ -15,6 +15,7 @@ import re
 from urllib.parse import urlsplit
 
 EXPECTED_PACKAGE = "br.com.atriocatolico"
+EXPECTED_FIREBASE_PROJECT = "atrio-catolico"
 EXPECTED_TRACK = "Google Play — testes fechados"
 OTA_VERSION_FLOOR = 36  # Candidato OTA 0.20.1 da PR #70; rever com o proximo OTA.
 MAX_PLAY_VERSION = 2_100_000_000
@@ -125,9 +126,28 @@ def inspect(root: Path) -> list[str]:
     if not evidence.is_file():
         return ["privacy_evidence_file_missing"]
     try:
-        return assess_release(gradle.read_text(encoding="utf-8"),
-                              manifest.read_text(encoding="utf-8"),
-                              json.loads(evidence.read_text(encoding="utf-8")))
+        blockers = assess_release(gradle.read_text(encoding="utf-8"),
+                                  manifest.read_text(encoding="utf-8"),
+                                  json.loads(evidence.read_text(encoding="utf-8")))
+        firebase_file = root / "app/google-services.json"
+        if not firebase_file.is_file():
+            return blockers + ["play_firebase_config_missing"]
+        config = json.loads(firebase_file.read_text(encoding="utf-8"))
+        if not isinstance(config, dict):
+            return blockers + ["play_firebase_config_invalid"]
+        project = config.get("project_info")
+        if not isinstance(project, dict) or project.get("project_id") != EXPECTED_FIREBASE_PROJECT:
+            blockers.append("play_firebase_wrong_project")
+        clients = config.get("client")
+        if not isinstance(clients, list) or not any(
+                isinstance(c, dict)
+                and isinstance(c.get("client_info"), dict)
+                and c["client_info"].get("android_client_info", {}).get("package_name") == EXPECTED_PACKAGE
+                and bool(c["client_info"].get("mobilesdk_app_id"))
+                and bool(c.get("api_key"))
+                for c in clients):
+            blockers.append("play_firebase_wrong_app")
+        return blockers
     except (OSError, ValueError, UnicodeError):
         return ["play_release_sources_unreadable_or_invalid"]
 
