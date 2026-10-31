@@ -58,10 +58,9 @@ function stages(self){
       verify:async()=>await absent(db,[...FIXTURES.nested,...FIXTURES.relational,
         ...FIXTURES.roots]) && !media.has(MEDIA_ID)},
     remove_auth_stub_last:{
-      apply:async()=>{
-        if(!auth.has(UID))fail('auth_stub_missing_before_last_phase');
-        auth.delete(UID);
-      },
+      // Idempotent if interrupted after the mock Auth removal but before
+      // the journal checkpoint. Previous data-verification phase is required.
+      apply:async()=>{auth.delete(UID);},
       verify:async()=>!auth.has(UID)},
     final_check:{
       apply:async()=>{},
@@ -93,6 +92,8 @@ export class QaDeletionRunner {
     const recorded=this.completed();
     if(recorded.some((step,i)=>step!==STEPS[i]))fail('journal_out_of_order');
     const done=new Set(recorded);
+    if(!this.auth.has(UID) && !done.has('verify_fixture_absence'))
+      fail('auth_missing_before_verified_data');
     // QA-only rehydration. Production requires durable write-freeze enforcement.
     if(done.has('freeze_writes'))this.context.writesFrozen=true;
     for(const step of STEPS){
@@ -103,8 +104,6 @@ export class QaDeletionRunner {
       }
       if(step!=='freeze_writes'&&this.context.writesFrozen!==true)
         fail('new_writes_not_frozen');
-      if(step==='remove_auth_stub_last'&&!this.auth.has(UID))
-        fail('auth_stub_missing_before_last_phase');
       await phase.apply();
       if(!(await phase.verify()))fail('phase_verification_failed:'+step);
       if(step===failAfterEffect)throw Error('injected_failure_after_effect:'+step);
