@@ -77,9 +77,10 @@ internal object OtaReleaseClient {
                 releasePageUrl = data.getString("releasePageUrl"),
                 releaseNotes = data.getString("releaseNotes")
             )
-            val installed = context.packageManager.getPackageInfo(context.packageName,
-                if (Build.VERSION.SDK_INT >= 28) PackageManager.GET_SIGNING_CERTIFICATES
-                else @Suppress("DEPRECATION") PackageManager.GET_SIGNATURES)
+            @Suppress("DEPRECATION")
+            val packageFlags = if (Build.VERSION.SDK_INT >= 28)
+                PackageManager.GET_SIGNING_CERTIFICATES else PackageManager.GET_SIGNATURES
+            val installed = context.packageManager.getPackageInfo(context.packageName, packageFlags)
             @Suppress("DEPRECATION")
             val signers = if (Build.VERSION.SDK_INT >= 28)
                 installed.signingInfo?.apkContentsSigners else installed.signatures
