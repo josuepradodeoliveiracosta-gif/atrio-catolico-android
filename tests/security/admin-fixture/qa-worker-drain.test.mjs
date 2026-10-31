@@ -71,7 +71,7 @@ test('forged, completed, unknown UID and kind fail before effects',async()=>fixt
     /qa_worker_drain_already_completed_or_forged/);
   assert.equal(gate.status(A).pending,1);
   await assert.rejects(gate.completeFanout({...t,otherUid:B},{verify:async()=>true}),
-    /qa_worker_drain_invalid_completion/);
+    /qa_worker_drain_invalid_fanout_completion/);
   await gate.completeFanout(t,{verify:async()=>true});
   await assert.rejects(gate.completeFanout(t,{verify:async()=>true}),
     /qa_worker_drain_already_completed_or_forged/);
