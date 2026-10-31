@@ -39,6 +39,9 @@ jobs:
           test "$GITHUB_REF" = "refs/heads/main"
           test "$GITHUB_EVENT_NAME" = "workflow_dispatch"
           echo "Contexto GitHub verificado; solicitando token temporário."
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Obter identidade WIF com validade curta
         id: auth
         uses: google-github-actions/auth@v3
