@@ -37,10 +37,12 @@ private data class PublicMemberDiscussion(
 internal fun PublicMemberProfileScreen(
     db: FirebaseFirestore,
     target: PublicMemberTarget,
+    viewerUid: String,
     onBack: () -> Unit,
     onOpenDiscussion: (String) -> Unit
 ) {
     val uid = target.uid
+    var blocked by remember(viewerUid, uid) { mutableStateOf(false) }
     var info by remember(uid) { mutableStateOf<PublicMemberInfo?>(null) }
     var infoLoading by remember(uid) { mutableStateOf(true) }
     var infoError by remember(uid) { mutableStateOf(false) }
@@ -135,9 +137,14 @@ internal fun PublicMemberProfileScreen(
                     if (infoError) Text("Apresentação indisponível. Os dados privados permanecem protegidos.",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    MemberSafetyControls(
+                        db = db, viewerUid = viewerUid, memberUid = uid,
+                        onBlockedChange = { blocked = it }
+                    )
                 }
             }
         }
+        if (!blocked) {
         item {
             Text("Discussões", style = MaterialTheme.typography.titleLarge)
             Text("${entries.size} discussões carregadas · lista paginada",
@@ -168,6 +175,7 @@ internal fun PublicMemberProfileScreen(
         if (!loading && !failed && more) item {
             OutlinedButton(onClick = { nextPage++ }, modifier = Modifier.fillMaxWidth()
                 .testTag("atrio-public-load-more")) { Text("Carregar mais discussões") }
+        }
         }
     }
 }
