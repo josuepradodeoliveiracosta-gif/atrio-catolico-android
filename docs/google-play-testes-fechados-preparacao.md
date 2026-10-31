@@ -21,7 +21,7 @@ A variante Play mostra **Atualizações pela Google Play**, sem consulta à API 
 Em execução isolada na PR, `.github/workflows/play-closed-aab-ci.yml` testa primeiro `scripts/play_release_gate.py --audit` e os testes unitários (o bloqueio de publicação é esperado), e em seguida executa `gradle :app:bundlePlayRelease` sem segredos, testa o arquivo `app/build/outputs/bundle/playRelease/app-playRelease.aab`, o manifesto final e `PLAY_STORE_BUILD=true`.
 Não publica, não gera APK instalável Play, não salva um AAB não assinado como download.
 
-O fluxo manual de assinatura, **antes de acessar qualquer chave**, executa `scripts/play_release_gate.py --enforce`. Esse controle valida a existência das nove evidências, revisores, datas UTC não futuras, URLs HTTPS não fictícias, `targetSdk=36`, pacote e overlay Play. Também exige `versionCode > 36`, pois o candidato OTA v0.20.1 da PR #70 reserva o código 36. Isso não certifica URLs, exclusão real ou autenticação do site; essas comprovações continuam externas e humanas. **Não elevar a versão do app automaticamente**, não tratar QA offline como autorização.
+O fluxo manual de assinatura, **antes de acessar qualquer chave**, executa `scripts/play_release_gate.py --enforce`. Esse controle valida as oito evidências de privacidade anteriores ao primeiro AAB e as quatro evidências de moderação UGC anteriores à distribuição, além de revisores, datas UTC não futuras, URLs HTTPS não fictícias, `targetSdk=36`, pacote e overlay Play. As duas evidências de E2E pela própria faixa só podem ser obtidas posteriormente. Também exige `versionCode > 36`, pois o candidato OTA v0.20.1 da PR #70 reserva o código 36. Isso não certifica URLs, exclusão real ou autenticação do site; essas comprovações continuam externas e humanas. **Não elevar a versão do app automaticamente**, não tratar QA offline como autorização.
 
 O canal de APK existente `build-apk.yml` continua com os mesmos nomes de tarefas/artifacts e a assinatura oficial continua exigindo aprovação do Guardião V2. Nenhuma assinatura nova é criada pela proposta.
 
@@ -36,6 +36,18 @@ No Play Console, **antes de cadastrar a assinatura padrão como definitiva**, de
 
 Conferir no Play Console **certificado da chave de assinatura do app** (não apenas o certificado da chave de upload) e compará-lo com o certificado do Átrio antigo. Verificar também o SHA-1/SHA-256 de certificados no Firebase Authentication conforme os métodos de login utilizados. Não inventar fingerprints.
 A proposta **não** faz upload de chaves privadas para Google.
+
+## Gates separados — 31/10/2026
+
+**Fluxo de dois momentos, sem publicação automática:**
+
+1. **Antes da primeira assinatura (`--enforce`):** exigir os **8 controles de privacidade anteriores à distribuição** (`in_app_request`, `external_portal`, `deletion_executor`, `worker_freeze`, `retention_review`, `public_privacy_policy`, `data_safety`, `operational_security`) com evidências genuínas, revisores e datas UTC; exigir **4 controles de UGC** de `docs/google-play-ugc-evidencias.json` (termos aceitos antes de publicar, denúncias, bloqueio e moderação); exigir `versionCode>36`, Play API 36, pacote, overlay sem OTA, Firebase oficial e aprovação humana do workflow. A auditoria é apenas estática e **não verifica** a autenticidade do servidor ou da política publicada. Nem assinatura nem upload estão aprovados hoje.
+2. **Após instalar pela faixa fechada:** provar `closed_track_e2e` (privacidade, testes de contas em aparelho instalado pela Play) e `closed_track_ugc_e2e` (termos, denúncia e bloqueio na instalação da Play) com evidência e revisão. **Esses testes não podem ser marcados como concluídos antes da distribuição**, e a autorização de liberação do projeto (`releaseAuthorized`) continua `false` enquanto houver requisito de privacidade pendente.
+3. **Antes de produção:** cumprir o período de testes aplicável à conta, resolver incidentes, rever a conformidade, obter homologação, respeitar chave/versionCode e decidir manualmente sobre o lançamento. O CLI não envia AAB nem permite alterar o Play Console.
+
+**Observação:** `docs/google-play-ugc-evidencias.json` foi criado na PR #71 com **0/5 verificações**. O manifesto `docs/google-play-privacidade-evidencias.json` permanece na PR #98, com **0/9** e `releaseAuthorized:false`. Os dois conjuntos precisam ser integrados com os respectivos códigos quando as revisões estiverem concluídas; não duplicar nem aprovar evidências artificialmente.
+
+Política UGC oficial: https://support.google.com/googleplay/android-developer/answer/9876937
 
 ## Checklist obrigatório antes de iniciar o teste fechado
 
@@ -67,6 +79,6 @@ Em contas pessoais de desenvolvedor criadas após **13/11/2023**, para solicitar
 
 - `scripts/play_release_gate.py`: auditoria local sem rede e sem credenciais; `--audit` permite inspecionar candidatos ainda bloqueados e `--enforce` aborta assinatura antes do material de chave.
 - `scripts/test_play_release_gate.py`: testes de regressão para colisão com versão OTA, API 35, variante/permissão OTA, URLs fictícias, evidências incompletas, revisões futuras, JSON inválido e ausência de manifesto.
-- O workflow de CI sem assinatura executa os testes e o modo audit. O workflow manual exige o modo enforce antes da preparação de SDK e dos segredos de assinatura.
+- O workflow de CI sem assinatura executa os testes e o modo audit. O workflow manual exige o modo enforce antes da preparação de SDK e dos segredos de assinatura. O modo enforce é exclusivamente **gate de assinatura para a faixa** e NÃO libera upload ou produção.
 - A versão de código 35 da branch Play **continua intencionalmente bloqueada para assinatura**. `docs/google-play-privacidade-evidencias.json` também ainda não existe nessa branch nem na main; não criar evidências artificiais. O code 36 reservado ao OTA também será recusado. Nenhuma versão Play foi elevada ou publicada.
 - Os resultados do gate não comprovam que o certificado de assinatura do app gerenciado pelo Google coincide com o APK já instalado. É obrigatória comparação externa no Play Console antes de upload ou migração de usuários.
