@@ -23,19 +23,23 @@ const APP='qa-atrio-admin-sdk-only';
 
 function deny(reason){throw Error('qa_admin_sdk_'+reason);}
 function guard(){
-  if(process.env.GCLOUD_PROJECT!==PROJECT ||
-     process.env.FIRESTORE_EMULATOR_HOST!==FIRESTORE_HOST ||
-     process.env.FIREBASE_AUTH_EMULATOR_HOST!==AUTH_HOST ||
-     process.env.FIREBASE_CONFIG ||
-     process.env.FIREBASE_SERVICE_ACCOUNT_JSON ||
-     process.env.GOOGLE_APPLICATION_CREDENTIALS ||
-     process.env.GOOGLE_CLOUD_PROJECT ||
-     process.env.GCLOUD_PROJECT_ID ||
-     process.env.CLOUDINARY_API_SECRET ||
-     process.env.CLOUDINARY_API_KEY ||
-     process.env.CLOUDINARY_CLOUD_NAME ||
-     process.env.ATRIO_ACCOUNT_DELETION_EXECUTION_ENABLED)
-    deny('live_environment_forbidden');
+  // Report ONLY the blocked variable name, NEVER its value. This permits
+  // diagnosis of environment values added automatically by Firebase CLI.
+  const forbidden=[
+    ['project',process.env.GCLOUD_PROJECT!==PROJECT],
+    ['firestore_host',process.env.FIRESTORE_EMULATOR_HOST!==FIRESTORE_HOST],
+    ['auth_host',process.env.FIREBASE_AUTH_EMULATOR_HOST!==AUTH_HOST],
+    ['firebase_config',Boolean(process.env.FIREBASE_CONFIG)],
+    ['firebase_service_account',Boolean(process.env.FIREBASE_SERVICE_ACCOUNT_JSON)],
+    ['google_credentials',Boolean(process.env.GOOGLE_APPLICATION_CREDENTIALS)],
+    ['google_cloud_project',Boolean(process.env.GOOGLE_CLOUD_PROJECT)],
+    ['gcloud_project_id',Boolean(process.env.GCLOUD_PROJECT_ID)],
+    ['cloudinary_api_secret',Boolean(process.env.CLOUDINARY_API_SECRET)],
+    ['cloudinary_api_key',Boolean(process.env.CLOUDINARY_API_KEY)],
+    ['cloudinary_cloud_name',Boolean(process.env.CLOUDINARY_CLOUD_NAME)],
+    ['real_deletion_enabled',Boolean(process.env.ATRIO_ACCOUNT_DELETION_EXECUTION_ENABLED)]
+  ].find(([,blocked])=>blocked);
+  if(forbidden)deny('live_environment_forbidden_'+forbidden[0]);
 }
 function allowUid(uid){
   if(uid!==ALICE && uid!==BOB)deny('unrecognized_uid');
