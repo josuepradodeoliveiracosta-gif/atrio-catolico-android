@@ -22,11 +22,17 @@
 3. `cloudflare/guardian-worker/src/policy.js` e `src/index.js` — simplificam retorno determinístico, sem alterar sinais de moderação nem `GUARDIAN_V2_*APPROVED`.
 4. `.github/workflows/guardiao-v2-qa-keyless-cycle-ci.yml` — exclusão de workflow histórico que não monitora a main; testes seguem no workflow central.
 
+## Decisão de produto confirmada pelo responsável
+
+**O Guardião V1 está obsoleto e não fará parte do novo modelo oficial de moderação. O Guardião V2 será o único moderador autônomo adotado pelo APK oficial**, com execução segura no servidor e interfaces Android para usuários e administração. A discussão anterior sobre manter V1 e V2 como alternativas equivalentes foi substituída por uma **migração unidirecional V1 → V2**. O desligamento e a remoção do V1 serão efetuados somente depois de validar dependências com as notificações e os dados legados; essa decisão não autoriza a ativação de punições automáticas.
+
+Consulte [o plano de migração e aceite do V2](guardiao-v2-convivencia-v1-v2.md).
+
 ## Complemento da revisão: redundâncias entre ambientes
 
 - **Alvo sintético centralizado:** `qa-wif-probe.js` agora exporta `QA_FIXTURE_PATH` e `QA_FIXTURE_URL`; o `qa-keyless-cycle.js` reutiliza ambos, sem manter cópias dos caminhos nem a constante `MAX_BYTES` obsoleta. A origem do fluxo permanece exclusivamente o projeto QA.
 - **Inconsistência corrigida no README:** o repositório foi confirmado como público pelo GitHub, e as duas referências a "repositório privado" foram corrigidas. Não houve mudança de visibilidade.
-- **Risco V1/V2:** existe um Guardião legado no `cloudflare/push-worker/src/index.js` e outro no `cloudflare/guardian-worker/src/index.js`. A primeira trilha cria relatórios em `reports`, a segunda cria `guardian_cases`; as duas podem atuar sobre `guardiao_quarantine` se futuramente autorizadas. Ambas não devem ser produtoras ativas simultaneamente. O plano completo e os arquivos de referência estão em [convivência V1/V2](guardiao-v2-convivencia-v1-v2.md).
+- **Risco V1/V2:** existe um Guardião legado no `cloudflare/push-worker/src/index.js` e outro no `cloudflare/guardian-worker/src/index.js`. A primeira trilha cria relatórios em `reports`, a segunda cria `guardian_cases`; as duas podem atuar sobre `guardiao_quarantine` se futuramente autorizadas. V1 é legado; apenas V2 deve ser o produtor de novos casos na versão oficial, depois de homologado. O plano completo e os arquivos de referência estão em [convivência V1/V2](guardiao-v2-convivencia-v1-v2.md).
 - **Não alterar a moderação ao vivo nesta PR:** não foram removidos Webhooks, scanners, regras de segurança, sessões de administrador, rotas, denúncias ou recursos.
 
 ## Verificações e limites
