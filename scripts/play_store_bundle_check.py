@@ -44,15 +44,16 @@ def verify_bundle(bundle):
         assert z.testzip() is None, "corrupted ZIP/AAB"
 
 
-def locate_merged_manifest(root):
+def locate_merged_manifests(root):
+    # AGP 8.x creates intermediate manifests at multiple lifecycle stages.
+    # Check EVERY stage rather than arbitrarily selecting just one.
     candidates = sorted(set(root.glob(
         "app/build/intermediates/merged_manifests/playRelease/**/AndroidManifest.xml"
     )) | set(root.glob(
         "app/build/intermediates/merged_manifest/playRelease/**/AndroidManifest.xml"
     )))
-    assert len(candidates) == 1, \
-        f"Expected one playRelease merged manifest, found {len(candidates)}"
-    return candidates[0]
+    assert candidates, "No playRelease merged manifest generated"
+    return candidates
 
 
 def verify_play_flag(root):
@@ -70,8 +71,10 @@ def main():
     args = p.parse_args()
     project = Path(args.project_root)
     try:
-        manifest = locate_merged_manifest(project)
-        verify_manifest(manifest)
+        manifests = locate_merged_manifests(project)
+        for manifest in manifests:
+            verify_manifest(manifest)
+            print(f"Verificado manifesto mesclado: {manifest}")
         verify_play_flag(project)
         bundle = project / "app/build/outputs/bundle/playRelease/app-playRelease.aab"
         verify_bundle(bundle)
