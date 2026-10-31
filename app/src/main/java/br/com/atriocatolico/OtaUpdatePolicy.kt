@@ -10,6 +10,7 @@ internal sealed class OtaCheckStatus {
     data object NoRelease : OtaCheckStatus()
     data object UpToDate : OtaCheckStatus()
     data object TestBuild : OtaCheckStatus()
+    data object PlayStore : OtaCheckStatus()
     data object Unavailable : OtaCheckStatus()
     data object Incompatible : OtaCheckStatus()
     data class Available(
