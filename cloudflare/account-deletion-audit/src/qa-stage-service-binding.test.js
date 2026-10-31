@@ -203,3 +203,57 @@ test('staging module makes no production-readiness, public access or deletion cl
   assert.equal(STAGE_READINESS.userUidsAllowed,false);
   assert.equal(STAGE_BINDING_READINESS.IAMFullyVerified,false);
 });
+
+test('signed but unauthorized operation cannot consume nonce or mutate fixture ledger',async()=>{
+  const f=setup();
+  try{await offline(async()=>{
+    const body=JSON.stringify({ownerUid:'qa-freeze-alice'});
+    const timestamp=Date.now();
+    const nonce=crypto.randomUUID();
+    const role='avatar',path='/v1/finalize';
+    const signature=await stageSignature(key(role),{
+      role,timestamp,nonce,path,body
+    });
+    const response=await f.binding.fetch(new Request(STAGE_HOST+path,{
+      method:'POST',
+      headers:{
+        'x-atrio-role':role,'x-atrio-time':String(timestamp),
+        'x-atrio-nonce':nonce,'x-atrio-signature':signature
+      },
+      body
+    }));
+    assert.equal(response.status,403);
+    assert.equal(await f.nonces(),0);
+    assert.equal((await f.pending()).length,0);
+  })}finally{f.close()}
+});
+test('service rejects duplicated roles secrets before any D1 operation',async()=>{
+  const f=setup();
+  try{await offline(async()=>{
+    f.stageEnv.STAGE_GUARDIAN_HMAC=f.stageEnv.STAGE_AVATAR_HMAC;
+    await expectDenied(f.client('avatar').request('admit',{ownerUid:A}));
+    assert.equal(await f.nonces(),0);
+    assert.equal((await f.pending()).length,0);
+  })}finally{f.close()}
+});
+test('signed bogus real UID cannot consume D1 nonce',async()=>{
+  const f=setup();
+  try{await offline(async()=>{
+    const timestamp=Date.now(),nonce=crypto.randomUUID();
+    const body=JSON.stringify({ownerUid:'real-customer-id'});
+    const signature=await stageSignature(key('avatar'),{
+      role:'avatar',timestamp,nonce,path:'/v1/admit',body
+    });
+    const response=await f.binding.fetch(new Request(STAGE_HOST+'/v1/admit',{
+      method:'POST',
+      headers:{
+        'x-atrio-role':'avatar','x-atrio-time':String(timestamp),
+        'x-atrio-nonce':nonce,'x-atrio-signature':signature
+      },
+      body
+    }));
+    assert.equal(response.status,403);
+    assert.equal(await f.nonces(),0);
+    assert.equal((await f.pending()).length,0);
+  })}finally{f.close()}
+});
