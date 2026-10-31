@@ -36,8 +36,12 @@ async function readBoundedTarget(request){
       if(size>384)throw Error('qa_moderation_body_too_large');
       chunks.push(value);
     }
+  }catch(error){
+    // A cloned Request uses a tee: waiting for cancel() can remain pending
+    // until the OTHER branch is consumed. Never await cancellation here.
+    void stream.cancel().catch(()=>{});
+    throw error;
   }finally{
-    try{await stream.cancel();}catch{}
     stream.releaseLock();
   }
   const raw=new Uint8Array(size);let pos=0;
