@@ -16,6 +16,8 @@ on:
       - 'tests/security/qa-deletion-auth-fence.test.mjs'
       - 'tests/security/qa-admin-owned-cleanup.mjs'
       - 'tests/security/qa-admin-executor.mjs'
+      - 'tests/security/qa-external-emulators.mjs'
+      - 'tests/security/qa-auth-cloudinary-emulator.test.mjs'
       - 'tests/security/qa-deletion-emulator.test.mjs'
       - 'tests/security/qa-deletion-sqlite-lease.mjs'
       - 'tests/security/qa-deletion-sqlite-lease.test.mjs'
@@ -67,7 +69,7 @@ jobs:
           echo "Os testes são offline e não usam Firebase, Cloudflare reais, nem credenciais ou contas." >> "$GITHUB_STEP_SUMMARY"
 
   firestore-relational-emulator:
-    name: Testar consultas e limpeza de fixtures no Emulator (somente demo)
+    name: Testar Firestore/Auth Emulator e Cloudinary HTTP local (somente demo)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -97,10 +99,10 @@ jobs:
           GCLOUD_PROJECT: demo-atrio-v11
         run: |
           set -euo pipefail
-          npx firebase emulators:exec --only firestore --project demo-atrio-v11 \
-            "node relational-inventory-emulator.test.mjs && node --experimental-sqlite qa-deletion-auth-fence.test.mjs && node --experimental-sqlite qa-deletion-emulator.test.mjs && node account-deletion-freeze.test.mjs"
+          npx firebase emulators:exec --only firestore,auth --project demo-atrio-v11 \
+            "node relational-inventory-emulator.test.mjs && node --experimental-sqlite qa-deletion-auth-fence.test.mjs && node --experimental-sqlite qa-deletion-emulator.test.mjs && node --experimental-sqlite qa-auth-cloudinary-emulator.test.mjs && node account-deletion-freeze.test.mjs"
       - name: Resumo do ambiente
         if: always()
         run: |
           echo "### Firestore Emulator — inventário e limpeza exclusiva de fixtures" >> "$GITHUB_STEP_SUMMARY"
-          echo "Consulta e exclusão SOMENTE de fixtures locais descartáveis no projeto demo-atrio-v11, host 127.0.0.1:8089. Zero usuários reais, zero segredos e zero publicação." >> "$GITHUB_STEP_SUMMARY"
+          echo "Firestore/Auth Emulator do projeto demo-atrio-v11 em 127.0.0.1; Cloudinary apenas HTTP de loopback, sem API real nem segredos. Sem publicação." >> "$GITHUB_STEP_SUMMARY"
