@@ -19,7 +19,7 @@ const PENDING=media(UID,1),PUBLISHED=media(UID,2);
 const SECRET={cloudName:'atrio_fake_qa',apiKey:'123456789012345',apiSecret:'test_only_cloudinary_secret_123456789'};
 const OAUTH='test_only_firestore_oauth_token_12345';
 const FIRESTORE_PREFIX='https://firestore.googleapis.com/v1/projects/atrio-catolico/databases/(default)/documents/';
-const SCHEMA=readFileSync(new URL('../../../avatar-worker/schema.sql',import.meta.url),'utf8');
+const SCHEMA=readFileSync(new URL('../../avatar-worker/schema.sql',import.meta.url),'utf8');
 
 function sqlite() {
   const database=new DatabaseSync(':memory:');
