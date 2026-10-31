@@ -1,0 +1,41 @@
+name: Guardião V2 — motor autônomo isolado (sem deploy)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'cloudflare/guardian-worker/**'
+      - 'docs/guardiao-v2-motor-isolado.md'
+      - '.github/workflows/guardiao-v2-motor-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: guardian-v2-offline-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  motor-offline:
+    name: Classificador, paginação, identidade e controles QA
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Rodar testes sem secrets, Firebase ou Cloudflare
+        working-directory: cloudflare/guardian-worker
+        env:
+          GUARDIAN_V2_ENABLED: 'false'
+          GUARDIAN_V2_HOLD_ENABLED: 'false'
+          GUARDIAN_V2_PRODUCTION_APPROVED: 'false'
+          GUARDIAN_V2_IDENTITY_APPROVED: 'false'
+        run: |
+          npm run check
+          npm test
