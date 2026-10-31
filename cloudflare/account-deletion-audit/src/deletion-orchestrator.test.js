@@ -155,6 +155,8 @@ test('simulated failure stops before step and can be retried without duplicating
 test('unknown checkpoints and forged executable plans are rejected',()=>{
   const p=plan();
   assert.throws(()=>simulatePhases(p,{completed:['erase_entire_database']}),/unknown_checkpoint/);
+  assert.throws(()=>simulatePhases(p,{completed:['remove_firebase_auth_last']}),/out_of_order_checkpoint/);
+  assert.throws(()=>simulatePhases(p,{completed:['freeze_new_writes','freeze_new_writes']}),/duplicate_checkpoint_phase/);
   assert.throws(()=>simulatePhases({...p,safeToExecute:true}),/not_a_simulation/);
   assert.throws(()=>buildDeletionPlan('../escape',record,inventory(),approvals()),/invalid_uid/);
 });
