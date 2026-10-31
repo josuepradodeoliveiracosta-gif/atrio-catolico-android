@@ -1,38 +1,13 @@
 // QA-only read-only cycle for a future GitHub Actions keyless backend.
 // No cron, moderation writes, service-account keys, or production API access.
 import {classify} from './policy.js';
-import {validateQaWifContext} from './qa-wif-probe.js';
+import {validateQaWifContext, readQaBoundedJson} from './qa-wif-probe.js';
 
 const PATH = 'projects/atrio-catolico-qa-v2/databases/(default)/documents/posts/qa_post_1';
 const URL = 'https://firestore.googleapis.com/v1/' + PATH;
 const MAX_BYTES = 8192;
 const denied = () => { throw Error('qa_keyless_cycle_denied'); };
 
-async function readBoundedJson(response) {
-  const len = response.headers?.get('content-length');
-  if (len != null && (!/^\d+$/.test(len) || Number(len) > MAX_BYTES)) denied();
-  if (!response.body?.getReader) denied();
-  const reader = response.body.getReader();
-  let size = 0;
-  const chunks = [];
-  try {
-    for (;;) {
-      const {done, value} = await reader.read();
-      if (done) break;
-      if (!(value instanceof Uint8Array)) denied();
-      size += value.byteLength;
-      if (size > MAX_BYTES) denied();
-      chunks.push(value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  const raw = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) { raw.set(chunk, offset); offset += chunk.byteLength; }
-  try { return JSON.parse(new TextDecoder('utf-8', {fatal:true}).decode(raw)); }
-  catch { denied(); }
-}
 
 export async function runQaKeylessCycle(env = {}, fetcher = fetch, classifier = classify) {
   // This is strictly MANUAL QA. Scheduling requires a separate approval and
@@ -53,7 +28,8 @@ export async function runQaKeylessCycle(env = {}, fetcher = fetch, classifier = 
     });
   } catch { denied(); }
   if (response?.status !== 200) denied(); // Includes 404: never false success.
-  const doc = await readBoundedJson(response);
+  let doc;
+  try { doc = await readQaBoundedJson(response); } catch { denied(); }
   if (doc?.name !== PATH || doc?.fields?.qaFixture?.booleanValue !== true) denied();
   const body = doc?.fields?.body?.stringValue;
   if (typeof body !== 'string' || body.length > 4000) denied();
