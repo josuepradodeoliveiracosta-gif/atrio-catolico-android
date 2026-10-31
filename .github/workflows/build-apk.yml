@@ -34,6 +34,7 @@ jobs:
         env:
           ATRIO_PUSH_WORKER_URL: ${{ vars.ATRIO_PUSH_WORKER_URL || 'https://atrio-push.atrio-catolico.workers.dev' }}
           ATRIO_AVATAR_WORKER_URL: ${{ vars.ATRIO_AVATAR_WORKER_URL || '' }}
+          ATRIO_GUARDIAN_V2_WORKER_URL: ${{ vars.ATRIO_GUARDIAN_V2_WORKER_URL || '' }}
         run: gradle :app:assembleDebug --no-daemon --stacktrace
       # Chave de assinatura não fica disponível para builds automáticos.
       # Mesmo um workflow_dispatch feito em outra branch não acessa os secrets.
@@ -43,11 +44,26 @@ jobs:
         env:
           ATRIO_PUSH_WORKER_URL: ${{ vars.ATRIO_PUSH_WORKER_URL || 'https://atrio-push.atrio-catolico.workers.dev' }}
           ATRIO_AVATAR_WORKER_URL: ${{ vars.ATRIO_AVATAR_WORKER_URL || '' }}
+          ATRIO_GUARDIAN_V2_WORKER_URL: ${{ vars.ATRIO_GUARDIAN_V2_WORKER_URL || '' }}
+          ATRIO_GUARDIAN_V2_RELEASE_APPROVED: ${{ vars.ATRIO_GUARDIAN_V2_RELEASE_APPROVED || 'false' }}
           ATRIO_KEYSTORE_BASE64: ${{ secrets.ATRIO_KEYSTORE_BASE64 }}
           ATRIO_STORE_PASSWORD: ${{ secrets.ATRIO_STORE_PASSWORD }}
           ATRIO_KEY_PASSWORD: ${{ secrets.ATRIO_KEY_PASSWORD }}
         run: |
           set -euo pipefail
+          # Nao assinar o release V2 sem servidor produtivo distinto do laboratorio.
+          # Um URL valido nao comprova que o servidor esta homologado: exige aceite
+          # separado da configuracao de release do repositorio.
+          if [[ "$ATRIO_GUARDIAN_V2_RELEASE_APPROVED" != "true" ]]; then
+            echo "::error::Release V2 bloqueado: falta aprovacao de integracao do backend (ATRIO_GUARDIAN_V2_RELEASE_APPROVED)."
+            exit 1
+          fi
+          if [[ ! "$ATRIO_GUARDIAN_V2_WORKER_URL" =~ ^https://[a-zA-Z0-9-]+\.[a-zA-Z0-9-]+\.workers\.dev$ ]] ||
+             [[ "$ATRIO_GUARDIAN_V2_WORKER_URL" == *"-qa."* ]] ||
+             [[ "$ATRIO_GUARDIAN_V2_WORKER_URL" == *"-test."* ]]; then
+            echo "::error::Release V2 bloqueado: servidor de producao nao configurado ou endereco QA/teste."
+            exit 1
+          fi
           # No acionamento manual da main, o release deve falhar se faltar qualquer secret.
           if [[ -z "$ATRIO_KEYSTORE_BASE64" || -z "$ATRIO_STORE_PASSWORD" || -z "$ATRIO_KEY_PASSWORD" ]]; then
             echo "::error::Release indisponivel: confira os secrets ATRIO_KEYSTORE_BASE64, ATRIO_STORE_PASSWORD e ATRIO_KEY_PASSWORD."
