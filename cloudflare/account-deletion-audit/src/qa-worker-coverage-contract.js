@@ -43,7 +43,7 @@ export const QA_WORKER_SOURCES=Object.freeze([
   {
     service:'push',
     file:'cloudflare/push-worker/src/index.js',
-    gitBlob:'c81fb62f1ab2c363de096367121c965dd28e0391',
+    gitBlob:'33ec44e9208dd8360ad841d0b0f6d375e8b543db',
     mustContain:[
       "export async function writeThreadNotices(",
       "export async function cleanupInvalidDevice(",
@@ -55,6 +55,8 @@ export const QA_WORKER_SOURCES=Object.freeze([
       "async queue(batch,env)",
       "async fetch(request, env)",
       "qaPushPrivacySealed(env)",
+      "qaPushScopedMode(env)",
+      "executeQaScopedPushReply(request,env)",
       "message.retry({delaySeconds:60})",
       "ROOT+':batchWrite'",
       "ROOT+':commit'",
