@@ -521,25 +521,38 @@ private fun OnlineCommunity(
     // Filtro de convivência da conta atual. Firestore Rules protegem escritas,
     // enquanto consultas de feed continuam paginadas no servidor.
     var blockedMemberUids by remember(uid) { mutableStateOf<Set<String>>(emptySet()) }
+    var blockedListReady by remember(uid) { mutableStateOf(false) }
     DisposableEffect(db, uid) {
+        blockedListReady = false
         val listener = db.collection("users").document(uid).collection("blockedMembers")
-            .addSnapshotListener { snapshot, error ->
-                if (error == null && FirebaseAuth.getInstance().currentUser?.uid == uid) {
-                    blockedMemberUids = snapshot?.documents?.map { it.id }?.toSet() ?: emptySet()
+            .addSnapshotListener(com.google.firebase.firestore.MetadataChanges.INCLUDE) { snapshot, error ->
+                if (FirebaseAuth.getInstance().currentUser?.uid != uid) return@addSnapshotListener
+                if (error != null) {
+                    // Nao tratar falha de rede ou permissao como "ninguem bloqueado".
+                    blockedListReady = false
+                    blockedMemberUids = emptySet()
+                } else if (snapshot != null && !snapshot.metadata.isFromCache
+                    && !snapshot.metadata.hasPendingWrites()) {
+                    blockedMemberUids = snapshot.documents.map { it.id }.toSet()
+                    blockedListReady = true
                 }
             }
         onDispose { listener.remove() }
     }
-    // A Central de Avisos compartilha a mesma lista de bloqueios do feed,
-    // sem iniciar uma segunda consulta ao Firestore.
-    SideEffect { inbox.blockedUids = blockedMemberUids }
-    val posts = sourcePosts.filterNot { it.ownerUid in blockedMemberUids }
+    // Central e feed usam a mesma observacao remota, com bloqueio conservador
+    // antes da primeira resposta autoritativa do servidor.
+    SideEffect {
+        inbox.blockedUids = blockedMemberUids
+        inbox.blockedListReady = blockedListReady
+    }
+    val posts = (if (blockedListReady) sourcePosts else emptyList())
+        .filterNot { it.ownerUid in blockedMemberUids }
         .map { it.copy(liked = it.id in likedIds, saved = it.id in savedIds) }
     val allPosts = (sourcePosts + savedPosts.values + listOfNotNull(openedPost))
-        .filterNot { it.ownerUid in blockedMemberUids }
+        .filterNot { !blockedListReady || it.ownerUid in blockedMemberUids }
         .associateBy { it.id }.values.map { it.copy(liked = it.id in likedIds, saved = it.id in savedIds) }
     val savedDisplay = savedOrder.take(savedLimit).mapNotNull { id ->
-        savedPosts[id]?.takeUnless { it.ownerUid in blockedMemberUids }
+        savedPosts[id]?.takeUnless { !blockedListReady || it.ownerUid in blockedMemberUids }
             ?.copy(liked = id in likedIds, saved = id in savedIds)
     }
     fun navigate(destination: Tab) {
@@ -788,7 +801,9 @@ private fun OnlineCommunity(
         )
     }, bottomBar = { AtrioBottomBar(selected = tab, onSelect = ::navigate) }) { inset ->
         Box(Modifier.padding(inset)) {
-            val detail = openedPost?.takeUnless { it.ownerUid in blockedMemberUids }
+            val detail = openedPost?.takeUnless {
+                !blockedListReady || it.ownerUid in blockedMemberUids
+            }
                 ?.copy(liked = detailId in likedIds, saved = detailId in savedIds)
             if (publicProfileTarget != null && !profilePostOpen) {
                 PublicMemberProfileScreen(
