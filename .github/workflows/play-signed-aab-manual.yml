@@ -1,0 +1,117 @@
+name: Google Play — gerar AAB assinado aprovado (manual, sem publicar)
+
+# Jamais disparar por push/PR. O Play Console continua sendo operado pelo responsável.
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Digite exatamente GERAR AAB PLAY depois de validar a chave e a candidata'
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atrio-play-aab-signed-manual
+  cancel-in-progress: false
+
+jobs:
+  signed-play-bundle:
+    if: >-
+      github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android' &&
+      github.ref == 'refs/heads/main' &&
+      github.run_attempt == 1 &&
+      inputs.confirmation == 'GERAR AAB PLAY'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      PLAY_AAB_APPROVED: ${{ vars.ATRIO_PLAY_AAB_APPROVED || 'false' }}
+      GUARDIAN_APPROVED: ${{ vars.ATRIO_GUARDIAN_V2_RELEASE_APPROVED || 'false' }}
+      GUARDIAN_URL: ${{ vars.ATRIO_GUARDIAN_V2_WORKER_URL || '' }}
+      ATRIO_PUSH_WORKER_URL: ${{ vars.ATRIO_PUSH_WORKER_URL || 'https://atrio-push.atrio-catolico.workers.dev' }}
+      ATRIO_AVATAR_WORKER_URL: ${{ vars.ATRIO_AVATAR_WORKER_URL || '' }}
+      ATRIO_GUARDIAN_V2_WORKER_URL: ${{ vars.ATRIO_GUARDIAN_V2_WORKER_URL || 'https://atrio-guardian-v2.atrio-catolico.workers.dev' }}
+    steps:
+      - name: Validar aprovações de Play e do backend antes de obter segredos
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$PLAY_AAB_APPROVED" == "true" ]] || {
+            echo "::error::AAB bloqueado: aprovação Play ausente (ATRIO_PLAY_AAB_APPROVED)"
+            exit 1
+          }
+          [[ "$GUARDIAN_APPROVED" == "true" ]] || {
+            echo "::error::AAB bloqueado: Guardião V2 ainda não aprovado"
+            exit 1
+          }
+          [[ "$GUARDIAN_URL" == "https://atrio-guardian-v2.atrio-catolico.workers.dev" ]] || {
+            echo "::error::AAB bloqueado: backend Guardião oficial não homologado"
+            exit 1
+          }
+      - name: Obter código
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Garantir que não se está preparando a antiga 0.20.0
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          gradle = Path("app/build.gradle.kts").read_text()
+          code = re.search(r'^\s*versionCode\s*=\s*(\d+)\s*$', gradle, re.M)
+          assert code and int(code.group(1)) > 35, "Candidato Play deve usar versionCode superior a 35"
+          print("Versão candidata autorizável: versionCode", code.group(1))
+          PY
+      - name: Preparar Java 17 e ferramentas de Android
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - name: Instalar SDK 36 e ferramentas
+        run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+      - name: Configuração Firebase
+        run: python3 scripts/validar_firebase.py
+      - name: Assinar AAB com chave existente somente no runner temporário
+        shell: bash
+        env:
+          ATRIO_KEYSTORE_BASE64: ${{ secrets.ATRIO_KEYSTORE_BASE64 }}
+          ATRIO_STORE_PASSWORD: ${{ secrets.ATRIO_STORE_PASSWORD }}
+          ATRIO_KEY_PASSWORD: ${{ secrets.ATRIO_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          [[ -n "$ATRIO_KEYSTORE_BASE64" && -n "$ATRIO_STORE_PASSWORD" && -n "$ATRIO_KEY_PASSWORD" ]] || {
+            echo "::error::Chave permanente indisponível. Nenhuma chave será recriada."
+            exit 1
+          }
+          umask 077
+          KEYSTORE="$RUNNER_TEMP/atrio-play-upload.jks"
+          trap 'rm -f "$KEYSTORE"' EXIT
+          printf '%s' "$ATRIO_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE"
+          chmod 600 "$KEYSTORE"
+          export ATRIO_SIGNING_STORE_FILE="$KEYSTORE"
+          export ATRIO_SIGNING_STORE_PASSWORD="$ATRIO_STORE_PASSWORD"
+          export ATRIO_SIGNING_KEY_ALIAS="atrio"
+          export ATRIO_SIGNING_KEY_PASSWORD="$ATRIO_KEY_PASSWORD"
+          gradle :app:bundlePlayRelease --no-daemon --stacktrace
+          python3 scripts/play_store_bundle_check.py
+          AAB=app/build/outputs/bundle/playRelease/app-playRelease.aab
+          test -s "$AAB"
+          jarsigner -verify "$AAB" >/dev/null || {
+            echo "::error::O AAB não passou na verificação de assinatura JAR."
+            exit 1
+          }
+          echo "AAB assinado e verificado. Nenhum upload foi realizado à Google Play." >> "$GITHUB_STEP_SUMMARY"
+          sha256sum "$AAB" >> "$GITHUB_STEP_SUMMARY"
+      - name: Guardar AAB somente no Actions para revisão humana
+        uses: actions/upload-artifact@v4
+        with:
+          name: atrio-play-aab-assinado-para-revisao
+          path: app/build/outputs/bundle/playRelease/app-playRelease.aab
+          if-no-files-found: error
+          retention-days: 3
