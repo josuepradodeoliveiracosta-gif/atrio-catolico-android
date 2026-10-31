@@ -47,7 +47,28 @@
 - Antes do primeiro AAB assinado: registrar evidências verificadas para `terms_accepted_before_ugc`, `report_content_and_users`, `block_users` e `moderation_actions`.
 - **Depois de instalar pela faixa fechada:** registrar `closed_track_ugc_e2e`; não inventar evidência antes da Play.
 
-## 5. Restrições de integração
+
+## 5. Notificações e bloqueio: modo individual seguro (implementado na PR #71, não implantado)
+
+O `cloudflare/push-worker/src/index.js` ganhou o modo `PUSH_BLOCK_SAFE_FANOUT_ENABLED='true'`, **desativado por padrão**. Quando o modo está ativo para respostas:
+- Não envia `message.topic` para `atrio_thread_*`. Um assinante antigo do tópico pode permanecer inscrito mesmo depois de ser bloqueado.
+- Consulta, com a identidade de serviço já usada pelo Worker, `users/{autor}/blockedMembers/{destinatário}` e `users/{destinatário}/blockedMembers/{autor}` antes de preparar avisos internos e FCM individual.
+- Se a consulta falhar, aborta sem tratar erro como ausência de bloqueio. Remetente não recebe o próprio aviso.
+- Com mais de **cinco destinatários** possíveis, suspende a notificação dessa resposta (`block_safe_capacity_suppressed`) e registra métrica agregada, evitando extrapolar o limite de subrequisições do Workers Free. **Isto não é capacidade final de produto.**
+- Preserva o envio administrativo não associado à resposta; seu escopo deve ser revisado separadamente.
+- Não altera inscrições em tópicos anteriores nem exclui mensagens já entregues. O modo seguro limita **novos envios pelo Worker** após sua ativação.
+
+Os testes isolados em `cloudflare/push-worker/src/index.test.js` comprovam ausência de tópico em cenário de dois membros, entrega individual permitida, privacidade de bloqueio recíproco, falha segura e limite de capacidade. A suíte do Worker passou no CI; ainda não há evidência de teste num dispositivo real da faixa Play.
+
+**Sequência de ativação, só após aprovação:**
+1. Homologar o aplicativo e as Rules com dois UIDs no emulador; confirmar bloqueio no backend e sincronização de sessão.
+2. Avaliar a política de produto para discussões com mais de cinco participantes, custo de fan-out/FCM, remediação de eventuais avisos internos antigos e tratamento de concorrência.
+3. Implantar em ambiente segregado, com `PUSH_ENABLED='true'` e `PUSH_BLOCK_SAFE_FANOUT_ENABLED='true'`, sem tocar no endpoint de produção; demonstrar que nenhum envio de tópico ocorre.
+4. Verificar FCM real: A bloqueia B, B bloqueia A, ambos livres, token legado inscrito em tópico, conta alternada e erro de leitura Firestore. Inspecionar também aviso por resposta direta, menção e moderação.
+5. Em eventual corte controlado, desabilitar `PUSH_ENABLED` se o novo modo falhar. **Nunca usar rollback que volte a transmitir tópicos sem filtrar bloqueios.**
+6. Só considerar o requisito `block_users` verificado após revisão humana de evidências de frontend, Firestore Rules, backend e notificações reais.
+
+## 6. Restrições de integração
 
 Nenhuma alteração de Firestore Rules de produção ou dos três Workers principais deve ser aplicada automaticamente por uma aprovação de CI. Revisar e ensaiar no emulador com dois UIDs antes de qualquer distribuição. O pacote para Play e o APK OTA compartilham parte do código; avaliar regressões para os dois canais. Não mesclar esta proposta apenas por ser documentação.
 
