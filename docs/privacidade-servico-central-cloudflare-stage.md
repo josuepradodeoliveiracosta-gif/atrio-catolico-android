@@ -1,3 +1,5 @@
+> **ATUALIZAÇÃO DE INFRAESTRUTURA — 31/10/2026:** foi criado um banco D1 novo de QA e implantado um Worker privado apenas para fixtures, SEM rota pública, sem segredos HMAC, sem Service Binding consumidor e sem dados reais. A conta Cloudflare permanece a mesma (isolamento de recursos, não de conta). Os trechos abaixo que descrevem "não implantado" representam o estado anterior. Registro do estado atual e das verificações remotas: [Homologação Cloudflare stage remota](privacidade-cloudflare-stage-remoto-2026-10-31.md). **A produção e a Google Play continuam bloqueadas.**
+
 # Átrio Católico — serviço central de congelamento autenticado (Cloudflare STAGING ONLY)
 
 **PR #98, 31/10/2026.** Este código é um protótipo real de Worker + cliente de **Service Binding HTTP** + consultas D1, mas **não foi implantado**, não acessa produção, não exclui conta e não concede aprovação Play Store.
