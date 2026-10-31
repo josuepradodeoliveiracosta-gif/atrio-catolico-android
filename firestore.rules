@@ -29,6 +29,23 @@ service cloud.firestore {
       allow get: if signedIn();
       allow list, create, update, delete: if false;
     }
+    // O servidor publica a versao efetiva depois da aprovacao juridica.
+    // Sem documento de configuracao nada e ativado em producao.
+    match /app_config/community_terms {
+      allow get: if signedIn();
+      allow list, create, update, delete: if false;
+    }
+    function communityTermsMayPublish(uid) {
+      let config = /databases/$(database)/documents/app_config/community_terms;
+      return !exists(config)
+        || get(config).data.get('enforce', false) == false
+        || (get(config).data.get('enforce', false) == true
+          && get(config).data.get('published', false) == true
+          && get(config).data.get('version', '') is string
+          && exists(/databases/$(database)/documents/users/$(uid)/acceptedTerms/$(get(config).data.version))
+          && get(/databases/$(database)/documents/users/$(uid)/acceptedTerms/$(get(config).data.version)).data.version
+             == get(config).data.version);
+    }
     match /admins/{uid} {
       allow get: if me(uid);
       allow list, create, update, delete: if false;
@@ -225,6 +242,7 @@ service cloud.firestore {
       // getAfter valida o perfil privado após a mesma transação de atualização.
       // APKs antigos devem revogar a publicação antes de editar a bio privada.
       allow create, update: if me(uid)
+        && communityTermsMayPublish(uid)
         && exists(/databases/$(database)/documents/profiles/$(uid))
         && request.resource.data.keys().hasOnly([
           'displayName', 'bio', 'joinedAt', 'updatedAt'
@@ -255,6 +273,7 @@ service cloud.firestore {
           'uid', 'authorName', 'title', 'body', 'category', 'createdAt'
         ])
         && request.resource.data.uid == request.auth.uid
+        && communityTermsMayPublish(request.auth.uid)
         && publicNameMatchesProfile()
         && validText(request.resource.data.title, 5, 120)
         && validText(request.resource.data.body, 5, 1200)
@@ -284,6 +303,7 @@ service cloud.firestore {
             'uid', 'authorName', 'body', 'createdAt'
           ])
           && request.resource.data.uid == request.auth.uid
+          && communityTermsMayPublish(request.auth.uid)
           && canMembersInteract(request.auth.uid,
             get(/databases/$(database)/documents/posts/$(postId)).data.uid)
           && (!request.resource.data.keys().hasAny(['replyToUid']) ||
@@ -346,6 +366,23 @@ service cloud.firestore {
         && validTime();
       allow delete: if me(uid);
       allow update: if false;
+    }
+
+    // Aceite expresso e imutavel, conforme politica ativa e versionada.
+    // A configuracao deve ser publicada pelo backend, nunca por um APK.
+    match /users/{uid}/acceptedTerms/{version} {
+      allow get, list: if me(uid);
+      allow create: if me(uid)
+        && version.matches('community-v[0-9]{1,4}')
+        && exists(/databases/$(database)/documents/app_config/community_terms)
+        && get(/databases/$(database)/documents/app_config/community_terms).data.get('published', false) == true
+        && get(/databases/$(database)/documents/app_config/community_terms).data.get('enforce', false) == true
+        && get(/databases/$(database)/documents/app_config/community_terms).data.get('version', '') == version
+        && request.resource.data.keys().hasOnly(['version', 'acceptedAt'])
+        && request.resource.data.keys().hasAll(['version', 'acceptedAt'])
+        && request.resource.data.version == version
+        && request.resource.data.acceptedAt == request.time;
+      allow update, delete: if false;
     }
 
     match /users/{uid}/likedPosts/{postId} {
