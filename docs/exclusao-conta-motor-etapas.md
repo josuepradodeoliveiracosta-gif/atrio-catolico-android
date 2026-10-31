@@ -80,3 +80,14 @@ Resultados que aparecem em mais de uma consulta são agrupados por caminho e mot
 - Não implementar exclusão destrutiva por inferência do campo `ownerUid` sem confirmar identidade canônica e referências cruzadas.
 
 Essa etapa é preparatória e não prova que a Play Store já esteja apta a receber a aplicação.
+
+
+## Homologação das consultas no Firestore Emulator (31/10/2026)
+
+A PR #78 agora inclui `tests/security/relational-inventory-emulator.test.mjs`, executado no GitHub Actions por `firestore-relational-emulator`. O job instala dependências exclusivamente para QA, sobe o emulador no projeto **`demo-atrio-v11`** e prepara posts, respostas, notificações e denúncias fictícios para dois usuários. Ele executa as `StructuredQuery` reais por HTTP no emulador, verifica projeção mínima, filtro de UID, página 1→2, descoberta de vínculos entre contas, resumo sem PII e existência dos registros depois da auditoria.
+
+A integração injeta um transporte de testes que exige a URL original fixa do Firestore, mas redireciona **somente no teste** para `127.0.0.1:8089` e traduz o identificador do projeto simulado. A autenticação `Bearer owner` é um recurso **exclusivo do Firebase Emulator** para consultas administrativas de QA; não funciona como credencial de produção e nunca é enviada ao Firestore real. O teste aborta quando a variável `FIRESTORE_EMULATOR_HOST` não é exatamente a esperada.
+
+**Resultado:** 3 cenários completos no Firestore Emulator aprovados, mais 65 testes offline de privacidade aprovados. A verificação de paginação e consulta realmente passou no emulador; **não prova cobertura total de dados**, implantação do Worker nem existência de exclusão funcional.
+
+Checklist ainda obrigatório: examinar todos os índices de grupos de coleções no Firestore real, autenticar IAM somente-leitura sem token privilegiado público, inventariar reações por ID/subcoleções órfãs/media Cloudinary/D1, retenções do Guardião, testar executor de exclusão com dados exclusivamente de QA e hospedar página HTTPS com processamento efetivo antes de declarar conformidade Play.
