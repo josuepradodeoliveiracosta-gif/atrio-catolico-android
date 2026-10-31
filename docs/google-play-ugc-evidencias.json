@@ -37,6 +37,13 @@
       "evidenceUrl": null,
       "reviewedBy": null,
       "reviewedAt": null
+    },
+    "push_block_safe_delivery": {
+      "description": "Comprovar em staging e no Worker implantado: sem FCM topics para respostas com bloqueios; leituras reciprocas; avisos internos e FCM so destinatarios permitidos; sem bypass em fallback; falhas/capacidade segura; aprovacao operacional antes do primeiro AAB.",
+      "verified": false,
+      "evidenceUrl": null,
+      "reviewedBy": null,
+      "reviewedAt": null
     }
   }
 }
