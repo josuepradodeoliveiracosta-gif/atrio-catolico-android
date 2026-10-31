@@ -37,7 +37,7 @@ private data class PublicMemberDiscussion(
 internal fun PublicMemberProfileScreen(
     db: FirebaseFirestore,
     target: PublicMemberTarget,
-    viewerUid: String,
+    viewerUid: String = "",
     onBack: () -> Unit,
     onOpenDiscussion: (String) -> Unit
 ) {
