@@ -14,6 +14,8 @@ const BROADCAST_COOLDOWN_MS = 60 * 60_000;
 const THREAD_REPLY_PAGE_SIZE = 200;
 const THREAD_MAX_PAGES = 10;
 const THREAD_MAX_RECIPIENTS = 250;
+// Estrito e opt-in: limites de subrequests no Workers Free; excesso suprime push.
+const THREAD_BLOCK_SAFE_MAX_RECIPIENTS = 5;
 
 
 const stringField = (doc, key) => doc?.fields?.[key]?.stringValue ?? '';
@@ -146,6 +148,28 @@ export async function threadParticipants(token, postId, actor, owner, replyTime)
     if(!next) return [...users];
   }
   throw Error('thread_reply_limit');
+}
+
+/**
+ * Listas de bloqueio privadas, consultadas somente via identidade de serviço.
+ * Qualquer indisponibilidade aborta o envio; nunca tratar falha como "livre".
+ * O modo estrito nunca utiliza FCM topics e rejeita destinatários em excesso.
+ */
+export async function blockSafeThreadRecipients(token, actorUid, recipientUids) {
+  if (!uidPart(actorUid) || !Array.isArray(recipientUids)
+      || recipientUids.length > THREAD_BLOCK_SAFE_MAX_RECIPIENTS
+      || recipientUids.some(uid => !uidPart(uid)))
+    throw Error('block_safe_capacity_or_invalid');
+  const allowed=[];
+  for (const uid of [...new Set(recipientUids)]) {
+    if (uid===actorUid) continue;
+    const [actorBlockedRecipient, recipientBlockedActor] = await Promise.all([
+      firestoreGet(token,'users/'+enc(actorUid)+'/blockedMembers/'+enc(uid)),
+      firestoreGet(token,'users/'+enc(uid)+'/blockedMembers/'+enc(actorUid)),
+    ]);
+    if (!actorBlockedRecipient && !recipientBlockedActor) allowed.push(uid);
+  }
+  return allowed;
 }
 
 export async function writeThreadNotices(token, event) {
@@ -753,11 +777,22 @@ export default {
       if(event.recipients.length>(event.topic?THREAD_MAX_RECIPIENTS:MAX_ADMINS))
         return response(503,'capacity_limit');
       if(event.degraded) await auditDelivery(env,'thread','capacity_fallback');
-      // Em caso de falha do fan-out de avisos internos, preservar o Push
-      // individual que já funciona na versão anterior.
+      // Habilitação controlada para homologação Play. Tópicos têm inscritos
+      // legados impossíveis de filtrar individualmente: o modo seguro NÃO
+      // publica mensagem FCM por topic e nega tudo se o limite for excedido.
+      const blockSafeMode = event.kind==='reply' &&
+        env.PUSH_BLOCK_SAFE_FANOUT_ENABLED==='true';
+      if(blockSafeMode && event.recipients.length>THREAD_BLOCK_SAFE_MAX_RECIPIENTS) {
+        await auditDelivery(env,'thread','block_safe_capacity_suppressed');
+        return response(202,'block_safe_capacity_suppressed');
+      }
+      const recipients = blockSafeMode
+        ? await blockSafeThreadRecipients(token,uid,event.recipients)
+        : event.recipients;
+      const safeEvent={...event,recipients};
       let fanoutOk=true;
       if(event.topic) {
-        try { await writeThreadNotices(token,event); }
+        try { await writeThreadNotices(token,safeEvent); }
         catch {
           fanoutOk=false;
           await auditDelivery(env,'thread','fanout_failed');
@@ -772,8 +807,9 @@ export default {
       let accepted=0;
       let failedHttp=0;
       let cleaned=0;
-      if(event.topic) {
-        // Um único envio por tópico para todos os participantes inscritos.
+      if(event.topic && !blockSafeMode) {
+        // Fluxo legado, NÃO compatível com privacidade de bloqueios.
+        // Em modo seguro nunca publicar FCM para topic.
         const marker='topic:'+event.key;
         const insert=await env.PUSH_DB.prepare(
           'INSERT OR IGNORE INTO delivered (event_key,created_at) VALUES (?,?)'
@@ -792,7 +828,8 @@ export default {
           if(res.ok) accepted++; else failedHttp=res.status;
         }
       }
-      for(const recipient of (event.topic?event.legacyOwner?[event.legacyOwner]:[]:event.recipients)) {
+      for(const recipient of (blockSafeMode ? recipients
+        : event.topic ? (event.legacyOwner ? [event.legacyOwner] : []) : recipients)) {
         if(!uidPart(recipient)||recipient===uid) continue;
         const list=await devices(token,recipient);
         if(!list.length) continue;
