@@ -51,6 +51,12 @@ function stages(self){
         assertLease();
         // The Admin-backed QA adapter creates a durable marker; the
         // previous in-memory flag alone never enforced privileged writes.
+        if(external?.workers){
+          // Drain admitted privileged operations before trusting the
+          // Firestore marker. Unknown effects block later Auth removal.
+          external.workers.seal(UID);
+          assertLease();
+        }
         if(external?.freeze){
           await external.freeze.acquire(UID);
           assertLease();
@@ -58,6 +64,7 @@ function stages(self){
         context.writesFrozen=true;
       },
       verify:async()=>context.writesFrozen===true &&
+        (!external?.workers || external.workers.verify(UID)===true) &&
         (!external?.freeze || await external.freeze.verify(UID)===true)},
     remove_nested:{
       apply:async assertLease=>purgeQaOwnedCollections({
@@ -90,6 +97,9 @@ function stages(self){
       // the journal checkpoint. Previous data-verification phase is required.
       apply:async assertLease=>{
         assertLease();
+        if(external?.workers && external.workers.verify(UID)!==true)
+          fail('worker_effects_not_drained_pre_auth');
+        assertLease();
         if(external?.freeze && await external.freeze.verify(UID)!==true)
           fail('persisted_freeze_required_pre_auth');
         assertLease();
@@ -113,6 +123,8 @@ function stages(self){
         // references when resuming a previously completed journal too.
         await assertQaReconciled({uid:UID,db,media,auth,context,
           expectedAuth:'absent'});
+        if(external?.workers && external.workers.verify(UID)!==true)
+          return false;
         if(external?.freeze && await external.freeze.verify(UID)!==true)
           return false;
         if(external && (await external.media.exists(UID,MEDIA_ID)!==false ||
@@ -140,7 +152,10 @@ export class QaDeletionRunner {
        typeof external?.media?.remove!=='function' ||
        (external.freeze!==undefined &&
          (typeof external.freeze?.acquire!=='function' ||
-          typeof external.freeze?.verify!=='function'))))
+          typeof external.freeze?.verify!=='function')) ||
+       (external.workers!==undefined &&
+         (typeof external.workers?.seal!=='function' ||
+          typeof external.workers?.verify!=='function'))))
       fail('invalid_qa_external_adapter');
     this.db=db;this.journal=journal;this.media=media;this.auth=auth;this.context=context;
     this.lease=lease;this.external=external;
