@@ -1,3 +1,5 @@
+import {qaSharedMode,qaSharedWorkerRequest,qaSharedResponse}
+  from '../../privacy-shared-qa/src/worker-entry.js';
 import {executeQaCommand} from './qa-manual.js';
 import {qaPushPrivacySealed} from './privacy-qa-write-fence.js';
 import {qaPushScopedMode,executeQaScopedPushReply} from './privacy-qa-scoped-fence.js';
@@ -705,7 +707,7 @@ export async function handleGuardiaoReview(request,env) {
 export default {
   async queue(batch,env) {
     // Retry without acknowledging: no bot action and no accidental data loss.
-    if(qaPushPrivacySealed(env)||qaPushScopedMode(env)){
+    if(qaPushPrivacySealed(env)||qaSharedMode(env)||qaPushScopedMode(env)){
       for(const message of batch.messages)message.retry({delaySeconds:60});
       return;
     }
@@ -751,6 +753,14 @@ export default {
         const result=await executeQaScopedPushReply(request,env);
         return response(200,result.status);
       }catch{return response(503,'privacy_qa_scoped_denied');}
+    }
+    // Shared fake SQLite coordinator: runs before OAuth, D1, FCM and legacy
+    // per-Worker fixture mode. No production endpoints are exposed.
+    if(qaSharedMode(env)){
+      try{
+        const result=await qaSharedWorkerRequest(request,env,'push');
+        return qaSharedResponse(200,result.status);
+      }catch{return qaSharedResponse(503,'qa_shared_worker_denied');}
     }
     const configured = !!(env.PUSH_DB && env.FIREBASE_WEB_API_KEY && env.FIREBASE_SERVICE_ACCOUNT_JSON);
     if(request.method==='GET' && new URL(request.url).pathname==='/health')
