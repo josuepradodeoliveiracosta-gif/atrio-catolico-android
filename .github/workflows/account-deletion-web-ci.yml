@@ -1,0 +1,45 @@
+name: Privacidade — portal público e plano de exclusão em dry-run
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'cloudflare/account-deletion-portal/**'
+      - 'cloudflare/account-deletion-processor/**'
+      - '.github/workflows/account-deletion-web-ci.yml'
+      - 'firestore.rules'
+      - 'tests/security/account-deletion-request.test.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: privacy-web-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  portal-and-dry-run:
+    name: Testar portal sem deploy e impedir exclusão real
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verificar JavaScript do navegador
+        run: node --check cloudflare/account-deletion-portal/public/app.js
+      - name: Verificar configuração e geração estática sem credenciais reais
+        working-directory: cloudflare/account-deletion-portal
+        run: npm test
+      - name: Garantir que plano administrativo é somente simulação
+        working-directory: cloudflare/account-deletion-processor
+        run: npm test
+      - name: Verificar que nenhum deploy ou processamento de produção ocorre
+        run: |
+          echo "### Portal de solicitação e plano administrativo" >> "$GITHUB_STEP_SUMMARY"
+          echo "Validações executadas sem Firebase de produção, chaves, deployment ou exclusão." >> "$GITHUB_STEP_SUMMARY"
+          echo "Os testes de Firestore Emulator são executados pelo workflow de segurança já existente." >> "$GITHUB_STEP_SUMMARY"
