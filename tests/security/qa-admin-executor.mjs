@@ -58,14 +58,14 @@ export const QA_ADMIN_ORDER_TEMPLATE=Object.freeze({
 });
 
 export class QaAdministrativeDeletionExecutor {
-  constructor({db,journal,media,auth,lease=null}={}){
+  constructor({db,journal,media,auth,lease=null,external=null}={}){
     guardEnv();
     if(!db || typeof journal?.prepare!=='function' ||
        !(auth instanceof Set) || !(media instanceof Set))
       throw Error('qa_admin_invalid_adapters');
     this.db=db;
     this.executor=new QaDeletionRunner({
-      db,journal,media,auth,lease
+      db,journal,media,auth,lease,external
     });
   }
   async execute({order,failBeforeEffect=null,failAfterEffect=null}={}){
@@ -85,7 +85,9 @@ export class QaAdministrativeDeletionExecutor {
       publicAccountDeleted:false,
       reviewerIdentityReal:false,
       cloudinaryActuallyDeleted:false,
-      firebaseAuthActuallyDeleted:false
+      firebaseAuthActuallyDeleted:false,
+      authEmulatorFixtureExercised:this.executor.external!==null,
+      cloudinaryHttpFixtureExercised:this.executor.external!==null
     });
   }
 }
