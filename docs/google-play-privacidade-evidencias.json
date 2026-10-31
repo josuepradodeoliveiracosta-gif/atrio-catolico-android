@@ -1,0 +1,70 @@
+{
+  "schema": 1,
+  "track": "Google Play — testes fechados",
+  "releaseAuthorized": false,
+  "requirements": {
+    "in_app_request": {
+      "description": "Solicitação autenticada acessível no AAB Play, testada em aparelho",
+      "verified": false,
+      "evidenceUrl": null,
+      "reviewedBy": null,
+      "reviewedAt": null
+    },
+    "external_portal": {
+      "description": "Portal público HTTPS, autenticação e pedidos efetivos sem APK",
+      "verified": false,
+      "evidenceUrl": null,
+      "reviewedBy": null,
+      "reviewedAt": null
+    },
+    "deletion_executor": {
+      "description": "Exclusão real e idempotente de Auth, Firestore, referências, mídia e FCM",
+      "verified": false,
+      "evidenceUrl": null,
+      "reviewedBy": null,
+      "reviewedAt": null
+    },
+    "worker_freeze": {
+      "description": "Todos os Workers, cron, retries e caminhos privilegiados sob bloqueio distribuído",
+      "verified": false,
+      "evidenceUrl": null,
+      "reviewedBy": null,
+      "reviewedAt": null
+    },
+    "retention_review": {
+      "description": "Prazos, exceções justificadas e revisão jurídica documentados",
+      "verified": false,
+      "evidenceUrl": null,
+      "reviewedBy": null,
+      "reviewedAt": null
+    },
+    "public_privacy_policy": {
+      "description": "Política pública HTTPS, canal de contato e divulgação completa",
+      "verified": false,
+      "evidenceUrl": null,
+      "reviewedBy": null,
+      "reviewedAt": null
+    },
+    "data_safety": {
+      "description": "Declarações de Segurança dos dados revisadas no Play Console",
+      "verified": false,
+      "evidenceUrl": null,
+      "reviewedBy": null,
+      "reviewedAt": null
+    },
+    "operational_security": {
+      "description": "IAM mínimo, reautenticação, auditoria, falha parcial e dupla verificação",
+      "verified": false,
+      "evidenceUrl": null,
+      "reviewedBy": null,
+      "reviewedAt": null
+    },
+    "closed_track_e2e": {
+      "description": "Teste fechado de ponta a ponta com contas de teste e evidência",
+      "verified": false,
+      "evidenceUrl": null,
+      "reviewedBy": null,
+      "reviewedAt": null
+    }
+  }
+}
