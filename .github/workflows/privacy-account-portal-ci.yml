@@ -1,4 +1,4 @@
-name: Privacidade — portal web e auditoria sem exclusão
+name: Privacidade — auditoria e exclusão somente de fixtures no emulador
 
 on:
   pull_request:
@@ -61,7 +61,7 @@ jobs:
           echo "Os testes são offline e não usam Firebase, Cloudflare reais, nem credenciais ou contas." >> "$GITHUB_STEP_SUMMARY"
 
   firestore-relational-emulator:
-    name: Testar consultas reais no Firestore Emulator (somente demo)
+    name: Testar consultas e limpeza de fixtures no Emulator (somente demo)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -96,5 +96,5 @@ jobs:
       - name: Resumo do ambiente
         if: always()
         run: |
-          echo "### Firestore Emulator — inventário relacional" >> "$GITHUB_STEP_SUMMARY"
-          echo "Teste com dados falsos no projeto demo-atrio-v11, host local 127.0.0.1:8089. Nenhuma credencial de produção, exclusão ou publicação." >> "$GITHUB_STEP_SUMMARY"
+          echo "### Firestore Emulator — inventário e limpeza exclusiva de fixtures" >> "$GITHUB_STEP_SUMMARY"
+          echo "Consulta e exclusão SOMENTE de fixtures locais descartáveis no projeto demo-atrio-v11, host 127.0.0.1:8089. Zero usuários reais, zero segredos e zero publicação." >> "$GITHUB_STEP_SUMMARY"
