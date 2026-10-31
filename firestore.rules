@@ -63,6 +63,13 @@ service cloud.firestore {
     function validId(value) {
       return validText(value, 1, 128) && !value.matches('.*[/].*');
     }
+    // Um bloqueio impede novas interações direcionadas nos dois sentidos.
+    // Não equivale a ocultar consultas Firestore ou suprimir Push de Worker.
+    function canMembersInteract(senderUid, recipientUid) {
+      return validId(senderUid) && validId(recipientUid)
+        && !exists(/databases/$(database)/documents/users/$(senderUid)/blockedMembers/$(recipientUid))
+        && !exists(/databases/$(database)/documents/users/$(recipientUid)/blockedMembers/$(senderUid));
+    }
     // A decisão de uma resposta não pode apagar nem alterar a publicação principal.
     function reportParentUnchanged() {
       let path = /databases/$(database)/documents/posts/$(resource.data.postId);
@@ -277,6 +284,12 @@ service cloud.firestore {
             'uid', 'authorName', 'body', 'createdAt'
           ])
           && request.resource.data.uid == request.auth.uid
+          && canMembersInteract(request.auth.uid,
+            get(/databases/$(database)/documents/posts/$(postId)).data.uid)
+          && (!request.resource.data.keys().hasAny(['replyToUid']) ||
+            canMembersInteract(request.auth.uid, request.resource.data.replyToUid))
+          && (!request.resource.data.keys().hasAny(['mentionUid']) ||
+            canMembersInteract(request.auth.uid, request.resource.data.mentionUid))
           && publicNameMatchesProfile()
           && validText(request.resource.data.body, 1, 600)
           && validTime()
@@ -320,6 +333,19 @@ service cloud.firestore {
           allow delete: if me(uid);
         }
       }
+    }
+
+    // O titular pode bloquear/desbloquear pessoas; terceiros não leem a lista.
+    match /users/{uid}/blockedMembers/{memberUid} {
+      allow get, list: if me(uid);
+      allow create: if me(uid)
+        && validId(memberUid)
+        && memberUid != uid
+        && request.resource.data.keys().hasOnly(['createdAt'])
+        && request.resource.data.keys().hasAll(['createdAt'])
+        && validTime();
+      allow delete: if me(uid);
+      allow update: if false;
     }
 
     match /users/{uid}/likedPosts/{postId} {
@@ -413,6 +439,7 @@ service cloud.firestore {
           'postId', 'replyId', 'actorUid', 'actorName', 'read', 'createdAt'
         ])
         && request.resource.data.actorUid == request.auth.uid
+        && canMembersInteract(request.auth.uid, recipientUid)
         && request.resource.data.read == false
         && notificationId == request.resource.data.replyId
         && validText(request.resource.data.postId, 1, 128)
@@ -457,6 +484,35 @@ service cloud.firestore {
         && request.resource.data.keys().hasAll(['appealText','appealedAt'])
         && validText(request.resource.data.appealText, 10, 500)
         && request.resource.data.appealedAt == request.time;
+    }
+
+    // Denúncia de usuário: ID determinístico evita duplicatas; identidade privada.
+    // Disponível para revisão humana por administradores habilitados.
+    match /user_reports/{reportId} {
+      allow get, list: if isAdmin();
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly([
+          'reporterUid','targetUid','reason','createdAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'reporterUid','targetUid','reason','createdAt'
+        ])
+        && request.resource.data.reporterUid == request.auth.uid
+        && validId(request.resource.data.targetUid)
+        && request.resource.data.targetUid != request.auth.uid
+        && reportId == request.auth.uid + '_user_' + request.resource.data.targetUid
+        && validText(request.resource.data.reason, 5, 300)
+        && validTime();
+      allow update: if isAdmin()
+        && resource.data.get('status','pending') == 'pending'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status','reviewedBy','reviewedAt','reviewNote'
+        ])
+        && request.resource.data.status in ['reviewed','dismissed']
+        && request.resource.data.reviewedBy == request.auth.uid
+        && request.resource.data.reviewedAt == request.time
+        && validText(request.resource.data.reviewNote, 5, 300);
+      allow delete: if false;
     }
 
     match /reports/{reportId} {
