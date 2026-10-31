@@ -3,8 +3,9 @@ const PROJECT='atrio-catolico-qa-v2';
 const REPO='josuepradodeoliveiracosta-gif/atrio-catolico-android';
 const BRANCH='refs/heads/feature/guardiao-v2-wif-prova-qa-20261030';
 const ACCOUNT='guardian-qa-reader@'+PROJECT+'.iam.gserviceaccount.com';
-const FIXTURE='projects/'+PROJECT+'/databases/(default)/documents/posts/qa_post_1';
-const ENDPOINT='https://firestore.googleapis.com/v1/'+FIXTURE;
+// Canonical synthetic-only QA target, reused by both manual WIF probes.
+export const QA_FIXTURE_PATH='projects/'+PROJECT+'/databases/(default)/documents/posts/qa_post_1';
+export const QA_FIXTURE_URL='https://firestore.googleapis.com/v1/'+QA_FIXTURE_PATH;
 const PROVIDER=/^projects\/[0-9]+\/locations\/global\/workloadIdentityPools\/guardian-github-qa\/providers\/github-qa$/;
 const deny=()=>{throw Error('qa_identity_probe_denied')};
 export function validateQaWifContext(e={}){
@@ -39,12 +40,12 @@ export async function probeQaWifRead(e,fetcher=fetch){
  const t=e.QA_ACCESS_TOKEN;
  if(typeof t!=='string'||t.length<20||/\s/.test(t))deny();
  let r;
- try{r=await fetcher(ENDPOINT,{method:'GET',headers:{Authorization:'Bearer '+t,Accept:'application/json'},redirect:'error',signal:AbortSignal.timeout(6500)})}catch{deny()}
+ try{r=await fetcher(QA_FIXTURE_URL,{method:'GET',headers:{Authorization:'Bearer '+t,Accept:'application/json'},redirect:'error',signal:AbortSignal.timeout(6500)})}catch{deny()}
  // A fixture ausente NÃO prova autorização. Nunca produzir sucesso com HTTP 404.
  if(r.status===404)deny();
  if(r.status!==200)deny();
  let d;try{d=await readQaBoundedJson(r)}catch{deny()}
- if(d?.name!==FIXTURE||d?.fields?.qaFixture?.booleanValue!==true)deny();
+ if(d?.name!==QA_FIXTURE_PATH||d?.fields?.qaFixture?.booleanValue!==true)deny();
  return {status:'qa_fixture_authenticated_read'};
 }
 if(typeof process!=='undefined'&&process.argv[1]&&import.meta.url==='file://'+process.argv[1]){
