@@ -88,3 +88,23 @@ test('checkpoint row survives disconnect/reconnect independently of the lease',a
   assert.deepEqual(restarted.prepare('SELECT step FROM qa_deletion_checkpoints').all()
     .map(row=>row.step),['freeze_writes']);
 }));
+
+
+test('atomic checkpoint requires current lease generation in same SQLite transaction',async()=>setup(({connect})=>{
+  let now=1000;
+  const dbA=connect(),dbB=connect();
+  dbA.exec('CREATE TABLE qa_deletion_checkpoints (step TEXT PRIMARY KEY, finished INTEGER)');
+  const a=new QaSqliteLease(dbA,{now:()=>now});
+  const b=new QaSqliteLease(dbB,{now:()=>now});
+  const old=a.acquire({ttlMs:200});
+  now=1300;
+  const current=b.acquire({ttlMs:1500});
+  assert.throws(()=>a.commitCheckpoint(old,'freeze_writes'),/qa_lease_lost/);
+  assert.equal(dbA.prepare('SELECT COUNT(*) AS n FROM qa_deletion_checkpoints').get().n,0);
+  b.commitCheckpoint(current,'freeze_writes');
+  assert.equal(dbB.prepare('SELECT COUNT(*) AS n FROM qa_deletion_checkpoints').get().n,1);
+  a.release(old);
+  b.assertOwned(current);
+  assert.throws(()=>b.commitCheckpoint(current,'invalid/step'),/invalid_qa_checkpoint/);
+  b.release(current);
+}));
