@@ -37,6 +37,13 @@ e o Cloudinary **simulado por HTTP local**.
 
 A CI instala a dependência **somente nesse subdiretório**, sem alterar
 as dependências do APK, sem segredos e sem tentar qualquer deploy.
+
+O Firebase CLI exporta `FIREBASE_CONFIG` durante
+`emulators:exec`. O workflow remove essa variável **apenas do processo
+filho do teste Admin SDK** com `env -u FIREBASE_CONFIG`; o adaptador
+continua recusando a variável caso apareça em sua execução. O projeto
+`demo-atrio-v11` e os hosts locais permanecem obrigatórios. Nenhuma
+configuração de produção é recuperada ou reinterpretada.
 Os dois emuladores são iniciados pelo workflow antes de executar os testes.
 
 ## Limitações que impedem produção e fechamento da issue #72
