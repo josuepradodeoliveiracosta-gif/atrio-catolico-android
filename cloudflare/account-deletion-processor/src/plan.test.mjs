@@ -13,6 +13,9 @@ test('somente simula: nenhuma escrita ou exclusão',()=>{
   assert.equal(plan.cloudinaryDeletes,0);
   assert.equal(plan.accountAuth,'REVIEW_LAST_AFTER_ALL_OTHER_DATA');
   assert.ok(plan.nestedCollections.includes('users/test-person/notifications/*'));
+  assert.ok(plan.nestedCollections.includes('users/test-person/blockedMembers/*'));
+  assert.ok(plan.ownerQueries.some(x=>x.includes('user_reports (reporterUid')));
+  assert.ok(plan.ownerQueries.some(x=>x.includes('user_reports (targetUid')));
 });
 test('nega producao e qualquer projeto não autorizado',()=>{
   for(const p of ['atrio-catolico','qualquer-outro','']) {
