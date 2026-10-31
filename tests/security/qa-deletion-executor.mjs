@@ -69,11 +69,15 @@ function stages(self){
   };
 }
 export class QaDeletionRunner {
-  constructor({db,journal,media,auth,context={}}){
+  constructor({db,journal,media,auth,context={},lease=null}){
     guard();
     if(!db || typeof journal?.prepare!=='function' ||
       !(media instanceof Set) || !(auth instanceof Set))fail('invalid_fixture_adapters');
+    if(lease!==null && (typeof lease.acquire!=='function' ||
+      typeof lease.assertOwned!=='function' || typeof lease.release!=='function'))
+      fail('invalid_qa_lease');
     this.db=db;this.journal=journal;this.media=media;this.auth=auth;this.context=context;
+    this.lease=lease;
     this.stages=stages(this);
     journal.exec('CREATE TABLE IF NOT EXISTS qa_deletion_checkpoints '+
       '(step TEXT PRIMARY KEY, finished INTEGER NOT NULL CHECK(finished=1))');
@@ -83,10 +87,23 @@ export class QaDeletionRunner {
       'SELECT step FROM qa_deletion_checkpoints WHERE finished=1 ORDER BY rowid ASC'
     ).all().map(x=>x.step);
   }
-  async run({failAfterEffect=null,approved=false}={}){
+  async run(options={}){
+    guard();
+    if(options.approved!==true)fail('explicit_qa_approval_required');
+    const ownership=this.lease?.acquire();
+    const checkLease=()=>{if(this.lease)this.lease.assertOwned(ownership);};
+    try{
+      return await this.runExclusive(options,checkLease);
+    }finally{
+      if(this.lease)this.lease.release(ownership);
+    }
+  }
+  async runExclusive({failAfterEffect=null,approved=false}={},checkLease=()=>{}){
     guard();
     if(approved!==true)fail('explicit_qa_approval_required');
+    checkLease();
     const request=await getDoc(doc(this.db,'account_deletion_requests/'+UID));
+    checkLease();
     if(!request.exists() || request.data()?.status!=='requested')
       fail('verified_request_required');
     const recorded=this.completed();
@@ -97,6 +114,7 @@ export class QaDeletionRunner {
     // QA-only rehydration. Production requires durable write-freeze enforcement.
     if(done.has('freeze_writes'))this.context.writesFrozen=true;
     for(const step of STEPS){
+      checkLease();
       const phase=this.stages[step];
       if(done.has(step)){
         if(!(await phase.verify()))fail('previous_checkpoint_invalid:'+step);
@@ -105,8 +123,12 @@ export class QaDeletionRunner {
       if(step!=='freeze_writes'&&this.context.writesFrozen!==true)
         fail('new_writes_not_frozen');
       await phase.apply();
+      checkLease();
       if(!(await phase.verify()))fail('phase_verification_failed:'+step);
+      checkLease();
       if(step===failAfterEffect)throw Error('injected_failure_after_effect:'+step);
+      // Never write a checkpoint after losing the lease.
+      checkLease();
       this.journal.prepare('INSERT INTO qa_deletion_checkpoints (step,finished) VALUES (?,1)')
         .run(step);
       done.add(step);
