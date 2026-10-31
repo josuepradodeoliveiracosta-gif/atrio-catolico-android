@@ -46,7 +46,9 @@ internal fun OnlineProfileScreen(
     followedRevision: Int = 0, savedCount: Int = 0,
     followedRemoteEnabled: Boolean = false, followedRemoteIds: Set<String> = emptySet(),
     followedRemoteLoading: Boolean = false, followedRemoteFailed: Boolean = false,
-    onPhotoChanged: () -> Unit = {}
+    onPhotoChanged: () -> Unit = {},
+    otaStatus: OtaCheckStatus = OtaCheckStatus.Idle,
+    onRefreshUpdates: () -> Unit = {}
 ) {
     var badgesOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var editorOpen by rememberSaveable(uid) { mutableStateOf(false) }
@@ -156,6 +158,7 @@ internal fun OnlineProfileScreen(
                     Icons.Outlined.NotificationsNone, onNotifications)
             }
             item { PushSettings(uid, db) }
+            item { OtaUpdatesSection(otaStatus, onRefreshUpdates) }
             item {
                 ProfileSectionTitle("Conta e privacidade")
                 Card(Modifier.fillMaxWidth()) {
