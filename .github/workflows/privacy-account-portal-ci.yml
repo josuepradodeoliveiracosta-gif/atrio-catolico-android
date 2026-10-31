@@ -50,6 +50,8 @@ jobs:
         run: |
           node --check web/account-deletion/app.js
           node --check cloudflare/account-deletion-audit/src/index.js
+          node --check tests/security/qa-external-emulators.mjs
+          node --check tests/security/qa-auth-cloudinary-emulator.test.mjs
       - name: Testar auditoria e simulador de exclusão sem produção
         run: node --experimental-sqlite --test cloudflare/account-deletion-audit/src/*.test.js tests/security/account-deletion-web.test.mjs
       - name: Testar leases, fencing e checkpoint SQLite offline
