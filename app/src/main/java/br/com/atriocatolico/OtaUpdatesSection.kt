@@ -171,14 +171,14 @@ internal fun OtaUpdatesSection(
                     onClick = {
                         val packageId = OtaUpdatePolicy.PACKAGE
                         val marketIntent = Intent(
-                            Intent.ACTION_VIEW, Uri.parse("market://details?id=$" + "packageId")
+                            Intent.ACTION_VIEW, Uri.parse("market://details?id=" + packageId)
                         ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                         try {
                             appContext.startActivity(marketIntent)
                         } catch (_: ActivityNotFoundException) {
                             val webIntent = Intent(
                                 Intent.ACTION_VIEW,
-                                Uri.parse("https://play.google.com/store/apps/details?id=$" + "packageId")
+                                Uri.parse("https://play.google.com/store/apps/details?id=" + packageId)
                             ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                             try {
                                 appContext.startActivity(webIntent)
