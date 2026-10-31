@@ -9,7 +9,7 @@ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}
 const SOURCE_LIMIT=100;
 const MAX_PAGES=60;
 const MAX_ITEMS=6000;
-const CURSOR=/^[A-Za-z0-9_+\/=.:()-]{1,2048}$/;
+const CURSOR=/^[A-Za-z0-9_+\/=-]{1,2048}$/;
 const SOURCES=Object.freeze([
   {table:'avatar_pending',role:'uid'},
   {table:'avatar_rate',role:'uid'},
