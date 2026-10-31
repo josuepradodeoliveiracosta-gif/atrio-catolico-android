@@ -4,12 +4,15 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
+import {readFileSync,mkdtempSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {DatabaseSync} from 'node:sqlite';
 import {initializeTestEnvironment} from '@firebase/rules-unit-testing';
 import {doc,setDoc,getDoc} from 'firebase/firestore';
 import {QaDeletionRunner,QA_FIXTURES,QA_MEDIA_ID,QA_STEPS}
   from './qa-deletion-executor.mjs';
+import {QaSqliteLease} from './qa-deletion-sqlite-lease.mjs';
 
 const HOST='127.0.0.1:8089', PROJECT='demo-atrio-v11';
 if(process.env.FIRESTORE_EMULATOR_HOST!==HOST ||
@@ -158,6 +161,100 @@ try {
     });
     console.log('PASS QA DELETION environment guard');
   });
+
+  await test('durable QA SQLite journal resumes after closing and reopening connection',async()=>{
+    await inDemo(async(db,aux)=>{
+      const dir=mkdtempSync(join(tmpdir(),'atrio-qa-resume-'));
+      const file=join(dir,'journal.sqlite');
+      let disk;
+      try{
+        disk=new DatabaseSync(file);
+        const first=new QaDeletionRunner({
+          db,journal:disk,media:aux.media,auth:aux.auth,
+          lease:new QaSqliteLease(disk)
+        });
+        await assert.rejects(first.run({
+          approved:true,failAfterEffect:'remove_nested'
+        }),/injected_failure_after_effect:remove_nested/);
+        assert.deepEqual(first.completed(),['freeze_writes']);
+        disk.close();
+        disk=new DatabaseSync(file);
+        const restarted=new QaDeletionRunner({
+          db,journal:disk,media:aux.media,auth:aux.auth,
+          context:{},lease:new QaSqliteLease(disk)
+        });
+        const finished=await restarted.run({approved:true});
+        assert.deepEqual(finished.completed,QA_STEPS);
+        await allAbsent(db,[...QA_FIXTURES.nested,...QA_FIXTURES.relational,
+          ...QA_FIXTURES.roots]);
+        await allPresent(db,QA_FIXTURES.preserved);
+        assert.equal(aux.auth.has(alice),false);
+        assert.equal(aux.auth.has(bob),true);
+        const check=disk.prepare('SELECT COUNT(*) AS n FROM qa_deletion_checkpoints').get();
+        assert.equal(check.n,QA_STEPS.length);
+      }finally{
+        try{disk?.close();}catch(_){}
+        rmSync(dir,{recursive:true,force:true});
+      }
+    });
+    console.log('PASS QA DELETION durable SQLite restart and resume');
+  });
+
+  await test('concurrent QA runners sharing a journal cannot both process one account',async()=>{
+    await inDemo(async(db,aux)=>{
+      const dir=mkdtempSync(join(tmpdir(),'atrio-qa-concurrent-'));
+      const file=join(dir,'journal.sqlite');
+      const firstDb=new DatabaseSync(file);
+      const secondDb=new DatabaseSync(file);
+      try{
+        const one=new QaDeletionRunner({
+          db,journal:firstDb,media:aux.media,auth:aux.auth,
+          lease:new QaSqliteLease(firstDb)
+        });
+        const two=new QaDeletionRunner({
+          db,journal:secondDb,media:aux.media,auth:aux.auth,
+          lease:new QaSqliteLease(secondDb)
+        });
+        // Lease is acquired synchronously, before the first await.
+        const first=one.run({approved:true});
+        await assert.rejects(two.run({approved:true}),/qa_lease_busy/);
+        const result=await first;
+        assert.deepEqual(result.completed,QA_STEPS);
+        await allPresent(db,QA_FIXTURES.preserved);
+        assert.equal(aux.auth.has(bob),true);
+        assert.equal(aux.media.has(BOB_MEDIA),true);
+        // The next runner can re-verify checkpoints without deleting again.
+        const repeat=await two.run({approved:true});
+        assert.deepEqual(repeat.completed,QA_STEPS);
+      }finally{
+        firstDb.close();secondDb.close();
+        rmSync(dir,{recursive:true,force:true});
+      }
+    });
+    console.log('PASS QA DELETION concurrent runner denied');
+  });
+
+  await test('fail-before-effect in Firestore, mock Cloudinary and mock Auth resumes safely',async()=>{
+    for(const phase of ['remove_nested','remove_relational','remove_media_stub',
+      'remove_roots','remove_auth_stub_last']){
+      await inDemo(async(db,aux)=>{
+        const runner=new QaDeletionRunner({db,...aux});
+        await assert.rejects(runner.run({approved:true,failBeforeEffect:phase}),
+          new RegExp('injected_failure_before_effect:'+phase));
+        const checkpoint=runner.completed();
+        assert.equal(checkpoint.length,QA_STEPS.indexOf(phase));
+        // A failure before Auth must not remove Auth prematurely.
+        assert.equal(aux.auth.has(alice),true);
+        const restarted=new QaDeletionRunner({db,...aux,context:{}});
+        const done=await restarted.run({approved:true});
+        assert.deepEqual(done.completed,QA_STEPS);
+        await allPresent(db,QA_FIXTURES.preserved);
+        assert.equal(aux.media.has(BOB_MEDIA),true);
+      });
+    }
+    console.log('PASS QA DELETION simulated Firestore Cloudinary Auth outages');
+  });
+
 } finally{
   await env.cleanup();
 }
