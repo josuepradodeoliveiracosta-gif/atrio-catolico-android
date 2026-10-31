@@ -65,6 +65,21 @@ try{
     await assertSucceeds(updateDoc(doc(alice,'profiles',A),{displayName:'Alice Teste'}));
     await assertSucceeds(getDoc(doc(alice,request)));
   });
+  await check('notificação direta e reação funcionam ANTES do freeze',async()=>{
+    const id='qa_before_freeze_notice';
+    const batch=writeBatch(bob);
+    batch.set(doc(bob,postB+'/replies/'+id),{
+      ...reply(B,nameB),replyToId:'qa_freeze_alice_old',replyToUid:A
+    });
+    batch.set(doc(bob,'users',A,'notifications',id),{
+      ...note('qa_freeze_bob_post',id),replyToId:'qa_freeze_alice_old'
+    });
+    await assertSucceeds(batch.commit());
+    await assertSucceeds(setDoc(doc(bob,
+      postB+'/replies/qa_freeze_alice_old/reactions/'+B),{
+        kind:'heart',createdAt:serverTimestamp()
+    }));
+  });
   await check('cliente não cria marcador administrativo',async()=>{
     await assertFails(setDoc(doc(alice,marker),{status:'processing'}));
     await assertFails(setDoc(doc(bob,marker),{status:'processing'}));
@@ -121,6 +136,12 @@ try{
       {read:true}));
     await assertFails(deleteDoc(doc(alice,'users',A,'notifications','old_notice')));
     await assertSucceeds(getDoc(doc(alice,'users',A,'notifications','old_notice')));
+  });
+  await check('reação a comentário congelado não pode ser alterada por terceiro',async()=>{
+    await assertFails(updateDoc(doc(bob,
+      postB+'/replies/qa_freeze_alice_old/reactions/'+B),{
+        kind:'prayer'
+    }));
   });
   await check('outro usuário não cria respostas no post congelado nem novas referências',async()=>{
     await assertFails(setDoc(doc(bob,postA+'/replies/new_bob_reply'),
