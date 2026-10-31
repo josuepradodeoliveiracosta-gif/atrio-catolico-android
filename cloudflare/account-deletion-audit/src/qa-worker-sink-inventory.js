@@ -37,11 +37,17 @@ export function extractQaWorkerSinks(worker,source) {
       rule.pattern.lastIndex=0;
       const matches=[...code.matchAll(rule.pattern)];
       for(const _ of matches) {
-        // Exclude explicit function declarations; still scan their CALLERS.
-        if(rule.kind!=='d1_prepare' && (
-          /^\s*(?:export\s+)?(?:async\s+)?function\s+\w+\s*\(/.test(code) ||
-          /^\s*(?:async\s+)?fetch\s*\(/.test(code)
-        )) continue;
+        // Exclude only the declaration of the matched helper itself.
+        // A new call INSIDE a one-line function must still be detected.
+        const declared={
+          cloudinary_signed:/^(?:export\s+)?(?:async\s+)?function\s+cloudSigned\s*\(/,
+          firestore_photo_mutator:/^(?:export\s+)?(?:async\s+)?function\s+firestore(?:Put|Delete)\s*\(/,
+          fcm_send_helper:/^(?:export\s+)?(?:async\s+)?function\s+send\s*\(/,
+          invalid_device_cleanup:/^(?:export\s+)?(?:async\s+)?function\s+cleanupInvalidDevice\s*\(/
+        };
+        if(rule.kind==='network_fetch'&&/^(?:async\s+)?fetch\s*\(/.test(code))
+          continue;
+        if(declared[rule.kind]?.test(code))continue;
         entries.push({worker,kind:rule.kind,code});
       }
     }
