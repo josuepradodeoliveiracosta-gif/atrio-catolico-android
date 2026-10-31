@@ -13,14 +13,15 @@ permissions:
 
 concurrency:
   group: ota-qa-upgrade-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: false
+  # Descarta ensaio antigo da mesma PR quando uma correcao mais nova chega.
+  cancel-in-progress: true
 
 jobs:
   upgrade-emulator:
     if: github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android'
     name: Instalar por cima e preservar arquivo local (somente QA)
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 25
     steps:
       - name: Obter código, sem persistir autenticação
         uses: actions/checkout@v4
