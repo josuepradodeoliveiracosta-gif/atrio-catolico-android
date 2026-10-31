@@ -279,6 +279,7 @@ service cloud.firestore {
         allow get, list: if signedIn();
         allow create: if signedIn() && accountWritable(request.auth.uid)
           && exists(/databases/$(database)/documents/posts/$(postId))
+          && accountWritable(get(/databases/$(database)/documents/posts/$(postId)).data.uid)
           && request.resource.data.keys().hasOnly([
             'uid', 'authorName', 'body', 'createdAt', 'replyToId', 'replyToUid',
             'mentionUid', 'mentionReplyId'
@@ -319,12 +320,16 @@ service cloud.firestore {
           allow get, list: if signedIn();
           allow create: if me(uid) && accountWritable(uid)
             && exists(/databases/$(database)/documents/posts/$(postId)/replies/$(replyId))
+            && accountWritable(get(/databases/$(database)/documents/posts/$(postId)).data.uid)
+            && accountWritable(get(/databases/$(database)/documents/posts/$(postId)/replies/$(replyId)).data.uid)
             && request.resource.data.keys().hasOnly(['kind', 'createdAt'])
             && request.resource.data.keys().hasAll(['kind', 'createdAt'])
             && validReactionKind(request.resource.data.kind)
             && request.resource.data.createdAt == request.time;
           allow update: if me(uid) && accountWritable(uid)
             && exists(/databases/$(database)/documents/posts/$(postId)/replies/$(replyId))
+            && accountWritable(get(/databases/$(database)/documents/posts/$(postId)).data.uid)
+            && accountWritable(get(/databases/$(database)/documents/posts/$(postId)/replies/$(replyId)).data.uid)
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['kind'])
             && validReactionKind(request.resource.data.kind);
           allow delete: if me(uid) && accountWritable(uid);
@@ -336,6 +341,7 @@ service cloud.firestore {
       allow get, list: if me(uid);
       allow create: if me(uid) && accountWritable(uid)
         && exists(/databases/$(database)/documents/posts/$(postId))
+        && accountWritable(get(/databases/$(database)/documents/posts/$(postId)).data.uid)
         && request.resource.data.keys().hasOnly(['createdAt'])
         && request.resource.data.keys().hasAll(['createdAt'])
         && validTime();
@@ -347,6 +353,7 @@ service cloud.firestore {
       allow get, list: if me(uid);
       allow create: if me(uid) && accountWritable(uid)
         && exists(/databases/$(database)/documents/posts/$(postId))
+        && accountWritable(get(/databases/$(database)/documents/posts/$(postId)).data.uid)
         && request.resource.data.keys().hasOnly(['createdAt'])
         && request.resource.data.keys().hasAll(['createdAt'])
         && validTime();
@@ -360,6 +367,7 @@ service cloud.firestore {
       allow create: if me(uid) && accountWritable(uid)
         && validId(postId)
         && exists(/databases/$(database)/documents/posts/$(postId))
+        && accountWritable(get(/databases/$(database)/documents/posts/$(postId)).data.uid)
         && request.resource.data.keys().hasOnly(['createdAt'])
         && request.resource.data.keys().hasAll(['createdAt'])
         && validTime();
