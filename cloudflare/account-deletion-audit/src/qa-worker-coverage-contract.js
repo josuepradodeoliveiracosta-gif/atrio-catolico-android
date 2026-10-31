@@ -11,8 +11,9 @@ export const QA_WORKER_SOURCES=Object.freeze([
   {
     service:'avatar',
     file:'cloudflare/avatar-worker/src/index.js',
-    gitBlob:'68b232b427da6e518fff4782c81e0cdafe9a7587',
+    gitBlob:'497b02e7db2a0592c1f2f0b0a223bc9e1db1e67c',
     mustContain:[
+      "qaSharedWorkerRequest(request,env,'avatar')",
       "if(pathname==='/avatar/upload')",
       "if(pathname==='/avatar/status')",
       "if(pathname==='/avatar/moderation/review')",
@@ -29,8 +30,9 @@ export const QA_WORKER_SOURCES=Object.freeze([
   {
     service:'guardian',
     file:'cloudflare/guardian-worker/src/index.js',
-    gitBlob:'aa2af4b4410e66fde73f7689732e9b7cbc2e31cb',
+    gitBlob:'3254c32d87b738d79d8cca7a7f5c3b4e9b2e6121',
     mustContain:[
+      "qaSharedWorkerRequest(request,env,'guardian')",
       "export async function processDocument(",
       "export async function reviewCase(",
       "export async function resolveReviewCase(",
@@ -43,8 +45,9 @@ export const QA_WORKER_SOURCES=Object.freeze([
   {
     service:'push',
     file:'cloudflare/push-worker/src/index.js',
-    gitBlob:'33ec44e9208dd8360ad841d0b0f6d375e8b543db',
+    gitBlob:'501e30c8a75c155c6a1c75b18034fdafc5a605e0',
     mustContain:[
+      "qaSharedWorkerRequest(request,env,'push')",
       "export async function writeThreadNotices(",
       "export async function cleanupInvalidDevice(",
       "export async function handleGuardiaoEvent(",
