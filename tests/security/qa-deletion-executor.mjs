@@ -6,6 +6,8 @@
 import {doc,getDoc,deleteDoc} from 'firebase/firestore';
 import {assertQaReconciled} from './qa-deletion-reconciliation.mjs';
 import {removeQaAuthAfterReconciliation} from './qa-deletion-auth-fence.mjs';
+import {purgeQaOwnedCollections,assertQaOwnedCollectionsEmpty}
+  from './qa-admin-owned-cleanup.mjs';
 
 const PROJECT='demo-atrio-v11', HOST='127.0.0.1:8089', UID='qa-delete-alice';
 const MEDIA_ID='atrio-avatares/qa-delete-alice/123e4567-e89b-42d3-a456-426614174001';
@@ -49,8 +51,11 @@ function stages(self){
       apply:async assertLease=>{assertLease();context.writesFrozen=true;},
       verify:async()=>context.writesFrozen===true},
     remove_nested:{
-      apply:async assertLease=>remove(db,FIXTURES.nested,assertLease),
-      verify:async()=>absent(db,FIXTURES.nested)},
+      apply:async assertLease=>purgeQaOwnedCollections({
+        uid:UID,db,assertLease
+      }),
+      verify:async()=>await absent(db,FIXTURES.nested) &&
+        await assertQaOwnedCollectionsEmpty({uid:UID,db})},
     remove_relational:{
       apply:async assertLease=>remove(db,FIXTURES.relational,assertLease),
       verify:async()=>absent(db,FIXTURES.relational)},
