@@ -237,8 +237,9 @@ test('source audit names the three privileged Worker entrypoints and uncovered p
   assert.match(guardian,/export async function reviewCase\(/);
   assert.match(push,/export async function writeThreadNotices\(/);
   assert.match(push,/export async function cleanupInvalidDevice\(/);
-  assert.match(push,/async function send\(token,device,uid,kind\)/);
-  // The executable gate is still isolated in account-deletion-audit.
+  assert.match(push,/async function send\(token,device,uid,kind,env=null\)/);
+  assert.match(push,/qaPushPrivacySealed\(env\)/);
+  // Only the global QA seal is in the Worker; the per-UID distributed gate is not.
   assert.doesNotMatch(avatar,/createQaPrivilegedWriteBarrier/);
   assert.doesNotMatch(guardian,/createQaPrivilegedWriteBarrier/);
   assert.doesNotMatch(push,/createQaPrivilegedWriteBarrier/);
