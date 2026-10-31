@@ -46,7 +46,7 @@ export async function runOneShotSmoke(env){
     for(const role of ['AVATAR','GUARDIAN','PUSH']){
       phase='admit_'+role.toLowerCase();
       const value=await send(env['QA_'+role],'/__qa/admit');
-      if(value.status!=='qa_stage_admitted'||
+      if(value.status!=='stage_admitted'||
          typeof value.operationId!=='string'||
          !/^[a-f0-9-]{36}$/.test(value.operationId))
         throw Error('qa_admission_failed');
