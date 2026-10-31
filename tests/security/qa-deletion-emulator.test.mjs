@@ -292,6 +292,51 @@ try {
     console.log('PASS QA DELETION new cross-account reference blocked');
   });
 
+  await test('UGC account consent and blocks are removed only from Alice',async()=>{
+    await inDemo(async(db,aux)=>{
+      await setDoc(doc(db,'users/'+bob+'/acceptedTerms/ugc-v1'),{
+        version:'ugc-v1',origin:'QA Bob-only consent'
+      });
+      await setDoc(doc(db,'users/'+bob+'/blockedMembers/'+alice),{
+        origin:'QA Bob-only block'
+      });
+      const runner=new QaDeletionRunner({db,...aux});
+      const state=await runner.run({approved:true});
+      assert.equal(state.productionReady,false);
+      await allAbsent(db,['users/'+alice+'/acceptedTerms/ugc-v1',
+        'users/'+alice+'/blockedMembers/'+bob]);
+      await allPresent(db,['users/'+bob+'/acceptedTerms/ugc-v1',
+        'users/'+bob+'/blockedMembers/'+alice]);
+      assert.equal(aux.auth.has(alice),false);
+      assert.equal(aux.auth.has(bob),true);
+    });
+    console.log('PASS QA DELETION UGC private collections scoped to owner');
+  });
+
+  await test('UGC user reports by author and target block fake Auth until retention review',async()=>{
+    for(const field of ['reporterUid','targetUid']){
+      await inDemo(async(db,aux)=>{
+        await assert.rejects(new QaDeletionRunner({db,...aux}).run({
+          approved:true,failBeforeEffect:'remove_auth_stub_last'
+        }),/injected_failure_before_effect:remove_auth_stub_last/);
+        // Cross-account moderation evidence is NEVER blindly deleted by
+        // the owned-subcollection purge; it needs retention adjudication.
+        const row={reporterUid:bob,targetUid:bob,reason:'Simulado',
+          createdAt:new Date('2026-10-31T12:00:00Z')};
+        row[field]=alice;
+        const reviewPath='user_reports/qa_retention_'+field;
+        await setDoc(doc(db,reviewPath),row);
+        await assert.rejects(new QaDeletionRunner({db,...aux,context:{}})
+          .run({approved:true}),/qa_reconciliation_residual_firestore/);
+        await allPresent(db,[reviewPath,...QA_FIXTURES.preserved]);
+        assert.equal(aux.auth.has(alice),true,
+          'User Auth fixture remains while cross-account reports need retention review');
+        assert.equal(aux.auth.has(bob),true);
+      });
+    }
+    console.log('PASS QA DELETION UGC moderation records retain fake Auth');
+  });
+
   await test('final checkpoint detects reintroduced data even AFTER fake Auth removal',async()=>{
     await inDemo(async(db,aux)=>{
       const first=await new QaDeletionRunner({db,...aux}).run({approved:true});
