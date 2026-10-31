@@ -42,7 +42,11 @@ internal fun PublicMemberProfileScreen(
     onOpenDiscussion: (String) -> Unit
 ) {
     val uid = target.uid
-    var blocked by remember(viewerUid, uid) { mutableStateOf(false) }
+    // O perfil publico so mostra discussoes depois de verificar bloqueio no servidor.
+    // Em UI tests sem sessao, nao cria assinaturas nem bloqueia a visualizacao.
+    var blocked by remember(viewerUid, uid) {
+        mutableStateOf(viewerUid.isNotBlank() && viewerUid != uid)
+    }
     var info by remember(uid) { mutableStateOf<PublicMemberInfo?>(null) }
     var infoLoading by remember(uid) { mutableStateOf(true) }
     var infoError by remember(uid) { mutableStateOf(false) }
@@ -71,7 +75,14 @@ internal fun PublicMemberProfileScreen(
         }
         onDispose { active = false }
     }
-    DisposableEffect(db, uid, nextPage) {
+    DisposableEffect(db, uid, nextPage, blocked) {
+        if (blocked) {
+            entries.clear()
+            last = null
+            if (nextPage != 0) nextPage = 0
+            loading = false
+            onDispose { }
+        } else {
         var active = true
         loading = true
         failed = false
@@ -101,6 +112,7 @@ internal fun PublicMemberProfileScreen(
             }
         }
         onDispose { active = false }
+        }
     }
     LazyColumn(Modifier.fillMaxSize().testTag("atrio-public-profile"),
         contentPadding = PaddingValues(16.dp),
