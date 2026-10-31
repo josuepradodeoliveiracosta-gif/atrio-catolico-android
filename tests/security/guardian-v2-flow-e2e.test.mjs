@@ -14,9 +14,9 @@ const API='http://'+HOST+'/v1';
 
 // Block all unintended environments BEFORE connecting, including genuine QA.
 assert.equal(process.env.FIRESTORE_EMULATOR_HOST,HOST,'Only the local emulator may be used');
-assert.equal(process.env.GOOGLE_APPLICATION_CREDENTIALS,undefined,'No service credentials in emulator QA');
-assert.equal(process.env.GUARDIAN_FIREBASE_SERVICE_ACCOUNT_JSON,undefined,'No service-account keys');
-assert.equal(process.env.GUARDIAN_V2_ENABLED,undefined,'Never enable production V2 during QA');
+assert.ok(!process.env.GOOGLE_APPLICATION_CREDENTIALS,'No service credentials in emulator QA');
+assert.ok(!process.env.GUARDIAN_FIREBASE_SERVICE_ACCOUNT_JSON,'No service-account keys');
+assert.ok(!process.env.GUARDIAN_V2_ENABLED,'Never enable production V2 during QA');
 
 const env=await initializeTestEnvironment({
   projectId:PROJECT,firestore:{host:'127.0.0.1',port:8089,rules:readFileSync('firestore.rules','utf8')}
