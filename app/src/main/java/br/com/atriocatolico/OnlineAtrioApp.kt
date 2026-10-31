@@ -522,7 +522,7 @@ private fun OnlineCommunity(
     DisposableEffect(db, uid) {
         val listener = db.collection("users").document(uid).collection("blockedMembers")
             .addSnapshotListener { snapshot, error ->
-                if (error == null && auth.currentUser?.uid == uid) {
+                if (error == null && FirebaseAuth.getInstance().currentUser?.uid == uid) {
                     blockedMemberUids = snapshot?.documents?.map { it.id }?.toSet() ?: emptySet()
                 }
             }
