@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtempSync,readFileSync,rmSync,existsSync} from 'node:fs';
 import {tmpdir} from 'node:os';
+import {Script} from 'node:vm';
 import {join} from 'node:path';
 import {buildPortal,publicFirebaseConfig} from '../scripts/build.mjs';
 
@@ -30,6 +31,11 @@ test('geração pública contém apenas metadados do Firebase Web',()=>{
     assert.match(config,/window\\.ATRIO_PORTAL_STATUS/);
     assert.match(config,/"intakeEnabled":false/);
     assert.match(config,/"actualDeletionEnabled":false/);
+    const isolated={window:{}};
+    new Script(config,{filename:'config.js'}).runInNewContext(isolated);
+    assert.equal(isolated.window.ATRIO_PORTAL_STATUS.intakeEnabled,false);
+    assert.equal(isolated.window.ATRIO_PORTAL_STATUS.actualDeletionEnabled,false);
+    assert.equal(isolated.window.ATRIO_FIREBASE_CONFIG.projectId,'atrio-catolico');
     assert.doesNotMatch(config,/(private_key|service_account|oauthToken|password)/i);
     assert.ok(existsSync(join(output,'index.html')));
     assert.ok(existsSync(join(output,'app.js')));
