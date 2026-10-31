@@ -29,6 +29,21 @@ function accountsFor(kind,scope) {
   if(!required||!scope||typeof scope!=='object'||Array.isArray(scope))
     throw Error('qa_invalid_privileged_operation');
   const keys=Object.keys(scope).sort();
+  // A real Push batchWrite may affect SEVERAL recipient accounts at once.
+  // Admission of only one recipient would silently bypass other freezes.
+  // The QA fanout variant holds one atomic ticket for ALL named accounts.
+  // Real deployments need an unbounded, paginated, durable fanout protocol.
+  if(kind==='push_thread_notice' &&
+     keys.join(',')==='actorUid,recipientUids'){
+    const recipients=scope.recipientUids;
+    if(!Array.isArray(recipients) || recipients.length<1 ||
+       recipients.length>QA_UIDS.length ||
+       new Set(recipients).size!==recipients.length ||
+       recipients.some(uid=>!QA_UIDS.includes(uid)) ||
+       !QA_UIDS.includes(scope.actorUid))
+      throw Error('qa_invalid_fanout_recipients');
+    return [...new Set([scope.actorUid,...recipients])].sort();
+  }
   if(keys.join(',')!==[...required].sort().join(','))
     throw Error('qa_invalid_privileged_scope');
   const accounts=[...new Set(required.map(key=>scope[key]))].sort();
