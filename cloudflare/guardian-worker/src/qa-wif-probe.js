@@ -16,18 +16,24 @@ export function validateQaWifContext(e={}){
   e.GUARDIAN_FIREBASE_SERVICE_ACCOUNT_JSON||e.GOOGLE_APPLICATION_CREDENTIALS)deny();
  return true;
 }
-async function boundedJson(r){
- const length=r.headers.get('content-length');
- if(length!==null&&(!/^\d+$/.test(length)||Number(length)>8192))deny();
+// Shared read-only QA response guard: at most 8 KiB, strict UTF-8 and JSON.
+export async function readQaBoundedJson(r){
+ const length=r.headers?.get('content-length');
+ if(length!==null&&length!==undefined&&(!/^\d+$/.test(length)||Number(length)>8192))deny();
  if(!r.body?.getReader)deny();
  const reader=r.body.getReader(),parts=[];let n=0;
  try{for(;;){const {done,value}=await reader.read();if(done)break;
-  if(!(value instanceof Uint8Array))deny();n+=value.byteLength;
-  if(n>8192){await reader.cancel();deny()}parts.push(value);
+  if(!(value instanceof Uint8Array))deny();
+  n+=value.byteLength;
+  if(n>8192){await reader.cancel();deny()}
+  parts.push(value);
  }}finally{reader.releaseLock()}
- const all=new Uint8Array(n);let i=0;for(const p of parts){all.set(p,i);i+=p.length}
- return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(all));
+ const all=new Uint8Array(n);let i=0;
+ for(const p of parts){all.set(p,i);i+=p.byteLength}
+ try{return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(all))}
+ catch{deny()}
 }
+
 export async function probeQaWifRead(e,fetcher=fetch){
  validateQaWifContext(e);
  const t=e.QA_ACCESS_TOKEN;
@@ -37,7 +43,7 @@ export async function probeQaWifRead(e,fetcher=fetch){
  // A fixture ausente NÃO prova autorização. Nunca produzir sucesso com HTTP 404.
  if(r.status===404)deny();
  if(r.status!==200)deny();
- let d;try{d=await boundedJson(r)}catch{deny()}
+ let d;try{d=await readQaBoundedJson(r)}catch{deny()}
  if(d?.name!==FIXTURE||d?.fields?.qaFixture?.booleanValue!==true)deny();
  return {status:'qa_fixture_authenticated_read'};
 }
