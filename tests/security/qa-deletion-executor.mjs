@@ -5,6 +5,7 @@
  */
 import {doc,getDoc,deleteDoc} from 'firebase/firestore';
 import {assertQaReconciled} from './qa-deletion-reconciliation.mjs';
+import {removeQaAuthAfterReconciliation} from './qa-deletion-auth-fence.mjs';
 
 const PROJECT='demo-atrio-v11', HOST='127.0.0.1:8089', UID='qa-delete-alice';
 const MEDIA_ID='atrio-avatares/qa-delete-alice/123e4567-e89b-42d3-a456-426614174001';
@@ -35,24 +36,29 @@ async function absent(db,paths){
   for(const path of paths)if(await exists(db,path)) return false;
   return true;
 }
-async function remove(db,paths){for(const path of paths)await deleteDoc(doc(db,path));}
+async function remove(db,paths,assertLease){
+  for(const path of paths){
+    assertLease();
+    await deleteDoc(doc(db,path));
+  }
+}
 function stages(self){
   const {db,media,auth,context}=self;
   return {
     freeze_writes:{
-      apply:async()=>{context.writesFrozen=true;},
+      apply:async assertLease=>{assertLease();context.writesFrozen=true;},
       verify:async()=>context.writesFrozen===true},
     remove_nested:{
-      apply:async()=>remove(db,FIXTURES.nested),
+      apply:async assertLease=>remove(db,FIXTURES.nested,assertLease),
       verify:async()=>absent(db,FIXTURES.nested)},
     remove_relational:{
-      apply:async()=>remove(db,FIXTURES.relational),
+      apply:async assertLease=>remove(db,FIXTURES.relational,assertLease),
       verify:async()=>absent(db,FIXTURES.relational)},
     remove_media_stub:{
-      apply:async()=>{media.delete(MEDIA_ID);},
+      apply:async assertLease=>{assertLease();media.delete(MEDIA_ID);},
       verify:async()=>!media.has(MEDIA_ID)},
     remove_roots:{
-      apply:async()=>remove(db,FIXTURES.roots),
+      apply:async assertLease=>remove(db,FIXTURES.roots,assertLease),
       verify:async()=>absent(db,FIXTURES.roots)},
     verify_fixture_absence:{
       apply:async()=>{},
@@ -61,13 +67,9 @@ function stages(self){
     remove_auth_stub_last:{
       // Idempotent if interrupted after the mock Auth removal but before
       // the journal checkpoint. Previous data-verification phase is required.
-      apply:async()=>{
-        // Re-read ALL known QA scopes immediately before the irreversible
-        // fake Auth effect, even if an earlier checkpoint said they were clear.
-        await assertQaReconciled({uid:UID,db,media,auth,context,
-          expectedAuth:'either'});
-        auth.delete(UID);
-      },
+      apply:async assertLease=>removeQaAuthAfterReconciliation({
+        uid:UID,db,media,auth,context,assertLease
+      }),
       verify:async()=>!auth.has(UID)},
     final_check:{
       apply:async()=>{},
@@ -144,7 +146,7 @@ export class QaDeletionRunner {
       if(step!=='freeze_writes'&&this.context.writesFrozen!==true)
         fail('new_writes_not_frozen');
       if(step===failBeforeEffect)throw Error('injected_failure_before_effect:'+step);
-      await phase.apply();
+      await phase.apply(checkLease);
       checkLease();
       if(!(await phase.verify()))fail('phase_verification_failed:'+step);
       checkLease();
