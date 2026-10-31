@@ -51,3 +51,45 @@ O arquivo `wrangler.staging.example.toml` tem `database_id` propositalmente não
 - Branch `main`, backups, assinatura e OTA mantidos intactos.
 
 Referências Cloudflare: [Service Bindings](https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/), [D1 Prepared Statements](https://developers.cloudflare.com/d1/worker-api/prepared-statements/), [D1 Database](https://developers.cloudflare.com/d1/worker-api/d1-database/).
+
+
+## Pré-homologação remota — execução bloqueada até autorização explícita
+
+A inspeção de inventário do provedor deve ser **somente leitura**. Não inserir
+identificadores de conta, nomes de bancos já existentes, segredos ou URLs
+operacionais no repositório público. Na ausência de um ambiente segregado
+comprovado, interromper a implantação: nenhum recurso existente pode ser
+reutilizado, substituído, migrado ou reconfigurado.
+
+**Condições para uma aprovação separada do proprietário:**
+
+1. Definir onde será feito o estágio isolado (preferencialmente em conta
+   separada); confirmar que não compartilha o banco de produção, serviços,
+   segredos, rotas ou credenciais do Átrio.
+2. Autorizar nominalmente a criação de **um banco D1 novo**, **um Worker
+   interno novo** e segredos distintos, especificando se podem gerar custo.
+   Nenhuma alteração em Worker existente está incluída nessa autorização.
+3. Aplicar exclusivamente `0001_fixture_only.sql` ao banco recém-criado
+   e confirmar que os dois `CHECK(uid IN (...))` continuam intactos.
+4. Preservar `workers_dev=false`, nenhuma rota pública e nenhuma rota
+   customizada. Os futuros consumidores devem ser outros Workers de stage,
+   também isolados e com acesso exclusivamente via Service Binding.
+5. Validar chamadas assinadas, papéis, nonces com conexões concorrentes,
+   revogação/rotação de chaves e interrupção após gravação do marcador.
+6. Exigir evidência de rollback e desligamento antes de acoplar qualquer
+   mecanismo de contas ou dados reais.
+
+**Proibido nesta fase:** rodar `wrangler deploy`, `d1 migrations apply
+--remote`, criar credenciais de produção, alterar a branch `main`,
+substituir IDs em configs ativas, habilitar os três Workers oficiais ou
+executar exclusão de conta. A verificação `preflight.mjs --audit` é somente
+leitura e é intencionalmente incapaz de conceder autorização de deploy.
+
+### Ensaios de falha adicionais
+
+A suíte `qa-stage-cloudflare-drill.test.js` testa cinco cenários offline:
+dois pedidos concorrentes com o mesmo nonce, reutilização do nonce por outro
+papel autorizado, rotação de chave HMAC, persistência de nonce de resultado
+incerto e impossibilidade de o administrador reconciliar sozinho uma
+operação pendente. Esses testes executam o Worker central original contra
+SQLite fictício e nunca criam recursos de Cloudflare.
