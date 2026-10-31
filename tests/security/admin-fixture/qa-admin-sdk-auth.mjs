@@ -16,8 +16,10 @@ const AUTH_HOST='127.0.0.1:9099';
 const ALICE='qa-delete-alice';
 const BOB='qa-delete-bob';
 const MAIL=Object.freeze({
-  [ALICE]:'qa-delete-alice@example.invalid',
-  [BOB]:'qa-delete-bob@example.invalid'
+  // Separate QA-admin emails from the previous REST self-delete fixture
+  // whose Auth Emulator users persist within the same emulators:exec run.
+  [ALICE]:'qa-admin-delete-alice@example.invalid',
+  [BOB]:'qa-admin-delete-bob@example.invalid'
 });
 const APP='qa-atrio-admin-sdk-only';
 
