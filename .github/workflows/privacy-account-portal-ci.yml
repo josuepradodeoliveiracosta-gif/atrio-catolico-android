@@ -61,6 +61,7 @@ jobs:
           node --check cloudflare/privacy-freeze-stage/src/index.js
           node --check cloudflare/privacy-freeze-stage/src/client.js
           node --check cloudflare/privacy-freeze-stage/src/protocol.js
+          node --check cloudflare/privacy-freeze-stage/scripts/preflight.mjs
           node --check cloudflare/privacy-shared-qa/src/worker-entry.js
           node --check tests/security/qa-external-emulators.mjs
           node --check tests/security/qa-auth-cloudinary-emulator.test.mjs
@@ -73,6 +74,8 @@ jobs:
           node --check tests/security/admin-fixture/qa-retention-evidence.mjs
           node --check tests/security/admin-fixture/qa-retention-evidence.test.mjs
           node --check tests/security/admin-fixture/qa-admin-sdk-e2e.test.mjs
+      - name: Impedir configuração Cloudflare real ou pública no estágio
+        run: node cloudflare/privacy-freeze-stage/scripts/preflight.mjs --audit
       - name: Testar auditoria e simulador de exclusão sem produção
         run: node --experimental-sqlite --test cloudflare/account-deletion-audit/src/*.test.js tests/security/account-deletion-web.test.mjs
       - name: Testar leases, fencing e checkpoint SQLite offline
