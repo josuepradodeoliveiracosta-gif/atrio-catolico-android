@@ -1,6 +1,9 @@
 package br.com.atriocatolico
 
+import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -142,6 +145,7 @@ internal fun OtaUpdatesSection(
     onCancel: () -> Unit = {},
     onInstall: () -> Unit = {}
 ) {
+    val appContext = LocalContext.current
     Column(
         modifier = Modifier.fillMaxWidth().testTag("atrio-ota-section"),
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -160,9 +164,36 @@ internal fun OtaUpdatesSection(
                 Text("O aplicativo está atualizado conforme o canal oficial.")
             OtaCheckStatus.TestBuild ->
                 Text("Versão de testes. Atualizações oficiais exigem um APK release assinado.")
-            OtaCheckStatus.PlayStore ->
-                Text("Atualizações desta instalação são distribuídas pela Google Play. " +
-                    "Consulte a loja para instalar novas versões; nenhum APK externo será baixado.")
+            OtaCheckStatus.PlayStore -> {
+                Text("Esta instalação é atualizada pela Google Play. " +
+                    "Nenhum APK externo será baixado.")
+                OutlinedButton(
+                    onClick = {
+                        val packageId = OtaUpdatePolicy.PACKAGE
+                        val marketIntent = Intent(
+                            Intent.ACTION_VIEW, Uri.parse("market://details?id=$" + "packageId")
+                        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        try {
+                            appContext.startActivity(marketIntent)
+                        } catch (_: ActivityNotFoundException) {
+                            val webIntent = Intent(
+                                Intent.ACTION_VIEW,
+                                Uri.parse("https://play.google.com/store/apps/details?id=$" + "packageId")
+                            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            try {
+                                appContext.startActivity(webIntent)
+                            } catch (_: Exception) {
+                                // Play indisponível: não oferecer sideload como alternativa.
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().testTag("atrio-play-store-open")
+                ) {
+                    Text("Abrir Google Play")
+                }
+                Text("Em testes fechados, é necessário ter aceitado o convite de participação.",
+                    style = MaterialTheme.typography.bodySmall)
+            }
             OtaCheckStatus.Incompatible ->
                 Text("Há uma versão oficial que exige um Android mais recente.")
             OtaCheckStatus.Unavailable ->
