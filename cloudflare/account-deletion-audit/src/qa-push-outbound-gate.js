@@ -3,10 +3,11 @@
  * This module is NOT imported by the live Worker or bound to any real service.
  *
  * This is a deliberately narrow transport adapter, NOT an authorization layer:
- * - a single thread notification, with explicit actor and recipient;
+ * - an atomic thread batch with explicit actor and every recipient;
+ *   no recipient can be omitted or repeated (max two QA accounts);
  * - one direct FCM token send to a fixed fake device;
  * - one conditional stale-device cleanup.
- * Fan-out batches, topic sends, D1, moderation, queue and retries are denied.
+ * Production fan-out, topic sends, D1, moderation, queue and retries denied.
  * The original Worker can still bypass this adapter in production.
  */
 const A='qa-freeze-alice',B='qa-freeze-bob';
@@ -32,22 +33,42 @@ function classify(input,init){
     url.pathname===new URL(FIRESTORE).pathname+':batchWrite' &&
     !url.search && method==='POST'){
     const payload=parseJson(init.body);
-    if(!Array.isArray(payload.writes)||payload.writes.length!==1)fail();
-    const w=payload.writes[0];
-    if(!w?.update || w?.currentDocument?.exists!==false)fail();
-    const parts=w.update.name?.split('/');
-    if(w.update.name?.startsWith(NAME_PREFIX)!==true)fail();
-    const path=w.update.name.slice(NAME_PREFIX.length).split('/');
-    if(path.length!==4||path[0]!=='users'||path[2]!=='notifications')fail();
-    const recipientUid=checkUid(path[1]);
-    checkName(path[3]);
-    const fields=w.update.fields;
-    const actorUid=checkUid(fields?.actorUid?.stringValue);
-    if(fields?.replyId?.stringValue!==path[3])fail();
-    if(typeof fields?.postId?.stringValue!=='string'||
-      !IDENT.test(fields.postId.stringValue))fail();
-    if(w.updateMask || w.delete || w.transform || w.verify)fail();
-    return {kind:'push_thread_notice',scope:{actorUid,recipientUid},batch:true};
+    if(!Array.isArray(payload.writes)||payload.writes.length<1 ||
+       payload.writes.length>QA_UIDS.size)fail();
+    const recipientUids=[], seen=new Set();
+    let actorUid,postId,replyId,createdAt;
+    for(const w of payload.writes){
+      if(!w?.update||w?.currentDocument?.exists!==false ||
+         w.updateMask || w.delete || w.transform || w.verify ||
+         w.update.name?.startsWith(NAME_PREFIX)!==true)fail();
+      const path=w.update.name.slice(NAME_PREFIX.length).split('/');
+      if(path.length!==4||path[0]!=='users'||path[2]!=='notifications')fail();
+      const uid=checkUid(path[1]);
+      checkName(path[3]);
+      if(seen.has(uid))fail();
+      seen.add(uid);recipientUids.push(uid);
+      const fields=w.update.fields;
+      const actor=checkUid(fields?.actorUid?.stringValue);
+      const post=fields?.postId?.stringValue;
+      const reply=fields?.replyId?.stringValue;
+      const stamp=fields?.createdAt?.timestampValue;
+      if(reply!==path[3] || !IDENT.test(post||'') ||
+         typeof stamp!=='string' || !Number.isFinite(Date.parse(stamp)) ||
+         typeof fields?.actorName?.stringValue!=='string' ||
+         typeof fields?.read?.booleanValue!=='boolean' ||
+         Object.keys(fields).sort().join(',')!=='actorName,actorUid,createdAt,postId,read,replyId')
+        fail();
+      if(actorUid===undefined){
+        actorUid=actor;postId=post;replyId=reply;createdAt=stamp;
+      }else if(actor!==actorUid || post!==postId ||
+               reply!==replyId || stamp!==createdAt)fail();
+    }
+    return {kind:'push_thread_notice',
+      scope:recipientUids.length===1
+        ?{actorUid,recipientUid:recipientUids[0]}
+        :{actorUid,recipientUids},
+      recipientUids:Object.freeze(recipientUids),
+      batch:true,writeCount:recipientUids.length};
   }
   if(url.origin==='https://fcm.googleapis.com' &&
     url.pathname===new URL(FCM).pathname &&
@@ -88,10 +109,15 @@ export function createQaPushOutboundGate({barrier,deliver,verifyEffect}={}){
     if(item.batch){
       let payload;
       try{payload=await response.clone().json();}catch{throw Error('qa_push_batch_unverified');}
-      if(!Array.isArray(payload?.status)||payload.status.length!==1||
-        payload.status[0]?.code)throw Error('qa_push_batch_unverified');
+      if(!Array.isArray(payload?.status) ||
+         payload.status.length!==item.writeCount ||
+         payload.status.some(s=>!s || typeof s!=='object' ||
+           (s.code!==undefined && s.code!==0)))
+        throw Error('qa_push_batch_unverified');
     }
     if(await verifyEffect({kind:item.kind,scope:item.scope,
+      recipientUids:item.recipientUids||null,
+      writeCount:item.writeCount||null,
       httpStatus:response.status})!==true)
       throw Error('qa_push_effect_unverified');
     await barrier.complete(ticket,{verified:async()=>true});
