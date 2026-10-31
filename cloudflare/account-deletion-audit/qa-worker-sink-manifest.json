@@ -1,0 +1,303 @@
+{
+  "purpose": "QA source-change audit only; NOT a production guard",
+  "baselinePr": 87,
+  "productionProtected": false,
+  "requiresHumanReview": true,
+  "snapshots": [
+    {
+      "worker": "avatar-worker",
+      "kind": "cloudinary_signed",
+      "code": "await cloudSigned(env,'destroy',{public_id:id,type,invalidate:'true'},null,'destroy');"
+    },
+    {
+      "worker": "avatar-worker",
+      "kind": "cloudinary_signed",
+      "code": "const promoted=await cloudSigned(env,'rename',{from_public_id:id,to_public_id:id,"
+    },
+    {
+      "worker": "avatar-worker",
+      "kind": "cloudinary_signed",
+      "code": "result=await cloudSigned(env,'authenticated',opts,bytes,'upload');"
+    },
+    {
+      "worker": "avatar-worker",
+      "kind": "cloudinary_signed",
+      "code": "result=await cloudSigned(env,'upload',{...opts,type:'authenticated'},bytes,'upload');"
+    },
+    {
+      "worker": "avatar-worker",
+      "kind": "d1_prepare",
+      "code": "await env.AVATAR_DB.prepare("
+    },
+    {
+      "worker": "avatar-worker",
+      "kind": "d1_prepare",
+      "code": "await env.AVATAR_DB.prepare("
+    },
+    {
+      "worker": "avatar-worker",
+      "kind": "d1_prepare",
+      "code": "await env.AVATAR_DB.prepare('DELETE FROM avatar_mutex WHERE uid=? AND nonce=?')"
+    },
+    {
+      "worker": "avatar-worker",
+      "kind": "d1_prepare",
+      "code": "await env.AVATAR_DB.prepare('DELETE FROM avatar_pending WHERE uid=? AND public_id=?').bind(uid,id).run();"
+    },
+    {
+      "worker": "avatar-worker",
+      "kind": "d1_prepare",
+      "code": "await env.AVATAR_DB.prepare('DELETE FROM avatar_pending WHERE uid=?').bind(uid).run();"
+    },
+    {
+      "worker": "avatar-worker",
+      "kind": "d1_prepare",
+      "code": "await env.AVATAR_DB.prepare('INSERT INTO avatar_pending (uid,public_id,created_at) VALUES (?,?,?) ON CONFLICT(uid) DO UPDATE SET public_id=excluded.public_id, created_at=excluded.created_at')"
+    },
+    {
+      "worker": "push-worker",
+      "kind": "d1_prepare",
+      "code": "await env.PUSH_DB.prepare("
+    },
+    {
+      "worker": "push-worker",
+      "kind": "d1_prepare",
+      "code": "await env.PUSH_DB.prepare('DELETE FROM delivered WHERE event_key IN ' +"
+    },
+    {
+      "worker": "push-worker",
+      "kind": "d1_prepare",
+      "code": "await env.PUSH_DB.prepare('DELETE FROM guardiao_ai_budget WHERE event_key IN ' +"
+    },
+    {
+      "worker": "avatar-worker",
+      "kind": "d1_prepare",
+      "code": "const acquired=await env.AVATAR_DB.prepare("
+    },
+    {
+      "worker": "push-worker",
+      "kind": "d1_prepare",
+      "code": "const insert=await env.PUSH_DB.prepare("
+    },
+    {
+      "worker": "push-worker",
+      "kind": "d1_prepare",
+      "code": "const inserted = await env.PUSH_DB.prepare("
+    },
+    {
+      "worker": "avatar-worker",
+      "kind": "d1_prepare",
+      "code": "const pending=await env.AVATAR_DB.prepare('SELECT public_id FROM avatar_pending WHERE uid=?').bind(uid).first();"
+    },
+    {
+      "worker": "avatar-worker",
+      "kind": "d1_prepare",
+      "code": "const pending=await env.AVATAR_DB.prepare('SELECT public_id FROM avatar_pending WHERE uid=?').bind(uid).first();"
+    },
+    {
+      "worker": "avatar-worker",
+      "kind": "d1_prepare",
+      "code": "const previous=await env.AVATAR_DB.prepare('SELECT public_id FROM avatar_pending WHERE uid=?').bind(uid).first();"
+    },
+    {
+      "worker": "avatar-worker",
+      "kind": "d1_prepare",
+      "code": "const r=await env.AVATAR_DB.prepare("
+    },
+    {
+      "worker": "avatar-worker",
+      "kind": "d1_prepare",
+      "code": "const record=await env.AVATAR_DB.prepare("
+    },
+    {
+      "worker": "avatar-worker",
+      "kind": "d1_prepare",
+      "code": "const record=await env.AVATAR_DB.prepare("
+    },
+    {
+      "worker": "push-worker",
+      "kind": "d1_prepare",
+      "code": "const record=await env.PUSH_DB.prepare("
+    },
+    {
+      "worker": "avatar-worker",
+      "kind": "d1_prepare",
+      "code": "const records=await env.AVATAR_DB.prepare("
+    },
+    {
+      "worker": "push-worker",
+      "kind": "d1_prepare",
+      "code": "const reserved=await env.PUSH_DB.prepare("
+    },
+    {
+      "worker": "push-worker",
+      "kind": "d1_prepare",
+      "code": "const result=await db.prepare("
+    },
+    {
+      "worker": "push-worker",
+      "kind": "fcm_send_helper",
+      "code": ": await send(token,target.token,recipient,event.kind);"
+    },
+    {
+      "worker": "push-worker",
+      "kind": "fcm_send_helper",
+      "code": "const delivered=await send(service,device.token,admin,'admin');"
+    },
+    {
+      "worker": "guardian-worker",
+      "kind": "firestore_commit",
+      "code": "await db.commit(["
+    },
+    {
+      "worker": "guardian-worker",
+      "kind": "firestore_commit",
+      "code": "await db.commit(writes);"
+    },
+    {
+      "worker": "guardian-worker",
+      "kind": "firestore_commit",
+      "code": "try{await db.commit(writes);return action;}"
+    },
+    {
+      "worker": "avatar-worker",
+      "kind": "firestore_photo_mutator",
+      "code": "await firestoreDelete(env,uid);"
+    },
+    {
+      "worker": "avatar-worker",
+      "kind": "firestore_photo_mutator",
+      "code": "await firestorePut(env,uid,id,publicUrl(env,promoted));"
+    },
+    {
+      "worker": "push-worker",
+      "kind": "invalid_device_cleanup",
+      "code": "if(!delivered.ok) await cleanupInvalidDevice(service,device,delivered);"
+    },
+    {
+      "worker": "push-worker",
+      "kind": "invalid_device_cleanup",
+      "code": "if(await cleanupInvalidDevice(token,target,result)) cleaned++;"
+    },
+    {
+      "worker": "push-worker",
+      "kind": "network_fetch",
+      "code": "? await fetch('https://fcm.googleapis.com/v1/projects/'+PROJECT+'/messages:send',{"
+    },
+    {
+      "worker": "avatar-worker",
+      "kind": "network_fetch",
+      "code": "const r = await fetch('https://oauth2.googleapis.com/token',{method:'POST',"
+    },
+    {
+      "worker": "avatar-worker",
+      "kind": "network_fetch",
+      "code": "const r = await fetch(ROOT+'/profile_photos/'+encode(uid),{"
+    },
+    {
+      "worker": "avatar-worker",
+      "kind": "network_fetch",
+      "code": "const r = await fetch(ROOT+'/profile_photos/'+encode(uid),{method:'PATCH',"
+    },
+    {
+      "worker": "push-worker",
+      "kind": "network_fetch",
+      "code": "const r=await fetch(ROOT+':commit',{"
+    },
+    {
+      "worker": "avatar-worker",
+      "kind": "network_fetch",
+      "code": "const r=await fetch(ROOT+'/admins/'+encode(uid),{"
+    },
+    {
+      "worker": "avatar-worker",
+      "kind": "network_fetch",
+      "code": "const r=await fetch(ROOT+'/profile_photos/'+encode(uid),{method:'DELETE',"
+    },
+    {
+      "worker": "avatar-worker",
+      "kind": "network_fetch",
+      "code": "const r=await fetch(url,{headers:{Authorization:credential(env)}});"
+    },
+    {
+      "worker": "push-worker",
+      "kind": "network_fetch",
+      "code": "const res = await fetch('https://fcm.googleapis.com/v1/projects/'+PROJECT+'/messages:send',{"
+    },
+    {
+      "worker": "avatar-worker",
+      "kind": "network_fetch",
+      "code": "const res = await fetch('https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=' +"
+    },
+    {
+      "worker": "push-worker",
+      "kind": "network_fetch",
+      "code": "const res = await fetch(ROOT+'/'+path,{headers:{Authorization:'Bearer '+token}});"
+    },
+    {
+      "worker": "push-worker",
+      "kind": "network_fetch",
+      "code": "const res = await fetch(ROOT+'/'+path+'?pageSize='+max,"
+    },
+    {
+      "worker": "push-worker",
+      "kind": "network_fetch",
+      "code": "const res=await fetch('https://fcm.googleapis.com/v1/projects/'+PROJECT+'/messages:send',{"
+    },
+    {
+      "worker": "push-worker",
+      "kind": "network_fetch",
+      "code": "const res=await fetch(ROOT+':batchWrite',{"
+    },
+    {
+      "worker": "push-worker",
+      "kind": "network_fetch",
+      "code": "const res=await fetch(ROOT+'/posts/'+enc(postId)+'/replies?'+params.toString(),"
+    },
+    {
+      "worker": "avatar-worker",
+      "kind": "network_fetch",
+      "code": "const response = await fetch('https://api.cloudinary.com/v1_1/'+"
+    },
+    {
+      "worker": "avatar-worker",
+      "kind": "network_fetch",
+      "code": "const response=await fetch(signed,{redirect:'manual',headers:{Accept:'image/jpeg'}});"
+    },
+    {
+      "worker": "push-worker",
+      "kind": "network_fetch",
+      "code": "const result=await fetch(ROOT+'/'+device.path+'?'+params.toString(),{"
+    },
+    {
+      "worker": "push-worker",
+      "kind": "network_fetch",
+      "code": "const result=await fetch(ROOT+'/reports?documentId='+enc(reportId),{"
+    },
+    {
+      "worker": "avatar-worker",
+      "kind": "network_fetch",
+      "code": "const result=await fetch(url,{method:'POST',headers:{"
+    },
+    {
+      "worker": "push-worker",
+      "kind": "network_fetch",
+      "code": "const token = await fetch('https://oauth2.googleapis.com/token',{"
+    },
+    {
+      "worker": "push-worker",
+      "kind": "network_fetch",
+      "code": "const update=await fetch(ROOT+'/reports/'+enc(reportId)+'?'+params.toString(),{"
+    },
+    {
+      "worker": "push-worker",
+      "kind": "network_fetch",
+      "code": "const validated = await fetch('https://identitytoolkit.googleapis.com/v1/accounts:lookup?key='+"
+    },
+    {
+      "worker": "push-worker",
+      "kind": "network_fetch",
+      "code": "return fetch('https://fcm.googleapis.com/v1/projects/'+PROJECT+'/messages:send',{"
+    }
+  ]
+}
