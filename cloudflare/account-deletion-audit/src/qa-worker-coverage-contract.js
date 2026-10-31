@@ -51,7 +51,7 @@ export const QA_WORKER_SOURCES=Object.freeze([
       "export async function handleGuardiaoReview(",
       "export async function handleBroadcast(",
       "export async function holdGuardiaoContent(",
-      "async function send(token,device,uid,kind)",
+      "async function send(token,device,uid,kind,env=null)",
       "async queue(batch,env)",
       "async fetch(request, env)",
       "qaPushPrivacySealed(env)",
