@@ -64,3 +64,18 @@ test('network errors and invalid classifier do not expose credentials or content
  await assert.rejects(runQaKeylessCycle(env,async()=>response(fixture('hi')),()=>{throw Error('secret content')}),/denied/);
  await assert.rejects(runQaKeylessCycle(env,async()=>response(fixture('hi')),()=>({level:'ban'})),/denied/);
 });
+
+test('fluxo WIF manual chama somente o novo ciclo, sem duas leituras, cron ou deploy',async()=>{
+ const {readFileSync}=await import('node:fs');
+ const workflow=readFileSync(new URL('../../../.github/workflows/guardiao-v2-qa-wif-manual.yml',import.meta.url),'utf8');
+ assert.match(workflow,/workflow_dispatch:/);
+ assert.match(workflow,/confirm_qa:/);
+ assert.match(workflow,/environment: guardian-qa/);
+ assert.match(workflow,/access_token_lifetime: 300s/);
+ assert.match(workflow,/create_credentials_file: false/);
+ assert.match(workflow,/run: node cloudflare\/guardian-worker\/src\/qa-keyless-cycle\.js/);
+ assert.doesNotMatch(workflow,/run: node cloudflare\/guardian-worker\/src\/qa-wif-probe\.js/);
+ assert.equal((workflow.match(/run: node cloudflare\/guardian-worker\/src\/qa-keyless-cycle\.js/g)||[]).length,1);
+ assert.doesNotMatch(workflow,/\n\s+schedule:/);
+ assert.doesNotMatch(workflow,/\b(firebase deploy|wrangler deploy|firestore:delete|iam.serviceAccounts.keys)\b/);
+});

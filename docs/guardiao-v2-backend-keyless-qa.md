@@ -15,7 +15,7 @@ Para autenticação recorrente sem chave privada persistente, manter a execuçã
 - qa-keyless-cycle.js: módulo de leitura única **apenas da fixture literal posts/qa_post_1 do projeto QA**, limite 8 KiB/6,5 s e sem redirecionamentos, usa o classificador já existente em memória e retorna somente contadores. Reutiliza validateQaWifContext da PR #47; rejeita evento schedule, main e flags de produção.
 - qa-keyless-cycle.test.js: cinco testes novos de autorização, leitura, classificação, ausência de conteúdos, erros e limites. Totalmente offline e sem requisições reais.
 - Workflow de CI na branch desta PR: **somente push com arquivos alterados**, sem id-token, sem secrets, sem cron, sem deploy e sem tocar no Google Cloud.
-- O módulo não está ligado ao Worker, à versão Android, ao agendador nem ao fluxo manual WIF da PR #47. Logo não há moderação, monitoramento real ou leituras remotas novas.
+- A **preparação da ligação** ao workflow manual WIF está incluída agora nesta branch: depois que o código for integrado **com autorização específica** à branch QA autorizada, o workflow usará o ciclo de classificação no lugar da sonda, mantendo **somente um GET** da fixture. Este commit NÃO executa o workflow e não habilita cron, Worker, escrita, moderação ou leituras remotas.
 
 ## Aprovações ainda necessárias — NÃO EXECUTAR
 
@@ -25,3 +25,8 @@ Para autenticação recorrente sem chave privada persistente, manter a execuçã
 4. Qualquer mudança IAM, merge, deploy Firebase, Worker, APK Release, cron ou moderação real precisa aprovação específica. Não modificar backups nem Worker atrio-push.
 
 Referências oficiais: https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows ; https://docs.github.com/en/billing ; https://docs.cloud.google.com/iam/docs/workload-identity-federation
+
+## Preparo de homologação manual (NÃO EXECUTADO)
+- A execução remota WIF já homologada na PR #47 não deve ser repetida apenas para provar credenciais. A futura execução tem finalidade *nova*: verificar a classificação de dados sintéticos via o mesmo OAuth/GET.
+- A branch PR #48 não está na allowlist atual do ambiente Google WIF; portanto **não** disparar o workflow nessa branch. Uma integração futura à branch QA autorizada dependerá de permissão explícita. Não ampliar allowlist ou CEL para contornar o controle.
+- O contrato de um GET é checado por teste estático novo. A API do Firebase oficial continua fora de alcance e nenhuma ação do Guardião é disparada.
