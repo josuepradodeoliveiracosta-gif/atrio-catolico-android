@@ -1,0 +1,29 @@
+name: Guardião V2 — ciclo QA keyless (somente testes offline)
+on:
+  push:
+    branches:
+      - feature/guardiao-v2-qa-keyless-cycle-20261030
+    paths:
+      - cloudflare/guardian-worker/src/qa-keyless-cycle.js
+      - cloudflare/guardian-worker/src/qa-keyless-cycle.test.js
+      - .github/workflows/guardiao-v2-qa-keyless-cycle-ci.yml
+
+permissions:
+  contents: read
+
+jobs:
+  qa-cycle-offline:
+    name: QA keyless sintético — sem credenciais ou rede
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Conferir sintaxe e cinco testes novos
+        run: |
+          node --check cloudflare/guardian-worker/src/qa-keyless-cycle.js
+          node --test cloudflare/guardian-worker/src/qa-keyless-cycle.test.js
