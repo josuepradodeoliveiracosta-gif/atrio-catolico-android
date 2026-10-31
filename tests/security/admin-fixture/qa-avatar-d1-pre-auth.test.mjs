@@ -7,11 +7,11 @@ import {createQaAvatarD1PreAuthAdapter,QA_AVATAR_D1_PREFLIGHT}
 
 const A='qa-delete-alice',B='qa-delete-bob';
 const schema=readFileSync(new URL('../../../cloudflare/avatar-worker/schema.sql',import.meta.url),'utf8');
-function fixture(run){
+async function fixture(run){
   const sql=new DatabaseSync(':memory:');
   sql.exec(schema);
   const preflight=createQaAvatarD1PreAuthAdapter(sql);
-  try{return run({sql,preflight});}
+  try{return await run({sql,preflight});}
   finally{sql.close();}
 }
 test('empty owner D1 inventory permits only synthetic Alice; Bob records are preserved',async()=>fixture(async({sql,preflight})=>{
