@@ -73,6 +73,10 @@ try {
   });
   await test('nao bloquear em nome de terceiro',()=>assertFails(setDoc(
     block(guest,'ugc-alice','ugc-other'),{createdAt:serverTimestamp()})));
+  await test('nao registrar bloqueio contra membro inexistente',()=>assertFails(setDoc(
+    block(alice,'ugc-alice','usuario-inexistente'),{
+      createdAt:serverTimestamp()
+    })));
   await test('nao bloquear propria conta',()=>assertFails(setDoc(
     block(bob,'ugc-bob','ugc-bob'),{createdAt:serverTimestamp()})));
   await test('nao aceitar horario forjado nem campos extras',async()=>{
@@ -105,6 +109,8 @@ try {
   });
   await test('denuncia autenticada de usuario',()=>assertSucceeds(report(bob,'ugc-bob','ugc-alice')));
   await test('nao sobrescrever denuncia',()=>assertFails(report(bob,'ugc-bob','ugc-alice','Texto alterado')));
+  await test('nao registrar denuncia contra perfil inexistente',()=>assertFails(
+    report(alice,'ugc-alice','usuario-inexistente')));
   await test('nao denunciar a si mesmo',()=>assertFails(report(alice,'ugc-alice','ugc-alice')));
   await test('nao forjar identidade do denunciante',()=>assertFails(report(bob,'ugc-alice','ugc-other')));
   await test('nao aceitar motivo curto',()=>assertFails(report(alice,'ugc-alice','ugc-bob','não')));
