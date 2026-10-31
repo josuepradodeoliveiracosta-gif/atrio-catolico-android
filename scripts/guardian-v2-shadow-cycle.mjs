@@ -44,11 +44,32 @@ export async function checkDailyWorkflowRuns(env,fetcher=fetch,day=new Date().to
     deny('daily_run_cap');
   return n;
 }
-async function boundedJson(fetcher,url,opts){
+// Firestore RPC errors can contain document paths, index links, details or
+// sensitive request context. Record ONLY the stage and a whitelisted status.
+// Never emit Google's raw error.message, URL, response or user content.
+async function boundedJson(fetcher,url,opts,stage='policy'){
+  if(!['policy','posts','replies'].includes(stage))deny('invalid_stage');
   let response;
   try{response=await fetcher(url,{...opts,signal:AbortSignal.timeout(10000),redirect:'error'});}
   catch{deny('firestore_unavailable');}
-  if(response?.status!==200)deny('firestore_http_'+(response?.status??'unknown'));
+  if(response?.status!==200){
+    let code='UNKNOWN';
+    // Read a strictly bounded diagnostic error. Never print its content.
+    try{
+      if([400,401,403,412].includes(response?.status)){
+        const raw=await response.text();
+        if(typeof raw==='string' && raw.length<=4096){
+          const parsed=JSON.parse(raw);
+          const status=parsed?.error?.status;
+          if(['INVALID_ARGUMENT','FAILED_PRECONDITION','PERMISSION_DENIED',
+            'UNAUTHENTICATED','RESOURCE_EXHAUSTED'].includes(status))
+            code=status;
+        }
+      }
+    }catch{}
+    deny('firestore_'+stage+'_http_'+(response?.status??'unknown')+
+      '_'+code.toLowerCase());
+  }
   if(Number(response.headers?.get?.('content-length')||0)>MAX_RESPONSE_BYTES)
     deny('response_too_large');
   let raw;
@@ -79,7 +100,7 @@ export async function runShadowCycle(env=process.env,fetcher=fetch,classifier=cl
   const headers={Authorization:'Bearer '+env.WIF_ACCESS_TOKEN,Accept:'application/json'};
   const policy=policyOf(await boundedJson(fetcher,BASE+
     '/guardian_config/policy?mask.fieldPaths=enabled&mask.fieldPaths=emergencyStop&mask.fieldPaths=allowHold&mask.fieldPaths=shadowEnabled',
-    {method:'GET',headers}));
+    {method:'GET',headers},'policy'));
   // Observação somente sob permissão explícita e motor punitivo desligado.
   // Parada emergencial sempre prevalece, mesmo no modo sombra.
   if(!policy.shadowEnabled||policy.moderationEnabled||policy.stopped||policy.hold)
@@ -99,7 +120,7 @@ export async function runShadowCycle(env=process.env,fetcher=fetch,classifier=cl
     const rows=await boundedJson(fetcher,BASE+':runQuery',{
       method:'POST',headers:{...headers,'Content-Type':'application/json'},
       body:JSON.stringify(query)
-    });
+    },group.id);
     if(!Array.isArray(rows)||rows.length>MAX_PER_GROUP+1)
       deny('unexpected_query_result');
     let seen=0;
