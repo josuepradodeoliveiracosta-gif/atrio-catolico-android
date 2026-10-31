@@ -6,6 +6,8 @@ import {scanPagedCycle} from '../../guardian-worker/src/scan-paged.js';
 import {processDocument,processReport} from '../../guardian-worker/src/index.js';
 import {ROOT,str} from '../../guardian-worker/src/firestore.js';
 import {createQaPrivilegedWriteBarrier} from './qa-privileged-write-barrier.js';
+import {qaBuildGuardianScanMetrics,createQaGuardianRuntimeMetricsGate,
+  QA_GUARDIAN_METRICS_READINESS} from './qa-guardian-runtime-metrics-gate.js';
 import {createQaGuardianPagedCheckpointGate,QA_GUARDIAN_CHECKPOINT_READINESS}
   from './qa-guardian-paged-checkpoint-gate.js';
 
@@ -175,6 +177,107 @@ test('forged cursor, time regression and completed checkpoint cannot be accepted
     await assert.rejects(g.update('guardian_runtime/scan_posts',
       C('running',start,'2026-10-31T15:20:00.000Z'),current.updateTime),
       /qa_guardian_checkpoint_invalid_transition/);
+    assert.equal(t.db.commits,0);
+  }finally{t.sql.close();}
+});
+
+
+test('actual paged Guardião scan may write only aggregated last_scan telemetry in QA',async()=>{
+  const t=setup([content(B,'qa_alive')]);
+  try{
+    const gate=createQaGuardianRuntimeMetricsGate({
+      db:t.db,barrier:t.barrier,verifyEffect:async()=>true
+    });
+    const result=await scanPagedCycle(gate,{enabled:true,allowHold:false},
+      {onDocument:processDocument,onReport:processReport},NOW);
+    assert.equal(result.review,1);
+    assert.equal(result.error,0);
+    const snapshot=qaBuildGuardianScanMetrics(result,NOW);
+    await gate.create('guardian_runtime/last_scan',snapshot);
+    const stored=await t.db.get('guardian_runtime/last_scan');
+    assert.deepEqual(stored.fields,snapshot);
+    assert.deepEqual(Object.keys(stored.fields).sort(),[
+      'backlogGroups','changed','error','pausedGroups','review','scannedAt','warn']);
+    assert.equal((await t.barrier.status(B)).inFlight,0);
+    assert.equal(QA_GUARDIAN_METRICS_READINESS.productionIntegrated,false);
+    assert.equal(QA_GUARDIAN_METRICS_READINESS.metricsOnly,true);
+  }finally{t.sql.close();}
+});
+test('frozen author pauses Guardian scan, while QA metrics contain no user data',async()=>{
+  const t=setup([content(A,'qa_frozen')]);
+  try{
+    await t.barrier.beginFreeze(A);await t.barrier.finalizeFreeze(A);
+    const gate=createQaGuardianRuntimeMetricsGate({
+      db:t.db,barrier:t.barrier,verifyEffect:async()=>true
+    });
+    const result=await scanPagedCycle(gate,{enabled:true,allowHold:false},
+      {onDocument:processDocument,onReport:processReport},NOW);
+    assert.equal(result.error,1);
+    assert.equal(result.pausedGroups,1);
+    assert.equal(t.db.commits,0);
+    const fields=qaBuildGuardianScanMetrics(result,NOW);
+    await gate.create('guardian_runtime/last_scan',fields);
+    assert.equal(JSON.stringify(fields).includes(A),false);
+    assert.equal(JSON.stringify(fields).includes('body'),false);
+    assert.equal((await t.db.get('guardian_runtime/scan_replies'))
+      .fields.cursorName.stringValue,'');
+    assert.equal((await t.barrier.status(A)).state,'frozen');
+  }finally{t.sql.close();}
+});
+test('last_scan allows fresh CAS update, but not stale version or older time',async()=>{
+  const t=setup();
+  try{
+    const gate=createQaGuardianRuntimeMetricsGate({
+      db:t.db,barrier:t.barrier,verifyEffect:async()=>true
+    });
+    const path='guardian_runtime/last_scan';
+    const first=qaBuildGuardianScanMetrics({review:2,error:0},WHEN);
+    await gate.create(path,first);
+    let saved=await t.db.get(path);
+    await assert.rejects(gate.create(path,first),/qa_guardian_metrics_existing_metrics/);
+    await assert.rejects(gate.update(path,first,'fake-etag'),
+      /qa_guardian_metrics_stale_version/);
+    const next=qaBuildGuardianScanMetrics({review:3,changed:1},NOW);
+    await gate.update(path,next,saved.updateTime);
+    const latest=await t.db.get(path);
+    assert.equal(latest.fields.review.integerValue,'3');
+    await assert.rejects(gate.update(path,first,latest.updateTime),
+      /qa_guardian_metrics_time_rollback/);
+    await assert.rejects(gate.update(path,next,saved.updateTime),
+      /qa_guardian_metrics_stale_version/);
+    assert.equal((await t.db.get(path)).updateTime,latest.updateTime);
+    assert.equal(t.db.commits,0);
+  }finally{t.sql.close();}
+});
+test('last_scan denies injected account IDs, invalid counters and other collections',async()=>{
+  const t=setup();
+  try{
+    const gate=createQaGuardianRuntimeMetricsGate({
+      db:t.db,barrier:t.barrier,verifyEffect:async()=>true
+    });
+    const path='guardian_runtime/last_scan';
+    const valid=qaBuildGuardianScanMetrics({review:1},NOW);
+    for(const fields of [
+      {...valid,uid:str(A)},
+      {...valid,postId:str('qa_topic')},
+      {...valid,review:{stringValue:'1'}},
+      {...valid,review:{integerValue:'-1'}},
+      {...valid,review:{integerValue:'501'}},
+      {...valid,scannedAt:{timestampValue:'not-a-date'}},
+      {...valid,scannedAt:{timestampValue:WHEN,ownerUid:str(A)}}
+    ])await assert.rejects(gate.create(path,fields),
+      /qa_guardian_metrics_invalid_(schema|counter|timestamp)/);
+    for(const other of ['users/'+A,'guardian_cases/qa_fake',
+      'guardian_config/policy','guardian_runtime/metrics_other']){
+      await assert.rejects(gate.create(other,valid),
+        /qa_guardian_checkpoint_unlisted_path/);
+    }
+    for(const invalid of [
+      {review:-1}, {review:0.5}, {review:9999},
+      {review:'1'}, {status:'disabled'}
+    ])assert.throws(()=>qaBuildGuardianScanMetrics(invalid,NOW),
+      /qa_guardian_metrics_invalid_(counter|scan_result)/);
+    assert.equal(await t.db.get(path),null);
     assert.equal(t.db.commits,0);
   }finally{t.sql.close();}
 });
