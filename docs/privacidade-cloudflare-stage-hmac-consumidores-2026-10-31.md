@@ -1,3 +1,5 @@
+> **RESULTADO REMOTO CONFIRMADO — 31/10/2026:** o ensaio de cinco Service Bindings retornou `passed` e foi persistido em `qa_stage_smoke_runs` no D1 de QA. Foram observados **zero tickets em aberto**, Alice/Bob `active`, e o cron temporário foi **removido** com leitura posterior confirmando lista de agendamentos vazia. O Worker de smoke permanece privado, com `workers.dev=false` e `previews_enabled=false`. Esta evidência só valida fixtures de QA, não a exclusão de contas reais.
+
 # Átrio Católico — Stage Cloudflare privado, HMAC e consumidores
 
 **Data da implantação:** 31/10/2026. **PR #98 (rascunho).**
