@@ -126,7 +126,32 @@ function stages(self){
         assertLease();
         return removeQaAuthAfterReconciliation({
           uid:UID,db,media,auth,context,assertLease,
-          ...(external?{removeRemote:uid=>external.auth.remove(uid)}:{})
+          ...(external?{
+            removeRemote:uid=>external.auth.remove(uid),
+            // Re-check external state AFTER the asynchronous Firestore
+            // reconciliation, not just before entering the Auth fence.
+            preRemoteCheck:async uid=>{
+              if(uid!==UID)fail('last_mile_unexpected_uid');
+              assertLease();
+              if(external.workers && external.workers.verify(uid)!==true)
+                fail('last_mile_worker_not_drained');
+              if(external.freeze && await external.freeze.verify(uid)!==true)
+                fail('last_mile_freeze_not_verified');
+              assertLease();
+              if(await external.media.exists(uid,MEDIA_ID)!==false)
+                fail('last_mile_known_media_present');
+              assertLease();
+              if(await external.media.assertOwnerEmpty(uid)!==true)
+                fail('last_mile_media_inventory_unverified');
+              assertLease();
+              if(await external.d1.assertOwnerCleared(uid)!==true)
+                fail('last_mile_d1_inventory_unverified');
+              assertLease();
+              await verifyRetention(db,external);
+              assertLease();
+              return true;
+            }
+          }:{})
         });
       },
       verify:async()=>!auth.has(UID) &&

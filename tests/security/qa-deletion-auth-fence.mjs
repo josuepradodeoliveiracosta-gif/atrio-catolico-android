@@ -14,7 +14,7 @@ const HOST='127.0.0.1:8089';
 const PROJECT='demo-atrio-v11';
 const EXPECTED='qa_reconciled_known_scopes_only';
 
-function guard({uid,db,auth,media,context,assertLease,reconcile,removeRemote}) {
+function guard({uid,db,auth,media,context,assertLease,reconcile,removeRemote,preRemoteCheck}) {
   if(process.env.FIRESTORE_EMULATOR_HOST!==HOST ||
      process.env.GCLOUD_PROJECT!==PROJECT ||
      process.env.FIREBASE_SERVICE_ACCOUNT_JSON ||
@@ -25,7 +25,9 @@ function guard({uid,db,auth,media,context,assertLease,reconcile,removeRemote}) {
   if(uid!==UID || !db || !(auth instanceof Set) || !(media instanceof Set) ||
      context?.writesFrozen!==true || typeof assertLease!=='function' ||
      typeof reconcile!=='function' ||
-     (removeRemote!==undefined && typeof removeRemote!=='function'))
+     (removeRemote!==undefined && typeof removeRemote!=='function') ||
+     (preRemoteCheck!==undefined && typeof preRemoteCheck!=='function') ||
+     (removeRemote!==undefined && typeof preRemoteCheck!=='function'))
     throw Error('qa_auth_invalid_fixture_context');
 }
 
@@ -36,9 +38,9 @@ function guard({uid,db,auth,media,context,assertLease,reconcile,removeRemote}) {
  */
 export async function removeQaAuthAfterReconciliation({
   uid,db,auth,media,context,assertLease,
-  reconcile=assertQaReconciled,removeRemote
+  reconcile=assertQaReconciled,removeRemote,preRemoteCheck
 }={}) {
-  guard({uid,db,auth,media,context,assertLease,reconcile,removeRemote});
+  guard({uid,db,auth,media,context,assertLease,reconcile,removeRemote,preRemoteCheck});
   assertLease();
   const report=await reconcile({uid,db,auth,media,context,expectedAuth:'either'});
   if(report?.state!==EXPECTED || report.productionReady!==false ||
@@ -49,6 +51,15 @@ export async function removeQaAuthAfterReconciliation({
   // Important: the earlier lease may have expired WHILE awaiting Firestore.
   // A stale runner must NEVER erase even the fake identity after takeover.
   assertLease();
+  // A moderation hold, newly admitted Worker operation, remote media, or
+  // changed deletion request can appear WHILE Firestore reconciliation awaits
+  // network I/O. The last-mile preflight MUST re-read them after that await.
+  // Real cross-service atomicity/IAM is OUTSIDE this disposable QA design.
+  if(preRemoteCheck){
+    if(await preRemoteCheck(uid)!==true)
+      throw Error('qa_auth_last_mile_preflight_unverified');
+    assertLease(); // The preflight itself may await external stores.
+  }
   if(removeRemote){
     // External deletion is ONLY an Auth Emulator self-delete in this QA
     // module. A timeout cannot prove that the remote effect did not occur.

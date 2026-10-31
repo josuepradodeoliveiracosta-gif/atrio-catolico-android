@@ -146,6 +146,86 @@ try {
       assert.equal(input.auth.has(A),true);
     });
 
+
+  await test('a new retention hold DURING asynchronous reconciliation blocks remote Auth',async()=>{
+    const entered=deferred(),resume=deferred();
+    let held=false,remoteCalls=0,preflightCalls=0;
+    const input=fixture({
+      reconcile:async()=>{
+        entered.signal();await resume.promise;return REPORT;
+      },
+      preRemoteCheck:async uid=>{
+        preflightCalls++;
+        assert.equal(uid,A);
+        if(held)throw Error('qa_retention_review_stale');
+        return true;
+      },
+      removeRemote:async()=>{remoteCalls++;}
+    });
+    const pending=removeQaAuthAfterReconciliation(input);
+    await entered.promise;
+    held=true; // New moderation event while Firestore is in flight.
+    resume.signal();
+    await assert.rejects(pending,/qa_retention_review_stale/);
+    assert.equal(preflightCalls,1);
+    assert.equal(remoteCalls,0);
+    assert.equal(input.auth.has(A),true);
+    assert.equal(input.auth.has(B),true);
+  });
+
+  await test('ambiguous final preflight rejects Auth deletion with fail-closed result',async()=>{
+    for(const value of [false,undefined,null,0]){
+      let remoteCalls=0;
+      const input=fixture({
+        removeRemote:async()=>{remoteCalls++;},
+        preRemoteCheck:async()=>value
+      });
+      await assert.rejects(removeQaAuthAfterReconciliation(input),
+        /qa_auth_last_mile_preflight_unverified/);
+      assert.equal(remoteCalls,0);
+      assert.equal(input.auth.has(A),true);
+      assert.equal(input.auth.has(B),true);
+    }
+    const missing=fixture({removeRemote:async()=>{}});
+    await assert.rejects(removeQaAuthAfterReconciliation(missing),
+      /qa_auth_invalid_fixture_context/);
+    assert.equal(missing.auth.has(A),true);
+  });
+
+  await test('lost lease WHILE final preflight awaits blocks remote and fake Auth',async()=>{
+    const entered=deferred(),resume=deferred();
+    let leaseValid=true,remoteCalls=0;
+    const input=fixture({
+      assertLease:()=>{if(!leaseValid)throw Error('qa_lease_lost');},
+      preRemoteCheck:async()=>{
+        entered.signal();await resume.promise;
+        return true;
+      },
+      removeRemote:async()=>{remoteCalls++;}
+    });
+    const pending=removeQaAuthAfterReconciliation(input);
+    await entered.promise;
+    leaseValid=false;
+    resume.signal();
+    await assert.rejects(pending,/qa_lease_lost/);
+    assert.equal(remoteCalls,0);
+    assert.equal(input.auth.has(A),true);
+    assert.equal(input.auth.has(B),true);
+  });
+
+  await test('valid checked final boundary allows only synthetic account removal',async()=>{
+    let checked=0,remoteCalls=0;
+    const input=fixture({
+      preRemoteCheck:async uid=>{assert.equal(uid,A);checked++;return true;},
+      removeRemote:async uid=>{assert.equal(uid,A);remoteCalls++;}
+    });
+    await removeQaAuthAfterReconciliation(input);
+    assert.equal(checked,1);
+    assert.equal(remoteCalls,1);
+    assert.equal(input.auth.has(A),false);
+    assert.equal(input.auth.has(B),true);
+  });
+
   await test('other user, missing freeze or real credentials are rejected',
     async()=>{
       for(const patch of [{uid:B},{context:{writesFrozen:false}},
