@@ -72,6 +72,20 @@ export class QaSqliteLease {
       this.db.exec('COMMIT');
     }catch(error){this.db.exec('ROLLBACK');throw error;}
   }
+  // The lease check and checkpoint are committed under the same SQLite
+  // IMMEDIATE write transaction: a superseded worker cannot journal success.
+  commitCheckpoint(lease,step){
+    if(typeof step!=='string' || !/^[a-z_]{3,64}$/.test(step))
+      throw Error('invalid_qa_checkpoint');
+    this.db.exec('BEGIN IMMEDIATE');
+    try{
+      this.assertOwned(lease);
+      this.db.prepare('INSERT INTO qa_deletion_checkpoints (step,finished) VALUES (?,1)')
+        .run(step);
+      this.db.exec('COMMIT');
+    }catch(error){this.db.exec('ROLLBACK');throw error;}
+  }
+  isBoundTo(database){return database===this.db;}
   release(lease){
     if(!lease||typeof lease.token!=='string'||
        !Number.isSafeInteger(lease.generation))return;
