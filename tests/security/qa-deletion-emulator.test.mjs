@@ -109,6 +109,32 @@ try {
     console.log('PASS QA DELETION immutable request binding survives restart');
   });
 
+  await test('QA request changed during a phase prevents a success checkpoint',async()=>{
+    await inDemo(async(db,aux)=>{
+      const runner=new QaDeletionRunner({db,...aux});
+      const original=runner.stages.remove_relational;
+      runner.stages.remove_relational={
+        ...original,
+        apply:async leaseCheck=>{
+          await original.apply(leaseCheck);
+          // Simulate an asynchronous external modification in the middle
+          // of a QA fixture operation. Real effects cannot be rolled back.
+          await setDoc(doc(db,'account_deletion_requests/'+alice),{
+            status:'requested',source:'web',
+            requestedAt:new Date('2026-10-31T12:00:00Z')
+          });
+        }
+      };
+      await assert.rejects(runner.run({approved:true}),
+        /qa_request_binding_changed/);
+      assert.deepEqual(runner.completed(),QA_STEPS.slice(0,2));
+      assert.equal(aux.auth.has(alice),true);
+      assert.equal(aux.auth.has(bob),true);
+      await allPresent(db,[...QA_FIXTURES.roots,...QA_FIXTURES.preserved]);
+    });
+    console.log('PASS QA DELETION concurrent request edit cannot checkpoint');
+  });
+
   await test('QA request binding rejects missing, malformed, or unbound resume',async()=>{
     for(const change of [
       {status:'requested',source:'web'},
