@@ -297,8 +297,8 @@ try {
       await setDoc(doc(db,'users/'+bob+'/acceptedTerms/ugc-v1'),{
         version:'ugc-v1',origin:'QA Bob-only consent'
       });
-      await setDoc(doc(db,'users/'+bob+'/blockedMembers/'+alice),{
-        origin:'QA Bob-only block'
+      await setDoc(doc(db,'users/'+bob+'/blockedMembers/qa-unrelated-user'),{
+        origin:'QA Bob-only unrelated block'
       });
       const runner=new QaDeletionRunner({db,...aux});
       const state=await runner.run({approved:true});
@@ -306,11 +306,27 @@ try {
       await allAbsent(db,['users/'+alice+'/acceptedTerms/ugc-v1',
         'users/'+alice+'/blockedMembers/'+bob]);
       await allPresent(db,['users/'+bob+'/acceptedTerms/ugc-v1',
-        'users/'+bob+'/blockedMembers/'+alice]);
+        'users/'+bob+'/blockedMembers/qa-unrelated-user']);
       assert.equal(aux.auth.has(alice),false);
       assert.equal(aux.auth.has(bob),true);
     });
     console.log('PASS QA DELETION UGC private collections scoped to owner');
+  });
+
+  await test('UGC block under Bob targeting Alice prevents fake Auth deletion',async()=>{
+    await inDemo(async(db,aux)=>{
+      await assert.rejects(new QaDeletionRunner({db,...aux}).run({
+        approved:true,failBeforeEffect:'remove_auth_stub_last'
+      }),/injected_failure_before_effect:remove_auth_stub_last/);
+      const otherBlock='users/'+bob+'/blockedMembers/'+alice;
+      await setDoc(doc(db,otherBlock),{createdAt:new Date('2026-10-31T12:00:00Z')});
+      await assert.rejects(new QaDeletionRunner({db,...aux,context:{}})
+        .run({approved:true}),/qa_reconciliation_residual_firestore/);
+      await allPresent(db,[otherBlock,...QA_FIXTURES.preserved]);
+      assert.equal(aux.auth.has(alice),true);
+      assert.equal(aux.auth.has(bob),true);
+    });
+    console.log('PASS QA DELETION UGC foreign block reference blocks Auth');
   });
 
   await test('UGC user reports by author and target block fake Auth until retention review',async()=>{
