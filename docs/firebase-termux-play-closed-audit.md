@@ -55,6 +55,15 @@ nomes, e-mails, tokens, dados de usuários, API keys ou identificadores de
 dispositivos. O CLI pode precisar de permissões de visualização. Falha de
 rede/permissão é **não verificado**, jamais confirmação de ausência.
 
+**Importante sobre índices existentes:** a exportação do Firebase pode incluir
+modos adicionais, como `arrayConfig: CONTAINS`. A auditoria compara se os
+modos **exigidos** pelo código estão presentes e informa quando há
+configurações extras a preservar, sem tratá-las falsamente como ausentes.
+Se aparecer o aviso `PRESERVAR`, um deploy direto do
+`firestore.indexes.json` local pode remover índices ou configurações
+existentes. **Não execute deploy antes de comparar e conciliar ambos.**
+O comando `firestore:indexes` não comprova o estado `READY`.
+
 **Limites:** a auditoria não lê nem compara as regras Firestore de produção,
 não ativa Authentication (E-mail/Senha), não cria aplicativo Web, não configura
 domínios autorizados e não testa a política de exclusão real. Um resultado

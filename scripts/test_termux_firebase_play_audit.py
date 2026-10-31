@@ -65,6 +65,29 @@ class AuditTests(unittest.TestCase):
         remote["indexes"]["fieldOverrides"][0]["indexes"][0]["queryScope"] = "COLLECTION_GROUP"
         self.assertIn("override_indice_ausente", audit.evaluate(local, remote))
 
+    def test_preserve_remote_array_contains_in_addition_to_required_indexes(self):
+        local, remote = sample()
+        extra = {"queryScope": "COLLECTION", "arrayConfig": "CONTAINS"}
+        remote["indexes"]["fieldOverrides"][0]["indexes"].append(extra)
+        self.assertEqual(audit.evaluate(local, remote), [])
+        self.assertTrue(audit.additional_remote_override_modes(local, remote))
+        self.assertEqual(len(local["indexes"]["fieldOverrides"][0]["indexes"]), 3)
+
+    def test_missing_required_collection_group_index_is_still_blocked(self):
+        local, remote = sample()
+        overrides = remote["indexes"]["fieldOverrides"][0]["indexes"]
+        remote["indexes"]["fieldOverrides"][0]["indexes"] = [
+            x for x in overrides if x["queryScope"] != "COLLECTION_GROUP"
+        ] + [{"queryScope": "COLLECTION", "arrayConfig": "CONTAINS"}]
+        self.assertIn("override_indice_ausente", audit.evaluate(local, remote))
+        self.assertFalse(audit.additional_remote_override_modes(local, remote))
+
+    def test_extra_ttl_flag_requires_preserving_existing_configuration(self):
+        local, remote = sample()
+        remote["indexes"]["fieldOverrides"][0]["ttl"] = True
+        self.assertEqual(audit.evaluate(local, remote), [])
+        self.assertTrue(audit.additional_remote_override_modes(local, remote))
+
     def test_firebase_cli_index_export_without_state_never_proves_ready(self):
         local, remote = sample()
         remote["indexes"]["indexes"][0].pop("state")

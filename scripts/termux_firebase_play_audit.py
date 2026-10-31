@@ -156,16 +156,40 @@ def evaluate(local, remote):
         elif not any(x.get("state") == "READY" for x in matches):
             issues.append("indice_composto_ainda_nao_pronto")
     for desired in local["indexes"]["fieldOverrides"]:
+        # Um campo pode ter modos de indexacao REMOTOS adicionais. Nao tratar
+        # esses modos como ausencia do override necessario para o aplicativo.
+        expected = override_modes(desired)
         if not any(isinstance(x, dict) and
                    x.get("collectionGroup") == desired.get("collectionGroup") and
                    x.get("fieldPath") == desired.get("fieldPath") and
-                   {(i.get("order"), i.get("queryScope"), i.get("arrayConfig"))
-                    for i in x.get("indexes", []) if isinstance(i, dict)} ==
-                   {(i.get("order"), i.get("queryScope"), i.get("arrayConfig"))
-                    for i in desired.get("indexes", []) if isinstance(i, dict)}
+                   expected.issubset(override_modes(x))
                    for x in overrides):
             issues.append("override_indice_ausente")
     return issues
+
+
+def override_modes(value):
+    indexes = value.get("indexes")
+    if not isinstance(indexes, list) or any(not isinstance(i, dict) for i in indexes):
+        raise AuditError("modos_indice_invalidos")
+    return {(i.get("order"), i.get("queryScope"), i.get("arrayConfig"))
+            for i in indexes}
+
+
+def additional_remote_override_modes(local, remote):
+    """Identifica configuracao extra a preservar; nunca sugere exclusao."""
+    remotes = records(remote["indexes"], "fieldOverrides")
+    for desired in local["indexes"]["fieldOverrides"]:
+        required = override_modes(desired)
+        for item in remotes:
+            if (isinstance(item, dict) and
+                item.get("collectionGroup") == desired.get("collectionGroup") and
+                item.get("fieldPath") == desired.get("fieldPath") and
+                required.issubset(override_modes(item)) and
+                (override_modes(item) != required or
+                 item.get("ttl", False) != desired.get("ttl", False))):
+                return True
+    return False
 
 
 def main():
@@ -192,8 +216,13 @@ def main():
         return 2
     try:
         issues = evaluate(local, remote)
+        preserve_extra = additional_remote_override_modes(local, remote)
     except AuditError:
         issues = ["resposta_firebase_inesperada_revisao_manual"]
+        preserve_extra = False
+    if preserve_extra:
+        print("AVISO: configuracao remota de indice adicional encontrada.")
+        print("PRESERVAR antes de qualquer deploy; o arquivo local nao e uma copia completa.")
     if issues:
         print("PENDENTE: " + ", ".join(issues))
         print("NÃO execute firebase deploy para corrigir automaticamente.")
