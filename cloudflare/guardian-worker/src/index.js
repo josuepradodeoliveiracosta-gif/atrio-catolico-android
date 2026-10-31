@@ -208,7 +208,7 @@ export async function handleRequest(request,env) {
   if(qaSharedMode(env)){
     try{
       const result=await qaSharedWorkerRequest(request,env,'guardian');
-      return qaSharedResponse(200,result.status);
+      return qaSharedResponse(200,result.status,result.operationId);
     }catch{return qaSharedResponse(503,'qa_shared_worker_denied');}
   }
   const path=new URL(request.url).pathname;
