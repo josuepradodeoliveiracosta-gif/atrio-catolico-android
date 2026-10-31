@@ -47,7 +47,7 @@ function harness(docs=[]) {
       const name=w.update?.name||w.delete||w.verify;
       const rel=name.slice(ROOT.length+1);
       if(w.verify)continue;
-      if(w.delete){data.delete(rel);continue;}
+      if(w.delete){data.set(rel,null);continue;} // QA tombstone, never destructive
       const old=data.get(rel);
       data.set(rel,{name,updateTime:'2026-10-31T12:00:05.000000Z',
         fields:{...(old?.fields||{}),...w.update.fields}});
