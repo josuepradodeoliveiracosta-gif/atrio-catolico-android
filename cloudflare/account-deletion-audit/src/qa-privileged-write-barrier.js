@@ -89,9 +89,20 @@ export function createQaPrivilegedWriteBarrier(db) {
       // finalization. External effects must be reconciled before release.
       if(await verified()!==true)throw Error('qa_unverified_external_effect');
       const slots=ticket.accounts.map(()=>'?').join(',');
+      // Require the provided account set to match the WHOLE ledger entry.
+      // Each count is checked inside the SAME DELETE statement; a forged
+      // subset must not erase one leg of a multi-user notification.
       const rows=await all(db,
         'DELETE FROM qa_privileged_operations WHERE operation_id = ? AND kind = ? '+
-        'AND uid IN ('+slots+') RETURNING uid',ticket.id,ticket.kind,...ticket.accounts);
+        'AND uid IN ('+slots+') '+
+        'AND (SELECT COUNT(*) FROM qa_privileged_operations '+
+        'WHERE operation_id = ? AND kind = ?) = ? '+
+        'AND (SELECT COUNT(*) FROM qa_privileged_operations '+
+        'WHERE operation_id = ? AND kind = ? AND uid IN ('+slots+')) = ? '+
+        'RETURNING uid',
+        ticket.id,ticket.kind,...ticket.accounts,
+        ticket.id,ticket.kind,ticket.accounts.length,
+        ticket.id,ticket.kind,...ticket.accounts,ticket.accounts.length);
       if(rows.length!==ticket.accounts.length)
         throw Error('qa_ticket_already_closed_or_forged');
       return true;
