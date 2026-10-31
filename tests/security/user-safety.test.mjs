@@ -35,6 +35,19 @@ try {
     await assertSucceeds(reply(bob,'p-ugc-alice','before','ugc-bob','Bob'));
     await assertSucceeds(reply(alice,'p-ugc-bob','before','ugc-alice','Alice'));
   });
+  const engagement=(db,kind,uid,postId)=>doc(db,'users/'+uid+'/'+kind+'/'+postId);
+  const reaction=(db,postId,replyId,uid)=>doc(db,
+    'posts/'+postId+'/replies/'+replyId+'/reactions/'+uid);
+  await test('interacoes permitidas antes de bloquear e reversiveis',async()=>{
+    for(const kind of ['likedPosts','savedPosts','followedPosts']){
+      const target=engagement(bob,kind,'ugc-bob','p-ugc-alice');
+      await assertSucceeds(setDoc(target,{createdAt:serverTimestamp()}));
+      await assertSucceeds(deleteDoc(target));
+    }
+    const target=reaction(bob,'p-ugc-alice','before','ugc-bob');
+    await assertSucceeds(setDoc(target,{kind:'heart',createdAt:serverTimestamp()}));
+    await assertSucceeds(deleteDoc(target));
+  });
   await test('bloqueio do titular',()=>assertSucceeds(setDoc(
     block(alice,'ugc-alice','ugc-bob'),{createdAt:serverTimestamp()})));
   await test('bloqueio lido apenas pelo titular',async()=>{
@@ -47,6 +60,16 @@ try {
   await test('bloqueio reciproco impede resposta ao post',async()=>{
     await assertFails(reply(bob,'p-ugc-alice','blocked-b','ugc-bob','Bob'));
     await assertFails(reply(alice,'p-ugc-bob','blocked-a','ugc-alice','Alice'));
+  });
+  await test('bloqueio tambem impede curtidas, salvos, seguir e reacoes',async()=>{
+    for(const kind of ['likedPosts','savedPosts','followedPosts']){
+      await assertFails(setDoc(engagement(bob,kind,'ugc-bob','p-ugc-alice'),{
+        createdAt:serverTimestamp()
+      }));
+    }
+    await assertFails(setDoc(reaction(bob,'p-ugc-alice','before','ugc-bob'),{
+      kind:'heart',createdAt:serverTimestamp()
+    }));
   });
   await test('nao bloquear em nome de terceiro',()=>assertFails(setDoc(
     block(guest,'ugc-alice','ugc-other'),{createdAt:serverTimestamp()})));
@@ -69,6 +92,16 @@ try {
   await test('desbloqueio bilateral restaura resposta',async()=>{
     await assertSucceeds(deleteDoc(block(bob,'ugc-bob','ugc-alice')));
     await assertSucceeds(reply(alice,'p-ugc-bob','after','ugc-alice','Alice'));
+  });
+  await test('desbloqueio permite curtida, salvar, seguir e reagir novamente',async()=>{
+    for(const kind of ['likedPosts','savedPosts','followedPosts']){
+      await assertSucceeds(setDoc(engagement(bob,kind,'ugc-bob','p-ugc-alice'),{
+        createdAt:serverTimestamp()
+      }));
+    }
+    await assertSucceeds(setDoc(reaction(bob,'p-ugc-alice','before','ugc-bob'),{
+      kind:'heart',createdAt:serverTimestamp()
+    }));
   });
   await test('denuncia autenticada de usuario',()=>assertSucceeds(report(bob,'ugc-bob','ugc-alice')));
   await test('nao sobrescrever denuncia',()=>assertFails(report(bob,'ugc-bob','ugc-alice','Texto alterado')));
