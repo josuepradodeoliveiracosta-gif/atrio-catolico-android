@@ -60,3 +60,22 @@ test('a validação de estágio Cloudflare não pode contar como proteção do W
   assert.ok(report.workerMutationCoverage.reviewGapLabels.some(x=>x.includes('older deployed revisions')));
   assert.ok(report.workerMutationCoverage.reviewGapLabels.some(x=>x.includes('FCM send')));
 });
+
+test('OTA APK usa instalação de pacotes, mas a variante Play não tem remoção verificada',()=>{
+  const result=inspectCheckedInClosedTrack();
+  assert.equal(result.permissionReview.otaInstallPermissionInMain,true);
+  assert.equal(result.permissionReview.playManifestRemovesOtaInstallPermission,false);
+  assert.equal(result.permissionReview.mergedAabManifestAudited,false);
+  assert.ok(result.blockers.includes('sideload_install_permission_may_reach_play_aab'));
+  assert.ok(result.blockers.includes('play_manifest_permission_overlay_not_verified'));
+});
+test('overlay de Play pode mitigar permissão sem mudar o manifesto OTA',()=>{
+  const r=assessClosedTrack({evidence:evidence(),files:{
+    mainManifest:'<uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />',
+    playManifest:'<uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" tools:node="remove"/>'
+  }});
+  assert.equal(r.permissionReview.playManifestRemovesOtaInstallPermission,true);
+  assert.equal(r.permissionReview.otaInstallPermissionInMain,true);
+  assert.ok(!r.blockers.includes('sideload_install_permission_may_reach_play_aab'));
+  assert.equal(r.eligibleForUpload,false,'merged AAB still unverified');
+});
