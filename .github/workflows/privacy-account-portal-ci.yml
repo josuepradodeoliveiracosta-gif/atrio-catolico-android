@@ -54,6 +54,7 @@ jobs:
           node --check tests/security/qa-external-emulators.mjs
           node --check tests/security/qa-auth-cloudinary-emulator.test.mjs
           node --check tests/security/admin-fixture/qa-admin-sdk-auth.mjs
+          node --check tests/security/admin-fixture/qa-admin-firestore-freeze.mjs
           node --check tests/security/admin-fixture/qa-admin-sdk-e2e.test.mjs
       - name: Testar auditoria e simulador de exclusão sem produção
         run: node --experimental-sqlite --test cloudflare/account-deletion-audit/src/*.test.js tests/security/account-deletion-web.test.mjs
