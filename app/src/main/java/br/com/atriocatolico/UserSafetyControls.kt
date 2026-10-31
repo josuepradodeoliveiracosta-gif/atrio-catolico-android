@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.MetadataChanges
 
 /** Controles por conta, nunca privilégios administrativos. */
 @Composable
@@ -45,15 +46,25 @@ internal fun MemberSafetyControls(
     }
     DisposableEffect(blockRef, viewerUid, memberUid) {
         var active = true
-        val listener = blockRef.addSnapshotListener { snapshot, error ->
+        loaded = false
+        // Enquanto o servidor nao comprovar o estado, ocultar a lista do perfil.
+        onBlockedChange(true)
+        val listener = blockRef.addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, error ->
             if (!active || auth.currentUser?.uid != viewerUid) return@addSnapshotListener
-            if (error == null) {
-                blocked = snapshot?.exists() == true
+            if (error == null && snapshot != null
+                && !snapshot.metadata.isFromCache
+                && !snapshot.metadata.hasPendingWrites()) {
+                blocked = snapshot.exists()
                 loaded = true
                 onBlockedChange(blocked)
-            } else {
+            } else if (error != null) {
                 loaded = false
+                onBlockedChange(true)
                 status = "Não foi possível verificar o bloqueio. Verifique sua conexão."
+            } else {
+                // Nunca interpretar resposta em cache como ausencia de bloqueio.
+                loaded = false
+                onBlockedChange(true)
             }
         }
         onDispose { active = false; listener.remove() }
@@ -77,7 +88,8 @@ internal fun MemberSafetyControls(
                     if (!task.isSuccessful) status = "Não foi possível alterar o bloqueio."
                 }
             }
-        ) { Text(if (blocked) "Desbloquear usuário" else "Bloquear usuário") }
+        ) { Text(if (!loaded) "Verificando bloqueio..." else if (blocked)
+            "Desbloquear usuário" else "Bloquear usuário") }
         OutlinedButton(
             modifier = Modifier.fillMaxWidth().testTag("atrio-member-report"),
             enabled = !busy && auth.currentUser?.uid == viewerUid,
