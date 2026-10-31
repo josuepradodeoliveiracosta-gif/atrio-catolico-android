@@ -255,6 +255,55 @@ try {
     console.log('PASS QA DELETION simulated Firestore Cloudinary Auth outages');
   });
 
+  await test('re-scan catches a NEW orphan push device before fake Auth removal',async()=>{
+    await inDemo(async(db,aux)=>{
+      await assert.rejects(new QaDeletionRunner({db,...aux}).run({
+        approved:true,failBeforeEffect:'remove_auth_stub_last'
+      }),/injected_failure_before_effect:remove_auth_stub_last/);
+      // This ID never appeared in the hardcoded deletion seed.
+      await setDoc(doc(db,'users/'+alice+'/pushDevices/lateDevice'),
+        {uid:alice,origin:'QA late write'});
+      const restarted=new QaDeletionRunner({db,...aux,context:{}});
+      await assert.rejects(restarted.run({approved:true}),
+        /qa_reconciliation_residual_firestore/);
+      assert.equal(aux.auth.has(alice),true,'Auth must remain until fresh scan clears');
+      assert.equal(aux.auth.has(bob),true);
+      await allPresent(db,QA_FIXTURES.preserved);
+    });
+    console.log('PASS QA DELETION new orphan before Auth blocked');
+  });
+
+  await test('re-scan finds a NEW cross-account notification about deleted user',async()=>{
+    await inDemo(async(db,aux)=>{
+      await assert.rejects(new QaDeletionRunner({db,...aux}).run({
+        approved:true,failBeforeEffect:'remove_auth_stub_last'
+      }),/injected_failure_before_effect:remove_auth_stub_last/);
+      await setDoc(doc(db,'users/'+bob+'/notifications/lateAliceReference'),
+        {uid:bob,actorUid:alice,origin:'QA cross-account reference'});
+      const restarted=new QaDeletionRunner({db,...aux,context:{}});
+      await assert.rejects(restarted.run({approved:true}),
+        /qa_reconciliation_residual_firestore/);
+      assert.equal(aux.auth.has(alice),true);
+      assert.equal(aux.auth.has(bob),true);
+      await allPresent(db,QA_FIXTURES.preserved);
+    });
+    console.log('PASS QA DELETION new cross-account reference blocked');
+  });
+
+  await test('final checkpoint detects reintroduced data even AFTER fake Auth removal',async()=>{
+    await inDemo(async(db,aux)=>{
+      const first=await new QaDeletionRunner({db,...aux}).run({approved:true});
+      assert.equal(first.state,'qa_fixture_cleaned_only');
+      await setDoc(doc(db,'users/'+bob+'/notifications/lateMention'),
+        {uid:bob,mentionUid:alice,origin:'QA late reference'});
+      await assert.rejects(new QaDeletionRunner({db,...aux,context:{}})
+        .run({approved:true}),/qa_reconciliation_residual_firestore/);
+      assert.equal(aux.auth.has(alice),false);
+      assert.equal(aux.auth.has(bob),true);
+    });
+    console.log('PASS QA DELETION stale final checkpoint blocked');
+  });
+
 } finally{
   await env.cleanup();
 }
