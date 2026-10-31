@@ -166,11 +166,47 @@ export async function reviewCase(db,uid,input,now=new Date().toISOString()) {
   await db.commit(writes);
   return restored?'restored':'confirmed';
 }
+// Encerramento humano de triagens sem retenção; NUNCA apaga o conteúdo.
+export async function resolveReviewCase(db,uid,input,now=new Date().toISOString()) {
+  if(!VALID_ID.test(uid)||!input||!/^guard_[a-f0-9]{32}$/.test(input.caseId||'')||
+      !['dismiss','acknowledge'].includes(input.action)||
+      typeof input.note!=='string'||input.note.trim().length<5||input.note.length>300)
+    throw denial(400,'invalid_resolution');
+  const root=db.resource||ROOT;
+  const c=await db.get('guardian_cases/'+input.caseId);
+  if(!c?.updateTime||string(c,'engine')!=='v2'||
+      !['review','warned'].includes(string(c,'status')))throw denial(409,'not_pending');
+  const owner=string(c,'ownerUid'),target=string(c,'targetPath');
+  if(!VALID_ID.test(owner)||owner===uid)throw denial(owner===uid?403:409,'invalid_owner');
+  if(!MASK.test(target))throw denial(409,'invalid_target');
+  const source=await db.get(target),original=string(c,'sourceUpdateTime');
+  if(!original||!source?.updateTime||source.updateTime!==original||
+      string(source,'uid')!==owner)throw denial(409,'source_changed');
+  const action=input.action,status=action==='dismiss'?'dismissed':'acknowledged';
+  const at=timestamp(now),fields={
+    status:str(status),reviewedBy:str(uid),reviewNote:str(input.note.trim()),reviewedAt:at
+  };
+  const message=action==='dismiss'
+    ?'O aviso foi encerrado após análise humana, sem infração confirmada.'
+    :'A administração concluiu a análise e registrou uma orientação educativa.';
+  await db.commit([
+    {update:{name:c.name,fields},updateMask:{fieldPaths:Object.keys(fields)},
+      currentDocument:{updateTime:c.updateTime}},
+    {update:{name:root+'/guardian_audit/'+input.caseId+'_'+status,
+      fields:{caseId:str(input.caseId),actor:str(uid),event:str(status),at}},
+      currentDocument:{exists:false}},
+    {update:{name:root+'/guardian_notices/'+owner+'/items/'+input.caseId+'_resolved',
+      fields:{title:str('Átrio Guardião'),body:str(message),caseId:str(input.caseId),
+        action:str(status),createdAt:at}},currentDocument:{exists:false}},
+    {verify:root+'/'+target,currentDocument:{updateTime:original}}
+  ]);
+  return status;
+}
 export async function handleRequest(request,env) {
   const path=new URL(request.url).pathname;
   if(path==='/health')return json(200,env.GUARDIAN_V2_TEST_MODE==='true'?'guardian_v2_qa_safe':'guardian_v2_isolated');
   if(path==='/qa/firebase-fixture')return qaFixtureRequest(request,env);
-  if(!['/admin/config','/admin/review'].includes(path)||request.method!=='POST')return json(404,'not_found');
+  if(!['/admin/config','/admin/review','/admin/resolve'].includes(path)||request.method!=='POST')return json(404,'not_found');
   // QA has no privileged backend operations, even if someone attaches credentials.
   if(env.GUARDIAN_V2_TEST_MODE==='true')return json(503,'qa_read_only');
   try {
@@ -185,6 +221,10 @@ export async function handleRequest(request,env) {
       if(!current?.updateTime)return json(409,'config_not_initialized');
       await db.update('guardian_config/policy',{enabled:{booleanValue:input.enabled},allowHold:{booleanValue:input.allowHold},emergencyStop:{booleanValue:input.emergencyStop}},current.updateTime);
       return json(200,'updated');
+    }
+    if(path==='/admin/resolve') {
+      const decision=await resolveReviewCase(db,uid,input);
+      return json(200,decision);
     }
     if(!input||Object.keys(input).sort().join(',')!=='action,caseId,note'||!/^guard_[a-f0-9]{32}$/.test(input.caseId||'')||!['restore','confirm'].includes(input.action)||typeof input.note!=='string'||input.note.trim().length<5||input.note.length>300)return json(400,'invalid_review');
     const decision=await reviewCase(db,uid,input);

@@ -39,6 +39,12 @@ android {
         val allowed = Regex("^https://[a-zA-Z0-9-]+\\.[a-zA-Z0-9-]+\\.workers\\.dev$")
         require(relayUrl.isBlank() || allowed.matches(relayUrl)) { "ATRIO_PUSH_WORKER_URL invalida" }
         buildConfigField("String", "PUSH_RELAY_URL", "\"$relayUrl\"")
+        // O V2 nunca reutiliza o Worker de push V1; por padrão está desabilitado.
+        val guardianV2Url = System.getenv("ATRIO_GUARDIAN_V2_WORKER_URL").orEmpty()
+        require(guardianV2Url.isBlank() || allowed.matches(guardianV2Url)) {
+            "ATRIO_GUARDIAN_V2_WORKER_URL invalida"
+        }
+        buildConfigField("String", "GUARDIAN_V2_WORKER_URL", "\"$guardianV2Url\"")
         val avatarUrl = System.getenv("ATRIO_AVATAR_WORKER_URL").orEmpty()
         require(avatarUrl.isBlank() || allowed.matches(avatarUrl)) { "ATRIO_AVATAR_WORKER_URL invalida" }
         buildConfigField("String", "AVATAR_WORKER_URL", "\"$avatarUrl\"")

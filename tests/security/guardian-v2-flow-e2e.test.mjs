@@ -6,7 +6,7 @@ import {readFileSync} from 'node:fs';
 import {initializeTestEnvironment,assertFails,assertSucceeds} from '@firebase/rules-unit-testing';
 import {doc,setDoc,getDoc,collection,getDocs} from 'firebase/firestore';
 import {Firestore,caseId} from '../../cloudflare/guardian-worker/src/firestore.js';
-import {scanOnce,processDocument,reviewCase} from '../../cloudflare/guardian-worker/src/index.js';
+import {scanOnce,processDocument,reviewCase,resolveReviewCase} from '../../cloudflare/guardian-worker/src/index.js';
 
 const PROJECT='demo-atrio-v11';
 const HOST='127.0.0.1:8089';
@@ -76,6 +76,18 @@ try{
     assert.equal(notices.size,1);
     const audit=await assertSucceeds(getDocs(collection(admin,'guardian_audit')));
     assert.equal(audit.size,1);
+  });
+
+  await check('admin encerra triagem V2 no Firestore real emulado, preservando texto',async()=>{
+    const path='posts/faith/replies/suspicious',id=await caseId(path);
+    assert.equal(await resolveReviewCase(server,'admin',{caseId:id,action:'dismiss',
+      note:'Revisão humana: contexto interpretado sem infração.'}),'dismissed');
+    assert.equal((await server.get('guardian_cases/'+id)).fields.status.stringValue,'dismissed');
+    assert.ok(await server.get('guardian_audit/'+id+'_dismissed'));
+    assert.ok(await server.get('guardian_notices/alice/items/'+id+'_resolved'));
+    assert.ok(await server.get(path),'A resolução não pode apagar conteúdo');
+    await assert.rejects(resolveReviewCase(server,'admin',{caseId:id,action:'dismiss',
+      note:'Decisão já concluída anteriormente.'}),err=>err?.status===409);
   });
 
   await env.clearFirestore();
