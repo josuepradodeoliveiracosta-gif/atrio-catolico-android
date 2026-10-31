@@ -18,7 +18,7 @@ val atrioKeyAlias = System.getenv("ATRIO_SIGNING_KEY_ALIAS")
 val atrioKeyPassword = System.getenv("ATRIO_SIGNING_KEY_PASSWORD")
 
 // Versão do APK de testes: avançar para 2, 3, ... a cada NOVA atualização Debug.
-// Release V2 autorizado: candidato 0.20.0 / versionCode 35. Assinatura permanece restrita ao workflow manual na main.
+// Próximo release OTA proposto: candidato 0.20.1 / versionCode 36. Assinatura restrita ao workflow manual na main.
 val atrioDebugPatch = 7
 val atrioDebugVersionName = "0.19.$atrioDebugPatch"
 val atrioDebugVersionCode = 27 + atrioDebugPatch
@@ -32,9 +32,9 @@ android {
         testInstrumentationRunner = "br.com.atriocatolico.QaAndroidTestRunner"
         minSdk = 26
         targetSdk = 35
-        versionCode = 35
-        versionName = "0.20.0"
-        buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"0.20.0\"")
+        versionCode = 36
+        versionName = "0.20.1"
+        buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"0.20.1\"")
         val relayUrl = System.getenv("ATRIO_PUSH_WORKER_URL").orEmpty()
         val allowed = Regex("^https://[a-zA-Z0-9-]+\\.[a-zA-Z0-9-]+\\.workers\\.dev$")
         require(relayUrl.isBlank() || allowed.matches(relayUrl)) { "ATRIO_PUSH_WORKER_URL invalida" }
