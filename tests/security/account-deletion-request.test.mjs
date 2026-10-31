@@ -32,8 +32,12 @@ try {
     assertFails(setDoc(doc(alice,path), {status:'requested',source:'android',requestedAt:Timestamp.fromMillis(1000)})));
   await check('não permite marcar conta como excluída', () =>
     assertFails(setDoc(doc(alice,path), {...valid(),status:'completed'})));
-  await check('não permite origem diferente', () =>
-    assertFails(setDoc(doc(alice,path), {...valid(),source:'web'})));
+  await check('não permite origem diferente do app ou web', () =>
+    assertFails(setDoc(doc(alice,path), {...valid(),source:'external'})));
+  await check('anônimo não cria solicitação pela web', () =>
+    assertFails(setDoc(doc(anon, path), {...valid(),source:'web'})));
+  await check('outro usuário não solicita pela web em nome da Alice', () =>
+    assertFails(setDoc(doc(bob, path), {...valid(),source:'web'})));
   await check('titular cria solicitação válida', () =>
     assertSucceeds(setDoc(doc(alice,path),valid())));
   await check('titular consulta próprio pedido e data de solicitação', async () => {
@@ -43,6 +47,16 @@ try {
     assert.deepEqual(Object.keys(x.data()).sort(),['status','source','requestedAt'].sort());
     assert.ok(x.data().requestedAt);
   });
+  await check('titular registra pedido pela web com autenticação Firebase', async () => {
+    await assertSucceeds(setDoc(doc(bob,'account_deletion_requests/delete-bob'),
+      {...valid(), source:'web'}));
+    const result = await assertSucceeds(getDoc(doc(bob,'account_deletion_requests/delete-bob')));
+    assert.equal(result.data().source,'web');
+    assert.equal(result.data().status,'requested');
+  });
+  await check('mesmo usuário não pode substituir pedido web', () =>
+    assertFails(setDoc(doc(bob,'account_deletion_requests/delete-bob'),
+      {...valid(), source:'web'})));
   await check('outro usuário não consulta pedido',()=>assertFails(getDoc(doc(bob,path))));
   await check('anônimo não consulta pedido',()=>assertFails(getDoc(doc(anon,path))));
   await check('não enumera pedidos de outros usuários',()=>assertFails(
