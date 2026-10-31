@@ -6,7 +6,8 @@ internal data class NoticeEvent(
     val title: String, val body: String, val at: Long = 0L,
     val read: Boolean = false, val localToken: String = "",
     val directReply: Boolean = false,
-    val mentioned: Boolean = false
+    val mentioned: Boolean = false,
+    val actorUid: String = ""
 )
 internal data class NoticeGroup(
     val id: String, val kind: NoticeKind, val target: String,
