@@ -141,6 +141,11 @@ class ReleaseGateTests(unittest.TestCase):
         self.assertIn("ugc_unverified:block_users",
                       assess_release(GRADLE, MANIFEST, evidence(),
                                      now=NOW, ugc_evidence=ugc))
+        ugc = ugc_evidence()
+        ugc["requirements"]["push_block_safe_delivery"]["verified"] = False
+        self.assertIn("ugc_unverified:push_block_safe_delivery",
+                      assess_release(GRADLE, MANIFEST, evidence(),
+                                     now=NOW, ugc_evidence=ugc))
 
     def test_ugc_missing_or_malformed_rejected(self):
         self.assertIn("ugc_evidence_missing",
