@@ -20,3 +20,15 @@
 7. Integre a branch à `main` em revisão separada e configure a aprovação do release assinado. O APK não foi gerado nesta etapa.
 
 **Atenção:** ainda falta provisionar a identidade WIF de escrita separada para execução automática de criação de casos; o gateway Cloudflare aqui é administrativo e não substitui o executor. Nenhuma classificação real ou resolução administrativa foi testada após a publicação, por solicitação do usuário. A moderação autônoma punitiva e banimentos permanecem indisponíveis.
+
+## Identidade WIF de escrita — confirmação de infraestrutura
+
+Em 31/10/2026, o proprietário apresentou resultados do Google Cloud Shell:
+
+- Conta `guardian-v2-writer@atrio-catolico.iam.gserviceaccount.com` existe.
+- Provedor WIF dedicado `github-moderator` no pool `guardian-v2-writer` em estado `ACTIVE`.
+- Role personalizada de cinco permissões sem `datastore.entities.delete` foi atribuída com a saída `PAPEL_IAM_V2_ATRIBUIDO`.
+
+Esta evidência confirma o provisionamento de infraestrutura. **Não comprova que o workflow GitHub já conseguiu trocar o OIDC por credenciais**, nem que tenha criado casos em produção. O agendamento de escrita está ausente da `main` e o documento `guardian_config/policy` ainda precisa conter `autonomousWriteEnabled=true` para permitir triagem. Não habilitar variáveis do GitHub nem abrir escrita autônoma antes da integração revisada.
+
+Para respeitar a orientação de não executar novas baterias de testes, mudanças de código permanecem somente nesta branch. A integração na `main` acionaria workflows existentes de compilação e verificação, de modo que seu efeito precisa ser considerado antes do merge. O backup não foi alterado.
