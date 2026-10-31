@@ -61,19 +61,28 @@ function policyOf(doc){
   if(doc?.name!=='projects/'+PROJECT+'/databases/(default)/documents/guardian_config/policy')
     deny('policy_invalid');
   const f=doc.fields||{};
-  if(['enabled','emergencyStop','allowHold'].some(k=>typeof f[k]?.booleanValue!=='boolean'))
+  if(['enabled','emergencyStop','allowHold'].some(k=>typeof f[k]?.booleanValue!=='boolean') ||
+      (f.shadowEnabled!==undefined && typeof f.shadowEnabled.booleanValue!=='boolean'))
     deny('policy_invalid');
-  return {enabled:f.enabled.booleanValue,stopped:f.emergencyStop.booleanValue,
-    hold:f.allowHold.booleanValue};
+  return {
+    // A separação é intencional: nunca ativar observação por "enabled" do
+    // motor de moderação. Um campo ausente implica modo sombra desligado.
+    shadowEnabled:f.shadowEnabled?.booleanValue===true,
+    moderationEnabled:f.enabled.booleanValue,
+    stopped:f.emergencyStop.booleanValue,
+    hold:f.allowHold.booleanValue
+  };
 }
 export async function runShadowCycle(env=process.env,fetcher=fetch,classifier=classify,day){
   validateShadowContext(env);
   await checkDailyWorkflowRuns(env,fetcher,day);
   const headers={Authorization:'Bearer '+env.WIF_ACCESS_TOKEN,Accept:'application/json'};
   const policy=policyOf(await boundedJson(fetcher,BASE+
-    '/guardian_config/policy?mask.fieldPaths=enabled&mask.fieldPaths=emergencyStop&mask.fieldPaths=allowHold',
+    '/guardian_config/policy?mask.fieldPaths=enabled&mask.fieldPaths=emergencyStop&mask.fieldPaths=allowHold&mask.fieldPaths=shadowEnabled',
     {method:'GET',headers}));
-  if(!policy.enabled||policy.stopped||policy.hold)
+  // Observação somente sob permissão explícita e motor punitivo desligado.
+  // Parada emergencial sempre prevalece, mesmo no modo sombra.
+  if(!policy.shadowEnabled||policy.moderationEnabled||policy.stopped||policy.hold)
     return {status:'PAUSED_BY_POLICY',documents:0,signals:0};
   const since=new Date(Date.now()-60*60000).toISOString();
   let documents=0,signals=0;
