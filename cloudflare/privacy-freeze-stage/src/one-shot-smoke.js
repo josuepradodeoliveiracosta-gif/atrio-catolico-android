@@ -40,9 +40,11 @@ export async function runOneShotSmoke(env){
   ).bind(RUN_ID,'running',Date.now()).run();
   if(slot?.success!==true)throw Error('qa_smoke_lock_missing');
   if(slot.meta?.changes!==1)return {status:'already_attempted'};
+  let phase='start';
   try{
     const ids=[];
     for(const role of ['AVATAR','GUARDIAN','PUSH']){
+      phase='admit_'+role.toLowerCase();
       const value=await send(env['QA_'+role],'/__qa/admit');
       if(value.status!=='qa_stage_admitted'||
          typeof value.operationId!=='string'||
@@ -52,22 +54,26 @@ export async function runOneShotSmoke(env){
     }
     // The first three admissions cover Alice once from Avatar, Bob from
     // Guardian, and BOTH users from Push (4 ledger rows in total).
+    phase='admin_status_before';
     const before=await send(env.QA_ADMIN,'/__qa/status');
     if(before.status!=='stage_status'||before.state!=='active'||
        before.inFlight!==2)throw Error('qa_before_status_unexpected');
     for(const operationId of ids){
+      phase='reconcile';
       const closed=await send(env.QA_RECONCILER,'/__qa/close',{operationId});
       if(closed.status!=='stage_reconciled')throw Error('qa_close_failed');
     }
+    phase='admin_status_after';
     const after=await send(env.QA_ADMIN,'/__qa/status');
     if(after.status!=='stage_status'||after.state!=='active'||
        after.inFlight!==0)throw Error('qa_after_status_unexpected');
+    phase='persist_pass';
     await record(db,'passed');
     return {status:'passed'};
   }catch{
     // Fail closed: no automated release of an ambiguous D1 ticket.
     await record(db,'failed');
-    return {status:'failed'};
+    return {status:'failed',phase};
   }
 }
 export default {
