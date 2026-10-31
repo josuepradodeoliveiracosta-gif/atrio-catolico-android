@@ -1,0 +1,176 @@
+// REST Firestore service-account adapter. Never bundle credentials in Android.
+const PROJECT='atrio-catolico';
+const API='https://firestore.googleapis.com/v1';
+const ROOT=API+'/projects/'+PROJECT+'/databases/(default)/documents';
+const RESOURCE='projects/'+PROJECT+'/databases/(default)/documents';
+const projectValid=id=>typeof id==='string' && /^[a-z][a-z0-9-]{4,29}$/.test(id);
+const IDENT=/^[A-Za-z0-9_-]{1,128}$/;
+const field=(doc,key)=>doc?.fields?.[key];
+export const string=(doc,key)=>field(doc,key)?.stringValue||'';
+export const bool=(doc,key)=>field(doc,key)?.booleanValue===true;
+export const str=v=>({stringValue:v});
+export const timestamp=v=>({timestampValue:v});
+export const enc=encodeURIComponent;
+export const pathOf=doc=>doc?.name?.split('/documents/')[1]||'';
+const b64url=bytes=>{const s=(typeof bytes==='string'?new TextEncoder().encode(bytes):new Uint8Array(bytes));let b='';for(const c of s)b+=String.fromCharCode(c);return btoa(b).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');};
+// Exact identity allowlist for FUTURE production-only server access.
+// Firestore IAM server calls bypass client Security Rules. Never accept a broad
+// Editor/Owner identity, unrelated Firebase account, or QA credentials here.
+const PRODUCTION_EMAIL=/^guardian-v2-[a-z0-9-]{1,32}@atrio-catolico\.iam\.gserviceaccount\.com$/;
+export function guardianProductionIdentityApproved(env={},config) {
+  const expected=env.GUARDIAN_V2_SERVICE_ACCOUNT_EMAIL;
+  return env.GUARDIAN_FIREBASE_PROJECT_ID===PROJECT
+    && env.GUARDIAN_V2_TEST_MODE!=='true'
+    && env.GUARDIAN_V2_PRODUCTION_APPROVED==='true'
+    && env.GUARDIAN_V2_IDENTITY_APPROVED==='true'
+    && typeof expected==='string' && PRODUCTION_EMAIL.test(expected)
+    && config?.type==='service_account'
+    && config.project_id===PROJECT
+    && config.client_email===expected
+    && config.token_uri==='https://oauth2.googleapis.com/token'
+    && typeof config.private_key_id==='string'
+    && /^[a-f0-9]{40}$/.test(config.private_key_id)
+    && typeof config.private_key==='string'
+    && config.private_key.includes('-----BEGIN PRIVATE KEY-----');
+}
+let cached;
+export async function token(env) {
+  const intended=env.GUARDIAN_FIREBASE_PROJECT_ID;
+  if(!projectValid(intended))throw Error('service_not_configured');
+  if(intended===PROJECT && env.GUARDIAN_V2_PRODUCTION_APPROVED!=='true')
+    throw Error('production_access_not_approved');
+  if(intended===PROJECT && (env.GUARDIAN_V2_TEST_MODE==='true'||
+      env.GUARDIAN_V2_IDENTITY_APPROVED!=='true'))
+    throw Error('identity_not_approved');
+  const config=JSON.parse(env.GUARDIAN_FIREBASE_SERVICE_ACCOUNT_JSON||'null');
+  if(intended===PROJECT && !guardianProductionIdentityApproved(env,config))
+    throw Error('identity_not_approved');
+  // A valid-looking JSON key is NOT authorization to use permanent credentials
+  // in production.  Keep the legacy signer available only for isolated QA
+  // until an independently verified, short-lived identity path replaces it.
+  // This guard is deliberately unconditional even when both flags are true.
+  if(intended===PROJECT)throw Error('production_key_auth_disabled');
+  if(config?.project_id!==intended||!config.client_email||!config.private_key)
+    throw Error('service_not_configured');
+  // Cached tokens are never shared between service accounts or key rotations.
+  if(cached?.project===intended && cached?.email===config.client_email &&
+      cached?.keyId===config.private_key_id && cached.exp>Date.now()+60_000)
+    return cached.value;
+  const der=Uint8Array.from(atob(config.private_key.replace(/-----BEGIN PRIVATE KEY-----|-----END PRIVATE KEY-----|\s/g,'')),c=>c.charCodeAt(0));
+  const key=await crypto.subtle.importKey('pkcs8',der,{name:'RSASSA-PKCS1-v1_5',hash:'SHA-256'},false,['sign']);
+  const iat=Math.floor(Date.now()/1000);
+  const signed=b64url(JSON.stringify({alg:'RS256',typ:'JWT'}))+'.'+b64url(JSON.stringify({iss:config.client_email,sub:config.client_email,aud:'https://oauth2.googleapis.com/token',scope:'https://www.googleapis.com/auth/datastore',iat,exp:iat+900}));
+  const sig=b64url(await crypto.subtle.sign('RSASSA-PKCS1-v1_5',key,new TextEncoder().encode(signed)));
+  const response=await fetch('https://oauth2.googleapis.com/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'urn:ietf:params:oauth:grant-type:jwt-bearer',assertion:signed+'.'+sig})});
+  if(!response.ok)throw Error('service_auth_failed');const data=await response.json();
+  if(!data.access_token)throw Error('service_token_missing');
+  cached={project:intended,email:config.client_email,keyId:config.private_key_id,
+    value:data.access_token,exp:Date.now()+Math.min(600_000,Number(data.expires_in||900)*1000-60_000)};return cached.value;
+}
+export class Firestore {
+  constructor(access,project=PROJECT,api=API){
+    if(!projectValid(project)||!['https://firestore.googleapis.com/v1','http://127.0.0.1:8089/v1'].includes(api))throw Error('invalid_backend');
+    this.access=access;this.project=project;this.root=api+'/projects/'+project+'/databases/(default)/documents';
+    // REST endpoint (root) and Firestore resource names (resource) are different.
+    this.resource='projects/'+project+'/databases/(default)/documents';
+  }
+  async send(path,method='GET',payload){
+    const r=await fetch(this.root+path,{method,headers:{Authorization:'Bearer '+this.access,'Content-Type':'application/json'},body:payload?JSON.stringify(payload):undefined});
+    if(r.status===404 && method==='GET')return null;
+    if(!r.ok){
+      // Firestore REST uses 400/409/412 for optimistic-write precondition failures.
+      // Only map documented concurrency codes; do not mask INVALID_ARGUMENT.
+      let reason='';
+      try{reason=(await r.json()).error?.status||'';}catch{}
+      const conflict=['ALREADY_EXISTS','FAILED_PRECONDITION','ABORTED'].includes(reason);
+      const e=Error('firestore_'+(conflict?'conflict':'http_'+r.status));
+      e.status=conflict?409:r.status;
+      throw e;
+    }
+    return r.status===204?{}:r.json();
+  }
+  get(path){return this.send('/'+path.split('/').map(enc).join('/'));}
+  async scan(group,minutes=20,max=80){
+    if(!['posts','replies','reports'].includes(group))throw Error('invalid_group');
+    const cut=new Date(Date.now()-minutes*60_000).toISOString();
+    const sq={structuredQuery:{from:[{collectionId:group,allDescendants:group==='replies'}],where:{fieldFilter:{field:{fieldPath:'createdAt'},op:'GREATER_THAN_OR_EQUAL',value:timestamp(cut)}},orderBy:[{field:{fieldPath:'createdAt'},direction:'DESCENDING'}],limit:max}};
+    const result=await this.send(':runQuery','POST',sq);
+    if(!Array.isArray(result))throw Error('invalid_scan');
+    return result.map(x=>x.document).filter(Boolean);
+  }
+  // Cursor por timestamp + nome evita saltos em empates de createdAt.
+  async scanPage(group,{since,until,after=null,max=30,field='createdAt'}={}){
+    if(!['posts','replies','reports'].includes(group) ||
+      !['createdAt','updatedAt'].includes(field) ||
+      (field==='updatedAt'&&group!=='posts') ||
+      !Number.isInteger(max)||max<1||max>(group==='reports'?15:30))
+      throw Error('invalid_scan_page');
+    const iso=v=>typeof v==='string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(v) &&
+      Number.isFinite(Date.parse(v));
+    if(!iso(since)||!iso(until)||Date.parse(since)>Date.parse(until))
+      throw Error('invalid_scan_window');
+    const prefix=this.resource+'/';
+    const pathMatches=path=>group==='replies'?
+      /^posts\/[A-Za-z0-9_-]{1,128}\/replies\/[A-Za-z0-9_-]{1,128}$/.test(path):
+      new RegExp('^'+group+'/[A-Za-z0-9_-]{1,128}$').test(path);
+    const rel=after?.name?.startsWith(prefix)?after.name.slice(prefix.length):'';
+    if(after!==null && (!iso(after?.time)||!pathMatches(rel)||
+       Date.parse(after.time)<Date.parse(since)||Date.parse(after.time)>Date.parse(until)))
+      throw Error('invalid_scan_cursor');
+    const query={from:[{collectionId:group,allDescendants:group==='replies'}],
+      where:{compositeFilter:{op:'AND',filters:[
+        {fieldFilter:{field:{fieldPath:field},op:'GREATER_THAN_OR_EQUAL',value:timestamp(since)}},
+        {fieldFilter:{field:{fieldPath:field},op:'LESS_THAN_OR_EQUAL',value:timestamp(until)}}
+      ]}},orderBy:[
+        {field:{fieldPath:field},direction:'DESCENDING'},
+        {field:{fieldPath:'__name__'},direction:'DESCENDING'}
+      ],limit:max+1};
+    if(after)query.startAt={values:[timestamp(after.time),{referenceValue:after.name}],before:false};
+    const data=await this.send(':runQuery','POST',{structuredQuery:query});
+    if(!Array.isArray(data))throw Error('invalid_scan_page_result');
+    const docs=data.map(row=>row.document).filter(Boolean);
+    if(docs.length>max+1)throw Error('invalid_scan_page_limit');
+    const kept=docs.slice(0,max);
+    for(const d of kept){
+      if(!d?.name?.startsWith(prefix)||!pathMatches(d.name.slice(prefix.length))||
+         !iso(d.fields?.[field]?.timestampValue))
+        throw Error('invalid_scan_page_document');
+    }
+    const last=kept.at(-1);
+    return {documents:kept,nextCursor:docs.length>max?
+      {time:last.fields[field].timestampValue,name:last.name}:null};
+  }
+  // Strict read-only remote QA query: synthetic fixture flag checked by Firestore.
+  // Use only via shadow scan, never general production moderation.
+  async scanQa(group,minutes=20,max=15){
+    if(!/^atrio-catolico-qa(?:-[a-z0-9-]+)?$/.test(this.project) || this.project.length>30)
+      throw Error('qa_project_required');
+    if(!['posts','replies','reports'].includes(group) || minutes<1 || minutes>20 ||
+      !Number.isInteger(max) || max<1 || max>15)throw Error('qa_limits_invalid');
+    const cut=new Date(Date.now()-minutes*60_000).toISOString();
+    const eq={fieldFilter:{field:{fieldPath:'qaFixture'},op:'EQUAL',value:{booleanValue:true}}};
+    const recent={fieldFilter:{field:{fieldPath:'createdAt'},op:'GREATER_THAN_OR_EQUAL',value:timestamp(cut)}};
+    const columns=group==='reports'?['qaFixture']:['body','title','qaFixture'];
+    const sq={structuredQuery:{
+      from:[{collectionId:group,allDescendants:group==='replies'}],
+      select:{fields:columns.map(fieldPath=>({fieldPath}))},
+      where:{compositeFilter:{op:'AND',filters:[eq,recent]}},
+      orderBy:[{field:{fieldPath:'createdAt'},direction:'DESCENDING'}],
+      limit:max
+    }};
+    const result=await this.send(':runQuery','POST',sq);
+    if(!Array.isArray(result))throw Error('invalid_qa_query');
+    return result.map(x=>x.document).filter(Boolean);
+  }
+  commit(writes){return this.send(':commit','POST',{writes});}
+  async create(path,fields){return this.commit([{update:{name:this.resource+'/'+path,fields},currentDocument:{exists:false}}]);}
+  async update(path,fields,oldTime){const keys=Object.keys(fields);return this.commit([{update:{name:this.resource+'/'+path,fields},updateMask:{fieldPaths:keys},currentDocument:{updateTime:oldTime}}]);}
+}
+export async function actorId(request,env){
+  const m=/^Bearer ([A-Za-z0-9._-]{100,5000})$/.exec(request.headers.get('authorization')||'');
+  if(!m||!env.FIREBASE_WEB_API_KEY)return null;
+  const r=await fetch('https://identitytoolkit.googleapis.com/v1/accounts:lookup?key='+enc(env.FIREBASE_WEB_API_KEY),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({idToken:m[1]})});
+  if(!r.ok)return null;const user=(await r.json()).users?.[0];return user&&!user.disabled&&IDENT.test(user.localId)?user.localId:null;
+}
+export async function caseId(path){const digest=new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode('atrio-guardian-v2:'+path)));return 'guard_'+[...digest].slice(0,16).map(n=>n.toString(16).padStart(2,'0')).join('');}
+export {ROOT,RESOURCE};
