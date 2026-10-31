@@ -50,6 +50,10 @@ internal class OtaUpdateController(private val appContext: Context) {
     private var downloadJob: Job? = null
 
     suspend fun refresh() {
+        if (BuildConfig.PLAY_STORE_BUILD) {
+            status = OtaCheckStatus.PlayStore
+            return
+        }
         if (status == OtaCheckStatus.Checking ||
             downloadState is OtaDownloadState.Downloading ||
             downloadState == OtaDownloadState.Verifying) return
@@ -64,7 +68,8 @@ internal class OtaUpdateController(private val appContext: Context) {
     }
 
     suspend fun download(offer: OtaApkOffer) {
-        if (BuildConfig.DEBUG || (status as? OtaCheckStatus.Available)?.apk != offer ||
+        if (BuildConfig.PLAY_STORE_BUILD || BuildConfig.DEBUG ||
+            (status as? OtaCheckStatus.Available)?.apk != offer ||
             downloadJob != null || downloadState == OtaDownloadState.Verifying) return
         downloadJob = currentCoroutineContext()[Job]
         installMessage = ""
@@ -99,7 +104,8 @@ internal class OtaUpdateController(private val appContext: Context) {
 
     suspend fun install() {
         val ready = downloadState as? OtaDownloadState.Ready ?: return
-        if (BuildConfig.DEBUG || (status as? OtaCheckStatus.Available)?.apk != ready.offer) return
+        if (BuildConfig.PLAY_STORE_BUILD || BuildConfig.DEBUG ||
+            (status as? OtaCheckStatus.Available)?.apk != ready.offer) return
         installMessage = ""
         downloadState = OtaDownloadState.Verifying
         try {
@@ -154,6 +160,9 @@ internal fun OtaUpdatesSection(
                 Text("O aplicativo está atualizado conforme o canal oficial.")
             OtaCheckStatus.TestBuild ->
                 Text("Versão de testes. Atualizações oficiais exigem um APK release assinado.")
+            OtaCheckStatus.PlayStore ->
+                Text("Atualizações desta instalação são distribuídas pela Google Play. " +
+                    "Consulte a loja para instalar novas versões; nenhum APK externo será baixado.")
             OtaCheckStatus.Incompatible ->
                 Text("Há uma versão oficial que exige um Android mais recente.")
             OtaCheckStatus.Unavailable ->
@@ -206,7 +215,7 @@ internal fun OtaUpdatesSection(
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        OutlinedButton(onClick = onRefresh,
+        if (status != OtaCheckStatus.PlayStore) OutlinedButton(onClick = onRefresh,
             enabled = status != OtaCheckStatus.Checking &&
                 status != OtaCheckStatus.TestBuild &&
                 download !is OtaDownloadState.Downloading &&
