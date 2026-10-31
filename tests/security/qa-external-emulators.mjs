@@ -157,7 +157,7 @@ export function createQaCloudinaryHttpAdapter(baseUrl,fetcher=fetch){
   return Object.freeze({
     async exists(uid=UID,id=PHOTO){
       const data=await request('GET',uid,id);
-      if(data?.public_id!==id || typeof data.exists!=='boolean)
+      if(data?.public_id!==id || typeof data.exists!=='boolean')
         fail('media_unknown_read_result');
       return data.exists;
     },
