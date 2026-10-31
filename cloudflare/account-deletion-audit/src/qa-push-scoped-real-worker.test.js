@@ -13,7 +13,7 @@ import {QA_SCOPED_PUSH_READINESS}
   from '../../push-worker/src/privacy-qa-scoped-fence.js';
 
 const A='qa-freeze-alice',B='qa-freeze-bob';
-const URL='https://qa-only.invalid/__qa/privacy/reply';
+const ENDPOINT='https://qa-only.invalid/__qa/privacy/reply';
 const SQL='INSERT OR IGNORE INTO delivered (event_key,created_at) VALUES (?,?)';
 const schema=readFileSync(new URL('../qa-privileged-freeze-schema.sql',import.meta.url),'utf8');
 function harness({send,verify}={}){
@@ -59,7 +59,7 @@ function harness({send,verify}={}){
   return {env,barrier,calls,count,close};
 }
 function req(body={actorUid:A,recipientUid:B,postId:'qa_post',
-  replyId:'qa_reply'},url=URL){
+  replyId:'qa_reply'},url=ENDPOINT){
   return new Request(url,{method:'POST',body:JSON.stringify(body)});
 }
 async function code(resp,status,body){
