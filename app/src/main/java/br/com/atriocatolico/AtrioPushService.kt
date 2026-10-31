@@ -291,6 +291,10 @@ class AtrioPushService : FirebaseMessagingService() {
             return
         }
         if (message.data["kind"] == "discussion_reply") {
+            // Defense in depth: a build da Play nunca deve mostrar Push de
+            // tópico legado. O envio seguro deve chegar por token individual.
+            // Nenhum payload não autenticado de tópico pode contornar bloqueio.
+            if (BuildConfig.PLAY_STORE_BUILD) return
             PushRegistry.showDiscussionReply(applicationContext, uid,
                 message.data["postId"].orEmpty(), message.data["replyId"].orEmpty(),
                 message.data["actorUid"].orEmpty(), topicDelivery = true)
