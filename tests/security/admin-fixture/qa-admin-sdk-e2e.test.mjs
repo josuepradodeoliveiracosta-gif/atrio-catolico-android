@@ -9,7 +9,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
-import {readFileSync} from 'node:fs';
+import {readFileSync,mkdtempSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {DatabaseSync} from 'node:sqlite';
 import {initializeTestEnvironment,assertFails} from '@firebase/rules-unit-testing';
 import {doc,setDoc,getDoc} from 'firebase/firestore';
@@ -24,6 +26,7 @@ import {createQaAdminSdkAuthAdapter,QA_ADMIN_SDK_UIDS}
   from './qa-admin-sdk-auth.mjs';
 import {createQaAdminFirestoreFreezeAdapter}
   from './qa-admin-firestore-freeze.mjs';
+import {createQaWorkerDrainAdapter} from './qa-worker-drain.mjs';
 
 const A=QA_ADMIN_SDK_UIDS.alice,B=QA_ADMIN_SDK_UIDS.bob;
 const PROJECT='demo-atrio-v11';
@@ -90,6 +93,7 @@ async function listen(){
 }
 
 let admin,secondAdmin,freeze,secondFreeze,journal;
+let workerDb,secondWorkerDb,workerDir;
 try {
   await test('Admin SDK SAME UID: remote outage, after-delete crash, new adapter retry',
     async()=>{
@@ -131,6 +135,14 @@ try {
         // A privileged write is allowed BEFORE a deletion freeze.
         await freeze.guardedWrite(A,'before');
         assert.equal(await freeze.existsWrite(A,'before'),true);
+        // A separate durable SQLite ledger uses the EXACT SAME UID as
+        // Firestore and Auth, not the earlier qa-freeze-* mock aliases.
+        workerDir=mkdtempSync(join(tmpdir(),'atrio-qa-worker-drain-'));
+        const workerPath=join(workerDir,'worker-ops.sqlite');
+        workerDb=new DatabaseSync(workerPath);
+        const workers=createQaWorkerDrainAdapter(workerDb);
+        const inFlight=workers.begin(A,'push_fanout');
+        const independent=workers.begin(B,'avatar_upload');
         journal=new DatabaseSync(':memory:');
         const fakeAuth=new Set([A,B]);
         const fakeMedia=new Set([QA_EXTERNAL_PHOTO,QA_EXTERNAL_BOB_PHOTO]);
@@ -145,11 +157,30 @@ try {
             return admin.remove(uid);
           }
         };
-        const external={auth:remoteAuth,media,freeze};
+        const external={auth:remoteAuth,media,freeze,workers};
         const openRunner=()=>new QaAdministrativeDeletionExecutor({
           db,journal,auth:fakeAuth,media:fakeMedia,external,
           lease:new QaSqliteLease(journal)
         });
+
+        // An unresolved privileged Worker operation MUST block deletion
+        // before any media/Firestore removal or administrative Auth effect.
+        await assert.rejects(openRunner().execute({
+          order:QA_ADMIN_ORDER_TEMPLATE
+        }),/qa_worker_drain_pending_privileged_effect/);
+        assert.equal(await admin.exists(A),true);
+        assert.equal(mediaState.has(QA_EXTERNAL_PHOTO),true);
+        assert.deepEqual(workers.status(A),{state:'draining',pending:1});
+        assert.throws(()=>workers.begin(A,'avatar_upload'),
+          /qa_worker_drain_privileged_effect_blocked/);
+        assert.equal(await workers.complete(inFlight,{
+          verify:async()=>true
+        }),true);
+        assert.equal(workers.seal(A),true);
+        assert.equal(workers.verify(A),true);
+        // An independent account's unfinished operation is allowed and
+        // cannot be deleted by the Alice-only executor.
+        assert.deepEqual(workers.status(B),{state:'active',pending:1});
 
         failNextHttp=true;
         await assert.rejects(openRunner().execute({
@@ -158,6 +189,17 @@ try {
         assert.equal(await admin.exists(A),true);
         assert.equal(mediaState.has(QA_EXTERNAL_PHOTO),true);
         assert.equal(fakeAuth.has(A),true);
+        // A tampered or missing Worker fence invalidates a previous
+        // checkpoint, even though Firestore is still frozen.
+        workerDb.prepare("UPDATE qa_worker_drain_accounts SET state='active' "+
+          "WHERE uid=?").run(A);
+        await assert.rejects(openRunner().execute({
+          order:QA_ADMIN_ORDER_TEMPLATE
+        }),/qa_worker_drain_not_quiescent/);
+        assert.equal(await admin.exists(A),true);
+        workerDb.prepare("UPDATE qa_worker_drain_accounts SET state='frozen' "+
+          "WHERE uid=?").run(A);
+        assert.equal(workers.verify(A),true);
         // Admin created a REAL Firestore marker in the local emulator.
         assert.equal(await freeze.verify(A),true);
         const lock=await getDoc(doc(db,'account_deletion_freeze/'+A));
@@ -215,9 +257,16 @@ try {
         freeze=null;
         secondAdmin=createQaAdminSdkAuthAdapter();
         secondFreeze=createQaAdminFirestoreFreezeAdapter();
+        workerDb.close();workerDb=null;
+        secondWorkerDb=new DatabaseSync(workerPath);
+        const resumedWorkers=createQaWorkerDrainAdapter(secondWorkerDb);
+        assert.equal(resumedWorkers.verify(A),true,
+          'Worker freeze must survive new SQLite connection');
+        assert.deepEqual(resumedWorkers.status(B),{state:'active',pending:1});
         assert.equal(await secondFreeze.verify(A),true,
           'freeze must survive an Admin SDK process restart');
-        const restartedExternal={auth:secondAdmin,media,freeze:secondFreeze};
+        const restartedExternal={auth:secondAdmin,media,freeze:secondFreeze,
+          workers:resumedWorkers};
         const resumed=new QaAdministrativeDeletionExecutor({
           db,journal,media:fakeMedia,auth:fakeAuth,external:restartedExternal,
           lease:new QaSqliteLease(journal)
@@ -230,6 +279,13 @@ try {
         assert.equal(result.reviewerIdentityReal,false);
         assert.equal(await secondAdmin.exists(A),false);
         assert.equal(await secondAdmin.exists(B),true);
+        assert.equal(resumedWorkers.verify(A),true);
+        assert.throws(()=>resumedWorkers.begin(A,'guardian_commit'),
+          /qa_worker_drain_privileged_effect_blocked/);
+        assert.equal(await resumedWorkers.complete(independent,{
+          verify:async()=>true
+        }),true);
+        assert.deepEqual(resumedWorkers.status(B),{state:'active',pending:0});
         assert.equal(await secondFreeze.verify(A),true);
         await assert.rejects(secondFreeze.guardedWrite(A,'after'),
           /qa_admin_freeze_privileged_write_frozen/);
@@ -268,6 +324,9 @@ try {
   await freeze?.close();
   await secondFreeze?.close();
   if(journal)journal.close();
+  if(workerDb)workerDb.close();
+  if(secondWorkerDb)secondWorkerDb.close();
+  if(workerDir)rmSync(workerDir,{recursive:true,force:true});
   if(server.listening)await new Promise(resolve=>server.close(resolve));
   await environment.cleanup();
 }
