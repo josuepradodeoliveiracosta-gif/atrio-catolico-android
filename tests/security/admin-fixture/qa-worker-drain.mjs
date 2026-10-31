@@ -45,12 +45,6 @@ function validFanoutTicket(ticket){
   try{allSubjects(ticket.uid,ticket.recipients);return true;}
   catch{return false;}
 }
-function transact(db,run){
-  db.exec('BEGIN IMMEDIATE');
-  try{
-    const result=run();db.exec('COMMIT');return result;
-  }catch(e){db.exec('ROLLBACK');throw e;}
-}
 export function createQaWorkerDrainAdapter(db){
   guard();
   if(typeof db?.prepare!=='function'||typeof db?.exec!=='function')
@@ -96,6 +90,7 @@ export function createQaWorkerDrainAdapter(db){
     begin(uid,kind){
       guard();checkUid(uid);
       if(!KINDS.has(kind))deny('unlisted_sink');
+      if(kind==='push_fanout')deny('fanout_scope_required');
       const id=crypto.randomUUID();
       const inserted=db.prepare("INSERT INTO qa_worker_drain_effects(id,uid,kind,subjects) "+
         "SELECT ?,a.uid,?,? FROM qa_worker_drain_accounts a "+
@@ -106,7 +101,8 @@ export function createQaWorkerDrainAdapter(db){
     },
     async complete(ticket,{verify}={}){
       guard();
-      if(!validTicket(ticket)||typeof verify!=='function')
+      if(!validTicket(ticket)||ticket.kind==='push_fanout'||
+         typeof verify!=='function')
         deny('invalid_completion');
       // The independent simulated sink must confirm the effect. Never
       // infer successful delivery from a timeout or the initial HTTP status.

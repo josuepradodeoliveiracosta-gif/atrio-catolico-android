@@ -24,14 +24,14 @@ async function fixture(run){
 }
 test('persisted pending effects block freeze across two SQLite connections',async()=>fixture(async connect=>{
   const a=connect().gate,b=connect().gate;
-  const ticket=a.begin(A,'push_fanout');
+  const ticket=a.beginFanout(A,[A]);
   assert.deepEqual(b.status(A),{state:'active',pending:1});
   assert.throws(()=>b.seal(A),/qa_worker_drain_pending_privileged_effect/);
   assert.deepEqual(b.status(A),{state:'draining',pending:1});
   assert.throws(()=>a.begin(A,'avatar_upload'),
     /qa_worker_drain_privileged_effect_blocked/);
   assert.throws(()=>b.verify(A),/qa_worker_drain_not_quiescent/);
-  assert.equal(await a.complete(ticket,{verify:async()=>true}),true);
+  assert.equal(await a.completeFanout(ticket,{verify:async()=>true}),true);
   assert.equal(b.seal(A),true);
   assert.equal(a.verify(A),true);
   assert.deepEqual(connect().gate.status(A),{state:'frozen',pending:0});
@@ -64,14 +64,16 @@ test('forged, completed, unknown UID and kind fail before effects',async()=>fixt
     /qa_worker_drain_unlisted_uid/);
   assert.throws(()=>gate.begin(A,'all_users'),
     /qa_worker_drain_unlisted_sink/);
-  const t=gate.begin(A,'push_fanout');
-  await assert.rejects(gate.complete({...t,uid:B},{verify:async()=>true}),
+  assert.throws(()=>gate.begin(A,'push_fanout'),
+    /qa_worker_drain_fanout_scope_required/);
+  const t=gate.beginFanout(A,[A]);
+  await assert.rejects(gate.completeFanout({...t,uid:B},{verify:async()=>true}),
     /qa_worker_drain_already_completed_or_forged/);
   assert.equal(gate.status(A).pending,1);
-  await assert.rejects(gate.complete({...t,otherUid:B},{verify:async()=>true}),
+  await assert.rejects(gate.completeFanout({...t,otherUid:B},{verify:async()=>true}),
     /qa_worker_drain_invalid_completion/);
-  await gate.complete(t,{verify:async()=>true});
-  await assert.rejects(gate.complete(t,{verify:async()=>true}),
+  await gate.completeFanout(t,{verify:async()=>true});
+  await assert.rejects(gate.completeFanout(t,{verify:async()=>true}),
     /qa_worker_drain_already_completed_or_forged/);
   assert.equal(gate.seal(A),true);
 }));
@@ -86,7 +88,7 @@ test('unsafe environment rejects every new write and freeze',async()=>fixture(as
   const original=process.env.FIRESTORE_EMULATOR_HOST;
   try{
     process.env.FIRESTORE_EMULATOR_HOST='firestore.googleapis.com:443';
-    assert.throws(()=>gate.begin(A,'push_fanout'),
+    assert.throws(()=>gate.beginFanout(A,[A]),
       /qa_worker_drain_nonlocal_environment/);
     assert.throws(()=>gate.seal(A),/qa_worker_drain_nonlocal_environment/);
   }finally{process.env.FIRESTORE_EMULATOR_HOST=original;}
@@ -168,4 +170,19 @@ test('legacy single-owner ledger schema is refused until review',async()=>fixtur
     assert.throws(()=>createQaWorkerDrainAdapter(old),
       /qa_worker_drain_legacy_schema_requires_review/);
   }finally{old.close();}
+}));
+
+test('legacy single-UID Push API cannot bypass required multi-account admission',async()=>fixture(async connect=>{
+  const a=connect().gate;
+  assert.throws(()=>a.begin(A,'push_fanout'),
+    /qa_worker_drain_fanout_scope_required/);
+  const allowed=a.beginFanout(B,[A]);
+  await assert.rejects(a.complete({
+    id:allowed.id,kind:'push_fanout',uid:B
+  },{verify:async()=>true}),/qa_worker_drain_invalid_completion/);
+  assert.deepEqual(a.status(A),{state:'active',pending:1});
+  assert.deepEqual(a.status(B),{state:'active',pending:1});
+  await a.completeFanout(allowed,{verify:async()=>true});
+  assert.equal(a.status(A).pending,0);
+  assert.equal(a.status(B).pending,0);
 }));
