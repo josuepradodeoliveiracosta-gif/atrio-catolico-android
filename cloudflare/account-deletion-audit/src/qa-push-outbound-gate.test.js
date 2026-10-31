@@ -46,7 +46,7 @@ const stale={path:'users/'+B+'/pushDevices/qa_device',
   updateTime:'2026-10-31T12:00:00.000000Z'};
 const sendPath='https://fcm.googleapis.com/v1/projects/atrio-catolico/messages:send';
 const message=(uid=B,token='qa-fixture-device-bob')=>({
-  method:'POST',body:JSON.stringify({message:{token,data:{uid,kind:'reply'}}})
+  method:'POST',body:JSON.stringify({message:{token,data:{uid,kind:'admin'}}})
 });
 
 test('REAL thread notice: admit actor and recipient before fake Firestore I/O',async()=>using(async t=>{
@@ -234,4 +234,77 @@ test('known production bypass remains until real Worker integration and authoriz
   assert.equal(bypassCalls,1,'fixture demonstrates uncovered production route');
   assert.equal(QA_PUSH_OUTBOUND_READINESS.productionIntegrated,false);
   assert.equal(QA_PUSH_OUTBOUND_READINESS.topicAndFanoutCovered,false);
+}));
+
+
+const replyMessage=(recipientUid=B,actorUid=A)=>({
+  method:'POST',
+  body:JSON.stringify({message:{
+    token:recipientUid===A?'qa-fixture-device-alice':'qa-fixture-device-bob',
+    data:{uid:recipientUid,kind:'reply',actorUid,postId:'qa_post',replyId:'qa_reply'}
+  }})
+});
+
+test('FCM reply atomically admits author AND recipient; either freeze prevents send',async()=>using(async t=>{
+  await t.qaFetch(sendPath,replyMessage());
+  assert.equal(t.calls.length,1);
+  assert.equal((await t.barrier.status(A)).inFlight,0);
+  assert.equal((await t.barrier.status(B)).inFlight,0);
+  await t.barrier.beginFreeze(A);
+  await t.barrier.finalizeFreeze(A);
+  await assert.rejects(t.qaFetch(sendPath,replyMessage()),/qa_privileged_write_blocked/);
+  assert.equal(t.calls.length,1);
+  // Unrelated administrative FCM for Bob can continue; author Alice remains frozen.
+  await t.qaFetch(sendPath,message());
+  assert.equal(t.calls.length,2);
+}));
+
+test('FCM reply destination freeze also prevents a new external effect',async()=>using(async t=>{
+  await t.barrier.beginFreeze(B);
+  await t.barrier.finalizeFreeze(B);
+  await assert.rejects(t.qaFetch(sendPath,replyMessage()),/qa_privileged_write_blocked/);
+  assert.equal(t.calls.length,0);
+  assert.deepEqual(await t.barrier.status(A),{state:'active',inFlight:0});
+}));
+
+test('FCM unscoped, forged and legacy reply payloads fail before any network request',async()=>using(async t=>{
+  const cases=[
+    {uid:B,kind:'reply'},
+    {uid:B,kind:'reply',actorUid:'real-account',postId:'qa_post',replyId:'qa_reply'},
+    {uid:B,kind:'reply',actorUid:A,postId:'different',replyId:'qa_reply'},
+    {uid:B,kind:'admin',actorUid:A},
+    {uid:B,kind:'reply',actorUid:A,postId:'qa_post'}
+  ];
+  for(const data of cases){
+    await assert.rejects(t.qaFetch(sendPath,{method:'POST',body:JSON.stringify({
+      message:{token:'qa-fixture-device-bob',data}
+    })}),/qa_push_uncovered_outbound/);
+  }
+  assert.equal(t.calls.length,0);
+  assert.equal((await t.barrier.status(A)).inFlight,0);
+  assert.equal((await t.barrier.status(B)).inFlight,0);
+}));
+
+test('ambiguous FCM reply effect holds BOTH accounts until reconciliation',async()=>using(async t=>{
+  await assert.rejects(t.qaFetch(sendPath,replyMessage()),
+    /qa_push_outbound_ambiguous/);
+  assert.equal((await t.barrier.status(A)).inFlight,1);
+  assert.equal((await t.barrier.status(B)).inFlight,1);
+  await t.barrier.beginFreeze(B);
+  await assert.rejects(t.barrier.finalizeFreeze(B),/qa_inflight_or_not_draining/);
+},{
+  deliver:async()=>new Response('service unavailable',{status:503})
+}));
+
+test('FCM reply requires independent verification for BOTH participants',async()=>using(async t=>{
+  await assert.rejects(t.qaFetch(sendPath,replyMessage()),
+    /qa_push_effect_unverified/);
+  assert.equal((await t.barrier.status(A)).inFlight,1);
+  assert.equal((await t.barrier.status(B)).inFlight,1);
+},{
+  verifyEffect:async({kind,scope})=>{
+    assert.equal(kind,'push_fcm_send');
+    assert.deepEqual(scope,{actorUid:A,recipientUid:B});
+    return false;
+  }
 }));
