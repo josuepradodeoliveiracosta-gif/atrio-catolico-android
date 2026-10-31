@@ -106,6 +106,8 @@ function stages(self){
         if(external && await external.media.exists(UID,MEDIA_ID)!==false)
           fail('remote_media_still_present');
         assertLease();
+        if(external)await external.media.assertOwnerEmpty(UID);
+        assertLease();
         return removeQaAuthAfterReconciliation({
           uid:UID,db,media,auth,context,assertLease,
           ...(external?{removeRemote:uid=>external.auth.remove(uid)}:{})
@@ -130,6 +132,8 @@ function stages(self){
         if(external && (await external.media.exists(UID,MEDIA_ID)!==false ||
                         await external.auth.exists(UID)!==false))
           return false;
+        if(external && await external.media.assertOwnerEmpty(UID)!==true)
+          return false;
         return true;
       }}
   };
@@ -150,6 +154,7 @@ export class QaDeletionRunner {
        typeof external?.auth?.remove!=='function' ||
        typeof external?.media?.exists!=='function' ||
        typeof external?.media?.remove!=='function' ||
+       typeof external?.media?.assertOwnerEmpty!=='function' ||
        (external.freeze!==undefined &&
          (typeof external.freeze?.acquire!=='function' ||
           typeof external.freeze?.verify!=='function')) ||

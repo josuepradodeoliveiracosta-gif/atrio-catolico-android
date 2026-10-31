@@ -19,8 +19,13 @@ const IDENTITY=AUTH_ORIGIN+'/identitytoolkit.googleapis.com/v1/';
 const KEY='qa-emulator-only';
 const PASSWORD='qa-only-password-12587';
 const CLOUD_PATH='/v1_1/qa-atrio-only/image/destroy';
+const OWNED_PATH='/qa-owned-assets';
+const TYPES=Object.freeze(['upload','authenticated']);
+const ID_PATTERN=/^atrio-avatares\/qa-delete-alice\/[0-9a-f-]{36}$/;
+const CURSOR=/^[A-Za-z0-9_-]{1,128}$/;
 const PHOTO='atrio-avatares/qa-delete-alice/123e4567-e89b-42d3-a456-426614174001';
 const BOB_PHOTO='atrio-avatares/qa-delete-bob/123e4567-e89b-42d3-a456-426614174002';
+const ORPHAN_PHOTO='atrio-avatares/qa-delete-alice/123e4567-e89b-42d3-a456-426614174003';
 const EMAIL=Object.freeze({
   [UID]:'qa-delete-alice@example.invalid',
   [BOB]:'qa-delete-bob@example.invalid'
@@ -169,7 +174,68 @@ export function createQaCloudinaryHttpAdapter(baseUrl,fetcher=fetch){
     try{data=JSON.parse(raw);}catch{fail('invalid_media_response');}
     return data;
   }
+  const readPage=async(uid,type,cursor=null,limit=100)=>{
+    guard();
+    if(uid!==UID)fail('media_inventory_other_user_denied');
+    if(!TYPES.includes(type) || !Number.isInteger(limit) ||
+       limit<1||limit>100 ||
+       (cursor!==null && (typeof cursor!=='string'||!CURSOR.test(cursor))))
+      fail('invalid_media_inventory_query');
+    const params=new URLSearchParams({
+      uid,type,limit:String(limit)
+    });
+    if(cursor!==null)params.set('cursor',cursor);
+    const response=await fetcher(base+OWNED_PATH+'?'+params,{
+      method:'GET',redirect:'error',signal:AbortSignal.timeout(5000),
+      headers:{Accept:'application/json'}
+    });
+    checkResponse(response);
+    if(response.status!==200)fail('media_inventory_http_failure');
+    const raw=await response.text();
+    if(raw.length>20000)fail('media_inventory_oversized');
+    let data;
+    try{data=JSON.parse(raw);}catch{fail('media_inventory_invalid_json');}
+    if(!data||typeof data!=='object'||Array.isArray(data)||
+       Object.keys(data).sort().join(',')!=='items,nextCursor'||
+       !Array.isArray(data.items)||data.items.length>limit||
+       (data.nextCursor!==null &&
+        (typeof data.nextCursor!=='string'||!CURSOR.test(data.nextCursor))))
+      fail('media_inventory_invalid_page');
+    const seen=new Set();
+    for(const row of data.items){
+      if(!row||typeof row!=='object'||Array.isArray(row)||
+         Object.keys(row).sort().join(',')!=='public_id,type'||
+         row.type!==type||typeof row.public_id!=='string'||
+         !ID_PATTERN.test(row.public_id)||seen.has(row.public_id))
+        fail('media_inventory_invalid_asset');
+      seen.add(row.public_id);
+    }
+    return data;
+  };
+  const assertOwnerEmpty=async(uid=UID)=>{
+    guard();
+    if(uid!==UID)fail('media_inventory_other_user_denied');
+    // Two independent full-prefix reads of BOTH delivery types.
+    // A read error or nonempty page blocks any Auth deletion.
+    for(let pass=0;pass<2;pass++){
+      for(const type of TYPES){
+        const seen=new Set();let cursor=null;
+        for(let page=0;page<20;page++){
+          const result=await readPage(uid,type,cursor);
+          if(result.items.length)fail('owned_media_remaining');
+          if(result.nextCursor===null)break;
+          if(seen.has(result.nextCursor))
+            fail('media_inventory_cursor_loop');
+          seen.add(result.nextCursor);
+          cursor=result.nextCursor;
+          if(page===19)fail('media_inventory_incomplete');
+        }
+      }
+    }
+    return true;
+  };
   return Object.freeze({
+    readPage,assertOwnerEmpty,
     async exists(uid=UID,id=PHOTO){
       const data=await request('GET',uid,id);
       if(data?.public_id!==id || typeof data.exists!=='boolean')
@@ -190,4 +256,6 @@ export const QA_EXTERNAL_UID=UID;
 export const QA_EXTERNAL_BOB=BOB;
 export const QA_EXTERNAL_PHOTO=PHOTO;
 export const QA_EXTERNAL_BOB_PHOTO=BOB_PHOTO;
+export const QA_EXTERNAL_ORPHAN_PHOTO=ORPHAN_PHOTO;
+export const QA_EXTERNAL_MEDIA_INVENTORY_PATH=OWNED_PATH;
 export const QA_EXTERNAL_MEDIA_PATH=CLOUD_PATH;

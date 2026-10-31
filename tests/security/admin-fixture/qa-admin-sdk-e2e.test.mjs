@@ -20,7 +20,8 @@ import {QaAdministrativeDeletionExecutor,QA_ADMIN_ORDER_TEMPLATE}
 import {QaSqliteLease} from '../qa-deletion-sqlite-lease.mjs';
 import {QA_FIXTURES,QA_STEPS} from '../qa-deletion-executor.mjs';
 import {createQaCloudinaryHttpAdapter,QA_EXTERNAL_PHOTO,
-  QA_EXTERNAL_BOB_PHOTO,QA_EXTERNAL_MEDIA_PATH}
+  QA_EXTERNAL_BOB_PHOTO,QA_EXTERNAL_ORPHAN_PHOTO,
+  QA_EXTERNAL_MEDIA_PATH,QA_EXTERNAL_MEDIA_INVENTORY_PATH}
   from '../qa-external-emulators.mjs';
 import {createQaAdminSdkAuthAdapter,QA_ADMIN_SDK_UIDS}
   from './qa-admin-sdk-auth.mjs';
@@ -58,6 +59,18 @@ const server=createServer(async(req,res)=>{
     if(![QA_EXTERNAL_PHOTO,QA_EXTERNAL_BOB_PHOTO].includes(id))
       return send(res,404,{error:'qa_unlisted_asset'});
     return send(res,200,{public_id:id,exists:mediaState.has(id)});
+  }
+  if(req.method==='GET'&&u.pathname===QA_EXTERNAL_MEDIA_INVENTORY_PATH){
+    if(u.searchParams.get('uid')!==A ||
+       !['upload','authenticated'].includes(u.searchParams.get('type')) ||
+       u.searchParams.get('limit')!=='100'||u.searchParams.has('cursor'))
+      return send(res,403,{error:'qa_wrong_inventory_scope'});
+    const type=u.searchParams.get('type');
+    const assets=[...mediaState].filter(id=>
+      id.startsWith('atrio-avatares/'+A+'/') &&
+      (id===QA_EXTERNAL_ORPHAN_PHOTO?'upload':'authenticated')===type);
+    return send(res,200,{items:assets.map(public_id=>({type,public_id})),
+      nextCursor:null});
   }
   if(req.method==='POST'&&u.pathname===QA_EXTERNAL_MEDIA_PATH){
     let raw='';
@@ -240,6 +253,16 @@ try {
         assert.equal(mediaState.has(QA_EXTERNAL_BOB_PHOTO),true);
         assert.equal(fakeAuth.has(A),true);
 
+        // A second unreferenced media asset MUST block Admin Auth deletion,
+        // even though the originally known media identifier was removed.
+        mediaState.add(QA_EXTERNAL_ORPHAN_PHOTO);
+        await assert.rejects(openRunner().execute({
+          order:QA_ADMIN_ORDER_TEMPLATE
+        }),/qa_external_owned_media_remaining/);
+        assert.equal(await admin.exists(A),true);
+        assert.equal(await admin.exists(B),true);
+        mediaState.delete(QA_EXTERNAL_ORPHAN_PHOTO);
+
         // Effect happens on Auth Emulator; crash before SQLite checkpoint.
         await assert.rejects(openRunner().execute({
           order:QA_ADMIN_ORDER_TEMPLATE,
@@ -290,6 +313,7 @@ try {
         await assert.rejects(secondFreeze.guardedWrite(A,'after'),
           /qa_admin_freeze_privileged_write_frozen/);
         assert.equal(mediaState.has(QA_EXTERNAL_BOB_PHOTO),true);
+        assert.equal(mediaState.has(QA_EXTERNAL_ORPHAN_PHOTO),false);
         assert.equal(forbiddenMediaCalls,0);
         for(const path of QA_FIXTURES.preserved){
           const item=await getDoc(doc(db,path));

@@ -18,7 +18,7 @@ import {QaSqliteLease} from './qa-deletion-sqlite-lease.mjs';
 import {QA_FIXTURES} from './qa-deletion-executor.mjs';
 import {createQaAuthEmulatorAdapter,createQaCloudinaryHttpAdapter,
   QA_EXTERNAL_UID,QA_EXTERNAL_BOB,QA_EXTERNAL_PHOTO,QA_EXTERNAL_BOB_PHOTO,
-  QA_EXTERNAL_MEDIA_PATH} from './qa-external-emulators.mjs';
+  QA_EXTERNAL_ORPHAN_PHOTO,QA_EXTERNAL_MEDIA_PATH,QA_EXTERNAL_MEDIA_INVENTORY_PATH} from './qa-external-emulators.mjs';
 
 const PROJECT='demo-atrio-v11',HOST='127.0.0.1:8089',AUTH='127.0.0.1:9099';
 if(process.env.GCLOUD_PROJECT!==PROJECT ||
@@ -34,6 +34,7 @@ if(process.env.GCLOUD_PROJECT!==PROJECT ||
 const state={
   media:new Set([QA_EXTERNAL_PHOTO,QA_EXTERNAL_BOB_PHOTO]),
   failNextDestroy:false,
+  failNextInventory:false,
   foreignDeletionAttempts:0,
   routes:[]
 };
@@ -50,6 +51,22 @@ const server=createServer(async(req,res)=>{
     if(![QA_EXTERNAL_PHOTO,QA_EXTERNAL_BOB_PHOTO].includes(id))
       return respond(res,404,{error:'unlisted_fixture'});
     return respond(res,200,{public_id:id,exists:state.media.has(id)});
+  }
+  if(req.method==='GET' && u.pathname===QA_EXTERNAL_MEDIA_INVENTORY_PATH){
+    if(state.failNextInventory){
+      state.failNextInventory=false;
+      return respond(res,503,{error:'qa_inventory_unavailable'});
+    }
+    if(u.searchParams.get('uid')!==QA_EXTERNAL_UID ||
+       !['upload','authenticated'].includes(u.searchParams.get('type')) ||
+       u.searchParams.get('limit')!=='100' ||u.searchParams.has('cursor'))
+      return respond(res,403,{error:'qa_inventory_invalid_scope'});
+    const type=u.searchParams.get('type');
+    const assets=[...state.media].filter(id=>id.startsWith(
+      'atrio-avatares/'+QA_EXTERNAL_UID+'/') &&
+      (id===QA_EXTERNAL_ORPHAN_PHOTO?'upload':'authenticated')===type);
+    return respond(res,200,{items:assets.map(public_id=>({type,public_id})),
+      nextCursor:null});
   }
   if(req.method==='POST' && u.pathname===QA_EXTERNAL_MEDIA_PATH){
     let raw='';
@@ -131,6 +148,21 @@ try {
               db,journal,media:stubMedia,auth:stubAuth,external,
               lease:new QaSqliteLease(journal)
             });
+            // A newly discovered orphan is NOT part of the known-ID delete.
+            // Its presence must block Auth even though photo1 is gone.
+            state.media.add(QA_EXTERNAL_ORPHAN_PHOTO);
+            await assert.rejects(
+              restarted.execute({order:QA_ADMIN_ORDER_TEMPLATE}),
+              /qa_external_owned_media_remaining/);
+            assert.equal(await auth.exists(QA_EXTERNAL_UID),true);
+            assert.equal(stubAuth.has(QA_EXTERNAL_UID),true);
+            assert.equal(state.media.has(QA_EXTERNAL_BOB_PHOTO),true);
+            state.media.delete(QA_EXTERNAL_ORPHAN_PHOTO);
+            state.failNextInventory=true;
+            await assert.rejects(
+              restarted.execute({order:QA_ADMIN_ORDER_TEMPLATE}),
+              /qa_external_media_inventory_http_failure/);
+            assert.equal(await auth.exists(QA_EXTERNAL_UID),true);
             const result=await restarted.execute({order:QA_ADMIN_ORDER_TEMPLATE});
             assert.equal(result.status,'qa_fixture_admin_workflow_finished');
             assert.equal(result.authEmulatorFixtureExercised,true);
