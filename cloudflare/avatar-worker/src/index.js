@@ -1,3 +1,5 @@
+import {qaSharedMode,qaSharedWorkerRequest,qaSharedResponse}
+  from '../../privacy-shared-qa/src/worker-entry.js';
 // Átrio Católico 0.19.7 — Worker isolado. NÃO implantar sem autorização.
 // Uploads começam autenticados (não entregáveis), são moderados manualmente,
 // e só se tornam públicos após aprovação + promoção pelo backend.
@@ -415,6 +417,13 @@ async function remove(env,uid) {
 }
 export default {
   async fetch(request,env) {
+    // Strictly offline shared SQLite fixture; no credentialled avatar paths.
+    if(qaSharedMode(env)){
+      try{
+        const result=await qaSharedWorkerRequest(request,env,'avatar');
+        return qaSharedResponse(200,result.status);
+      }catch{return qaSharedResponse(503,'qa_shared_worker_denied');}
+    }
     const pathname=new URL(request.url).pathname;
     if(!['/avatar/upload','/avatar/status','/avatar','/avatar/moderate',
       '/avatar/moderation/pending','/avatar/moderation/preview','/avatar/moderation/review'].includes(pathname))
