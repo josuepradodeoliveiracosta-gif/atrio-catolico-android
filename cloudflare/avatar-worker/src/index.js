@@ -421,7 +421,7 @@ export default {
     if(qaSharedMode(env)){
       try{
         const result=await qaSharedWorkerRequest(request,env,'avatar');
-        return qaSharedResponse(200,result.status);
+        return qaSharedResponse(200,result.status,result.operationId);
       }catch{return qaSharedResponse(503,'qa_shared_worker_denied');}
     }
     const pathname=new URL(request.url).pathname;
