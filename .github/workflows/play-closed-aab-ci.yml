@@ -6,6 +6,8 @@ on:
     paths:
       - 'app/**'
       - 'scripts/play_store_bundle_check.py'
+      - 'scripts/play_release_gate.py'
+      - 'scripts/test_play_release_gate.py'
       - '.github/workflows/play-closed-aab-ci.yml'
       - '.github/workflows/play-signed-aab-manual.yml'
   workflow_dispatch:
@@ -27,6 +29,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Testar gate de segurança da futura assinatura sem acesso a segredos
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_play_release_gate.py' -v
+          python3 scripts/play_release_gate.py --audit
       - name: Preparar Java 17
         uses: actions/setup-java@v4
         with:
