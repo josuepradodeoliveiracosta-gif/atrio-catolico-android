@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """Regressoes offline do gate do AAB: nenhuma chave/endpoint acessada."""
-from copy import deepcopy
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import tempfile
 import unittest
 
 from play_release_gate import (
-    assess_release, inspect, real_https_url, utc_review_date, REQUIREMENTS
+    assess_release, inspect, real_https_url, utc_review_date, REQUIREMENTS, UGC_REQUIREMENTS
 )
 
 GRADLE = '''
@@ -50,10 +49,26 @@ def evidence():
     }
 
 
+def ugc_evidence():
+    return {
+        "schema": 1,
+        "track": "Google Play — testes fechados",
+        "requirements": {
+            name: {
+                "verified": True,
+                "evidenceUrl": "https://github.com/atrio/audit/issues/124",
+                "reviewedBy": "revisor.qa",
+                "reviewedAt": "2026-10-30T15:30:00Z"
+            }
+            for name in UGC_REQUIREMENTS
+        }
+    }
+
+
 class ReleaseGateTests(unittest.TestCase):
     def audit(self, gradle=GRADLE, manifest=MANIFEST, record=None):
         return assess_release(gradle, manifest, evidence() if record is None
-                              else record, now=NOW)
+                              else record, now=NOW, ugc_evidence=ugc_evidence())
 
     def test_only_clean_synthetic_fixture_passes_local_checks(self):
         self.assertEqual(self.audit(), [])
@@ -96,11 +111,45 @@ class ReleaseGateTests(unittest.TestCase):
         self.assertIn("privacy_unverified:deletion_executor",
                       self.audit(record=record))
 
-    def test_manual_authorization_is_not_substitute_for_evidence(self):
+    def test_pre_signature_can_keep_release_authorization_false(self):
         record = evidence()
         record["releaseAuthorized"] = False
-        self.assertIn("manual_release_authorization_missing",
-                      self.audit(record=record))
+        record["requirements"]["closed_track_e2e"] = {
+            "description": "pos-primeiro-AAB", "verified": False,
+            "evidenceUrl": None, "reviewedBy": None, "reviewedAt": None
+        }
+        self.assertEqual(self.audit(record=record), [])
+
+    def test_release_authorization_cannot_precede_closed_track_e2e(self):
+        record = evidence()
+        record["releaseAuthorized"] = True
+        record["requirements"]["closed_track_e2e"] = {
+            "description": "pos-primeiro-AAB", "verified": False,
+            "evidenceUrl": None, "reviewedBy": None, "reviewedAt": None
+        }
+        self.assertIn("privacy_premature_release_authorization", self.audit(record=record))
+
+    def test_ugc_pre_signature_is_mandatory_but_ugc_device_e2e_is_after_upload(self):
+        ugc = ugc_evidence()
+        ugc["requirements"]["closed_track_ugc_e2e"] = {
+            "verified": False, "evidenceUrl": None,
+            "reviewedBy": None, "reviewedAt": None
+        }
+        self.assertEqual(assess_release(GRADLE, MANIFEST, evidence(),
+                                        now=NOW, ugc_evidence=ugc), [])
+        ugc["requirements"]["block_users"]["verified"] = False
+        self.assertIn("ugc_unverified:block_users",
+                      assess_release(GRADLE, MANIFEST, evidence(),
+                                     now=NOW, ugc_evidence=ugc))
+
+    def test_ugc_missing_or_malformed_rejected(self):
+        self.assertIn("ugc_evidence_missing",
+                      assess_release(GRADLE, MANIFEST, evidence(), now=NOW))
+        ugc = ugc_evidence()
+        ugc["requirements"].pop("block_users")
+        self.assertIn("ugc_requirements_missing",
+                      assess_release(GRADLE, MANIFEST, evidence(),
+                                     now=NOW, ugc_evidence=ugc))
 
     def test_extra_or_missing_requirements_rejected(self):
         record = evidence()
@@ -155,6 +204,9 @@ class ReleaseGateTests(unittest.TestCase):
             (root / "app/src/playRelease/AndroidManifest.xml").write_text(MANIFEST)
             (root / "docs/google-play-privacidade-evidencias.json").write_text(
                 json.dumps(evidence()))
+            self.assertEqual(inspect(root), ["ugc_evidence_file_missing"])
+            (root / "docs/google-play-ugc-evidencias.json").write_text(
+                json.dumps(ugc_evidence()))
             self.assertIn("play_firebase_config_missing", inspect(root))
             firebase = {
                 "project_info": {"project_id": "atrio-catolico"},
@@ -185,6 +237,8 @@ class ReleaseGateTests(unittest.TestCase):
             (root / "app/build.gradle.kts").write_text(GRADLE)
             (root / "app/src/playRelease/AndroidManifest.xml").write_text(MANIFEST)
             (root / "docs/google-play-privacidade-evidencias.json").write_text("{invalid")
+            (root / "docs/google-play-ugc-evidencias.json").write_text(
+                json.dumps(ugc_evidence()))
             self.assertEqual(inspect(root),
                              ["play_release_sources_unreadable_or_invalid"])
 
