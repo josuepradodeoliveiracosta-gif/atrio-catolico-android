@@ -7,6 +7,7 @@ on:
       - '.github/workflows/guardiao-v2-shadow-ci.yml'
       - 'scripts/guardian-v2-shadow-cycle.mjs'
       - 'tests/guardian-v2-shadow-cycle.test.mjs'
+      - 'firestore.indexes.json'
       - 'cloudflare/guardian-worker/src/policy.js'
 permissions:
   contents: read

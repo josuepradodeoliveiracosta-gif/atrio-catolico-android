@@ -154,3 +154,15 @@ test('workflow tem cron read-only, escopo OIDC e não contém deploy',()=>{
   assert.match(yml,/GUARDIAN_V2_WRITE_ENABLED: 'false'/);
   assert.doesNotMatch(yml,/firebase deploy|wrangler deploy|roles\/datastore.user/i);
 });
+
+test('índice para respostas em grupo não remove índices padrão das subcoleções',()=>{
+  const json=JSON.parse(readFileSync(new URL('../firestore.indexes.json',import.meta.url),'utf8'));
+  const all=json.fieldOverrides.filter(x=>x.collectionGroup==='replies' && x.fieldPath==='createdAt');
+  assert.equal(all.length,1);
+  const entries=all[0].indexes.map(x=>x.queryScope+':'+x.order).sort();
+  assert.deepEqual(entries,[
+    'COLLECTION:ASCENDING',
+    'COLLECTION:DESCENDING',
+    'COLLECTION_GROUP:DESCENDING'
+  ].sort());
+});
