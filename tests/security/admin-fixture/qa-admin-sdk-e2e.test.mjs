@@ -28,6 +28,8 @@ import {createQaAdminSdkAuthAdapter,QA_ADMIN_SDK_UIDS}
 import {createQaAdminFirestoreFreezeAdapter}
   from './qa-admin-firestore-freeze.mjs';
 import {createQaWorkerDrainAdapter} from './qa-worker-drain.mjs';
+import {createQaAvatarD1PreAuthAdapter}
+  from './qa-avatar-d1-pre-auth.mjs';
 
 const A=QA_ADMIN_SDK_UIDS.alice,B=QA_ADMIN_SDK_UIDS.bob;
 const PROJECT='demo-atrio-v11';
@@ -153,7 +155,12 @@ try {
         workerDir=mkdtempSync(join(tmpdir(),'atrio-qa-worker-drain-'));
         const workerPath=join(workerDir,'worker-ops.sqlite');
         workerDb=new DatabaseSync(workerPath);
+        workerDb.exec(readFileSync(new URL(
+          '../../../cloudflare/avatar-worker/schema.sql',import.meta.url),'utf8'));
         const workers=createQaWorkerDrainAdapter(workerDb);
+        const d1=createQaAvatarD1PreAuthAdapter(workerDb);
+        workerDb.prepare('INSERT INTO avatar_rate(uid,next_at) VALUES (?,?)')
+          .run(B,100);
         const inFlight=workers.begin(A,'push_fanout');
         const independent=workers.begin(B,'avatar_upload');
         journal=new DatabaseSync(':memory:');
@@ -170,7 +177,7 @@ try {
             return admin.remove(uid);
           }
         };
-        const external={auth:remoteAuth,media,freeze,workers};
+        const external={auth:remoteAuth,media,freeze,workers,d1};
         const openRunner=()=>new QaAdministrativeDeletionExecutor({
           db,journal,auth:fakeAuth,media:fakeMedia,external,
           lease:new QaSqliteLease(journal)
@@ -253,6 +260,15 @@ try {
         assert.equal(mediaState.has(QA_EXTERNAL_BOB_PHOTO),true);
         assert.equal(fakeAuth.has(A),true);
 
+        // D1 retention/audit rows require review and prevent Auth deletion.
+        workerDb.prepare('INSERT INTO avatar_moderation(actor_uid,target_uid,reason,created_at) VALUES (?,?,?,?)')
+          .run(B,A,'qa-retention-review',1);
+        await assert.rejects(openRunner().execute({
+          order:QA_ADMIN_ORDER_TEMPLATE
+        }),/qa_avatar_d1_owned_rows_remaining/);
+        assert.equal(await admin.exists(A),true);
+        workerDb.prepare('DELETE FROM avatar_moderation WHERE target_uid=?').run(A);
+
         // A second unreferenced media asset MUST block Admin Auth deletion,
         // even though the originally known media identifier was removed.
         mediaState.add(QA_EXTERNAL_ORPHAN_PHOTO);
@@ -283,13 +299,14 @@ try {
         workerDb.close();workerDb=null;
         secondWorkerDb=new DatabaseSync(workerPath);
         const resumedWorkers=createQaWorkerDrainAdapter(secondWorkerDb);
+        const resumedD1=createQaAvatarD1PreAuthAdapter(secondWorkerDb);
         assert.equal(resumedWorkers.verify(A),true,
           'Worker freeze must survive new SQLite connection');
         assert.deepEqual(resumedWorkers.status(B),{state:'active',pending:1});
         assert.equal(await secondFreeze.verify(A),true,
           'freeze must survive an Admin SDK process restart');
         const restartedExternal={auth:secondAdmin,media,freeze:secondFreeze,
-          workers:resumedWorkers};
+          workers:resumedWorkers,d1:resumedD1};
         const resumed=new QaAdministrativeDeletionExecutor({
           db,journal,media:fakeMedia,auth:fakeAuth,external:restartedExternal,
           lease:new QaSqliteLease(journal)

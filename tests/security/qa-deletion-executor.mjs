@@ -108,6 +108,9 @@ function stages(self){
         assertLease();
         if(external)await external.media.assertOwnerEmpty(UID);
         assertLease();
+        if(external && await external.d1.assertOwnerCleared(UID)!==true)
+          fail('avatar_d1_not_cleared_pre_auth');
+        assertLease();
         return removeQaAuthAfterReconciliation({
           uid:UID,db,media,auth,context,assertLease,
           ...(external?{removeRemote:uid=>external.auth.remove(uid)}:{})
@@ -134,6 +137,8 @@ function stages(self){
           return false;
         if(external && await external.media.assertOwnerEmpty(UID)!==true)
           return false;
+        if(external && await external.d1.assertOwnerCleared(UID)!==true)
+          return false;
         return true;
       }}
   };
@@ -155,6 +160,7 @@ export class QaDeletionRunner {
        typeof external?.media?.exists!=='function' ||
        typeof external?.media?.remove!=='function' ||
        typeof external?.media?.assertOwnerEmpty!=='function' ||
+       typeof external?.d1?.assertOwnerCleared!=='function' ||
        (external.freeze!==undefined &&
          (typeof external.freeze?.acquire!=='function' ||
           typeof external.freeze?.verify!=='function')) ||

@@ -16,6 +16,8 @@ import {QaAdministrativeDeletionExecutor,QA_ADMIN_ORDER_TEMPLATE}
   from './qa-admin-executor.mjs';
 import {QaSqliteLease} from './qa-deletion-sqlite-lease.mjs';
 import {QA_FIXTURES} from './qa-deletion-executor.mjs';
+import {createQaAvatarD1PreAuthAdapter}
+  from './admin-fixture/qa-avatar-d1-pre-auth.mjs';
 import {createQaAuthEmulatorAdapter,createQaCloudinaryHttpAdapter,
   QA_EXTERNAL_UID,QA_EXTERNAL_BOB,QA_EXTERNAL_PHOTO,QA_EXTERNAL_BOB_PHOTO,
   QA_EXTERNAL_ORPHAN_PHOTO,QA_EXTERNAL_MEDIA_PATH,QA_EXTERNAL_MEDIA_INVENTORY_PATH} from './qa-external-emulators.mjs';
@@ -128,7 +130,14 @@ try {
           const journal=new DatabaseSync(':memory:');
           const stubMedia=new Set([QA_EXTERNAL_PHOTO,QA_EXTERNAL_BOB_PHOTO]);
           const stubAuth=new Set([QA_EXTERNAL_UID,QA_EXTERNAL_BOB]);
-          const external={auth,media};
+          const d1Sqlite=new DatabaseSync(':memory:');
+          d1Sqlite.exec(readFileSync(
+            new URL('../../cloudflare/avatar-worker/schema.sql',import.meta.url),'utf8'));
+          // Bob's unrelated data remains untouched throughout the run.
+          d1Sqlite.prepare('INSERT INTO avatar_rate(uid,next_at) VALUES (?,?)')
+            .run(QA_EXTERNAL_BOB,100);
+          const d1=createQaAvatarD1PreAuthAdapter(d1Sqlite);
+          const external={auth,media,d1};
           try{
             state.failNextDestroy=true;
             const first=new QaAdministrativeDeletionExecutor({
@@ -163,6 +172,16 @@ try {
               restarted.execute({order:QA_ADMIN_ORDER_TEMPLATE}),
               /qa_external_media_inventory_http_failure/);
             assert.equal(await auth.exists(QA_EXTERNAL_UID),true);
+            // The known media is absent; an unreviewed D1 row is still a
+            // blocker before the FIRST Auth deletion attempt.
+            d1Sqlite.prepare('INSERT INTO avatar_pending(uid,public_id,created_at) VALUES (?,?,?)')
+              .run(QA_EXTERNAL_UID,QA_EXTERNAL_ORPHAN_PHOTO,1);
+            await assert.rejects(
+              restarted.execute({order:QA_ADMIN_ORDER_TEMPLATE}),
+              /qa_avatar_d1_owned_rows_remaining/);
+            assert.equal(await auth.exists(QA_EXTERNAL_UID),true);
+            d1Sqlite.prepare('DELETE FROM avatar_pending WHERE uid=?')
+              .run(QA_EXTERNAL_UID);
             const result=await restarted.execute({order:QA_ADMIN_ORDER_TEMPLATE});
             assert.equal(result.status,'qa_fixture_admin_workflow_finished');
             assert.equal(result.authEmulatorFixtureExercised,true);
@@ -174,6 +193,8 @@ try {
             assert.equal(await auth.exists(QA_EXTERNAL_BOB),true);
             assert.equal(state.media.has(QA_EXTERNAL_PHOTO),false);
             assert.equal(state.media.has(QA_EXTERNAL_BOB_PHOTO),true);
+            assert.equal(d1Sqlite.prepare('SELECT uid FROM avatar_rate WHERE uid=?')
+              .get(QA_EXTERNAL_BOB).uid,QA_EXTERNAL_BOB);
             assert.equal(state.foreignDeletionAttempts,0);
             for(const path of QA_FIXTURES.preserved)
               assert.equal((await getDoc(doc(db,path))).exists(),true,path);
@@ -182,7 +203,7 @@ try {
             assert.equal(await auth.exists(QA_EXTERNAL_BOB),true);
             assert.equal(state.media.has(QA_EXTERNAL_BOB_PHOTO),true);
             assert.ok(state.routes.some(x=>x.startsWith('POST '+QA_EXTERNAL_MEDIA_PATH)));
-          }finally{journal.close();}
+          }finally{journal.close();d1Sqlite.close();}
         });
       }finally{await close();}
     });
