@@ -68,7 +68,7 @@ test('refusal in one private consumer is persistent fail, no automatic retry',as
   const t=demo();
   try{
     t.smokeEnv.QA_GUARDIAN={fetch:async()=>new Response('{}',{status:403})};
-    assert.deepEqual(await runOneShotSmoke(t.smokeEnv),{status:'failed'});
+    assert.deepEqual(await runOneShotSmoke(t.smokeEnv),{status:'failed',phase:'admit_guardian'});
     assert.equal(t.status(),'failed');
     assert.equal(t.tickets(),1);
     assert.deepEqual(await runOneShotSmoke(t.smokeEnv),{status:'already_attempted'});
