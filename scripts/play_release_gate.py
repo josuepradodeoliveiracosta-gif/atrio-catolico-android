@@ -139,13 +139,20 @@ def inspect(root: Path) -> list[str]:
         if not isinstance(project, dict) or project.get("project_id") != EXPECTED_FIREBASE_PROJECT:
             blockers.append("play_firebase_wrong_project")
         clients = config.get("client")
+        def valid_client(c):
+            if not isinstance(c, dict) or not isinstance(c.get("client_info"), dict):
+                return False
+            info = c["client_info"]
+            android = info.get("android_client_info")
+            keys = c.get("api_key")
+            return (isinstance(android, dict)
+                    and android.get("package_name") == EXPECTED_PACKAGE
+                    and bool(info.get("mobilesdk_app_id"))
+                    and isinstance(keys, list)
+                    and any(isinstance(k, dict) and bool(k.get("current_key"))
+                            for k in keys))
         if not isinstance(clients, list) or not any(
-                isinstance(c, dict)
-                and isinstance(c.get("client_info"), dict)
-                and c["client_info"].get("android_client_info", {}).get("package_name") == EXPECTED_PACKAGE
-                and bool(c["client_info"].get("mobilesdk_app_id"))
-                and bool(c.get("api_key"))
-                for c in clients):
+                valid_client(c) for c in clients):
             blockers.append("play_firebase_wrong_app")
         return blockers
     except (OSError, ValueError, UnicodeError):
