@@ -44,7 +44,7 @@ async function remove(db,paths,assertLease){
   }
 }
 function stages(self){
-  const {db,media,auth,context}=self;
+  const {db,media,auth,context,external}=self;
   return {
     freeze_writes:{
       apply:async assertLease=>{assertLease();context.writesFrozen=true;},
@@ -58,8 +58,16 @@ function stages(self){
       apply:async assertLease=>remove(db,FIXTURES.relational,assertLease),
       verify:async()=>absent(db,FIXTURES.relational)},
     remove_media_stub:{
-      apply:async assertLease=>{assertLease();media.delete(MEDIA_ID);},
-      verify:async()=>!media.has(MEDIA_ID)},
+      apply:async assertLease=>{
+        assertLease();
+        if(external) {
+          await external.media.remove(UID,MEDIA_ID);
+          assertLease();
+        }
+        media.delete(MEDIA_ID);
+      },
+      verify:async()=>!media.has(MEDIA_ID) &&
+        (!external || await external.media.exists(UID,MEDIA_ID)===false)},
     remove_roots:{
       apply:async assertLease=>remove(db,FIXTURES.roots,assertLease),
       verify:async()=>absent(db,FIXTURES.roots)},
@@ -70,10 +78,18 @@ function stages(self){
     remove_auth_stub_last:{
       // Idempotent if interrupted after the mock Auth removal but before
       // the journal checkpoint. Previous data-verification phase is required.
-      apply:async assertLease=>removeQaAuthAfterReconciliation({
-        uid:UID,db,media,auth,context,assertLease
-      }),
-      verify:async()=>!auth.has(UID)},
+      apply:async assertLease=>{
+        assertLease();
+        if(external && await external.media.exists(UID,MEDIA_ID)!==false)
+          fail('remote_media_still_present');
+        assertLease();
+        return removeQaAuthAfterReconciliation({
+          uid:UID,db,media,auth,context,assertLease,
+          ...(external?{removeRemote:uid=>external.auth.remove(uid)}:{})
+        });
+      },
+      verify:async()=>!auth.has(UID) &&
+        (!external || await external.auth.exists(UID)===false)},
     final_check:{
       apply:async()=>{},
       verify:async()=>{
@@ -84,12 +100,15 @@ function stages(self){
         // references when resuming a previously completed journal too.
         await assertQaReconciled({uid:UID,db,media,auth,context,
           expectedAuth:'absent'});
+        if(external && (await external.media.exists(UID,MEDIA_ID)!==false ||
+                        await external.auth.exists(UID)!==false))
+          return false;
         return true;
       }}
   };
 }
 export class QaDeletionRunner {
-  constructor({db,journal,media,auth,context={},lease=null}){
+  constructor({db,journal,media,auth,context={},lease=null,external=null}){
     guard();
     if(!db || typeof journal?.prepare!=='function' ||
       !(media instanceof Set) || !(auth instanceof Set))fail('invalid_fixture_adapters');
@@ -100,8 +119,13 @@ export class QaDeletionRunner {
       lease.isBoundTo(journal)!==true ||
       typeof lease.release!=='function'))
       fail('invalid_qa_lease');
+    if(external!==null && (typeof external?.auth?.exists!=='function' ||
+       typeof external?.auth?.remove!=='function' ||
+       typeof external?.media?.exists!=='function' ||
+       typeof external?.media?.remove!=='function'))
+      fail('invalid_qa_external_adapter');
     this.db=db;this.journal=journal;this.media=media;this.auth=auth;this.context=context;
-    this.lease=lease;
+    this.lease=lease;this.external=external;
     this.stages=stages(this);
     journal.exec('CREATE TABLE IF NOT EXISTS qa_deletion_checkpoints '+
       '(step TEXT PRIMARY KEY, finished INTEGER NOT NULL CHECK(finished=1))');
