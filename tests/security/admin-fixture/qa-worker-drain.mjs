@@ -13,6 +13,8 @@ function guard(){
   if(process.env.GCLOUD_PROJECT!=='demo-atrio-v11' ||
      process.env.FIRESTORE_EMULATOR_HOST!=='127.0.0.1:8089' ||
      process.env.FIREBASE_AUTH_EMULATOR_HOST!=='127.0.0.1:9099' ||
+     process.env.FIREBASE_CONFIG ||
+     process.env.GOOGLE_CLOUD_PROJECT ||
      process.env.GOOGLE_APPLICATION_CREDENTIALS ||
      process.env.FIREBASE_SERVICE_ACCOUNT_JSON ||
      process.env.CLOUDINARY_API_SECRET ||
