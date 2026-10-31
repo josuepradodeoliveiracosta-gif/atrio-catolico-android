@@ -14,7 +14,7 @@ const HOST='127.0.0.1:8089';
 const PROJECT='demo-atrio-v11';
 const EXPECTED='qa_reconciled_known_scopes_only';
 
-function guard({uid,db,auth,media,context,assertLease,reconcile}) {
+function guard({uid,db,auth,media,context,assertLease,reconcile,removeRemote}) {
   if(process.env.FIRESTORE_EMULATOR_HOST!==HOST ||
      process.env.GCLOUD_PROJECT!==PROJECT ||
      process.env.FIREBASE_SERVICE_ACCOUNT_JSON ||
@@ -24,7 +24,8 @@ function guard({uid,db,auth,media,context,assertLease,reconcile}) {
     throw Error('qa_auth_live_environment_denied');
   if(uid!==UID || !db || !(auth instanceof Set) || !(media instanceof Set) ||
      context?.writesFrozen!==true || typeof assertLease!=='function' ||
-     typeof reconcile!=='function')
+     typeof reconcile!=='function' ||
+     (removeRemote!==undefined && typeof removeRemote!=='function'))
     throw Error('qa_auth_invalid_fixture_context');
 }
 
@@ -35,9 +36,9 @@ function guard({uid,db,auth,media,context,assertLease,reconcile}) {
  */
 export async function removeQaAuthAfterReconciliation({
   uid,db,auth,media,context,assertLease,
-  reconcile=assertQaReconciled
+  reconcile=assertQaReconciled,removeRemote
 }={}) {
-  guard({uid,db,auth,media,context,assertLease,reconcile});
+  guard({uid,db,auth,media,context,assertLease,reconcile,removeRemote});
   assertLease();
   const report=await reconcile({uid,db,auth,media,context,expectedAuth:'either'});
   if(report?.state!==EXPECTED || report.productionReady!==false ||
@@ -48,6 +49,12 @@ export async function removeQaAuthAfterReconciliation({
   // Important: the earlier lease may have expired WHILE awaiting Firestore.
   // A stale runner must NEVER erase even the fake identity after takeover.
   assertLease();
+  if(removeRemote){
+    // External deletion is ONLY an Auth Emulator self-delete in this QA
+    // module. A timeout cannot prove that the remote effect did not occur.
+    await removeRemote(uid);
+    assertLease();
+  }
   auth.delete(uid);
   assertLease();
   return Object.freeze({state:'qa_fake_auth_removed_only',productionReady:false});
