@@ -189,7 +189,7 @@ internal object OtaApkDelivery {
         }
         val uri = FileProvider.getUriForFile(context,
             "${context.packageName}.ota.fileprovider", apk)
-        val intent = Intent(Intent.ACTION_VIEW).apply {
+        val intent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
             setDataAndType(uri, "application/vnd.android.package-archive")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
             clipData = ClipData.newUri(context.contentResolver, "Atualizacao oficial do Atrio", uri)
