@@ -29,7 +29,7 @@ def sample():
             {**local["indexes"]["indexes"][0], "state": "READY",
              "fields": local["indexes"]["indexes"][0]["fields"] +
                 [{"fieldPath": "__name__", "order": "DESCENDING"}]}
-        ], "fieldOverrides": local["indexes"]["fieldOverrides"]},
+        ], "fieldOverrides": json.loads(json.dumps(local["indexes"]["fieldOverrides"]))},
     }
     return local, remote
 
