@@ -1,7 +1,7 @@
 import test, {afterEach} from 'node:test';
 import assert from 'node:assert/strict';
 import worker, {resolveEvent, readEventBody, auditDelivery, cleanupInvalidDevice,
-  threadParticipants, writeThreadNotices, classifyGuardiao, guardiaoAiAssessment, enrichGuardiaoReport, reserveGuardiaoAdminPush, guardiaoAutoHoldAllowed, holdGuardiaoContent} from './index.js';
+  threadParticipants, writeThreadNotices, blockSafeThreadRecipients, classifyGuardiao, guardiaoAiAssessment, enrichGuardiaoReport, reserveGuardiaoAdminPush, guardiaoAutoHoldAllowed, holdGuardiaoContent} from './index.js';
 
 const iso = () => new Date(Date.now() - 2000).toISOString();
 const doc = (data={}) => ({fields:Object.fromEntries(Object.entries(data).map(([key,value]) =>
@@ -461,6 +461,115 @@ test('precondicao Firestore falha quando o dispositivo e atualizado antes da lim
   },fcm),false);
 });
 
+
+
+test('modo seguro entrega somente destinatarios que nao se bloquearam',async()=>{
+  mocked({
+    'users/autor/blockedMembers/joao':doc({createdAt:iso()}),
+    'users/maria/blockedMembers/autor':doc({createdAt:iso()}),
+  });
+  assert.deepEqual(await blockSafeThreadRecipients('fake','autor',
+    ['dono','joao','maria','autor','dono']),['dono']);
+});
+test('modo seguro falha fechado se bloqueio privado nao puder ser consultado',async()=>{
+  globalThis.fetch=async()=>new Response('{}',{status:503});
+  await assert.rejects(
+    ()=>blockSafeThreadRecipients('fake','autor',['dono']),
+    /Firestore indisponível/);
+});
+test('modo seguro nao faz consultas com IDs invalidos nem acima de cinco destinatarios',async()=>{
+  let networkCalls=0;
+  globalThis.fetch=async()=>{networkCalls++;throw Error('nao acessar rede');};
+  for (const recipients of [['../admin'],Array.from({length:6},(_,i)=>'p'+i)]) {
+    await assert.rejects(
+      ()=>blockSafeThreadRecipients('fake','autor',recipients),
+      /block_safe_capacity_or_invalid/);
+  }
+  assert.equal(networkCalls,0);
+});
+test('modo seguro nao envia topic FCM nem notificacao in-app a bloqueado',async()=>{
+  const pair=await crypto.subtle.generateKey({
+    name:'RSASSA-PKCS1-v1_5',modulusLength:2048,
+    publicExponent:new Uint8Array([1,0,1]),hash:'SHA-256',
+  },true,['sign','verify']);
+  const pkcs8=await crypto.subtle.exportKey('pkcs8',pair.privateKey);
+  const service=JSON.stringify({
+    project_id:'atrio-catolico',
+    client_email:'qa-push@atrio-catolico.iam.gserviceaccount.com',
+    private_key:'-----BEGIN PRIVATE KEY-----\n'+Buffer.from(pkcs8).toString('base64')
+      +'\n-----END PRIVATE KEY-----',
+  });
+  const at=iso();
+  const docs={
+    'posts/p1':doc({uid:'dono'}),
+    'posts/p1/replies/r1':doc({uid:'autor',createdAt:at,authorName:'Autor'}),
+    'users/dono/notifications/r1':doc({
+      actorUid:'autor',postId:'p1',replyId:'r1',read:false}),
+    'posts/p1/replies':{documents:[
+      doc({uid:'joao',createdAt:at}),doc({uid:'maria',createdAt:at}),
+    ]},
+    'users/autor/blockedMembers/joao':doc({createdAt:at}),
+    'users/dono/pushDevices':{documents:[doc({
+      token:'fcm-demo-dono-123456789',updatedAt:at,
+    })]},
+    'users/maria/pushDevices':{documents:[doc({
+      token:'fcm-demo-maria-123456789',updatedAt:at,
+    })]},
+    'users/joao/pushDevices':{documents:[doc({
+      token:'fcm-demo-joao-123456789',updatedAt:at,
+    })]},
+  };
+  const recipients=new Set(); const writes=[];const keys=new Set();
+  let topicMessages=0;let joaoDeviceLookups=0;
+  const db={prepare(sql){return {bind(...a){return {async run(){
+    if(sql.startsWith('DELETE FROM delivered')) return {meta:{changes:0}};
+    if(!sql.startsWith('INSERT OR IGNORE INTO delivered')) throw Error('db_invalid');
+    if(keys.has(a[0]))return {meta:{changes:0}};
+    keys.add(a[0]);return {meta:{changes:1}};
+  }};}};}};
+  globalThis.fetch=async(url,opts={})=>{
+    const u=String(url);
+    if(u.startsWith('https://identitytoolkit.googleapis.com/'))
+      return Response.json({users:[{localId:'autor',disabled:false}]});
+    if(u==='https://oauth2.googleapis.com/token')
+      return Response.json({access_token:'service-qa',expires_in:3600});
+    if(u.includes('firestore.googleapis.com/')) {
+      if(u.endsWith('/documents:batchWrite')){
+        const data=JSON.parse(opts.body);
+        writes.push(...data.writes);
+        return Response.json({status:data.writes.map(()=>({}))});
+      }
+      const obj=new URL(u);
+      const path=decodeURIComponent(obj.pathname).split('/documents/')[1];
+      if(path==='users/joao/pushDevices')joaoDeviceLookups++;
+      const data=docs[path];
+      if(!data)return new Response('{}',{status:404});
+      return Response.json(data);
+    }
+    if(u.includes('fcm.googleapis.com/')){
+      const message=JSON.parse(opts.body).message;
+      if(message.topic)topicMessages++;
+      if(message.token)recipients.add(message.token);
+      return Response.json({});
+    }
+    throw Error('unexpected_external_call');
+  };
+  const env={PUSH_ENABLED:'true',PUSH_BLOCK_SAFE_FANOUT_ENABLED:'true',
+    PUSH_DB:db,FIREBASE_WEB_API_KEY:'qa-only',
+    FIREBASE_SERVICE_ACCOUNT_JSON:service};
+  const request=req(JSON.stringify({type:'reply',postId:'p1',replyId:'r1'}),
+    {Authorization:'Bearer '+'a'.repeat(120)});
+  const res=await worker.fetch(request,env);
+  assert.equal(res.status,202);
+  assert.equal(topicMessages,0);
+  assert.equal(joaoDeviceLookups,0);
+  assert.deepEqual([...recipients].sort(),[
+    'fcm-demo-dono-123456789','fcm-demo-maria-123456789',
+  ]);
+  assert.equal(writes.length,2);
+  assert.ok(writes.every(w=>!w.update.name.includes('users/joao/')));
+  assert.ok(![...keys].some(k=>k.startsWith('topic:')));
+});
 
 test('fanout inclui dono e cada comentarista apenas uma vez, mas exclui remetente',async()=>{
   const now=iso();
