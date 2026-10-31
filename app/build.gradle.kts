@@ -18,7 +18,8 @@ val atrioKeyAlias = System.getenv("ATRIO_SIGNING_KEY_ALIAS")
 val atrioKeyPassword = System.getenv("ATRIO_SIGNING_KEY_PASSWORD")
 
 // Versão do APK de testes: avançar para 2, 3, ... a cada NOVA atualização Debug.
-// Release V2 autorizado: candidato 0.20.0 / versionCode 35. Assinatura permanece restrita ao workflow manual na main.
+// OTA 0.20.1 / code 36 está reservado na PR #70 (não mesclada).
+// Candidato Play 0.20.2 / code 37 é só metadado de QA; sem assinatura nem autorização de publicação.
 val atrioDebugPatch = 7
 val atrioDebugVersionName = "0.19.$atrioDebugPatch"
 val atrioDebugVersionCode = 27 + atrioDebugPatch
@@ -34,9 +35,9 @@ android {
         // Google Play (outubro/2026) exige API 36 para novos envios e atualizacoes.
         // Validar edge-to-edge e regressao de notificacoes antes de integrar.
         targetSdk = 36
-        versionCode = 35
-        versionName = "0.20.0"
-        buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"0.20.0\"")
+        versionCode = 37
+        versionName = "0.20.2"
+        buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"0.20.2\"")
         // Variante Play nunca baixa ou instala APKs fora da loja.
         buildConfigField("boolean", "PLAY_STORE_BUILD", "false")
         val relayUrl = System.getenv("ATRIO_PUSH_WORKER_URL").orEmpty()
