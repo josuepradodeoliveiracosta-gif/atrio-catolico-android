@@ -11,7 +11,6 @@ permissions:
   contents: read
 jobs:
   qa-wif-one-get:
-    if: github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android' && github.ref == 'refs/heads/feature/guardiao-v2-motor-isolado-20261030' && inputs.confirm_qa == true
     runs-on: ubuntu-latest
     timeout-minutes: 4
     environment: guardian-qa
@@ -29,6 +28,16 @@ jobs:
       GUARDIAN_V2_QA_FIRESTORE_BRIDGE: 'false'
       GUARDIAN_V2_QA_SHADOW_READS: 'false'
     steps:
+      - name: Exigir confirmação e branch QA antes de solicitar OIDC
+        shell: bash
+        env:
+          CONFIRM_QA: ${{ inputs.confirm_qa }}
+        run: |
+          set -euo pipefail
+          test "$CONFIRM_QA" = 'true'
+          test "$GITHUB_REPOSITORY" = 'josuepradodeoliveiracosta-gif/atrio-catolico-android'
+          test "$GITHUB_EVENT_NAME" = 'workflow_dispatch'
+          test "$GITHUB_REF" = 'refs/heads/feature/guardiao-v2-wif-prova-qa-20261030'
       - uses: actions/checkout@v4
         with:
           persist-credentials: false

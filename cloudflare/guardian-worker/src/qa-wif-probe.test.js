@@ -4,7 +4,7 @@ import {validateQaWifContext,probeQaWifRead} from './qa-wif-probe.js';
 const env={
  GITHUB_REPOSITORY:'josuepradodeoliveiracosta-gif/atrio-catolico-android',
  GITHUB_EVENT_NAME:'workflow_dispatch',
- GITHUB_REF:'refs/heads/feature/guardiao-v2-motor-isolado-20261030',
+ GITHUB_REF:'refs/heads/feature/guardiao-v2-wif-prova-qa-20261030',
  QA_FIREBASE_PROJECT_ID:'atrio-catolico-qa-v2',QA_APPROVED_PROJECT_ID:'atrio-catolico-qa-v2',
  QA_SERVICE_ACCOUNT:'guardian-qa-reader@atrio-catolico-qa-v2.iam.gserviceaccount.com',
  QA_WIF_PROVIDER:'projects/53068022813/locations/global/workloadIdentityPools/guardian-github-qa/providers/github-qa',
@@ -18,7 +18,7 @@ const good={name:fixture,fields:{qaFixture:{booleanValue:true},body:{stringValue
 test('nega branch, projeto, IAM, ambiente, execução e flags indevidas',()=>{
  assert.equal(validateQaWifContext(env),true);
  for(const patch of [
- {GITHUB_REPOSITORY:'not-trusted/repo'},{GITHUB_REF:'refs/heads/main'},{GITHUB_EVENT_NAME:'pull_request'},
+ {GITHUB_REPOSITORY:'not-trusted/repo'},{GITHUB_REF:'refs/heads/main'},{GITHUB_REF:'refs/heads/feature/guardiao-v2-motor-isolado-20261030'},{GITHUB_EVENT_NAME:'pull_request'},
  {QA_FIREBASE_PROJECT_ID:'atrio-catolico'},{QA_APPROVED_PROJECT_ID:'atrio-catolico'},
  {QA_SERVICE_ACCOUNT:'owner@atrio-catolico-qa-v2.iam.gserviceaccount.com'},
  {QA_WIF_PROVIDER:'projects/53068022813/locations/global/workloadIdentityPools/other/providers/github-qa'},
@@ -44,7 +44,7 @@ test('permite um único GET ao recurso sintético, sem expor conteúdo ou token'
  assert.ok(!JSON.stringify(result).includes(env.QA_ACCESS_TOKEN));
 });
 test('IAM negado, documento falso e JSON inválido recusados; 404 não prova sucesso',async()=>{
- assert.deepEqual(await probeQaWifRead(env,async()=>res('{}',404)),{status:'qa_fixture_missing'});
+ await assert.rejects(probeQaWifRead(env,async()=>res('{}',404)),/qa_identity_probe_denied/);
  for(const item of [res('{}',403),res('{}',401),res({...good,name:'projects/atrio-catolico/databases/(default)/documents/posts/qa_post_1'}),res({...good,fields:{qaFixture:{booleanValue:false}}}),res('not-json')])
   await assert.rejects(probeQaWifRead(env,async()=>item),/qa_identity_probe_denied/);
 });

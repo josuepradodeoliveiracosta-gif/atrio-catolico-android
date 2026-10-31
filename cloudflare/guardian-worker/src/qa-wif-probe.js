@@ -1,7 +1,7 @@
 // QA-only keyless identity proof. OAuth/WIF and IAM must independently authorize requests.
 const PROJECT='atrio-catolico-qa-v2';
 const REPO='josuepradodeoliveiracosta-gif/atrio-catolico-android';
-const BRANCH='refs/heads/feature/guardiao-v2-motor-isolado-20261030';
+const BRANCH='refs/heads/feature/guardiao-v2-wif-prova-qa-20261030';
 const ACCOUNT='guardian-qa-reader@'+PROJECT+'.iam.gserviceaccount.com';
 const FIXTURE='projects/'+PROJECT+'/databases/(default)/documents/posts/qa_post_1';
 const ENDPOINT='https://firestore.googleapis.com/v1/'+FIXTURE;
@@ -34,7 +34,8 @@ export async function probeQaWifRead(e,fetcher=fetch){
  if(typeof t!=='string'||t.length<20||/\s/.test(t))deny();
  let r;
  try{r=await fetcher(ENDPOINT,{method:'GET',headers:{Authorization:'Bearer '+t,Accept:'application/json'},redirect:'error',signal:AbortSignal.timeout(6500)})}catch{deny()}
- if(r.status===404)return {status:'qa_fixture_missing'};
+ // A fixture ausente NÃO prova autorização. Nunca produzir sucesso com HTTP 404.
+ if(r.status===404)deny();
  if(r.status!==200)deny();
  let d;try{d=await boundedJson(r)}catch{deny()}
  if(d?.name!==FIXTURE||d?.fields?.qaFixture?.booleanValue!==true)deny();
