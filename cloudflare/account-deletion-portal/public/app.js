@@ -27,7 +27,11 @@ function lock(value) {
   for(const button of [submit,requestButton,resetButton,logoutButton]) button.disabled=value;
 }
 const config=window.ATRIO_FIREBASE_CONFIG;
-const intakeEnabled=window.ATRIO_PORTAL_STATUS?.intakeEnabled===true &&
+// Requer ALTERACAO DE CODIGO e revisao independente antes de aceitar pedidos
+// pela web; modificar apenas um arquivo de configuracao nao pode desbloquear.
+const LIVE_INTAKE_REVIEWED_AND_APPROVED=false;
+const intakeEnabled=LIVE_INTAKE_REVIEWED_AND_APPROVED &&
+  window.ATRIO_PORTAL_STATUS?.intakeEnabled===true &&
   window.ATRIO_PORTAL_STATUS?.actualDeletionEnabled===true;
 if(!intakeEnabled) {
   // Read-only information page. No sign-in, password reset or Firestore writes.

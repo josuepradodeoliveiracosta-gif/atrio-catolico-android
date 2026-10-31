@@ -196,3 +196,13 @@ O teste `cloudflare/account-deletion-portal/tests/build.test.mjs`
 assegura que mesmo variáveis como `PORTAL_INTAKE_ENABLED=true` não
 desbloqueiem pedidos; futura ativação exige alteração explícita
 de código, revisão e novo CI. **Nenhum Hosting deploy foi executado.**
+
+### Segunda trava independente do cliente
+
+O navegador também exige a constante explícita
+`LIVE_INTAKE_REVIEWED_AND_APPROVED=false` em `public/app.js`. Mesmo que
+alguém publique por engano `config.js` com `intakeEnabled=true`, somente
+isso **não** apresenta o login nem inicia o fluxo de pedidos. Para habilitar
+o canal futuramente será necessário revisar **dois pontos separados do
+código**, além de todos os requisitos administrativos, jurídicos e de QA.
+Isso não substitui o bloqueio por regras ou IAM de produção.

@@ -48,6 +48,8 @@ test('geração pública contém apenas metadados do Firebase Web',()=>{
     assert.match(client,/serverTimestamp/);
     assert.match(client,/source:'web'/);
     assert.ok(client.includes('if(!intakeEnabled)'));
+    assert.match(client,/const LIVE_INTAKE_REVIEWED_AND_APPROVED=false;/);
+    assert.ok(client.includes('intakeEnabled=LIVE_INTAKE_REVIEWED_AND_APPROVED &&'));
     assert.ok(client.includes('loginForm.hidden=true'));
     assert.doesNotMatch(client,/deleteDoc|deleteUser|localStorage\.setItem/);
     const headers=readFileSync(join(output,'_headers'),'utf8');
