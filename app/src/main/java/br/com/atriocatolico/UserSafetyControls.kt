@@ -111,7 +111,7 @@ internal fun MemberSafetyControls(
                     val reporter = viewerUid
                     val target = memberUid
                     busy = true
-                    val reportId = "\${reporter}_user_\${target}"
+                    val reportId = "${reporter}_user_${target}"
                     db.collection("user_reports").document(reportId).set(mapOf(
                         "reporterUid" to reporter,
                         "targetUid" to target,
