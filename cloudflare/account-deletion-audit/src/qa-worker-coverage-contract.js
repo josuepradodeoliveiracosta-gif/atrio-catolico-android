@@ -63,7 +63,7 @@ export const QA_WORKER_SOURCES=Object.freeze([
     service:'guardian-firestore',
     file:'cloudflare/guardian-worker/src/firestore.js',
     gitBlob:'7a0082f706c1e8fc8d4003bb83f012c60f567083',
-    mustContain:["async commit(","async get("]
+    mustContain:["commit(writes){","get(path){"]
   }
 ]);
 
