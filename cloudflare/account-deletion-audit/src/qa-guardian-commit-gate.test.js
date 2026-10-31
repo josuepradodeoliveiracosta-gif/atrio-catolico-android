@@ -35,7 +35,7 @@ class InMemoryGuardianStore {
   scan(group){
     const col=group==='replies'?/^posts\/[^/]+\/replies\/[^/]+$/:
       group==='posts'?/^posts\/[^/]+$/:/^reports\/[^/]+$/;
-    return [...this.documents.values()].filter(d=>
+    return [...this.documents.values()].filter(d=>d&&
       col.test(d.name.slice(ROOT.length+1)));
   }
   async commit(writes){
@@ -57,7 +57,8 @@ class InMemoryGuardianStore {
     for(const w of writes){
       const path=w.update?.name||w.delete||w.verify;
       if(w.verify)continue;
-      if(w.delete){this.documents.delete(path);continue;}
+      // Test-only tombstone: no deletion APIs in the audit Worker tree.
+      if(w.delete){this.documents.set(path,null);continue;}
       const previous=this.documents.get(path);
       this.documents.set(path,{name:path,updateTime:'2026-10-31T12:00:03.000000Z',
         fields:{...(previous?.fields||{}),...w.update.fields}});
