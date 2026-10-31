@@ -98,7 +98,7 @@ export class QaDeletionRunner {
       if(this.lease)this.lease.release(ownership);
     }
   }
-  async runExclusive({failAfterEffect=null,approved=false}={},checkLease=()=>{}){
+  async runExclusive({failAfterEffect=null,failBeforeEffect=null,approved=false}={},checkLease=()=>{}){
     guard();
     if(approved!==true)fail('explicit_qa_approval_required');
     checkLease();
@@ -122,6 +122,7 @@ export class QaDeletionRunner {
       }
       if(step!=='freeze_writes'&&this.context.writesFrozen!==true)
         fail('new_writes_not_frozen');
+      if(step===failBeforeEffect)throw Error('injected_failure_before_effect:'+step);
       await phase.apply();
       checkLease();
       if(!(await phase.verify()))fail('phase_verification_failed:'+step);
