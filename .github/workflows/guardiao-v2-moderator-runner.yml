@@ -46,14 +46,14 @@ jobs:
         with:
           node-version: '22'
       # A identidade abaixo é distinta de guardian-v2-runner (somente leitura).
-      # O provedor IAM/WIF abaixo PRECISA ser criado com vínculo ao workflow
+      # O pool e provedor IAM/WIF exclusivos PRECISAM ser criados com vínculo ao workflow
       # exato e ao ambiente; não reutilizar o provider do observador.
       - name: Obter identidade WIF temporária de escrita
         id: auth
         uses: google-github-actions/auth@v3
         with:
           project_id: atrio-catolico
-          workload_identity_provider: projects/256733686427/locations/global/workloadIdentityPools/guardian-v2-prod/providers/github-moderator
+          workload_identity_provider: projects/256733686427/locations/global/workloadIdentityPools/guardian-v2-writer/providers/github-moderator
           service_account: guardian-v2-writer@atrio-catolico.iam.gserviceaccount.com
           token_format: access_token
           access_token_lifetime: 300s
