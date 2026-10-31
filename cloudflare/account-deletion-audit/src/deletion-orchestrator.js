@@ -15,7 +15,8 @@ export const OWNED_ROOTS = Object.freeze([
 ]);
 
 export const USER_SUBCOLLECTIONS = Object.freeze([
-  'likedPosts', 'savedPosts', 'followedPosts', 'pushDevices', 'notifications'
+  'likedPosts', 'savedPosts', 'followedPosts', 'pushDevices', 'notifications',
+  'blockedMembers', 'acceptedTerms'
 ]);
 
 export const GUARDIAN_SUBCOLLECTIONS = Object.freeze(['items']);
@@ -26,7 +27,7 @@ export const GUARDIAN_SUBCOLLECTIONS = Object.freeze(['items']);
  */
 export const RELATIONAL_SCOPES = Object.freeze([
   'posts/*', 'posts/*/replies/*', 'posts/*/replies/*/reactions/*',
-  'users/*/notifications/*', 'reports/*', 'guardian_cases/*',
+  'users/*/notifications/*', 'reports/*', 'user_reports/*', 'guardian_cases/*',
   'guardian_audit/*', 'guardiao_quarantine/*'
 ]);
 

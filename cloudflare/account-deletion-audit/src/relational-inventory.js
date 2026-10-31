@@ -27,6 +27,10 @@ const SCOPES=Object.freeze([
     path:'users/*/notifications/*',review:'cross_account_reference'},
   {id:'reports_reporter',collectionGroup:'reports',field:'reporterUid',
     path:'reports/*',review:'moderation_retention'},
+  {id:'user_reports_reporter',collectionGroup:'user_reports',field:'reporterUid',
+    path:'user_reports/*',review:'moderation_retention'},
+  {id:'user_reports_target',collectionGroup:'user_reports',field:'targetUid',
+    path:'user_reports/*',review:'moderation_retention'},
   {id:'guardian_cases_owner',collectionGroup:'guardian_cases',field:'ownerUid',
     path:'guardian_cases/*',review:'moderation_retention'},
   {id:'guardian_cases_reviewer',collectionGroup:'guardian_cases',field:'reviewedBy',
@@ -114,6 +118,7 @@ export async function discoverRelationalCandidates(uid,adapter) {
     globalCoverageComplete:false,
     unverifiedScopes:[
       'reactions_by_document_id',
+      'blocked_members_reference_by_document_id',
       'orphaned_nested_collections',
       'mentions_and_references_without_indexed_uid',
       'cloudinary_d1_media',

@@ -49,8 +49,22 @@ test('subcollections are scanned even when parent document is absent',async()=>{
   const result=await inventoryOwnedDocuments(uid,adapter);
   assert.equal(result.documents.length,0);
   assert.ok(visited.includes('users/alice_123/pushDevices'));
+  assert.ok(visited.includes('users/alice_123/blockedMembers'));
+  assert.ok(visited.includes('users/alice_123/acceptedTerms'));
   assert.ok(visited.includes('guardian_notices/alice_123/items'));
 });
+test('audits UGC block lists and consent records without any delete operation',async()=>{
+  const out=await inventoryOwnedDocuments(uid,makeAdapter({pages:{
+    'users/alice_123/blockedMembers':{start:{paths:[
+      'users/alice_123/blockedMembers/blocked_1'],nextPageToken:null}},
+    'users/alice_123/acceptedTerms':{start:{paths:[
+      'users/alice_123/acceptedTerms/ugc-v1'],nextPageToken:null}}
+  }}));
+  assert.ok(out.documents.some(d=>d.path==='users/alice_123/blockedMembers/blocked_1'));
+  assert.ok(out.documents.some(d=>d.path==='users/alice_123/acceptedTerms/ugc-v1'));
+  assert.equal(out.pagesComplete,false);
+});
+
 test('does not accept paths of another account or nested unexpected collection',async()=>{
   const cases=['users/bob/notifications/x','users/alice_123/notifications/x/secret/y',
     '../users/alice_123/notifications/x','users/alice_123/likedPosts/x'];

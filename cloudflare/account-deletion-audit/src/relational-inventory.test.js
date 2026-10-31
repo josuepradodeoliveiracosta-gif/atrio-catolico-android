@@ -23,6 +23,12 @@ const samples={
   reports_reporter:[
     {path:'reports/report_1',fields:{reporterUid:uid}}
   ],
+  user_reports_reporter:[
+    {path:'user_reports/ur_1',fields:{reporterUid:uid}}
+  ],
+  user_reports_target:[
+    {path:'user_reports/ur_2',fields:{targetUid:uid}}
+  ],
   guardian_cases_owner:[
     {path:'guardian_cases/case_1',fields:{ownerUid:uid}}
   ],
@@ -51,19 +57,20 @@ test('reads references without deleting another user content or moderation evide
   assert.equal(result.safeToExecute,false);
   assert.equal(result.globalCoverageComplete,false);
   assert.equal(result.queryPagesScanned,true);
-  assert.equal(result.findings.length,9);
+  assert.equal(result.findings.length,11);
   assert.ok(result.findings.every(x=>x.automaticallyDeletable===false));
   const shared=result.findings.find(x=>x.path==='users/bob/notifications/n1');
   assert.deepEqual(shared.matchedQueries,['notifications_actor','notifications_mention']);
   assert.deepEqual(shared.requiresReview,['cross_account_reference']);
   assert.ok(result.unverifiedScopes.includes('orphaned_nested_collections'));
   assert.ok(result.unverifiedScopes.includes('reactions_by_document_id'));
+  assert.ok(result.unverifiedScopes.includes('blocked_members_reference_by_document_id'));
 });
 test('public summary has aggregate counts and never reveals UID, names or paths',async()=>{
   const result=await discoverRelationalCandidates(uid,adapter());
   const summary=summarizeRelationalCandidates(result);
   assert.deepEqual(summary.groups,{
-    author_content:3,cross_account_reference:2,moderation_retention:4
+    author_content:3,cross_account_reference:2,moderation_retention:6
   });
   const json=JSON.stringify(summary);
   for(const secret of ['alice_123','bob','posts/post_1','reports/report_1']) {

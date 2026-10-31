@@ -33,7 +33,10 @@ const plan=(inv=inventory(),app=approvals(),rec=record)=>buildDeletionPlan(uid,r
 test('plan includes all known Firestore and external scopes and never exposes delete capability',()=>{
   assert.ok(OWNED_ROOTS.includes('profile_photos'));
   assert.ok(USER_SUBCOLLECTIONS.includes('pushDevices'));
+  assert.ok(USER_SUBCOLLECTIONS.includes('blockedMembers'));
+  assert.ok(USER_SUBCOLLECTIONS.includes('acceptedTerms'));
   assert.ok(RELATIONAL_SCOPES.includes('posts/*/replies/*/reactions/*'));
+  assert.ok(RELATIONAL_SCOPES.includes('user_reports/*'));
   assert.ok(EXTERNAL_SCOPES.includes('firebase_auth'));
   const result=plan();
   assert.equal(result.received,true);
@@ -46,6 +49,19 @@ test('plan includes all known Firestore and external scopes and never exposes de
   assert.equal(result.phases.at(-2).id,'remove_firebase_auth_last');
   assert.equal(result.phases.at(-1).id,'verify_and_finalize');
 });
+test('new UGC child collections and user reports remain within reviewed-only scope',()=>{
+  const expanded=inventory();
+  expanded.documents.push({path:'users/alice_123/blockedMembers/member_1',kind:'owned'});
+  expanded.documents.push({path:'users/alice_123/acceptedTerms/ugc-v1',kind:'owned'});
+  expanded.documents.push({path:'user_reports/ugc_case_1',kind:'relational',ownerUid:uid});
+  const out=plan(expanded);
+  assert.equal(out.safeToExecute,false);
+  assert.deepEqual(out.blockers,[]);
+  const forged=inventory();
+  forged.documents.push({path:'users/another/blockedMembers/alice_123',kind:'owned'});
+  assert.ok(plan(forged).blockers.includes('owned_path_outside_allowlist'));
+});
+
 test('no request cannot become eligible even with operator approval',()=>{
   assert.ok(plan(inventory(),approvals(),null).blockers.includes('missing_verified_request'));
   assert.ok(plan(inventory(),approvals(),{fields:{status:{stringValue:'completed'}}})
