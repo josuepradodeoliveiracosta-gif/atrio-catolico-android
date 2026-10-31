@@ -51,7 +51,7 @@ async function requireAdmin(creds){
   const r=await firestore(creds.token,'/admins/'+creds.uid);
   return r.ok && r.data?.fields?.enabled?.booleanValue===true;
 }
-async function status(creds){
+async function status(creds,env){
   const r=await firestore(creds.token,'/guardian_config/policy');
   if(!r.ok)return response(r.code,'config_unavailable');
   const f=r.data?.fields||{};
@@ -60,7 +60,7 @@ async function status(creds){
     enabled:f.enabled?.booleanValue===true,
     emergencyStop:f.emergencyStop?.booleanValue!==false,
     holdEnabled:f.allowHold?.booleanValue===true,
-    administrativeWritesEnabled:false}),{status:200,headers:HEADERS});
+    administrativeWritesEnabled:env.GUARDIAN_V2_ADMIN_WRITES_ENABLED==='true'}),{status:200,headers:HEADERS});
 }
 async function cases(creds){
   const query={structuredQuery:{
@@ -172,6 +172,6 @@ export default {
     const creds=tokenAndUid(request);
     if(!creds)return response(401,'authentication_required');
     if(!await requireAdmin(creds))return response(403,'forbidden');
-    return path==='/admin/status'?status(creds):path==='/admin/cases'?cases(creds):resolveCase(request,env,creds);
+    return path==='/admin/status'?status(creds,env):path==='/admin/cases'?cases(creds):resolveCase(request,env,creds);
   }
 };
