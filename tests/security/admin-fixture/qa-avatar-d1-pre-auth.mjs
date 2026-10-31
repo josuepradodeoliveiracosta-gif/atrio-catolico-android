@@ -77,10 +77,10 @@ export function createQaAvatarD1PreAuthAdapter(sqlite){
         let page;
         try{page=await inventory.readPage(s.table,s.role,uid,null,1);}
         catch{error('inventory_unavailable');}
-        if(!page||!Array.isArray(page.items)||
-           page.items.length>1||page.nextCursor!==null)
+        if(!page||!Array.isArray(page.items)||page.items.length>1)
           error('incomplete_inventory');
         if(page.items.length!==0)error('owned_rows_remaining');
+        if(page.nextCursor!==null)error('incomplete_inventory');
       }
       return true;
     }
