@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "track": "Google Play — testes fechados",
+  "purpose": "UGC compliance review; not proof of implementation, not release authorization",
+  "requirements": {
+    "terms_accepted_before_ugc": {
+      "description": "Termos claros, aceite antes de publicar posts ou respostas, imposicao no backend e teste em aparelho",
+      "verified": false,
+      "evidenceUrl": null,
+      "reviewedBy": null,
+      "reviewedAt": null
+    },
+    "report_content_and_users": {
+      "description": "Denuncia in-app de discussoes, respostas e usuarios, sigilo e registro de moderacao, QA com dois perfis",
+      "verified": false,
+      "evidenceUrl": null,
+      "reviewedBy": null,
+      "reviewedAt": null
+    },
+    "block_users": {
+      "description": "Bloqueio de usuarios com comportamento verificavel no app e nas regras do backend",
+      "verified": false,
+      "evidenceUrl": null,
+      "reviewedBy": null,
+      "reviewedAt": null
+    },
+    "moderation_actions": {
+      "description": "Politica clara, fila de moderacao, resposta e revisao de abusos, controles para menores aplicaveis",
+      "verified": false,
+      "evidenceUrl": null,
+      "reviewedBy": null,
+      "reviewedAt": null
+    },
+    "closed_track_ugc_e2e": {
+      "description": "Evidencia de termos, denuncia e bloqueio no app realmente instalado pela faixa fechada (apos primeiro AAB)",
+      "verified": false,
+      "evidenceUrl": null,
+      "reviewedBy": null,
+      "reviewedAt": null
+    }
+  }
+}
