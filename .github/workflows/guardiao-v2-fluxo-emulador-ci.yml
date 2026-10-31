@@ -1,0 +1,50 @@
+name: Guardião V2 — fluxo integrado no Firebase Emulator (sem deploy)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tests/security/guardian-v2-flow-e2e.test.mjs'
+      - 'cloudflare/guardian-worker/src/index.js'
+      - 'cloudflare/guardian-worker/src/firestore.js'
+      - 'cloudflare/guardian-worker/src/policy.js'
+      - 'cloudflare/guardian-worker/src/scan-paged.js'
+      - 'firestore.rules'
+      - '.github/workflows/guardiao-v2-fluxo-emulador-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: guardian-v2-flow-emulator-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  firestore-v2-flow:
+    name: REST, scanner, casos, avisos e restauracao (somente demo)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GOOGLE_APPLICATION_CREDENTIALS: ''
+      GUARDIAN_V2_ENABLED: ''
+      GUARDIAN_FIREBASE_SERVICE_ACCOUNT_JSON: ''
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: tests/security/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Preparar dependencias e executar SOMENTE os cenarios de integracao novos
+        working-directory: tests/security
+        run: |
+          npm ci
+          node prepare.mjs
+          ./node_modules/.bin/firebase emulators:exec --only firestore --project demo-atrio-v11 "node guardian-v2-flow-e2e.test.mjs"
