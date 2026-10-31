@@ -1,0 +1,132 @@
+name: OTA etapa 1 — conferir APK assinado (somente leitura)
+
+# NEVER enable push, pull_request, schedule, workflow_run, publishing or signing here.
+on:
+  workflow_dispatch:
+    inputs:
+      apk_run_id:
+        description: 'ID da execução de build oficial aprovada'
+        required: true
+        type: string
+      artifact_name:
+        description: 'Tipo de APK assinado existente no GitHub Actions'
+        required: true
+        type: choice
+        options:
+          - atrio-catolico-0.20.0-release-assinado
+          - atrio-catolico-release-assinado
+      expected_version_code:
+        description: 'versionCode esperado do APK (exemplo: 35)'
+        required: true
+        type: string
+      expected_version_name:
+        description: 'versionName esperado do APK (exemplo: 0.20.0)'
+        required: true
+        type: string
+      expected_apk_sha256:
+        description: 'SHA-256 do APK conhecido previamente (opcional)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: atrio-ota-readonly-preflight
+  cancel-in-progress: false
+
+jobs:
+  verify-existing-apk:
+    if: github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android' && github.ref == 'refs/heads/main' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Obter ferramentas de verificação (sem chave de assinatura)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+      - run: sdkmanager 'build-tools;35.0.0'
+      - name: Confirmar origem autorizada do artefato existente
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APK_RUN_ID: ${{ inputs.apk_run_id }}
+          ARTIFACT_NAME: ${{ inputs.artifact_name }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import subprocess
+          repo = os.environ["GITHUB_REPOSITORY"]
+          run_id = os.environ["APK_RUN_ID"]
+          artifact_name = os.environ["ARTIFACT_NAME"]
+          if not re.fullmatch(r"[1-9][0-9]+", run_id):
+              raise SystemExit("ID de execução inválido")
+          def api(path):
+              return json.loads(subprocess.check_output(
+                  ["gh", "api", f"repos/{repo}/{path}"], text=True))
+          run = api(f"actions/runs/{run_id}")
+          if not (run.get("repository", {}).get("full_name") == repo
+                  and run.get("head_branch") == "main"
+                  and run.get("run_attempt") == 1
+                  and run.get("status") == "completed"
+                  and run.get("conclusion") == "success"):
+              raise SystemExit("Origem do APK não aprovada")
+          if artifact_name == "atrio-catolico-release-assinado":
+              valid = (run.get("path") == ".github/workflows/build-apk.yml"
+                       and run.get("event") == "workflow_dispatch")
+          elif artifact_name == "atrio-catolico-0.20.0-release-assinado":
+              valid = (run_id == "41174393714"
+                       and run.get("head_sha") == "fcf063e835c37ca1e3f9363a56a4232d30cb8ea0"
+                       and run.get("path") == ".github/workflows/atrio-v020-signed-release-once.yml"
+                       and run.get("event") == "push")
+          else:
+              valid = False
+          if not valid:
+              raise SystemExit("Workflow de origem não autorizado")
+          artifacts = api(f"actions/runs/{run_id}/artifacts?per_page=100").get("artifacts", [])
+          matches = [a for a in artifacts if a.get("name") == artifact_name
+                     and not a.get("expired") and a.get("size_in_bytes", 0) > 0]
+          if len(matches) != 1:
+              raise SystemExit("Artefato inexistente, expirado ou ambíguo")
+          print("Origem e artefato oficial confirmados.")
+          PY
+      - name: Baixar o APK já compilado, sem recompilar ou assinar
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          run-id: ${{ inputs.apk_run_id }}
+          github-token: ${{ github.token }}
+          path: ota-apk
+      - name: Conferir pacote, assinatura, hash, modo debug e versão
+        env:
+          EXPECTED_CERT: ${{ vars.ATRIO_RELEASE_CERT_SHA256 }}
+          EXPECTED_CODE: ${{ inputs.expected_version_code }}
+          EXPECTED_NAME: ${{ inputs.expected_version_name }}
+          EXPECTED_APK_SHA256: ${{ inputs.expected_apk_sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -d '' APKS < <(find ota-apk -type f -name '*.apk' -print0)
+          if [[ ${#APKS[@]} -ne 1 ]]; then
+            echo "::error::O artefato deve conter exatamente um APK"
+            exit 1
+          fi
+          if [[ -z "$EXPECTED_CERT" ]]; then
+            echo "::error::Defina a variable ATRIO_RELEASE_CERT_SHA256 com a impressão digital previamente confiável da chave permanente"
+            exit 1
+          fi
+          ARGS=(--apk "${APKS[0]}" --expected-cert "$EXPECTED_CERT"
+                --expected-code "$EXPECTED_CODE" --expected-name "$EXPECTED_NAME")
+          if [[ -n "$EXPECTED_APK_SHA256" ]]; then
+            ARGS+=(--expected-apk-sha256 "$EXPECTED_APK_SHA256")
+          fi
+          python3 scripts/ota_apk_preflight.py "${ARGS[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "Teste em aparelho e comparação com instalação anterior ainda são obrigatórios." >> "$GITHUB_STEP_SUMMARY"
