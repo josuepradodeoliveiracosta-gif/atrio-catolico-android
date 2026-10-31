@@ -810,7 +810,7 @@ private fun OnlineCommunity(
                     if (detailError) "Tentar novamente" else "Voltar",
                     { if (detailError) detailRetry++ else closeNoticeDestination() })
             } else if (detail != null) {
-                DetailScreen(detail.copy(replies = detailReplies), name,
+                DetailScreen(detail.copy(replies = detailReplies.filterNot { it.ownerUid in blockedMemberUids }), name,
                     onLike = { toggle("likedPosts", detail.id, detail.liked) },
                     onSave = { toggle("savedPosts", detail.id, detail.saved) },
                     onReply = { body, done ->
