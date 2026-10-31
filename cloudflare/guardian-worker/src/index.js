@@ -9,8 +9,16 @@ import {qaFixtureRequest} from './qa-user-firestore-bridge.js';
 const json=(status,code)=>new Response(JSON.stringify({status:code}),{status,headers:{'content-type':'application/json','cache-control':'no-store'}});
 const MASK=/^posts\/[A-Za-z0-9_-]{1,128}(?:\/replies\/[A-Za-z0-9_-]{1,128})?$/;
 export function settingsOf(doc,env) {
-  const enabled=env.GUARDIAN_V2_TEST_MODE!=='true' && env.GUARDIAN_V2_ENABLED==='true' && bool(doc,'enabled') && !bool(doc,'emergencyStop');
-  return {enabled,allowHold:enabled&&env.GUARDIAN_V2_HOLD_ENABLED==='true'&&bool(doc,'allowHold')};
+  // Três autorizações independentes: configuração do servidor, identidade validada
+  // e autorização explícita de produção. Em QA o motor permanece desligado.
+  const enabled=env.GUARDIAN_V2_TEST_MODE!=='true' && env.GUARDIAN_V2_ENABLED==='true'
+    && env.GUARDIAN_V2_PRODUCTION_APPROVED==='true'
+    && env.GUARDIAN_V2_IDENTITY_APPROVED==='true'
+    && bool(doc,'enabled') && !bool(doc,'emergencyStop');
+  // Retenção autônoma requer uma QUARTA aprovação exclusiva e reversível.
+  // A mera autorização de análise nunca autoriza ocultação/exclusão.
+  return {enabled,allowHold:enabled&&env.GUARDIAN_V2_HOLD_ENABLED==='true'
+    && env.GUARDIAN_V2_HOLD_APPROVED==='true'&&bool(doc,'allowHold')};
 }
 function cleanItem(document) {
   const path=pathOf(document);if(!MASK.test(path)||!document.updateTime)return null;
