@@ -19,6 +19,12 @@ EXPECTED_FIREBASE_PROJECT = "atrio-catolico"
 EXPECTED_TRACK = "Google Play — testes fechados"
 OTA_VERSION_FLOOR = 36  # Candidato OTA 0.20.1 da PR #70; rever com o proximo OTA.
 MAX_PLAY_VERSION = 2_100_000_000
+UGC_REQUIREMENTS = frozenset({
+    "terms_accepted_before_ugc", "report_content_and_users",
+    "block_users", "moderation_actions", "closed_track_ugc_e2e"
+})
+POST_TRACK_PRIVACY = "closed_track_e2e"
+POST_TRACK_UGC = "closed_track_ugc_e2e"
 REQUIREMENTS = frozenset({
     "in_app_request", "external_portal", "deletion_executor",
     "worker_freeze", "retention_review", "public_privacy_policy",
@@ -63,7 +69,8 @@ def utc_review_date(value, now=None):
 
 
 def assess_release(gradle: str, manifest: str, evidence: object,
-                   now=None, ota_floor=OTA_VERSION_FLOOR) -> list[str]:
+                   now=None, ota_floor=OTA_VERSION_FLOOR,
+                   ugc_evidence=None) -> list[str]:
     failures = []
     def reject(code, condition):
         if not condition:
@@ -92,30 +99,59 @@ def assess_release(gradle: str, manifest: str, evidence: object,
            bool(re.search(r'android:name\s*=\s*"androidx.core.content.FileProvider"[^>]*tools:node\s*=\s*"remove"',
                           manifest, re.S)))
 
-    if not isinstance(evidence, dict):
-        return failures + ["privacy_manifest_missing_or_invalid"]
-    reject("privacy_manifest_schema_or_track",
-           evidence.get("schema") == 1 and evidence.get("track") == EXPECTED_TRACK)
-    reject("manual_release_authorization_missing",
-           evidence.get("releaseAuthorized") is True)
-    rows = evidence.get("requirements")
-    if not isinstance(rows, dict) or set(rows) != REQUIREMENTS:
-        return failures + ["privacy_nine_requirements_missing"]
-    for key in sorted(REQUIREMENTS):
-        row = rows[key]
-        if not isinstance(row, dict) or row.get("verified") is not True:
-            failures.append("privacy_unverified:" + key)
-            continue
+    def reviewed_row(row, prefix, key, required):
+        # Antes do PRIMEIRO envio nao ha instalacao na faixa fechada.
+        # QA em dispositivo via Play so sera possivel apos o primeiro AAB.
+        if not isinstance(row, dict) or not isinstance(row.get("verified"), bool):
+            failures.append(prefix + "_invalid:" + key)
+            return
+        if row["verified"] is not True:
+            if required:
+                failures.append(prefix + "_unverified:" + key)
+            if any(row.get(field) is not None for field in
+                   ("evidenceUrl", "reviewedBy", "reviewedAt")):
+                failures.append(prefix + "_pending_with_fake_review:" + key)
+            return
         if not real_https_url(row.get("evidenceUrl")):
-            failures.append("privacy_unsafe_evidence_url:" + key)
+            failures.append(prefix + "_unsafe_evidence_url:" + key)
         reviewer = row.get("reviewedBy")
         if not isinstance(reviewer, str) or not re.fullmatch(
                 r"[A-Za-z0-9][A-Za-z0-9_.-]{2,80}", reviewer):
-            failures.append("privacy_reviewer_missing:" + key)
+            failures.append(prefix + "_reviewer_missing:" + key)
         if not utc_review_date(row.get("reviewedAt"), now):
-            failures.append("privacy_review_date_invalid:" + key)
-    return failures
+            failures.append(prefix + "_review_date_invalid:" + key)
 
+    if not isinstance(evidence, dict):
+        failures.append("privacy_manifest_missing_or_invalid")
+    else:
+        reject("privacy_manifest_schema_or_track",
+               evidence.get("schema") == 1 and evidence.get("track") == EXPECTED_TRACK)
+        rows = evidence.get("requirements")
+        if not isinstance(rows, dict) or set(rows) != REQUIREMENTS:
+            failures.append("privacy_nine_requirements_missing")
+        else:
+            for key in sorted(REQUIREMENTS):
+                reviewed_row(rows[key], "privacy", key, key != POST_TRACK_PRIVACY)
+            if evidence.get("releaseAuthorized") is True and any(
+                    not isinstance(row, dict) or row.get("verified") is not True
+                    for row in rows.values()):
+                failures.append("privacy_premature_release_authorization")
+        # AAB assinado nao significa publicacao e tampouco autoriza producao.
+        reject("privacy_release_authorization_type_invalid",
+               type(evidence.get("releaseAuthorized")) is bool)
+    if not isinstance(ugc_evidence, dict):
+        failures.append("ugc_evidence_missing")
+    else:
+        reject("ugc_manifest_schema_or_track",
+               ugc_evidence.get("schema") == 1
+               and ugc_evidence.get("track") == EXPECTED_TRACK)
+        ugc_rows = ugc_evidence.get("requirements")
+        if not isinstance(ugc_rows, dict) or set(ugc_rows) != UGC_REQUIREMENTS:
+            failures.append("ugc_requirements_missing")
+        else:
+            for key in sorted(UGC_REQUIREMENTS):
+                reviewed_row(ugc_rows[key], "ugc", key, key != POST_TRACK_UGC)
+    return failures
 
 def inspect(root: Path) -> list[str]:
     gradle = root / "app/build.gradle.kts"
@@ -126,9 +162,13 @@ def inspect(root: Path) -> list[str]:
     if not evidence.is_file():
         return ["privacy_evidence_file_missing"]
     try:
+        ugc = root / "docs/google-play-ugc-evidencias.json"
+        if not ugc.is_file():
+            return ["ugc_evidence_file_missing"]
         blockers = assess_release(gradle.read_text(encoding="utf-8"),
                                   manifest.read_text(encoding="utf-8"),
-                                  json.loads(evidence.read_text(encoding="utf-8")))
+                                  json.loads(evidence.read_text(encoding="utf-8")),
+                                  ugc_evidence=json.loads(ugc.read_text(encoding="utf-8")))
         firebase_file = root / "app/google-services.json"
         if not firebase_file.is_file():
             return blockers + ["play_firebase_config_missing"]
@@ -169,12 +209,12 @@ def main():
     if args.audit == args.enforce:
         parser.error("escolha exatamente --audit OU --enforce")
     blocked = inspect(args.root)
-    print("Play signed AAB preflight:", "BLOQUEADO" if blocked else
+    print("Play closed-track AAB pre-signature preflight:", "BLOQUEADO" if blocked else
           "SEM BLOQUEIOS LOCAIS — REVISAO EXTERNA AINDA OBRIGATORIA")
     for issue in blocked:
         print(" - " + issue)
     if not blocked:
-        print("Este exame nao atesta certificado Play, backend, HTTPS real ou Play Console.")
+        print("Sem bloqueios LOCAIS de pre-assinatura; isto NAO autoriza upload, testes ou producao. E2E da faixa fechada continua pos-envio.")
     return 2 if blocked and args.enforce else 0
 
 
