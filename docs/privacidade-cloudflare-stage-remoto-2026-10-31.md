@@ -1,3 +1,5 @@
+> **ATUALIZAÇÃO DE ESTADO:** o texto abaixo descreve a implantação inicial do Worker **antes** dos consumidores e dos segredos. Em continuação, cinco consumidores HMAC privados foram configurados e um smoke real de Service Binding entre os cinco papéis foi aprovado. O cron foi desativado, com zero tickets pendentes. Consulte [evidência de consumidores e smoke](privacidade-cloudflare-stage-hmac-consumidores-2026-10-31.md). A produção e a Play Store permanecem bloqueadas.
+
 # Homologação remota Cloudflare — 31/10/2026
 
 **Somente ambiente de fixtures, PR #98. Não é a produção e não autoriza Play Store.**
