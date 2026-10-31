@@ -63,7 +63,9 @@ const transport=async(url,opts)=>{
   const response=await fetch('http://'+HOST+':'+PORT+
     '/v1/projects/'+DEMO+'/databases/(default)/documents:runQuery',{
       method:'POST',redirect:'error',
-      headers:{'Content-Type':'application/json'},
+      // Token "owner" e aceito somente pelo Firebase Emulator para bypass
+      // de regras administrativas locais. Nao e uma credencial de producao.
+      headers:{'Content-Type':'application/json',Authorization:'Bearer owner'},
       body:JSON.stringify(data)
     });
   assert.equal(response.status,200,'Firestore Emulator rejected StructuredQuery');
