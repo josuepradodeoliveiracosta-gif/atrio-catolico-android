@@ -186,8 +186,6 @@ private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
 @Composable
 private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: FirebaseUser) {
     val uid = user.uid
-    val communityTerms = rememberCommunityTermsStatus(db, uid)
-    var communityTermsPrompt by remember(uid) { mutableStateOf(false) }
     // Firebase Auth mantém displayName entre logins: ele evita que o
     // usuário fique preso no carregamento enquanto o listener do perfil
     // reconecta após logout/login da mesma conta.
@@ -326,6 +324,8 @@ private fun OnlineCommunity(
     onClergyReview: (() -> Unit)?
 ) {
     val context = LocalContext.current
+    val communityTerms = rememberCommunityTermsStatus(db, uid)
+    var communityTermsPrompt by remember(uid) { mutableStateOf(false) }
     val ota = rememberOtaUpdateController()
     val otaScope = rememberCoroutineScope()
     val otaSnackbar = remember { SnackbarHostState() }
