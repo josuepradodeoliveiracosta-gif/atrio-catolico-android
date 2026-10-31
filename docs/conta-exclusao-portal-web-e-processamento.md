@@ -59,3 +59,38 @@ Antes de implementar o processamento de produção:
 A URL web é exigida pela Google Play para apps com criação de conta. **Código e testes não substituem** disponibilizar um endereço HTTPS acessível, executar realmente a exclusão quando solicitada e informar a política de privacidade. Por isso PR #73 e esta proposta permanecem **rascunhos bloqueados para produção**.
 
 Referência oficial: https://support.google.com/googleplay/android-developer/answer/13327111
+
+
+## Etapa de registro Firebase Web comprovada pelo titular — 31/10/2026
+
+O Firebase Web App **`Atrio Catolico - Portal de Exclusao`** foi
+cadastrado pelo responsável no Firebase `atrio-catolico` através do Termux
+(`firebase apps:create WEB`). O comando `firebase apps:list WEB`
+confirmou exatamente um aplicativo WEB cadastrado. A CLI também informou a
+existência de um **site Firebase Hosting** com o nome do projeto; isso não
+demonstra que o portal esteja publicado ou acessível nesse site.
+
+A auditoria de índices encontrou em produção o override
+`replies.createdAt` com todos os modos necessários e um modo adicional
+`COLLECTION`, que deve ser preservado antes de qualquer futuro deploy.
+A exportação de índices não comprova `READY`.
+
+**Novo pré-voo no Termux (read-only):** clonar a branch rascunho de privacidade
+em uma pasta distinta da PR #71 e executar:
+```bash
+cd ~
+gh repo clone josuepradodeoliveiracosta-gif/atrio-catolico-android atrio-privacy-qa -- --branch feature/privacy-admin-write-freeze-emulator-20261031 --single-branch
+cd ~/atrio-privacy-qa
+node cloudflare/account-deletion-portal/scripts/termux-web-preflight.mjs
+```
+O programa usa exclusivamente `apps:list WEB` e `apps:sdkconfig WEB`
+com projeto fixo, valida a configuração Web recebida sem imprimi-la, monta
+o portal em diretório temporário e remove os arquivos ao finalizar. Não
+registra a `apiKey` no Git, não hospeda, não autentica contas reais e
+não envia pedidos. Se a pasta já existir, usar `git pull --ff-only` em
+vez de clonar novamente; nunca usar `git reset --hard`.
+
+**Continua bloqueado para produção:** publicação do site, domínio
+autorizado no Firebase Auth, política de privacidade pública, executor
+real com retenção e verificação de permissões dos Workers. O cadastro Web
+sozinho não satisfaz a evidência `external_portal` nem autoriza Play.
