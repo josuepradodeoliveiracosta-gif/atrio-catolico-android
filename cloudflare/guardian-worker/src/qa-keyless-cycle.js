@@ -1,11 +1,7 @@
 // QA-only read-only cycle for a future GitHub Actions keyless backend.
 // No cron, moderation writes, service-account keys, or production API access.
 import {classify} from './policy.js';
-import {validateQaWifContext, readQaBoundedJson} from './qa-wif-probe.js';
-
-const PATH = 'projects/atrio-catolico-qa-v2/databases/(default)/documents/posts/qa_post_1';
-const URL = 'https://firestore.googleapis.com/v1/' + PATH;
-const MAX_BYTES = 8192;
+import {validateQaWifContext, readQaBoundedJson, QA_FIXTURE_PATH, QA_FIXTURE_URL} from './qa-wif-probe.js';
 const denied = () => { throw Error('qa_keyless_cycle_denied'); };
 
 
@@ -21,7 +17,7 @@ export async function runQaKeylessCycle(env = {}, fetcher = fetch, classifier = 
   if (typeof classifier !== 'function' || typeof fetcher !== 'function') denied();
   let response;
   try {
-    response = await fetcher(URL, {
+    response = await fetcher(QA_FIXTURE_URL, {
       method:'GET', redirect:'error',
       headers:{Authorization:'Bearer '+token, Accept:'application/json'},
       signal:AbortSignal.timeout(6500)
@@ -30,7 +26,7 @@ export async function runQaKeylessCycle(env = {}, fetcher = fetch, classifier = 
   if (response?.status !== 200) denied(); // Includes 404: never false success.
   let doc;
   try { doc = await readQaBoundedJson(response); } catch { denied(); }
-  if (doc?.name !== PATH || doc?.fields?.qaFixture?.booleanValue !== true) denied();
+  if (doc?.name !== QA_FIXTURE_PATH || doc?.fields?.qaFixture?.booleanValue !== true) denied();
   const body = doc?.fields?.body?.stringValue;
   if (typeof body !== 'string' || body.length > 4000) denied();
   let result;
