@@ -87,6 +87,19 @@ service cloud.firestore {
         && !exists(/databases/$(database)/documents/users/$(senderUid)/blockedMembers/$(recipientUid))
         && !exists(/databases/$(database)/documents/users/$(recipientUid)/blockedMembers/$(senderUid));
     }
+    // Interacoes derivadas de publicacoes devem respeitar bloqueio bilateral.
+    function mayEngageWithPost(actorUid, postId) {
+      let post = /databases/$(database)/documents/posts/$(postId);
+      return exists(post)
+        && canMembersInteract(actorUid, get(post).data.uid);
+    }
+    // Reacao a resposta nao deve contornar bloqueio do autor ou do comentarista.
+    function mayReactToReply(actorUid, postId, replyId) {
+      let reply = /databases/$(database)/documents/posts/$(postId)/replies/$(replyId);
+      return mayEngageWithPost(actorUid, postId)
+        && exists(reply)
+        && canMembersInteract(actorUid, get(reply).data.uid);
+    }
     // A decisão de uma resposta não pode apagar nem alterar a publicação principal.
     function reportParentUnchanged() {
       let path = /databases/$(database)/documents/posts/$(resource.data.postId);
@@ -341,12 +354,14 @@ service cloud.firestore {
         match /reactions/{uid} {
           allow get, list: if signedIn();
           allow create: if me(uid)
+            && mayReactToReply(uid, postId, replyId)
             && exists(/databases/$(database)/documents/posts/$(postId)/replies/$(replyId))
             && request.resource.data.keys().hasOnly(['kind', 'createdAt'])
             && request.resource.data.keys().hasAll(['kind', 'createdAt'])
             && validReactionKind(request.resource.data.kind)
             && request.resource.data.createdAt == request.time;
           allow update: if me(uid)
+            && mayReactToReply(uid, postId, replyId)
             && exists(/databases/$(database)/documents/posts/$(postId)/replies/$(replyId))
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['kind'])
             && validReactionKind(request.resource.data.kind);
@@ -388,6 +403,7 @@ service cloud.firestore {
     match /users/{uid}/likedPosts/{postId} {
       allow get, list: if me(uid);
       allow create: if me(uid)
+        && mayEngageWithPost(uid, postId)
         && exists(/databases/$(database)/documents/posts/$(postId))
         && request.resource.data.keys().hasOnly(['createdAt'])
         && request.resource.data.keys().hasAll(['createdAt'])
@@ -399,6 +415,7 @@ service cloud.firestore {
     match /users/{uid}/savedPosts/{postId} {
       allow get, list: if me(uid);
       allow create: if me(uid)
+        && mayEngageWithPost(uid, postId)
         && exists(/databases/$(database)/documents/posts/$(postId))
         && request.resource.data.keys().hasOnly(['createdAt'])
         && request.resource.data.keys().hasAll(['createdAt'])
@@ -411,6 +428,7 @@ service cloud.firestore {
     match /users/{uid}/followedPosts/{postId} {
       allow get, list: if me(uid);
       allow create: if me(uid)
+        && mayEngageWithPost(uid, postId)
         && validId(postId)
         && exists(/databases/$(database)/documents/posts/$(postId))
         && request.resource.data.keys().hasOnly(['createdAt'])
