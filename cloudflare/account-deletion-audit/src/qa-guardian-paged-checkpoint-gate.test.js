@@ -42,7 +42,7 @@ class FakeGuardian {
     const rows=[...this.data.values()].filter(d=>{
       const path=d.name.slice(ROOT.length+1);
       const date=d.fields?.[field]?.timestampValue;
-      return pathMatcher.test(path)&&date &&
+      return d && pathMatcher.test(path)&&date &&
         Date.parse(date)>=Date.parse(since)&&Date.parse(date)<=Date.parse(until);
     }).sort((x,y)=>y.name.localeCompare(x.name));
     let start=0;
@@ -69,7 +69,7 @@ class FakeGuardian {
     }
     for(const item of writes){
       if(item.verify)continue;
-      if(item.delete){this.data.delete(item.delete);continue;}
+      if(item.delete){this.data.set(item.delete,null);continue;}
       const name=item.update.name;
       const prev=this.data.get(name);
       this.data.set(name,{name,updateTime:'v'+(++this.updated),
