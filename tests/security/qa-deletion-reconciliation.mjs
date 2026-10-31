@@ -7,7 +7,7 @@
  * establish full production coverage: legacy data, new collection types,
  * external providers, legal holds and cross-service races remain unverified.
  */
-import {doc,getDoc,collection,getDocs,collectionGroup,query,where}
+import {doc,getDoc,collection,getDocs,collectionGroup,query,where,limit}
   from 'firebase/firestore';
 import {OWNED_ROOTS,USER_SUBCOLLECTIONS,GUARDIAN_SUBCOLLECTIONS}
   from '../../cloudflare/account-deletion-audit/src/deletion-orchestrator.js';
@@ -75,6 +75,23 @@ export async function assertQaReconciled({
     const found=await getDocs(query(collectionGroup(db,spec.collectionGroup),
       where(spec.field,'==',UID)));
     empty(found);
+  }
+
+  // New UGC block references encode their target UID in the document ID,
+  // not an indexed field. Scan the *entire small QA collection group* and
+  // reject unresolved cross-account references before mock Auth deletion.
+  // This is NOT a scalable production inventory and proves no real coverage.
+  const blockedMemberDocs=await getDocs(query(
+    collectionGroup(db,'blockedMembers'),limit(2001)));
+  if(blockedMemberDocs.size>2000 || !Array.isArray(blockedMemberDocs.docs) ||
+     blockedMemberDocs.docs.length!==blockedMemberDocs.size)
+    throw Error('qa_reconciliation_blocked_members_scan_unbounded');
+  for(const blocked of blockedMemberDocs.docs){
+    const parts=blocked.ref.path.split('/');
+    if(parts.length!==4 || parts[0]!=='users' || parts[2]!=='blockedMembers')
+      throw Error('qa_reconciliation_blocked_members_invalid_path');
+    if(parts[3]===UID)
+      throw Error('qa_reconciliation_residual_firestore');
   }
 
   if(media.has(MEDIA))throw Error('qa_reconciliation_residual_media');
