@@ -9,11 +9,6 @@
  */
 import {validUid} from './plan.js';
 
-const UID_FIELDS = new Set([
-  'uid', 'ownerUid', 'authorUid', 'actorUid', 'reporterUid',
-  'replyToUid', 'mentionUid', 'recipientUid', 'targetUid'
-]);
-
 export const OWNED_ROOTS = Object.freeze([
   'profiles', 'public_profiles', 'profile_photos', 'badges',
   'badge_requests', 'admins', 'users', 'guardian_notices'
@@ -30,9 +25,9 @@ export const GUARDIAN_SUBCOLLECTIONS = Object.freeze(['items']);
  * podem ser apagados cegamente só pelo ID. Requer scan em todas as páginas.
  */
 export const RELATIONAL_SCOPES = Object.freeze([
-  'posts', 'posts/*/replies', 'posts/*/replies/*/reactions',
-  'users/*/notifications', 'reports', 'guardian_cases',
-  'guardian_audit', 'guardiao_quarantine'
+  'posts/*', 'posts/*/replies/*', 'posts/*/replies/*/reactions/*',
+  'users/*/notifications/*', 'reports/*', 'guardian_cases/*',
+  'guardian_audit/*', 'guardiao_quarantine/*'
 ]);
 
 export const EXTERNAL_SCOPES = Object.freeze([
