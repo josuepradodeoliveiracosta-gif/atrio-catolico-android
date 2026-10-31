@@ -5,6 +5,8 @@
  * WARNING: This is an intentionally nondeployable harness interface, NOT
  * Firebase authentication, IAM, a Cloudflare service binding, or a live API.
  */
+import {createStageServiceClient}
+  from '../../privacy-freeze-stage/src/client.js';
 const ROOT='https://qa-only.invalid/__qa/shared-freeze';
 const SERVICES=new Set(['avatar','guardian','push']);
 const FIXTURE_UIDS=new Set(['qa-freeze-alice','qa-freeze-bob']);
@@ -20,8 +22,9 @@ export function qaSharedMode(env){
   return value!==undefined&&value!==null&&value!==false&&
     value!==''&&value!=='false';
 }
-export function qaSharedResponse(status,code){
-  return new Response(JSON.stringify({status:code}),{
+export function qaSharedResponse(status,code,operationId=null){
+  return new Response(JSON.stringify({status:code,
+    ...(operationId?{operationId}:{})}),{
     status,headers:{'content-type':'application/json','cache-control':'no-store'}
   });
 }
@@ -60,11 +63,31 @@ export async function qaSharedWorkerRequest(request,env,service){
      env.ATRIO_PRIVACY_QA_SHARED_MODE!=='true'||
      env.ATRIO_QA_PRIVACY_FIXTURE!=='demo-atrio-v11'||
      request.method!=='POST'||request.url!==ROOT+'/'+service||
-     SECRETS.some(k=>k in env)||
-     typeof env.ATRIO_QA_PRIVACY_COORDINATOR?.forService!=='function'||
+     SECRETS.some(k=>k in env))deny();
+  const stage='ATRIO_QA_PRIVACY_STAGE_BINDING' in env ||
+    'ATRIO_QA_PRIVACY_STAGE_SECRET' in env;
+  const local='ATRIO_QA_PRIVACY_COORDINATOR' in env ||
+    'ATRIO_QA_PRIVACY_FAKE_EFFECT' in env ||
+    'ATRIO_QA_PRIVACY_FAKE_VERIFY' in env;
+  // Never mix two ledgers or allow a fallback from denied stage access into
+  // the old in-memory coordinator.
+  if(stage===local)deny();
+  const scope=scopeOf(service,await boundedBody(request));
+  if(stage){
+    const client=createStageServiceClient({
+      binding:env.ATRIO_QA_PRIVACY_STAGE_BINDING,
+      role:service,
+      secret:env.ATRIO_QA_PRIVACY_STAGE_SECRET
+    });
+    const admitted=await client.request('admit',scope);
+    if(admitted.status!=='stage_admitted' ||
+       typeof admitted.operationId!=='string')deny();
+    return Object.freeze({status:'qa_stage_admitted',
+      operationId:admitted.operationId,productionIntegrated:false});
+  }
+  if(typeof env.ATRIO_QA_PRIVACY_COORDINATOR?.forService!=='function'||
      typeof env.ATRIO_QA_PRIVACY_FAKE_EFFECT!=='function'||
      typeof env.ATRIO_QA_PRIVACY_FAKE_VERIFY!=='function')deny();
-  const scope=scopeOf(service,await boundedBody(request));
   // Worker supplies the service identity; the HTTP caller cannot request
   // another service's permissions or call beginFreeze/finalizeFreeze.
   const actor=env.ATRIO_QA_PRIVACY_COORDINATOR.forService(service);
