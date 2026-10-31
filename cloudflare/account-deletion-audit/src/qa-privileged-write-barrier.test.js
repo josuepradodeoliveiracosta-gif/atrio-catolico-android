@@ -205,3 +205,25 @@ test('reopened SQLite connection preserves frozen state and prevents new mutatio
   const authorized=await b.begin('push_fcm_send',{recipientUid:bob});
   await b.complete(authorized,{verified:async()=>true});
 }));
+
+
+test('forged subset cannot close one half of a two-account notification',async()=>fixture(async({db})=>{
+  const gate=createQaPrivilegedWriteBarrier(db);
+  const real=await gate.begin('push_thread_notice',{actorUid:alice,recipientUid:bob});
+  const altered={...real,accounts:[alice]};
+  await assert.rejects(gate.complete(altered,{verified:async()=>true}),
+    /qa_ticket_already_closed_or_forged/);
+  assert.equal((await gate.status(alice)).inFlight,1);
+  assert.equal((await gate.status(bob)).inFlight,1);
+  await gate.complete(real,{verified:async()=>true});
+  assert.equal((await gate.status(alice)).inFlight,0);
+  assert.equal((await gate.status(bob)).inFlight,0);
+}));
+
+test('forged account replacement does not partially erase a shared ticket',async()=>fixture(async({db})=>{
+  const gate=createQaPrivilegedWriteBarrier(db);
+  const shared=await gate.begin('push_thread_notice',{actorUid:alice,recipientUid:bob});
+  const forged={...shared,accounts:[alice,alice]};
+  await assert.rejects(gate.complete(forged,{verified:async()=>true}),/qa_invalid_ticket/);
+  await gate.complete(shared,{verified:async()=>true});
+}));
