@@ -8,6 +8,7 @@
  * must be admitted BEFORE the real Worker entrypoint is called.
  * Unknown routes/methods are denied rather than silently bypassing the gate.
  */
+import {createQaAvatarD1Binding} from './qa-avatar-d1-binding.js';
 const QA_UIDS=new Set(['qa-freeze-alice','qa-freeze-bob']);
 const PATHS=Object.freeze({
   'POST /avatar/upload':{kind:'avatar_upload',scope:'self'},
@@ -91,8 +92,15 @@ export function createQaAvatarRouteGate({worker,barrier,verifyUid,verifyEffect}=
       // response is ambiguous, or verification fails. Manual reconciliation
       // is necessary before marking the account frozen.
       let response;
-      try{response=await worker.fetch(request,env);}
-      catch{return result(503,'qa_mutation_unknown');}
+      try{
+        // The route ticket is acquired BEFORE ANY Avatar D1 write. The
+        // original Worker is called unchanged with a QA-only D1 facade.
+        response=await worker.fetch(request,{
+          ...env,AVATAR_DB:createQaAvatarD1Binding({
+            db:env?.AVATAR_DB,scope,kind:route.kind
+          })
+        });
+      }catch{return result(503,'qa_mutation_unknown');}
       if(!(response instanceof Response)||!response.ok)
         return response instanceof Response?response:result(503,'qa_mutation_unknown');
       try{
