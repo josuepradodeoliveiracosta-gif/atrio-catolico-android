@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - 'web/account-deletion/**'
+      - 'scripts/play_privacy_gate*.mjs'
+      - 'docs/google-play-privacidade-evidencias.json'
       - 'cloudflare/account-deletion-audit/**'
       - 'tests/security/account-deletion-web.test.mjs'
       - 'tests/security/account-deletion-request.test.mjs'
@@ -66,6 +68,10 @@ jobs:
         run: node --experimental-sqlite --test cloudflare/account-deletion-audit/src/*.test.js tests/security/account-deletion-web.test.mjs
       - name: Testar leases, fencing e checkpoint SQLite offline
         run: node --experimental-sqlite --test tests/security/qa-deletion-sqlite-lease.test.mjs
+      - name: Conferir privacidade para a Play sem liberar publicação
+        run: |
+          node --test scripts/play_privacy_gate.test.mjs
+          node scripts/play_privacy_gate.mjs --audit
       - name: Verificar ausência de configuração efetiva do site
         shell: bash
         run: |
