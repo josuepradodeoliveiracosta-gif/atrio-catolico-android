@@ -1,0 +1,54 @@
+name: Privacidade — portal web e auditoria sem exclusão
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'web/account-deletion/**'
+      - 'cloudflare/account-deletion-audit/**'
+      - 'tests/security/account-deletion-web.test.mjs'
+      - 'tests/security/account-deletion-request.test.mjs'
+      - 'firestore.rules'
+      - '.github/workflows/privacy-account-portal-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: privacy-account-qa-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  safe-privacy-audit:
+    name: Testar página e Worker sem acesso a produção
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Obter código de teste
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Preparar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Conferir sintaxe JavaScript sem executar configurações Web
+        run: |
+          node --check web/account-deletion/app.js
+          node --check cloudflare/account-deletion-audit/src/index.js
+      - name: Testar bloqueio de operações destrutivas e autenticação administrativa
+        run: node --test cloudflare/account-deletion-audit/src/index.test.js tests/security/account-deletion-web.test.mjs
+      - name: Verificar ausência de configuração efetiva do site
+        shell: bash
+        run: |
+          test ! -e web/account-deletion/config.js
+          grep -q 'ATRIO_ACCOUNT_DELETION_REQUESTS_ENABLED = false' web/account-deletion/config.example.js
+          if grep -R -E '(deleteUser\s*\(|deleteDoc\s*\(|\.delete\s*\()' cloudflare/account-deletion-audit/src; then
+            echo "::error::Worker de auditoria deve permanecer sem operações destrutivas"
+            exit 1
+          fi
+      - name: Comunicar limites
+        run: |
+          echo "### Auditoria: não há exclusão nem portal ativo" >> "$GITHUB_STEP_SUMMARY"
+          echo "Os testes são offline e não usam Firebase, Cloudflare reais, nem credenciais ou contas." >> "$GITHUB_STEP_SUMMARY"
