@@ -7,6 +7,7 @@ import {doc,getDoc,deleteDoc} from 'firebase/firestore';
 import {assertQaReconciled} from './qa-deletion-reconciliation.mjs';
 import {removeQaAuthAfterReconciliation} from './qa-deletion-auth-fence.mjs';
 import {purgeQaOwnedCollections} from './qa-admin-owned-cleanup.mjs';
+import {verifyBoundQaRequest} from './qa-deletion-request-binding.mjs';
 
 const PROJECT='demo-atrio-v11', HOST='127.0.0.1:8089', UID='qa-delete-alice';
 const MEDIA_ID='atrio-avatares/qa-delete-alice/123e4567-e89b-42d3-a456-426614174001';
@@ -244,6 +245,9 @@ export class QaDeletionRunner {
       fail('verified_request_required');
     const recorded=this.completed();
     if(recorded.some((step,i)=>step!==STEPS[i]))fail('journal_out_of_order');
+    // Bind before any destructive QA fixture effect, including first resume.
+    await verifyBoundQaRequest({db:this.db,journal:this.journal,uid:UID});
+    checkLease();
     const done=new Set(recorded);
     if(!this.auth.has(UID) && !done.has('verify_fixture_absence'))
       fail('auth_missing_before_verified_data');
@@ -258,8 +262,14 @@ export class QaDeletionRunner {
       }
       if(step!=='freeze_writes'&&this.context.writesFrozen!==true)
         fail('new_writes_not_frozen');
+      // Revalidate request AFTER awaiting previous phase and BEFORE each
+      // potential effect, and again BEFORE any success checkpoint.
+      await verifyBoundQaRequest({db:this.db,journal:this.journal,uid:UID});
+      checkLease();
       if(step===failBeforeEffect)throw Error('injected_failure_before_effect:'+step);
       await phase.apply(checkLease);
+      checkLease();
+      await verifyBoundQaRequest({db:this.db,journal:this.journal,uid:UID});
       checkLease();
       if(!(await phase.verify()))fail('phase_verification_failed:'+step);
       checkLease();

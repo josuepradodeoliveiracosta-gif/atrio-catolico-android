@@ -81,6 +81,57 @@ try {
     console.log('PASS QA DELETION isolated fixtures and repeat');
   });
 
+  await test('resumed QA run refuses a changed request timestamp or source',async()=>{
+    for(const change of [
+      {source:'android',requestedAt:new Date('2026-10-31T13:00:00Z')},
+      {source:'web',requestedAt:new Date('2026-10-31T12:00:00Z')}
+    ]){
+      await inDemo(async(db,aux)=>{
+        const runner=new QaDeletionRunner({db,...aux});
+        await assert.rejects(runner.run({
+          approved:true,failBeforeEffect:'remove_relational'
+        }),/injected_failure_before_effect:remove_relational/);
+        assert.deepEqual(runner.completed(),QA_STEPS.slice(0,2));
+        await setDoc(doc(db,'account_deletion_requests/'+alice),{
+          status:'requested',...change
+        });
+        const restarted=new QaDeletionRunner({db,...aux,context:{}});
+        await assert.rejects(restarted.run({approved:true}),
+          /qa_request_binding_changed/);
+        assert.deepEqual(restarted.completed(),QA_STEPS.slice(0,2));
+        await allPresent(db,[...QA_FIXTURES.relational,
+          ...QA_FIXTURES.roots,...QA_FIXTURES.preserved]);
+        assert.equal(aux.auth.has(alice),true);
+        assert.equal(aux.auth.has(bob),true);
+        assert.equal(aux.media.has(QA_MEDIA_ID),true);
+      });
+    }
+    console.log('PASS QA DELETION immutable request binding survives restart');
+  });
+
+  await test('QA request binding rejects missing, malformed, or unbound resume',async()=>{
+    for(const change of [
+      {status:'requested',source:'web'},
+      {status:'requested',source:'unrecognized',requestedAt:new Date('2026-10-31T12:00:00Z')}
+    ]){
+      await inDemo(async(db,aux)=>{
+        await setDoc(doc(db,'account_deletion_requests/'+alice),change);
+        await assert.rejects(new QaDeletionRunner({db,...aux}).run({approved:true}),
+          /qa_request_binding_invalid_request/);
+        assert.equal(aux.auth.has(alice),true);
+        await allPresent(db,[...QA_FIXTURES.nested,...QA_FIXTURES.roots]);
+      });
+    }
+    await inDemo(async(db,aux)=>{
+      aux.journal.exec("INSERT INTO qa_deletion_checkpoints (step,finished) VALUES ('freeze_writes',1)");
+      await assert.rejects(new QaDeletionRunner({db,...aux}).run({approved:true}),
+        /qa_request_binding_missing_on_resume/);
+      assert.equal(aux.auth.has(alice),true);
+      await allPresent(db,QA_FIXTURES.nested);
+    });
+    console.log('PASS QA DELETION request shape and legacy journal guard');
+  });
+
   await test('restart after every effect including mock Auth, before checkpoint',async()=>{
     for(const phase of QA_STEPS){
       await inDemo(async(db,aux)=>{
