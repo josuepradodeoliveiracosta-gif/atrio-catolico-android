@@ -39,9 +39,9 @@ export function buildPortal(env,outputDir) {
   // This flag is INTENTIONALLY NOT configurable from environment variables.
   const availability='window.ATRIO_PORTAL_STATUS = Object.freeze('+
     JSON.stringify({intakeEnabled:false,actualDeletionEnabled:false})+
-    ');\\n';
+    ');\n';
   writeFileSync(join(out,'config.js'),
-    availability+'window.ATRIO_FIREBASE_CONFIG = Object.freeze('+payload+');\\n',
+    availability+'window.ATRIO_FIREBASE_CONFIG = Object.freeze('+payload+');\n',
     {mode:0o644});
   return out;
 }
