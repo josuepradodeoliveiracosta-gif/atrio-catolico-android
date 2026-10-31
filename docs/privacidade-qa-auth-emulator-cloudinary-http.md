@@ -8,9 +8,14 @@ A nova integração de exclusão administrativa usa serviços externos **somente
 como fixtures**, totalmente separados das contas do Átrio:
 
 1. Firebase Auth Emulator real em `127.0.0.1:9099`, com projeto
-   descartável `demo-atrio-v11`, e IDs `qa-delete-alice` /
-   `qa-delete-bob`. Cria, consulta e exclui somente a primeira conta
-   de teste. Nenhum token de produção é aceito.
+   descartável `demo-atrio-v11`, e dois rótulos de fixture
+   `qa-delete-alice` / `qa-delete-bob`. O emulador atribui
+   **UIDs de Auth diferentes**; o teste mantém mapeamento somente
+   em memória para os respectivos rótulos. Isso NÃO testa que
+   Auth e Firestore compartilhem o mesmo UID — lacuna crítica
+   antes de uma implementação administrativa real.
+   Cria, consulta e exclui somente a primeira conta de teste.
+   Nenhum token de produção é aceito.
 2. Firebase Firestore Emulator real em `127.0.0.1:8089` — conteúdo
    fictício de duas contas, com solicitação e revisões de fixtures.
 3. Servidor HTTP temporário Node escutando em `127.0.0.1`, porta
@@ -36,8 +41,10 @@ não deve gerar exclusões indevidas.
 ## Limites importantes
 
 - A chamada REST do Auth Emulator usa login e exclusão **do próprio
-  usuário de teste**, para validar o ciclo de vida remoto. Não
-  demonstra a permissão administrativa do Firebase Admin SDK.
+  usuário de teste** e UID atribuído automaticamente para validar
+  o ciclo de vida remoto. Não demonstra a permissão administrativa
+  do Firebase Admin SDK, identidade Auth com mesmo UID do Firestore,
+  nem recuperação do mapeamento após reinício do processo.
 - Os identificadores e revisores são estáticos de QA. A validação
   de dupla aprovação **não representa** autenticação real, IAM,
   MFA, assinatura ou revisão legal de retenção.
