@@ -133,10 +133,13 @@ export function summarizeRelationalCandidates(result) {
   for(const finding of result.findings) {
     if(finding?.automaticallyDeletable!==false ||
       !Array.isArray(finding.requiresReview) ||
-      finding.requiresReview.some(x=>!(x in counts)))
+      finding.requiresReview.some(x=>!Object.hasOwn(counts,x)))
       throw Error('invalid_inventory_result');
     for(const review of new Set(finding.requiresReview)) counts[review]++;
   }
+  if(!Array.isArray(result.unverifiedScopes) ||
+    result.unverifiedScopes.some(x=>typeof x!=='string'))
+    throw Error('invalid_inventory_result');
   return {status:'review_required',safeToExecute:false,
     groups:counts,remainingScopes:result.unverifiedScopes.length};
 }
