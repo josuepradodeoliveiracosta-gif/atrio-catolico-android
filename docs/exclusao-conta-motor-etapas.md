@@ -10,6 +10,18 @@ Preparado em 31/10/2026. Esta etapa depende da PR #74 (portal web e auditoria), 
 
 Todas as respostas de planejamento exibem apenas **contadores, códigos de bloqueio e nomes genéricos** de grupos de dados; não exibem UID, e-mail, token, texto de discussões ou identificadores de mídia.
 
+## Varredura paginada de dados próprios (sem exclusão)
+
+`cloudflare/account-deletion-audit/src/owned-inventory.js` adiciona uma função de coleta com contrato **somente-leitura**, usando um adaptador injetado pela futura camada administrativa. Ela:
+
+- verifica documentos raízes vinculados ao UID;
+- pagina subcoleções privadas conhecidas, **mesmo quando o documento pai já foi excluído**, evitando ignorar órfãos;
+- rejeita caminhos fora da coleção esperada, itens duplicados, respostas grandes, cursores inválidos/repetidos, resultados excessivos e falhas da origem;
+- **não lê textos/valores dos documentos**, apenas caminhos; não retorna conteúdo em resposta HTTP;
+- declara obrigatoriamente `pagesComplete=false`, `hasUnknownCollections=true` e pendências relacionais/mídia: portanto não pode satisfazer o plano de exclusão enquanto as demais fontes não forem auditadas.
+
+Os testes desta varredura utilizam um adaptador **falso**. Ainda será preciso desenvolver a implementação real usando IAM somente-leitura e provar cobertura global, inclusive `posts`, `replies`, notificações de terceiros e mídia Cloudinary/D1.
+
 ## Ordem obrigatória para um processador futuro
 
 | Fase | O que deverá ser comprovado |
