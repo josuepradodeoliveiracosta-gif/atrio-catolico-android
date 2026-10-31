@@ -1,0 +1,25 @@
+# NOT DEPLOYABLE AS-IS. Dedicated demo D1 ID must be created in a
+# separate staging account/project. No public routes or workers.dev exposure.
+# This file is only a reviewed template; do not rename to wrangler.toml
+# or run deploy without explicit owner authorization.
+name = "atrio-privacy-freeze-qa-internal"
+main = "src/index.js"
+compatibility_date = "2026-10-31"
+workers_dev = false
+
+[vars]
+ATRIO_PRIVACY_STAGE_ID = "demo-atrio-v11"
+
+# Set five DIFFERENT, >=32-character secrets in Cloudflare's staging
+# secret store; never commit their values:
+# STAGE_AVATAR_HMAC
+# STAGE_GUARDIAN_HMAC
+# STAGE_PUSH_HMAC
+# STAGE_ADMIN_HMAC
+# STAGE_RECONCILER_HMAC
+
+[[d1_databases]]
+binding = "STAGE_FREEZE_DB"
+database_name = "atrio-privacy-freeze-stage-fixtures"
+database_id = "REPLACE_WITH_NEW_DEDICATED_STAGING_D1_ID"
+migrations_dir = "migrations"
