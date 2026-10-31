@@ -21,7 +21,8 @@ OTA_VERSION_FLOOR = 36  # Candidato OTA 0.20.1 da PR #70; rever com o proximo OT
 MAX_PLAY_VERSION = 2_100_000_000
 UGC_REQUIREMENTS = frozenset({
     "terms_accepted_before_ugc", "report_content_and_users",
-    "block_users", "moderation_actions", "closed_track_ugc_e2e"
+    "block_users", "moderation_actions", "push_block_safe_delivery",
+    "closed_track_ugc_e2e"
 })
 POST_TRACK_PRIVACY = "closed_track_e2e"
 POST_TRACK_UGC = "closed_track_ugc_e2e"
