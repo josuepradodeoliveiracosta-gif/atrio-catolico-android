@@ -1,3 +1,5 @@
+import {qaSharedMode,qaSharedWorkerRequest,qaSharedResponse}
+  from '../../privacy-shared-qa/src/worker-entry.js';
 import {classify,decide,safeNotice,VALID_ID} from './policy.js';
 import {Firestore,token,actorId,caseId,pathOf,string,bool,str,timestamp,ROOT} from './firestore.js';
 import {qaShadowAllowed,scanQaShadow} from './shadow-qa.js';
@@ -203,6 +205,12 @@ export async function resolveReviewCase(db,uid,input,now=new Date().toISOString(
   return status;
 }
 export async function handleRequest(request,env) {
+  if(qaSharedMode(env)){
+    try{
+      const result=await qaSharedWorkerRequest(request,env,'guardian');
+      return qaSharedResponse(200,result.status);
+    }catch{return qaSharedResponse(503,'qa_shared_worker_denied');}
+  }
   const path=new URL(request.url).pathname;
   if(path==='/health')return json(200,env.GUARDIAN_V2_TEST_MODE==='true'?'guardian_v2_qa_safe':'guardian_v2_isolated');
   if(path==='/qa/firebase-fixture')return qaFixtureRequest(request,env);
@@ -234,6 +242,8 @@ export async function handleRequest(request,env) {
 export default {
   fetch:handleRequest,
   async scheduled(event,env,ctx) {
+    // Never call Firebase, GitHub monitor or queue in scoped QA fixture mode.
+    if(qaSharedMode(env))return;
     // Cron can be installed in QA to verify scheduling without touching Firebase.
     if(env.GUARDIAN_V2_TEST_MODE==='true'){
       // Self-test of FIXED synthetic examples only. No token, Firebase call,
