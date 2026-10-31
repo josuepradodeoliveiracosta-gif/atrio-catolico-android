@@ -47,12 +47,12 @@ function setup(){
     stageEnv.STAGE_FREEZE_DB=reopened;
     return reopened;
   };
-  const pending=()=>stageEnv.STAGE_FREEZE_DB.prepare(
+  const pending=()=>Promise.resolve(stageEnv.STAGE_FREEZE_DB.raw.prepare(
     'SELECT operation_id,uid,kind FROM qa_privileged_operations ORDER BY uid'
-  ).all().then(r=>r.results);
-  const nonces=()=>stageEnv.STAGE_FREEZE_DB.prepare(
+  ).all());
+  const nonces=()=>Promise.resolve(stageEnv.STAGE_FREEZE_DB.raw.prepare(
     'SELECT nonce FROM qa_stage_nonces'
-  ).all().then(r=>r.results.length);
+  ).all().length);
   const close=()=>{
     for(const conn of dbs)try{conn.raw.close()}catch{}
     rmSync(folder,{recursive:true,force:true});
