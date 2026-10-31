@@ -16,6 +16,7 @@ const PATHS=Object.freeze({
   evidence:'docs/google-play-privacidade-evidencias.json',
   privacyDraft:'docs/google-play-politica-privacidade-minuta-nao-publicar.md',
   safetyReview:'docs/google-play-seguranca-dados-matriz-revisao.md',
+  mainManifest:'app/src/main/AndroidManifest.xml',
   playManifest:'app/src/playRelease/AndroidManifest.xml',
   playBuild:'app/build.gradle.kts',
   webConfig:'web/account-deletion/config.js',
@@ -46,10 +47,14 @@ export function assessClosedTrack({
   if(!present('safetyReview')||
     !/NÃO PREENCHER O FORMULÁRIO COMO DEFINITIVO/.test(files.safetyReview))
     blocked.push('data_safety_review_missing_or_unsafe');
-  if(!present('playManifest')||
-    !/REQUEST_INSTALL_PACKAGES/.test(files.playManifest)||
-    !/tools:node="remove"/.test(files.playManifest))
+  const mainHasInstallPermission=present('mainManifest')&&
+    /<uses-permission\\b[^>]*android:name=["']android\\.permission\\.REQUEST_INSTALL_PACKAGES["']/.test(files.mainManifest);
+  const playRemovesInstallPermission=present('playManifest')&&
+    /<uses-permission\\b[^>]*android:name=["']android\\.permission\\.REQUEST_INSTALL_PACKAGES["'][^>]*tools:node=["']remove["']/.test(files.playManifest);
+  if(!playRemovesInstallPermission)
     blocked.push('play_manifest_permission_overlay_not_verified');
+  if(mainHasInstallPermission&&!playRemovesInstallPermission)
+    blocked.push('sideload_install_permission_may_reach_play_aab');
   if(!present('playBuild')||!/targetSdk\s*=\s*36/.test(files.playBuild))
     blocked.push('target_sdk_36_not_in_this_branch');
   if(present('webConfig'))blocked.push('web_request_config_active_unverified');
@@ -76,6 +81,11 @@ export function assessClosedTrack({
     sourceRequirements:REQUIREMENTS.length,
     verifiedRequirements:REQUIREMENTS.length-privacy.pending.length,
     outstandingRequirements:privacy.pending,
+    permissionReview:Object.freeze({
+      otaInstallPermissionInMain:mainHasInstallPermission,
+      playManifestRemovesOtaInstallPermission:playRemovesInstallPermission,
+      mergedAabManifestAudited:false
+    }),
     blockers:Object.freeze(blocked),
     workerMutationCoverage:Object.freeze({
       namedWriteEntries:runtimeCoverage.namedWriteEntries,
