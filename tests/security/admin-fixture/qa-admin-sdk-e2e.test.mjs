@@ -171,7 +171,7 @@ try {
           expiresAt:'2026-10-31T20:00:00.000Z'
         });
         review();
-        workerDb.prepare('INSERT INTO avatar_rate(uid,next_at) VALUES (?,?)'
+        workerDb.prepare('INSERT INTO avatar_rate(uid,next_at) VALUES (?,?)')
           .run(B,100);
         const inFlight=workers.begin(A,'push_fanout');
         const independent=workers.begin(B,'avatar_upload');
