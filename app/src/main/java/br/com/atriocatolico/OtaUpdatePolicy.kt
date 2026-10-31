@@ -12,8 +12,21 @@ internal sealed class OtaCheckStatus {
     data object TestBuild : OtaCheckStatus()
     data object Unavailable : OtaCheckStatus()
     data object Incompatible : OtaCheckStatus()
-    data class Available(val version: String, val notes: String, val releasePage: String) : OtaCheckStatus()
+    data class Available(
+        val version: String, val notes: String, val releasePage: String,
+        val apk: OtaApkOffer
+    ) : OtaCheckStatus()
 }
+
+/** Metadados de download aceitos somente depois da validacao do release estavel. */
+internal data class OtaApkOffer(
+    val versionName: String,
+    val versionCode: Long,
+    val sizeBytes: Long,
+    val sha256: String,
+    val signingCertSha256: String,
+    val url: String
+)
 
 internal data class OtaRemoteRelease(
     val tag: String,
@@ -85,7 +98,14 @@ internal object OtaUpdatePolicy {
         if (!linksValid || !validManifest) return OtaCheckStatus.Unavailable
         if (manifest.minimumAndroidSdk > deviceSdk) return OtaCheckStatus.Incompatible
         return if (manifest.versionCode > installedVersionCode) {
-            OtaCheckStatus.Available(manifest.versionName, manifest.releaseNotes, page)
+            OtaCheckStatus.Available(
+                manifest.versionName, manifest.releaseNotes, page,
+                OtaApkOffer(
+                    manifest.versionName, manifest.versionCode,
+                    manifest.apkSizeBytes, manifest.apkSha256.lowercase(),
+                    manifest.certificateSha256.lowercase(), apkUrl
+                )
+            )
         } else OtaCheckStatus.UpToDate
     }
 }
