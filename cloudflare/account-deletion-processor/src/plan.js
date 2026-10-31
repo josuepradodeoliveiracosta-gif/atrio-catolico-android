@@ -18,7 +18,7 @@ export function planDeletionReview({projectId,uid,request}) {
     'profiles/'+uid,'public_profiles/'+uid,'profile_photos/'+uid,
     'badges/'+uid,'badge_requests/'+uid,'users/'+uid
   ];
-  const nested=['likedPosts','savedPosts','followedPosts','pushDevices','notifications','blockedMembers']
+  const nested=['likedPosts','savedPosts','followedPosts','pushDevices','notifications','blockedMembers','acceptedTerms']
     .map(x=>'users/'+uid+'/'+x+'/*');
   return Object.freeze({
     projectId:DEMO,uid,mode:'DRY_RUN_ONLY',deletionAuthorized:false,
