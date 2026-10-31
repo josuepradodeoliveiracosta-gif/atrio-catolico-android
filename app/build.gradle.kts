@@ -99,7 +99,7 @@ dependencies {
     implementation("com.google.firebase:firebase-firestore")
     implementation("com.google.firebase:firebase-messaging")
     implementation("com.google.android.gms:play-services-base:18.11.1")
-    implementation("androidx.work:work-runtime:2.11.2")
+    implementation("androidx.work:work-runtime:2.12.0")
     implementation("androidx.core:core:1.16.0") // Compartilhar APK privado com instalador Android
     val composeBom = platform("androidx.compose:compose-bom:2025.12.00")
     implementation(composeBom)
