@@ -14,7 +14,7 @@ const SEGMENT=/^[A-Za-z0-9_-]{1,160}$/;
 const PAGE_SIZE=100;
 const MAX_PAGES_PER_QUERY=100;
 const MAX_CANDIDATES=15000;
-const CURSOR=/^[A-Za-z0-9_+\/=.-]{1,2048}$/;
+const CURSOR=/^[A-Za-z0-9_+\/=().-]{1,2048}$/;
 
 const SCOPES=Object.freeze([
   {id:'owned_posts',collectionGroup:'posts',field:'uid',path:'posts/*',review:'author_content'},
