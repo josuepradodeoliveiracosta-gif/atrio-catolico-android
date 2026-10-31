@@ -123,8 +123,9 @@ try {
       });
     }
     await inDemo(async(db,aux)=>{
+      const restarted=new QaDeletionRunner({db,...aux});
       aux.journal.exec("INSERT INTO qa_deletion_checkpoints (step,finished) VALUES ('freeze_writes',1)");
-      await assert.rejects(new QaDeletionRunner({db,...aux}).run({approved:true}),
+      await assert.rejects(restarted.run({approved:true}),
         /qa_request_binding_missing_on_resume/);
       assert.equal(aux.auth.has(alice),true);
       await allPresent(db,QA_FIXTURES.nested);
