@@ -44,7 +44,7 @@ jobs:
           test "$GITHUB_REPOSITORY" = "josuepradodeoliveiracosta-gif/atrio-catolico-android"
           test "$GITHUB_REF" = "refs/heads/main"
           test "$GITHUB_RUN_ATTEMPT" = "1"
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: actions/setup-node@v4
@@ -89,7 +89,7 @@ jobs:
       id-token: write
     steps:
       - name: Obter código exato da main
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: actions/setup-node@v4

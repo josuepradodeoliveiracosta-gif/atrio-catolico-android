@@ -31,7 +31,7 @@ jobs:
     timeout-minutes: 35
     steps:
       - name: Obter código
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Preparar Java 17
         uses: actions/setup-java@v4
         with:
