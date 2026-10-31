@@ -13,6 +13,8 @@ import {doc,setDoc,getDoc} from 'firebase/firestore';
 import {QaDeletionRunner,QA_FIXTURES,QA_MEDIA_ID,QA_STEPS}
   from './qa-deletion-executor.mjs';
 import {QaSqliteLease} from './qa-deletion-sqlite-lease.mjs';
+import {QaAdministrativeDeletionExecutor,QA_ADMIN_ORDER_TEMPLATE}
+  from './qa-admin-executor.mjs';
 
 const HOST='127.0.0.1:8089', PROJECT='demo-atrio-v11';
 if(process.env.FIRESTORE_EMULATOR_HOST!==HOST ||
@@ -302,6 +304,99 @@ try {
       assert.equal(aux.auth.has(bob),true);
     });
     console.log('PASS QA DELETION stale final checkpoint blocked');
+  });
+
+  await test('ADMIN QA: purge newly discovered private IDs, preserve second user',async()=>{
+    await inDemo(async(db,aux)=>{
+      const extra='users/'+alice+'/savedPosts/surpriseSavedPost';
+      const other='users/'+bob+'/notifications/surpriseBobNotice';
+      const guardian='guardian_notices/'+alice+'/items/lateGuardian';
+      await setDoc(doc(db,extra),{uid:alice,origin:'QA only'});
+      await setDoc(doc(db,guardian),{uid:alice,origin:'QA only'});
+      await setDoc(doc(db,other),{uid:bob,origin:'QA only'});
+      const service=new QaAdministrativeDeletionExecutor({db,...aux,
+        lease:new QaSqliteLease(aux.journal)});
+      const result=await service.execute({order:QA_ADMIN_ORDER_TEMPLATE});
+      assert.equal(result.status,'qa_fixture_admin_workflow_finished');
+      assert.equal(result.productionReady,false);
+      assert.equal(result.firebaseAuthActuallyDeleted,false);
+      assert.equal(result.cloudinaryActuallyDeleted,false);
+      await allAbsent(db,[extra,guardian]);
+      await allPresent(db,[other,...QA_FIXTURES.preserved]);
+      assert.equal(aux.auth.has(alice),false);
+      assert.equal(aux.auth.has(bob),true);
+      assert.equal(aux.media.has(BOB_MEDIA),true);
+    });
+    console.log('PASS ADMIN QA dynamically purged owner-only docs');
+  });
+
+  await test('ADMIN QA: missing reviewer, forged role and missing request fail closed',
+    async()=>{
+      await inDemo(async(db,aux)=>{
+        const service=new QaAdministrativeDeletionExecutor({db,...aux});
+        for(const order of [
+          undefined,
+          {...QA_ADMIN_ORDER_TEMPLATE,approvals:QA_ADMIN_ORDER_TEMPLATE.approvals.slice(0,1)},
+          {...QA_ADMIN_ORDER_TEMPLATE,approvals:[
+            QA_ADMIN_ORDER_TEMPLATE.approvals[0],
+            {role:'security',reviewer:'qa-privacy-reviewer',approved:true}
+          ]},
+          {...QA_ADMIN_ORDER_TEMPLATE,fixtureUid:bob},
+          {...QA_ADMIN_ORDER_TEMPLATE,retentionDecision:'unreviewed'}
+        ]){
+          await assert.rejects(service.execute({order}),/qa_admin_approval_required/);
+        }
+        assert.deepEqual(service.executor.completed(),[]);
+        assert.equal(aux.auth.has(alice),true);
+        await allPresent(db,QA_FIXTURES.nested);
+      });
+      await inDemo(async(db,aux)=>{
+        const service=new QaAdministrativeDeletionExecutor({db,...aux});
+        await assert.rejects(service.execute({order:QA_ADMIN_ORDER_TEMPLATE}),
+          /qa_admin_verified_request_missing/);
+        assert.equal(aux.auth.has(alice),true);
+        await allPresent(db,QA_FIXTURES.nested);
+      },{request:false});
+    console.log('PASS ADMIN QA reviews and identity request required');
+  });
+
+  await test('ADMIN QA: restart following dynamic nested cleanup is idempotent',
+    async()=>{
+      await inDemo(async(db,aux)=>{
+        const extra='users/'+alice+'/likedPosts/unlistedLike';
+        await setDoc(doc(db,extra),{uid:alice,origin:'QA only'});
+        const lease=new QaSqliteLease(aux.journal);
+        const first=new QaAdministrativeDeletionExecutor({db,...aux,lease});
+        await assert.rejects(first.execute({
+          order:QA_ADMIN_ORDER_TEMPLATE,failAfterEffect:'remove_nested'
+        }),/injected_failure_after_effect:remove_nested/);
+        await allAbsent(db,[extra,...QA_FIXTURES.nested]);
+        assert.equal(aux.auth.has(alice),true);
+        const restarted=new QaAdministrativeDeletionExecutor({db,...aux,
+          lease:new QaSqliteLease(aux.journal)});
+        const result=await restarted.execute({order:QA_ADMIN_ORDER_TEMPLATE});
+        assert.equal(result.completedPhases,QA_STEPS.length);
+        assert.equal(aux.auth.has(alice),false);
+        await allPresent(db,QA_FIXTURES.preserved);
+      });
+    console.log('PASS ADMIN QA interrupted owned cleanup recoverable');
+  });
+
+  await test('ADMIN QA: production-like credentials deny execution',async()=>{
+    await inDemo(async(db,aux)=>{
+      const previous=process.env.CLOUDINARY_API_SECRET;
+      try{
+        process.env.CLOUDINARY_API_SECRET='never-use-secret-in-qa';
+        assert.throws(()=>new QaAdministrativeDeletionExecutor({db,...aux}),
+          /qa_admin_environment_denied/);
+        assert.equal(aux.auth.has(alice),true);
+        await allPresent(db,QA_FIXTURES.nested);
+      }finally{
+        if(previous===undefined)delete process.env.CLOUDINARY_API_SECRET;
+        else process.env.CLOUDINARY_API_SECRET=previous;
+      }
+    });
+    console.log('PASS ADMIN QA blocks external credentials');
   });
 
 } finally{
