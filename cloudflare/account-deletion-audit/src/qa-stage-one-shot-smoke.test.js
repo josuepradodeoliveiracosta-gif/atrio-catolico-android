@@ -24,7 +24,13 @@ function demo(){
   };}};}};
   const env={ATRIO_PRIVACY_STAGE_ID:'demo-atrio-v11',STAGE_FREEZE_DB:db};
   for(const role of roles)env[names[role]]=secret(role);
-  const central={fetch:r=>stage.fetch(r,env)};
+  const trace=[];
+  const central={fetch:async request=>{
+    trace.push('central_called');
+    const response=await stage.fetch(request,env);
+    trace.push('central_'+response.status);
+    return response;
+  }};
   const smokeEnv={ATRIO_QA_SMOKE_MODE:'demo-atrio-v11',
     ATRIO_QA_SMOKE_DB:db};
   for(const role of roles)smokeEnv['QA_'+role.toUpperCase()]={
@@ -38,7 +44,7 @@ function demo(){
   const status=()=>raw.prepare('SELECT status FROM qa_stage_smoke_runs').get()?.status;
   const tickets=()=>raw.prepare('SELECT COUNT(*) AS n FROM qa_privileged_operations').get().n;
   const nonces=()=>raw.prepare('SELECT COUNT(*) AS n FROM qa_stage_nonces').get().n;
-  return {smokeEnv,status,tickets,nonces,close:()=>raw.close()};
+  return {smokeEnv,status,tickets,nonces,trace,close:()=>raw.close()};
 }
 async function forbidOutbound(action){
   const old=globalThis.fetch;let called=0;
@@ -49,7 +55,8 @@ async function forbidOutbound(action){
 test('five original service roles execute one staged HMAC+D1 test without public fetch',async()=>{
   const t=demo();
   try{await forbidOutbound(async()=>{
-    assert.deepEqual(await runOneShotSmoke(t.smokeEnv),{status:'passed'});
+    const first=await runOneShotSmoke(t.smokeEnv);
+    assert.deepEqual(first,{status:'passed'},JSON.stringify(t.trace));
     assert.equal(t.status(),'passed');
     assert.equal(t.tickets(),0);
     assert.equal(t.nonces(),8);
