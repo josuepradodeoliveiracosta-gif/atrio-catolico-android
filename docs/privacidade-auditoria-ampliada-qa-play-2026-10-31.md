@@ -1,3 +1,5 @@
+> **EVIDÊNCIA COMPLEMENTAR — PR #71:** a execução GitHub Actions [41244872777](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/actions/runs/41244872777) terminou com sucesso. A tarefa `bundlePlayRelease` compilou o AAB **sem assinatura de produção**; o verificador do manifesto mesclado confirmou Android API 36, `br.com.atriocatolico`, ausência do instalador APK/OTA e build não depurável. A PR #71 continua rascunho, não mesclada, e esse resultado **não** valida a assinatura, a Play Console ou a exclusão de contas. Não duplicar a variante Play dentro da PR #98.
+
 # Átrio Católico — auditoria ampliada de privacidade, Cloudflare e Google Play
 
 **31/10/2026 | PR #98, em rascunho | evidências de inspeção somente leitura + testes offline**
