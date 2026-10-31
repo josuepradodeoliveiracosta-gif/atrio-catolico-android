@@ -45,9 +45,24 @@ export default {
       let payload=scopes[role];
       if(op==='close'){
         const length=request.headers.get('content-length');
-        if(length===null||!/^\d+$/.test(length)||Number(length)>120)
+        if(length!==null&&(!/^\d+$/.test(length)||Number(length)>120))
           return forbid();
-        const input=await request.json();
+        const reader=request.body?.getReader();
+        if(!reader)return forbid();
+        const decoder=new TextDecoder('utf-8',{fatal:true});
+        let raw='',bytes=0;
+        try{
+          while(true){
+            const {done,value}=await reader.read();
+            if(done)break;
+            bytes+=value.byteLength;
+            if(bytes>120)return forbid();
+            raw+=decoder.decode(value,{stream:true});
+          }
+          raw+=decoder.decode();
+        }finally{reader.releaseLock();}
+        let input;
+        try{input=JSON.parse(raw)}catch{return forbid();}
         if(!input||Object.keys(input).join(',')!=='operationId'||
            !validTicketId(input.operationId))return forbid();
         payload={operationId:input.operationId,fixtureEvidence:'demo-confirmed'};
