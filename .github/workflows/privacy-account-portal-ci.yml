@@ -11,6 +11,9 @@ on:
       - 'tests/security/account-deletion-freeze.test.mjs'
       - 'tests/security/relational-inventory-emulator.test.mjs'
       - 'tests/security/qa-deletion-executor.mjs'
+      - 'tests/security/qa-deletion-reconciliation.mjs'
+      - 'tests/security/qa-deletion-auth-fence.mjs'
+      - 'tests/security/qa-deletion-auth-fence.test.mjs'
       - 'tests/security/qa-deletion-emulator.test.mjs'
       - 'tests/security/qa-deletion-sqlite-lease.mjs'
       - 'tests/security/qa-deletion-sqlite-lease.test.mjs'
@@ -93,7 +96,7 @@ jobs:
         run: |
           set -euo pipefail
           npx firebase emulators:exec --only firestore --project demo-atrio-v11 \
-            "node relational-inventory-emulator.test.mjs && node --experimental-sqlite qa-deletion-emulator.test.mjs && node account-deletion-freeze.test.mjs"
+            "node relational-inventory-emulator.test.mjs && node --experimental-sqlite qa-deletion-auth-fence.test.mjs && node --experimental-sqlite qa-deletion-emulator.test.mjs && node account-deletion-freeze.test.mjs"
       - name: Resumo do ambiente
         if: always()
         run: |
