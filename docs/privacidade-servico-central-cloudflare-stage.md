@@ -10,6 +10,9 @@
 - `migrations/0001_fixture_only.sql`: cria banco do zero com CHECK restrito a `qa-freeze-alice` e `qa-freeze-bob` e ledger de nonces.
 - `wrangler.staging.example.toml`: `workers_dev=false`, **sem rotas públicas**, placeholder deliberadamente inválido de database_id. Nenhum deploy automático.
 - `qa-stage-service-binding.test.js`: testes HMAC/replay, autorização independente por papel, validação de escopo, tickets persistentes em SQLite com duas conexões, falhas e reconciliação.
+- `qa-stage-real-workers-integration.test.js`: **as entradas originais de Avatar, Guardião e Push** chamam o mesmo Worker central usando Service Binding fictício; verifica emissão por serviço, congelamento conjunto, isolamento de contas, falha de resposta após admissão e ausência de rede pública.
+- `cloudflare/privacy-shared-qa/src/worker-entry.js`: no modo de QA `ATRIO_PRIVACY_QA_SHARED_MODE=true`, suporta exatamente **um** dos coordenadores: SQLite local anterior **ou** Service Binding estágio. Misturar ambos é negado para impedir fallback. O adaptador autenticado exige `ATRIO_QA_PRIVACY_STAGE_BINDING` e `ATRIO_QA_PRIVACY_STAGE_SECRET`, fixture demo e *nenhum* binding ou segredo de produção. A entrada devolve apenas ticket de fixture para reconciliação independente.
+
 
 ## Protocolo de menor privilégio
 
