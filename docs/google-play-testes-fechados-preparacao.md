@@ -18,8 +18,10 @@ A variante Play mostra **Atualizações pela Google Play**, sem consulta à API 
 
 ## Criar o AAB de pré-validação (sem assinatura)
 
-Em execução isolada na PR, `.github/workflows/play-closed-aab-ci.yml` executa `gradle :app:bundlePlayRelease` sem segredos, testa o arquivo `app/build/outputs/bundle/playRelease/app-playRelease.aab`, o manifesto final e `PLAY_STORE_BUILD=true`.
+Em execução isolada na PR, `.github/workflows/play-closed-aab-ci.yml` testa primeiro `scripts/play_release_gate.py --audit` e os testes unitários (o bloqueio de publicação é esperado), e em seguida executa `gradle :app:bundlePlayRelease` sem segredos, testa o arquivo `app/build/outputs/bundle/playRelease/app-playRelease.aab`, o manifesto final e `PLAY_STORE_BUILD=true`.
 Não publica, não gera APK instalável Play, não salva um AAB não assinado como download.
+
+O fluxo manual de assinatura, **antes de acessar qualquer chave**, executa `scripts/play_release_gate.py --enforce`. Esse controle valida a existência das nove evidências, revisores, datas UTC não futuras, URLs HTTPS não fictícias, `targetSdk=36`, pacote e overlay Play. Também exige `versionCode > 36`, pois o candidato OTA v0.20.1 da PR #70 reserva o código 36. Isso não certifica URLs, exclusão real ou autenticação do site; essas comprovações continuam externas e humanas. **Não elevar a versão do app automaticamente**, não tratar QA offline como autorização.
 
 O canal de APK existente `build-apk.yml` continua com os mesmos nomes de tarefas/artifacts e a assinatura oficial continua exigindo aprovação do Guardião V2. Nenhuma assinatura nova é criada pela proposta.
 
@@ -39,7 +41,7 @@ A proposta **não** faz upload de chaves privadas para Google.
 
 - [ ] CI do AAB Play aprovado: target API 36; sem `REQUEST_INSTALL_PACKAGES`; sem instalador APK na variante Play.
 - [ ] Validar telas em Android 16/API 36: navegação, margens sob barras de sistema, teclados e notificações.
-- [ ] Encerre a homologação da versão 0.20.1 OTA (PRs #69/#70) antes de sincronizar `versionCode` na variante Play. Não publicar a mesma numeração sem avaliar a linha de produção da loja.
+- [ ] Encerre a homologação da versão 0.20.1 OTA (PRs #69/#70) antes de sincronizar `versionCode` na variante Play. O `versionCode` Play assinado deve ser **maior que 36** neste gate (código 36 reservado à candidata OTA); reavaliar o limite sempre que houver nova versão OTA. Não anunciar nem publicar uma nova numeração antes de testar atualização e assinatura.
 - [ ] Confirme assinatura e plano de migração dos aparelhos atuais, evitando desinstalações precipitadas.
 - [ ] Gerar AAB assinado **somente via workflow manual aprovado** e conferir SHA-256 do arquivo e certificado de upload.
 - [ ] Criar/configurar o app no Play Console, `br.com.atriocatolico`, nome, categoria, imagens, descrição, contato e classificação indicativa.
@@ -60,3 +62,11 @@ Em contas pessoais de desenvolvedor criadas após **13/11/2023**, para solicitar
 - Testadores fechados: https://support.google.com/googleplay/android-developer/answer/14151465
 
 **Estado:** projeto preparado para **validar o AAB**, não aprovado para publicar na Play Store sem revisão técnica e escolha da assinatura.
+
+## Avanço do gate de assinatura — 31/10/2026
+
+- `scripts/play_release_gate.py`: auditoria local sem rede e sem credenciais; `--audit` permite inspecionar candidatos ainda bloqueados e `--enforce` aborta assinatura antes do material de chave.
+- `scripts/test_play_release_gate.py`: testes de regressão para colisão com versão OTA, API 35, variante/permissão OTA, URLs fictícias, evidências incompletas, revisões futuras, JSON inválido e ausência de manifesto.
+- O workflow de CI sem assinatura executa os testes e o modo audit. O workflow manual exige o modo enforce antes da preparação de SDK e dos segredos de assinatura.
+- A versão de código 35 da branch Play **continua intencionalmente bloqueada para assinatura**. `docs/google-play-privacidade-evidencias.json` também ainda não existe nessa branch nem na main; não criar evidências artificiais. O code 36 reservado ao OTA também será recusado. Nenhuma versão Play foi elevada ou publicada.
+- Os resultados do gate não comprovam que o certificado de assinatura do app gerenciado pelo Google coincide com o APK já instalado. É obrigatória comparação externa no Play Console antes de upload ou migração de usuários.
