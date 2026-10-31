@@ -84,8 +84,80 @@ async function cases(creds){
   return new Response(JSON.stringify({status:'ready',cases:items}),{
     status:200,headers:HEADERS});
 }
-// Existe como contrato de API, mas o projeto ainda precisa de Security Rules
-// para permitir a transacao reversivel. Nenhuma escrita de servidor neste Worker.
+// Revisao humana reversivel e sem exclusao, aplicada APENAS com aceite remoto.
+async function resolveCase(request,env,creds){
+  if(env.GUARDIAN_V2_ADMIN_WRITES_ENABLED!=='true')
+    return response(503,'admin_write_not_enabled');
+  let raw;
+  try {
+    if(Number(request.headers.get('content-length')||'0')>2048)
+      return response(400,'invalid_request');
+    raw=await request.text();
+    if(raw.length>2048)return response(400,'invalid_request');
+  }catch{return response(400,'invalid_request');}
+  let input;
+  try{input=JSON.parse(raw);}catch{return response(400,'invalid_request');}
+  if(!input || Array.isArray(input) || typeof input!=='object' ||
+     Object.keys(input).sort().join(',')!=='action,caseId,note' ||
+     !CASE.test(input.caseId||'') ||
+     !['dismiss','acknowledge'].includes(input.action) ||
+     typeof input.note!=='string' || input.note.trim().length<5 ||
+     input.note.length>300)
+    return response(400,'invalid_resolution');
+
+  const path='guardian_cases/'+input.caseId;
+  const result=await firestore(creds.token,'/'+path);
+  if(!result.ok)return response(result.code,'case_unavailable');
+  const doc=result.data;
+  if(!doc?.updateTime || doc.name!==ROOT+'/'+path ||
+      asString(doc,'engine')!=='v2' ||
+      !['review','warned'].includes(asString(doc,'status')))
+    return response(409,'not_pending');
+  const owner=asString(doc,'ownerUid');
+  const target=asString(doc,'targetPath');
+  const sourceRevision=asString(doc,'sourceUpdateTime');
+  if(!ID.test(owner)||owner===creds.uid||!TARGET.test(target)||
+     !sourceRevision || asString(doc,'targetType')!==(target.includes('/replies/')?'reply':'post'))
+    return response(409,'invalid_source');
+  const source=await firestore(creds.token,'/'+target);
+  if(!source.ok)return response(source.code,'source_unavailable');
+  if(source.data?.name!==ROOT+'/'+target ||
+     source.data?.updateTime!==sourceRevision ||
+     asString(source.data,'uid')!==owner)
+    return response(409,'source_changed');
+
+  const at=new Date().toISOString();
+  const status=input.action==='dismiss'?'dismissed':'acknowledged';
+  const stringValue=v=>({stringValue:v});
+  const timestampValue=v=>({timestampValue:v});
+  const fields={
+    status:stringValue(status),reviewedBy:stringValue(creds.uid),
+    reviewNote:stringValue(input.note.trim()),reviewedAt:timestampValue(at)
+  };
+  const message=status==='dismissed'
+    ?'O aviso foi encerrado após análise humana, sem infração confirmada.'
+    :'A administração concluiu a análise e registrou uma orientação educativa.';
+  const auditId=input.caseId+'_'+status;
+  const writes=[
+    {update:{name:doc.name,fields},
+      updateMask:{fieldPaths:Object.keys(fields)},
+      currentDocument:{updateTime:doc.updateTime}},
+    {update:{name:ROOT+'/guardian_audit/'+auditId,
+      fields:{caseId:stringValue(input.caseId),actor:stringValue(creds.uid),
+        event:stringValue(status),at:timestampValue(at)}},
+      currentDocument:{exists:false}},
+    {update:{name:ROOT+'/guardian_notices/'+owner+'/items/'+input.caseId+'_resolved',
+      fields:{title:stringValue('Átrio Guardião'),body:stringValue(message),
+        caseId:stringValue(input.caseId),action:stringValue(status),
+        createdAt:timestampValue(at)}},currentDocument:{exists:false}},
+    {verify:ROOT+'/'+target,currentDocument:{updateTime:sourceRevision}}
+  ];
+  const commit=await firestore(creds.token,':commit','POST',{writes});
+  if(!commit.ok)return response(commit.code,'resolution_not_committed');
+  return response(200,status);
+}
+// Com ID token Firebase, o proprio Firestore valida todas as 3 mutacoes
+// e a revisao do documento original. Nenhum segredo de servidor e armazenado.
 export default {
   async fetch(request,env){
     const path=new URL(request.url).pathname;
@@ -97,10 +169,9 @@ export default {
     if((path==='/admin/resolve' && request.method!=='POST') ||
        (path!=='/admin/resolve' && request.method!=='GET'))
       return response(405,'method_not_allowed');
-    if(path==='/admin/resolve')return response(503,'admin_write_not_enabled');
     const creds=tokenAndUid(request);
     if(!creds)return response(401,'authentication_required');
     if(!await requireAdmin(creds))return response(403,'forbidden');
-    return path==='/admin/status'?status(creds):cases(creds);
+    return path==='/admin/status'?status(creds):path==='/admin/cases'?cases(creds):resolveCase(request,env,creds);
   }
 };
