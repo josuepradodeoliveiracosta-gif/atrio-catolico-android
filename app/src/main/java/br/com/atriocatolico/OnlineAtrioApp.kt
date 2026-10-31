@@ -516,11 +516,26 @@ private fun OnlineCommunity(
             (openedPost?.ownerUid == uid || detailReplies.any { it.mine }))
             ThreadPushSubscriptions.track(context, uid, id)
     }
-    val posts = sourcePosts.map { it.copy(liked = it.id in likedIds, saved = it.id in savedIds) }
+    // Filtro de convivência da conta atual. Firestore Rules protegem escritas,
+    // enquanto consultas de feed continuam paginadas no servidor.
+    var blockedMemberUids by remember(uid) { mutableStateOf<Set<String>>(emptySet()) }
+    DisposableEffect(db, uid) {
+        val listener = db.collection("users").document(uid).collection("blockedMembers")
+            .addSnapshotListener { snapshot, error ->
+                if (error == null && auth.currentUser?.uid == uid) {
+                    blockedMemberUids = snapshot?.documents?.map { it.id }?.toSet() ?: emptySet()
+                }
+            }
+        onDispose { listener.remove() }
+    }
+    val posts = sourcePosts.filterNot { it.ownerUid in blockedMemberUids }
+        .map { it.copy(liked = it.id in likedIds, saved = it.id in savedIds) }
     val allPosts = (sourcePosts + savedPosts.values + listOfNotNull(openedPost))
+        .filterNot { it.ownerUid in blockedMemberUids }
         .associateBy { it.id }.values.map { it.copy(liked = it.id in likedIds, saved = it.id in savedIds) }
     val savedDisplay = savedOrder.take(savedLimit).mapNotNull { id ->
-        savedPosts[id]?.copy(liked = id in likedIds, saved = id in savedIds)
+        savedPosts[id]?.takeUnless { it.ownerUid in blockedMemberUids }
+            ?.copy(liked = id in likedIds, saved = id in savedIds)
     }
     fun navigate(destination: Tab) {
         if (BuildConfig.DEBUG &&
@@ -757,10 +772,11 @@ private fun OnlineCommunity(
         )
     }, bottomBar = { AtrioBottomBar(selected = tab, onSelect = ::navigate) }) { inset ->
         Box(Modifier.padding(inset)) {
-            val detail = openedPost?.copy(liked = detailId in likedIds, saved = detailId in savedIds)
+            val detail = openedPost?.takeUnless { it.ownerUid in blockedMemberUids }
+                ?.copy(liked = detailId in likedIds, saved = detailId in savedIds)
             if (publicProfileTarget != null && !profilePostOpen) {
                 PublicMemberProfileScreen(
-                    db = db, target = publicProfileTarget!!,
+                    db = db, target = publicProfileTarget!!, viewerUid = uid,
                     onBack = ::closeNoticeDestination,
                     onOpenDiscussion = { postId -> profilePostOpen = true; detailId = postId }
                 )
