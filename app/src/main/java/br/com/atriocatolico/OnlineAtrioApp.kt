@@ -186,6 +186,8 @@ private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
 @Composable
 private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: FirebaseUser) {
     val uid = user.uid
+    val communityTerms = rememberCommunityTermsStatus(db, uid)
+    var communityTermsPrompt by remember(uid) { mutableStateOf(false) }
     // Firebase Auth mantém displayName entre logins: ele evita que o
     // usuário fique preso no carregamento enquanto o listener do perfil
     // reconecta após logout/login da mesma conta.
@@ -584,6 +586,11 @@ private fun OnlineCommunity(
         request.addOnFailureListener { message = it.localizedMessage ?: "Não foi possível atualizar." }
     }
     fun publish(title: String, body: String, category: String) {
+        if (!communityTerms.canPublish) {
+            message = "Antes de publicar, consulte e aceite os Termos da Comunidade."
+            communityTermsPrompt = true
+            return
+        }
         // Diagnóstico somente no laboratório Android com Firebase emulado:
         // não registrar conteúdo de publicação nem dados pessoais.
         val qaLab = BuildConfig.DEBUG &&
@@ -621,6 +628,12 @@ private fun OnlineCommunity(
         id: String, body: String, done: (Boolean) -> Unit,
         target: Reply? = null, mention: MentionCandidate? = null
     ) {
+        if (!communityTerms.canPublish) {
+            message = "Antes de responder, consulte e aceite os Termos da Comunidade."
+            communityTermsPrompt = true
+            done(false)
+            return
+        }
         if (openedPost?.id != id) {
             message = "Discussão indisponível. Atualize o fórum e tente novamente."
             done(false)
@@ -885,11 +898,13 @@ private fun OnlineCommunity(
                         }
                     })
                 Tab.COMMUNITIES -> CommunityScreen(posts) { category -> navigate(Tab.HOME); filter = category }
-                Tab.PUBLISH -> PublishScreen { title, body, category ->
-                    confirmGuardianBeforeSend(title + "\n" + body) {
-                        publish(title, body, category)
+                Tab.PUBLISH -> if (communityTerms.canPublish) {
+                    PublishScreen { title, body, category ->
+                        confirmGuardianBeforeSend(title + "\n" + body) {
+                            publish(title, body, category)
+                        }
                     }
-                }
+                } else CommunityTermsConsent(db, uid, communityTerms)
                 Tab.SAVED -> SavedScreen(savedDisplay,
                     onDiscover = { navigate(Tab.HOME) }, onOpen = { detailId = it },
                     onLike = { id -> allPosts.firstOrNull { it.id == id }?.let { toggle("likedPosts", id, it.liked) } },
@@ -936,6 +951,14 @@ private fun OnlineCommunity(
             }
         }
     }
+    if (communityTermsPrompt) AlertDialog(
+        onDismissRequest = { communityTermsPrompt = false },
+        title = { Text("Termos da Comunidade") },
+        text = { CommunityTermsConsent(db, uid, communityTerms) },
+        confirmButton = { TextButton(onClick = { communityTermsPrompt = false }) {
+            Text("Fechar")
+        } }
+    )
     // A autoria é verificada também nas regras do Firestore, não apenas nos botões.
     val editablePost = allPosts.firstOrNull { it.id == editingPostId && it.mine }
     if (editablePost != null) {
