@@ -87,5 +87,5 @@ test('the adapter never accepts arbitrary projects or raw missing credentials',(
   assert.throws(()=>createFirestoreReadAdapter('../bob',token),/invalid_uid/);
   assert.throws(()=>createFirestoreReadAdapter(uid,''),/invalid_oauth_token/);
   assert.throws(()=>createFirestoreReadAdapter(uid,token+'\n'),/invalid_oauth_token/);
-  assert.throws(()=>createFirestoreReadAdapter(uid,token,undefined),()=>false);
+  assert.throws(()=>createFirestoreReadAdapter(uid,token,null),/invalid_read_transport/);
 });
