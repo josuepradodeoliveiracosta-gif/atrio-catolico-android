@@ -1,0 +1,242 @@
+name: OTA Etapa 2 — preparar ou publicar GitHub Release oficial
+
+# No push, schedule, pull_request or workflow_run: publicação só por solicitação.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'validate não publica; publish publica após auditoria e confirmação'
+        type: choice
+        required: true
+        options: [validate, publish]
+        default: validate
+      apk_run_id:
+        description: 'Número da execução que gerou APK assinado e aprovado'
+        type: string
+        required: true
+      artifact_name:
+        description: 'Artefato assinado correspondente ao workflow autorizado'
+        type: choice
+        required: true
+        options:
+          - atrio-catolico-release-assinado
+          - atrio-catolico-0.20.0-release-assinado
+      expected_apk_sha256:
+        description: 'SHA-256 do APK extraído, obtido de forma independente (64 caracteres)'
+        type: string
+        required: true
+      release_notes:
+        description: 'Novidades aprovadas da versão (10 a 3000 caracteres)'
+        type: string
+        required: true
+      confirmation:
+        description: 'Para publish, digitar PUBLICAR ATRIO. Validate não exige confirmação.'
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atrio-ota-official-release
+  cancel-in-progress: false
+
+jobs:
+  validate-release:
+    if: github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && github.run_attempt == 1
+    name: Conferir origem, APK assinado e preparar manifesto
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      version: ${{ steps.release-data.outputs.version }}
+      source_sha: ${{ steps.release-data.outputs.source_sha }}
+      tag: ${{ steps.release-data.outputs.tag }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BUILD_RUN_ID: ${{ inputs.apk_run_id }}
+      ARTIFACT_NAME: ${{ inputs.artifact_name }}
+      APK_SHA256: ${{ inputs.expected_apk_sha256 }}
+      APPROVED_NOTES: ${{ inputs.release_notes }}
+      EXPECTED_CERT: ${{ vars.ATRIO_RELEASE_CERT_SHA256 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Conferir parâmetros obrigatórios
+        run: |
+          set -euo pipefail
+          [[ "$BUILD_RUN_ID" =~ ^[1-9][0-9]+$ ]]
+          [[ "$APK_SHA256" =~ ^[a-fA-F0-9]{64}$ ]]
+          [[ "$EXPECTED_CERT" =~ ^[a-fA-F0-9:]{64,95}$ ]]
+          if [[ "${{ inputs.mode }}" == "publish" ]]; then
+            [[ "${{ inputs.confirmation }}" == "PUBLICAR ATRIO" ]] || {
+              echo "::error::Publicação não autorizada: confirmação explícita ausente"
+              exit 1
+            }
+          fi
+      - name: Fixar execução de assinatura e artefato de origem
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID" > "$RUNNER_TEMP/ota-source-run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID/artifacts?per_page=100" > "$RUNNER_TEMP/ota-source-artifacts.json"
+          python3 scripts/ota_release.py source \
+            --run-json "$RUNNER_TEMP/ota-source-run.json" \
+            --artifacts-json "$RUNNER_TEMP/ota-source-artifacts.json" \
+            --artifact-name "$ARTIFACT_NAME" \
+            --checkout-sha "$GITHUB_SHA" \
+            --output "$RUNNER_TEMP/ota-source.json"
+      - name: Baixar somente o APK assinado já produzido
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          run-id: ${{ inputs.apk_run_id }}
+          github-token: ${{ github.token }}
+          path: ota-original
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+      - name: Preparar ferramentas Android de análise sem chave privada
+        run: sdkmanager 'build-tools;35.0.0'
+      - name: Gerar pacote de Release sem publicar
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -d '' APKS < <(find ota-original -type f -name '*.apk' -print0)
+          if [[ ${#APKS[@]} -ne 1 ]]; then
+            echo "::error::Artefato deve conter exatamente um APK"
+            exit 1
+          fi
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          Path(os.environ["RUNNER_TEMP"], "ota-notes.md").write_text(
+              os.environ["APPROVED_NOTES"].strip() + "\n", encoding="utf-8")
+          PY
+          python3 scripts/ota_release.py prepare \
+            --apk "${APKS[0]}" \
+            --source-json "$RUNNER_TEMP/ota-source.json" \
+            --android-sdk "$ANDROID_HOME" \
+            --expected-cert "$EXPECTED_CERT" \
+            --expected-apk-sha256 "$APK_SHA256" \
+            --notes-file "$RUNNER_TEMP/ota-notes.md" \
+            --output dist
+          (cd dist && sha256sum --check SHA256SUMS.txt)
+      - name: Validar ordem das versões antes de divulgar
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release list --limit 100 --json tagName,isDraft,isPrerelease > "$RUNNER_TEMP/ota-existing-releases.json"
+          python3 scripts/ota_release.py newer \
+            --version "$(python3 -c 'import json;print(json.load(open("dist/update.json"))["versionName"])')" \
+            --releases-json "$RUNNER_TEMP/ota-existing-releases.json"
+      - name: Guardar somente os metadados da verificação
+        id: release-data
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          manifest = json.loads(Path("dist/update.json").read_text(encoding="utf-8"))
+          source_sha = Path("dist/source-sha.txt").read_text(encoding="utf-8").strip()
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              print(f'version={manifest["versionName"]}', file=out)
+              print(f'tag=v{manifest["versionName"]}', file=out)
+              print(f'source_sha={source_sha}', file=out)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as out:
+              print("## Pré-voo OTA aprovado — nenhuma publicação neste job", file=out)
+              print(f'Versão: {manifest["versionName"]} (code {manifest["versionCode"]})', file=out)
+              print(f'APK SHA-256: {manifest["apkSha256"]}', file=out)
+              print(f'Certificado SHA-256: {manifest["certificateSha256"]}', file=out)
+          PY
+      - name: Transferir pacote verificado somente quando publicação foi solicitada
+        if: inputs.mode == 'publish'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ota-publicacao-verificada
+          path: dist/
+          if-no-files-found: error
+          retention-days: 1
+
+  publish-release:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.mode == 'publish' && inputs.confirmation == 'PUBLICAR ATRIO' && github.run_attempt == 1
+    needs: validate-release
+    name: Publicar versão aprovada sem assinar ou recompilar
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.validate-release.outputs.version }}
+      SOURCE_SHA: ${{ needs.validate-release.outputs.source_sha }}
+      TAG: ${{ needs.validate-release.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: ota-publicacao-verificada
+          path: dist
+      - name: Confirmar integridade e ausência de publicação anterior
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd dist && sha256sum --check SHA256SUMS.txt)
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          d = json.loads(Path("dist/update.json").read_text(encoding="utf-8"))
+          assert d["versionName"] == os.environ["VERSION"]
+          assert "v" + d["versionName"] == os.environ["TAG"]
+          assert d["mandatory"] is False
+          assert Path("dist/source-sha.txt").read_text().strip() == os.environ["SOURCE_SHA"]
+          assert d["downloadUrl"].endswith("/" + os.environ["TAG"] + "/atrio-catolico.apk")
+          PY
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::error::Release existente: não sobrescrever"
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags "https://github.com/$GITHUB_REPOSITORY.git" "refs/tags/$TAG" >/dev/null; then
+            echo "::error::Tag existente: não reutilizar"
+            exit 1
+          else
+            rc=$?
+            if [[ "$rc" -ne 2 ]]; then
+              echo "::error::Não foi possível confirmar ausência da tag (rede ou permissão)"
+              exit 1
+            fi
+          fi
+          gh release list --limit 100 --json tagName,isDraft,isPrerelease > "$RUNNER_TEMP/releases.json"
+          python3 scripts/ota_release.py newer --version "$VERSION" --releases-json "$RUNNER_TEMP/releases.json"
+      - name: Criar Release em rascunho com todos os arquivos
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" \
+            dist/atrio-catolico.apk dist/update.json dist/SHA256SUMS.txt \
+            --draft --target "$SOURCE_SHA" --title "Átrio Católico $VERSION" \
+            --notes-file dist/release-notes.md
+          gh release view "$TAG" --json assets > "$RUNNER_TEMP/ota-uploaded.json"
+          python3 - <<'PY'
+          import json, os
+          data = json.load(open(os.path.join(os.environ["RUNNER_TEMP"], "ota-uploaded.json")))
+          assets = data.get("assets", [])
+          expected = {"atrio-catolico.apk", "update.json", "SHA256SUMS.txt"}
+          assert len(assets) == 3 and {a["name"] for a in assets} == expected
+          assert all(a.get("size", 0) > 0 for a in assets)
+          PY
+      - name: Publicar somente após confirmar os três arquivos
+        run: gh release edit "$TAG" --draft=false --latest
+      - name: Registrar endereço de distribuição
+        run: |
+          echo "Publicação oficial: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG" >> "$GITHUB_STEP_SUMMARY"
+          echo "O app só será notificado após implementação separada do detector OTA." >> "$GITHUB_STEP_SUMMARY"
