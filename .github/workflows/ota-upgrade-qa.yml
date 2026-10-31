@@ -1,0 +1,63 @@
+name: OTA QA — atualizar APK no emulador sem chave oficial
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/ota_qa_upgrade.sh'
+      - '.github/workflows/ota-upgrade-qa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ota-qa-upgrade-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  upgrade-emulator:
+    if: github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android'
+    name: Instalar por cima e preservar arquivo local (somente QA)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Obter código, sem persistir autenticação
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Configurar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Configurar Android SDK
+        uses: android-actions/setup-android@v4
+      - name: Configurar Gradle 8.13
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - name: Instalar plataforma e ferramentas Android
+        run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+      - name: Validar configuração sem acessar Firebase
+        run: python3 scripts/validar_firebase.py
+      - name: Gerar dois APKs debug com a mesma chave temporária, sem alterar repositório remoto
+        shell: bash
+        run: bash scripts/ota_qa_upgrade.sh build-fixtures
+      - name: Emulador Android verifica instalação sobre a versão antiga sem perder arquivo local
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_4
+          disable-animations: true
+          disk-size: 2048M
+          ram-size: 2048M
+          script: bash scripts/ota_qa_upgrade.sh emulator
+      - name: Resumo das limitações
+        if: always()
+        run: |
+          echo "## QA OTA sem secrets e sem serviços de produção" >> "$GITHUB_STEP_SUMMARY"
+          echo "Dois APKs **debug**, com chave de teste do mesmo runner. O teste não prova assinatura de release, uso do instalador por toque, GitHub Releases nem preservação de login Firebase." >> "$GITHUB_STEP_SUMMARY"
+          echo "Não publicou APK, não alterou main, não usou keystore permanente." >> "$GITHUB_STEP_SUMMARY"
