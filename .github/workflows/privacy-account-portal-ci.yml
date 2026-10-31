@@ -11,6 +11,8 @@ on:
       - 'tests/security/relational-inventory-emulator.test.mjs'
       - 'tests/security/qa-deletion-executor.mjs'
       - 'tests/security/qa-deletion-emulator.test.mjs'
+      - 'tests/security/qa-deletion-sqlite-lease.mjs'
+      - 'tests/security/qa-deletion-sqlite-lease.test.mjs'
       - 'firestore.rules'
       - '.github/workflows/privacy-account-portal-ci.yml'
   workflow_dispatch:
@@ -42,6 +44,8 @@ jobs:
           node --check cloudflare/account-deletion-audit/src/index.js
       - name: Testar auditoria e simulador de exclusão sem produção
         run: node --experimental-sqlite --test cloudflare/account-deletion-audit/src/*.test.js tests/security/account-deletion-web.test.mjs
+      - name: Testar leases, fencing e checkpoint SQLite offline
+        run: node --experimental-sqlite --test tests/security/qa-deletion-sqlite-lease.test.mjs
       - name: Verificar ausência de configuração efetiva do site
         shell: bash
         run: |
