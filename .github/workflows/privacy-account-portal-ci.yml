@@ -11,6 +11,7 @@ on:
       - 'docs/google-play-seguranca-dados-matriz-revisao.md'
       - 'docs/google-play-privacidade-evidencias.json'
       - 'cloudflare/account-deletion-audit/**'
+      - 'cloudflare/account-deletion-processor/**'
       - 'cloudflare/privacy-freeze-stage/**'
       - 'cloudflare/privacy-shared-qa/**'
       - 'cloudflare/avatar-worker/src/**'
@@ -80,7 +81,7 @@ jobs:
       - name: Impedir configuração Cloudflare real ou pública no estágio
         run: node cloudflare/privacy-freeze-stage/scripts/preflight.mjs --audit
       - name: Testar auditoria e simulador de exclusão sem produção
-        run: node --experimental-sqlite --test cloudflare/account-deletion-audit/src/*.test.js tests/security/account-deletion-web.test.mjs
+        run: node --experimental-sqlite --test cloudflare/account-deletion-audit/src/*.test.js cloudflare/account-deletion-processor/src/*.test.mjs tests/security/account-deletion-web.test.mjs
       - name: Testar leases, fencing e checkpoint SQLite offline
         run: node --experimental-sqlite --test tests/security/qa-deletion-sqlite-lease.test.mjs
       - name: Conferir privacidade para a Play sem liberar publicação
