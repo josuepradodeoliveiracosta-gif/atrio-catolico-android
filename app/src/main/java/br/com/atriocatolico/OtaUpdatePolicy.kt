@@ -77,7 +77,7 @@ internal object OtaUpdatePolicy {
         val validManifest = manifest.schemaVersion == 1 && manifest.channel == "stable" &&
             manifest.applicationId == PACKAGE && manifest.apkAsset == "atrio-catolico.apk" &&
             !manifest.mandatory && manifest.versionCode > 0 &&
-            manifest.minimumAndroidSdk >= 26 && manifest.apkSizeBytes in 1..262_144_000 &&
+            manifest.minimumAndroidSdk >= 26 && manifest.apkSizeBytes in 1L..262_144_000L &&
             digestPattern.matches(manifest.apkSha256) &&
             digestPattern.matches(manifest.certificateSha256) &&
             manifest.certificateSha256.equals(installedCertificateSha256, ignoreCase = true) &&
