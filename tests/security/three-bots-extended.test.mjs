@@ -80,7 +80,7 @@ try {
   await verify('Anônimo não lista discussões',()=>assertFails(
     getDocs(collection(anonymous,'posts'))));
   await verify('Clara edita só o texto de sua discussão',()=>assertSucceeds(
-    updateDoc(doc(clara,'posts',postId),{body:'Diálogo respeitoso é essencial.'})));
+    updateDoc(doc(clara,'posts',postId),{body:'Diálogo respeitoso é essencial.',updatedAt:serverTimestamp()})));
   await verify('Miguel não altera discussão de Clara',()=>assertFails(
     updateDoc(doc(miguel,'posts',postId),{title:'Título falsificado'})));
   await verify('Autor não muda categoria da discussão',()=>assertFails(

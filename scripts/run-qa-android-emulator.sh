@@ -81,6 +81,7 @@ run_suite() {
       "qa-android-suite-results/$suite/"
   fi
 }
+run_suite GuardianSessionUiTest
 run_suite ProfileLayoutUiTest
 run_suite ProfilePhotoUiTest
 run_suite EngagementUiTest

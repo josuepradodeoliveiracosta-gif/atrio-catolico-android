@@ -253,10 +253,14 @@ service cloud.firestore {
         && validText(request.resource.data.body, 5, 1200)
         && validCategory(request.resource.data.category)
         && validTime();
-      // Somente o criador pode mudar título e texto: identidade, categoria e data são imutáveis.
+      // Aplicativo ainda não publicado: exigir updatedAt em toda edição.
+      // Isso impede edições que não geram evento para o Guardião V2.
+      // Somente para testes até distribuir APK Debug compatível.
       allow update: if signedIn()
         && resource.data.uid == request.auth.uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'body'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'body', 'updatedAt'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasAll(['updatedAt'])
+        && request.resource.data.updatedAt == request.time
         && validText(request.resource.data.title, 5, 120)
         && validText(request.resource.data.body, 5, 1200);
       allow delete: if signedIn() && (resource.data.uid == request.auth.uid || isAdmin());
