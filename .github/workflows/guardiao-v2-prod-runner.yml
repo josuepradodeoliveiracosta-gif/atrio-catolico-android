@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   identity-only:
-    if: ${{ github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.confirm_identity_test == true }}
+    if: ${{ github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' }}
     name: Validar identidade sem chave JSON ou acesso a dados
     runs-on: ubuntu-latest
     timeout-minutes: 4
