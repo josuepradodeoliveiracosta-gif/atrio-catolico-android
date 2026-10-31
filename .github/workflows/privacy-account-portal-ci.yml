@@ -6,6 +6,9 @@ on:
     paths:
       - 'web/account-deletion/**'
       - 'scripts/play_privacy_gate*.mjs'
+      - 'scripts/play_closed_track_status*.mjs'
+      - 'docs/google-play-politica-privacidade-minuta-nao-publicar.md'
+      - 'docs/google-play-seguranca-dados-matriz-revisao.md'
       - 'docs/google-play-privacidade-evidencias.json'
       - 'cloudflare/account-deletion-audit/**'
       - 'cloudflare/privacy-freeze-stage/**'
@@ -82,8 +85,10 @@ jobs:
         run: node --experimental-sqlite --test tests/security/qa-deletion-sqlite-lease.test.mjs
       - name: Conferir privacidade para a Play sem liberar publicação
         run: |
-          node --test scripts/play_privacy_gate.test.mjs
+          node --test scripts/play_privacy_gate.test.mjs scripts/play_closed_track_status.test.mjs
           node scripts/play_privacy_gate.mjs --audit
+          node scripts/play_closed_track_status.mjs --audit
+          node scripts/play_closed_track_status.mjs --json
       - name: Verificar ausência de configuração efetiva do site
         shell: bash
         run: |
