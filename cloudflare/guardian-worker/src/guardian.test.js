@@ -193,3 +193,50 @@ test('erro ao reler documento após conflito interrompe a análise',async()=>{
  await assert.rejects(processDocument(db,stale,enabled),/read_unavailable/);
  assert.equal(db.docs.has(ROOT+'/guardian_cases/'+await caseId('posts/concurrent/replies/fail')),false);
 });
+
+import {resolveReviewCase} from './index.js';
+test('administrador encerra alerta V2 sem apagar texto, com trilha e aviso privados',async()=>{
+ const doc=mkDoc('posts/review/replies/n1','Vou te matar amanhã');
+ const db=new FakeStore([doc]);
+ assert.equal(await processDocument(db,doc,enabled),'review');
+ const id=await caseId('posts/review/replies/n1');
+ assert.equal(await resolveReviewCase(db,'admin',{caseId:id,action:'dismiss',note:'Falso positivo após leitura humana'}),'dismissed');
+ assert.ok(db.get('posts/review/replies/n1'));
+ assert.equal(db.get('guardian_cases/'+id).fields.status.stringValue,'dismissed');
+ assert.ok(db.get('guardian_audit/'+id+'_dismissed'));
+ assert.ok(db.get('guardian_notices/alice/items/'+id+'_resolved'));
+ await assert.rejects(resolveReviewCase(db,'admin',{caseId:id,action:'dismiss',note:'Repetição de decisão'}),e=>e.status===409);
+});
+test('orientação humana encerra aviso sem exclusão ou alteração de conteúdo',async()=>{
+ const doc=mkDoc('posts/review/replies/n2','http://a.test http://b.test http://c.test http://d.test');
+ const db=new FakeStore([doc]);
+ assert.equal(await processDocument(db,doc,enabled),'warn');
+ const id=await caseId('posts/review/replies/n2');
+ assert.equal(await resolveReviewCase(db,'admin',{caseId:id,action:'acknowledge',note:'Orientar sobre excesso de links'}),'acknowledged');
+ assert.ok(db.get('posts/review/replies/n2'));
+ assert.equal(db.get('guardian_cases/'+id).fields.status.stringValue,'acknowledged');
+});
+test('autor, ação inválida e alteração do documento bloqueiam resolução humana',async()=>{
+ const doc=mkDoc('posts/review/replies/n3','Vou te matar amanhã');
+ const db=new FakeStore([doc]);await processDocument(db,doc,enabled);
+ const id=await caseId('posts/review/replies/n3');
+ const input={caseId:id,action:'dismiss',note:'Revisão administrativa documentada'};
+ await assert.rejects(resolveReviewCase(db,'alice',input),e=>e.status===403);
+ await assert.rejects(resolveReviewCase(db,'admin',{...input,action:'delete'}),e=>e.status===400);
+ db.docs.get(doc.name).updateTime='2026-10-29T19:00:00.000000Z';
+ await assert.rejects(resolveReviewCase(db,'admin',input),e=>e.status===409);
+ assert.equal(db.get('guardian_cases/'+id).fields.status.stringValue,'review');
+ assert.ok(!db.get('guardian_audit/'+id+'_dismissed'));
+});
+test('duas decisões simultâneas de triagem geram somente uma resolução',async()=>{
+ const doc=mkDoc('posts/review/replies/n4','Vou te matar amanhã');
+ const db=new FakeStore([doc]);await processDocument(db,doc,enabled);
+ const id=await caseId('posts/review/replies/n4');
+ const input={caseId:id,action:'dismiss',note:'Conferência do contexto original'};
+ const result=await Promise.allSettled([
+  resolveReviewCase(db,'admin',input),resolveReviewCase(db,'admin',input)
+ ]);
+ assert.equal(result.filter(x=>x.status==='fulfilled').length,1);
+ assert.equal(result.filter(x=>x.status==='rejected').length,1);
+ assert.ok(db.get('posts/review/replies/n4'));
+});

@@ -29,10 +29,11 @@ export function classify(text, context={}) {
   if(context.duplicateCount>=3) return result('warning','repeated_content','medium');
   return result('clear','none','none');
 }
-export function decide(finding, settings, flags) {
+export function decide(finding) {
   if(finding.level==='clear') return 'clear';
   if(finding.level==='warning') return 'warn';
-  if(finding.level==='review'||finding.level==='hold_candidate') return 'review';
+  // Both a review signal and a hold candidate require human review by default.
+  // The independent hold gate is evaluated by processDocument, not here.
   return 'review';
 }
 export function safeNotice(rule,action) {

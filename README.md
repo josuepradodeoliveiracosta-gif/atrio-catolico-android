@@ -1,8 +1,9 @@
 # Átrio Católico — aplicativo Android
 
 Comunidade católica desenvolvida em Kotlin/Jetpack Compose com Firebase Authentication
-e Cloud Firestore. O repositório é privado e os APKs release são assinados pelo
-fluxo de GitHub Actions.
+e Cloud Firestore. Os APKs release são assinados pelo fluxo de GitHub Actions.
+**O repositório está público no GitHub na auditoria de 30/10/2026:** nunca
+publique credenciais, arquivos de assinatura ou dados privados no código.
 
 ## Qual é a última versão? (fonte única, sem número congelado)
 
@@ -36,7 +37,7 @@ compilação e disponibilidade do artefato release do mesmo commit, além das PR
 A consulta fixa o commit antes de ler a versão, evitando misturar resultados
 quando outra atualização chega durante a consulta. O modo remoto não depende
 de existir um Gradle válido na cópia local. Se não conseguir consultar
-a API do repositório privado, apresenta **erro em vez de presumir uma versão antiga**.
+a API do repositório, apresenta **erro em vez de presumir uma versão antiga**.
 
 Para conferir somente uma cópia local (que pode estar desatualizada):
 

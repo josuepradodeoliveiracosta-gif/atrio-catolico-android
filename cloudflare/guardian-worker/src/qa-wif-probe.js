@@ -3,8 +3,9 @@ const PROJECT='atrio-catolico-qa-v2';
 const REPO='josuepradodeoliveiracosta-gif/atrio-catolico-android';
 const BRANCH='refs/heads/feature/guardiao-v2-wif-prova-qa-20261030';
 const ACCOUNT='guardian-qa-reader@'+PROJECT+'.iam.gserviceaccount.com';
-const FIXTURE='projects/'+PROJECT+'/databases/(default)/documents/posts/qa_post_1';
-const ENDPOINT='https://firestore.googleapis.com/v1/'+FIXTURE;
+// Canonical synthetic-only QA target, reused by both manual WIF probes.
+export const QA_FIXTURE_PATH='projects/'+PROJECT+'/databases/(default)/documents/posts/qa_post_1';
+export const QA_FIXTURE_URL='https://firestore.googleapis.com/v1/'+QA_FIXTURE_PATH;
 const PROVIDER=/^projects\/[0-9]+\/locations\/global\/workloadIdentityPools\/guardian-github-qa\/providers\/github-qa$/;
 const deny=()=>{throw Error('qa_identity_probe_denied')};
 export function validateQaWifContext(e={}){
@@ -16,29 +17,35 @@ export function validateQaWifContext(e={}){
   e.GUARDIAN_FIREBASE_SERVICE_ACCOUNT_JSON||e.GOOGLE_APPLICATION_CREDENTIALS)deny();
  return true;
 }
-async function boundedJson(r){
- const length=r.headers.get('content-length');
- if(length!==null&&(!/^\d+$/.test(length)||Number(length)>8192))deny();
+// Shared read-only QA response guard: at most 8 KiB, strict UTF-8 and JSON.
+export async function readQaBoundedJson(r){
+ const length=r.headers?.get('content-length');
+ if(length!==null&&length!==undefined&&(!/^\d+$/.test(length)||Number(length)>8192))deny();
  if(!r.body?.getReader)deny();
  const reader=r.body.getReader(),parts=[];let n=0;
  try{for(;;){const {done,value}=await reader.read();if(done)break;
-  if(!(value instanceof Uint8Array))deny();n+=value.byteLength;
-  if(n>8192){await reader.cancel();deny()}parts.push(value);
+  if(!(value instanceof Uint8Array))deny();
+  n+=value.byteLength;
+  if(n>8192){await reader.cancel();deny()}
+  parts.push(value);
  }}finally{reader.releaseLock()}
- const all=new Uint8Array(n);let i=0;for(const p of parts){all.set(p,i);i+=p.length}
- return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(all));
+ const all=new Uint8Array(n);let i=0;
+ for(const p of parts){all.set(p,i);i+=p.byteLength}
+ try{return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(all))}
+ catch{deny()}
 }
+
 export async function probeQaWifRead(e,fetcher=fetch){
  validateQaWifContext(e);
  const t=e.QA_ACCESS_TOKEN;
  if(typeof t!=='string'||t.length<20||/\s/.test(t))deny();
  let r;
- try{r=await fetcher(ENDPOINT,{method:'GET',headers:{Authorization:'Bearer '+t,Accept:'application/json'},redirect:'error',signal:AbortSignal.timeout(6500)})}catch{deny()}
+ try{r=await fetcher(QA_FIXTURE_URL,{method:'GET',headers:{Authorization:'Bearer '+t,Accept:'application/json'},redirect:'error',signal:AbortSignal.timeout(6500)})}catch{deny()}
  // A fixture ausente NÃO prova autorização. Nunca produzir sucesso com HTTP 404.
  if(r.status===404)deny();
  if(r.status!==200)deny();
- let d;try{d=await boundedJson(r)}catch{deny()}
- if(d?.name!==FIXTURE||d?.fields?.qaFixture?.booleanValue!==true)deny();
+ let d;try{d=await readQaBoundedJson(r)}catch{deny()}
+ if(d?.name!==QA_FIXTURE_PATH||d?.fields?.qaFixture?.booleanValue!==true)deny();
  return {status:'qa_fixture_authenticated_read'};
 }
 if(typeof process!=='undefined'&&process.argv[1]&&import.meta.url==='file://'+process.argv[1]){

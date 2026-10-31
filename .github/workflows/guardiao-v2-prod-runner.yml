@@ -1,0 +1,63 @@
+name: Guardião V2 — identidade do executor oficial (SEM moderação)
+# Primeiro estágio da identidade produtiva: token temporário, sem banco, sem cron.
+# O provedor Google WIF permite SOMENTE este workflow na main, workflow_dispatch.
+# A ativação de scanner/casos exigirá revisão separada de IAM e orçamento.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_identity_test:
+        description: "Confirmo autenticação WIF sem consultar/modificar o Firebase"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: guardian-v2-production-identity
+  cancel-in-progress: false
+
+jobs:
+  identity-only:
+    if: ${{ github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' }}
+    name: Validar identidade sem chave JSON ou acesso a dados
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Validar o contexto antes de pedir OIDC
+        shell: bash
+        env:
+          CONFIRM: ${{ inputs.confirm_identity_test }}
+        run: |
+          set -euo pipefail
+          test "$CONFIRM" = "true"
+          test "$GITHUB_REPOSITORY" = "josuepradodeoliveiracosta-gif/atrio-catolico-android"
+          test "$GITHUB_REF" = "refs/heads/main"
+          test "$GITHUB_EVENT_NAME" = "workflow_dispatch"
+          echo "Contexto GitHub verificado; solicitando token temporário."
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Obter identidade WIF com validade curta
+        id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: atrio-catolico
+          workload_identity_provider: projects/256733686427/locations/global/workloadIdentityPools/guardian-v2-prod/providers/github-main
+          service_account: guardian-v2-runner@atrio-catolico.iam.gserviceaccount.com
+          token_format: access_token
+          access_token_lifetime: 300s
+          access_token_scopes: https://www.googleapis.com/auth/datastore
+          create_credentials_file: false
+      - name: Confirmar somente o sucesso da autenticação
+        shell: bash
+        env:
+          TEMPORARY_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+        run: |
+          set -euo pipefail
+          test -n "$TEMPORARY_ACCESS_TOKEN"
+          echo "GUARDIAN_V2_WIF_AUTHENTICATED — sem operação Firestore ou moderação."
