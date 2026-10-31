@@ -44,6 +44,15 @@ function accountsFor(kind,scope) {
       throw Error('qa_invalid_fanout_recipients');
     return [...new Set([scope.actorUid,...recipients])].sort();
   }
+  // Reply FCM messages must account for BOTH the author and recipient.
+  // Keep legacy direct administrative/review messages recipient-only in QA.
+  // Atomic SQLite admission prevents a freeze between two separate tickets.
+  if(kind==='push_fcm_send' && keys.join(',')==='actorUid,recipientUid'){
+    const accounts=[...new Set([scope.actorUid,scope.recipientUid])].sort();
+    if(accounts.some(uid=>!QA_UIDS.includes(uid)))
+      throw Error('qa_unknown_identity');
+    return accounts;
+  }
   if(keys.join(',')!==[...required].sort().join(','))
     throw Error('qa_invalid_privileged_scope');
   const accounts=[...new Set(required.map(key=>scope[key]))].sort();
