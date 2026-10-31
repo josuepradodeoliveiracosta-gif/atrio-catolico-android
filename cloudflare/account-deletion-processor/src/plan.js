@@ -18,7 +18,7 @@ export function planDeletionReview({projectId,uid,request}) {
     'profiles/'+uid,'public_profiles/'+uid,'profile_photos/'+uid,
     'badges/'+uid,'badge_requests/'+uid,'users/'+uid
   ];
-  const nested=['likedPosts','savedPosts','followedPosts','pushDevices','notifications']
+  const nested=['likedPosts','savedPosts','followedPosts','pushDevices','notifications','blockedMembers']
     .map(x=>'users/'+uid+'/'+x+'/*');
   return Object.freeze({
     projectId:DEMO,uid,mode:'DRY_RUN_ONLY',deletionAuthorized:false,
@@ -26,7 +26,9 @@ export function planDeletionReview({projectId,uid,request}) {
     directDocuments:direct,
     nestedCollections:nested,
     ownerQueries:['posts (field uid)','posts/*/replies (collection group uid)',
-      'reactions, reports and guardian records (review cross-account references)'],
+      'reactions, reports and guardian records (review cross-account references)',
+      'user_reports (reporterUid: user-submitted sensitive moderation evidence)',
+      'user_reports (targetUid: third-party evidence; review retention/anonymization)'],
     externalServices:['Cloudinary original and pending avatars','FCM device tokens'],
     safetyHolds:['verify ownership independently','review community content and retention',
       'enumerate every nested Firestore collection','export approved audit trail',
