@@ -500,7 +500,18 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // Guardião V2: leitura restrita; nenhuma escrita pelo APK.
+    // Guardião V2: decisões humanas não punitivas, vinculadas a batch
+    // atômico de CASO + AUDITORIA + AVISO. Nunca permite apagar conteúdo.
+    // O gateway Cloudflare não tem identidade privilegiada: as regras
+    // Firestore continuam verificando o UID Firebase do administrador.
+    function recentGuardianReview(t) {
+      return t is timestamp
+        && t <= request.time
+        && t > request.time - duration.value(5, 'm');
+    }
+    function validGuardianOutcome(status) {
+      return status in ['dismissed', 'acknowledged'];
+    }
     match /guardian_config/{configId} {
       allow get: if configId == 'policy' && isAdmin();
       allow list, create, update, delete: if false;
@@ -508,17 +519,70 @@ service cloud.firestore {
     match /guardian_cases/{caseId} {
       allow get, list: if isAdmin() ||
         (signedIn() && resource.data.ownerUid == request.auth.uid);
-      allow create, update, delete: if false;
+      allow create, delete: if false;
+      allow update: if isAdmin()
+        && caseId.matches('guard_[a-f0-9]{32}')
+        && resource.data.engine == 'v2'
+        && resource.data.status in ['review','warned']
+        && validGuardianOutcome(request.resource.data.status)
+        && resource.data.ownerUid != request.auth.uid
+        && validId(resource.data.ownerUid)
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status','reviewedBy','reviewNote','reviewedAt'])
+        && request.resource.data.keys()
+          .hasAll(['reviewedBy','reviewNote','reviewedAt'])
+        && request.resource.data.reviewedBy == request.auth.uid
+        && validText(request.resource.data.reviewNote, 5, 300)
+        && recentGuardianReview(request.resource.data.reviewedAt)
+        && existsAfter(/databases/$(database)/documents/guardian_audit/$(caseId + '_' + request.resource.data.status))
+        && getAfter(/databases/$(database)/documents/guardian_audit/$(caseId + '_' + request.resource.data.status)).data.caseId == caseId
+        && getAfter(/databases/$(database)/documents/guardian_audit/$(caseId + '_' + request.resource.data.status)).data.actor == request.auth.uid
+        && getAfter(/databases/$(database)/documents/guardian_audit/$(caseId + '_' + request.resource.data.status)).data.event == request.resource.data.status
+        && getAfter(/databases/$(database)/documents/guardian_audit/$(caseId + '_' + request.resource.data.status)).data.at == request.resource.data.reviewedAt
+        && existsAfter(/databases/$(database)/documents/guardian_notices/$(resource.data.ownerUid)/items/$(caseId + '_resolved'))
+        && getAfter(/databases/$(database)/documents/guardian_notices/$(resource.data.ownerUid)/items/$(caseId + '_resolved')).data.caseId == caseId
+        && getAfter(/databases/$(database)/documents/guardian_notices/$(resource.data.ownerUid)/items/$(caseId + '_resolved')).data.action == request.resource.data.status
+        && getAfter(/databases/$(database)/documents/guardian_notices/$(resource.data.ownerUid)/items/$(caseId + '_resolved')).data.createdAt == request.resource.data.reviewedAt;
     }
     match /guardian_audit/{auditId} {
       allow get, list: if isAdmin();
-      allow create, update, delete: if false;
+      allow update, delete: if false;
+      allow create: if isAdmin()
+        && auditId.matches('guard_[a-f0-9]{32}_(dismissed|acknowledged)')
+        && request.resource.data.keys().hasOnly(['caseId','actor','event','at'])
+        && request.resource.data.keys().hasAll(['caseId','actor','event','at'])
+        && request.resource.data.caseId.matches('guard_[a-f0-9]{32}')
+        && validGuardianOutcome(request.resource.data.event)
+        && auditId == request.resource.data.caseId + '_' + request.resource.data.event
+        && request.resource.data.actor == request.auth.uid
+        && recentGuardianReview(request.resource.data.at)
+        && getAfter(/databases/$(database)/documents/guardian_cases/$(request.resource.data.caseId)).data.reviewedBy == request.auth.uid
+        && getAfter(/databases/$(database)/documents/guardian_cases/$(request.resource.data.caseId)).data.status == request.resource.data.event
+        && getAfter(/databases/$(database)/documents/guardian_cases/$(request.resource.data.caseId)).data.reviewedAt == request.resource.data.at;
     }
     match /guardian_notices/{uid} {
       allow read, write: if false;
       match /items/{noticeId} {
         allow get, list: if me(uid);
-        allow create, update, delete: if false;
+        allow update, delete: if false;
+        allow create: if isAdmin()
+          && validId(uid)
+          && noticeId.matches('guard_[a-f0-9]{32}_resolved')
+          && request.resource.data.keys().hasOnly(['title','body','caseId','action','createdAt'])
+          && request.resource.data.keys().hasAll(['title','body','caseId','action','createdAt'])
+          && request.resource.data.caseId.matches('guard_[a-f0-9]{32}')
+          && noticeId == request.resource.data.caseId + '_resolved'
+          && validGuardianOutcome(request.resource.data.action)
+          && request.resource.data.title == 'Átrio Guardião'
+          && request.resource.data.body ==
+            (request.resource.data.action == 'dismissed'
+              ? 'O aviso foi encerrado após análise humana, sem infração confirmada.'
+              : 'A administração concluiu a análise e registrou uma orientação educativa.')
+          && recentGuardianReview(request.resource.data.createdAt)
+          && getAfter(/databases/$(database)/documents/guardian_cases/$(request.resource.data.caseId)).data.ownerUid == uid
+          && getAfter(/databases/$(database)/documents/guardian_cases/$(request.resource.data.caseId)).data.reviewedBy == request.auth.uid
+          && getAfter(/databases/$(database)/documents/guardian_cases/$(request.resource.data.caseId)).data.status == request.resource.data.action
+          && getAfter(/databases/$(database)/documents/guardian_cases/$(request.resource.data.caseId)).data.reviewedAt == request.resource.data.createdAt;
       }
     }
     match /guardian_runtime/{id} {

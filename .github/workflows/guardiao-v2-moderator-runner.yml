@@ -1,0 +1,72 @@
+name: Guardião V2 — triagem autônoma com identidade própria (desligada até homologação)
+
+on:
+  schedule:
+    - cron: '27 * * * *'
+  workflow_dispatch:
+    inputs:
+      confirm_autonomous_triage:
+        description: "Confirmo somente triagem não punitiva, sem excluir/ocultar conteúdos"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: guardian-v2-nonpunitive-writer
+  cancel-in-progress: false
+
+jobs:
+  moderator:
+    # O workflow existe para preparar o release; nenhuma escrita é executada
+    # enquanto o backend e a identidade própria não estiverem aprovados.
+    if: ${{ github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android' && github.ref == 'refs/heads/main' && vars.GUARDIAN_V2_WRITER_ENABLED == 'true' && vars.GUARDIAN_V2_WRITER_APPROVED == 'true' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.confirm_autonomous_triage == true)) }}
+    name: Casos, auditoria e avisos — sem quarentena
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    environment: guardian-v2-production-moderation
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    steps:
+      - name: Verificar contexto do executor
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "josuepradodeoliveiracosta-gif/atrio-catolico-android"
+          test "$GITHUB_REF" = "refs/heads/main"
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      # A identidade abaixo é distinta de guardian-v2-runner (somente leitura).
+      # O pool e provedor IAM/WIF exclusivos PRECISAM ser criados com vínculo ao workflow
+      # exato e ao ambiente; não reutilizar o provider do observador.
+      - name: Obter identidade WIF temporária de escrita
+        id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: atrio-catolico
+          workload_identity_provider: projects/256733686427/locations/global/workloadIdentityPools/guardian-v2-writer/providers/github-moderator
+          service_account: guardian-v2-writer@atrio-catolico.iam.gserviceaccount.com
+          token_format: access_token
+          access_token_lifetime: 300s
+          access_token_scopes: https://www.googleapis.com/auth/datastore
+          create_credentials_file: false
+      - name: Executar triagem autônoma estritamente delimitada
+        env:
+          GH_READ_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WIF_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+          GUARDIAN_V2_WRITER_SERVICE_ACCOUNT: guardian-v2-writer@atrio-catolico.iam.gserviceaccount.com
+          GUARDIAN_V2_WRITER_ENABLED: ${{ vars.GUARDIAN_V2_WRITER_ENABLED }}
+          GUARDIAN_V2_WRITER_APPROVED: ${{ vars.GUARDIAN_V2_WRITER_APPROVED }}
+          GUARDIAN_V2_NONPUNITIVE_ONLY: 'true'
+          GUARDIAN_V2_HOLD_ENABLED: 'false'
+          GUARDIAN_V2_CONFIRM_MANUAL: ${{ inputs.confirm_autonomous_triage }}
+        run: node scripts/guardian-v2-autonomous-cycle.mjs
