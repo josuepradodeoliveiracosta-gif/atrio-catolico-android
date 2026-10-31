@@ -95,7 +95,7 @@ internal fun MemberReportsReviewPanel(db: FirebaseFirestore, moderatorUid: Strin
         }, enabled = !busy && !loading,
             modifier = Modifier.testTag("atrio-user-reports-reload")) { Text("Atualizar denúncias") }
         if (loading) Text("Consultando denúncias no servidor...")
-        reports.filter { it.status == "pending" }.take(10).forEach { item ->
+        reports.filter { it.status == "pending" }.forEach { item ->
             Card(Modifier.fillMaxWidth()) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Usuário denunciado: " + item.targetUid)
