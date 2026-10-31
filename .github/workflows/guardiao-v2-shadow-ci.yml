@@ -1,0 +1,27 @@
+name: Guardião V2 — teste focal do observador somente leitura
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/guardiao-v2-prod-runner.yml'
+      - '.github/workflows/guardiao-v2-shadow-ci.yml'
+      - 'scripts/guardian-v2-shadow-cycle.mjs'
+      - 'tests/guardian-v2-shadow-cycle.test.mjs'
+      - 'cloudflare/guardian-worker/src/policy.js'
+permissions:
+  contents: read
+jobs:
+  shadow-only-test:
+    name: Classificação limitada, parada e segurança sem serviços externos
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: |
+          node --check scripts/guardian-v2-shadow-cycle.mjs
+          node --test tests/guardian-v2-shadow-cycle.test.mjs
