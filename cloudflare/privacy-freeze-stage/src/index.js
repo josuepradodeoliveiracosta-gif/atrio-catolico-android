@@ -11,7 +11,7 @@
 import {createQaPrivilegedWriteBarrier}
   from '../../account-deletion-audit/src/qa-privileged-write-barrier.js';
 import {
-  STAGE_HOST,STAGE_ID,STAGE_ROLES,stageSignature,stageNonceOk,
+  STAGE_HOST,STAGE_ID,STAGE_ROLES,stageNonceOk,
   stageFixtureUid,strictStageKey
 } from './protocol.js';
 
@@ -71,23 +71,27 @@ async function authenticate(request,env,path,raw){
     throw Error('stage_expired_auth');
   const secret=env[STAGE_ROLES[role]];
   if(!strictStageKey(secret))throw Error('stage_secret_unavailable');
-  // Verify MAC before making *any* change to D1; use subtle.verify to
-  // avoid weak string comparison of attacker-controlled signatures.
-  const expected=await stageSignature(secret,{role,timestamp:ts,nonce,path,body:raw});
+  // Verify HMAC via subtle.verify without string comparisons or re-signing.
   const bytes=Uint8Array.from(signature.match(/../g),x=>parseInt(x,16));
   const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(secret),
     {name:'HMAC',hash:'SHA-256'},false,['verify']);
   const signed=[STAGE_ID,role,ts,nonce,path,raw].join('\n');
-  if(!(await crypto.subtle.verify('HMAC',key,bytes,new TextEncoder().encode(signed)))||
-    signature!==expected)throw Error('stage_bad_signature');
-  // Replays across *multiple Worker instances* are rejected by one D1
-  // primary key. Fail closed when the operation may have succeeded.
-  const reserved=await env.STAGE_FREEZE_DB.prepare(
+  if(!(await crypto.subtle.verify('HMAC',key,bytes,new TextEncoder().encode(signed))))
+    throw Error('stage_bad_signature');
+  return {role,nonce,moment};
+}
+function keysReady(env){
+  const values=Object.values(STAGE_ROLES).map(name=>env?.[name]);
+  return values.every(strictStageKey)&&new Set(values).size===values.length;
+}
+async function reserveNonce(db,nonce,moment){
+  // Only valid, signed, role-authorized requests may consume a nonce.
+  // D1's unique primary key serializes simultaneous replay attempts.
+  const reserved=await db.prepare(
     'INSERT OR IGNORE INTO qa_stage_nonces (nonce,created_ms) VALUES (?,?)'
   ).bind(nonce,moment).run();
   if(reserved?.success!==true||reserved?.meta?.changes!==1)
     throw Error('stage_replayed_nonce');
-  return role;
 }
 function validateOperation(path,role,input){
   if(path==='/v1/admit'){
@@ -139,11 +143,13 @@ export default {
          !Object.hasOwn(OPERATIONS,url.pathname)||url.search)
         return denied();
       if(env?.ATRIO_PRIVACY_STAGE_ID!==STAGE_ID||
-         typeof env.STAGE_FREEZE_DB?.prepare!=='function')return denied();
+         typeof env.STAGE_FREEZE_DB?.prepare!=='function'||
+         !keysReady(env))return denied();
       const {raw,obj}=await readBounded(request);
-      // Do not permit an unknown UID into the D1 store, even with a valid MAC.
-      const role=await authenticate(request,env,url.pathname,raw);
+      const {role,nonce,moment}=await authenticate(request,env,url.pathname,raw);
+      // Invalid payloads, even correctly signed, must not fill D1 nonces.
       const data=validateOperation(url.pathname,role,obj);
+      await reserveNonce(env.STAGE_FREEZE_DB,nonce,moment);
       const barrier=createQaPrivilegedWriteBarrier(env.STAGE_FREEZE_DB);
       if(url.pathname==='/v1/admit'){
         const ticket=await barrier.begin(data.kind,data.scope);
