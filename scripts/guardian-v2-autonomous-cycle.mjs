@@ -63,11 +63,14 @@ async function dailyRunGate(e, fetcher=fetch) {
 // Não basta um token válido: a política deve aprovar a escrita não punitiva,
 // o motor deve estar habilitado e a parada emergencial deve estar desarmada.
 function policyApproved(doc) {
+  // Campos obrigatórios, inclusive os que devem estar em false: ausente
+  // ou malformado sempre resulta em parada fechada.
+  const required=['enabled','autonomousWriteEnabled','emergencyStop','allowHold'];
   return doc?.name===RESOURCE+'/guardian_config/policy' &&
-    !!doc.updateTime && flag(doc,'enabled') &&
-    flag(doc,'autonomousWriteEnabled') &&
-    !flag(doc,'emergencyStop') &&
-    !flag(doc,'allowHold');
+    typeof doc.updateTime==='string' &&
+    required.every(k=>typeof fields(doc)[k]?.booleanValue==='boolean') &&
+    flag(doc,'enabled') && flag(doc,'autonomousWriteEnabled') &&
+    !flag(doc,'emergencyStop') && !flag(doc,'allowHold');
 }
 
 function writer(db) {
