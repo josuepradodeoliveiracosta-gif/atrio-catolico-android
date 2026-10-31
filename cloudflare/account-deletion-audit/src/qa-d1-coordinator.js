@@ -6,8 +6,6 @@
  * runner cannot acknowledge a stage after another runner takes over.
  * Verification callbacks are for fake QA resources, not real services.
  */
-import {randomUUID} from 'node:crypto';
-
 const FIXTURE='qa-delete-alice';
 const TTL_MIN=1000,TTL_MAX=60000;
 const PHASES=Object.freeze([
@@ -71,7 +69,7 @@ export function createQaD1Coordinator(db,{now=Date.now}={}){
     async acquire({ttlMs=15000}={}){
       ttl(ttlMs);
       const time=numericTime(now);
-      const token=randomUUID();
+      const token=crypto.randomUUID();
       const row=await first(db,ACQUIRE,FIXTURE,token,time+ttlMs,time);
       if(!row)throw Error('qa_busy_or_already_complete');
       return Object.freeze({token,generation:row.generation,lastStep:row.last_step});
