@@ -8,6 +8,7 @@ on:
       - 'cloudflare/account-deletion-audit/**'
       - 'tests/security/account-deletion-web.test.mjs'
       - 'tests/security/account-deletion-request.test.mjs'
+      - 'tests/security/relational-inventory-emulator.test.mjs'
       - 'firestore.rules'
       - '.github/workflows/privacy-account-portal-ci.yml'
   workflow_dispatch:
@@ -52,3 +53,42 @@ jobs:
         run: |
           echo "### Auditoria: não há exclusão nem portal ativo" >> "$GITHUB_STEP_SUMMARY"
           echo "Os testes são offline e não usam Firebase, Cloudflare reais, nem credenciais ou contas." >> "$GITHUB_STEP_SUMMARY"
+
+  firestore-relational-emulator:
+    name: Testar consultas reais no Firestore Emulator (somente demo)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Obter código sem persistir autenticação
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Instalar Java 17 para emulador local
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Instalar Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Instalar apenas dependências do Firebase Emulator
+        working-directory: tests/security
+        run: npm ci --no-audit --no-fund
+      - name: Copiar somente as regras do projeto para o emulador
+        working-directory: tests/security
+        run: node prepare.mjs
+      - name: Consultar dados fictícios em Firestore Emulator
+        working-directory: tests/security
+        shell: bash
+        env:
+          GCLOUD_PROJECT: demo-atrio-v11
+        run: |
+          set -euo pipefail
+          npx firebase emulators:exec --only firestore --project demo-atrio-v11 \
+            "node relational-inventory-emulator.test.mjs"
+      - name: Resumo do ambiente
+        if: always()
+        run: |
+          echo "### Firestore Emulator — inventário relacional" >> "$GITHUB_STEP_SUMMARY"
+          echo "Teste com dados falsos no projeto demo-atrio-v11, host local 127.0.0.1:8089. Nenhuma credencial de produção, exclusão ou publicação." >> "$GITHUB_STEP_SUMMARY"
