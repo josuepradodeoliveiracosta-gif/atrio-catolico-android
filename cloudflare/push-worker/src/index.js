@@ -1,4 +1,8 @@
+import {qaSharedMode,qaSharedWorkerRequest,qaSharedResponse}
+  from '../../privacy-shared-qa/src/worker-entry.js';
 import {executeQaCommand} from './qa-manual.js';
+import {qaPushPrivacySealed} from './privacy-qa-write-fence.js';
+import {qaPushScopedMode,executeQaScopedPushReply} from './privacy-qa-scoped-fence.js';
 // Emissor FCM para Cloudflare Workers Free. Credenciais SOMENTE em Worker Secrets.
 // Recebe eventos autenticados pelo Firebase, confere documentos no Firestore,
 // limita destinatários e evita reenvios com Cloudflare D1.
@@ -148,7 +152,8 @@ export async function threadParticipants(token, postId, actor, owner, replyTime)
   throw Error('thread_reply_limit');
 }
 
-export async function writeThreadNotices(token, event) {
+export async function writeThreadNotices(token, event, env=null) {
+  if(qaPushPrivacySealed(env))throw Error('privacy_qa_sealed');
   if(!event.topic || !event.recipients?.length) return;
   const {postId,replyId,actorUid,actorName,createdAt}=event.notice;
   const writes=event.recipients.map(uid=>({
@@ -263,7 +268,8 @@ async function devices(token,uid) {
       &&x.time>Date.now()-60*86400_000&&x.time<=Date.now()+60_000);
 }
 
-async function send(token,device,uid,kind) {
+async function send(token,device,uid,kind,env=null) {
+  if(qaPushPrivacySealed(env))throw Error('privacy_qa_sealed');
   return fetch('https://fcm.googleapis.com/v1/projects/'+PROJECT+'/messages:send',{
     method:'POST',
     headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
@@ -280,7 +286,8 @@ async function send(token,device,uid,kind) {
  * A precondicao updateTime impede remover token novo salvo simultaneamente.
  * Nunca consultar, registrar ou devolver token/UID ao diagnostico.
  */
-export async function cleanupInvalidDevice(oauthToken, device, sendResult) {
+export async function cleanupInvalidDevice(oauthToken, device, sendResult, env=null) {
+  if(qaPushPrivacySealed(env))return false;
   if (sendResult.status!==404 || !device?.path || !device?.updateTime) return false;
   let error;
   try { error=(await sendResult.json())?.error; }
@@ -311,6 +318,7 @@ function safeAnnouncementText(input, min, max) {
 }
 
 export async function handleBroadcast(request, env) {
+  if(qaPushPrivacySealed(env))return response(503,'privacy_qa_sealed');
   // Separado do kill switch de notificações individuais, desligado por padrão.
   if (env.PUSH_ENABLED !== 'true' || env.BROADCAST_ENABLED !== 'true')
     return response(503,'broadcast_disabled');
@@ -368,6 +376,7 @@ export async function handleBroadcast(request, env) {
 // Estatística horária anônima, sem identificação de usuários/dispositivos/eventos.
 // Falhas no diagnóstico NUNCA interrompem a entrega existente.
 export async function auditDelivery(env, kind, outcome, attempted=0, accepted=0, httpStatus=0) {
+  if(qaPushPrivacySealed(env))return;
   if (!env.PUSH_DB) return;
   try {
     const hour = Math.floor(Date.now() / 3600_000) * 3600_000;
@@ -416,6 +425,7 @@ contextual: parece citação, relato ou orientação preventiva;
 uncertain: contexto insuficiente. Nenhuma classificação autoriza remoção.`;
 
 export async function guardiaoAiAssessment(env, reportId, text) {
+  if(qaPushPrivacySealed(env))return 'unavailable';
   if(env.GUARDIAO_AI_ENABLED!=='true') return 'disabled';
   if(!env.AI?.run || !env.PUSH_DB) return 'unavailable';
   let timer;
@@ -454,6 +464,7 @@ export async function guardiaoAiAssessment(env, reportId, text) {
 }
 
 export async function enrichGuardiaoReport(env, service, reportId, created, text) {
+  if(qaPushPrivacySealed(env))return 'unavailable';
   if(env.GUARDIAO_AI_ENABLED!=='true') return;
   try {
     // Nunca sobrescrever decisão humana ou qualquer edição posterior à criação.
@@ -492,7 +503,8 @@ function guardiaoReportFields(event,decision) {
 }
 // Não bombardear a equipe com Push, mesmo que alguém publique muitos textos
 // suspeitos. Denúncias continuam sendo registradas individualmente.
-export async function reserveGuardiaoAdminPush(db) {
+export async function reserveGuardiaoAdminPush(db,env=null) {
+  if(qaPushPrivacySealed(env))return false;
   if(!db) return false;
   try {
     const now=Date.now();
@@ -505,6 +517,7 @@ export async function reserveGuardiaoAdminPush(db) {
   } catch { return false; }
 }
 export async function handleGuardiaoEvent(request,env) {
+  if(qaPushPrivacySealed(env))return response(503,'privacy_qa_sealed');
   if(env.GUARDIAO_ENABLED!=='true') return response(503,'guardiao_disabled');
   if(!(env.FIREBASE_SERVICE_ACCOUNT_JSON&&env.FIREBASE_WEB_API_KEY&&env.PUSH_DB))
     return response(503,'not_configured');
@@ -561,11 +574,11 @@ export async function handleGuardiaoEvent(request,env) {
     // Reaproveita a infraestrutura de avisos já existente: não anexa texto,
     // dados pessoais nem conteúdo suspeito ao FCM dos administradores.
     try {
-      if(env.PUSH_ENABLED==='true' && await reserveGuardiaoAdminPush(env.PUSH_DB))
+      if(env.PUSH_ENABLED==='true' && await reserveGuardiaoAdminPush(env.PUSH_DB,env))
       for(const admin of await adminUids(service,actor)) {
         for(const device of await devices(service,admin)) {
-          const delivered=await send(service,device.token,admin,'admin');
-          if(!delivered.ok) await cleanupInvalidDevice(service,device,delivered);
+          const delivered=await send(service,device.token,admin,'admin',env);
+          if(!delivered.ok) await cleanupInvalidDevice(service,device,delivered,env);
         }
       }
     } catch {
@@ -593,6 +606,7 @@ async function firestoreCommit(service,writes) {
   return r.ok;
 }
 export async function holdGuardiaoContent(env,service,reportId,event,document,decision) {
+  if(qaPushPrivacySealed(env))return false;
   if(!document?.updateTime || !document?.name ||
     !uidPart(stringField(document,'uid'))) return false;
   const report=await firestoreGet(service,'reports/'+enc(reportId));
@@ -623,6 +637,7 @@ export async function holdGuardiaoContent(env,service,reportId,event,document,de
   ]);
 }
 export async function handleGuardiaoReview(request,env) {
+  if(qaPushPrivacySealed(env))return response(503,'privacy_qa_sealed');
   if(env.GUARDIAO_ENABLED!=='true') return response(503,'guardiao_disabled');
   let input;
   try { input=await readEventBody(request); }
@@ -691,6 +706,11 @@ export async function handleGuardiaoReview(request,env) {
 
 export default {
   async queue(batch,env) {
+    // Retry without acknowledging: no bot action and no accidental data loss.
+    if(qaPushPrivacySealed(env)||qaSharedMode(env)||qaPushScopedMode(env)){
+      for(const message of batch.messages)message.retry({delaySeconds:60});
+      return;
+    }
     // A fila não tem produtor HTTP público nem agendamento.
     // Uma mensagem = uma sessão autorizada explicitamente pelo chat.
     for(const message of batch.messages) {
@@ -718,6 +738,30 @@ export default {
     }
   },
   async fetch(request, env) {
+    // Before identity lookup, OAuth, D1 or FCM: block EVERY mutating route.
+    if(qaPushPrivacySealed(env)){
+      if(request.method==='GET' && new URL(request.url).pathname==='/health')
+        return response(200,'privacy_qa_sealed');
+      return response(503,'privacy_qa_sealed');
+    }
+    // Scoped privacy QA is restricted to an offline fixture URL. It cannot
+    // proceed to the normal credentialled Push handlers under ANY route.
+    if(qaPushScopedMode(env)){
+      if(request.method==='GET'&&new URL(request.url).pathname==='/health')
+        return response(200,'privacy_qa_scoped_only');
+      try{
+        const result=await executeQaScopedPushReply(request,env);
+        return response(200,result.status);
+      }catch{return response(503,'privacy_qa_scoped_denied');}
+    }
+    // Shared fake SQLite coordinator: runs before OAuth, D1, FCM and legacy
+    // per-Worker fixture mode. No production endpoints are exposed.
+    if(qaSharedMode(env)){
+      try{
+        const result=await qaSharedWorkerRequest(request,env,'push');
+        return qaSharedResponse(200,result.status,result.operationId);
+      }catch{return qaSharedResponse(503,'qa_shared_worker_denied');}
+    }
     const configured = !!(env.PUSH_DB && env.FIREBASE_WEB_API_KEY && env.FIREBASE_SERVICE_ACCOUNT_JSON);
     if(request.method==='GET' && new URL(request.url).pathname==='/health')
       return response(200, env.PUSH_ENABLED==='true' && configured ? 'configured' : 'disabled');
@@ -757,7 +801,7 @@ export default {
       // individual que já funciona na versão anterior.
       let fanoutOk=true;
       if(event.topic) {
-        try { await writeThreadNotices(token,event); }
+        try { await writeThreadNotices(token,event,env); }
         catch {
           fanoutOk=false;
           await auditDelivery(env,'thread','fanout_failed');
@@ -813,12 +857,12 @@ export default {
                   android:{priority:'HIGH',ttl:'3600s'},
                 }}),
               })
-            : await send(token,target.token,recipient,event.kind);
+            : await send(token,target.token,recipient,event.kind,env);
           attempted++;
           if(result.ok) accepted++;
           else {
             failedHttp=result.status;
-            if(await cleanupInvalidDevice(token,target,result)) cleaned++;
+            if(await cleanupInvalidDevice(token,target,result,env)) cleaned++;
           }
           if(!result.ok && result.status>=500) break;
         }

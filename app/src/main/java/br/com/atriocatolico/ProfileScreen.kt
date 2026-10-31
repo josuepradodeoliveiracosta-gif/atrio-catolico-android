@@ -181,6 +181,8 @@ internal fun OnlineProfileScreen(
                     }
                 }
             }
+            // Pedido de privacidade: registro autenticado, não exclusão instantânea.
+            item { AccountDeletionRequestSection(db, uid) }
             if (onModeration != null || onClergyReview != null) item {
                 HorizontalDivider(color = Line)
                 Spacer(Modifier.height(16.dp))

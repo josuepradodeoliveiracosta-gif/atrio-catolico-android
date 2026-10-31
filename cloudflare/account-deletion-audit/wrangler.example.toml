@@ -1,0 +1,16 @@
+# EXEMPLO, NÃO IMPLANTAR EM PRODUÇÃO ANTES DA HOMOLOGAÇÃO.
+# Worker apenas audita; NÃO processa exclusões.
+name = "atrio-account-deletion-audit"
+main = "src/index.js"
+compatibility_date = "2026-10-31"
+workers_dev = false
+
+[vars]
+ACCOUNT_DELETION_AUDIT_ENABLED = "false"
+
+# Segurança:
+# 1. Criar IAM/service account exclusivo com permissão somente leitura no Firestore.
+# 2. Guardar FIREBASE_SERVICE_ACCOUNT_JSON e ACCOUNT_DELETION_AUDIT_SECRET
+#    via wrangler secret put (NUNCA usar vars nem commitar).
+# 3. Não criar rota pública até revisão de autenticação, ACL e auditoria.
+# 4. NÃO há endpoint de exclusão. Não habilita processo destrutivo.

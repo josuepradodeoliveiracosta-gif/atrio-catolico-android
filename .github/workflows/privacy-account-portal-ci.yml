@@ -1,0 +1,146 @@
+name: Privacidade — auditoria e exclusão somente de fixtures no emulador
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'web/account-deletion/**'
+      - 'scripts/play_privacy_gate*.mjs'
+      - 'scripts/play_closed_track_status*.mjs'
+      - 'docs/google-play-politica-privacidade-minuta-nao-publicar.md'
+      - 'docs/google-play-seguranca-dados-matriz-revisao.md'
+      - 'docs/google-play-privacidade-evidencias.json'
+      - 'cloudflare/account-deletion-audit/**'
+      - 'cloudflare/privacy-freeze-stage/**'
+      - 'cloudflare/privacy-shared-qa/**'
+      - 'cloudflare/avatar-worker/src/**'
+      - 'cloudflare/guardian-worker/src/**'
+      - 'cloudflare/push-worker/src/**'
+      - 'tests/security/account-deletion-web.test.mjs'
+      - 'tests/security/account-deletion-request.test.mjs'
+      - 'tests/security/account-deletion-freeze.test.mjs'
+      - 'tests/security/relational-inventory-emulator.test.mjs'
+      - 'tests/security/qa-deletion-executor.mjs'
+      - 'tests/security/qa-deletion-reconciliation.mjs'
+      - 'tests/security/qa-deletion-auth-fence.mjs'
+      - 'tests/security/qa-deletion-auth-fence.test.mjs'
+      - 'tests/security/qa-admin-owned-cleanup.mjs'
+      - 'tests/security/qa-admin-executor.mjs'
+      - 'tests/security/qa-external-emulators.mjs'
+      - 'tests/security/qa-auth-cloudinary-emulator.test.mjs'
+      - 'tests/security/admin-fixture/**'
+      - 'tests/security/qa-deletion-emulator.test.mjs'
+      - 'tests/security/qa-deletion-sqlite-lease.mjs'
+      - 'tests/security/qa-deletion-sqlite-lease.test.mjs'
+      - 'firestore.rules'
+      - '.github/workflows/privacy-account-portal-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: privacy-account-qa-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  safe-privacy-audit:
+    name: Testar página e Worker sem acesso a produção
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Obter código de teste
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Preparar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Conferir sintaxe JavaScript sem executar configurações Web
+        run: |
+          node --check web/account-deletion/app.js
+          node --check cloudflare/account-deletion-audit/src/index.js
+          node --check cloudflare/privacy-freeze-stage/src/index.js
+          node --check cloudflare/privacy-freeze-stage/src/client.js
+          node --check cloudflare/privacy-freeze-stage/src/protocol.js
+          node --check cloudflare/privacy-freeze-stage/scripts/preflight.mjs
+          node --check cloudflare/privacy-shared-qa/src/worker-entry.js
+          node --check tests/security/qa-external-emulators.mjs
+          node --check tests/security/qa-auth-cloudinary-emulator.test.mjs
+          node --check tests/security/admin-fixture/qa-admin-sdk-auth.mjs
+          node --check tests/security/admin-fixture/qa-admin-firestore-freeze.mjs
+          node --check tests/security/admin-fixture/qa-worker-drain.mjs
+          node --check tests/security/admin-fixture/qa-worker-drain.test.mjs
+          node --check tests/security/admin-fixture/qa-avatar-d1-pre-auth.mjs
+          node --check tests/security/admin-fixture/qa-avatar-d1-pre-auth.test.mjs
+          node --check tests/security/admin-fixture/qa-retention-evidence.mjs
+          node --check tests/security/admin-fixture/qa-retention-evidence.test.mjs
+          node --check tests/security/admin-fixture/qa-admin-sdk-e2e.test.mjs
+      - name: Impedir configuração Cloudflare real ou pública no estágio
+        run: node cloudflare/privacy-freeze-stage/scripts/preflight.mjs --audit
+      - name: Testar auditoria e simulador de exclusão sem produção
+        run: node --experimental-sqlite --test cloudflare/account-deletion-audit/src/*.test.js tests/security/account-deletion-web.test.mjs
+      - name: Testar leases, fencing e checkpoint SQLite offline
+        run: node --experimental-sqlite --test tests/security/qa-deletion-sqlite-lease.test.mjs
+      - name: Conferir privacidade para a Play sem liberar publicação
+        run: |
+          node --test scripts/play_privacy_gate.test.mjs scripts/play_closed_track_status.test.mjs
+          node scripts/play_privacy_gate.mjs --audit
+          node scripts/play_closed_track_status.mjs --audit
+          node scripts/play_closed_track_status.mjs --json
+      - name: Verificar ausência de configuração efetiva do site
+        shell: bash
+        run: |
+          test ! -e web/account-deletion/config.js
+          grep -q 'ATRIO_ACCOUNT_DELETION_REQUESTS_ENABLED = false' web/account-deletion/config.example.js
+          if grep -R -E '(deleteUser\s*\(|deleteDoc\s*\(|\.delete\s*\()' cloudflare/account-deletion-audit/src; then
+            echo "::error::Worker de auditoria deve permanecer sem operações destrutivas"
+            exit 1
+          fi
+      - name: Comunicar limites
+        run: |
+          echo "### Auditoria: não há exclusão nem portal ativo" >> "$GITHUB_STEP_SUMMARY"
+          echo "Os testes são offline e não usam Firebase, Cloudflare reais, nem credenciais ou contas." >> "$GITHUB_STEP_SUMMARY"
+
+  firestore-relational-emulator:
+    name: Testar Firestore/Auth Emulator e Cloudinary HTTP local (somente demo)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Obter código sem persistir autenticação
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Instalar Java 17 para emulador local
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Instalar Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Instalar apenas dependências do Firebase Emulator
+        working-directory: tests/security
+        run: npm ci --no-audit --no-fund
+      - name: Instalar Firebase Admin SDK apenas no fixture QA
+        working-directory: tests/security
+        run: npm install --prefix admin-fixture --no-save --package-lock=false --ignore-scripts --no-audit --no-fund
+      - name: Copiar somente as regras do projeto para o emulador
+        working-directory: tests/security
+        run: node prepare.mjs
+      - name: Consultar dados fictícios em Firestore Emulator
+        working-directory: tests/security
+        shell: bash
+        env:
+          GCLOUD_PROJECT: demo-atrio-v11
+        run: |
+          set -euo pipefail
+          npx firebase emulators:exec --only firestore,auth --project demo-atrio-v11 \
+            "node relational-inventory-emulator.test.mjs && node --experimental-sqlite qa-deletion-auth-fence.test.mjs && node --experimental-sqlite qa-deletion-emulator.test.mjs && node --experimental-sqlite qa-auth-cloudinary-emulator.test.mjs && env -u FIREBASE_CONFIG node --experimental-sqlite admin-fixture/qa-worker-drain.test.mjs && env -u FIREBASE_CONFIG node --experimental-sqlite admin-fixture/qa-avatar-d1-pre-auth.test.mjs && env -u FIREBASE_CONFIG node --experimental-sqlite admin-fixture/qa-retention-evidence.test.mjs && env -u FIREBASE_CONFIG node --experimental-sqlite admin-fixture/qa-admin-sdk-e2e.test.mjs && node account-deletion-freeze.test.mjs"
+      - name: Resumo do ambiente
+        if: always()
+        run: |
+          echo "### Firestore Emulator — inventário e limpeza exclusiva de fixtures" >> "$GITHUB_STEP_SUMMARY"
+          echo "Firestore/Auth Emulator + Admin SDK exclusivo do projeto demo-atrio-v11; Cloudinary apenas HTTP local. Sem segredos, usuários reais ou publicação." >> "$GITHUB_STEP_SUMMARY"
