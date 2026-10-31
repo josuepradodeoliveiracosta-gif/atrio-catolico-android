@@ -17,7 +17,7 @@ const AUDIT_COLLECTION = 'account_deletion_requests';
 export function ownedPrivatePath(uid, path) {
   if (!validUid(uid) || typeof path !== 'string' || path.length > 1024) return false;
   const pieces = path.split('/');
-  return pieces.length >= 2 && pieces.every(Boolean) &&
+  return pieces.length >= 2 && pieces.every(part => part && part !== '.' && part !== '..') &&
     PRIVATE_COLLECTIONS.has(pieces[0]) && pieces[1] === uid;
 }
 
