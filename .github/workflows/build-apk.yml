@@ -38,9 +38,9 @@ jobs:
           ATRIO_AVATAR_WORKER_URL: ${{ vars.ATRIO_AVATAR_WORKER_URL || '' }}
           ATRIO_GUARDIAN_V2_WORKER_URL: ${{ vars.ATRIO_GUARDIAN_V2_WORKER_URL || 'https://atrio-guardian-v2.atrio-catolico.workers.dev' }}
         run: gradle :app:assembleDebug --no-daemon --stacktrace
-      # A assinatura permanece restrita a acionamento manual na main ou a uma
-      # unica autorizacao expressa via merge na main protegida (release 0.20.0).
-      # Nenhuma assinatura em pull_request, branches de testes ou push comum.
+      # Assinatura restrita a workflow_dispatch na main ou a este merge
+      # excepcional, aprovado para release 0.20.0 na main protegida.
+      # Nenhuma assinatura em PR, pushes comuns ou outras branches.
       - name: Compilar APK release com chave permanente (quando configurada)
         if: >-
           github.ref == 'refs/heads/main' &&
@@ -58,114 +58,11 @@ jobs:
           ATRIO_KEY_PASSWORD: ${{ secrets.ATRIO_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          # Excecao de uso unico: autorizacao expressa do proprietario, gravada no
-          # titulo de merge da PR, somente em push para a main protegida.
-          # No fluxo normal, a aprovacao por repository variable permanece obrigatoria.
+          # Autorizacao excepcional registrada na PR e commit da main protegida.
+          # Somente a versao 0.20.0 code 35 pode ser assinada por este push.
           if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
-            grep -Eq '^        versionCode = 35
-          # Um URL valido nao comprova que o servidor esta homologado: exige aceite
-          # separado da configuracao de release do repositorio.
-          if [[ "$ATRIO_GUARDIAN_V2_RELEASE_APPROVED" != "true" ]]; then
-            echo "::error::Release V2 bloqueado: falta aprovacao de integracao do backend (ATRIO_GUARDIAN_V2_RELEASE_APPROVED)."
-            exit 1
-          fi
-          if [[ "$ATRIO_GUARDIAN_V2_WORKER_URL" != "https://atrio-guardian-v2.atrio-catolico.workers.dev" ]]; then
-            echo "::error::Release V2 bloqueado: URL deve apontar para o gateway oficial do Guardião."
-            exit 1
-          fi
-          # No acionamento manual da main, o release deve falhar se faltar qualquer secret.
-          if [[ -z "$ATRIO_KEYSTORE_BASE64" || -z "$ATRIO_STORE_PASSWORD" || -z "$ATRIO_KEY_PASSWORD" ]]; then
-            echo "::error::Release indisponivel: confira os secrets ATRIO_KEYSTORE_BASE64, ATRIO_STORE_PASSWORD e ATRIO_KEY_PASSWORD."
-            exit 1
-          fi
-          KEYSTORE="$RUNNER_TEMP/atrio-release.jks"
-          trap 'rm -f "$KEYSTORE"' EXIT
-          umask 077
-          printf '%s' "$ATRIO_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE"
-          chmod 600 "$KEYSTORE"
-          export ATRIO_SIGNING_STORE_FILE="$KEYSTORE"
-          export ATRIO_SIGNING_STORE_PASSWORD="$ATRIO_STORE_PASSWORD"
-          export ATRIO_SIGNING_KEY_ALIAS="atrio"
-          export ATRIO_SIGNING_KEY_PASSWORD="$ATRIO_KEY_PASSWORD"
-          gradle :app:assembleRelease --no-daemon --stacktrace
-          RELEASE_APK="app/build/outputs/apk/release/app-release.apk"
-          if [[ ! -s "$RELEASE_APK" ]]; then
-            echo "::error::APK release nao foi gerado ou esta vazio."
-            exit 1
-          fi
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "$RELEASE_APK"
-      - name: Disponibilizar APK com assinatura permanente
-        if: >-
-          github.ref == 'refs/heads/main' &&
-          (github.event_name == 'workflow_dispatch' ||
-           (github.event_name == 'push' &&
-            startsWith(github.event.head_commit.message, 'release(atrio): assinar 0.20.0 autorizado uma vez')))
-        uses: actions/upload-artifact@v4
-        with:
-          name: atrio-catolico-release-assinado
-          path: app/build/outputs/apk/release/app-release.apk
-          if-no-files-found: error
-          retention-days: 7
-      - name: Disponibilizar APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: atrio-catolico-firebase-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
-          retention-days: 7
- app/build.gradle.kts
-            grep -Eq '^        versionName = "0.20.0"
-          # Um URL valido nao comprova que o servidor esta homologado: exige aceite
-          # separado da configuracao de release do repositorio.
-          if [[ "$ATRIO_GUARDIAN_V2_RELEASE_APPROVED" != "true" ]]; then
-            echo "::error::Release V2 bloqueado: falta aprovacao de integracao do backend (ATRIO_GUARDIAN_V2_RELEASE_APPROVED)."
-            exit 1
-          fi
-          if [[ "$ATRIO_GUARDIAN_V2_WORKER_URL" != "https://atrio-guardian-v2.atrio-catolico.workers.dev" ]]; then
-            echo "::error::Release V2 bloqueado: URL deve apontar para o gateway oficial do Guardião."
-            exit 1
-          fi
-          # No acionamento manual da main, o release deve falhar se faltar qualquer secret.
-          if [[ -z "$ATRIO_KEYSTORE_BASE64" || -z "$ATRIO_STORE_PASSWORD" || -z "$ATRIO_KEY_PASSWORD" ]]; then
-            echo "::error::Release indisponivel: confira os secrets ATRIO_KEYSTORE_BASE64, ATRIO_STORE_PASSWORD e ATRIO_KEY_PASSWORD."
-            exit 1
-          fi
-          KEYSTORE="$RUNNER_TEMP/atrio-release.jks"
-          trap 'rm -f "$KEYSTORE"' EXIT
-          umask 077
-          printf '%s' "$ATRIO_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE"
-          chmod 600 "$KEYSTORE"
-          export ATRIO_SIGNING_STORE_FILE="$KEYSTORE"
-          export ATRIO_SIGNING_STORE_PASSWORD="$ATRIO_STORE_PASSWORD"
-          export ATRIO_SIGNING_KEY_ALIAS="atrio"
-          export ATRIO_SIGNING_KEY_PASSWORD="$ATRIO_KEY_PASSWORD"
-          gradle :app:assembleRelease --no-daemon --stacktrace
-          RELEASE_APK="app/build/outputs/apk/release/app-release.apk"
-          if [[ ! -s "$RELEASE_APK" ]]; then
-            echo "::error::APK release nao foi gerado ou esta vazio."
-            exit 1
-          fi
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "$RELEASE_APK"
-      - name: Disponibilizar APK com assinatura permanente
-        if: >-
-          github.ref == 'refs/heads/main' &&
-          (github.event_name == 'workflow_dispatch' ||
-           (github.event_name == 'push' &&
-            startsWith(github.event.head_commit.message, 'release(atrio): assinar 0.20.0 autorizado uma vez')))
-        uses: actions/upload-artifact@v4
-        with:
-          name: atrio-catolico-release-assinado
-          path: app/build/outputs/apk/release/app-release.apk
-          if-no-files-found: error
-          retention-days: 7
-      - name: Disponibilizar APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: atrio-catolico-firebase-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
-          retention-days: 7
- app/build.gradle.kts
+            grep -Fxq '        versionCode = 35' app/build.gradle.kts
+            grep -Fxq '        versionName = "0.20.0"' app/build.gradle.kts
           fi
           # Nao assinar o release V2 sem servidor produtivo distinto do laboratorio.
           # Um URL valido nao comprova que o servidor esta homologado: exige aceite
