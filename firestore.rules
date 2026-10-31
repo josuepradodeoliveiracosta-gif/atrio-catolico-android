@@ -590,6 +590,21 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
+    // Solicitação autenticada, não execução de exclusão.
+    // Uma única solicitação por UID: evita spam e pedidos em nome de terceiros.
+    // Só um serviço administrativo com Admin SDK poderá processar/atualizar status.
+    match /account_deletion_requests/{uid} {
+      allow get: if me(uid);
+      allow list: if false;
+      allow create: if me(uid)
+        && request.resource.data.keys().hasOnly(['status', 'source', 'requestedAt'])
+        && request.resource.data.keys().hasAll(['status', 'source', 'requestedAt'])
+        && request.resource.data.status == 'requested'
+        && request.resource.data.source == 'android'
+        && request.resource.data.requestedAt == request.time;
+      allow update, delete: if false;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }
