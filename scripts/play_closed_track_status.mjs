@@ -48,9 +48,9 @@ export function assessClosedTrack({
     !/NÃO PREENCHER O FORMULÁRIO COMO DEFINITIVO/.test(files.safetyReview))
     blocked.push('data_safety_review_missing_or_unsafe');
   const mainHasInstallPermission=present('mainManifest')&&
-    /<uses-permission\\b[^>]*android:name=["']android\\.permission\\.REQUEST_INSTALL_PACKAGES["']/.test(files.mainManifest);
+    /<uses-permission\b[^>]*android:name=["']android\.permission\.REQUEST_INSTALL_PACKAGES["']/.test(files.mainManifest);
   const playRemovesInstallPermission=present('playManifest')&&
-    /<uses-permission\\b[^>]*android:name=["']android\\.permission\\.REQUEST_INSTALL_PACKAGES["'][^>]*tools:node=["']remove["']/.test(files.playManifest);
+    /<uses-permission\b[^>]*android:name=["']android\.permission\.REQUEST_INSTALL_PACKAGES["'][^>]*tools:node=["']remove["']/.test(files.playManifest);
   if(!playRemovesInstallPermission)
     blocked.push('play_manifest_permission_overlay_not_verified');
   if(mainHasInstallPermission&&!playRemovesInstallPermission)
