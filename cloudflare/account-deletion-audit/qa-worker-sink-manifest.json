@@ -137,12 +137,12 @@
     {
       "worker": "push-worker",
       "kind": "fcm_send_helper",
-      "code": ": await send(token,target.token,recipient,event.kind);"
+      "code": ": await send(token,target.token,recipient,event.kind,env);"
     },
     {
       "worker": "push-worker",
       "kind": "fcm_send_helper",
-      "code": "const delivered=await send(service,device.token,admin,'admin');"
+      "code": "const delivered=await send(service,device.token,admin,'admin',env);"
     },
     {
       "worker": "guardian-worker",
@@ -172,12 +172,12 @@
     {
       "worker": "push-worker",
       "kind": "invalid_device_cleanup",
-      "code": "if(!delivered.ok) await cleanupInvalidDevice(service,device,delivered);"
+      "code": "if(!delivered.ok) await cleanupInvalidDevice(service,device,delivered,env);"
     },
     {
       "worker": "push-worker",
       "kind": "invalid_device_cleanup",
-      "code": "if(await cleanupInvalidDevice(token,target,result)) cleaned++;"
+      "code": "if(await cleanupInvalidDevice(token,target,result,env)) cleaned++;"
     },
     {
       "worker": "push-worker",
