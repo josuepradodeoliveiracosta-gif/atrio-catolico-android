@@ -20,7 +20,9 @@ Todas as respostas de planejamento exibem apenas **contadores, códigos de bloqu
 - **não lê textos/valores dos documentos**, apenas caminhos; não retorna conteúdo em resposta HTTP;
 - declara obrigatoriamente `pagesComplete=false`, `hasUnknownCollections=true` e pendências relacionais/mídia: portanto não pode satisfazer o plano de exclusão enquanto as demais fontes não forem auditadas.
 
-Os testes desta varredura utilizam um adaptador **falso**. Ainda será preciso desenvolver a implementação real usando IAM somente-leitura e provar cobertura global, inclusive `posts`, `replies`, notificações de terceiros e mídia Cloudinary/D1.
+Também preparei `cloudflare/account-deletion-audit/src/firestore-read-adapter.js`, um **adaptador REST de leitura** que aceita somente o projeto `atrio-catolico`, documentos próprios e subcoleções autorizadas. Ele valida as URLs, exige token OAuth de backend (nunca token do aplicativo), faz exclusivamente operações `GET`, valida nomes de recursos e descarta os campos pessoais recebidos. Testes usam transporte falso e cobrem redirecionamento negado, erros HTTP, campos privados, paginação e resposta de outra conta. **O adaptador ainda não é chamado por nenhuma rota e não tem credenciais configuradas**. Sua integração futura deve usar uma conta de serviço IAM somente-leitura; autenticação administrativa e rede precisam ser homologadas antes de qualquer uso real.
+
+Ainda falta provar cobertura global, inclusive `posts`, `replies`, notificações de terceiros, todas as subcoleções inesperadas, mídia Cloudinary/D1 e retenções. O inventário retorna explicitamente pendências e bloqueia processamento.
 
 ## Ordem obrigatória para um processador futuro
 
