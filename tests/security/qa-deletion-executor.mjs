@@ -12,6 +12,8 @@ const PROJECT='demo-atrio-v11', HOST='127.0.0.1:8089', UID='qa-delete-alice';
 const MEDIA_ID='atrio-avatares/qa-delete-alice/123e4567-e89b-42d3-a456-426614174001';
 const FIXTURES=Object.freeze({
   nested:['users/'+UID+'/notifications/private1','users/'+UID+'/pushDevices/device1',
+    'users/'+UID+'/blockedMembers/qa-delete-bob',
+    'users/'+UID+'/acceptedTerms/ugc-v1',
     'guardian_notices/'+UID+'/items/notice1'],
   relational:['posts/qa-delete-bob-post/replies/qa-alice-reply',
     'posts/qa-delete-alice-post','users/qa-delete-bob/notifications/qa-alice-actor'],
