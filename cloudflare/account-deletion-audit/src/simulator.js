@@ -54,7 +54,7 @@ export async function runDeletionSimulation({uid,request,fixture,journal,failAft
       }
     },
     simulate_auth_removal_last() {
-      fixture.authUids.delete(uid); // Set local, não Firebase Authentication.
+      fixture.authUids = new Set([...fixture.authUids].filter(id => id !== uid)); // Set local, não Firebase Authentication.
     }
   };
   for(const phase of PHASES) {
