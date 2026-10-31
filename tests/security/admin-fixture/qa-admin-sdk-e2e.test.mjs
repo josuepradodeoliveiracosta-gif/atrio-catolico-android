@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
 import {readFileSync} from 'node:fs';
 import {DatabaseSync} from 'node:sqlite';
-import {initializeTestEnvironment} from '@firebase/rules-unit-testing';
+import {initializeTestEnvironment,assertFails} from '@firebase/rules-unit-testing';
 import {doc,setDoc,getDoc} from 'firebase/firestore';
 import {QaAdministrativeDeletionExecutor,QA_ADMIN_ORDER_TEMPLATE}
   from '../qa-admin-executor.mjs';
@@ -22,6 +22,8 @@ import {createQaCloudinaryHttpAdapter,QA_EXTERNAL_PHOTO,
   from '../qa-external-emulators.mjs';
 import {createQaAdminSdkAuthAdapter,QA_ADMIN_SDK_UIDS}
   from './qa-admin-sdk-auth.mjs';
+import {createQaAdminFirestoreFreezeAdapter}
+  from './qa-admin-firestore-freeze.mjs';
 
 const A=QA_ADMIN_SDK_UIDS.alice,B=QA_ADMIN_SDK_UIDS.bob;
 const PROJECT='demo-atrio-v11';
@@ -87,13 +89,14 @@ async function listen(){
   });
 }
 
-let admin,secondAdmin,journal;
+let admin,secondAdmin,freeze,secondFreeze,journal;
 try {
   await test('Admin SDK SAME UID: remote outage, after-delete crash, new adapter retry',
     async()=>{
       const address=await listen();
       const media=createQaCloudinaryHttpAdapter(address);
       admin=createQaAdminSdkAuthAdapter();
+      freeze=createQaAdminFirestoreFreezeAdapter();
       const alice=await admin.seed(A);
       const bob=await admin.seed(B);
       assert.equal(alice.uid,A);
@@ -125,6 +128,9 @@ try {
         assert.equal(owner.id,alice.uid);
         assert.equal(bobProfile.id,bob.uid);
 
+        // A privileged write is allowed BEFORE a deletion freeze.
+        await freeze.guardedWrite(A,'before');
+        assert.equal(await freeze.existsWrite(A,'before'),true);
         journal=new DatabaseSync(':memory:');
         const fakeAuth=new Set([A,B]);
         const fakeMedia=new Set([QA_EXTERNAL_PHOTO,QA_EXTERNAL_BOB_PHOTO]);
@@ -139,7 +145,7 @@ try {
             return admin.remove(uid);
           }
         };
-        const external={auth:remoteAuth,media};
+        const external={auth:remoteAuth,media,freeze};
         const openRunner=()=>new QaAdministrativeDeletionExecutor({
           db,journal,auth:fakeAuth,media:fakeMedia,external,
           lease:new QaSqliteLease(journal)
@@ -152,6 +158,36 @@ try {
         assert.equal(await admin.exists(A),true);
         assert.equal(mediaState.has(QA_EXTERNAL_PHOTO),true);
         assert.equal(fakeAuth.has(A),true);
+        // Admin created a REAL Firestore marker in the local emulator.
+        assert.equal(await freeze.verify(A),true);
+        const lock=await getDoc(doc(db,'account_deletion_freeze/'+A));
+        assert.equal(lock.exists(),true);
+        assert.equal(lock.data().uid,A);
+        await assert.rejects(freeze.guardedWrite(A,'after'),
+          /qa_admin_freeze_privileged_write_frozen/);
+        assert.equal(await freeze.existsWrite(A,'after'),false);
+        // Firestore client Security Rules and privileged admin adapter both
+        // stop Alice; neither restricts independent user Bob.
+        const aliceClient=environment.authenticatedContext(A).firestore();
+        await assertFails(setDoc(doc(aliceClient,'users',A,'pushDevices','clientAfter'),{
+          token:'qa-client-untrusted-token-abcdef123456',
+          updatedAt:new Date()
+        }));
+        await freeze.guardedWrite(B,'bobAfter');
+        assert.equal(await freeze.existsWrite(B,'bobAfter'),true);
+        // A forged/changed marker must invalidate an earlier journal
+        // checkpoint rather than permitting a restart into deletion.
+        await setDoc(doc(db,'account_deletion_freeze/'+A),{
+          uid:A,status:'cancelled',scope:'qa-only',generation:1
+        });
+        await assert.rejects(openRunner().execute({
+          order:QA_ADMIN_ORDER_TEMPLATE
+        }),/qa_admin_freeze_missing_or_invalid_freeze/);
+        assert.equal(await admin.exists(A),true);
+        await setDoc(doc(db,'account_deletion_freeze/'+A),{
+          uid:A,status:'processing',scope:'qa-only',generation:1
+        });
+        assert.equal(await freeze.verify(A),true);
 
         await assert.rejects(openRunner().execute({
           order:QA_ADMIN_ORDER_TEMPLATE
@@ -175,8 +211,13 @@ try {
         // New Admin SDK app has NO user mapping; exact UID allows restart.
         await admin.close();
         admin=null;
+        await freeze.close();
+        freeze=null;
         secondAdmin=createQaAdminSdkAuthAdapter();
-        const restartedExternal={auth:secondAdmin,media};
+        secondFreeze=createQaAdminFirestoreFreezeAdapter();
+        assert.equal(await secondFreeze.verify(A),true,
+          'freeze must survive an Admin SDK process restart');
+        const restartedExternal={auth:secondAdmin,media,freeze:secondFreeze};
         const resumed=new QaAdministrativeDeletionExecutor({
           db,journal,media:fakeMedia,auth:fakeAuth,external:restartedExternal,
           lease:new QaSqliteLease(journal)
@@ -189,6 +230,9 @@ try {
         assert.equal(result.reviewerIdentityReal,false);
         assert.equal(await secondAdmin.exists(A),false);
         assert.equal(await secondAdmin.exists(B),true);
+        assert.equal(await secondFreeze.verify(A),true);
+        await assert.rejects(secondFreeze.guardedWrite(A,'after'),
+          /qa_admin_freeze_privileged_write_frozen/);
         assert.equal(mediaState.has(QA_EXTERNAL_BOB_PHOTO),true);
         assert.equal(forbiddenMediaCalls,0);
         for(const path of QA_FIXTURES.preserved){
@@ -198,6 +242,7 @@ try {
         assert.equal((await getDoc(doc(db,'profiles/'+A))).exists(),false);
         assert.equal((await getDoc(doc(db,'users/'+A))).exists(),false);
         assert.equal((await getDoc(doc(db,'profiles/'+B))).exists(),true);
+        assert.equal(await secondFreeze.existsWrite(B,'bobAfter'),true);
         const repeat=await resumed.execute({order:QA_ADMIN_ORDER_TEMPLATE});
         assert.equal(repeat.completedPhases,QA_STEPS.length);
         assert.equal(await secondAdmin.exists(B),true);
@@ -220,6 +265,8 @@ try {
 } finally {
   await admin?.close();
   await secondAdmin?.close();
+  await freeze?.close();
+  await secondFreeze?.close();
   if(journal)journal.close();
   if(server.listening)await new Promise(resolve=>server.close(resolve));
   await environment.cleanup();
