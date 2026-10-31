@@ -38,7 +38,7 @@ jobs:
           node --check web/account-deletion/app.js
           node --check cloudflare/account-deletion-audit/src/index.js
       - name: Testar bloqueio de operações destrutivas e autenticação administrativa
-        run: node --test cloudflare/account-deletion-audit/src/index.test.js tests/security/account-deletion-web.test.mjs
+        run: node --test cloudflare/account-deletion-audit/src/*.test.js tests/security/account-deletion-web.test.mjs
       - name: Verificar ausência de configuração efetiva do site
         shell: bash
         run: |
