@@ -94,3 +94,48 @@ vez de clonar novamente; nunca usar `git reset --hard`.
 autorizado no Firebase Auth, política de privacidade pública, executor
 real com retenção e verificação de permissões dos Workers. O cadastro Web
 sozinho não satisfaz a evidência `external_portal` nem autoriza Play.
+
+## Site separado no Firebase Hosting — proposta sem publicação (31/10/2026)
+
+A consulta real executada pelo titular `firebase hosting:sites:list --project atrio-catolico`
+confirmou **um site padrão** `atrio-catolico`, com URL
+`https://atrio-catolico.web.app`. A coluna App ID aparece vazia; isso
+não demonstra uma falha de cadastro do Firebase Web App, que já passou
+na validação de SDK, e **não significa que o portal esteja hospedado**.
+O conteúdo atual do site padrão não foi verificado por inspeção HTTP.
+
+**Decisão de segurança:** preservar `atrio-catolico` sem deploy ou alteração
+de configuração e propor um segundo site de Hosting dedicado à exclusão
+de contas. A existência do site secundário não habilita o portal nem substitui
+um backend seguro de exclusão.
+
+A proposta de configuração encontra-se em
+`cloudflare/account-deletion-portal/firebase.hosting.proposed.json`:
+a configuração **não é** o `firebase.json` padrão do repositório; declara
+somente `target=deletionPortal`, `public=dist` e reproduz os cabeçalhos
+de segurança originalmente escritos em `public/_headers` para o
+Cloudflare Pages, que não seriam aplicados automaticamente pelo Firebase
+Hosting. O teste `tests/firebase-hosting-config.test.mjs` exige isolamento
+do alvo e preservação de CSP, no-store, anti-clickjacking e no-referrer.
+
+**Somente após aprovação explícita de cadastro de um segundo site:**
+
+```bash
+cd ~/atrio-privacy-qa
+firebase hosting:sites:create atrio-catolico-exclusao --project atrio-catolico
+firebase hosting:sites:list --project atrio-catolico
+```
+
+O identificador `atrio-catolico-exclusao` é uma **proposta**, não um recurso
+já existente; precisa estar globalmente disponível no Firebase. Se a criação
+falhar por indisponibilidade, não repetir com um ID aleatório nem tocar no
+site padrão sem revisar o planejamento. Criar um site vazio não publica
+o formulário e não mexe no site padrão.
+
+**Não executar ainda** `firebase target:apply`, `firebase init`,
+`firebase deploy` ou `firebase hosting:channel:deploy`. Mais adiante,
+um alvo dedicado `deletionPortal` poderá ser vinculado ao ID que realmente
+for registrado, mas somente depois de validar a política de privacidade,
+o tratamento de pedidos, Auth e os riscos de retenção. Nem a URL do site
+padrão nem a do secundário podem ser informadas à Play como portal de
+exclusão operacional antes disso.
