@@ -58,6 +58,9 @@ class AuditTests(unittest.TestCase):
         })
         remote["indexes"]["indexes"] = []
         self.assertIn("indice_composto_ausente", audit.evaluate(local, remote))
+        local, remote = sample()
+        remote["indexes"]["fieldOverrides"][0]["indexes"][0]["queryScope"] = "COLLECTION_GROUP"
+        self.assertIn("override_indice_ausente", audit.evaluate(local, remote))
 
     def test_reject_unknown_response_or_cli_error_without_printing_content(self):
         with self.assertRaises(audit.AuditError):
@@ -84,7 +87,6 @@ class AuditTests(unittest.TestCase):
             self.assertFalse(any("deploy" in x or "delete" in x or
                                  "export" in x or "set" == x for x in argv))
             if argv[1] != "projects:list":
-                self.assertEqual(argv[-4:-1], ["--project", audit.PROJECT, "--json"][-4:-1])
                 self.assertEqual(argv[-3:], ["--project", audit.PROJECT, "--json"])
 
     def test_disallow_unlisted_queries_and_wrong_branch(self):

@@ -155,8 +155,10 @@ def evaluate(local, remote):
         if not any(isinstance(x, dict) and
                    x.get("collectionGroup") == desired.get("collectionGroup") and
                    x.get("fieldPath") == desired.get("fieldPath") and
-                   set(index_fields({"fields": x.get("indexes", [])})) ==
-                   set(index_fields({"fields": desired.get("indexes", [])}))
+                   {(i.get("order"), i.get("queryScope"), i.get("arrayConfig"))
+                    for i in x.get("indexes", []) if isinstance(i, dict)} ==
+                   {(i.get("order"), i.get("queryScope"), i.get("arrayConfig"))
+                    for i in desired.get("indexes", []) if isinstance(i, dict)}
                    for x in overrides):
             issues.append("override_indice_ausente")
     return issues
