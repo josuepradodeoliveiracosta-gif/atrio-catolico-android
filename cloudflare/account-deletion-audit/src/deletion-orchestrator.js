@@ -178,10 +178,14 @@ export function buildDeletionPlan(uid, requestRecord, inventory, approvals) {
 export function simulatePhases(plan, checkpoint={}, options={}) {
   if (!plan?.simulatedOnly || plan.safeToExecute !== false ||
       !Array.isArray(plan.phases)) throw Error('not_a_simulation_plan');
-  const completed=new Set(Array.isArray(checkpoint.completed)
-    ? checkpoint.completed : []);
+  const saved=Array.isArray(checkpoint.completed)?checkpoint.completed:[];
+  const completed=new Set(saved);
   const known=new Set(plan.phases.map(s=>s.id));
   if([...completed].some(x=>!known.has(x))) throw Error('unknown_checkpoint_phase');
+  if(completed.size!==saved.length) throw Error('duplicate_checkpoint_phase');
+  // É proibido avançar diretamente para Auth sem verificar as fases anteriores.
+  const expectedPrefix=plan.phases.slice(0,completed.size).map(s=>s.id);
+  if(expectedPrefix.some(id=>!completed.has(id))) throw Error('out_of_order_checkpoint');
   if(plan.blockers.length) return {state:'blocked',completed:[...completed],next:null};
   for (const step of plan.phases) {
     if(completed.has(step.id)) continue;
