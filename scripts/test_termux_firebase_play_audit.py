@@ -65,6 +65,12 @@ class AuditTests(unittest.TestCase):
         remote["indexes"]["fieldOverrides"][0]["indexes"][0]["queryScope"] = "COLLECTION_GROUP"
         self.assertIn("override_indice_ausente", audit.evaluate(local, remote))
 
+    def test_firebase_cli_index_export_without_state_never_proves_ready(self):
+        local, remote = sample()
+        remote["indexes"]["indexes"][0].pop("state")
+        self.assertIn("estado_indice_nao_confirmado_pelo_cli",
+                      audit.evaluate(local, remote))
+
     def test_reject_unknown_response_or_cli_error_without_printing_content(self):
         with self.assertRaises(audit.AuditError):
             audit.parse_json("{not-json")
