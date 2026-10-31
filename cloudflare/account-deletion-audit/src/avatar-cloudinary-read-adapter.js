@@ -5,7 +5,7 @@
  */
 import {validUid} from './plan.js';
 const ASCII=/^[A-Za-z0-9_-]{1,128}$/;
-const CURSOR=/^[A-Za-z0-9_+\/=.:()-]{1,2048}$/;
+const CURSOR=/^[A-Za-z0-9_+\/=-]{1,2048}$/;
 const MAX_BYTES=700000;
 
 export function createCloudinaryAvatarReadAdapter({cloudName,apiKey,apiSecret}={},fetcher=fetch) {
