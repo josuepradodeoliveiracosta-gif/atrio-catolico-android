@@ -45,11 +45,12 @@ export function checkStagePreflight({template,migration,realWorkerConfigs={},
     /^ATRIO_PRIVACY_STAGE_ID\s*=\s*"demo-atrio-v11"$/m.test(config));
   add('no_secret_values_in_stage_configuration',
     !/^\s*STAGE_(?:AVATAR|GUARDIAN|PUSH|ADMIN|RECONCILER)_HMAC\s*=/m.test(config) &&
-    !/FIREBASE_(?:SERVICE_ACCOUNT|WEB_API_KEY)\s*=/.test(config));
+    !/FIREBASE_(?:SERVICE_ACCOUNT(?:_JSON)?|WEB_API_KEY)\s*=/.test(config));
   add('no_active_stage_deploy_configuration',
     Array.isArray(activeStageFiles)&&activeStageFiles.length===0);
   add('schema_restricts_accounts_to_fixed_demo_users',
-    /CHECK\s*\(\s*uid\s+IN\s*\(\s*'qa-freeze-alice'\s*,\s*'qa-freeze-bob'\s*\)\s*\)/i.test(migration) &&
+    (migration.match(/CHECK\s*\(\s*uid\s+IN\s*\(\s*'qa-freeze-alice'\s*,\s*'qa-freeze-bob'\s*\)\s*\)/gi)||[]).length===2 &&
+    (migration.match(/CHECK\s*\(\s*uid\s+IN\s*\(/gi)||[]).length===2 &&
     /CREATE TABLE qa_stage_nonces/.test(migration) &&
     /INSERT INTO qa_privileged_accounts/.test(migration) &&
     !/\b(?:ATTACH|DROP\s+TABLE|DELETE\s+FROM|PRAGMA\s+foreign_keys\s*=\s*OFF)\b/i.test(migration));
