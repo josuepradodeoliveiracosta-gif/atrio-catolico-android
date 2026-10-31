@@ -36,6 +36,7 @@ import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.FieldValue
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.launch
 
 /**
  * O modo conectado só é exibido se um google-services.json válido estiver instalado.
@@ -323,6 +324,10 @@ private fun OnlineCommunity(
     onClergyReview: (() -> Unit)?
 ) {
     val context = LocalContext.current
+    val ota = rememberOtaUpdateController()
+    val otaScope = rememberCoroutineScope()
+    val otaSnackbar = remember { SnackbarHostState() }
+    var lastAnnouncedOtaVersion by remember { mutableStateOf<String?>(null) }
     var sourcePosts by remember(uid) { mutableStateOf<List<Post>>(emptyList()) }
     var likedIds by remember(uid) { mutableStateOf<Set<String>>(emptySet()) }
     var savedIds by remember(uid) { mutableStateOf<Set<String>>(emptySet()) }
@@ -528,6 +533,18 @@ private fun OnlineCommunity(
         noticeBadgesOpen = false; returnToNotices = false
         filter = "Todos"; search = ""; searchOpen = false
     }
+    LaunchedEffect(ota.status) {
+        val result = ota.status
+        if (result is OtaCheckStatus.Available && result.version != lastAnnouncedOtaVersion) {
+            lastAnnouncedOtaVersion = result.version
+            val choice = otaSnackbar.showSnackbar(
+                message = "Nova versão do Átrio: ${result.version}. Consulte as novidades no Perfil.",
+                actionLabel = "Ver",
+                duration = SnackbarDuration.Long
+            )
+            if (choice == SnackbarResult.ActionPerformed) navigate(Tab.PROFILE)
+        }
+    }
     fun openMemberProfile(memberUid: String, publishedName: String) {
         if (memberUid.isBlank()) return
         if (memberUid == uid) {
@@ -723,7 +740,7 @@ private fun OnlineCommunity(
     if (!visible) return
     BackHandler(enabled = publicProfileTarget != null || detailId != null || noticesOpen || noticeBadgesOpen || guardiaoAppealsOpen) { closeNoticeDestination() }
 
-    Scaffold(containerColor = Paper, topBar = {
+    Scaffold(containerColor = Paper, snackbarHost = { SnackbarHost(otaSnackbar) }, topBar = {
         AtrioTopBar(
             details = publicProfileTarget != null || detailId != null || noticesOpen || noticeBadgesOpen || guardiaoAppealsOpen,
             detailsTitle = if (publicProfileTarget != null && !profilePostOpen) "Perfil público"
@@ -887,6 +904,8 @@ private fun OnlineCommunity(
                     followedRemoteLoading = syncedFollow.loading,
                     followedRemoteFailed = syncedFollow.failed,
                     onPhotoChanged = onPhotoChanged,
+                    otaStatus = ota.status,
+                    onRefreshUpdates = { otaScope.launch { ota.refresh() } },
                     onNotifications = { noticesOpen = true; returnToNotices = false },
                     onReviews = { guardiaoAppealsOpen = true },
                     onCreate = { navigate(Tab.PUBLISH) }, onOpen = { detailId = it },
