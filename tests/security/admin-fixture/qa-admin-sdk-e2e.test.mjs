@@ -30,6 +30,8 @@ import {createQaAdminFirestoreFreezeAdapter}
 import {createQaWorkerDrainAdapter} from './qa-worker-drain.mjs';
 import {createQaAvatarD1PreAuthAdapter}
   from './qa-avatar-d1-pre-auth.mjs';
+import {createQaRetentionEvidenceAdapter}
+  from './qa-retention-evidence.mjs';
 
 const A=QA_ADMIN_SDK_UIDS.alice,B=QA_ADMIN_SDK_UIDS.bob;
 const PROJECT='demo-atrio-v11';
@@ -159,7 +161,17 @@ try {
           '../../../cloudflare/avatar-worker/schema.sql',import.meta.url),'utf8'));
         const workers=createQaWorkerDrainAdapter(workerDb);
         const d1=createQaAvatarD1PreAuthAdapter(workerDb);
-        workerDb.prepare('INSERT INTO avatar_rate(uid,next_at) VALUES (?,?)')
+        const retention=createQaRetentionEvidenceAdapter(workerDb,{
+          now:()=>Date.parse('2026-10-31T15:00:00.000Z')
+        });
+        const review=()=>retention.review({
+          uid:A,requestAt:'2026-10-31T12:00:00.000Z',decision:'clear',
+          approvals:['qa-privacy-reviewer','qa-security-reviewer'],
+          reviewedAt:'2026-10-31T14:00:00.000Z',
+          expiresAt:'2026-10-31T20:00:00.000Z'
+        });
+        review();
+        workerDb.prepare('INSERT INTO avatar_rate(uid,next_at) VALUES (?,?)'
           .run(B,100);
         const inFlight=workers.begin(A,'push_fanout');
         const independent=workers.begin(B,'avatar_upload');
@@ -177,7 +189,7 @@ try {
             return admin.remove(uid);
           }
         };
-        const external={auth:remoteAuth,media,freeze,workers,d1};
+        const external={auth:remoteAuth,media,freeze,workers,d1,retention};
         const openRunner=()=>new QaAdministrativeDeletionExecutor({
           db,journal,auth:fakeAuth,media:fakeMedia,external,
           lease:new QaSqliteLease(journal)
@@ -279,6 +291,19 @@ try {
         assert.equal(await admin.exists(B),true);
         mediaState.delete(QA_EXTERNAL_ORPHAN_PHOTO);
 
+        // A new retention hold invalidates the earlier approval, even if
+        // that hold is subsequently resolved without renewing the review.
+        retention.hold(A,'qa-case-legal-hold');
+        await assert.rejects(openRunner().execute({
+          order:QA_ADMIN_ORDER_TEMPLATE
+        }),/qa_retention_review_stale/);
+        assert.equal(await admin.exists(A),true);
+        retention.resolve(A,'qa-case-legal-hold');
+        await assert.rejects(openRunner().execute({
+          order:QA_ADMIN_ORDER_TEMPLATE
+        }),/qa_retention_review_stale/);
+        review();
+
         // Effect happens on Auth Emulator; crash before SQLite checkpoint.
         await assert.rejects(openRunner().execute({
           order:QA_ADMIN_ORDER_TEMPLATE,
@@ -300,13 +325,16 @@ try {
         secondWorkerDb=new DatabaseSync(workerPath);
         const resumedWorkers=createQaWorkerDrainAdapter(secondWorkerDb);
         const resumedD1=createQaAvatarD1PreAuthAdapter(secondWorkerDb);
+        const resumedRetention=createQaRetentionEvidenceAdapter(secondWorkerDb,{
+          now:()=>Date.parse('2026-10-31T15:00:00.000Z')
+        });
         assert.equal(resumedWorkers.verify(A),true,
           'Worker freeze must survive new SQLite connection');
         assert.deepEqual(resumedWorkers.status(B),{state:'active',pending:1});
         assert.equal(await secondFreeze.verify(A),true,
           'freeze must survive an Admin SDK process restart');
         const restartedExternal={auth:secondAdmin,media,freeze:secondFreeze,
-          workers:resumedWorkers,d1:resumedD1};
+          workers:resumedWorkers,d1:resumedD1,retention:resumedRetention};
         const resumed=new QaAdministrativeDeletionExecutor({
           db,journal,media:fakeMedia,auth:fakeAuth,external:restartedExternal,
           lease:new QaSqliteLease(journal)

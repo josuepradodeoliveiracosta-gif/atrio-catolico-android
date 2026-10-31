@@ -75,6 +75,12 @@ export class QaAdministrativeDeletionExecutor {
     const record=await getDoc(doc(this.db,'account_deletion_requests/'+UID));
     if(!record.exists() || record.data()?.status!=='requested')
       throw Error('qa_admin_verified_request_missing');
+    const requestAt=record.data()?.requestedAt?.toDate?.()?.toISOString();
+    if(this.executor.external){
+      if(typeof requestAt!=='string')
+        throw Error('qa_admin_retention_request_timestamp_missing');
+      await this.executor.external.retention.verify(UID,requestAt);
+    }
     const result=await this.executor.run({
       approved:true,failBeforeEffect,failAfterEffect
     });

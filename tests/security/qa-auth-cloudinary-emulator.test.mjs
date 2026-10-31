@@ -18,6 +18,8 @@ import {QaSqliteLease} from './qa-deletion-sqlite-lease.mjs';
 import {QA_FIXTURES} from './qa-deletion-executor.mjs';
 import {createQaAvatarD1PreAuthAdapter}
   from './admin-fixture/qa-avatar-d1-pre-auth.mjs';
+import {createQaRetentionEvidenceAdapter}
+  from './admin-fixture/qa-retention-evidence.mjs';
 import {createQaAuthEmulatorAdapter,createQaCloudinaryHttpAdapter,
   QA_EXTERNAL_UID,QA_EXTERNAL_BOB,QA_EXTERNAL_PHOTO,QA_EXTERNAL_BOB_PHOTO,
   QA_EXTERNAL_ORPHAN_PHOTO,QA_EXTERNAL_MEDIA_PATH,QA_EXTERNAL_MEDIA_INVENTORY_PATH} from './qa-external-emulators.mjs';
@@ -137,8 +139,27 @@ try {
           d1Sqlite.prepare('INSERT INTO avatar_rate(uid,next_at) VALUES (?,?)')
             .run(QA_EXTERNAL_BOB,100);
           const d1=createQaAvatarD1PreAuthAdapter(d1Sqlite);
-          const external={auth,media,d1};
+          const retention=createQaRetentionEvidenceAdapter(d1Sqlite,{
+            now:()=>Date.parse('2026-10-31T15:00:00.000Z')
+          });
+          const review=()=>retention.review({
+            uid:QA_EXTERNAL_UID,
+            requestAt:'2026-10-31T12:00:00.000Z',decision:'clear',
+            approvals:['qa-privacy-reviewer','qa-security-reviewer'],
+            reviewedAt:'2026-10-31T14:00:00.000Z',
+            expiresAt:'2026-10-31T20:00:00.000Z'
+          });
+          const external={auth,media,d1,retention};
           try{
+            const missing=new QaAdministrativeDeletionExecutor({
+              db,journal,media:stubMedia,auth:stubAuth,external,
+              lease:new QaSqliteLease(journal)
+            });
+            await assert.rejects(missing.execute({
+              order:QA_ADMIN_ORDER_TEMPLATE
+            }),/qa_retention_review_missing/);
+            assert.equal(await auth.exists(QA_EXTERNAL_UID),true);
+            review();
             state.failNextDestroy=true;
             const first=new QaAdministrativeDeletionExecutor({
               db,journal,media:stubMedia,auth:stubAuth,external,
@@ -182,6 +203,14 @@ try {
             assert.equal(await auth.exists(QA_EXTERNAL_UID),true);
             d1Sqlite.prepare('DELETE FROM avatar_pending WHERE uid=?')
               .run(QA_EXTERNAL_UID);
+            retention.hold(QA_EXTERNAL_UID,'qa-case-new-hold');
+            await assert.rejects(restarted.execute({order:QA_ADMIN_ORDER_TEMPLATE}),
+              /qa_retention_review_stale/);
+            assert.equal(await auth.exists(QA_EXTERNAL_UID),true);
+            retention.resolve(QA_EXTERNAL_UID,'qa-case-new-hold');
+            await assert.rejects(restarted.execute({order:QA_ADMIN_ORDER_TEMPLATE}),
+              /qa_retention_review_stale/);
+            review();
             const result=await restarted.execute({order:QA_ADMIN_ORDER_TEMPLATE});
             assert.equal(result.status,'qa_fixture_admin_workflow_finished');
             assert.equal(result.authEmulatorFixtureExercised,true);

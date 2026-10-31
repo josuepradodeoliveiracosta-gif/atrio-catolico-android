@@ -59,6 +59,8 @@ jobs:
           node --check tests/security/admin-fixture/qa-worker-drain.test.mjs
           node --check tests/security/admin-fixture/qa-avatar-d1-pre-auth.mjs
           node --check tests/security/admin-fixture/qa-avatar-d1-pre-auth.test.mjs
+          node --check tests/security/admin-fixture/qa-retention-evidence.mjs
+          node --check tests/security/admin-fixture/qa-retention-evidence.test.mjs
           node --check tests/security/admin-fixture/qa-admin-sdk-e2e.test.mjs
       - name: Testar auditoria e simulador de exclusão sem produção
         run: node --experimental-sqlite --test cloudflare/account-deletion-audit/src/*.test.js tests/security/account-deletion-web.test.mjs
@@ -113,7 +115,7 @@ jobs:
         run: |
           set -euo pipefail
           npx firebase emulators:exec --only firestore,auth --project demo-atrio-v11 \
-            "node relational-inventory-emulator.test.mjs && node --experimental-sqlite qa-deletion-auth-fence.test.mjs && node --experimental-sqlite qa-deletion-emulator.test.mjs && node --experimental-sqlite qa-auth-cloudinary-emulator.test.mjs && env -u FIREBASE_CONFIG node --experimental-sqlite admin-fixture/qa-worker-drain.test.mjs && env -u FIREBASE_CONFIG node --experimental-sqlite admin-fixture/qa-avatar-d1-pre-auth.test.mjs && env -u FIREBASE_CONFIG node --experimental-sqlite admin-fixture/qa-admin-sdk-e2e.test.mjs && node account-deletion-freeze.test.mjs"
+            "node relational-inventory-emulator.test.mjs && node --experimental-sqlite qa-deletion-auth-fence.test.mjs && node --experimental-sqlite qa-deletion-emulator.test.mjs && node --experimental-sqlite qa-auth-cloudinary-emulator.test.mjs && env -u FIREBASE_CONFIG node --experimental-sqlite admin-fixture/qa-worker-drain.test.mjs && env -u FIREBASE_CONFIG node --experimental-sqlite admin-fixture/qa-avatar-d1-pre-auth.test.mjs && env -u FIREBASE_CONFIG node --experimental-sqlite admin-fixture/qa-retention-evidence.test.mjs && env -u FIREBASE_CONFIG node --experimental-sqlite admin-fixture/qa-admin-sdk-e2e.test.mjs && node account-deletion-freeze.test.mjs"
       - name: Resumo do ambiente
         if: always()
         run: |

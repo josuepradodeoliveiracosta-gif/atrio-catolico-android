@@ -43,6 +43,17 @@ async function remove(db,paths,assertLease){
     await deleteDoc(doc(db,path));
   }
 }
+async function verifyRetention(db,external){
+  if(!external)return true;
+  const req=await getDoc(doc(db,'account_deletion_requests/'+UID));
+  const requestAt=req.data()?.requestedAt?.toDate?.()?.toISOString();
+  if(!req.exists()||req.data()?.status!=='requested'||
+     typeof requestAt!=='string')
+    fail('retention_request_changed');
+  if(await external.retention.verify(UID,requestAt)!==true)
+    fail('retention_not_confirmed');
+  return true;
+}
 function stages(self){
   const {db,media,auth,context,external}=self;
   return {
@@ -111,6 +122,8 @@ function stages(self){
         if(external && await external.d1.assertOwnerCleared(UID)!==true)
           fail('avatar_d1_not_cleared_pre_auth');
         assertLease();
+        await verifyRetention(db,external);
+        assertLease();
         return removeQaAuthAfterReconciliation({
           uid:UID,db,media,auth,context,assertLease,
           ...(external?{removeRemote:uid=>external.auth.remove(uid)}:{})
@@ -139,6 +152,7 @@ function stages(self){
           return false;
         if(external && await external.d1.assertOwnerCleared(UID)!==true)
           return false;
+        await verifyRetention(db,external);
         return true;
       }}
   };
@@ -161,6 +175,7 @@ export class QaDeletionRunner {
        typeof external?.media?.remove!=='function' ||
        typeof external?.media?.assertOwnerEmpty!=='function' ||
        typeof external?.d1?.assertOwnerCleared!=='function' ||
+       typeof external?.retention?.verify!=='function' ||
        (external.freeze!==undefined &&
          (typeof external.freeze?.acquire!=='function' ||
           typeof external.freeze?.verify!=='function')) ||
