@@ -1,17 +1,23 @@
-name: Guardião V2 — identidade do executor oficial (SEM moderação)
-# Token temporário. GET de configuração somente por confirmação adicional; sem cron.
-# O provedor Google WIF permite SOMENTE este workflow na main, workflow_dispatch.
-# A ativação de scanner/casos exigirá revisão separada de IAM e orçamento.
+name: Guardião V2 — identidade e observação limitada (sem moderação)
+# Token temporário. Cron de observação LEITURA SOMENTE; nunca faz moderação.
+# A política Firestore controla o modo de emergência. Ainda sem escrita de casos.
 on:
+  schedule:
+    - cron: '17 * * * *'
   workflow_dispatch:
     inputs:
       confirm_identity_test:
-        description: "Autorizo token WIF; leitura Firestore apenas se a segunda caixa for marcada"
+        description: "Confirmo token WIF em execução manual"
         required: true
         type: boolean
         default: false
       confirm_config_read:
         description: "Autorizo UMA leitura GET de guardian_config/policy sem imprimir dados"
+        required: true
+        type: boolean
+        default: false
+      confirm_shadow_scan:
+        description: "Autorizo leitura/classificação de até 4 documentos, sem modificar nada"
         required: true
         type: boolean
         default: false
@@ -25,12 +31,13 @@ concurrency:
 
 jobs:
   identity-only:
-    if: ${{ github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' }}
-    name: Validar identidade e, opcionalmente, uma configuração
+    if: ${{ github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android' && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+    name: Identidade e observação V2 somente leitura
     runs-on: ubuntu-latest
     timeout-minutes: 4
     permissions:
       contents: read
+      actions: read
       id-token: write
     steps:
       - name: Validar o contexto antes de pedir OIDC
@@ -39,14 +46,20 @@ jobs:
           CONFIRM: ${{ inputs.confirm_identity_test }}
         run: |
           set -euo pipefail
-          test "$CONFIRM" = "true"
           test "$GITHUB_REPOSITORY" = "josuepradodeoliveiracosta-gif/atrio-catolico-android"
           test "$GITHUB_REF" = "refs/heads/main"
-          test "$GITHUB_EVENT_NAME" = "workflow_dispatch"
+          case "$GITHUB_EVENT_NAME" in
+            schedule) ;;
+            workflow_dispatch) test "$CONFIRM" = "true" ;;
+            *) exit 2 ;;
+          esac
           echo "Contexto GitHub verificado; solicitando token temporário."
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
       - name: Obter identidade WIF com validade curta
         id: auth
         uses: google-github-actions/auth@v3
@@ -67,7 +80,7 @@ jobs:
           test -n "$TEMPORARY_ACCESS_TOKEN"
           echo "GUARDIAN_V2_WIF_AUTHENTICATED — credencial temporária; moderação desligada."
       - name: Consultar uma única configuração Firestore sem mostrar o conteúdo
-        if: ${{ inputs.confirm_config_read == true }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.confirm_config_read == true && inputs.confirm_shadow_scan != true }}
         shell: bash
         env:
           TEMPORARY_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
@@ -106,3 +119,15 @@ jobs:
               exit 6
               ;;
           esac
+
+      - name: Observar até quatro documentos com limite de execuções
+        if: ${{ github.event_name == 'schedule' || inputs.confirm_shadow_scan == true }}
+        env:
+          GH_READ_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WIF_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+          CONFIRM_IDENTITY: ${{ inputs.confirm_identity_test }}
+          CONFIRM_SHADOW: ${{ inputs.confirm_shadow_scan }}
+          GUARDIAN_V2_SHADOW_ONLY: 'true'
+          GUARDIAN_V2_HOLD_ENABLED: 'false'
+          GUARDIAN_V2_WRITE_ENABLED: 'false'
+        run: node scripts/guardian-v2-shadow-cycle.mjs
