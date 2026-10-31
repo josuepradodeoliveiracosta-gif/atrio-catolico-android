@@ -35,6 +35,7 @@ internal object OtaApkDelivery {
         offer: OtaApkOffer,
         onProgress: suspend (Long) -> Unit
     ): File = withContext(Dispatchers.IO) {
+        check(!BuildConfig.PLAY_STORE_BUILD) { "Distribuição Play não baixa APKs externos" }
         require(OtaApkPolicy.validSize(0, offer)) { "Tamanho do APK invalido" }
         val version = offer.versionName
         val expectedUrl = OtaUpdatePolicy.expectedAsset("v$version", "atrio-catolico.apk")
@@ -125,6 +126,7 @@ internal object OtaApkDelivery {
      * upgrades since download and certificate mismatch.
      */
     fun validate(context: Context, offer: OtaApkOffer, apk: File) {
+        check(!BuildConfig.PLAY_STORE_BUILD) { "Distribuição Play não valida APKs externos" }
         require(apk.isFile && apk.length() == offer.sizeBytes) { "Arquivo nao encontrado ou incompleto" }
         require(apk.canonicalFile.parentFile == File(context.cacheDir, "ota").canonicalFile) {
             "Arquivo fora da pasta privada"
@@ -180,6 +182,7 @@ internal object OtaApkDelivery {
      * Unknown-sources consent and final install confirmation belong to Android.
      */
     fun requestInstall(context: Context, apk: File): Boolean {
+        check(!BuildConfig.PLAY_STORE_BUILD) { "Instalação externa proibida na variante Play" }
         if (!context.packageManager.canRequestPackageInstalls()) {
             val settings = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
                 Uri.parse("package:${context.packageName}"))

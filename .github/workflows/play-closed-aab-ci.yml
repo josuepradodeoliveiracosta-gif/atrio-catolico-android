@@ -1,0 +1,59 @@
+name: Google Play — validar AAB de testes fechados (sem assinatura)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'scripts/play_store_bundle_check.py'
+      - 'scripts/play_release_gate.py'
+      - 'scripts/test_play_release_gate.py'
+      - '.github/workflows/play-closed-aab-ci.yml'
+      - '.github/workflows/play-signed-aab-manual.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: play-aab-qa-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unsigned-play-bundle:
+    if: github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Obter código sem token persistido
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Testar gate de segurança da futura assinatura sem acesso a segredos
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_play_release_gate.py' -v
+          python3 scripts/play_release_gate.py --audit
+      - name: Preparar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Preparar Android SDK
+        uses: android-actions/setup-android@v4
+      - name: Configurar Gradle 8.13
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - name: Instalar plataforma Android API 36
+        run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+      - name: Verificar configuração Firebase antes de compilar
+        run: python3 scripts/validar_firebase.py
+      - name: Compilar somente AAB Play sem chaves ou segredos
+        run: gradle :app:bundlePlayRelease --no-daemon --stacktrace
+      - name: Examinar AAB e manifesto mesclado
+        run: python3 scripts/play_store_bundle_check.py
+      - name: Registrar que nada foi publicado
+        run: |
+          echo "### Google Play — validação de candidato" >> "$GITHUB_STEP_SUMMARY"
+          echo "AAB gerado **sem assinatura de produção e sem publicação**. APK OTA não alterado." >> "$GITHUB_STEP_SUMMARY"
+          echo "Target API 36, pacote oficial, variante playRelease e ausência de REQUEST_INSTALL_PACKAGES verificados." >> "$GITHUB_STEP_SUMMARY"

@@ -1,6 +1,9 @@
 package br.com.atriocatolico
 
+import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -50,6 +53,10 @@ internal class OtaUpdateController(private val appContext: Context) {
     private var downloadJob: Job? = null
 
     suspend fun refresh() {
+        if (BuildConfig.PLAY_STORE_BUILD) {
+            status = OtaCheckStatus.PlayStore
+            return
+        }
         if (status == OtaCheckStatus.Checking ||
             downloadState is OtaDownloadState.Downloading ||
             downloadState == OtaDownloadState.Verifying) return
@@ -64,7 +71,8 @@ internal class OtaUpdateController(private val appContext: Context) {
     }
 
     suspend fun download(offer: OtaApkOffer) {
-        if (BuildConfig.DEBUG || (status as? OtaCheckStatus.Available)?.apk != offer ||
+        if (BuildConfig.PLAY_STORE_BUILD || BuildConfig.DEBUG ||
+            (status as? OtaCheckStatus.Available)?.apk != offer ||
             downloadJob != null || downloadState == OtaDownloadState.Verifying) return
         downloadJob = currentCoroutineContext()[Job]
         installMessage = ""
@@ -99,7 +107,8 @@ internal class OtaUpdateController(private val appContext: Context) {
 
     suspend fun install() {
         val ready = downloadState as? OtaDownloadState.Ready ?: return
-        if (BuildConfig.DEBUG || (status as? OtaCheckStatus.Available)?.apk != ready.offer) return
+        if (BuildConfig.PLAY_STORE_BUILD || BuildConfig.DEBUG ||
+            (status as? OtaCheckStatus.Available)?.apk != ready.offer) return
         installMessage = ""
         downloadState = OtaDownloadState.Verifying
         try {
@@ -136,6 +145,7 @@ internal fun OtaUpdatesSection(
     onCancel: () -> Unit = {},
     onInstall: () -> Unit = {}
 ) {
+    val appContext = LocalContext.current
     Column(
         modifier = Modifier.fillMaxWidth().testTag("atrio-ota-section"),
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -154,6 +164,36 @@ internal fun OtaUpdatesSection(
                 Text("O aplicativo está atualizado conforme o canal oficial.")
             OtaCheckStatus.TestBuild ->
                 Text("Versão de testes. Atualizações oficiais exigem um APK release assinado.")
+            OtaCheckStatus.PlayStore -> {
+                Text("Esta instalação é atualizada pela Google Play. " +
+                    "Nenhum APK externo será baixado.")
+                OutlinedButton(
+                    onClick = {
+                        val packageId = OtaUpdatePolicy.PACKAGE
+                        val marketIntent = Intent(
+                            Intent.ACTION_VIEW, Uri.parse("market://details?id=" + packageId)
+                        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        try {
+                            appContext.startActivity(marketIntent)
+                        } catch (_: ActivityNotFoundException) {
+                            val webIntent = Intent(
+                                Intent.ACTION_VIEW,
+                                Uri.parse("https://play.google.com/store/apps/details?id=" + packageId)
+                            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            try {
+                                appContext.startActivity(webIntent)
+                            } catch (_: Exception) {
+                                // Play indisponível: não oferecer sideload como alternativa.
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().testTag("atrio-play-store-open")
+                ) {
+                    Text("Abrir Google Play")
+                }
+                Text("Em testes fechados, é necessário ter aceitado o convite de participação.",
+                    style = MaterialTheme.typography.bodySmall)
+            }
             OtaCheckStatus.Incompatible ->
                 Text("Há uma versão oficial que exige um Android mais recente.")
             OtaCheckStatus.Unavailable ->
@@ -206,7 +246,7 @@ internal fun OtaUpdatesSection(
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        OutlinedButton(onClick = onRefresh,
+        if (status != OtaCheckStatus.PlayStore) OutlinedButton(onClick = onRefresh,
             enabled = status != OtaCheckStatus.Checking &&
                 status != OtaCheckStatus.TestBuild &&
                 download !is OtaDownloadState.Downloading &&

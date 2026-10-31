@@ -31,10 +31,14 @@ android {
         applicationId = "br.com.atriocatolico"
         testInstrumentationRunner = "br.com.atriocatolico.QaAndroidTestRunner"
         minSdk = 26
-        targetSdk = 35
+        // Google Play (outubro/2026) exige API 36 para novos envios e atualizacoes.
+        // Validar edge-to-edge e regressao de notificacoes antes de integrar.
+        targetSdk = 36
         versionCode = 35
         versionName = "0.20.0"
         buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"0.20.0\"")
+        // Variante Play nunca baixa ou instala APKs fora da loja.
+        buildConfigField("boolean", "PLAY_STORE_BUILD", "false")
         val relayUrl = System.getenv("ATRIO_PUSH_WORKER_URL").orEmpty()
         val allowed = Regex("^https://[a-zA-Z0-9-]+\\.[a-zA-Z0-9-]+\\.workers\\.dev$")
         require(relayUrl.isBlank() || allowed.matches(relayUrl)) { "ATRIO_PUSH_WORKER_URL invalida" }
@@ -68,6 +72,14 @@ android {
             buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"$atrioDebugVersionName\"")
         }
         getByName("release") {
+            // Canal APK OTA: permanece com build/task/assinatura originais.
+            signingConfigs.findByName("atrioRelease")?.let { signingConfig = it }
+        }
+        create("playRelease") {
+            // Mesmo applicationId/versionCode, mas política de distribuição diferente.
+            initWith(getByName("release"))
+            matchingFallbacks += listOf("release")
+            buildConfigField("boolean", "PLAY_STORE_BUILD", "true")
             signingConfigs.findByName("atrioRelease")?.let { signingConfig = it }
         }
     }

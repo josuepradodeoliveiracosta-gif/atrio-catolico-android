@@ -21,6 +21,7 @@ internal object OtaReleaseClient {
     private const val MANIFEST_RESPONSE_LIMIT = 32_768
 
     fun check(context: Context): OtaCheckStatus {
+        if (BuildConfig.PLAY_STORE_BUILD) return OtaCheckStatus.PlayStore
         if (BuildConfig.DEBUG) return OtaCheckStatus.TestBuild
         return try {
             val api = fetchText(OtaUpdatePolicy.API, API_RESPONSE_LIMIT, setOf("api.github.com"))
