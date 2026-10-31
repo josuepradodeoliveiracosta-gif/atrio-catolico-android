@@ -600,7 +600,7 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['status', 'source', 'requestedAt'])
         && request.resource.data.keys().hasAll(['status', 'source', 'requestedAt'])
         && request.resource.data.status == 'requested'
-        && request.resource.data.source == 'android'
+        && request.resource.data.source in ['android', 'web']
         && request.resource.data.requestedAt == request.time;
       allow update, delete: if false;
     }
