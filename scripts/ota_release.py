@@ -169,6 +169,24 @@ def assert_newer(current, latest_tag):
     return True
 
 
+def assert_newer_than_releases(current, releases):
+    require(isinstance(releases, list), "lista_de_releases_invalida")
+    require(len(releases) <= 100, "consulta_de_releases_inesperada")
+    stable = []
+    for item in releases:
+        require(isinstance(item, dict), "release_invalida")
+        if item.get("isDraft") or item.get("isPrerelease"):
+            continue
+        tag = item.get("tagName")
+        require(isinstance(tag, str) and re.fullmatch(r"v\d+\.\d+\.\d+", tag),
+                "tag_publica_fora_do_padrao")
+        stable.append(tag)
+    if not stable:
+        return assert_newer(current, "")
+    latest = max(stable, key=lambda value: version_tuple(value[1:]))
+    return assert_newer(current, latest)
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     sub = p.add_subparsers(dest="command", required=True)
@@ -189,6 +207,7 @@ def main():
     newer = sub.add_parser("newer", help="Check version ordering before publishing")
     newer.add_argument("--version", required=True)
     newer.add_argument("--latest-tag", default="")
+    newer.add_argument("--releases-json", help="Lista JSON do GitHub CLI; falha se indisponível")
     args = p.parse_args()
     try:
         if args.command == "source":
@@ -207,8 +226,13 @@ def main():
                              notes=notes, output=args.output)
             print(json.dumps(result, indent=2, ensure_ascii=False))
         else:
-            assert_newer(args.version, args.latest_tag)
-            print(f"Nova versão {args.version} supera {args.latest_tag or 'nenhuma publicação'}")
+            if args.releases_json:
+                releases = json.loads(Path(args.releases_json).read_text(encoding="utf-8"))
+                assert_newer_than_releases(args.version, releases)
+                print(f"Nova versão {args.version} supera os releases estáveis consultados")
+            else:
+                assert_newer(args.version, args.latest_tag)
+                print(f"Nova versão {args.version} supera {args.latest_tag or 'nenhuma publicação'}")
         return 0
     except (PreflightError, KeyError, ValueError, OSError, TypeError,
             json.JSONDecodeError) as exc:
