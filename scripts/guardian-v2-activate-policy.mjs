@@ -3,7 +3,7 @@
 // Não altera emergencyStop, allowHold, regras, casos ou conteúdo de usuários.
 const REPO='josuepradodeoliveiracosta-gif/atrio-catolico-android';
 const WORKFLOW=REPO+'/.github/workflows/guardiao-v2-moderator-runner.yml@refs/heads/main';
-const URL='https://firestore.googleapis.com/v1/projects/atrio-catolico/databases/(default)/documents/guardian_config/policy';
+const POLICY_URL='https://firestore.googleapis.com/v1/projects/atrio-catolico/databases/(default)/documents/guardian_config/policy';
 const NAME='projects/atrio-catolico/databases/(default)/documents/guardian_config/policy';
 const fail=reason=>{throw Error('guardian_v2_policy_'+reason);};
 
@@ -55,7 +55,7 @@ async function checkedRequest(url,method,access,body){
 
 export async function activatePolicy(e=process.env){
   requireContext(e);
-  const doc=await checkedRequest(URL,'GET',e.WIF_ACCESS_TOKEN);
+  const doc=await checkedRequest(POLICY_URL,'GET',e.WIF_ACCESS_TOKEN);
   const fields=doc.fields||{};
   const required=['enabled','emergencyStop','allowHold'];
   if(required.some(k=>typeof fields[k]?.booleanValue!=='boolean') ||
@@ -68,7 +68,7 @@ export async function activatePolicy(e=process.env){
      fields.autonomousWriteEnabled?.booleanValue===true)
     return 'ALREADY_ENABLED';
 
-  const u=new URL(URL);
+  const u=new URL(POLICY_URL);
   u.searchParams.append('updateMask.fieldPaths','enabled');
   u.searchParams.append('updateMask.fieldPaths','autonomousWriteEnabled');
   u.searchParams.set('currentDocument.updateTime',doc.updateTime);
