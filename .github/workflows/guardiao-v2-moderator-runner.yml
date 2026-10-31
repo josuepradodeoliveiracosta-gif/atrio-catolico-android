@@ -10,6 +10,11 @@ on:
         required: true
         type: boolean
         default: false
+      confirm_policy_activation:
+        description: "Ativar policy enabled e autonomousWriteEnabled, preservando emergencyStop e allowHold"
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -22,7 +27,7 @@ jobs:
   moderator:
     # O workflow existe para preparar o release; nenhuma escrita é executada
     # enquanto o backend e a identidade própria não estiverem aprovados.
-    if: ${{ github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android' && github.ref == 'refs/heads/main' && vars.GUARDIAN_V2_WRITER_ENABLED == 'true' && vars.GUARDIAN_V2_WRITER_APPROVED == 'true' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.confirm_autonomous_triage == true)) }}
+    if: ${{ github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android' && github.ref == 'refs/heads/main' && vars.GUARDIAN_V2_WRITER_ENABLED == 'true' && vars.GUARDIAN_V2_WRITER_APPROVED == 'true' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.confirm_autonomous_triage == true && inputs.confirm_policy_activation != true)) }}
     name: Casos, auditoria e avisos — sem quarentena
     runs-on: ubuntu-latest
     timeout-minutes: 4
@@ -70,3 +75,43 @@ jobs:
           GUARDIAN_V2_HOLD_ENABLED: 'false'
           GUARDIAN_V2_CONFIRM_MANUAL: ${{ inputs.confirm_autonomous_triage }}
         run: node scripts/guardian-v2-autonomous-cycle.mjs
+
+  activate-policy:
+    # Acionamento manual pelo Termux, sem Google Cloud CLI ou token persistente.
+    # Job completamente separado: nao classifica nem altera usuarios.
+    if: ${{ github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.confirm_policy_activation == true && inputs.confirm_autonomous_triage != true && vars.GUARDIAN_V2_WRITER_ENABLED == 'true' && vars.GUARDIAN_V2_WRITER_APPROVED == 'true' }}
+    name: Ativação da política via WIF (sem moderação)
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    environment: guardian-v2-production-moderation
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Obter código exato da main
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Obter credencial Google temporária
+        id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: atrio-catolico
+          workload_identity_provider: projects/256733686427/locations/global/workloadIdentityPools/guardian-v2-writer/providers/github-moderator
+          service_account: guardian-v2-writer@atrio-catolico.iam.gserviceaccount.com
+          token_format: access_token
+          access_token_lifetime: 300s
+          access_token_scopes: https://www.googleapis.com/auth/datastore
+          create_credentials_file: false
+      - name: Ativar apenas triagem não punitiva no Firestore
+        env:
+          WIF_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+          GUARDIAN_V2_WRITER_SERVICE_ACCOUNT: guardian-v2-writer@atrio-catolico.iam.gserviceaccount.com
+          GUARDIAN_V2_WRITER_ENABLED: ${{ vars.GUARDIAN_V2_WRITER_ENABLED }}
+          GUARDIAN_V2_WRITER_APPROVED: ${{ vars.GUARDIAN_V2_WRITER_APPROVED }}
+          GUARDIAN_V2_CONFIRM_POLICY_ACTIVATION: ${{ inputs.confirm_policy_activation }}
+          GUARDIAN_V2_HOLD_ENABLED: 'false'
+        run: node scripts/guardian-v2-activate-policy.mjs
