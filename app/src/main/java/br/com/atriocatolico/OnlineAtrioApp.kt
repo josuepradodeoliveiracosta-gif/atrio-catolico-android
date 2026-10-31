@@ -530,6 +530,9 @@ private fun OnlineCommunity(
             }
         onDispose { listener.remove() }
     }
+    // A Central de Avisos compartilha a mesma lista de bloqueios do feed,
+    // sem iniciar uma segunda consulta ao Firestore.
+    SideEffect { inbox.blockedUids = blockedMemberUids }
     val posts = sourcePosts.filterNot { it.ownerUid in blockedMemberUids }
         .map { it.copy(liked = it.id in likedIds, saved = it.id in savedIds) }
     val allPosts = (sourcePosts + savedPosts.values + listOfNotNull(openedPost))
