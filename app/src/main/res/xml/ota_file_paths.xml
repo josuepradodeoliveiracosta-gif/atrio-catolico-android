@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Compartilha somente os arquivos de atualizacao desta pasta privada. -->
+    <cache-path name="atrio_ota" path="ota/" />
+</paths>
