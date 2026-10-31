@@ -78,6 +78,19 @@ function classify(input,init){
     if(!msg || msg.topic || msg.condition || !TOKENS.has(msg.token))fail();
     const recipientUid=checkUid(msg.data?.uid);
     if(TOKENS.get(msg.token)!==recipientUid)fail();
+    const kind=msg.data?.kind;
+    if(!['reply','review','admin'].includes(kind))fail();
+    if(kind==='reply') {
+      // The existing Worker has both a topic-specific reply payload (actor)
+      // and a degraded legacy reply payload without actor. Only the former
+      // can be safely scoped to both accounts; fail closed for legacy reply.
+      const actorUid=checkUid(msg.data?.actorUid);
+      if(msg.data?.postId!=='qa_post'||msg.data?.replyId!=='qa_reply')
+        fail();
+      return {kind:'push_fcm_send',scope:{actorUid,recipientUid}};
+    }
+    if(msg.data?.actorUid!==undefined || msg.data?.postId!==undefined ||
+       msg.data?.replyId!==undefined)fail();
     return {kind:'push_fcm_send',scope:{recipientUid}};
   }
   if(url.origin==='https://firestore.googleapis.com' &&
