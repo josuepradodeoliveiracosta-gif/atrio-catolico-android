@@ -139,3 +139,35 @@ for registrado, mas somente depois de validar a política de privacidade,
 o tratamento de pedidos, Auth e os riscos de retenção. Nem a URL do site
 padrão nem a do secundário podem ser informadas à Play como portal de
 exclusão operacional antes disso.
+
+## Cadastro do site exclusivo confirmado no Termux — 31/10/2026
+
+A segunda consulta real fornecida pelo titular mostrou **dois sites no mesmo projeto**:
+- site padrão, preservado: `atrio-catolico`, URL `https://atrio-catolico.web.app`;
+- site secundário criado: `atrio-catolico-exclusao`, URL
+  `https://atrio-catolico-exclusao.web.app`.
+
+**Não houve deploy do formulário no site secundário.** O endereço reservado
+não comprova que os pedidos de exclusão estejam disponíveis, nem que o
+Firebase Authentication reconheça a origem como domínio autorizado.
+
+O alvo isolado está registrado **somente** na pasta de trabalho do portal:
+`cloudflare/account-deletion-portal/.firebaserc`, com
+`deletionPortal -> atrio-catolico-exclusao`. O arquivo de configuração
+`firebase.hosting.proposed.json` exige esse alvo e não seleciona o site
+padrão. O `firebase.json` da raiz do repositório continua intocado.
+
+Verificação segura, sem gravar em Firebase e sem publicar site:
+
+```bash
+cd ~/atrio-privacy-qa
+git pull --ff-only origin feature/privacy-admin-write-freeze-emulator-20261031
+node cloudflare/account-deletion-portal/scripts/termux-hosting-target-preflight.mjs
+```
+
+O pré-voo compara o destino local com os IDs remotos via
+`firebase hosting:sites:list --project atrio-catolico --json`, bloqueia
+uma associação que aponte para o site principal e valida cabeçalhos CSP.
+Nada faz deploy ou ativa autenticação ou exclusão. **Não executar**
+`firebase deploy`, `firebase target:apply`, `hosting:channel:deploy`
+ou `firebase init` nesta etapa. Os testes fechados permanecem bloqueados.
