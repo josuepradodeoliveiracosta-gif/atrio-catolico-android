@@ -1,0 +1,84 @@
+name: Guardião V2 — telas Android no emulador (somente novos cenários)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/src/androidTest/java/br/com/atriocatolico/GuardianV2UiTest.kt'
+      - 'app/src/main/java/br/com/atriocatolico/GuardianCaseOverview.kt'
+      - 'app/src/main/java/br/com/atriocatolico/GuardianNoticeFeed.kt'
+      - 'app/src/main/java/br/com/atriocatolico/GuardianAuthSession.kt'
+      - 'app/src/main/java/br/com/atriocatolico/GuardianUiPolicy.kt'
+      - 'app/src/main/java/br/com/atriocatolico/ModerationScreen.kt'
+      - 'firestore.rules'
+      - 'scripts/run-qa-android-emulator.sh'
+      - '.github/workflows/guardiao-v2-android-ui-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: guardian-v2-ui-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  guardian-v2-ui:
+    name: UI V2 com Auth/Firestore locais e sem Worker
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      ATRIO_QA_SUITE: GuardianV2UiTest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: tests/security/package-lock.json
+      - name: Preparar Firebase CLI para emulador exclusivamente local
+        working-directory: tests/security
+        run: npm ci
+      - name: Confirmar isolamento e acelerar emulador
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "${GOOGLE_APPLICATION_CREDENTIALS:-}"
+          test -z "${ATRIO_PUSH_WORKER_URL:-}"
+          test -c /dev/kvm
+          sudo chmod 0666 /dev/kvm
+      - name: Rodar APENAS a nova suíte GuardianV2UiTest
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          ATRIO_QA_SUITE: GuardianV2UiTest
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_4
+          disk-size: 2048M
+          ram-size: 2048M
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -accel on -camera-back none
+          script: bash scripts/run-qa-android-emulator.sh
+      - name: Guardar resultado sintético da suíte, sem dados reais
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: guardian-v2-ui-emulator-evidence
+          path: |
+            qa-android-suite-results/GuardianV2UiTest
+            qa-firebase-emulators.log
+          retention-days: 7
+          if-no-files-found: warn

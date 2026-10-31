@@ -1,0 +1,42 @@
+name: Guardião V2 — preparação do executor keyless (somente offline)
+# NÃO adicionar schedule, id-token ou credenciais a este workflow.
+# Ele não inicia o Guardião e não consulta Firestore nem Cloudflare.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/guardian_v2_executor_preflight.mjs'
+      - 'tests/guardian-v2-executor-preflight.test.mjs'
+      - '.github/workflows/guardiao-v2-executor-preflight.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  readiness-offline:
+    name: Validar contrato de executor sem OIDC, Firebase ou deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Rodar somente testes inéditos do pré-voo sem acessar serviços externos
+        run: |
+          node --check scripts/guardian_v2_executor_preflight.mjs
+          node --test tests/guardian-v2-executor-preflight.test.mjs
+      - name: Demonstrar pré-voo sem privilégios somente na main e manualmente
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GUARDIAN_EXECUTOR_DRY_RUN: 'true'
+          GUARDIAN_V2_TEST_MODE: 'true'
+          GUARDIAN_V2_ENABLED: 'false'
+          GUARDIAN_V2_HOLD_ENABLED: 'false'
+          GUARDIAN_V2_PRODUCTION_APPROVED: 'false'
+          GUARDIAN_V2_IDENTITY_APPROVED: 'false'
+          GUARDIAN_V2_HOLD_APPROVED: 'false'
+        run: node scripts/guardian_v2_executor_preflight.mjs

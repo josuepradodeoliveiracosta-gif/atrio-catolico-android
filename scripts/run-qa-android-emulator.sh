@@ -81,6 +81,17 @@ run_suite() {
       "qa-android-suite-results/$suite/"
   fi
 }
+# Suite-only QA V2: reuse the existing isolated emulator/auth startup,
+# but never repeat the nine older Android UI suites for this new check.
+if [[ "${ATRIO_QA_SUITE:-}" == "GuardianV2UiTest" ]]; then
+  run_suite GuardianV2UiTest
+  echo "QA Android: apenas GuardianV2UiTest; status=$qa_failed"
+  exit "$qa_failed"
+fi
+if [[ -n "${ATRIO_QA_SUITE:-}" ]]; then
+  echo "Suite seletiva desconhecida; negando execucao" >&2
+  exit 2
+fi
 run_suite GuardianSessionUiTest
 run_suite ProfileLayoutUiTest
 run_suite ProfilePhotoUiTest
