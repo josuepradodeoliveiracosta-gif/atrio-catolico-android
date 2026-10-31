@@ -10,7 +10,8 @@ const UIDS=new Set(['qa-freeze-alice','qa-freeze-bob']);
 const ROOT='https://firestore.googleapis.com/v1/projects/atrio-catolico/databases/(default)/documents';
 const REL=/^posts\/[A-Za-z0-9_-]{1,128}(?:\/replies\/[A-Za-z0-9_-]{1,128})?$/;
 const CASE=/^(?:guardian_cases|guardian_audit|guardiao_quarantine)\/[A-Za-z0-9_-]{1,128}$/;
-const NOTICE=/^guardian_notices\/([A-Za-z0-9_-]{1,128})\/items\/[A-Za-z0-9_-]{1,128}$/;
+const NOTICE=/^guardian_notices\/([A-Za-z0-9_-]{1,128})\/items\/([A-Za-z0-9_-]{1,128})$/;
+const CASE_ID=/^guard_[a-f0-9]{32}$/;
 
 function checkedUid(uid){
   if(!UIDS.has(uid))throw Error('qa_untrusted_guardian_owner');
@@ -22,7 +23,8 @@ async function inspectWrites(db,writes) {
   if(!Array.isArray(writes)||writes.length<2||writes.length>12)
     throw Error('qa_invalid_guardian_batch');
   const owners=new Set(),docPaths=[];
-  let hasCase=false,hasNotice=false;
+  let caseId=null,caseUpdate=null,noticeId=null,noticeCase=null;
+  let auditId=null,auditCase=null,heldId=null,heldUpdate=null;
   for(const w of writes){
     if(!w || typeof w!=='object' ||
        Number(Boolean(w.update))+Number(Boolean(w.delete))+Number(Boolean(w.verify))!==1)
@@ -33,20 +35,51 @@ async function inspectWrites(db,writes) {
     const relative=name.slice(ROOT.length+1);
     const notice=NOTICE.exec(relative);
     if(notice){
-      hasNotice=true;owners.add(checkedUid(notice[1]));
-      if(!w.update)throw Error('qa_guardian_unexpected_write');
+      if(noticeId!==null||!w.update)throw Error('qa_guardian_unscoped_commit');
+      noticeId=notice[2];noticeCase=strField(w.update,'caseId');
+      owners.add(checkedUid(notice[1]));
     }else if(CASE.test(relative)){
-      if(relative.startsWith('guardian_cases/'))hasCase=true;
       if(!w.update)throw Error('qa_guardian_unexpected_write');
+      if(relative.startsWith('guardian_cases/')){
+        if(caseId!==null)throw Error('qa_guardian_unscoped_commit');
+        caseId=relative.slice('guardian_cases/'.length);caseUpdate=w.update;
+      }else if(relative.startsWith('guardian_audit/')){
+        if(auditId!==null)throw Error('qa_guardian_unscoped_commit');
+        auditId=relative.slice('guardian_audit/'.length);
+        auditCase=strField(w.update,'caseId');
+      }else{
+        if(heldId!==null)throw Error('qa_guardian_unscoped_commit');
+        heldId=relative.slice('guardiao_quarantine/'.length);
+        heldUpdate=w.update;
+      }
     }else if(REL.test(relative)){
       docPaths.push({relative,write:w});
     }else throw Error('qa_guardian_unexpected_path');
     const fromFields=strField(w.update,'ownerUid');
     if(fromFields)owners.add(checkedUid(fromFields));
   }
-  if(!hasCase||!hasNotice||owners.size!==1)
-    throw Error('qa_guardian_unscoped_commit');
+  if(!caseId||!noticeId||!auditId||!CASE_ID.test(caseId)||
+     owners.size!==1)throw Error('qa_guardian_unscoped_commit');
+  const expectedAudit=new Set([caseId,caseId+'_restored',
+    caseId+'_confirmed',caseId+'_dismissed',caseId+'_acknowledged']);
+  const expectedNotice=new Set([caseId,caseId+'_review',caseId+'_resolved']);
+  // An owner ticket cannot authorize another moderation case or notice.
+  if(!expectedAudit.has(auditId)||!expectedNotice.has(noticeId)||
+     auditCase!==caseId||noticeCase!==caseId||
+     (heldId!==null&&heldId!==caseId))
+    throw Error('qa_guardian_case_mismatch');
   const owner=[...owners][0];
+  if(!strField(caseUpdate,'ownerUid')){
+    // Review/resolve updates omit immutable ownerUid: verify persisted owner.
+    const previous=await db.get('guardian_cases/'+caseId);
+    if(strField(previous,'ownerUid')!==owner)
+      throw Error('qa_guardian_case_owner_mismatch');
+  }
+  if(heldId && !strField(heldUpdate,'ownerUid')){
+    const previous=await db.get('guardiao_quarantine/'+caseId);
+    if(strField(previous,'ownerUid')!==owner)
+      throw Error('qa_guardian_case_owner_mismatch');
+  }
   for(const {relative,write} of docPaths){
     if(write.update){
       // A restore includes the original uid. Never trust only a target path.

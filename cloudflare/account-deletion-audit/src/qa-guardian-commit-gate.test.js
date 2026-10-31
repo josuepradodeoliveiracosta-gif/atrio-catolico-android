@@ -232,3 +232,68 @@ test('direct original function with unguarded db remains a known bypass',async()
     // This negative evidence prevents calling the feature production-ready.
   }finally{t.sqlite.close();}
 });
+
+test('QA Guardian rejects unrelated case, audit, quarantine or notice in one batch',async()=>{
+  const t=setup(),id='guard_'+'a'.repeat(32),other='guard_'+'b'.repeat(32);
+  const put=(path,fields)=>({update:{name:ROOT+'/'+path,fields},
+    currentDocument:{exists:false}});
+  const valid=()=>[
+    put('guardian_cases/'+id,{ownerUid:str(A)}),
+    put('guardian_audit/'+id,{caseId:str(id)}),
+    put('guardian_notices/'+A+'/items/'+id,{caseId:str(id)})
+  ];
+  try{
+    for(const mutate of [
+      x=>{x[1].update.name=ROOT+'/guardian_audit/'+other;},
+      x=>{x[2].update.name=ROOT+'/guardian_notices/'+A+'/items/'+other;},
+      x=>{x[1].update.fields.caseId=str(other);},
+      x=>{x[2].update.fields.caseId=str(other);},
+      x=>{x.push(put('guardiao_quarantine/'+other,{ownerUid:str(A)}));}
+    ]){
+      const batch=valid();mutate(batch);
+      await assert.rejects(t.gated().commit(batch),/qa_guardian_case_mismatch/);
+      assert.equal(t.db.effects,0);
+      assert.equal((await t.barrier.status(A)).inFlight,0);
+    }
+    const extra=valid();extra.push(put('guardian_cases/'+other,{ownerUid:str(A)}));
+    await assert.rejects(t.gated().commit(extra),/qa_guardian_unscoped_commit/);
+    assert.equal(t.db.effects,0);
+  }finally{t.sqlite.close();}
+});
+
+test('QA Guardian checks persistent owner when review update omits ownerUid',async()=>{
+  const id='guard_'+'c'.repeat(32);
+  const stored={name:ROOT+'/guardian_cases/'+id,updateTime:ID_TIME,
+    fields:{ownerUid:str(B)}};
+  const t=setup([stored]);
+  const put=(path,fields)=>({update:{name:ROOT+'/'+path,fields},
+    currentDocument:{exists:false}});
+  try{
+    await assert.rejects(t.gated().commit([
+      put('guardian_cases/'+id,{status:str('reviewed')}),
+      put('guardian_audit/'+id+'_confirmed',{caseId:str(id)}),
+      put('guardian_notices/'+A+'/items/'+id+'_review',{caseId:str(id)})
+    ]),/qa_guardian_case_owner_mismatch/);
+    assert.equal(t.db.effects,0);
+    assert.equal((await t.barrier.status(A)).inFlight,0);
+    assert.equal((await t.barrier.status(B)).inFlight,0);
+  }finally{t.sqlite.close();}
+});
+
+test('QA Guardian accepts correlated case but still refuses writes after freeze',async()=>{
+  const id='guard_'+'d'.repeat(32),t=setup();
+  const put=(path,fields)=>({update:{name:ROOT+'/'+path,fields},
+    currentDocument:{exists:false}});
+  const batch=[
+    put('guardian_cases/'+id,{ownerUid:str(A)}),
+    put('guardian_audit/'+id,{caseId:str(id)}),
+    put('guardian_notices/'+A+'/items/'+id,{caseId:str(id)})
+  ];
+  try{
+    await t.gated().commit(batch);
+    assert.equal(t.db.effects,1);
+    await t.barrier.beginFreeze(A);await t.barrier.finalizeFreeze(A);
+    await assert.rejects(t.gated().commit(batch),/qa_privileged_write_blocked/);
+    assert.equal(t.db.effects,1);
+  }finally{t.sqlite.close();}
+});
