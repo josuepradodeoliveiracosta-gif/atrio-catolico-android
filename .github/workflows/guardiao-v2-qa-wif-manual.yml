@@ -57,7 +57,9 @@ jobs:
           access_token_lifetime: 300s
           access_token_scopes: https://www.googleapis.com/auth/datastore
           create_credentials_file: false
-      - name: Somente GET de um documento fictício QA
+      # Próxima prova usa a mesma identidade WIF, mas classifica localmente.
+      # Um único GET QA: substitui a sonda, não acrescenta outra consulta.
+      - name: Um único GET da fixture QA e classificação somente leitura
         env:
           QA_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
-        run: node cloudflare/guardian-worker/src/qa-wif-probe.js
+        run: node cloudflare/guardian-worker/src/qa-keyless-cycle.js
