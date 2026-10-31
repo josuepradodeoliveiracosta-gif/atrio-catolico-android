@@ -41,9 +41,13 @@ function unwrap(raw){
   return value;
 }
 export function validateSdkConfig(app,raw){
-  const config=unwrap(raw);
+  const value=unwrap(raw);
+  // Firebase CLI: apps:sdkconfig --json retorna result.sdkConfig.
+  // fileContents contem codigo de exemplo; jamais executar ou registrar.
+  const config=value?.sdkConfig;
+  if(!config || typeof config!=='object'||Array.isArray(config))
+    throw Error('sdk_config_nao_confirmada');
   if(!app || typeof app.appId!=='string' ||
-     typeof config!=='object'||!config||Array.isArray(config) ||
      config.appId!==app.appId)throw Error('app_id_incorreto');
   const built=publicFirebaseConfig({
     FIREBASE_PROJECT_ID:config.projectId,
@@ -107,9 +111,17 @@ if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
     console.log('PENDENTE: publicar dominio HTTPS, configurar dominios autorizados');
     console.log('e homologar exclusao real antes de disponibilizar o formulario.');
     console.log('Nenhum deploy, dado de usuario ou segredo foi alterado.');
-  }catch{
-    // Não vazar erros da CLI, tokens, domínio ou chave em stack trace.
-    console.error('BLOQUEADO: '+FAILURE+'; confira branch, login e permissões.');
+  }catch(error){
+    // Mensagens estritamente conhecidas; nunca imprimir stdout/stderr ou
+    // objetos SDK retornados pela CLI, mesmo com API key pública.
+    const safeReasons=new Set([
+      'branch_privacidade_incorreta','lista_web_invalida',
+      'app_web_unico_nao_confirmado','sdk_config_nao_confirmada',
+      'app_id_incorreto','consulta_cli_falhou_ou_permissao_negada',
+      'consulta_cli_negada','resposta_cli_invalida','site_qa_incompleto'
+    ]);
+    const reason=safeReasons.has(error?.message)?error.message:FAILURE;
+    console.error('BLOQUEADO: '+reason+'; nenhuma configuracao foi alterada.');
     process.exitCode=2;
   }
 }

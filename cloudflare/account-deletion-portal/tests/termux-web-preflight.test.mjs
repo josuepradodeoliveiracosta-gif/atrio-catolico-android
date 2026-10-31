@@ -8,6 +8,9 @@ const config={apiKey:'AIza'+'A'.repeat(35),
   appId:app.appId,authDomain:'atrio-catolico.firebaseapp.com',
   projectId:'atrio-catolico'};
 const success=result=>JSON.stringify({status:'success',result});
+const sdkResult=raw=>({fileName:'google-config.js',
+  fileContents:'// Firebase SDK sample only - should never be evaluated',
+  sdkConfig:raw});
 
 test('resolve aplicativo Web único de projeto e recusa duplicações',()=>{
   assert.deepEqual(chooseWebApp(success([app])),{appId:app.appId});
@@ -17,19 +20,28 @@ test('resolve aplicativo Web único de projeto e recusa duplicações',()=>{
   ])),/app_web_unico/);
 });
 test('configuração do Web App exige App ID e projeto correspondentes',()=>{
-  assert.deepEqual(validateSdkConfig(app,success(config)),config);
-  assert.throws(()=>validateSdkConfig(app,success({...config,projectId:'outro'})));
-  assert.throws(()=>validateSdkConfig(app,success({...config,appId:'1:9:web:outroooo'})));
-  assert.throws(()=>validateSdkConfig(app,success({...config,apiKey:'missing'})));
-  assert.throws(()=>validateSdkConfig(app,success({...config,authDomain:'evil.test'})));
+  assert.deepEqual(validateSdkConfig(app,success(sdkResult(config))),config);
+  assert.throws(()=>validateSdkConfig(app,success(sdkResult({...config,projectId:'outro'}))));
+  assert.throws(()=>validateSdkConfig(app,success(sdkResult({...config,appId:'1:9:web:outroooo'}))));
+  assert.throws(()=>validateSdkConfig(app,success(sdkResult({...config,apiKey:'missing'}))));
+  assert.throws(()=>validateSdkConfig(app,success(sdkResult({...config,authDomain:'evil.test'}))));
 });
+test('nega retorno sdkconfig sem objeto sdkConfig e sem expoe fileContents',()=>{
+  assert.throws(()=>validateSdkConfig(app,success({fileContents:'segredo-sintetico'})),
+    /sdk_config_nao_confirmada/);
+  assert.throws(()=>validateSdkConfig(app,success({sdkConfig:null})),
+    /sdk_config_nao_confirmada/);
+  assert.throws(()=>validateSdkConfig(app,success({sdkConfig:'nao_json'})),
+    /sdk_config_nao_confirmada/);
+});
+
 test('consulta somente leitura e build temporário são suficientes',()=>{
   const calls=[];
   const mock=argv=>{
     calls.push(argv);
     if(argv[0]==='git')return 'feature/privacy-admin-write-freeze-emulator-20261031\n';
     if(argv[1]==='apps:list')return success([app]);
-    if(argv[1]==='apps:sdkconfig')return success(config);
+    if(argv[1]==='apps:sdkconfig')return success(sdkResult(config));
     throw Error('mutacao_nunca_aceita');
   };
   const result=webPortalPreflight(mock);
