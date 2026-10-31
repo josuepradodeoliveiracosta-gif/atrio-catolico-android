@@ -27,7 +27,14 @@ function lock(value) {
   for(const button of [submit,requestButton,resetButton,logoutButton]) button.disabled=value;
 }
 const config=window.ATRIO_FIREBASE_CONFIG;
-if(!config || config.projectId!==PROJECT ||
+const intakeEnabled=window.ATRIO_PORTAL_STATUS?.intakeEnabled===true &&
+  window.ATRIO_PORTAL_STATUS?.actualDeletionEnabled===true;
+if(!intakeEnabled) {
+  // Read-only information page. No sign-in, password reset or Firestore writes.
+  loginForm.hidden=true;
+  actions.hidden=true;
+  say('O formulário de exclusão pela web ainda não está disponível. Nenhum pedido foi enviado.');
+} else if(!config || config.projectId!==PROJECT ||
    !config.apiKey || !config.authDomain || !config.appId) {
   loginForm.hidden=true;
   say('O canal digital de solicitação ainda não está configurado. Nenhum pedido foi enviado.');
@@ -37,6 +44,7 @@ if(!config || config.projectId!==PROJECT ||
     auth=getAuth(app);
     db=getFirestore(app);
     await setPersistence(auth,inMemoryPersistence);
+    loginForm.hidden=false;
     say('Entre com a sua conta do Átrio para registrar o pedido.');
   } catch {
     loginForm.hidden=true;

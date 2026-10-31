@@ -27,16 +27,22 @@ test('geração pública contém apenas metadados do Firebase Web',()=>{
     const config=readFileSync(join(output,'config.js'),'utf8');
     assert.match(config,/window\.ATRIO_FIREBASE_CONFIG/);
     assert.match(config,/atrio-catolico/);
+    assert.match(config,/window\\.ATRIO_PORTAL_STATUS/);
+    assert.match(config,/"intakeEnabled":false/);
+    assert.match(config,/"actualDeletionEnabled":false/);
     assert.doesNotMatch(config,/(private_key|service_account|oauthToken|password)/i);
     assert.ok(existsSync(join(output,'index.html')));
     assert.ok(existsSync(join(output,'app.js')));
     const page=readFileSync(join(output,'index.html'),'utf8');
     assert.match(page,/não exclui a conta imediatamente/i);
+    assert.match(page,/<form id="login-form" novalidate hidden>/);
     const client=readFileSync(join(output,'app.js'),'utf8');
     assert.match(client,/inMemoryPersistence/);
     assert.match(client,/getDocFromServer/);
     assert.match(client,/serverTimestamp/);
     assert.match(client,/source:'web'/);
+    assert.match(client,/if\\(!intakeEnabled\\)/);
+    assert.match(client,/loginForm\\.hidden=true/);
     assert.doesNotMatch(client,/deleteDoc|deleteUser|localStorage\.setItem/);
     const headers=readFileSync(join(output,'_headers'),'utf8');
     assert.match(headers,/Content-Security-Policy:/);
@@ -50,5 +56,19 @@ test('nunca gera artefato quando faltam configuração e assinatura web',()=>{
     const target=join(dir,'not-created');
     assert.throws(()=>buildPortal({},target));
     assert.equal(existsSync(target),false);
+  }finally{rmSync(dir,{recursive:true,force:true});}
+});
+
+test('variaveis de ambiente nao conseguem habilitar envio real sem revisao de codigo',()=>{
+  const dir=mkdtempSync(join(tmpdir(),'atrio-web-locked-'));
+  try{
+    const output=join(dir,'site');
+    buildPortal({...good,PORTAL_INTAKE_ENABLED:'true',
+      ACTUAL_DELETION_ENABLED:'true',DEPLOY_ENABLED:'true'},output);
+    const config=readFileSync(join(output,'config.js'),'utf8');
+    assert.match(config,/"intakeEnabled":false/);
+    assert.match(config,/"actualDeletionEnabled":false/);
+    assert.doesNotMatch(config,/"intakeEnabled":true/);
+    assert.doesNotMatch(config,/PORTAL_INTAKE_ENABLED/);
   }finally{rmSync(dir,{recursive:true,force:true});}
 });

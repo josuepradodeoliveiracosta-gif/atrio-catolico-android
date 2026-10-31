@@ -34,8 +34,15 @@ export function buildPortal(env,outputDir) {
   cpSync(join(ROOT,'public'),out,{recursive:true});
   const payload=JSON.stringify(publicConfig)
     .replaceAll('<','\\u003c').replaceAll('>','\\u003e');
+  // Public site can be previewed, but request intake must remain disabled
+  // until a separately reviewed backend+retention process exists.
+  // This flag is INTENTIONALLY NOT configurable from environment variables.
+  const availability='window.ATRIO_PORTAL_STATUS = Object.freeze('+
+    JSON.stringify({intakeEnabled:false,actualDeletionEnabled:false})+
+    ');\\n';
   writeFileSync(join(out,'config.js'),
-    'window.ATRIO_FIREBASE_CONFIG = Object.freeze('+payload+');\n',{mode:0o644});
+    availability+'window.ATRIO_FIREBASE_CONFIG = Object.freeze('+payload+');\\n',
+    {mode:0o644});
   return out;
 }
 

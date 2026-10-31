@@ -171,3 +171,28 @@ uma associação que aponte para o site principal e valida cabeçalhos CSP.
 Nada faz deploy ou ativa autenticação ou exclusão. **Não executar**
 `firebase deploy`, `firebase target:apply`, `hosting:channel:deploy`
 ou `firebase init` nesta etapa. Os testes fechados permanecem bloqueados.
+
+## Trava de formulário por padrão — etapa de revisão (31/10/2026)
+
+O cadastro Firebase Web, os dois sites Hosting e o domínio autorizado
+estão preparados pelo titular, **mas ainda não há processador de exclusão
+de produção homologado**. Para evitar que um deploy acidental exponha
+um formulário de recebimento sem atendimento efetivo, o build estático
+agora produz `config.js` com `ATRIO_PORTAL_STATUS.intakeEnabled=false`
+e `actualDeletionEnabled=false`, ambos valores fixos no código e
+**não ativáveis por variáveis de ambiente**. O cliente Web mantém o
+formulário de login oculto antes de carregar a configuração, não inicia
+Firebase Auth nem Firestore quando desabilitado e apresenta aviso de
+indisponibilidade. A página continua informativa.
+
+Esta trava é de **segurança de publicação/UX**, não é uma regra de acesso
+Firestore: um cliente autenticado ainda poderá enviar solicitações pelas
+rotas existentes, conforme as regras que realmente estiverem publicadas.
+A autorização de exclusão continua exigindo IAM específico, freeze
+distribuído comprovado, revisão de retenção, reconciliação global, política
+pública e testes E2E reais; jamais basta inverter uma flag.
+
+O teste `cloudflare/account-deletion-portal/tests/build.test.mjs`
+assegura que mesmo variáveis como `PORTAL_INTAKE_ENABLED=true` não
+desbloqueiem pedidos; futura ativação exige alteração explícita
+de código, revisão e novo CI. **Nenhum Hosting deploy foi executado.**
