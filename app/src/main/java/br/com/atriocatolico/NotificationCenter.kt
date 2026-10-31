@@ -28,6 +28,7 @@ import java.util.Date
 internal class NotificationInbox(val db: FirebaseFirestore, val uid: String, private val prefs: SharedPreferences) {
     var replies by mutableStateOf<List<NoticeEvent>>(emptyList())
     var blockedUids by mutableStateOf<Set<String>>(emptySet())
+    var blockedListReady by mutableStateOf(false)
     var review by mutableStateOf<NoticeEvent?>(null)
     var reports by mutableStateOf<List<NoticeEvent>>(emptyList())
     var requests by mutableStateOf<List<NoticeEvent>>(emptyList())
@@ -53,7 +54,7 @@ internal class NotificationInbox(val db: FirebaseFirestore, val uid: String, pri
     fun groups(admin: Boolean): List<NoticeGroup> {
         val local = (if (enabledReview) listOfNotNull(review) else emptyList()) +
             (if (admin && enabledAdmin) reports + requests else emptyList())
-        return groupNotices((if (enabledReplies)
+        return groupNotices((if (enabledReplies && blockedListReady)
                 replies.filterNot { it.actorUid in blockedUids } else emptyList()) +
             local.map { it.copy(read = it.localToken in seen) }, admin)
     }
