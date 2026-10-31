@@ -44,7 +44,7 @@ jobs:
         uses: google-github-actions/auth@v3
         with:
           project_id: atrio-catolico
-          workload_identity_provider: projects/25673368427/locations/global/workloadIdentityPools/guardian-v2-prod/providers/github-main
+          workload_identity_provider: projects/256733686427/locations/global/workloadIdentityPools/guardian-v2-prod/providers/github-main
           service_account: guardian-v2-runner@atrio-catolico.iam.gserviceaccount.com
           token_format: access_token
           access_token_lifetime: 300s
