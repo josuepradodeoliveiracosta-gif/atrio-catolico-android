@@ -34,7 +34,7 @@ export async function processDocument(db,document,settings,now=new Date().toISOS
   if(!settings.enabled)return 'disabled';
   const item=cleanItem(document);if(!item)return 'invalid';
   const root=db.resource||ROOT;
-  const finding=classify(item.text,settings.context||{}),policy=decide(finding,settings);
+  const finding=classify(item.text,settings.context||{}),policy=decide(finding);
   if(policy==='clear')return 'clear';
   const primaryId=await caseId(item.path);
   // Casos novos são versionados: uma edição posterior pode demandar nova revisão.
