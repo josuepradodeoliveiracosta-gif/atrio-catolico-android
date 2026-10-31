@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, {after} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {DatabaseSync} from 'node:sqlite';
@@ -164,5 +164,9 @@ test('forged recipients or environment are rejected before any outgoing call',as
     assert.equal((await gate.status(B)).inFlight,0);
   });
 });
-if(previousFlag===undefined)delete process.env.ATRIO_PRIVILEGED_QA_ONLY;
-else process.env.ATRIO_PRIVILEGED_QA_ONLY=previousFlag;
+// node:test executes test bodies asynchronously AFTER module evaluation.
+// Restore the QA flag only when every case has completed.
+after(()=>{
+  if(previousFlag===undefined)delete process.env.ATRIO_PRIVILEGED_QA_ONLY;
+  else process.env.ATRIO_PRIVILEGED_QA_ONLY=previousFlag;
+});
