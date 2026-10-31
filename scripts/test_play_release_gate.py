@@ -146,6 +146,37 @@ class ReleaseGateTests(unittest.TestCase):
             (root / "app/src/playRelease/AndroidManifest.xml").write_text(MANIFEST)
             self.assertEqual(inspect(root), ["privacy_evidence_file_missing"])
 
+    def test_play_bundle_requires_official_firebase_project_and_app(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "app/src/playRelease").mkdir(parents=True)
+            (root / "docs").mkdir()
+            (root / "app/build.gradle.kts").write_text(GRADLE)
+            (root / "app/src/playRelease/AndroidManifest.xml").write_text(MANIFEST)
+            (root / "docs/google-play-privacidade-evidencias.json").write_text(
+                json.dumps(evidence()))
+            self.assertIn("play_firebase_config_missing", inspect(root))
+            firebase = {
+                "project_info": {"project_id": "atrio-catolico"},
+                "client": [{
+                    "client_info": {
+                        "android_client_info": {"package_name": "br.com.atriocatolico"},
+                        "mobilesdk_app_id": "1:qa:android:fixture"
+                    },
+                    "api_key": [{"current_key": "fixture-not-a-secret"}]
+                }]
+            }
+            firebase_path = root / "app/google-services.json"
+            firebase_path.write_text(json.dumps(firebase))
+            self.assertEqual(inspect(root), [])
+            firebase["project_info"]["project_id"] = "demo-project"
+            firebase_path.write_text(json.dumps(firebase))
+            self.assertIn("play_firebase_wrong_project", inspect(root))
+            firebase["project_info"]["project_id"] = "atrio-catolico"
+            firebase["client"][0]["client_info"]["android_client_info"]["package_name"] = "com.other.app"
+            firebase_path.write_text(json.dumps(firebase))
+            self.assertIn("play_firebase_wrong_app", inspect(root))
+
     def test_invalid_manifest_json_blocks(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
