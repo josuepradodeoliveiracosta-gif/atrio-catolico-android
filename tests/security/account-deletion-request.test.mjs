@@ -32,8 +32,15 @@ try {
     assertFails(setDoc(doc(alice,path), {status:'requested',source:'android',requestedAt:Timestamp.fromMillis(1000)})));
   await check('não permite marcar conta como excluída', () =>
     assertFails(setDoc(doc(alice,path), {...valid(),status:'completed'})));
-  await check('não permite origem diferente', () =>
-    assertFails(setDoc(doc(alice,path), {...valid(),source:'web'})));
+  await check('não permite origem arbitrária', () =>
+    assertFails(setDoc(doc(alice,path), {...valid(),source:'internal-admin'})));
+  await check('canal web autenticado registra pedido no próprio UID', async () => {
+    const bobPath='account_deletion_requests/delete-bob';
+    await assertSucceeds(setDoc(doc(bob,bobPath),{...valid(),source:'web'}));
+    const row=await assertSucceeds(getDoc(doc(bob,bobPath)));
+    assert.equal(row.data().source,'web');
+    await assertFails(getDoc(doc(alice,bobPath)));
+  });
   await check('titular cria solicitação válida', () =>
     assertSucceeds(setDoc(doc(alice,path),valid())));
   await check('titular consulta próprio pedido e data de solicitação', async () => {
