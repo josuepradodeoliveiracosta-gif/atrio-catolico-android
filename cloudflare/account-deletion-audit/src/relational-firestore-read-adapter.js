@@ -16,7 +16,7 @@ const ROOT='projects/'+PROJECT+'/databases/(default)/documents';
 const URL='https://firestore.googleapis.com/v1/'+ROOT+':runQuery';
 const MAX_RESPONSE_BYTES=2_000_000;
 const PATH_PART=/^[A-Za-z0-9_-]{1,160}$/;
-const tokenPattern=/^[A-Za-z0-9_-]{20,4096}$/;
+const tokenPattern=/^[A-Za-z0-9_+\/=.-]{20,4096}$/;
 
 function maskMatches(path,mask) {
   const parts=path.split('/'),maskParts=mask.split('/');
