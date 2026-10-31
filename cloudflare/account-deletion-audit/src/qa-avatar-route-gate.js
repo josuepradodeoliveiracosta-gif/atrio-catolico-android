@@ -9,6 +9,7 @@
  * Unknown routes/methods are denied rather than silently bypassing the gate.
  */
 import {createQaAvatarD1Binding} from './qa-avatar-d1-binding.js';
+import {withQaAvatarOutboundGate} from './qa-avatar-outbound-gate.js';
 const QA_UIDS=new Set(['qa-freeze-alice','qa-freeze-bob']);
 const PATHS=Object.freeze({
   'POST /avatar/upload':{kind:'avatar_upload',scope:'self'},
@@ -56,10 +57,10 @@ async function readBoundedTarget(request){
   return data.uid;
 }
 
-export function createQaAvatarRouteGate({worker,barrier,verifyUid,verifyEffect}={}){
+export function createQaAvatarRouteGate({worker,barrier,verifyUid,verifyEffect,transport}={}){
   if(typeof worker?.fetch!=='function'||typeof barrier?.begin!=='function'||
     typeof barrier?.complete!=='function'||typeof verifyUid!=='function'||
-    typeof verifyEffect!=='function')
+    typeof verifyEffect!=='function'||typeof transport!=='function')
     throw Error('qa_missing_route_gate_dependency');
   return Object.freeze({
     async fetch(request,env){
@@ -95,9 +96,12 @@ export function createQaAvatarRouteGate({worker,barrier,verifyUid,verifyEffect}=
       try{
         // The route ticket is acquired BEFORE ANY Avatar D1 write. The
         // original Worker is called unchanged with a QA-only D1 facade.
-        response=await worker.fetch(request,{
-          ...env,AVATAR_DB:createQaAvatarD1Binding({
-            db:env?.AVATAR_DB,scope,kind:route.kind
+        response=await withQaAvatarOutboundGate({
+          env,scope,transport,
+          run:()=>worker.fetch(request,{
+            ...env,AVATAR_DB:createQaAvatarD1Binding({
+              db:env?.AVATAR_DB,scope,kind:route.kind
+            })
           })
         });
       }catch{return result(503,'qa_mutation_unknown');}

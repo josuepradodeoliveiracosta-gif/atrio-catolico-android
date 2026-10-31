@@ -44,10 +44,17 @@ function setup({verifyEffect=async()=>true}={}){
     const auth=request.headers.get('Authorization')||'';
     return auth.startsWith('Bearer ')?TOKENS.get(auth.slice(7)):null;
   };
-  const gate=createQaAvatarRouteGate({worker:avatarWorker,barrier,verifyUid,verifyEffect});
+  let mockTransport;
+  const transport=(url,init)=>{
+    if(typeof mockTransport!=='function')throw Error('qa_no_fake_transport');
+    return mockTransport(url,init);
+  };
+  const gate=createQaAvatarRouteGate({
+    worker:avatarWorker,barrier,verifyUid,verifyEffect,transport
+  });
   const calls={auth:0,cloud:0,cloudIds:[]};
   function mockNetwork({cloudStatus=200,cloudPending=true,cloudDelay=null}={}){
-    globalThis.fetch=async(url,init={})=>{
+    mockTransport=async(url,init={})=>{
       const u=new URL(url);
       if(u.hostname==='identitytoolkit.googleapis.com'){
         calls.auth++;
@@ -73,6 +80,9 @@ function setup({verifyEffect=async()=>true}={}){
       }
       throw Error('qa_network_not_mocked');
     };
+    // Read-only QA routes still use original Worker without the mutation
+    // interceptor; all mutation routes go through explicit mockTransport.
+    globalThis.fetch=mockTransport;
   }
   function req(path,uid=A,{method='POST',body,headers={}}={}){
     const token=[...TOKENS].find(([,value])=>value===uid)?.[0]||'invalid-token';
@@ -261,5 +271,49 @@ test('read-only paths are excluded from mutation tickets, even when Worker error
     // must fail closed, and no write ticket is created by the QA gateway.
     assert.equal(r.status,503);
     assert.equal((await t.barrier.status(A)).inFlight,0);
+  }finally{t.db.close();}
+});
+
+
+test('Avatar QA rejects unexpected network destination BEFORE fake remote effect',async()=>{
+  const t=setup();
+  try{
+    t.mockNetwork();
+    let sent=0;
+    const fakeWorker={fetch:async()=>{
+      sent++;
+      await fetch('https://other-cloud.example.invalid/unlisted',{
+        method:'POST',body:'cross-target'
+      });
+      return new Response('{}',{status:200});
+    }};
+    const verifyUid=async()=>A;
+    const gate=createQaAvatarRouteGate({
+      worker:fakeWorker,barrier:t.barrier,verifyUid,
+      verifyEffect:async()=>true,
+      transport:async()=>{throw Error('forbidden_fake_transport_call');}
+    });
+    const response=await gate.fetch(t.req('/avatar/status',A),t.env);
+    assert.equal(response.status,503);
+    assert.equal(sent,1);
+    assert.equal(t.calls.auth,0);
+    assert.equal(t.calls.cloud,0);
+    assert.equal((await t.barrier.status(A)).inFlight,1,
+      'ambiguous untrusted Worker operation must retain the ticket');
+    await t.barrier.beginFreeze(A);
+    await assert.rejects(t.barrier.finalizeFreeze(A),/qa_inflight_or_not_draining/);
+  }finally{t.db.close();}
+});
+test('Avatar QA route fails closed on non-fixture environment before remote call',async()=>{
+  const t=setup();
+  try{
+    t.mockNetwork();
+    const response=await t.gate.fetch(t.req('/avatar/status',A),{
+      ...t.env,CLOUDINARY_CLOUD_NAME:'real-cloud'
+    });
+    assert.equal(response.status,503);
+    assert.equal(t.calls.auth,0);
+    assert.equal(t.calls.cloud,0);
+    assert.equal((await t.barrier.status(A)).inFlight,1);
   }finally{t.db.close();}
 });
