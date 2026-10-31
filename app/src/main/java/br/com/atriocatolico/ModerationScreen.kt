@@ -181,6 +181,7 @@ internal fun ModerationScreen(db: FirebaseFirestore, uid: String, onBack: () -> 
                 }
             }
             if (!loading && !loadError) item { GuardianCaseOverview(db, uid) }
+            if (!loading && !loadError) item { MemberReportsReviewPanel(db, uid) }
             if (CloudinaryAvatarClient.enabled && !loading && !loadError) item {
                 AvatarModerationPanel(uid)
             }
