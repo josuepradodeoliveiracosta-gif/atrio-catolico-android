@@ -152,6 +152,13 @@ test('unknown or forged summary cannot be treated as complete inventory',()=>{
   assert.throws(()=>summarizeRelationalCandidates({findings:[],
     safeToExecute:true,globalCoverageComplete:true}),/invalid_inventory_result/);
   assert.throws(()=>summarizeRelationalCandidates({findings:[{
+    automaticallyDeletable:false,requiresReview:['constructor']
+  }],safeToExecute:false,globalCoverageComplete:false,unverifiedScopes:[]}),
+    /invalid_inventory_result/);
+  assert.throws(()=>summarizeRelationalCandidates({findings:[],
+    safeToExecute:false,globalCoverageComplete:false,unverifiedScopes:null}),
+    /invalid_inventory_result/);
+  assert.throws(()=>summarizeRelationalCandidates({findings:[{
     automaticallyDeletable:true,requiresReview:['author_content']
   }],safeToExecute:false,globalCoverageComplete:false}),/invalid_inventory_result/);
 });
