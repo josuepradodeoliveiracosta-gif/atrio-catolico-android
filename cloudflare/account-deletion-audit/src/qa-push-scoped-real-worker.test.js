@@ -62,7 +62,8 @@ function req(body={actorUid:A,recipientUid:B,postId:'qa_post',
   replyId:'qa_reply'},url=ENDPOINT){
   return new Request(url,{method:'POST',body:JSON.stringify(body)});
 }
-async function code(resp,status,body){
+async function code(responseOrPromise,status,body){
+  const resp=await responseOrPromise;
   assert.equal(resp.status,status);
   assert.equal((await resp.json()).status,body);
 }
