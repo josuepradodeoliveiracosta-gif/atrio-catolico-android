@@ -44,6 +44,10 @@ jobs:
       - name: Gerar dois APKs debug com a mesma chave temporária, sem alterar repositório remoto
         shell: bash
         run: bash scripts/ota_qa_upgrade.sh build-fixtures
+      - name: Habilitar aceleracao KVM no runner do emulador
+        run: |
+          test -c /dev/kvm
+          sudo chmod 0666 /dev/kvm
       - name: Emulador Android verifica instalação sobre a versão antiga sem perder arquivo local
         uses: reactivecircus/android-emulator-runner@v2
         with:
