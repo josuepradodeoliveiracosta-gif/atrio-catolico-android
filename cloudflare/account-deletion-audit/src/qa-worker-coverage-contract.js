@@ -43,7 +43,7 @@ export const QA_WORKER_SOURCES=Object.freeze([
   {
     service:'push',
     file:'cloudflare/push-worker/src/index.js',
-    gitBlob:'bf7a114d5f53606b93f2eaecb23768756b805698',
+    gitBlob:'c81fb62f1ab2c363de096367121c965dd28e0391',
     mustContain:[
       "export async function writeThreadNotices(",
       "export async function cleanupInvalidDevice(",
@@ -54,6 +54,8 @@ export const QA_WORKER_SOURCES=Object.freeze([
       "async function send(token,device,uid,kind)",
       "async queue(batch,env)",
       "async fetch(request, env)",
+      "qaPushPrivacySealed(env)",
+      "message.retry({delaySeconds:60})",
       "ROOT+':batchWrite'",
       "ROOT+':commit'",
       "'https://fcm.googleapis.com/v1/projects/'"
