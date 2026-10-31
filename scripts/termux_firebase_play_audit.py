@@ -149,7 +149,11 @@ def evaluate(local, remote):
         matches = [x for x in compound if index_signature(x) == index_signature(desired)]
         if not matches:
             issues.append("indice_composto_ausente")
-        elif not any(x.get("state", "READY") == "READY" for x in matches):
+        elif any(x.get("state") is None for x in matches):
+            # firebase firestore:indexes exporta especificacoes, nao prova
+            # a ativacao do indice. Nunca presumir READY se estado omitido.
+            issues.append("estado_indice_nao_confirmado_pelo_cli")
+        elif not any(x.get("state") == "READY" for x in matches):
             issues.append("indice_composto_ainda_nao_pronto")
     for desired in local["indexes"]["fieldOverrides"]:
         if not any(isinstance(x, dict) and
@@ -195,7 +199,8 @@ def main():
         print("NÃO execute firebase deploy para corrigir automaticamente.")
         return 2
     print("OK: verificações remotas limitadas aprovadas.")
-    print("PENDENTE: regras vigentes, Auth E-mail/Senha, políticas, portal HTTPS,")
+    print("PENDENTE: estado READY dos indices deve ser confirmado separadamente,")
+    print("regras vigentes, Auth E-mail/Senha, políticas, portal HTTPS,")
     print("exclusão real, assinatura Play e QA humana NÃO foram verificados.")
     print("Nenhuma alteração no Firebase foi realizada.")
     return 0
