@@ -759,7 +759,7 @@ export default {
     if(qaSharedMode(env)){
       try{
         const result=await qaSharedWorkerRequest(request,env,'push');
-        return qaSharedResponse(200,result.status);
+        return qaSharedResponse(200,result.status,result.operationId);
       }catch{return qaSharedResponse(503,'qa_shared_worker_denied');}
     }
     const configured = !!(env.PUSH_DB && env.FIREBASE_WEB_API_KEY && env.FIREBASE_SERVICE_ACCOUNT_JSON);
