@@ -1,7 +1,7 @@
 {
   "dependencies": {
     "@firebase/rules-unit-testing": "^4.0.1",
-    "firebase": "^11.10.0",
+    "firebase": "^13.1.0",
     "firebase-tools": "^13.35.1"
   },
   "private": true,
