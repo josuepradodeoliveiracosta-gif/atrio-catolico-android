@@ -179,6 +179,7 @@ test('real secrets or real Push D1 binding reject before reading credential gett
   try{
     let read=0;
     Object.defineProperty(t.env,'FIREBASE_SERVICE_ACCOUNT_JSON',{
+      configurable:true,
       get(){read++;throw Error('qa_secret_access');}
     });
     await code(await worker.fetch(req(),t.env),503,'privacy_qa_scoped_denied');
