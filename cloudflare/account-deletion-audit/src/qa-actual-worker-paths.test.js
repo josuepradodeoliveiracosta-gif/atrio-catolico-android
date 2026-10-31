@@ -95,8 +95,7 @@ async function fixture(fn){
         avatarIdentityChecks>=1;
       if(path==='guardian_review')return outcome?.status==='confirmed' &&
         guardianCommits===1;
-      if(path==='push_thread_notice')return
-        outcome?.status==='submitted_to_fake_firestore' && pushWrites===1;
+      if(path==='push_thread_notice')return outcome?.status==='submitted_to_fake_firestore' && pushWrites===1;
       return false;
     }
   });
