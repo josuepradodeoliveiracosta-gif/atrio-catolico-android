@@ -73,7 +73,7 @@ Resultados que aparecem em mais de uma consulta são agrupados por caminho e mot
 
 ### Limites intencionais
 
-- Consultas usam um **adaptador de QA injetado e simulado** (`queryPage`), ainda sem conexão à API de consulta por grupo de coleções do Firestore real.
+- Consultas usam um adaptador de QA injetado (`queryPage`). O novo `relational-firestore-read-adapter.js` prepara uma implementação **Firestore REST StructuredQuery somente-leitura** por `collectionGroup`, com projeção mínima, validação rígida de UID, escopo e cursor e `POST ...:runQuery` (este POST é uma operação de consulta, não de escrita). Os testes verificam o protocolo com um transporte simulado. **Não há credenciais, rota pública, deploy nem teste contra banco real**; antes de usar, validar índices, cursores e comportamento no Firestore Emulator.
 - Reações cujo UID está no ID do documento, subcoleções órfãs que só podem ser localizadas por varredura global, menções antigas sem campo indexado, mídia Cloudinary/D1 e identidade Firebase Auth continuam **não auditadas**.
 - `globalCoverageComplete=false` e `safeToExecute=false` por construção, mesmo quando todas as consultas descritas retornam vazias.
 - Os resultados com caminhos completos permanecem apenas no código administrativo, jamais na API pública. O cliente só poderá receber contadores quando existir endpoint homologado.
