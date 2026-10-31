@@ -42,7 +42,7 @@ internal object OtaApkDelivery {
         val folder = File(context.cacheDir, "ota")
         require(folder.isDirectory || folder.mkdirs()) { "Armazenamento indisponivel" }
         val target = File(folder, "atrio-catolico-ota.apk")
-        val temporary = File(folder, "atrio-catolico-ota.tmp")
+        val temporary = File(folder, "atrio-catolico-ota.part.apk")
         // Evita apresentar um APK de uma sessão anterior, mesmo após erro/cancelamento.
         target.delete()
         temporary.delete()
