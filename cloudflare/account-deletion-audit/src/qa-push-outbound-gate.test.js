@@ -92,7 +92,91 @@ test('FCM direct recipient must use a fixed QA token; topic is refused',async()=
   assert.equal(t.calls.length,1);
 }));
 
-test('multi-recipient batches and arbitrary Firestore writes fail closed',async()=>using(async t=>{
+test('REAL Push fanout reserves actor and ALL recipients before a single fake batchWrite',async()=>using(async t=>{
+  const e={...notice(B,A),recipients:[A,B]};
+  await writeThreadNotices('qa-oauth',e);
+  assert.equal(t.calls.length,1);
+  assert.deepEqual(await t.barrier.status(A),{state:'active',inFlight:0});
+  assert.deepEqual(await t.barrier.status(B),{state:'active',inFlight:0});
+  await t.barrier.beginFreeze(B);
+  await assert.rejects(writeThreadNotices('qa-oauth',e),
+    /qa_privileged_write_blocked/);
+  assert.equal(t.calls.length,1,'no partial writes reach fake Firestore');
+  await t.barrier.finalizeFreeze(B);
+  await writeThreadNotices('qa-oauth',notice(A,A));
+  assert.equal(t.calls.length,2,'independent Alice notice remains possible');
+},{
+  deliver:async(url,init)=>{
+    const writes=JSON.parse(init.body).writes;
+    return new Response(JSON.stringify({status:writes.map(()=>({}))}),{status:200});
+  },
+  verifyEffect:async({kind,scope,recipientUids,writeCount})=>{
+    assert.equal(kind,'push_thread_notice');
+    assert.ok(scope.actorUid===A);
+    assert.equal(recipientUids.length,writeCount);
+    assert.equal(new Set(recipientUids).size,writeCount);
+    return true;
+  }
+}));
+
+test('partial multi-recipient Firestore batch never releases actor or recipients',async()=>using(async t=>{
+  const e={...notice(B,A),recipients:[A,B]};
+  await assert.rejects(writeThreadNotices('qa-oauth',e),
+    /qa_push_batch_unverified/);
+  assert.equal(t.calls.length,1);
+  assert.equal((await t.barrier.status(A)).inFlight,1);
+  assert.equal((await t.barrier.status(B)).inFlight,1);
+  await t.barrier.beginFreeze(B);
+  await assert.rejects(t.barrier.finalizeFreeze(B),/qa_inflight_or_not_draining/);
+},{
+  deliver:async()=>new Response(JSON.stringify({status:[{}]}),{status:200})
+}));
+
+test('mismatched actors, repeated or unknown recipients reject BEFORE I/O',async()=>using(async t=>{
+  const base='projects/atrio-catolico/databases/(default)/documents/';
+  const endpoint='https://firestore.googleapis.com/v1/projects/atrio-catolico/databases/(default)/documents:batchWrite';
+  const item=(recipient,actor,reply='qa_reply')=>({
+    update:{name:base+'users/'+recipient+'/notifications/'+reply,
+      fields:{
+        postId:{stringValue:'qa_post'},replyId:{stringValue:reply},
+        actorUid:{stringValue:actor},actorName:{stringValue:'QA'},
+        createdAt:{timestampValue:'2026-10-31T12:00:00Z'},
+        read:{booleanValue:false}
+      }},
+    currentDocument:{exists:false}
+  });
+  for(const writes of [
+    [item(A,A),item(A,A)],
+    [item(A,A),item(B,B)],
+    [item(A,A),item('real-user',A)],
+    [item(A,A),item(B,A,'qa_other_reply')],
+    [item(A,A),item(B,A),item(B,A)]
+  ]){
+    await assert.rejects(t.qaFetch(endpoint,{
+      method:'POST',body:JSON.stringify({writes})
+    }),/qa_push_uncovered_outbound/);
+  }
+  assert.equal(t.calls.length,0);
+  assert.equal((await t.barrier.status(A)).inFlight,0);
+  assert.equal((await t.barrier.status(B)).inFlight,0);
+}));
+
+test('multi-recipient completion requires independent verifier approval',async()=>using(async t=>{
+  const e={...notice(B,A),recipients:[A,B]};
+  await assert.rejects(writeThreadNotices('qa-oauth',e),
+    /qa_push_effect_unverified/);
+  assert.equal(t.calls.length,1);
+  assert.equal((await t.barrier.status(A)).inFlight,1);
+  assert.equal((await t.barrier.status(B)).inFlight,1);
+},{
+  deliver:async(url,init)=>{
+    const writes=JSON.parse(init.body).writes;
+    return new Response(JSON.stringify({status:writes.map(()=>({}))}),{status:200});
+  },
+  verifyEffect:async({recipientUids})=>recipientUids.length===1
+}));
+
+test('duplicate, malformed or unscoped Firestore writes fail closed',async()=>using(async t=>{
   const ROOT='projects/atrio-catolico/databases/(default)/documents/';
   const one={update:{name:ROOT+'users/'+B+'/notifications/qa_reply',
     fields:{actorUid:{stringValue:A},replyId:{stringValue:'qa_reply'},
