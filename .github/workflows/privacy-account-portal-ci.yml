@@ -18,6 +18,7 @@ on:
       - 'tests/security/qa-admin-executor.mjs'
       - 'tests/security/qa-external-emulators.mjs'
       - 'tests/security/qa-auth-cloudinary-emulator.test.mjs'
+      - 'tests/security/admin-fixture/**'
       - 'tests/security/qa-deletion-emulator.test.mjs'
       - 'tests/security/qa-deletion-sqlite-lease.mjs'
       - 'tests/security/qa-deletion-sqlite-lease.test.mjs'
@@ -52,6 +53,8 @@ jobs:
           node --check cloudflare/account-deletion-audit/src/index.js
           node --check tests/security/qa-external-emulators.mjs
           node --check tests/security/qa-auth-cloudinary-emulator.test.mjs
+          node --check tests/security/admin-fixture/qa-admin-sdk-auth.mjs
+          node --check tests/security/admin-fixture/qa-admin-sdk-e2e.test.mjs
       - name: Testar auditoria e simulador de exclusão sem produção
         run: node --experimental-sqlite --test cloudflare/account-deletion-audit/src/*.test.js tests/security/account-deletion-web.test.mjs
       - name: Testar leases, fencing e checkpoint SQLite offline
@@ -91,6 +94,9 @@ jobs:
       - name: Instalar apenas dependências do Firebase Emulator
         working-directory: tests/security
         run: npm ci --no-audit --no-fund
+      - name: Instalar Firebase Admin SDK apenas no fixture QA
+        working-directory: tests/security
+        run: npm install --prefix admin-fixture --no-save --package-lock=false --ignore-scripts --no-audit --no-fund
       - name: Copiar somente as regras do projeto para o emulador
         working-directory: tests/security
         run: node prepare.mjs
@@ -102,9 +108,9 @@ jobs:
         run: |
           set -euo pipefail
           npx firebase emulators:exec --only firestore,auth --project demo-atrio-v11 \
-            "node relational-inventory-emulator.test.mjs && node --experimental-sqlite qa-deletion-auth-fence.test.mjs && node --experimental-sqlite qa-deletion-emulator.test.mjs && node --experimental-sqlite qa-auth-cloudinary-emulator.test.mjs && node account-deletion-freeze.test.mjs"
+            "node relational-inventory-emulator.test.mjs && node --experimental-sqlite qa-deletion-auth-fence.test.mjs && node --experimental-sqlite qa-deletion-emulator.test.mjs && node --experimental-sqlite qa-auth-cloudinary-emulator.test.mjs && node --experimental-sqlite admin-fixture/qa-admin-sdk-e2e.test.mjs && node account-deletion-freeze.test.mjs"
       - name: Resumo do ambiente
         if: always()
         run: |
           echo "### Firestore Emulator — inventário e limpeza exclusiva de fixtures" >> "$GITHUB_STEP_SUMMARY"
-          echo "Firestore/Auth Emulator do projeto demo-atrio-v11 em 127.0.0.1; Cloudinary apenas HTTP de loopback, sem API real nem segredos. Sem publicação." >> "$GITHUB_STEP_SUMMARY"
+          echo "Firestore/Auth Emulator + Admin SDK exclusivo do projeto demo-atrio-v11; Cloudinary apenas HTTP local. Sem segredos, usuários reais ou publicação." >> "$GITHUB_STEP_SUMMARY"
