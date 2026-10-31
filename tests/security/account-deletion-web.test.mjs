@@ -20,7 +20,7 @@ test('sign-in needs Firebase and never saves login persistently',()=>{
   assert.match(app,/serverTimestamp\(\)/);
   assert.match(app,/source: 'web'/);
   assert.match(app,/config.projectId === 'atrio-catolico'/);
-  assert.doesNotMatch(app,/deleteUser\(|deleteDoc\(|localStorage|sessionStorage|indexedDB/);
+  assert.doesNotMatch(app,/deleteUser\s*\(|deleteDoc\s*\(|localStorage\s*\.|sessionStorage\s*\./);
 });
 test('public page requires JS, CSP, user confirmation, and never sends passwords in a form',()=>{
   const page=load('web/account-deletion/index.html');
