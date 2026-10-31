@@ -61,8 +61,8 @@ async function authPost(fetcher,path,payload){
   try{body=JSON.parse(raw);}catch{fail('invalid_auth_response');}
   return {status:response.status,body};
 }
-function validSession(data,uid) {
-  return data.status===200 && data.body?.localId===uid &&
+function validSession(data,localId) {
+  return data.status===200 && data.body?.localId===localId &&
     typeof data.body.idToken==='string' &&
     data.body.idToken.length>30;
 }
@@ -70,26 +70,40 @@ function errorIs(data,code){
   return data.status===400 && data.body?.error?.message===code;
 }
 /**
- * The QA emulated user is created with a fixed localId. Emulator may reject
- * that in some versions; this intentionally FAILS, never maps another UID.
+ * A client REST sign-up receives an emulator-generated UID. Its mapping to
+ * the fixed Firestore QA fixture is explicitly test-only and ephemeral.
+ * This DOES NOT validate shared-UID Admin SDK deletion or process restart.
  */
 export function createQaAuthEmulatorAdapter(fetcher=fetch){
   if(typeof fetcher!=='function')fail('invalid_transport');
   guard();
+  // Client REST signUp cannot prescribe a server-admin UID; preserve the
+  // mapping only for this disposable test process, never for production.
+  const emulatedIds=new Map();
+  function requireId(uid){
+    const id=emulatedIds.get(uid);
+    if(!id)fail('auth_unseeded_identity');
+    return id;
+  }
   return Object.freeze({
     async seed(uid){
       guard();checkUid(uid);
+      if(emulatedIds.has(uid))fail('auth_duplicate_fixture');
       const r=await authPost(fetcher,'accounts:signUp',{
-        email:EMAIL[uid],password:PASSWORD,localId:uid,returnSecureToken:true
+        email:EMAIL[uid],password:PASSWORD,returnSecureToken:true
       });
-      if(!validSession(r,uid))fail('auth_seed_uid_mismatch');
+      const id=r.body?.localId;
+      if(typeof id!=='string' || !/^[A-Za-z0-9_-]{8,128}$/.test(id) ||
+         !validSession(r,id) || [...emulatedIds.values()].includes(id))
+        fail('auth_seed_unverified');
+      emulatedIds.set(uid,id);
     },
     async exists(uid){
       guard();checkUid(uid);
       const r=await authPost(fetcher,'accounts:signInWithPassword',{
         email:EMAIL[uid],password:PASSWORD,returnSecureToken:true
       });
-      if(validSession(r,uid))return true;
+      if(validSession(r,requireId(uid)))return true;
       if(errorIs(r,'EMAIL_NOT_FOUND') || errorIs(r,'INVALID_LOGIN_CREDENTIALS'))
         return false;
       fail('auth_unknown_read_result');
@@ -106,7 +120,8 @@ export function createQaAuthEmulatorAdapter(fetcher=fetch){
         if(await this.exists(uid)===false)return;
         fail('auth_ambiguous_missing');
       }
-      if(!validSession(session,uid))fail('auth_before_delete_unverified');
+      if(!validSession(session,requireId(uid)))
+        fail('auth_before_delete_unverified');
       const deletion=await authPost(fetcher,'accounts:delete',{
         idToken:session.body.idToken
       });
