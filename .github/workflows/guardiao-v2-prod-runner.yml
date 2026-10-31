@@ -10,6 +10,11 @@ on:
         required: true
         type: boolean
         default: false
+      confirm_config_read:
+        description: "Autorizo UMA leitura GET de guardian_config/policy sem imprimir dados"
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -60,4 +65,44 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$TEMPORARY_ACCESS_TOKEN"
-          echo "GUARDIAN_V2_WIF_AUTHENTICATED — sem operação Firestore ou moderação."
+          echo "GUARDIAN_V2_WIF_AUTHENTICATED — credencial temporária; moderação desligada."
+      - name: Consultar uma única configuração Firestore sem mostrar o conteúdo
+        if: ${{ inputs.confirm_config_read == true }}
+        shell: bash
+        env:
+          TEMPORARY_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+          CONFIRM_IDENTITY: ${{ inputs.confirm_identity_test }}
+          CONFIRM_READ: ${{ inputs.confirm_config_read }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "josuepradodeoliveiracosta-gif/atrio-catolico-android"
+          test "$GITHUB_REF" = "refs/heads/main"
+          test "$GITHUB_EVENT_NAME" = "workflow_dispatch"
+          test "$CONFIRM_IDENTITY" = "true"
+          test "$CONFIRM_READ" = "true"
+          test -n "$TEMPORARY_ACCESS_TOKEN"
+          # Um único GET de configuração, com máscara de campo. Sem scan, sem
+          # índices, sem escrita, sem retry, sem imprimir resposta ou token.
+          status=$(curl --silent --show-error --request GET --output /dev/null \
+            --write-out '%{http_code}' --connect-timeout 5 --max-time 12 \
+            --retry 0 \
+            --header "Authorization: Bearer $TEMPORARY_ACCESS_TOKEN" \
+            --header "Accept: application/json" \
+            "https://firestore.googleapis.com/v1/projects/atrio-catolico/databases/(default)/documents/guardian_config/policy?mask.fieldPaths=enabled")
+          case "$status" in
+            200)
+              echo "GUARDIAN_V2_FIRESTORE_CONFIG_READ_OK — HTTP 200; nenhum dado exposto"
+              ;;
+            404)
+              echo "::error::GUARDIAN_V2_CONFIG_NOT_FOUND — HTTP 404; a configuração ainda não foi inicializada"
+              exit 4
+              ;;
+            401|403)
+              echo "::error::GUARDIAN_V2_IAM_OR_TOKEN_DENIED — HTTP $status; não ampliar privilégios automaticamente"
+              exit 5
+              ;;
+            *)
+              echo "::error::GUARDIAN_V2_READ_UNAVAILABLE — HTTP $status"
+              exit 6
+              ;;
+          esac
