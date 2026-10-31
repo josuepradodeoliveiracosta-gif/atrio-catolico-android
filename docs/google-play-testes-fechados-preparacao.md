@@ -43,7 +43,8 @@ A proposta **não** faz upload de chaves privadas para Google.
 - [ ] Confirme assinatura e plano de migração dos aparelhos atuais, evitando desinstalações precipitadas.
 - [ ] Gerar AAB assinado **somente via workflow manual aprovado** e conferir SHA-256 do arquivo e certificado de upload.
 - [ ] Criar/configurar o app no Play Console, `br.com.atriocatolico`, nome, categoria, imagens, descrição, contato e classificação indicativa.
-- [ ] Adicionar política de privacidade pública, declarações de segurança dos dados, conteúdo e acesso de revisores; verificar tratamento de dados pessoais e exclusão de conta, requisitos de moderação e políticas aplicáveis.
+- [ ] **Bloqueio identificado:** no código Android atual não foi localizado um caminho funcional para **solicitar exclusão de conta**. Implementar solicitação acessível no Perfil e um recurso público na web; o processo deve cobrir dados associados (Firebase Authentication, Firestore, imagens, notificações e outras cópias conforme aplicável) e declarar retenções justificáveis. Não criar botão que só elimina o login ou que apaga dados parcialmente.
+- [ ] Adicionar política de privacidade pública, declarações de segurança dos dados, conteúdo e acesso de revisores; revisar moderação de conteúdo gerado pelos usuários e políticas aplicáveis.
 - [ ] Testar autenticação Firebase, mensagens push, Guardião, discussões, perfil e atualização por cima em aparelhos reais **com a instalação proveniente da Google Play**.
 - [ ] Definir a lista de testadores e faixa fechada, obter o link opt-in e confirmar aceite.
 - [ ] Somente depois enviar o pacote à Google Play; nenhum workflow deve publicar automaticamente.
@@ -52,6 +53,7 @@ Em contas pessoais de desenvolvedor criadas após **13/11/2023**, para solicitar
 
 ## URLs oficiais para validação de requisitos
 
+- Exclusão de conta e dados: https://support.google.com/googleplay/android-developer/answer/13327111
 - Política de permissão de instalação: https://support.google.com/googleplay/android-developer/answer/12085295
 - Alvo API 36 em 2026: https://support.google.com/googleplay/android-developer/answer/11926878
 - Play App Signing e opções de chave: https://support.google.com/googleplay/android-developer/answer/9842756
