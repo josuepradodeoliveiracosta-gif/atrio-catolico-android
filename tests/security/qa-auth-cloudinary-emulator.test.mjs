@@ -83,13 +83,13 @@ const env=await initializeTestEnvironment({projectId:PROJECT,firestore:{
   host:'127.0.0.1',port:8089,
   rules:readFileSync('firestore.rules','utf8')
 }});
+const auth=createQaAuthEmulatorAdapter(); // shared fixture mapping for this process
 
 try {
   await test('Auth Emulator and isolated Cloudinary HTTP: outage, retry, Auth LAST',
     async()=>{
       const base=await listen();
       try {
-        const auth=createQaAuthEmulatorAdapter();
         await auth.seed(QA_EXTERNAL_UID);
         await auth.seed(QA_EXTERNAL_BOB);
         assert.equal(await auth.exists(QA_EXTERNAL_UID),true);
@@ -161,7 +161,6 @@ try {
         'https://api.cloudinary.com/'),/qa_external_nonlocal_media_endpoint/);
       assert.throws(()=>createQaCloudinaryHttpAdapter(
         'http://127.0.0.1:9099/'),/qa_external_reserved_emulator_port/);
-      const auth=createQaAuthEmulatorAdapter();
       await assert.rejects(auth.remove(QA_EXTERNAL_BOB),
         /qa_external_auth_other_user_delete_denied/);
       assert.equal(await auth.exists(QA_EXTERNAL_BOB),true);
