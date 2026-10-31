@@ -4,6 +4,7 @@
  * in-memory Sets; journal is a temporary SQLite database.
  */
 import {doc,getDoc,deleteDoc} from 'firebase/firestore';
+import {assertQaReconciled} from './qa-deletion-reconciliation.mjs';
 
 const PROJECT='demo-atrio-v11', HOST='127.0.0.1:8089', UID='qa-delete-alice';
 const MEDIA_ID='atrio-avatares/qa-delete-alice/123e4567-e89b-42d3-a456-426614174001';
@@ -60,12 +61,26 @@ function stages(self){
     remove_auth_stub_last:{
       // Idempotent if interrupted after the mock Auth removal but before
       // the journal checkpoint. Previous data-verification phase is required.
-      apply:async()=>{auth.delete(UID);},
+      apply:async()=>{
+        // Re-read ALL known QA scopes immediately before the irreversible
+        // fake Auth effect, even if an earlier checkpoint said they were clear.
+        await assertQaReconciled({uid:UID,db,media,auth,context,
+          expectedAuth:'either'});
+        auth.delete(UID);
+      },
       verify:async()=>!auth.has(UID)},
     final_check:{
       apply:async()=>{},
-      verify:async()=>await absent(db,[...FIXTURES.nested,...FIXTURES.relational,
-        ...FIXTURES.roots]) && !media.has(MEDIA_ID) && !auth.has(UID)}
+      verify:async()=>{
+        if(!await absent(db,[...FIXTURES.nested,...FIXTURES.relational,
+          ...FIXTURES.roots]) || media.has(MEDIA_ID) || auth.has(UID))
+          return false;
+        // Re-check known orphaned subcollections and cross-account UID
+        // references when resuming a previously completed journal too.
+        await assertQaReconciled({uid:UID,db,media,auth,context,
+          expectedAuth:'absent'});
+        return true;
+      }}
   };
 }
 export class QaDeletionRunner {
