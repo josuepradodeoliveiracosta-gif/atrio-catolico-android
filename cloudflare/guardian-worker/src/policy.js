@@ -14,7 +14,7 @@ export function classify(text, context={}) {
   const t=fold(text);
   const result=(level,rule,confidence)=>({level,rule,confidence});
   // Não transformar uma citação teológica, discussão ou relato em infração automática.
-  const quote=/\b(evangelho|biblia|catecismo|citacao|citando|relato|denuncio|ameacou|ameaça recebida)\b/.test(t);
+  const quote=/\b(evangelho|biblia|catecismo|citacao|citando|relato|denuncio|ameacou|ameaca recebida)\b/.test(t);
   const cpfs=(text.match(/\b\d{3}[.\s-]?\d{3}[.\s-]?\d{3}[-.\s]?\d{2}\b/g)||[]);
   if(cpfs.some(x=>cpfValid(x.replace(/\D/g,'')))) return result('review','personal_data','high');
   const url=/(?:https?:\/\/|www\.)\S+/i.test(text);
