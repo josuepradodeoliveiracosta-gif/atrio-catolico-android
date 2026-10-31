@@ -54,3 +54,30 @@ protegido. A inclusão do portal é apenas código e testes de build;
 a configuração que permitiria exclusão real permanece desabilitada.
 
 **Estado:** produção intocada, QA apenas, issue #72 aberta.
+
+## Cobertura de UGC da PR #71 no executor QA
+
+A PR #71 introduziu bloqueios privados e denúncias de usuários, além do aceite
+versionado dos Termos. O ensaio de exclusão na PR #98 foi ampliado para garantir
+que uma remoção não se limite aos dados antigos:
+
+- `QaDeletionRunner` semeia e elimina em `demo-atrio-v11` somente
+  `users/qa-delete-alice/blockedMembers/qa-delete-bob` e
+  `users/qa-delete-alice/acceptedTerms/ugc-v1`, usando o inventário genérico
+  de subcoleções próprio do titular.
+- Dados equivalentes de **Bob** permanecem intactos; a identidade fictícia de
+  Bob e a foto simulada continuam existentes após o ensaio.
+- `user_reports` são registros de moderação com possíveis interesses de
+  terceiros. Os testes injetam um relatório com Alice como denunciante ou
+  denunciada após limpar seus dados próprios e exigem bloqueio da remoção de
+  Auth simulado enquanto persistirem referências. **Não é seguro eliminar
+  automaticamente denúncias com base apenas no UID**.
+- A reconciliação executa consultas independentes por `reporterUid` e
+  `targetUid`. O estado continua `productionReady:false` e
+  `globalCoverageComplete:false`.
+
+Esses testes não substituem a decisão de retenção, a anonimização necessária
+nem a implementação de exclusão real. Nenhum relatório, usuário ou conteúdo
+de produção foi acessado ou apagado. A issue #72 e o manifesto de privacidade
+continuam bloqueados.
+
