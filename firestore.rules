@@ -376,6 +376,7 @@ service cloud.firestore {
       allow create: if me(uid)
         && validId(memberUid)
         && memberUid != uid
+        && exists(/databases/$(database)/documents/profiles/$(memberUid))
         && request.resource.data.keys().hasOnly(['createdAt'])
         && request.resource.data.keys().hasAll(['createdAt'])
         && validTime();
@@ -555,6 +556,7 @@ service cloud.firestore {
         && request.resource.data.reporterUid == request.auth.uid
         && validId(request.resource.data.targetUid)
         && request.resource.data.targetUid != request.auth.uid
+        && exists(/databases/$(database)/documents/profiles/$(request.resource.data.targetUid))
         && reportId == request.auth.uid + '_user_' + request.resource.data.targetUid
         && validText(request.resource.data.reason, 5, 300)
         && validTime();
