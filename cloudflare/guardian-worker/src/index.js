@@ -4,7 +4,6 @@ import {qaShadowAllowed,scanQaShadow} from './shadow-qa.js';
 import {qaMonitorAllowed,readQaWorkflowStatus} from './github-qa-monitor.js';
 import {qaDispatchAllowed,dispatchQaWorkflow,dueForDailyDispatch} from './github-qa-dispatch.js';
 import {scanPagedCycle} from './scan-paged.js';
-import {enforceNonpunitiveBatch} from './nonpunitive-write-gate.js';
 import {runQaPolicyHeartbeat} from './qa-policy-heartbeat.js';
 import {qaFixtureRequest} from './qa-user-firestore-bridge.js';
 const json=(status,code)=>new Response(JSON.stringify({status:code}),{status,headers:{'content-type':'application/json','cache-control':'no-store'}});
@@ -63,12 +62,6 @@ export async function processDocument(db,document,settings,now=new Date().toISOS
     writes.push({update:{name:root+'/guardiao_quarantine/'+id,fields:{ownerUid:str(item.owner),targetType:str(item.kind),targetPath:str(root+'/'+item.path),postId:str(item.parts[1]),replyId:str(item.parts[3]),reason:str('Possível violação: '+finding.rule),ruleCode:str(finding.rule),status:str('held'),heldAt:timestamp(now),originalFields:{mapValue:{fields:item.doc.fields}}}},currentDocument:{exists:false}});
     writes.push({delete:root+'/'+item.path,currentDocument:{updateTime:item.doc.updateTime}});
   }
-  // Na primeira etapa de escrita, somente triagem e orientação, jamais retenção.
-  // Mantém validação atômica de versão e impede qualquer mutação adicional.
-  if(!hold)enforceNonpunitiveBatch(writes,{
-    resource:root,caseId:id,ownerUid:item.owner,targetPath:item.path,
-    sourceUpdateTime:item.doc.updateTime,action
-  });
   try{await db.commit(writes);return action;}
   catch(e){
     if(e.status===409||e.status===412){
