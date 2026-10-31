@@ -28,7 +28,7 @@ test('geração pública contém apenas metadados do Firebase Web',()=>{
     const config=readFileSync(join(output,'config.js'),'utf8');
     assert.match(config,/window\.ATRIO_FIREBASE_CONFIG/);
     assert.match(config,/atrio-catolico/);
-    assert.match(config,/window\\.ATRIO_PORTAL_STATUS/);
+    assert.ok(config.includes('window.ATRIO_PORTAL_STATUS'));
     assert.match(config,/"intakeEnabled":false/);
     assert.match(config,/"actualDeletionEnabled":false/);
     const isolated={window:{}};
@@ -47,8 +47,8 @@ test('geração pública contém apenas metadados do Firebase Web',()=>{
     assert.match(client,/getDocFromServer/);
     assert.match(client,/serverTimestamp/);
     assert.match(client,/source:'web'/);
-    assert.match(client,/if\\(!intakeEnabled\\)/);
-    assert.match(client,/loginForm\\.hidden=true/);
+    assert.ok(client.includes('if(!intakeEnabled)'));
+    assert.ok(client.includes('loginForm.hidden=true'));
     assert.doesNotMatch(client,/deleteDoc|deleteUser|localStorage\.setItem/);
     const headers=readFileSync(join(output,'_headers'),'utf8');
     assert.match(headers,/Content-Security-Policy:/);
