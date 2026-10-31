@@ -1,5 +1,6 @@
 import {executeQaCommand} from './qa-manual.js';
 import {qaPushPrivacySealed} from './privacy-qa-write-fence.js';
+import {qaPushScopedMode,executeQaScopedPushReply} from './privacy-qa-scoped-fence.js';
 // Emissor FCM para Cloudflare Workers Free. Credenciais SOMENTE em Worker Secrets.
 // Recebe eventos autenticados pelo Firebase, confere documentos no Firestore,
 // limita destinatários e evita reenvios com Cloudflare D1.
@@ -704,7 +705,7 @@ export async function handleGuardiaoReview(request,env) {
 export default {
   async queue(batch,env) {
     // Retry without acknowledging: no bot action and no accidental data loss.
-    if(qaPushPrivacySealed(env)){
+    if(qaPushPrivacySealed(env)||qaPushScopedMode(env)){
       for(const message of batch.messages)message.retry({delaySeconds:60});
       return;
     }
@@ -740,6 +741,16 @@ export default {
       if(request.method==='GET' && new URL(request.url).pathname==='/health')
         return response(200,'privacy_qa_sealed');
       return response(503,'privacy_qa_sealed');
+    }
+    // Scoped privacy QA is restricted to an offline fixture URL. It cannot
+    // proceed to the normal credentialled Push handlers under ANY route.
+    if(qaPushScopedMode(env)){
+      if(request.method==='GET'&&new URL(request.url).pathname==='/health')
+        return response(200,'privacy_qa_scoped_only');
+      try{
+        const result=await executeQaScopedPushReply(request,env);
+        return response(200,result.status);
+      }catch{return response(503,'privacy_qa_scoped_denied');}
     }
     const configured = !!(env.PUSH_DB && env.FIREBASE_WEB_API_KEY && env.FIREBASE_SERVICE_ACCOUNT_JSON);
     if(request.method==='GET' && new URL(request.url).pathname==='/health')
