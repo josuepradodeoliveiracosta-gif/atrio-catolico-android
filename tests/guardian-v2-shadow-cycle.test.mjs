@@ -100,13 +100,49 @@ test('apenas dois posts e duas respostas, sem texto ou IDs no resultado',async()
   assert.ok(!JSON.stringify(result).includes('matar'));
 });
 test('permissão negada, configuração inválida e path privado bloqueiam leitura',async()=>{
-  await assert.rejects(runShadowCycle(env,mocked({http:403}).fn),/firestore_http_403/);
+  await assert.rejects(runShadowCycle(env,mocked({http:403}).fn),/firestore_policy_http_403_unknown/);
   await assert.rejects(runShadowCycle(env,mocked({
     config:{name:root+'/guardian_config/policy',fields:{enabled:{booleanValue:true}}}
   }).fn),/policy_invalid/);
   await assert.rejects(runShadowCycle(env,mocked({docs:[
     [{document:{name:root+'/profiles/user',fields:{body:{stringValue:'private'}}}}],[]
   ]}).fn),/unexpected_document_path/);
+});
+test('diagnóstico diferencia erro de posts e replies sem publicar mensagem privada',async()=>{
+  const privateMessage='index https://cloud.google.com/sensitive?user_private_token=PRIVATE';
+  const fakeError={error:{code:400,status:'FAILED_PRECONDITION',message:privateMessage}};
+  for(const failing of ['posts','replies']){
+    let n=0;
+    const calls=[];
+    const fetcher=async(url,opts={})=>{
+      calls.push(url);
+      if(url.startsWith('https://api.github.com/'))return response({total_count:1});
+      if(url.includes('guardian_config/policy'))return response(policy());
+      if(url.endsWith(':runQuery')){
+        const group=n++===0?'posts':'replies';
+        return response(group===failing?fakeError:[],group===failing?400:200);
+      }
+      throw Error('unexpected query');
+    };
+    const error=await runShadowCycle(env,fetcher,undefined,'2026-10-31')
+      .then(()=>null,e=>e);
+    assert.ok(error instanceof Error);
+    assert.equal(error.message,
+      'guardian_v2_shadow_firestore_'+failing+'_http_400_failed_precondition');
+    assert.ok(!error.message.includes(privateMessage));
+    assert.equal(calls.filter(url=>url.endsWith(':runQuery')).length,
+      failing==='posts'?1:2);
+  }
+});
+test('status inválido revela só código padrão, nunca texto/URL do Firestore',async()=>{
+  const f=async(url)=>{
+    if(url.startsWith('https://api.github.com/'))return response({total_count:1});
+    if(url.includes('guardian_config/policy'))return response(policy());
+    return response({error:{status:'UNRECOGNIZED',message:'user-private-stuff'}},400);
+  };
+  await assert.rejects(runShadowCycle(env,f,undefined,'2026-10-31'),
+    e=>e.message==='guardian_v2_shadow_firestore_posts_http_400_unknown' &&
+      !e.message.includes('user-private-stuff'));
 });
 test('workflow tem cron read-only, escopo OIDC e não contém deploy',()=>{
   const yml=readFileSync(new URL('../.github/workflows/guardiao-v2-prod-runner.yml',import.meta.url),'utf8');
