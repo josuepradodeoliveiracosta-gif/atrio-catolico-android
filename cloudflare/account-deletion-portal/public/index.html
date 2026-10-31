@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Átrio Católico — Solicitar exclusão de conta e dados</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/config.js" defer></script>
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+<main class="page">
+  <header>
+    <p class="eyebrow">ÁTRIO CATÓLICO</p>
+    <h1>Exclusão de conta e dados</h1>
+    <p>Você pode solicitar a exclusão da conta do Átrio Católico mesmo sem o aplicativo instalado.</p>
+  </header>
+  <section aria-labelledby="steps">
+    <h2 id="steps">Como funciona</h2>
+    <p>Entre com o e-mail e a senha da sua conta para confirmar que você é o titular.
+    O pedido será registrado para análise e processamento. <strong>Enviar a solicitação não exclui a conta imediatamente.</strong></p>
+    <p>Os dados associados, incluindo perfil, conteúdos e fotos, exigem revisão e tratamento pelo serviço responsável.
+    Algumas informações poderão ter retenção justificada, explicada na política de privacidade quando publicada.</p>
+  </section>
+  <section aria-labelledby="auth-title">
+    <h2 id="auth-title">Identificação do titular</h2>
+    <form id="login-form" novalidate>
+      <label for="email">E-mail cadastrado</label>
+      <input id="email" name="email" type="email" autocomplete="username" required maxlength="150">
+      <label for="password">Senha</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required maxlength="200">
+      <button id="login" type="submit">Entrar na minha conta</button>
+    </form>
+    <p><button id="reset" class="link" type="button">Esqueci minha senha</button></p>
+    <div id="account-actions" hidden>
+      <p>Conta autenticada. Você pode registrar sua solicitação.</p>
+      <button id="request" type="button">Solicitar exclusão da minha conta</button>
+      <button id="logout" class="secondary" type="button">Sair desta sessão</button>
+    </div>
+    <p id="feedback" role="status" aria-live="polite">Verificando a disponibilidade do formulário...</p>
+  </section>
+  <footer>
+    <p>Este é o canal de solicitação. O processamento da exclusão depende de um procedimento administrativo seguro;
+    uma confirmação de recebimento não significa conclusão da exclusão.</p>
+  </footer>
+</main>
+</body>
+</html>
