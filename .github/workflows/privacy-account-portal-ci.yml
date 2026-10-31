@@ -8,6 +8,11 @@ on:
       - 'scripts/play_privacy_gate*.mjs'
       - 'docs/google-play-privacidade-evidencias.json'
       - 'cloudflare/account-deletion-audit/**'
+      - 'cloudflare/privacy-freeze-stage/**'
+      - 'cloudflare/privacy-shared-qa/**'
+      - 'cloudflare/avatar-worker/src/**'
+      - 'cloudflare/guardian-worker/src/**'
+      - 'cloudflare/push-worker/src/**'
       - 'tests/security/account-deletion-web.test.mjs'
       - 'tests/security/account-deletion-request.test.mjs'
       - 'tests/security/account-deletion-freeze.test.mjs'
@@ -53,6 +58,10 @@ jobs:
         run: |
           node --check web/account-deletion/app.js
           node --check cloudflare/account-deletion-audit/src/index.js
+          node --check cloudflare/privacy-freeze-stage/src/index.js
+          node --check cloudflare/privacy-freeze-stage/src/client.js
+          node --check cloudflare/privacy-freeze-stage/src/protocol.js
+          node --check cloudflare/privacy-shared-qa/src/worker-entry.js
           node --check tests/security/qa-external-emulators.mjs
           node --check tests/security/qa-auth-cloudinary-emulator.test.mjs
           node --check tests/security/admin-fixture/qa-admin-sdk-auth.mjs
