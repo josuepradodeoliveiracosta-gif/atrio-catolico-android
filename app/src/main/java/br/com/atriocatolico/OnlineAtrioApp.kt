@@ -1192,9 +1192,10 @@ private fun ReplyReportDialog(
     db: FirebaseFirestore, uid: String, target: ReplyReportTarget,
     onClose: () -> Unit, onSuccess: () -> Unit
 ) {
-    var reason by remember { mutableStateOf("") }
-    var busy by remember { mutableStateOf(false) }
-    var failure by remember { mutableStateOf("") }
+    // Isolar cada rascunho da resposta e da conta que abriu a denúncia.
+    var reason by remember(uid, target.postId, target.replyId) { mutableStateOf("") }
+    var busy by remember(uid, target.postId, target.replyId) { mutableStateOf(false) }
+    var failure by remember(uid, target.postId, target.replyId) { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = { if (!busy) onClose() },
         title = { Text("Denunciar resposta") },
@@ -1210,7 +1211,9 @@ private fun ReplyReportDialog(
             }
         },
         confirmButton = {
-            TextButton(enabled = !busy && reason.trim().length in 5..300, onClick = {
+            TextButton(enabled = !busy && reason.trim().length in 5..300
+                && FirebaseAuth.getInstance().currentUser?.uid == uid, onClick = {
+                if (FirebaseAuth.getInstance().currentUser?.uid != uid) return@TextButton
                 busy = true
                 failure = ""
                 val reportId = ReportDocumentIds.reply(uid, target.postId, target.replyId)
@@ -1219,6 +1222,9 @@ private fun ReplyReportDialog(
                     "reporterUid" to uid, "reason" to reason.trim(),
                     "createdAt" to FieldValue.serverTimestamp()
                 )).addOnCompleteListener { result ->
+                    // Outra sessão não pode receber efeito visual nem relay deste callback.
+                    if (FirebaseAuth.getInstance().currentUser?.uid != uid)
+                        return@addOnCompleteListener
                     busy = false
                     if (result.isSuccessful) {
                         InstantPushRelay.report(reportId)
