@@ -351,6 +351,55 @@ class ThreeBotsAuthenticatedAndroidUiTest {
         }
     }
 
+    @Test fun titularRegistraExclusaoNoServidorEEncontraPedidoAposNovoLogin() {
+        // Somente Auth/Firestore Emulator do projeto fictício. Nunca apaga
+        // usuários; exercita o pedido real da UI e o registro imutável.
+        check(FirebaseApp.getInstance().options.projectId == "demo-atrio-v11")
+        compose.setContent { OnlineAtrioApp(compose.activity) }
+        val uid = register("João (BOT DE TESTE)", "delete_joao")
+        val request = db.collection("account_deletion_requests").document(uid)
+
+        compose.onNodeWithTag("atrio-tab-profile").performClick()
+        waitFor("atrio-profile-list")
+        compose.onNodeWithTag("atrio-profile-list", useUnmergedTree = true)
+            .performScrollToNode(hasTestTag("atrio-account-deletion-request"))
+        waitFor("atrio-deletion-request-open", 35_000)
+        compose.onNodeWithTag("atrio-deletion-request-open")
+            .assertIsDisplayed().performClick()
+        waitFor("atrio-deletion-request-confirm")
+        compose.onNodeWithTag("atrio-deletion-request-confirm")
+            .assertIsEnabled().performClick()
+
+        // Nao aceitar a escrita local como prova: o status da interface
+        // precisa do ACK e da leitura Source.SERVER depois da gravacao.
+        waitFor("atrio-deletion-request-saved", 40_000)
+        val recorded = Tasks.await(request.get(Source.SERVER), 10, TimeUnit.SECONDS)
+        assertTrue("Pedido nao foi persistido no Firestore emulado", recorded.exists())
+        assertEquals("requested", recorded.getString("status"))
+        assertEquals("android", recorded.getString("source"))
+        assertTrue("Carimbo de tempo do servidor ausente",
+            recorded.getTimestamp("requestedAt") != null)
+        assertTrue("Leitura do pedido nao pode vir do cache",
+            !recorded.metadata.isFromCache && !recorded.metadata.hasPendingWrites())
+
+        logoutByTouch()
+        login("delete_joao")
+        assertEquals("A conta do titular mudou", uid, auth.currentUser?.uid)
+        compose.onNodeWithTag("atrio-tab-profile").performClick()
+        waitFor("atrio-profile-list")
+        compose.onNodeWithTag("atrio-profile-list", useUnmergedTree = true)
+            .performScrollToNode(hasTestTag("atrio-account-deletion-request"))
+        waitFor("atrio-deletion-request-saved", 35_000)
+        assertTrue("Nenhum segundo pedido deve ser oferecido ao titular",
+            compose.onAllNodesWithTag("atrio-deletion-request-open", useUnmergedTree = true)
+                .fetchSemanticsNodes().isEmpty())
+        val again = Tasks.await(request.get(Source.SERVER), 10, TimeUnit.SECONDS)
+        assertEquals("O pedido deve manter a data original",
+            recorded.getTimestamp("requestedAt"), again.getTimestamp("requestedAt"))
+        assertEquals("requested", again.getString("status"))
+        assertTrue("O pedido nao exclui a conta Firebase Auth", auth.currentUser != null)
+    }
+
     @Test fun claraEditaPerfilESelecionaSeloLeigaPelaTela() {
         compose.setContent { OnlineAtrioApp(compose.activity) }
         val claraUid = register("Clara (BOT DE TESTE)", "profile_clara")

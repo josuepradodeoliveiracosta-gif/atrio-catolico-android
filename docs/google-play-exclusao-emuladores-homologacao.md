@@ -37,3 +37,19 @@ com a LGPD, Play ou eliminação real.
 Manter `docs/google-play-privacidade-evidencias.json` com todas as linhas
 `verified:false` e `releaseAuthorized:false` até evidências
 operacionais distintas e revisão por responsável.
+
+## Teste de solicitação na UI do perfil — QA Auth + Firestore Emulator
+
+A suíte instrumentada `ThreeBotsAuthenticatedAndroidUiTest` inclui agora o cenário
+`titularRegistraExclusaoNoServidorEEncontraPedidoAposNovoLogin`, usando apenas
+uma conta fictícia `demo-atrio-v11` e as portas do emulador com `adb reverse`.
+O bot abre **Perfil > Exclusão de conta e dados**, confirma o pedido, aguarda
+o feedback da UI que exige leitura `Source.SERVER`, valida `status`, origem
+`android`, data gerada no servidor e ausência de gravações pendentes.
+Após sair e entrar novamente, exige que a mesma conta veja o pedido anterior,
+sem oferecer outro formulário, e que a data original não seja alterada.
+
+O teste **não apaga o usuário, mídias, conteúdo ou Firebase Auth** e não implica
+que exista executor de produção. O teste não substitui a homologação em APK
+instalado pela Play Store ou o portal externo. Nenhuma evidência `verified`
+ou autorização de release deve ser marcada por esse ensaio.
