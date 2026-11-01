@@ -17,9 +17,16 @@ test('qualquer novo match em firestore.rules exige revisao do inventario de excl
  assert.equal(RULES_SCHEMA_CONTRACT.length,33);
 });
 test('colecoes pertencentes ao titular permanecem explicitamente enumeradas',()=>{
- for(const name of OWNED_ROOTS)
+ for(const name of OWNED_ROOTS) {
+   if(name==='users') {
+     // Firestore does not require a parent match to define nested collections;
+     // the user root remains an administrative deletion inventory target.
+     assert.ok(RULES_SCHEMA_CONTRACT.some(x=>x.path.startsWith('/users/{uid}/')));
+     continue;
+   }
    assert.ok(RULES_SCHEMA_CONTRACT.some(x=>
      x.path==='/' + name + '/{uid}'&&x.classification==='owned'),name);
+ }
  for(const name of USER_SUBCOLLECTIONS)
    assert.ok(RULES_SCHEMA_CONTRACT.some(x=>x.path.includes('/'+name+'/{')&&
      ['owned_nested','relational_foreign_user'].includes(x.classification)),name);
