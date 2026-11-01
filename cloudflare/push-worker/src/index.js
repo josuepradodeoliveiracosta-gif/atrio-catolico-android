@@ -112,6 +112,15 @@ async function firestoreGet(token, path) {
   if (!res.ok) throw Error('Firestore indisponível');
   return res.json();
 }
+/** Prevent privileged moderation writes while a subject is deleting.
+ * This is a read-only preflight, NOT a durable cross-service fence: operations
+ * already in flight may still need reconciliation before Auth deletion.
+ */
+export async function pushAccountFrozen(token, uid) {
+  if(!uidPart(uid)||typeof token!=='string'||token.length===0)
+    throw Error('push_freeze_invalid_scope');
+  return Boolean(await firestoreGet(token,'account_deletion_freeze/'+enc(uid)));
+}
 async function firestoreList(token, path, max) {
   const res = await fetch(ROOT+'/'+path+'?pageSize='+max,
     {headers:{Authorization:'Bearer '+token}});
@@ -374,6 +383,10 @@ export async function handleBroadcast(request, env) {
     if (!admin || !boolField(admin,'enabled') || !founder
         || stringField(founder,'uid') !== actor)
       return response(403,'forbidden');
+    // Do not spend cooldown nor broadcast from an account being deleted.
+    // FCM topic subscribers remain a separate, unhomologated recipient risk.
+    if(await pushAccountFrozen(token,actor))
+      return response(409,'account_deletion_in_progress');
 
     // Um envio no máximo por hora, inclusive se dois aparelhos do fundador tentarem.
     // O banco realiza o teste e o bloqueio num único comando atômico.
@@ -557,6 +570,8 @@ export async function handleGuardiaoEvent(request,env) {
     const actor=await verifyIdentity(request,env);
     if(!actor) return response(401,'unauthorized');
     const service=await oauth(env);
+    if(await pushAccountFrozen(service,actor))
+      return response(409,'account_deletion_in_progress');
     const path='posts/'+enc(data.postId)+(data.type==='reply'?'/replies/'+enc(data.replyId):'');
     const doc=await firestoreGet(service,path);
     if(!doc||stringField(doc,'uid')!==actor||!recent(timeField(doc,'createdAt')))
@@ -630,6 +645,8 @@ async function firestoreCommit(service,writes) {
 export async function holdGuardiaoContent(env,service,reportId,event,document,decision) {
   if(!document?.updateTime || !document?.name ||
     !uidPart(stringField(document,'uid'))) return false;
+  // Direct callers of this helper must also respect owner freeze.
+  if(await pushAccountFrozen(service,stringField(document,'uid'))) return false;
   const report=await firestoreGet(service,'reports/'+enc(reportId));
   if(!report||stringField(report,'status')!=='pending'||
     stringField(report,'source')!=='guardiao'||
@@ -674,6 +691,8 @@ export async function handleGuardiaoReview(request,env) {
     const service=await oauth(env);
     const admin=await firestoreGet(service,'admins/'+enc(uid));
     if(!admin||!boolField(admin,'enabled')) return response(403,'not_admin');
+    if(await pushAccountFrozen(service,uid))
+      return response(409,'account_deletion_in_progress');
     const [guard,report]=await Promise.all([
       firestoreGet(service,'guardiao_quarantine/'+enc(input.caseId)),
       firestoreGet(service,'reports/'+enc(input.caseId)),
@@ -683,8 +702,11 @@ export async function handleGuardiaoReview(request,env) {
       stringField(report,'source')!=='guardiao'||
       stringField(report,'reporterUid')!=='atrio_guardiao'||
       !guard.updateTime||!report.updateTime) return response(409,'already_reviewed');
-    if(stringField(guard,'ownerUid')===uid)
-      return response(403,'self_review_forbidden');
+    const ownerUid=stringField(guard,'ownerUid');
+    if(!uidPart(ownerUid)) return response(409,'inconsistent_case');
+    if(ownerUid===uid) return response(403,'self_review_forbidden');
+    if(await pushAccountFrozen(service,ownerUid))
+      return response(409,'account_deletion_in_progress');
     const postId=stringField(guard,'postId');
     const replyId=stringField(guard,'replyId');
     const type=stringField(guard,'targetType');

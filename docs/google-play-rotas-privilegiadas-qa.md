@@ -85,3 +85,22 @@ entre FCM/Cloudinary/D1 fora do Firestore, executor de exclusão, identidade
 curta, rollback, política de retenção e serviço HTTPS. A criação do
 marcador administrativo real e o seu ciclo de vida precisam ser
 homologados. Não interpretar testes unitários como E2E em serviço ativo.
+
+
+## Push/Guardião — prevenção adicional de escrita por conta congelada (01/11/2026)
+
+O Worker Push contém o helper `pushAccountFrozen(token,uid)`, consulta
+de leitura via OAuth à coleção `account_deletion_freeze/{uid}`. HTTP 404
+significa ausência, HTTP 200 significa congelamento, e erros 401/403/5xx
+interrompem a operação (fail-closed).
+
+A nova verificação alcança: autor da denúncia automática; titular na
+quarentena; administrador e titular em `/moderation/review`; e fundador
+em `/broadcast` antes de consumir cooldown D1. Testes simulam congelamento
+e erro 503 sem criar relatório, alterar postagem ou enviar FCM.
+
+**Não declarar fencing distribuído concluído:** o preflight não é atômico
+com os efeitos posteriores. Notificações via tópico broadcast continuam
+sem supressão individual de destinatários congelados. Outros writes de
+Push, filas QA, token cleanup e operações em trânsito seguem pendentes.
+Esta revisão não executou deploy, excluiu contas ou autorizou publicação.

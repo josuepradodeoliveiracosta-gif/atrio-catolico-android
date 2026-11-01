@@ -1,7 +1,7 @@
 import test, {afterEach} from 'node:test';
 import assert from 'node:assert/strict';
 import worker, {resolveEvent, readEventBody, auditDelivery, cleanupInvalidDevice,
-  threadParticipants, writeThreadNotices, blockSafeThreadRecipients, classifyGuardiao, guardiaoAiAssessment, enrichGuardiaoReport, reserveGuardiaoAdminPush, guardiaoAutoHoldAllowed, holdGuardiaoContent} from './index.js';
+  threadParticipants, writeThreadNotices, blockSafeThreadRecipients, pushAccountFrozen, classifyGuardiao, guardiaoAiAssessment, enrichGuardiaoReport, reserveGuardiaoAdminPush, guardiaoAutoHoldAllowed, holdGuardiaoContent} from './index.js';
 
 const iso = () => new Date(Date.now() - 2000).toISOString();
 const doc = (data={}) => ({fields:Object.fromEntries(Object.entries(data).map(([key,value]) =>
@@ -285,6 +285,7 @@ test('somente fundador administrador envia a tópico FCM e há limitação de fr
   let actor='intruso';
   let isAdmin=true;
   let isFounder=false;
+  let frozen=false;
   let sent=0;
   let locked=false;
   const db={prepare(sql){
@@ -305,6 +306,8 @@ test('somente fundador administrador envia a tópico FCM e há limitação de fr
       return new Response(JSON.stringify(doc({enabled:isAdmin})),{status:200});
     if(url.endsWith('/documents/app_config/founder'))
       return new Response(JSON.stringify(doc({uid:isFounder?actor:'outro'})),{status:200});
+    if(url.endsWith('/documents/account_deletion_freeze/'+actor))
+      return frozen ? Response.json(doc({status:'draining'})) : new Response('{}',{status:404});
     if(url.includes('fcm.googleapis.com/')) {
       sent++;
       const body=JSON.parse(options.body).message;
@@ -333,7 +336,11 @@ test('somente fundador administrador envia a tópico FCM e há limitação de fr
   isAdmin=true;isFounder=false;
   assert.equal((await worker.fetch(make(),env)).status,403);
   assert.equal(sent,0);
-  isFounder=true;
+  isFounder=true;frozen=true;
+  assert.deepEqual(await (await worker.fetch(make(),env)).json(),{status:'account_deletion_in_progress'});
+  assert.equal(locked,false,'frozen founder cannot use the cooldown or FCM');
+  assert.equal(sent,0);
+  frozen=false;
   assert.deepEqual(await (await worker.fetch(make(),env)).json(),{status:'accepted_by_fcm'});
   assert.equal(sent,1);
   assert.equal((await worker.fetch(make(),env)).status,429);
@@ -763,6 +770,8 @@ test('moderador automático autentica e cria uma única denúncia com título se
       return new Response(JSON.stringify({users:[{localId:actor,disabled:false}]}),{status:200});
     if(url==='https://oauth2.googleapis.com/token')
       return new Response(JSON.stringify({access_token:'fake-oauth',expires_in:3600}),{status:200});
+    if(url.endsWith('/documents/account_deletion_freeze/maria'))
+      return new Response('{}',{status:404});
     if(url.endsWith('/documents/posts/p1'))
       return new Response(JSON.stringify(doc({uid:'maria',title:'Discussão',
         body:'Eu vou te matar amanhã.',createdAt:iso()})),{status:200});
@@ -807,7 +816,8 @@ test('moderador automático autentica e cria uma única denúncia com título se
 // ou exclusão de posts/respostas. Cada cenário isola estado e chamadas de rede.
 async function guardiaoScenario({payload={type:'reply',postId:'p1',replyId:'r1'},
   actor='maria', disabled=false, parent=true, content=true, age=2000,
-  body='Eu vou te matar amanhã.', push=false, queueStatus=200, failPush=false, ai=false}={}) {
+  body='Eu vou te matar amanhã.', push=false, queueStatus=200, failPush=false,
+  ai=false, freezeState='absent'}={}) {
   const writes=[], requests=[];
   globalThis.fetch=async(input,options={})=>{
     const url=new URL(String(input));
@@ -816,6 +826,11 @@ async function guardiaoScenario({payload={type:'reply',postId:'p1',replyId:'r1'}
       return Response.json({users:[{localId:actor,disabled}]});
     if(url.hostname==='oauth2.googleapis.com')
       return Response.json({access_token:'fake-oauth',expires_in:3600});
+    if(url.pathname.endsWith('/account_deletion_freeze/'+actor)){
+      if(freezeState==='present') return Response.json(doc({status:'draining'}));
+      if(freezeState==='unavailable') return Response.json({error:'unavailable'},{status:503});
+      return Response.json({},{status:404});
+    }
     if(url.pathname.endsWith('/posts/p1/replies/r1'))
       return Response.json(content?doc({uid:'maria',body,
         createdAt:new Date(Date.now()-age).toISOString()}):{}, {status:content?200:404});
@@ -1069,6 +1084,8 @@ test('quarentena somente por commit atômico, sem modificar fonte se denúncia n
     updateTime:iso()};
   globalThis.fetch=async(input,opts={})=>{
     const url=String(input);calls.push({url,opts});
+    if(url.endsWith('/documents/account_deletion_freeze/maria'))
+      return Response.json({},{status:404});
     if(url.endsWith('/documents/reports/guard_abc'))
       return Response.json({...doc({status:'pending',source:'guardiao',postId:'p1'}),
         name:'reports/guard_abc',updateTime:iso()});
@@ -1108,4 +1125,51 @@ test('somente admin autenticado pode decidir, sem utilizar ID de caso arbitrári
       action:'restore',note:'Contestação avaliada, conteúdo legítimo'})
   }),env);
   assert.equal(resp.status,401);
+});
+
+test('preflight Push aceita somente conta sem marker e falha fechado',async()=>{
+  const visited=[];
+  globalThis.fetch=async url=>{
+    const path=String(url).split('/documents/')[1];visited.push(path);
+    return path==='account_deletion_freeze/alice'?
+      new Response('{}',{status:404}):Response.json(doc({status:'draining'}));
+  };
+  assert.equal(await pushAccountFrozen('qa-oauth','alice'),false);
+  assert.equal(await pushAccountFrozen('qa-oauth','bob'),true);
+  assert.deepEqual(visited,['account_deletion_freeze/alice','account_deletion_freeze/bob']);
+});
+test('preflight Push rejeita escopo inválido e HTTP indisponível',async()=>{
+  let requests=0;
+  globalThis.fetch=async()=>{requests++;return Response.json({},{status:503});};
+  await assert.rejects(()=>pushAccountFrozen('fake','../admins'),/push_freeze_invalid_scope/);
+  await assert.rejects(()=>pushAccountFrozen('', 'alice'),/push_freeze_invalid_scope/);
+  assert.equal(requests,0);
+  await assert.rejects(()=>pushAccountFrozen('fake','alice'),/Firestore indisponível/);
+  assert.equal(requests,1);
+});
+test('Guardião Push: autor congelado não cria denúncia nem aciona FCM',async()=>{
+  const {status,result,writes,requests}=await guardiaoScenario({freezeState:'present',push:true});
+  assert.equal(status,409);
+  assert.deepEqual(result,{status:'account_deletion_in_progress'});
+  assert.equal(writes.length,0);
+  assert.ok(!requests.some(x=>/\/reports|fcm\.googleapis\.com/.test(x.url)));
+});
+test('Guardião Push: falha em consulta do marker não cria denúncia',async()=>{
+  const {status,result,writes,requests}=await guardiaoScenario({freezeState:'unavailable',push:true});
+  assert.equal(status,503);
+  assert.deepEqual(result,{status:'unavailable'});
+  assert.equal(writes.length,0);
+  assert.ok(!requests.some(x=>x.url.includes('fcm.googleapis.com')));
+});
+test('quarentena: owner congelado impede commit e leitura do conteúdo da denúncia',async()=>{
+  const post={...doc({uid:'maria'}),name:'posts/p1',updateTime:iso()};
+  const requests=[];
+  globalThis.fetch=async(input)=>{
+    const path=String(input);requests.push(path);
+    assert.ok(path.endsWith('/account_deletion_freeze/maria'));
+    return Response.json(doc({status:'frozen'}));
+  };
+  assert.equal(await holdGuardiaoContent({},'fake','guard_abc',
+    {type:'post',postId:'p1'},post,{code:'threat'}),false);
+  assert.equal(requests.length,1);
 });
