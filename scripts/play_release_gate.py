@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import ipaddress
+import os
 import json
 from pathlib import Path
 import re
@@ -237,6 +238,32 @@ def inspect(root: Path) -> list[str]:
                 blockers.append("play_firebase_wrong_app")
     return blockers
 
+def privacy_policy_link_blockers(root: Path, url: str) -> list[str]:
+    """Confirma somente a configuracao/local do link. Nao prova URL publicada.
+
+    O HTTPS real e o conteudo juridico exigem verificacao humana no navegador.
+    Esta checagem acontece antes de abrir o keystore da assinatura.
+    """
+    failures = []
+    if not real_https_url(url):
+        failures.append("play_public_privacy_policy_url_missing_or_invalid")
+    else:
+        parsed = urlsplit(url)
+        if parsed.query or parsed.fragment or parsed.port not in (None, 443):
+            failures.append("play_privacy_policy_url_must_be_static_https")
+    try:
+        gradle = (root / "app/build.gradle.kts").read_text(encoding="utf-8")
+        profile = (root / "app/src/main/java/br/com/atriocatolico/ProfileScreen.kt").read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return failures + ["play_privacy_policy_ui_source_missing"]
+    if 'buildConfigField("String", "PRIVACY_POLICY_URL"' not in gradle:
+        failures.append("play_privacy_policy_buildconfig_missing")
+    if ("BuildConfig.PRIVACY_POLICY_URL" not in profile or
+            'testTag("atrio-profile-privacy-policy")' not in profile):
+        failures.append("play_privacy_policy_link_in_app_missing")
+    return failures
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--audit", action="store_true")
@@ -247,6 +274,8 @@ def main():
     if args.audit == args.enforce:
         parser.error("escolha exatamente --audit OU --enforce")
     blocked = inspect(args.root)
+    blocked.extend(privacy_policy_link_blockers(
+        args.root, os.environ.get("ATRIO_PRIVACY_POLICY_URL", "")))
     print("Play closed-track AAB pre-signature preflight:", "BLOQUEADO" if blocked else
           "SEM BLOQUEIOS LOCAIS — REVISAO EXTERNA AINDA OBRIGATORIA")
     for issue in blocked:

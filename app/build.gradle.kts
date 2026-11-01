@@ -53,6 +53,23 @@ android {
         val avatarUrl = System.getenv("ATRIO_AVATAR_WORKER_URL").orEmpty()
         require(avatarUrl.isBlank() || allowed.matches(avatarUrl)) { "ATRIO_AVATAR_WORKER_URL invalida" }
         buildConfigField("String", "AVATAR_WORKER_URL", "\"$avatarUrl\"")
+        // A URL pertence ao responsavel pelo app. O release Play a exige no gate.
+        // Nenhuma politica provisoria ou link falso deve aparecer no aplicativo.
+        val policyUrl = System.getenv("ATRIO_PRIVACY_POLICY_URL").orEmpty()
+        val policyUri = runCatching { java.net.URI(policyUrl) }.getOrNull()
+        require(policyUrl.isBlank() || (
+            policyUrl.length <= 2048 &&
+            policyUri?.scheme == "https" &&
+            policyUri.host?.contains(".") == true &&
+            policyUri.userInfo == null &&
+            policyUri.query == null &&
+            policyUri.fragment == null &&
+            !policyUrl.contains('"') &&
+            !policyUrl.contains('\\') &&
+            !policyUrl.contains('\n') &&
+            !policyUrl.contains('\r')
+        )) { "ATRIO_PRIVACY_POLICY_URL deve ser uma URL HTTPS de politica publica, sem parametros" }
+        buildConfigField("String", "PRIVACY_POLICY_URL", "\"$policyUrl\"")
     }
 
     signingConfigs {

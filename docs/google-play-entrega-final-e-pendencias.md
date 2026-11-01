@@ -89,3 +89,27 @@ explícita antes de mudar o processo de lançamento.
 
 O modo CI unsigned apenas testa o algoritmo com valores fictícios.
 Não altera nenhum certificado real nem libera `releaseAuthorized`.
+
+## Acesso à política dentro do aplicativo (preparação Play)
+
+A seção **Conta e privacidade > Política de privacidade** abre no navegador a
+URL compilada no campo público `BuildConfig.PRIVACY_POLICY_URL`. Nenhuma URL é
+inventada; em builds de QA sem configuração, a variante Play informa que a
+política está pendente e não deve ser distribuída.
+
+Antes de qualquer assinatura manual, o proprietário deve configurar em
+**GitHub → Settings → Secrets and variables → Actions → Variables**:
+
+- `ATRIO_PLAY_PRIVACY_POLICY_URL`: endereço definitivo HTTPS da política
+  revisada, acessível sem login, sem parâmetros de sessão e sem bloqueio geográfico.
+
+A CI sem assinatura não usa endereço de produção. No workflow manual, a variável
+é encaminhada como `ATRIO_PRIVACY_POLICY_URL`, verificada por
+`scripts/play_release_gate.py --enforce` **antes de abrir a chave JKS** e
+incorporada ao AAB `playRelease`. Falta de URL, endereço de teste/placeholder,
+ausência do botão ou quebra na fonte bloqueiam assinatura.
+
+**Importante:** esta etapa não publica a política, não valida o conteúdo da
+página, não comprova o atendimento da LGPD e não libera exclusão de conta.
+O requisito `public_privacy_policy` permanece `verified:false` até revisão
+documentada em navegador anônimo, dentro do app e na Play Console.

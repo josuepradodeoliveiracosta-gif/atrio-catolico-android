@@ -26,6 +26,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
@@ -90,6 +91,7 @@ internal fun OnlineProfileScreen(
             LocalFounderUid.current.isNotBlank() && LocalFounderUid.current == uid
         val mine = remember(posts, uid) { posts.filter { it.mine } }
         val context = LocalContext.current
+        val uriHandler = LocalUriHandler.current
         val followedCount = if (followedRemoteEnabled) followedRemoteIds.size
             else remember(uid, followedRevision) { LocalFollowedDiscussions.ids(context, uid).size }
         LazyColumn(Modifier.fillMaxSize().testTag("atrio-profile-list"), contentPadding = PaddingValues(16.dp),
@@ -175,6 +177,18 @@ internal fun OnlineProfileScreen(
                         Text("Seu e-mail é privado. Sua apresentação só fica pública após sua autorização.",
                             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text("Átrio Católico · ${BuildConfig.ATRIO_VISIBLE_VERSION}", style = MaterialTheme.typography.labelMedium)
+                        if (BuildConfig.PRIVACY_POLICY_URL.isNotBlank()) {
+                            OutlinedButton(
+                                onClick = { uriHandler.openUri(BuildConfig.PRIVACY_POLICY_URL) },
+                                modifier = Modifier.fillMaxWidth().testTag("atrio-profile-privacy-policy")
+                            ) { Text("Política de privacidade") }
+                        } else if (BuildConfig.PLAY_STORE_BUILD) {
+                            Text(
+                                "Política de privacidade pendente. Esta compilação Play é somente para QA.",
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
                         OutlinedButton(onClick = onSignOut, modifier = Modifier.fillMaxWidth().testTag("atrio-profile-signout")) {
                             Text("Sair da conta")
                         }

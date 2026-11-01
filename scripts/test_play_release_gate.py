@@ -322,5 +322,27 @@ class ReleaseGateTests(unittest.TestCase):
             self.assertNotIn("play_firebase_config_missing", blockers)
 
 
+class PrivacyPolicyLinkTests(unittest.TestCase):
+    def test_signed_aab_requires_real_https_link_and_in_app_access(self):
+        from play_release_gate import privacy_policy_link_blockers
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "app/src/main/java/br/com/atriocatolico").mkdir(parents=True)
+            (root / "app/build.gradle.kts").write_text(
+                'buildConfigField("String", "PRIVACY_POLICY_URL", "\\"$policyUrl\\"")')
+            profile = root / "app/src/main/java/br/com/atriocatolico/ProfileScreen.kt"
+            profile.write_text('BuildConfig.PRIVACY_POLICY_URL testTag("atrio-profile-privacy-policy")')
+            valid = "https://atrio-catolico.org.br/politica-de-privacidade"
+            self.assertEqual(privacy_policy_link_blockers(root, valid), [])
+            for url in ("", "http://atrio-catolico.org.br/politica",
+                        "https://example.com/politica",
+                        "https://atrio-catolico.org.br/politica?token=abc"):
+                with self.subTest(url=url):
+                    self.assertTrue(privacy_policy_link_blockers(root, url))
+            profile.write_text("sem link")
+            self.assertIn("play_privacy_policy_link_in_app_missing",
+                          privacy_policy_link_blockers(root, valid))
+
+
 if __name__ == "__main__":
     unittest.main()
