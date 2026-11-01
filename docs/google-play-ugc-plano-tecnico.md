@@ -72,6 +72,6 @@ Os testes isolados em `cloudflare/push-worker/src/index.test.js` comprovam ausê
 
 Nenhuma alteração de Firestore Rules de produção ou dos três Workers principais deve ser aplicada automaticamente por uma aprovação de CI. Revisar e ensaiar no emulador com dois UIDs antes de qualquer distribuição. O pacote para Play e o APK OTA compartilham parte do código; avaliar regressões para os dois canais. Não mesclar esta proposta apenas por ser documentação.
 
-Estado das evidências: `docs/google-play-ugc-evidencias.json` inicia com **0/5**. A PR #71 permanece rascunho; a issue #99 continua aberta.
+Estado das evidências: `docs/google-play-ugc-evidencias.json` permanece com **0/6**; cinco controles obrigatórios antes da assinatura e um E2E somente após a instalação pela faixa fechada. A PR #71 permanece rascunho; a issue #99 continua aberta.
 
 Política oficial: https://support.google.com/googleplay/android-developer/answer/9876937
