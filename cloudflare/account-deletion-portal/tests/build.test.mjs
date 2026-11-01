@@ -42,6 +42,8 @@ test('geração pública contém apenas metadados do Firebase Web',()=>{
     const page=readFileSync(join(output,'index.html'),'utf8');
     assert.match(page,/não exclui a conta imediatamente/i);
     assert.match(page,/<form id="login-form" novalidate hidden>/);
+    assert.match(page,/<p id="reset-row" hidden>/);
+    assert.match(page,/<button id="reset" class="link" type="button">/);
     const client=readFileSync(join(output,'app.js'),'utf8');
     assert.match(client,/inMemoryPersistence/);
     assert.match(client,/getDocFromServer/);
@@ -51,6 +53,8 @@ test('geração pública contém apenas metadados do Firebase Web',()=>{
     assert.match(client,/const LIVE_INTAKE_REVIEWED_AND_APPROVED=false;/);
     assert.ok(client.includes('intakeEnabled=LIVE_INTAKE_REVIEWED_AND_APPROVED &&'));
     assert.ok(client.includes('loginForm.hidden=true'));
+    assert.ok(client.includes("resetRow.hidden=false"));
+    assert.ok(client.includes("resetRow.hidden=true"));
     assert.doesNotMatch(client,/deleteDoc|deleteUser|localStorage\.setItem/);
     const headers=readFileSync(join(output,'_headers'),'utf8');
     assert.match(headers,/Content-Security-Policy:/);

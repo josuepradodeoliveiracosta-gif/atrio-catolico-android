@@ -17,6 +17,7 @@ const password=byId('password');
 const submit=byId('login');
 const requestButton=byId('request');
 const resetButton=byId('reset');
+const resetRow=byId('reset-row');
 const logoutButton=byId('logout');
 const feedback=byId('feedback');
 const PROJECT='atrio-catolico';
@@ -49,6 +50,7 @@ if(!intakeEnabled) {
     db=getFirestore(app);
     await setPersistence(auth,inMemoryPersistence);
     loginForm.hidden=false;
+    resetRow.hidden=false;
     say('Entre com a sua conta do Átrio para registrar o pedido.');
   } catch {
     loginForm.hidden=true;
@@ -89,6 +91,7 @@ loginForm.addEventListener('submit',async event=>{
     password.value='';
     user=result.user;
     loginForm.hidden=true;
+    resetRow.hidden=true;
     actions.hidden=false;
     existing=false;
     await checkRequest();
@@ -145,6 +148,7 @@ logoutButton.addEventListener('click',async()=>{
   finally{
     user=null;existing=false;serverChecked=false;
     actions.hidden=true;loginForm.hidden=false;
+    resetRow.hidden=false;
     email.value='';password.value='';
     requestButton.hidden=true;
     lock(false);
