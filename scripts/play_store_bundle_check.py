@@ -29,6 +29,12 @@ def verify_manifest(manifest):
     app = root.find("application")
     assert app is not None, "application declaration missing"
     assert app.get(ANDROID + "debuggable") != "true", "Play bundle cannot be debuggable"
+    assert app.get(ANDROID + "allowBackup") == "false", \
+        "Play bundle must not permit unreviewed Android backup of user data"
+    assert app.get(ANDROID + "usesCleartextTraffic") != "true", \
+        "Play bundle cannot enable cleartext HTTP traffic"
+    assert app.get(ANDROID + "testOnly") != "true", \
+        "Play bundle cannot be marked testOnly"
     assert not any(x.get(ANDROID + "name") == FORBIDDEN_PROVIDER
                    for x in app.findall("provider")), \
         "Play bundle must not expose OTA APK FileProvider"
@@ -69,6 +75,12 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--project-root", default=".")
     args = p.parse_args()
+    # Python -O removes assert statements, which this security preflight relies on.
+    # Fail closed rather than claiming an unchecked bundle is safe.
+    if sys.flags.optimize:
+        print("Play AAB REPROVADO: Python otimizado desativa verificacoes de seguranca",
+              file=sys.stderr)
+        return 1
     project = Path(args.project_root)
     try:
         manifests = locate_merged_manifests(project)
