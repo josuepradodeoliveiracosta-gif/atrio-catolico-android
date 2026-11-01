@@ -1084,10 +1084,12 @@ private fun OnlineCommunity(
         }
     }
     if (reportPost != null) {
-        var reason by remember { mutableStateOf("") }
-        var sendingReport by remember(reportPost) { mutableStateOf(false) }
         val id = reportPost!!
-        AlertDialog(onDismissRequest = { reportPost = null }, title = { Text("Denunciar discussão") },
+        // O motivo pertence somente ao alvo e à sessão atual, nunca a outra denúncia.
+        var reason by remember(uid, id) { mutableStateOf("") }
+        var sendingReport by remember(uid, id) { mutableStateOf(false) }
+        AlertDialog(onDismissRequest = { if (!sendingReport) reportPost = null },
+            title = { Text("Denunciar discussão") },
             text = { Column {
                 Text("Por que esta discussão deve ser analisada?", fontSize = 13.sp)
                 Spacer(Modifier.height(8.dp))
@@ -1097,13 +1099,18 @@ private fun OnlineCommunity(
                 Text("A denúncia será enviada para análise. Não remove a publicação automaticamente.",
                     fontSize = 11.sp, color = Muted)
             } },
-            confirmButton = { TextButton(enabled = !sendingReport && reason.trim().length >= 5, onClick = {
+            confirmButton = { TextButton(enabled = !sendingReport && reason.trim().length >= 5
+                && FirebaseAuth.getInstance().currentUser?.uid == uid, onClick = {
+                if (FirebaseAuth.getInstance().currentUser?.uid != uid || reportPost != id) return@TextButton
                 sendingReport = true
                 val reportId = ReportDocumentIds.post(uid, id)
                 db.collection("reports").document(reportId).set(mapOf(
                     "postId" to id, "reporterUid" to uid,
                     "reason" to reason.trim(), "createdAt" to FieldValue.serverTimestamp()
                 )).addOnCompleteListener { result ->
+                    // Callback atrasado nao altera a tela de outra conta/alvo nem dispara relay.
+                    if (FirebaseAuth.getInstance().currentUser?.uid != uid || reportPost != id)
+                        return@addOnCompleteListener
                     sendingReport = false
                     if (result.isSuccessful) InstantPushRelay.report(reportId)
                     message = if (result.isSuccessful) "Denúncia enviada para análise da moderação." else
@@ -1111,7 +1118,8 @@ private fun OnlineCommunity(
                     if (result.isSuccessful) reportPost = null
                 }
             }, modifier = Modifier.testTag("atrio-report-post-submit")) { Text("Enviar") } },
-            dismissButton = { TextButton(onClick = { reportPost = null }) { Text("Cancelar") } })
+            dismissButton = { TextButton(enabled = !sendingReport,
+                onClick = { reportPost = null }) { Text("Cancelar") } })
     }
     if (guardianWarning != null) {
         fun dismissGuardianWarning(confirmed: Boolean) {
