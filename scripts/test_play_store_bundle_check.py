@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 import xml.etree.ElementTree as ET
 import zipfile
 
@@ -141,7 +142,7 @@ class PlayBundleSecurityTests(unittest.TestCase):
         self.merged()
         self.play_flag()
         self.bundle()
-        with unittest.mock.patch.object(sys, "argv", ["play_store_bundle_check.py",
+        with mock.patch.object(sys, "argv", ["play_store_bundle_check.py",
                                                       "--project-root", str(self.root)]):
             self.assertEqual(main(), 0)
 
@@ -150,7 +151,7 @@ class PlayBundleSecurityTests(unittest.TestCase):
         merged.write_bytes(self.manifest(backup="true").read_bytes())
         self.play_flag()
         self.bundle()
-        with unittest.mock.patch.object(sys, "argv", ["play_store_bundle_check.py",
+        with mock.patch.object(sys, "argv", ["play_store_bundle_check.py",
                                                       "--project-root", str(self.root)]):
             self.assertEqual(main(), 1)
 
