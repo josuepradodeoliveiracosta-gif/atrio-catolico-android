@@ -481,7 +481,18 @@ try {
             {role:'security',reviewer:'qa-privacy-reviewer',approved:true}
           ]},
           {...QA_ADMIN_ORDER_TEMPLATE,fixtureUid:bob},
-          {...QA_ADMIN_ORDER_TEMPLATE,retentionDecision:'unreviewed'}
+          {...QA_ADMIN_ORDER_TEMPLATE,retentionDecision:'unreviewed'},
+          {...QA_ADMIN_ORDER_TEMPLATE,request:{
+            ...QA_ADMIN_ORDER_TEMPLATE.request,source:'web'
+          }},
+          {...QA_ADMIN_ORDER_TEMPLATE,approvals:[
+            {...QA_ADMIN_ORDER_TEMPLATE.approvals[0],requestAt:'2026-10-31T13:00:00.000Z'},
+            QA_ADMIN_ORDER_TEMPLATE.approvals[1]
+          ]},
+          {...QA_ADMIN_ORDER_TEMPLATE,approvals:[
+            QA_ADMIN_ORDER_TEMPLATE.approvals[0],
+            {...QA_ADMIN_ORDER_TEMPLATE.approvals[1],requestSource:'web'}
+          ]}
         ]){
           await assert.rejects(service.execute({order}),/qa_admin_approval_required/);
         }
@@ -497,6 +508,29 @@ try {
         await allPresent(db,QA_FIXTURES.nested);
       },{request:false});
     console.log('PASS ADMIN QA reviews and identity request required');
+  });
+
+  await test('ADMIN QA: approvals cannot be replayed for another request',async()=>{
+    for(const next of [
+      {status:'requested',source:'web',
+        requestedAt:new Date('2026-10-31T12:00:00Z')},
+      {status:'requested',source:'android',
+        requestedAt:new Date('2026-10-31T13:00:00Z')}
+    ]){
+      await inDemo(async(db,aux)=>{
+        await setDoc(doc(db,'account_deletion_requests/'+alice),next);
+        const admin=new QaAdministrativeDeletionExecutor({db,...aux});
+        await assert.rejects(admin.execute({order:QA_ADMIN_ORDER_TEMPLATE}),
+          /qa_admin_order_for_another_request/);
+        assert.deepEqual(admin.executor.completed(),[]);
+        await allPresent(db,[...QA_FIXTURES.nested,...QA_FIXTURES.roots,
+          ...QA_FIXTURES.preserved]);
+        assert.equal(aux.auth.has(alice),true);
+        assert.equal(aux.auth.has(bob),true);
+        assert.equal(aux.media.has(QA_MEDIA_ID),true);
+      });
+    }
+    console.log('PASS ADMIN QA stale approvals cannot authorize fresh request');
   });
 
   await test('ADMIN QA: restart following dynamic nested cleanup is idempotent',

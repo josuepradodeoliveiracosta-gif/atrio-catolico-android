@@ -14,6 +14,9 @@ import {QaDeletionRunner} from './qa-deletion-executor.mjs';
 
 const UID='qa-delete-alice';
 const ID='qa-account-delete-alice-v1';
+const FIXTURE_REQUEST=Object.freeze({
+  source:'android',requestedAt:'2026-10-31T12:00:00.000Z'
+});
 const APPROVERS=Object.freeze({
   privacy:'qa-privacy-reviewer',
   security:'qa-security-reviewer'
@@ -31,16 +34,22 @@ function guardEnv(){
 }
 function validateOrder(order){
   if(!order || Object.getPrototypeOf(order)!==Object.prototype ||
-     Object.keys(order).sort().join(',')!=='approvals,fixtureUid,id,retentionDecision' ||
+     Object.keys(order).sort().join(',')!=='approvals,fixtureUid,id,request,retentionDecision' ||
      order.id!==ID || order.fixtureUid!==UID ||
      order.retentionDecision!=='qa_no_hold_reviewed' ||
+     !order.request || Object.getPrototypeOf(order.request)!==Object.prototype ||
+     Object.keys(order.request).sort().join(',')!=='requestedAt,source' ||
+     order.request.source!==FIXTURE_REQUEST.source ||
+     order.request.requestedAt!==FIXTURE_REQUEST.requestedAt ||
      !Array.isArray(order.approvals) || order.approvals.length!==2)
     throw Error('qa_admin_approval_required');
   const found=new Set();
   for(const approval of order.approvals){
     if(!approval || Object.getPrototypeOf(approval)!==Object.prototype ||
-       Object.keys(approval).sort().join(',')!=='approved,reviewer,role' ||
+       Object.keys(approval).sort().join(',')!=='approved,requestAt,requestSource,reviewer,role' ||
        approval.approved!==true ||
+       approval.requestAt!==order.request.requestedAt ||
+       approval.requestSource!==order.request.source ||
        !Object.hasOwn(APPROVERS,approval.role) ||
        APPROVERS[approval.role]!==approval.reviewer ||
        found.has(approval.role))
@@ -51,9 +60,12 @@ function validateOrder(order){
 }
 export const QA_ADMIN_ORDER_TEMPLATE=Object.freeze({
   id:ID,fixtureUid:UID,retentionDecision:'qa_no_hold_reviewed',
+  request:FIXTURE_REQUEST,
   approvals:Object.freeze([
-    Object.freeze({role:'privacy',reviewer:APPROVERS.privacy,approved:true}),
-    Object.freeze({role:'security',reviewer:APPROVERS.security,approved:true})
+    Object.freeze({role:'privacy',reviewer:APPROVERS.privacy,approved:true,
+      requestSource:FIXTURE_REQUEST.source,requestAt:FIXTURE_REQUEST.requestedAt}),
+    Object.freeze({role:'security',reviewer:APPROVERS.security,approved:true,
+      requestSource:FIXTURE_REQUEST.source,requestAt:FIXTURE_REQUEST.requestedAt})
   ])
 });
 
@@ -76,6 +88,9 @@ export class QaAdministrativeDeletionExecutor {
     if(!record.exists() || record.data()?.status!=='requested')
       throw Error('qa_admin_verified_request_missing');
     const requestAt=record.data()?.requestedAt?.toDate?.()?.toISOString();
+    if(record.data()?.source!==order.request.source ||
+       requestAt!==order.request.requestedAt)
+      throw Error('qa_admin_order_for_another_request');
     if(this.executor.external){
       if(typeof requestAt!=='string')
         throw Error('qa_admin_retention_request_timestamp_missing');
