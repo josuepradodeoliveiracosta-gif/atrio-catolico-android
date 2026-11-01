@@ -27,10 +27,13 @@ export const QA_WORKER_SOURCES=Object.freeze([
   {
     "service": "guardian",
     "file": "cloudflare/guardian-worker/src/index.js",
-    "gitBlob": "a4ee8ae5d1bf69b0a0dc8dfe5cb02f8cd9d4c607",
+    "gitBlob": "6389f4e5d3bf830a5517b0167ba38af6cfc66d4c",
     "mustContain": [
       "export async function processDocument(",
       "export async function guardianAccountFrozen(db, uids)",
+      "export function guardianFreezeVerifies(db,uids)",
+      "writes.push(...guardianFreezeVerifies(db,[item.owner]));",
+      "...guardianFreezeVerifies(db,[uid,owner])",
       "if(await guardianAccountFrozen(db,[item.owner]))return 'frozen';",
       "if(await guardianAccountFrozen(db,[uid,owner]))throw denial(409,'account_deletion_in_progress');",
       "export async function reviewCase(",
@@ -68,9 +71,12 @@ export const QA_WORKER_SOURCES=Object.freeze([
   {
     "service": "guardian-firestore",
     "file": "cloudflare/guardian-worker/src/firestore.js",
-    "gitBlob": "7a0082f706c1e8fc8d4003bb83f012c60f567083",
+    "gitBlob": "c2a675a7f311fdb05f952cfe7fabe3d5eb0c7a35",
     "mustContain": [
-      "commit(writes){",
+      "async commit(writes){",
+      "this.send(':beginTransaction','POST'",
+      "'?transaction='+enc(transaction)",
+      "return await this.send(':commit','POST',{writes:updates,transaction})",
       "get(path){"
     ]
   }

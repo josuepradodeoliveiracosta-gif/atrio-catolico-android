@@ -25,6 +25,20 @@ export function settingsOf(doc,env) {
  * marker explicitly. This is NOT an atomic admission/fencing protocol:
  * in-flight effects require a shared persistent coordinator before launch.
  */
+/** The Firestore adapter performs these missing-document checks within
+ * the same read-write transaction as the actual writes. Unlike a standalone
+ * REST GET preflight, this closes the marker/commit race for Firestore writes.
+ * It does NOT fence Cloudinary, FCM, other Workers or already-sent effects.
+ */
+export function guardianFreezeVerifies(db,uids){
+  if(!db||!Array.isArray(uids)||uids.length<1||uids.length>2||
+     uids.some(uid=>!VALID_ID.test(uid)))throw Error('guardian_freeze_invalid_scope');
+  const resource=db.resource||ROOT;
+  return [...new Set(uids)].map(uid=>({
+    verify:resource+'/account_deletion_freeze/'+uid,
+    currentDocument:{exists:false}
+  }));
+}
 export async function guardianAccountFrozen(db, uids) {
   if(!db || typeof db.get!=='function' || !Array.isArray(uids) ||
      uids.length<1 || uids.length>2 || uids.some(uid=>!VALID_ID.test(uid)))
@@ -81,6 +95,7 @@ export async function processDocument(db,document,settings,now=new Date().toISOS
     writes.push({delete:root+'/'+item.path,currentDocument:{updateTime:item.doc.updateTime}});
   }
   if(await guardianAccountFrozen(db,[item.owner]))return 'frozen';
+  writes.push(...guardianFreezeVerifies(db,[item.owner]));
   try{await db.commit(writes);return action;}
   catch(e){
     if(e.status===409||e.status===412){
@@ -183,6 +198,7 @@ export async function reviewCase(db,uid,input,now=new Date().toISOString()) {
     fields:{title:str('Átrio Guardião'),body:str(restored?'Seu conteúdo foi restaurado após revisão.':'A administração concluiu a revisão de sua publicação.'),
       caseId:str(input.caseId),action:str(input.action),createdAt:at}},currentDocument:{exists:false}});
   if(await guardianAccountFrozen(db,[uid,owner]))throw denial(409,'account_deletion_in_progress');
+  writes.push(...guardianFreezeVerifies(db,[uid,owner]));
   await db.commit(writes);
   return restored?'restored':'confirmed';
 }
@@ -211,6 +227,7 @@ export async function resolveReviewCase(db,uid,input,now=new Date().toISOString(
     :'A administração concluiu a análise e registrou uma orientação educativa.';
   if(await guardianAccountFrozen(db,[uid,owner]))throw denial(409,'account_deletion_in_progress');
   await db.commit([
+    ...guardianFreezeVerifies(db,[uid,owner]),
     {update:{name:c.name,fields},updateMask:{fieldPaths:Object.keys(fields)},
       currentDocument:{updateTime:c.updateTime}},
     {update:{name:root+'/guardian_audit/'+input.caseId+'_'+status,
@@ -241,7 +258,14 @@ export async function handleRequest(request,env) {
       if(await guardianAccountFrozen(db,[uid]))return json(409,'account_deletion_in_progress');
       const current=await db.get('guardian_config/policy');
       if(!current?.updateTime)return json(409,'config_not_initialized');
-      await db.update('guardian_config/policy',{enabled:{booleanValue:input.enabled},allowHold:{booleanValue:input.allowHold},emergencyStop:{booleanValue:input.emergencyStop}},current.updateTime);
+      await db.commit([
+        {update:{name:db.resource+'/guardian_config/policy',
+          fields:{enabled:{booleanValue:input.enabled},allowHold:{booleanValue:input.allowHold},
+            emergencyStop:{booleanValue:input.emergencyStop}}},
+          updateMask:{fieldPaths:['enabled','allowHold','emergencyStop']},
+          currentDocument:{updateTime:current.updateTime}},
+        ...guardianFreezeVerifies(db,[uid])
+      ]);
       return json(200,'updated');
     }
     if(path==='/admin/resolve') {

@@ -162,7 +162,56 @@ export class Firestore {
     if(!Array.isArray(result))throw Error('invalid_qa_query');
     return result.map(x=>x.document).filter(Boolean);
   }
-  commit(writes){return this.send(':commit','POST',{writes});}
+  /** The Firestore REST Write union has NO "verify" operation.
+   * Translate conditional reads into a real read-write transaction.
+   * All verified docs (including missing freeze markers) are read using
+   * the same transaction ID as the subsequent atomic Commit.
+   */
+  async commit(writes){
+    if(!Array.isArray(writes)||writes.length<1)throw Error('invalid_firestore_writes');
+    const checks=writes.filter(w=>Object.hasOwn(w,'verify'));
+    if(!checks.length)return this.send(':commit','POST',{writes});
+    const updates=writes.filter(w=>!Object.hasOwn(w,'verify'));
+    if(!updates.length)throw Error('missing_firestore_mutation');
+    const paths=[];
+    for(const check of checks){
+      if(Object.keys(check).some(k=>k!=='verify'&&k!=='currentDocument'))
+        throw Error('invalid_firestore_verify_operation');
+      const path=check.verify;
+      const prefix=this.resource+'/';
+      if(typeof path!=='string'||!path.startsWith(prefix)||
+         !/^[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)+$/.test(path.slice(prefix.length)))
+        throw Error('invalid_firestore_verify_path');
+      if(check.currentDocument?.exists!==false &&
+        !(typeof check.currentDocument?.updateTime==='string'&&
+          Number.isFinite(Date.parse(check.currentDocument.updateTime))))
+        throw Error('invalid_firestore_verify_condition');
+      paths.push([path.slice(prefix.length),check.currentDocument]);
+    }
+    const begun=await this.send(':beginTransaction','POST',{options:{readWrite:{}}});
+    const transaction=begun?.transaction;
+    if(typeof transaction!=='string'||transaction.length>4096||
+       !/^[A-Za-z0-9+/]+={0,2}$/.test(transaction))
+      throw Error('invalid_firestore_transaction');
+    try {
+      for(const [path,expected] of paths){
+        const actual=await this.send('/'+path.split('/').map(enc).join('/')+
+          '?transaction='+enc(transaction));
+        if(expected.exists===false ? actual!==null :
+          !actual||actual.updateTime!==expected.updateTime){
+          const e=Error('firestore_verified_document_changed');
+          e.status=409;
+          throw e;
+        }
+      }
+      // The transaction validates the read set AGAIN at commit time:
+      // a marker created after a missing-document GET aborts this commit.
+      return await this.send(':commit','POST',{writes:updates,transaction});
+    }catch(error){
+      try{await this.send(':rollback','POST',{transaction});}catch{}
+      throw error;
+    }
+  }
   async create(path,fields){return this.commit([{update:{name:this.resource+'/'+path,fields},currentDocument:{exists:false}}]);}
   async update(path,fields,oldTime){const keys=Object.keys(fields);return this.commit([{update:{name:this.resource+'/'+path,fields},updateMask:{fieldPaths:keys},currentDocument:{updateTime:oldTime}}]);}
 }

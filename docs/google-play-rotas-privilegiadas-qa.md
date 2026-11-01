@@ -60,3 +60,28 @@ O Guardião V2 agora consulta `account_deletion_freeze/{uid}` antes
 Esta verificação é **preventiva, não atômica**. Não implementa coordenação
  com ações já admitidas, Cloudinary, Push, D1 ou jobs legados. Não habilita
  moderação ou exclusão real; só constitui preparação para homologação.
+
+
+## 01/11/2026 — transação para precondições do Guardião
+
+**Falha descoberta:** a API REST Firestore v1 não define uma operação
+`verify` no tipo `Write`. O código antigo enviava verificações como se
+fossem writes REST normais. O adaptador passou a converter essas operações
+em leituras dentro de uma transação real (`:beginTransaction`, GET com
+`transaction`, `:commit` com o mesmo token, rollback best-effort).
+A leitura do marcador ausente e a escrita tornam-se parte da mesma
+transação serializável, impedindo que uma criação concorrente do
+`account_deletion_freeze/{uid}` passe despercebida no commit.
+
+O Guardião adiciona verificações atômicas de **ausência de marcador**
+para titular e, quando aplicável, revisor/moderador, nos commits
+de casos, auditoria, avisos, restauração, resolução e configuração.
+As verificações antigas da revisão exata de post continuam sendo
+transacionais. Testes unitários simulam precondition mismatch,
+HTTP indisponível, transação abortada, sucesso e rollback.
+
+**Ainda não homologado em produção:** workers não implantados, concorrência
+entre FCM/Cloudinary/D1 fora do Firestore, executor de exclusão, identidade
+curta, rollback, política de retenção e serviço HTTPS. A criação do
+marcador administrativo real e o seu ciclo de vida precisam ser
+homologados. Não interpretar testes unitários como E2E em serviço ativo.
