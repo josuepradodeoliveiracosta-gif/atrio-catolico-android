@@ -186,13 +186,12 @@ private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
 @Composable
 private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: FirebaseUser) {
     val uid = user.uid
-    // Firebase Auth mantém displayName entre logins: ele evita que o
-    // usuário fique preso no carregamento enquanto o listener do perfil
-    // reconecta após logout/login da mesma conta.
-    val authName = user.displayName?.trim().orEmpty().takeIf { it.isNotBlank() }
-    var name by remember(uid) { mutableStateOf<String?>(authName) }
+    // Nome de Firebase Auth e snapshots com escrita pendente não provam que
+    // profiles/{uid} foi persistido. A comunidade só pode abrir após uma
+    // confirmação do Firestore pelo servidor para a sessão atual.
+    var name by remember(uid) { mutableStateOf<String?>(null) }
     var biography by remember(uid) { mutableStateOf("") }
-    var profileLoading by remember(uid) { mutableStateOf(authName == null) }
+    var profileLoading by remember(uid) { mutableStateOf(true) }
     var error by remember(uid) { mutableStateOf("") }
     val context = LocalContext.current
     var photoRevision by remember(uid) { mutableIntStateOf(0) }
@@ -232,25 +231,30 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
         var active = true
         val profile = db.collection("profiles").document(uid)
         fun showProfile(snapshot: DocumentSnapshot?) {
-            if (!active) return
+            if (!active || auth.currentUser?.uid != uid || snapshot == null) return
+            // Um snapshot local pode incluir escrita de cadastro ainda sem
+            // confirmação remota. Nunca liberar publicação baseado nesse estado.
+            if (snapshot.metadata.isFromCache || snapshot.metadata.hasPendingWrites()) return
             profileLoading = false
-            if (snapshot?.exists() == true) {
-                val found = snapshot.getString("displayName")?.trim().orEmpty()
-                if (found.isNotBlank()) {
-                    name = found
-                    biography = snapshot.getString("bio").orEmpty()
-                    error = ""
-                }
+            val found = if (snapshot.exists()) {
+                snapshot.getString("displayName")?.trim().orEmpty()
+            } else ""
+            if (found.isNotBlank()) {
+                name = found
+                biography = snapshot.getString("bio").orEmpty()
+                error = ""
+            } else {
+                name = null
+                error = "Seu perfil ainda não foi confirmado. Conclua o cadastro para participar."
             }
-            // Não apagar o nome após receber um snapshot temporariamente
-            // vazio: a restauração do cache pode anteceder a resposta remota.
         }
         val registration = profile.addSnapshotListener { snapshot, failure ->
-            if (!active) return@addSnapshotListener
+            if (!active || auth.currentUser?.uid != uid) return@addSnapshotListener
             if (failure != null) {
                 error = "Erro ao sincronizar perfil. Verifique sua conexão."
-                // Não ficar no spinner infinito nem derrubar sessão autenticada.
-                if (name != null) profileLoading = false
+                // Disponibiliza uma nova tentativa sem permitir acesso ao feed
+                // com um nome local ainda não confirmado.
+                profileLoading = false
             } else {
                 showProfile(snapshot)
             }
@@ -259,11 +263,11 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
         // A leitura direta completa a inicialização se não houver snapshot.
         profile.get(com.google.firebase.firestore.Source.SERVER)
             .addOnCompleteListener { result ->
-                if (!active) return@addOnCompleteListener
+                if (!active || auth.currentUser?.uid != uid) return@addOnCompleteListener
                 if (result.isSuccessful) showProfile(result.result)
-                else if (name == null) {
+                else {
                     profileLoading = false
-                    error = "Não foi possível carregar seu perfil. Tente novamente."
+                    error = "Não foi possível confirmar seu perfil no servidor. Verifique a conexão."
                 }
             }
         onDispose { active = false; registration.remove() }
@@ -280,7 +284,8 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
             Text("Escolha o nome que aparecerá em suas discussões.", color = Muted)
             Spacer(Modifier.height(15.dp))
             OutlinedTextField(newName, { if (it.length <= 35) newName = it },
-                label = { Text("Nome público") }, modifier = Modifier.fillMaxWidth())
+                label = { Text("Nome público") },
+                modifier = Modifier.fillMaxWidth().testTag("atrio-profile-finish-name"))
             if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
             Spacer(Modifier.height(12.dp))
             Button(enabled = !saving && newName.trim().length >= 2, onClick = {
@@ -288,10 +293,15 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
                 db.collection("profiles").document(uid).set(mapOf(
                     "displayName" to newName.trim(), "createdAt" to FieldValue.serverTimestamp()
                 )).addOnCompleteListener { task ->
+                    if (auth.currentUser?.uid != uid) return@addOnCompleteListener
                     saving = false
-                    if (!task.isSuccessful) error = task.exception?.localizedMessage ?: "Não foi possível salvar."
+                    if (!task.isSuccessful) {
+                        error = "Não foi possível confirmar o perfil. Confira a conexão e tente novamente."
+                    }
                 }
-            }, modifier = Modifier.fillMaxWidth()) { Text("Começar") }
+            }, modifier = Modifier.fillMaxWidth().testTag("atrio-profile-finish")) {
+                Text(if (saving) "Confirmando..." else "Começar")
+            }
             TextButton(onClick = { BackgroundNoticeScheduler.disable(context, uid); PushRegistry.deactivate(context, uid, db); auth.signOut() }) { Text("Sair desta conta") }
         }
     } else {

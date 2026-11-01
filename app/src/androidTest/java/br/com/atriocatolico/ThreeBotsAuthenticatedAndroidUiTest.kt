@@ -16,6 +16,7 @@ import androidx.compose.ui.test.printToString
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
 import com.google.android.gms.tasks.Tasks
@@ -114,6 +115,25 @@ class ThreeBotsAuthenticatedAndroidUiTest {
             check(FirebaseApp.getInstance().options.projectId == "demo-atrio-v11")
             android.util.Log.w("AtrioQaAuth", "temporary_signup_error_retry_once_emulator")
             compose.onNodeWithTag("atrio-auth-submit").assertIsEnabled().performClick()
+        }
+        // O app só deve liberar o feed após o Firestore confirmar o perfil.
+        // Se um cadastro ficar incompleto (por exemplo, sessão trocada),
+        // o usuário pode concluir pela própria UI; não gravar fixtures pelo teste.
+        compose.waitUntil(45_000) {
+            compose.onAllNodesWithTag("atrio-tab-publish", useUnmergedTree = true)
+                .fetchSemanticsNodes().isNotEmpty() ||
+                compose.onAllNodesWithTag("atrio-profile-finish", useUnmergedTree = true)
+                    .fetchSemanticsNodes().isNotEmpty()
+        }
+        if (compose.onAllNodesWithTag("atrio-profile-finish", useUnmergedTree = true)
+                .fetchSemanticsNodes().isNotEmpty()) {
+            check(FirebaseApp.getInstance().options.projectId == "demo-atrio-v11")
+            compose.onNodeWithTag("atrio-profile-finish-name")
+                .performTextClearance()
+            compose.onNodeWithTag("atrio-profile-finish-name")
+                .performTextInput(name)
+            compose.onNodeWithTag("atrio-profile-finish")
+                .assertIsEnabled().performClick()
         }
         waitFor("atrio-tab-publish", 45_000)
         val currentUser = auth.currentUser ?: error("Login Firebase não criou usuário")
