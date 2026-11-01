@@ -6,7 +6,7 @@ test('os três bots são transparentes, independentes e sem privilégios',()=>{
   assert.deepEqual(QA_BOTS.map(x=>x.uid),[
     'qa_clara_v19','qa_miguel_v19','qa_lucia_v19']);
   assert.equal(new Set(QA_BOTS.map(x=>x.uid)).size,3);
-  for(const bot of QA_BOTS)assert.match(bot.name,/\\(BOT DE TESTE\\)/);
+  for(const bot of QA_BOTS)assert.ok(bot.name.includes('(BOT DE TESTE)'));
 });
 test('uma solicitação cria no máximo 1 discussão, 2 respostas e 2 avisos internos',()=>{
   const plan=planQaSession('solicitacao001',new Date('2026-10-26T20:00:00Z'));
