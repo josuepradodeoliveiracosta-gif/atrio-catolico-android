@@ -104,3 +104,17 @@ com os efeitos posteriores. Notificações via tópico broadcast continuam
 sem supressão individual de destinatários congelados. Outros writes de
 Push, filas QA, token cleanup e operações em trânsito seguem pendentes.
 Esta revisão não executou deploy, excluiu contas ou autorizou publicação.
+
+
+### 01/11/2026 — Push administrativo e destinatários em exclusão
+
+A triagem do Guardião mantém o registro da denúncia mesmo que um
+administrador esteja congelado ou que a consulta de seu marcador falhe.
+O envio FCM administrativo é suprimido antes da lista de dispositivos.
+Dois cenários de QA verificam esse comportamento; um terceiro verifica
+que o fundador congelado não consome o cooldown D1 de broadcast.
+
+Continuam **fora da homologação** a entrega por tópicos FCM (sem filtro
+individual de inscritos), as filas e eventos já em trânsito e a coordenação
+persistente com Cloudinary/D1. São verificações preventivas, não fencing
+atômico em produção. Nenhum deploy foi realizado.

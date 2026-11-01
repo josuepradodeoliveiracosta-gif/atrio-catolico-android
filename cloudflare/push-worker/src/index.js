@@ -613,6 +613,10 @@ export async function handleGuardiaoEvent(request,env) {
     try {
       if(env.PUSH_ENABLED==='true' && await reserveGuardiaoAdminPush(env.PUSH_DB))
       for(const admin of await adminUids(service,actor)) {
+        // Notification recipients in an account deletion must not receive
+        // new admin FCM. An unavailable marker read suppresses delivery,
+        // without losing the already persisted moderation report.
+        if(await pushAccountFrozen(service,admin))continue;
         for(const device of await devices(service,admin)) {
           const delivered=await send(service,device.token,admin,'admin');
           if(!delivered.ok) await cleanupInvalidDevice(service,device,delivered);

@@ -817,7 +817,7 @@ test('moderador automático autentica e cria uma única denúncia com título se
 async function guardiaoScenario({payload={type:'reply',postId:'p1',replyId:'r1'},
   actor='maria', disabled=false, parent=true, content=true, age=2000,
   body='Eu vou te matar amanhã.', push=false, queueStatus=200, failPush=false,
-  ai=false, freezeState='absent'}={}) {
+  ai=false, freezeState='absent', adminFreezeState='absent'}={}) {
   const writes=[], requests=[];
   globalThis.fetch=async(input,options={})=>{
     const url=new URL(String(input));
@@ -829,6 +829,11 @@ async function guardiaoScenario({payload={type:'reply',postId:'p1',replyId:'r1'}
     if(url.pathname.endsWith('/account_deletion_freeze/'+actor)){
       if(freezeState==='present') return Response.json(doc({status:'draining'}));
       if(freezeState==='unavailable') return Response.json({error:'unavailable'},{status:503});
+      return Response.json({},{status:404});
+    }
+    if(url.pathname.endsWith('/account_deletion_freeze/admin1')){
+      if(adminFreezeState==='present')return Response.json(doc({status:'draining'}));
+      if(adminFreezeState==='unavailable')return Response.json({error:'unavailable'},{status:503});
       return Response.json({},{status:404});
     }
     if(url.pathname.endsWith('/posts/p1/replies/r1'))
@@ -1172,4 +1177,20 @@ test('quarentena: owner congelado impede commit e leitura do conteúdo da denún
   assert.equal(await holdGuardiaoContent({},'fake','guard_abc',
     {type:'post',postId:'p1'},post,{code:'threat'}),false);
   assert.equal(requests.length,1);
+});
+
+test('notificacao de denuncia exclui administrador congelado sem perder denuncia',async()=>{
+ const x=await guardiaoScenario({push:true,adminFreezeState:'present'});
+ assert.deepEqual(x.result,{status:'queued_for_review'});
+ assert.equal(x.writes.length,1);
+ assert.ok(x.requests.some(r=>r.url.endsWith('/account_deletion_freeze/admin1')));
+ assert.ok(!x.requests.some(r=>r.url.endsWith('/users/admin1/pushDevices')));
+ assert.ok(!x.requests.some(r=>r.url.includes('fcm.googleapis.com')));
+});
+test('consulta indisponivel de admin impede FCM mas nao apaga denuncia ja criada',async()=>{
+ const x=await guardiaoScenario({push:true,adminFreezeState:'unavailable'});
+ assert.deepEqual(x.result,{status:'queued_for_review'});
+ assert.equal(x.writes.length,1);
+ assert.ok(!x.requests.some(r=>r.url.endsWith('/users/admin1/pushDevices')));
+ assert.ok(!x.requests.some(r=>r.url.includes('fcm.googleapis.com')));
 });

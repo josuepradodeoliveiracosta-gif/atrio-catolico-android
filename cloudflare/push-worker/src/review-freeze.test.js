@@ -126,3 +126,36 @@ test('UID de titular incorreto recusa revisao em vez de ampliar escopo',async()=
  assert.deepEqual(await response.json(),{status:'inconsistent_case'});
  assert.equal(x.commits.length,0);
 });
+
+test('broadcast: fundador congelado nao consome limite D1 nem dispara FCM',async()=>{
+ const requests=[];
+ globalThis.fetch=async(input,options={})=>{
+   const url=String(input);
+   requests.push(url);
+   if(url.startsWith('https://identitytoolkit.googleapis.com/'))
+     return Response.json({users:[{localId:'moderador',disabled:false}]});
+   if(url==='https://oauth2.googleapis.com/token')
+     return Response.json({access_token:'qa-only',expires_in:3600});
+   if(url.endsWith('/admins/moderador'))
+     return Response.json({fields:{enabled:{booleanValue:true}}});
+   if(url.endsWith('/app_config/founder'))
+     return Response.json({fields:{uid:{stringValue:'moderador'}}});
+   if(url.endsWith('/account_deletion_freeze/moderador'))
+     return Response.json({fields:{status:{stringValue:'draining'}}});
+   throw Error('broadcast must not reach external sink');
+ };
+ const env={PUSH_ENABLED:'true',BROADCAST_ENABLED:'true',
+   FIREBASE_WEB_API_KEY:'qa-only',FIREBASE_SERVICE_ACCOUNT_JSON:service,
+   PUSH_DB:{prepare(){throw Error('should not consume cooldown')}}};
+ const request=new Request('https://test.invalid/broadcast',{method:'POST',
+   headers:{Authorization:'Bearer '+'x'.repeat(120)},
+   body:JSON.stringify({
+     title:'Comunicado sintético',
+     body:'Mensagem exclusivamente fictícia para testar o bloqueio seguro.',
+     requestId:'c1247c32-96ed-4e36-8e40-223344556677'
+   })});
+ const result=await (await import('./index.js')).default.fetch(request,env);
+ assert.equal(result.status,409);
+ assert.deepEqual(await result.json(),{status:'account_deletion_in_progress'});
+ assert.ok(!requests.some(x=>x.includes('fcm.googleapis.com')));
+});
