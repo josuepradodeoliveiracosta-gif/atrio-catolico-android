@@ -98,14 +98,16 @@ service cloud.firestore {
     // Interacoes derivadas de publicacoes devem respeitar bloqueio bilateral.
     function mayEngageWithPost(actorUid, postId) {
       let post = /databases/$(database)/documents/posts/$(postId);
-      return exists(post)
+      // A leitura do documento canonico já valida sua existência; evita
+      // um exists extra e preserva os limites de acesso das Security Rules.
+      return validId(get(post).data.uid)
         && canMembersInteract(actorUid, get(post).data.uid);
     }
     // Reacao a resposta nao deve contornar bloqueio do autor ou do comentarista.
     function mayReactToReply(actorUid, postId, replyId) {
       let reply = /databases/$(database)/documents/posts/$(postId)/replies/$(replyId);
       return mayEngageWithPost(actorUid, postId)
-        && exists(reply)
+        && validId(get(reply).data.uid)
         && canMembersInteract(actorUid, get(reply).data.uid);
     }
     // A decisão de uma resposta não pode apagar nem alterar a publicação principal.
@@ -364,7 +366,6 @@ service cloud.firestore {
           allow get, list: if signedIn();
           allow create: if me(uid) && accountWritable(uid)
             && mayReactToReply(uid, postId, replyId)
-            && exists(/databases/$(database)/documents/posts/$(postId)/replies/$(replyId))
             && accountWritable(get(/databases/$(database)/documents/posts/$(postId)).data.uid)
             && accountWritable(get(/databases/$(database)/documents/posts/$(postId)/replies/$(replyId)).data.uid)
             && request.resource.data.keys().hasOnly(['kind', 'createdAt'])
@@ -373,7 +374,6 @@ service cloud.firestore {
             && request.resource.data.createdAt == request.time;
           allow update: if me(uid) && accountWritable(uid)
             && mayReactToReply(uid, postId, replyId)
-            && exists(/databases/$(database)/documents/posts/$(postId)/replies/$(replyId))
             && accountWritable(get(/databases/$(database)/documents/posts/$(postId)).data.uid)
             && accountWritable(get(/databases/$(database)/documents/posts/$(postId)/replies/$(replyId)).data.uid)
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['kind'])
