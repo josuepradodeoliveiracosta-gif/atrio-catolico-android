@@ -83,7 +83,9 @@ jobs:
       - name: Testar auditoria e simulador de exclusão sem produção
         run: node --experimental-sqlite --test cloudflare/account-deletion-audit/src/*.test.js cloudflare/account-deletion-processor/src/*.test.mjs tests/security/account-deletion-web.test.mjs
       - name: Testar leases, fencing e checkpoint SQLite offline
-        run: node --experimental-sqlite --test tests/security/qa-deletion-sqlite-lease.test.mjs
+        run: |
+          node --experimental-sqlite --test tests/security/qa-deletion-sqlite-lease.test.mjs
+          node --experimental-sqlite --test tests/security/admin-fixture/qa-request-case-registry.test.mjs
       - name: Conferir privacidade para a Play sem liberar publicação
         run: |
           node --test scripts/play_privacy_gate.test.mjs scripts/play_closed_track_status.test.mjs
