@@ -160,9 +160,20 @@ export async function blockSafeThreadRecipients(token, actorUid, recipientUids) 
       || recipientUids.length > THREAD_BLOCK_SAFE_MAX_RECIPIENTS
       || recipientUids.some(uid => !uidPart(uid)))
     throw Error('block_safe_capacity_or_invalid');
+  // Defence in depth: accounts undergoing deletion must not create or
+  // receive fresh reply notifications. Unlike Firestore client rules,
+  // this check also applies to privileged Worker writes.
+  // This read alone is NOT a durable cross-service fence: an admin
+  // coordinator must still drain in-flight operations before deletion.
+  if (await firestoreGet(token,'account_deletion_freeze/'+enc(actorUid)))
+    return [];
   const allowed=[];
   for (const uid of [...new Set(recipientUids)]) {
     if (uid===actorUid) continue;
+    // Missing marker (404) means not frozen. Any other read failure throws,
+    // suppressing the entire event instead of allowing a bypass.
+    if (await firestoreGet(token,'account_deletion_freeze/'+enc(uid)))
+      continue;
     const [actorBlockedRecipient, recipientBlockedActor] = await Promise.all([
       firestoreGet(token,'users/'+enc(actorUid)+'/blockedMembers/'+enc(uid)),
       firestoreGet(token,'users/'+enc(uid)+'/blockedMembers/'+enc(actorUid)),

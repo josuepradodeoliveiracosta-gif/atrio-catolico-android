@@ -469,6 +469,35 @@ test('modo seguro entrega somente destinatarios que nao se bloquearam',async()=>
   assert.deepEqual(await blockSafeThreadRecipients('fake','autor',
     ['dono','joao','maria','autor','dono']),['dono']);
 });
+test('fencing preventivo nao envia aviso a destinatario congelado',async()=>{
+  mocked({
+    'account_deletion_freeze/joao':doc({status:'frozen'}),
+    'users/autor/blockedMembers/maria':doc({createdAt:iso()}),
+  });
+  assert.deepEqual(await blockSafeThreadRecipients('fake','autor',
+    ['dono','joao','maria']),['dono']);
+});
+test('fencing preventivo ignora remetente congelado sem consultar destinatarios',async()=>{
+  const visited=[];
+  globalThis.fetch=async url=>{
+    visited.push(decodeURIComponent(new URL(String(url)).pathname).split('/documents/')[1]);
+    if(visited.at(-1)==='account_deletion_freeze/autor')
+      return Response.json(doc({status:'draining'}));
+    throw Error('nao consultar outros usuarios');
+  };
+  assert.deepEqual(await blockSafeThreadRecipients('fake','autor',['dono']),[]);
+  assert.deepEqual(visited,['account_deletion_freeze/autor']);
+});
+test('fencing preventivo falha fechado quando marcador nao pode ser lido',async()=>{
+  globalThis.fetch=async url=>{
+    const path=decodeURIComponent(new URL(String(url)).pathname).split('/documents/')[1];
+    if(path==='account_deletion_freeze/autor')return new Response('{}',{status:404});
+    if(path==='account_deletion_freeze/dono')return new Response('{}',{status:503});
+    throw Error('nao consultar bloqueios apos falha de freeze');
+  };
+  await assert.rejects(()=>blockSafeThreadRecipients('fake','autor',['dono']),
+    /Firestore indisponível/);
+});
 test('modo seguro falha fechado se bloqueio privado nao puder ser consultado',async()=>{
   globalThis.fetch=async()=>new Response('{}',{status:503});
   await assert.rejects(

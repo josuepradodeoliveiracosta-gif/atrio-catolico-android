@@ -38,3 +38,23 @@ O fluxo de respostas agora usa obrigatoriamente `blockSafeThreadRecipients()` pa
 A habilitação em produção depende de plano de compatibilidade com APKs já instalados, testes de carga/limites de subrequests, e aprovação de mudança do serviço. **Reimplantar uma revisão antiga do Worker NÃO é um rollback seguro enquanto usuários tiverem bloqueios**, porque reativaria broadcast tópico sem controle por destinatário. Em um incidente, preferir suspender *envios de respostas* de forma controlada até restaurar o filtro, preservando o restante dos dados e a triagem da comunidade. O rollout deve ter circuito de corte seguro e plano de acompanhamento humano.
 
 Apenas equipes com acesso autorizado podem publicar o Worker; nenhuma chave de serviço deve ser adicionada ao GitHub, ao APK ou a este documento.
+
+
+## Bloqueio preventivo para conta em exclusão — PR #71
+
+A função `blockSafeThreadRecipients()` passou a consultar
+`account_deletion_freeze/{uid}` para remetente e destinatários antes
+de fazer envios individuais ou gravar novas notificações de resposta.
+Um marcador existente suprime o destinatário; se o remetente estiver
+congelado, suprime todo o evento. Uma falha de consulta (diferente de
+404) interrompe o evento com erro, sem tratar ausência de conexão como
+ausência de congelamento. São três testes novos com Firestore simulado:
+destinatário congelado, remetente congelado e falha de leitura.
+
+**Limites:** esta é uma verificação preventiva, não um mecanismo de
+exclusão atômica. Não impede uma escrita que já estava em trânsito ou
+uma operação privilegiada iniciada após a leitura do marcador. Precisa
+de barreira persistente coordenada com Admin SDK e com os demais
+Workers, e de auditoria de filas/cron/broadcast. A regra Firestore para
+o marcador também não foi implantada na produção. Não declarar
+`worker_freeze` nem `push_block_safe_delivery` como homologados.
