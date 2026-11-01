@@ -345,5 +345,56 @@ class PrivacyPolicyLinkTests(unittest.TestCase):
                           privacy_policy_link_blockers(root, valid))
 
 
+class AccountDeletionPortalGateTests(unittest.TestCase):
+    def test_separate_external_url_and_approved_intake_are_required(self):
+        from play_release_gate import account_deletion_portal_blockers
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            portal = root / "cloudflare/account-deletion-portal/public/app.js"
+            portal.parent.mkdir(parents=True)
+            canonical = (
+                "const LIVE_INTAKE_REVIEWED_AND_APPROVED=false;\n"
+                "const intakeEnabled=LIVE_INTAKE_REVIEWED_AND_APPROVED &&\n"
+                "  window.ATRIO_PORTAL_STATUS?.intakeEnabled===true &&\n"
+                "  window.ATRIO_PORTAL_STATUS?.actualDeletionEnabled===true;\n"
+            )
+            portal.write_text(canonical, encoding="utf-8")
+            valid = "https://exclusao.atrio-catolico.org.br/solicitar"
+            self.assertIn(
+                "play_deletion_portal_intake_not_approved",
+                account_deletion_portal_blockers(root, valid)
+            )
+            for url in (
+                "", "http://exclusao.atrio-catolico.org.br/",
+                "https://example.org/solicitar",
+                "https://localhost/solicitar",
+                "https://exclusao.atrio-catolico.org.br:444/solicitar",
+                "https://exclusao.atrio-catolico.org.br/solicitar?token=abc",
+                "https://exclusao.atrio-catolico.org.br/solicitar#login"
+            ):
+                with self.subTest(url=url):
+                    self.assertTrue(account_deletion_portal_blockers(root, url))
+            # Only a deliberate, reviewed code change may unlock the
+            # static interlock; it still requires external deploy evidence.
+            portal.write_text(canonical.replace(
+                "LIVE_INTAKE_REVIEWED_AND_APPROVED=false;",
+                "LIVE_INTAKE_REVIEWED_AND_APPROVED=true;"
+            ), encoding="utf-8")
+            self.assertEqual(account_deletion_portal_blockers(root, valid), [])
+            portal.write_text(
+                "const LIVE_INTAKE_REVIEWED_AND_APPROVED=true;",
+                encoding="utf-8"
+            )
+            self.assertIn(
+                "play_deletion_portal_backend_fence_missing",
+                account_deletion_portal_blockers(root, valid)
+            )
+            portal.unlink()
+            self.assertIn(
+                "play_deletion_portal_source_missing",
+                account_deletion_portal_blockers(root, valid)
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -268,6 +268,44 @@ def privacy_policy_link_blockers(root: Path, url: str) -> list[str]:
     return failures
 
 
+def account_deletion_portal_blockers(root: Path, url: str) -> list[str]:
+    """Pre-signature gate for the *separate* Google Play deletion web URL.
+
+    Deliberately fail closed until the repository's portal has undergone
+    explicit code review and has been enabled. Static checks are not evidence
+    that the HTTPS site is deployed or that an actual deletion succeeds.
+    """
+    failures = []
+    if not real_https_url(url):
+        failures.append("play_deletion_portal_url_missing_or_invalid")
+    else:
+        try:
+            parsed = urlsplit(url)
+            invalid = bool(parsed.query or parsed.fragment or
+                           parsed.port not in (None, 443))
+        except ValueError:
+            invalid = True
+        if invalid:
+            failures.append("play_deletion_portal_url_must_be_static_https")
+    portal = root / "cloudflare/account-deletion-portal/public/app.js"
+    try:
+        source = portal.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        failures.append("play_deletion_portal_source_missing")
+        return failures
+    # Merely passing a URL, setting an environment variable or forging a
+    # manifest cannot bypass this deliberate source-code release interlock.
+    if not re.search(
+        r"(?m)^\s*const LIVE_INTAKE_REVIEWED_AND_APPROVED\s*=\s*true\s*;",
+        source
+    ):
+        failures.append("play_deletion_portal_intake_not_approved")
+    if ("window.ATRIO_PORTAL_STATUS?.intakeEnabled===true" not in source or
+            "window.ATRIO_PORTAL_STATUS?.actualDeletionEnabled===true" not in source):
+        failures.append("play_deletion_portal_backend_fence_missing")
+    return failures
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--audit", action="store_true")
@@ -280,6 +318,8 @@ def main():
     blocked = inspect(args.root)
     blocked.extend(privacy_policy_link_blockers(
         args.root, os.environ.get("ATRIO_PRIVACY_POLICY_URL", "")))
+    blocked.extend(account_deletion_portal_blockers(
+        args.root, os.environ.get("ATRIO_DELETION_PORTAL_URL", "")))
     print("Play closed-track AAB pre-signature preflight:", "BLOQUEADO" if blocked else
           "SEM BLOQUEIOS LOCAIS — REVISAO EXTERNA AINDA OBRIGATORIA")
     for issue in blocked:

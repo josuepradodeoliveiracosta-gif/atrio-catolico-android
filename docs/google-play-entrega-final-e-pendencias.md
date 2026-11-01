@@ -113,3 +113,27 @@ ausência do botão ou quebra na fonte bloqueiam assinatura.
 página, não comprova o atendimento da LGPD e não libera exclusão de conta.
 O requisito `public_privacy_policy` permanece `verified:false` até revisão
 documentada em navegador anônimo, dentro do app e na Play Console.
+
+## Novo bloqueio pré-assinatura: portal web externo obrigatório
+
+O controle manual `scripts/play_release_gate.py --enforce` agora também exige
+a variável pública `ATRIO_PLAY_DELETION_PORTAL_URL` no GitHub Actions
+(Settings → Secrets and variables → Actions → Variables), repassada ao script
+como `ATRIO_DELETION_PORTAL_URL`. Ela deve ser a **URL HTTPS definitiva
+do formulário web de exclusão**, sem credenciais, query string, fragmento,
+endereço local ou domínio fictício. Não confundir com a URL da política
+`ATRIO_PLAY_PRIVACY_POLICY_URL`.
+
+O gate bloqueia assinatura se o arquivo do portal estiver ausente,
+se o intertravamento explícito `LIVE_INTAKE_REVIEWED_AND_APPROVED`
+continuar `false`, ou se os dois controles de backend
+`intakeEnabled` e `actualDeletionEnabled` tiverem sido removidos.
+Essas verificações são locais e **não comprovam implantação, funcionamento,
+autenticação do titular nem exclusão real**. São necessárias verificações
+independentes em navegador anônimo, teste E2E do pedido, processamento
+efetivo, política jurídica aprovada e evidência assinada pelo responsável.
+
+**Não ativar o formulário para passar no teste**: o executor de exclusão,
+as garantias distribuídas de privacidade e a retenção ainda precisam ser
+homologados. Não mudar `verified:false` ou `releaseAuthorized:false`
+para contornar o gate.
