@@ -154,6 +154,54 @@ test('external avatar public IDs and Firebase Auth keys must match the account',
   assert.equal(plan(authWrong).safeToExecute,false);
 });
 
+test('inventory completeness flags are mandatory and fail closed when unknown',()=>{
+  for (const [key,blocker] of [
+    ['hasUnknownCollections','unknown_collections_present'],
+    ['hasLegalHold','inventory_assurance_missing:hasLegalHold'],
+    ['contentReferencesUnresolved','references_to_others_unresolved'],
+    ['mediaStateUncertain','cloudinary_state_unverified']
+  ]) {
+    const missing=inventory();
+    delete missing[key];
+    assert.ok(plan(missing).blockers.includes('inventory_assurance_missing:'+key));
+    const undefinedValue=inventory();
+    undefinedValue[key]=null;
+    assert.ok(plan(undefinedValue).blockers.includes('inventory_assurance_missing:'+key));
+    const unexpected=inventory();
+    unexpected[key]='false';
+    assert.ok(plan(unexpected).blockers.includes('inventory_assurance_missing:'+key));
+    if(key!=='hasLegalHold') {
+      const present=inventory();
+      present[key]=true;
+      assert.ok(plan(present).blockers.includes(blocker));
+    }
+  }
+  assert.deepEqual(plan().blockers,[]);
+  assert.equal(plan({...inventory(),hasLegalHold:true}).safeToExecute,false);
+});
+
+test('claimed full scope inventory rejects duplicate, extra and unknown scopes',()=>{
+  const a=inventory();
+  a.scopesComplete.push(a.scopesComplete[0]);
+  assert.ok(plan(a).blockers.includes('unverified_external_or_relational_scope'));
+  const b=inventory();
+  b.scopesComplete[0]='made_up_scope';
+  assert.ok(plan(b).blockers.includes('unverified_external_or_relational_scope'));
+  const c=inventory();
+  c.scopesComplete.push('additional_fake_scope');
+  assert.ok(plan(c).blockers.includes('unverified_external_or_relational_scope'));
+  assert.deepEqual(plan().blockers,[]);
+});
+
+test('duplicate external resources and empty identifiers block',()=>{
+  const a=inventory();
+  a.externalResources.push({...a.externalResources[0]});
+  assert.ok(plan(a).blockers.includes('duplicate_external_resource'));
+  const b=inventory();
+  b.externalResources=[{ownerUid:uid,scope:'fcm_devices',key:''}];
+  assert.ok(plan(b).blockers.includes('external_resource_not_verified'));
+});
+
 test('large and malformed inventories block and remain non-destructive',()=>{
   assert.ok(plan({...inventory(),documents:null}).blockers.includes('invalid_document_inventory'));
   assert.ok(plan({...inventory(),documents:Array(20001).fill({path:'profiles/alice_123',kind:'owned'})})

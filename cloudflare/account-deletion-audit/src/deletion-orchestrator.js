@@ -104,10 +104,16 @@ export function buildDeletionPlan(uid, requestRecord, inventory, approvals) {
 
   if (inventory?.uid !== uid) issues.push('inventory_uid_mismatch');
   if (inventory?.pagesComplete !== true) issues.push('incomplete_pagination');
-  if (!Array.isArray(inventory?.scopesComplete) ||
-      [...RELATIONAL_SCOPES, ...EXTERNAL_SCOPES].some(
-        scope => !inventory.scopesComplete.includes(scope)))
+  // Um subconjunto, um escopo duplicado ou um escopo desconhecido jamais
+  // comprova inventário completo. A confirmação vem do backend auditado.
+  const expectedScopes=[...RELATIONAL_SCOPES, ...EXTERNAL_SCOPES];
+  const reportedScopes=inventory?.scopesComplete;
+  if (!Array.isArray(reportedScopes) ||
+      reportedScopes.length !== expectedScopes.length ||
+      new Set(reportedScopes).size !== expectedScopes.length ||
+      expectedScopes.some(scope=>!reportedScopes.includes(scope))) {
     issues.push('unverified_external_or_relational_scope');
+  }
 
   if (!Array.isArray(inventory?.documents) ||
       inventory.documents.length > LIMIT ||
@@ -140,21 +146,37 @@ export function buildDeletionPlan(uid, requestRecord, inventory, approvals) {
           return new RegExp(pattern).test(doc.path);
         })) issues.push('relational_path_outside_allowlist');
   }
+  const externalKeys=new Set();
   for(const resource of Array.isArray(inventory?.externalResources)
     ? inventory.externalResources : []) {
     if (!resource || resource.ownerUid !== uid ||
         !EXTERNAL_SCOPES.includes(resource.scope) ||
-        typeof resource.key !== 'string' || resource.key.length > 256 ||
+        typeof resource.key !== 'string' || resource.key.length === 0 ||
+        resource.key.length > 256 ||
         /[\u0000-\u001f]/.test(resource.key) ||
-        !validExternalKey(resource,uid))
+        !validExternalKey(resource,uid)) {
       issues.push('external_resource_not_verified');
+      continue;
+    }
+    const uniqueKey=resource.scope+'\u0000'+resource.key;
+    if (externalKeys.has(uniqueKey)) issues.push('duplicate_external_resource');
+    externalKeys.add(uniqueKey);
   }
-  if (inventory?.hasUnknownCollections === true) issues.push('unknown_collections_present');
-  if (inventory?.hasLegalHold === true && approvals?.retentionDecisionRecorded !== true)
-    issues.push('legal_hold_requires_decision');
-  if (inventory?.contentReferencesUnresolved === true)
-    issues.push('references_to_others_unresolved');
-  if (inventory?.mediaStateUncertain === true) issues.push('cloudinary_state_unverified');
+  // Um campo de cobertura ausente NÃO significa "nenhum problema".
+  // Apenas false explícito confirma ausência, true sinaliza pendência.
+  const coverageFlags=[
+    ['hasUnknownCollections','unknown_collections_present'],
+    ['hasLegalHold','legal_hold_requires_decision'],
+    ['contentReferencesUnresolved','references_to_others_unresolved'],
+    ['mediaStateUncertain','cloudinary_state_unverified']
+  ];
+  for(const [key,blocker] of coverageFlags) {
+    const value=inventory?.[key];
+    if (typeof value !== 'boolean') issues.push('inventory_assurance_missing:'+key);
+    else if (value === true &&
+             (key !== 'hasLegalHold' || approvals?.retentionDecisionRecorded !== true))
+      issues.push(blocker);
+  }
 
   // Explicit phases, never user-supplied commands. The Auth identity is last.
   const phases=Object.freeze([

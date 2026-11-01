@@ -71,3 +71,19 @@ as permissões de leitura, a prova de vínculo de FCM e Cloudinary, os dados
 legados, a retenção jurídica e o fencing continuam pendentes. Nenhum
 recurso é excluído, nenhuma credencial consultada, e o retorno do plano
 permanece `safeToExecute:false`.
+
+## Cobertura explícita obrigatória do inventário (01/11/2026)
+
+O planejamento QA de exclusão deixou de aceitar campos omitidos como se fossem
+uma prova negativa. `hasUnknownCollections`, `hasLegalHold`,
+`contentReferencesUnresolved` e `mediaStateUncertain` agora exigem valores
+booleanos explícitos; ausência, `null`, string ou tipos não esperados bloqueiam
+a revisão. A lista `scopesComplete` deve corresponder exatamente aos escopos
+reconhecidos, sem duplicação ou adição de nomes desconhecidos. Entradas de
+recursos externos duplicadas e chaves vazias também são rejeitadas.
+
+Os novos testes de regressão ensaiam omissão, tipo incorreto, escopo duplicado,
+escopo desconhecido e referências externas repetidas, preservando o caminho
+válido de QA. **Isso não confere autenticidade aos campos:** a origem ainda
+deve ser um backend administrativo verificado, e o plano permanece
+`simulatedOnly:true`, `safeToExecute:false`, sem integração com contas reais.
