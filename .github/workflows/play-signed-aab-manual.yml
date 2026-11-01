@@ -28,6 +28,8 @@ jobs:
     env:
       PLAY_AAB_APPROVED: ${{ vars.ATRIO_PLAY_AAB_APPROVED || 'false' }}
       ATRIO_PLAY_UPLOAD_CERT_SHA256: ${{ vars.ATRIO_PLAY_UPLOAD_CERT_SHA256 || '' }}
+      ATRIO_PLAY_APP_SIGNING_CERT_SHA256: ${{ vars.ATRIO_PLAY_APP_SIGNING_CERT_SHA256 || '' }}
+      ATRIO_INSTALLED_APK_CERT_SHA256: ${{ vars.ATRIO_INSTALLED_APK_CERT_SHA256 || '' }}
       GUARDIAN_APPROVED: ${{ vars.ATRIO_GUARDIAN_V2_RELEASE_APPROVED || 'false' }}
       GUARDIAN_URL: ${{ vars.ATRIO_GUARDIAN_V2_WORKER_URL || '' }}
       ATRIO_PUSH_WORKER_URL: ${{ vars.ATRIO_PUSH_WORKER_URL || 'https://atrio-push.atrio-catolico.workers.dev' }}
@@ -68,6 +70,8 @@ jobs:
           set -euo pipefail
           python3 -m unittest discover -s scripts -p 'test_play_release_gate.py' -v
           python3 -m unittest discover -s scripts -p 'test_play_upload_certificate_check.py' -v
+          python3 -m unittest discover -s scripts -p 'test_play_app_signing_continuity.py' -v
+          python3 scripts/play_app_signing_continuity.py
           python3 scripts/play_release_gate.py --enforce
       - name: Preparar Java 17 e ferramentas de Android
         uses: actions/setup-java@v4

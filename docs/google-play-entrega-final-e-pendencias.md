@@ -56,3 +56,36 @@ Nenhum desses pontos pode ser substituído por aprovar manifestos JSON ou public
   https://support.google.com/googleplay/android-developer/answer/14151465 .
 
 **Proibido antecipar:** merge de PRs incompatíveis, deploy em produção, destruição de conta, geração de nova chave ou aprovação artificial de evidências.
+
+
+## Continuidade entre o APK já instalado e o certificado Play App Signing
+
+Antes de qualquer assinatura manual, conferir **três certificados distintos**
+quando aplicável: (a) certificado de **upload** do AAB, que é verificado
+isoladamente por `play_upload_certificate_check.py`; (b) certificado de
+**assinatura do aplicativo** mostrado em Play Console > Integridade do
+aplicativo; e (c) certificado que assinou **um APK release comprovadamente
+instalado** no aparelho de testes (não um APK debug).
+
+Na Configuração > Variables do GitHub, preencher após revisão humana:
+
+- `ATRIO_PLAY_APP_SIGNING_CERT_SHA256`: impressão SHA-256 pública da
+  assinatura efetiva do APK que a Google Play entregará.
+- `ATRIO_INSTALLED_APK_CERT_SHA256`: impressão SHA-256 pública do APK
+  release existente, inspecionado com `apksigner verify --print-certs`
+  em uma cópia confiável do APK.
+
+O workflow manual `play-signed-aab-manual.yml` agora executa
+`scripts/play_app_signing_continuity.py` e **bloqueia** se qualquer
+fingerprint estiver ausente, malformada ou diferente. O certificado de upload
+**não pode substituir** o de App Signing. Os valores são SHA-256 de
+certificados públicos; nunca publicar JKS, senhas, tokens ou APK privado.
+
+**A igualdade de fingerprints não prova autenticidade nem atualização
+instalada:** comparar as fontes oficiais e testar pelo Play Console após
+homologar os demais gates. Se forem diferentes, não forçar equivalência:
+é necessário um plano documentado de migração/reinstalação e autorização
+explícita antes de mudar o processo de lançamento.
+
+O modo CI unsigned apenas testa o algoritmo com valores fictícios.
+Não altera nenhum certificado real nem libera `releaseAuthorized`.

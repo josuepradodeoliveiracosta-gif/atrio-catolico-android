@@ -15,6 +15,8 @@ on:
       - 'scripts/play_release_gate.py'
       - 'scripts/play_upload_certificate_check.py'
       - 'scripts/test_play_upload_certificate_check.py'
+      - 'scripts/play_app_signing_continuity.py'
+      - 'scripts/test_play_app_signing_continuity.py'
       - 'scripts/test_play_release_gate.py'
       - 'scripts/termux_firebase_play_audit.py'
       - 'scripts/test_termux_firebase_play_audit.py'
@@ -47,6 +49,7 @@ jobs:
         run: |
           python3 -m unittest discover -s scripts -p 'test_play_release_gate.py' -v
           python3 -m unittest discover -s scripts -p 'test_play_upload_certificate_check.py' -v
+          python3 -m unittest discover -s scripts -p 'test_play_app_signing_continuity.py' -v
           python3 -m unittest discover -s scripts -p 'test_play_store_bundle_check.py' -v
           python3 -m unittest discover -s scripts -p 'test_termux_firebase_play_audit.py' -v
           python3 scripts/play_release_gate.py --audit
