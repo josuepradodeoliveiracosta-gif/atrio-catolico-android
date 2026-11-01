@@ -155,8 +155,14 @@ try {
               db,journal,media:stubMedia,auth:stubAuth,external,
               lease:new QaSqliteLease(journal)
             });
+            const caseRequest={uid:QA_EXTERNAL_UID,...QA_ADMIN_ORDER_TEMPLATE.request};
+            const caseId=missing.caseRegistry.issue(caseRequest).caseId;
+            for(const review of QA_ADMIN_ORDER_TEMPLATE.approvals)
+              missing.caseRegistry.approve({
+                caseId,request:caseRequest,role:review.role,reviewer:review.reviewer
+              });
             await assert.rejects(missing.execute({
-              order:QA_ADMIN_ORDER_TEMPLATE
+              order:QA_ADMIN_ORDER_TEMPLATE,caseId
             }),/qa_retention_review_missing/);
             assert.equal(await auth.exists(QA_EXTERNAL_UID),true);
             review();
@@ -165,7 +171,7 @@ try {
               db,journal,media:stubMedia,auth:stubAuth,external,
               lease:new QaSqliteLease(journal)
             });
-            await assert.rejects(first.execute({order:QA_ADMIN_ORDER_TEMPLATE}),
+            await assert.rejects(first.execute({order:QA_ADMIN_ORDER_TEMPLATE,caseId}),
               /qa_external_media_http_failure/);
             // External outage interrupts BEFORE the Auth effect, not after.
             assert.equal(await auth.exists(QA_EXTERNAL_UID),true);
@@ -182,7 +188,7 @@ try {
             // Its presence must block Auth even though photo1 is gone.
             state.media.add(QA_EXTERNAL_ORPHAN_PHOTO);
             await assert.rejects(
-              restarted.execute({order:QA_ADMIN_ORDER_TEMPLATE}),
+              restarted.execute({order:QA_ADMIN_ORDER_TEMPLATE,caseId}),
               /qa_external_owned_media_remaining/);
             assert.equal(await auth.exists(QA_EXTERNAL_UID),true);
             assert.equal(stubAuth.has(QA_EXTERNAL_UID),true);
@@ -190,7 +196,7 @@ try {
             state.media.delete(QA_EXTERNAL_ORPHAN_PHOTO);
             state.failNextInventory=true;
             await assert.rejects(
-              restarted.execute({order:QA_ADMIN_ORDER_TEMPLATE}),
+              restarted.execute({order:QA_ADMIN_ORDER_TEMPLATE,caseId}),
               /qa_external_media_inventory_http_failure/);
             assert.equal(await auth.exists(QA_EXTERNAL_UID),true);
             // The known media is absent; an unreviewed D1 row is still a
@@ -198,20 +204,20 @@ try {
             d1Sqlite.prepare('INSERT INTO avatar_pending(uid,public_id,created_at) VALUES (?,?,?)')
               .run(QA_EXTERNAL_UID,QA_EXTERNAL_ORPHAN_PHOTO,1);
             await assert.rejects(
-              restarted.execute({order:QA_ADMIN_ORDER_TEMPLATE}),
+              restarted.execute({order:QA_ADMIN_ORDER_TEMPLATE,caseId}),
               /qa_avatar_d1_owned_rows_remaining/);
             assert.equal(await auth.exists(QA_EXTERNAL_UID),true);
             d1Sqlite.prepare('DELETE FROM avatar_pending WHERE uid=?')
               .run(QA_EXTERNAL_UID);
             retention.hold(QA_EXTERNAL_UID,'qa-case-new-hold');
-            await assert.rejects(restarted.execute({order:QA_ADMIN_ORDER_TEMPLATE}),
+            await assert.rejects(restarted.execute({order:QA_ADMIN_ORDER_TEMPLATE,caseId}),
               /qa_retention_review_stale/);
             assert.equal(await auth.exists(QA_EXTERNAL_UID),true);
             retention.resolve(QA_EXTERNAL_UID,'qa-case-new-hold');
-            await assert.rejects(restarted.execute({order:QA_ADMIN_ORDER_TEMPLATE}),
+            await assert.rejects(restarted.execute({order:QA_ADMIN_ORDER_TEMPLATE,caseId}),
               /qa_retention_review_stale/);
             review();
-            const result=await restarted.execute({order:QA_ADMIN_ORDER_TEMPLATE});
+            const result=await restarted.execute({order:QA_ADMIN_ORDER_TEMPLATE,caseId});
             assert.equal(result.status,'qa_fixture_admin_workflow_finished');
             assert.equal(result.authEmulatorFixtureExercised,true);
             assert.equal(result.cloudinaryHttpFixtureExercised,true);
@@ -227,7 +233,7 @@ try {
             assert.equal(state.foreignDeletionAttempts,0);
             for(const path of QA_FIXTURES.preserved)
               assert.equal((await getDoc(doc(db,path))).exists(),true,path);
-            const again=await restarted.execute({order:QA_ADMIN_ORDER_TEMPLATE});
+            const again=await restarted.execute({order:QA_ADMIN_ORDER_TEMPLATE,caseId});
             assert.equal(again.completedPhases,8);
             assert.equal(await auth.exists(QA_EXTERNAL_BOB),true);
             assert.equal(state.media.has(QA_EXTERNAL_BOB_PHOTO),true);

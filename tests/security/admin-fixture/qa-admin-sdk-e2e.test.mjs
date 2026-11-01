@@ -196,11 +196,18 @@ try {
           db,journal,auth:fakeAuth,media:fakeMedia,external,
           lease:new QaSqliteLease(journal)
         });
+        const firstCaseRunner=openRunner();
+        const caseRequest={uid:A,...QA_ADMIN_ORDER_TEMPLATE.request};
+        const caseId=firstCaseRunner.caseRegistry.issue(caseRequest).caseId;
+        for(const review of QA_ADMIN_ORDER_TEMPLATE.approvals)
+          firstCaseRunner.caseRegistry.approve({
+            caseId,request:caseRequest,role:review.role,reviewer:review.reviewer
+          });
 
         // An unresolved privileged Worker operation MUST block deletion
         // before any media/Firestore removal or administrative Auth effect.
         await assert.rejects(openRunner().execute({
-          order:QA_ADMIN_ORDER_TEMPLATE
+          order:QA_ADMIN_ORDER_TEMPLATE,caseId
         }),/qa_worker_drain_pending_privileged_effect/);
         assert.equal(await admin.exists(A),true);
         assert.equal(mediaState.has(QA_EXTERNAL_PHOTO),true);
@@ -221,7 +228,7 @@ try {
 
         failNextHttp=true;
         await assert.rejects(openRunner().execute({
-          order:QA_ADMIN_ORDER_TEMPLATE
+          order:QA_ADMIN_ORDER_TEMPLATE,caseId
         }),/qa_external_media_http_failure/);
         assert.equal(await admin.exists(A),true);
         assert.equal(mediaState.has(QA_EXTERNAL_PHOTO),true);
@@ -231,7 +238,7 @@ try {
         workerDb.prepare("UPDATE qa_worker_drain_accounts SET state='active' "+
           "WHERE uid=?").run(A);
         await assert.rejects(openRunner().execute({
-          order:QA_ADMIN_ORDER_TEMPLATE
+          order:QA_ADMIN_ORDER_TEMPLATE,caseId
         }),/qa_worker_drain_not_quiescent/);
         assert.equal(await admin.exists(A),true);
         workerDb.prepare("UPDATE qa_worker_drain_accounts SET state='frozen' "+
@@ -260,7 +267,7 @@ try {
           uid:A,status:'cancelled',scope:'qa-only',generation:1
         });
         await assert.rejects(openRunner().execute({
-          order:QA_ADMIN_ORDER_TEMPLATE
+          order:QA_ADMIN_ORDER_TEMPLATE,caseId
         }),/qa_admin_freeze_missing_or_invalid_freeze/);
         assert.equal(await admin.exists(A),true);
         await setDoc(doc(db,'account_deletion_freeze/'+A),{
@@ -269,7 +276,7 @@ try {
         assert.equal(await freeze.verify(A),true);
 
         await assert.rejects(openRunner().execute({
-          order:QA_ADMIN_ORDER_TEMPLATE
+          order:QA_ADMIN_ORDER_TEMPLATE,caseId
         }),/qa_injected_admin_auth_unavailable/);
         assert.equal(await admin.exists(A),true);
         assert.equal(await admin.exists(B),true);
@@ -281,7 +288,7 @@ try {
         workerDb.prepare('INSERT INTO avatar_moderation(actor_uid,target_uid,reason,created_at) VALUES (?,?,?,?)')
           .run(B,A,'qa-retention-review',1);
         await assert.rejects(openRunner().execute({
-          order:QA_ADMIN_ORDER_TEMPLATE
+          order:QA_ADMIN_ORDER_TEMPLATE,caseId
         }),/qa_avatar_d1_owned_rows_remaining/);
         assert.equal(await admin.exists(A),true);
         workerDb.prepare('DELETE FROM avatar_moderation WHERE target_uid=?').run(A);
@@ -290,7 +297,7 @@ try {
         // even though the originally known media identifier was removed.
         mediaState.add(QA_EXTERNAL_ORPHAN_PHOTO);
         await assert.rejects(openRunner().execute({
-          order:QA_ADMIN_ORDER_TEMPLATE
+          order:QA_ADMIN_ORDER_TEMPLATE,caseId
         }),/qa_external_owned_media_remaining/);
         assert.equal(await admin.exists(A),true);
         assert.equal(await admin.exists(B),true);
@@ -300,18 +307,18 @@ try {
         // that hold is subsequently resolved without renewing the review.
         retention.hold(A,'qa-case-legal-hold');
         await assert.rejects(openRunner().execute({
-          order:QA_ADMIN_ORDER_TEMPLATE
+          order:QA_ADMIN_ORDER_TEMPLATE,caseId
         }),/qa_retention_review_stale/);
         assert.equal(await admin.exists(A),true);
         retention.resolve(A,'qa-case-legal-hold');
         await assert.rejects(openRunner().execute({
-          order:QA_ADMIN_ORDER_TEMPLATE
+          order:QA_ADMIN_ORDER_TEMPLATE,caseId
         }),/qa_retention_review_stale/);
         review();
 
         // Effect happens on Auth Emulator; crash before SQLite checkpoint.
         await assert.rejects(openRunner().execute({
-          order:QA_ADMIN_ORDER_TEMPLATE,
+          order:QA_ADMIN_ORDER_TEMPLATE,caseId,
           failAfterEffect:'remove_auth_stub_last'
         }),/injected_failure_after_effect:remove_auth_stub_last/);
         assert.equal(await admin.exists(A),false);
@@ -344,7 +351,7 @@ try {
           db,journal,media:fakeMedia,auth:fakeAuth,external:restartedExternal,
           lease:new QaSqliteLease(journal)
         });
-        const result=await resumed.execute({order:QA_ADMIN_ORDER_TEMPLATE});
+        const result=await resumed.execute({order:QA_ADMIN_ORDER_TEMPLATE,caseId});
         assert.equal(result.status,'qa_fixture_admin_workflow_finished');
         assert.equal(result.completedPhases,QA_STEPS.length);
         assert.equal(result.productionReady,false);
@@ -373,7 +380,7 @@ try {
         assert.equal((await getDoc(doc(db,'users/'+A))).exists(),false);
         assert.equal((await getDoc(doc(db,'profiles/'+B))).exists(),true);
         assert.equal(await secondFreeze.existsWrite(B,'bobAfter'),true);
-        const repeat=await resumed.execute({order:QA_ADMIN_ORDER_TEMPLATE});
+        const repeat=await resumed.execute({order:QA_ADMIN_ORDER_TEMPLATE,caseId});
         assert.equal(repeat.completedPhases,QA_STEPS.length);
         assert.equal(await secondAdmin.exists(B),true);
       });
