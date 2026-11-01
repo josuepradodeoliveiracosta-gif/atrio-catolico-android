@@ -27,9 +27,12 @@ export const QA_WORKER_SOURCES=Object.freeze([
   {
     "service": "guardian",
     "file": "cloudflare/guardian-worker/src/index.js",
-    "gitBlob": "aa2af4b4410e66fde73f7689732e9b7cbc2e31cb",
+    "gitBlob": "a4ee8ae5d1bf69b0a0dc8dfe5cb02f8cd9d4c607",
     "mustContain": [
       "export async function processDocument(",
+      "export async function guardianAccountFrozen(db, uids)",
+      "if(await guardianAccountFrozen(db,[item.owner]))return 'frozen';",
+      "if(await guardianAccountFrozen(db,[uid,owner]))throw denial(409,'account_deletion_in_progress');",
       "export async function reviewCase(",
       "export async function resolveReviewCase(",
       "export async function scanOnce(",

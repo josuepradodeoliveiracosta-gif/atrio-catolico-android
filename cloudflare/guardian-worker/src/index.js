@@ -20,6 +20,24 @@ export function settingsOf(doc,env) {
   return {enabled,allowHold:enabled&&env.GUARDIAN_V2_HOLD_ENABLED==='true'
     && env.GUARDIAN_V2_HOLD_APPROVED==='true'&&bool(doc,'allowHold')};
 }
+/** Read-only preflight for privileged writes involving accounts being deleted.
+ * Firestore Admin REST bypasses client rules; this Worker must check the
+ * marker explicitly. This is NOT an atomic admission/fencing protocol:
+ * in-flight effects require a shared persistent coordinator before launch.
+ */
+export async function guardianAccountFrozen(db, uids) {
+  if(!db || typeof db.get!=='function' || !Array.isArray(uids) ||
+     uids.length<1 || uids.length>2 || uids.some(uid=>!VALID_ID.test(uid)))
+    throw Error('guardian_freeze_invalid_scope');
+  for(const uid of new Set(uids)){
+    const marker=await db.get('account_deletion_freeze/'+uid);
+    if(marker!==null){
+      if(!marker || typeof marker!=='object')throw Error('guardian_freeze_invalid_response');
+      return true;
+    }
+  }
+  return false;
+}
 function cleanItem(document) {
   const path=pathOf(document);if(!MASK.test(path)||!document.updateTime)return null;
   const parts=path.split('/'),owner=string(document,'uid');
@@ -62,6 +80,7 @@ export async function processDocument(db,document,settings,now=new Date().toISOS
     writes.push({update:{name:root+'/guardiao_quarantine/'+id,fields:{ownerUid:str(item.owner),targetType:str(item.kind),targetPath:str(root+'/'+item.path),postId:str(item.parts[1]),replyId:str(item.parts[3]),reason:str('Possível violação: '+finding.rule),ruleCode:str(finding.rule),status:str('held'),heldAt:timestamp(now),originalFields:{mapValue:{fields:item.doc.fields}}}},currentDocument:{exists:false}});
     writes.push({delete:root+'/'+item.path,currentDocument:{updateTime:item.doc.updateTime}});
   }
+  if(await guardianAccountFrozen(db,[item.owner]))return 'frozen';
   try{await db.commit(writes);return action;}
   catch(e){
     if(e.status===409||e.status===412){
@@ -96,7 +115,7 @@ export async function scanOnce(db,settings){
   if(!settings.enabled)return {status:'disabled'};
   if(typeof db.scanPage==='function')return scanPagedCycle(db,settings,{onDocument:processDocument,onReport:processReport});
   // Limites explícitos por execução: nenhum documento ilimitado nem varredura retroativa.
-  const counters={clear:0,review:0,warn:0,hold:0,invalid:0,duplicate_or_changed:0,ignored:0,missing:0,error:0};
+  const counters={clear:0,review:0,warn:0,hold:0,frozen:0,invalid:0,duplicate_or_changed:0,ignored:0,missing:0,error:0};
   for(const group of ['posts','replies']) {
     let docs;try{docs=await db.scan(group,20,30);}catch{counters.error++;continue;}
     for(const doc of docs) {
@@ -163,6 +182,7 @@ export async function reviewCase(db,uid,input,now=new Date().toISOString()) {
   writes.push({update:{name:root+'/guardian_notices/'+owner+'/items/'+input.caseId+'_review',
     fields:{title:str('Átrio Guardião'),body:str(restored?'Seu conteúdo foi restaurado após revisão.':'A administração concluiu a revisão de sua publicação.'),
       caseId:str(input.caseId),action:str(input.action),createdAt:at}},currentDocument:{exists:false}});
+  if(await guardianAccountFrozen(db,[uid,owner]))throw denial(409,'account_deletion_in_progress');
   await db.commit(writes);
   return restored?'restored':'confirmed';
 }
@@ -189,6 +209,7 @@ export async function resolveReviewCase(db,uid,input,now=new Date().toISOString(
   const message=action==='dismiss'
     ?'O aviso foi encerrado após análise humana, sem infração confirmada.'
     :'A administração concluiu a análise e registrou uma orientação educativa.';
+  if(await guardianAccountFrozen(db,[uid,owner]))throw denial(409,'account_deletion_in_progress');
   await db.commit([
     {update:{name:c.name,fields},updateMask:{fieldPaths:Object.keys(fields)},
       currentDocument:{updateTime:c.updateTime}},
@@ -217,6 +238,7 @@ export async function handleRequest(request,env) {
     if(path==='/admin/config') {
       if(!input||Object.keys(input).sort().join(',')!=='allowHold,emergencyStop,enabled'||
         ['enabled','allowHold','emergencyStop'].some(k=>typeof input[k]!=='boolean'))return json(400,'invalid_config');
+      if(await guardianAccountFrozen(db,[uid]))return json(409,'account_deletion_in_progress');
       const current=await db.get('guardian_config/policy');
       if(!current?.updateTime)return json(409,'config_not_initialized');
       await db.update('guardian_config/policy',{enabled:{booleanValue:input.enabled},allowHold:{booleanValue:input.allowHold},emergencyStop:{booleanValue:input.emergencyStop}},current.updateTime);

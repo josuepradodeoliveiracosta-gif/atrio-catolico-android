@@ -46,3 +46,17 @@ uma exclusão não seja iniciada durante o efeito. Falta token de admissão
 atômico, drenagem de operações, lease persistente e coordenação
 compartilhada com os demais Workers. O código não foi implantado;
 o bloco `worker_freeze` permanece não homologado.
+
+
+## Guardião — pré-verificação de contas congeladas (01/11/2026)
+
+O Guardião V2 agora consulta `account_deletion_freeze/{uid}` antes
+ de escrever casos e avisos automáticos, antes de decisões de revisão
+ administrativa e antes de alterar sua configuração por administrador.
+ Quando um titular estiver congelado, a varredura registra o estado
+ `frozen` sem gerar novos avisos. Se a consulta falhar, a operação
+ não deve prosseguir (fail-closed). Há testes unitários isolados.
+
+Esta verificação é **preventiva, não atômica**. Não implementa coordenação
+ com ações já admitidas, Cloudinary, Push, D1 ou jobs legados. Não habilita
+ moderação ou exclusão real; só constitui preparação para homologação.
