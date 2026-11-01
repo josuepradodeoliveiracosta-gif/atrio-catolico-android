@@ -102,3 +102,25 @@ O teste do adaptador usa exclusivamente transporte HTTP simulado,
 sem token OAuth válido, IAM ou dados reais. A leitura de páginas
 separadas não estabelece snapshot global imutável, mesmo com horário
 válido; reconciliação repetida e fencing real continuam obrigatórios.
+
+## Leitura de documentos próprios e subcoleções órfãs (01/11/2026)
+
+Foram integrados da PR #98 os módulos `owned-inventory.js` e
+`firestore-read-adapter.js`, com testes independentes. O inventário faz
+somente leituras dos caminhos aprovados de perfil, conta e subcoleções
+(e.g. notificações, bloqueios, consentimentos, dispositivos Push), mesmo
+se o documento pai `users/{uid}` tiver sido removido.
+
+O adaptador HTTP REST restringe projeto, caminho e paginação antes de
+consultar o Firestore. Uma resposta HTTP 200 para documento **diferente**
+do solicitado, documento sem `name` validado, coleção com metadados
+inesperados, UID alheio, cursor inválido, página repetida ou payload
+excessivo em bytes interrompe o inventário; o resultado nunca pode ser
+interpretado como autorização de exclusão. Essa inspeção não expõe e-mails,
+tokens ou conteúdo dos documentos no resultado.
+
+O módulo é **biblioteca sem integração com endpoints**, sem token real,
+deploy ou escrita; `pagesComplete:false`, `hasUnknownCollections:true`,
+`safeToExecute:false` no plano derivado continuam impedindo execução.
+Ainda exige a varredura relacional, referências de terceiros, mídia,
+retenção legal, monitoramento de Workers e barreira distribuída.
