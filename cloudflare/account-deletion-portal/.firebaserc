@@ -1,0 +1,14 @@
+{
+  "projects": {
+    "default": "atrio-catolico"
+  },
+  "targets": {
+    "atrio-catolico": {
+      "hosting": {
+        "deletionPortal": [
+          "atrio-catolico-exclusao"
+        ]
+      }
+    }
+  }
+}

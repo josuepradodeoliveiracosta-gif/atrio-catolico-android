@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'app/**'
+      - 'cloudflare/account-deletion-portal/**'
       - 'scripts/play_store_bundle_check.py'
       - 'scripts/test_play_store_bundle_check.py'
       - 'scripts/play_release_gate.py'
@@ -42,6 +43,16 @@ jobs:
           python3 -m unittest discover -s scripts -p 'test_play_store_bundle_check.py' -v
           python3 -m unittest discover -s scripts -p 'test_termux_firebase_play_audit.py' -v
           python3 scripts/play_release_gate.py --audit
+      - name: Preparar Node 22 para portal de privacidade sem deploy
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Testar portal de exclusão isolado e impedir habilitação de pedidos
+        run: |
+          node --check cloudflare/account-deletion-portal/public/app.js
+          npm --prefix cloudflare/account-deletion-portal test
+          test ! -e cloudflare/account-deletion-portal/public/config.js
+          test ! -e cloudflare/account-deletion-portal/dist/config.js
       - name: Preparar Java 17
         uses: actions/setup-java@v4
         with:
