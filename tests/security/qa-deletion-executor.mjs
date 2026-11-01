@@ -236,9 +236,19 @@ export class QaDeletionRunner {
     }
   }
   async runExclusive({failAfterEffect=null,failBeforeEffect=null,approved=false,
-    expectedRequest=null}={},checkLease=()=>{}){
+    expectedRequest=null,approvedCaseId=null,caseGuard=null}={},checkLease=()=>{}){
     guard();
     if(approved!==true)fail('explicit_qa_approval_required');
+    if((approvedCaseId===null)!==(caseGuard===null) ||
+       (caseGuard!==null && typeof caseGuard!=='function'))
+      fail('invalid_qa_case_guard');
+    const assertCase=async()=>{
+      if(caseGuard!==null){
+        if(await caseGuard()!==true)fail('qa_case_authorization_lost');
+        checkLease();
+      }
+    };
+    await assertCase();
     checkLease();
     const request=await getDoc(doc(this.db,'account_deletion_requests/'+UID));
     checkLease();
@@ -247,8 +257,9 @@ export class QaDeletionRunner {
     const recorded=this.completed();
     if(recorded.some((step,i)=>step!==STEPS[i]))fail('journal_out_of_order');
     // Bind before any destructive QA fixture effect, including first resume.
+    await assertCase();
     await verifyBoundQaRequest({db:this.db,journal:this.journal,uid:UID,
-      approvedRequest:expectedRequest});
+      approvedRequest:expectedRequest,approvedCaseId});
     checkLease();
     const done=new Set(recorded);
     if(!this.auth.has(UID) && !done.has('verify_fixture_absence'))
@@ -256,12 +267,14 @@ export class QaDeletionRunner {
     // QA-only rehydration. Production requires durable write-freeze enforcement.
     if(done.has('freeze_writes'))this.context.writesFrozen=true;
     for(const step of STEPS){
+      await assertCase();
       checkLease();
       const phase=this.stages[step];
       if(done.has(step)){
         if(!(await phase.verify()))fail('previous_checkpoint_invalid:'+step);
         await verifyBoundQaRequest({db:this.db,journal:this.journal,uid:UID,
-          approvedRequest:expectedRequest});
+          approvedRequest:expectedRequest,approvedCaseId});
+        await assertCase();
         checkLease();
         continue;
       }
@@ -270,19 +283,24 @@ export class QaDeletionRunner {
       // Revalidate request AFTER awaiting previous phase and BEFORE each
       // potential effect, and again BEFORE any success checkpoint.
       await verifyBoundQaRequest({db:this.db,journal:this.journal,uid:UID,
-      approvedRequest:expectedRequest});
+      approvedRequest:expectedRequest,approvedCaseId});
       checkLease();
+      await assertCase();
       if(step===failBeforeEffect)throw Error('injected_failure_before_effect:'+step);
       await phase.apply(checkLease);
+      await assertCase();
       checkLease();
       await verifyBoundQaRequest({db:this.db,journal:this.journal,uid:UID,
-      approvedRequest:expectedRequest});
+      approvedRequest:expectedRequest,approvedCaseId});
       checkLease();
       if(!(await phase.verify()))fail('phase_verification_failed:'+step);
       await verifyBoundQaRequest({db:this.db,journal:this.journal,uid:UID,
-        approvedRequest:expectedRequest});
+        approvedRequest:expectedRequest,approvedCaseId});
+      await assertCase();
       checkLease();
       if(step===failAfterEffect)throw Error('injected_failure_after_effect:'+step);
+      // Case revocation/expiry must invalidate a post-effect checkpoint.
+      await assertCase();
       // A leased checkpoint is written atomically with the fencing check.
       checkLease();
       if(this.lease)this.lease.commitCheckpoint(this.activeLease,step);

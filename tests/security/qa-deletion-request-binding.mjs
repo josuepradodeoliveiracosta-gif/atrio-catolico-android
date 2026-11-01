@@ -34,7 +34,8 @@ function normalize(data){
     uid:UID,source:data.source,requestedAt:date.toISOString()
   });
 }
-export async function verifyBoundQaRequest({db,journal,uid=UID,approvedRequest=null}={}){
+export async function verifyBoundQaRequest({db,journal,uid=UID,approvedRequest=null,
+  approvedCaseId=null}={}){
   guard(db,journal,uid);
   const snapshot=await getDoc(doc(db,'account_deletion_requests/'+UID));
   if(!snapshot.exists())
@@ -71,5 +72,32 @@ export async function verifyBoundQaRequest({db,journal,uid=UID,approvedRequest=n
      previous.source!==current.source ||
      previous.requested_at!==current.requestedAt)
     throw Error('qa_request_binding_changed');
+
+  // QA admin: checkpoints belong to ONE UUID case, not merely a UID/time.
+  // Direct fixture runner without administrative case remains test-only.
+  journal.exec('CREATE TABLE IF NOT EXISTS qa_deletion_case_binding ('+
+    'uid TEXT PRIMARY KEY,case_id TEXT NOT NULL)');
+  const attached=journal.prepare(
+    'SELECT case_id FROM qa_deletion_case_binding WHERE uid=?').get(UID);
+  if(approvedCaseId===null){
+    if(attached)throw Error('qa_request_binding_case_required');
+  } else {
+    if(typeof approvedCaseId!=='string' ||
+       !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(approvedCaseId))
+      throw Error('qa_request_binding_invalid_case_id');
+    if(!attached){
+      const checkpoints=journal.prepare(
+        'SELECT COUNT(*) AS n FROM qa_deletion_checkpoints').get();
+      if(checkpoints?.n!==0)
+        throw Error('qa_request_binding_case_missing_on_resume');
+      journal.prepare(
+        'INSERT OR IGNORE INTO qa_deletion_case_binding (uid,case_id) VALUES (?,?)'
+      ).run(UID,approvedCaseId);
+    }
+    const confirmed=journal.prepare(
+      'SELECT case_id FROM qa_deletion_case_binding WHERE uid=?').get(UID);
+    if(confirmed?.case_id!==approvedCaseId)
+      throw Error('qa_request_binding_case_changed');
+  }
   return Object.freeze({matchesInitialRequest:true,productionReady:false});
 }

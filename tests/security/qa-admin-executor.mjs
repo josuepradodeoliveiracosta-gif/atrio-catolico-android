@@ -11,6 +11,8 @@
  */
 import {doc,getDoc} from 'firebase/firestore';
 import {QaDeletionRunner} from './qa-deletion-executor.mjs';
+import {createQaRequestCaseRegistry}
+  from './admin-fixture/qa-request-case-registry.mjs';
 
 const UID='qa-delete-alice';
 const ID='qa-account-delete-alice-v1';
@@ -76,11 +78,12 @@ export class QaAdministrativeDeletionExecutor {
        !(auth instanceof Set) || !(media instanceof Set))
       throw Error('qa_admin_invalid_adapters');
     this.db=db;
+    this.caseRegistry=createQaRequestCaseRegistry(journal);
     this.executor=new QaDeletionRunner({
       db,journal,media,auth,lease,external
     });
   }
-  async execute({order,failBeforeEffect=null,failAfterEffect=null}={}){
+  async execute({order,caseId,failBeforeEffect=null,failAfterEffect=null}={}){
     guardEnv();
     validateOrder(order);
     // Fresh, account-bound request is mandatory even on a resumed QA journal.
@@ -91,6 +94,18 @@ export class QaAdministrativeDeletionExecutor {
     if(record.data()?.source!==order.request.source ||
        requestAt!==order.request.requestedAt)
       throw Error('qa_admin_order_for_another_request');
+    // This registry shares the EXACT SQLite journal used by the runner.
+    // A case must be issued and approved by two QA roles before any effect.
+    const request={uid:UID,source:order.request.source,
+      requestedAt:order.request.requestedAt};
+    const requireCase=()=>{
+      const approved=this.caseRegistry.authorize({caseId,request});
+      return approved?.caseId===caseId &&
+        approved?.reviewedInQa===true &&
+        approved?.productionReady===false &&
+        approved?.canDeleteProductionAccount===false;
+    };
+    if(requireCase()!==true)throw Error('qa_admin_case_approval_missing');
     if(this.executor.external){
       if(typeof requestAt!=='string')
         throw Error('qa_admin_retention_request_timestamp_missing');
@@ -98,7 +113,8 @@ export class QaAdministrativeDeletionExecutor {
     }
     const result=await this.executor.run({
       approved:true,failBeforeEffect,failAfterEffect,
-      expectedRequest:{source:order.request.source,requestedAt:order.request.requestedAt}
+      expectedRequest:{source:order.request.source,requestedAt:order.request.requestedAt},
+      approvedCaseId:caseId,caseGuard:requireCase
     });
     return Object.freeze({
       status:'qa_fixture_admin_workflow_finished',

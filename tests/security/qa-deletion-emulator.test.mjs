@@ -28,6 +28,15 @@ const env=await initializeTestEnvironment({projectId:PROJECT,
     rules:readFileSync('firestore.rules','utf8')}});
 const alice='qa-delete-alice',bob='qa-delete-bob';
 const BOB_MEDIA='atrio-avatares/qa-delete-bob/123e4567-e89b-42d3-a456-426614174002';
+// Only fixture admin service can issue QA cases on the same SQLite journal.
+function approvedCase(service,order=QA_ADMIN_ORDER_TEMPLATE){
+  const request={uid:alice,...order.request};
+  const caseId=service.caseRegistry.issue(request).caseId;
+  for(const choice of order.approvals)
+    service.caseRegistry.approve({caseId,role:choice.role,
+      reviewer:choice.reviewer,request});
+  return caseId;
+}
 async function seed(db,{request=true}={}){
   for(const path of [...QA_FIXTURES.nested,...QA_FIXTURES.relational,
     ...QA_FIXTURES.roots,...QA_FIXTURES.preserved]){
@@ -455,7 +464,8 @@ try {
       await setDoc(doc(db,other),{uid:bob,origin:'QA only'});
       const service=new QaAdministrativeDeletionExecutor({db,...aux,
         lease:new QaSqliteLease(aux.journal)});
-      const result=await service.execute({order:QA_ADMIN_ORDER_TEMPLATE});
+      const caseId=approvedCase(service);
+      const result=await service.execute({order:QA_ADMIN_ORDER_TEMPLATE,caseId});
       assert.equal(result.status,'qa_fixture_admin_workflow_finished');
       assert.equal(result.productionReady,false);
       assert.equal(result.firebaseAuthActuallyDeleted,false);
@@ -502,7 +512,8 @@ try {
       });
       await inDemo(async(db,aux)=>{
         const service=new QaAdministrativeDeletionExecutor({db,...aux});
-        await assert.rejects(service.execute({order:QA_ADMIN_ORDER_TEMPLATE}),
+        const caseId=approvedCase(service);
+        await assert.rejects(service.execute({order:QA_ADMIN_ORDER_TEMPLATE,caseId}),
           /qa_admin_verified_request_missing/);
         assert.equal(aux.auth.has(alice),true);
         await allPresent(db,QA_FIXTURES.nested);
@@ -513,6 +524,7 @@ try {
   await test('ADMIN QA: request changed after preflight is denied by executor',async()=>{
     await inDemo(async(db,aux)=>{
       const admin=new QaAdministrativeDeletionExecutor({db,...aux});
+      const caseId=approvedCase(admin);
       const run=admin.executor.run.bind(admin.executor);
       admin.executor.run=async options=>{
         // Simulate an administrative read racing with a replacement request.
@@ -522,7 +534,7 @@ try {
         });
         return run(options);
       };
-      await assert.rejects(admin.execute({order:QA_ADMIN_ORDER_TEMPLATE}),
+      await assert.rejects(admin.execute({order:QA_ADMIN_ORDER_TEMPLATE,caseId}),
         /qa_request_binding_approval_mismatch/);
       assert.deepEqual(admin.executor.completed(),[]);
       await allPresent(db,[...QA_FIXTURES.nested,...QA_FIXTURES.roots,
@@ -543,7 +555,8 @@ try {
       await inDemo(async(db,aux)=>{
         await setDoc(doc(db,'account_deletion_requests/'+alice),next);
         const admin=new QaAdministrativeDeletionExecutor({db,...aux});
-        await assert.rejects(admin.execute({order:QA_ADMIN_ORDER_TEMPLATE}),
+        const caseId=approvedCase(admin);
+        await assert.rejects(admin.execute({order:QA_ADMIN_ORDER_TEMPLATE,caseId}),
           /qa_admin_order_for_another_request/);
         assert.deepEqual(admin.executor.completed(),[]);
         await allPresent(db,[...QA_FIXTURES.nested,...QA_FIXTURES.roots,
@@ -563,19 +576,80 @@ try {
         await setDoc(doc(db,extra),{uid:alice,origin:'QA only'});
         const lease=new QaSqliteLease(aux.journal);
         const first=new QaAdministrativeDeletionExecutor({db,...aux,lease});
+        const caseId=approvedCase(first);
         await assert.rejects(first.execute({
-          order:QA_ADMIN_ORDER_TEMPLATE,failAfterEffect:'remove_nested'
+          order:QA_ADMIN_ORDER_TEMPLATE,caseId,failAfterEffect:'remove_nested'
         }),/injected_failure_after_effect:remove_nested/);
         await allAbsent(db,[extra,...QA_FIXTURES.nested]);
         assert.equal(aux.auth.has(alice),true);
         const restarted=new QaAdministrativeDeletionExecutor({db,...aux,
           lease:new QaSqliteLease(aux.journal)});
-        const result=await restarted.execute({order:QA_ADMIN_ORDER_TEMPLATE});
+        const result=await restarted.execute({order:QA_ADMIN_ORDER_TEMPLATE,caseId});
         assert.equal(result.completedPhases,QA_STEPS.length);
         assert.equal(aux.auth.has(alice),false);
         await allPresent(db,QA_FIXTURES.preserved);
       });
     console.log('PASS ADMIN QA interrupted owned cleanup recoverable');
+  });
+
+  await test('ADMIN QA: UUID case and two persisted reviews required',async()=>{
+    await inDemo(async(db,aux)=>{
+      const admin=new QaAdministrativeDeletionExecutor({db,...aux});
+      const request={uid:alice,...QA_ADMIN_ORDER_TEMPLATE.request};
+      await assert.rejects(admin.execute({order:QA_ADMIN_ORDER_TEMPLATE}),
+        /qa_case_invalid_case_id/);
+      const caseId=admin.caseRegistry.issue(request).caseId;
+      await assert.rejects(admin.execute({order:QA_ADMIN_ORDER_TEMPLATE,caseId}),
+        /qa_case_dual_review_required/);
+      admin.caseRegistry.approve({caseId,role:'privacy',
+        reviewer:'qa-privacy-reviewer',request});
+      await assert.rejects(admin.execute({order:QA_ADMIN_ORDER_TEMPLATE,caseId}),
+        /qa_case_dual_review_required/);
+      assert.deepEqual(admin.executor.completed(),[]);
+      assert.equal(aux.auth.has(alice),true);
+      await allPresent(db,[...QA_FIXTURES.nested,...QA_FIXTURES.roots,
+        ...QA_FIXTURES.preserved]);
+    });
+  });
+
+  await test('ADMIN QA: revocation mid-stage blocks checkpoint and mock Auth',async()=>{
+    await inDemo(async(db,aux)=>{
+      const admin=new QaAdministrativeDeletionExecutor({db,...aux});
+      const caseId=approvedCase(admin);
+      const original=admin.executor.stages.remove_relational;
+      admin.executor.stages.remove_relational={
+        ...original,apply:async leaseCheck=>{
+          await original.apply(leaseCheck);
+          assert.equal(admin.caseRegistry.revoke(caseId),true);
+        }
+      };
+      await assert.rejects(admin.execute({order:QA_ADMIN_ORDER_TEMPLATE,caseId}),
+        /qa_case_case_revoked/);
+      assert.deepEqual(admin.executor.completed(),QA_STEPS.slice(0,2));
+      assert.equal(aux.auth.has(alice),true);
+      assert.equal(aux.auth.has(bob),true);
+      await allPresent(db,[...QA_FIXTURES.roots,...QA_FIXTURES.preserved]);
+    });
+  });
+
+  await test('ADMIN QA: new UUID cannot resume checkpoints of revoked case',async()=>{
+    await inDemo(async(db,aux)=>{
+      const admin=new QaAdministrativeDeletionExecutor({db,...aux});
+      const oldCase=approvedCase(admin);
+      await assert.rejects(admin.execute({order:QA_ADMIN_ORDER_TEMPLATE,
+        caseId:oldCase,failBeforeEffect:'remove_relational'}),
+        /injected_failure_before_effect:remove_relational/);
+      assert.deepEqual(admin.executor.completed(),QA_STEPS.slice(0,2));
+      assert.equal(admin.caseRegistry.revoke(oldCase),true);
+      const nextCase=approvedCase(admin);
+      assert.notEqual(nextCase,oldCase);
+      await assert.rejects(admin.execute({order:QA_ADMIN_ORDER_TEMPLATE,
+        caseId:nextCase}),/qa_request_binding_case_changed/);
+      assert.deepEqual(admin.executor.completed(),QA_STEPS.slice(0,2));
+      assert.equal(aux.auth.has(alice),true);
+      assert.equal(aux.auth.has(bob),true);
+      await allPresent(db,[...QA_FIXTURES.roots,...QA_FIXTURES.preserved]);
+    });
   });
 
   await test('ADMIN QA: production-like credentials deny execution',async()=>{

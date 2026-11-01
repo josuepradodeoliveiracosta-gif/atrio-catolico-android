@@ -22,3 +22,27 @@ A integração de produção requer emissão por servidor real, IAM, auditoria
 irrevogável, retenção juridicamente revisada, lease distribuído e prova
 de exclusão independente. Nenhum deploy nem exclusão real foi feito.
 A distribuição Google Play permanece bloqueada.
+
+## Integração fechada com o executor administrativo de QA
+
+O registro UUID foi conectado **somente ao**
+`QaAdministrativeDeletionExecutor` de `demo-atrio-v11`. O executor
+cria um registro SQLite da **mesma base de checkpoints**, exige `caseId`
+explicitamente fornecido pelo teste e chama `authorize` antes de entrar
+no runner. O executor verifica de novo a aprovação do caso nas
+transições de fase, após efeitos assíncronos, na retomada de checkpoints
+e antes da remoção Auth fictícia.
+
+`qa-deletion-request-binding.mjs` também mantém
+`qa_deletion_case_binding`. Checkpoints nunca podem ser retomados por
+outro `caseId`, mesmo que UID, origem e timestamp sejam iguais. Ao
+substituir/revogar um caso depois de etapas parcialmente concluídas,
+a execução é bloqueada; não há migração automática de checkpoints.
+O runner genérico QA continua isolado para ensaios de limpeza sem
+ordem administrativa, mas não pode retomar um journal vinculado a caso
+sem apresentar o UUID.
+
+Os testes de integração cobrem caso ausente, somente uma aprovação,
+revogação durante uma etapa e tentativa de retomar outro UUID.
+**Este vínculo continua restrito a SQLite/Firestore Emulator e
+revisores fictícios**, não dá permissão de produção.
