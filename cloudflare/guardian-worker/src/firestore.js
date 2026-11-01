@@ -67,6 +67,86 @@ export async function token(env) {
   cached={project:intended,email:config.client_email,keyId:config.private_key_id,
     value:data.access_token,exp:Date.now()+Math.min(600_000,Number(data.expires_in||900)*1000-60_000)};return cached.value;
 }
+/** Decode the bounded streaming Firestore REST batchGet response.
+ * Production may return multiple JSON objects in a stream, while the local
+ * emulator sometimes returns one JSON array. Never use an unbounded r.json()
+ * for this operation. Reject incomplete, malformed or oversized streams.
+ */
+const MAX_BATCH_GET_BYTES=4*1024*1024;
+const MAX_BATCH_GET_ROWS=16;
+export async function parseFirestoreBatchGetStream(response) {
+  if(!response?.body?.getReader)throw Error('firestore_batch_get_invalid_body');
+  const header=response.headers?.get('content-length');
+  if(header!==null && (!/^\d+$/.test(header)||Number(header)>MAX_BATCH_GET_BYTES))
+    throw Error('firestore_batch_get_oversized');
+  const reader=response.body.getReader();
+  let total=0;
+  const chunks=[];
+  try {
+    while(true) {
+      const {done,value}=await reader.read();
+      if(done)break;
+      if(!(value instanceof Uint8Array))throw Error('firestore_batch_get_invalid_chunk');
+      total+=value.byteLength;
+      if(total>MAX_BATCH_GET_BYTES) {
+        await reader.cancel();
+        throw Error('firestore_batch_get_oversized');
+      }
+      chunks.push(value);
+    }
+  }finally{reader.releaseLock();}
+  if(total===0)throw Error('firestore_batch_get_empty');
+  const bytes=new Uint8Array(total);
+  let offset=0;
+  for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.byteLength;}
+  let source;
+  try{source=new TextDecoder('utf-8',{fatal:true}).decode(bytes).trim();}
+  catch{throw Error('firestore_batch_get_invalid_utf8');}
+  if(!source)throw Error('firestore_batch_get_empty');
+
+  let rows;
+  try {
+    // The Firebase Emulator can emit a single JSON array. Production REST
+    // may emit separate JSON objects, one per streaming response.
+    const parsed=JSON.parse(source);
+    rows=Array.isArray(parsed)?parsed:[parsed];
+  }catch{
+    rows=[];
+    let i=0;
+    while(i<source.length) {
+      while(/\s/.test(source[i]||'') && i<source.length)i++;
+      if(i>=source.length)break;
+      if(source[i]!=='{')throw Error('firestore_batch_get_malformed_stream');
+      const begin=i;
+      let depth=0,inString=false,escaped=false;
+      for(;i<source.length;i++) {
+        const c=source[i];
+        if(inString){
+          if(escaped)escaped=false;
+          else if(c==='\\')escaped=true;
+          else if(c==='"')inString=false;
+        }else if(c==='"')inString=true;
+        else if(c==='{')depth++;
+        else if(c==='}'){
+          depth--;
+          if(depth===0){i++;break;}
+          if(depth<0)throw Error('firestore_batch_get_malformed_stream');
+        }
+      }
+      if(depth!==0||inString)throw Error('firestore_batch_get_malformed_stream');
+      try{rows.push(JSON.parse(source.slice(begin,i)));}
+      catch{throw Error('firestore_batch_get_malformed_stream');}
+      if(rows.length>MAX_BATCH_GET_ROWS)throw Error('firestore_batch_get_too_many_rows');
+      if(i<source.length&&!/\s/.test(source[i]))
+        throw Error('firestore_batch_get_malformed_stream');
+    }
+  }
+  if(!rows.length||rows.length>MAX_BATCH_GET_ROWS||
+     rows.some(x=>!x||typeof x!=='object'||Array.isArray(x)))
+    throw Error('firestore_batch_get_invalid_rows');
+  return rows;
+}
+
 export class Firestore {
   constructor(access,project=PROJECT,api=API){
     if(!projectValid(project)||!['https://firestore.googleapis.com/v1','http://127.0.0.1:8089/v1'].includes(api))throw Error('invalid_backend');
@@ -87,6 +167,7 @@ export class Firestore {
       e.status=conflict?409:r.status;
       throw e;
     }
+    if(path===':batchGet')return parseFirestoreBatchGetStream(r);
     return r.status===204?{}:r.json();
   }
   get(path){return this.send('/'+path.split('/').map(enc).join('/'));}

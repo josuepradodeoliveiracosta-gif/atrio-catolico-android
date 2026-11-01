@@ -31,3 +31,19 @@ falhar fechado em vez de manter o scanner preso por minutos.
 
 É uma correção de API com testes simulados; a CI com o Firebase Emulator
 deve ser aprovada separadamente. Não houve deploy ou liberação.
+
+
+## Compatibilidade com streaming REST do batchGet (01/11/2026)
+
+A documentação oficial do Firestore define `batchGet` como uma **resposta
+streaming**, não obrigatoriamente um único objeto JSON. A leitura da branch
+passou a aceitar tanto arrays JSON (Firebase Emulator) quanto registros JSON
+separados por linhas ou espaços (REST externo). O tamanho da resposta é
+limitado a **4 MiB** e a **16 registros**, com recusa segura de JSON truncado,
+UTF-8 inválido, payload escalar, resultados vazios e contagem excessiva.
+
+A CI do motor Guardião executa os testes sintéticos de parsing/commit;
+os testes E2E no Firebase Emulator continuam necessários. A correção é
+preparatória para produção: **não prova que as credenciais, Worker IAM ou
+os serviços reais estejam operacionais**. Nenhuma chave, deploy ou evidência
+de privacidade foi alterada.

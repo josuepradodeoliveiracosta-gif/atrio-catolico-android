@@ -71,9 +71,11 @@ export const QA_WORKER_SOURCES=Object.freeze([
   {
     "service": "guardian-firestore",
     "file": "cloudflare/guardian-worker/src/firestore.js",
-    "gitBlob": "f30219879f0b7b9a9a6e62a422e2abfe9a73764f",
+    "gitBlob": "a9db481b9820c641154b50aadb92e4c765f88465",
     "mustContain": [
       "async commit(writes){",
+      "export async function parseFirestoreBatchGetStream(response)",
+      "if(path===':batchGet')return parseFirestoreBatchGetStream(r);",
       "this.send(':batchGet','POST'",
       "newTransaction:{readWrite:{}}",
       "return await this.send(':commit','POST',{writes:updates,transaction})",
