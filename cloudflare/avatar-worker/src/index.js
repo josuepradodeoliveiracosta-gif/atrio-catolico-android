@@ -71,6 +71,22 @@ async function firestoreGet(env, uid) {
   return {photoPublicId:d.fields?.photoPublicId?.stringValue || '',
     photoUrl:d.fields?.photoUrl?.stringValue || ''};
 }
+/** HTTP-only, read-only preflight for a deletion freeze. Admin REST ignores
+ * client Firestore rules, so the Worker must check explicitly. This is NOT
+ * atomic with later writes: production needs a shared, durable fence.
+ */
+export async function avatarDeletionFrozen(token,uid) {
+  if(!uidOk(uid) || typeof token!=='string' || !token)
+    throw Error('avatar_freeze_invalid_scope');
+  const r=await fetch(ROOT+'/account_deletion_freeze/'+encode(uid),{
+    headers:{Authorization:'Bearer '+token}});
+  if(r.status===404) return false;
+  if(r.status===200) return true;
+  throw Error('avatar_freeze_check_unavailable');
+}
+async function avatarWriteDenied(env,uid) {
+  return avatarDeletionFrozen(await firestoreToken(env),uid);
+}
 async function firestorePut(env, uid, id, url) {
   const r = await fetch(ROOT+'/profile_photos/'+encode(uid),{method:'PATCH',
     headers:{Authorization:'Bearer '+await firestoreToken(env),
@@ -159,13 +175,19 @@ export async function boundedBytes(request) {
 // Trava por UID evita que uma remoção concorra com a promoção da mesma foto.
 // Não depende de memória local, portanto funciona entre instâncias do Worker.
 async function withAvatarLock(env,uid,action) {
+  // Avoid any new D1 mutation when the account has a deletion marker.
+  if(await avatarWriteDenied(env,uid)) return json(409,'account_deletion_in_progress');
   const nonce=crypto.randomUUID();
   const now=Date.now();
   const acquired=await env.AVATAR_DB.prepare(
     'INSERT INTO avatar_mutex (uid,nonce,expires_at) VALUES (?,?,?) ON CONFLICT(uid) DO UPDATE SET nonce=excluded.nonce,expires_at=excluded.expires_at WHERE avatar_mutex.expires_at < ?'
   ).bind(uid,nonce,now+120000,now).run();
   if(acquired.meta?.changes!==1) return json(409,'avatar_busy');
-  try { return await action(); }
+  try {
+    // Recheck after obtaining D1 mutex and before Cloudinary/Firestore writes.
+    if(await avatarWriteDenied(env,uid)) return json(409,'account_deletion_in_progress');
+    return await action();
+  }
   finally {
     await env.AVATAR_DB.prepare('DELETE FROM avatar_mutex WHERE uid=? AND nonce=?')
       .bind(uid,nonce).run();
@@ -335,6 +357,7 @@ async function moderationPreview(env,actor,request) {
 }
 async function moderationReview(env,actor,request) {
   if(!(await isModerator(env,actor))) return json(403,'forbidden');
+  if(await avatarWriteDenied(env,actor)) return json(409,'account_deletion_in_progress');
   if(Number(request.headers.get('content-length')||0)>384) return json(413,'invalid_request');
   const raw=await request.text();
   if(raw.length>384) return json(413,'invalid_request');
@@ -385,6 +408,7 @@ async function moderationReview(env,actor,request) {
 
 async function moderateRemove(env,actor,request) {
   if(!(await isModerator(env,actor))) return json(403,'forbidden');
+  if(await avatarWriteDenied(env,actor)) return json(409,'account_deletion_in_progress');
   const length=Number(request.headers.get('content-length')||0);
   if(length>256) return json(413,'invalid_request');
   let payload;

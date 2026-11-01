@@ -7,7 +7,7 @@ export const QA_WORKER_SOURCES=Object.freeze([
   {
     "service": "avatar",
     "file": "cloudflare/avatar-worker/src/index.js",
-    "gitBlob": "68b232b427da6e518fff4782c81e0cdafe9a7587",
+    "gitBlob": "b52073059b6a19d6f838e6ef40326d9861247e4d",
     "mustContain": [
       "if(pathname==='/avatar/upload')",
       "if(pathname==='/avatar/status')",
@@ -18,6 +18,8 @@ export const QA_WORKER_SOURCES=Object.freeze([
       "async function status(env,uid)",
       "async function upload(env, uid, request)",
       "async function withAvatarLock(env,uid,action)",
+      "export async function avatarDeletionFrozen(token,uid)",
+      "if(await avatarWriteDenied(env,uid)) return json(409,'account_deletion_in_progress');",
       "await firestorePut(env,uid,id,publicUrl(env,promoted))",
       "await cloudSigned(env,'rename'"
     ]

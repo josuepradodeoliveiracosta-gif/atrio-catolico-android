@@ -25,3 +25,24 @@ coordenação persistente compartilhada com todas as contas afetadas, drenar
 operações em trânsito e resistir a timeout, retry e erros ambíguos.
 Só então poderão ser validados `worker_freeze` e `deletion_executor`
 por evidências externas verificáveis. `releaseAuthorized:false`.
+
+
+## Pré-verificação do freeze no Avatar (PR #71)
+
+O Worker Avatar possui agora o helper read-only
+`avatarDeletionFrozen(token,uid)`, que consulta
+`account_deletion_freeze/{uid}` via Firestore REST com o token de serviço
+do Worker. HTTP **404** é interpretado como ausência de congelamento;
+HTTP **200** como marcador presente; qualquer outro status falha fechado.
+Os testes locais usam chamadas HTTP simuladas e verificam IDs forjados.
+
+`withAvatarLock()` confere o marcador **antes de inserir mutex no D1**
+e novamente após adquirir a trava, antes de alterações Cloudinary ou
+Firestore. A moderação que altera imagens também exige que o moderador
+não esteja congelado; a trava do destinatário continua obrigatória.
+
+**Limite crítico:** duas leituras antes do efeito não garantem que
+uma exclusão não seja iniciada durante o efeito. Falta token de admissão
+atômico, drenagem de operações, lease persistente e coordenação
+compartilhada com os demais Workers. O código não foi implantado;
+o bloco `worker_freeze` permanece não homologado.

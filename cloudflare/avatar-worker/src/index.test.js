@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import handler, {boundedBytes,publicUrl,cloudSigned,uploadProtected} from './index.js';
+import handler, {boundedBytes,publicUrl,cloudSigned,uploadProtected,avatarDeletionFrozen} from './index.js';
 import {createHash,webcrypto} from 'node:crypto';
 if (!globalThis.crypto) globalThis.crypto = webcrypto;
 
@@ -154,4 +154,42 @@ test('fallback nunca aceita foto pública e tenta removê-la imediatamente',asyn
       /cloudinary_protection_failed/);
     assert.equal(destroyed,true);
   } finally{ globalThis.fetch=old; }
+});
+
+test('freeze do avatar permite somente marcador ausente (HTTP 404)',async()=>{
+  const old=globalThis.fetch;
+  const seen=[];
+  globalThis.fetch=async(url,options)=>{
+    seen.push({url:String(url),authorization:options?.headers?.Authorization});
+    return new Response('{}',{status:404});
+  };
+  try{
+    assert.equal(await avatarDeletionFrozen('fake-qa-service','qa-bob'),false);
+    assert.deepEqual(seen,[{url:'https://firestore.googleapis.com/v1/projects/atrio-catolico/databases/(default)/documents/account_deletion_freeze/qa-bob',
+      authorization:'Bearer fake-qa-service'}]);
+  }finally{globalThis.fetch=old;}
+});
+test('freeze do avatar bloqueia uid marcado antes do efeito externo',async()=>{
+  const old=globalThis.fetch;
+  globalThis.fetch=async url=>{
+    assert.ok(String(url).endsWith('/account_deletion_freeze/qa-alice'));
+    return Response.json({fields:{status:{stringValue:'draining'}}});
+  };
+  try{assert.equal(await avatarDeletionFrozen('fake-qa-service','qa-alice'),true);}
+  finally{globalThis.fetch=old;}
+});
+test('freeze do avatar nega falhas HTTP e UID forjado sem chamadas adicionais',async()=>{
+  const old=globalThis.fetch;
+  let calls=0;
+  globalThis.fetch=async()=>{calls++;return new Response('{}',{status:503});};
+  try{
+    await assert.rejects(()=>avatarDeletionFrozen('fake','../admin'),/invalid_scope/);
+    await assert.rejects(()=>avatarDeletionFrozen('', 'qa-alice'),/invalid_scope/);
+    assert.equal(calls,0);
+    for(const status of [401,403,429,500,503]){
+      globalThis.fetch=async()=>{calls++;return new Response('{}',{status});};
+      await assert.rejects(()=>avatarDeletionFrozen('fake','qa-alice'),/freeze_check_unavailable/);
+    }
+    assert.equal(calls,5);
+  }finally{globalThis.fetch=old;}
 });
