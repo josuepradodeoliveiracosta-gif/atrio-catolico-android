@@ -8,6 +8,7 @@
  * foi eliminada: o Firestore mantém subcoleções depois da remoção do pai.
  */
 import {validUid} from './plan.js';
+import {validAvatarPublicId} from './avatar-media-inventory.js';
 
 export const OWNED_ROOTS = Object.freeze([
   'profiles', 'public_profiles', 'profile_photos', 'badges',
@@ -44,6 +45,17 @@ export const ACCOUNT_RETENTION_REVIEW = Object.freeze([
 
 const LIMIT = 20_000;
 const MAX_PATH = 400;
+
+// O campo ownerUid sozinho é uma declaração, NÃO evidência suficiente de
+// propriedade de mídia. Para IDs de avatar (determinísticos por conta),
+// validar também o namespace real. IDs externos não mapeáveis exigem
+// verificação administrativa separada antes de qualquer executor.
+function validExternalKey(resource, uid) {
+  const {scope,key}=resource;
+  if (scope==='firebase_auth') return key===uid;
+  if (scope.startsWith('cloudinary_avatar_')) return validAvatarPublicId(uid,key);
+  return true; // FCM ainda exige prova do backend; plano segue simulado.
+}
 
 function safePath(value) {
   if (typeof value !== 'string' || value.length > MAX_PATH || value.startsWith('/') ||
@@ -133,7 +145,8 @@ export function buildDeletionPlan(uid, requestRecord, inventory, approvals) {
     if (!resource || resource.ownerUid !== uid ||
         !EXTERNAL_SCOPES.includes(resource.scope) ||
         typeof resource.key !== 'string' || resource.key.length > 256 ||
-        /[\u0000-\u001f]/.test(resource.key))
+        /[\u0000-\u001f]/.test(resource.key) ||
+        !validExternalKey(resource,uid))
       issues.push('external_resource_not_verified');
   }
   if (inventory?.hasUnknownCollections === true) issues.push('unknown_collections_present');

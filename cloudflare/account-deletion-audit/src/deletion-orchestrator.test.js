@@ -19,7 +19,7 @@ const inventory=()=>({
     {path:'users/bob/notifications/notice_1',kind:'relational',ownerUid:uid}
   ],
   externalResources:[{
-    ownerUid:uid,scope:'cloudinary_avatar_upload',key:'atrio-avatares/alice_123/avatar-id'
+    ownerUid:uid,scope:'cloudinary_avatar_upload',key:'atrio-avatares/alice_123/550e8400-e29b-41d4-a716-446655440000'
   }],
   hasUnknownCollections:false,hasLegalHold:false,
   mediaStateUncertain:false,contentReferencesUnresolved:false
@@ -129,6 +129,31 @@ test('external resource owner and scope must match inventory',()=>{
   b.externalResources.push({ownerUid:uid,scope:'private_jks',key:'key'});
   assert.ok(plan(b).blockers.includes('external_resource_not_verified'));
 });
+test('external avatar public IDs and Firebase Auth keys must match the account',()=>{
+  const known='atrio-avatares/alice_123/550e8400-e29b-41d4-a716-446655440000';
+  for (const scope of ['cloudinary_avatar_upload',
+                       'cloudinary_avatar_pending',
+                       'cloudinary_avatar_authenticated']) {
+    const right=inventory();
+    right.externalResources=[{ownerUid:uid,scope,key:known}];
+    assert.deepEqual(plan(right).blockers,[]);
+    const wrong=inventory();
+    wrong.externalResources=[{ownerUid:uid,scope,
+      key:'atrio-avatares/bob/550e8400-e29b-41d4-a716-446655440000'}];
+    assert.ok(plan(wrong).blockers.includes('external_resource_not_verified'));
+    const malformed=inventory();
+    malformed.externalResources=[{ownerUid:uid,scope,key:known+'/other'}];
+    assert.ok(plan(malformed).blockers.includes('external_resource_not_verified'));
+  }
+  const authValid=inventory();
+  authValid.externalResources=[{ownerUid:uid,scope:'firebase_auth',key:uid}];
+  assert.deepEqual(plan(authValid).blockers,[]);
+  const authWrong=inventory();
+  authWrong.externalResources=[{ownerUid:uid,scope:'firebase_auth',key:'bob'}];
+  assert.ok(plan(authWrong).blockers.includes('external_resource_not_verified'));
+  assert.equal(plan(authWrong).safeToExecute,false);
+});
+
 test('large and malformed inventories block and remain non-destructive',()=>{
   assert.ok(plan({...inventory(),documents:null}).blockers.includes('invalid_document_inventory'));
   assert.ok(plan({...inventory(),documents:Array(20001).fill({path:'profiles/alice_123',kind:'owned'})})

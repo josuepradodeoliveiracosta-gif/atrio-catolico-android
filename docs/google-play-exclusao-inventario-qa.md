@@ -54,3 +54,20 @@ reais dos três Workers**, além dos serviços já implantados, e confirmar
 que a coordenação é durável e compartilhada entre processos. Esta barreira
 isolada **não** protege contas de produção e não torna a exclusão
 efetiva, conforme `releaseAuthorized:false`.
+
+## Verificação independente do identificador de mídia (01/11/2026)
+
+O plano `buildDeletionPlan` agora recusa identificadores de avatar Cloudinary
+que não obedeçam ao namespace `atrio-avatares/{uid}/{uuid}` do próprio titular,
+mesmo quando o registro informar `ownerUid` correto. Abrange os três escopos
+`cloudinary_avatar_upload`, `cloudinary_avatar_pending` e
+`cloudinary_avatar_authenticated`. Referências `firebase_auth` só são
+aceitas quando a chave corresponde exatamente ao UID. A suíte testa também
+IDs de mídia pertencentes a terceiros e IDs com caminho adulterado.
+
+**Limites:** isso é uma verificação estrutural de QA, não prova de que a imagem
+existe ou de que um token FCM pertence ao usuário. A origem do inventário,
+as permissões de leitura, a prova de vínculo de FCM e Cloudinary, os dados
+legados, a retenção jurídica e o fencing continuam pendentes. Nenhum
+recurso é excluído, nenhuma credencial consultada, e o retorno do plano
+permanece `safeToExecute:false`.
