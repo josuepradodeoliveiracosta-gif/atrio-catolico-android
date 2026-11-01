@@ -75,11 +75,46 @@ jobs:
           python3 -m unittest discover -s scripts -p 'test_play_app_signing_continuity.py' -v
           python3 scripts/play_app_signing_continuity.py
           python3 scripts/play_release_gate.py --enforce
-      - name: Preparar Java 17 e ferramentas de Android
+      # Reusar a suite de exclusão REAL no Firebase Emulator antes de permitir
+      # que qualquer segredo de assinatura seja lido pelo job manual.
+      # Exclusivamente projeto demo, Auth e Firestore locais, Cloudinary HTTP local.
+      - name: Preparar Java 17 para Firebase Emulator e Android
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
+      - name: Preparar Node 22 para homologação administrativa de exclusão
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Instalar dependências isoladas do processamento de exclusão
+        working-directory: tests/security
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npm install --prefix admin-fixture --no-save --package-lock=false --ignore-scripts --no-audit --no-fund
+      - name: Exigir processamento real apenas no Auth e Firestore Emulator antes de assinar
+        working-directory: tests/security
+        shell: bash
+        env:
+          GCLOUD_PROJECT: demo-atrio-v11
+        run: |
+          set -euo pipefail
+          test -z "${GOOGLE_APPLICATION_CREDENTIALS:-}"
+          test -z "${FIREBASE_SERVICE_ACCOUNT_JSON:-}"
+          test -z "${CLOUDINARY_API_SECRET:-}"
+          test -z "${CLOUDINARY_API_KEY:-}"
+          test -z "${CLOUDINARY_CLOUD_NAME:-}"
+          test -z "${ATRIO_ACCOUNT_DELETION_EXECUTION_ENABLED:-}"
+          node prepare.mjs
+          npx firebase emulators:exec --only firestore,auth --project demo-atrio-v11 \
+            "env -u FIREBASE_CONFIG node --experimental-sqlite admin-fixture/qa-admin-sdk-e2e.test.mjs"
+      - name: Declarar limite da homologação de exclusão
+        shell: bash
+        run: |
+          echo "Exclusão Auth/Firestore exercitada somente no projeto demo-atrio-v11, com mídia simulada via HTTP localhost." >> "$GITHUB_STEP_SUMMARY"
+          echo "NÃO comprova executor de produção, portal HTTPS, retenção jurídica ou autorização da Play." >> "$GITHUB_STEP_SUMMARY"
       - uses: android-actions/setup-android@v4
       - uses: gradle/actions/setup-gradle@v4
         with:

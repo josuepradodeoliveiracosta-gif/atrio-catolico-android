@@ -159,3 +159,28 @@ distribuídos, da origem HTTPS, das regras de autenticação, do recebimento
 do pedido e do processamento efetivo de exclusão. Checks estáticos não
 provam publicação nem execução. Não autorizar assinatura ou upload por
 simples mudança de variáveis ou de sinalizadores.
+
+## Avanço para primeira assinatura: exclusão administrativa antes da chave (01/11/2026)
+
+O workflow manual de assinatura `.github/workflows/play-signed-aab-manual.yml`
+agora executa **obrigatoriamente antes de qualquer segredo de keystore**
+o cenário de processamento de exclusão `admin-fixture/qa-admin-sdk-e2e.test.mjs`
+já presente na PR #71. O cenário usa Firebase **Auth Emulator e Firestore
+Emulator reais**, projeto `demo-atrio-v11`, API de mídia HTTP `localhost`,
+SQLite de testes, dois usuários fictícios, dupla aprovação simulada,
+freeze de escritas, retomada após falhas e remoção do Auth fictício apenas
+após checagem dos dados. Verifica que o segundo usuário não é apagado.
+
+Isso fecha uma lacuna de **orquestração do processo de assinatura**:
+o gate anterior dependia apenas de evidências JSON e testes unitários do
+controle de privacidade. A partir de agora, falha do cenário administrativo
+impede chegar à leitura dos segredos e ao build assinado. A CI AAB também
+valida estruturalmente a presença e a ordem dessa etapa, sem duplicar
+o teste longo em cada compilação.
+
+**Limitação obrigatória:** esse processo NÃO remove contas reais, NÃO
+garante a implantação do executor, NÃO prova IAM, retenção jurídica,
+cobertura de mídias legadas ou fencing nos Workers ativos, e NÃO habilita
+o portal. O workflow continua manual, restrito à `main`, com gates
+`PLAY_AAB_APPROVED`, `GUARDIAN_APPROVED` e `--enforce` prévios;
+continua sem publicar na Google Play. Nenhum segredo novo foi criado.
