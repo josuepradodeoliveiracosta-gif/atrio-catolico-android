@@ -155,50 +155,83 @@ def assess_release(gradle: str, manifest: str, evidence: object,
     return failures
 
 def inspect(root: Path) -> list[str]:
+    """Audit every independent preflight prerequisite, never short-circuiting on
+    absent evidence. A missing document must not conceal unrelated blockers.
+    This function is strictly read-only and does not authorize signing.
+    """
+    blockers = []
     gradle = root / "app/build.gradle.kts"
     manifest = root / "app/src/playRelease/AndroidManifest.xml"
-    evidence = root / "docs/google-play-privacidade-evidencias.json"
+    source = None
     if not gradle.is_file() or not manifest.is_file():
-        return ["play_source_files_missing"]
-    if not evidence.is_file():
-        return ["privacy_evidence_file_missing"]
-    try:
-        ugc = root / "docs/google-play-ugc-evidencias.json"
-        if not ugc.is_file():
-            return ["ugc_evidence_file_missing"]
-        blockers = assess_release(gradle.read_text(encoding="utf-8"),
-                                  manifest.read_text(encoding="utf-8"),
-                                  json.loads(evidence.read_text(encoding="utf-8")),
-                                  ugc_evidence=json.loads(ugc.read_text(encoding="utf-8")))
-        firebase_file = root / "app/google-services.json"
-        if not firebase_file.is_file():
-            return blockers + ["play_firebase_config_missing"]
-        config = json.loads(firebase_file.read_text(encoding="utf-8"))
-        if not isinstance(config, dict):
-            return blockers + ["play_firebase_config_invalid"]
-        project = config.get("project_info")
-        if not isinstance(project, dict) or project.get("project_id") != EXPECTED_FIREBASE_PROJECT:
-            blockers.append("play_firebase_wrong_project")
-        clients = config.get("client")
-        def valid_client(c):
-            if not isinstance(c, dict) or not isinstance(c.get("client_info"), dict):
-                return False
-            info = c["client_info"]
-            android = info.get("android_client_info")
-            keys = c.get("api_key")
-            return (isinstance(android, dict)
-                    and android.get("package_name") == EXPECTED_PACKAGE
-                    and bool(info.get("mobilesdk_app_id"))
-                    and isinstance(keys, list)
-                    and any(isinstance(k, dict) and bool(k.get("current_key"))
-                            for k in keys))
-        if not isinstance(clients, list) or not any(
-                valid_client(c) for c in clients):
-            blockers.append("play_firebase_wrong_app")
-        return blockers
-    except (OSError, ValueError, UnicodeError):
-        return ["play_release_sources_unreadable_or_invalid"]
+        blockers.append("play_source_files_missing")
+    else:
+        try:
+            source = (gradle.read_text(encoding="utf-8"),
+                      manifest.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError):
+            blockers.append("play_release_sources_unreadable_or_invalid")
 
+    def read_evidence(path: Path, missing: str, invalid: str):
+        if not path.is_file():
+            blockers.append(missing)
+            return None
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, UnicodeError):
+            blockers.append(invalid)
+            return None
+
+    privacy_file = root / "docs/google-play-privacidade-evidencias.json"
+    ugc_file = root / "docs/google-play-ugc-evidencias.json"
+    privacy = read_evidence(privacy_file, "privacy_evidence_file_missing",
+                            "privacy_evidence_invalid")
+    ugc = read_evidence(ugc_file, "ugc_evidence_file_missing",
+                        "ugc_evidence_invalid")
+    if source is not None:
+        source_blockers = assess_release(source[0], source[1], privacy,
+                                         ugc_evidence=ugc)
+        # Dedicated file diagnostics take precedence over generic missing/invalid
+        # manifest diagnostics, keeping one actionable error per file.
+        if privacy is None:
+            source_blockers = [b for b in source_blockers
+                               if b != "privacy_manifest_missing_or_invalid"]
+        if ugc is None:
+            source_blockers = [b for b in source_blockers
+                               if b != "ugc_evidence_missing"]
+        blockers.extend(source_blockers)
+
+    firebase_file = root / "app/google-services.json"
+    if not firebase_file.is_file():
+        blockers.append("play_firebase_config_missing")
+    else:
+        try:
+            config = json.loads(firebase_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError, UnicodeError):
+            config = None
+        if not isinstance(config, dict):
+            blockers.append("play_firebase_config_invalid")
+        else:
+            project = config.get("project_info")
+            if not isinstance(project, dict) or project.get("project_id") != EXPECTED_FIREBASE_PROJECT:
+                blockers.append("play_firebase_wrong_project")
+            clients = config.get("client")
+
+            def valid_client(c):
+                if not isinstance(c, dict) or not isinstance(c.get("client_info"), dict):
+                    return False
+                info = c["client_info"]
+                android = info.get("android_client_info")
+                keys = c.get("api_key")
+                return (isinstance(android, dict)
+                        and android.get("package_name") == EXPECTED_PACKAGE
+                        and bool(info.get("mobilesdk_app_id"))
+                        and isinstance(keys, list)
+                        and any(isinstance(k, dict) and bool(k.get("current_key"))
+                                for k in keys))
+            if not isinstance(clients, list) or not any(valid_client(c) for c in clients):
+                blockers.append("play_firebase_wrong_app")
+    return blockers
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)

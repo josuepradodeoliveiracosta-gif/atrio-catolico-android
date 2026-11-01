@@ -198,7 +198,11 @@ class ReleaseGateTests(unittest.TestCase):
             (root / "app/src/playRelease").mkdir(parents=True)
             (root / "app/build.gradle.kts").write_text(GRADLE)
             (root / "app/src/playRelease/AndroidManifest.xml").write_text(MANIFEST)
-            self.assertEqual(inspect(root), ["privacy_evidence_file_missing"])
+            blockers = inspect(root)
+            self.assertIn("privacy_evidence_file_missing", blockers)
+            self.assertIn("ugc_evidence_file_missing", blockers)
+            self.assertIn("play_firebase_config_missing", blockers)
+            self.assertNotIn("play_source_files_missing", blockers)
 
     def test_play_bundle_requires_official_firebase_project_and_app(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -209,7 +213,10 @@ class ReleaseGateTests(unittest.TestCase):
             (root / "app/src/playRelease/AndroidManifest.xml").write_text(MANIFEST)
             (root / "docs/google-play-privacidade-evidencias.json").write_text(
                 json.dumps(evidence()))
-            self.assertEqual(inspect(root), ["ugc_evidence_file_missing"])
+            blockers = inspect(root)
+            self.assertIn("ugc_evidence_file_missing", blockers)
+            self.assertIn("play_firebase_config_missing", blockers)
+            self.assertNotIn("privacy_evidence_file_missing", blockers)
             (root / "docs/google-play-ugc-evidencias.json").write_text(
                 json.dumps(ugc_evidence()))
             self.assertIn("play_firebase_config_missing", inspect(root))
@@ -244,8 +251,62 @@ class ReleaseGateTests(unittest.TestCase):
             (root / "docs/google-play-privacidade-evidencias.json").write_text("{invalid")
             (root / "docs/google-play-ugc-evidencias.json").write_text(
                 json.dumps(ugc_evidence()))
-            self.assertEqual(inspect(root),
-                             ["play_release_sources_unreadable_or_invalid"])
+            blockers = inspect(root)
+            self.assertIn("privacy_evidence_invalid", blockers)
+            self.assertIn("play_firebase_config_missing", blockers)
+            self.assertNotIn("ugc_evidence_invalid", blockers)
+
+
+    def test_audit_reports_independent_missing_prerequisites(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            blockers = inspect(root)
+            self.assertEqual(blockers, [
+                "play_source_files_missing",
+                "privacy_evidence_file_missing",
+                "ugc_evidence_file_missing",
+                "play_firebase_config_missing",
+            ])
+
+    def test_privacy_missing_does_not_hide_ugc_checks(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "app/src/playRelease").mkdir(parents=True)
+            (root / "docs").mkdir()
+            (root / "app/build.gradle.kts").write_text(GRADLE)
+            (root / "app/src/playRelease/AndroidManifest.xml").write_text(MANIFEST)
+            record = ugc_evidence()
+            record["requirements"]["block_users"]["verified"] = False
+            (root / "docs/google-play-ugc-evidencias.json").write_text(json.dumps(record))
+            blockers = inspect(root)
+            self.assertIn("privacy_evidence_file_missing", blockers)
+            self.assertIn("ugc_unverified:block_users", blockers)
+            self.assertIn("play_firebase_config_missing", blockers)
+
+    def test_ugc_invalid_does_not_hide_privacy_checks(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "app/src/playRelease").mkdir(parents=True)
+            (root / "docs").mkdir()
+            (root / "app/build.gradle.kts").write_text(GRADLE)
+            (root / "app/src/playRelease/AndroidManifest.xml").write_text(MANIFEST)
+            record = evidence()
+            record["requirements"]["worker_freeze"]["verified"] = False
+            (root / "docs/google-play-privacidade-evidencias.json").write_text(json.dumps(record))
+            (root / "docs/google-play-ugc-evidencias.json").write_text("{broken")
+            blockers = inspect(root)
+            self.assertIn("ugc_evidence_invalid", blockers)
+            self.assertIn("privacy_unverified:worker_freeze", blockers)
+            self.assertNotIn("ugc_evidence_missing", blockers)
+
+    def test_invalid_firebase_reports_its_own_code(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "app").mkdir()
+            (root / "app/google-services.json").write_text("{broken")
+            blockers = inspect(root)
+            self.assertIn("play_firebase_config_invalid", blockers)
+            self.assertNotIn("play_firebase_config_missing", blockers)
 
 
 if __name__ == "__main__":
