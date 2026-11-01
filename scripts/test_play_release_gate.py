@@ -352,6 +352,12 @@ class AccountDeletionPortalGateTests(unittest.TestCase):
             root = Path(folder)
             portal = root / "cloudflare/account-deletion-portal/public/app.js"
             portal.parent.mkdir(parents=True)
+            builder = root / "cloudflare/account-deletion-portal/scripts/build.mjs"
+            builder.parent.mkdir(parents=True)
+            builder.write_text(
+                "JSON.stringify({intakeEnabled:false,actualDeletionEnabled:false})",
+                encoding="utf-8"
+            )
             canonical = (
                 "const LIVE_INTAKE_REVIEWED_AND_APPROVED=false;\n"
                 "const intakeEnabled=LIVE_INTAKE_REVIEWED_AND_APPROVED &&\n"
@@ -380,7 +386,36 @@ class AccountDeletionPortalGateTests(unittest.TestCase):
                 "LIVE_INTAKE_REVIEWED_AND_APPROVED=false;",
                 "LIVE_INTAKE_REVIEWED_AND_APPROVED=true;"
             ), encoding="utf-8")
+            self.assertIn(
+                "play_deletion_portal_generated_config_not_approved",
+                account_deletion_portal_blockers(root, valid)
+            )
+            builder.write_text(
+                "JSON.stringify({intakeEnabled:true,actualDeletionEnabled:false})",
+                encoding="utf-8"
+            )
+            self.assertIn(
+                "play_deletion_portal_generated_config_not_approved",
+                account_deletion_portal_blockers(root, valid)
+            )
+            builder.write_text(
+                "JSON.stringify({intakeEnabled:true,actualDeletionEnabled:true})",
+                encoding="utf-8"
+            )
             self.assertEqual(account_deletion_portal_blockers(root, valid), [])
+            builder.write_text(
+                "JSON.stringify({intakeEnabled:true,actualDeletionEnabled:true})\n"
+                "JSON.stringify({intakeEnabled:false,actualDeletionEnabled:false})",
+                encoding="utf-8"
+            )
+            self.assertIn(
+                "play_deletion_portal_generated_config_not_approved",
+                account_deletion_portal_blockers(root, valid)
+            )
+            builder.write_text(
+                "JSON.stringify({intakeEnabled:true,actualDeletionEnabled:true})",
+                encoding="utf-8"
+            )
             portal.write_text(
                 "const LIVE_INTAKE_REVIEWED_AND_APPROVED=true;",
                 encoding="utf-8"
@@ -392,6 +427,15 @@ class AccountDeletionPortalGateTests(unittest.TestCase):
             portal.unlink()
             self.assertIn(
                 "play_deletion_portal_source_missing",
+                account_deletion_portal_blockers(root, valid)
+            )
+            portal.write_text(canonical.replace(
+                "LIVE_INTAKE_REVIEWED_AND_APPROVED=false;",
+                "LIVE_INTAKE_REVIEWED_AND_APPROVED=true;"
+            ), encoding="utf-8")
+            builder.unlink()
+            self.assertIn(
+                "play_deletion_portal_builder_missing",
                 account_deletion_portal_blockers(root, valid)
             )
 

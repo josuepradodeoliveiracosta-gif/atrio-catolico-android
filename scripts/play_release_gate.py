@@ -303,6 +303,25 @@ def account_deletion_portal_blockers(root: Path, url: str) -> list[str]:
     if ("window.ATRIO_PORTAL_STATUS?.intakeEnabled===true" not in source or
             "window.ATRIO_PORTAL_STATUS?.actualDeletionEnabled===true" not in source):
         failures.append("play_deletion_portal_backend_fence_missing")
+
+    # Important: the HTML/JS approval above is NOT sufficient. The site
+    # generator currently emits config.js with BOTH availability flags false.
+    # Require explicit review of the generated runtime state as well.
+    build_script = root / "cloudflare/account-deletion-portal/scripts/build.mjs"
+    try:
+        builder = build_script.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        failures.append("play_deletion_portal_builder_missing")
+        return failures
+    # Restrict this check to the concrete static object used by this project.
+    # No environment variable alone can enable the deployed intake.
+    generated_states = re.findall(
+        r"JSON\.stringify\(\{\s*intakeEnabled:\s*(true|false)\s*,"
+        r"\s*actualDeletionEnabled:\s*(true|false)\s*\}\)",
+        builder,
+    )
+    if generated_states != [("true", "true")]:
+        failures.append("play_deletion_portal_generated_config_not_approved")
     return failures
 
 

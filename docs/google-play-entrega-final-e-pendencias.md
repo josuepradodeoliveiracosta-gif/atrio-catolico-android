@@ -137,3 +137,25 @@ efetivo, política jurídica aprovada e evidência assinada pelo responsável.
 as garantias distribuídas de privacidade e a retenção ainda precisam ser
 homologados. Não mudar `verified:false` ou `releaseAuthorized:false`
 para contornar o gate.
+
+## Inspeção obrigatória do `config.js` gerado antes da assinatura
+
+Foi identificado que o cliente web e o gerador de arquivos públicos possuem
+**dois intertravamentos independentes**. Mesmo após trocar manualmente
+`LIVE_INTAKE_REVIEWED_AND_APPROVED` para `true` no cliente
+(`public/app.js`), `scripts/build.mjs` continua gerando
+`intakeEnabled:false` e `actualDeletionEnabled:false` no
+`config.js` público. Isso deixaria o formulário indisponível.
+
+O gate de assinatura exige agora que os **dois sinalizadores gerados sejam
+explicitamente `true` em uma única configuração estática** e rejeita
+configurações incompletas, duplicadas, contraditórias ou gerador ausente.
+Os testes de regressão verificam estas falhas. Não foram alterados os
+sinalizadores reais do portal: ambos **continuam `false`**, de propósito.
+
+Antes da aprovação humana, ainda é obrigatória a inspeção da página
+**efetivamente publicada**, dos arquivos `app.js`/`config.js`
+distribuídos, da origem HTTPS, das regras de autenticação, do recebimento
+do pedido e do processamento efetivo de exclusão. Checks estáticos não
+provam publicação nem execução. Não autorizar assinatura ou upload por
+simples mudança de variáveis ou de sinalizadores.
