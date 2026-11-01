@@ -29,3 +29,28 @@ Este módulo **não** equivale a executor aprovado. O projeto continua sem
 fencing operacional em Workers, decisão jurídica de retenção, inventário real
 completo, monitoramento, portal HTTPS habilitado e prova de exclusão E2E.
 Não ativar escrita/exclusão de produção nem alterar evidências para `verified:true`.
+
+
+## Barreira de escrita privilegiada — ensaio SQLite isolado
+
+A barreira de `qa-privileged-write-barrier.js`, importada da PR #98,
+opera **somente com dois UIDs fictícios**: `qa-freeze-alice` e
+`qa-freeze-bob`. A DDL `qa-privileged-freeze-schema.sql` bloqueia
+outros identificadores com `CHECK`. Não configurar conexões Cloudflare D1
+de produção nem misturar a tabela de QA aos bancos existentes.
+
+O teste de `node:sqlite` verifica admissão atômica de operações que
+envolvem remetente e destinatário, transição `active → draining → frozen`,
+persistência após reconexão, proibição de novos efeitos e bloqueio da
+conclusão diante de efeitos Cloudinary/FCM de resultado desconhecido.
+São ensaios de funções simuladas: **não existem operações reais de Worker,
+Firebase Admin ou Cloudinary** nesses arquivos.
+
+A CI já existente do AAB os descobre via
+`npm --prefix cloudflare/account-deletion-audit test`; não foi adicionado
+workflow ou deploy. Antes de qualquer liberação é necessário integrar e
+auditar **todas as rotas, cron jobs, filas, fanouts e gravações privilegiadas
+reais dos três Workers**, além dos serviços já implantados, e confirmar
+que a coordenação é durável e compartilhada entre processos. Esta barreira
+isolada **não** protege contas de produção e não torna a exclusão
+efetiva, conforme `releaseAuthorized:false`.
