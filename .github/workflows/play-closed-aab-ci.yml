@@ -7,6 +7,7 @@ on:
       - 'app/**'
       - 'cloudflare/account-deletion-portal/**'
       - 'cloudflare/account-deletion-processor/**'
+      - 'cloudflare/account-deletion-audit/**'
       - 'docs/google-play-politica-privacidade-minuta-nao-publicar.md'
       - 'docs/google-play-seguranca-dados-matriz-revisao.md'
       - 'scripts/play_store_bundle_check.py'
@@ -60,6 +61,8 @@ jobs:
         run: |
           npm --prefix cloudflare/account-deletion-processor test
           test ! -e cloudflare/account-deletion-processor/dist
+      - name: Verificar inventário determinístico e checkpoints de exclusão sem escrita
+        run: npm --prefix cloudflare/account-deletion-audit test
       - name: Impedir publicação automática de rascunhos de privacidade
         run: |
           grep -q 'RASCUNHO INTERNO. NÃO PUBLICAR.' docs/google-play-politica-privacidade-minuta-nao-publicar.md
