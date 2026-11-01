@@ -16,3 +16,18 @@ Uma falha não altera a autorização de release e **deve manter a CI vermelha**
 O teste apenas homologa a semântica da transação no emulador; não prova
  IAM de produção, resistência a operações já em andamento em Cloudinary/FCM,
 uso correto de marcadores no backend implantado ou exclusão real.
+
+
+### Compatibilidade com o Firebase Emulator
+
+A revisão anterior travou durante GET de documento com `?transaction=` no
+emulador (Firebase firebase-tools issue #3293). O adaptador usa agora
+`documents:batchGet` com `newTransaction:{readWrite:{}}`, extrai o token
+da resposta e valida todas as linhas, inclusive documentos ausentes.
+Somente depois emite `:commit` com a mesma transação. Resposta truncada,
+documento duplicado, token ausente, versão diferente ou erro HTTP
+interrompem o fluxo. O timeout REST está limitado a 15 segundos para
+falhar fechado em vez de manter o scanner preso por minutos.
+
+É uma correção de API com testes simulados; a CI com o Firebase Emulator
+deve ser aprovada separadamente. Não houve deploy ou liberação.

@@ -75,7 +75,7 @@ export class Firestore {
     this.resource='projects/'+project+'/databases/(default)/documents';
   }
   async send(path,method='GET',payload){
-    const r=await fetch(this.root+path,{method,headers:{Authorization:'Bearer '+this.access,'Content-Type':'application/json'},body:payload?JSON.stringify(payload):undefined});
+    const r=await fetch(this.root+path,{method,headers:{Authorization:'Bearer '+this.access,'Content-Type':'application/json'},body:payload?JSON.stringify(payload):undefined,signal:AbortSignal.timeout(15000)});
     if(r.status===404 && method==='GET')return null;
     if(!r.ok){
       // Firestore REST uses 400/409/412 for optimistic-write precondition failures.
@@ -188,24 +188,49 @@ export class Firestore {
         throw Error('invalid_firestore_verify_condition');
       paths.push([path.slice(prefix.length),check.currentDocument]);
     }
-    const begun=await this.send(':beginTransaction','POST',{options:{readWrite:{}}});
-    const transaction=begun?.transaction;
+    // Firestore emulator can hang on GET /document?transaction=... .
+    // Official batchGet starts the read-write transaction and reads its
+    // full verification set in one request. Missing docs are explicit.
+    const response=await this.send(':batchGet','POST',{
+      documents:paths.map(([path])=>this.resource+'/'+path),
+      newTransaction:{readWrite:{}}
+    });
+    const rows=Array.isArray(response)?response:[response];
+    const expectedPaths=new Map(paths.map(([path,condition])=>
+      [this.resource+'/'+path,condition]));
+    const seen=new Set();
+    let transaction=null;
+    for(const row of rows){
+      if(row?.transaction){
+        if(transaction && transaction!==row.transaction)
+          throw Error('invalid_firestore_transaction');
+        transaction=row.transaction;
+      }
+      const name=row?.found?.name||row?.missing;
+      if(!name)continue; // A transaction-only response is allowed.
+      if(!expectedPaths.has(name)||seen.has(name)||
+        (row?.found&&row?.missing))
+        throw Error('invalid_firestore_batch_get_response');
+      seen.add(name);
+    }
     if(typeof transaction!=='string'||transaction.length>4096||
-       !/^[A-Za-z0-9+/]+={0,2}$/.test(transaction))
-      throw Error('invalid_firestore_transaction');
+       !/^[A-Za-z0-9+/]+={0,2}$/.test(transaction)||
+       seen.size!==expectedPaths.size)
+      throw Error('invalid_firestore_batch_get_response');
     try {
-      for(const [path,expected] of paths){
-        const actual=await this.send('/'+path.split('/').map(enc).join('/')+
-          '?transaction='+enc(transaction));
-        if(expected.exists===false ? actual!==null :
-          !actual||actual.updateTime!==expected.updateTime){
+      for(const row of rows){
+        const name=row?.found?.name||row?.missing;
+        if(!name)continue;
+        const expected=expectedPaths.get(name);
+        const found=row.found||null;
+        if(expected.exists===false ? found!==null :
+          !found||found.updateTime!==expected.updateTime){
           const e=Error('firestore_verified_document_changed');
           e.status=409;
           throw e;
         }
       }
-      // The transaction validates the read set AGAIN at commit time:
-      // a marker created after a missing-document GET aborts this commit.
+      // Serializable read set + commit: marker creation invalidates read set.
       return await this.send(':commit','POST',{writes:updates,transaction});
     }catch(error){
       try{await this.send(':rollback','POST',{transaction});}catch{}
