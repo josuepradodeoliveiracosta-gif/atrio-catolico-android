@@ -299,6 +299,19 @@ class ReleaseGateTests(unittest.TestCase):
             self.assertIn("privacy_unverified:worker_freeze", blockers)
             self.assertNotIn("ugc_evidence_missing", blockers)
 
+    def test_json_null_and_list_evidence_cannot_bypass_gate(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "app/src/playRelease").mkdir(parents=True)
+            (root / "docs").mkdir()
+            (root / "app/build.gradle.kts").write_text(GRADLE)
+            (root / "app/src/playRelease/AndroidManifest.xml").write_text(MANIFEST)
+            (root / "docs/google-play-privacidade-evidencias.json").write_text("null")
+            (root / "docs/google-play-ugc-evidencias.json").write_text("[]")
+            blockers = inspect(root)
+            self.assertIn("privacy_evidence_invalid", blockers)
+            self.assertIn("ugc_evidence_invalid", blockers)
+
     def test_invalid_firebase_reports_its_own_code(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)

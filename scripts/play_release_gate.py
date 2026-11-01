@@ -177,7 +177,11 @@ def inspect(root: Path) -> list[str]:
             blockers.append(missing)
             return None
         try:
-            return json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                blockers.append(invalid)
+                return None
+            return data
         except (OSError, ValueError, UnicodeError):
             blockers.append(invalid)
             return None
