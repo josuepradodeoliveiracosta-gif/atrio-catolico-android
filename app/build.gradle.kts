@@ -1,3 +1,5 @@
+import java.net.URI
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -56,7 +58,7 @@ android {
         // A URL pertence ao responsavel pelo app. O release Play a exige no gate.
         // Nenhuma politica provisoria ou link falso deve aparecer no aplicativo.
         val policyUrl = System.getenv("ATRIO_PRIVACY_POLICY_URL").orEmpty()
-        val policyUri = runCatching { java.net.URI(policyUrl) }.getOrNull()
+        val policyUri = runCatching { URI(policyUrl) }.getOrNull()
         require(policyUrl.isBlank() || (
             policyUrl.length <= 2048 &&
             policyUri?.scheme == "https" &&

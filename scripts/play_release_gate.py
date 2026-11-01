@@ -248,8 +248,12 @@ def privacy_policy_link_blockers(root: Path, url: str) -> list[str]:
     if not real_https_url(url):
         failures.append("play_public_privacy_policy_url_missing_or_invalid")
     else:
-        parsed = urlsplit(url)
-        if parsed.query or parsed.fragment or parsed.port not in (None, 443):
+        try:
+            parsed = urlsplit(url)
+            invalid = bool(parsed.query or parsed.fragment or parsed.port not in (None, 443))
+        except ValueError:
+            invalid = True
+        if invalid:
             failures.append("play_privacy_policy_url_must_be_static_https")
     try:
         gradle = (root / "app/build.gradle.kts").read_text(encoding="utf-8")

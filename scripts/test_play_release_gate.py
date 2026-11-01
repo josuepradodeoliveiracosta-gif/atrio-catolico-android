@@ -336,7 +336,8 @@ class PrivacyPolicyLinkTests(unittest.TestCase):
             self.assertEqual(privacy_policy_link_blockers(root, valid), [])
             for url in ("", "http://atrio-catolico.org.br/politica",
                         "https://example.com/politica",
-                        "https://atrio-catolico.org.br/politica?token=abc"):
+                        "https://atrio-catolico.org.br/politica?token=abc",
+                        "https://atrio-catolico.org.br:porta/politica"):
                 with self.subTest(url=url):
                     self.assertTrue(privacy_policy_link_blockers(root, url))
             profile.write_text("sem link")
