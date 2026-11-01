@@ -181,6 +181,8 @@ internal fun OnlineProfileScreen(
                     }
                 }
             }
+            // Somente registro de pedido, sem exclusão remota neste estágio.
+            item { AccountDeletionRequestSection(db, uid) }
             if (onModeration != null || onClergyReview != null) item {
                 HorizontalDivider(color = Line)
                 Spacer(Modifier.height(16.dp))
