@@ -602,6 +602,7 @@ private fun OnlineCommunity(
         request.addOnFailureListener { message = it.localizedMessage ?: "Não foi possível atualizar." }
     }
     fun publish(title: String, body: String, category: String) {
+        if (FirebaseAuth.getInstance().currentUser?.uid != uid) return
         if (!communityTerms.canPublish) {
             message = "Antes de publicar, consulte e aceite os Termos da Comunidade."
             communityTermsPrompt = true
@@ -622,6 +623,8 @@ private fun OnlineCommunity(
             "body" to body, "category" to category,
             "createdAt" to FieldValue.serverTimestamp()
         )).addOnCompleteListener { result ->
+            // A escrita pode terminar depois do logout; nao usar outra sessao para efeitos de cliente.
+            if (FirebaseAuth.getInstance().currentUser?.uid != uid) return@addOnCompleteListener
             working = false
             if (qaLab) android.util.Log.d("AtrioQaPublish",
                 if (result.isSuccessful) "commit_ok" else "commit_failed_" +
@@ -644,6 +647,7 @@ private fun OnlineCommunity(
         id: String, body: String, done: (Boolean) -> Unit,
         target: Reply? = null, mention: MentionCandidate? = null
     ) {
+        if (FirebaseAuth.getInstance().currentUser?.uid != uid) { done(false); return }
         if (!communityTerms.canPublish) {
             message = "Antes de responder, consulte e aceite os Termos da Comunidade."
             communityTermsPrompt = true
@@ -660,6 +664,8 @@ private fun OnlineCommunity(
         // Não publicar silenciosamente uma resposta sem o aviso obrigatório.
         db.collection("posts").document(id).get(com.google.firebase.firestore.Source.SERVER)
             .addOnCompleteListener { parentResult ->
+                if (FirebaseAuth.getInstance().currentUser?.uid != uid)
+                    return@addOnCompleteListener
                 val parent = if (parentResult.isSuccessful) parentResult.result else null
                 val ownerUid = if (parent?.exists() == true)
                     parent.getString("uid").orEmpty() else ""
@@ -747,6 +753,8 @@ private fun OnlineCommunity(
                 }
                 // Resposta e notificações continuam atômicas.
                 batch.commit().addOnCompleteListener { result ->
+                    if (FirebaseAuth.getInstance().currentUser?.uid != uid)
+                        return@addOnCompleteListener
                     // Confirmar imediatamente o resultado para a interface.
                     // Inscrições FCM e relay não devem bloquear o botão Responder.
                     if (!result.isSuccessful) {
@@ -1080,7 +1088,13 @@ private fun OnlineCommunity(
         key(target.postId, target.replyId) {
             ReplyReportDialog(db, uid, target,
                 onClose = { reportReply = null },
-                onSuccess = { reportReply = null; message = "Denúncia da resposta enviada para análise." })
+                onSuccess = {
+                    if (FirebaseAuth.getInstance().currentUser?.uid == uid &&
+                        reportReply?.postId == target.postId && reportReply?.replyId == target.replyId) {
+                        reportReply = null
+                        message = "Denúncia da resposta enviada para análise."
+                    }
+                })
         }
     }
     if (reportPost != null) {
