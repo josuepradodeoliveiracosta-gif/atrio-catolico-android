@@ -76,12 +76,21 @@ internal fun AccountDeletionRequestSection(db: FirebaseFirestore, uid: String) {
                 state = DeletionRequestState.ERROR
             } else {
                 val snapshot = result.result!!
-                state = verifiedDeletionRequestState(
-                    snapshot.exists(),
-                    snapshot.getString("status"),
-                    snapshot.getString("source"),
-                    snapshot.getTimestamp("requestedAt") != null
-                )
+                // Em Source.SERVER ainda é possível receber uma escrita local
+                // pendente fundida ao snapshot. Não confirmar sem ACK remoto.
+                state = if (snapshot.metadata.isFromCache ||
+                    snapshot.metadata.hasPendingWrites()) {
+                    DeletionRequestState.INDETERMINATE
+                } else {
+                    // Campos com tipo inesperado não podem derrubar a UI.
+                    // Deixe o backend corrigir o registro, sem sobreescrevê-lo.
+                    verifiedDeletionRequestState(
+                        snapshot.exists(),
+                        snapshot.get("status") as? String,
+                        snapshot.get("source") as? String,
+                        snapshot.get("requestedAt") is com.google.firebase.Timestamp
+                    )
+                }
             }
         }
     }
