@@ -27,6 +27,7 @@ jobs:
     timeout-minutes: 25
     env:
       PLAY_AAB_APPROVED: ${{ vars.ATRIO_PLAY_AAB_APPROVED || 'false' }}
+      ATRIO_PLAY_UPLOAD_CERT_SHA256: ${{ vars.ATRIO_PLAY_UPLOAD_CERT_SHA256 || '' }}
       GUARDIAN_APPROVED: ${{ vars.ATRIO_GUARDIAN_V2_RELEASE_APPROVED || 'false' }}
       GUARDIAN_URL: ${{ vars.ATRIO_GUARDIAN_V2_WORKER_URL || '' }}
       ATRIO_PUSH_WORKER_URL: ${{ vars.ATRIO_PUSH_WORKER_URL || 'https://atrio-push.atrio-catolico.workers.dev' }}
@@ -49,6 +50,14 @@ jobs:
             echo "::error::AAB bloqueado: backend Guardião oficial não homologado"
             exit 1
           }
+      - name: Bloquear chave de upload sem certificado previamente aprovado
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$ATRIO_PLAY_UPLOAD_CERT_SHA256" =~ ^([0-9A-Fa-f]{64}|([0-9A-Fa-f]{2}:){31}[0-9A-Fa-f]{2})$ ]] || {
+            echo "::error::Configurar SHA-256 do certificado PUBLICO de upload antes da assinatura."
+            exit 1
+          }
       - name: Obter código
         uses: actions/checkout@v4
         with:
@@ -58,6 +67,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m unittest discover -s scripts -p 'test_play_release_gate.py' -v
+          python3 -m unittest discover -s scripts -p 'test_play_upload_certificate_check.py' -v
           python3 scripts/play_release_gate.py --enforce
       - name: Preparar Java 17 e ferramentas de Android
         uses: actions/setup-java@v4
@@ -86,9 +96,14 @@ jobs:
           }
           umask 077
           KEYSTORE="$RUNNER_TEMP/atrio-play-upload.jks"
-          trap 'rm -f "$KEYSTORE"' EXIT
+          CERT_DER="$RUNNER_TEMP/atrio-play-upload-public.der"
+          trap 'rm -f "$KEYSTORE" "$CERT_DER"' EXIT
           printf '%s' "$ATRIO_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE"
           chmod 600 "$KEYSTORE"
+          # keytool exports only the public X.509 DER certificate; never print key material.
+          keytool -exportcert -keystore "$KEYSTORE" -alias atrio \
+            -storepass:env ATRIO_STORE_PASSWORD > "$CERT_DER"
+          python3 scripts/play_upload_certificate_check.py --certificate "$CERT_DER"
           export ATRIO_SIGNING_STORE_FILE="$KEYSTORE"
           export ATRIO_SIGNING_STORE_PASSWORD="$ATRIO_STORE_PASSWORD"
           export ATRIO_SIGNING_KEY_ALIAS="atrio"

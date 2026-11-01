@@ -84,3 +84,26 @@ Em contas pessoais de desenvolvedor criadas após **13/11/2023**, para solicitar
 - O workflow de CI sem assinatura executa os testes e o modo audit. O workflow manual exige o modo enforce antes da preparação de SDK e dos segredos de assinatura. O modo enforce é exclusivamente **gate de assinatura para a faixa** e NÃO libera upload ou produção.
 - **Atualização do estado da branch Play (31/10/2026):** `app/build.gradle.kts` reserva `versionCode 37` / `versionName 0.20.2` apenas nesta PR, acima do código 36 da candidata OTA (#70). O registro histórico de code 35 acima não é mais o valor atual. Isso resolve somente a colisão estática de versões: **não** homologa atualização sobre APK existente, assinatura, migração nem distribuição. `docs/google-play-privacidade-evidencias.json` já está nesta branch como cópia idêntica do manifesto não verificado da PR #98, mas **o código de exclusão/portal não foi integrado**, a `main` não foi alterada e o gate continua bloqueado por 8 requisitos pré-assinatura de privacidade e 5 de UGC.
 - Os resultados do gate não comprovam que o certificado de assinatura do app gerenciado pelo Google coincide com o APK já instalado. É obrigatória comparação externa no Play Console antes de upload ou migração de usuários.
+
+
+## Integridade do certificado de upload — verificação antes da assinatura
+
+O workflow de assinatura manual exige que a impressão digital SHA-256 do
+**certificado público da chave de upload** esteja previamente aprovada e
+registrada na variável do GitHub Actions `ATRIO_PLAY_UPLOAD_CERT_SHA256`.
+Aceita 64 dígitos hexadecimais ou 32 pares separados por dois-pontos.
+Se a variável faltar, for inválida ou for diferente do certificado exportado
+do JKS existente, **aborta antes de assinar**, sem gerar nova chave.
+
+A verificação usa `keytool -exportcert` com senha lida exclusivamente de
+variável de ambiente, compara o hash do DER público em
+`scripts/play_upload_certificate_check.py`, não revela impressões digitais
+ou senhas em logs e remove o certificado temporário junto ao JKS.
+Testes offline executam na CI AAB antes do build.
+
+**Importante:** chave de *upload* não é necessariamente a mesma chave de
+**assinatura do aplicativo distribuído** pela Google Play. O proprietário
+precisa verificar separadamente no Play Console o certificado de assinatura
+do app versus o certificado dos APKs OTA já instalados, antes de escolher
+o Play App Signing. Esta verificação não autoriza envio, migração de
+instalações, nem substitui privacidade, UGC e aprovação humana.
