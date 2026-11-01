@@ -90,3 +90,42 @@ test('same fixture review can be retried, not reassigned',()=>fixture(({open})=>
   assert.equal(a.approve(item).idempotent,true);
   assert.throws(()=>a.approve({...item,reviewer:'wrong'}),/reviewer_not_authorized_fixture/);
 }));
+
+test('durable audit chain contains issue, two reviews and revocation',()=>fixture(({open})=>{
+  const reg=open(),id=reg.issue(request).caseId;
+  assert.deepEqual(reg.inspectAudit(),{verified:true,events:1,productionReady:false});
+  both(reg,id);
+  assert.equal(open().inspectAudit().events,3);
+  reg.authorize({caseId:id,request});
+  assert.equal(reg.revoke(id),true);
+  assert.equal(open().inspectAudit().events,4);
+  assert.equal(reg.revoke(id),false);
+  assert.equal(reg.inspectAudit().events,4);
+}));
+test('audit rows reject update/delete and broken hash blocks authorization',()=>fixture(({open})=>{
+  const db=new DatabaseSync(':memory:');
+  try {
+    const standalone=createQaRequestCaseRegistry(db,{now:()=>5000000});
+    const id=standalone.issue(request).caseId;both(standalone,id);
+    assert.throws(()=>db.exec('UPDATE qa_case_audit_events SET kind="issued" WHERE seq=2'),
+      /qa_audit_immutable/);
+    assert.throws(()=>db.exec('DELETE FROM qa_case_audit_events WHERE seq=2'),
+      /qa_audit_immutable/);
+    db.exec('DROP TRIGGER qa_audit_no_update');
+    db.exec('UPDATE qa_case_audit_events SET event_hash="forged" WHERE seq=2');
+    assert.throws(()=>standalone.authorize({caseId:id,request}),/audit_integrity_failed/);
+    assert.throws(()=>standalone.revoke(id),/audit_integrity_failed/);
+  }finally{db.close();}
+}));
+test('manual inserted review or modified case cannot pass audit',()=>fixture(({open})=>{
+  const db=new DatabaseSync(':memory:');
+  try {
+    const r=createQaRequestCaseRegistry(db,{now:()=>5000000});
+    const id=r.issue(request).caseId;
+    db.prepare('INSERT INTO qa_case_reviews VALUES (?,?,?,?)')
+      .run(id,'privacy','qa-privacy-reviewer',5000000);
+    assert.throws(()=>r.authorize({caseId:id,request}),/audit_integrity_failed/);
+    assert.throws(()=>r.approve({caseId:id,role:'security',
+      reviewer:'qa-security-reviewer',request}),/audit_integrity_failed/);
+  }finally{db.close();}
+}));

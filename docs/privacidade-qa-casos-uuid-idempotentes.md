@@ -46,3 +46,19 @@ Os testes de integração cobrem caso ausente, somente uma aprovação,
 revogação durante uma etapa e tentativa de retomar outro UUID.
 **Este vínculo continua restrito a SQLite/Firestore Emulator e
 revisores fictícios**, não dá permissão de produção.
+
+## Registro de auditoria append-only em SQLite QA
+
+A emissão, cada aprovação e a revogação gravam um evento
+`qa_case_audit_events` na **mesma transação SQLite** da alteração
+administrativa. Um encadeamento SHA-256 liga cada evento ao anterior;
+gatilhos de SQLite bloqueiam `UPDATE` e `DELETE` normais. Antes
+de autorizar, criar, revisar ou revogar, o módulo verifica a cadeia,
+os estados dos casos e as revisões efetivamente registradas.
+Testes simulam alteração de hash e inserção de revisão não auditada.
+
+**Limitação:** o SHA-256 local não é prova jurídica nem resiste
+a um administrador mal-intencionado com controle completo do banco,
+capaz de apagar gatilhos e reconstruir a cadeia. Produção exige
+ancoragem externa imutável, registros assinados e revisores
+autenticados. Nenhum dado do Firebase real foi consultado.
