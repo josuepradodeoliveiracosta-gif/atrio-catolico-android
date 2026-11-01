@@ -17,6 +17,11 @@ const URL='https://firestore.googleapis.com/v1/'+ROOT+':runQuery';
 const MAX_RESPONSE_BYTES=2_000_000;
 const PATH_PART=/^[A-Za-z0-9_-]{1,160}$/;
 const tokenPattern=/^[A-Za-z0-9_+\/=.-]{20,4096}$/;
+const READ_TIME=/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3}(?:\d{3}){0,2})?Z$/;
+function validReadTime(value) {
+  return typeof value==='string' && READ_TIME.test(value) &&
+    Number.isFinite(Date.parse(value));
+}
 
 function maskMatches(path,mask) {
   const parts=path.split('/'),maskParts=mask.split('/');
@@ -76,20 +81,31 @@ export function createRelationalFirestoreReadAdapter(uid,oauthToken,fetcher=fetc
       });
       if(response.status!==200) throw Error('firestore_query_unavailable');
       const raw=await response.text();
-      if(raw.length>MAX_RESPONSE_BYTES) throw Error('firestore_response_too_large');
+      if(new TextEncoder().encode(raw).byteLength>MAX_RESPONSE_BYTES)
+        throw Error('firestore_response_too_large');
       let entries;
       try{entries=JSON.parse(raw);}catch(_){throw Error('invalid_query_response');}
       if(!Array.isArray(entries)||entries.length>pageSize+1)
         throw Error('invalid_query_response');
       const items=[];
       let previous=cursor;
-      for(const entry of entries) {
+      for(let i=0;i<entries.length;i++) {
+        const entry=entries[i];
         if(!entry||typeof entry!=='object'||Array.isArray(entry))
           throw Error('invalid_query_response');
+        // Sem offset, transação ou explain: campos inesperados bloqueiam
+        // inventário, inclusive skippedResults positivo e readTime ausente.
+        if(Object.keys(entry).some(k=>![
+            'document','readTime','skippedResults','done'].includes(k)) ||
+          (entry.skippedResults!==undefined && entry.skippedResults!==0) ||
+          (entry.done!==undefined && entry.done!==true) ||
+          (entry.done===true && i!==entries.length-1) ||
+          !validReadTime(entry.readTime))
+          throw Error('untrusted_query_envelope');
         if(!('document' in entry)) {
-          // Firestore can return a readTime-only envelope for empty queries.
-          if(entries.length!==1||items.length!==0||
-            entry.skippedResults!==undefined||!entry.readTime)
+          // Firestore pode responder vazio ou incluir marcador terminal.
+          // Nunca aceitar envelope intermediário sem documento.
+          if(i!==entries.length-1)
             throw Error('unexpected_empty_query_envelope');
           continue;
         }

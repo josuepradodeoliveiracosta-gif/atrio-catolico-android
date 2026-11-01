@@ -87,3 +87,18 @@ escopo desconhecido e referências externas repetidas, preservando o caminho
 válido de QA. **Isso não confere autenticidade aos campos:** a origem ainda
 deve ser um backend administrativo verificado, e o plano permanece
 `simulatedOnly:true`, `safeToExecute:false`, sem integração com contas reais.
+
+## Validação da consulta de inventário Firestore por resposta HTTP (01/11/2026)
+
+O adaptador somente-leitura \`relational-firestore-read-adapter.js\` foi
+reforçado para interpretar corretamente a estrutura documentada de
+\`RunQueryResponse\`: pode haver resposta vazia com \`readTime\`, ou
+marcador terminal \`done:true\`. A auditoria agora bloqueia
+\`skippedResults\` diferente de zero, envelopes não esperados,
+horários inválidos, caminhos de outras coleções, outros UIDs, campos
+adicionais, ordem incorreta e respostas excessivas em bytes.
+
+O teste do adaptador usa exclusivamente transporte HTTP simulado,
+sem token OAuth válido, IAM ou dados reais. A leitura de páginas
+separadas não estabelece snapshot global imutável, mesmo com horário
+válido; reconciliação repetida e fencing real continuam obrigatórios.
