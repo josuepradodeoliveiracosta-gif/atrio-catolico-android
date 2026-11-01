@@ -39,18 +39,24 @@ export function createQaRequestCaseRegistry(db,{now=Date.now}={}){
   guard();
   if(typeof db?.prepare!=='function'||typeof db?.exec!=='function'||
      typeof now!=='function')deny('invalid_store');
-  db.exec('CREATE TABLE IF NOT EXISTS qa_request_cases ('+
-    'case_id TEXT PRIMARY KEY,uid TEXT NOT NULL CHECK(uid="qa-delete-alice"),'+
-    'source TEXT NOT NULL CHECK(source IN ("android","web")),'+
-    'requested_at TEXT NOT NULL,state TEXT NOT NULL CHECK(state IN ("open","revoked")),'+
-    'created_at INTEGER NOT NULL,expires_at INTEGER NOT NULL);'+
-    'CREATE UNIQUE INDEX IF NOT EXISTS qa_one_open_case_per_uid '+
-    'ON qa_request_cases(uid) WHERE state="open";'+
-    'CREATE TABLE IF NOT EXISTS qa_case_reviews ('+
-    'case_id TEXT NOT NULL,role TEXT NOT NULL CHECK(role IN ("privacy","security")),'+
-    'reviewer TEXT NOT NULL,reviewed_at INTEGER NOT NULL,'+
-    'PRIMARY KEY(case_id,role),UNIQUE(case_id,reviewer),'+
-    'FOREIGN KEY(case_id) REFERENCES qa_request_cases(case_id))');
+  db.exec(`CREATE TABLE IF NOT EXISTS qa_request_cases (
+    case_id TEXT PRIMARY KEY,
+    uid TEXT NOT NULL CHECK(uid='qa-delete-alice'),
+    source TEXT NOT NULL CHECK(source IN ('android','web')),
+    requested_at TEXT NOT NULL,
+    state TEXT NOT NULL CHECK(state IN ('open','revoked')),
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS qa_one_open_case_per_uid
+    ON qa_request_cases(uid) WHERE state='open';
+  CREATE TABLE IF NOT EXISTS qa_case_reviews (
+    case_id TEXT NOT NULL,
+    role TEXT NOT NULL CHECK(role IN ('privacy','security')),
+    reviewer TEXT NOT NULL, reviewed_at INTEGER NOT NULL,
+    PRIMARY KEY(case_id,role), UNIQUE(case_id,reviewer),
+    FOREIGN KEY(case_id) REFERENCES qa_request_cases(case_id)
+  )`);
   function get(caseId){
     if(typeof caseId!=='string'||!UUID.test(caseId))deny('invalid_case_id');
     const row=db.prepare('SELECT * FROM qa_request_cases WHERE case_id=?').get(caseId);
@@ -73,7 +79,7 @@ export function createQaRequestCaseRegistry(db,{now=Date.now}={}){
         const t=time(now);
         if(!Number.isSafeInteger(t+ttlMs))deny('invalid_clock');
         const prior=db.prepare(
-          'SELECT * FROM qa_request_cases WHERE uid=? AND state="open"').get(UID);
+          "SELECT * FROM qa_request_cases WHERE uid=? AND state='open'").get(UID);
         if(prior){
           if(prior.source!==x.source||prior.requested_at!==x.requestedAt)
             deny('new_request_requires_explicit_revoke');
@@ -131,8 +137,8 @@ export function createQaRequestCaseRegistry(db,{now=Date.now}={}){
       return inTransaction(db,()=>{
         const row=get(caseId);
         if(row.state==='revoked')return false;
-        db.prepare('UPDATE qa_request_cases SET state="revoked" '+
-          'WHERE case_id=? AND state="open"').run(caseId);
+        db.prepare("UPDATE qa_request_cases SET state='revoked' "+
+          "WHERE case_id=? AND state='open'").run(caseId);
         return true;
       });
     }
