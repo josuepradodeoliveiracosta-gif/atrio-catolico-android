@@ -9,9 +9,9 @@ O Worker `cloudflare/push-worker/src/index.js` distribuía respostas pelo tópic
 
 ## Caminho de testes, sem tocar em usuários reais
 
-O modo opt-in `PUSH_BLOCK_SAFE_FANOUT_ENABLED="true"` usa `blockSafeThreadRecipients()` para verificar, via identidade de serviço, tanto `users/{autor}/blockedMembers/{destinatario}` quanto `users/{destinatario}/blockedMembers/{autor}`. Um resultado de leitura diferente de 404/200 válido aborta o evento (fail-closed). Para respostas, o Worker não publica `message.topic`, mas envia FCM por token aos destinatários aprovados e escreve avisos internos somente para eles. Se exceder **5 destinatários**, limita o envio conservadoramente e sinaliza `block_safe_capacity_suppressed`, sem publicação em tópico. O serviço é igualmente compatível com a etapa de QA do APK OTA, mas NÃO está ativo nem homologado em produção.
+O fluxo de respostas agora usa obrigatoriamente `blockSafeThreadRecipients()` para verificar, via identidade de serviço, tanto `users/{autor}/blockedMembers/{destinatario}` quanto `users/{destinatario}/blockedMembers/{autor}`. Um resultado de leitura diferente de 404/200 válido aborta o evento (fail-closed). Para respostas, o Worker não publica `message.topic`, mas envia FCM por token aos destinatários aprovados e escreve avisos internos somente para eles. Se exceder **5 destinatários**, limita o envio conservadoramente e sinaliza `block_safe_capacity_suppressed`, sem publicação em tópico. O código removeu o envio de respostas para tópicos FCM mesmo quando a variável legada está ausente ou definida como `false`. **A versão de produção implantada não foi modificada nem homologada.**
 
-**Ativar o modo somente em um Worker de homologação isolado**, depois de confirmar conta, projeto Firebase de testes, D1 separada, credenciais temporárias de QA e ausência de rotas reais. Não editar o Worker que atende usuários atuais. `wrangler.example.toml` inclui o switch desligado por padrão. A existência da variável no repositório não a aplica à conta Cloudflare.
+**Testar primeiro em um Worker de homologação isolado**, após confirmar conta, projeto Firebase de testes, D1 separada, credenciais temporárias de QA e ausência de rotas reais. Não editar o Worker que atende usuários atuais. Esta mudança não habilita produção nem exige flag para funcionar depois de implantada. A proteção só poderá ser considerada operacional após *deploy* controlado, validação de tráfego e plano de rollback seguro.
 
 ## Critérios mínimos de aceitação
 
@@ -27,7 +27,7 @@ O modo opt-in `PUSH_BLOCK_SAFE_FANOUT_ENABLED="true"` usa `blockSafeThreadRecipi
 
 ## Gatilhos e controles
 
-- A suíte `cloudflare/push-worker/src/index.test.js` contém testes de filtragem bilateral, falhas de consulta, limites de capacidade e exercício completo com FCM/Firestore simulados.
+- A suíte `cloudflare/push-worker/src/index.test.js` contém testes de filtragem bilateral, falhas de consulta, limites de capacidade e exercício completo com FCM/Firestore simulados; a integração padrão verifica ausência de tópico sem a flag e mesmo se a flag legada estiver em `false`.
 - A suíte `tests/security/user-safety.test.mjs` testa regras Firestore de respostas, curtidas, salvos, seguir, reações e denúncias.
 - CI: `cloudflare-push-ci.yml`, `selos-ci.yml` e `play-closed-aab-ci.yml`. Passar no CI não comprova implantação, autenticação dos dados reais ou instalação pela Google Play.
 - **Não marcar** `block_users` ou `closed_track_ugc_e2e` como verificados sem prova revisada, URL HTTPS de evidência válida, versão da política, testadores e validação de ponta a ponta.
@@ -35,6 +35,6 @@ O modo opt-in `PUSH_BLOCK_SAFE_FANOUT_ENABLED="true"` usa `blockSafeThreadRecipi
 
 ## Impedimentos e rollback
 
-A habilitação em produção depende de plano de compatibilidade com APKs já instalados, testes de carga/limites de subrequests, e aprovação de mudança do serviço. **Reverter o flag para `false` NÃO é um rollback seguro enquanto usuários tiverem bloqueios**, porque reativaria broadcast tópico sem controle por destinatário. Em um incidente, preferir suspender *envios de respostas* de forma controlada até restaurar o filtro, preservando o restante dos dados e a triagem da comunidade. O rollout deve ter circuito de corte seguro e plano de acompanhamento humano.
+A habilitação em produção depende de plano de compatibilidade com APKs já instalados, testes de carga/limites de subrequests, e aprovação de mudança do serviço. **Reimplantar uma revisão antiga do Worker NÃO é um rollback seguro enquanto usuários tiverem bloqueios**, porque reativaria broadcast tópico sem controle por destinatário. Em um incidente, preferir suspender *envios de respostas* de forma controlada até restaurar o filtro, preservando o restante dos dados e a triagem da comunidade. O rollout deve ter circuito de corte seguro e plano de acompanhamento humano.
 
 Apenas equipes com acesso autorizado podem publicar o Worker; nenhuma chave de serviço deve ser adicionada ao GitHub, ao APK ou a este documento.

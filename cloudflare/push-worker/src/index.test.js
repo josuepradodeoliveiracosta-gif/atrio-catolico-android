@@ -219,15 +219,11 @@ test('fluxo completo autenticado, deduplicação e falha FCM sem credenciais rea
     if(url.includes('fcm.googleapis.com/')) {
       assert.equal(options.headers.Authorization,'Bearer fake-oauth');
       const message=JSON.parse(options.body).message;
-      if(message.topic) {
-        assert.equal(message.topic,'atrio_thread_p1');
-        assert.equal(message.data.kind,'discussion_reply');
-        assert.equal(message.data.actorUid,'autor');
-      } else {
-        assert.deepEqual(message.data,{uid:'dono',kind:'reply',
-          postId:'p1',replyId:sent<2?'r1':'r2',actorUid:'autor'});
-        assert.equal(message.token,'token-test-device-1234567890');
-      }
+      // Sem flag ou com flag legada false: NUNCA publicar por topic FCM.
+      assert.equal(message.topic,undefined);
+      assert.deepEqual(message.data,{uid:'dono',kind:'reply',
+        postId:'p1',replyId:sent<1?'r1':'r2',actorUid:'autor'});
+      assert.equal(message.token,'token-test-device-1234567890');
       sent++;
       return new Response('{}',{status:failFCM ? 503 : 200});
     }
@@ -244,19 +240,21 @@ test('fluxo completo autenticado, deduplicação e falha FCM sem credenciais rea
   const ok=await emit('r1');
   assert.equal(ok.status,202);
   assert.deepEqual(await ok.json(),{status:'accepted_by_fcm'});
-  assert.equal(sent,2);
+  assert.equal(sent,1);
   assert.equal(fanouts,1);
 
   const duplicate=await emit('r1');
   assert.equal(duplicate.status,202);
   assert.deepEqual(await duplicate.json(),{status:'no_devices_or_duplicate'});
-  assert.equal(sent,2,'evento repetido não pode duplicar o push');
+  assert.equal(sent,1,'evento repetido não pode duplicar o push');
 
+  // A opcao insegura legada nao pode reativar topic em revisoes futuras.
+  env.PUSH_BLOCK_SAFE_FANOUT_ENABLED='false';
   failFCM=true;
   const failed=await emit('r2');
   assert.equal(failed.status,503);
   assert.deepEqual(await failed.json(),{status:'delivery_failed'});
-  assert.equal(sent,4);
+  assert.equal(sent,2);
 });
 
 

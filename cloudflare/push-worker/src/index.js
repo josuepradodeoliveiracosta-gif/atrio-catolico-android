@@ -777,11 +777,10 @@ export default {
       if(event.recipients.length>(event.topic?THREAD_MAX_RECIPIENTS:MAX_ADMINS))
         return response(503,'capacity_limit');
       if(event.degraded) await auditDelivery(env,'thread','capacity_fallback');
-      // Habilitação controlada para homologação Play. Tópicos têm inscritos
-      // legados impossíveis de filtrar individualmente: o modo seguro NÃO
-      // publica mensagem FCM por topic e nega tudo se o limite for excedido.
-      const blockSafeMode = event.kind==='reply' &&
-        env.PUSH_BLOCK_SAFE_FANOUT_ENABLED==='true';
+      // Privacidade obrigatoria para toda resposta, inclusive em clientes
+      // antigos: inscritos em topicos FCM nao podem ser filtrados individualmente.
+      // Nao permitir downgrade por variavel Cloudflare ausente ou false.
+      const blockSafeMode = event.kind==='reply';
       if(blockSafeMode && event.recipients.length>THREAD_BLOCK_SAFE_MAX_RECIPIENTS) {
         await auditDelivery(env,'thread','block_safe_capacity_suppressed');
         return response(202,'block_safe_capacity_suppressed');
@@ -807,29 +806,7 @@ export default {
       let accepted=0;
       let failedHttp=0;
       let cleaned=0;
-      if(event.topic && !blockSafeMode) {
-        // Fluxo legado, NÃO compatível com privacidade de bloqueios.
-        // Em modo seguro nunca publicar FCM para topic.
-        const marker='topic:'+event.key;
-        const insert=await env.PUSH_DB.prepare(
-          'INSERT OR IGNORE INTO delivered (event_key,created_at) VALUES (?,?)'
-        ).bind(marker,Date.now()).run();
-        if(insert.meta?.changes) {
-          const res=await fetch('https://fcm.googleapis.com/v1/projects/'+PROJECT+'/messages:send',{
-            method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
-            body:JSON.stringify({message:{
-              topic:event.topic,
-              data:{kind:'discussion_reply',postId:event.notice.postId,
-                replyId:event.notice.replyId,actorUid:event.notice.actorUid},
-              android:{priority:'HIGH',ttl:'3600s'},
-            }}),
-          });
-          attempted++;
-          if(res.ok) accepted++; else failedHttp=res.status;
-        }
-      }
-      for(const recipient of (blockSafeMode ? recipients
-        : event.topic ? (event.legacyOwner ? [event.legacyOwner] : []) : recipients)) {
+      for(const recipient of recipients) {
         if(!uidPart(recipient)||recipient===uid) continue;
         const list=await devices(token,recipient);
         if(!list.length) continue;

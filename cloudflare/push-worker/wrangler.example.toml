@@ -6,11 +6,9 @@ workers_dev = true
 [vars]
 GUARDIAO_AI_ENABLED = "false"
 PUSH_ENABLED = "false"
-# Experimental: somente após homologação isolada de bloqueios entre contas.
-# Envia FCM individualmente após comparar blockedMembers em ambos os sentidos.
-# Com "false", o fluxo legado de tópicos FCM NÃO é adequado à moderação UGC.
-# NÃO habilita, configura ou modifica Workers já implantados.
-PUSH_BLOCK_SAFE_FANOUT_ENABLED = "false"
+# Respostas nunca usam FCM topic: filtragem bilateral ativa por codigo.
+# A variavel legada PUSH_BLOCK_SAFE_FANOUT_ENABLED nao permite desativar
+# a protecao, e este exemplo nunca modifica Workers ja implantados.
 # Broadcast exige ativação separada, depois de testes e auditoria.
 BROADCAST_ENABLED = "false"
 
