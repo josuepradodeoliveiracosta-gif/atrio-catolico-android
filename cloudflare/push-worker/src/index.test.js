@@ -770,7 +770,7 @@ test('moderador automático autentica e cria uma única denúncia com título se
       return new Response(JSON.stringify({users:[{localId:actor,disabled:false}]}),{status:200});
     if(url==='https://oauth2.googleapis.com/token')
       return new Response(JSON.stringify({access_token:'fake-oauth',expires_in:3600}),{status:200});
-    if(url.endsWith('/documents/account_deletion_freeze/maria'))
+    if(url.endsWith('/documents/account_deletion_freeze/'+actor))
       return new Response('{}',{status:404});
     if(url.endsWith('/documents/posts/p1'))
       return new Response(JSON.stringify(doc({uid:'maria',title:'Discussão',
