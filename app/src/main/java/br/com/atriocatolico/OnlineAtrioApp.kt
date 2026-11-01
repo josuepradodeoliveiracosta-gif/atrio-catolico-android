@@ -192,6 +192,8 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
     var name by remember(uid) { mutableStateOf<String?>(null) }
     var biography by remember(uid) { mutableStateOf("") }
     var profileLoading by remember(uid) { mutableStateOf(true) }
+    var profileReadFailed by remember(uid) { mutableStateOf(false) }
+    var profileRetryRevision by remember(uid) { mutableIntStateOf(0) }
     var error by remember(uid) { mutableStateOf("") }
     val context = LocalContext.current
     var photoRevision by remember(uid) { mutableIntStateOf(0) }
@@ -227,7 +229,7 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
         onDispose { active = false; registration.remove() }
     }
 
-    DisposableEffect(db, uid) {
+    DisposableEffect(db, uid, profileRetryRevision) {
         var active = true
         val profile = db.collection("profiles").document(uid)
         fun showProfile(snapshot: DocumentSnapshot?) {
@@ -236,6 +238,7 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
             // confirmação remota. Nunca liberar publicação baseado nesse estado.
             if (snapshot.metadata.isFromCache || snapshot.metadata.hasPendingWrites()) return
             profileLoading = false
+            profileReadFailed = false
             val found = if (snapshot.exists()) {
                 snapshot.getString("displayName")?.trim().orEmpty()
             } else ""
@@ -252,8 +255,9 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
             if (!active || auth.currentUser?.uid != uid) return@addSnapshotListener
             if (failure != null) {
                 error = "Erro ao sincronizar perfil. Verifique sua conexão."
-                // Disponibiliza uma nova tentativa sem permitir acesso ao feed
-                // com um nome local ainda não confirmado.
+                // Erro de leitura NÃO prova ausência do perfil: nunca permitir
+                // 'Concluir' criando um perfil sobre uma conta já existente.
+                profileReadFailed = true
                 profileLoading = false
             } else {
                 showProfile(snapshot)
@@ -266,6 +270,7 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
                 if (!active || auth.currentUser?.uid != uid) return@addOnCompleteListener
                 if (result.isSuccessful) showProfile(result.result)
                 else {
+                    profileReadFailed = true
                     profileLoading = false
                     error = "Não foi possível confirmar seu perfil no servidor. Verifique a conexão."
                 }
@@ -275,6 +280,24 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
 
     if (profileLoading) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+    } else if (profileReadFailed) {
+        Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center) {
+            SectionTitle("Não foi possível confirmar seu perfil")
+            Text(error.ifBlank { "Verifique a conexão para tentar novamente." }, color = Muted)
+            Spacer(Modifier.height(12.dp))
+            Button(onClick = {
+                profileReadFailed = false
+                profileLoading = true
+                profileRetryRevision++
+            }, modifier = Modifier.fillMaxWidth().testTag("atrio-profile-retry")) {
+                Text("Tentar novamente")
+            }
+            TextButton(onClick = {
+                BackgroundNoticeScheduler.disable(context, uid)
+                PushRegistry.deactivate(context, uid, db)
+                auth.signOut()
+            }) { Text("Sair desta conta") }
+        }
     } else if (name.isNullOrBlank()) {
         var newName by remember(uid) { mutableStateOf(user.displayName.orEmpty()) }
         var saving by remember(uid) { mutableStateOf(false) }

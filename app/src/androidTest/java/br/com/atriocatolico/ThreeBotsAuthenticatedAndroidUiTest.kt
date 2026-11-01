@@ -117,13 +117,21 @@ class ThreeBotsAuthenticatedAndroidUiTest {
             compose.onNodeWithTag("atrio-auth-submit").assertIsEnabled().performClick()
         }
         // O app só deve liberar o feed após o Firestore confirmar o perfil.
-        // Se um cadastro ficar incompleto (por exemplo, sessão trocada),
-        // o usuário pode concluir pela própria UI; não gravar fixtures pelo teste.
-        compose.waitUntil(45_000) {
-            compose.onAllNodesWithTag("atrio-tab-publish", useUnmergedTree = true)
-                .fetchSemanticsNodes().isNotEmpty() ||
-                compose.onAllNodesWithTag("atrio-profile-finish", useUnmergedTree = true)
-                    .fetchSemanticsNodes().isNotEmpty()
+        // Um erro de rede não autoriza criar um perfil existente: a interface
+        // oferece UM retry explícito e o teste exige gravação no servidor.
+        fun profileReadyOrRecoverable(): Boolean =
+            listOf("atrio-tab-publish", "atrio-profile-finish", "atrio-profile-retry")
+                .any { tag -> compose.onAllNodesWithTag(tag, useUnmergedTree = true)
+                    .fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(45_000) { profileReadyOrRecoverable() }
+        if (compose.onAllNodesWithTag("atrio-profile-retry", useUnmergedTree = true)
+                .fetchSemanticsNodes().isNotEmpty()) {
+            check(FirebaseApp.getInstance().options.projectId == "demo-atrio-v11")
+            compose.onNodeWithTag("atrio-profile-retry").performClick()
+            compose.waitUntil(45_000) { profileReadyOrRecoverable() }
+            assertTrue("A verificação do perfil ainda está falhando",
+                compose.onAllNodesWithTag("atrio-profile-retry", useUnmergedTree = true)
+                    .fetchSemanticsNodes().isEmpty())
         }
         if (compose.onAllNodesWithTag("atrio-profile-finish", useUnmergedTree = true)
                 .fetchSemanticsNodes().isNotEmpty()) {
