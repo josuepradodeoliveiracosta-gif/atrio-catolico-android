@@ -104,8 +104,8 @@ export function createQaRequestCaseRegistry(db,{now=Date.now}={}){
       let state=states.get(event.case_id);
       if(event.kind==='issued'){
         if(state || event.reviewer_role!==null ||
-           event.at!==record.created_at)deny('audit_integrity_failed');
-        state={issued:1,revoked:0,roles:new Set()};
+           event.at<record.created_at)deny('audit_integrity_failed');
+        state={issued:1,revoked:false,roles:new Set()};
         states.set(event.case_id,state);
       } else if(event.kind==='reviewed'){
         if(!state || state.revoked ||
@@ -116,7 +116,7 @@ export function createQaRequestCaseRegistry(db,{now=Date.now}={}){
       } else if(event.kind==='revoked'){
         if(!state || state.revoked || event.reviewer_role!==null)
           deny('audit_integrity_failed');
-        state.revoked=1;
+        state.revoked=true;
       } else deny('audit_integrity_failed');
     }
     const reviews=db.prepare('SELECT case_id,role,reviewer FROM qa_case_reviews').all();
