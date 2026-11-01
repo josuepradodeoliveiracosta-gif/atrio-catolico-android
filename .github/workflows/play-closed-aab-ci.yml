@@ -6,6 +6,7 @@ on:
     paths:
       - 'app/**'
       - 'scripts/play_store_bundle_check.py'
+      - 'scripts/test_play_store_bundle_check.py'
       - 'scripts/play_release_gate.py'
       - 'scripts/test_play_release_gate.py'
       - 'scripts/termux_firebase_play_audit.py'
@@ -38,6 +39,7 @@ jobs:
       - name: Testar separacao dos gates de pre-assinatura e pos-envio sem segredos
         run: |
           python3 -m unittest discover -s scripts -p 'test_play_release_gate.py' -v
+          python3 -m unittest discover -s scripts -p 'test_play_store_bundle_check.py' -v
           python3 -m unittest discover -s scripts -p 'test_termux_firebase_play_audit.py' -v
           python3 scripts/play_release_gate.py --audit
       - name: Preparar Java 17
