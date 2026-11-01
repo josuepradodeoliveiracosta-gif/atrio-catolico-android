@@ -107,12 +107,12 @@ test('audit rows reject update/delete and broken hash blocks authorization',()=>
   try {
     const standalone=createQaRequestCaseRegistry(db,{now:()=>5000000});
     const id=standalone.issue(request).caseId;both(standalone,id);
-    assert.throws(()=>db.exec('UPDATE qa_case_audit_events SET kind="issued" WHERE seq=2'),
+    assert.throws(()=>db.prepare('UPDATE qa_case_audit_events SET kind=? WHERE seq=?').run('issued',2),
       /qa_audit_immutable/);
     assert.throws(()=>db.exec('DELETE FROM qa_case_audit_events WHERE seq=2'),
       /qa_audit_immutable/);
     db.exec('DROP TRIGGER qa_audit_no_update');
-    db.exec('UPDATE qa_case_audit_events SET event_hash="forged" WHERE seq=2');
+    db.prepare('UPDATE qa_case_audit_events SET event_hash=? WHERE seq=?').run('forged',2);
     assert.throws(()=>standalone.authorize({caseId:id,request}),/audit_integrity_failed/);
     assert.throws(()=>standalone.revoke(id),/audit_integrity_failed/);
   }finally{db.close();}
