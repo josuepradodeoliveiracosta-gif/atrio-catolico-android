@@ -58,13 +58,13 @@ test('adaptador usa consulta collection-group para respostas',async()=>{
 test('precondição Firestore REST real vira conflito idempotente',async()=>{
   const original=globalThis.fetch;
   globalThis.fetch=async()=>new Response(JSON.stringify({error:{code:400,status:'FAILED_PRECONDITION'}}),{status:400});
-  try{await assert.rejects(new Firestore('falso').commit([]),e=>e.status===409);}
+  try{await assert.rejects(new Firestore('falso').commit([{update:{name:'projects/atrio-catolico/databases/(default)/documents/guardian_runtime/qa-only',fields:{active:{booleanValue:false}}},currentDocument:{exists:false}}]),e=>e.status===409);}
   finally{globalThis.fetch=original;}
 });
 test('erro Firestore não relacionado não é mascarado como duplicidade',async()=>{
   const original=globalThis.fetch;
   globalThis.fetch=async()=>new Response(JSON.stringify({error:{code:400,status:'INVALID_ARGUMENT'}}),{status:400});
-  try{await assert.rejects(new Firestore('falso').commit([]),e=>e.status===400);}
+  try{await assert.rejects(new Firestore('falso').commit([{update:{name:'projects/atrio-catolico/databases/(default)/documents/guardian_runtime/qa-only',fields:{active:{booleanValue:false}}},currentDocument:{exists:false}}]),e=>e.status===400);}
   finally{globalThis.fetch=original;}
 });
 test('conta de produção não se torna QA só por acesso ao health',async()=>{
