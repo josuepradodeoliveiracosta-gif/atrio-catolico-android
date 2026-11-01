@@ -14,7 +14,7 @@ const {privateKey}=generateKeyPairSync('rsa',{modulusLength:2048});
 const pem=privateKey.export({type:'pkcs8',format:'pem'}).toString();
 
 function setup(isAdmin=true) {
-  const state={pending:publicId,approval:'pending',publicPhoto:null,log:[],calls:[],signedPreview:'https://res.cloudinary.com/demo/image/authenticated/s--ABCD1234--/v1780000000/'+publicId+'.jpg'};
+  const state={pending:publicId,approval:'pending',publicPhoto:null,log:[],calls:[],freezeActor:false,freezeOwner:false,signedPreview:'https://res.cloudinary.com/demo/image/authenticated/s--ABCD1234--/v1780000000/'+publicId+'.jpg'};
   const env={CLOUDINARY_CLOUD_NAME:'demo',CLOUDINARY_API_KEY:'test-key',
     CLOUDINARY_API_SECRET:'test-secret',FIREBASE_WEB_API_KEY:'test-firebase',
     FIREBASE_SERVICE_ACCOUNT_JSON:JSON.stringify({
@@ -41,6 +41,10 @@ function setup(isAdmin=true) {
       return reply({users:[{localId:actor,disabled:false}]});
     if(address.includes('/documents/admins/'+actor))
       return isAdmin?reply({fields:{enabled:{booleanValue:true}}}):reply({},404);
+    if(address.includes('/documents/account_deletion_freeze/'+actor))
+      return state.freezeActor ? reply({fields:{status:{stringValue:'frozen'}}}) : reply({},404);
+    if(address.includes('/documents/account_deletion_freeze/'+owner))
+      return state.freezeOwner ? reply({fields:{status:{stringValue:'draining'}}}) : reply({},404);
     if(address.includes('/resources/image/authenticated/'+publicId)) {
       if(method==='POST') {
         state.approval=String(options.body.get('moderation_status'));
@@ -194,4 +198,34 @@ test('proíbe confirmar sem revisão válida da fotografia',async()=>{
     assert.equal(f.state.approval,'pending');
     assert.equal(f.state.log.length,0);
   }finally{globalThis.fetch=original;}
+});
+
+test('revisão de foto do titular congelado não chama moderação Cloudinary nem altera D1',async()=>{
+  const f=setup();
+  const old=globalThis.fetch;
+  f.state.freezeOwner=true;
+  globalThis.fetch=f.fetchMock;
+  try {
+    const result=await f.call('/avatar/moderation/review','POST',{
+      uid:owner,revision,action:'approved',reason:'Aprovação segura'});
+    assert.equal(result.status,409);
+    assert.deepEqual(await result.json(),{status:'account_deletion_in_progress'});
+    assert.equal(f.state.log.length,0);
+    assert.equal(f.state.approval,'pending');
+    assert.equal(f.state.publicPhoto,null);
+    assert.ok(!f.state.calls.some(c=>c.method==='POST'&&c.address.includes('/resources/image/authenticated/')));
+  }finally{globalThis.fetch=old;}
+});
+test('moderador congelado não aprova fotos de terceiros',async()=>{
+  const f=setup();
+  const old=globalThis.fetch;
+  f.state.freezeActor=true;
+  globalThis.fetch=f.fetchMock;
+  try {
+    const result=await f.call('/avatar/moderation/review','POST',{
+      uid:owner,revision,action:'approved',reason:'Aprovação segura'});
+    assert.equal(result.status,409);
+    assert.equal(f.state.log.length,0);
+    assert.equal(f.state.approval,'pending');
+  }finally{globalThis.fetch=old;}
 });
