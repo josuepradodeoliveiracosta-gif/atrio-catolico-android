@@ -97,7 +97,8 @@ export class QaAdministrativeDeletionExecutor {
       await this.executor.external.retention.verify(UID,requestAt);
     }
     const result=await this.executor.run({
-      approved:true,failBeforeEffect,failAfterEffect
+      approved:true,failBeforeEffect,failAfterEffect,
+      expectedRequest:{source:order.request.source,requestedAt:order.request.requestedAt}
     });
     return Object.freeze({
       status:'qa_fixture_admin_workflow_finished',

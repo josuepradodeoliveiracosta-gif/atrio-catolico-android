@@ -34,12 +34,18 @@ function normalize(data){
     uid:UID,source:data.source,requestedAt:date.toISOString()
   });
 }
-export async function verifyBoundQaRequest({db,journal,uid=UID}={}){
+export async function verifyBoundQaRequest({db,journal,uid=UID,approvedRequest=null}={}){
   guard(db,journal,uid);
   const snapshot=await getDoc(doc(db,'account_deletion_requests/'+UID));
   if(!snapshot.exists())
     throw Error('qa_request_binding_missing_request');
   const current=normalize(snapshot.data());
+  if(approvedRequest!==null &&
+     (!approvedRequest || Object.getPrototypeOf(approvedRequest)!==Object.prototype ||
+      Object.keys(approvedRequest).sort().join(',')!=='requestedAt,source' ||
+      current.source!==approvedRequest.source ||
+      current.requestedAt!==approvedRequest.requestedAt))
+    throw Error('qa_request_binding_approval_mismatch');
   journal.exec('CREATE TABLE IF NOT EXISTS qa_deletion_request_binding ('+
     'uid TEXT PRIMARY KEY, source TEXT NOT NULL, requested_at TEXT NOT NULL)');
   let previous=journal.prepare(

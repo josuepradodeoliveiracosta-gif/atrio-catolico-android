@@ -510,6 +510,29 @@ try {
     console.log('PASS ADMIN QA reviews and identity request required');
   });
 
+  await test('ADMIN QA: request changed after preflight is denied by executor',async()=>{
+    await inDemo(async(db,aux)=>{
+      const admin=new QaAdministrativeDeletionExecutor({db,...aux});
+      const run=admin.executor.run.bind(admin.executor);
+      admin.executor.run=async options=>{
+        // Simulate an administrative read racing with a replacement request.
+        await setDoc(doc(db,'account_deletion_requests/'+alice),{
+          status:'requested',source:'web',
+          requestedAt:new Date('2026-10-31T12:00:00Z')
+        });
+        return run(options);
+      };
+      await assert.rejects(admin.execute({order:QA_ADMIN_ORDER_TEMPLATE}),
+        /qa_request_binding_approval_mismatch/);
+      assert.deepEqual(admin.executor.completed(),[]);
+      await allPresent(db,[...QA_FIXTURES.nested,...QA_FIXTURES.roots,
+        ...QA_FIXTURES.preserved]);
+      assert.equal(aux.auth.has(alice),true);
+      assert.equal(aux.auth.has(bob),true);
+    });
+    console.log('PASS ADMIN QA preflight/executor request race denied');
+  });
+
   await test('ADMIN QA: approvals cannot be replayed for another request',async()=>{
     for(const next of [
       {status:'requested',source:'web',

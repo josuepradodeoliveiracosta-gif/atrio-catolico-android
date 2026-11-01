@@ -235,7 +235,8 @@ export class QaDeletionRunner {
       this.activeLease=null;
     }
   }
-  async runExclusive({failAfterEffect=null,failBeforeEffect=null,approved=false}={},checkLease=()=>{}){
+  async runExclusive({failAfterEffect=null,failBeforeEffect=null,approved=false,
+    expectedRequest=null}={},checkLease=()=>{}){
     guard();
     if(approved!==true)fail('explicit_qa_approval_required');
     checkLease();
@@ -246,7 +247,8 @@ export class QaDeletionRunner {
     const recorded=this.completed();
     if(recorded.some((step,i)=>step!==STEPS[i]))fail('journal_out_of_order');
     // Bind before any destructive QA fixture effect, including first resume.
-    await verifyBoundQaRequest({db:this.db,journal:this.journal,uid:UID});
+    await verifyBoundQaRequest({db:this.db,journal:this.journal,uid:UID,
+      approvedRequest:expectedRequest});
     checkLease();
     const done=new Set(recorded);
     if(!this.auth.has(UID) && !done.has('verify_fixture_absence'))
@@ -258,20 +260,27 @@ export class QaDeletionRunner {
       const phase=this.stages[step];
       if(done.has(step)){
         if(!(await phase.verify()))fail('previous_checkpoint_invalid:'+step);
+        await verifyBoundQaRequest({db:this.db,journal:this.journal,uid:UID,
+          approvedRequest:expectedRequest});
+        checkLease();
         continue;
       }
       if(step!=='freeze_writes'&&this.context.writesFrozen!==true)
         fail('new_writes_not_frozen');
       // Revalidate request AFTER awaiting previous phase and BEFORE each
       // potential effect, and again BEFORE any success checkpoint.
-      await verifyBoundQaRequest({db:this.db,journal:this.journal,uid:UID});
+      await verifyBoundQaRequest({db:this.db,journal:this.journal,uid:UID,
+      approvedRequest:expectedRequest});
       checkLease();
       if(step===failBeforeEffect)throw Error('injected_failure_before_effect:'+step);
       await phase.apply(checkLease);
       checkLease();
-      await verifyBoundQaRequest({db:this.db,journal:this.journal,uid:UID});
+      await verifyBoundQaRequest({db:this.db,journal:this.journal,uid:UID,
+      approvedRequest:expectedRequest});
       checkLease();
       if(!(await phase.verify()))fail('phase_verification_failed:'+step);
+      await verifyBoundQaRequest({db:this.db,journal:this.journal,uid:UID,
+        approvedRequest:expectedRequest});
       checkLease();
       if(step===failAfterEffect)throw Error('injected_failure_after_effect:'+step);
       // A leased checkpoint is written atomically with the fencing check.
