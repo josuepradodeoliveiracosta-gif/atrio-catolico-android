@@ -8,8 +8,7 @@ const MAX_ADMINS = 8;
 const MAX_TOKENS = 3;
 const MAX_AGE_MS = 5 * 60_000;
 const MAX_SUBJECT = 128;
-const BROADCAST_TOPIC = 'atrio_comunicados_v1';
-const BROADCAST_COOLDOWN_MS = 60 * 60_000;
+// FCM topic broadcast removed: frozen subscribers cannot be filtered.
 // Fan-out: limite explícito para respeitar o plano Workers Free e o tamanho do batchWrite.
 const THREAD_REPLY_PAGE_SIZE = 200;
 const THREAD_MAX_PAGES = 10;
@@ -405,30 +404,13 @@ export async function handleBroadcast(request, env) {
     if (!admin || !boolField(admin,'enabled') || !founder
         || stringField(founder,'uid') !== actor)
       return response(403,'forbidden');
-    // Do not spend cooldown nor broadcast from an account being deleted.
-    // FCM topic subscribers remain a separate, unhomologated recipient risk.
+    // Topic subscribers cannot be enumerated or excluded when deleting an account.
+    // Do not access tokens, cooldown D1, or FCM until all recipients have
+    // durable cross-service admission and independently reconciled delivery.
+    // No environment flag may bypass this fail-closed protection.
     if(await pushAccountFrozen(token,actor))
       return response(409,'account_deletion_in_progress');
-
-    // Um envio no máximo por hora, inclusive se dois aparelhos do fundador tentarem.
-    // O banco realiza o teste e o bloqueio num único comando atômico.
-    const now = Date.now();
-    const inserted = await env.PUSH_DB.prepare(
-      "INSERT INTO delivered (event_key,created_at) VALUES ('broadcast:cooldown',?) " +
-      "ON CONFLICT(event_key) DO UPDATE SET created_at=excluded.created_at " +
-      "WHERE delivered.created_at < ?"
-    ).bind(now,now-BROADCAST_COOLDOWN_MS).run();
-    if (inserted.meta?.changes !== 1) return response(429,'broadcast_cooldown');
-
-    const res = await fetch('https://fcm.googleapis.com/v1/projects/'+PROJECT+'/messages:send',{
-      method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
-      body:JSON.stringify({message:{
-        topic:BROADCAST_TOPIC,
-        data:{kind:'broadcast',title:data.title,body:data.body,messageId:data.requestId},
-        android:{priority:'HIGH',ttl:'3600s'},
-      }}),
-    });
-    return response(res.ok ? 202 : 503,res.ok ? 'accepted_by_fcm' : 'delivery_failed');
+    return response(503,'broadcast_privacy_coordinator_required');
   } catch {
     // Nunca retornar UID, token FCM, ID token, chave ou detalhes do provedor.
     return response(503,'unavailable');

@@ -61,6 +61,9 @@ test('never silently return to FCM topic delivery for replies or disable freeze 
  assert.match(source,/account_deletion_freeze\/.*enc\(uid\)/);
  assert.doesNotMatch(source,/topic\s*:\s*event\.topic/);
  assert.doesNotMatch(source,/PUSH_BLOCK_SAFE_FANOUT_ENABLED\s*===\s*'true'/);
+ assert.match(source,/broadcast_privacy_coordinator_required/);
+ assert.doesNotMatch(source,/topic\s*:\s*BROADCAST_TOPIC/);
+ assert.doesNotMatch(source,/const BROADCAST_TOPIC/);
 });
 test('security pins are exact internal paths and immutable SHA-1 blob ids',()=>{
  for(const item of QA_WORKER_SOURCES){

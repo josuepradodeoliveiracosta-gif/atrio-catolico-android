@@ -47,6 +47,18 @@ function accountsFor(kind,scope) {
   // Reply FCM messages must account for BOTH the author and recipient.
   // Keep legacy direct administrative/review messages recipient-only in QA.
   // Atomic SQLite admission prevents a freeze between two separate tickets.
+  // Synthetic broadcast: ALL involved accounts require one atomic ticket.
+  // Real accounts are refused by this QA-only barrier.
+  if(kind==='push_fcm_send' && keys.join(',')==='actorUid,recipientUids'){
+    const recipients=scope.recipientUids;
+    if(!QA_UIDS.includes(scope.actorUid) || !Array.isArray(recipients)
+      || recipients.length<1 || recipients.length>QA_UIDS.length
+      || new Set(recipients).size!==recipients.length
+      || recipients.includes(scope.actorUid)
+      || recipients.some(uid=>!QA_UIDS.includes(uid)))
+      throw Error('qa_invalid_broadcast_recipients');
+    return [...new Set([scope.actorUid,...recipients])].sort();
+  }
   if(kind==='push_fcm_send' && keys.join(',')==='actorUid,recipientUid'){
     const accounts=[...new Set([scope.actorUid,scope.recipientUid])].sort();
     if(accounts.some(uid=>!QA_UIDS.includes(uid)))

@@ -272,7 +272,7 @@ test('comunicado geral permanece bloqueado mesmo com push individual ativado',as
   assert.equal(response.status,400,'eventos comuns não aceitam corpo de comunicado');
 });
 
-test('somente fundador administrador envia a tópico FCM e há limitação de frequência',async()=>{
+test('comunicado geral valida fundador e bloqueia topico, cooldown e FCM',async()=>{
   const pair=await crypto.subtle.generateKey(
     {name:'RSASSA-PKCS1-v1_5',modulusLength:2048,publicExponent:new Uint8Array([1,0,1]),hash:'SHA-256'},
     true,['sign','verify']);
@@ -288,14 +288,7 @@ test('somente fundador administrador envia a tópico FCM e há limitação de fr
   let frozen=false;
   let sent=0;
   let locked=false;
-  const db={prepare(sql){
-    assert.match(sql,/broadcast:cooldown/);
-    return {bind(now,cutoff){return {async run(){
-      if(locked) return {meta:{changes:0}};
-      locked=true;
-      return {meta:{changes:1}};
-    }};}};
-  }};
+  const db={prepare(){locked=true;throw Error('broadcast cannot write D1');}};
   globalThis.fetch=async (input,options={})=>{
     const url=String(input);
     if(url.startsWith('https://identitytoolkit.googleapis.com/'))
@@ -310,13 +303,7 @@ test('somente fundador administrador envia a tópico FCM e há limitação de fr
       return frozen ? Response.json(doc({status:'draining'})) : new Response('{}',{status:404});
     if(url.includes('fcm.googleapis.com/')) {
       sent++;
-      const body=JSON.parse(options.body).message;
-      assert.equal(body.topic,'atrio_comunicados_v1');
-      assert.equal(body.data.kind,'broadcast');
-      assert.equal(body.data.title,'Novidades do Átrio');
-      assert.equal(body.data.body,'Confira o nosso comunicado de teste.');
-      assert.equal(body.token,undefined);
-      return new Response('{}',{status:200});
+      throw Error('broadcast cannot reach FCM');
     }
     throw Error('Unexpected request '+url);
   };
@@ -341,12 +328,16 @@ test('somente fundador administrador envia a tópico FCM e há limitação de fr
   assert.equal(locked,false,'frozen founder cannot use the cooldown or FCM');
   assert.equal(sent,0);
   frozen=false;
-  assert.deepEqual(await (await worker.fetch(make(),env)).json(),{status:'accepted_by_fcm'});
-  assert.equal(sent,1);
-  assert.equal((await worker.fetch(make(),env)).status,429);
-  assert.equal(sent,1);
+  for(const flag of [undefined,'false','true']) {
+    env.BROADCAST_PRIVACY_COORDINATOR_ENABLED=flag;
+    const attempt=await worker.fetch(make(),env);
+    assert.equal(attempt.status,503);
+    assert.deepEqual(await attempt.json(),{status:'broadcast_privacy_coordinator_required'});
+    assert.equal(locked,false,'no coordinator: do not consume cooldown');
+    assert.equal(sent,0,'no topic and no token delivery');
+  }
   assert.equal((await worker.fetch(new Request(url,{method:'POST',body:JSON.stringify(payload)}),env)).status,401);
-  assert.equal(sent,1);
+  assert.equal(sent,0);
 });
 
 test('comunicado rejeita título, corpo e identificador inválidos antes de acessar Google',async()=>{

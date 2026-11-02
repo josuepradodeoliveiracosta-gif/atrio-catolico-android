@@ -77,3 +77,37 @@ atômico; o envio geral por tópico `atrio_comunicados_v1` continua sem
 filtragem individual de contas congeladas. Execuções já em trânsito também
 precisam de coordenação. Os três Workers de produção não foram atualizados;
 nenhuma evidência UGC/privacidade passa a `verified:true`. Não liberar AAB.
+
+## 02/11/2026 — bloqueio dos comunicados por tópico e QA de barreira distribuída
+
+**Alteração somente na PR #71:** o endpoint `POST /broadcast` ainda valida
+identidade, privilégios do fundador, conteúdo e marcador de exclusão do
+emissor. Porém, agora nunca faz broadcast por tópico FCM, consulta de tokens
+nem atualiza o cooldown D1. Mesmo com `BROADCAST_ENABLED=true` e uma
+flag experimental de coordenador, a operação válida termina em
+`503 broadcast_privacy_coordinator_required`. Um fundador congelado continua
+bloqueado em `409 account_deletion_in_progress`. Nenhum envio real será
+feito pelo novo código até a homologação de um cadastro individual completo
+e de permissões persistentes de todos os destinatários.
+
+O teste isolado de Service Binding/D1 foi ampliado para aceitar a operação
+`push_fcm_send` com escopo `actorUid,recipientUids` e exigir **uma
+admissão atômica para todas as contas do lote**, inclusive o remetente.
+Após `draining`, nova operação é recusada; `frozen` só é permitido quando
+não existe ticket em trânsito; um reconciliador independente confirma o
+encerramento. UID real, duplicatas, lista vazia e bypass por metade do ticket
+são recusados. O protocolo continua estritamente limitado às contas
+fictícias `qa-freeze-alice` e `qa-freeze-bob`, sem FCM, Cloudinary ou Firebase
+reais. A cobertura do QA não implica integração operacional.
+
+O contrato de integridade do source Push recebeu novo blob SHA-1, sem
+suprimir a validação, corrigindo a falha de pin divergente observada no
+CI anterior. Testes direcionados de Push e da barreira bastam nesta revisão;
+não repetir testes Android/AAB previamente executados sem alteração pertinente.
+
+**Pendente:** inventário paginado de todos os usuários com cobertura comprovada,
+controle de consentimento, divisão de lotes, limites/custos, tickets de efeito
+externo, reconciliação FCM sob falha, IAM, revisão independente e integração
+real dos três Workers antes de qualquer remoção em produção. Não marcar
+`worker_freeze`, `push_block_safe_delivery` ou qualquer evidência
+`verified:true`; sem merge, assinatura, deploy ou Play Console.

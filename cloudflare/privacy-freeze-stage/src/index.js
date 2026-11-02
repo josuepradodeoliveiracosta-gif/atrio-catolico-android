@@ -95,13 +95,25 @@ async function reserveNonce(db,nonce,moment){
 }
 function validateOperation(path,role,input){
   if(path==='/v1/admit'){
-    if(!Object.hasOwn(serviceKinds,role)||
-       !exactKeys(input,role==='push'?['actorUid','recipientUid']:['ownerUid']))
+    if(!Object.hasOwn(serviceKinds,role))
       throw Error('stage_role_scope');
-    const accounts=Object.values(input);
-    if(accounts.some(uid=>!stageFixtureUid(uid))||
-       (role==='push'&&input.actorUid===input.recipientUid))
-      throw Error('stage_invalid_uid');
+    const broadcast = role==='push' && exactKeys(input,['actorUid','recipientUids']);
+    if(!broadcast && !exactKeys(input,
+      role==='push'?['actorUid','recipientUid']:['ownerUid']))
+      throw Error('stage_role_scope');
+    if(broadcast) {
+      if(!stageFixtureUid(input.actorUid)||
+         !Array.isArray(input.recipientUids)||
+         input.recipientUids.length!==1||
+         !stageFixtureUid(input.recipientUids[0])||
+         input.recipientUids[0]===input.actorUid)
+        throw Error('stage_broadcast_scope');
+    } else {
+      const accounts=Object.values(input);
+      if(accounts.some(uid=>!stageFixtureUid(uid))||
+         (role==='push'&&input.actorUid===input.recipientUid))
+        throw Error('stage_invalid_uid');
+    }
     return {kind:serviceKinds[role],scope:input};
   }
   if(path==='/v1/drain'||path==='/v1/finalize'||path==='/v1/status'){

@@ -257,3 +257,33 @@ test('signed bogus real UID cannot consume D1 nonce',async()=>{
     assert.equal((await f.pending()).length,0);
   })}finally{f.close()}
 });
+
+test('internal broadcast binding serializes admit, drain and reconciliation',async()=>{
+  const f=setup();
+  try{await offline(async()=>{
+    const push=f.client('push'),admin=f.client('admin');
+    const ticket=await push.request('admit',{actorUid:A,recipientUids:[B]});
+    assert.equal(ticket.status,'stage_admitted');
+    assert.equal((await f.pending()).length,2);
+    f.resetDb();
+    await admin.request('drain',{uid:B});
+    await expectDenied(push.request('admit',{actorUid:A,recipientUids:[B]}));
+    await expectDenied(admin.request('finalize',{uid:B}));
+    await f.client('reconciler').request('close',{
+      operationId:ticket.operationId,fixtureEvidence:'demo-confirmed'});
+    assert.equal((await admin.request('finalize',{uid:B})).status,'stage_frozen');
+    await expectDenied(push.request('admit',{actorUid:A,recipientUids:[B]}));
+    assert.equal((await f.pending()).length,0);
+  })}finally{f.close()}
+});
+test('internal broadcast binding rejects real, repeated and incomplete cohorts',async()=>{
+  const f=setup();
+  try{await offline(async()=>{
+    const push=f.client('push');
+    for(const recipients of [[],[A],[B,B],['real-user'],[B,'real-user']])
+      await expectDenied(push.request('admit',{actorUid:A,recipientUids:recipients}));
+    await expectDenied(push.request('admit',{actorUid:'real-user',recipientUids:[B]}));
+    assert.equal((await f.pending()).length,0);
+    assert.equal(await f.nonces(),0);
+  })}finally{f.close()}
+});

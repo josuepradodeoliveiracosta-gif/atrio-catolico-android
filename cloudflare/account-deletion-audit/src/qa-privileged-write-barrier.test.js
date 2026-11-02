@@ -227,3 +227,27 @@ test('forged account replacement does not partially erase a shared ticket',async
   await assert.rejects(gate.complete(forged,{verified:async()=>true}),/qa_invalid_ticket/);
   await gate.complete(shared,{verified:async()=>true});
 }));
+
+test('QA broadcast: atomic cross-process ticket covers sender and recipient',async()=>fixture(async({db,connect})=>{
+  const sender=createQaPrivilegedWriteBarrier(db);
+  const admin=createQaPrivilegedWriteBarrier(connect());
+  const ticket=await sender.begin('push_fcm_send',{actorUid:alice,recipientUids:[bob]});
+  assert.deepEqual(ticket.accounts,[alice,bob]);
+  await admin.beginFreeze(bob);
+  await assert.rejects(admin.finalizeFreeze(bob),/qa_inflight_or_not_draining/);
+  await assert.rejects(sender.begin('push_fcm_send',{actorUid:alice,recipientUids:[bob]}),
+    /qa_privileged_write_blocked/);
+  await assert.rejects(sender.complete({...ticket,accounts:[alice]},
+    {verified:async()=>true}),/qa_ticket_already_closed_or_forged/);
+  await sender.complete(ticket,{verified:async()=>true});
+  assert.equal(await admin.finalizeFreeze(bob),'frozen');
+}));
+test('QA broadcast rejects unknown, duplicate and incomplete recipient sets',async()=>fixture(async({db})=>{
+  const gate=createQaPrivilegedWriteBarrier(db);
+  for(const recipients of [[],[alice],[bob,bob],['real-user'],null]){
+    await assert.rejects(gate.begin('push_fcm_send',
+      {actorUid:alice,recipientUids:recipients}),/qa_invalid_broadcast_recipients/);
+  }
+  assert.equal((await gate.status(alice)).inFlight,0);
+  assert.equal((await gate.status(bob)).inFlight,0);
+}));

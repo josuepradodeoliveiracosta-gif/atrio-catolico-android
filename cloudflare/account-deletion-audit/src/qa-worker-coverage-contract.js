@@ -48,7 +48,7 @@ export const QA_WORKER_SOURCES=Object.freeze([
   {
     "service": "push",
     "file": "cloudflare/push-worker/src/index.js",
-    "gitBlob": "9d8604cb75000a66456a786706a71b5ae9e4f1ee",
+    "gitBlob": "ff04b74610a78477c9c3076b9cdc04f9afc51c81",
     "mustContain": [
       "export async function writeThreadNotices(",
       "export async function cleanupInvalidDevice(",
@@ -56,6 +56,7 @@ export const QA_WORKER_SOURCES=Object.freeze([
       "export async function handleGuardiaoReview(",
       "if(await pushAccountFrozen(service,admin))continue;",
       "export async function handleBroadcast(",
+      "return response(503,'broadcast_privacy_coordinator_required');",
       "export async function holdGuardiaoContent(",
       "export async function pushAccountFrozen(token, uid)",
       "if(await pushAccountFrozen(service,actor))",
