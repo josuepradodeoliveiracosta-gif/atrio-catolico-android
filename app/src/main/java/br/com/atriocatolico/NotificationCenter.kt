@@ -31,6 +31,7 @@ internal class NotificationInbox(val db: FirebaseFirestore, val uid: String, pri
     var blockedListReady by mutableStateOf(false)
     var review by mutableStateOf<NoticeEvent?>(null)
     var reports by mutableStateOf<List<NoticeEvent>>(emptyList())
+    var memberReports by mutableStateOf<List<NoticeEvent>>(emptyList())
     var requests by mutableStateOf<List<NoticeEvent>>(emptyList())
     var seen by mutableStateOf(prefs.getStringSet("seen", emptySet())!!.toSet())
     var enabledReplies by mutableStateOf(prefs.getBoolean("replies", true))
@@ -40,6 +41,7 @@ internal class NotificationInbox(val db: FirebaseFirestore, val uid: String, pri
     var retry by mutableStateOf(0)
     var replyMore by mutableStateOf(false)
     var reportsMore by mutableStateOf(false)
+    var memberReportsMore by mutableStateOf(false)
     var requestsMore by mutableStateOf(false)
     var loadingReplies by mutableStateOf(true)
     var loadingReview by mutableStateOf(true)
@@ -47,13 +49,14 @@ internal class NotificationInbox(val db: FirebaseFirestore, val uid: String, pri
     var replyError by mutableStateOf(false)
     var reviewError by mutableStateOf(false)
     var reportsError by mutableStateOf(false)
+    var memberReportsError by mutableStateOf(false)
     var requestsError by mutableStateOf(false)
     var busy by mutableStateOf(false)
     var feedback by mutableStateOf("")
 
     fun groups(admin: Boolean): List<NoticeGroup> {
         val local = (if (enabledReview) listOfNotNull(review) else emptyList()) +
-            (if (admin && enabledAdmin) reports + requests else emptyList())
+            (if (admin && enabledAdmin) reports + memberReports + requests else emptyList())
         return groupNotices((if (enabledReplies && blockedListReady)
                 replies.filterNot { it.actorUid in blockedUids } else emptyList()) +
             local.map { it.copy(read = it.localToken in seen) }, admin)
@@ -169,22 +172,29 @@ internal fun rememberNotificationInbox(db: FirebaseFirestore, uid: String, admin
     DisposableEffect(db, uid, admin, inbox.limit, inbox.retry) {
         var active = true
         inbox.reports = emptyList()
+        inbox.memberReports = emptyList()
         inbox.requests = emptyList()
         inbox.reportsMore = false
+        inbox.memberReportsMore = false
         inbox.requestsMore = false
         inbox.reportsError = false
+        inbox.memberReportsError = false
         inbox.requestsError = false
         inbox.loadingAdmin = admin
         if (!admin) {
             onDispose { active = false }
         } else {
             var reportsLoaded = false
+            var memberReportsLoaded = false
             var requestsLoaded = false
+            fun updateAdminLoading() {
+                inbox.loadingAdmin = !(reportsLoaded && memberReportsLoaded && requestsLoaded)
+            }
             // Legacy reports omit status; scan paginated records to include those pending reports.
             val reports = db.collection("reports").orderBy("createdAt", Query.Direction.DESCENDING)
                 .limit(inbox.limit.toLong() + 1).addSnapshotListener { data, error -> if (active) {
                     reportsLoaded = true
-                    inbox.loadingAdmin = !requestsLoaded
+                    updateAdminLoading()
                     inbox.reportsError = error != null
                     inbox.reportsMore = error == null && (data?.size() ?: 0) > inbox.limit
                     inbox.reports = if (error != null) emptyList() else data?.documents?.take(inbox.limit)
@@ -193,11 +203,39 @@ internal fun rememberNotificationInbox(db: FirebaseFirestore, uid: String, admin
                                 at = it.noticeTime(), localToken = it.noticeToken("report"))
                         } ?: emptyList()
                 } }
+            // O segundo tipo de denuncia tambem precisa aparecer para a
+            // moderação. Não carregar identidade do denunciante nem motivo
+            // no aviso; somente a central e a fila de revisão conhecem o total.
+            // Uma leitura de cache não prova acesso administrativo vigente.
+            val memberReportsListener = db.collection("user_reports")
+                .orderBy("createdAt", Query.Direction.DESCENDING)
+                .limit(inbox.limit.toLong() + 1)
+                .addSnapshotListener(com.google.firebase.firestore.MetadataChanges.INCLUDE) { data, error ->
+                    if (active) {
+                        memberReportsLoaded = true
+                        updateAdminLoading()
+                        val currentSession = com.google.firebase.auth.FirebaseAuth
+                            .getInstance().currentUser?.uid == uid
+                        val authoritative = error == null && currentSession && data != null &&
+                            !data.metadata.isFromCache && !data.metadata.hasPendingWrites()
+                        inbox.memberReportsError = !authoritative
+                        inbox.memberReportsMore = authoritative &&
+                            (data?.size() ?: 0) > inbox.limit
+                        inbox.memberReports = if (!authoritative) emptyList() else
+                            data!!.documents.take(inbox.limit).mapNotNull {
+                                val created = it.getTimestamp("createdAt")
+                                pendingMemberReportNotice(
+                                    it.id, it.getString("status"), created?.toDate()?.time ?: 0L,
+                                    created?.nanoseconds ?: 0
+                                )
+                            }
+                    }
+                }
             // Equality-only query avoids requiring a new composite index.
             val requests = db.collection("badge_requests").whereEqualTo("status", "pending")
                 .limit(inbox.limit.toLong() + 1).addSnapshotListener { data, error -> if (active) {
                     requestsLoaded = true
-                    inbox.loadingAdmin = !reportsLoaded
+                    updateAdminLoading()
                     inbox.requestsError = error != null
                     inbox.requestsMore = error == null && (data?.size() ?: 0) > inbox.limit
                     inbox.requests = if (error != null) emptyList() else data?.documents?.take(inbox.limit)?.map {
@@ -205,7 +243,12 @@ internal fun rememberNotificationInbox(db: FirebaseFirestore, uid: String, admin
                             at = it.noticeTime(), localToken = it.noticeToken("request"))
                     } ?: emptyList()
                 } }
-            onDispose { active = false; reports.remove(); requests.remove() }
+            onDispose {
+                active = false
+                reports.remove()
+                memberReportsListener.remove()
+                requests.remove()
+            }
         }
     }
     return inbox
@@ -227,8 +270,8 @@ internal fun NotificationCenter(
         else -> true
     } }
     val loading = inbox.loadingReplies || inbox.loadingReview || (admin && inbox.loadingAdmin)
-    val failed = inbox.replyError || inbox.reviewError || (admin && (inbox.reportsError || inbox.requestsError))
-    val more = inbox.replyMore || (admin && (inbox.reportsMore || inbox.requestsMore))
+    val failed = inbox.replyError || inbox.reviewError || (admin && (inbox.reportsError || inbox.memberReportsError || inbox.requestsError))
+    val more = inbox.replyMore || (admin && (inbox.reportsMore || inbox.memberReportsMore || inbox.requestsMore))
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {

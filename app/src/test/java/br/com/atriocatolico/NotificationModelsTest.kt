@@ -54,6 +54,35 @@ class NotificationModelsTest {
         assertEquals("reply:p", groups.last().id)
     }
 
+    @Test fun memberReportsJoinExistingAdminAlertsWithoutExposingIdentity() {
+        val reportId = "rep_alice_user_bob"
+        val member = pendingMemberReportNotice(reportId, "pending", 1700000000000L, 42)!!
+        val post = event("post_1", NoticeKind.REPORTS, at = 1700000001000L)
+        val group = groupNotices(listOf(post, member), true).single()
+        assertEquals(NoticeKind.REPORTS, group.kind)
+        assertEquals(2, group.events.size)
+        assertTrue(group.body.contains("usuários denunciados"))
+        assertFalse(group.title.contains("alice"))
+        assertFalse(member.id.contains("alice"))
+        assertFalse(member.localToken.contains("alice"))
+        assertFalse(member.localToken.contains("bob"))
+        assertTrue(groupNotices(listOf(post, member), false).isEmpty())
+    }
+
+    @Test fun memberReportsOnlyAlertWhilePendingWithStablePrivateToken() {
+        val id = "alice_user_bob"
+        val original = pendingMemberReportNotice(id, "pending", 1700000000000L, 1)!!
+        assertEquals(original, pendingMemberReportNotice(id, "pending", 1700000000000L, 1))
+        assertFalse(original.localToken == pendingMemberReportNotice(
+            id, "pending", 1700000000000L, 2)!!.localToken)
+        for (status in listOf("reviewed", "dismissed", "unknown", "")) {
+            assertNull(pendingMemberReportNotice(id, status, 1700000000000L, 1))
+        }
+        assertNotNull(pendingMemberReportNotice(id, null, 1700000000000L, 1))
+        assertNull(pendingMemberReportNotice("", "pending", 1700000000000L, 1))
+        assertNull(pendingMemberReportNotice(id, "pending", 0L, 1))
+    }
+
     @Test fun adminDataNeverAppearsForCommonUserOrRevokedAdmin() {
         val events = listOf(event("a", NoticeKind.REPORTS), event("b", NoticeKind.REQUESTS), event("c", NoticeKind.REPLY, "p"))
         assertEquals(3, groupNotices(events, true).size)

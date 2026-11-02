@@ -61,3 +61,25 @@ entrega individual `data`, o controle de bloqueio e a exclusão antes de
 publicar. O novo filtro Android não autoriza o lançamento nem
 substitui barreiras duráveis contra concorrência. Nenhum Worker ativo foi
 atualizado e nenhuma notificação real foi enviada.
+
+
+## Central administrativa também alerta denúncias de usuários (02/11/2026)
+
+A `NotificationCenter` adiciona `user_reports` à categoria
+**Administração · denúncias**, junto das denúncias de discussões e
+respostas. A consulta é paginada pelo limite atual da Central e as
+Firestore Security Rules continuam restringindo a leitura a
+administradores. Somente denúncias pendentes são mostradas, com título
+genérico, sem motivo, UID ou identificador do denunciante na mensagem.
+O identificador guardado nas preferências de leitura é um digest
+SHA-256 do ID da denúncia mais o timestamp, evitando salvar UIDs
+em claro. A consulta de `user_reports` só alimenta avisos quando
+confirmada pelo servidor, sem cache ou gravações locais pendentes;
+erro ou sessão incorreta oculta os itens e exibe erro de consulta.
+
+Não foi criado push externo, não houve alteração no Worker, Rules ou
+em produção. O aviso abre a moderação existente, onde a fila administrativa
+do tipo `user_reports` já é acessível. Os testes JUnit verificam
+agrupamento, privacidade do texto/identificador e remoção das
+denúncias analisadas da lista de pendências. O painel não é prova
+de disponibilidade contínua de moderadores nem autoriza a Play.
