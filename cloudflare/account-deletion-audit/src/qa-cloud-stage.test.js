@@ -391,3 +391,143 @@ test('old execution token cannot acknowledge after losing ownership mid-delivery
     })).json()).status,'qa_batch_not_admitted');
   })}finally{s.close()}
 });
+
+test('manual QA orphan quarantine requires exact token, generation and independent role',async()=>{
+  const s=store();try{await offline(async()=>{
+    await call(s.env,'push','/v1/plan',{requestId});
+    const token=crypto.randomUUID();
+    s.raw().prepare(
+      "UPDATE qa_bcast_jobs SET state='processing',lease_token=?, "+
+      "lease_generation=lease_generation+1 WHERE request_id=?"
+    ).run(token,requestId);
+    const payload={
+      requestId,expectedLeaseToken:token,expectedLeaseGeneration:1,
+      fixtureEvidence:'qa-fixture-executor-stopped'
+    };
+    await denied(await call(s.env,'push','/v1/quarantine',payload));
+    await denied(await call(s.env,'reconciler','/v1/quarantine',{
+      ...payload,fixtureEvidence:'real-delivery-confirmed'
+    }));
+    await denied(await call(s.env,'reconciler','/v1/quarantine',{
+      ...payload,expectedLeaseToken:crypto.randomUUID()
+    }));
+    await denied(await call(s.env,'reconciler','/v1/quarantine',{
+      ...payload,expectedLeaseGeneration:2
+    }));
+    assert.equal(s.raw().prepare(
+      'SELECT COUNT(*) AS n FROM qa_bcast_quarantine_audit'
+    ).get().n,0);
+    const response=await call(s.env,'reconciler','/v1/quarantine',payload);
+    assert.equal(response.status,200);
+    assert.equal((await response.json()).status,
+      'qa_orphan_quarantined_pending_review');
+    const job=s.raw().prepare(
+      'SELECT state,lease_token,lease_generation,quarantine_evidence '+
+      'FROM qa_bcast_jobs WHERE request_id=?'
+    ).get(requestId);
+    assert.equal(job.state,'halted');
+    assert.equal(job.lease_token,null);
+    assert.equal(job.lease_generation,1);
+    assert.equal(job.quarantine_evidence,'qa-fixture-executor-stopped');
+    const audit=s.raw().prepare(
+      'SELECT lease_generation,previous_lease_token,fixture_evidence,recorded_ms '+
+      'FROM qa_bcast_quarantine_audit WHERE request_id=?'
+    ).get(requestId);
+    assert.equal(audit.lease_generation,1);
+    assert.equal(audit.previous_lease_token,token);
+    assert.equal(audit.fixture_evidence,'qa-fixture-executor-stopped');
+    assert.ok(audit.recorded_ms>0);
+    await denied(await call(s.env,'reconciler','/v1/quarantine',payload));
+    assert.equal(s.raw().prepare(
+      'SELECT COUNT(*) AS n FROM qa_bcast_quarantine_audit'
+    ).get().n,1);
+    assert.equal((await (await call(s.env,'push','/v1/process',{
+      requestId,mode:'qa-accept'
+    })).json()).status,'qa_batch_not_admitted');
+  })}finally{s.close()}
+});
+
+test('quarantined in-flight QA effect requires separate review before release',async()=>{
+  const s=store();try{await offline(async()=>{
+    await call(s.env,'push','/v1/plan',{requestId});
+    const token=crypto.randomUUID();
+    s.raw().prepare(
+      "UPDATE qa_bcast_jobs SET state='processing',lease_token=?, "+
+      "lease_generation=lease_generation+1 WHERE request_id=?"
+    ).run(token,requestId);
+    s.raw().prepare(
+      "UPDATE qa_bcast_deliveries SET state='inflight' "+
+      "WHERE request_id=? AND recipient_uid=? AND state='queued'"
+    ).run(requestId,uid(1));
+    s.env.QA_BATCH_STAGE_DB=s.open();
+    const q=await call(s.env,'reconciler','/v1/quarantine',{
+      requestId,expectedLeaseToken:token,expectedLeaseGeneration:1,
+      fixtureEvidence:'qa-fixture-executor-stopped'
+    });
+    assert.equal(q.status,200);
+    assert.equal(delivery(s)[0].state,'inflight');
+    await denied(await call(s.env,'reconciler','/v1/release',{
+      requestId,fixtureEvidence:'qa-reviewed-lease'
+    }));
+    await denied(await call(s.env,'reconciler','/v1/reconcile',{
+      requestId,recipientUid:uid(1),fixtureEvidence:'qa-reviewed-synthetic-effect'
+    }));
+    await denied(await call(s.env,'reconciler','/v1/reconcile',{
+      requestId,recipientUid:uid(1),fixtureEvidence:'qa-reviewed-never-started'
+    }));
+    assert.equal((await call(s.env,'admin','/v1/drain',{uid:uid(1)})).status,200);
+    await denied(await call(s.env,'admin','/v1/finalize',{uid:uid(1)}));
+    assert.equal((await call(s.env,'reconciler','/v1/reconcile',{
+      requestId,recipientUid:uid(1),fixtureEvidence:'qa-reviewed-inflight-fixture-only'
+    })).status,200);
+    assert.equal((await call(s.env,'admin','/v1/finalize',{uid:uid(1)})).status,200);
+    assert.equal((await call(s.env,'reconciler','/v1/release',{
+      requestId,fixtureEvidence:'qa-reviewed-lease'
+    })).status,200);
+    assert.equal((await (await call(s.env,'push','/v1/process',{
+      requestId,mode:'qa-accept'
+    })).json()).attempted,3);
+    const rows=delivery(s);
+    assert.equal(rows[0].state,'reconciled','the unknown effect is never re-sent');
+    assert.deepEqual(rows.slice(1,4).map(x=>x.state),['acked','acked','acked']);
+    const newLease=s.raw().prepare(
+      'SELECT lease_generation,quarantine_evidence FROM qa_bcast_jobs WHERE request_id=?'
+    ).get(requestId);
+    assert.equal(newLease.lease_generation,2);
+    assert.equal(newLease.quarantine_evidence,null);
+    assert.equal(s.raw().prepare(
+      'SELECT COUNT(*) AS n FROM qa_bcast_quarantine_audit'
+    ).get().n,1,'audit survives lease rotation');
+  })}finally{s.close()}
+});
+
+test('orphan fencing prevents old acknowledgement after a witnessed quarantine',async()=>{
+  const s=store();try{await offline(async()=>{
+    await call(s.env,'push','/v1/plan',{requestId});
+    const token=crypto.randomUUID();
+    s.raw().prepare(
+      "UPDATE qa_bcast_jobs SET state='processing',lease_token=?, "+
+      "lease_generation=lease_generation+1 WHERE request_id=?"
+    ).run(token,requestId);
+    s.raw().prepare(
+      "UPDATE qa_bcast_deliveries SET state='inflight' "+
+      "WHERE request_id=? AND recipient_uid=?"
+    ).run(requestId,uid(1));
+    await call(s.env,'reconciler','/v1/quarantine',{
+      requestId,expectedLeaseToken:token,expectedLeaseGeneration:1,
+      fixtureEvidence:'qa-fixture-executor-stopped'
+    });
+    const late=s.raw().prepare(
+      "UPDATE qa_bcast_deliveries SET state='acked' "+
+      "WHERE request_id=? AND recipient_uid=? AND state='inflight' "+
+      "AND EXISTS (SELECT 1 FROM qa_bcast_jobs j "+
+      "WHERE j.request_id=qa_bcast_deliveries.request_id "+
+      "AND j.state='processing' AND j.lease_token=?)"
+    ).run(requestId,uid(1),token);
+    assert.equal(late.changes,0);
+    assert.equal(delivery(s)[0].state,'inflight');
+    assert.equal((await (await call(s.env,'push','/v1/process',{
+      requestId,mode:'qa-accept'
+    })).json()).status,'qa_batch_not_admitted');
+  })}finally{s.close()}
+});

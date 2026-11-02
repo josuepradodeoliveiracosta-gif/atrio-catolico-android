@@ -373,3 +373,44 @@ A Cloudflare conectada continua exibindo somente uma conta, misturando
 recursos operacionais e de QA; isso **não satisfaz o isolamento
 necessário**. Sem criar conta, D1, Worker, segredos ou deploy;
 sem alterações da `main`, produção ou backups.
+
+## Quarentena auditável de execução órfã — QA sintético (02/11/2026)
+
+A PR #71 adiciona ao Worker candidato `/v1/quarantine`, reservado
+exclusivamente ao papel HMAC de **reconciliador**. O pedido precisa
+conter o identificador `qa-broadcast-...`, o UUID do lease observado,
+a geração inteira correspondente e a evidência fictícia exata
+`qa-fixture-executor-stopped`. O banco só aceita a transição
+`processing -> halted` se **estado, token e geração** ainda forem
+iguais aos valores observados. Quarentenas atrasadas, repetidas,
+forjadas ou contra execução já substituída são negadas.
+
+A transição limpa o token do job, impedindo que o executor antigo
+reivindique novos destinatários ou confirme uma operação por SQL.
+Um gatilho de SQLite/D1 registra atomicamente o token anterior, geração
+e marcador de evidência em `qa_bcast_quarantine_audit`; o histórico
+permanece mesmo depois que um job apto a continuar recebe outro lease.
+
+A quarentena **não limpa** tickets `inflight`, não libera congelamento
+de conta e **não reinicia** comunicados. Um efeito `inflight` só
+pode ser encerrado com a nova evidência sintética e separada
+`qa-reviewed-inflight-fixture-only`, cuja operação SQL exige que
+o job esteja `halted` e exista registro de auditoria para a
+**mesma geração**. `/v1/release` continua negado enquanto existir
+qualquer `inflight` ou `ambiguous`. A conta só passa a `frozen`
+quando todos os tickets relacionados tiverem conciliação independente.
+
+Testes dirigidos verificam escopo da função, token e geração
+incorretos, replay, auditoria persistente, retomada após revisão e
+reabertura da conexão D1 simulada, suspensão de destinatário e recusa
+de confirmação tardia por execução antiga. A evidência aceita é
+**apenas uma declaração para o universo sem rede de nove identidades
+fictícias**; não constitui prova de que um Worker real parou, de
+que uma mensagem FCM não saiu ou de que houve entrega ao aparelho.
+Para o sistema real serão indispensáveis verificação independente de
+quiescência, controle de IAM e observabilidade operacional, além do
+ambiente Cloudflare separado. Nenhum retry/release automático foi
+habilitado e nenhum requisito Play foi marcado como `verified:true`.
+
+Sem provisionamento, deploy, assinatura, merge, alteração da
+`main`, produção ou backups.

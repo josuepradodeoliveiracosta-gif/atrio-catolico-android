@@ -14,7 +14,8 @@ const ROLE_KEYS=Object.freeze({
 const ROLES=Object.freeze({
   '/v1/plan':'push','/v1/process':'push',
   '/v1/drain':'admin','/v1/finalize':'admin','/v1/status':'admin',
-  '/v1/reconcile':'reconciler','/v1/release':'reconciler'
+  '/v1/reconcile':'reconciler','/v1/release':'reconciler',
+  '/v1/quarantine':'reconciler'
 });
 const UIDS=Object.freeze(Array.from({length:9},(_,i)=>'qa-batch-'+String(i).padStart(2,'0')));
 const UID_PATTERN=/^qa-batch-0[0-8]$/;
@@ -41,11 +42,19 @@ function scopeOK(path,body){
     REQUEST.test(body.requestId)&&['qa-accept','qa-ambiguous-at-2'].includes(body.mode);
   if(path==='/v1/status'||path==='/v1/drain'||path==='/v1/finalize')
     return keysMatch(body,['uid'])&&UID_PATTERN.test(body.uid);
+  if(path==='/v1/quarantine')return keysMatch(body,[
+    'requestId','expectedLeaseGeneration','expectedLeaseToken','fixtureEvidence'
+  ])&&REQUEST.test(body.requestId)&&
+    Number.isSafeInteger(body.expectedLeaseGeneration)&&
+    body.expectedLeaseGeneration>=1&&body.expectedLeaseGeneration<=999999&&
+    UUID.test(body.expectedLeaseToken)&&
+    body.fixtureEvidence==='qa-fixture-executor-stopped';
   if(path==='/v1/release')return keysMatch(body,['requestId','fixtureEvidence'])&&
     REQUEST.test(body.requestId)&&body.fixtureEvidence==='qa-reviewed-lease';
   if(path==='/v1/reconcile')return keysMatch(body,['requestId','recipientUid','fixtureEvidence'])&&
     REQUEST.test(body.requestId)&&UID_PATTERN.test(body.recipientUid)&&
-    ['qa-reviewed-synthetic-effect','qa-reviewed-never-started'].includes(body.fixtureEvidence);
+    ['qa-reviewed-synthetic-effect','qa-reviewed-never-started',
+      'qa-reviewed-inflight-fixture-only'].includes(body.fixtureEvidence);
   return false;
 }
 function envOK(env){
@@ -209,21 +218,47 @@ async function reconcile(db,{requestId,recipientUid,fixtureEvidence}){
     'SELECT state FROM qa_bcast_deliveries WHERE request_id=? AND recipient_uid=?'
   ).bind(requestId,recipientUid).first();
   const allowed=fixtureEvidence==='qa-reviewed-synthetic-effect'
-    ? ['acked','ambiguous']:['queued'];
+    ? ['acked','ambiguous']
+    :fixtureEvidence==='qa-reviewed-inflight-fixture-only'
+      ? ['inflight']:['queued'];
   if(!allowed.includes(current?.state))deny();
   const done=await db.prepare(
     "UPDATE qa_bcast_deliveries SET state='reconciled' "+
     "WHERE request_id=? AND recipient_uid=? AND state=? "+
-    "AND (state!='queued' OR EXISTS (SELECT 1 FROM qa_bcast_jobs j "+
-       "WHERE j.request_id=qa_bcast_deliveries.request_id "+
-       "AND j.state IN ('ready','halted')))"
+    "AND ((state IN ('acked','ambiguous')) OR "+
+      "(state='queued' AND EXISTS (SELECT 1 FROM qa_bcast_jobs j "+
+        "WHERE j.request_id=qa_bcast_deliveries.request_id "+
+        "AND j.state IN ('ready','halted'))) OR "+
+      "(state='inflight' AND EXISTS (SELECT 1 FROM qa_bcast_jobs j "+
+        "JOIN qa_bcast_quarantine_audit q ON q.request_id=j.request_id "+
+        "AND q.lease_generation=j.lease_generation "+
+        "WHERE j.request_id=qa_bcast_deliveries.request_id "+
+        "AND j.state='halted' AND j.lease_token IS NULL)))"
   ).bind(requestId,recipientUid,current.state).run();
   if(done?.success!==true||done.meta?.changes!==1)deny();
   return {status:'qa_independently_reconciled',productionReady:false};
 }
+/**
+ * Manual QA-only orphan quarantine. The signed independent reconciler must
+ * supply the observed generation and lease token. One conditional SQL update
+ * fences old executors; a local SQL trigger persistently records the event.
+ * This is NOT independent proof of real FCM effects or safe live quiescence.
+ * All in-flight tickets remain unresolved until a separate fixture review.
+ */
+async function quarantine(db,{requestId,expectedLeaseToken,expectedLeaseGeneration}){
+  const row=await db.prepare(
+    "UPDATE qa_bcast_jobs SET state='halted',lease_token=NULL, "+
+      "quarantine_evidence='qa-fixture-executor-stopped' "+
+    "WHERE request_id=? AND state='processing' AND lease_token=? "+
+      "AND lease_generation=? "+
+    "RETURNING request_id,lease_generation"
+  ).bind(requestId,expectedLeaseToken,expectedLeaseGeneration).first();
+  if(!row||row.lease_generation!==expectedLeaseGeneration)deny();
+  return {status:'qa_orphan_quarantined_pending_review',productionReady:false};
+}
 async function release(db,id){
   const r=await db.prepare(
-    "UPDATE qa_bcast_jobs SET state='ready' "+
+    "UPDATE qa_bcast_jobs SET state='ready',quarantine_evidence=NULL "+
     // Never unlock a PROCESSING job: the original worker might still be alive
     // between two individual claims (epoch fencing is not liveness proof).
     // Even with no inflight row, releasing it can admit a second worker.
@@ -282,6 +317,7 @@ export default {
       if(url.pathname==='/v1/process')return json(200,await process(db,object.requestId,object.mode));
       if(url.pathname==='/v1/reconcile')return json(200,await reconcile(db,object));
       if(url.pathname==='/v1/release')return json(200,await release(db,object.requestId));
+      if(url.pathname==='/v1/quarantine')return json(200,await quarantine(db,object));
       if(url.pathname==='/v1/drain')return json(200,await freeze(db,object.uid));
       if(url.pathname==='/v1/finalize')return json(200,await freeze(db,object.uid,true));
       return json(200,await status(db,object.uid));

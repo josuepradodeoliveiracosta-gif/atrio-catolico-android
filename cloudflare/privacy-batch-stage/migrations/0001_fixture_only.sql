@@ -18,9 +18,33 @@ CREATE TABLE qa_bcast_jobs (
   lease_generation INTEGER NOT NULL DEFAULT 0
     CHECK (lease_generation BETWEEN 0 AND 999999),
   lease_token TEXT CHECK (lease_token IS NULL OR length(lease_token)=36),
+  quarantine_evidence TEXT CHECK (quarantine_evidence IS NULL OR
+    quarantine_evidence='qa-fixture-executor-stopped'),
   CHECK ((state='processing' AND lease_token IS NOT NULL) OR
     (state IN ('ready','halted') AND lease_token IS NULL))
 );
+-- This audit is populated ONLY by a successful processing -> halted
+-- compare-and-swap with a specific synthetic fixture evidence marker.
+-- It cannot authorize a real-world FCM retry or account deletion.
+CREATE TABLE qa_bcast_quarantine_audit (
+  request_id TEXT NOT NULL REFERENCES qa_bcast_jobs(request_id),
+  lease_generation INTEGER NOT NULL CHECK(lease_generation BETWEEN 1 AND 999999),
+  previous_lease_token TEXT NOT NULL CHECK(length(previous_lease_token)=36),
+  fixture_evidence TEXT NOT NULL CHECK(fixture_evidence='qa-fixture-executor-stopped'),
+  recorded_ms INTEGER NOT NULL CHECK(recorded_ms>0),
+  PRIMARY KEY(request_id,lease_generation)
+);
+CREATE TRIGGER qa_bcast_record_quarantine
+AFTER UPDATE OF state ON qa_bcast_jobs
+WHEN OLD.state='processing' AND NEW.state='halted' AND
+     NEW.quarantine_evidence='qa-fixture-executor-stopped'
+BEGIN
+  INSERT INTO qa_bcast_quarantine_audit
+    (request_id,lease_generation,previous_lease_token,fixture_evidence,recorded_ms)
+  VALUES (OLD.request_id,OLD.lease_generation,OLD.lease_token,
+    NEW.quarantine_evidence,unixepoch('now')*1000);
+END;
+
 CREATE TABLE qa_bcast_deliveries (
   request_id TEXT NOT NULL REFERENCES qa_bcast_jobs(request_id),
   recipient_uid TEXT NOT NULL REFERENCES qa_bcast_accounts(uid)
