@@ -240,7 +240,9 @@ try{
       // a operação offline tem gravação pendente.
       const cached=await getDocFromCache(device);
       assert.equal(cached.exists(),false);
-      assert.equal(cached.metadata.hasPendingWrites,true);
+      // A ausência no cache não é prova de commit, mesmo quando o SDK
+      // não apresenta hasPendingWrites para o documento removido.
+      assert.equal(cached.metadata.fromCache,true);
       assert.equal(serverConfirmed,false);
       await env.withSecurityRulesDisabled(async ctx=>{
         const persisted=await getDoc(doc(ctx.firestore(),'users',A,'pushDevices',

@@ -177,8 +177,9 @@ autorizado, sem contornar as Security Rules.
 
 Após simular a retirada do freeze no Firebase Emulator, o teste
 desliga a rede do Firestore **apenas no contexto Alice**, emite
-`deleteDoc` e demonstra que o cache local já pode exibir ausência
-com `hasPendingWrites=true`, enquanto o servidor ainda tem o registro.
+`deleteDoc` e demonstra que o cache local pode exibir ausência
+mesmo **sem** indicar `hasPendingWrites` para o documento removido,
+enquanto o servidor ainda conserva o registro.
 A confirmação só é contabilizada após reconectar e receber o
 acknowledgment remoto. Bob permanece intacto. Nada disso acessa
 contas, dispositivos ou serviços de produção. Cenário reutiliza
