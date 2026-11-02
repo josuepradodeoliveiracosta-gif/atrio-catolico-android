@@ -39,6 +39,8 @@ jobs:
         run: npm ci
       - name: Testar regras do Firestore no emulador (sem acessar producao)
         working-directory: tests/security
+        # Impedir que um cliente SDK offline prenda os demais QA da PR.
+        timeout-minutes: 8
         run: npm test
       - name: Preparar Node 22 para QA administrativo (SQLite e Firebase Admin)
         uses: actions/setup-node@v4

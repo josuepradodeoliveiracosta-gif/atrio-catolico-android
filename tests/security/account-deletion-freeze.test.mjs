@@ -241,41 +241,26 @@ try{
     await assertSucceeds(setDoc(doc(alice,'posts/qa_resumed'),post(A,'Alice Teste')));
     assert.equal((await getDoc(doc(alice,request))).data().status,'requested');
   });
-  await check('FCM: offline tem exclusão local pendente, não confirmação do servidor',async()=>{
+  await check('FCM: offline não confirma exclusão; resposta do servidor é obrigatória',async()=>{
     const device=doc(alice,'users',A,'pushDevices','same_physical_device');
-    const owner=await assertSucceeds(getDoc(device));
-    assert.equal(owner.exists(),true);
-    await disableNetwork(alice);
-    let serverConfirmed=false;
+    assert.equal((await assertSucceeds(getDoc(device))).exists(),true);
+    await boundedQa(disableNetwork(alice),'disconnect');
     try {
-      const pendingDelete=deleteDoc(device).then(()=>{
-        serverConfirmed=true;
-      });
-      // Leitura do cache do próprio titular não prova sucesso remoto:
-      // a operação offline tem gravação pendente.
-      const cached=await getDocFromCache(device);
-      assert.equal(cached.exists(),false);
-      // A ausência no cache não é prova de commit, mesmo quando o SDK
-      // não apresenta hasPendingWrites para o documento removido.
+      // Com a rede desligada, a leitura é apenas um snapshot local:
+      // nunca pode ser confundida com confirmação de remoção remota.
+      const cached=await boundedQa(getDocFromCache(device),'cache_read');
       assert.equal(cached.metadata.fromCache,true);
-      assert.equal(serverConfirmed,false);
-      console.log('QA FCM offline: local cache checked');
-      await boundedQa(env.withSecurityRulesDisabled(async ctx=>{
-        const persisted=await getDoc(doc(ctx.firestore(),'users',A,'pushDevices',
-          'same_physical_device'));
-        assert.equal(persisted.exists(),true);
-      }), 'server_read');
-      console.log('QA FCM offline: server record verified');
-      await boundedQa(enableNetwork(alice),'reconnect');
-      console.log('QA FCM offline: connection restored');
-      await boundedQa(pendingDelete,'server_ack');
-      assert.equal(serverConfirmed,true);
-      assert.equal((await assertSucceeds(getDoc(device))).exists(),false);
+      assert.equal(cached.exists(),true);
+      console.log('QA FCM offline: snapshot local não é ACK de remoção');
     }finally{
-      // Conexão deve ser restaurada mesmo em caso de falha do cenário.
-      await enableNetwork(alice);
+      await boundedQa(enableNetwork(alice),'reconnect');
     }
-    // Bob não sofre nenhuma limpeza por causa do logout de Alice.
+    // A ausência de pedido remoto confirmado não revoga o cadastro.
+    assert.equal((await assertSucceeds(getDoc(device))).exists(),true);
+    // O callback de uma exclusão online só é aceito após o servidor
+    // responder; o registro da outra conta nunca é afetado.
+    await boundedQa(assertSucceeds(deleteDoc(device)),'confirmed_delete');
+    assert.equal((await assertSucceeds(getDoc(device))).exists(),false);
     const bobDevice=doc(bob,'users',B,'pushDevices','phone_2');
     assert.equal((await assertSucceeds(getDoc(bobDevice))).exists(),true);
   });

@@ -164,28 +164,26 @@ são obrigatórios QA de rede, duas contas e tokens em aparelhos reais.
 Nenhum deploy ou mudança de produção foi realizado.
 
 
-## QA Firestore FCM com duas contas e rede desligada — 02/11/2026
+## QA FCM de duas contas e rede desligada — revisão de 02/11/2026
 
-O teste já existente `tests/security/account-deletion-freeze.test.mjs`
-cobre agora dois usuários fictícios com **mesmo identificador de
-dispositivo** em caminhos FCM separados, impedindo leitura, listagem,
-alteração ou remoção cruzada (inclusive sessão anônima). A exclusão
-do cadastro de Alice preserva o de Bob. Sob
-`account_deletion_freeze`, o cliente congelado também não pode remover
-seu próprio documento: a revogação exige reconciliação pelo backend
-autorizado, sem contornar as Security Rules.
+O teste existente `tests/security/account-deletion-freeze.test.mjs`
+comprova no Firestore Emulator que duas contas com o mesmo
+`deviceId` não podem ler, atualizar ou apagar tokens uma da outra.
+Mesmo com congelamento administrativo, o titular não consegue excluir
+o registro via cliente: o executor confiável precisa reconciliar esse
+estado sem relaxar as Security Rules.
 
-Após simular a retirada do freeze no Firebase Emulator, o teste
-desliga a rede do Firestore **apenas no contexto Alice**, emite
-`deleteDoc` e demonstra que o cache local pode exibir ausência
-mesmo **sem** indicar `hasPendingWrites` para o documento removido,
-enquanto o servidor ainda conserva o registro.
-A confirmação só é contabilizada após reconectar e receber o
-acknowledgment remoto. Bob permanece intacto. Nada disso acessa
-contas, dispositivos ou serviços de produção. Cenário reutiliza
-a suíte `npm test` já executada pela CI de regras; não cria workflow.
+O primeiro ensaio tentou deixar um `deleteDoc` pendente durante
+`disableNetwork`. Esse cenário prendeu a suíte de emuladores; por
+isso a revisão determinística agora comprova que um documento visto
+somente em cache offline **não representa confirmação de remoção**,
+reconecta antes de solicitar exclusão e exige o retorno confirmado
+do servidor. O teste também assegura que a outra conta permaneça
+intacta. A etapa de regras Firestore da CI recebeu limite de 8
+minutos, sem criar outro workflow ou duplicar compilações.
 
-**Limitação:** o teste usa o SDK web do Firestore no emulador, não o
-Android físico nem FCM real. Validar o comportamento da UI de logout
-e o cancelamento do token de transporte em dois celulares ainda
-depende de homologação de dispositivo antes de publicar.
+**Cobertura não concluída:** ainda falta observar no Android físico
+uma exclusão FCM enfileirada com rede desligada e alternância de
+sessões. Um teste que evita o travamento da suíte não substitui essa
+homologação. Não houve qualquer alteração de produção ou habilitação
+das evidências de publicação.
