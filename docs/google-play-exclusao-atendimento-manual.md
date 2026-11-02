@@ -130,3 +130,22 @@ Este ajuste melhora a informação prestada ao titular, **não** implementa
 um executor de exclusão nem confirma que qualquer pedido foi
 processado em ambiente real. Sem homologação do executor e das
 exceções legais, a liberação Play permanece bloqueada.
+
+
+## Atualização manual do andamento no Android (02/11/2026)
+
+Na seção **Perfil → Exclusão de conta e dados**, o botão
+**Atualizar andamento** aparece após um pedido autenticado válido, tanto
+no estado `requested` quanto em `processing`, `completed` ou
+`rejected`. A atualização depende de clique do titular, da sessão
+Firebase correspondente ao UID e de leitura `Source.SERVER` sem
+cache ou gravações pendentes. O botão usa a mesma leitura já existente
+e não cria novo pedido, não escreve `status`, não inicia exclusão nem
+libera quaisquer controles de publicação. Para erro ou registro
+indeterminado permanece **Tentar novamente**.
+
+Teste instrumentado da função de decisão do botão incluído na
+suíte existente do aplicativo. A possibilidade de atualizar não
+comprova que atendimento administrativo ou exclusão efetiva estejam
+operacionais; a homologação continua pendente e todos os gates de
+lançamento permanecem intactos.

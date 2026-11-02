@@ -30,6 +30,23 @@ class AccountDeletionRequestStateTest {
             verifiedDeletionRequestState(true, "processing", "web", false))
     }
 
+    @Test fun manualRefreshIsAvailableAfterRequestWithoutReopeningIt() {
+        for (state in listOf(
+            DeletionRequestState.REQUESTED,
+            DeletionRequestState.PROCESSING,
+            DeletionRequestState.COMPLETION_REPORTED,
+            DeletionRequestState.REVIEW_REQUIRED
+        )) {
+            assertEquals("Atualizar andamento", deletionRequestRefreshLabel(state))
+        }
+        for (state in listOf(DeletionRequestState.ERROR,
+                             DeletionRequestState.INDETERMINATE)) {
+            assertEquals("Tentar novamente", deletionRequestRefreshLabel(state))
+        }
+        assertEquals(null, deletionRequestRefreshLabel(DeletionRequestState.CHECKING))
+        assertEquals(null, deletionRequestRefreshLabel(DeletionRequestState.NOT_REQUESTED))
+    }
+
     @Test fun incompleteOrUnrecognizedRecordsCannotBeTreatedAsReceivedOrAbsent() {
         for (state in listOf("", "unknown", "canceled", "processing-unknown")) {
             assertEquals(DeletionRequestState.INDETERMINATE,

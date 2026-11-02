@@ -57,6 +57,18 @@ internal fun verifiedDeletionRequestState(
     else -> DeletionRequestState.INDETERMINATE
 }
 
+/** Atualização explícita: não consultar repetidamente o servidor em segundo plano. */
+internal fun deletionRequestRefreshLabel(state: DeletionRequestState): String? = when (state) {
+    DeletionRequestState.REQUESTED,
+    DeletionRequestState.PROCESSING,
+    DeletionRequestState.COMPLETION_REPORTED,
+    DeletionRequestState.REVIEW_REQUIRED -> "Atualizar andamento"
+    DeletionRequestState.INDETERMINATE,
+    DeletionRequestState.ERROR -> "Tentar novamente"
+    DeletionRequestState.CHECKING,
+    DeletionRequestState.NOT_REQUESTED -> null
+}
+
 /** Pedido autenticado, com confirmação exclusiva no Firestore remoto. */
 @Composable
 internal fun AccountDeletionRequestSection(db: FirebaseFirestore, uid: String) {
@@ -215,12 +227,13 @@ internal fun AccountDeletionRequestSection(db: FirebaseFirestore, uid: String) {
                     style = MaterialTheme.typography.bodySmall
                 )
             }
-            if (state == DeletionRequestState.ERROR ||
-                state == DeletionRequestState.INDETERMINATE) {
+            val refreshLabel = deletionRequestRefreshLabel(state)
+            if (refreshLabel != null) {
                 TextButton(
-                    onClick = { checkExisting() },
+                    enabled = currentSession(),
+                    onClick = { if (currentSession()) checkExisting() },
                     modifier = Modifier.testTag("atrio-deletion-request-retry")
-                ) { Text("Tentar novamente") }
+                ) { Text(refreshLabel) }
             }
         }
     }
