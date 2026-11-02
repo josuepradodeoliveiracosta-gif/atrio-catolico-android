@@ -241,3 +241,58 @@ controle de falhas de commit e de temporização, inventário completo
 consistente de usuários reais, políticas de consentimento e evidência
 de reconciliação independente. A candidata Play continua sem envio de
 comunicados por tópico e sem autorização para publicar.
+
+## Protótipo Worker-compatible de homologação isolada (02/11/2026)
+
+A PR #71 passa a conter **apenas código-fonte candidato**, em
+\`cloudflare/privacy-batch-stage/\`, de um Worker compatível com a interface
+D1 (\`prepare/bind/first/all/run/batch\`), sem dependências \`node:sqlite\`.
+A configuração é \`wrangler.staging.example.toml\`, um **modelo
+intencionalmente não implantável** com \`database_id\` placeholder:
+\`REPLACE_WITH_NEW_DEDICATED_QA_D1_ID\`. Não existe \`wrangler.toml\`
+ativo, credencial publicada, D1 criada, deploy, rota pública ou serviço
+Cloudflare configurado. Não alterar a configuração dos Workers atuais.
+
+A migração \`migrations/0001_fixture_only.sql\` restringe os UIDs a
+\`qa-batch-00\` até \`qa-batch-08\`, tokens a \`qa-fcm-fixture-...\` e
+pedidos a \`qa-broadcast-...\`. Um pedido planeja exclusivamente o
+conjunto imutável de oito destinatários sintéticos. Planejamento
+idempotente usa um \`D1.batch()\` atômico; não existe consulta ao
+cadastro Firebase ou às inscrições FCM reais. Uma operação \`process\`
+simula até três entregas individuais por requisição, sem rede externa e
+sem nenhuma chamada FCM. Retornos \`acked\` significam **somente
+simulação**, não entrega a um dispositivo.
+
+As rotas são acessíveis no código somente com origem interna fixa,
+requisição \`POST\`, corpo limitado, HMAC-SHA256, nonce único gravado no
+D1 e janela curta; \`push\`, \`admin\` e \`reconciler\` exigem três
+segredos separados e autorização de rota distinta. O Worker exige
+\`ATRIO_QA_BATCH_STAGE_ID=demo-atrio-batch-cloud-v1\` e
+\`QA_BATCH_MODE=fixture-only\`; qualquer configuração faltante causa
+negação. A atualização de um ticket para \`inflight\` verifica
+atomicamente o estado \`active\` tanto do remetente quanto do
+destinatário. Efeitos sintéticos ambíguos paralisam o pedido.
+O serviço não reinicia automaticamente um lote interrompido: somente
+o reconciliador, após liquidar tickets ambíguos, pode liberar o
+lease. \`draining/frozen\` impedem novas tentativas. Falha D1 após
+reserva permanece bloqueada, mesmo em outra instância.
+
+O \`scripts/preflight.mjs --audit\` e os testes offline auditam
+privacidade do template, ausência de IDs/segredos reais, migração
+somente de identidades sintéticas, D1 simulado com interface compatível,
+HMAC, replay após reabertura, recusa de papéis indevidos, falhas
+parciais, deduplicação e congelamento. Essa auditoria é **necessária,
+mas não concede autorização** para preparar segredos, criar D1,
+executar migrações remotas ou fazer deploy.
+
+**Limitações e próximos gates:** isolamento real de conta/IAM ainda
+não comprovado; \`wrangler deploy\` não realizado; latência e custos
+D1 reais não medidos; D1 compartilhado entre serviços ainda não
+provisionado; inventário real consistente não existe; ausência
+de FCM confirmado em dispositivo; reconciliação de efeitos externos
+não implementada. O fluxo de produção permanece bloqueado em
+\`broadcast_privacy_coordinator_required\`, e nenhuma evidência
+Play/privacidade deve passar a \`verified:true\`.
+
+Sem alteração da \`main\`, dos backups, dos Workers implantados
+ou das credenciais de produção.

@@ -1,0 +1,24 @@
+# TEMPLATE ONLY — NOT DEPLOYABLE. Never rename to wrangler.toml.
+# No real D1 ID, account_id, routes, services or actual secrets.
+# Requires explicit owner authorization, separate staging account, D1 and
+# three independent >=32 character Cloudflare staging secrets before any deploy.
+name = "atrio-qa-broadcast-cloud-internal"
+main = "src/index.js"
+compatibility_date = "2026-11-02"
+workers_dev = false
+preview_urls = false
+
+[vars]
+ATRIO_QA_BATCH_STAGE_ID = "demo-atrio-batch-cloud-v1"
+QA_BATCH_MODE = "fixture-only"
+
+# Secret names only; values NEVER included in files or commits:
+# QA_BATCH_PUSH_HMAC
+# QA_BATCH_ADMIN_HMAC
+# QA_BATCH_RECONCILER_HMAC
+
+[[d1_databases]]
+binding = "QA_BATCH_STAGE_DB"
+database_name = "atrio-qa-broadcast-fixture-only"
+database_id = "REPLACE_WITH_NEW_DEDICATED_QA_D1_ID"
+migrations_dir = "migrations"
