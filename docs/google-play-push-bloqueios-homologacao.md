@@ -111,3 +111,49 @@ externo, reconciliação FCM sob falha, IAM, revisão independente e integraçã
 real dos três Workers antes de qualquer remoção em produção. Não marcar
 `worker_freeze`, `push_block_safe_delivery` ou qualquer evidência
 `verified:true`; sem merge, assinatura, deploy ou Play Console.
+
+## QA — inventário paginado e entrega individual sob autorização D1 (02/11/2026)
+
+A PR #71 possui agora `cloudflare/account-deletion-audit/src/qa-broadcast-inventory.js`,
+módulo **somente para testes** e sem nenhuma implementação de acesso à rede.
+O cenário contém exclusivamente `qa-freeze-alice` e `qa-freeze-bob`.
+O conjunto é percorrido em **duas páginas**, identificadas por cursor e
+revisão fixa. Cada página deve comprovar posição sequencial, revisão
+consistente, total esperado, ordenação, ausência de duplicatas, formato de
+UID e token fictícios, consentimento explícito (`optedIn`) e término
+declarado (`complete=true`, `nextCursor=null`). Falhas, respostas
+incompletas, paginação desordenada, troca de revisão e divergência de
+contagem impedem qualquer emissão ou aquisição de autorização.
+
+Somente após **todo** o inventário sintético ser verificado, o adaptador
+solicita `/v1/admit` pelo Service Binding HMAC existente. A barreira D1
+faz admissão atômica de remetente e destinatário, impedindo a operação
+quando qualquer conta estiver `draining` ou `frozen`. O componente
+`sendFixture` injeta somente um efeito local simulado, com token
+`qa-fcm-...`, sem FCM real ou tópico; nenhuma mensagem é enviada a
+usuários verdadeiros. Mesmo no cenário simulado de aceitação, a operação
+fica **pendente** até que um reconciliador independente apresente a prova
+fictícia necessária para liberar o ticket no D1. Falha ambígua não gera
+retry nem apaga ticket: o congelamento aguarda conciliação.
+
+Os testes adicionais executam o fluxo HMAC/D1 completo, atravessam duas
+páginas, confirmam opt-out, inconsistências de inventário, UID/token real,
+conta congelada e efeito incerto. Um teste guarda `globalThis.fetch`
+para demonstrar que o fluxo de fixture não usa rede externa.
+
+**Limitações que continuam bloqueando a Play e produção:**
+- O total e a revisão são **declarações de uma fonte fictícia confiável**.
+  Contar linhas não prova, por si, que um banco vivo não omitiu contas:
+  é necessária visão consistente e exaustiva do cadastro verdadeiro.
+- O Service Binding só admite duas identidades sintéticas; ainda não
+  suporta lotes paginados numerosos, IAM operacional ou custos reais.
+- Falta deduplicação persistente por ID de comunicado, controle de
+  reprocessamentos e reconciliação de respostas externas FCM. Uma
+  aceitação sintética **não é prova de entrega em dispositivo**.
+- O endpoint verdadeiro `POST /broadcast` permanece **bloqueado**
+  em `broadcast_privacy_coordinator_required`. Nenhuma flag libera
+  tópicos nem invoca o pipeline de QA em produção.
+
+Sem deploy, sem tocar no Firebase/FCM/Cloudinary reais, sem assinatura,
+sem merge, sem alteração da `main` ou de backup, e sem marcar requisitos
+de privacidade como verificados.
