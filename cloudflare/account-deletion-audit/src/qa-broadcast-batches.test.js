@@ -82,7 +82,7 @@ test('nine fixture accounts: verify three pages, claim three bounded batches, no
   assert.deepEqual(ledger().status(ACTOR),{state:'active',inFlight:8});
   assert.equal(QA_BATCH_READINESS.productionIntegrated,false);
   assert.equal(QA_BATCH_READINESS.realFcmEnabled,false);
-}));
+})));
 
 test('persistent request dedup across restart; changed inventory fails closed',async()=>fixture(async({db,connect})=>{
   assert.equal((await planQaBatch({db,actorUid:ACTOR,requestId:request,
@@ -130,7 +130,7 @@ test('unknown simulated result halts remaining cohort and blocks replay after re
     'qa_batch_frozen_or_denied');
   assert.equal(attempts,2,'frozen actor cannot send another simulated token');
   assert.equal(ledger().status(ACTOR).state,'draining');
-}));
+})));
 
 test('freeze between planning and claim prevents side effects; no-send evidence closes ticket',async()=>fixture(async({db,ledger})=>offline(async()=>{
   const recipients=[allRows()[0],allRows()[1]];
@@ -146,7 +146,7 @@ test('freeze between planning and claim prevents side effects; no-send evidence 
     evidence:'qa-reviewed-never-started'});
   assert.equal(ledger().finalizeFreeze(uid(1)),'frozen');
   assert.equal(ledger().status(uid(1)).inFlight,0);
-}));
+})));
 
 test('independent reconciliation of all simulated tokens allows freeze; not before',async()=>fixture(async({db,ledger})=>{
   await planQaBatch({db,actorUid:ACTOR,requestId:request,readPage:pages()});
@@ -183,7 +183,7 @@ test('simultaneous workers cannot lease the same batch',async()=>fixture(async({
   release();
   assert.equal((await running).attempted,3);
   assert.equal(sent.length,3);
-}));
+})));
 
 test('paged inventory refuses truncated, duplicate, unordered and mismatched snapshots',async()=>fixture(async({db})=>{
   const original=pages();
