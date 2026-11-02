@@ -68,28 +68,70 @@ jobs:
     steps:
       - name: Obter codigo
         uses: actions/checkout@v4
+        with:
+          # Comparacao confiavel entre commits da mesma PR; nao guardar token.
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Identificar se Android realmente mudou nesta sincronizacao
+        id: scope
+        shell: bash
+        env:
+          PR_ACTION: ${{ github.event.action }}
+          BEFORE_SHA: ${{ github.event.before }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          # Falha fechada: primeiro envio, execucao manual, push QA legado,
+          # SHA inesperado ou rebase sempre executam a compilacao.
+          if [[ "$GITHUB_EVENT_NAME" != "pull_request" || "$PR_ACTION" != "synchronize" ||
+                ! "$BEFORE_SHA" =~ ^[0-9a-f]{40}$ || ! "$PR_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo 'android=true' >> "$GITHUB_OUTPUT"
+          elif ! git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null ||
+               ! git cat-file -e "${PR_HEAD_SHA}^{commit}" 2>/dev/null ||
+               ! git merge-base --is-ancestor "$BEFORE_SHA" "$PR_HEAD_SHA"; then
+            echo 'android=true' >> "$GITHUB_OUTPUT"
+          else
+            git diff --name-only --diff-filter=ACDMRT -z "$BEFORE_SHA" "$PR_HEAD_SHA" > "$RUNNER_TEMP/selos-changed.bin"
+            python3 scripts/play_ci_android_scope.py --changed-file "$RUNNER_TEMP/selos-changed.bin" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Registrar escopo sem enfraquecer testes Firestore
+        shell: bash
+        env:
+          ANDROID_SCOPE: ${{ steps.scope.outputs.android }}
+        run: |
+          set -euo pipefail
+          if [[ "$ANDROID_SCOPE" == 'true' ]]; then
+            echo 'Selos CI: verificacao Android exigida para esta revisao.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Selos CI: apenas Android dispensado por diff nao-Android seguro; Firestore/QA administrativo seguem obrigatorios.' >> "$GITHUB_STEP_SUMMARY"
+          fi
       - name: Configurar Java 17
+        if: steps.scope.outputs.android == 'true'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
       - name: Preparar Android SDK
+        if: steps.scope.outputs.android == 'true'
         uses: android-actions/setup-android@v4
       - name: Configurar Gradle 8.13
+        if: steps.scope.outputs.android == 'true'
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
       - name: Instalar plataforma Android 36
+        if: steps.scope.outputs.android == 'true'
         run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
       - name: Validar configuracao Firebase
         run: python3 scripts/validar_firebase.py
       - name: Compilar sem alterar a assinatura de producao
+        if: steps.scope.outputs.android == 'true'
         env:
           ATRIO_PUSH_WORKER_URL: ${{ vars.ATRIO_PUSH_WORKER_URL || 'https://atrio-push.atrio-catolico.workers.dev' }}
           ATRIO_AVATAR_WORKER_URL: ${{ vars.ATRIO_AVATAR_WORKER_URL || '' }}
         run: gradle :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --stacktrace
       - name: Disponibilizar APK debug apenas para testes da PR
-        if: ${{ github.event_name == 'pull_request' }}
+        if: github.event_name == 'pull_request' && steps.scope.outputs.android == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: atrio-catolico-v0190-debug-testes
