@@ -10,9 +10,11 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  # Uma atualização não pode interromper um teste já iniciado.
-  # O GitHub poderá substituir somente uma execução ainda pendente.
-  cancel-in-progress: false
+  # Uma atualização da PR substitui somente sua própria validação anterior.
+  # Testes Firebase offline podem travar; evitar fila indefinida e gastar
+  # minutos validando um commit que já deixou de ser o HEAD da PR.
+  # A execução manual/push de outro ref continua isolada pelo grupo.
+  cancel-in-progress: true
 
 permissions:
   contents: read

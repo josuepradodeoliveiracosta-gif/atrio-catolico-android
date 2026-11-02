@@ -187,3 +187,21 @@ uma exclusão FCM enfileirada com rede desligada e alternância de
 sessões. Um teste que evita o travamento da suíte não substitui essa
 homologação. Não houve qualquer alteração de produção ou habilitação
 das evidências de publicação.
+
+
+## CI Firestore: remover fila de revisão obsoleta — 02/11/2026
+
+O GitHub Actions manteve a antiga execução de regras Firestore
+(`41537423201`) ativa depois de o SDK entrar numa operação offline
+sem conclusão; os novos testes (`41538855032`) ficaram pendentes no
+mesmo grupo, apesar de o cenário ter sido corrigido no código.
+
+O workflow **existente** `selos-ci.yml` agora usa
+`cancel-in-progress: true` no grupo por PR/ref: uma atualização
+relevante cancela **apenas a validação anterior desse grupo**, dando
+preferência ao código atualmente proposto. Mantém-se o timeout de
+**8 minutos** no passo `npm test` do Firestore e a separação por
+PR/ref. A mudança não cancela releases, não publica Workers, não
+modifica regras reais nem dispensa o teste de segurança. O resultado
+mais recente ainda precisa ser confirmado no GitHub Actions;
+execuções canceladas **nunca** contam como aprovadas.
