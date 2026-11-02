@@ -100,7 +100,8 @@ class ProfilePhotoUiTest {
                         publicationsFooter = {}, onSignOut = {},
                         onModeration = null, onClergyReview = null,
                         onCreate = {}, onOpen = {}, onLike = {}, onSave = {},
-                        onSavedPosts = {}, onNotifications = {}, onReviews = {}
+                        onSavedPosts = {}, onNotifications = {}, onReviews = {},
+                        communityTerms = CommunityTermsStatus()
                     )
                 }
             }

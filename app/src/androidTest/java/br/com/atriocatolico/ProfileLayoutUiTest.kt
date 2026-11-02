@@ -20,6 +20,18 @@ import org.junit.Test
 class ProfileLayoutUiTest {
     @get:Rule val compose = createComposeRule()
 
+    // Política de teste estrutural: não indica publicação real, não acessa
+    // nenhum endereço remoto e não concede aceite no Firestore.
+    private val acceptedQaTerms = CommunityTermsStatus(
+        loaded = true,
+        policy = CommunityTermsPolicy(
+            version = "community-v1",
+            url = "https://atrio-catolico.org/termos/community-v1",
+            required = true, published = true
+        ),
+        accepted = true, acceptanceLoaded = true
+    )
+
     @Test fun sectionsRemainReachableWithLargeText() {
         check(FirebaseApp.getInstance().options.projectId == "demo-atrio-v11")
         var destination = ""
@@ -35,7 +47,8 @@ class ProfileLayoutUiTest {
                         onModeration = null, onClergyReview = null,
                         onCreate = { destination = "create" }, onOpen = {}, onLike = {}, onSave = {},
                         onSavedPosts = { destination = "saved" },
-                        onNotifications = { destination = "notices" }, onReviews = { destination = "reviews" }
+                        onNotifications = { destination = "notices" }, onReviews = { destination = "reviews" },
+                        communityTerms = acceptedQaTerms
                     )
                 }
             }
@@ -54,6 +67,10 @@ class ProfileLayoutUiTest {
         list.performScrollToNode(hasContentDescription("Receber avisos neste aparelho"))
         compose.onNodeWithContentDescription("Receber avisos neste aparelho").assertIsOff()
         screenshot("02-notificacoes-fonte-ampliada")
+        // O aceite não deve ocultar o acesso à versão vigente dos Termos.
+        list.performScrollToNode(hasTestTag("atrio-profile-community-terms"))
+        compose.onNodeWithTag("atrio-profile-community-terms").assertIsDisplayed()
+        compose.onNodeWithText("Versão vigente: community-v1").assertExists()
         list.performScrollToNode(hasTestTag("atrio-profile-signout"))
         compose.onNodeWithTag("atrio-profile-signout").assertIsDisplayed().performClick()
         compose.runOnIdle { assertEquals("logout", destination) }
@@ -79,7 +96,8 @@ class ProfileLayoutUiTest {
                         publicationsFooter = {}, onSignOut = {},
                         onModeration = null, onClergyReview = null,
                         onCreate = {}, onOpen = {}, onLike = {}, onSave = {},
-                        onSavedPosts = {}, onNotifications = {}, onReviews = {}
+                        onSavedPosts = {}, onNotifications = {}, onReviews = {},
+                        communityTerms = CommunityTermsStatus()
                     )
                 }
             }
