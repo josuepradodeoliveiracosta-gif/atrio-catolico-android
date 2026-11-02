@@ -417,6 +417,41 @@ def deletion_web_blockers(root: Path, url: str, mode: str = "firebase",
             root, url, email, privacy_url, reviewed, monitored)
     return ["play_deletion_web_mode_unapproved"]
 
+def community_terms_gate(root: Path, url: str, version: str) -> list[str]:
+    """Fail-closed local pre-signature check. Published page verified separately."""
+    errors = []
+    if not real_https_url(url):
+        errors.append("play_community_terms_url_missing_or_invalid")
+    else:
+        try:
+            parsed = urlsplit(url)
+            if parsed.query or parsed.fragment or parsed.port not in (None, 443):
+                errors.append("play_community_terms_url_not_static_https")
+        except ValueError:
+            errors.append("play_community_terms_url_not_static_https")
+    if not isinstance(version, str) or not re.fullmatch(r"community-v[1-9][0-9]{0,3}", version):
+        errors.append("play_community_terms_version_missing_or_invalid")
+    checks = {
+        "app/src/main/java/br/com/atriocatolico/CommunityTermsConsent.kt":
+            ("app_config/community_terms", "acceptedTerms", "CommunityTermsPolicy"),
+        "app/src/main/java/br/com/atriocatolico/OnlineAtrioApp.kt":
+            ("rememberCommunityTermsStatus", "communityTerms.canPublish"),
+        "cloudflare/account-deletion-support/community-terms.mjs":
+            ("community-terms-owner-and-legal-reviewed",
+             "Termos de Uso e Política da Comunidade"),
+        "cloudflare/account-deletion-support/community-terms.test.mjs":
+            ("community-v1", "reviewed")
+    }
+    for path, tokens in checks.items():
+        try:
+            content = (root / path).read_text(encoding="utf-8")
+            if not all(token in content for token in tokens):
+                errors.append("play_community_terms_integration_missing:" + path)
+        except (OSError, UnicodeError):
+            errors.append("play_community_terms_source_missing:" + path)
+    return errors
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--audit", action="store_true")
@@ -429,6 +464,9 @@ def main():
     blocked = inspect(args.root)
     blocked.extend(privacy_policy_link_blockers(
         args.root, os.environ.get("ATRIO_PRIVACY_POLICY_URL", "")))
+    blocked.extend(community_terms_gate(
+        args.root, os.environ.get("ATRIO_PLAY_COMMUNITY_TERMS_URL", ""),
+        os.environ.get("ATRIO_PLAY_COMMUNITY_TERMS_VERSION", "")))
     blocked.extend(account_deletion_in_app_link_blockers(args.root))
     blocked.extend(deletion_web_blockers(
         args.root, os.environ.get("ATRIO_DELETION_PORTAL_URL", ""),

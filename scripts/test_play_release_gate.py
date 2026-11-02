@@ -546,5 +546,31 @@ class InAppExternalDeletionLinkTests(unittest.TestCase):
             failures = account_deletion_in_app_link_blockers(root)
             self.assertIn("play_external_deletion_link_in_app_missing", failures)
 
+
+class CommunityTermsGateTests(unittest.TestCase):
+    def test_public_versioned_community_terms_required_for_signing(self):
+        from play_release_gate import community_terms_gate
+        root = Path(__file__).resolve().parents[1]
+        url = "https://app.atrio-catolico.org/termos/community-v1"
+        self.assertEqual(community_terms_gate(root, url, "community-v1"), [])
+        for bad in ("", "http://app.atrio-catolico.org/termos",
+                    "https://example.com/termos",
+                    "https://atrio-catolico-privacidade-qa.pages.dev/termos",
+                    url + "?uid=alice"):
+            with self.subTest(url=bad):
+                self.assertTrue(community_terms_gate(root, bad, "community-v1"))
+        for version in ("", "ugc-v1", "community-v0", "community-v01", "community-v10000"):
+            with self.subTest(version=version):
+                self.assertIn("play_community_terms_version_missing_or_invalid",
+                              community_terms_gate(root, url, version))
+
+    def test_missing_sources_cannot_be_approved_by_url_alone(self):
+        from play_release_gate import community_terms_gate
+        with tempfile.TemporaryDirectory() as tmp:
+            errors = community_terms_gate(
+                Path(tmp), "https://app.atrio-catolico.org/termos", "community-v1")
+            self.assertEqual(sum("source_missing" in issue for issue in errors), 4)
+
+
 if __name__ == "__main__":
     unittest.main()

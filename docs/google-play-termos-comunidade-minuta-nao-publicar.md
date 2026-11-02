@@ -90,3 +90,25 @@ de alterações. Nunca ativar os termos em produção usando um rascunho.
 A política Google Play exige aceite antes de conteúdo criado por usuários,
 denúncia, bloqueio e moderação contínua. Publicar a página não habilita,
 por si só, lançamento, exclusão de conta, assinaturas ou evidências UGC.
+
+
+## Gate de termos públicos antes da assinatura do AAB (02/11/2026)
+
+Após publicar Termos revisados e aprovados, configurar em GitHub Actions →
+Settings → Secrets and variables → Actions → **Variables**:
+`ATRIO_PLAY_COMMUNITY_TERMS_URL` (URL HTTPS pública definitiva) e
+`ATRIO_PLAY_COMMUNITY_TERMS_VERSION` (versão publicada, ex.: `community-v1`).
+São parâmetros públicos, não credenciais.
+
+O gate `scripts/play_release_gate.py --enforce` exige ambos e comprova
+a presença das ligações de aceite no aplicativo e do gerador de página.
+O `scripts/play_web_live_preflight.py --check` lê a página pública
+sem sessão e compara identidade, título, versão e link para política de
+privacidade. Não faz deploy, não consulta a conta do usuário e não
+comprova revisão jurídica. A versão e a URL de `app_config/community_terms`
+precisam corresponder à página aprovada, com `published=true` e
+`enforce=true` somente após testes em ambiente seguro. A equipe de
+moderação e o responsável devem comprovar a recusa de publicação sem aceite.
+
+Apenas configurar variáveis ou passar no teste de HTML não libera
+`releaseAuthorized`, AAB assinado ou distribuição pela Play.

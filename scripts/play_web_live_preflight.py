@@ -157,9 +157,34 @@ def inspect_firebase_runtime(config_js: str, app_js: str) -> None:
         raise PublicResourceError("firebase_portal_runtime_disabled")
 
 
+def inspect_live_community_terms(html: str, version: str, privacy_url: str) -> None:
+    """HTML identity/version/link check; not an independent legal review."""
+    if not isinstance(version, str) or not re.fullmatch(
+        r"community-v[1-9][0-9]{0,3}", version
+    ):
+        raise PublicResourceError("community_terms_version_invalid")
+    page = PageInfo()
+    page.feed(html)
+    visible = " ".join(page.words).casefold()
+    if ("átrio católico" not in visible or
+        "termos de uso e política da comunidade" not in visible or
+        not re.search(r"\bversão:\s*" + re.escape(version) + r"\b", visible)):
+        raise PublicResourceError("community_terms_page_or_version_mismatch")
+    if privacy_url not in page.links:
+        raise PublicResourceError("community_terms_privacy_link_missing")
+
+
 def preflight(privacy_url: str, deletion_url: str, mode: str,
-              support_email: str, fetcher=None, resolver=socket.getaddrinfo):
+              support_email: str, fetcher=None, resolver=socket.getaddrinfo,
+              terms_url=None, terms_version=None):
     _, privacy_host = public_url(privacy_url)
+    # CLI always supplies these arguments. Omitted only in existing offline tests.
+    terms_host = None
+    if terms_url is not None or terms_version is not None:
+        _, terms_host = public_url(terms_url)
+        if not isinstance(terms_version, str) or not re.fullmatch(
+            r"community-v[1-9][0-9]{0,3}", terms_version):
+            raise PublicResourceError("community_terms_version_invalid")
     _, deletion_host = public_url(deletion_url)
     if mode not in ("manual-support", "firebase"):
         raise PublicResourceError("deletion_mode_not_approved")
@@ -171,6 +196,9 @@ def preflight(privacy_url: str, deletion_url: str, mode: str,
         config = fetch_public_html(origin + "/config.js", fetcher, resolver)
         app = fetch_public_html(origin + "/app.js", fetcher, resolver)
         inspect_firebase_runtime(config, app)
+    if terms_host is not None:
+        terms_html = fetch_public_html(terms_url, fetcher, resolver)
+        inspect_live_community_terms(terms_html, terms_version, privacy_url)
     return {
         "status": "public_web_resources_reachable_and_identified",
         "signatureApproved": False,
@@ -179,6 +207,8 @@ def preflight(privacy_url: str, deletion_url: str, mode: str,
         "emailReceivedVerified": False,
         "privacyHost": privacy_host,
         "deletionHost": deletion_host,
+        "termsHost": terms_host,
+        "termsPageIdentified": terms_host is not None,
     }
 
 
@@ -193,11 +223,14 @@ def main() -> int:
             os.environ.get("ATRIO_DELETION_PORTAL_URL", ""),
             os.environ.get("ATRIO_PLAY_DELETION_MODE", "firebase"),
             os.environ.get("ATRIO_PLAY_SUPPORT_EMAIL", ""),
+            terms_url=os.environ.get("ATRIO_PLAY_COMMUNITY_TERMS_URL", ""),
+            terms_version=os.environ.get("ATRIO_PLAY_COMMUNITY_TERMS_VERSION", ""),
         )
         print("OK: paginas publicas HTTPS acessiveis, identificadas e com recurso de pedido.")
         print("NÃO comprova caixa de e-mail, exclusão real, revisão legal nem autoriza Play.")
         print("Host privacy:", result["privacyHost"])
         print("Host deletion:", result["deletionHost"])
+        print("Host terms:", result["termsHost"])
         return 0
     except PublicResourceError as exc:
         print("BLOQUEADO: verificação pública de privacidade/exclusão:", exc)

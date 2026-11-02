@@ -31,6 +31,9 @@ jobs:
       ATRIO_PLAY_APP_SIGNING_CERT_SHA256: ${{ vars.ATRIO_PLAY_APP_SIGNING_CERT_SHA256 || '' }}
       ATRIO_INSTALLED_APK_CERT_SHA256: ${{ vars.ATRIO_INSTALLED_APK_CERT_SHA256 || '' }}
       ATRIO_PRIVACY_POLICY_URL: ${{ vars.ATRIO_PLAY_PRIVACY_POLICY_URL || '' }}
+      # Approval only after public Terms, separately from Privacy and Deletion.
+      ATRIO_PLAY_COMMUNITY_TERMS_URL: ${{ vars.ATRIO_PLAY_COMMUNITY_TERMS_URL || '' }}
+      ATRIO_PLAY_COMMUNITY_TERMS_VERSION: ${{ vars.ATRIO_PLAY_COMMUNITY_TERMS_VERSION || '' }}
       ATRIO_DELETION_PORTAL_URL: ${{ vars.ATRIO_PLAY_DELETION_PORTAL_URL || '' }}
       # Opt-in only. Default keeps the Firebase deletion portal gate unchanged.
       ATRIO_PLAY_DELETION_MODE: ${{ vars.ATRIO_PLAY_DELETION_MODE || 'firebase' }}

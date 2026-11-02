@@ -6,7 +6,7 @@ import unittest
 from play_web_live_preflight import (
     PublicResourceError, public_url, verify_public_dns,
     fetch_public_html, inspect_live_resources,
-    inspect_firebase_runtime, preflight,
+    inspect_firebase_runtime, inspect_live_community_terms, preflight,
 )
 
 P = "https://app.atrio.org/politica"
@@ -137,6 +137,34 @@ class PublicWebSmokeTests(unittest.TestCase):
             with self.subTest(expected=expected):
                 with self.assertRaisesRegex(PublicResourceError, expected):
                     fetch_public_html(P, lambda url: resp, resolver)
+
+
+    def test_terms_public_url_version_and_privacy_link(self):
+        terms_url = "https://app.atrio.org/termos/community-v1"
+        html = ('<html><body><h1>Termos de Uso e Política da Comunidade — '
+                'Átrio Católico</h1><p><strong>Versão:</strong> community-v1</p>'
+                '<a href="' + P + '">Política de Privacidade</a></body></html>')
+        fetcher, calls = fetcher_for({
+            P: FakeResponse(POLICY), D: FakeResponse(DELETE),
+            terms_url: FakeResponse(html)
+        })
+        result = preflight(P, D, "manual-support", EMAIL, fetcher, resolver,
+                           terms_url=terms_url, terms_version="community-v1")
+        self.assertEqual(calls, [P, D, terms_url])
+        self.assertTrue(result["termsPageIdentified"])
+        self.assertFalse(result["signatureApproved"])
+        for broken in (html.replace("community-v1", "community-v2"),
+                       html.replace("Átrio Católico", "Outro app"),
+                       html.replace(P, "https://other.org/policy")):
+            with self.subTest(content=broken):
+                with self.assertRaises(PublicResourceError):
+                    inspect_live_community_terms(broken, "community-v1", P)
+        with self.assertRaisesRegex(PublicResourceError, "community_terms_version_invalid"):
+            preflight(P, D, "manual-support", EMAIL, fetcher, resolver,
+                      terms_url=terms_url, terms_version="ugc-v1")
+        with self.assertRaisesRegex(PublicResourceError, "public_https_url_required"):
+            preflight(P, D, "manual-support", EMAIL, fetcher, resolver,
+                      terms_url="", terms_version="community-v1")
 
     def test_unknown_mode_is_rejected_before_communication(self):
         fetcher, calls = fetcher_for({})
