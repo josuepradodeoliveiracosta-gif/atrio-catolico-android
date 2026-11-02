@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -20,12 +21,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Source
+
+internal const val ACCOUNT_DELETION_SUPPORT_EMAIL = "atriocatolico.privacidade@gmail.com"
 
 /**
  * Representa somente evidência do pedido, NÃO do processamento ou exclusão.
@@ -54,6 +58,8 @@ internal fun AccountDeletionRequestSection(db: FirebaseFirestore, uid: String) {
     var state by remember(db, uid) { mutableStateOf(DeletionRequestState.CHECKING) }
     var confirmation by remember(db, uid) { mutableStateOf(false) }
     var serial by remember(db, uid) { mutableIntStateOf(0) }
+    var mailAppUnavailable by remember(db, uid) { mutableStateOf(false) }
+    val uriHandler = LocalUriHandler.current
     val lifetime = remember(db, uid) { AccountRequestLifetime() }
     DisposableEffect(lifetime) { onDispose { lifetime.active = false } }
     val request = remember(db, uid) {
@@ -128,6 +134,38 @@ internal fun AccountDeletionRequestSection(db: FirebaseFirestore, uid: String) {
                     onClick = { confirmation = true },
                     modifier = Modifier.fillMaxWidth().testTag("atrio-deletion-request-open")
                 ) { Text("Solicitar exclusão de conta") }
+            }
+            Text(
+                "Para acompanhar seu pedido ou esclarecer dúvidas sobre privacidade, " +
+                    "contate o atendimento oficial. Não envie senhas, códigos ou " +
+                    "documentos de identidade por e-mail.",
+                style = MaterialTheme.typography.bodySmall
+            )
+            SelectionContainer {
+                Text(
+                    ACCOUNT_DELETION_SUPPORT_EMAIL,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.testTag("atrio-deletion-support-address")
+                )
+            }
+            OutlinedButton(
+                onClick = {
+                    mailAppUnavailable = false
+                    // Assunto fixo: nenhum UID, e-mail privado ou token no URI.
+                    val address = "mailto:" + ACCOUNT_DELETION_SUPPORT_EMAIL +
+                        "?subject=Atrio%20Catolico%20-%20Atendimento%20privacidade"
+                    runCatching { uriHandler.openUri(address) }
+                        .onFailure { mailAppUnavailable = true }
+                },
+                modifier = Modifier.fillMaxWidth().testTag("atrio-deletion-support-open")
+            ) { Text("Contatar atendimento por e-mail") }
+            if (mailAppUnavailable) {
+                Text(
+                    "Não foi possível abrir o aplicativo de e-mail. " +
+                        "Copie o endereço exibido acima e envie sua mensagem manualmente.",
+                    modifier = Modifier.testTag("atrio-deletion-support-fallback"),
+                    style = MaterialTheme.typography.bodySmall
+                )
             }
             if (state == DeletionRequestState.ERROR ||
                 state == DeletionRequestState.INDETERMINATE) {

@@ -373,6 +373,14 @@ class ThreeBotsAuthenticatedAndroidUiTest {
         // Nao aceitar a escrita local como prova: o status da interface
         // precisa do ACK e da leitura Source.SERVER depois da gravacao.
         waitFor("atrio-deletion-request-saved", 40_000)
+        // O contato oficial deve permanecer disponível para acompanhar
+        // o pedido, sem abrir aplicativo externo durante o teste isolado.
+        compose.onNodeWithTag("atrio-profile-list", useUnmergedTree = true)
+            .performScrollToNode(hasTestTag("atrio-deletion-support-open"))
+        compose.onNodeWithTag("atrio-deletion-support-open")
+            .assertIsDisplayed().assertIsEnabled()
+        compose.onNodeWithText(ACCOUNT_DELETION_SUPPORT_EMAIL, useUnmergedTree = true)
+            .assertExists()
         val recorded = Tasks.await(request.get(Source.SERVER), 10, TimeUnit.SECONDS)
         assertTrue("Pedido nao foi persistido no Firestore emulado", recorded.exists())
         assertEquals("requested", recorded.getString("status"))

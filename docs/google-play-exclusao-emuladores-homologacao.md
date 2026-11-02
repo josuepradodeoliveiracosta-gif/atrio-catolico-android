@@ -53,3 +53,12 @@ O teste **não apaga o usuário, mídias, conteúdo ou Firebase Auth** e não im
 que exista executor de produção. O teste não substitui a homologação em APK
 instalado pela Play Store ou o portal externo. Nenhuma evidência `verified`
 ou autorização de release deve ser marcada por esse ensaio.
+
+## Canal de atendimento no perfil (02/11/2026)
+
+O cenário instrumentado de exclusão da conta agora valida também que
+o e-mail `atriocatolico.privacidade@gmail.com` e a ação de contato
+continuam acessíveis depois de um pedido confirmado. O botão apenas
+abre o aplicativo de e-mail, sem transmitir dados privados em links
+ou substituir a gravação autenticada no Firestore. Não é acionado
+durante os testes automatizados para não deixar o emulador isolado.

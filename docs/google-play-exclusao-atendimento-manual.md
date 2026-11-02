@@ -22,13 +22,18 @@ de privacidade e solicitações de exclusão:
 **atriocatolico.privacidade@gmail.com**
 
 O endereço pode ser utilizado no projeto, sem armazenar senhas ou tokens.
-A declaração do titular comprova somente que ele concluiu o cadastro,
-**não** que o endereço foi testado recebendo mensagens, que haja
-monitoramento diário ou que o processamento real da exclusão esteja
-homologado. Manter `ATRIO_PLAY_SUPPORT_REVIEWED` e
-`ATRIO_PLAY_SUPPORT_MAILBOX_MONITORED` sem aprovação até teste de
-recebimento enviado de **outra conta**, resposta e procedimento de
-atendimento documentados.
+O responsável **confirmou neste atendimento, em 02/11/2026, que o
+Gmail foi criado e testado com sucesso**, após as orientações de
+enviar e responder uma mensagem por outra conta. Essa é uma
+**declaração de teste manual do titular**; não houve inspeção
+independente das mensagens, das datas, do atendimento contínuo
+nem de uma solicitação real de exclusão.
+
+**Ainda não estão homologados:** monitoramento rotineiro da caixa,
+processamento seguro de pedidos, revisão jurídica ou página HTTPS
+pública. Manter `ATRIO_PLAY_SUPPORT_REVIEWED` e
+`ATRIO_PLAY_SUPPORT_MAILBOX_MONITORED` sem aprovação até a
+validação operacional pertinente.
 
 O workflow manual usa esse endereço público como fallback de
 `ATRIO_PLAY_SUPPORT_EMAIL`. O modo de exclusão segue por padrão
@@ -58,3 +63,18 @@ O gate de pré-assinatura verifica a coerência estática desses itens e a prese
 Os manifestos de evidências permanecem com **0/9 de privacidade** e **0/6 de UGC** homologados, todos os campos relevantes ainda em falso. O fluxo administrativo no Firebase Emulator com contas fictícias permanece obrigatório. Não foi feita assinatura, upload no Play Console, implantação ou alteração da main/backups/produção. Uma página publicada isoladamente NÃO autoriza iniciar a faixa fechada.
 
 **Decisão de produto:** reduzir a complexidade do ponto de entrada Web, mas não reduzir as obrigações reais de eliminação dos dados, segurança e resposta ao usuário.
+
+## Integração de acompanhamento no aplicativo (02/11/2026)
+
+A seção Android **Perfil > Exclusão de conta e dados** agora exibe o
+e-mail público selecionável e o botão **Contatar atendimento por
+e-mail**, com assunto fixo e sem UID, senha, token ou outros dados
+privados na URL. Não envia mensagens automaticamente; abre o
+aplicativo de e-mail selecionado pelo usuário. Se não existir um
+cliente de e-mail, a UI orienta a copiar o endereço e enviar
+manualmente. O pedido autenticado no Firestore permanece idêntico.
+
+O teste Android instrumentado, somente com usuário fictício no
+Firebase Emulator, confirma que o botão de contato e o endereço
+continuam visíveis **após o registro de solicitação**. Isso
+não comprova entrega real de e-mail nem o processamento de exclusão.
