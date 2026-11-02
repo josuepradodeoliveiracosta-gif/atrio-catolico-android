@@ -17,22 +17,61 @@ jobs:
     steps:
       - name: Obter codigo
         uses: actions/checkout@v4
+        with:
+          # Somente para classificar de forma segura o histórico anterior da PR.
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Decidir se o APK precisa recompilar
+        id: scope
+        shell: bash
+        env:
+          PR_ACTION: ${{ github.event.action }}
+          BEFORE_SHA: ${{ github.event.before }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          # main e acionamento manual SEMPRE recompilam; diff incerto também.
+          if [[ "$GITHUB_EVENT_NAME" != "pull_request" || "$PR_ACTION" != "synchronize" ||
+                ! "$BEFORE_SHA" =~ ^[0-9a-f]{40}$ || ! "$PR_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo 'android=true' >> "$GITHUB_OUTPUT"
+          elif ! git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null ||
+               ! git cat-file -e "${PR_HEAD_SHA}^{commit}" 2>/dev/null ||
+               ! git merge-base --is-ancestor "$BEFORE_SHA" "$PR_HEAD_SHA"; then
+            echo 'android=true' >> "$GITHUB_OUTPUT"
+          else
+            git diff --name-only --diff-filter=ACDMRT -z "$BEFORE_SHA" "$PR_HEAD_SHA" > "$RUNNER_TEMP/apk-changed.bin"
+            python3 scripts/play_ci_android_scope.py --changed-file "$RUNNER_TEMP/apk-changed.bin" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Registrar escopo da compilacao
+        shell: bash
+        run: |
+          if [[ "${{ steps.scope.outputs.android }}" == "true" ]]; then
+            echo "APK: compilação completa necessária." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "APK: recompilação dispensada nesta sincronização (somente backend/docs/testes isolados); validações de segurança da PR seguem ativas." >> "$GITHUB_STEP_SUMMARY"
+          fi
       - name: Configurar Java 17
+        if: steps.scope.outputs.android == 'true'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
       - name: Preparar Android SDK
+        if: steps.scope.outputs.android == 'true'
         uses: android-actions/setup-android@v4
       - name: Configurar Gradle 8.13
+        if: steps.scope.outputs.android == 'true'
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
       - name: Instalar plataforma Android 36
+        if: steps.scope.outputs.android == 'true'
         run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
       - name: Validar configuracao Firebase
+        if: steps.scope.outputs.android == 'true'
         run: python3 scripts/validar_firebase.py
       - name: Compilar APK de testes
+        if: steps.scope.outputs.android == 'true'
         env:
           ATRIO_PUSH_WORKER_URL: ${{ vars.ATRIO_PUSH_WORKER_URL || 'https://atrio-push.atrio-catolico.workers.dev' }}
           ATRIO_AVATAR_WORKER_URL: ${{ vars.ATRIO_AVATAR_WORKER_URL || '' }}
@@ -94,6 +133,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
       - name: Disponibilizar APK
+        if: steps.scope.outputs.android == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: atrio-catolico-firebase-apk
