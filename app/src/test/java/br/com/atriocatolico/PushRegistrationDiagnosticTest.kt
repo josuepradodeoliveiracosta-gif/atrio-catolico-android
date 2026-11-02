@@ -6,6 +6,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PushRegistrationDiagnosticTest {
+    @Test fun logoutMustWaitForConfirmedRemovalOfSameAuthenticatedUser() {
+        assertTrue(mayCompletePushSafeLogout("alice", "alice", true))
+        assertFalse(mayCompletePushSafeLogout("alice", "alice", false))
+        assertFalse(mayCompletePushSafeLogout("alice", "bob", true))
+        assertFalse(mayCompletePushSafeLogout("alice", null, true))
+        assertFalse(mayCompletePushSafeLogout("", "", true))
+    }
+
     @Test fun playNeverAllowsDeviceTokenClipboardDiagnostic() {
         for (uid in listOf("alice", "bob")) {
             assertFalse(mayUseFcmTokenDiagnostics(true, uid, uid, true))
@@ -62,6 +70,6 @@ class PushRegistrationDiagnosticTest {
             assertFalse(message.contains("projects/"))
             assertFalse(message.contains("https://"))
         }
-        assertEquals(9, PushRegistrationProblem.entries.size)
+        assertEquals(10, PushRegistrationProblem.entries.size)
     }
 }

@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.messaging.FirebaseMessaging
 
 /**
@@ -33,6 +34,9 @@ import com.google.firebase.messaging.FirebaseMessaging
 internal fun PushSettings(uid: String, db: FirebaseFirestore) {
     val context = LocalContext.current
     var active by remember(uid) { mutableStateOf(PushRegistry.enabled(context, uid)) }
+    var removalPending by remember(uid) {
+        mutableStateOf(PushRegistry.pendingRemoteRemoval(context, uid))
+    }
     var busy by remember(uid) { mutableStateOf(false) }
     var feedback by remember(uid) { mutableStateOf("") }
     var backgroundEnabled by remember(uid) { mutableStateOf(BackgroundNoticeScheduler.enabled(context, uid)) }
@@ -41,6 +45,11 @@ internal fun PushSettings(uid: String, db: FirebaseFirestore) {
     var lastRelayStatus by remember(uid) { mutableStateOf(InstantPushRelay.lastStatus(context, uid)) }
 
     fun turnOn() {
+        removalPending = PushRegistry.pendingRemoteRemoval(context, uid)
+        if (removalPending) {
+            feedback = pushRegistrationMessage(PushRegistrationProblem.REVOCATION_PENDING)
+            return
+        }
         busy = true
         feedback = "Registrando este aparelho..."
         PushRegistry.enable(context, uid, db) { ok, issue ->
@@ -83,11 +92,35 @@ internal fun PushSettings(uid: String, db: FirebaseFirestore) {
                             requestPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
                         } else turnOn()
                     } else {
-                        PushRegistry.deactivate(context, uid, db)
                         active = false
-                        feedback = "Avisos desativados neste aparelho."
+                        removalPending = true
+                        feedback = "Avisos desativados localmente; exclusão remota não confirmada."
+                        PushRegistry.deactivate(context, uid, db) { confirmed ->
+                            if (FirebaseAuth.getInstance().currentUser?.uid != uid) return@deactivate
+                            removalPending = !confirmed
+                            feedback = if (confirmed)
+                                "Cadastro removido do Firestore. A revogação FCM pode demorar."
+                            else "A remoção remota não foi confirmada. Tente novamente."
+                        }
                     }
                 })
+            }
+            if (removalPending) {
+                Text("A exclusão do cadastro remoto ainda não foi confirmada.",
+                    color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                OutlinedButton(
+                    enabled = !busy && FirebaseAuth.getInstance().currentUser?.uid == uid,
+                    onClick = {
+                        feedback = "Tentando novamente a remoção remota..."
+                        PushRegistry.deactivate(context, uid, db) { confirmed ->
+                            if (FirebaseAuth.getInstance().currentUser?.uid != uid) return@deactivate
+                            removalPending = !confirmed
+                            feedback = if (confirmed)
+                                "Cadastro removido do Firestore."
+                            else "Remoção remota não confirmada. Tente novamente."
+                        }
+                    }
+                ) { Text("Repetir remoção do cadastro FCM") }
             }
             if (busy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             if (feedback.isNotBlank()) Text(feedback, color = Wine, fontSize = 14.sp,

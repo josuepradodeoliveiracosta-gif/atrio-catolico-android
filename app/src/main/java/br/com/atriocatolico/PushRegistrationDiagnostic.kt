@@ -17,8 +17,13 @@ internal fun mayUseFcmTokenDiagnostics(
 ): Boolean = !playStoreBuild && expectedUid.isNotBlank()
     && authenticatedUid == expectedUid && enabledOnDevice
 
+internal fun mayCompletePushSafeLogout(
+    expectedUid: String, authenticatedUid: String?, remoteRemoved: Boolean
+): Boolean = expectedUid.isNotBlank() && authenticatedUid == expectedUid && remoteRemoved
+
 internal enum class PushRegistrationProblem {
     SESSION_CHANGED,
+    REVOCATION_PENDING,
     TOKEN_UNAVAILABLE,
     PLAY_SERVICES_UNAVAILABLE,
     TOKEN_SERVICE_UNAVAILABLE,
@@ -32,6 +37,8 @@ internal enum class PushRegistrationProblem {
 internal fun pushRegistrationMessage(problem: PushRegistrationProblem?): String = when (problem) {
     PushRegistrationProblem.SESSION_CHANGED ->
         "Sua sessão mudou durante o cadastro. Entre na conta e tente novamente."
+    PushRegistrationProblem.REVOCATION_PENDING ->
+        "A remoção anterior ainda não foi confirmada pelo servidor. Tente remover o cadastro antigo antes de reativar os avisos."
     PushRegistrationProblem.TOKEN_UNAVAILABLE ->
         "Etapa 1/3 — Token FCM: não foi possível obter o token. Verifique a conexão e tente novamente."
     PushRegistrationProblem.PLAY_SERVICES_UNAVAILABLE ->

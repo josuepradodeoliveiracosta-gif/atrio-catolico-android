@@ -196,6 +196,33 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
     var profileRetryRevision by remember(uid) { mutableIntStateOf(0) }
     var error by remember(uid) { mutableStateOf("") }
     val context = LocalContext.current
+    var logoutPending by remember(uid) { mutableStateOf(false) }
+    var logoutUnconfirmed by remember(uid) { mutableStateOf(false) }
+    var logoutAttempt by remember(uid) { mutableIntStateOf(0) }
+
+    fun cancelLogout() {
+        // Invalidar callbacks atrasados após o usuário cancelar a saída.
+        logoutAttempt++
+        logoutPending = false
+        logoutUnconfirmed = false
+    }
+
+    fun beginLogout() {
+        if (logoutPending || auth.currentUser?.uid != uid) return
+        logoutAttempt++
+        val attempt = logoutAttempt
+        logoutPending = true
+        logoutUnconfirmed = false
+        BackgroundNoticeScheduler.disable(context, uid)
+        PushRegistry.deactivate(context, uid, db) { removed ->
+            if (logoutAttempt != attempt || auth.currentUser?.uid != uid)
+                return@deactivate
+            logoutPending = false
+            if (mayCompletePushSafeLogout(uid, auth.currentUser?.uid, removed)) {
+                auth.signOut()
+            } else logoutUnconfirmed = true
+        }
+    }
     var photoRevision by remember(uid) { mutableIntStateOf(0) }
     val localPhoto = remember(uid, photoRevision) {
         ProfilePhotoStore.load(context, uid)?.asImageBitmap()
@@ -292,11 +319,7 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
             }, modifier = Modifier.fillMaxWidth().testTag("atrio-profile-retry")) {
                 Text("Tentar novamente")
             }
-            TextButton(onClick = {
-                BackgroundNoticeScheduler.disable(context, uid)
-                PushRegistry.deactivate(context, uid, db)
-                auth.signOut()
-            }) { Text("Sair desta conta") }
+            TextButton(onClick = { beginLogout() }) { Text("Sair desta conta") }
         }
     } else if (name.isNullOrBlank()) {
         var newName by remember(uid) { mutableStateOf(user.displayName.orEmpty()) }
@@ -325,7 +348,7 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
             }, modifier = Modifier.fillMaxWidth().testTag("atrio-profile-finish")) {
                 Text(if (saving) "Confirmando..." else "Começar")
             }
-            TextButton(onClick = { BackgroundNoticeScheduler.disable(context, uid); PushRegistry.deactivate(context, uid, db); auth.signOut() }) { Text("Sair desta conta") }
+            TextButton(onClick = { beginLogout() }) { Text("Sair desta conta") }
         }
     } else {
         CompositionLocalProvider(
@@ -338,7 +361,7 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
             visible = !(isAdmin && (moderationOpen || clergyReviewOpen)),
             onModeration = if (isAdmin) ({ moderationOpen = true }) else null,
             onClergyReview = if (isAdmin) ({ clergyReviewOpen = true }) else null,
-            onSignOut = { BackgroundNoticeScheduler.disable(context, uid); PushRegistry.deactivate(context, uid, db); auth.signOut() })
+            onSignOut = { beginLogout() })
         if (moderationOpen && isAdmin) ModerationScreen(db, uid, onBack = { moderationOpen = false })
         else if (clergyReviewOpen && isAdmin) ClergyBadgeReviewScreen(db, uid, onBack = { clergyReviewOpen = false })
         if (error.isNotBlank()) {
@@ -347,6 +370,40 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
         }
         }
     }
+    // A operação Firestore pode permanecer pendente quando não há internet;
+    // sair continua possível, mas não se apresenta remoção como confirmada.
+    if (logoutPending || logoutUnconfirmed) AlertDialog(
+        onDismissRequest = { cancelLogout() },
+        title = { Text("Sair e desativar notificações") },
+        text = { Text(if (logoutPending)
+            "As notificações foram desativadas localmente. A remoção do cadastro " +
+                "deste aparelho ainda aguarda confirmação do servidor. " +
+                "Você pode permanecer conectado ou sair sem essa confirmação."
+            else
+            "O servidor não confirmou a remoção do cadastro FCM. " +
+                "Você pode tentar novamente ou sair sem confirmação. " +
+                "Sair não garante que o registro remoto foi removido.") },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    if (auth.currentUser?.uid == uid) {
+                        cancelLogout()
+                        auth.signOut()
+                    }
+                },
+                modifier = Modifier.testTag("atrio-logout-unconfirmed")
+            ) { Text("Sair sem confirmação") }
+        },
+        dismissButton = {
+            Row {
+                TextButton(onClick = { cancelLogout() }) { Text("Permanecer conectado") }
+                if (logoutUnconfirmed) TextButton(
+                    onClick = { logoutUnconfirmed = false; beginLogout() },
+                    modifier = Modifier.testTag("atrio-logout-retry")
+                ) { Text("Tentar novamente") }
+            }
+        }
+    )
 }
 
 @Composable

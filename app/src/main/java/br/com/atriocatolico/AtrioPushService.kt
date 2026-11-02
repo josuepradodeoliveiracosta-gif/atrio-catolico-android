@@ -51,6 +51,11 @@ internal object PushRegistry {
     }
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     private fun enabledKey(uid: String) = "enabled_$uid"
+    private fun pendingRemovalKey(uid: String) = "removal_pending_$uid"
+
+    /** Pendência local não é prova de exclusão confirmada no Firestore. */
+    fun pendingRemoteRemoval(context: Context, uid: String): Boolean =
+        uid.isNotBlank() && prefs(context).getBoolean(pendingRemovalKey(uid), false)
 
     fun enabled(context: Context, uid: String): Boolean =
         uid.isNotBlank() && prefs(context).getBoolean(enabledKey(uid), false)
@@ -159,6 +164,12 @@ internal object PushRegistry {
             done(false, PushRegistrationProblem.SESSION_CHANGED)
             return
         }
+        if (pendingRemoteRemoval(context, uid)) {
+            // Não registrar outro token enquanto a remoção antiga ainda
+            // pode chegar ao servidor depois do novo cadastro.
+            done(false, PushRegistrationProblem.REVOCATION_PENDING)
+            return
+        }
         prefs(context).edit().putBoolean(enabledKey(uid), true).apply()
         register(context, uid, db) { ok, issue ->
             if (!ok && FirebaseAuth.getInstance().currentUser?.uid == uid) {
@@ -170,19 +181,39 @@ internal object PushRegistry {
     }
 
     fun refreshIfEnabled(context: Context, uid: String, db: FirebaseFirestore) {
-        if (enabled(context, uid)) register(context, uid, db)
+        if (FirebaseAuth.getInstance().currentUser?.uid != uid) return
+        if (pendingRemoteRemoval(context, uid)) {
+            // Reconciliar a pendência apenas sob a mesma identidade.
+            deactivate(context, uid, db)
+        } else if (enabled(context, uid)) register(context, uid, db)
     }
 
-    fun deactivate(context: Context, uid: String, db: FirebaseFirestore) {
-        if (uid.isBlank()) return
-        prefs(context).edit().putBoolean(enabledKey(uid), false).apply()
+    /**
+     * Retorna sucesso somente quando o servidor Firestore confirmou delete
+     * ainda sob a mesma sessão. Não comprova revogação de todo token FCM.
+     * Em offline, a pendência local sobrevive até nova autenticação do titular.
+     */
+    fun deactivate(
+        context: Context, uid: String, db: FirebaseFirestore,
+        done: (Boolean) -> Unit = {}
+    ) {
+        if (uid.isBlank() || FirebaseAuth.getInstance().currentUser?.uid != uid) {
+            done(false)
+            return
+        }
+        prefs(context).edit()
+            .putBoolean(enabledKey(uid), false)
+            .putBoolean(pendingRemovalKey(uid), true).apply()
         FirebaseMessaging.getInstance().isAutoInitEnabled = false
         FirebaseMessaging.getInstance().unsubscribeFromTopic(COMMUNICATION_TOPIC)
         ThreadPushSubscriptions.unsubscribeAll(context, uid)
-        // A exclusao remota e a rotacao do token sao tentativas assincronas.
-        // Nao mostramos informacoes pessoais no corpo de avisos enviados.
-        document(db, uid, context).delete()
         FirebaseMessaging.getInstance().deleteToken()
+        document(db, uid, context).delete().addOnCompleteListener { task ->
+            val sameSession = FirebaseAuth.getInstance().currentUser?.uid == uid
+            if (sameSession && task.isSuccessful)
+                prefs(context).edit().putBoolean(pendingRemovalKey(uid), false).apply()
+            done(sameSession && task.isSuccessful)
+        }
     }
 
     fun createChannel(context: Context) {

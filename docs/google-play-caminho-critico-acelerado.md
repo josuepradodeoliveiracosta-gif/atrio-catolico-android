@@ -134,3 +134,31 @@ a exclusão do registro remoto de `pushDevices` quando o usuário
 encerra a sessão sem conexão. O recebimento de mensagens `notification`
 por fora do receptor e o cancelamento remoto de inscrições antigas
 continuam sujeitos à homologação real antes da Play.
+
+
+## Logout FCM confirmado no servidor — 02/11/2026
+
+O logout anterior apagava o registro `pushDevices/{deviceId}` de forma
+assíncrona e chamava `auth.signOut()` imediatamente. Agora o aplicativo
+desliga os avisos localmente, registra uma pendência persistida por UID,
+solicita a remoção e só encerra a sessão automaticamente após
+**confirmação do Firestore sob a mesma conta autenticada**.
+O diálogo permite **Sair sem confirmação** caso a remoção permaneça
+pendente ou falhe; também oferece permanecer no app ou tentar de novo
+após erro. Cancelar invalida os callbacks de saída tardios.
+
+Enquanto o servidor não confirma a exclusão remota, novas ativações
+FCM nessa conta/dispositivo são bloqueadas. A tela de Push mostra
+explicitamente a pendência e oferece repetição da remoção. Quando o
+titular entra novamente na mesma conta, tenta-se reconciliar a
+pendência antes de reativar o cadastro. Não se apagam registros de
+outra conta com sessão incorreta. Um teste JUnit acrescentado à suíte
+existente verifica a condição pura da conclusão automática.
+
+**Limites:** offline pode impedir confirmação indefinidamente; logout
+explícito sem confirmação pode deixar o documento remoto até o titular
+autenticar-se outra vez ou até limpeza administrativa autorizada.
+A confirmação do Firestore não comprova revogação completa do token
+FCM, cancelamento de todo tópico legado ou exclusão de conta. Ainda
+são obrigatórios QA de rede, duas contas e tokens em aparelhos reais.
+Nenhum deploy ou mudança de produção foi realizado.
