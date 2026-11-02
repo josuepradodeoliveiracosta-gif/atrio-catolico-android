@@ -75,3 +75,39 @@ serviço, não faz deploy e não altera backups, Firestore, Auth ou D1.
 **Próximo critério real:** aprovar os prazos e bases legais de cada
 fonte e homologar o processamento efetivo das solicitações de exclusão.
 Os manifestos de evidências da Play permanecem sem aprovação.
+
+## Ficha local de revisão para Termux (02/11/2026)
+
+O novo script cloudflare/account-deletion-audit/src/qa-retention-worksheet.js
+gera uma ficha JSON com 43 fontes e perguntas inicialmente vazias,
+sem dados de usuários ou aprovações fictícias. Na branch da PR #71:
+
+    pkg install nodejs-lts
+    node cloudflare/account-deletion-audit/src/qa-retention-worksheet.js --template > "$HOME/atrio-retencao-revisao-privada.json"
+
+O arquivo permanece fora do repositório, no diretório privado do Termux.
+Não adicionar o documento a um commit, issue, chat público ou Play Console.
+
+Cada fonte exige indicação de finalidade, base legal, avaliação de dados
+sensíveis, gatilho e período de retenção, descarte ou anonimização,
+impacto sobre terceiros, backups, evidências técnicas e jurídicas,
+identificação de revisores distintos e data. O status aceita somente
+'pending' e 'in_review'; não existe estado que libere exclusão.
+
+Depois de uma revisão real e independente, conferir as informações
+preenchidas localmente, sem enviar conteúdo do documento ao GitHub:
+
+    node cloudflare/account-deletion-audit/src/qa-retention-worksheet.js --audit "$HOME/atrio-retencao-revisao-privada.json"
+
+A inspeção retorna apenas contagens. Bloqueia inventário ausente ou
+duplicado, alterações de escopo, URLs fora do padrão HTTPS sem parâmetros,
+campos provisórios e revisão com data futura. Não contata as URLs nem
+comprova que revisores são verdadeiros ou que a decisão jurídica procede.
+
+Mesmo quando 43/43 linhas estiverem estruturalmente completas:
+independentEvidenceVerified=false, legalRetentionApproved=false,
+productionDeletionExecutorVerified=false e googlePlayReleaseAuthorized=false.
+Preenchimento nunca autoriza assinar AAB, implantar executor ou apagar dados.
+
+A suíte Node existente executa os testes de regressão da ficha;
+não cria novo workflow nem recompila desnecessariamente o Android.
