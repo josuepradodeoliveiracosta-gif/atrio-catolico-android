@@ -26,12 +26,36 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.MetadataChanges
 
+/**
+ * Somente endereços HTTPS públicos e sem parâmetros para a política UGC.
+ * Um link com login, token, redirecionamento por URL ou domínio de QA não
+ * pode ser apresentado como Termos oficiais, mesmo se o Admin errar a config.
+ * Não realiza nenhuma requisição de rede.
+ */
+internal fun validCommunityTermsUrl(value: String): Boolean {
+    if (value.length !in 12..2048 ||
+        value.any { it.code <= 31 || it == '\\' || it == '"' || it == '\'' }) return false
+    val uri = runCatching { java.net.URI(value) }.getOrNull() ?: return false
+    if (uri.scheme != "https" || uri.rawUserInfo != null ||
+        uri.rawQuery != null || uri.rawFragment != null ||
+        (uri.port != -1 && uri.port != 443)) return false
+    val host = uri.host?.lowercase(java.util.Locale.ROOT) ?: return false
+    if (!Regex("^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,24}$")
+        .matches(host)) return false
+    if (host in setOf("example.com", "example.org", "example.net",
+            "atrio-catolico-privacidade-qa.pages.dev") ||
+        listOf(".localhost", ".local", ".invalid", ".test", ".example",
+            ".example.com", ".example.org", ".example.net").any { host.endsWith(it) })
+        return false
+    return true
+}
+
 internal data class CommunityTermsPolicy(
     val version: String, val url: String, val required: Boolean, val published: Boolean
 ) {
     val available get() = required && published
-        && version.matches(Regex("community-v[0-9]{1,4}"))
-        && url.startsWith("https://") && android.net.Uri.parse(url).host != null
+        && version.matches(Regex("community-v[1-9][0-9]{0,3}"))
+        && validCommunityTermsUrl(url)
 }
 
 internal data class CommunityTermsStatus(
@@ -123,7 +147,7 @@ internal fun CommunityTermsConsent(
 ) {
     val policy = status.policy
     val uriHandler = LocalUriHandler.current
-    var confirmed by remember(uid, policy?.version) { mutableStateOf(false) }
+    var confirmed by remember(uid, policy?.version, policy?.url) { mutableStateOf(false) }
     var busy by remember(uid, policy?.version) { mutableStateOf(false) }
     var info by remember(uid, policy?.version) { mutableStateOf("") }
     Card(Modifier.fillMaxWidth().testTag("atrio-community-terms")) {

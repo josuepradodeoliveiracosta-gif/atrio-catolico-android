@@ -112,3 +112,20 @@ moderação e o responsável devem comprovar a recusa de publicação sem aceite
 
 Apenas configurar variáveis ou passar no teste de HTML não libera
 `releaseAuthorized`, AAB assinado ou distribuição pela Play.
+
+
+## Validação preventiva de URLs no aplicativo (02/11/2026)
+
+O Android agora só apresenta os Termos se `app_config/community_terms`
+contiver `enforce=true`, `published=true`, uma versão
+`community-v[1-9][0-9]{0,3}` e URL HTTPS pública sem credenciais,
+query string, fragmento, porta não permitida ou host reservado para QA.
+A mudança protege contra configuração administrativa acidental e não
+autentica a página remota. A seleção da caixa de aceite reinicia se o
+endereço dos Termos mudar, mas a alteração do texto de uma política já
+aceita **sempre** deve publicar nova versão, pois os registros Firestore
+são vinculados à versão, não ao texto.
+
+A CI da candidata Play executa somente `CommunityTermsPolicyTest` via
+JUnit local, na mesma invocação Gradle da compilação do AAB quando
+há mudança de Android. Não requer emulador ou novo workflow.

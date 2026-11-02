@@ -176,9 +176,9 @@ jobs:
         run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
       - name: Verificar configuração Firebase antes de compilar
         run: python3 scripts/validar_firebase.py
-      - name: Compilar somente AAB Play sem chaves ou segredos
+      - name: Compilar AAB e testar somente a validacao local dos Termos
         if: steps.android_scope.outputs.android == 'true'
-        run: gradle :app:bundlePlayRelease --no-daemon --stacktrace
+        run: gradle :app:bundlePlayRelease :app:testPlayReleaseUnitTest --tests br.com.atriocatolico.CommunityTermsPolicyTest --no-daemon --stacktrace
       - name: Examinar AAB e manifesto mesclado
         if: steps.android_scope.outputs.android == 'true'
         run: python3 scripts/play_store_bundle_check.py
