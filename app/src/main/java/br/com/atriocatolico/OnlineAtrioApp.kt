@@ -247,12 +247,27 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
     }
     DisposableEffect(db, uid) {
         var active = true
-        val registration = db.collection("admins").document(uid).addSnapshotListener { snapshot, failure ->
-            if (active) {
-                isAdmin = failure == null && snapshot?.getBoolean("enabled") == true
-                if (!isAdmin) { moderationOpen = false; clergyReviewOpen = false }
+        // Uma permissão em cache pode estar revogada no servidor.
+        // Mudanças de metadata fazem o app retirar o privilégio quando
+        // perde conectividade/autoridade e revalidá-lo na reconexão.
+        val registration = db.collection("admins").document(uid)
+            .addSnapshotListener(com.google.firebase.firestore.MetadataChanges.INCLUDE) { snapshot, failure ->
+                if (active) {
+                    isAdmin = verifiedAdminRoleSnapshot(
+                        expectedUid = uid,
+                        authenticatedUid = auth.currentUser?.uid,
+                        hasError = failure != null,
+                        hasData = snapshot != null && snapshot.exists(),
+                        fromCache = snapshot?.metadata?.isFromCache ?: true,
+                        pendingWrites = snapshot?.metadata?.hasPendingWrites() ?: true,
+                        roleEnabled = snapshot?.getBoolean("enabled") == true
+                    )
+                    if (!isAdmin) {
+                        moderationOpen = false
+                        clergyReviewOpen = false
+                    }
+                }
             }
-        }
         onDispose { active = false; registration.remove() }
     }
 

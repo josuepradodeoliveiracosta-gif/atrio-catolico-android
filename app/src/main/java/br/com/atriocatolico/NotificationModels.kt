@@ -13,6 +13,22 @@ internal fun verifiedAdminNoticeSnapshot(
 ): Boolean = expectedUid.isNotBlank() && authenticatedUid == expectedUid
     && !hasError && hasData && !fromCache && !pendingWrites
 
+/**
+ * O cache local ou um callback de outra sessão jamais concede privilégios.
+ * Apenas um documento de administrador ativo e confirmado no servidor vale.
+ */
+internal fun verifiedAdminRoleSnapshot(
+    expectedUid: String,
+    authenticatedUid: String?,
+    hasError: Boolean,
+    hasData: Boolean,
+    fromCache: Boolean,
+    pendingWrites: Boolean,
+    roleEnabled: Boolean
+): Boolean = roleEnabled && verifiedAdminNoticeSnapshot(
+    expectedUid, authenticatedUid, hasError, hasData, fromCache, pendingWrites
+)
+
 internal enum class NoticeKind { REPLY, REVIEW, REPORTS, REQUESTS }
 internal data class NoticeEvent(
     val id: String, val kind: NoticeKind, val target: String = "",

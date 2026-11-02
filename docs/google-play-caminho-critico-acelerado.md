@@ -225,3 +225,24 @@ JUnit existente de notificações, sem novo workflow. O filtro é defesa
 em profundidade e não substitui revogação imediata no Firestore
 Security Rules nem evidência operacional de moderação. Nenhum dado
 real foi acessado e nenhuma alteração foi implantada.
+
+
+## Revogação do papel administrativo na interface — 02/11/2026
+
+O painel da comunidade antes ativava `isAdmin` a partir de qualquer
+snapshot de `admins/{uid}`, inclusive um documento em cache sem
+confirmação atual do servidor. Agora `OnlineAtrioApp` exige um
+documento **existente, com `enabled=true`, recebido do servidor,
+sem gravações pendentes e sob o mesmo UID autenticado**. O listener
+inclui `MetadataChanges.INCLUDE` para que alterações de origem
+cache/servidor também reavaliem a permissão. Falha, ausência de
+documento, troca de usuário ou perda de confirmação esconde a
+moderação e a revisão clerical.
+
+A regra pura `verifiedAdminRoleSnapshot` é exercitada na suíte JUnit
+já existente, ao lado da proteção das três filas administrativas
+implantada anteriormente. Essa proteção evita que a interface trate
+cache como autorização; a decisão final de acesso permanece nas
+Security Rules do Firestore. Exige validação de revogação em
+dispositivo de QA antes de considerar o controle UGC homologado.
+Não houve mudança de regras publicadas, backend ou dados reais.

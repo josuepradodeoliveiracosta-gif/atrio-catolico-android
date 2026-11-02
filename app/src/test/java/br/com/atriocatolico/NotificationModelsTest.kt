@@ -4,6 +4,27 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class NotificationModelsTest {
+    @Test fun moderatorRoleRequiresLiveServerConfirmationAndUnchangedSession() {
+        fun allowed(
+            uid: String? = "admin-qa",
+            error: Boolean = false,
+            present: Boolean = true,
+            cache: Boolean = false,
+            pending: Boolean = false,
+            enabled: Boolean = true
+        ) = verifiedAdminRoleSnapshot("admin-qa", uid, error, present, cache, pending, enabled)
+        assertTrue(allowed())
+        assertFalse(allowed(uid = "different-user"))
+        assertFalse(allowed(uid = null))
+        assertFalse(allowed(error = true))
+        assertFalse(allowed(present = false))
+        assertFalse(allowed(cache = true))
+        assertFalse(allowed(pending = true))
+        assertFalse(allowed(enabled = false))
+        // Documento persistido em cache nunca reativa a moderação sozinho.
+        assertFalse(allowed(cache = true, enabled = true))
+    }
+
     @Test fun adminAlertsRequireCurrentUserAndServerConfirmedSnapshot() {
         val expected = "admin-qa"
         assertTrue(verifiedAdminNoticeSnapshot(expected, expected,
