@@ -1,7 +1,7 @@
 # Átrio Católico — Termos de Uso e Política da Comunidade
 
 **MINUTA INTERNA PARA REVISÃO — NÃO PUBLICAR, NÃO EXIBIR COMO POLÍTICA VIGENTE.**
-Versão técnica proposta: `ugc-v1`.
+Versão técnica proposta: `community-v1` (compatível com o validador de aceite do Android e com `acceptedTerms/{version}` no Firestore).
 Data de vigência: [A definir após aprovação].
 Operador/responsável e canal público de contato: [A confirmar].
 Endereço da política de privacidade: [A confirmar].
@@ -60,3 +60,33 @@ O participante deve respeitar a lei e as regras aplicáveis. As políticas poder
 - [ ] Registrar evidências reais na matriz UGC da PR #71, mantendo `verified:false` até a homologação.
 
 Política de referência: https://support.google.com/googleplay/android-developer/answer/9876937
+
+
+## Preparação técnica da página estática (sem publicação)
+
+A geração da página final, depois da revisão real do responsável e da análise jurídica, usa
+`cloudflare/account-deletion-support/community-terms.mjs`. A minuta acima **não é** conteúdo
+aprovado e não é automaticamente incorporada. É obrigatório fornecer, em um arquivo JSON
+privado, `appName`, `controller`, `supportEmail`, `version`, `effectiveDate`, `privacyUrl`,
+`sections` (`about`, `userContent`, `prohibited`, `reporting`, `moderation`,
+`privacy`, `minors`, `updates`) e metadados reais `approvedBy`, `reviewedAt`,
+`approval: community-terms-owner-and-legal-reviewed`.
+
+No Termux, na branch de desenvolvimento, somente **depois** de aprovada a redação:
+
+```bash
+ATRIO_COMMUNITY_TERMS_INPUT="$HOME/atrio-termos-revisados.json" \
+  node cloudflare/account-deletion-support/community-terms.mjs
+```
+
+A saída local será `cloudflare/account-deletion-support/terms-dist/termos/community-v1/index.html`.
+Não enviar arquivo privado ao GitHub. A confirmação de revisão do JSON é apenas um
+controle de entrada, **não** prova verificação jurídica independente. O gerador não
+faz deploy. Publicar o HTML aprovado sob HTTPS e conferir em navegador anônimo;
+configurar `app_config/community_terms` com `enforce=true`, `published=true`,
+`version=community-v1`, `url` HTTPS validada **somente após** homologação e controle
+de alterações. Nunca ativar os termos em produção usando um rascunho.
+
+A política Google Play exige aceite antes de conteúdo criado por usuários,
+denúncia, bloqueio e moderação contínua. Publicar a página não habilita,
+por si só, lançamento, exclusão de conta, assinaturas ou evidências UGC.
