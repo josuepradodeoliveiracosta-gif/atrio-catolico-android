@@ -19,6 +19,7 @@ import ssl
 
 MAX_BYTES = 256_000
 USER_AGENT = "Atrio-Play-Public-Resource-Preflight/1.0"
+QA_DELETION_WEB_HOST = "atrio-catolico-privacidade-qa.pages.dev"
 
 
 class PublicResourceError(RuntimeError):
@@ -46,7 +47,8 @@ def public_url(value: str) -> tuple[str, str]:
             host
         ) or host.endswith((".example.com", ".example.net", ".example.org",
                            ".test", ".invalid", ".local", ".localhost")) or
-        host in ("example.com", "example.net", "example.org")):
+        host in ("example.com", "example.net", "example.org",
+                 QA_DELETION_WEB_HOST)):
         raise PublicResourceError("invalid_public_https_url")
     return value, host
 

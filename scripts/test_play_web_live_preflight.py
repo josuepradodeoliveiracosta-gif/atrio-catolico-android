@@ -103,6 +103,7 @@ class PublicWebSmokeTests(unittest.TestCase):
             "", "http://app.atrio.org/politica", "https://localhost/x",
             "https://127.0.0.1/x", "https://app.atrio.test/x",
             "https://example.com/x", "https://private.invalid/x",
+            "https://atrio-catolico-privacidade-qa.pages.dev/excluir-conta",
             "https://foo:pass@app.atrio.org/x", "https://app.atrio.org/x?a=secret",
             "https://app.atrio.org/x#part", "https://app.atrio.org:444/x",
         ):

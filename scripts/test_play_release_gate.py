@@ -495,6 +495,15 @@ class ManualSupportDeletionGateTests(unittest.TestCase):
                       self.check(self.root, "https://atrio-catolico.org/excluir-conta"))
 
 
+class CloudflareQaUrlMustNotBecomePlayUrlTests(unittest.TestCase):
+    def test_reserved_qa_project_cannot_be_considered_public_release_evidence(self):
+        self.assertFalse(real_https_url(
+            "https://atrio-catolico-privacidade-qa.pages.dev/"))
+        self.assertFalse(real_https_url(
+            "https://atrio-catolico-privacidade-qa.pages.dev/excluir-conta"))
+        self.assertTrue(real_https_url("https://sites.atrio.org/privacidade"))
+
+
 class InAppExternalDeletionLinkTests(unittest.TestCase):
     """Only source inspection, no user devices or external sites touched."""
 

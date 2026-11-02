@@ -103,9 +103,12 @@ comprovação da URL. O gate ao vivo lê o site HTTPS publicado. Nenhum
 destes testes substitui comprovar recebimento, processamento ou
 remoção de dados reais.
 
-**Hospedagem**: a consulta somente-leitura à conta Cloudflare
-conectada em 02/11/2026 encontrou **0 projetos Pages e 0 zonas DNS**
-nessa conta. Não se deve declarar qualquer URL Cloudflare Pages ou
-domínio próprio como implantado. Um serviço de hospedagem estática
-precisa ser configurado após a revisão dos textos jurídicos e da
-operação real do atendimento.
+**Hospedagem — atualização de 02/11/2026**: foi criado
+na conta Cloudflare conectada o projeto de homologação
+`atrio-catolico-privacidade-qa`, separado dos serviços existentes.
+API confirmou `latest_deployment: null`, sem integração Git ou
+implantação de site. O endereço `atrio-catolico-privacidade-qa.pages.dev`
+está reservado para **QA e é recusado pelos gates da Play como URL
+de produção**. Permanecem pendentes a revisão da política,
+publicação efetiva de páginas HTTPS e o procedimento real de exclusão.
+Ver `docs/google-play-hospedagem-pages-qa.md`.

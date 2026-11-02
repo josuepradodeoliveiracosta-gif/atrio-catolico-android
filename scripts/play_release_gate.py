@@ -18,6 +18,9 @@ from urllib.parse import urlsplit
 EXPECTED_PACKAGE = "br.com.atriocatolico"
 EXPECTED_FIREBASE_PROJECT = "atrio-catolico"
 EXPECTED_TRACK = "Google Play — testes fechados"
+# Reserved Cloudflare Pages QA project is deliberately NOT the Play listing URL.
+# Project creation without an actual deployment does not satisfy Google Play.
+QA_DELETION_WEB_HOST = "atrio-catolico-privacidade-qa.pages.dev"
 OTA_VERSION_FLOOR = 36  # Candidato OTA 0.20.1 da PR #70; rever com o proximo OTA.
 MAX_PLAY_VERSION = 2_100_000_000
 UGC_REQUIREMENTS = frozenset({
@@ -42,7 +45,8 @@ def real_https_url(value):
         host = (url.hostname or "").lower().rstrip(".")
         if url.scheme != "https" or not host or url.username or url.password:
             return False
-        if host in {"localhost", "example.com", "example.org", "example.net"}:
+        if host in {"localhost", "example.com", "example.org", "example.net",
+                    QA_DELETION_WEB_HOST}:
             return False
         if host.endswith((".localhost", ".local", ".invalid", ".test",
                           ".example", ".example.com", ".example.org",
