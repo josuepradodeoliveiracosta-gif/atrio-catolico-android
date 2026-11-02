@@ -226,6 +226,89 @@ try {
     assert.equal(input.auth.has(B),true);
   });
 
+
+  await test('QA approval revoked during asynchronous reconciliation blocks fake Auth',async()=>{
+    const entered=deferred(),resume=deferred();
+    let approved=true,approvalCalls=0;
+    const input=fixture({
+      assertAuthorization:async uid=>{
+        assert.equal(uid,A);
+        approvalCalls++;
+        return approved;
+      },
+      reconcile:async()=>{entered.signal();await resume.promise;return REPORT;}
+    });
+    const running=removeQaAuthAfterReconciliation(input);
+    await entered.promise;
+    approved=false; // administrative case revoked while the read was pending
+    resume.signal();
+    await assert.rejects(running,/qa_auth_case_authorization_lost/);
+    assert.ok(approvalCalls>=2);
+    assert.equal(input.auth.has(A),true);
+    assert.equal(input.auth.has(B),true);
+  });
+
+  await test('revoked approval while remote preflight awaits blocks Auth Emulator',async()=>{
+    const entered=deferred(),resume=deferred();
+    let approved=true,remoteCalls=0;
+    const input=fixture({
+      assertAuthorization:async()=>approved,
+      preRemoteCheck:async()=>{
+        entered.signal();await resume.promise;
+        return true;
+      },
+      removeRemote:async()=>{remoteCalls++;}
+    });
+    const running=removeQaAuthAfterReconciliation(input);
+    await entered.promise;
+    approved=false;
+    resume.signal();
+    await assert.rejects(running,/qa_auth_case_authorization_lost/);
+    assert.equal(remoteCalls,0);
+    assert.equal(input.auth.has(A),true);
+    assert.equal(input.auth.has(B),true);
+  });
+
+  await test('ambiguous, missing or invalid approval never authorizes identity removal',async()=>{
+    for(const value of [false,null,undefined,0]){
+      let remoteCalls=0,reads=0;
+      const input=fixture({
+        assertAuthorization:async()=>value,
+        reconcile:async()=>{reads++;return REPORT;},
+        preRemoteCheck:async()=>true,
+        removeRemote:async()=>{remoteCalls++;}
+      });
+      await assert.rejects(removeQaAuthAfterReconciliation(input),
+        /qa_auth_case_authorization_lost/);
+      assert.equal(reads,0);
+      assert.equal(remoteCalls,0);
+      assert.equal(input.auth.has(A),true);
+      assert.equal(input.auth.has(B),true);
+    }
+    const bad=fixture({assertAuthorization:true});
+    await assert.rejects(removeQaAuthAfterReconciliation(bad),
+      /qa_auth_invalid_fixture_context/);
+    assert.equal(bad.auth.has(A),true);
+  });
+
+  await test('authorization rechecked when remote removal awaited; never claim success',async()=>{
+    const entered=deferred(),resume=deferred();
+    let approved=true;
+    const input=fixture({
+      assertAuthorization:async()=>approved,
+      preRemoteCheck:async()=>true,
+      removeRemote:async()=>{entered.signal();await resume.promise;}
+    });
+    const running=removeQaAuthAfterReconciliation(input);
+    await entered.promise;
+    approved=false;
+    resume.signal();
+    await assert.rejects(running,/qa_auth_case_authorization_lost/);
+    assert.equal(input.auth.has(A),true);
+    assert.equal(input.auth.has(B),true);
+    // This does not prove the remote side effect was reversible.
+  });
+
   await test('other user, missing freeze or real credentials are rejected',
     async()=>{
       for(const patch of [{uid:B},{context:{writesFrozen:false}},

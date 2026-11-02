@@ -109,7 +109,7 @@ function stages(self){
     remove_auth_stub_last:{
       // Idempotent if interrupted after the mock Auth removal but before
       // the journal checkpoint. Previous data-verification phase is required.
-      apply:async assertLease=>{
+      apply:async (assertLease,assertCase)=>{
         assertLease();
         if(external?.workers && external.workers.verify(UID)!==true)
           fail('worker_effects_not_drained_pre_auth');
@@ -129,6 +129,7 @@ function stages(self){
         assertLease();
         return removeQaAuthAfterReconciliation({
           uid:UID,db,media,auth,context,assertLease,
+          assertAuthorization:assertCase,
           ...(external?{
             removeRemote:uid=>external.auth.remove(uid),
             // Re-check external state AFTER the asynchronous Firestore
@@ -247,6 +248,7 @@ export class QaDeletionRunner {
         if(await caseGuard()!==true)fail('qa_case_authorization_lost');
         checkLease();
       }
+      return true;
     };
     await assertCase();
     checkLease();
@@ -287,7 +289,7 @@ export class QaDeletionRunner {
       checkLease();
       await assertCase();
       if(step===failBeforeEffect)throw Error('injected_failure_before_effect:'+step);
-      await phase.apply(checkLease);
+      await phase.apply(checkLease,assertCase);
       await assertCase();
       checkLease();
       await verifyBoundQaRequest({db:this.db,journal:this.journal,uid:UID,

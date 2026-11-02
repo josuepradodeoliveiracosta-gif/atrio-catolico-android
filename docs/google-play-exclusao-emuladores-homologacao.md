@@ -62,3 +62,32 @@ continuam acessíveis depois de um pedido confirmado. O botão apenas
 abre o aplicativo de e-mail, sem transmitir dados privados em links
 ou substituir a gravação autenticada no Firestore. Não é acionado
 durante os testes automatizados para não deixar o emulador isolado.
+
+## Revalidação da autorização imediatamente antes do Auth — QA (02/11/2026)
+
+A preparação de exclusão ganhou uma verificação adicional de **continuidade
+da autorização administrativa** no último estágio da simulação. A etapa
+`removeQaAuthAfterReconciliation` recebe um callback de aprovação
+(`assertAuthorization`) vindo do `caseGuard` do executor. O callback é
+verificado antes do inventário assíncrono, após a reconciliação, depois
+de esperas de verificações externas e imediatamente antes da chamada
+ao adaptador de Auth do emulador. Em cada verificação a posse do lease
+SQLite é revalidada.
+
+A nova regressão testa: revogação **durante** a reconciliação,
+revogação **durante** o preflight remoto, aprovação ausente, resposta
+ambígua e revogação enquanto o adaptador fictício de remoção está em
+andamento. Os testes exigem que **a remoção não se inicie quando
+a aprovação já foi revogada** e que o código não registre um sucesso
+com revogação detectada posteriormente. A conta fictícia de um segundo
+usuário permanece intocada.
+
+**Limite importante:** a verificação não consegue desfazer um efeito
+remoto que já tenha começado, nem comprova atomicidade entre Firebase
+Auth, SQLite e Cloudflare. Se a autorização for revogada *durante*
+a execução remota, o resultado é tratado como incerto e necessita
+reconciliação. Nenhum procedimento de produção recebeu autorização.
+
+A mudança é exclusiva de `tests/security`, não altera aplicativos
+instalados, políticas publicadas, contas reais, backups nem os flags
+`verified:false` e `releaseAuthorized:false` da Play.

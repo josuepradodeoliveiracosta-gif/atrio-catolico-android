@@ -14,7 +14,7 @@ const HOST='127.0.0.1:8089';
 const PROJECT='demo-atrio-v11';
 const EXPECTED='qa_reconciled_known_scopes_only';
 
-function guard({uid,db,auth,media,context,assertLease,reconcile,removeRemote,preRemoteCheck}) {
+function guard({uid,db,auth,media,context,assertLease,reconcile,removeRemote,preRemoteCheck,assertAuthorization}) {
   if(process.env.FIRESTORE_EMULATOR_HOST!==HOST ||
      process.env.GCLOUD_PROJECT!==PROJECT ||
      process.env.FIREBASE_SERVICE_ACCOUNT_JSON ||
@@ -26,6 +26,7 @@ function guard({uid,db,auth,media,context,assertLease,reconcile,removeRemote,pre
      context?.writesFrozen!==true || typeof assertLease!=='function' ||
      typeof reconcile!=='function' ||
      (removeRemote!==undefined && typeof removeRemote!=='function') ||
+     (assertAuthorization!==undefined && typeof assertAuthorization!=='function') ||
      (preRemoteCheck!==undefined && typeof preRemoteCheck!=='function') ||
      (removeRemote!==undefined && typeof preRemoteCheck!=='function'))
     throw Error('qa_auth_invalid_fixture_context');
@@ -38,10 +39,21 @@ function guard({uid,db,auth,media,context,assertLease,reconcile,removeRemote,pre
  */
 export async function removeQaAuthAfterReconciliation({
   uid,db,auth,media,context,assertLease,
-  reconcile=assertQaReconciled,removeRemote,preRemoteCheck
+  reconcile=assertQaReconciled,removeRemote,preRemoteCheck,assertAuthorization
 }={}) {
-  guard({uid,db,auth,media,context,assertLease,reconcile,removeRemote,preRemoteCheck});
+  guard({uid,db,auth,media,context,assertLease,reconcile,removeRemote,
+    preRemoteCheck,assertAuthorization});
+  async function recheckCase(){
+    if(assertAuthorization){
+      // A stale approval must be denied, including when a review was
+      // revoked while the async reconciliation or preflight was running.
+      if(await assertAuthorization(uid)!==true)
+        throw Error('qa_auth_case_authorization_lost');
+      assertLease();
+    }
+  }
   assertLease();
+  await recheckCase();
   const report=await reconcile({uid,db,auth,media,context,expectedAuth:'either'});
   if(report?.state!==EXPECTED || report.productionReady!==false ||
      report.globalCoverageComplete!==false ||
@@ -51,6 +63,7 @@ export async function removeQaAuthAfterReconciliation({
   // Important: the earlier lease may have expired WHILE awaiting Firestore.
   // A stale runner must NEVER erase even the fake identity after takeover.
   assertLease();
+  await recheckCase();
   // A moderation hold, newly admitted Worker operation, remote media, or
   // changed deletion request can appear WHILE Firestore reconciliation awaits
   // network I/O. The last-mile preflight MUST re-read them after that await.
@@ -59,12 +72,19 @@ export async function removeQaAuthAfterReconciliation({
     if(await preRemoteCheck(uid)!==true)
       throw Error('qa_auth_last_mile_preflight_unverified');
     assertLease(); // The preflight itself may await external stores.
+    await recheckCase(); // Approval may be revoked while preflight awaits.
   }
+  // No awaiting between the final approval/lease check and remote removal.
+  await recheckCase();
+  assertLease();
   if(removeRemote){
     // External deletion is ONLY an Auth Emulator self-delete in this QA
     // module. A timeout cannot prove that the remote effect did not occur.
     await removeRemote(uid);
     assertLease();
+    // A remote operation might have completed; its outcome remains subject
+    // to reconciliation and must never be treated as safely reversible.
+    await recheckCase();
   }
   auth.delete(uid);
   assertLease();
