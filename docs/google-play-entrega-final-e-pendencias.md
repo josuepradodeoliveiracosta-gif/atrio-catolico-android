@@ -243,3 +243,7 @@ está reservado para **QA e é recusado pelos gates da Play como URL
 de produção**. Permanecem pendentes a revisão da política,
 publicação efetiva de páginas HTTPS e o procedimento real de exclusão.
 Ver `docs/google-play-hospedagem-pages-qa.md`.
+
+## Identificação pública do controlador — 02/11/2026
+
+O titular escolheu constar como **pessoa física**, sem empresa registrada. O **nome civil completo** ainda aguarda confirmação literal antes de integrar a política pública. Não inferir o nome completo do identificador GitHub nem solicitar CPF como substituto. A escolha não libera nenhum requisito do manifesto de privacidade, publicação, assinatura ou deploy.

@@ -3,6 +3,14 @@
 **Atualizado em 02/11/2026 · RASCUNHO INTERNO · NÃO PUBLICAR.**
 PR #71 (QA), sem autorização de assinatura, de site ou de produção.
 
+## Identificação do responsável — decisão do titular em 02/11/2026
+
+O titular confirmou que o Átrio Católico será identificado por **pessoa física**, usando seu próprio nome pessoal como responsável/controlador, e não por uma empresa registrada.
+
+**Campo ainda pendente:** grafia exata do **nome civil completo** para exibição pública. O nome preferido, o nome de usuário do GitHub ou um nome inferido de contas não substituem a identificação confirmada pelo titular. Não incluir CPF, documentos pessoais, endereço residencial ou outros dados além do necessário.
+
+A escolha por pessoa física **não equivale** a revisão da política, confirmação de base legal, publicação do site ou autorização de assinatura do AAB. Conservar os bloqueios de publicação até a conclusão dessas etapas.
+
 ## Por que a página ainda não está publicada
 
 A Google Play exige política de privacidade abrangente em **URL pública
@@ -19,39 +27,39 @@ exclusão de contas em produção.
 
 ## Material técnico preparado
 
-\`cloudflare/account-deletion-support/privacy-policy.mjs\` transforma
+`cloudflare/account-deletion-support/privacy-policy.mjs` transforma
 um documento JSON **aprovado pelo responsável e por revisão adequada**
-em \`policy-dist/privacidade/index.html\`, uma página HTML estática,
-com cabeçalhos restritivos em \`_headers\`.
+em `policy-dist/privacidade/index.html`, uma página HTML estática,
+com cabeçalhos restritivos em `_headers`.
 
 **Não há deploy, conta de produção, chave, Firebase nem rede** nesse
 gerador. A aprovação exigida é
-\`"policy-owner-and-legal-reviewed"\` e um revisor com data UTC
+`"policy-owner-and-legal-reviewed"` e um revisor com data UTC
 comprovável, não um valor obtido automaticamente.
 
 A página exige todos os campos abaixo (texto final da operação real):
 
 | Campo JSON | Informação a comprovar antes da revisão |
 | --- | --- |
-| \`appName\` | Nome exato: Átrio Católico |
-| \`controller\` | Nome público do responsável/controlador da operação |
-| \`email\` | Contato: atriocatolico.privacidade@gmail.com |
-| \`effectiveDate\` | Data real de vigência YYYY-MM-DD |
-| \`dataCategories\` | Dados coletados, associados à conta e ao aparelho |
-| \`purposesAndBases\` | Finalidades e hipóteses legais **por categoria** |
-| \`religiousData\` | Dados sobre convicções religiosas e salvaguardas |
-| \`publicVisibility\` | Quais publicações, fotos e perfis ficam públicos |
-| \`providers\` | Prestadores reais, dados envolvidos, compartilhamentos |
-| \`internationalTransfers\` | Fluxos internacionais e seus mecanismos |
-| \`security\` | Controles efetivos de segurança e acesso |
-| \`retention\` | Prazos de guarda e justificativas por classe |
-| \`deletion\` | Caminho para pedidos, processamento real e exceções |
-| \`individualRights\` | Direitos dos titulares e como exercê-los |
-| \`minors\` | Política de idade e proteção de crianças/adolescentes |
-| \`contactProcedure\` | Recebimento, validação segura e resposta |
-| \`approvedBy\` | Identificador do revisor responsável |
-| \`reviewedAt\` | Data/hora UTC efetiva da revisão, ISO 8601 |
-| \`approval\` | Valor de aprovação explícito após revisão real |
+| `appName` | Nome exato: Átrio Católico |
+| `controller` | Nome público do responsável/controlador da operação |
+| `email` | Contato: atriocatolico.privacidade@gmail.com |
+| `effectiveDate` | Data real de vigência YYYY-MM-DD |
+| `dataCategories` | Dados coletados, associados à conta e ao aparelho |
+| `purposesAndBases` | Finalidades e hipóteses legais **por categoria** |
+| `religiousData` | Dados sobre convicções religiosas e salvaguardas |
+| `publicVisibility` | Quais publicações, fotos e perfis ficam públicos |
+| `providers` | Prestadores reais, dados envolvidos, compartilhamentos |
+| `internationalTransfers` | Fluxos internacionais e seus mecanismos |
+| `security` | Controles efetivos de segurança e acesso |
+| `retention` | Prazos de guarda e justificativas por classe |
+| `deletion` | Caminho para pedidos, processamento real e exceções |
+| `individualRights` | Direitos dos titulares e como exercê-los |
+| `minors` | Política de idade e proteção de crianças/adolescentes |
+| `contactProcedure` | Recebimento, validação segura e resposta |
+| `approvedBy` | Identificador do revisor responsável |
+| `reviewedAt` | Data/hora UTC efetiva da revisão, ISO 8601 |
+| `approval` | Valor de aprovação explícito após revisão real |
 
 Os testes usam apenas textos fictícios e temporários, nunca como
 declarações públicas da organização.
@@ -62,10 +70,10 @@ No clone da branch QA, em uma pasta privada **fora do repositório**,
 guardar um JSON com todos os campos verdadeiros, sem tokens ou senhas.
 Conferir a revisão e então executar:
 
-\`\`\`bash
+```bash
 export ATRIO_PRIVACY_POLICY_INPUT="$HOME/atrio-privacidade-aprovada.json"
 node cloudflare/account-deletion-support/privacy-policy.mjs
-\`\`\`
+```
 
 O comando **falha fechado** diante de configuração ausente, campos
 não preenchidos, aprovação ausente, texto "a definir",

@@ -3,8 +3,8 @@
 **RASCUNHO INTERNO. NÃO PUBLICAR.** Não é política vigente, nem comprovação de conformidade com a LGPD ou a Google Play. Não marcar o requisito `public_privacy_policy` como verificado.
 
 ## Identificação e contato
-Responsável pelo aplicativo: [A CONFIRMAR].
-Canal de privacidade indicado pelo responsável: atriocatolico.privacidade@gmail.com (cadastro informado, recebimento e atendimento ainda não homologados).
+Responsável/controlador: pessoa física (decisão confirmada pelo titular em 02/11/2026). Nome civil completo para divulgação pública: [PENDENTE DE CONFIRMAÇÃO EXATA].
+Canal de privacidade indicado: atriocatolico.privacidade@gmail.com (envio e resposta testados conforme confirmação do responsável; atendimento contínuo e exclusão real ainda não homologados).
 Data de vigência: [A DEFINIR APÓS PUBLICAÇÃO].
 
 ## Categorias de informações a revisar
