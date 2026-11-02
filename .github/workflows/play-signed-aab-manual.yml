@@ -34,7 +34,7 @@ jobs:
       ATRIO_DELETION_PORTAL_URL: ${{ vars.ATRIO_PLAY_DELETION_PORTAL_URL || '' }}
       # Opt-in only. Default keeps the Firebase deletion portal gate unchanged.
       ATRIO_PLAY_DELETION_MODE: ${{ vars.ATRIO_PLAY_DELETION_MODE || 'firebase' }}
-      ATRIO_PLAY_SUPPORT_EMAIL: ${{ vars.ATRIO_PLAY_SUPPORT_EMAIL || '' }}
+      ATRIO_PLAY_SUPPORT_EMAIL: ${{ vars.ATRIO_PLAY_SUPPORT_EMAIL || 'atriocatolico.privacidade@gmail.com' }}
       ATRIO_PLAY_SUPPORT_REVIEWED: ${{ vars.ATRIO_PLAY_SUPPORT_REVIEWED || '' }}
       ATRIO_PLAY_SUPPORT_MAILBOX_MONITORED: ${{ vars.ATRIO_PLAY_SUPPORT_MAILBOX_MONITORED || 'false' }}
       GUARDIAN_APPROVED: ${{ vars.ATRIO_GUARDIAN_V2_RELEASE_APPROVED || 'false' }}

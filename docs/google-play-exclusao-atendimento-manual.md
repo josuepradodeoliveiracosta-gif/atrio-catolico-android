@@ -14,6 +14,28 @@ Uma nova alternativa está em **cloudflare/account-deletion-support/build.mjs**.
 4. **Operação** publica a página em HTTPS com o nome Átrio Católico, testa em navegador anônimo, confirma o recebimento do e-mail e registra evidência verificável de uma solicitação de teste e seu processamento.
 5. **Play Console** recebe a URL pública de exclusão na seção Segurança dos dados. Validar também o caminho de solicitação dentro do aplicativo.
 
+## Contato público informado pelo responsável — 02/11/2026
+
+Endereço criado e informado pelo proprietário para uso como canal público
+de privacidade e solicitações de exclusão:
+
+**atriocatolico.privacidade@gmail.com**
+
+O endereço pode ser utilizado no projeto, sem armazenar senhas ou tokens.
+A declaração do titular comprova somente que ele concluiu o cadastro,
+**não** que o endereço foi testado recebendo mensagens, que haja
+monitoramento diário ou que o processamento real da exclusão esteja
+homologado. Manter `ATRIO_PLAY_SUPPORT_REVIEWED` e
+`ATRIO_PLAY_SUPPORT_MAILBOX_MONITORED` sem aprovação até teste de
+recebimento enviado de **outra conta**, resposta e procedimento de
+atendimento documentados.
+
+O workflow manual usa esse endereço público como fallback de
+`ATRIO_PLAY_SUPPORT_EMAIL`. O modo de exclusão segue por padrão
+`firebase`, e nenhum formulário ou lançamento é liberado apenas
+pela presença desse e-mail. A pessoa responsável poderá mudar o
+contato depois via GitHub Actions Variables.
+
 ## Construção local (nenhum deploy)
 O operador precisa fornecer estes valores públicos e uma declaração de revisão, fora do repositório:
 - ATRIO_DELETION_SUPPORT_APPROVED = manual-support-and-privacy-reviewed

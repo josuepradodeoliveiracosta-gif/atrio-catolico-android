@@ -9,6 +9,14 @@ const good={
   ATRIO_DELETION_SUPPORT_EMAIL:'privacidade@atrio-catolico.org',
   ATRIO_DELETION_PRIVACY_URL:'https://atrio-catolico.org/privacidade'
 };
+test('created public Gmail can be inserted without any password or tokens',()=>{
+  const conf={...good,
+    ATRIO_DELETION_SUPPORT_EMAIL:'atriocatolico.privacidade@gmail.com'};
+  const html=renderSupportPage(conf);
+  assert.match(html,/mailto:atriocatolico\.privacidade@gmail\.com/);
+  assert.match(html,/atriocatolico\.privacidade@gmail\.com/);
+  assert.doesNotMatch(html,/<form|type="password"|deleteUser|deleteDoc/i);
+});
 test('public manual support without account sign-in or form',()=>{
   const html=renderSupportPage(good);
   assert.match(html,/ÁTRIO CATÓLICO/);

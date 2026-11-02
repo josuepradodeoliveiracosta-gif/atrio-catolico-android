@@ -4,7 +4,7 @@
 
 ## Identificação e contato
 Responsável pelo aplicativo: [A CONFIRMAR].
-Canal público de privacidade: [A CONFIRMAR].
+Canal de privacidade indicado pelo responsável: atriocatolico.privacidade@gmail.com (cadastro informado, recebimento e atendimento ainda não homologados).
 Data de vigência: [A DEFINIR APÓS PUBLICAÇÃO].
 
 ## Categorias de informações a revisar
