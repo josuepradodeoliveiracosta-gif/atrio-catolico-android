@@ -80,6 +80,14 @@ jobs:
           python3 -m unittest discover -s scripts -p 'test_play_app_signing_continuity.py' -v
           python3 scripts/play_app_signing_continuity.py
           python3 scripts/play_release_gate.py --enforce
+      - name: Conferir páginas HTTPS realmente publicadas antes de carregar segredos
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts -p 'test_play_web_live_preflight.py' -v
+          # GET público, sem login, sem cookies e sem submissão de pedidos.
+          # Garante que a página da Play existe e oferece caminho de exclusão.
+          python3 scripts/play_web_live_preflight.py --check
       # Reusar a suite de exclusão REAL no Firebase Emulator antes de permitir
       # que qualquer segredo de assinatura seja lido pelo job manual.
       # Exclusivamente projeto demo, Auth e Firestore locais, Cloudinary HTTP local.
