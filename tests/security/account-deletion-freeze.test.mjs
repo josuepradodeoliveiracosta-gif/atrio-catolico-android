@@ -7,7 +7,8 @@ import {readFileSync} from 'node:fs';
 import {initializeTestEnvironment,assertSucceeds,assertFails}
   from '@firebase/rules-unit-testing';
 import {
-  doc,setDoc,updateDoc,deleteDoc,getDoc,serverTimestamp,writeBatch
+  doc,collection,getDocs,setDoc,updateDoc,deleteDoc,getDoc,getDocFromCache,
+  disableNetwork,enableNetwork,serverTimestamp,writeBatch
 } from 'firebase/firestore';
 
 if(process.env.FIRESTORE_EMULATOR_HOST!=='127.0.0.1:8089' ||
@@ -80,6 +81,32 @@ try{
         kind:'heart',createdAt:serverTimestamp()
     }));
   });
+  await check('FCM: duas contas com mesmo deviceId permanecem isoladas',async()=>{
+    const device='same_physical_device';
+    const token='synthetic-only-fcm-destination-token-abcdefghijklmnopqrstuvwxyz';
+    const aliceRef=doc(alice,'users',A,'pushDevices',device);
+    const bobRef=doc(bob,'users',B,'pushDevices',device);
+    await assertSucceeds(setDoc(aliceRef,{token,updatedAt:serverTimestamp()}));
+    await assertSucceeds(setDoc(bobRef,{token:token+'-bob',updatedAt:serverTimestamp()}));
+    assert.equal((await assertSucceeds(getDoc(aliceRef))).exists(),true);
+    assert.equal((await assertSucceeds(getDoc(bobRef))).exists(),true);
+    // Logout Alice não autoriza usar a sessão Bob no mesmo aparelho.
+    await assertFails(getDoc(doc(bob,'users',A,'pushDevices',device)));
+    await assertFails(getDocs(collection(bob,'users',A,'pushDevices')));
+    await assertFails(deleteDoc(doc(bob,'users',A,'pushDevices',device)));
+    await assertFails(updateDoc(doc(bob,'users',A,'pushDevices',device),{
+      token:'synthetic-other-token-0123456789abcdef',updatedAt:serverTimestamp()
+    }));
+    await assertFails(deleteDoc(doc(anon,'users',A,'pushDevices',device)));
+    assert.equal((await assertSucceeds(getDoc(aliceRef))).exists(),true);
+    assert.equal((await assertSucceeds(getDoc(bobRef))).exists(),true);
+    // A exclusão do registro Alice não pode remover a conta Bob.
+    await assertSucceeds(deleteDoc(aliceRef));
+    assert.equal((await assertSucceeds(getDoc(aliceRef))).exists(),false);
+    assert.equal((await assertSucceeds(getDoc(bobRef))).exists(),true);
+    // Restaurar apenas a fixture Alice para o teste de congelamento.
+    await assertSucceeds(setDoc(aliceRef,{token,updatedAt:serverTimestamp()}));
+  });
   await check('cliente não cria marcador administrativo',async()=>{
     await assertFails(setDoc(doc(alice,marker),{status:'processing'}));
     await assertFails(setDoc(doc(bob,marker),{status:'processing'}));
@@ -114,6 +141,15 @@ try{
     await assertFails(setDoc(doc(alice,'public_profiles',A),{
       displayName:'Alice Teste',bio:'QA',joinedAt:new Date(),updatedAt:serverTimestamp()
     }));
+  });
+  await check('FCM: freeze impede exclusão client-side; exige reconciliação confiável',async()=>{
+    const device=doc(alice,'users',A,'pushDevices','same_physical_device');
+    await assertFails(deleteDoc(device));
+    assert.equal((await assertSucceeds(getDoc(device))).exists(),true);
+    // Conta Bob permanece capaz de administrar os próprios dispositivos.
+    const other=doc(bob,'users',B,'pushDevices','same_physical_device');
+    await assertSucceeds(deleteDoc(other));
+    assert.equal((await assertSucceeds(getDoc(device))).exists(),true);
   });
   await check('titular congelado não insere curtidas, acompanhamentos ou token FCM',async()=>{
     await assertFails(setDoc(doc(alice,'users',A,'likedPosts','qa_freeze_bob_post'),
@@ -189,6 +225,39 @@ try{
   await check('retirada administrativa do freeze reabilita escrita sem mudar pedido',async()=>{
     await assertSucceeds(setDoc(doc(alice,'posts/qa_resumed'),post(A,'Alice Teste')));
     assert.equal((await getDoc(doc(alice,request))).data().status,'requested');
+  });
+  await check('FCM: offline tem exclusão local pendente, não confirmação do servidor',async()=>{
+    const device=doc(alice,'users',A,'pushDevices','same_physical_device');
+    const owner=await assertSucceeds(getDoc(device));
+    assert.equal(owner.exists(),true);
+    await disableNetwork(alice);
+    let serverConfirmed=false;
+    try {
+      const pendingDelete=deleteDoc(device).then(()=>{
+        serverConfirmed=true;
+      });
+      // Leitura do cache do próprio titular não prova sucesso remoto:
+      // a operação offline tem gravação pendente.
+      const cached=await getDocFromCache(device);
+      assert.equal(cached.exists(),false);
+      assert.equal(cached.metadata.hasPendingWrites,true);
+      assert.equal(serverConfirmed,false);
+      await env.withSecurityRulesDisabled(async ctx=>{
+        const persisted=await getDoc(doc(ctx.firestore(),'users',A,'pushDevices',
+          'same_physical_device'));
+        assert.equal(persisted.exists(),true);
+      });
+      await enableNetwork(alice);
+      await pendingDelete;
+      assert.equal(serverConfirmed,true);
+      assert.equal((await assertSucceeds(getDoc(device))).exists(),false);
+    }finally{
+      // Conexão deve ser restaurada mesmo em caso de falha do cenário.
+      await enableNetwork(alice);
+    }
+    // Bob não sofre nenhuma limpeza por causa do logout de Alice.
+    const bobDevice=doc(bob,'users',B,'pushDevices','phone_2');
+    assert.equal((await assertSucceeds(getDoc(bobDevice))).exists(),true);
   });
   console.log('OK: '+total+' testes write-freeze no Firestore Emulator, zero produção');
 }finally{

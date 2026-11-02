@@ -162,3 +162,29 @@ A confirmação do Firestore não comprova revogação completa do token
 FCM, cancelamento de todo tópico legado ou exclusão de conta. Ainda
 são obrigatórios QA de rede, duas contas e tokens em aparelhos reais.
 Nenhum deploy ou mudança de produção foi realizado.
+
+
+## QA Firestore FCM com duas contas e rede desligada — 02/11/2026
+
+O teste já existente `tests/security/account-deletion-freeze.test.mjs`
+cobre agora dois usuários fictícios com **mesmo identificador de
+dispositivo** em caminhos FCM separados, impedindo leitura, listagem,
+alteração ou remoção cruzada (inclusive sessão anônima). A exclusão
+do cadastro de Alice preserva o de Bob. Sob
+`account_deletion_freeze`, o cliente congelado também não pode remover
+seu próprio documento: a revogação exige reconciliação pelo backend
+autorizado, sem contornar as Security Rules.
+
+Após simular a retirada do freeze no Firebase Emulator, o teste
+desliga a rede do Firestore **apenas no contexto Alice**, emite
+`deleteDoc` e demonstra que o cache local já pode exibir ausência
+com `hasPendingWrites=true`, enquanto o servidor ainda tem o registro.
+A confirmação só é contabilizada após reconectar e receber o
+acknowledgment remoto. Bob permanece intacto. Nada disso acessa
+contas, dispositivos ou serviços de produção. Cenário reutiliza
+a suíte `npm test` já executada pela CI de regras; não cria workflow.
+
+**Limitação:** o teste usa o SDK web do Firestore no emulador, não o
+Android físico nem FCM real. Validar o comportamento da UI de logout
+e o cancelamento do token de transporte em dois celulares ainda
+depende de homologação de dispositivo antes de publicar.
