@@ -3,7 +3,7 @@
  */
 import test,{afterEach,before} from 'node:test';
 import assert from 'node:assert/strict';
-import {handleGuardiaoReview} from './index.js';
+import {handleGuardiaoReview,filterNonReplyRecipientsForDeletion} from './index.js';
 
 const PREFIX='https://firestore.googleapis.com/v1/projects/atrio-catolico/databases/(default)/documents';
 const ID='guard_'+'a'.repeat(32);
@@ -158,4 +158,98 @@ test('broadcast: fundador congelado nao consome limite D1 nem dispara FCM',async
  assert.equal(result.status,409);
  assert.deepEqual(await result.json(),{status:'account_deletion_in_progress'});
  assert.ok(!requests.some(x=>x.includes('fcm.googleapis.com')));
+});
+
+test('avisos administrativos ignoram destinatarios em exclusao e nao consultam seus dispositivos',async()=>{
+ const calls=[];
+ globalThis.fetch=async input=>{
+  const url=String(input);calls.push(url);
+  if(url.endsWith('/account_deletion_freeze/autor')||
+     url.endsWith('/account_deletion_freeze/livre'))
+   return Response.json({}, {status:404});
+  if(url.endsWith('/account_deletion_freeze/apagando'))
+   return Response.json({fields:{status:{stringValue:'draining'}}});
+  throw Error('consulta fora dos marcadores de exclusao');
+ };
+ assert.deepEqual(await filterNonReplyRecipientsForDeletion('qa','autor',
+  ['apagando','livre','livre','autor']),['livre']);
+ assert.ok(!calls.some(url=>url.includes('pushDevices')));
+ assert.equal(calls.filter(url=>url.endsWith('/account_deletion_freeze/livre')).length,1);
+});
+
+test('emissor de avisos administrativos congelado bloqueia destinatarios antes de consultá-los',async()=>{
+ const calls=[];
+ globalThis.fetch=async input=>{
+  const url=String(input);calls.push(url);
+  if(url.endsWith('/account_deletion_freeze/autor'))
+   return Response.json({fields:{status:{stringValue:'draining'}}});
+  throw Error('nenhum destinatario pode ser consultado depois do freeze');
+ };
+ assert.deepEqual(await filterNonReplyRecipientsForDeletion('qa','autor',['livre']),[]);
+ assert.equal(calls.length,1);
+});
+
+test('falha no marcador de qualquer destinatario aborta o evento inteiro sem entrega parcial',async()=>{
+ const calls=[];
+ globalThis.fetch=async input=>{
+  const url=String(input);calls.push(url);
+  if(url.endsWith('/account_deletion_freeze/indisponivel'))
+   return Response.json({}, {status:503});
+  return Response.json({}, {status:404});
+ };
+ await assert.rejects(()=>filterNonReplyRecipientsForDeletion('qa','autor',
+  ['livre','indisponivel']),/Firestore indisponível/);
+ assert.ok(!calls.some(url=>url.includes('fcm.googleapis.com')||
+  url.includes('pushDevices')));
+});
+
+test('ids e capacidade invalidos nao consultam backend administrativo',async()=>{
+ let calls=0;
+ globalThis.fetch=async()=>{calls++;throw Error('nao consultar');};
+ for(const list of [['../admin'],Array.from({length:9},(_,i)=>'m'+i)]) {
+  await assert.rejects(()=>filterNonReplyRecipientsForDeletion('qa','autor',list),
+   /push_privacy_recipient_scope_invalid/);
+ }
+ await assert.rejects(()=>filterNonReplyRecipientsForDeletion('','autor',['m1']),
+  /push_privacy_recipient_scope_invalid/);
+ assert.equal(calls,0);
+});
+
+test('evento real de selo nao consulta dispositivos nem FCM para destinatario congelado',async()=>{
+ const calls=[];
+ const documents={
+  'admins/revisor':{fields:{enabled:{booleanValue:true}}},
+  'badge_requests/membro':{fields:{
+   status:{stringValue:'approved'},reviewedBy:{stringValue:'revisor'},
+   reviewedAt:{timestampValue:new Date(Date.now()-2000).toISOString()}
+  }},
+  'account_deletion_freeze/membro':{fields:{status:{stringValue:'draining'}}}
+ };
+ globalThis.fetch=async (input,options={})=>{
+  const url=String(input);calls.push(url);
+  if(url.startsWith('https://identitytoolkit.googleapis.com/'))
+   return Response.json({users:[{localId:'revisor',disabled:false}]});
+  if(url==='https://oauth2.googleapis.com/token')
+   return Response.json({access_token:'qa-service-token',expires_in:3600});
+  if(url.startsWith(PREFIX+'/')){
+   const path=decodeURIComponent(new URL(url).pathname).split('/documents/')[1];
+   if(documents[path])return Response.json(documents[path]);
+   return Response.json({}, {status:404});
+  }
+  throw Error('FCM ou endpoint externo nao autorizado: '+url);
+ };
+ const db={prepare(sql){
+  assert.match(sql,/^DELETE FROM delivered/);
+  return {bind(){return {async run(){return {meta:{changes:0}};}};}};
+ }};
+ const env={PUSH_ENABLED:'true',PUSH_DB:db,FIREBASE_WEB_API_KEY:'qa-only',
+  FIREBASE_SERVICE_ACCOUNT_JSON:service};
+ const request=new Request('https://test.invalid/event',{method:'POST',
+  headers:{Authorization:'Bearer '+'x'.repeat(120)},
+  body:JSON.stringify({type:'badge_result',targetUid:'membro'})});
+ const result=await (await import('./index.js')).default.fetch(request,env);
+ assert.equal(result.status,202);
+ assert.deepEqual(await result.json(),{status:'no_devices_or_duplicate'});
+ assert.ok(calls.some(url=>url.endsWith('/account_deletion_freeze/membro')));
+ assert.ok(!calls.some(url=>url.includes('/pushDevices')||url.includes('fcm.googleapis.com')));
 });

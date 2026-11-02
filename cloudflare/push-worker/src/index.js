@@ -121,6 +121,28 @@ export async function pushAccountFrozen(token, uid) {
     throw Error('push_freeze_invalid_scope');
   return Boolean(await firestoreGet(token,'account_deletion_freeze/'+enc(uid)));
 }
+/**
+ * Non-reply events (badge requests, clergy decisions and reports) must also
+ * respect an account-deletion freeze. This is a read-only, fail-closed
+ * preflight; it cannot replace the durable distributed deletion fence.
+ *
+ * No FCM device lookup or delivery marker should occur for filtered UIDs.
+ * In particular, a failed Firestore read must NEVER mean "not frozen".
+ */
+export async function filterNonReplyRecipientsForDeletion(token, actorUid, recipientUids) {
+  if(typeof token!=='string' || !token || !uidPart(actorUid)
+    || !Array.isArray(recipientUids) || recipientUids.length>MAX_ADMINS
+    || recipientUids.some(uid=>!uidPart(uid)))
+    throw Error('push_privacy_recipient_scope_invalid');
+  if(await pushAccountFrozen(token,actorUid))return [];
+  const accepted=[];
+  for(const recipient of new Set(recipientUids)){
+    if(recipient===actorUid)continue;
+    if(!await pushAccountFrozen(token,recipient))accepted.push(recipient);
+  }
+  return accepted;
+}
+
 async function firestoreList(token, path, max) {
   const res = await fetch(ROOT+'/'+path+'?pageSize='+max,
     {headers:{Authorization:'Bearer '+token}});
@@ -824,7 +846,7 @@ export default {
       }
       const recipients = blockSafeMode
         ? await blockSafeThreadRecipients(token,uid,event.recipients)
-        : event.recipients;
+        : await filterNonReplyRecipientsForDeletion(token,uid,event.recipients);
       const safeEvent={...event,recipients};
       let fanoutOk=true;
       if(event.topic) {

@@ -58,3 +58,22 @@ de barreira persistente coordenada com Admin SDK e com os demais
 Workers, e de auditoria de filas/cron/broadcast. A regra Firestore para
 o marcador também não foi implantada na produção. Não declarar
 `worker_freeze` nem `push_block_safe_delivery` como homologados.
+
+## Continuação da PR #71 — bloqueio de Push não relacionado a respostas (02/11/2026)
+
+A candidata passa a aplicar `filterNonReplyRecipientsForDeletion()` também aos
+eventos autenticados de solicitação/resultado de selo e de denúncias
+(`badge_request`, `badge_result`, `report`), antes de consultar
+`pushDevices`, consumir marcadores de entrega D1 ou enviar FCM. A consulta
+de `account_deletion_freeze/{uid}` cobre **remetente e destinatários**;
+falhas de leitura abortam integralmente o evento. Destinatários repetidos são
+deduplicados e IDs inválidos ou além da capacidade são rejeitados.
+Os testes adicionados a `review-freeze.test.js` cobrem destinatário e
+emissor congelados, falha de rede, validação e o fluxo HTTP sintético
+de resultado de selo. Evita duplicar suites de Android/Play já concluídas.
+
+**Limites:** verificação remota de marcador é preflight, não fence distribuído
+atômico; o envio geral por tópico `atrio_comunicados_v1` continua sem
+filtragem individual de contas congeladas. Execuções já em trânsito também
+precisam de coordenação. Os três Workers de produção não foram atualizados;
+nenhuma evidência UGC/privacidade passa a `verified:true`. Não liberar AAB.
