@@ -9,6 +9,7 @@
  * homologação no Firestore Emulator antes de conectar a um Worker.
  */
 import {validUid} from './plan.js';
+import {readBoundedFirestoreJson} from './bounded-firestore-response.js';
 import {RELATIONAL_QUERY_SPECS} from './relational-inventory.js';
 
 const PROJECT='atrio-catolico';
@@ -80,11 +81,10 @@ export function createRelationalFirestoreReadAdapter(uid,oauthToken,fetcher=fetc
         body:JSON.stringify(queryBody(chosen,uid,pageSize,cursor))
       });
       if(response.status!==200) throw Error('firestore_query_unavailable');
-      const raw=await response.text();
-      if(new TextEncoder().encode(raw).byteLength>MAX_RESPONSE_BYTES)
-        throw Error('firestore_response_too_large');
-      let entries;
-      try{entries=JSON.parse(raw);}catch(_){throw Error('invalid_query_response');}
+      const entries=await readBoundedFirestoreJson(response,{
+        limit:MAX_RESPONSE_BYTES,sizeError:'firestore_response_too_large',
+        parseError:'invalid_query_response'
+      });
       if(!Array.isArray(entries)||entries.length>pageSize+1)
         throw Error('invalid_query_response');
       const items=[];

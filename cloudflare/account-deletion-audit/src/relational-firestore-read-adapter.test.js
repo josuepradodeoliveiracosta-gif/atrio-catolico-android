@@ -13,7 +13,7 @@ function doc(id,overrides={}) {
 }
 function mock(data,status=200) {
   return createRelationalFirestoreReadAdapter(UID,OAUTH,
-    async()=>({status,text:async()=>JSON.stringify(data)}));
+    async()=>new Response(JSON.stringify(data),{status}));
 }
 
 test('read-only structuredQuery REST contract, pages and projections',async()=>{
@@ -22,7 +22,7 @@ test('read-only structuredQuery REST contract, pages and projections',async()=>{
     [doc('note03'),{readTime:READ_TIME,done:true}]];
   const adapter=createRelationalFirestoreReadAdapter(UID,OAUTH,
     async(url,options)=>{calls.push({url,options});
-      return {status:200,text:async()=>JSON.stringify(pages.shift())};
+      return new Response(JSON.stringify(pages.shift()),{status:200});
     });
   const first=await adapter.queryPage(SPEC,UID,null,2);
   assert.deepEqual(first.items[0],{
@@ -93,7 +93,7 @@ test('reject foreign records, added private data and unstable ordering',async()=
 test('reject unapproved spec, other UID, dangerous cursor before HTTP',async()=>{
   let calls=0;
   const a=createRelationalFirestoreReadAdapter(UID,OAUTH,async()=>{
-    calls++;return {status:200,text:async()=>JSON.stringify([{readTime:READ_TIME}])};
+    calls++;return new Response(JSON.stringify([{readTime:READ_TIME}]),{status:200});
   });
   await assert.rejects(a.queryPage({...SPEC,field:'otherUid'},UID),
     /disallowed_query_spec/);

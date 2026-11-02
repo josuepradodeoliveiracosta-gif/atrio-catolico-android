@@ -132,3 +132,34 @@ A PR da Play Store agora incorpora seletivamente o protótipo de staging da PR #
 Os três testes `qa-stage-{preflight,service-binding,cloudflare-drill}.test.js` são incluídos na suíte Node `cloudflare/account-deletion-audit`, já obrigatória no CI do AAB. Validam o isolamento de staging, papéis, HMAC anti-replay, operações compartilhadas entre serviços e retomada sobre SQLite local. Este código não é conectado aos três Workers de produção e não executa exclusão real.
 
 **Pendente para homologar:** integrar admissão, drenagem e reconciliação no caminho de cada escrita real de Avatar, Guardião e Push, em implantação segregada com autorização, IAM específico, inventário e retenção. `worker_freeze` continua sem verificação operacional; `releaseAuthorized:false`.
+
+## Respostas REST Firestore limitadas antes da leitura completa (02/11/2026)
+
+Uma auditoria encontrou que os adaptadores de inventário Firestore
+\`firestore-read-adapter.js\` (documentos por titular) e
+\`relational-firestore-read-adapter.js\` (consultas por referência)
+executavam \`response.text()\` **antes** de conferir o teto de 2 MB.
+Isso permitia que uma resposta anômala fosse integralmente alocada
+em memória durante o inventário, apesar da verificação posterior.
+
+O módulo compartilhado
+\`src/bounded-firestore-response.js\` agora lê o corpo em streaming,
+contabiliza **bytes efetivos de UTF-8**, aborta respostas superiores
+a 2 MB, rejeita comprimento HTTP inválido, sequência UTF-8 truncada,
+corpo ausente e JSON malformado. Ambos os adaptadores de leitura
+recusam a operação se o corpo não cumprir integralmente o contrato.
+Uma leitura incompleta jamais comprova a ausência de dados.
+
+A suíte offline testa streams repartidos, caracteres multibyte,
+corte no limite, Content-Length forjado, stream interrompido e
+requisições de outros UIDs/projetos. Mantém-se a distinção entre
+um adaptador **somente de leitura** e um executor autorizado.
+Nenhuma consulta foi enviada a serviços reais e nenhuma exclusão,
+assinatura, ativação de portal ou publicação foi realizada.
+
+**Persistem bloqueios:** IAM real de mínimo privilégio, varredura
+consistente após congelamento de TODAS as escritas privilegiadas,
+mídias e referências globais, decisões legais de retenção e
+executor auditável em ambiente homologado. O manifesto de privacidade
+continua sem evidências aprovadas; não tratar essa melhoria como
+comprovação de exclusão efetiva.

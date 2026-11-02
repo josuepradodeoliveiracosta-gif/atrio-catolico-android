@@ -4,6 +4,7 @@
  * navegador/Android. As respostas públicas nunca incluem token, UID ou conteúdo.
  */
 import {validUid} from './plan.js';
+import {readBoundedFirestoreJson} from './bounded-firestore-response.js';
 import {OWNED_ROOTS,USER_SUBCOLLECTIONS,GUARDIAN_SUBCOLLECTIONS}
   from './deletion-orchestrator.js';
 
@@ -42,10 +43,10 @@ export function createFirestoreReadAdapter(uid,oauthToken,fetcher=fetch) {
     const response=await fetcher(url,{method:'GET',headers:auth,redirect:'error'});
     if(response.status===404 && notFound) return null;
     if(response.status!==200) throw Error('firestore_read_failed');
-    const text=await response.text();
-    if(new TextEncoder().encode(text).byteLength>MAX_RESPONSE)
-      throw Error('firestore_response_too_large');
-    try{return JSON.parse(text);}catch(_){throw Error('invalid_firestore_response');}
+    return readBoundedFirestoreJson(response,{
+      limit:MAX_RESPONSE,sizeError:'firestore_response_too_large',
+      parseError:'invalid_firestore_response'
+    });
   }
   return Object.freeze({
     async getDocument(path) {
