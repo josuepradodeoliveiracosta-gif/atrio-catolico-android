@@ -6,6 +6,26 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PushRegistrationDiagnosticTest {
+    @Test fun staleFcmRegisterCallbackCannotReactivateOrDisableNewSession() {
+        fun allowed(
+            uid: String? = "alice",
+            enabled: Boolean = true,
+            pending: Boolean = false,
+            expected: Long = 4L,
+            current: Long = 4L
+        ) = mayContinueFcmRegistration("alice", uid, enabled, pending, expected, current)
+        assertTrue(allowed())
+        assertFalse(allowed(uid = "bob"))
+        assertFalse(allowed(uid = null))
+        assertFalse(allowed(enabled = false))
+        assertFalse(allowed(pending = true))
+        assertFalse(allowed(expected = 3L))
+        assertFalse(allowed(expected = 4L, current = 5L))
+        assertFalse(mayContinueFcmRegistration("", "", true, false, 1L, 1L))
+        // A tentativa nova é válida somente quando capturou a geração nova.
+        assertTrue(allowed(expected = 5L, current = 5L))
+    }
+
     @Test fun logoutMustWaitForConfirmedRemovalOfSameAuthenticatedUser() {
         assertTrue(mayCompletePushSafeLogout("alice", "alice", true))
         assertFalse(mayCompletePushSafeLogout("alice", "alice", false))

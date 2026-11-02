@@ -269,3 +269,25 @@ bilateral, logout e UID vazio. Não há novo workflow, mudança de Rules
 ou qualquer contato com produção. Continua pendente validar com
 dois aparelhos/usuários e comprovar a exclusão real ponta a ponta
 antes de homologar as evidências da Google Play.
+
+
+## Geração de operação FCM para impedir callbacks antigos — 02/11/2026
+
+`PushRegistry` agora persiste um contador de geração por UID no
+`SharedPreferences`. Toda ativação explícita e desativação
+invalida as operações de registro anteriores antes de escrever no
+Firestore. As respostas assíncronas de obtenção do token, gravação
+no Firestore, inscrição/desinscrição de tópicos e falha FCM
+revalidam a geração, a sessão Firebase, o opt-in e a inexistência de
+remoção pendente. Um callback de registro antigo não pode desligar
+um opt-in mais recente, nem anunciar uma ativação depois do logout.
+A confirmação do `delete()` remoto também só limpa o marcador local
+se pertencer à tentativa de revogação atual.
+
+A condição foi extraída para `mayContinueFcmRegistration`, testada
+na suíte JUnit preexistente com troca de usuário, remoção pendente,
+desativação local e operações com gerações distintas. A proteção
+de geração é defesa local; **não prova** entrega de FCM, exclusão
+efetiva de conta, serialização de serviços externos nem revogação
+completa de tokens no Google. Homologação em aparelhos e aprovação
+das evidências reais permanecem pendentes. Não houve deploy.

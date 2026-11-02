@@ -52,6 +52,29 @@ internal object PushRegistry {
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     private fun enabledKey(uid: String) = "enabled_$uid"
     private fun pendingRemovalKey(uid: String) = "removal_pending_$uid"
+    private fun registrationEpochKey(uid: String) = "registration_epoch_$uid"
+
+    // O registro precisa ser invalidado antes de qualquer nova intenção de
+    // ativação/desativação. SharedPreferences conserva a geração no reinício.
+    private fun epoch(context: Context, uid: String): Long =
+        prefs(context).getLong(registrationEpochKey(uid), 0L)
+
+    @Synchronized
+    private fun invalidateRegistrations(context: Context, uid: String): Long {
+        val next = epoch(context, uid) + 1L
+        prefs(context).edit().putLong(registrationEpochKey(uid), next).apply()
+        return next
+    }
+
+    private fun registrationCurrent(context: Context, uid: String, capturedEpoch: Long): Boolean =
+        mayContinueFcmRegistration(
+            expectedUid = uid,
+            authenticatedUid = FirebaseAuth.getInstance().currentUser?.uid,
+            enabledOnDevice = enabled(context, uid),
+            removalPending = pendingRemoteRemoval(context, uid),
+            expectedEpoch = capturedEpoch,
+            currentEpoch = epoch(context, uid)
+        )
 
     /** Pendência local não é prova de exclusão confirmada no Firestore. */
     fun pendingRemoteRemoval(context: Context, uid: String): Boolean =
@@ -77,7 +100,8 @@ internal object PushRegistry {
         db: FirebaseFirestore,
         done: (Boolean, PushRegistrationProblem?) -> Unit = { _, _ -> }
     ) {
-        if (FirebaseAuth.getInstance().currentUser?.uid != uid || !enabled(context, uid)) {
+        val capturedEpoch = epoch(context, uid)
+        if (!registrationCurrent(context, uid, capturedEpoch)) {
             done(false, PushRegistrationProblem.SESSION_CHANGED)
             return
         }
@@ -89,7 +113,7 @@ internal object PushRegistry {
         FirebaseMessaging.getInstance().isAutoInitEnabled = true
         FirebaseMessaging.getInstance().token
             .addOnSuccessListener { token ->
-                if (FirebaseAuth.getInstance().currentUser?.uid != uid || !enabled(context, uid)) {
+                if (!registrationCurrent(context, uid, capturedEpoch)) {
                     done(false, PushRegistrationProblem.SESSION_CHANGED)
                     return@addOnSuccessListener
                 }
@@ -101,7 +125,7 @@ internal object PushRegistry {
                     "token" to token,
                     "updatedAt" to FieldValue.serverTimestamp()
                 )).addOnCompleteListener { result ->
-                    if (FirebaseAuth.getInstance().currentUser?.uid != uid || !enabled(context, uid)) {
+                    if (!registrationCurrent(context, uid, capturedEpoch)) {
                         done(false, PushRegistrationProblem.SESSION_CHANGED)
                     } else if (result.isSuccessful) {
                         if (BuildConfig.PLAY_STORE_BUILD) {
@@ -111,8 +135,7 @@ internal object PushRegistry {
                             // recusa broadcasts de topic mesmo se a rede falhar.
                             FirebaseMessaging.getInstance().unsubscribeFromTopic(COMMUNICATION_TOPIC)
                                 .addOnCompleteListener {
-                                    if (FirebaseAuth.getInstance().currentUser?.uid != uid
-                                        || !enabled(context, uid)) {
+                                    if (!registrationCurrent(context, uid, capturedEpoch)) {
                                         done(false, PushRegistrationProblem.SESSION_CHANGED)
                                     } else {
                                         ThreadPushSubscriptions.sync(context, uid)
@@ -124,8 +147,7 @@ internal object PushRegistry {
                             // as preferências ou tópicos desses usuários.
                             FirebaseMessaging.getInstance().subscribeToTopic(COMMUNICATION_TOPIC)
                                 .addOnCompleteListener { subscribed ->
-                                    if (FirebaseAuth.getInstance().currentUser?.uid != uid
-                                        || !enabled(context, uid)) {
+                                    if (!registrationCurrent(context, uid, capturedEpoch)) {
                                         FirebaseMessaging.getInstance().unsubscribeFromTopic(COMMUNICATION_TOPIC)
                                         done(false, PushRegistrationProblem.SESSION_CHANGED)
                                     } else if (subscribed.isSuccessful) {
@@ -150,7 +172,9 @@ internal object PushRegistry {
                 }
             }
             .addOnFailureListener { error ->
-                done(false, diagnoseFcm(context, error))
+                if (!registrationCurrent(context, uid, capturedEpoch))
+                    done(false, PushRegistrationProblem.SESSION_CHANGED)
+                else done(false, diagnoseFcm(context, error))
             }
     }
 
@@ -170,9 +194,17 @@ internal object PushRegistry {
             done(false, PushRegistrationProblem.REVOCATION_PENDING)
             return
         }
+        val capturedEpoch = invalidateRegistrations(context, uid)
         prefs(context).edit().putBoolean(enabledKey(uid), true).apply()
         register(context, uid, db) { ok, issue ->
-            if (!ok && FirebaseAuth.getInstance().currentUser?.uid == uid) {
+            // Um callback antigo não pode desligar uma ativação mais nova.
+            if (epoch(context, uid) != capturedEpoch ||
+                FirebaseAuth.getInstance().currentUser?.uid != uid ||
+                pendingRemoteRemoval(context, uid)) {
+                done(false, PushRegistrationProblem.SESSION_CHANGED)
+                return@register
+            }
+            if (!ok) {
                 prefs(context).edit().putBoolean(enabledKey(uid), false).apply()
                 FirebaseMessaging.getInstance().isAutoInitEnabled = false
             }
@@ -201,6 +233,8 @@ internal object PushRegistry {
             done(false)
             return
         }
+        // Invalida callbacks FCM antigos ANTES de iniciar a remoção remota.
+        val capturedEpoch = invalidateRegistrations(context, uid)
         prefs(context).edit()
             .putBoolean(enabledKey(uid), false)
             .putBoolean(pendingRemovalKey(uid), true).apply()
@@ -209,10 +243,11 @@ internal object PushRegistry {
         ThreadPushSubscriptions.unsubscribeAll(context, uid)
         FirebaseMessaging.getInstance().deleteToken()
         document(db, uid, context).delete().addOnCompleteListener { task ->
-            val sameSession = FirebaseAuth.getInstance().currentUser?.uid == uid
-            if (sameSession && task.isSuccessful)
+            val currentAttempt = FirebaseAuth.getInstance().currentUser?.uid == uid &&
+                epoch(context, uid) == capturedEpoch
+            if (currentAttempt && task.isSuccessful)
                 prefs(context).edit().putBoolean(pendingRemovalKey(uid), false).apply()
-            done(sameSession && task.isSuccessful)
+            done(currentAttempt && task.isSuccessful)
         }
     }
 

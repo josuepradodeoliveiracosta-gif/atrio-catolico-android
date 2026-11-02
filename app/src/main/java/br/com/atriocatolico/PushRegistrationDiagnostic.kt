@@ -17,6 +17,21 @@ internal fun mayUseFcmTokenDiagnostics(
 ): Boolean = !playStoreBuild && expectedUid.isNotBlank()
     && authenticatedUid == expectedUid && enabledOnDevice
 
+/**
+ * A resposta tardia de um register() não pode reativar avisos depois
+ * de revogação, troca de sessão ou de uma nova tentativa de cadastro.
+ * Sem acesso ao Firebase: política pura para regressões de corrida.
+ */
+internal fun mayContinueFcmRegistration(
+    expectedUid: String,
+    authenticatedUid: String?,
+    enabledOnDevice: Boolean,
+    removalPending: Boolean,
+    expectedEpoch: Long,
+    currentEpoch: Long
+): Boolean = expectedUid.isNotBlank() && authenticatedUid == expectedUid
+    && enabledOnDevice && !removalPending && expectedEpoch == currentEpoch
+
 internal fun mayCompletePushSafeLogout(
     expectedUid: String, authenticatedUid: String?, remoteRemoved: Boolean
 ): Boolean = expectedUid.isNotBlank() && authenticatedUid == expectedUid && remoteRemoved
