@@ -124,3 +124,11 @@ deploy ou escrita; `pagesComplete:false`, `hasUnknownCollections:true`,
 `safeToExecute:false` no plano derivado continuam impedindo execução.
 Ainda exige a varredura relacional, referências de terceiros, mídia,
 retenção legal, monitoramento de Workers e barreira distribuída.
+
+## Coordenador de bloqueio distribuído — homologação separada (02/11/2026)
+
+A PR da Play Store agora incorpora seletivamente o protótipo de staging da PR #98 em `cloudflare/privacy-freeze-stage`, preservando exatamente os objetos Git revisados. Ele inclui Worker interno, cliente para Service Binding, protocolo HMAC com nonces e D1 para tickets de gravação. O SQL limita identificadores exclusivamente aos usuários fictícios `qa-freeze-alice` e `qa-freeze-bob`. O arquivo `wrangler.staging.example.toml` usa identificador D1 placeholder, `workers_dev=false`, sem rotas públicas; **não há configuração executável de deploy nem segredos commitados**.
+
+Os três testes `qa-stage-{preflight,service-binding,cloudflare-drill}.test.js` são incluídos na suíte Node `cloudflare/account-deletion-audit`, já obrigatória no CI do AAB. Validam o isolamento de staging, papéis, HMAC anti-replay, operações compartilhadas entre serviços e retomada sobre SQLite local. Este código não é conectado aos três Workers de produção e não executa exclusão real.
+
+**Pendente para homologar:** integrar admissão, drenagem e reconciliação no caminho de cada escrita real de Avatar, Guardião e Push, em implantação segregada com autorização, IAM específico, inventário e retenção. `worker_freeze` continua sem verificação operacional; `releaseAuthorized:false`.
