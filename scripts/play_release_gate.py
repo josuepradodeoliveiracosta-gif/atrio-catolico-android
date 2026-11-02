@@ -525,11 +525,16 @@ def play_push_privacy_blockers(root: Path) -> list[str]:
             errors.append("play_push_device_token_diagnostic_exposed")
     if "play_fcm_diagnostic_policy" in files:
         text = files["play_fcm_diagnostic_policy"]
+        # Restringir à função exata: outra rotina pode ter a mesma expressão
+        # e mascarar uma regressão no diagnóstico que expõe o token FCM.
+        marker = "internal fun mayUseFcmTokenDiagnostics("
+        section = (text.split(marker, 1)[1].split("\ninternal ", 1)[0]
+                   if marker in text else "")
         if not all((
-            "internal fun mayUseFcmTokenDiagnostics(" in text,
-            "!playStoreBuild" in text,
-            "authenticatedUid == expectedUid" in text,
-            "enabledOnDevice" in text
+            section,
+            "!playStoreBuild" in section,
+            "authenticatedUid == expectedUid" in section,
+            "enabledOnDevice" in section
         )):
             errors.append("play_push_device_token_session_guard_missing")
     if "play_broadcast_worker" in files:
