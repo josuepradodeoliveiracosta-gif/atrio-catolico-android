@@ -478,9 +478,15 @@ def play_push_privacy_blockers(root: Path) -> list[str]:
             errors.append("play_push_source_missing_or_unreadable:" + path)
     if "play_broadcast_client" in files:
         text = files["play_broadcast_client"]
+        # Scope the unsubscribe check to the Play registration branch.
+        # Generic deactivation/unregister helpers also unsubscribe and must
+        # not mask a regression in the Play-specific registration path.
+        registration = text.split('} else if (result.isSuccessful) {', 1)
+        play_registration = (registration[1].split('} else {', 1)[0]
+                             if len(registration) == 2 else '')
         checks = (
-            'if (BuildConfig.PLAY_STORE_BUILD) {' in text,
-            'unsubscribeFromTopic(COMMUNICATION_TOPIC)' in text,
+            'if (BuildConfig.PLAY_STORE_BUILD) {' in play_registration,
+            'unsubscribeFromTopic(COMMUNICATION_TOPIC)' in play_registration,
             'PlayBroadcastDeliveryPolicy.accepts(' in text,
             'destinationUid = message.data["uid"]' in text,
             'sender = message.from' in text,
