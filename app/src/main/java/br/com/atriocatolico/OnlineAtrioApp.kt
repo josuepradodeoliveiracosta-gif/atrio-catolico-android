@@ -988,6 +988,7 @@ private fun OnlineCommunity(
                     onSignOut = onSignOut, onModeration = onModeration,
                     onClergyReview = onClergyReview,
                     onSavedPosts = { navigate(Tab.SAVED) },
+                    communityTerms = communityTerms,
                     followedRevision = followedRevision, savedCount = savedOrder.size,
                     followedRemoteEnabled = advancedEngagement,
                     followedRemoteIds = syncedFollow.ids,

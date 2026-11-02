@@ -33,6 +33,22 @@ class CommunityTermsPolicyTest {
         }
     }
 
+    @Test fun publishedTermsRemainReadableAfterAcceptWithoutUsingCache() {
+        val policy = CommunityTermsPolicy("community-v1", official, true, true)
+        val accepted = CommunityTermsStatus(
+            loaded = true, failed = false, policy = policy,
+            accepted = true, acceptanceLoaded = true
+        )
+        assertTrue(accepted.readablePublishedPolicy == policy)
+        assertTrue(accepted.copy(accepted = false).readablePublishedPolicy == policy)
+        assertTrue(accepted.copy(loaded = false).readablePublishedPolicy == null)
+        assertTrue(accepted.copy(failed = true).readablePublishedPolicy == null)
+        assertTrue(accepted.copy(policy = policy.copy(published = false))
+            .readablePublishedPolicy == null)
+        assertTrue(accepted.copy(policy = policy.copy(url = "https://example.com/termos"))
+            .readablePublishedPolicy == null)
+    }
+
     @Test fun publishRequiresCurrentNonzeroVersionAndSafeUrl() {
         assertTrue(CommunityTermsPolicy("community-v1", official, true, true).available)
         for (version in listOf("", "ugc-v1", "community-v0", "community-v01",

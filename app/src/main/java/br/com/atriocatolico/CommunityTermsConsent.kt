@@ -66,6 +66,10 @@ internal data class CommunityTermsStatus(
     val acceptanceLoaded: Boolean = false
 ) {
     val required get() = policy?.required == true
+    // Os Termos devem continuar acessíveis depois do aceite, mas só quando
+    // a configuração oficial chegar do servidor sem cache/erro.
+    val readablePublishedPolicy get() =
+        if (loaded && !failed && policy?.available == true) policy else null
     val canPublish get() = loaded && !failed && (
         (!required && !BuildConfig.PLAY_STORE_BUILD)
         || (policy?.available == true && acceptanceLoaded && accepted)

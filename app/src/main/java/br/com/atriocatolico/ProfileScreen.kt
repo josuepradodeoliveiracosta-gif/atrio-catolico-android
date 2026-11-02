@@ -44,6 +44,7 @@ internal fun OnlineProfileScreen(
     onCreate: () -> Unit, onOpen: (String) -> Unit,
     onLike: (String) -> Unit, onSave: (String) -> Unit,
     onSavedPosts: () -> Unit, onNotifications: () -> Unit, onReviews: () -> Unit,
+    communityTerms: CommunityTermsStatus,
     followedRevision: Int = 0, savedCount: Int = 0,
     followedRemoteEnabled: Boolean = false, followedRemoteIds: Set<String> = emptySet(),
     followedRemoteLoading: Boolean = false, followedRemoteFailed: Boolean = false,
@@ -92,6 +93,8 @@ internal fun OnlineProfileScreen(
         val mine = remember(posts, uid) { posts.filter { it.mine } }
         val context = LocalContext.current
         val uriHandler = LocalUriHandler.current
+        val publishedTerms = communityTerms.readablePublishedPolicy
+        var termsBrowserUnavailable by remember(uid, publishedTerms?.url) { mutableStateOf(false) }
         val followedCount = if (followedRemoteEnabled) followedRemoteIds.size
             else remember(uid, followedRevision) { LocalFollowedDiscussions.ids(context, uid).size }
         LazyColumn(Modifier.fillMaxSize().testTag("atrio-profile-list"), contentPadding = PaddingValues(16.dp),
@@ -187,6 +190,40 @@ internal fun OnlineProfileScreen(
                                 "Política de privacidade pendente. Esta compilação Play é somente para QA.",
                                 color = MaterialTheme.colorScheme.error,
                                 style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        // O aceite anterior não oculta o texto vigente.
+                        // Reutilizar a mesma configuração versionada e validada
+                        // que controla o direito de publicar.
+                        if (publishedTerms != null) {
+                            OutlinedButton(
+                                onClick = {
+                                    termsBrowserUnavailable = runCatching {
+                                        uriHandler.openUri(publishedTerms.url)
+                                    }.isFailure
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                                    .testTag("atrio-profile-community-terms")
+                            ) { Text("Termos de Uso e Política da Comunidade") }
+                            Text(
+                                "Versão vigente: ${publishedTerms.version}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            if (termsBrowserUnavailable) Text(
+                                "Não foi possível abrir os Termos neste aparelho. " +
+                                    "Confira o navegador e tente novamente.",
+                                modifier = Modifier.testTag("atrio-profile-community-terms-error"),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        } else if (BuildConfig.PLAY_STORE_BUILD) {
+                            Text(
+                                "Termos da Comunidade ainda não confirmados pelo servidor. " +
+                                    "Esta compilação Play não deve ser distribuída.",
+                                modifier = Modifier.testTag("atrio-profile-community-terms-pending"),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error
                             )
                         }
                         OutlinedButton(onClick = onSignOut, modifier = Modifier.fillMaxWidth().testTag("atrio-profile-signout")) {

@@ -129,3 +129,21 @@ são vinculados à versão, não ao texto.
 A CI da candidata Play executa somente `CommunityTermsPolicyTest` via
 JUnit local, na mesma invocação Gradle da compilação do AAB quando
 há mudança de Android. Não requer emulador ou novo workflow.
+
+
+## Leitura permanente dos Termos após o aceite (02/11/2026)
+
+Na variante online, o usuário agora pode consultar a versão vigente em
+**Perfil → Conta e privacidade → Termos de Uso e Política da Comunidade**,
+inclusive depois de aceitar e começar a publicar. O link vem da mesma
+configuração oficial `app_config/community_terms` usada para controlar
+o aceite; não existe URL de exemplo nem cópia paralela no APK. A tela
+só mostra o link quando a leitura foi confirmada pelo servidor (sem
+cache/erro), `published=true`, `enforce=true`, versão e URL validadas.
+Em Play, a ausência dessa configuração mostra aviso de QA e não habilita
+distribuição. Falha ao abrir o navegador é sinalizada sem alterar aceite.
+
+O teste JUnit `CommunityTermsPolicyTest` cobre a continuidade do link
+após o aceite e a recusa de configuração inválida/desatualizada. A
+presença do botão é preparação técnica, **não** comprovação de Termos
+efetivamente publicados, revisão jurídica ou homologação UGC.
