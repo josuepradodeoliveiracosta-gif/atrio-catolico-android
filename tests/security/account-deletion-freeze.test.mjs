@@ -42,6 +42,21 @@ const note=(postId,replyId)=>({
 });
 let total=0;
 async function check(label,fn){await fn();total++;console.log('PASS WRITE FREEZE',label);}
+
+// Fail quickly and identify stalled SDK stages instead of consuming CI minutes.
+async function boundedQa(promise, stage) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_,reject)=>{
+        timer=setTimeout(()=>reject(Error('fcm_offline_stage_timeout:'+stage)),10000);
+      })
+    ]);
+  }finally{
+    clearTimeout(timer);
+  }
+}
 try{
   await env.clearFirestore();
   await env.withSecurityRulesDisabled(async c=>{
@@ -244,13 +259,16 @@ try{
       // não apresenta hasPendingWrites para o documento removido.
       assert.equal(cached.metadata.fromCache,true);
       assert.equal(serverConfirmed,false);
-      await env.withSecurityRulesDisabled(async ctx=>{
+      console.log('QA FCM offline: local cache checked');
+      await boundedQa(env.withSecurityRulesDisabled(async ctx=>{
         const persisted=await getDoc(doc(ctx.firestore(),'users',A,'pushDevices',
           'same_physical_device'));
         assert.equal(persisted.exists(),true);
-      });
-      await enableNetwork(alice);
-      await pendingDelete;
+      }), 'server_read');
+      console.log('QA FCM offline: server record verified');
+      await boundedQa(enableNetwork(alice),'reconnect');
+      console.log('QA FCM offline: connection restored');
+      await boundedQa(pendingDelete,'server_ack');
       assert.equal(serverConfirmed,true);
       assert.equal((await assertSucceeds(getDoc(device))).exists(),false);
     }finally{
