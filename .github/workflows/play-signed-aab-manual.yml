@@ -105,6 +105,7 @@ jobs:
         run: |
           set -euo pipefail
           node --test cloudflare/account-deletion-support/build.test.mjs
+          node --test cloudflare/account-deletion-support/privacy-policy.test.mjs
           if [[ "$ATRIO_PLAY_DELETION_MODE" == 'manual-support' ]]; then
             export ATRIO_DELETION_SUPPORT_APPROVED="$ATRIO_PLAY_SUPPORT_REVIEWED"
             export ATRIO_DELETION_SUPPORT_EMAIL="$ATRIO_PLAY_SUPPORT_EMAIL"

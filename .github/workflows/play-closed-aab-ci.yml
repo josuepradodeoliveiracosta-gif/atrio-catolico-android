@@ -114,7 +114,9 @@ jobs:
       - name: Validar alternativa de solicitação por atendimento público sem publicar
         run: |
           node --test cloudflare/account-deletion-support/build.test.mjs
+          node --test cloudflare/account-deletion-support/privacy-policy.test.mjs
           test ! -e cloudflare/account-deletion-support/dist/index.html
+          test ! -e cloudflare/account-deletion-support/policy-dist/privacidade/index.html
       - name: Testar portal de exclusão isolado e impedir habilitação de pedidos
         run: |
           node --check cloudflare/account-deletion-portal/public/app.js
