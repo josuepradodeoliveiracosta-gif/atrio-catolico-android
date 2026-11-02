@@ -9,6 +9,8 @@ import {
   getFirestore, doc, getDocFromServer, setDoc, serverTimestamp
 } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
 
+import {verifiedPortalDeletionRequest} from './deletion-request-state.js';
+
 const byId=id=>document.getElementById(id);
 const loginForm=byId('login-form');
 const actions=byId('account-actions');
@@ -60,21 +62,30 @@ if(!intakeEnabled) {
 
 async function checkRequest() {
   if(!user) return;
+  const requestUid=user.uid;
   serverChecked=false;
   requestButton.hidden=true;
-  const ref=doc(db,'account_deletion_requests',user.uid);
+  const ref=doc(db,'account_deletion_requests',requestUid);
   try {
-    // A origem obrigatória é o servidor, não uma cópia local potencialmente antiga.
+    // getDocFromServer pode refletir escrita local pendente: exija ACK remoto.
     const snapshot=await getDocFromServer(ref);
+    if(auth.currentUser?.uid!==requestUid || user?.uid!==requestUid) return;
+    if(snapshot.metadata.fromCache || snapshot.metadata.hasPendingWrites)
+      throw Error('request_not_confirmed_by_server');
     serverChecked=true;
     existing=snapshot.exists();
     if(existing){
-      say('Sua solicitação já consta no registro. Isso não significa que os dados foram excluídos.');
+      say(verifiedPortalDeletionRequest(snapshot)
+        ? 'Sua solicitação está confirmada no servidor. Isso não significa que os dados foram excluídos.'
+        : 'Existe um registro, mas o pedido não pôde ser validado. Nenhuma exclusão foi comprovada.');
     } else {
       requestButton.hidden=false;
       say('Nenhuma solicitação encontrada. Você pode registrar seu pedido.');
     }
   } catch {
+    if(auth.currentUser?.uid!==requestUid || user?.uid!==requestUid) return;
+    serverChecked=false;
+    requestButton.hidden=true;
     say('Não foi possível confirmar o estado do pedido. Verifique sua conexão e tente entrar novamente.');
   }
 }
@@ -121,18 +132,30 @@ requestButton.addEventListener('click',async()=>{
   if(!window.confirm('Deseja registrar a solicitação de exclusão da sua conta? A exclusão não ocorrerá imediatamente.')) return;
   lock(true);
   try {
-    // Revalidação contra mudança de sessão/estado antes da gravação.
-    if(auth.currentUser?.uid!==user.uid) throw Error('session_changed');
-    const ref=doc(db,'account_deletion_requests',user.uid);
+    // Revalidação contra mudança de sessão/estado antes e depois da gravação.
+    const requestUid=user.uid;
+    if(auth.currentUser?.uid!==requestUid) throw Error('session_changed');
+    const ref=doc(db,'account_deletion_requests',requestUid);
     const row=await getDocFromServer(ref);
+    if(auth.currentUser?.uid!==requestUid || user?.uid!==requestUid)
+      throw Error('session_changed');
+    if(row.metadata.fromCache || row.metadata.hasPendingWrites)
+      throw Error('request_not_confirmed_by_server');
+    if(row.exists() && !verifiedPortalDeletionRequest(row))
+      throw Error('existing_request_invalid');
     if(!row.exists()){
       await setDoc(ref,{
         status:'requested',source:'web',requestedAt:serverTimestamp()
       });
     }
+    // A confirmação é lida novamente do servidor; sucesso local não basta.
+    const confirmation=await getDocFromServer(ref);
+    if(auth.currentUser?.uid!==requestUid || user?.uid!==requestUid
+      || !verifiedPortalDeletionRequest(confirmation))
+      throw Error('request_confirmation_missing');
     existing=true;
     requestButton.hidden=true;
-    say('Solicitação registrada. A conta permanece ativa enquanto o processamento é analisado.');
+    say('Solicitação confirmada no servidor. A conta permanece ativa enquanto o processamento é analisado.');
   }catch {
     // Jamais afirmar que registrou quando a gravação é incerta.
     serverChecked=false;
