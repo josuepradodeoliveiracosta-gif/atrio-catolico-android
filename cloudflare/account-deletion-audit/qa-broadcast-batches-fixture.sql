@@ -33,3 +33,10 @@ INSERT INTO qa_bcast_accounts(uid) VALUES
  ('qa-batch-00'),('qa-batch-01'),('qa-batch-02'),('qa-batch-03'),
  ('qa-batch-04'),('qa-batch-05'),('qa-batch-06'),('qa-batch-07'),
  ('qa-batch-08');
+
+-- Durable replay defense for the QA HMAC Service Binding emulator.
+-- Nonces are never shared with a real Cloudflare D1 binding.
+CREATE TABLE qa_bcast_nonces (
+  nonce TEXT PRIMARY KEY,
+  created_ms INTEGER NOT NULL CHECK (created_ms>0)
+);

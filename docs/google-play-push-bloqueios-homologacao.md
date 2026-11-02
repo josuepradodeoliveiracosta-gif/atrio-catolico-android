@@ -203,3 +203,41 @@ e reconciliação com IAM independente), implementar captura exaustiva de
 usuários reais com visão consistente, dimensionar limites de custo e
 comprovar bloqueios e exclusão efetiva em homologação. O endpoint
 `POST /broadcast` continua bloqueado.
+
+## Simulação autenticada de serviços para lotes (PR #71, 02/11/2026)
+
+A etapa seguinte incorpora
+`cloudflare/account-deletion-audit/src/qa-batch-stage.js`, um **emulador local
+Node/SQLite de Service Binding**, com origem interna fixa,
+HMAC-SHA256 por função (`push`, `admin`, `reconciler`), nonce exclusivo
+persistido em `qa_bcast_nonces`, janela de autenticação de 60 segundos,
+corpo UTF-8 limitado e validação exata de rota, papel e escopo.
+O cliente chama apenas `binding.fetch` fornecido por injeção de
+dependências, sem nenhuma chamada à rede pública.
+
+O emissor de fixture pode planejar um comunicado e processar um lote.
+O administrador simulado pode consultar, iniciar e finalizar congelamento.
+Somente o reconciliador com segredo **separado** pode declarar a evidência
+sintética de um efeito e encerrar o respectivo registro. O consumo
+de um nonce é atômico e persiste no SQLite mesmo que uma operação seja
+negada; uma repetição idêntica é recusada após reabertura do banco.
+Falhas durante o envio simulado permanecem marcadas como ambíguas,
+interrompendo o lote e impedindo novo envio automático após reinício.
+
+A combinação dos testes do inventário de nove contas e deste protocolo
+avalia serialização entre processos, lotes 3+3+2, autenticidade,
+escopos de função, falsificação, replay, expiração, falha incerta,
+congelamento e conciliação sem FCM. **Esta não é uma integração com
+Cloudflare Workers ou D1 de produção:** a implementação usa
+`node:sqlite`/SQLite local e não tem configuração de publicação,
+rotas externas, credenciais reais nem suporte a UIDs de clientes.
+`STAGE_BINDING_READINESS` e `QA_BATCH_BINDING_READINESS` mantêm
+`productionIntegrated=false`.
+
+Antes de uma homologação externa com Worker separado serão necessários
+adaptador D1 compatível, persistência e IAM reais exclusivos de staging,
+revisão de privilégio/segredos, autenticação com isolamento de rede,
+controle de falhas de commit e de temporização, inventário completo
+consistente de usuários reais, políticas de consentimento e evidência
+de reconciliação independente. A candidata Play continua sem envio de
+comunicados por tópico e sem autorização para publicar.
