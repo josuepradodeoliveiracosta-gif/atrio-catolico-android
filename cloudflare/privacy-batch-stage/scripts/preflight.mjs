@@ -51,6 +51,53 @@ export function preflightBatchStage({template,schema,activeFiles=[],liveConfigs=
   return Object.freeze({ready:false,templateSafe:blocked.length===0,
     blocked:Object.freeze(blocked)});
 }
+/**
+ * Review read-only Cloudflare inventory, supplied by an operator or a GET-only
+ * audit. Never provisions D1/workers/secrets; never records account IDs in git.
+ * Distinct Worker names or databases in ONE account are NOT account isolation.
+ * A positive check still cannot authorize provisioning or deployment.
+ */
+export function assessQaCloudflareIsolation({
+  qaAccountId,operationalAccountIds,
+  qaWorkerName='atrio-qa-broadcast-cloud-internal',
+  qaDatabaseName='atrio-qa-broadcast-fixture-only',
+  workersByAccount,d1ByAccount
+}={}){
+  const issues=[];
+  const add=(k,ok)=>{if(!ok)issues.push(k);};
+  const idOk=id=>typeof id==='string'&&/^[a-f0-9]{32}$/.test(id);
+  add('qa_account_not_identified',idOk(qaAccountId));
+  add('operational_accounts_not_verified',
+    Array.isArray(operationalAccountIds)&&operationalAccountIds.length>=1&&
+    operationalAccountIds.every(idOk));
+  if(idOk(qaAccountId)&&Array.isArray(operationalAccountIds))
+    add('qa_account_must_be_separate',
+      !operationalAccountIds.includes(qaAccountId));
+  const workers=workersByAccount?.[qaAccountId];
+  const databases=d1ByAccount?.[qaAccountId];
+  add('qa_worker_inventory_missing',
+    Array.isArray(workers)&&workers.every(x=>typeof x==='string'));
+  add('qa_d1_inventory_missing',
+    Array.isArray(databases)&&databases.every(x=>typeof x==='string'));
+  if(Array.isArray(workers)){
+    add('operational_workers_in_qa_account',
+      !workers.some(x=>['atrio-push','atrio-avatares','atrio-guardian-v2']
+        .includes(x)));
+    add('target_worker_must_not_exist',!workers.includes(qaWorkerName));
+  }
+  if(Array.isArray(databases)){
+    add('operational_d1_in_qa_account',
+      !databases.some(x=>['atrio-push-delivery','atrio-avatar-control']
+        .includes(x)));
+    add('target_qa_d1_must_not_exist',!databases.includes(qaDatabaseName));
+  }
+  return Object.freeze({
+    distinctAccountEvidenced:issues.length===0,
+    provisioningAuthorized:false,
+    deployAuthorized:false,
+    blockers:Object.freeze(issues)
+  });
+}
 export function auditBatchStageRepo(){
   const read=p=>readFileSync(join(root,p),'utf8');
   const live={};

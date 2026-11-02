@@ -205,7 +205,10 @@ async function reconcile(db,{requestId,recipientUid,fixtureEvidence}){
 async function release(db,id){
   const r=await db.prepare(
     "UPDATE qa_bcast_jobs SET state='ready' "+
-    "WHERE request_id=? AND state IN ('halted','processing') "+
+    // Never unlock a PROCESSING job: the original worker might still be alive
+    // between two individual claims (there is no fencing epoch/heartbeat).
+    // Even with no inflight row, releasing it can admit a second worker.
+    "WHERE request_id=? AND state='halted' "+
     "AND NOT EXISTS(SELECT 1 FROM qa_bcast_deliveries "+
     "WHERE request_id=? AND state IN ('inflight','ambiguous')) "+
     "RETURNING request_id"

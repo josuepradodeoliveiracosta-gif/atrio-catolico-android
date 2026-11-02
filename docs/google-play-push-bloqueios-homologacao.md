@@ -296,3 +296,43 @@ Play/privacidade deve passar a \`verified:true\`.
 
 Sem alteração da \`main\`, dos backups, dos Workers implantados
 ou das credenciais de produção.
+
+## Auditoria Cloudflare somente de leitura e trava do lease ativo (02/11/2026)
+
+A consulta autenticada e **somente GET** da conexão Cloudflare atual
+retornou **uma conta acessível**, com bancos D1 e Workers operacionais e
+de QA coexistindo. Entre os recursos listados já existe o banco
+`atrio-privacy-freeze-stage-fixtures`, mas não consta o banco
+`atrio-qa-broadcast-fixture-only` nem o Worker
+`atrio-qa-broadcast-cloud-internal`. A presença de recursos de
+homologação **dentro da mesma conta** não demonstra separação de conta
+ou de privilégios administrativos. Nenhuma identidade de conta,
+identificador D1, segredo ou outro dado privado foi copiado ao código.
+Não foi feito provisionamento, deploy, gravação D1 nem modificação de
+recursos Cloudflare.
+
+O script de segurança `cloudflare/privacy-batch-stage/scripts/preflight.mjs`
+adiciona `assessQaCloudflareIsolation`, uma avaliação **puramente local**
+de inventários previamente consultados. Ela recusa a própria conta
+operacional, inventário de Workers/D1 ausente, recursos operacionais
+encontrados na conta candidata e colisão de nomes. Mesmo quando um
+inventário sintético representa uma conta limpa e independente,
+`provisioningAuthorized=false` e `deployAuthorized=false` continuam
+fixos; a função **não concede permissões**.
+
+Foi corrigida uma condição de corrida no Worker candidato:
+`/v1/release` anteriormente podia recolocar um job em `ready`
+quando seu estado era `processing`, mesmo entre duas reservas de
+destinatário (instante sem registro `inflight`). Isso podia liberar
+um segundo Worker enquanto o primeiro ainda estava executando.
+Agora a liberação exige `state='halted'`, além da ausência de
+tickets `ambiguous` ou `inflight`. Um job órfão em `processing`
+permanece bloqueado: sem um protocolo de lease com época/fencing token
+e prova de término do executor original, **não é seguro reativá-lo**.
+A retomada automatizada de jobs órfãos segue pendente.
+
+A nova cobertura direcionada confirma que uma conta única não atende
+aos critérios de isolamento, que uma candidata sem inventário não é
+liberada, e que uma tentativa de liberar um lease `processing`
+falha sem permitir reenvios. Sem tocar na `main`, backups,
+produções, status dos requisitos Play ou gatilhos de publicação.

@@ -6,7 +6,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import worker,{QA_STAGE_ID,QA_STAGE_HOST,QA_CLOUD_STAGE_READINESS}
   from '../../privacy-batch-stage/src/index.js';
-import {preflightBatchStage,auditBatchStageRepo}
+import {preflightBatchStage,auditBatchStageRepo,assessQaCloudflareIsolation}
   from '../../privacy-batch-stage/scripts/preflight.mjs';
 const migration=readFileSync(
   new URL('../../privacy-batch-stage/migrations/0001_fixture_only.sql',import.meta.url),'utf8');
@@ -222,5 +222,61 @@ test('missing env ID, D1 or HMAC fails closed with no database or network side e
       await denied(await worker.fetch(await signed(other,'push','/v1/plan',{requestId}),other));
     }
     assert.equal(s.raw().prepare('SELECT COUNT(*) AS n FROM qa_bcast_nonces').get().n,0);
+  })}finally{s.close()}
+});
+
+test('read-only Cloudflare account inventory requires a genuinely separate QA account',()=>{
+  const productionId='a'.repeat(32),qaId='b'.repeat(32);
+  const oneAccount=assessQaCloudflareIsolation({
+    qaAccountId:productionId,operationalAccountIds:[productionId],
+    workersByAccount:{[productionId]:['atrio-push','atrio-privacy-freeze-qa-internal']},
+    d1ByAccount:{[productionId]:['atrio-push-delivery','atrio-privacy-freeze-stage-fixtures']}
+  });
+  assert.equal(oneAccount.distinctAccountEvidenced,false);
+  assert.ok(oneAccount.blockers.includes('qa_account_must_be_separate'));
+  assert.ok(oneAccount.blockers.includes('operational_workers_in_qa_account'));
+  assert.equal(oneAccount.provisioningAuthorized,false);
+  assert.equal(oneAccount.deployAuthorized,false);
+  const unknown=assessQaCloudflareIsolation({
+    qaAccountId:qaId,operationalAccountIds:[productionId]
+  });
+  assert.equal(unknown.distinctAccountEvidenced,false);
+  assert.ok(unknown.blockers.includes('qa_d1_inventory_missing'));
+  const cleanFixture=assessQaCloudflareIsolation({
+    qaAccountId:qaId,operationalAccountIds:[productionId],
+    workersByAccount:{[qaId]:[]},d1ByAccount:{[qaId]:[]}
+  });
+  assert.equal(cleanFixture.distinctAccountEvidenced,true);
+  assert.equal(cleanFixture.provisioningAuthorized,false);
+  assert.equal(cleanFixture.deployAuthorized,false);
+  const collisions=assessQaCloudflareIsolation({
+    qaAccountId:qaId,operationalAccountIds:[productionId],
+    workersByAccount:{[qaId]:['atrio-qa-broadcast-cloud-internal']},
+    d1ByAccount:{[qaId]:['atrio-qa-broadcast-fixture-only']}
+  });
+  assert.equal(collisions.distinctAccountEvidenced,false);
+  assert.ok(collisions.blockers.includes('target_worker_must_not_exist'));
+  assert.ok(collisions.blockers.includes('target_qa_d1_must_not_exist'));
+});
+
+test('reconciler cannot release a processing lease between individual claims',async()=>{
+  const s=store();try{await offline(async()=>{
+    assert.equal((await call(s.env,'push','/v1/plan',{requestId})).status,200);
+    // Simulate a worker in a live lease between two D1 claims: no inflight row.
+    const changed=s.raw().prepare(
+      "UPDATE qa_bcast_jobs SET state='processing' WHERE request_id=?"
+    ).run(requestId);
+    assert.equal(changed.changes,1);
+    await denied(await call(s.env,'reconciler','/v1/release',{
+      requestId,fixtureEvidence:'qa-reviewed-lease'
+    }));
+    assert.equal((await call(s.env,'push','/v1/process',{
+      requestId,mode:'qa-accept'
+    })).status,200);
+    assert.equal(s.raw().prepare(
+      'SELECT state FROM qa_bcast_jobs WHERE request_id=?'
+    ).get(requestId).state,'processing');
+    assert.equal(delivery(s).filter(d=>d.state==='queued').length,8);
+    // Without proof of owner death/epoch fencing, this job stays unavailable.
   })}finally{s.close()}
 });
