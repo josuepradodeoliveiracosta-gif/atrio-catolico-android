@@ -20,6 +20,10 @@ const post=(db,uid,id)=>setDoc(doc(db,'posts/'+id),{
   title:'Discussão de teste',body:'Texto de teste para a comunidade',
   category:'Liturgia',createdAt:serverTimestamp()
 });
+// Edicao preserva contrato atual do post: apenas texto + timestamp do servidor.
+const editPost=(db,id,title)=>updateDoc(doc(db,'posts/'+id),{
+  title,updatedAt:serverTimestamp()
+});
 const reply=(db,id,uid)=>setDoc(doc(db,'posts/prior/replies/'+id),{
   uid,authorName:uid==='terms-alice'?'Alice':'Bob',
   body:'Resposta de QA',createdAt:serverTimestamp()
@@ -45,6 +49,8 @@ try {
   });
   await check('legado sem config continua criando post',()=>assertSucceeds(
     post(alice,'terms-alice','prior')));
+  await check('sem configuração, cliente legado ainda edita post próprio',()=>assertSucceeds(
+    editPost(alice,'prior','Discussão original revisada')));
   await check('cliente nao define configuracao dos termos',()=>assertFails(
     setDoc(doc(alice,configPath),config('community-v1'))));
   await check('cliente nao publica aceite antes da politica efetiva',()=>assertFails(
@@ -59,6 +65,8 @@ try {
     post(alice,'terms-alice','new1')));
   await check('sem aceite nenhuma resposta nova',()=>assertFails(
     reply(bob,'reply1','terms-bob')));
+  await check('cliente antigo não edita post após publicação de termos',()=>assertFails(
+    editPost(alice,'prior','Tentativa antes de aceitar os termos')));
   await check('nao aceitar na conta alheia',()=>assertFails(
     acceptance(alice,'terms-bob','community-v1')));
   await check('nao aceitar versao inexistente',()=>assertFails(
@@ -83,28 +91,36 @@ try {
     await assertFails(updateDoc(ref,{acceptedAt:serverTimestamp()}));
     await assertFails(deleteDoc(ref));
   });
-  await check('titular autorizado publica e responde',async()=>{
+  await check('titular autorizado publica, edita e responde',async()=>{
     await assertSucceeds(post(alice,'terms-alice','new2'));
+    await assertSucceeds(editPost(alice,'prior','Publicação revista com aceite vigente'));
+    await assertSucceeds(editPost(alice,'new2','Discussão nova editada'));
     await assertSucceeds(reply(alice,'reply2','terms-alice'));
   });
   await check('nao basta o aceite de outro usuario',()=>assertFails(
     post(bob,'terms-bob','new3')));
   await adminWrite(config('community-v2'));
-  await check('nova versao invalida aceite antigo',async()=>{
+  await check('nova versao invalida aceite antigo inclusive edição',async()=>{
     await assertFails(post(alice,'terms-alice','new4'));
     await assertFails(reply(alice,'reply3','terms-alice'));
+    await assertFails(editPost(alice,'prior','Sem aceite da nova versão'));
+    await assertFails(editPost(alice,'new2','Alteração indevida após troca dos termos'));
   });
-  await check('aceite da nova versao reabilita publicacao',async()=>{
+  await check('aceite da nova versao reabilita publicação e edição',async()=>{
     await assertSucceeds(acceptance(alice,'terms-alice','community-v2'));
     await assertSucceeds(post(alice,'terms-alice','new5'));
+    await assertSucceeds(editPost(alice,'prior','Revisada após aceite v2'));
   });
   await adminWrite(config('community-v3',true,false));
-  await check('config publicada false nega criacao mesmo que aceites antigos existam',async()=>{
+  await check('política não publicada nega criação e edição',async()=>{
     await assertFails(post(alice,'terms-alice','new6'));
+    await assertFails(editPost(alice,'prior','Sem política publicada'));
     await assertFails(acceptance(alice,'terms-alice','community-v3'));
   });
   await adminWrite(config('community-v3',false,false));
-  await check('enforce=false permite legado ate ativacao controlada',()=>assertSucceeds(
-    post(bob,'terms-bob','legacy2')));
+  await check('enforce=false preserva post e edição do legado antes da ativação',async()=>{
+    await assertSucceeds(post(bob,'terms-bob','legacy2'));
+    await assertSucceeds(editPost(bob,'legacy2','Edição do cliente legado liberada'));
+  });
   console.log('OK: '+passed+' cenarios de termos e publicacao no emulador');
 }finally{await env.cleanup()}

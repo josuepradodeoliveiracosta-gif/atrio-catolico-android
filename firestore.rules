@@ -305,8 +305,11 @@ service cloud.firestore {
       // Aplicativo ainda não publicado: exigir updatedAt em toda edição.
       // Isso impede edições que não geram evento para o Guardião V2.
       // Somente para testes até distribuir APK Debug compatível.
+      // Uma edição também é UGC novo: cliente antigo não pode contornar
+      // o aceite da versão atual dos Termos depois da publicação da política.
       allow update: if signedIn() && accountWritable(request.auth.uid)
         && resource.data.uid == request.auth.uid
+        && communityTermsMayPublish(request.auth.uid)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'body', 'updatedAt'])
         && request.resource.data.diff(resource.data).affectedKeys().hasAll(['updatedAt'])
         && request.resource.data.updatedAt == request.time

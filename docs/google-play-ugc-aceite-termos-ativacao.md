@@ -39,3 +39,35 @@ O documento real deverá conter URL HTTPS pública validada e versão efetivamen
 O filtro de bloqueio de usuários implementado na PR #71 tem partes no cliente e ainda depende da integração com Workers de Push e testes completos. A política de privacidade e o portal de exclusão real continuam pendentes na PR #98. O gate de assinatura Play continua bloqueado. **Não executar o exemplo de configuração acima em Firebase real.**
 
 Teste de contrato: `tests/security/community-terms.test.mjs`; suite no `tests/security/package.json`. A PR #98 rastreia `acceptedTerms/*` no inventário de exclusão, ainda sem apagar dados.
+
+## Correção do desvio em edições UGC — 02/11/2026
+
+**Falha encontrada:** `firestore.rules` já exigia
+`communityTermsMayPublish(request.auth.uid)` na criação de posts
+e de respostas, mas não no `update` de posts. Isso permitia que
+um cliente legado editasse discussões após a publicação ou alteração
+da versão vigente dos Termos, sem obter novo aceite.
+
+**Correção em PR #71, sem deploy:** a edição de post próprio
+também exige, no Firestore Rules, o aceite da política publicada
+e vigente. A regra mantém inalteradas a autoria, os campos que
+podem ser modificados, `updatedAt == request.time`, a capacidade
+de remover conteúdo próprio e a compatibilidade para clientes legados
+quando a política ainda não foi ativada (`enforce:false` ou
+configuração inexistente).
+
+O teste `tests/security/community-terms.test.mjs` foi ampliado
+para comprovar no **Firestore Emulator**: edição permitida antes
+da ativação; edição negada sem aceite; permitida com aceite atual;
+negada novamente depois da mudança de versão; negada se a política
+deixar de estar publicada; novamente permitida quando a exigência
+estiver explicitamente desativada em QA. O teste já faz parte do
+`npm test` existente em `tests/security` executado no CI
+`selos-ci.yml`: não há necessidade de workflow adicional.
+
+**Não publicar as regras diretamente no Firebase real.**
+A alteração exige revisão da política oficial, ativação administrada,
+teste de clientes legados no aparelho e conferência dos demais
+serviços de moderação. `terms_accepted_before_ugc.verified` continua
+`false` até validação efetiva, com revisor, evidência e data. A
+implementação não abre o Play Console nem assina o AAB.
