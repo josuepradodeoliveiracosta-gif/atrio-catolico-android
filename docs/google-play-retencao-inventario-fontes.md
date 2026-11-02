@@ -111,3 +111,45 @@ Preenchimento nunca autoriza assinar AAB, implantar executor ou apagar dados.
 
 A suíte Node existente executa os testes de regressão da ficha;
 não cria novo workflow nem recompila desnecessariamente o Android.
+
+## Ordem prática de revisão no celular (02/11/2026)
+
+A ficha privada de 43 fontes já foi gerada e validada no Termux pelo
+responsável: `sources:43`, `blank:43`, `incomplete:0`,
+`readyForIndependentReview:0`, sem autorizações de exclusão ou Play.
+
+Para deixar claro por onde começar, foi criado
+`cloudflare/account-deletion-audit/src/qa-retention-review-priorities.js`.
+A classificação separa exaustivamente as 43 fontes em seis grupos,
+com perguntas iniciais **não jurídicas** e prioridades de investigação:
+
+| Ordem | Tema | Fontes |
+| --- | --- | ---: |
+| 1 | Identidade, contas e exclusão | 6 |
+| 2 | Conteúdo, perfis e dados religiosos | 7 |
+| 3 | Denúncias, Guardião e terceiros | 9 |
+| 4 | Notificações, FCM e eventos Push | 6 |
+| 5 | Fotos, Avatar, Cloudinary e D1 | 7 |
+| 6 | Preferências, bloqueios e configurações | 8 |
+
+No Termux, após `git pull --ff-only` na branch da PR #71:
+
+```bash
+node cloudflare/account-deletion-audit/src/qa-retention-review-priorities.js \
+  --review-plan "$HOME/atrio-retencao-revisao-privada.json"
+```
+
+A saída mostra exclusivamente **nomes de fontes do esquema, totais e
+perguntas de análise**, nunca as justificativas que forem digitadas
+na ficha, tokens, e-mails particulares ou identificadores de contas.
+Nenhuma informação privada é enviada ao GitHub ou a servidor remoto.
+
+A ordem é operacional, **não um parecer jurídico nem um sistema de
+classificação automática de riscos reais**. Não preencher decisões,
+prazos nem bases jurídicas sem análise fundamentada de finalidade,
+retenção, direitos de terceiros e serviços efetivamente implantados.
+
+Mesmo depois da revisão de todos os grupos, a ferramenta sempre
+retorna `retentionApproved:false`, `deletionAuthorized:false` e
+`playAuthorized:false`. A abertura para publicação depende de
+evidência real, revisão independente e executor homologado.
