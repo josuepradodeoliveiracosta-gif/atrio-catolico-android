@@ -336,3 +336,40 @@ aos critérios de isolamento, que uma candidata sem inventário não é
 liberada, e que uma tentativa de liberar um lease `processing`
 falha sem permitir reenvios. Sem tocar na `main`, backups,
 produções, status dos requisitos Play ou gatilhos de publicação.
+
+## Barreira de execução por geração e token em lotes D1 de QA (02/11/2026)
+
+Em `cloudflare/privacy-batch-stage`, cada aquisição atômica de
+`ready -> processing` recebe um **UUID novo de execução** e incrementa
+`lease_generation` no banco. Ambos ficam associados ao job de teste.
+A reivindicação de cada destinatário (`queued -> inflight`) e a
+confirmação simulada (`inflight -> acked/ambiguous`) exigem, na **mesma
+operação SQL**, que o job ainda esteja em `processing` com o token
+daquela execução. Atualizações sem posse atual são negadas e nunca
+forçam a conclusão do ticket. Encerrar ou interromper um lote exige
+o token correto e limpa o token registrado.
+
+Também ficou vedado reconciliar um ticket `queued` com evidência
+`qa-reviewed-never-started` **enquanto o job estiver em
+`processing`**. A verificação ocorre no próprio `UPDATE` para
+resistir à disputa com outro Worker. Um encerramento prematuro poderia
+liberar o congelamento de conta enquanto um emissor ativo ainda
+estivesse prestes a reclamar o destinatário.
+
+Os testes adicionais introduzem uma troca de token sintética **entre
+a aquisição da execução e a reserva de destinatário**, e outra
+**entre a reserva e o registro do resultado**, verificando que nenhuma
+execução antiga consegue prosseguir. Há teste separado para recusar
+a reconciliação de pendências `queued` durante execução ativa.
+
+**Limite importante:** um token de geração impede escrita tardia após
+troca de posse, mas *não comprova que um efeito FCM externo foi
+interrompido*. O job órfão em `processing` permanece bloqueado,
+sem retomada automática, até existir um protocolo adicional com prova
+independente de quiescência. O sistema simula estados; não envia
+notificações reais e não assegura publicação Play.
+
+A Cloudflare conectada continua exibindo somente uma conta, misturando
+recursos operacionais e de QA; isso **não satisfaz o isolamento
+necessário**. Sem criar conta, D1, Worker, segredos ou deploy;
+sem alterações da `main`, produção ou backups.

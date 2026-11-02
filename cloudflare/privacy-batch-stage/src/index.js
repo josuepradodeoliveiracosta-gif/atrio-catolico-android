@@ -134,7 +134,7 @@ async function plan(db,id){
   return {status:result[0]?.meta?.changes===1?'qa_planned':'qa_duplicate_plan',
     queued:8,productionReady:false};
 }
-async function one(db,id,uid){
+async function one(db,id,uid,leaseToken){
   return db.prepare(
     "UPDATE qa_bcast_deliveries SET state='inflight' "+
     "WHERE request_id=? AND recipient_uid=? AND state='queued' "+
@@ -142,18 +142,31 @@ async function one(db,id,uid){
       "WHERE a.uid=recipient_uid AND a.state='active') "+
     "AND EXISTS (SELECT 1 FROM qa_bcast_jobs j "+
       "JOIN qa_bcast_accounts a ON a.uid=j.actor_uid "+
-      "WHERE j.request_id=qa_bcast_deliveries.request_id AND a.state='active') "+
+      "WHERE j.request_id=qa_bcast_deliveries.request_id AND a.state='active' "+
+      "AND j.state='processing' AND j.lease_token=?) "+
     "RETURNING recipient_uid"
-  ).bind(id,uid).first();
+  ).bind(id,uid,leaseToken).first();
+}
+async function haltOwned(db,id,leaseToken){
+  const changed=await db.prepare(
+    "UPDATE qa_bcast_jobs SET state='halted',lease_token=NULL "+
+    "WHERE request_id=? AND state='processing' AND lease_token=?"
+  ).bind(id,leaseToken).run();
+  if(changed?.success!==true||changed.meta?.changes!==1)deny();
 }
 async function process(db,id,mode){
+  // Each lease has a unique, non-reusable identity and a monotonic epoch.
+  // Old executions cannot claim or acknowledge after another lease wins.
+  const leaseToken=crypto.randomUUID();
   const lease=await db.prepare(
-    "UPDATE qa_bcast_jobs SET state='processing' "+
-    "WHERE request_id=? AND state='ready' "+
+    "UPDATE qa_bcast_jobs SET state='processing',lease_token=?, "+
+      "lease_generation=lease_generation+1 "+
+    "WHERE request_id=? AND state='ready' AND lease_token IS NULL "+
+    "AND lease_generation<999999 "+
     "AND NOT EXISTS (SELECT 1 FROM qa_bcast_deliveries "+
       "WHERE request_id=? AND state IN ('ambiguous','inflight')) "+
-    "RETURNING request_id"
-  ).bind(id,id).first();
+    "RETURNING request_id,lease_generation"
+  ).bind(leaseToken,id,id).first();
   if(!lease)return {status:'qa_batch_not_admitted',productionReady:false};
   let attempted=0;
   const q=await db.prepare(
@@ -162,28 +175,31 @@ async function process(db,id,mode){
   ).bind(id).all();
   if(q?.success!==true||!Array.isArray(q.results))deny();
   for(const item of q.results){
-    const claimed=await one(db,id,item.recipient_uid);
+    const claimed=await one(db,id,item.recipient_uid,leaseToken);
     if(!claimed){
-      await db.prepare("UPDATE qa_bcast_jobs SET state='halted' "+
-        "WHERE request_id=? AND state='processing'").bind(id).run();
+      await haltOwned(db,id,leaseToken);
       return {status:'qa_batch_frozen_or_denied',attempted,productionReady:false};
     }
     attempted++;
     const uncertain=mode==='qa-ambiguous-at-2'&&attempted===2;
     const marked=await db.prepare(
       "UPDATE qa_bcast_deliveries SET state=? "+
-      "WHERE request_id=? AND recipient_uid=? AND state='inflight'"
-    ).bind(uncertain?'ambiguous':'acked',id,item.recipient_uid).run();
+      "WHERE request_id=? AND recipient_uid=? AND state='inflight' "+
+      "AND EXISTS (SELECT 1 FROM qa_bcast_jobs j "+
+      "WHERE j.request_id=qa_bcast_deliveries.request_id "+
+      "AND j.state='processing' AND j.lease_token=?)"
+    ).bind(uncertain?'ambiguous':'acked',id,item.recipient_uid,leaseToken).run();
     if(marked?.success!==true||marked.meta?.changes!==1)deny();
     if(uncertain){
-      await db.prepare("UPDATE qa_bcast_jobs SET state='halted' "+
-        "WHERE request_id=? AND state='processing'").bind(id).run();
+      await haltOwned(db,id,leaseToken);
       return {status:'qa_batch_ambiguous_pending_review',
         attempted,productionReady:false};
     }
   }
-  const released=await db.prepare("UPDATE qa_bcast_jobs SET state='ready' "+
-    "WHERE request_id=? AND state='processing'").bind(id).run();
+  const released=await db.prepare(
+    "UPDATE qa_bcast_jobs SET state='ready',lease_token=NULL "+
+    "WHERE request_id=? AND state='processing' AND lease_token=?"
+  ).bind(id,leaseToken).run();
   if(released?.success!==true||released.meta?.changes!==1)deny();
   return {status:attempted?'qa_batch_accepted_pending_review':'qa_batch_no_new_recipients',
     attempted,productionReady:false};
@@ -197,7 +213,10 @@ async function reconcile(db,{requestId,recipientUid,fixtureEvidence}){
   if(!allowed.includes(current?.state))deny();
   const done=await db.prepare(
     "UPDATE qa_bcast_deliveries SET state='reconciled' "+
-    "WHERE request_id=? AND recipient_uid=? AND state=?"
+    "WHERE request_id=? AND recipient_uid=? AND state=? "+
+    "AND (state!='queued' OR EXISTS (SELECT 1 FROM qa_bcast_jobs j "+
+       "WHERE j.request_id=qa_bcast_deliveries.request_id "+
+       "AND j.state IN ('ready','halted')))"
   ).bind(requestId,recipientUid,current.state).run();
   if(done?.success!==true||done.meta?.changes!==1)deny();
   return {status:'qa_independently_reconciled',productionReady:false};
@@ -206,9 +225,9 @@ async function release(db,id){
   const r=await db.prepare(
     "UPDATE qa_bcast_jobs SET state='ready' "+
     // Never unlock a PROCESSING job: the original worker might still be alive
-    // between two individual claims (there is no fencing epoch/heartbeat).
+    // between two individual claims (epoch fencing is not liveness proof).
     // Even with no inflight row, releasing it can admit a second worker.
-    "WHERE request_id=? AND state='halted' "+
+    "WHERE request_id=? AND state='halted' AND lease_token IS NULL "+
     "AND NOT EXISTS(SELECT 1 FROM qa_bcast_deliveries "+
     "WHERE request_id=? AND state IN ('inflight','ambiguous')) "+
     "RETURNING request_id"

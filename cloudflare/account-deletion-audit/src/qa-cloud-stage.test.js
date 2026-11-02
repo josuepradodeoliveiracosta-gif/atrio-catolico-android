@@ -130,6 +130,11 @@ test('HMAC roles plan nine local identities and batch mock state 3+3+2 without F
     }
     assert.equal(delivery(s).length,8);
     assert.ok(delivery(s).every(x=>x.state==='acked'));
+    const lease=s.raw().prepare(
+      'SELECT lease_token,lease_generation FROM qa_bcast_jobs WHERE request_id=?'
+    ).get(requestId);
+    assert.equal(lease.lease_token,null);
+    assert.equal(lease.lease_generation,4);
     assert.equal(QA_CLOUD_STAGE_READINESS.deployed,false);
     assert.equal(QA_CLOUD_STAGE_READINESS.FcmEnabled,false);
   })}finally{s.close()}
@@ -264,8 +269,9 @@ test('reconciler cannot release a processing lease between individual claims',as
     assert.equal((await call(s.env,'push','/v1/plan',{requestId})).status,200);
     // Simulate a worker in a live lease between two D1 claims: no inflight row.
     const changed=s.raw().prepare(
-      "UPDATE qa_bcast_jobs SET state='processing' WHERE request_id=?"
-    ).run(requestId);
+      "UPDATE qa_bcast_jobs SET state='processing',lease_token=?, "+
+      "lease_generation=lease_generation+1 WHERE request_id=?"
+    ).run(crypto.randomUUID(),requestId);
     assert.equal(changed.changes,1);
     await denied(await call(s.env,'reconciler','/v1/release',{
       requestId,fixtureEvidence:'qa-reviewed-lease'
@@ -278,5 +284,110 @@ test('reconciler cannot release a processing lease between individual claims',as
     ).get(requestId).state,'processing');
     assert.equal(delivery(s).filter(d=>d.state==='queued').length,8);
     // Without proof of owner death/epoch fencing, this job stays unavailable.
+  })}finally{s.close()}
+});
+
+test('reconciler refuses to discard queued obligations during a live processing lease',async()=>{
+  const s=store();try{await offline(async()=>{
+    await call(s.env,'push','/v1/plan',{requestId});
+    s.raw().prepare(
+      "UPDATE qa_bcast_jobs SET state='processing',lease_token=?, "+
+      "lease_generation=lease_generation+1 WHERE request_id=?"
+    ).run(crypto.randomUUID(),requestId);
+    await denied(await call(s.env,'reconciler','/v1/reconcile',{
+      requestId,recipientUid:uid(1),fixtureEvidence:'qa-reviewed-never-started'
+    }));
+    assert.equal(delivery(s)[0].state,'queued');
+    assert.equal((await call(s.env,'admin','/v1/drain',{uid:uid(1)})).status,200);
+    await denied(await call(s.env,'admin','/v1/finalize',{uid:uid(1)}));
+    await denied(await call(s.env,'reconciler','/v1/release',{
+      requestId,fixtureEvidence:'qa-reviewed-lease'
+    }));
+  })}finally{s.close()}
+});
+
+test('old execution token cannot claim another recipient after replacement',async()=>{
+  const s=store();try{await offline(async()=>{
+    await call(s.env,'push','/v1/plan',{requestId});
+    const original=s.env.QA_BATCH_STAGE_DB;
+    let rotated=false;
+    s.env.QA_BATCH_STAGE_DB={
+      batch:original.batch,
+      prepare(sql){
+        const prepared=original.prepare(sql);
+        if(!sql.startsWith("UPDATE qa_bcast_deliveries SET state='inflight'"))
+          return prepared;
+        return {
+          bind(...args){
+            const operation=prepared.bind(...args);
+            return {...operation,async first(){
+              if(!rotated){
+                rotated=true;
+                s.raw().prepare(
+                  "UPDATE qa_bcast_jobs SET lease_token=? "+
+                  "WHERE request_id=? AND state='processing'"
+                ).run(crypto.randomUUID(),requestId);
+              }
+              return operation.first();
+            }};
+          }
+        };
+      }
+    };
+    await denied(await call(s.env,'push','/v1/process',{
+      requestId,mode:'qa-accept'
+    }));
+    assert.equal(rotated,true);
+    assert.ok(delivery(s).every(row=>row.state==='queued'));
+    assert.equal(s.raw().prepare(
+      'SELECT state FROM qa_bcast_jobs WHERE request_id=?'
+    ).get(requestId).state,'processing');
+    assert.equal((await (await call(s.env,'push','/v1/process',{
+      requestId,mode:'qa-accept'
+    })).json()).status,'qa_batch_not_admitted');
+  })}finally{s.close()}
+});
+
+test('old execution token cannot acknowledge after losing ownership mid-delivery',async()=>{
+  const s=store();try{await offline(async()=>{
+    await call(s.env,'push','/v1/plan',{requestId});
+    const original=s.env.QA_BATCH_STAGE_DB;
+    let rotated=false;
+    s.env.QA_BATCH_STAGE_DB={
+      batch:original.batch,
+      prepare(sql){
+        const prepared=original.prepare(sql);
+        if(!sql.startsWith("UPDATE qa_bcast_deliveries SET state=?"))
+          return prepared;
+        return {
+          bind(...args){
+            const operation=prepared.bind(...args);
+            return {...operation,async run(){
+              if(!rotated){
+                rotated=true;
+                s.raw().prepare(
+                  "UPDATE qa_bcast_jobs SET lease_token=? "+
+                  "WHERE request_id=? AND state='processing'"
+                ).run(crypto.randomUUID(),requestId);
+              }
+              return operation.run();
+            }};
+          }
+        };
+      }
+    };
+    await denied(await call(s.env,'push','/v1/process',{
+      requestId,mode:'qa-accept'
+    }));
+    assert.equal(rotated,true);
+    assert.equal(delivery(s)[0].state,'inflight');
+    assert.equal(delivery(s).filter(row=>row.state==='acked').length,0);
+    assert.equal((await call(s.env,'admin','/v1/drain',{
+      uid:uid(1)
+    })).status,200);
+    await denied(await call(s.env,'admin','/v1/finalize',{uid:uid(1)}));
+    assert.equal((await (await call(s.env,'push','/v1/process',{
+      requestId,mode:'qa-accept'
+    })).json()).status,'qa_batch_not_admitted');
   })}finally{s.close()}
 });

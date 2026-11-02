@@ -14,7 +14,12 @@ CREATE TABLE qa_bcast_jobs (
   revision TEXT NOT NULL CHECK (revision='qa-revision-cloud-v1'),
   manifest_hash TEXT NOT NULL CHECK (manifest_hash='fixture-only-immutable-9-accounts'),
   state TEXT NOT NULL DEFAULT 'ready'
-    CHECK (state IN ('ready','processing','halted'))
+    CHECK (state IN ('ready','processing','halted')),
+  lease_generation INTEGER NOT NULL DEFAULT 0
+    CHECK (lease_generation BETWEEN 0 AND 999999),
+  lease_token TEXT CHECK (lease_token IS NULL OR length(lease_token)=36),
+  CHECK ((state='processing' AND lease_token IS NOT NULL) OR
+    (state IN ('ready','halted') AND lease_token IS NULL))
 );
 CREATE TABLE qa_bcast_deliveries (
   request_id TEXT NOT NULL REFERENCES qa_bcast_jobs(request_id),
