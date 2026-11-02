@@ -494,5 +494,48 @@ class ManualSupportDeletionGateTests(unittest.TestCase):
         self.assertIn("play_deletion_portal_intake_not_approved",
                       self.check(self.root, "https://atrio-catolico.org/excluir-conta"))
 
+
+class InAppExternalDeletionLinkTests(unittest.TestCase):
+    """Only source inspection, no user devices or external sites touched."""
+
+    def test_real_android_source_has_web_link_and_failure_fallbacks(self):
+        from play_release_gate import account_deletion_in_app_link_blockers
+        root = Path(__file__).resolve().parents[1]
+        self.assertEqual(account_deletion_in_app_link_blockers(root), [])
+
+    def test_missing_implementation_is_never_silently_approved(self):
+        from play_release_gate import account_deletion_in_app_link_blockers
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            code = root / "app/src/main/java/br/com/atriocatolico"
+            code.mkdir(parents=True)
+            gradle = root / "app/build.gradle.kts"
+            ui = code / "AccountDeletionRequestSection.kt"
+            self.assertIn("source_missing",
+                          account_deletion_in_app_link_blockers(root)[0])
+            gradle.write_text("android {}")
+            ui.write_text('Button() { Text("excluir") }')
+            failures = account_deletion_in_app_link_blockers(root)
+            self.assertIn("play_external_deletion_link_buildconfig_missing", failures)
+            self.assertIn("play_external_deletion_link_in_app_missing", failures)
+            self.assertIn("play_external_deletion_link_failure_states_missing", failures)
+
+    def test_in_app_link_cannot_be_substituted_with_unrelated_uri(self):
+        from play_release_gate import account_deletion_in_app_link_blockers
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            code = root / "app/src/main/java/br/com/atriocatolico"
+            code.mkdir(parents=True)
+            gradle = root / "app/build.gradle.kts"
+            ui = code / "AccountDeletionRequestSection.kt"
+            gradle.write_text('System.getenv("ATRIO_DELETION_PORTAL_URL") ' +
+                              'buildConfigField("String", "DELETION_WEB_URL", "test")')
+            ui.write_text('BuildConfig.DELETION_WEB_URL.isNotBlank() ' +
+                          'uriHandler.openUri("https://other.example") ' +
+                          'testTag("atrio-deletion-web-open") ' +
+                          'atrio-deletion-web-pending atrio-deletion-web-fallback')
+            failures = account_deletion_in_app_link_blockers(root)
+            self.assertIn("play_external_deletion_link_in_app_missing", failures)
+
 if __name__ == "__main__":
     unittest.main()

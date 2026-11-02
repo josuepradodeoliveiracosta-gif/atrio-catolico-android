@@ -72,6 +72,26 @@ android {
             !policyUrl.contains('\r')
         )) { "ATRIO_PRIVACY_POLICY_URL deve ser uma URL HTTPS de politica publica, sem parametros" }
         buildConfigField("String", "PRIVACY_POLICY_URL", "\"$policyUrl\"")
+
+        // Link externo exigido pela Play para iniciar exclusão mesmo sem app.
+        // Em builds QA, o valor fica vazio. Nunca publicar placeholders.
+        val deletionWebUrl = System.getenv("ATRIO_DELETION_PORTAL_URL").orEmpty()
+        val deletionWebUri = runCatching { URI(deletionWebUrl) }.getOrNull()
+        require(deletionWebUrl.isBlank() || (
+            deletionWebUrl.length <= 2048 &&
+            deletionWebUri?.scheme == "https" &&
+            deletionWebUri.host?.contains(".") == true &&
+            deletionWebUri.userInfo == null &&
+            deletionWebUri.query == null &&
+            deletionWebUri.fragment == null &&
+            (deletionWebUri.port == -1 || deletionWebUri.port == 443) &&
+            !deletionWebUrl.contains('"') &&
+            !deletionWebUrl.contains('\\') &&
+            !deletionWebUrl.contains('\n') &&
+            !deletionWebUrl.contains('\r')
+        )) { "ATRIO_DELETION_PORTAL_URL deve ser HTTPS público sem parâmetros" }
+        buildConfigField("String", "DELETION_WEB_URL", "\"$deletionWebUrl\"")
+
     }
 
     signingConfigs {

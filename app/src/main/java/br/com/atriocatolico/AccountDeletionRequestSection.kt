@@ -59,6 +59,7 @@ internal fun AccountDeletionRequestSection(db: FirebaseFirestore, uid: String) {
     var confirmation by remember(db, uid) { mutableStateOf(false) }
     var serial by remember(db, uid) { mutableIntStateOf(0) }
     var mailAppUnavailable by remember(db, uid) { mutableStateOf(false) }
+    var webAppUnavailable by remember(db, uid) { mutableStateOf(false) }
     val uriHandler = LocalUriHandler.current
     val lifetime = remember(db, uid) { AccountRequestLifetime() }
     DisposableEffect(lifetime) { onDispose { lifetime.active = false } }
@@ -146,6 +147,32 @@ internal fun AccountDeletionRequestSection(db: FirebaseFirestore, uid: String) {
                     ACCOUNT_DELETION_SUPPORT_EMAIL,
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.testTag("atrio-deletion-support-address")
+                )
+            }
+            // O link público da Google Play é independente do pedido
+            // autenticado. Sem URL auditada, a variante Play mostra que
+            // este recurso ainda não está pronto para distribuição.
+            if (BuildConfig.DELETION_WEB_URL.isNotBlank()) {
+                OutlinedButton(
+                    onClick = {
+                        webAppUnavailable = false
+                        runCatching { uriHandler.openUri(BuildConfig.DELETION_WEB_URL) }
+                            .onFailure { webAppUnavailable = true }
+                    },
+                    modifier = Modifier.fillMaxWidth().testTag("atrio-deletion-web-open")
+                ) { Text("Solicitar exclusão pelo site") }
+                if (webAppUnavailable) Text(
+                    "Não foi possível abrir a página; use o atendimento por e-mail.",
+                    modifier = Modifier.testTag("atrio-deletion-web-fallback"),
+                    style = MaterialTheme.typography.bodySmall
+                )
+            } else if (BuildConfig.PLAY_STORE_BUILD) {
+                Text(
+                    "Página pública de exclusão ainda pendente de homologação. " +
+                        "Esta compilação Play não deve ser distribuída.",
+                    modifier = Modifier.testTag("atrio-deletion-web-pending"),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
                 )
             }
             OutlinedButton(

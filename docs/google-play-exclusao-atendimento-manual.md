@@ -78,3 +78,34 @@ O teste Android instrumentado, somente com usuário fictício no
 Firebase Emulator, confirma que o botão de contato e o endereço
 continuam visíveis **após o registro de solicitação**. Isso
 não comprova entrega real de e-mail nem o processamento de exclusão.
+
+
+## Ligação direta da URL externa no Android (02/11/2026)
+
+O pacote Android mantém a seção autenticada de solicitação no perfil e
+agora aceita a URL HTTPS pública da Play no campo público
+**BuildConfig.DELETION_WEB_URL**. O build lê exclusivamente
+**ATRIO_DELETION_PORTAL_URL**, já fornecida pelo workflow de assinatura
+manual a partir da variável GitHub Actions
+**ATRIO_PLAY_DELETION_PORTAL_URL**.
+
+A URL vazia é normal em QA. Somente quando for configurada uma URL
+HTTPS real, sem credenciais, query string, fragmento ou porta insegura,
+aparecerá o botão **"Solicitar exclusão pelo site"** na tela
+**Perfil > Exclusão de conta e dados**. O botão abre o navegador sem
+enviar UID, conta, token ou texto privado; se falhar, orienta o usuário
+a recorrer ao e-mail público. Na variante Play sem URL o aplicativo
+mostra explicitamente que a página de exclusão está pendente.
+
+O gate estático de pré-assinatura confirma a presença e os estados
+seguros dessa integração, além dos gates já existentes que exigem
+comprovação da URL. O gate ao vivo lê o site HTTPS publicado. Nenhum
+destes testes substitui comprovar recebimento, processamento ou
+remoção de dados reais.
+
+**Hospedagem**: a consulta somente-leitura à conta Cloudflare
+conectada em 02/11/2026 encontrou **0 projetos Pages e 0 zonas DNS**
+nessa conta. Não se deve declarar qualquer URL Cloudflare Pages ou
+domínio próprio como implantado. Um serviço de hospedagem estática
+precisa ser configurado após a revisão dos textos jurídicos e da
+operação real do atendimento.

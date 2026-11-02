@@ -326,6 +326,34 @@ def account_deletion_portal_blockers(root: Path, url: str) -> list[str]:
 
 
 
+
+def account_deletion_in_app_link_blockers(root: Path) -> list[str]:
+    """Require a usable in-app link to the external deletion resource.
+
+    This is a structural check, NOT proof that a site is live or an
+    administrative deletion executor exists.
+    """
+    gradle = root / "app/build.gradle.kts"
+    section = root / "app/src/main/java/br/com/atriocatolico/AccountDeletionRequestSection.kt"
+    try:
+        g = gradle.read_text(encoding="utf-8")
+        ui = section.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return ["play_external_deletion_link_ui_source_missing"]
+    failures = []
+    if ('System.getenv("ATRIO_DELETION_PORTAL_URL")' not in g or
+        'buildConfigField("String", "DELETION_WEB_URL"' not in g):
+        failures.append("play_external_deletion_link_buildconfig_missing")
+    if ('BuildConfig.DELETION_WEB_URL.isNotBlank()' not in ui or
+        'uriHandler.openUri(BuildConfig.DELETION_WEB_URL)' not in ui or
+        'testTag("atrio-deletion-web-open")' not in ui):
+        failures.append("play_external_deletion_link_in_app_missing")
+    if ("atrio-deletion-web-pending" not in ui or
+        "atrio-deletion-web-fallback" not in ui):
+        failures.append("play_external_deletion_link_failure_states_missing")
+    return failures
+
+
 def manual_deletion_support_blockers(root: Path, url: str, email: str,
                                      policy_url: str, reviewed: str,
                                      monitored: str) -> list[str]:
@@ -397,6 +425,7 @@ def main():
     blocked = inspect(args.root)
     blocked.extend(privacy_policy_link_blockers(
         args.root, os.environ.get("ATRIO_PRIVACY_POLICY_URL", "")))
+    blocked.extend(account_deletion_in_app_link_blockers(args.root))
     blocked.extend(deletion_web_blockers(
         args.root, os.environ.get("ATRIO_DELETION_PORTAL_URL", ""),
         mode=os.environ.get("ATRIO_PLAY_DELETION_MODE", "firebase"),
