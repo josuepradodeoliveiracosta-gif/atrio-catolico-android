@@ -9,7 +9,7 @@ import {
   getFirestore, doc, getDocFromServer, setDoc, serverTimestamp
 } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
 
-import {verifiedPortalDeletionRequest} from './deletion-request-state.js';
+import {verifiedPortalDeletionRequest,portalDeletionRequestState} from './deletion-request-state.js';
 
 const byId=id=>document.getElementById(id);
 const loginForm=byId('login-form');
@@ -75,9 +75,15 @@ async function checkRequest() {
     serverChecked=true;
     existing=snapshot.exists();
     if(existing){
-      say(verifiedPortalDeletionRequest(snapshot)
-        ? 'Sua solicitação está confirmada no servidor. Isso não significa que os dados foram excluídos.'
-        : 'Existe um registro, mas o pedido não pôde ser validado. Nenhuma exclusão foi comprovada.');
+      const status=portalDeletionRequestState(snapshot);
+      const messages={
+        requested:'Sua solicitação está confirmada no servidor. Isso não significa que os dados foram excluídos.',
+        processing:'O atendimento informou que a solicitação está em processamento. A exclusão dos dados ainda não foi comprovada.',
+        completion_reported:'O atendimento registrou a conclusão do pedido. Esta página não comprova que todos os dados foram excluídos; confirme pelo canal de privacidade.',
+        review_required:'O atendimento informou uma pendência no pedido. Contate o canal de privacidade para esclarecimentos; nenhuma exclusão foi comprovada.',
+        indeterminate:'Existe um registro, mas o pedido não pôde ser validado. Nenhuma exclusão foi comprovada.'
+      };
+      say(messages[status] || messages.indeterminate);
     } else {
       requestButton.hidden=false;
       say('Nenhuma solicitação encontrada. Você pode registrar seu pedido.');

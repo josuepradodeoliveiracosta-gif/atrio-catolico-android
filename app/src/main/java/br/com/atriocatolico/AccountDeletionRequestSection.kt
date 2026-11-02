@@ -36,7 +36,8 @@ internal const val ACCOUNT_DELETION_SUPPORT_EMAIL = "atriocatolico.privacidade@g
  * Esta tela não remove Firebase Auth, Firestore, mídias ou notificações.
  */
 internal enum class DeletionRequestState {
-    CHECKING, NOT_REQUESTED, REQUESTED, INDETERMINATE, ERROR
+    CHECKING, NOT_REQUESTED, REQUESTED, PROCESSING, COMPLETION_REPORTED,
+    REVIEW_REQUIRED, INDETERMINATE, ERROR
 }
 
 /** Um documento existente e malformado nunca habilita criar outro pedido. */
@@ -47,8 +48,12 @@ internal fun verifiedDeletionRequestState(
     hasRequestedAt: Boolean
 ): DeletionRequestState = when {
     !exists -> DeletionRequestState.NOT_REQUESTED
-    status == "requested" && source in setOf("android", "web") && hasRequestedAt ->
-        DeletionRequestState.REQUESTED
+    source !in setOf("android", "web") || !hasRequestedAt ->
+        DeletionRequestState.INDETERMINATE
+    status == "requested" -> DeletionRequestState.REQUESTED
+    status == "processing" -> DeletionRequestState.PROCESSING
+    status == "completed" -> DeletionRequestState.COMPLETION_REPORTED
+    status == "rejected" -> DeletionRequestState.REVIEW_REQUIRED
     else -> DeletionRequestState.INDETERMINATE
 }
 
@@ -117,6 +122,22 @@ internal fun AccountDeletionRequestSection(db: FirebaseFirestore, uid: String) {
                     "Solicitação confirmada no servidor. A conta ainda não foi excluída.",
                     modifier = Modifier.testTag("atrio-deletion-request-saved"),
                     color = MaterialTheme.colorScheme.primary
+                )
+                DeletionRequestState.PROCESSING -> Text(
+                    "O atendimento informou que a solicitação está em processamento. " +
+                        "O aplicativo não comprova que os dados já foram excluídos.",
+                    modifier = Modifier.testTag("atrio-deletion-request-processing")
+                )
+                DeletionRequestState.COMPLETION_REPORTED -> Text(
+                    "O atendimento registrou a conclusão do pedido. O aplicativo " +
+                        "não verifica se todos os dados foram eliminados; confirme " +
+                        "o resultado pelo canal oficial de privacidade.",
+                    modifier = Modifier.testTag("atrio-deletion-request-completed-unverified")
+                )
+                DeletionRequestState.REVIEW_REQUIRED -> Text(
+                    "O atendimento informou uma pendência no pedido. Entre em contato " +
+                        "pelo canal oficial. Nenhuma exclusão foi comprovada.",
+                    modifier = Modifier.testTag("atrio-deletion-request-needs-support")
                 )
                 DeletionRequestState.CHECKING -> Text("Verificando solicitação no servidor...")
                 DeletionRequestState.INDETERMINATE -> Text(

@@ -112,3 +112,21 @@ está reservado para **QA e é recusado pelos gates da Play como URL
 de produção**. Permanecem pendentes a revisão da política,
 publicação efetiva de páginas HTTPS e o procedimento real de exclusão.
 Ver `docs/google-play-hospedagem-pages-qa.md`.
+
+
+## Acompanhamento de estados administrativos sem falso comprovante — 02/11/2026
+
+Quando o pedido autenticado foi lido **do servidor** (sem cache ou
+escrita local pendente), o Android e o portal web agora distinguem:
+`requested` (recebido), `processing` (em processamento),
+`completed` (conclusão **informada** pelo atendimento, não comprovação
+independente de eliminação) e `rejected` (pendência a esclarecer).
+Origem inválida, data ausente, registro malformado ou estado desconhecido
+continuam **indeterminados**. A solicitação existente nunca é
+sobrescrita ou reaberta pelo cliente; alteração e exclusão de documentos
+continuam reservadas ao backend autorizado.
+
+Este ajuste melhora a informação prestada ao titular, **não** implementa
+um executor de exclusão nem confirma que qualquer pedido foi
+processado em ambiente real. Sem homologação do executor e das
+exceções legais, a liberação Play permanece bloqueada.

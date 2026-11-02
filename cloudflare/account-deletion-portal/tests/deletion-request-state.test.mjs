@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {verifiedPortalDeletionRequest} from '../public/deletion-request-state.js';
+import {verifiedPortalDeletionRequest,portalDeletionRequestState} from '../public/deletion-request-state.js';
 
 const good={status:'requested',source:'web',requestedAt:{toMillis:()=>1790000000000}};
 function document(fields=good, metadata={fromCache:false,hasPendingWrites:false}, exists=true){
@@ -32,4 +32,27 @@ test('recusa pedidos incompletos, origem desconhecida e timestamp inválido',()=
     null
   ]) assert.equal(verifiedPortalDeletionRequest(document(data)),false);
   assert.equal(verifiedPortalDeletionRequest(null),false);
+});
+
+test('estados posteriores informam andamento sem comprovar exclusão',()=>{
+  assert.equal(portalDeletionRequestState(document()),'requested');
+  assert.equal(portalDeletionRequestState(document({...good,status:'processing'})),
+    'processing');
+  assert.equal(portalDeletionRequestState(document({...good,status:'completed'})),
+    'completion_reported');
+  assert.equal(portalDeletionRequestState(document({...good,status:'rejected'})),
+    'review_required');
+  for(const status of ['processing','completed','rejected']){
+    assert.equal(verifiedPortalDeletionRequest(document({...good,status})),false);
+  }
+});
+test('estado só é reconhecido com leitura remota íntegra',()=>{
+  assert.equal(portalDeletionRequestState(document(good,{fromCache:true,hasPendingWrites:false})),
+    'indeterminate');
+  assert.equal(portalDeletionRequestState(document({...good,source:'other',status:'completed'})),
+    'indeterminate');
+  assert.equal(portalDeletionRequestState(document({...good,requestedAt:null,status:'completed'})),
+    'indeterminate');
+  assert.equal(portalDeletionRequestState(document(good,undefined,false)),
+    'not_requested');
 });

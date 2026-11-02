@@ -17,8 +17,21 @@ class AccountDeletionRequestStateTest {
         }
     }
 
+    @Test fun subsequentAdministrativeStatesAreNeverMistakenForDeletionProof() {
+        assertEquals(DeletionRequestState.PROCESSING,
+            verifiedDeletionRequestState(true, "processing", "android", true))
+        assertEquals(DeletionRequestState.COMPLETION_REPORTED,
+            verifiedDeletionRequestState(true, "completed", "web", true))
+        assertEquals(DeletionRequestState.REVIEW_REQUIRED,
+            verifiedDeletionRequestState(true, "rejected", "android", true))
+        assertEquals(DeletionRequestState.INDETERMINATE,
+            verifiedDeletionRequestState(true, "completed", "invalid", true))
+        assertEquals(DeletionRequestState.INDETERMINATE,
+            verifiedDeletionRequestState(true, "processing", "web", false))
+    }
+
     @Test fun incompleteOrUnrecognizedRecordsCannotBeTreatedAsReceivedOrAbsent() {
-        for (state in listOf("processing", "completed", "rejected", "", "unknown")) {
+        for (state in listOf("", "unknown", "canceled", "processing-unknown")) {
             assertEquals(DeletionRequestState.INDETERMINATE,
                 verifiedDeletionRequestState(true, state, "android", true))
         }
