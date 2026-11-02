@@ -3,7 +3,7 @@
 **RASCUNHO INTERNO. NÃO PUBLICAR.** Não é política vigente, nem comprovação de conformidade com a LGPD ou a Google Play. Não marcar o requisito `public_privacy_policy` como verificado.
 
 ## Identificação e contato
-Responsável/controlador: pessoa física (decisão confirmada pelo titular em 02/11/2026). Nome civil completo para divulgação pública: [PENDENTE DE CONFIRMAÇÃO EXATA].
+Responsável/controlador, pessoa física (nome civil completo confirmado pelo titular em 02/11/2026): **Josué Prado de Oliveira Costa**.
 Canal de privacidade indicado: atriocatolico.privacidade@gmail.com (envio e resposta testados conforme confirmação do responsável; atendimento contínuo e exclusão real ainda não homologados).
 Data de vigência: [A DEFINIR APÓS PUBLICAÇÃO].
 

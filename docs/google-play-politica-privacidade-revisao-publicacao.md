@@ -7,7 +7,7 @@ PR #71 (QA), sem autorização de assinatura, de site ou de produção.
 
 O titular confirmou que o Átrio Católico será identificado por **pessoa física**, usando seu próprio nome pessoal como responsável/controlador, e não por uma empresa registrada.
 
-**Campo ainda pendente:** grafia exata do **nome civil completo** para exibição pública. O nome preferido, o nome de usuário do GitHub ou um nome inferido de contas não substituem a identificação confirmada pelo titular. Não incluir CPF, documentos pessoais, endereço residencial ou outros dados além do necessário.
+**Nome civil completo confirmado diretamente pelo titular:** **Josué Prado de Oliveira Costa**, para constar como responsável/controlador pessoa física na futura política pública. A grafia foi informada expressamente; não é dedução de GitHub, nome preferido ou outra conta. Não incluir CPF, documentos pessoais, endereço residencial ou outros dados além do necessário.
 
 A escolha por pessoa física **não equivale** a revisão da política, confirmação de base legal, publicação do site ou autorização de assinatura do AAB. Conservar os bloqueios de publicação até a conclusão dessas etapas.
 
@@ -20,10 +20,10 @@ um PDF**, acessível na ficha da loja e no app. A LGPD considera
 afirmar genericamente que o aplicativo "respeita a privacidade".
 
 O e-mail público de contato foi criado e seu recebimento foi testado
-pelo responsável: **atriocatolico.privacidade@gmail.com**. Essa
-confirmação não determina o nome jurídico do controlador, nem a base
-legal de dados sensíveis, retenção ou a existência de um executor de
-exclusão de contas em produção.
+pelo responsável: **atriocatolico.privacidade@gmail.com**. O nome civil completo do controlador foi informado e registrado
+separadamente. Os testes do Gmail e essa identificação não comprovam
+base legal para dados sensíveis, política de retenção ou a existência
+de executor de exclusão de contas em produção.
 
 ## Material técnico preparado
 
@@ -42,7 +42,7 @@ A página exige todos os campos abaixo (texto final da operação real):
 | Campo JSON | Informação a comprovar antes da revisão |
 | --- | --- |
 | `appName` | Nome exato: Átrio Católico |
-| `controller` | Nome público do responsável/controlador da operação |
+| `controller` | Josué Prado de Oliveira Costa (grafia pública confirmada) |
 | `email` | Contato: atriocatolico.privacidade@gmail.com |
 | `effectiveDate` | Data real de vigência YYYY-MM-DD |
 | `dataCategories` | Dados coletados, associados à conta e ao aparelho |

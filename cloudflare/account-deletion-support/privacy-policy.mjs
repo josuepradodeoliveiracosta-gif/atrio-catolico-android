@@ -9,6 +9,8 @@ import {fileURLToPath} from 'node:url';
 
 const ROOT=resolve(dirname(fileURLToPath(import.meta.url)));
 const APPROVAL='policy-owner-and-legal-reviewed';
+// Grafia fornecida expressamente para identificação pública do controlador.
+const CONTROLLER='Josué Prado de Oliveira Costa';
 const EMAIL=/^[A-Za-z0-9][A-Za-z0-9._%+-]{0,63}@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/;
 const KEYS=Object.freeze([
   'appName','controller','email','effectiveDate','dataCategories',
@@ -45,6 +47,7 @@ export function validatePrivacyCopy(raw,{now=new Date()}={}){
      !Number.isFinite(reviewed)||new Date(reviewed).toISOString()!==raw.reviewedAt||
      reviewed>now.getTime())denied('review_timestamp_invalid');
   if(raw.appName!=='Átrio Católico')denied('app_name_mismatch');
+  if(raw.controller!==CONTROLLER)denied('controller_identity_mismatch');
   if(typeof raw.email!=='string'||raw.email!=='atriocatolico.privacidade@gmail.com'||
      !EMAIL.test(raw.email)||!domainOK(raw.email.split('@')[1]))denied('contact_mismatch');
   if(typeof raw.effectiveDate!=='string'||!/^20\d\d-\d\d-\d\d$/.test(raw.effectiveDate)||

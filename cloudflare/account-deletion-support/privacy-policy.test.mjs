@@ -9,7 +9,7 @@ import {validatePrivacyCopy,renderPrivacyHtml,buildPrivacyPolicy}
 const now=new Date('2026-11-02T18:00:00Z');
 const copy={
   appName:'Átrio Católico',
-  controller:'Responsável legal de homologação QA',
+  controller:'Josué Prado de Oliveira Costa',
   email:'atriocatolico.privacidade@gmail.com',
   effectiveDate:'2026-11-02',
   dataCategories:'Dados de cadastro, identificadores de conta, conteúdo publicado e registros associados à operação de uma comunidade digital.',
@@ -35,6 +35,7 @@ test('No page can exist without exact review and all required legal content',()=
     put('effectiveDate','2035-01-01'),put('approvedBy',''),
     put('email','qa@example.com'),put('appName','Outra comunidade'),
     put('controller','[A CONFIRMAR]'),
+    put('controller','Outra Pessoa'),
     put('retention','Prazo a definir após consulta jurídica.'),
     put('dataCategories',''),put('internationalTransfers','A confirmar'),
     {...copy,unexpected:'value'},Object.fromEntries(
@@ -43,9 +44,11 @@ test('No page can exist without exact review and all required legal content',()=
   for(const x of failures)assert.throws(()=>validatePrivacyCopy(x,{now}));
 });
 test('Reviewed text gets escaped, is static, accessible, and does not claim effective deletion',()=>{
-  const html=renderPrivacyHtml(put('controller','Equipe QA de revisão & privacidade'),{now});
+  const html=renderPrivacyHtml(put('dataCategories',
+    'Dados de cadastro, publicações & perfis da comunidade para validar escape HTML.'),{now});
   assert.match(html,/Política de privacidade — Átrio Católico/);
-  assert.match(html,/Equipe QA de revisão &amp; privacidade/);
+  assert.match(html,/Josué Prado de Oliveira Costa/);
+  assert.match(html,/publicações &amp; perfis/);
   assert.match(html,/mailto:atriocatolico.privacidade@gmail.com/);
   assert.match(html,/Dados pessoais sensíveis e religião/);
   assert.match(html,/Transferências internacionais/);

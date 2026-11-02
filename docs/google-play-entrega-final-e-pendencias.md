@@ -246,4 +246,4 @@ Ver `docs/google-play-hospedagem-pages-qa.md`.
 
 ## Identificação pública do controlador — 02/11/2026
 
-O titular escolheu constar como **pessoa física**, sem empresa registrada. O **nome civil completo** ainda aguarda confirmação literal antes de integrar a política pública. Não inferir o nome completo do identificador GitHub nem solicitar CPF como substituto. A escolha não libera nenhum requisito do manifesto de privacidade, publicação, assinatura ou deploy.
+O titular escolheu constar como **pessoa física**, sem empresa registrada, e informou a grafia exata **Josué Prado de Oliveira Costa** como nome civil completo para a futura política pública. A identificação não requer CPF ou endereço residencial na documentação da PR. Isso não libera revisão jurídica, manifesto de privacidade, publicação, assinatura nem deploy.
