@@ -5,6 +5,15 @@ on:
     branches: [main]
     paths:
       - 'app/**'
+      - 'gradle/**'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
+      - 'gradle.properties'
+      - 'firestore.rules'
+      - 'tests/security/**'
+      - 'cloudflare/privacy-batch-stage/**'
+      - 'cloudflare/privacy-freeze-stage/**'
+      - 'cloudflare/push-worker/**'
       - 'cloudflare/account-deletion-portal/**'
       - 'cloudflare/account-deletion-processor/**'
       - 'cloudflare/account-deletion-audit/**'
@@ -13,6 +22,9 @@ on:
       - 'scripts/play_store_bundle_check.py'
       - 'scripts/test_play_store_bundle_check.py'
       - 'scripts/play_release_gate.py'
+      - 'scripts/validar_firebase.py'
+      - 'scripts/play_ci_android_scope.py'
+      - 'scripts/test_play_ci_android_scope.py'
       - 'scripts/play_upload_certificate_check.py'
       - 'scripts/test_play_upload_certificate_check.py'
       - 'scripts/play_app_signing_continuity.py'
@@ -45,6 +57,32 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: 0
+      - name: Identificar se esta revisão precisa recompilar o AAB
+        id: android_scope
+        env:
+          PR_ACTION: ${{ github.event.action }}
+          BEFORE_SHA: ${{ github.event.before }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts -p 'test_play_ci_android_scope.py' -v
+          # Primeiro envio, execução manual, SHA ausente ou história reescrita:
+          # compilar por segurança. Nunca presumir que houve build recente.
+          if [[ "$GITHUB_EVENT_NAME" != "pull_request" || "$PR_ACTION" != "synchronize" ||
+                ! "$BEFORE_SHA" =~ ^[0-9a-f]{40}$ || ! "$PR_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo 'android=true' >> "$GITHUB_OUTPUT"
+            echo 'Compilação completa exigida: primeiro envio/manual ou diff indisponível.'
+          elif ! git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null ||
+               ! git cat-file -e "${PR_HEAD_SHA}^{commit}" 2>/dev/null ||
+               ! git merge-base --is-ancestor "$BEFORE_SHA" "$PR_HEAD_SHA"; then
+            echo 'android=true' >> "$GITHUB_OUTPUT"
+            echo 'Compilação completa exigida: histórico anterior não confiável.'
+          else
+            git diff --name-only --diff-filter=ACDMRT -z "$BEFORE_SHA" "$PR_HEAD_SHA" > "$RUNNER_TEMP/play-changed-files.bin"
+            python3 scripts/play_ci_android_scope.py --changed-file "$RUNNER_TEMP/play-changed-files.bin" >> "$GITHUB_OUTPUT"
+          fi
       - name: Testar separacao dos gates de pre-assinatura e pos-envio sem segredos
         run: |
           python3 -m unittest discover -s scripts -p 'test_play_release_gate.py' -v
@@ -90,26 +128,41 @@ jobs:
           print("OK: exclusão administrativa demo é obrigatória antes dos segredos de assinatura")
           PY
       - name: Preparar Java 17
+        if: steps.android_scope.outputs.android == 'true'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
       - name: Preparar Android SDK
+        if: steps.android_scope.outputs.android == 'true'
         uses: android-actions/setup-android@v4
       - name: Configurar Gradle 8.13
+        if: steps.android_scope.outputs.android == 'true'
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
       - name: Instalar plataforma Android API 36
+        if: steps.android_scope.outputs.android == 'true'
         run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
       - name: Verificar configuração Firebase antes de compilar
         run: python3 scripts/validar_firebase.py
       - name: Compilar somente AAB Play sem chaves ou segredos
+        if: steps.android_scope.outputs.android == 'true'
         run: gradle :app:bundlePlayRelease --no-daemon --stacktrace
       - name: Examinar AAB e manifesto mesclado
+        if: steps.android_scope.outputs.android == 'true'
         run: python3 scripts/play_store_bundle_check.py
-      - name: Registrar que nada foi publicado
+      - name: Registrar status correto sem sugerir AAB novo quando pulado
+        env:
+          ANDROID_SCOPE: ${{ steps.android_scope.outputs.android }}
         run: |
+          set -euo pipefail
           echo "### Google Play — validação de candidato" >> "$GITHUB_STEP_SUMMARY"
-          echo "AAB gerado **sem assinatura de produção e sem publicação**. APK OTA não alterado." >> "$GITHUB_STEP_SUMMARY"
-          echo "Target API 36, pacote oficial, variante playRelease e ausência de REQUEST_INSTALL_PACKAGES verificados." >> "$GITHUB_STEP_SUMMARY"
+          echo "Testes de privacidade e release gate concluídos sem assinatura nem deploy." >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$ANDROID_SCOPE" == 'true' ]]; then
+            echo "AAB Play recompilado e examinado nesta revisão, **sem assinatura ou publicação**." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "AAB NÃO recompilado nesta revisão: alterações restritas a QA/backend/documentação." >> "$GITHUB_STEP_SUMMARY"
+            echo "Antes de assinatura, executar manualmente uma compilação integral na revisão candidata." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "Nenhuma evidência Play foi marcada como aprovada; APK OTA não alterado." >> "$GITHUB_STEP_SUMMARY"
