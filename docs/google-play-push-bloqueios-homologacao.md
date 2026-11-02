@@ -157,3 +157,49 @@ para demonstrar que o fluxo de fixture não usa rede externa.
 Sem deploy, sem tocar no Firebase/FCM/Cloudinary reais, sem assinatura,
 sem merge, sem alteração da `main` ou de backup, e sem marcar requisitos
 de privacidade como verificados.
+
+## QA — lotes, deduplicação persistente e falha parcial (02/11/2026)
+
+Sem tocar no contrato HMAC de duas contas, foi criado um **ensaio adicional
+SQLite local** em `cloudflare/account-deletion-audit/src/qa-broadcast-batches.js`
+e `qa-broadcast-batches-fixture.sql`. Seu banco aceita apenas nove identidades
+`qa-batch-00..08` e tokens `qa-fcm-...`. **Não é um Worker Cloudflare, nem
+um adaptador D1 de produção**. O uso de duas conexões SQLite simula
+serialização entre processos; o protocolo de Service Binding anterior
+continua preservado e limitado a duas contas.
+
+- Inventário completo é validado *antes* de qualquer reserva: até nove
+  participantes fictícios, páginas de até três registros, revisão fixa,
+  cursor sequencial, ordem estável, consentimento, ausência de duplicações
+  e total esperado. Total declarado pelo fixture não é prova de exaustividade
+  de um cadastro real.
+- Cada pedido `qa-broadcast-...` grava uma identidade e um digest do
+  inventário em transação única; o mesmo pedido e conteúdo não cria
+  novas entregas, e reuso com conteúdo diferente é rejeitado, inclusive
+  após reabrir a conexão.
+- Processamento individual em lotes explícitos de até **três** destinatários
+  usa reserva persistente por pedido e por destinatário. Antes de cada
+  tentativa simulada, uma operação SQL atômica confere que **remetente e
+  destinatário** estão `active`. Mudanças de estado `draining`
+  suspendem novas operações; não há fallback para tópico.
+- Um retorno fictício de aceitação registra `acked`, mas mantém o ticket
+  como pendência de exclusão até confirmação separada. Falha incerta
+  registra `ambiguous`, interrompe imediatamente o lote e impede
+  reexecução automática. Um lease `processing` abandonado continua
+  bloqueado, evitando duplicação depois de reinício.
+- Somente o reconciliador do **ensaio** aceita evidência sintética explícita
+  para finalizar os tickets e autorizar o congelamento. Uma prova real de
+  entrega não foi obtida, e a confirmação de FCM não garante entrega ao
+  aparelho.
+
+Os testes específicos verificam três páginas, lotes 3+3+2, reinício,
+concorrência entre conexões, deduplicação, falha parcial, bloqueio de conta
+durante envio, opt-out, paginação inconsistente e rejeição de UID real.
+Não há qualquer acesso real a Firebase, Cloudflare ou serviços de produção.
+
+**Aprovação para Play permanece bloqueada.** Falta adaptar o protocolo
+para D1 real e processamento distribuído (controle de leases, idempotência
+e reconciliação com IAM independente), implementar captura exaustiva de
+usuários reais com visão consistente, dimensionar limites de custo e
+comprovar bloqueios e exclusão efetiva em homologação. O endpoint
+`POST /broadcast` continua bloqueado.
