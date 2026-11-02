@@ -129,6 +129,7 @@ function stages(self){
         assertLease();
         return removeQaAuthAfterReconciliation({
           uid:UID,db,media,auth,context,assertLease,
+          reconcile:assertQaReconciled,
           assertAuthorization:assertCase,
           ...(external?{
             removeRemote:uid=>external.auth.remove(uid),

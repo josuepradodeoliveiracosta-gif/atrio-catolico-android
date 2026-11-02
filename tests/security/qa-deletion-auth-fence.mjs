@@ -7,7 +7,6 @@
  * Only a fixed fixture UID in the local disposable Firestore Emulator can pass.
  * There is deliberately no Firebase Admin SDK or live Auth API in this module.
  */
-import {assertQaReconciled} from './qa-deletion-reconciliation.mjs';
 
 const UID='qa-delete-alice';
 const HOST='127.0.0.1:8089';
@@ -39,7 +38,7 @@ function guard({uid,db,auth,media,context,assertLease,reconcile,removeRemote,pre
  */
 export async function removeQaAuthAfterReconciliation({
   uid,db,auth,media,context,assertLease,
-  reconcile=assertQaReconciled,removeRemote,preRemoteCheck,assertAuthorization
+  reconcile,removeRemote,preRemoteCheck,assertAuthorization
 }={}) {
   guard({uid,db,auth,media,context,assertLease,reconcile,removeRemote,
     preRemoteCheck,assertAuthorization});

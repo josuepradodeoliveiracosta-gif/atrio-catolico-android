@@ -91,3 +91,13 @@ reconciliação. Nenhum procedimento de produção recebeu autorização.
 A mudança é exclusiva de `tests/security`, não altera aplicativos
 instalados, políticas publicadas, contas reais, backups nem os flags
 `verified:false` e `releaseAuthorized:false` da Play.
+
+### Teste de autorização sem Firebase no CI comum
+
+Para evitar downloads de dependências e emuladores redundantes,
+o teste unitário do último estágio de Auth recebe um reconciliador
+explicitamente injetado. O executor QA passa a função verificada
+`assertQaReconciled` de seu próprio módulo; sem função válida, o
+último estágio bloqueia antes da remoção. O teste dos casos revogados
+é executado via Node 22 e SQLite **sem** Firebase SDK, rede ou segredos
+no workflow de AAB **sem assinatura** da PR.

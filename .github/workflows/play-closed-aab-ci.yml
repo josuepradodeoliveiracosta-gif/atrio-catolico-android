@@ -129,6 +129,12 @@ jobs:
           test ! -e cloudflare/account-deletion-processor/dist
       - name: Verificar inventário determinístico e checkpoints de exclusão sem escrita
         run: npm --prefix cloudflare/account-deletion-audit test
+      - name: Testar autorização revogada antes do Auth no QA (sem Firebase)
+        shell: bash
+        run: |
+          # A fronteira de identidade exige um reconciliador injetado;
+          # estes testes usam apenas SQLite em memória e simulações.
+          node --experimental-sqlite --test tests/security/qa-deletion-auth-fence.test.mjs
       - name: Impedir publicação automática de rascunhos de privacidade
         run: |
           grep -q 'RASCUNHO INTERNO. NÃO PUBLICAR.' docs/google-play-politica-privacidade-minuta-nao-publicar.md
