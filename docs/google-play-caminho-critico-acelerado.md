@@ -35,3 +35,29 @@ Paths antes não incluídos na CI Play agora acionam as verificações: `cloudfl
 - Guardar evidências verdadeiras com revisor e data; jamais preencher o manifesto automaticamente para aprovar um release.
 
 **Próxima implementação com melhor retorno:** fechar B (atendimento e exclusão efetiva) e C (teste UGC ponta a ponta), além de resolver em paralelo os dados públicos e materiais do Console. A homologação Cloudflare independente é uma dependência de engenharia quando exigida pelo desenho adotado, não uma razão para continuar adicionando QA sintético sem fim.
+
+
+## Bloqueio de comunicados FCM legados na variante Play — 02/11/2026
+
+A variante `playRelease` não deve se inscrever em
+`atrio_comunicados_v1`: comunicados em tópico não conseguem respeitar
+individualmente bloqueios, exclusões ou desativação de destinatários.
+Agora `PushRegistry.register` tenta **desinscrever** o tópico geral na
+variante Play, preservando a inscrição do APK OTA legado. A rotina de
+sincronização também tenta remover tópicos antigos das discussões.
+
+O receptor Play só mostra `kind=broadcast` quando a mensagem de dados
+contém o `uid` exatamente igual ao usuário autenticado **e não provém
+de um tópico FCM**. Mensagens sem destinatário ou com outro UID são
+ignoradas. A política pura `PlayBroadcastDeliveryPolicy` tem teste
+JUnit incluído na compilação AAB já existente; não requer novo job.
+
+**Risco remanescente:** a desinscrição FCM depende de rede e não tem
+confirmação operacional nesta PR. Em mensagens FCM com payload
+`notification`, o sistema pode exibi-las sem passar pelo código do
+receptor, principalmente em segundo plano. Portanto é obrigatório
+**desligar a emissão por tópicos nos Workers reais** e homologar a
+entrega individual `data`, o controle de bloqueio e a exclusão antes de
+publicar. O novo filtro Android não autoriza o lançamento nem
+substitui barreiras duráveis contra concorrência. Nenhum Worker ativo foi
+atualizado e nenhuma notificação real foi enviada.

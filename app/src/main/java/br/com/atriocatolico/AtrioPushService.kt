@@ -99,21 +99,38 @@ internal object PushRegistry {
                     if (FirebaseAuth.getInstance().currentUser?.uid != uid || !enabled(context, uid)) {
                         done(false, PushRegistrationProblem.SESSION_CHANGED)
                     } else if (result.isSuccessful) {
-                        FirebaseMessaging.getInstance().subscribeToTopic(COMMUNICATION_TOPIC)
-                            .addOnCompleteListener { subscribed ->
-                                if (FirebaseAuth.getInstance().currentUser?.uid != uid
-                                    || !enabled(context, uid)) {
-                                    FirebaseMessaging.getInstance().unsubscribeFromTopic(COMMUNICATION_TOPIC)
-                                    done(false, PushRegistrationProblem.SESSION_CHANGED)
-                                } else if (subscribed.isSuccessful) {
-                                    ThreadPushSubscriptions.sync(context, uid)
-                                    done(true, null)
-                                } else {
-                                    // O cadastro pessoal funciona, mas não ativamos a opção
-                                    // enquanto a inscrição nos comunicados não estiver confirmada.
-                                    done(false, PushRegistrationProblem.TOPIC_SUBSCRIPTION_FAILED)
+                        if (BuildConfig.PLAY_STORE_BUILD) {
+                            // O Play envia comunicados apenas por token individual.
+                            // Não cadastrar novos assinantes do topic geral legado.
+                            // Desinscrição é best-effort; a filtragem ao receber
+                            // recusa broadcasts de topic mesmo se a rede falhar.
+                            FirebaseMessaging.getInstance().unsubscribeFromTopic(COMMUNICATION_TOPIC)
+                                .addOnCompleteListener {
+                                    if (FirebaseAuth.getInstance().currentUser?.uid != uid
+                                        || !enabled(context, uid)) {
+                                        done(false, PushRegistrationProblem.SESSION_CHANGED)
+                                    } else {
+                                        ThreadPushSubscriptions.sync(context, uid)
+                                        done(true, null)
+                                    }
                                 }
-                            }
+                        } else {
+                            // Compatibilidade com APKs OTA existentes; sem mudar
+                            // as preferências ou tópicos desses usuários.
+                            FirebaseMessaging.getInstance().subscribeToTopic(COMMUNICATION_TOPIC)
+                                .addOnCompleteListener { subscribed ->
+                                    if (FirebaseAuth.getInstance().currentUser?.uid != uid
+                                        || !enabled(context, uid)) {
+                                        FirebaseMessaging.getInstance().unsubscribeFromTopic(COMMUNICATION_TOPIC)
+                                        done(false, PushRegistrationProblem.SESSION_CHANGED)
+                                    } else if (subscribed.isSuccessful) {
+                                        ThreadPushSubscriptions.sync(context, uid)
+                                        done(true, null)
+                                    } else {
+                                        done(false, PushRegistrationProblem.TOPIC_SUBSCRIPTION_FAILED)
+                                    }
+                                }
+                        }
                     } else {
                         val issue = when ((result.exception as? FirebaseFirestoreException)?.code) {
                             FirebaseFirestoreException.Code.PERMISSION_DENIED ->
@@ -286,6 +303,15 @@ class AtrioPushService : FirebaseMessagingService() {
         // Nunca use texto fornecido no payload como conteudo da notificacao.
         val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
         if (message.data["kind"] == "broadcast") {
+            // No Play, só comunicado individual destinado ao UID autenticado.
+            // Uma mensagem por tópico jamais contorna bloqueios via payload.
+            if (!PlayBroadcastDeliveryPolicy.accepts(
+                    playStoreBuild = BuildConfig.PLAY_STORE_BUILD,
+                    currentUid = uid,
+                    destinationUid = message.data["uid"],
+                    sender = message.from,
+                    addressedTo = message.to
+                )) return
             PushRegistry.showBroadcast(applicationContext, uid,
                 message.data["title"].orEmpty(), message.data["body"].orEmpty())
             return

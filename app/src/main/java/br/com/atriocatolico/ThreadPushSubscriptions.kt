@@ -41,15 +41,15 @@ internal object ThreadPushSubscriptions {
     }
 
     fun sync(context: Context, uid: String) {
-        if (!PushRegistry.enabled(context, uid) ||
-            FirebaseAuth.getInstance().currentUser?.uid != uid) return
+        if (FirebaseAuth.getInstance().currentUser?.uid != uid) return
         if (BuildConfig.PLAY_STORE_BUILD) {
-            // Migração da instalação OTA para Play: as inscrições antigas
-            // não devem ser renovadas. O Worker também precisa operar em
-            // PUSH_BLOCK_SAFE_FANOUT_ENABLED=true antes da homologação.
+            // Mesmo sem intenção de renovar a inscrição, remover as antigas.
+            // Não depender de topic para notificar no Play: backend deve
+            // entregar mensagens individualmente e respeitar bloqueios.
             unsubscribeAll(context, uid)
             return
         }
+        if (!PushRegistry.enabled(context, uid)) return
         get(context, uid).forEach {
             if (idPattern.matches(it))
                 FirebaseMessaging.getInstance().subscribeToTopic(topic(it))
