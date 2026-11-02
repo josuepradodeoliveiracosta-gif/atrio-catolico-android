@@ -184,3 +184,28 @@ cobertura de mídias legadas ou fencing nos Workers ativos, e NÃO habilita
 o portal. O workflow continua manual, restrito à `main`, com gates
 `PLAY_AAB_APPROVED`, `GUARDIAN_APPROVED` e `--enforce` prévios;
 continua sem publicar na Google Play. Nenhum segredo novo foi criado.
+
+
+## Alternativa oficial mais simples para o link externo (02/11/2026)
+
+A política atual do Google Play permite que a **solicitação externa** de
+exclusão seja iniciada por e-mail público de atendimento divulgado em
+uma página HTTPS clara. Não é obrigatório disponibilizar autenticação
+Firebase e exclusão automática no navegador. Referência:
+https://support.google.com/googleplay/android-developer/answer/13327111?hl=pt-BR
+
+Por isso a PR #71 prepara, de forma separada e sem deploy, a página
+estática em **cloudflare/account-deletion-support/** e o modo opcional
+**manual-support** do gate de pré-assinatura. A via Firebase permanece
+padrão, com os bloqueios existentes. Para usar o caminho de e-mail é
+necessário aprovar contato público, atendimento real, política, retenção,
+autenticação do titular, serviço de processamento efetivo de exclusão
+e comprovação do site em navegador anônimo. Ver procedimento completo:
+**docs/google-play-exclusao-atendimento-manual.md**.
+
+**Não confundir rapidez na abertura de pedidos com redução de exigências.**
+Ainda não há contato real homologado, política pública validada, página
+implantada, inbox operante comprovada ou exclusão real aprovada.
+Os 9 requisitos de privacidade e 6 de UGC continuam sem evidência
+homologada. Não assinar ou enviar AAB apenas porque a opção manual
+foi codificada.

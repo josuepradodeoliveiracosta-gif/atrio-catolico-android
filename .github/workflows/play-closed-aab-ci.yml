@@ -15,6 +15,7 @@ on:
       - 'cloudflare/privacy-freeze-stage/**'
       - 'cloudflare/push-worker/**'
       - 'cloudflare/account-deletion-portal/**'
+      - 'cloudflare/account-deletion-support/**'
       - 'cloudflare/account-deletion-processor/**'
       - 'cloudflare/account-deletion-audit/**'
       - 'docs/google-play-politica-privacidade-minuta-nao-publicar.md'
@@ -95,6 +96,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Validar alternativa de solicitação por atendimento público sem publicar
+        run: |
+          node --test cloudflare/account-deletion-support/build.test.mjs
+          test ! -e cloudflare/account-deletion-support/dist/index.html
       - name: Testar portal de exclusão isolado e impedir habilitação de pedidos
         run: |
           node --check cloudflare/account-deletion-portal/public/app.js

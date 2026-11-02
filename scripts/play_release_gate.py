@@ -325,6 +325,66 @@ def account_deletion_portal_blockers(root: Path, url: str) -> list[str]:
     return failures
 
 
+
+def manual_deletion_support_blockers(root: Path, url: str, email: str,
+                                     policy_url: str, reviewed: str,
+                                     monitored: str) -> list[str]:
+    """Alternative Google Play-compliant external request via public support.
+
+    Strictly STATIC preflight. A working inbox, public deployment, identity
+    verification, timely actual deletion and legal retention need separately
+    reviewed evidence. This never signs, deploys, or calls the inbox.
+    """
+    failures = []
+    if not real_https_url(url):
+        failures.append("play_support_web_url_missing_or_invalid")
+    else:
+        u = urlsplit(url)
+        if u.query or u.fragment or u.port not in (None, 443):
+            failures.append("play_support_web_url_must_be_static_https")
+    if (not isinstance(email, str) or len(email) > 254 or not re.fullmatch(
+            r"[A-Za-z0-9][A-Za-z0-9._%+-]{0,63}@[A-Za-z0-9.-]+", email)):
+        failures.append("play_support_contact_email_missing_or_invalid")
+    else:
+        domain = email.rsplit("@", 1)[1].lower()
+        if (domain in {"example.com", "example.net", "example.org"} or
+                domain.endswith((".invalid", ".test", ".local", ".localhost",
+                                 ".example", ".example.com", ".example.org",
+                                 ".example.net")) or
+                not re.fullmatch(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}",
+                                 domain)):
+            failures.append("play_support_email_placeholder_or_unsafe")
+    if not real_https_url(policy_url):
+        failures.append("play_support_privacy_policy_required")
+    if reviewed != "manual-support-and-privacy-reviewed":
+        failures.append("play_support_operational_and_legal_review_required")
+    if monitored != "true":
+        failures.append("play_support_monitored_mailbox_required")
+    builder = root / "cloudflare/account-deletion-support/build.mjs"
+    tests = root / "cloudflare/account-deletion-support/build.test.mjs"
+    try:
+        source = builder.read_text(encoding="utf-8")
+        checks = tests.read_text(encoding="utf-8")
+        if not all(token in source for token in (
+                "validatedPublicContact", "renderSupportPage", "mailto:",
+                "manual-support-and-privacy-reviewed", "Não envie senhas")) or \
+                "missing approval" not in checks:
+            failures.append("play_support_source_not_verified")
+    except (OSError, UnicodeError):
+        failures.append("play_support_source_or_tests_missing")
+    return failures
+
+
+def deletion_web_blockers(root: Path, url: str, mode: str = "firebase",
+                          email: str = "", privacy_url: str = "",
+                          reviewed: str = "", monitored: str = "") -> list[str]:
+    if mode == "firebase":
+        return account_deletion_portal_blockers(root, url)
+    if mode == "manual-support":
+        return manual_deletion_support_blockers(
+            root, url, email, privacy_url, reviewed, monitored)
+    return ["play_deletion_web_mode_unapproved"]
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--audit", action="store_true")
@@ -337,8 +397,13 @@ def main():
     blocked = inspect(args.root)
     blocked.extend(privacy_policy_link_blockers(
         args.root, os.environ.get("ATRIO_PRIVACY_POLICY_URL", "")))
-    blocked.extend(account_deletion_portal_blockers(
-        args.root, os.environ.get("ATRIO_DELETION_PORTAL_URL", "")))
+    blocked.extend(deletion_web_blockers(
+        args.root, os.environ.get("ATRIO_DELETION_PORTAL_URL", ""),
+        mode=os.environ.get("ATRIO_PLAY_DELETION_MODE", "firebase"),
+        email=os.environ.get("ATRIO_PLAY_SUPPORT_EMAIL", ""),
+        privacy_url=os.environ.get("ATRIO_PRIVACY_POLICY_URL", ""),
+        reviewed=os.environ.get("ATRIO_PLAY_SUPPORT_REVIEWED", ""),
+        monitored=os.environ.get("ATRIO_PLAY_SUPPORT_MAILBOX_MONITORED", "")))
     print("Play closed-track AAB pre-signature preflight:", "BLOQUEADO" if blocked else
           "SEM BLOQUEIOS LOCAIS — REVISAO EXTERNA AINDA OBRIGATORIA")
     for issue in blocked:

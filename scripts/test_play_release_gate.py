@@ -440,5 +440,59 @@ class AccountDeletionPortalGateTests(unittest.TestCase):
             )
 
 
+
+class ManualSupportDeletionGateTests(unittest.TestCase):
+    """Synthetic configuration tests, not published web or real inbox proof."""
+
+    def setUp(self):
+        from play_release_gate import deletion_web_blockers
+        self.check = deletion_web_blockers
+        self.root = Path(__file__).resolve().parents[1]
+        self.valid = dict(
+            mode="manual-support",
+            email="atendimento@atrio-catolico.org",
+            privacy_url="https://atrio-catolico.org/privacidade",
+            reviewed="manual-support-and-privacy-reviewed",
+            monitored="true",
+        )
+
+    def test_static_manual_support_path_has_separate_explicit_gates(self):
+        self.assertEqual(self.check(
+            self.root, "https://atrio-catolico.org/excluir-conta", **self.valid), [])
+
+    def test_no_contact_no_legal_review_or_unmonitored_inbox_stays_blocked(self):
+        cases = [
+            ({"email": ""}, "play_support_contact_email_missing_or_invalid"),
+            ({"email": "support@example.com"}, "play_support_email_placeholder_or_unsafe"),
+            ({"email": "a@host.org\nBcc:bad@host.org"},
+             "play_support_contact_email_missing_or_invalid"),
+            ({"reviewed": ""}, "play_support_operational_and_legal_review_required"),
+            ({"monitored": "false"}, "play_support_monitored_mailbox_required"),
+            ({"privacy_url": ""}, "play_support_privacy_policy_required"),
+        ]
+        for mutation, required in cases:
+            with self.subTest(mutation=mutation):
+                blockers = self.check(
+                    self.root, "https://atrio-catolico.org/excluir-conta",
+                    **{**self.valid, **mutation}
+                )
+                self.assertIn(required, blockers)
+
+    def test_fake_or_insecure_page_address_not_accepted(self):
+        for address in ("", "http://atrio-catolico.org/excluir",
+                        "https://example.com", "https://atrio-catolico.org/excluir?token=a",
+                        "https://atrio-catolico.org/excluir#private"):
+            with self.subTest(address=address):
+                self.assertNotEqual(self.check(self.root, address, **self.valid), [])
+
+    def test_unknown_mode_never_defaults_to_unreviewed_support(self):
+        self.assertEqual(self.check(
+            self.root, "https://atrio-catolico.org/excluir-conta",
+            **{**self.valid, "mode": "anything-else"}),
+            ["play_deletion_web_mode_unapproved"])
+        # Default still uses existing locked Firebase portal, NOT support mode.
+        self.assertIn("play_deletion_portal_intake_not_approved",
+                      self.check(self.root, "https://atrio-catolico.org/excluir-conta"))
+
 if __name__ == "__main__":
     unittest.main()

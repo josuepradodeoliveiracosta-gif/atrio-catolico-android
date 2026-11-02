@@ -32,6 +32,11 @@ jobs:
       ATRIO_INSTALLED_APK_CERT_SHA256: ${{ vars.ATRIO_INSTALLED_APK_CERT_SHA256 || '' }}
       ATRIO_PRIVACY_POLICY_URL: ${{ vars.ATRIO_PLAY_PRIVACY_POLICY_URL || '' }}
       ATRIO_DELETION_PORTAL_URL: ${{ vars.ATRIO_PLAY_DELETION_PORTAL_URL || '' }}
+      # Opt-in only. Default keeps the Firebase deletion portal gate unchanged.
+      ATRIO_PLAY_DELETION_MODE: ${{ vars.ATRIO_PLAY_DELETION_MODE || 'firebase' }}
+      ATRIO_PLAY_SUPPORT_EMAIL: ${{ vars.ATRIO_PLAY_SUPPORT_EMAIL || '' }}
+      ATRIO_PLAY_SUPPORT_REVIEWED: ${{ vars.ATRIO_PLAY_SUPPORT_REVIEWED || '' }}
+      ATRIO_PLAY_SUPPORT_MAILBOX_MONITORED: ${{ vars.ATRIO_PLAY_SUPPORT_MAILBOX_MONITORED || 'false' }}
       GUARDIAN_APPROVED: ${{ vars.ATRIO_GUARDIAN_V2_RELEASE_APPROVED || 'false' }}
       GUARDIAN_URL: ${{ vars.ATRIO_GUARDIAN_V2_WORKER_URL || '' }}
       ATRIO_PUSH_WORKER_URL: ${{ vars.ATRIO_PUSH_WORKER_URL || 'https://atrio-push.atrio-catolico.workers.dev' }}
@@ -87,6 +92,19 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Validar opção de suporte por e-mail antes de qualquer assinatura
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test cloudflare/account-deletion-support/build.test.mjs
+          if [[ "$ATRIO_PLAY_DELETION_MODE" == 'manual-support' ]]; then
+            export ATRIO_DELETION_SUPPORT_APPROVED="$ATRIO_PLAY_SUPPORT_REVIEWED"
+            export ATRIO_DELETION_SUPPORT_EMAIL="$ATRIO_PLAY_SUPPORT_EMAIL"
+            export ATRIO_DELETION_PRIVACY_URL="$ATRIO_PRIVACY_POLICY_URL"
+            node cloudflare/account-deletion-support/build.mjs
+            test -s cloudflare/account-deletion-support/dist/index.html
+            echo 'Página de contato preparada localmente. NÃO foi publicada.' >> "$GITHUB_STEP_SUMMARY"
+          fi
       - name: Instalar dependências isoladas do processamento de exclusão
         working-directory: tests/security
         shell: bash

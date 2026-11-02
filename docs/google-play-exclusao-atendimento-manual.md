@@ -1,0 +1,38 @@
+# Átrio Católico — opção simplificada de exclusão de conta pela Web
+
+**02/11/2026 · PR #71 (rascunho) · Não publicada nem pronta para uso real.**
+
+## Fundamentação
+A [política da Google Play](https://support.google.com/googleplay/android-developer/answer/13327111?hl=pt-BR) aceita um recurso da Web com e-mail de atendimento para iniciar a solicitação de exclusão de conta. Um formulário autenticado e a exclusão automática diretamente no navegador não são obrigatórios. **Contudo, receber um pedido ou congelar a conta não substitui excluir a conta e os dados associados**, respeitadas as retenções legais divulgadas.
+
+Uma nova alternativa está em **cloudflare/account-deletion-support/build.mjs**. O gerador cria uma página estática com endereço de e-mail de suporte e link à política de privacidade. Não exige instalação do aplicativo, não pede senha, não coleta dados no site, não acessa Firebase/Cloudinary, não faz deploy nem executa exclusão. A opção Firebase previamente desenvolvida permanece intacta e bloqueada.
+
+## Condições antes de habilitar e publicar
+1. **Responsável** define um e-mail público de suporte/privacidade, verifica recebimento, atendimento e instruções seguras para comprovar a titularidade. Não exigir senha, token ou documentos pessoais no e-mail inicial.
+2. **Revisão jurídica/LGPD** aprova política de privacidade, tratamento de dados religiosos, prazos, bases jurídicas e exceções de retenção.
+3. **Engenharia** garante o tratamento efetivo de Auth, Firestore, perfis, conteúdo, imagens, Cloudinary, notificações e demais serviços, com auditoria, permissões restritas, reconciliação e proteção de dados de terceiros. Pode ser um procedimento administrativo supervisionado, desde que realmente funcione.
+4. **Operação** publica a página em HTTPS com o nome Átrio Católico, testa em navegador anônimo, confirma o recebimento do e-mail e registra evidência verificável de uma solicitação de teste e seu processamento.
+5. **Play Console** recebe a URL pública de exclusão na seção Segurança dos dados. Validar também o caminho de solicitação dentro do aplicativo.
+
+## Construção local (nenhum deploy)
+O operador precisa fornecer estes valores públicos e uma declaração de revisão, fora do repositório:
+- ATRIO_DELETION_SUPPORT_APPROVED = manual-support-and-privacy-reviewed
+- ATRIO_DELETION_SUPPORT_EMAIL = endereço público real, aprovado
+- ATRIO_DELETION_PRIVACY_URL = URL HTTPS real da política
+
+Então executar o comando de build do arquivo **cloudflare/account-deletion-support/build.mjs** pelo Node 22. A saída local é a pasta **cloudflare/account-deletion-support/dist**, contendo index.html e _headers. Não há publicação automática. Sem os dados exigidos, a geração é bloqueada.
+
+No GitHub Actions, o modo padrão **firebase** e todos seus bloqueios são preservados. A opção alternativa exige configuração explícita:
+- ATRIO_PLAY_DELETION_MODE = manual-support
+- ATRIO_PLAY_DELETION_PORTAL_URL = URL HTTPS real da página publicada
+- ATRIO_PLAY_SUPPORT_EMAIL = e-mail público aprovado
+- ATRIO_PLAY_SUPPORT_REVIEWED = manual-support-and-privacy-reviewed
+- ATRIO_PLAY_SUPPORT_MAILBOX_MONITORED = true
+- ATRIO_PLAY_PRIVACY_POLICY_URL = endereço HTTPS da política
+
+O gate de pré-assinatura verifica a coerência estática desses itens e a presença dos testes de construção. **Variáveis NÃO constituem prova de caixa monitorada, revisão jurídica, implantação do site ou exclusão real.** Evidências externas independentes são obrigatórias antes de qualquer assinatura.
+
+## Bloqueios preservados
+Os manifestos de evidências permanecem com **0/9 de privacidade** e **0/6 de UGC** homologados, todos os campos relevantes ainda em falso. O fluxo administrativo no Firebase Emulator com contas fictícias permanece obrigatório. Não foi feita assinatura, upload no Play Console, implantação ou alteração da main/backups/produção. Uma página publicada isoladamente NÃO autoriza iniciar a faixa fechada.
+
+**Decisão de produto:** reduzir a complexidade do ponto de entrada Web, mas não reduzir as obrigações reais de eliminação dos dados, segurança e resposta ao usuário.
