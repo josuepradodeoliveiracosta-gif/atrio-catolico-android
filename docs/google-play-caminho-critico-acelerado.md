@@ -246,3 +246,26 @@ cache como autorização; a decisão final de acesso permanece nas
 Security Rules do Firestore. Exige validação de revogação em
 dispositivo de QA antes de considerar o controle UGC homologado.
 Não houve mudança de regras publicadas, backend ou dados reais.
+
+
+## Notificações pessoais após logout ou troca de conta — 02/11/2026
+
+A verificação do executor administrativo de exclusão confirmou que o
+fluxo de **QA isolado** impede remover o Auth simulado antes da
+reconciliação dos dados conhecidos, das aprovações e do lease
+distribuído. Isso não significa que exista um executor de produção
+homologado.
+
+Em paralelo, a Central de Notificações foi reforçada: callbacks
+assíncronos de `users/{uid}/notifications` e do próprio
+`badge_requests/{uid}` podem retornar depois de logout/troca de
+conta. Agora verificam o UID autenticado **no instante do callback**;
+caso não corresponda ao UID original, zeram a lista/aviso, removem a
+paginação anterior e não apresentam conteúdo da sessão antiga.
+As três filas administrativas já eram fail-closed na PR #71.
+
+Teste unitário adicional em `NotificationModelsTest` cobre troca
+bilateral, logout e UID vazio. Não há novo workflow, mudança de Rules
+ou qualquer contato com produção. Continua pendente validar com
+dois aparelhos/usuários e comprovar a exclusão real ponta a ponta
+antes de homologar as evidências da Google Play.

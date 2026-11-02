@@ -130,10 +130,15 @@ internal fun rememberNotificationInbox(db: FirebaseFirestore, uid: String, admin
         val listener = db.collection("users").document(uid).collection("notifications")
             .orderBy("createdAt", Query.Direction.DESCENDING).limit(inbox.limit.toLong() + 1)
             .addSnapshotListener { data, error -> if (active) {
+                val sameSession = currentPersonalNoticeSession(
+                    uid, com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+                )
                 inbox.loadingReplies = false
-                inbox.replyError = error != null
-                inbox.replyMore = error == null && (data?.size() ?: 0) > inbox.limit
-                inbox.replies = if (error != null) emptyList() else data?.documents?.take(inbox.limit)?.mapNotNull {
+                inbox.replyError = error != null || !sameSession
+                inbox.replyMore = sameSession && error == null &&
+                    (data?.size() ?: 0) > inbox.limit
+                inbox.replies = if (error != null || !sameSession) emptyList() else
+                    data?.documents?.take(inbox.limit)?.mapNotNull {
                     val post = it.getString("postId").orEmpty()
                     if (post.isBlank() || '/' in post) null else {
                         val mentioned = !it.getString("mentionUid").isNullOrBlank()
@@ -159,10 +164,15 @@ internal fun rememberNotificationInbox(db: FirebaseFirestore, uid: String, admin
         inbox.reviewError = false
         val listener = db.collection("badge_requests").document(uid).addSnapshotListener { data, error ->
             if (active) {
+                val sameSession = currentPersonalNoticeSession(
+                    uid, com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+                )
                 inbox.loadingReview = false
-                inbox.reviewError = error != null
-                // Never expose reviewNote, reviewedBy or another member's private profile.
-                inbox.review = if (error != null || data == null || !data.exists()) null else reviewNotice(
+                inbox.reviewError = error != null || !sameSession
+                // Never expose a previous account's seal review on session switch.
+                // Nor reveal reviewNote, reviewedBy or private profile fields.
+                inbox.review = if (error != null || !sameSession ||
+                    data == null || !data.exists()) null else reviewNotice(
                     data.getString("status").orEmpty(), data.getString("kind").orEmpty(),
                     data.noticeTime("reviewedAt"), data.noticeToken("review", "reviewedAt") + ":" + data.getString("status"))
             }

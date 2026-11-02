@@ -4,6 +4,16 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class NotificationModelsTest {
+    @Test fun personalNoticesCannotUpdateAfterAccountSwitchOrLogout() {
+        assertTrue(currentPersonalNoticeSession("alice", "alice"))
+        assertTrue(currentPersonalNoticeSession("bob", "bob"))
+        assertFalse(currentPersonalNoticeSession("alice", "bob"))
+        assertFalse(currentPersonalNoticeSession("bob", "alice"))
+        assertFalse(currentPersonalNoticeSession("alice", null))
+        assertFalse(currentPersonalNoticeSession("", ""))
+        assertFalse(currentPersonalNoticeSession("", null))
+    }
+
     @Test fun moderatorRoleRequiresLiveServerConfirmationAndUnchangedSession() {
         fun allowed(
             uid: String? = "admin-qa",

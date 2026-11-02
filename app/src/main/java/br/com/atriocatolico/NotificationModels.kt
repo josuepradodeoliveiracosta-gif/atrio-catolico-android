@@ -2,6 +2,14 @@ package br.com.atriocatolico
 
 import java.security.MessageDigest
 
+/**
+ * An old Firestore listener can deliver a cached callback after sign-out.
+ * Personal notices belong exclusively to the account captured at subscribe.
+ */
+internal fun currentPersonalNoticeSession(
+    expectedUid: String, authenticatedUid: String?
+): Boolean = expectedUid.isNotBlank() && authenticatedUid == expectedUid
+
 /** Never display admin queues from cached, pending, failed or previous-session reads. */
 internal fun verifiedAdminNoticeSnapshot(
     expectedUid: String,
