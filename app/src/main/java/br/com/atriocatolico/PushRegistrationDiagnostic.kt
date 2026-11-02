@@ -4,6 +4,19 @@ package br.com.atriocatolico
  * Diagnóstico público e seguro do cadastro FCM.
  * Não expor UID, token, endpoint, credenciais ou mensagens de exceção.
  */
+/**
+ * O token FCM é um endereço de entrega do dispositivo, não um diagnóstico
+ * público. A operação assíncrona deve revalidar a sessão ao concluir.
+ * Nunca disponibilizar cópia do token na variante da Google Play.
+ */
+internal fun mayUseFcmTokenDiagnostics(
+    playStoreBuild: Boolean,
+    expectedUid: String,
+    authenticatedUid: String?,
+    enabledOnDevice: Boolean
+): Boolean = !playStoreBuild && expectedUid.isNotBlank()
+    && authenticatedUid == expectedUid && enabledOnDevice
+
 internal enum class PushRegistrationProblem {
     SESSION_CHANGED,
     TOKEN_UNAVAILABLE,

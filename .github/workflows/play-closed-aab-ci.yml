@@ -178,7 +178,7 @@ jobs:
         run: python3 scripts/validar_firebase.py
       - name: Compilar AAB e testar somente a validacao local dos Termos
         if: steps.android_scope.outputs.android == 'true'
-        run: gradle :app:bundlePlayRelease :app:testPlayReleaseUnitTest --tests br.com.atriocatolico.CommunityTermsPolicyTest --tests br.com.atriocatolico.PlayBroadcastDeliveryPolicyTest --no-daemon --stacktrace
+        run: gradle :app:bundlePlayRelease :app:testPlayReleaseUnitTest --tests br.com.atriocatolico.CommunityTermsPolicyTest --tests br.com.atriocatolico.PlayBroadcastDeliveryPolicyTest --tests br.com.atriocatolico.PushRegistrationDiagnosticTest --no-daemon --stacktrace
       - name: Examinar AAB e manifesto mesclado
         if: steps.android_scope.outputs.android == 'true'
         run: python3 scripts/play_store_bundle_check.py

@@ -106,3 +106,31 @@ tenha sido completada em todos os aparelhos ou que as barreiras
 distribuídas já estejam operacionais. Testar FCM individual real com
 contas fictícias e o conteúdo do AAB final continua obrigatório,
 e `push_block_safe_delivery` permanece não verificado.
+
+
+## Token FCM: diagnóstico restrito à sessão OTA — 02/11/2026
+
+Na variante Play, o painel avançado de notificações **não oferece**
+o comando de copiar token FCM para a área de transferência do Android.
+O botão permanece disponível na distribuição OTA de diagnóstico, mas
+só funciona quando a conta autenticada ainda corresponde ao UID do
+painel e as notificações estão habilitadas nesse aparelho. A mesma
+regra é reavaliada quando a consulta assíncrona do token termina,
+para evitar copiar um token após logout, troca de conta ou desativação.
+Nenhum token é registrado em logs, no estado do Compose ou em mensagem
+de erro.
+
+A regra pura `mayUseFcmTokenDiagnostics` é testada na suíte JUnit
+existente de `PushRegistrationDiagnosticTest`. O gate pré-assinatura
+também recusa regressões que tornem o botão disponível na Play ou
+retirem a checagem de sessão; os testes sintéticos ficam na suíte
+Python já utilizada. Não foram alterados o cadastro FCM, a entrega
+de notificações, as permissões Firestore, a chave de assinatura nem
+o Worker implantado.
+
+**Limitação:** isso protege a cópia *iniciada pelo app*; não limpa
+tokens copiados anteriormente em outros aplicativos e não comprova
+a exclusão do registro remoto de `pushDevices` quando o usuário
+encerra a sessão sem conexão. O recebimento de mensagens `notification`
+por fora do receptor e o cancelamento remoto de inscrições antigas
+continuam sujeitos à homologação real antes da Play.

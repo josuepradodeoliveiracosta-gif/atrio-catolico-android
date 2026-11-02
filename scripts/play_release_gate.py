@@ -468,6 +468,10 @@ def play_push_privacy_blockers(root: Path) -> list[str]:
             "play_broadcast_delivery_policy",
         "cloudflare/push-worker/src/index.js":
             "play_broadcast_worker",
+        "app/src/main/java/br/com/atriocatolico/PushSettings.kt":
+            "play_fcm_diagnostic_ui",
+        "app/src/main/java/br/com/atriocatolico/PushRegistrationDiagnostic.kt":
+            "play_fcm_diagnostic_policy",
     }
     files = {}
     errors = []
@@ -511,6 +515,23 @@ def play_push_privacy_blockers(root: Path) -> list[str]:
             'addressedTo.orEmpty().startsWith("/topics/")' in text
         )):
             errors.append("play_push_per_recipient_client_guard_missing")
+    if "play_fcm_diagnostic_ui" in files:
+        text = files["play_fcm_diagnostic_ui"]
+        if not all((
+            "if (active && !BuildConfig.PLAY_STORE_BUILD)" in text,
+            text.count("mayUseFcmTokenDiagnostics(") >= 2,
+            "return@addOnCompleteListener" in text
+        )):
+            errors.append("play_push_device_token_diagnostic_exposed")
+    if "play_fcm_diagnostic_policy" in files:
+        text = files["play_fcm_diagnostic_policy"]
+        if not all((
+            "internal fun mayUseFcmTokenDiagnostics(" in text,
+            "!playStoreBuild" in text,
+            "authenticatedUid == expectedUid" in text,
+            "enabledOnDevice" in text
+        )):
+            errors.append("play_push_device_token_session_guard_missing")
     if "play_broadcast_worker" in files:
         text = files["play_broadcast_worker"]
         start = text.find("export async function handleBroadcast(request, env) {")

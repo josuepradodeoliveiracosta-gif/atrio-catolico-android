@@ -583,7 +583,9 @@ class PlayPushPrivacyGateTests(unittest.TestCase):
             "app/src/main/java/br/com/atriocatolico/AtrioPushService.kt",
             "app/src/main/java/br/com/atriocatolico/ThreadPushSubscriptions.kt",
             "app/src/main/java/br/com/atriocatolico/PlayBroadcastDeliveryPolicy.kt",
-            "cloudflare/push-worker/src/index.js"
+            "cloudflare/push-worker/src/index.js",
+            "app/src/main/java/br/com/atriocatolico/PushSettings.kt",
+            "app/src/main/java/br/com/atriocatolico/PushRegistrationDiagnostic.kt"
         )
 
     def test_current_sources_keep_release_interlock(self):
@@ -612,6 +614,10 @@ class PlayPushPrivacyGateTests(unittest.TestCase):
              'false', "play_push_per_recipient_client_guard_missing"),
             (self.sources[3], "'broadcast_privacy_coordinator_required'",
              "'broadcast_ready'", "play_push_server_broadcast_privacy_fence_missing"),
+            (self.sources[4], "if (active && !BuildConfig.PLAY_STORE_BUILD)",
+             "if (active)", "play_push_device_token_diagnostic_exposed"),
+            (self.sources[5], "authenticatedUid == expectedUid",
+             "true", "play_push_device_token_session_guard_missing"),
         )
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

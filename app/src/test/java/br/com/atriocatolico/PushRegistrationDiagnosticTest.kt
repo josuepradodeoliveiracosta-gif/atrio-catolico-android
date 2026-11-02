@@ -6,6 +6,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PushRegistrationDiagnosticTest {
+    @Test fun playNeverAllowsDeviceTokenClipboardDiagnostic() {
+        for (uid in listOf("alice", "bob")) {
+            assertFalse(mayUseFcmTokenDiagnostics(true, uid, uid, true))
+        }
+    }
+
+    @Test fun diagnosticsAreTiedToSameLoggedInOptedInOtaAccount() {
+        assertTrue(mayUseFcmTokenDiagnostics(false, "alice", "alice", true))
+        assertFalse(mayUseFcmTokenDiagnostics(false, "alice", "bob", true))
+        assertFalse(mayUseFcmTokenDiagnostics(false, "alice", null, true))
+        assertFalse(mayUseFcmTokenDiagnostics(false, "", "", true))
+        assertFalse(mayUseFcmTokenDiagnostics(false, "alice", "alice", false))
+    }
+
     @Test fun tokenProblemsIdentifyStageOne() {
         for (problem in listOf(
             PushRegistrationProblem.TOKEN_UNAVAILABLE,

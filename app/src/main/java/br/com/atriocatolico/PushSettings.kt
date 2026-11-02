@@ -22,6 +22,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.messaging.FirebaseMessaging
 
 /**
@@ -126,22 +127,36 @@ internal fun PushSettings(uid: String, db: FirebaseFirestore) {
                 Text(if (diagnosticsOpen) "Ocultar diagnóstico avançado" else "Diagnóstico avançado")
             }
             if (diagnosticsOpen) {
-                if (active) {
+                // A versão Play não oferece cópia de tokens de dispositivo.
+                // O diagnóstico legado é exclusivo da distribuição de testes OTA.
+                if (active && !BuildConfig.PLAY_STORE_BUILD) {
                     TextButton(onClick = {
+                        if (!mayUseFcmTokenDiagnostics(
+                                BuildConfig.PLAY_STORE_BUILD, uid,
+                                FirebaseAuth.getInstance().currentUser?.uid,
+                                PushRegistry.enabled(context, uid)
+                            )) return@TextButton
                         FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+                            // A chamada pode terminar depois de logout/troca de conta.
+                            // Nenhum token ou feedback da sessão antiga deve ser copiado.
+                            if (!mayUseFcmTokenDiagnostics(
+                                    BuildConfig.PLAY_STORE_BUILD, uid,
+                                    FirebaseAuth.getInstance().currentUser?.uid,
+                                    PushRegistry.enabled(context, uid)
+                                )) return@addOnCompleteListener
                             if (task.isSuccessful) {
                                 val token = task.result.orEmpty()
                                 if (token.isNotBlank()) {
                                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE)
                                         as ClipboardManager
                                     clipboard.setPrimaryClip(ClipData.newPlainText("Token FCM de teste", token))
-                                    feedback = "Token copiado. Use apenas no Console Firebase; não compartilhe publicamente."
-                                }
+                                    feedback = "Token copiado para teste. Não compartilhe publicamente."
+                                } else feedback = "Não foi possível consultar o token de teste."
                             } else feedback = "Não foi possível consultar o token de teste."
                         }
                     }) { Text("Copiar token para teste no Firebase") }
-                    Text("O token identifica este aparelho como destino de mensagens, não a sua " +
-                        "identidade. Mantenha-o privado.", fontSize = 11.sp, color = Muted)
+                    Text("O token identifica este aparelho como destino de mensagens. " +
+                        "Mantenha-o privado.", fontSize = 11.sp, color = Muted)
                 }
                 HorizontalDivider()
                 Text("Última tentativa de envio", color = Wine,
