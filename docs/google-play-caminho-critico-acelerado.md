@@ -83,3 +83,26 @@ do tipo `user_reports` já é acessível. Os testes JUnit verificam
 agrupamento, privacidade do texto/identificador e remoção das
 denúncias analisadas da lista de pendências. O painel não é prova
 de disponibilidade contínua de moderadores nem autoriza a Play.
+
+
+## Bloqueio de regressão FCM antes de assinatura Play (02/11/2026)
+
+O gate existente `scripts/play_release_gate.py` executa agora
+`play_push_privacy_blockers` nos modos `--audit` e `--enforce`, sem
+novo workflow ou serviço. Ele recusa a assinatura se desaparecerem
+as proteções do cliente Play contra recebimento de comunicados por
+tópicos, migração de inscrições legadas, identificação por UID ou
+o bloqueio deliberado do endpoint `/broadcast` no código do Worker.
+
+A suíte offline `scripts/test_play_release_gate.py` valida o contrato
+atual e seis regressões sintéticas: ausência de destinatário, volta de
+subscribe ao tópico geral, perda da desinscrição de tópicos de
+discussões, eliminação do filtro UID, eliminação da checagem de origem
+por tópico e reativação indevida do broadcast no Worker.
+
+**Limite:** auditoria estática não comprova que o Worker atualmente
+implantado corresponda ao código da PR, nem que a desinscrição FCM
+tenha sido completada em todos os aparelhos ou que as barreiras
+distribuídas já estejam operacionais. Testar FCM individual real com
+contas fictícias e o conteúdo do AAB final continua obrigatório,
+e `push_block_safe_delivery` permanece não verificado.

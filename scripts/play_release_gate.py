@@ -452,6 +452,73 @@ def community_terms_gate(root: Path, url: str, version: str) -> list[str]:
     return errors
 
 
+def play_push_privacy_blockers(root: Path) -> list[str]:
+    """Static regression interlock for Play FCM routing, before opening a JKS.
+
+    The Worker currently FAILS CLOSED for general broadcasts. In particular,
+    source changes cannot be confused with approval to deploy it, and this
+    check does not prove the remote Worker is updated or FCM delivery safe.
+    """
+    sources = {
+        "app/src/main/java/br/com/atriocatolico/AtrioPushService.kt":
+            "play_broadcast_client",
+        "app/src/main/java/br/com/atriocatolico/ThreadPushSubscriptions.kt":
+            "play_discussion_topics",
+        "app/src/main/java/br/com/atriocatolico/PlayBroadcastDeliveryPolicy.kt":
+            "play_broadcast_delivery_policy",
+        "cloudflare/push-worker/src/index.js":
+            "play_broadcast_worker",
+    }
+    files = {}
+    errors = []
+    for path, code in sources.items():
+        try:
+            files[code] = (root / path).read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            errors.append("play_push_source_missing_or_unreadable:" + path)
+    if "play_broadcast_client" in files:
+        text = files["play_broadcast_client"]
+        checks = (
+            'if (BuildConfig.PLAY_STORE_BUILD) {' in text,
+            'unsubscribeFromTopic(COMMUNICATION_TOPIC)' in text,
+            'PlayBroadcastDeliveryPolicy.accepts(' in text,
+            'destinationUid = message.data["uid"]' in text,
+            'sender = message.from' in text,
+            'addressedTo = message.to' in text,
+            'if (BuildConfig.PLAY_STORE_BUILD) return' in text,
+        )
+        if not all(checks):
+            errors.append("play_push_client_may_accept_legacy_topics")
+    if "play_discussion_topics" in files:
+        text = files["play_discussion_topics"]
+        if not all((
+            "if (BuildConfig.PLAY_STORE_BUILD)" in text,
+            "unsubscribeAll(context, uid)" in text,
+            "&& !BuildConfig.PLAY_STORE_BUILD" in text
+        )):
+            errors.append("play_push_discussion_topic_migration_missing")
+    if "play_broadcast_delivery_policy" in files:
+        text = files["play_broadcast_delivery_policy"]
+        if not all((
+            'destinationUid != currentUid' in text,
+            'sender.orEmpty().startsWith("/topics/")' in text,
+            'addressedTo.orEmpty().startsWith("/topics/")' in text
+        )):
+            errors.append("play_push_per_recipient_client_guard_missing")
+    if "play_broadcast_worker" in files:
+        text = files["play_broadcast_worker"]
+        start = text.find("export async function handleBroadcast(request, env) {")
+        end = text.find("\n// Estatística horária", start) if start >= 0 else -1
+        broadcast = text[start:end] if start >= 0 and end > start else ""
+        if not (re.search(
+                r"return\s+response\(503,\s*'broadcast_privacy_coordinator_required'\)",
+                broadcast) and
+                "message:{topic:" not in broadcast and
+                "messages:send" not in broadcast):
+            errors.append("play_push_server_broadcast_privacy_fence_missing")
+    return errors
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--audit", action="store_true")
@@ -468,6 +535,7 @@ def main():
         args.root, os.environ.get("ATRIO_PLAY_COMMUNITY_TERMS_URL", ""),
         os.environ.get("ATRIO_PLAY_COMMUNITY_TERMS_VERSION", "")))
     blocked.extend(account_deletion_in_app_link_blockers(args.root))
+    blocked.extend(play_push_privacy_blockers(args.root))
     blocked.extend(deletion_web_blockers(
         args.root, os.environ.get("ATRIO_DELETION_PORTAL_URL", ""),
         mode=os.environ.get("ATRIO_PLAY_DELETION_MODE", "firebase"),

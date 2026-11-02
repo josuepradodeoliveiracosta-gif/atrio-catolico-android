@@ -572,5 +572,63 @@ class CommunityTermsGateTests(unittest.TestCase):
             self.assertEqual(sum("source_missing" in issue for issue in errors), 4)
 
 
+class PlayPushPrivacyGateTests(unittest.TestCase):
+    """Synthetic regression fixtures, never send FCM or contact Cloudflare."""
+
+    def setUp(self):
+        from play_release_gate import play_push_privacy_blockers
+        self.check = play_push_privacy_blockers
+        self.root = Path(__file__).resolve().parents[1]
+        self.sources = (
+            "app/src/main/java/br/com/atriocatolico/AtrioPushService.kt",
+            "app/src/main/java/br/com/atriocatolico/ThreadPushSubscriptions.kt",
+            "app/src/main/java/br/com/atriocatolico/PlayBroadcastDeliveryPolicy.kt",
+            "cloudflare/push-worker/src/index.js"
+        )
+
+    def test_current_sources_keep_release_interlock(self):
+        self.assertEqual(self.check(self.root), [])
+
+    def test_unavailable_source_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(len(self.check(Path(tmp))), len(self.sources))
+
+    def test_unsafe_play_topic_or_untargeted_broadcast_regressions_fail(self):
+        originals = {
+            path: (self.root / path).read_text(encoding="utf-8")
+            for path in self.sources
+        }
+        scenarios = (
+            (self.sources[0], "PlayBroadcastDeliveryPolicy.accepts(",
+             "true(", "play_push_client_may_accept_legacy_topics"),
+            (self.sources[0], "unsubscribeFromTopic(COMMUNICATION_TOPIC)",
+             "subscribeToTopic(COMMUNICATION_TOPIC)",
+             "play_push_client_may_accept_legacy_topics"),
+            (self.sources[1], "unsubscribeAll(context, uid)",
+             "// no unsubscription", "play_push_discussion_topic_migration_missing"),
+            (self.sources[2], 'destinationUid != currentUid',
+             'false', "play_push_per_recipient_client_guard_missing"),
+            (self.sources[2], 'sender.orEmpty().startsWith("/topics/")',
+             'false', "play_push_per_recipient_client_guard_missing"),
+            (self.sources[3], "'broadcast_privacy_coordinator_required'",
+             "'broadcast_ready'", "play_push_server_broadcast_privacy_fence_missing"),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for path, source in originals.items():
+                dest = root / path
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_text(source, encoding="utf-8")
+            self.assertEqual(self.check(root), [])
+            for path, old, replacement, expected in scenarios:
+                with self.subTest(path=path, mutation=old):
+                    self.assertIn(old, originals[path])
+                    dest = root / path
+                    dest.write_text(originals[path].replace(old, replacement, 1),
+                                    encoding="utf-8")
+                    self.assertIn(expected, self.check(root))
+                    dest.write_text(originals[path], encoding="utf-8")
+
+
 if __name__ == "__main__":
     unittest.main()
