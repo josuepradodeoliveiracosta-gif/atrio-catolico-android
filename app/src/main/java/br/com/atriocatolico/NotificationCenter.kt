@@ -192,17 +192,29 @@ internal fun rememberNotificationInbox(db: FirebaseFirestore, uid: String, admin
             }
             // Legacy reports omit status; scan paginated records to include those pending reports.
             val reports = db.collection("reports").orderBy("createdAt", Query.Direction.DESCENDING)
-                .limit(inbox.limit.toLong() + 1).addSnapshotListener { data, error -> if (active) {
-                    reportsLoaded = true
-                    updateAdminLoading()
-                    inbox.reportsError = error != null
-                    inbox.reportsMore = error == null && (data?.size() ?: 0) > inbox.limit
-                    inbox.reports = if (error != null) emptyList() else data?.documents?.take(inbox.limit)
-                        ?.filter { (it.getString("status") ?: "pending") == "pending" }?.map {
-                            NoticeEvent(it.id, NoticeKind.REPORTS, title = "Denúncia pendente", body = "",
-                                at = it.noticeTime(), localToken = it.noticeToken("report"))
-                        } ?: emptyList()
-                } }
+                .limit(inbox.limit.toLong() + 1)
+                .addSnapshotListener(com.google.firebase.firestore.MetadataChanges.INCLUDE) { data, error ->
+                    if (active) {
+                        reportsLoaded = true
+                        updateAdminLoading()
+                        val authoritative = verifiedAdminNoticeSnapshot(
+                            uid, com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid,
+                            error != null, data != null,
+                            data?.metadata?.isFromCache ?: true,
+                            data?.metadata?.hasPendingWrites() ?: true
+                        )
+                        inbox.reportsError = !authoritative
+                        inbox.reportsMore = authoritative && (data?.size() ?: 0) > inbox.limit
+                        inbox.reports = if (!authoritative) emptyList() else
+                            data!!.documents.take(inbox.limit)
+                                .filter { (it.getString("status") ?: "pending") == "pending" }
+                                .map {
+                                    NoticeEvent(it.id, NoticeKind.REPORTS,
+                                        title = "Denúncia pendente", body = "",
+                                        at = it.noticeTime(), localToken = it.noticeToken("report"))
+                                }
+                    }
+                }
             // O segundo tipo de denuncia tambem precisa aparecer para a
             // moderação. Não carregar identidade do denunciante nem motivo
             // no aviso; somente a central e a fila de revisão conhecem o total.
@@ -214,10 +226,12 @@ internal fun rememberNotificationInbox(db: FirebaseFirestore, uid: String, admin
                     if (active) {
                         memberReportsLoaded = true
                         updateAdminLoading()
-                        val currentSession = com.google.firebase.auth.FirebaseAuth
-                            .getInstance().currentUser?.uid == uid
-                        val authoritative = error == null && currentSession && data != null &&
-                            !data.metadata.isFromCache && !data.metadata.hasPendingWrites()
+                        val authoritative = verifiedAdminNoticeSnapshot(
+                            uid, com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid,
+                            error != null, data != null,
+                            data?.metadata?.isFromCache ?: true,
+                            data?.metadata?.hasPendingWrites() ?: true
+                        )
                         inbox.memberReportsError = !authoritative
                         inbox.memberReportsMore = authoritative &&
                             (data?.size() ?: 0) > inbox.limit
@@ -233,16 +247,27 @@ internal fun rememberNotificationInbox(db: FirebaseFirestore, uid: String, admin
                 }
             // Equality-only query avoids requiring a new composite index.
             val requests = db.collection("badge_requests").whereEqualTo("status", "pending")
-                .limit(inbox.limit.toLong() + 1).addSnapshotListener { data, error -> if (active) {
-                    requestsLoaded = true
-                    updateAdminLoading()
-                    inbox.requestsError = error != null
-                    inbox.requestsMore = error == null && (data?.size() ?: 0) > inbox.limit
-                    inbox.requests = if (error != null) emptyList() else data?.documents?.take(inbox.limit)?.map {
-                        NoticeEvent(it.id, NoticeKind.REQUESTS, title = "Solicitação pendente", body = "",
-                            at = it.noticeTime(), localToken = it.noticeToken("request"))
-                    } ?: emptyList()
-                } }
+                .limit(inbox.limit.toLong() + 1)
+                .addSnapshotListener(com.google.firebase.firestore.MetadataChanges.INCLUDE) { data, error ->
+                    if (active) {
+                        requestsLoaded = true
+                        updateAdminLoading()
+                        val authoritative = verifiedAdminNoticeSnapshot(
+                            uid, com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid,
+                            error != null, data != null,
+                            data?.metadata?.isFromCache ?: true,
+                            data?.metadata?.hasPendingWrites() ?: true
+                        )
+                        inbox.requestsError = !authoritative
+                        inbox.requestsMore = authoritative && (data?.size() ?: 0) > inbox.limit
+                        inbox.requests = if (!authoritative) emptyList() else
+                            data!!.documents.take(inbox.limit).map {
+                                NoticeEvent(it.id, NoticeKind.REQUESTS,
+                                    title = "Solicitação pendente", body = "",
+                                    at = it.noticeTime(), localToken = it.noticeToken("request"))
+                            }
+                    }
+                }
             onDispose {
                 active = false
                 reports.remove()

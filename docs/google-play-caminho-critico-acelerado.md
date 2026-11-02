@@ -205,3 +205,23 @@ PR/ref. A mudança não cancela releases, não publica Workers, não
 modifica regras reais nem dispensa o teste de segurança. O resultado
 mais recente ainda precisa ser confirmado no GitHub Actions;
 execuções canceladas **nunca** contam como aprovadas.
+
+
+## Central administrativa: três filas com confirmação de servidor — 02/11/2026
+
+As filas de denúncias de publicações (`reports`) e de solicitações
+de selo (`badge_requests`) antes aceitavam a primeira leitura do
+cache Firestore como prova de acesso administrativo. Agora usam a mesma
+barreira já adotada em `user_reports`: sessão autenticada exatamente
+igual ao UID da tela, snapshot confirmado pelo servidor, sem erro e
+sem escritas locais pendentes. O aplicativo inclui mudanças de metadata
+nos três listeners, para atualizar a tela após resposta do servidor e
+remover conteúdos quando a consulta perde autoridade. Listas,
+paginação e estado de erro são reiniciados no fail-closed. Não se
+exibem os motivos ou identidades dos denunciantes nos avisos.
+
+A condição pura `verifiedAdminNoticeSnapshot` é testada na suíte
+JUnit existente de notificações, sem novo workflow. O filtro é defesa
+em profundidade e não substitui revogação imediata no Firestore
+Security Rules nem evidência operacional de moderação. Nenhum dado
+real foi acessado e nenhuma alteração foi implantada.

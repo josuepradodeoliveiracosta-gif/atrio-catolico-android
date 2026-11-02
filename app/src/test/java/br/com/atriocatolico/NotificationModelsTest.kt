@@ -4,6 +4,26 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class NotificationModelsTest {
+    @Test fun adminAlertsRequireCurrentUserAndServerConfirmedSnapshot() {
+        val expected = "admin-qa"
+        assertTrue(verifiedAdminNoticeSnapshot(expected, expected,
+            hasError = false, hasData = true, fromCache = false, pendingWrites = false))
+        assertFalse(verifiedAdminNoticeSnapshot(expected, "other-account",
+            hasError = false, hasData = true, fromCache = false, pendingWrites = false))
+        assertFalse(verifiedAdminNoticeSnapshot(expected, null,
+            hasError = false, hasData = true, fromCache = false, pendingWrites = false))
+        assertFalse(verifiedAdminNoticeSnapshot("", "",
+            hasError = false, hasData = true, fromCache = false, pendingWrites = false))
+        assertFalse(verifiedAdminNoticeSnapshot(expected, expected,
+            hasError = true, hasData = true, fromCache = false, pendingWrites = false))
+        assertFalse(verifiedAdminNoticeSnapshot(expected, expected,
+            hasError = false, hasData = false, fromCache = false, pendingWrites = false))
+        assertFalse(verifiedAdminNoticeSnapshot(expected, expected,
+            hasError = false, hasData = true, fromCache = true, pendingWrites = false))
+        assertFalse(verifiedAdminNoticeSnapshot(expected, expected,
+            hasError = false, hasData = true, fromCache = false, pendingWrites = true))
+    }
+
     private fun event(id: String, kind: NoticeKind, target: String = "", read: Boolean = false, at: Long = 1) =
         NoticeEvent(id, kind, target, "title", "body", at, read)
 

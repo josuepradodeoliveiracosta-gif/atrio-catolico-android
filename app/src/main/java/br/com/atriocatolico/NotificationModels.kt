@@ -2,6 +2,17 @@ package br.com.atriocatolico
 
 import java.security.MessageDigest
 
+/** Never display admin queues from cached, pending, failed or previous-session reads. */
+internal fun verifiedAdminNoticeSnapshot(
+    expectedUid: String,
+    authenticatedUid: String?,
+    hasError: Boolean,
+    hasData: Boolean,
+    fromCache: Boolean,
+    pendingWrites: Boolean
+): Boolean = expectedUid.isNotBlank() && authenticatedUid == expectedUid
+    && !hasError && hasData && !fromCache && !pendingWrites
+
 internal enum class NoticeKind { REPLY, REVIEW, REPORTS, REQUESTS }
 internal data class NoticeEvent(
     val id: String, val kind: NoticeKind, val target: String = "",
