@@ -17,9 +17,18 @@ function validate(role,op,payload){
   const keys=Object.keys(payload).sort().join(',');
   if(op==='admit'){
     if(!['avatar','guardian','push'].includes(role))deny();
-    const required=role==='push'?'actorUid,recipientUid':'ownerUid';
-    if(keys!==required||Object.values(payload).some(v=>!stageFixtureUid(v))||
-       (role==='push'&&payload.actorUid===payload.recipientUid))deny();
+    // Only two synthetic UIDs can be part of a broadcast QA admission.
+    const broadcast=role==='push'&&keys==='actorUid,recipientUids';
+    if(broadcast) {
+      const members=payload.recipientUids;
+      if(!stageFixtureUid(payload.actorUid)||!Array.isArray(members)||
+         members.length!==1||!stageFixtureUid(members[0])||
+         members[0]===payload.actorUid)deny();
+    }else{
+      const required=role==='push'?'actorUid,recipientUid':'ownerUid';
+      if(keys!==required||Object.values(payload).some(v=>!stageFixtureUid(v))||
+         (role==='push'&&payload.actorUid===payload.recipientUid))deny();
+    }
   }else if(['drain','finalize','status'].includes(op)){
     if(role!=='admin'||keys!=='uid'||!stageFixtureUid(payload.uid))deny();
   }else if(op==='close'){
