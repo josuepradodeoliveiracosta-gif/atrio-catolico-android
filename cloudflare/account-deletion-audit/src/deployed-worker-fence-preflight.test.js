@@ -98,8 +98,8 @@ test('não aceita um binding secreto fingindo ser coordenador de serviço',()=>{
 test('dados desconhecidos ou inconsistentes impedem um relatório de aprovação',()=>{
   const evidence=candidate();
   evidence.workers[0].bindings.push({name:'AVATAR_DB',type:'secret_text'});
-  assert.throws(()=>assessDeployedWorkerFence(evidence),/invalid_worker/);
+  assert.throws(()=>assessDeployedWorkerFence(evidence),/live_deletion_audit_invalid:worker:avatar/);
   const malformed=candidate();
   malformed.workers[0].freezeMarker='yes';
-  assert.throws(()=>assessDeployedWorkerFence(malformed),/invalid_worker/);
+  assert.throws(()=>assessDeployedWorkerFence(malformed),/live_deletion_audit_invalid:worker:avatar/);
 });
