@@ -27,6 +27,11 @@ test('missing parent document is not confused with missing children',async()=>{
   const queries=[];
   const adapter=createFirestoreReadAdapter(uid,token,async(url)=>{
     queries.push(url);
+    // A auditoria recursiva precisa descobrir o nome da subcoleção
+    // antes de listar seus documentos, mesmo se o pai não existir.
+    if(url.endsWith('/users/'+uid+':listCollectionIds'))
+      return json({collectionIds:['notifications']});
+    if(url.endsWith(':listCollectionIds'))return json({});
     if(url.includes('users/'+uid+'/notifications?')) return json({
       documents:[{name:ROOT+'users/'+uid+'/notifications/notice1',
         fields:{email:{stringValue:'private@do-not-return.invalid'}}}]
@@ -35,6 +40,7 @@ test('missing parent document is not confused with missing children',async()=>{
     return json({});
   });
   const result=await inventoryOwnedDocuments(uid,adapter);
+  assert.equal(result.ownedNestedTreeScanComplete,true);
   assert.ok(result.documents.some(x=>x.path==='users/'+uid+'/notifications/notice1'));
   assert.equal(result.pagesComplete,false);
   assert.ok(!JSON.stringify(result).includes('private@do-not-return.invalid'));
