@@ -18,6 +18,7 @@ on:
       - 'cloudflare/account-deletion-support/**'
       - 'cloudflare/account-deletion-processor/**'
       - 'cloudflare/account-deletion-audit/**'
+      - 'ops/cloud-run-private-review/**'
       - 'docs/google-play-politica-privacidade-minuta-nao-publicar.md'
       - 'docs/google-play-seguranca-dados-matriz-revisao.md'
       - 'scripts/play_store_bundle_check.py'
@@ -136,6 +137,12 @@ jobs:
           test ! -e cloudflare/account-deletion-processor/dist
       - name: Verificar inventário determinístico e checkpoints de exclusão sem escrita
         run: npm --prefix cloudflare/account-deletion-audit test
+      - name: Verificar sintaxe do futuro serviço Cloud Run sem inicializar credenciais
+        run: |
+          node --check ops/cloud-run-private-review/server.mjs
+          node --check cloudflare/account-deletion-audit/src/cloud-run-private-handler.js
+          test ! -f ops/cloud-run-private-review/.env
+          test ! -e ops/cloud-run-private-review/credentials.json
       - name: Testar autorização revogada antes do Auth no QA (sem Firebase)
         shell: bash
         run: |

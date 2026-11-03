@@ -88,3 +88,48 @@ Termos da Comunidade, as páginas HTTPS e as evidências para a Play
 também não são considerados homologados.
 
 **Não publicar nem aplicar alterações IAM sem aprovação explícita.**
+
+
+# Átrio Católico — Cloud Run administrativo privado (candidato, NÃO implantado)
+
+**03/11/2026 · PR #71 · REVISÃO DE CÓDIGO APENAS.**
+Não existe URL operacional, imagem assinada, conta IAM homologada ou exclusão real.
+Nenhuma publicação na Play Console é autorizada por estes arquivos.
+
+## O que já está preparado
+
+- `cloudflare/account-deletion-audit/src/cloud-run-private-handler.js`: endpoint **único** `POST /v1/review` com corpo JSON estrito `{uid,idToken}`, tamanho máximo de 8 KiB, uma solicitação simultânea por instância, resposta sem cache, ausência de logs de tokens/UIDs e erros genéricos.
+- `ops/cloud-run-private-review/server.mjs`: inicializa Firebase Admin com credenciais padrão **do ambiente Cloud Run** (nenhuma chave baixada) e conecta o diagnóstico exclusivamente de leitura. A inicialização é rejeitada se o ambiente não for o serviço Cloud Run com nome/projeto esperados.
+- `ops/cloud-run-private-review/Dockerfile`: empacotamento candidato Node.js 22 não root. **Não** é artefato assinado nem aprovado para produção; o `npm install` do contêiner ainda precisa de lockfile reprodutível e análise de vulnerabilidades antes de build homologado.
+- `ops/cloud-run-private-review/infra/main.tf`: modelo Terraform **não aplicado**, com conta de serviço dedicada e papéis de leitura Firestore/Auth, Cloud Run `INGRESS_TRAFFIC_INTERNAL_ONLY`, autenticação IAM Invoker obrigatória, um invocador serviço-a-serviço explícito, imagem de Artifact Registry por digest SHA-256 e no máximo uma instância sem mínimo. Proteção contra destruição e ausência de exposição anônima.
+
+## Duas identidades independentes — não misturar tokens
+
+1. **Chamador servidor-servidor:** o Cloud Run só deve aceitar uma identidade Google do *serviço chamador*, explicitamente autorizada com `roles/run.invoker`. Ela deve enviar um token OIDC Google assinado no header `X-Serverless-Authorization: Bearer <Google ID token>` (audience igual à URL do serviço). A autenticação é imposta **pelo Cloud Run, antes do processo Node**, e NÃO é comprovada pelo handler. O cliente Android nunca deve chamar esse serviço diretamente.
+2. **Fundador:** o servidor chamador deve, após autenticar corretamente a pessoa em uma sessão privada, enviar o token Firebase da conta do fundador dentro do corpo JSON (não como header Google). O SDK Admin verifica assinatura/revogação, estado do usuário, `admins/{uid}`, `app_config/founder` e `account_deletion_freeze/{uid}`. O callback revalida o acesso antes/depois de cada consulta Firestore. Nenhum token Firebase é suficiente para escapar do IAM de invocador.
+
+**Não há implementação neste commit do serviço chamador**. Ele precisa de avaliação separada de autenticação, consentimento, abuso, logging, escopo do usuário e autorização de acesso. O Terraform exige o e-mail dessa conta separada como variável obrigatória e proíbe usar a própria conta leitora como invocadora.
+
+## IAM, imagem e deploy: homologação antes de qualquer ação
+
+O Terraform define recursos **que só serão criados por um operador autorizado após aprovação explícita**. Revisar o projeto, as contas atuais, direitos herdados, políticas organizacionais e a fatura antes de executar `terraform plan` ou `apply`. Não conceder Editor, Owner, datastore.user/admin ou firebaseauth.admin. O papel `roles/firebaseauth.viewer` oferece consulta de Auth, **não** exclusão; `roles/datastore.viewer` oferece leitura Firestore, **não** mutação. A plataforma deve exigir Invoker IAM e ingresso apenas interno.
+
+Antes de qualquer tentativa de implantação:
+- concluir revisão jurídica e retenção, confirmar titularidade, publicar páginas HTTPS aprovadas;
+- disponibilizar chamador autenticado próprio com OIDC Google e justificativa operacional;
+- produzir imagem imutável e reprodutível com lockfile, dependências auditadas e digest verificado;
+- revisar IAM real **no ambiente Google Cloud**, incluindo permissões efetivas de serviço e invocador e política para a equipe responsável;
+- revisar limites de custo, privacidade do registro de acesso, mecanismos de contenção e reconciliação;
+- executar testes integrados em ambiente descartável; repetir homologação de Auth, Cloudinary, D1 e FCM antes de qualquer executor real.
+
+Não executar `docker build/push`, `terraform apply` ou criar IAM sem autorização. O serviço não possui operações de escrita ou exclusão: a saída conserva permanentemente `accountDeletionAuthorized:false` e `googlePlayReleaseAuthorized:false`.
+
+## Verificação automatizada
+
+A auditoria de privacidade Play já existente roda os testes Node do handler HTTP: valida rejeição de URLs/métodos não listados, payload grande, JSON inválido, campos extras, resposta contaminada, revogação na camada interna e vazamento de UID/token. Um teste estático inspeciona os invariantes de segurança do modelo Terraform. **Isso não substitui `terraform validate`, teste de Cloud Run IAM real, build de container ou teste de tráfego em produção**, todos pendentes.
+
+Fontes oficiais:
+- https://docs.cloud.google.com/run/docs/authenticating/service-to-service
+- https://docs.cloud.google.com/run/docs/securing/ingress
+- https://firebase.google.com/docs/auth/admin/manage-sessions
+- https://firebase.google.com/docs/admin/setup

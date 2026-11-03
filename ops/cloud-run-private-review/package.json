@@ -1,0 +1,12 @@
+{
+  "name": "atrio-private-deletion-read-cloud-run",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22 <23"
+  },
+  "dependencies": {
+    "firebase-admin": "14.5.0"
+  }
+}
