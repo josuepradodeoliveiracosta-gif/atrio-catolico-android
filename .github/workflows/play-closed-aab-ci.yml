@@ -25,6 +25,8 @@ on:
       - 'scripts/play_release_gate.py'
       - 'scripts/validar_firebase.py'
       - 'scripts/play_ci_android_scope.py'
+      - 'scripts/play_ci_heavy_scope.py'
+      - 'scripts/test_play_ci_heavy_scope.py'
       - 'scripts/play_web_live_preflight.py'
       - 'scripts/test_play_web_live_preflight.py'
       - 'scripts/test_play_ci_android_scope.py'
@@ -71,6 +73,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m unittest discover -s scripts -p 'test_play_ci_android_scope.py' -v
+          python3 -m unittest discover -s scripts -p 'test_play_ci_heavy_scope.py' -v
           # Primeiro envio, execução manual, SHA ausente ou história reescrita:
           # compilar por segurança. Nunca presumir que houve build recente.
           if [[ "$GITHUB_EVENT_NAME" != "pull_request" || "$PR_ACTION" != "synchronize" ||

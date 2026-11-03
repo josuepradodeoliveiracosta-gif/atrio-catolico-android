@@ -429,3 +429,37 @@ Reutilizado `verifiedAdminNoticeSnapshot` e os testes JUnit existentes,
 sem nova suíte, workflow ou build manual. A autorização definitiva de
 leitura continua nas Firestore Security Rules; o reforço é de interface.
 Nenhum dado ou serviço real foi alterado e nada libera assinatura/Play.
+
+
+## Otimização de emuladores em revisões incrementais — 03/11/2026
+
+A PR #71 já confirmou onze verificações aprovadas no commit anterior.
+Os filtros `pull_request.paths` do GitHub avaliam a PR acumulada,
+por isso revisões apenas de documentação ou fichas offline podem
+reativar emuladores demorados, mesmo sem alteração de aplicativo.
+
+O classificador `scripts/play_ci_heavy_scope.py` e sua suíte Python
+usam uma allowlist **fechada**: somente `docs/**`, páginas estáticas
+de atendimento `cloudflare/account-deletion-support/**` e quatro
+módulos offline de preparação de revisão de moderação podem dispensar
+testes caros de emuladores, e apenas em sincronização de PR com histórico
+linear verificável. **O portal autenticado de exclusão NÃO entra nessa
+exceção**, tampouco Firebase Rules, app, Workers, backend de exclusão,
+inventário compartilhado ou qualquer caminho desconhecido.
+
+Os workflows existentes de Firestore/selos, Guardião V2 no Android e
+Guardião V2 integrado passaram a consultar esse escopo antes de instalar
+Java, Node, SDK Android ou emuladores. Em uma primeira PR, push na
+`main`, execução manual, rebase, diff vazio, erro de leitura,
+mudança no próprio classificador ou alteração de código relevante,
+**continuam a executar os testes completos**. Os jobs registram
+explicitamente quando os emuladores não foram executados: status verde
+não implica cobertura nova do emulador.
+
+O workflow Play continua executando testes de retenção e exclusão,
+auditoria de privacidade/UGC, verificação de configuração e gates de
+release; agora também testa a política de escopo. A auditoria de
+segredos do repositório permanece independente. Antes de qualquer
+assinatura/submissão é indispensável executar a homologação completa.
+Não foram alterados produção, assinatura, Play Console, backups ou
+permissões de dados.

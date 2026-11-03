@@ -27,31 +27,69 @@ jobs:
     steps:
       - name: Obter codigo
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Classificar diff incremental para evitar emuladores redundantes
+        id: scope
+        shell: bash
+        env:
+          PR_ACTION: ${{ github.event.action }}
+          BEFORE_SHA: ${{ github.event.before }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts -p 'test_play_ci_heavy_scope.py' -v
+          # First PR, manual dispatch, push, unknown or rewritten history:
+          # always run the complete emulator suite.
+          if [[ "$GITHUB_EVENT_NAME" != "pull_request" || "$PR_ACTION" != "synchronize" ||
+                ! "$BEFORE_SHA" =~ ^[0-9a-f]{40}$ || ! "$PR_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo 'heavy=true' >> "$GITHUB_OUTPUT"
+          elif ! git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null ||
+               ! git cat-file -e "${PR_HEAD_SHA}^{commit}" 2>/dev/null ||
+               ! git merge-base --is-ancestor "$BEFORE_SHA" "$PR_HEAD_SHA"; then
+            echo 'heavy=true' >> "$GITHUB_OUTPUT"
+          else
+            git diff --name-only --diff-filter=ACDMRT -z "$BEFORE_SHA" "$PR_HEAD_SHA" > "$RUNNER_TEMP/qa-heavy-changes.bin"
+            python3 scripts/play_ci_heavy_scope.py --changed-file "$RUNNER_TEMP/qa-heavy-changes.bin" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Declarar dispensa explicita dos emuladores nesta sincronizacao
+        if: steps.scope.outputs.heavy == 'false'
+        run: |
+          echo 'Somente documentos/paginas/fichas offline: emuladores nao executados neste commit.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'As auditorias Google Play e seguranca da PR seguem independentes; o resultado NAO e uma homologacao de release.' >> "$GITHUB_STEP_SUMMARY"
       - name: Preparar Node.js
+        if: steps.scope.outputs.heavy == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '20'
       - name: Preparar Java para emulador
+        if: steps.scope.outputs.heavy == 'true'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
       - name: Instalar dependencias dos testes
+        if: steps.scope.outputs.heavy == 'true'
         working-directory: tests/security
         run: npm ci
       - name: Testar regras do Firestore no emulador (sem acessar producao)
+        if: steps.scope.outputs.heavy == 'true'
         working-directory: tests/security
         # Impedir que um cliente SDK offline prenda os demais QA da PR.
         timeout-minutes: 8
         run: npm test
       - name: Preparar Node 22 para QA administrativo (SQLite e Firebase Admin)
+        if: steps.scope.outputs.heavy == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '22'
       - name: Instalar Firebase Admin exclusivamente na fixture
+        if: steps.scope.outputs.heavy == 'true'
         working-directory: tests/security
         run: npm install --prefix admin-fixture --no-save --package-lock=false --ignore-scripts --no-audit --no-fund
       - name: Testar exclusao apenas em emuladores e HTTP localhost
+        if: steps.scope.outputs.heavy == 'true'
         working-directory: tests/security
         shell: bash
         env:

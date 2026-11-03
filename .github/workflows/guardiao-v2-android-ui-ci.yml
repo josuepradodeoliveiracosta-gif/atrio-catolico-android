@@ -13,6 +13,8 @@ on:
       - 'firestore.rules'
       - 'scripts/run-qa-android-emulator.sh'
       - '.github/workflows/guardiao-v2-android-ui-ci.yml'
+      - 'scripts/play_ci_heavy_scope.py'
+      - 'scripts/test_play_ci_heavy_scope.py'
   workflow_dispatch:
 
 permissions:
@@ -33,24 +35,60 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: 0
+      - name: Classificar diff incremental para evitar emuladores redundantes
+        id: scope
+        shell: bash
+        env:
+          PR_ACTION: ${{ github.event.action }}
+          BEFORE_SHA: ${{ github.event.before }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts -p 'test_play_ci_heavy_scope.py' -v
+          # First PR, manual dispatch, push, unknown or rewritten history:
+          # always run the complete emulator suite.
+          if [[ "$GITHUB_EVENT_NAME" != "pull_request" || "$PR_ACTION" != "synchronize" ||
+                ! "$BEFORE_SHA" =~ ^[0-9a-f]{40}$ || ! "$PR_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo 'heavy=true' >> "$GITHUB_OUTPUT"
+          elif ! git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null ||
+               ! git cat-file -e "${PR_HEAD_SHA}^{commit}" 2>/dev/null ||
+               ! git merge-base --is-ancestor "$BEFORE_SHA" "$PR_HEAD_SHA"; then
+            echo 'heavy=true' >> "$GITHUB_OUTPUT"
+          else
+            git diff --name-only --diff-filter=ACDMRT -z "$BEFORE_SHA" "$PR_HEAD_SHA" > "$RUNNER_TEMP/qa-heavy-changes.bin"
+            python3 scripts/play_ci_heavy_scope.py --changed-file "$RUNNER_TEMP/qa-heavy-changes.bin" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Declarar dispensa explicita dos emuladores nesta sincronizacao
+        if: steps.scope.outputs.heavy == 'false'
+        run: |
+          echo 'Somente documentos/paginas/fichas offline: emuladores nao executados neste commit.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'As auditorias Google Play e seguranca da PR seguem independentes; o resultado NAO e uma homologacao de release.' >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/setup-java@v4
+        if: steps.scope.outputs.heavy == 'true'
         with:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v4
+        if: steps.scope.outputs.heavy == 'true'
       - uses: gradle/actions/setup-gradle@v4
+        if: steps.scope.outputs.heavy == 'true'
         with:
           gradle-version: '8.13'
       - run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+        if: steps.scope.outputs.heavy == 'true'
       - uses: actions/setup-node@v4
+        if: steps.scope.outputs.heavy == 'true'
         with:
           node-version: '20'
           cache: npm
           cache-dependency-path: tests/security/package-lock.json
       - name: Preparar Firebase CLI para emulador exclusivamente local
+        if: steps.scope.outputs.heavy == 'true'
         working-directory: tests/security
         run: npm ci
       - name: Confirmar isolamento e acelerar emulador
+        if: steps.scope.outputs.heavy == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -59,6 +97,7 @@ jobs:
           test -c /dev/kvm
           sudo chmod 0666 /dev/kvm
       - name: Rodar APENAS a nova suíte GuardianV2UiTest
+        if: steps.scope.outputs.heavy == 'true'
         uses: reactivecircus/android-emulator-runner@v2
         env:
           ATRIO_QA_SUITE: GuardianV2UiTest
@@ -73,7 +112,7 @@ jobs:
           emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -accel on -camera-back none
           script: bash scripts/run-qa-android-emulator.sh
       - name: Guardar resultado sintético da suíte, sem dados reais
-        if: always()
+        if: always() && steps.scope.outputs.heavy == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: guardian-v2-ui-emulator-evidence
