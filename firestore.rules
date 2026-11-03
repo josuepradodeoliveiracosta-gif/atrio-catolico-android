@@ -726,7 +726,14 @@ service cloud.firestore {
     // Só o titular cria uma solicitação; processamento exige backend confiável.
     match /account_deletion_requests/{uid} {
       allow get: if me(uid);
-      allow list: if false;
+      // Fila de acompanhamento: só fundador COM papel admin ativo, não
+      // congelado, usando paginação limitada. Apenas leitura de pedidos.
+      // Moderadores comuns não têm acesso aos UIDs dos solicitantes.
+      allow list: if isAdmin()
+        && accountWritable(request.auth.uid)
+        && exists(/databases/$(database)/documents/app_config/founder)
+        && get(/databases/$(database)/documents/app_config/founder).data.uid == request.auth.uid
+        && request.query.limit <= 20;
       allow create: if me(uid)
         && request.resource.data.keys().hasOnly(['status', 'source', 'requestedAt'])
         && request.resource.data.keys().hasAll(['status', 'source', 'requestedAt'])

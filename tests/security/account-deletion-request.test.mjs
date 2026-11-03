@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {initializeTestEnvironment, assertFails, assertSucceeds} from '@firebase/rules-unit-testing';
 import {
-  doc, collection, setDoc, updateDoc, getDoc, getDocs, deleteDoc,
+  doc, collection, query, orderBy, limit, setDoc, updateDoc, getDoc, getDocs, deleteDoc,
   serverTimestamp, Timestamp
 } from 'firebase/firestore';
 
@@ -17,6 +17,10 @@ const env = await initializeTestEnvironment({
 const alice = env.authenticatedContext('delete-alice').firestore();
 const bob = env.authenticatedContext('delete-bob').firestore();
 const anon = env.unauthenticatedContext().firestore();
+const founder = env.authenticatedContext('delete-founder').firestore();
+const moderator = env.authenticatedContext('delete-moderator').firestore();
+const queue = (db, size=20) => query(collection(db, 'account_deletion_requests'),
+  orderBy('requestedAt', 'desc'), limit(size));
 const path = 'account_deletion_requests/delete-alice';
 const valid = () => ({status: 'requested', source: 'android', requestedAt: serverTimestamp()});
 let n = 0;
@@ -61,6 +65,43 @@ try {
   await check('anônimo não consulta pedido',()=>assertFails(getDoc(doc(anon,path))));
   await check('não enumera pedidos de outros usuários',()=>assertFails(
     getDocs(collection(alice,'account_deletion_requests'))));
+  // O fundador só pode LER uma página limitada. O app não processa a exclusão.
+  await env.withSecurityRulesDisabled(async (context) => {
+    const admin = context.firestore();
+    await setDoc(doc(admin,'admins/delete-founder'),{enabled:true});
+    await setDoc(doc(admin,'admins/delete-moderator'),{enabled:true});
+    await setDoc(doc(admin,'app_config/founder'),{uid:'delete-founder'});
+  });
+  await check('fundador administrador consulta fila paginada', async () => {
+    const snapshot = await assertSucceeds(getDocs(queue(founder)));
+    assert.deepEqual(snapshot.docs.map(d=>d.id).sort(), ['delete-alice','delete-bob']);
+  });
+  await check('titulares, anônimo e moderador comum não enumeram pedidos', async () => {
+    await assertFails(getDocs(queue(alice)));
+    await assertFails(getDocs(queue(bob)));
+    await assertFails(getDocs(queue(anon)));
+    await assertFails(getDocs(queue(moderator)));
+  });
+  await check('fundador não lista sem limite nem acima de 20', async () => {
+    await assertFails(getDocs(collection(founder,'account_deletion_requests')));
+    await assertFails(getDocs(queue(founder,21)));
+  });
+  await check('fundador não pode ler individualmente nem alterar pedidos alheios', async () => {
+    await assertFails(getDoc(doc(founder,path)));
+    await assertFails(updateDoc(doc(founder,path),{status:'completed'}));
+    await assertFails(deleteDoc(doc(founder,path)));
+  });
+  await env.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(),'admins/delete-founder'),{enabled:false});
+  });
+  await check('revogação de admin interrompe a consulta da fila',()=>
+    assertFails(getDocs(queue(founder))));
+  await env.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(),'admins/delete-founder'),{enabled:true});
+    await setDoc(doc(context.firestore(),'account_deletion_freeze/delete-founder'),{state:'frozen'});
+  });
+  await check('fundador congelado não consulta pedidos',()=>
+    assertFails(getDocs(queue(founder))));
   await check('pedido duplicado não substitui o anterior',()=>assertFails(
     setDoc(doc(alice,path),valid())));
   await check('usuário não encerra nem altera o status do pedido',()=>assertFails(

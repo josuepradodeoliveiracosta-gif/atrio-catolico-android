@@ -182,6 +182,11 @@ internal fun ModerationScreen(db: FirebaseFirestore, uid: String, onBack: () -> 
             }
             if (!loading && !loadError) item { GuardianCaseOverview(db, uid) }
             if (!loading && !loadError) item { MemberReportsReviewPanel(db, uid) }
+            // Área de privacidade separada da revisão de denúncias: uma
+            // falha na fila de denúncias não deve esconder pedidos de exclusão.
+            if (LocalFounderUid.current.isNotBlank() && LocalFounderUid.current == uid) item {
+                AccountDeletionRequestsAdminPanel(db, uid)
+            }
             if (CloudinaryAvatarClient.enabled && !loading && !loadError) item {
                 AvatarModerationPanel(uid)
             }

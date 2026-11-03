@@ -149,3 +149,30 @@ suíte existente do aplicativo. A possibilidade de atualizar não
 comprova que atendimento administrativo ou exclusão efetiva estejam
 operacionais; a homologação continua pendente e todos os gates de
 lançamento permanecem intactos.
+
+## Painel administrativo de pedidos — 03/11/2026 (somente branch, sem deploy)
+
+A PR #71 adicionou um painel **de consulta manual e somente leitura** na
+tela de moderação, visível exclusivamente ao fundador com papel administrativo
+confirmado pelo servidor. A consulta é limitada a 20 pedidos por página,
+ordenada pela data, sem busca periódica nem acesso a senhas, e-mails ou
+tokens. Exibe o UID técnico somente no painel administrativo, para permitir
+identificar o pedido no processo supervisionado. O estado `completed`
+significa apenas **conclusão declarada**; o painel não promete eliminação.
+Os controles só apresentam a fila e permitem atualizar/carregar páginas.
+
+A regra `account_deletion_requests` mantém `get` exclusivo ao titular,
+mas permite **list** estritamente ao fundador habilitado em
+`admins/{uid}`, apontado por `app_config/founder`, sem marcador de
+congelamento e com limite de consulta até 20. Moderadores comuns,
+terceiros e sessões anônimas não podem enumerar pedidos; ninguém via
+cliente pode editar, excluir ou processar solicitações.
+A suíte Firebase Emulator existente verifica esses casos e revogação
+de acesso, sem compilar outro aplicativo por iniciativa deste documento.
+
+**Não é um executor de exclusão**. O operador ainda deve confirmar
+titularidade por canal seguro, revisar retenção e executar um procedimento
+real homologado. O código de produção, regras publicadas, conta Firebase
+real, Cloudflare, Play Console, backups e evidências continuam intactos.
+
+Referência: https://support.google.com/googleplay/android-developer/answer/13327111?hl=pt-BR
