@@ -11,10 +11,10 @@ import assert from 'node:assert/strict';
 import {initializeApp,deleteApp} from 'firebase-admin/app';
 import {getAuth} from 'firebase-admin/auth';
 import {getFirestore} from 'firebase-admin/firestore';
-import {createFounderDeletionReadGate} from '../../../cloudflare/account-deletion-audit/src/founder-admin-read-gate.js';
+import {createQaFounderDeletionReadGate} from '../../../cloudflare/account-deletion-audit/src/founder-admin-read-gate.js';
 
 const LOCAL_PROJECT='demo-atrio-v11';
-const TARGET_PROJECT='atrio-catolico';
+const TARGET_PROJECT=LOCAL_PROJECT;
 const UID='qa-founder-login-emulator-only';
 const APP='qa-founder-gate-emulator-only';
 const EMAIL='qa-founder-login@example.invalid';
@@ -37,8 +37,8 @@ const forbid=[
 if(forbid)throw Error('qa_founder_gate_nonlocal_environment_'+forbid[0]);
 
 test('actual Auth Emulator login plus Admin SDK founder permissions are revoked correctly',async()=>{
-  // Target project name deliberately matches the production gate, but every
-  // SDK is forcibly routed to the ephemeral 127.0.0.1 emulators. No prod IO.
+  // QA-only gate uses the exact demo-atrio-v11 project of the running
+  // Firebase CLI. Production gate remains pinned to atrio-catolico.
   const app=initializeApp({projectId:TARGET_PROJECT},APP);
   const auth=getAuth(app);
   const firestore=getFirestore(app);
@@ -74,7 +74,7 @@ test('actual Auth Emulator login plus Admin SDK founder permissions are revoked 
     // Auth Emulator JWTs end with an empty signature segment; accepting
     // their syntax is safe ONLY because verifyIdToken(...,true) checks them.
     assert.ok(signedIn.idToken.endsWith('.'));
-    const gate=createFounderDeletionReadGate({
+    const gate=createQaFounderDeletionReadGate({
       idToken:signedIn.idToken,auth,db:boundDb
     });
     assert.equal(await gate(),true);
@@ -98,6 +98,9 @@ test('actual Auth Emulator login plus Admin SDK founder permissions are revoked 
     await auth.updateUser(UID,{disabled:false});
     assert.equal(await gate(),true);
 
+    // Revocation is compared with auth_time in whole seconds. Avoid a
+    // same-second tie between the real emulator login and revocation.
+    await new Promise(resolve=>setTimeout(resolve,1250));
     await auth.revokeRefreshTokens(UID);
     await assert.rejects(gate(),/firebase_identity_not_verified/);
     // A token already revoked cannot regain access after role toggles.

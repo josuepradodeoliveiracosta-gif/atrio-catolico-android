@@ -154,3 +154,26 @@ Nunca definir \`FIREBASE_AUTH_EMULATOR_HOST\` em produção.
 A revisão ainda não configura serviço de identidade, IAM ou rota
 administrativa real. O resultado da integração em emulador **não é**
 homologação operacional de produção nem autoriza exclusão.
+
+
+## Correção de compatibilidade entre projetos emulados
+
+O primeiro teste de login com Firebase Admin falhou por **HTTP 400 no
+login do emulador**, após criar a conta em um projeto diferente do
+`demo-atrio-v11` selecionado pelo CLI. A documentação do Firebase
+recomenda que Auth e Firestore usem o mesmo projeto emulado para evitar
+partições de dados inconsistentes.
+
+Foi adicionado `createQaFounderDeletionReadGate` como entrada
+**exclusiva do emulador**, que só aceita os hosts locais
+`127.0.0.1:8089` e `127.0.0.1:9099`, o projeto
+`demo-atrio-v11` e ausência de credenciais reais. O fluxo
+`createFounderDeletionReadGate`, destinado ao futuro servidor
+privado, permanece **fixado exclusivamente em `atrio-catolico`**;
+parâmetros externos não podem trocar seu projeto. A lógica de
+identidade, papel administrativo e congelamento é compartilhada,
+evitando duplicação do verificador.
+
+O teste usa a conta, o JWT e o Firestore Admin no mesmo projeto
+descartável. A liberação de uso real continua exigindo configuração
+de IAM fora dos emuladores.

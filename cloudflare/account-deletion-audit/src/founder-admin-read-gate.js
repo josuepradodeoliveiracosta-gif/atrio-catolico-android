@@ -13,7 +13,7 @@ import {inspectOperationalDeletionReadSources}
   from './operational-read-preflight.js';
 
 const PROJECT='atrio-catolico';
-const ISSUER='https://securetoken.google.com/'+PROJECT;
+const QA_PROJECT='demo-atrio-v11';
 const ROLE='admins';
 const FOUNDER='app_config';
 const FREEZE='account_deletion_freeze';
@@ -26,17 +26,18 @@ const boundedToken=token=>typeof token==='string' &&
   // authenticate the token with Firebase Admin and its configured mode.
   /^[A-Za-z0-9_=-]+\.[A-Za-z0-9_=-]+\.[A-Za-z0-9_=-]*$/.test(token);
 
-function adminSDKReady(auth,db){
+function adminSDKReady(auth,db,expectedProject){
   return typeof auth?.verifyIdToken==='function' &&
     typeof auth?.getUser==='function' &&
     typeof db?.collection==='function' &&
-    auth.app?.options?.projectId===PROJECT &&
-    db.app?.options?.projectId===PROJECT;
+    auth.app?.options?.projectId===expectedProject &&
+    db.app?.options?.projectId===expectedProject;
 }
-function validClaims(claims,now){
+function validClaims(claims,now,expectedProject){
   const uid=claims?.uid;
   if(!plain(claims)||!validUid(uid)||uid!==claims.sub ||
-    claims.aud!==PROJECT||claims.iss!==ISSUER ||
+    claims.aud!==expectedProject||
+    claims.iss!=='https://securetoken.google.com/'+expectedProject ||
     !Number.isSafeInteger(claims.iat) ||
     !Number.isSafeInteger(claims.exp) ||
     !Number.isSafeInteger(claims.auth_time) ||
@@ -54,14 +55,16 @@ async function snapshot(db,collection,id){
 }
 
 /** Return only a boolean authorization callback, never personal metadata. */
-export function createFounderDeletionReadGate({
+function makeFounderGate(expectedProject,{
   idToken,auth,db,clock=Date.now
 }={}){
   if(!boundedToken(idToken))deny('invalid_identity_token');
-  if(!adminSDKReady(auth,db) || typeof clock!=='function')
+  if(!adminSDKReady(auth,db,expectedProject) ||
+     typeof clock!=='function')
     deny('trusted_admin_sdk_required');
   return async function assertAuthorizedRead(){
-    if(!adminSDKReady(auth,db))deny('backend_project_changed');
+    if(!adminSDKReady(auth,db,expectedProject))
+      deny('backend_project_changed');
     const start=clock();
     if(!Number.isSafeInteger(start)||start<0)
       deny('invalid_clock');
@@ -71,7 +74,7 @@ export function createFounderDeletionReadGate({
       // checkRevoked=true must never silently fall back to basic decoding.
       claims=await auth.verifyIdToken(idToken,true);
     }catch{deny('firebase_identity_not_verified');}
-    const uid=validClaims(claims,start);
+    const uid=validClaims(claims,start,expectedProject);
     let user;
     try{user=await auth.getUser(uid);}catch{
       deny('user_state_unavailable');
@@ -98,6 +101,28 @@ export function createFounderDeletionReadGate({
       deny('expired_during_authorization');
     return true;
   };
+}
+
+/** The only production-facing gate, permanently pinned to the real project. */
+export function createFounderDeletionReadGate(options){
+  return makeFounderGate(PROJECT,options);
+}
+
+/**
+ * Intentionally separate test-only entrypoint. A production runtime cannot
+ * choose a different Firebase project even by supplying an extra argument.
+ * Only permit the existing disposable 127.0.0.1 Firebase Emulator fixture.
+ */
+export function createQaFounderDeletionReadGate(options){
+  if(process.env.GCLOUD_PROJECT!==QA_PROJECT ||
+    process.env.FIRESTORE_EMULATOR_HOST!=='127.0.0.1:8089' ||
+    process.env.FIREBASE_AUTH_EMULATOR_HOST!=='127.0.0.1:9099' ||
+    process.env.GOOGLE_APPLICATION_CREDENTIALS ||
+    process.env.FIREBASE_CONFIG ||
+    process.env.FIREBASE_SERVICE_ACCOUNT_JSON ||
+    process.env.ATRIO_ACCOUNT_DELETION_EXECUTION_ENABLED)
+    deny('qa_local_emulator_only');
+  return makeFounderGate(QA_PROJECT,options);
 }
 
 /** Safe composition: the gate is rechecked before/after every remote RPC. */
