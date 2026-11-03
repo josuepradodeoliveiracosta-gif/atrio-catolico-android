@@ -179,6 +179,8 @@ test('fluxo completo autenticado, deduplicação e falha FCM sem credenciais rea
     'posts/p1/replies/r1':doc({uid:'autor',createdAt:iso()}),
     'posts/p1/replies/r2':doc({uid:'autor',createdAt:iso()}),
     'posts/p1/replies/r3':doc({uid:'autor',createdAt:iso()}),
+    'posts/p1/replies/r4':doc({uid:'autor',createdAt:iso()}),
+    'posts/p1/replies/r5':doc({uid:'autor',createdAt:iso()}),
     'users/dono/notifications/r1':doc({
       actorUid:'autor',postId:'p1',replyId:'r1',read:false,
     }),
@@ -188,6 +190,12 @@ test('fluxo completo autenticado, deduplicação e falha FCM sem credenciais rea
     'users/dono/notifications/r3':doc({
       actorUid:'autor',postId:'p1',replyId:'r3',read:false,
     }),
+    'users/dono/notifications/r4':doc({
+      actorUid:'autor',postId:'p1',replyId:'r4',read:false,
+    }),
+    'users/dono/notifications/r5':doc({
+      actorUid:'autor',postId:'p1',replyId:'r5',read:false,
+    }),
     'users/dono/pushDevices':{documents:[doc({token:'token-test-device-1234567890',updatedAt:iso()})]},
     'posts/p1/replies':{documents:[]},
   };
@@ -195,6 +203,9 @@ test('fluxo completo autenticado, deduplicação e falha FCM sem credenciais rea
   let fanouts=0;
   let failFCM=false;
   let failFanout=false;
+  let blockAfterFanout=false;
+  let freezeAfterFanout=false;
+  let deviceLookups=0;
   globalThis.fetch=async (input,options={})=>{
     const url=String(input);
     if(url.startsWith('https://identitytoolkit.googleapis.com/')) {
@@ -213,10 +224,21 @@ test('fluxo completo autenticado, deduplicação e falha FCM sem credenciais rea
         assert.equal(payload.writes[0].currentDocument.exists,false);
         fanouts++;
         if(failFanout)return new Response('{}',{status:503});
+        // Model a competing block/freeze write AFTER the batch response
+        // but BEFORE the Worker starts querying FCM devices.
+        if(payload.writes[0].update.name.endsWith('/r4'))
+          blockAfterFanout=true;
+        if(payload.writes[0].update.name.endsWith('/r5'))
+          freezeAfterFanout=true;
         return new Response(JSON.stringify({status:[{code:6}]}),{status:200});
       }
       const u=new URL(url);
       const path=decodeURIComponent(u.pathname).split('/documents/')[1];
+      if(path==='users/dono/pushDevices')deviceLookups++;
+      if(path==='users/dono/blockedMembers/autor'&&blockAfterFanout)
+        return Response.json(doc({createdAt:iso()}));
+      if(path==='account_deletion_freeze/dono'&&freezeAfterFanout)
+        return Response.json(doc({status:'draining'}));
       const content=documents[path];
       return content
         ? new Response(JSON.stringify(content),{status:200})
@@ -271,6 +293,28 @@ test('fluxo completo autenticado, deduplicação e falha FCM sem credenciais rea
   // Duplicate r1 also retries the idempotent batchWrite; count all writes.
   assert.equal(fanouts,4);
   assert.equal(records.has('reply:p1:r3:dono'),false);
+
+  // Block is added only after the successful in-app fanout. The second
+  // check must prevent token lookup, D1 reservation and FCM delivery.
+  failFanout=false;
+  const oldDeviceLookups=deviceLookups;
+  const newlyBlocked=await emit('r4');
+  assert.equal(newlyBlocked.status,202);
+  assert.deepEqual(await newlyBlocked.json(),{status:'no_devices_or_duplicate'});
+  assert.equal(sent,2);
+  assert.equal(fanouts,5);
+  assert.equal(deviceLookups,oldDeviceLookups);
+  assert.equal(records.has('reply:p1:r4:dono'),false);
+
+  // Freeze can likewise land after the first authorization. No delivery.
+  blockAfterFanout=false;
+  const newlyFrozen=await emit('r5');
+  assert.equal(newlyFrozen.status,202);
+  assert.deepEqual(await newlyFrozen.json(),{status:'no_devices_or_duplicate'});
+  assert.equal(sent,2);
+  assert.equal(fanouts,6);
+  assert.equal(deviceLookups,oldDeviceLookups);
+  assert.equal(records.has('reply:p1:r5:dono'),false);
 });
 
 

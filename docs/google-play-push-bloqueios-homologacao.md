@@ -439,3 +439,29 @@ novas consultas, não habilita broadcast e não altera produção. Por ser
 o retry usa `exists:false`, enquanto a reconciliação completa permanece
 pendente de homologação operacional e de barreira distribuída. Sem assinatura
 nem liberação Play.
+
+
+## Revisão de bloqueios entre gravação e entrega FCM (03/11/2026)
+
+A rota de respostas do Worker da PR #71 aplica **duas consultas de
+elegibilidade**: a primeira antes do fanout de avisos Firestore e uma
+segunda depois da confirmação de `batchWrite`, porém antes de buscar
+`pushDevices`, reservar registros D1 ou tentar FCM. Isso reduz o
+intervalo em que uma conta pode ser bloqueada ou congelada após a
+primeira leitura. A segunda varredura mantém o limite anterior de
+até cinco destinatários; se uma leitura falhar, nenhum FCM é
+enviado nesse evento. Se surgir bloqueio recíproco ou freeze entre
+as duas verificações, o respectivo dispositivo não é consultado.
+
+Os testes de Push existentes simulam a mudança **depois do sucesso
+do fanout** tanto para um bloqueio unilateral quanto para o marcador
+de exclusão, conferindo zero novas entregas e zero marcadores D1 para
+aquela resposta. Sem destinatários inicialmente elegíveis, não há
+segunda consulta de bloqueio.
+
+**Limite essencial:** não se trata de transação atômica com o FCM.
+Uma decisão pode mudar ainda depois da segunda leitura, e o aviso
+interno gravado antes dela pode persistir; somente uma barreira
+distribuída real e reconciliação administrativa podem oferecer
+garantias mais fortes. A rotina permanece na PR, sem implantação
+do Worker, sem novas flags, sem assinatura ou liberação Play.

@@ -847,6 +847,15 @@ export default {
           return response(503,'fanout_failed');
         }
       }
+      // A block or deletion freeze may be added WHILE the Firestore notice
+      // fanout is running. Recheck ALL approved reply recipients before
+      // looking up any device or reserving a D1 delivery marker. The initial
+      // check remains mandatory before the write, and a failed second read
+      // fails the whole event before any FCM attempt. Bounded to five UIDs.
+      // This narrows the race; it is NOT a durable cross-service fence.
+      const deliveryRecipients=blockSafeMode && recipients.length
+        ? await blockSafeThreadRecipients(token,uid,recipients)
+        : recipients;
       // Events expire after five minutes; keep delivery markers for one day.
       // Bounded cleanup prevents an unbounded D1 retention table.
       await env.PUSH_DB.prepare('DELETE FROM delivered WHERE event_key IN ' +
@@ -856,7 +865,7 @@ export default {
       let accepted=0;
       let failedHttp=0;
       let cleaned=0;
-      for(const recipient of recipients) {
+      for(const recipient of deliveryRecipients) {
         if(!uidPart(recipient)||recipient===uid) continue;
         const list=await devices(token,recipient);
         if(!list.length) continue;
