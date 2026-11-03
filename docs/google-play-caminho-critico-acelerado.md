@@ -392,3 +392,22 @@ Esta verificação cobre somente as raízes de propriedade conhecidas;
 não substitui varredura relacional global, revisão LGPD, retenção,
 Workers em produção, autorização real ou teste manual. O executor
 continua de QA e `releaseAuthorized:false`.
+
+
+## Prompt 26 — auditoria profunda obrigatória para Auth externo de QA (03/11/2026)
+
+A varredura de descendentes criada no prompt 25 era **opcional**:
+se `external.nested` fosse omitido, o executor de QA ainda poderia
+alcançar `remove_auth_stub_last`. Agora todo executor de QA com
+adaptadores `external` (incluindo Auth Emulator REST/Admin SDK)
+é rejeitado no construtor até receber auditoria independente
+`nested.assertEmpty`. Preflight, última revalidação antes de Auth
+e checkpoint final exigem sempre esse adaptador.
+
+Os dois cenários E2E existentes foram reforçados para usar a varredura
+Admin SDK de subcoleções próprias e verificar que a **omissão** bloqueia
+o executor sem apagar a identidade. O workflow `selos-ci.yml` retira
+`FIREBASE_CONFIG` apenas do subprocesso QA de Auth REST para permitir
+Firebase Admin local sem credenciais; mantém projeto fictício, somente
+localhost e rejeição de chaves reais. O serviço continua de QA,
+sem deploy e sem autorizar eliminação de usuários reais.

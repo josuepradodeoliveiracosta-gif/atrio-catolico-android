@@ -20,6 +20,8 @@ import {createQaAvatarD1PreAuthAdapter}
   from './admin-fixture/qa-avatar-d1-pre-auth.mjs';
 import {createQaRetentionEvidenceAdapter}
   from './admin-fixture/qa-retention-evidence.mjs';
+import {createQaAdminOwnedTreeAudit}
+  from './admin-fixture/qa-admin-owned-tree-audit.mjs';
 import {createQaAuthEmulatorAdapter,createQaCloudinaryHttpAdapter,
   QA_EXTERNAL_UID,QA_EXTERNAL_BOB,QA_EXTERNAL_PHOTO,QA_EXTERNAL_BOB_PHOTO,
   QA_EXTERNAL_ORPHAN_PHOTO,QA_EXTERNAL_MEDIA_PATH,QA_EXTERNAL_MEDIA_INVENTORY_PATH} from './qa-external-emulators.mjs';
@@ -105,6 +107,7 @@ const env=await initializeTestEnvironment({projectId:PROJECT,firestore:{
   rules:readFileSync('firestore.rules','utf8')
 }});
 const auth=createQaAuthEmulatorAdapter(); // shared fixture mapping for this process
+const nested=createQaAdminOwnedTreeAudit(); // Admin SDK independent read-only scan
 
 try {
   await test('Auth Emulator and isolated Cloudinary HTTP: outage, retry, Auth LAST',
@@ -149,8 +152,14 @@ try {
             reviewedAt:'2026-10-31T14:00:00.000Z',
             expiresAt:'2026-10-31T20:00:00.000Z'
           });
-          const external={auth,media,d1,retention};
+          const external={auth,media,d1,retention,nested};
           try{
+            assert.throws(()=>new QaAdministrativeDeletionExecutor({
+              db,journal,media:stubMedia,auth:stubAuth,
+              external:{auth,media,d1,retention},
+              lease:new QaSqliteLease(journal)
+            }),/qa_independent_owned_tree_audit_required/);
+            assert.equal(await auth.exists(QA_EXTERNAL_UID),true);
             const missing=new QaAdministrativeDeletionExecutor({
               db,journal,media:stubMedia,auth:stubAuth,external,
               lease:new QaSqliteLease(journal)
@@ -254,5 +263,6 @@ try {
       assert.equal(await auth.exists(QA_EXTERNAL_BOB),true);
     });
 } finally {
+  await nested.close();
   await env.cleanup();
 }

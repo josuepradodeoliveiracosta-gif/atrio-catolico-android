@@ -129,7 +129,7 @@ function stages(self){
         assertLease();
         // Independent Admin SDK deep-tree scan is enabled ONLY for the
         // disposable QA fixture that supplies the explicit adapter.
-        if(external?.nested && await external.nested.assertEmpty(UID)!==true)
+        if(external && await external.nested.assertEmpty(UID)!==true)
           fail('pre_auth_nested_inventory_unverified');
         assertLease();
         return removeQaAuthAfterReconciliation({
@@ -161,7 +161,7 @@ function stages(self){
               assertLease();
               // Repeat AFTER async reconciliation and all external waits.
               // A late orphan must never pass the final Auth fence.
-              if(external.nested && await external.nested.assertEmpty(uid)!==true)
+              if(await external.nested.assertEmpty(uid)!==true)
                 fail('last_mile_nested_inventory_unverified');
               assertLease();
               return true;
@@ -192,7 +192,7 @@ function stages(self){
           return false;
         if(external && await external.d1.assertOwnerCleared(UID)!==true)
           return false;
-        if(external?.nested && await external.nested.assertEmpty(UID)!==true)
+        if(external && await external.nested.assertEmpty(UID)!==true)
           return false;
         await verifyRetention(db,external);
         return true;
@@ -211,6 +211,9 @@ export class QaDeletionRunner {
       lease.isBoundTo(journal)!==true ||
       typeof lease.release!=='function'))
       fail('invalid_qa_lease');
+    // Sem o verificador independente, o Auth Emulator externo é bloqueado.
+    if(external!==null && typeof external?.nested?.assertEmpty!=='function')
+      fail('qa_independent_owned_tree_audit_required');
     if(external!==null && (typeof external?.auth?.exists!=='function' ||
        typeof external?.auth?.remove!=='function' ||
        typeof external?.media?.exists!=='function' ||
@@ -218,8 +221,6 @@ export class QaDeletionRunner {
        typeof external?.media?.assertOwnerEmpty!=='function' ||
        typeof external?.d1?.assertOwnerCleared!=='function' ||
        typeof external?.retention?.verify!=='function' ||
-       (external.nested!==undefined &&
-         typeof external.nested?.assertEmpty!=='function') ||
        (external.freeze!==undefined &&
          (typeof external.freeze?.acquire!=='function' ||
           typeof external.freeze?.verify!=='function')) ||

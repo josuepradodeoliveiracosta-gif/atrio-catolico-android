@@ -195,6 +195,12 @@ try {
           }
         };
         const external={auth:remoteAuth,media,freeze,workers,d1,retention,nested};
+        assert.throws(()=>new QaAdministrativeDeletionExecutor({
+          db,journal,auth:fakeAuth,media:fakeMedia,
+          external:{auth:remoteAuth,media,freeze,workers,d1,retention},
+          lease:new QaSqliteLease(journal)
+        }),/qa_independent_owned_tree_audit_required/);
+        assert.equal(await admin.exists(A),true);
         const openRunner=()=>new QaAdministrativeDeletionExecutor({
           db,journal,auth:fakeAuth,media:fakeMedia,external,
           lease:new QaSqliteLease(journal)
