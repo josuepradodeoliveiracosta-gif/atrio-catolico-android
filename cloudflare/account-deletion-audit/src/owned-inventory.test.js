@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {inventoryOwnedDocuments} from './owned-inventory.js';
+import {inventoryOwnedDocuments,discoverOwnedSubcollectionIds} from './owned-inventory.js';
 import {buildDeletionPlan} from './deletion-orchestrator.js';
 
 const uid='alice_123';
@@ -142,4 +142,68 @@ test('explicit null pagination terminator is accepted only as an incomplete QA a
   assert.ok(result.documents.some(d=>d.path==='users/alice_123/pushDevices/syntheticDevice'));
   assert.equal(result.pagesComplete,false);
   assert.equal(result.hasUnknownCollections,true);
+});
+
+test('discovers unknown orphaned child collections even when root document is absent',async()=>{
+  const visited=[];
+  const adapter=makeAdapter({present:new Set()});
+  adapter.listChildCollections=async(parent,cursor,pageSize)=>{
+    visited.push(parent);
+    assert.equal(pageSize,100);
+    if(parent==='users/'+uid)return {
+      collectionIds:['pushDevices','hiddenLegacy'],nextPageToken:null
+    };
+    if(parent==='profile_photos/'+uid)return {
+      collectionIds:['oldMediaJobs'],nextPageToken:null
+    };
+    return {collectionIds:[],nextPageToken:null};
+  };
+  const result=await inventoryOwnedDocuments(uid,adapter);
+  assert.equal(result.subcollectionDiscoveryComplete,true);
+  assert.equal(result.hasUnknownCollections,true);
+  assert.deepEqual(result.unknownSubcollections.sort(),[
+    'profile_photos/'+uid+'/oldMediaJobs',
+    'users/'+uid+'/hiddenLegacy'
+  ].sort());
+  assert.ok(visited.includes('profiles/'+uid));
+  assert.ok(visited.includes('users/'+uid));
+  assert.ok(visited.includes('guardian_notices/'+uid));
+  assert.equal(result.pagesComplete,false);
+});
+test('known subcollections can be discovered without declaring full deletion ready',async()=>{
+  const adapter=makeAdapter();
+  adapter.listChildCollections=async()=>({
+    collectionIds:['notifications'],nextPageToken:null
+  });
+  // Some roots have no declared child namespaces: this remains an unknown.
+  const blocked=await inventoryOwnedDocuments(uid,adapter);
+  assert.equal(blocked.hasUnknownCollections,true);
+  adapter.listChildCollections=async(parent)=>({
+    collectionIds:parent==='users/'+uid?['pushDevices','notifications']:[],
+    nextPageToken:null
+  });
+  const result=await inventoryOwnedDocuments(uid,adapter);
+  assert.equal(result.hasUnknownCollections,false);
+  assert.equal(result.subcollectionDiscoveryComplete,true);
+  assert.equal(result.pagesComplete,false);
+});
+test('unknown subcollection pagination, duplicate IDs and bad metadata fail closed',async()=>{
+  const cases=[
+    {collectionIds:[]},
+    {collectionIds:[],nextPageToken:''},
+    {collectionIds:[],nextPageToken:false},
+    {collectionIds:['dup','dup'],nextPageToken:null},
+    {collectionIds:['bad/slash'],nextPageToken:null},
+    {collectionIds:[],nextPageToken:null,incomplete:true}
+  ];
+  for(const response of cases){
+    const adapter={listChildCollections:async()=>response};
+    await assert.rejects(discoverOwnedSubcollectionIds(uid,adapter),
+      /invalid_subcollection_page|invalid_subcollection_cursor|invalid_or_duplicate_subcollection_id/);
+  }
+  const adapter={listChildCollections:async(_,cursor)=>({
+    collectionIds:[],nextPageToken:cursor||'repeat'
+  })};
+  await assert.rejects(discoverOwnedSubcollectionIds(uid,adapter),
+    /invalid_subcollection_cursor/);
 });

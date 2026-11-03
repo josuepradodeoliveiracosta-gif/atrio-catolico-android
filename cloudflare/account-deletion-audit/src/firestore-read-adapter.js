@@ -10,6 +10,7 @@ import {OWNED_ROOTS,USER_SUBCOLLECTIONS,GUARDIAN_SUBCOLLECTIONS}
 
 const ROOT='https://firestore.googleapis.com/v1/projects/atrio-catolico/databases/(default)/documents';
 const MAX_RESPONSE=2_000_000;
+const COLLECTION_ID=/^[A-Za-z0-9_-]{1,160}$/;
 const KEY=/^[A-Za-z0-9_-]{1,160}$/;
 const tokenOK=cursor=>typeof cursor==='string' &&
   /^[A-Za-z0-9_+\/=.-]{1,2048}$/.test(cursor);
@@ -59,6 +60,40 @@ export function createFirestoreReadAdapter(uid,oauthToken,fetcher=fetch) {
           remote.name!==expectedName)
         throw Error('unexpected_firestore_resource');
       return true;
+    },
+    // listCollectionIds é uma operação de LEITURA da API Firestore REST,
+    // apesar do verbo HTTP POST. Não adiciona documentos nem escreve dados.
+    // Inspeciona inclusive pais ausentes, cujas subcoleções podem sobreviver.
+    async listChildCollections(parent,cursor=null,pageSize=100) {
+      if(!OWNED_ROOTS.some(root=>parent===root+'/'+uid) ||
+          !Number.isInteger(pageSize) || pageSize<1 || pageSize>100 ||
+          (cursor!==null && !tokenOK(cursor)))
+        throw Error('disallowed_collection_discovery');
+      const body={pageSize};
+      if(cursor!==null)body.pageToken=cursor;
+      const url=ROOT+'/'+parent.split('/').map(encodeURIComponent).join('/')+
+        ':listCollectionIds';
+      const response=await fetcher(url,{
+        method:'POST',
+        headers:{...auth,'Content-Type':'application/json'},
+        redirect:'error',body:JSON.stringify(body)
+      });
+      if(response.status!==200)throw Error('firestore_discovery_failed');
+      const json=await readBoundedFirestoreJson(response,{
+        limit:MAX_RESPONSE,sizeError:'firestore_response_too_large',
+        parseError:'invalid_firestore_response'
+      });
+      if(!json || typeof json!=='object' || Array.isArray(json) ||
+          (json.collectionIds!==undefined && !Array.isArray(json.collectionIds)) ||
+          (json.nextPageToken!==undefined &&
+            (typeof json.nextPageToken!=='string' || !tokenOK(json.nextPageToken))) ||
+          Object.keys(json).some(k=>k!=='collectionIds' && k!=='nextPageToken'))
+        throw Error('invalid_firestore_response');
+      const collections=json.collectionIds||[];
+      if(collections.length>pageSize ||
+          collections.some(c=>typeof c!=='string' || !COLLECTION_ID.test(c)))
+        throw Error('invalid_firestore_collection_id');
+      return {collectionIds:collections,nextPageToken:json.nextPageToken??null};
     },
     async listPage(collection,cursor=null,pageSize=100) {
       if(!fixedCollection(uid,collection) || !Number.isInteger(pageSize) ||

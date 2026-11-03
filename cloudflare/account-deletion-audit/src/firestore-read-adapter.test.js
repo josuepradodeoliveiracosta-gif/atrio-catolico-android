@@ -137,3 +137,58 @@ test('Firestore REST adapter rejects empty or malformed nonterminal cursors',asy
   }));
   assert.equal((await legitimate.listPage(address)).nextPageToken,'valid_opaque_cursor');
 });
+
+test('read-only discovery enumerates orphaned collections via Firestore listCollectionIds',async()=>{
+  const requests=[];
+  const adapter=createFirestoreReadAdapter(uid,token,async(url,options)=>{
+    requests.push({url,options});
+    assert.equal(options.method,'POST'); // Firestore read RPC, not a write.
+    assert.equal(options.redirect,'error');
+    assert.equal(options.headers.Authorization,'Bearer '+token);
+    assert.equal(options.headers['Content-Type'],'application/json');
+    const payload=JSON.parse(options.body);
+    assert.equal(payload.pageSize,100);
+    if(payload.pageToken==='page-2')
+      return json({collectionIds:['surpriseOrphan'],nextPageToken:'next-final'});
+    if(payload.pageToken==='next-final')
+      return json({collectionIds:['pushDevices']});
+    return json({collectionIds:['notifications'],nextPageToken:'page-2'});
+  });
+  const first=await adapter.listChildCollections('users/'+uid);
+  const second=await adapter.listChildCollections('users/'+uid,first.nextPageToken);
+  const third=await adapter.listChildCollections('users/'+uid,second.nextPageToken);
+  assert.deepEqual(first.collectionIds,['notifications']);
+  assert.deepEqual(second.collectionIds,['surpriseOrphan']);
+  assert.equal(third.nextPageToken,null);
+  assert.ok(requests.every(x=>x.url.endsWith(':listCollectionIds')));
+});
+test('subcollection discovery is limited to exact owner roots with strict response schema',async()=>{
+  const address='users/'+uid;
+  const adapter=createFirestoreReadAdapter(uid,token,async()=>json({collectionIds:[]}));
+  for(const invalid of ['users/bob','users/'+uid+'/pushDevices/child',
+                        'posts/'+uid,'app_config/founder']) {
+    await assert.rejects(adapter.listChildCollections(invalid),
+      /disallowed_collection_discovery/);
+  }
+  for(const value of ['',false,0,'bad token','<>']) {
+    const broken=createFirestoreReadAdapter(uid,token,async()=>json({
+      collectionIds:[],nextPageToken:value
+    }));
+    await assert.rejects(broken.listChildCollections(address),
+      /invalid_firestore_response/);
+  }
+  for(const payload of [
+    {collectionIds:['valid','invalid/part']},
+    {collectionIds:['..']},
+    {collectionIds:'not-an-array'},
+    {collectionIds:[],unreachable:['private']},
+    [],
+    null
+  ]) {
+    const broken=createFirestoreReadAdapter(uid,token,async()=>json(payload));
+    await assert.rejects(broken.listChildCollections(address),
+      /invalid_firestore_(?:response|collection_id)/);
+  }
+  const missing=createFirestoreReadAdapter(uid,token,async()=>new Response('',{status:503}));
+  await assert.rejects(missing.listChildCollections(address),/firestore_discovery_failed/);
+});

@@ -309,3 +309,25 @@ A auditoria permanece apenas de leitura, com
 `pagesComplete:false` e sem poderes de exclusão; esses testes não
 autorizam a publicação. Executados no workflow AAB Play já existente
 (sem criar CI adicional), sem credenciais ou contato com produção.
+
+
+## Inventário REST de subcoleções órfãs — 02/11/2026
+
+A auditoria `cloudflare/account-deletion-audit` ganhou descoberta
+somente-leitura dos **IDs de subcoleções em todos os documentos raiz
+pertencentes ao usuário** (incluindo pais ausentes, cujos filhos
+podem persistir). Usa `documents/{parent}:listCollectionIds`, RPC de
+**leitura** do Firestore REST que utiliza HTTP POST, com OAuth do
+backend de auditoria, jamais credenciais do navegador. O resultado
+é paginado com cursor estrito, limite de páginas, IDs validados e
+falha se a resposta for incompleta, repetida ou contiver campos
+desconhecidos. A API não faz `commit`, `batchWrite` ou exclusões.
+
+`inventoryOwnedDocuments` agora usa a descoberta quando disponível
+para marcar `hasUnknownCollections` e listar internamente nomes de
+subcoleções não previstas. Se o adaptador não oferecer a nova operação,
+**mantém `hasUnknownCollections:true`**. Mesmo com topologia conhecida,
+`pagesComplete:false` e `safeToExecute:false` permanecem como
+bloqueios: ainda faltam dados relacionais, mídia, retenção, IAM e
+processamento real. Os testes exercitam um pai ausente com subcoleções
+órfãs, IDs inesperados e cursor irregular sem acessar o Firebase real.
