@@ -440,6 +440,35 @@ try {
     console.log('PASS QA DELETION UGC moderation records retain fake Auth');
   });
 
+  await test('moderation and reaction IDs retain personal references even when UID fields are absent',async()=>{
+    await inDemo(async(db,aux)=>{
+      await assert.rejects(new QaDeletionRunner({db,...aux}).run({
+        approved:true,failBeforeEffect:'remove_auth_stub_last'
+      }),/injected_failure_before_effect:remove_auth_stub_last/);
+      const implicitIds=[
+        'reports/'+alice+'_post_qa_test',
+        'reports/'+alice+'_reply_qa_test',
+        'user_reports/'+alice+'_user_'+bob,
+        'user_reports/'+bob+'_user_'+alice,
+        'posts/qa-delete-bob-post/replies/qa-bob-reply/reactions/'+alice
+      ];
+      // No indexed UID field is present in any of these records:
+      // previous field-only queries would miss every reference.
+      for(const path of implicitIds) {
+        await setDoc(doc(db,path),{
+          origin:'QA document-id-only sensitive identifier',
+          createdAt:new Date('2026-10-31T12:00:00Z')
+        });
+      }
+      await assert.rejects(new QaDeletionRunner({db,...aux,context:{}})
+        .run({approved:true}),/qa_reconciliation_residual_firestore/);
+      await allPresent(db,[...implicitIds,...QA_FIXTURES.preserved]);
+      assert.equal(aux.auth.has(alice),true);
+      assert.equal(aux.auth.has(bob),true);
+    });
+    console.log('PASS QA DELETION embedded UIDs in case and reaction document IDs');
+  });
+
   await test('final checkpoint detects reintroduced data even AFTER fake Auth removal',async()=>{
     await inDemo(async(db,aux)=>{
       const first=await new QaDeletionRunner({db,...aux}).run({approved:true});

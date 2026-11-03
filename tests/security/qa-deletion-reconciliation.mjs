@@ -94,6 +94,48 @@ export async function assertQaReconciled({
       throw Error('qa_reconciliation_residual_firestore');
   }
 
+  // Firestore Security Rules create UGC identifiers in DOCUMENT NAMES:
+  // reporterUid_post_*, reporterUid_reply_*, and reporterUid_user_targetUid.
+  // A field-only query cannot find a retained moderation case once its
+  // reporterUid/targetUid fields are removed. Keep Auth until identifiers
+  // embedded in document IDs have been legally adjudicated.
+  const MAX_ID_SCOPED=2000;
+  async function boundedCollectionIdScan(ref,name){
+    const snapshot=await getDocs(query(ref,limit(MAX_ID_SCOPED+1)));
+    if(!snapshot || !Array.isArray(snapshot.docs) ||
+       snapshot.size!==snapshot.docs.length || snapshot.size>MAX_ID_SCOPED)
+      throw Error('qa_reconciliation_unbounded_document_ids:'+name);
+    return snapshot.docs;
+  }
+  const postsReports=await boundedCollectionIdScan(collection(db,'reports'),'reports');
+  for(const item of postsReports) {
+    if(!item.ref.path.startsWith('reports/') ||
+       item.ref.path.split('/').length!==2)
+      throw Error('qa_reconciliation_unexpected_report_path');
+    if(item.id.startsWith(UID+'_post_') || item.id.startsWith(UID+'_reply_'))
+      throw Error('qa_reconciliation_residual_firestore');
+  }
+  const memberReports=await boundedCollectionIdScan(
+    collection(db,'user_reports'),'user_reports');
+  for(const item of memberReports) {
+    if(!item.ref.path.startsWith('user_reports/') ||
+       item.ref.path.split('/').length!==2)
+      throw Error('qa_reconciliation_unexpected_user_report_path');
+    if(item.id.startsWith(UID+'_user_') || item.id.endsWith('_user_'+UID))
+      throw Error('qa_reconciliation_residual_firestore');
+  }
+  // Reactions use the reacting UID as the document ID, not a searchable
+  // field. The exact path is posts/*/replies/*/reactions/{uid}.
+  const replyReactions=await boundedCollectionIdScan(
+    collectionGroup(db,'reactions'),'reactions');
+  for(const item of replyReactions) {
+    const parts=item.ref.path.split('/');
+    if(parts.length!==6 || parts[0]!=='posts' || parts[2]!=='replies' ||
+       parts[4]!=='reactions')
+      throw Error('qa_reconciliation_unexpected_reaction_path');
+    if(item.id===UID) throw Error('qa_reconciliation_residual_firestore');
+  }
+
   if(media.has(MEDIA))throw Error('qa_reconciliation_residual_media');
   return Object.freeze({
     state:'qa_reconciled_known_scopes_only',

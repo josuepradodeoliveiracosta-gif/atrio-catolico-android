@@ -67,3 +67,29 @@ privada, Auth e registros de moderação. Reexecução não repete exclusões.
 A rotina **não** trata denúncias, histórico de Guardião, conteúdo
 público, retenção, D1, imagens nem corrida entre serviços reais;
 não é integrada ao backend de produção e não autoriza publicação.
+
+
+## IDs determinísticos são dados pessoais (reconciliação, 03/11/2026)
+
+A auditoria independente `qa-deletion-reconciliation.mjs` agora
+reconhece referências ao UID **dentro dos IDs de documentos**, mesmo
+quando um registro deixa de conter `reporterUid` ou `targetUid`:
+`reports/{reporterUid}_post_*`,
+`reports/{reporterUid}_reply_*`,
+`user_reports/{reporterUid}_user_{targetUid}` e
+`posts/*/replies/*/reactions/{uid}`. A varredura do Firebase Emulator
+é limitada a 2000 documentos por coleção/classe e **falha fechada**
+quando esse limite é excedido ou os caminhos diferem do esquema.
+Um único identificador remanescente impede remover até mesmo a
+identidade Auth de teste. O teste existente `qa-deletion-emulator.test.mjs`
+cobre documentos que não têm campo UID indexado; também confirma
+que os documentos de moderação não são excluídos automaticamente.
+
+**Decisão:** apagar `reporterUid` do conteúdo de uma denúncia não
+constitui anonimização se o UID ainda aparece no próprio ID. O
+procedimento real dependerá de revisão jurídica dos registros e de
+mecanismo seguro para reidentificação/migração ou retenção fundamentada,
+sem apagar arbitrariamente provas de denúncias nem publicações de
+terceiros. Essa varredura integral limitada é só para base descartável:
+a operação real requer inventário administrativo paginado em todas as
+coleções e prova independente de ausência. Não habilita Play.
