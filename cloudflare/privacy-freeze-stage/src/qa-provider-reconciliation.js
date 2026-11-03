@@ -22,7 +22,7 @@ function safeUidCase(uid,caseId){
     deny('untrusted_identity');
 }
 async function qaProviderFirst(db,sql,...args){
-  const x=await db.prepare(sql).bind(...args).qaProviderFirst();
+  const x=await db.prepare(sql).bind(...args).first();
   if(x===undefined)deny('unknown_d1_read');
   return x;
 }
