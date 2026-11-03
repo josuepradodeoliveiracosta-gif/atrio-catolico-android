@@ -449,7 +449,8 @@ const qaWritePayload=(route,owner='qa-freeze-alice',peer='qa-freeze-bob')=>{
   if(!grant)throw Error('qa_unreviewed_write_route');
   const scope={};
   for(const field of grant.keys.split(',')){
-    if(field==='ownerUid'||field==='actorUid')scope[field]=owner;
+    if(field==='ownerUid')scope[field]=owner;
+    else if(field==='actorUid')scope[field]=grant.keys.includes('ownerUid')?peer:owner;
     else if(field==='recipientUid')scope[field]=peer;
     else if(field==='recipientUids')scope[field]=[peer];
   }
