@@ -262,6 +262,7 @@ def privacy_policy_link_blockers(root: Path, url: str) -> list[str]:
     try:
         gradle = (root / "app/build.gradle.kts").read_text(encoding="utf-8")
         profile = (root / "app/src/main/java/br/com/atriocatolico/ProfileScreen.kt").read_text(encoding="utf-8")
+        login = (root / "app/src/main/java/br/com/atriocatolico/OnlineAtrioApp.kt").read_text(encoding="utf-8")
     except (OSError, UnicodeError):
         return failures + ["play_privacy_policy_ui_source_missing"]
     if 'buildConfigField("String", "PRIVACY_POLICY_URL"' not in gradle:
@@ -269,6 +270,10 @@ def privacy_policy_link_blockers(root: Path, url: str) -> list[str]:
     if ("BuildConfig.PRIVACY_POLICY_URL" not in profile or
             'testTag("atrio-profile-privacy-policy")' not in profile):
         failures.append("play_privacy_policy_link_in_app_missing")
+    if ("BuildConfig.PRIVACY_POLICY_URL" not in login or
+            'testTag("atrio-auth-privacy-policy")' not in login or
+            'testTag("atrio-auth-privacy-contact")' not in login):
+        failures.append("play_privacy_policy_pre_login_access_missing")
     return failures
 
 

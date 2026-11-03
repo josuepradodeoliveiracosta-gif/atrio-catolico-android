@@ -247,3 +247,23 @@ Ver `docs/google-play-hospedagem-pages-qa.md`.
 ## Identificação pública do controlador — 02/11/2026
 
 O titular escolheu constar como **pessoa física**, sem empresa registrada, e informou a grafia exata **Josué Prado de Oliveira Costa** como nome civil completo para a futura política pública. A identificação não requer CPF ou endereço residencial na documentação da PR. Isso não libera revisão jurídica, manifesto de privacidade, publicação, assinatura nem deploy.
+
+## Continuação 03/11 — acesso à privacidade antes do cadastro/login (PR #71)
+
+O formulário de entrada agora oferece acesso à política pública configurada em
+`BuildConfig.PRIVACY_POLICY_URL`, ao recurso web público de exclusão (quando
+configurado) e ao canal público de privacidade por e-mail — **sem exigir login**.
+Nenhum link de documento é inventado; se a URL da política estiver ausente na
+variante Play, a tela informa que o pacote não está pronto para distribuição.
+URLs não recebem UID, tokens ou senha. Falhas ao abrir navegador/e-mail são
+tratadas na tela sem derrubar o aplicativo; o perfil também trata falha ao abrir
+a política. O envio de e-mail continua dependendo da ação explícita do usuário.
+
+O gate de pré-assinatura agora exige que os controles de política/contato existam
+também na tela de autenticação, além do perfil. Sua suíte local verifica a
+ausência dos componentes. **Presença de botão não prova que o site está
+publicado, que o atendimento responde ou que a exclusão real funciona.**
+Política/termos continuam pendentes de revisão e publicação; evidências
+`verified:false` e `releaseAuthorized:false` permanecem intactas.
+
+Referência de política: https://support.google.com/googleplay/android-developer/answer/10144311

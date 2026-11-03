@@ -95,6 +95,7 @@ internal fun OnlineProfileScreen(
         val uriHandler = LocalUriHandler.current
         val publishedTerms = communityTerms.readablePublishedPolicy
         var termsBrowserUnavailable by remember(uid, publishedTerms?.url) { mutableStateOf(false) }
+        var privacyBrowserUnavailable by remember(uid) { mutableStateOf(false) }
         val followedCount = if (followedRemoteEnabled) followedRemoteIds.size
             else remember(uid, followedRevision) { LocalFollowedDiscussions.ids(context, uid).size }
         LazyColumn(Modifier.fillMaxSize().testTag("atrio-profile-list"), contentPadding = PaddingValues(16.dp),
@@ -182,9 +183,20 @@ internal fun OnlineProfileScreen(
                         Text("Átrio Católico · ${BuildConfig.ATRIO_VISIBLE_VERSION}", style = MaterialTheme.typography.labelMedium)
                         if (BuildConfig.PRIVACY_POLICY_URL.isNotBlank()) {
                             OutlinedButton(
-                                onClick = { uriHandler.openUri(BuildConfig.PRIVACY_POLICY_URL) },
+                                onClick = {
+                                    privacyBrowserUnavailable = runCatching {
+                                        uriHandler.openUri(BuildConfig.PRIVACY_POLICY_URL)
+                                    }.isFailure
+                                },
                                 modifier = Modifier.fillMaxWidth().testTag("atrio-profile-privacy-policy")
                             ) { Text("Política de privacidade") }
+                            if (privacyBrowserUnavailable) Text(
+                                "Não foi possível abrir a política neste aparelho. " +
+                                    "Confira o navegador e tente novamente.",
+                                modifier = Modifier.testTag("atrio-profile-privacy-error"),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
                         } else if (BuildConfig.PLAY_STORE_BUILD) {
                             Text(
                                 "Política de privacidade pendente. Esta compilação Play é somente para QA.",

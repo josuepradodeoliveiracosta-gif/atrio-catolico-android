@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -81,6 +82,14 @@ private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
     var resetInfo by remember { mutableStateOf("") }
+    var legalLinkError by remember { mutableStateOf("") }
+    val uriHandler = LocalUriHandler.current
+    // Links são recursos públicos: nunca incluir UID, e-mail, senha ou token na URL.
+    fun openLegalResource(url: String) {
+        legalLinkError = if (runCatching { uriHandler.openUri(url) }.isFailure)
+            "Não foi possível abrir o recurso. Confira o navegador ou cliente de e-mail."
+        else ""
+    }
 
     Column(
         Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Wine, Color(0xFF8B4B5A))))
@@ -174,6 +183,41 @@ private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
                             }
                         }
                     }, modifier = Modifier.fillMaxWidth()) { Text("Esqueci minha senha") }
+                }
+                HorizontalDivider(Modifier.padding(vertical = 12.dp))
+                Text("Privacidade e atendimento",
+                    style = MaterialTheme.typography.titleSmall)
+                if (BuildConfig.PRIVACY_POLICY_URL.isNotBlank()) {
+                    TextButton(
+                        onClick = { openLegalResource(BuildConfig.PRIVACY_POLICY_URL) },
+                        modifier = Modifier.fillMaxWidth().testTag("atrio-auth-privacy-policy")
+                    ) { Text("Política de privacidade") }
+                } else if (BuildConfig.PLAY_STORE_BUILD) {
+                    Text("Política pública pendente. Esta versão Play não deve ser distribuída.",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall)
+                }
+                if (BuildConfig.DELETION_WEB_URL.isNotBlank()) {
+                    TextButton(
+                        onClick = { openLegalResource(BuildConfig.DELETION_WEB_URL) },
+                        modifier = Modifier.fillMaxWidth().testTag("atrio-auth-deletion-web")
+                    ) { Text("Solicitar exclusão de conta pelo site") }
+                }
+                Text("Canal público de privacidade e exclusão: " +
+                    ACCOUNT_DELETION_SUPPORT_EMAIL,
+                    style = MaterialTheme.typography.bodySmall)
+                TextButton(
+                    onClick = {
+                        openLegalResource("mailto:" + ACCOUNT_DELETION_SUPPORT_EMAIL +
+                            "?subject=Atrio%20Catolico%20-%20Privacidade")
+                    },
+                    modifier = Modifier.fillMaxWidth().testTag("atrio-auth-privacy-contact")
+                ) { Text("Contatar atendimento por e-mail") }
+                if (legalLinkError.isNotBlank()) {
+                    Text(legalLinkError,
+                        modifier = Modifier.testTag("atrio-auth-legal-link-error"),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall)
                 }
                 Text("Cadastro por e-mail · Discussões compartilhadas · Respeito em primeiro lugar",
                     fontSize = 11.sp, color = Muted, lineHeight = 16.sp, textAlign = TextAlign.Center,

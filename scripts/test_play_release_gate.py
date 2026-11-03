@@ -332,6 +332,10 @@ class PrivacyPolicyLinkTests(unittest.TestCase):
                 'buildConfigField("String", "PRIVACY_POLICY_URL", "\\"$policyUrl\\"")')
             profile = root / "app/src/main/java/br/com/atriocatolico/ProfileScreen.kt"
             profile.write_text('BuildConfig.PRIVACY_POLICY_URL testTag("atrio-profile-privacy-policy")')
+            login = root / "app/src/main/java/br/com/atriocatolico/OnlineAtrioApp.kt"
+            login.write_text('BuildConfig.PRIVACY_POLICY_URL '
+                             'testTag("atrio-auth-privacy-policy") '
+                             'testTag("atrio-auth-privacy-contact")')
             valid = "https://atrio-catolico.org.br/politica-de-privacidade"
             self.assertEqual(privacy_policy_link_blockers(root, valid), [])
             for url in ("", "http://atrio-catolico.org.br/politica",
@@ -342,6 +346,14 @@ class PrivacyPolicyLinkTests(unittest.TestCase):
                     self.assertTrue(privacy_policy_link_blockers(root, url))
             profile.write_text("sem link")
             self.assertIn("play_privacy_policy_link_in_app_missing",
+                          privacy_policy_link_blockers(root, valid))
+            profile.write_text('BuildConfig.PRIVACY_POLICY_URL testTag("atrio-profile-privacy-policy")')
+            login.write_text('sem link')
+            self.assertIn("play_privacy_policy_pre_login_access_missing",
+                          privacy_policy_link_blockers(root, valid))
+            login.write_text('BuildConfig.PRIVACY_POLICY_URL '
+                             'testTag("atrio-auth-privacy-policy")')
+            self.assertIn("play_privacy_policy_pre_login_access_missing",
                           privacy_policy_link_blockers(root, valid))
 
 
