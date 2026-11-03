@@ -463,3 +463,38 @@ segredos do repositório permanece independente. Antes de qualquer
 assinatura/submissão é indispensável executar a homologação completa.
 Não foram alterados produção, assinatura, Play Console, backups ou
 permissões de dados.
+
+
+## Worker Avatar — travas contra exclusão durante operações remotas (03/11/2026)
+
+Foi reforçado o código **não implantado** do Worker de fotos. A
+verificação inicial de congelamento não era suficiente para as fases
+demoradas de upload ao Cloudinary, inspeção de moderação e promoção
+para foto pública. Uma conta poderia ser congelada enquanto o
+Worker aguardava um provedor externo e, ainda assim, receber nova
+referência de foto ao final da operação.
+
+A implementação faz leituras novas do marcador
+`account_deletion_freeze/{uid}` imediatamente antes de iniciar
+upload, ao concluir o upload privado e antes da gravação em D1,
+antes de promover foto aprovada e novamente antes da escrita do
+perfil no Firestore. Uma promoção realizada no intervalo é
+compensada por tentativa de destruição do objeto recém-promovido,
+sem apagar a entrada pendente D1: o reconciliador administrativo
+deve investigar os possíveis resíduos. A moderação também revê o
+congelamento do dono e do moderador imediatamente antes do efeito
+remoto.
+
+Os testes da suíte Cloudinary já existente exercitam o handler
+verdadeiro com Firebase Auth/OAuth, Firestore, Cloudinary e D1
+simulados: congelamento após leitura remota e congelamento durante
+promoção. Confirmam que não há escrita do perfil nem remoção
+silenciosa do registro pendente. Nenhum secret, mídia real ou
+requisição externa é usado nos testes.
+
+**Limite essencial:** essas leituras reduzem a janela de concorrência,
+mas não são um fence distribuído atômico entre Firestore, D1 e
+Cloudinary. A operação pode competir após a última leitura, e
+uma compensação pode falhar. A habilitação em produção exige
+coordenação transacional/lease com todos os escritores e verificação
+posterior, sem considerar este commit uma homologação. Nenhum deploy.
