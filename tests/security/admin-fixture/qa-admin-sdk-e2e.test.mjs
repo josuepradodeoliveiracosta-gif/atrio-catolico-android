@@ -29,6 +29,8 @@ import {createQaAdminFirestoreFreezeAdapter}
   from './qa-admin-firestore-freeze.mjs';
 import {createQaAdminOwnedTreeAudit}
   from './qa-admin-owned-tree-audit.mjs';
+import {createQaAdminOwnedDescendantPurger}
+  from './qa-admin-owned-descendant-purge.mjs';
 import {createQaWorkerDrainAdapter} from './qa-worker-drain.mjs';
 import {createQaAvatarD1PreAuthAdapter}
   from './qa-avatar-d1-pre-auth.mjs';
@@ -306,7 +308,28 @@ try {
         assert.equal(await admin.exists(A),true);
         assert.equal(await admin.exists(B),true);
         assert.equal((await getDoc(doc(db,orphan))).exists(),true);
-        await deleteDoc(doc(db,orphan));
+        // The emulator-only Admin SDK can remove previously unknown,
+        // orphaned descendants without touching Bob's independent account.
+        // This does not imply cross-account references or external media
+        // have been reconciled: the runner still gates Auth separately.
+        const purger=createQaAdminOwnedDescendantPurger();
+        try {
+          const deleted=await purger.purge(A,{
+            assertLease:()=>true,
+            assertAuthorized:()=>freeze.verify(A) && workers.verify(A)
+          });
+          assert.ok(deleted.deletedCount>=1);
+          assert.equal(deleted.productionReady,false);
+          assert.equal((await getDoc(doc(db,orphan))).exists(),false);
+          assert.equal((await getDoc(doc(db,bobOrphan))).exists(),true);
+          assert.equal(await admin.exists(B),true);
+          // Re-running after crash/timeout is idempotent.
+          const repeated=await purger.purge(A,{
+            assertLease:()=>true,
+            assertAuthorized:()=>freeze.verify(A) && workers.verify(A)
+          });
+          assert.equal(repeated.deletedCount,0);
+        } finally {await purger.close();}
         assert.equal((await getDoc(doc(db,bobOrphan))).exists(),true);
 
         // D1 retention/audit rows require review and prevent Auth deletion.

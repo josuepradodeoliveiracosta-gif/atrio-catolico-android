@@ -24,3 +24,26 @@ O contrato é lido pela CI atual do `account-deletion-audit` (Node test)
 e não executa consultas nem alterações na produção. Uma mudança nas regras
 **exige revisão humana de privacidade**, não somente atualizar uma lista
 para fazer a CI ficar verde.
+
+
+## Limpeza recursiva administrativa de subcoleções órfãs (QA, 03/11/2026)
+
+Novo módulo `tests/security/admin-fixture/qa-admin-owned-descendant-purge.mjs`
+executa **remoção real de documentos no Firestore Emulator local**, usando
+Firebase Admin SDK e **somente o UID sintético** `qa-delete-alice`. Percorre
+subcoleções de qualquer nome sob as raízes privadas do titular, inclusive
+documentos netos com pais ausentes, aplicando limites explícitos de
+profundidade e quantidade, validação estrita do caminho e exclusão dos filhos
+antes dos pais. Inventaria a árvore inteira antes da primeira alteração.
+Checa autorização administrativa de QA e fence a cada operação; nova leitura
+verifica ausência e reexecução não repete efeitos. As raízes não são apagadas
+pelo novo método, e dados de terceiros não entram no escopo.
+
+A suíte E2E **existente** do Admin SDK passou a usar o método depois de
+comprovar que o auditor independente bloqueou Auth diante de um neto órfão;
+também preserva a árvore de Bob e testa repetição sem efeitos. O método
+não é invocado em produção, não possui HTTP público, não remove Auth,
+Cloudinary, D1, referências relacionais ou documentos de moderação.
+O contrato permanece bloqueado para release até a aprovação de IAM,
+retenção, processamento de terceiros e fence distribuído. Não publicar o
+aplicativo por causa de uma prova do emulador.
