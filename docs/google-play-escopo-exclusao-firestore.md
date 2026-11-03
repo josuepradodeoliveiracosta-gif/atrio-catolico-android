@@ -230,3 +230,36 @@ obrigatório. Não cobre, por si, moderação no D1 Avatar nem referências
 legadas. Todos os sinalizadores de aprovação de exclusão, retenção,
 IAM e publicação na Play continuam falsos. Os testes usam apenas
 registros inventados na suíte Node preexistente.
+
+
+## Consolidação do diagnóstico administrativo com a ficha de denúncias (03/11/2026)
+
+O módulo `qa-moderation-deletion-preflight.js` conecta **sem qualquer
+ação destrutiva** o planejador `buildDeletionPlan` à ficha individual
+`auditModerationCaseDossier`. Um operador pode produzir um diagnóstico
+consolidado dos bloqueios existentes, do número de casos de moderação,
+de propostas incompletas e dos casos que ainda exigem revisão
+independente. A função não devolve UID, caminhos, evidências, textos
+de denúncias ou identidade de revisores.
+
+Quando a ficha inexiste, está incompleta, usa inventário antigo ou
+declara cobertura incompatível, a integração falha conservadoramente
+com `moderation_dossier_missing_or_invalid` ou
+`moderation_case_proposal_incomplete`. Mesmo se todas as fichas
+contiverem propostas estruturalmente válidas, o bloqueio
+`moderation_evidence_requires_independent_resolution` do planejador
+não é removido. Um bloqueio explícito adicional,
+`moderation_independent_legal_resolution_required`, exige decisão
+jurídica autêntica, reconciliação de terceiros e execução em etapa
+isolada, não representada neste módulo.
+
+Os testes da auditoria abrangem fichas ausentes, antigas, adulteradas,
+revisão de dois casos, perda de aprovação administrativa e inventário
+sem casos. Nem o cenário sem bloqueios gera autorização de operação:
+`accountDeletionAuthorized:false`,
+`destructiveOperationsEnabled:false` e
+`googlePlayReleaseAuthorized:false` são permanentes. Trata-se de
+inspeção offline; um JSON com `pagesComplete:true` não autentica
+inventário vivo. Para uso efetivo exigem-se serviço confiável de
+identidade, retenção jurídica, inventário real, fence distribuído e
+comprovantes de exclusão. Nenhum deploy, assinatura ou envio Play.
