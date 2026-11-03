@@ -112,7 +112,24 @@ export function createQaAdminForeignReferenceCleanup(){
           await fenced();
           if(!fresh.exists)continue;
           if(!allowed(fresh))deny('record_changed');
-          await fresh.ref.delete();
+          // The version read above is part of authorization. A competing
+          // edit to a foreign user's data must make this delete FAIL rather
+          // than silently erase the new version after our final check.
+          if(!fresh.updateTime || !Number.isFinite(
+            fresh.updateTime.toMillis?.()))
+            deny('missing_document_version');
+          try {
+            await fresh.ref.delete({lastUpdateTime:fresh.updateTime});
+          }catch(error){
+            // gRPC FAILED_PRECONDITION (9) means the record changed between
+            // the fresh snapshot and delete. Do not retry without a full
+            // re-inventory and independent re-authorization.
+            if(error?.code===9||error?.code==='failed-precondition'||
+               /FAILED_PRECONDITION|precondition failed/i.test(
+                 String(error?.message||'')))
+              deny('concurrent_record_changed');
+            throw error;
+          }
           await fenced();
         }
       }

@@ -499,6 +499,72 @@ try {
       });
     });
 
+  await test('QA foreign-reference cleanup never erases a record concurrently changed by Bob',
+    async()=>{
+      // Isolated Firestore/Auth emulators only. Alice's fake Auth has already
+      // been removed in the preceding test; this exercises stale cross-user
+      // references, not an Auth deletion.
+      await environment.withSecurityRulesDisabled(async context=>{
+        const db=context.firestore();
+        const notice='users/'+B+'/notifications/qa_foreign_race';
+        const pref='users/'+B+'/blockedMembers/'+A;
+        const now=new Date('2026-10-31T12:00:00Z');
+        await setDoc(doc(db,notice),{
+          postId:'qa_post_1',replyId:'qa_reply_1',actorUid:A,
+          actorName:'Alice',read:false,createdAt:now
+        });
+        const cleanup=createQaAdminForeignReferenceCleanup();
+        try{
+          let checks=0;
+          await assert.rejects(cleanup.purge(A,{
+            approvedQaReview:true,assertLease:()=>true,
+            assertAuthorized:async()=>{
+              // At check #4, the cleanup has re-read the notification but
+              // has not deleted it. Bob changes the record at that instant.
+              if(++checks===4){
+                await setDoc(doc(db,notice),{
+                  postId:'qa_post_1',replyId:'qa_reply_1',actorUid:B,
+                  actorName:'Bob',read:true,createdAt:now
+                });
+              }
+              return true;
+            }
+          }),/qa_foreign_reference_cleanup_concurrent_record_changed/);
+          const retained=await getDoc(doc(db,notice));
+          assert.equal(retained.exists(),true);
+          assert.equal(retained.data().actorUid,B);
+          assert.equal(retained.data().read,true);
+          assert.equal(checks,4);
+          assert.equal(await secondAdmin.exists(B),true);
+          await deleteDoc(doc(db,notice));
+
+          // A foreign user's block preference is also version-protected.
+          await setDoc(doc(db,pref),{createdAt:now});
+          checks=0;
+          await assert.rejects(cleanup.purge(A,{
+            approvedQaReview:true,assertLease:()=>true,
+            assertAuthorized:async()=>{
+              if(++checks===4){
+                await setDoc(doc(db,pref),{
+                  createdAt:new Date('2026-11-01T10:00:00Z'),
+                  note:'Bob edited preference in QA'
+                });
+              }
+              return true;
+            }
+          }),/qa_foreign_reference_cleanup_concurrent_record_changed/);
+          const block=await getDoc(doc(db,pref));
+          assert.equal(block.exists(),true);
+          assert.equal(block.data().note,'Bob edited preference in QA');
+          assert.equal(await secondAdmin.exists(B),true);
+        }finally{
+          await cleanup.close();
+          await deleteDoc(doc(db,notice)).catch(()=>{});
+          await deleteDoc(doc(db,pref)).catch(()=>{});
+        }
+      });
+    });
+
   await test('Admin SDK fails closed with unsafe environment and unauthorized UID',
     async()=>{
       if(!secondAdmin)throw Error('qa_admin_sdk_previous_test_required');

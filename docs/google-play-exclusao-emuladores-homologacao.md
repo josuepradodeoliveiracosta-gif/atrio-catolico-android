@@ -101,3 +101,28 @@ explicitamente injetado. O executor QA passa a função verificada
 último estágio bloqueia antes da remoção. O teste dos casos revogados
 é executado via Node 22 e SQLite **sem** Firebase SDK, rede ou segredos
 no workflow de AAB **sem assinatura** da PR.
+
+
+## Exclusão condicional de referências pertencentes a terceiros — 03/11/2026
+
+Na rotina QA de limpeza de referências cruzadas
+`tests/security/admin-fixture/qa-admin-foreign-reference-cleanup.mjs`,
+a remoção no Firestore Emulator usa agora o **precondition
+`lastUpdateTime`** do último snapshot revalidado, além das verificações
+de escopo, lease SQLite e autorização do operador. Se o titular do
+registro o modificar entre a leitura e a chamada de exclusão, o
+Firestore rejeita a operação como `FAILED_PRECONDITION`; o processo
+falha com `qa_foreign_reference_cleanup_concurrent_record_changed`
+e exige nova inspeção, sem apagar a versão recém-modificada.
+
+O teste integrado no Firebase Emulator usa duas contas fictícias,
+intercala uma edição do destinatário da notificação e do bloqueio
+entre a leitura e a exclusão e verifica que os **dois documentos
+sobrevivem** à tentativa concorrente. Não há reprocessamento
+automático ou exclusão de denúncias, conteúdo de terceiros ou conta
+Firebase Auth real.
+
+A mudança **não** torna a rotina um executor de produção nem garante
+atomicidade entre serviços externos. A faixa Play permanece bloqueada
+até decisões de retenção, identidade operacional, congelamento
+distribuído e testes reais homologados.
