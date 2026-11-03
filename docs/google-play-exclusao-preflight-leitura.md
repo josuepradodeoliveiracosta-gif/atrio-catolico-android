@@ -123,3 +123,34 @@ Firebase nem configuração de IAM em produção. O token OAuth de leitura
 Firestore é independente do token de identidade e precisa ser emitido
 por servidor com permissões mínimas. Nenhuma decisão de retenção,
 conciliação entre serviços, exclusão efetiva ou publicação é habilitada.
+
+
+## Login de fundador e Firebase Admin SDK no emulador real (03/11/2026)
+
+Uma suíte integrada `qa-founder-gate-emulator.test.mjs` foi incorporada à
+CI existente `selos-ci.yml`, sob os emuladores locais de
+Firebase Authentication e Firestore. Diferentemente dos testes de
+unidade anteriores, o teste cria um **usuário fictício no emulador**,
+realiza login com senha na API local do Firebase, entrega o token
+emitido pelo emulador ao **Firebase Admin SDK real** e consulta os
+documentos de privilégios pelo Firestore Admin SDK local.
+
+A validação cobre papel administrativo ativo, UID do fundador,
+marcador de congelamento, usuário desativado e revogação do token.
+Os registros fictícios são limpos ao concluir, mesmo se uma asserção
+falhar. Nenhuma conta real é usada, nenhuma credencial é solicitada
+e o código impede execução fora dos hosts locais, do ambiente
+\`demo-atrio-v11\` e da configuração sem segredos.
+
+**Diferença importante:** conforme a documentação do Firebase,
+o emulador de Auth cria JWTs sem assinatura. A validação
+**sintática** aceita o terceiro segmento vazio exclusivamente para
+não barrar essa sessão de QA; a autorização **depende sempre** de
+\`verifyIdToken(token, true)\` do SDK Admin, que rejeita tokens não
+assinados fora do modo emulador. Um teste unitário comprova que
+uma string sem assinatura nunca é aprovada se o Admin a rejeitar.
+Nunca definir \`FIREBASE_AUTH_EMULATOR_HOST\` em produção.
+
+A revisão ainda não configura serviço de identidade, IAM ou rota
+administrativa real. O resultado da integração em emulador **não é**
+homologação operacional de produção nem autoriza exclusão.

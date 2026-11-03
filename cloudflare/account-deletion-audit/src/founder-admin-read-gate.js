@@ -21,7 +21,10 @@ const deny=reason=>{throw Error('founder_read_gate_'+reason);};
 const plain=v=>v&&typeof v==='object'&&!Array.isArray(v);
 const boundedToken=token=>typeof token==='string' &&
   token.length>=100&&token.length<=8192&&
-  /^[A-Za-z0-9_=-]+\.[A-Za-z0-9_=-]+\.[A-Za-z0-9_=-]+$/.test(token);
+  // The Firebase Auth Emulator issues unsigned tokens ending in ".".
+  // Syntax alone NEVER authorizes access: verifyIdToken(token, true) must
+  // authenticate the token with Firebase Admin and its configured mode.
+  /^[A-Za-z0-9_=-]+\.[A-Za-z0-9_=-]+\.[A-Za-z0-9_=-]*$/.test(token);
 
 function adminSDKReady(auth,db){
   return typeof auth?.verifyIdToken==='function' &&

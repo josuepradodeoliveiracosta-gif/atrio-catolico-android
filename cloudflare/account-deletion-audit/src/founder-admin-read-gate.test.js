@@ -155,3 +155,25 @@ test('composed preflight fails on role revocation without destructive calls',asy
   }),/founder_role_or_freeze_denied/);
   assert.equal(calls,1);
 });
+
+
+test('unsigned JWT-like string grants nothing unless Firebase Admin verifies it',async()=>{
+  const f=fixture();
+  const unsigned='a'.repeat(120)+'.'+'b'.repeat(80)+'.';
+  let attempted=0;
+  const rejecting={
+    ...f.auth,
+    async verifyIdToken(value,checkRevoked){
+      attempted++;
+      assert.equal(value,unsigned);
+      assert.equal(checkRevoked,true);
+      throw Error('firebase-admin-rejected-untrusted-token');
+    }
+  };
+  const gate=createFounderDeletionReadGate({
+    idToken:unsigned,auth:rejecting,db:f.db,clock:()=>instant
+  });
+  await assert.rejects(gate(),/firebase_identity_not_verified/);
+  assert.equal(attempted,1);
+  assert.equal(f.state.reads.length,0);
+});
