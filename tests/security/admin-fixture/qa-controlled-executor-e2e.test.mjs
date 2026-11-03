@@ -115,6 +115,7 @@ try{
       projectId:PROJECT,db:journalDb
     });
     const ledger=[],effects=[],avatarCloudinary=new Set([ALICE_AVATAR,BOB_AVATAR]);
+    let injectedAuthTimeout=true;
     const fcm=new Set(['token-alice']);
     const ctxCheck=x=>{
       guard();
@@ -223,6 +224,12 @@ try{
           assert.equal(fcm.size,0);
           effects.push('auth-sdk');
           await auth.deleteUser(ALICE);
+          // Real Auth Emulator side effect succeeds, but response is lost.
+          // A second delete without reconciling could be destructive.
+          if(injectedAuthTimeout){
+            injectedAuthTimeout=false;
+            throw Error('qa_injected_timeout_after_auth_delete');
+          }
         },
         async exists(x){ctxCheck(x);return authExists(ALICE);}
       }
@@ -230,8 +237,59 @@ try{
     const executor=createControlledQaDeletionExecutor({
       projectId:PROJECT,backend
     });
-    const result=await executor.run({uid:ALICE,caseId:CASE});
+    await assert.rejects(
+      executor.run({uid:ALICE,caseId:CASE}),
+      /qa_injected_timeout_after_auth_delete/
+    );
+    // All earlier effects actually happened; Auth has been deleted by the
+    // Firebase Admin SDK, but its checkpoint is still uncertain.
+    assert.equal(await authExists(ALICE),false);
+    assert.equal(await authExists(BOB),true);
+    assert.deepEqual(ledger,CONTROLLED_DELETION_PHASES.slice(0,5));
+    assert.equal((await journal.status({uid:ALICE,caseId:CASE})).state,'active');
+    await assert.rejects(
+      executor.run({uid:ALICE,caseId:CASE}),/qa_persistent_ledger_active_case_needs_review/
+    );
+    await assert.rejects(journal.approveRecovery({uid:ALICE,caseId:CASE},{
+      independentReview:async()=>false
+    }),/qa_persistent_ledger_review_rejected/);
+    const approval=await journal.approveRecovery({uid:ALICE,caseId:CASE},{
+      independentReview:async snapshot=>{
+        const status=await backend.firestore.assess({
+          uid:ALICE,caseId:CASE,epoch:snapshot.epoch
+        });
+        return snapshot.uid===ALICE && snapshot.caseId===CASE &&
+          snapshot.epoch===1 &&
+          snapshot.completed.join(',')===
+            CONTROLLED_DELETION_PHASES.slice(0,5).join(',') &&
+          (await authExists(ALICE))===false &&
+          status.remaining===0 && status.unknownScopes===0 &&
+          avatarAbsent() && !avatarCloudinary.has(ALICE_AVATAR) &&
+          fcm.size===0 &&
+          await backend.freeze.verify({
+            uid:ALICE,caseId:CASE,epoch:snapshot.epoch
+          })===true;
+      }
+    });
+    assert.equal(approval.productionApproved,false);
+    assert.equal(await journal.check({
+      uid:ALICE,caseId:CASE,epoch:1
+    }),false);
+    // New process-like connection resumes under epoch 2, rechecks all
+    // prior phases, and skips the already-removed Auth user.
+    journalDb.close();
+    journalDb=new DatabaseSync(journalPath);
+    chmodSync(journalPath,0o600);
+    const resumedLedger=createQaPersistentDeletionLedger({
+      projectId:PROJECT,db:journalDb
+    });
+    backend.ledger=resumedLedger;
+    const resumedExecutor=createControlledQaDeletionExecutor({
+      projectId:PROJECT,backend
+    });
+    const result=await resumedExecutor.run({uid:ALICE,caseId:CASE});
     assert.equal(result.state,'isolated_qa_deletion_reconciled');
+    assert.equal((await resumedLedger.status({uid:ALICE,caseId:CASE})).epoch,2);
     assert.deepEqual(ledger,CONTROLLED_DELETION_PHASES);
     assert.deepEqual((await journal.status({uid:ALICE,caseId:CASE})).completed,
       CONTROLLED_DELETION_PHASES);

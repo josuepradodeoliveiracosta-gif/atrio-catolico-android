@@ -22,6 +22,8 @@ O executor `cloudflare/account-deletion-processor/src/controlled-executor.js` j�
 
 `tests/security/admin-fixture/qa-controlled-executor-e2e.test.mjs` passa a usar **esse ledger persistente no lugar do array de autorização** e a reiniciar a conexão SQLite depois da exclusão da fixture. Verifica que os sete checkpoints sobrevivem e que uma segunda execução do executor **verifica**, mas não apaga novamente, a identidade do Auth Emulator.
 
+**Falha real injetada após Auth do emulador:** o cenário Firebase SDK agora provoca um timeout **depois** de `auth.deleteUser()` apagar a conta descartável e **antes** de o journal persistir a fase `delete_auth_last`. O teste exige que a próxima execução recuse recomeçar automaticamente. Uma função de revisão consulta novamente o Auth Emulator, a ausência de documentos, o marcador de congelamento, a limpeza de referências D1 e a mídia/FCM fictícios. Somente com evidência positiva autoriza um novo epoch; uma conexão SQLite recém-aberta conclui as duas fases restantes **sem chamar deleteUser uma segunda vez**. A conta fictícia vizinha deve continuar intacta. Isso é uma prova concreta de recuperação no Firebase Emulator, não de IAM/provedores remotos.
+
 Estas provas **não** homologam Cloudinary real, FCM remoto, política de retenção, IAM produtivo, bloqueio distribuído de todos os 15 caminhos de escrita, projetos segregados hospedados ou envio Google Play. O gate permanece `releaseAuthorized:false`, PR draft e nenhuma conta real pode ser eliminada.
 
 ## Próximos requisitos para conclusão produtiva

@@ -139,6 +139,17 @@ test('database with extra tables, insecure permissions or in-memory db rejected'
   }),/durable_unattached_database_required/);}
   finally{memory.close();}
 });
+test('a readable-by-others QA journal is never used for deletion authority',()=>{
+  const f=fixture();
+  try{
+    chmodSync(f.file,0o644);
+    assert.throws(()=>createQaPersistentDeletionLedger({
+      projectId:PROJECT,db:f.db
+    }),/insecure_database_permissions/);
+    chmodSync(f.file,0o600);
+    assert.equal((f.ledger.status instanceof Function),true);
+  }finally{f.close();}
+});
 test('recovering a complete case cannot erase or replace checkpoints',async()=>{
   const f=fixture();
   try{
