@@ -1,6 +1,8 @@
 package br.com.atriocatolico
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** A UI só pode anunciar solicitação registrada após confirmação remota válida. */
@@ -45,6 +47,23 @@ class AccountDeletionRequestStateTest {
         }
         assertEquals(null, deletionRequestRefreshLabel(DeletionRequestState.CHECKING))
         assertEquals(null, deletionRequestRefreshLabel(DeletionRequestState.NOT_REQUESTED))
+    }
+
+    @Test fun administrativeDeletionQueueRequiresSameLiveSessionAndGeneration() {
+        val trusted = { epoch: Int, liveEpoch: Int, sameUid: Boolean,
+                        cache: Boolean, pending: Boolean, docs: Boolean ->
+            trustedAdminDeletionQueueResponse(
+                expectedEpoch = epoch, currentEpoch = liveEpoch,
+                sameSession = sameUid, fromCache = cache,
+                pendingWrites = pending, allDocumentsTrusted = docs
+            )
+        }
+        assertTrue(trusted(3, 3, true, false, false, true))
+        assertFalse(trusted(3, 4, true, false, false, true))
+        assertFalse(trusted(3, 3, false, false, false, true))
+        assertFalse(trusted(3, 3, true, true, false, true))
+        assertFalse(trusted(3, 3, true, false, true, true))
+        assertFalse(trusted(3, 3, true, false, false, false))
     }
 
     @Test fun incompleteOrUnrecognizedRecordsCannotBeTreatedAsReceivedOrAbsent() {

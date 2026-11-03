@@ -11,6 +11,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -29,6 +30,21 @@ private data class AdminDeletionRequest(
     val uid: String, val status: String, val source: String
 )
 
+/**
+ * A late Firestore response from a former FirebaseAuth session must never
+ * populate the administrative queue, even when the founder signs in again.
+ * This check is UI defense; Firestore Rules remain the authority.
+ */
+internal fun trustedAdminDeletionQueueResponse(
+    expectedEpoch: Int,
+    currentEpoch: Int,
+    sameSession: Boolean,
+    fromCache: Boolean,
+    pendingWrites: Boolean,
+    allDocumentsTrusted: Boolean
+): Boolean = sameSession && expectedEpoch == currentEpoch &&
+    !fromCache && !pendingWrites && allDocumentsTrusted
+
 private fun readableDeletionStatus(value: String): String = when (value) {
     "requested" -> "Recebido; aguardando atendimento"
     "processing" -> "Processamento informado"
@@ -44,7 +60,9 @@ private fun readableDeletionStatus(value: String): String = when (value) {
 @Composable
 internal fun AccountDeletionRequestsAdminPanel(db: FirebaseFirestore, founderUid: String) {
     val lifetime = remember(db, founderUid) { DeletionQueueLifetime() }
-    DisposableEffect(lifetime) { onDispose { lifetime.active = false } }
+    val auth = FirebaseAuth.getInstance()
+    var observedUid by remember(db, founderUid) { mutableStateOf(auth.currentUser?.uid) }
+    var sessionEpoch by remember(db, founderUid) { mutableIntStateOf(0) }
     var requests by remember(db, founderUid) { mutableStateOf<List<AdminDeletionRequest>>(emptyList()) }
     var lastDocument by remember(db, founderUid) { mutableStateOf<DocumentSnapshot?>(null) }
     var loaded by remember(db, founderUid) { mutableStateOf(false) }
@@ -52,8 +70,32 @@ internal fun AccountDeletionRequestsAdminPanel(db: FirebaseFirestore, founderUid
     var loading by remember(db, founderUid) { mutableStateOf(false) }
     var error by remember(db, founderUid) { mutableStateOf(false) }
 
+    DisposableEffect(lifetime, auth) {
+        val listener = FirebaseAuth.AuthStateListener { current ->
+            val nextUid = current.currentUser?.uid
+            if (observedUid != nextUid) {
+                // Invalidate pending callbacks and wipe private records before
+                // allowing a new account to interact with this panel.
+                sessionEpoch++
+                observedUid = nextUid
+                requests = emptyList()
+                lastDocument = null
+                hasMore = false
+                loaded = false
+                loading = false
+                error = false
+            }
+        }
+        auth.addAuthStateListener(listener)
+        onDispose {
+            lifetime.active = false
+            auth.removeAuthStateListener(listener)
+        }
+    }
+
     fun sameSession() = lifetime.active &&
-        founderUid.isNotBlank() && FirebaseAuth.getInstance().currentUser?.uid == founderUid
+        founderUid.isNotBlank() && observedUid == founderUid &&
+        auth.currentUser?.uid == founderUid
 
     fun readPage(reset: Boolean) {
         if (loading || !sameSession()) return
@@ -67,12 +109,16 @@ internal fun AccountDeletionRequestsAdminPanel(db: FirebaseFirestore, founderUid
         }
         loading = true
         error = false
+        val requestedEpoch = sessionEpoch
         val query = db.collection("account_deletion_requests")
             .orderBy("requestedAt", Query.Direction.DESCENDING)
             .limit(DELETION_QUEUE_PAGE_SIZE.toLong())
             .let { if (cursor == null) it else it.startAfter(cursor) }
         query.get(Source.SERVER).addOnCompleteListener { task ->
-            if (!lifetime.active) return@addOnCompleteListener
+            // An old request may finish after logout and a fast re-login.
+            // Never overwrite a newer session's loading/results state.
+            if (!lifetime.active || sessionEpoch != requestedEpoch)
+                return@addOnCompleteListener
             if (!sameSession()) {
                 requests = emptyList()
                 lastDocument = null
@@ -83,10 +129,16 @@ internal fun AccountDeletionRequestsAdminPanel(db: FirebaseFirestore, founderUid
             loading = false
             loaded = true
             val snapshot = if (task.isSuccessful) task.result else null
-            val verified = snapshot != null && !snapshot.metadata.isFromCache &&
-                !snapshot.metadata.hasPendingWrites() && snapshot.documents.all {
+            val verified = snapshot != null && trustedAdminDeletionQueueResponse(
+                expectedEpoch = requestedEpoch,
+                currentEpoch = sessionEpoch,
+                sameSession = sameSession(),
+                fromCache = snapshot.metadata.isFromCache,
+                pendingWrites = snapshot.metadata.hasPendingWrites(),
+                allDocumentsTrusted = snapshot.documents.all {
                     !it.metadata.isFromCache && !it.metadata.hasPendingWrites()
                 }
+            )
             if (!verified) {
                 // A cache response or a server failure must not expose old rows.
                 requests = emptyList()
@@ -142,7 +194,8 @@ internal fun AccountDeletionRequestsAdminPanel(db: FirebaseFirestore, founderUid
             if (loaded && !loading && !error && requests.isEmpty()) {
                 Text("Nenhum pedido encontrado nas páginas consultadas.")
             }
-            requests.forEach { item ->
+            // No stale rows may be rendered during an auth state transition.
+            if (sameSession()) requests.forEach { item ->
                 Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text("UID do solicitante: " + item.uid)
                     Text(readableDeletionStatus(item.status),
@@ -155,7 +208,7 @@ internal fun AccountDeletionRequestsAdminPanel(db: FirebaseFirestore, founderUid
                     )
                 }
             }
-            if (hasMore && !error) {
+            if (hasMore && !error && sameSession()) {
                 OutlinedButton(
                     enabled = !loading && sameSession(),
                     onClick = { readPage(reset = false) },

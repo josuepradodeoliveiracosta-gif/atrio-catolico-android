@@ -214,3 +214,25 @@ operador disponível ou capacidade de excluir dados em Firebase,
 Firestore e Cloudinary. É obrigatório comprovar atendimento real,
 site HTTPS ativo e exclusão homologada antes de marcar evidências
 ou assinar/enviar AAB. `releaseAuthorized` continua falso.
+
+
+## Proteção da fila administrativa após logout/troca de conta (03/11/2026)
+
+No aplicativo Android da PR #71, a fila somente de leitura de
+pedidos de exclusão agora observa diretamente mudanças de
+`FirebaseAuth.AuthStateListener`. Logout ou troca de conta
+**limpam imediatamente os UIDs exibidos**, a paginação, o cursor,
+o resultado anterior e o estado de carregamento. Um número de
+geração da sessão é capturado no início da consulta; retornos
+assíncronos de sessões anteriores não podem repovoar a tela
+após uma troca rápida de contas. Os registros são mostrados
+somente enquanto o mesmo fundador continua autenticado.
+
+A função pura `trustedAdminDeletionQueueResponse`, adicionada
+à suíte instrumentalizada já existente, recusa snapshots em cache,
+escritas pendentes, sessão divergente, mudança de geração e
+documentos sem confirmação remota. O painel permanece sem botão
+de processamento ou exclusão; a autorização de acesso definitivo
+continua nas Firestore Rules. A mudança não cria listeners para
+novos documentos do Firestore nem consultas periódicas. Regras
+do banco implantado, assinatura e Play não foram modificadas.
