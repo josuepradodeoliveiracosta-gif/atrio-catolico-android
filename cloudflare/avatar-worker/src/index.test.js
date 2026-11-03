@@ -203,8 +203,8 @@ async function qaAvatarStatusFixture(freezeStates){
     publicExponent:new Uint8Array([1,0,1]),hash:'SHA-256'
   },true,['sign','verify']);
   const pkcs8=await webcrypto.subtle.exportKey('pkcs8',key.privateKey);
-  const pem='-----BEGIN PRIVATE KEY-----\\n'+Buffer.from(pkcs8).toString('base64')+
-    '\\n-----END PRIVATE KEY-----';
+  const pem='-----BEGIN PRIVATE KEY-----\n'+Buffer.from(pkcs8).toString('base64')+
+    '\n-----END PRIVATE KEY-----';
   const uid='qa-alice';
   const id='atrio-avatares/'+uid+'/147e7fca-2e75-4a1e-9c32-c11e19f937a7';
   const events=[];
