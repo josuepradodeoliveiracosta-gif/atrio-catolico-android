@@ -90,3 +90,36 @@ callback de infraestrutura confiável; não é uma implementação de
 autenticação real de operador. Um backend privado com IAM mínimo,
 validação de sessão e registro auditável será necessário antes de
 consultar dados de produção. Nenhum deploy ou exclusão foi efetuado.
+
+
+## Identificação do fundador antes das leituras (03/11/2026)
+
+A PR #71 inclui agora `founder-admin-read-gate.js`, uma camada
+reutilizável para o **futuro backend privado** de inspeção de pedidos.
+O módulo utiliza a interface do Firebase Admin SDK, fornecida pelo
+servidor, para chamar `verifyIdToken(token, true)` e exigir validação
+criptográfica do token **com checagem de revogação**. Compara os
+campos `aud`, `iss`, `sub`, `uid`, `iat`, `auth_time` e `exp`
+ao projeto Firebase autorizado; verifica se o usuário ainda está ativo.
+
+Em seguida, consulta explicitamente, via Firebase Admin Firestore,
+`admins/{uid}`, `app_config/founder` e
+`account_deletion_freeze/{uid}`. O acesso exige o administrador ativo,
+o fundador correspondente e ausência de congelamento. Revogação de
+token, troca de fundador, remoção do papel, bloqueio da conta, falhas
+de IAM ou expiração do token **interrompem o diagnóstico**.
+
+A função `inspectFounderDeletionReadSources` já compõe essa
+verificação com o inventário `inspectOperationalDeletionReadSources`,
+que revalida o acesso antes/depois de cada chamada remota. Os testes
+de Node usam duas interfaces administrativas falsas, sem segredos,
+para verificar recusas e perda de acesso durante uma consulta; passam
+pelo mesmo workflow Play existente.
+
+**Importante:** o arquivo não contém servidor HTTP, credenciais,
+inicialização automática do Firebase Admin, rota pública ou deploy.
+Os testes de identidade usam mocks, **não** comprovam um login real
+Firebase nem configuração de IAM em produção. O token OAuth de leitura
+Firestore é independente do token de identidade e precisa ser emitido
+por servidor com permissões mínimas. Nenhuma decisão de retenção,
+conciliação entre serviços, exclusão efetiva ou publicação é habilitada.
