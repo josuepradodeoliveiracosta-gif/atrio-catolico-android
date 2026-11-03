@@ -94,7 +94,11 @@ export function createQaAdminOwnedDescendantPurger(){
       async function fenced(){
         ready();
         if(await assertAuthorized()!==true)deny('authorization_lost');
-        assertLease();
+        // Lease check may be asynchronous. A rejected Promise or a false
+        // return must not permit a privileged Firestore deletion.
+        const leaseValid=await assertLease();
+        if(leaseValid!==true&&leaseValid!==undefined)
+          deny('lease_lost');
         ready();
       }
       await fenced();
@@ -108,7 +112,24 @@ export function createQaAdminOwnedDescendantPurger(){
         await fenced();
         // Confirm this exact object remains inside the owned UID namespace.
         if(!isDescendant(ref,uid))deny('cross_account_document_denied');
-        await ref.delete();
+        // A descendant's content or owner may change during the long
+        // recursive scan. Delete only the revision we actually inspected.
+        const fresh=await ref.get();
+        await fenced();
+        if(!fresh.exists)continue; // legitimate orphan parent or retry
+        if(!fresh.updateTime || !Number.isFinite(
+          fresh.updateTime.toMillis?.()))
+          deny('missing_document_version');
+        try{
+          await ref.delete({lastUpdateTime:fresh.updateTime});
+        }catch(error){
+          // Concurrent edits are not authorization to erase newer data.
+          if(error?.code===9||error?.code==='failed-precondition'||
+             /FAILED_PRECONDITION|precondition failed/i.test(
+               String(error?.message||'')))
+            deny('concurrent_owned_document_changed');
+          throw error;
+        }
         await fenced();
       }
       const remaining=await inventory(db,uid,ready);

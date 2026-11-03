@@ -565,6 +565,76 @@ try {
       });
     });
 
+  await test('ADMIN QA refuses asynchronous lease loss before foreign or owned cleanup',
+    async()=>{
+      await environment.withSecurityRulesDisabled(async context=>{
+        const db=context.firestore();
+        const notice='users/'+B+'/notifications/qa_async_lease';
+        const nested='users/'+A+'/leaseQA/owned';
+        const now=new Date('2026-10-31T12:00:00Z');
+        await setDoc(doc(db,notice),{
+          postId:'qa_post_1',replyId:'qa_reply_1',actorUid:A,
+          actorName:'Alice',read:false,createdAt:now
+        });
+        await setDoc(doc(db,nested),{uid:A,createdAt:now});
+        const foreign=createQaAdminForeignReferenceCleanup();
+        const owned=createQaAdminOwnedDescendantPurger();
+        try{
+          for(const gate of [foreign,owned]){
+            await assert.rejects(gate.purge(A,{
+              approvedQaReview:true,
+              assertLease:async()=>false,
+              assertAuthorized:async()=>true
+            }),/lease_lost/);
+            await assert.rejects(gate.purge(A,{
+              approvedQaReview:true,
+              assertLease:async()=>{
+                throw Error('qa_async_lease_revoked');
+              },
+              assertAuthorized:async()=>true
+            }),/qa_async_lease_revoked/);
+          }
+          assert.equal((await getDoc(doc(db,notice))).exists(),true);
+          assert.equal((await getDoc(doc(db,nested))).exists(),true);
+          assert.equal(await secondAdmin.exists(B),true);
+        }finally{
+          await foreign.close();
+          await owned.close();
+          await deleteDoc(doc(db,notice));
+          await deleteDoc(doc(db,nested));
+        }
+      });
+    });
+
+  await test('ADMIN QA does not erase owned descendant edited during recursive purge',
+    async()=>{
+      await environment.withSecurityRulesDisabled(async context=>{
+        const db=context.firestore();
+        const target='users/'+A+'/qaConcurrent/one';
+        await setDoc(doc(db,target),{uid:A,version:'original'});
+        const purger=createQaAdminOwnedDescendantPurger();
+        try{
+          let validations=0;
+          await assert.rejects(purger.purge(A,{
+            assertLease:async()=>true,
+            assertAuthorized:async()=>{
+              // First two checks surround inventory; the fourth happens
+              // after re-reading the document and before conditional delete.
+              if(++validations===4)
+                await setDoc(doc(db,target),{uid:B,version:'changed_by_bob'});
+              return true;
+            }
+          }),/qa_owned_descendant_purge_concurrent_owned_document_changed/);
+          assert.equal((await getDoc(doc(db,target))).data().version,
+            'changed_by_bob');
+          assert.equal(await secondAdmin.exists(B),true);
+        }finally{
+          await purger.close();
+          await deleteDoc(doc(db,target));
+        }
+      });
+    });
+
   await test('Admin SDK fails closed with unsafe environment and unauthorized UID',
     async()=>{
       if(!secondAdmin)throw Error('qa_admin_sdk_previous_test_required');

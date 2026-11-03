@@ -126,3 +126,30 @@ A mudança **não** torna a rotina um executor de produção nem garante
 atomicidade entre serviços externos. A faixa Play permanece bloqueada
 até decisões de retenção, identidade operacional, congelamento
 distribuído e testes reais homologados.
+
+
+## Lease assíncrono e revisão de documentos durante exclusão de subcoleções — 03/11/2026
+
+As duas rotinas administrativas de QA para referências de terceiros e
+subcoleções próprias agora **aguardam** o callback de posse do lease.
+Uma resposta explícita `false`, um retorno inesperado ou uma
+rejeição assíncrona impede imediatamente a exclusão. Para preservar
+a assinatura já usada pelo lease SQLite, verificadores síncronos que
+lançam erro em caso de perda e retornam `undefined` em caso de posse
+continuam aceitos.
+
+O procedimento de exclusão de descendentes próprios passa a ler
+cada documento imediatamente antes da remoção e a fornecer sua
+`lastUpdateTime` como pré-condição de exclusão ao Firestore
+Emulator. Um registro atualizado entre essa leitura e a exclusão
+gera `qa_owned_descendant_purge_concurrent_owned_document_changed`
+e mantém a nova versão. Pais ausentes de subcoleções órfãs são
+ignorados somente depois da enumeração e da revisão do escopo.
+
+A mesma suíte Admin SDK local, executada no CI Firestore existente,
+inclui regressões para: perda assíncrona do lease nas duas rotinas,
+modificação concorrente de um descendente, persistência do registro
+alterado e preservação do usuário de controle. Os testes não
+modificam a execução de produção e **não concedem autorização**
+para eliminar dados reais. Não há garantia de atomicidade com Auth,
+Cloudinary ou Workers implantados; a homologação continua pendente.
