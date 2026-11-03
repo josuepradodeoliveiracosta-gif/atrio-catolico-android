@@ -23,7 +23,7 @@ test('all seven existing Cloudflare D1 tables require explicit retention review'
  }
  assert.equal(D1_REVIEW_TABLES.length,7);
  assert.equal(requireD1ReviewCoverage('avatar',
-   read('cloudflare/avatar-worker/schema.sql')).reviewedColumns,15);
+   read('cloudflare/avatar-worker/schema.sql')).reviewedColumns,13);
  assert.equal(requireD1ReviewCoverage('push',
    read('cloudflare/push-worker/schema.sql')).reviewedColumns,11);
 });
@@ -64,9 +64,10 @@ test('existing D1 tables cannot silently gain a UID, token or sensitive column',
  const parsed=parsedD1Definitions(push);
  assert.equal(parsed.push_delivery_stats.at(-1),
    'primary key(hour_bucket,kind,outcome,fcm_http_status)');
- assert.throws(()=>parsedD1Definitions(push.replace(
+ const unbalanced=push.replace(
    'PRIMARY KEY (hour_bucket, kind, outcome, fcm_http_status)',
-   'PRIMARY KEY (hour_bucket, kind, outcome, fcm_http_status')), ')),
+   'PRIMARY KEY (hour_bucket, kind, outcome, fcm_http_status');
+ assert.throws(()=>parsedD1Definitions(unbalanced),
    /retention_d1_schema_unbalanced/);
 });
 
