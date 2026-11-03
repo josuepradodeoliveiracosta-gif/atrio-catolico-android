@@ -39,9 +39,9 @@ test('template covers every moderation root and never approves deletion',()=>{
   const d=blankModerationCaseDossier(uid,inventory());
   assert.equal(d.cases.length,5);
   assert.deepEqual(d.cases.map(x=>x.path),[
-    'guardiao_quarantine/synthetic_quarantine',
     'guardian_audit/synthetic_audit',
     'guardian_cases/synthetic_case',
+    'guardiao_quarantine/synthetic_quarantine',
     'reports/synthetic_post_report',
     'user_reports/synthetic_user_report'
   ]);
