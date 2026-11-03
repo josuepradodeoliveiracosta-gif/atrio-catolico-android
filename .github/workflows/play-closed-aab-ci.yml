@@ -116,6 +116,8 @@ jobs:
           node --test cloudflare/account-deletion-support/build.test.mjs
           node --test cloudflare/account-deletion-support/privacy-policy.test.mjs
           node --test cloudflare/account-deletion-support/community-terms.test.mjs
+          node --test cloudflare/account-deletion-support/site-bundle.test.mjs
+          test ! -e cloudflare/account-deletion-support/bundle-dist/index.html
           test ! -e cloudflare/account-deletion-support/dist/index.html
           test ! -e cloudflare/account-deletion-support/policy-dist/privacidade/index.html
           test ! -e cloudflare/account-deletion-support/terms-dist/termos/community-v1/index.html

@@ -176,3 +176,41 @@ real homologado. O código de produção, regras publicadas, conta Firebase
 real, Cloudflare, Play Console, backups e evidências continuam intactos.
 
 Referência: https://support.google.com/googleplay/android-developer/answer/13327111?hl=pt-BR
+
+
+## Montagem única e offline de exclusão, privacidade e termos (03/11/2026)
+
+O novo `cloudflare/account-deletion-support/site-bundle.mjs` reúne,
+**somente após receber três conteúdos aprovados**, as páginas estáticas
+do canal externo de exclusão, da política de privacidade e dos termos
+da comunidade em um único diretório para revisão:
+`index.html`, `privacidade/index.html`,
+`termos/{version}/index.html` e `_headers`.
+
+Exige `ATRIO_DELETION_SITE_ORIGIN` HTTPS real (sem path, token,
+consulta ou domínio de QA), e correspondência exata entre o endereço
+da política usado no suporte, o endereço dos Termos, a origem do
+site, o e-mail público e `ATRIO_PLAY_COMMUNITY_TERMS_VERSION`.
+Reutiliza os validadores de conteúdo legal existentes. Escreve em
+pasta temporária e depois move o pacote completo para o destino,
+recusando sobrescrita de versão anterior e saída em diretórios
+de código. Não coleta dados, não consulta Firebase/Cloudflare, não
+cria canal automático de atendimento e **não publica nada**.
+
+Para revisão privada via Termux, fornecer os caminhos locais de
+`ATRIO_PRIVACY_POLICY_INPUT`, `ATRIO_COMMUNITY_TERMS_INPUT`,
+as variáveis públicas documentadas do canal de suporte, a origem
+HTTPS verdadeira e a versão de termos `community-v1` quando
+confirmada na configuração do lançamento. Executar:
+`node cloudflare/account-deletion-support/site-bundle.mjs`.
+Sem todos os dados aprovados, **não existe pacote publicável**.
+A compilação usa somente materiais fictícios nos testes. O workflow
+Play executa `site-bundle.test.mjs` e verifica que nenhum pacote
+foi gerado no repositório.
+
+Importante: esse pacote só reduz erros de URLs e conteúdo
+desalinhados. Uma declaração de aprovação não prova revisão jurídica,
+operador disponível ou capacidade de excluir dados em Firebase,
+Firestore e Cloudinary. É obrigatório comprovar atendimento real,
+site HTTPS ativo e exclusão homologada antes de marcar evidências
+ou assinar/enviar AAB. `releaseAuthorized` continua falso.
