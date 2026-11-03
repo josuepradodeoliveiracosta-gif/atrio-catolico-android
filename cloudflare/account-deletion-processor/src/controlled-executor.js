@@ -106,11 +106,12 @@ export function createControlledQaDeletionExecutor({projectId,backend}={}){
           // The original gate must remain in effect, including on retries
           // where a previous remote Auth deletion timed out after succeeding.
           await clean();
-          if(await backend.auth.exists(fenced)===true){
+          const existingAuth=await backend.auth.exists(fenced);
+          if(existingAuth===true){
             await authorize();
             await freezeIsActive();
             await backend.auth.remove(fenced);
-          }else if(await backend.auth.exists(fenced)!==false){
+          }else if(existingAuth!==false){
             deny('auth_presence_unknown');
           }
         },
@@ -141,6 +142,18 @@ export function createControlledQaDeletionExecutor({projectId,backend}={}){
         if(i>0)await freezeIsActive();
         if(i<lease.completed.length){
           exactTrue(await verify(phase),'completed_phase_no_longer_valid');
+          continue;
+        }
+        // On an explicitly reviewed recovery (epoch > 1), the preceding
+        // remote operation may have committed but its checkpoint may have
+        // been lost. FIRST independently verify the phase; a confirmed
+        // effect must not be repeated. This never applies on first acquire,
+        // and a false/unknown readback is not accepted as completion.
+        // Each adapter must provide genuinely independent provider evidence.
+        if(lease.epoch>1 && await verify(phase)===true){
+          await authorize();
+          exactTrue(await backend.ledger.complete({...fenced,phase}),
+            'checkpoint_not_committed');
           continue;
         }
         // Re-check after any previous asynchronous read and before side
