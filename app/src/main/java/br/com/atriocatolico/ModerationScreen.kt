@@ -171,6 +171,9 @@ internal fun ModerationScreen(db: FirebaseFirestore, uid: String, onBack: () -> 
         }
     }) { insets ->
         val shown = reports.filter { (it.status != "pending") == showReviewed }
+        // CompositionLocal precisa ser lido no contexto @Composable, não no LazyListScope.
+        val founderHasPanel = LocalFounderUid.current.isNotBlank() &&
+            LocalFounderUid.current == uid
         LazyColumn(Modifier.fillMaxSize().padding(insets), contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
@@ -184,7 +187,7 @@ internal fun ModerationScreen(db: FirebaseFirestore, uid: String, onBack: () -> 
             if (!loading && !loadError) item { MemberReportsReviewPanel(db, uid) }
             // Área de privacidade separada da revisão de denúncias: uma
             // falha na fila de denúncias não deve esconder pedidos de exclusão.
-            if (LocalFounderUid.current.isNotBlank() && LocalFounderUid.current == uid) item {
+            if (founderHasPanel) item {
                 AccountDeletionRequestsAdminPanel(db, uid)
             }
             if (CloudinaryAvatarClient.enabled && !loading && !loadError) item {

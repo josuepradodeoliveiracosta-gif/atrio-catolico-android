@@ -57,7 +57,9 @@ internal fun AccountDeletionRequestsAdminPanel(db: FirebaseFirestore, founderUid
 
     fun readPage(reset: Boolean) {
         if (loading || !sameSession()) return
-        val cursor = if (reset) null else lastDocument ?: return
+        val cursor: DocumentSnapshot? = if (reset) null else {
+            lastDocument ?: return
+        }
         if (reset) {
             requests = emptyList()
             lastDocument = null
