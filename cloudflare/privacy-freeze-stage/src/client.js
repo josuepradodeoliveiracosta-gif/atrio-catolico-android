@@ -9,7 +9,9 @@ import {
 
 const routes=Object.freeze({
   admit:'/v1/admit',drain:'/v1/drain',
-  finalize:'/v1/finalize',close:'/v1/close',status:'/v1/status'
+  finalize:'/v1/finalize',close:'/v1/close',status:'/v1/status',
+  caseOpen:'/v1/case/open',caseStatus:'/v1/case/status',
+  caseAttest:'/v1/case/attest',caseAdvance:'/v1/case/advance'
 });
 const deny=()=>{throw Error('qa_stage_client_denied');};
 function validate(role,op,payload){
@@ -37,6 +39,24 @@ function validate(role,op,payload){
        typeof payload.operationId!=='string'||
        !/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(payload.operationId))
       deny();
+  }else if(op==='caseOpen'||op==='caseStatus'){
+    if(role!=='admin'||keys!=='caseId,uid'||
+       !stageFixtureUid(payload.uid)||!stageNonceOk(payload.caseId))deny();
+  }else if(op==='caseAttest'){
+    if(!['avatar','guardian','push','reconciler'].includes(role)||
+       keys!=='caseId,fixtureEvidence,phase,uid'||
+       !stageFixtureUid(payload.uid)||!stageNonceOk(payload.caseId)||
+       !['firestore_reconciled','avatar_d1_reconciled','fcm_reconciled',
+          'before_auth_verified','auth_emulator_deleted','final_qa_verified']
+         .includes(payload.phase)||
+       payload.fixtureEvidence!=='qa-synthetic-only-reviewed')deny();
+  }else if(op==='caseAdvance'){
+    if(role!=='reconciler'||
+       keys!=='caseId,expectedStep,fixtureEvidence,uid'||
+       !stageFixtureUid(payload.uid)||!stageNonceOk(payload.caseId)||
+       !Number.isSafeInteger(payload.expectedStep)||
+       payload.expectedStep<0||payload.expectedStep>5||
+       payload.fixtureEvidence!=='qa-synthetic-only-reviewed')deny();
   }else deny();
 }
 export function createStageServiceClient({
@@ -65,7 +85,7 @@ export function createStageServiceClient({
       if(!(response instanceof Response)||!response.ok)deny();
       const result=await response.json();
       if(!result||typeof result.status!=='string'||
-         !/^stage_(admitted|draining|frozen|reconciled|status)$/.test(result.status))
+         !/^stage_(admitted|draining|frozen|reconciled|status|case_open|case_status|case_attested|case_advanced)$/.test(result.status))
         deny();
       return result;
     }

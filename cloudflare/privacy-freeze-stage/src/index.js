@@ -10,6 +10,8 @@
  */
 import {createQaPrivilegedWriteBarrier}
   from '../../account-deletion-audit/src/qa-privileged-write-barrier.js';
+import {createQaDeletionCaseLedger,QA_DELETION_PHASES}
+  from './deletion-case-ledger.js';
 import {
   STAGE_HOST,STAGE_ID,STAGE_ROLES,stageNonceOk,
   stageFixtureUid,strictStageKey
@@ -25,7 +27,9 @@ const OPERATIONS=Object.freeze({
   '/v1/drain':'drain',
   '/v1/finalize':'finalize',
   '/v1/close':'close',
-  '/v1/status':'status'
+  '/v1/status':'status',
+  '/v1/case/open':'caseOpen','/v1/case/status':'caseStatus',
+  '/v1/case/attest':'caseAttest','/v1/case/advance':'caseAdvance'
 });
 const text=(status,code,extra={})=>new Response(JSON.stringify({status:code,...extra}),{
   status,headers:{'Content-Type':'application/json','Cache-Control':'no-store',
@@ -131,6 +135,31 @@ function validateOperation(path,role,input){
       throw Error('stage_reconciler_scope');
     return input;
   }
+  if(path==='/v1/case/open'||path==='/v1/case/status'){
+    if(role!=='admin'||!exactKeys(input,['uid','caseId'])||
+       !stageFixtureUid(input.uid)||!stageNonceOk(input.caseId))
+      throw Error('stage_case_admin_scope');
+    return input;
+  }
+  if(path==='/v1/case/attest'){
+    if(!['avatar','guardian','push','reconciler'].includes(role)||
+       !exactKeys(input,['uid','caseId','phase','fixtureEvidence'])||
+       !stageFixtureUid(input.uid)||!stageNonceOk(input.caseId)||
+       !QA_DELETION_PHASES.includes(input.phase)||
+       input.fixtureEvidence!=='qa-synthetic-only-reviewed')
+      throw Error('stage_case_attestation_scope');
+    return input;
+  }
+  if(path==='/v1/case/advance'){
+    if(role!=='reconciler'||!exactKeys(input,
+      ['uid','caseId','expectedStep','fixtureEvidence'])||
+      !stageFixtureUid(input.uid)||!stageNonceOk(input.caseId)||
+      !Number.isSafeInteger(input.expectedStep)||
+      input.expectedStep<0||input.expectedStep>=QA_DELETION_PHASES.length||
+      input.fixtureEvidence!=='qa-synthetic-only-reviewed')
+      throw Error('stage_case_advance_scope');
+    return input;
+  }
   throw Error('stage_unknown_operation');
 }
 async function reconcile(db,barrier,operationId){
@@ -163,6 +192,24 @@ export default {
       const data=validateOperation(url.pathname,role,obj);
       await reserveNonce(env.STAGE_FREEZE_DB,nonce,moment);
       const barrier=createQaPrivilegedWriteBarrier(env.STAGE_FREEZE_DB);
+      // Case routes reuse the same private HMAC + D1 nonce boundary.
+      if(url.pathname.startsWith('/v1/case/')){
+        const ledger=createQaDeletionCaseLedger(env.STAGE_FREEZE_DB);
+        if(url.pathname==='/v1/case/open'){
+          const value=await ledger.open({...data,at:moment});
+          return text(200,'stage_case_open',value);
+        }
+        if(url.pathname==='/v1/case/status'){
+          const value=await ledger.status(data);
+          return text(200,'stage_case_status',value);
+        }
+        if(url.pathname==='/v1/case/attest'){
+          const value=await ledger.attest({...data,role,at:moment});
+          return text(200,'stage_case_attested',value);
+        }
+        const value=await ledger.advance(data);
+        return text(200,'stage_case_advanced',value);
+      }
       if(url.pathname==='/v1/admit'){
         const ticket=await barrier.begin(data.kind,data.scope);
         return text(200,'stage_admitted',{operationId:ticket.id});
