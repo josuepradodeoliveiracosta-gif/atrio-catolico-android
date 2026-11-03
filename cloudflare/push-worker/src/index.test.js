@@ -268,7 +268,8 @@ test('fluxo completo autenticado, deduplicação e falha FCM sem credenciais rea
   assert.equal(blocked.status,503);
   assert.deepEqual(await blocked.json(),{status:'fanout_failed'});
   assert.equal(sent,2);
-  assert.equal(fanouts,3);
+  // Duplicate r1 also retries the idempotent batchWrite; count all writes.
+  assert.equal(fanouts,4);
   assert.equal(records.has('reply:p1:r3:dono'),false);
 });
 

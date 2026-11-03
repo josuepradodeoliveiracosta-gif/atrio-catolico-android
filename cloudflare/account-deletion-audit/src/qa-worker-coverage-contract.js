@@ -48,7 +48,7 @@ export const QA_WORKER_SOURCES=Object.freeze([
   {
     "service": "push",
     "file": "cloudflare/push-worker/src/index.js",
-    "gitBlob": "ff04b74610a78477c9c3076b9cdc04f9afc51c81",
+    "gitBlob": "52db5afa9c9dd8332701b100e8b34df9f8f35e45",
     "mustContain": [
       "export async function writeThreadNotices(",
       "export async function cleanupInvalidDevice(",
@@ -69,6 +69,8 @@ export const QA_WORKER_SOURCES=Object.freeze([
       "'account_deletion_freeze/'+enc(actorUid)",
       "'account_deletion_freeze/'+enc(uid)",
       "ROOT+':batchWrite'",
+      "return response(503,'fanout_failed');",
+      "result.status.length!==writes.length",
       "ROOT+':commit'",
       "'https://fcm.googleapis.com/v1/projects/'"
     ]
