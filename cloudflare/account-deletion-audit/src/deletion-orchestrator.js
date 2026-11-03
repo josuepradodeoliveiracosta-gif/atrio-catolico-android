@@ -37,6 +37,12 @@ export const EXTERNAL_SCOPES = Object.freeze([
   'cloudinary_avatar_authenticated', 'firebase_auth', 'fcm_devices'
 ]);
 
+// Moderation records are evidence that may belong to other users. A matching
+// ownerUid in a query result NEVER authorizes erasure of these documents.
+const MODERATION_EVIDENCE_ROOTS=new Set([
+  'reports','user_reports','guardian_cases','guardian_audit','guardiao_quarantine'
+]);
+
 export const ACCOUNT_RETENTION_REVIEW = Object.freeze([
   'moderation_and_reporting',
   'references_to_other_members',
@@ -139,6 +145,22 @@ export function buildDeletionPlan(uid, requestRecord, inventory, approvals) {
       issues.push('owned_path_outside_allowlist');
     if (doc.kind === 'relational' && doc.ownerUid !== uid)
       issues.push('cross_account_record_not_owned');
+    if (doc.kind === 'relational') {
+      const parts=doc.path.split('/');
+      // A reaction ID is the reacting user's identity, unlike the ID of
+      // the parent post or reply. Reject forged ownerUid metadata even if
+      // all high-level administrative approvals are present.
+      if(parts.length===6&&parts[0]==='posts'&&
+         parts[2]==='replies'&&parts[4]==='reactions'&&
+         parts[5]!==uid)
+        issues.push('reaction_document_uid_mismatch');
+      // Reports, user reports and moderation cases cannot be treated as
+      // ordinary user-owned documents. Their evidence can implicate third
+      // parties and require record-by-record retention/anonymization review,
+      // performed by a SEPARATE reviewed process, never this simulator.
+      if(parts.length===2&&MODERATION_EVIDENCE_ROOTS.has(parts[0]))
+        issues.push('moderation_evidence_requires_independent_resolution');
+    }
     if (doc.kind === 'relational' &&
         !RELATIONAL_SCOPES.some(scope => {
           const pattern='^'+scope.split('/').map(part =>

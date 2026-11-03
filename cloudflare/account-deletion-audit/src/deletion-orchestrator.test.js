@@ -56,7 +56,8 @@ test('new UGC child collections and user reports remain within reviewed-only sco
   expanded.documents.push({path:'user_reports/ugc_case_1',kind:'relational',ownerUid:uid});
   const out=plan(expanded);
   assert.equal(out.safeToExecute,false);
-  assert.deepEqual(out.blockers,[]);
+  assert.ok(out.blockers.includes('moderation_evidence_requires_independent_resolution'));
+  assert.equal(out.safeToExecute,false);
   const forged=inventory();
   forged.documents.push({path:'users/another/blockedMembers/alice_123',kind:'owned'});
   assert.ok(plan(forged).blockers.includes('owned_path_outside_allowlist'));
@@ -110,6 +111,37 @@ test('cannot delete another member\'s posts or replies as own relational data',(
   b.documents.push({path:'guardian_runtime/global',kind:'relational',ownerUid:uid});
   assert.ok(plan(b).blockers.includes('relational_path_outside_allowlist'));
 });
+test('reaction document ID must identify the requesting account, not a third party',()=>{
+  const forged=inventory();
+  forged.documents.push({path:'posts/p1/replies/r1/reactions/bob',
+    kind:'relational',ownerUid:uid});
+  assert.ok(plan(forged).blockers.includes('reaction_document_uid_mismatch'));
+  assert.equal(plan(forged).safeToExecute,false);
+  const legitimate=inventory();
+  legitimate.documents.push({path:'posts/p1/replies/r1/reactions/'+uid,
+    kind:'relational',ownerUid:uid});
+  assert.ok(!plan(legitimate).blockers.includes('reaction_document_uid_mismatch'));
+  assert.deepEqual(plan(legitimate).blockers,[]);
+});
+
+test('moderation evidence remains pending separate retention review even with broad approvals',()=>{
+  for(const root of ['reports','user_reports','guardian_cases',
+    'guardian_audit','guardiao_quarantine']){
+    const item=inventory();
+    item.documents.push({path:root+'/case_1',kind:'relational',ownerUid:uid});
+    const result=plan(item);
+    assert.ok(result.blockers.includes(
+      'moderation_evidence_requires_independent_resolution'),root);
+    assert.equal(result.safeToExecute,false);
+  }
+  const sameCase=inventory();
+  sameCase.documents.push({path:'user_reports/'+uid+'_user_bob',
+    kind:'relational',ownerUid:uid});
+  assert.ok(plan(sameCase).blockers.includes(
+    'moderation_evidence_requires_independent_resolution'));
+  assert.deepEqual(plan().blockers,[]);
+});
+
 test('duplicates and bad document paths or kind block',()=>{
   const a=inventory();
   a.documents.push({...a.documents[0]});

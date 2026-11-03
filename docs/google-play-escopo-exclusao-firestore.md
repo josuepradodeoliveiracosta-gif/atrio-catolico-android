@@ -161,3 +161,32 @@ retorna explicitamente `sourceAuthenticityVerified:false`,
 `retentionLegallyApproved:false` e `playReleaseAuthorized:false`.
 Os testes Node executam apenas SQL simulado a partir dos arquivos
 do projeto e rejeitam qualquer coluna/tabela não declarada.
+
+
+## Inventário de exclusão: reações e provas de moderação (03/11/2026)
+
+O planejador **somente de QA**
+`cloudflare/account-deletion-audit/src/deletion-orchestrator.js` passou
+a rejeitar reações em
+`posts/{postId}/replies/{replyId}/reactions/{uid}` quando o
+identificador final da reação **não é** o UID do titular, ainda que
+o registro consultado alegue `ownerUid` correspondente. O bloqueio
+é `reaction_document_uid_mismatch`. O teste usa duas identidades
+fictícias e confirma que o documento de outro membro nunca é
+considerado parte do titular para exclusão.
+
+Denúncias `reports` e `user_reports`, casos `guardian_cases`,
+`guardian_audit` e `guardiao_quarantine` passam a exigir
+`moderation_evidence_requires_independent_resolution` em qualquer
+plano que os encontre. Essa exigência não pode ser retirada apenas
+com um booleano genérico de aprovação/retensão: é necessário um
+processo independente para cada prova, levando em conta denunciante,
+pessoa denunciada, anonimização e deveres legais. Os IDs que
+incorporam UIDs também ficam retidos para análise.
+
+Os testes Node do planejador estão na suíte Play já existente,
+sem nova compilação manual ou execução de exclusão. A PR mantém
+`safeToExecute:false` para todos os planos. Esse aperto impede
+um falso inventário aprovado, mas **não** implementa o tratamento
+jurídico nem a exclusão operacional; nenhuma alteração foi feita
+em contas reais, Auth, D1, Cloudinary, Rules publicadas ou main.
