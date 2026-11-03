@@ -5,7 +5,7 @@ import {RULES_SCHEMA_CONTRACT} from './qa-firestore-schema-contract.js';
 import {EXTERNAL_SCOPES} from './deletion-orchestrator.js';
 import {
  D1_REVIEW_TABLES,retentionReviewRegistry,requireD1ReviewCoverage,
- parsedD1Tables,retentionReadiness
+ parsedD1Tables,parsedD1Definitions,retentionReadiness
 } from './qa-retention-source-registry.js';
 
 const read=(name)=>readFileSync(new URL('../../../'+name,import.meta.url),'utf8');
@@ -22,6 +22,10 @@ test('all seven existing Cloudflare D1 tables require explicit retention review'
      D1_REVIEW_TABLES.filter(x=>x.service===service).map(x=>x.table).sort());
  }
  assert.equal(D1_REVIEW_TABLES.length,7);
+ assert.equal(requireD1ReviewCoverage('avatar',
+   read('cloudflare/avatar-worker/schema.sql')).reviewedColumns,15);
+ assert.equal(requireD1ReviewCoverage('push',
+   read('cloudflare/push-worker/schema.sql')).reviewedColumns,11);
 });
 test('new D1 table, removed table, duplicate or bad schema cannot silently pass',()=>{
  const push=read('cloudflare/push-worker/schema.sql');
@@ -38,6 +42,34 @@ test('new D1 table, removed table, duplicate or bad schema cannot silently pass'
  assert.throws(()=>parsedD1Tables(''));
  assert.throws(()=>requireD1ReviewCoverage('unlisted',push));
 });
+test('existing D1 tables cannot silently gain a UID, token or sensitive column',()=>{
+ const avatar=read('cloudflare/avatar-worker/schema.sql');
+ const push=read('cloudflare/push-worker/schema.sql');
+ const changes=[
+   ['avatar',avatar.replace('public_id TEXT NOT NULL UNIQUE',
+     'public_id TEXT NOT NULL UNIQUE, secret_token TEXT')],
+   ['avatar',avatar.replace('public_id TEXT NOT NULL UNIQUE',
+     'public_id BLOB NOT NULL UNIQUE')],
+   ['avatar',avatar.replace('nonce TEXT NOT NULL,','nonce TEXT NOT NULL DEFAULT 0,')],
+   ['push',push.replace('events INTEGER NOT NULL DEFAULT 1,',
+     'events INTEGER NOT NULL DEFAULT 1, recipient_uid TEXT,')],
+   ['push',push.replace('PRIMARY KEY (hour_bucket, kind, outcome, fcm_http_status)',
+     'PRIMARY KEY (hour_bucket, kind, outcome)')],
+   ['push',push.replace('attempted INTEGER NOT NULL DEFAULT 0,','')],
+   ['push',push+'\nALTER TABLE delivered ADD COLUMN user_uid TEXT;\n']
+ ];
+ for(const [service,source] of changes)
+   assert.throws(()=>requireD1ReviewCoverage(service,source),
+     /retention_d1_(column_or_constraint_drift_review_required|schema_drift_review_required)/);
+ const parsed=parsedD1Definitions(push);
+ assert.equal(parsed.push_delivery_stats.at(-1),
+   'primary key(hour_bucket,kind,outcome,fcm_http_status)');
+ assert.throws(()=>parsedD1Definitions(push.replace(
+   'PRIMARY KEY (hour_bucket, kind, outcome, fcm_http_status)',
+   'PRIMARY KEY (hour_bucket, kind, outcome, fcm_http_status')), ')),
+   /retention_d1_schema_unbalanced/);
+});
+
 test('push event keys never receive a no-personal-data or automatic-delete exemption',()=>{
  const events=D1_REVIEW_TABLES.filter(x=>x.service==='push');
  assert.deepEqual(events.map(x=>x.table).sort(),

@@ -24,6 +24,31 @@ export const D1_REVIEW_TABLES=Object.freeze([
     identityRisk:'event_key_may_encode_identity',review:'notification_event_identity'})
 ]);
 
+// Exact reviewed D1 definitions, including types, nullability and composite
+// constraints. A new column in an existing table can carry a UID or token;
+// checking table names alone is NOT sufficient for privacy retention.
+const D1_REVIEW_DEFINITIONS=Object.freeze({
+  avatar:Object.freeze({
+    avatar_rate:['uid text primary key not null','next_at integer not null'],
+    avatar_pending:['uid text primary key not null','public_id text not null unique',
+      'created_at integer not null'],
+    avatar_moderation:['id integer primary key autoincrement','actor_uid text not null',
+      'target_uid text not null','reason text not null','created_at integer not null'],
+    avatar_mutex:['uid text primary key not null','nonce text not null',
+      'expires_at integer not null']
+  }),
+  push:Object.freeze({
+    delivered:['event_key text primary key not null','created_at integer not null'],
+    push_delivery_stats:[
+      'hour_bucket integer not null','kind text not null','outcome text not null',
+      'fcm_http_status integer not null default 0','events integer not null default 1',
+      'attempted integer not null default 0','accepted integer not null default 0',
+      'primary key(hour_bucket,kind,outcome,fcm_http_status)'
+    ],
+    guardiao_ai_budget:['event_key text primary key not null','day_bucket integer not null']
+  })
+});
+
 const NON_DATA_RULE_PATHS=new Set([
   '/databases/{database}/documents','/{document=**}'
 ]);
@@ -59,6 +84,58 @@ export function parsedD1Tables(sql){
     throw Error('retention_d1_schema_unknown_or_duplicate');
   return names.sort();
 }
+// A deliberately conservative CREATE TABLE parser. Commas inside a composite
+// PRIMARY KEY do not split column definitions. Unsupported quotes, malformed
+// syntax, ALTER TABLE and incomplete parentheses fail closed. This is a code
+// schema contract, NOT a check of the currently deployed D1 schema.
+export function parsedD1Definitions(sql){
+  if(typeof sql!=='string'||sql.length>200000)
+    throw Error('retention_d1_schema_unreadable');
+  const source=sql.replace(/^\s*--[^\n]*$/gm,'');
+  if(/\bALTER\s+TABLE\b/i.test(source))
+    throw Error('retention_d1_schema_drift_review_required');
+  const result={};
+  const matcher=/\bCREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+([a-z_][a-z0-9_]*)\s*\(/gi;
+  let match;
+  const normalized=s=>s.trim().toLowerCase().replace(/\s+/g,' ')
+    .replace(/\s*\(\s*/g,'(').replace(/\s*\)\s*/g,')')
+    .replace(/\s*,\s*/g,',');
+  while((match=matcher.exec(source))!==null){
+    const table=match[1].toLowerCase();
+    if(Object.hasOwn(result,table))
+      throw Error('retention_d1_schema_unknown_or_duplicate');
+    const definitions=[];
+    let start=matcher.lastIndex,depth=1,index=start;
+    for(;index<source.length;index++){
+      const ch=source[index];
+      if(ch==="'"
+        ||ch==='"'
+        ||ch==='\x60')
+        throw Error('retention_d1_schema_unreviewed_syntax');
+      if(ch==='(')depth++;
+      else if(ch===')'){
+        depth--;
+        if(depth===0){
+          definitions.push(normalized(source.slice(start,index)));
+          break;
+        }
+        if(depth<0)throw Error('retention_d1_schema_unbalanced');
+      }else if(ch===','&&depth===1){
+        definitions.push(normalized(source.slice(start,index)));
+        start=index+1;
+      }
+    }
+    if(depth!==0||!definitions.length||definitions.some(x=>!x)||
+       !/^\s*;/.test(source.slice(index+1)))
+      throw Error('retention_d1_schema_unbalanced');
+    result[table]=definitions;
+    matcher.lastIndex=index+2;
+  }
+  const names=parsedD1Tables(sql);
+  if(names.length!==Object.keys(result).length)
+    throw Error('retention_d1_schema_unreviewed_syntax');
+  return result;
+}
 export function requireD1ReviewCoverage(service,sql){
   if(service!=='avatar'&&service!=='push')
     throw Error('retention_d1_service_unreviewed');
@@ -68,7 +145,16 @@ export function requireD1ReviewCoverage(service,sql){
   if(actual.length!==registered.length||
      actual.some((name,i)=>name!==registered[i]))
     throw Error('retention_d1_schema_drift_review_required');
+  const definitions=parsedD1Definitions(sql);
+  const expected=D1_REVIEW_DEFINITIONS[service];
+  if(Object.keys(definitions).length!==Object.keys(expected).length ||
+     actual.some(name=>!Array.isArray(expected[name]) ||
+       definitions[name].length!==expected[name].length ||
+       definitions[name].some((entry,i)=>entry!==expected[name][i])))
+    throw Error('retention_d1_column_or_constraint_drift_review_required');
   return Object.freeze({service,reviewedSchemaNames:actual,
+    reviewedColumns:Object.values(expected).reduce((n,definitions)=>n+
+      definitions.filter(x=>!x.startsWith('primary key(')).length,0),
     legalRetentionApproved:false,productionInventoryVerified:false});
 }
 export function retentionReadiness(){

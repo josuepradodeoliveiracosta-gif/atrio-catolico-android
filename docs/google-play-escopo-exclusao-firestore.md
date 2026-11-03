@@ -114,3 +114,22 @@ suas publicações não são alteradas. Não foi necessário novo workflow.
 Essa mudança é apenas nas Rules da PR; não implantamos as regras no
 Firebase real. Workers Admin SDK contornam as Rules e ainda precisam
 de proteção própria. Não autoriza execução real de exclusão ou Play.
+
+
+## Proteção contra novas colunas D1 sem revisão (03/11/2026)
+
+O gate de retenção `requireD1ReviewCoverage` verificava as sete
+tabelas conhecidas dos Workers Avatar/Push, mas não mudanças nas
+suas **colunas**. Agora compara também a definição completa de
+colunas, tipos, obrigatoriedade, valores padrão e chaves compostas,
+com estrutura revisada e versionada em código. Novas colunas como
+`recipient_uid`, alteração de `public_id` ou de chave primária,
+remoção de coluna e `ALTER TABLE` provocam falha na CI até revisão
+explícita da classificação de privacidade. Foi reutilizada a suíte
+Node já existente, sem novo job ou serviço.
+
+A verificação é **somente sobre o SQL do repositório**: não afirma
+que o esquema dos bancos D1 implantados corresponda ao código, não
+decide prazo de retenção, não habilita exclusões e não autoriza Play.
+A eventual migração de um banco real requer inventário operacional
+independente, revisão jurídica e procedimento seguro.
