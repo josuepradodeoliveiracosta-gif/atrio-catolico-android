@@ -18,7 +18,7 @@ jobs:
   locked-container:
     if: github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android'
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 12
     steps:
       - name: Código sem token persistido
         uses: actions/checkout@v4
@@ -28,32 +28,41 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Gerar lockfile de revisão isolada, sem segredos
-        if: ${{ hashFiles('ops/cloud-run-private-review/package-lock.json') == '' }}
-        working-directory: ops/cloud-run-private-review
-        shell: bash
-        env:
-          NPM_CONFIG_AUDIT: 'false'
-          NPM_CONFIG_FUND: 'false'
-          NPM_CONFIG_IGNORE_SCRIPTS: 'true'
-        run: |
-          set -euo pipefail
-          test ! -e .env && test ! -e credentials.json
-          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
-          node -e "const p=require('./package-lock.json');if(p.lockfileVersion!==3||p.packages[''].dependencies['firebase-admin']!=='14.5.0')process.exit(2)"
-          echo 'ATRIO_LOCKFILE_BASE64_BEGIN'
-          base64 -w 512 package-lock.json
-          echo 'ATRIO_LOCKFILE_BASE64_END'
-          sha256sum package-lock.json
-          echo 'Bloqueio: este job NÃO publica artefatos, não acessa produção e não assina nada.'
-      - name: Validar lockfile versionado (quando estiver disponível)
-        if: ${{ hashFiles('ops/cloud-run-private-review/package-lock.json') != '' }}
+      - name: Validar lockfile e instalar dependências imutáveis
         working-directory: ops/cloud-run-private-review
         shell: bash
         run: |
           set -euo pipefail
           test ! -e .env && test ! -e credentials.json
+          node - <<'NODE'
+          const fs=require('node:fs');
+          const manifest=require('./package.json');
+          const lock=require('./package-lock.json');
+          if(lock.lockfileVersion!==3 ||
+             JSON.stringify(lock.packages[''].dependencies)!==
+               JSON.stringify(manifest.dependencies) ||
+             lock.packages['node_modules/firebase-admin']?.version!=='14.5.0')
+            throw Error('lockfile_manifest_drift');
+          if(!lock.packages['node_modules/firebase-admin']?.integrity)
+            throw Error('missing_dependency_integrity');
+          if(Object.values(lock.packages).some(item=>
+            item.resolved && !item.resolved.startsWith('https://registry.npmjs.org/')))
+            throw Error('unexpected_dependency_registry');
+          console.log('OK: lockfile verificado e vinculado ao manifest.');
+          NODE
           npm ci --omit=dev --ignore-scripts --no-audit --no-fund
-          node -e "const p=require('./package-lock.json');if(p.lockfileVersion!==3||p.packages[''].dependencies['firebase-admin']!=='14.5.0')process.exit(2)"
           node --check server.mjs
-          echo 'Instalação reprodutível validada; ainda falta imagem por digest, IAM e deploy.'
+      - name: Checar vulnerabilidades graves nas dependências de produção
+        working-directory: ops/cloud-run-private-review
+        shell: bash
+        run: npm audit --omit=dev --audit-level=high
+      - name: Construir imagem Docker apenas localmente, sem envio
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --pull --progress=plain \
+            -f ops/cloud-run-private-review/Dockerfile \
+            -t atrio-private-read-review:qa .
+          docker image inspect atrio-private-read-review:qa \
+            --format 'Build QA local: {{.Id}}'
+          echo 'QA completo: nenhum push, deploy, IAM ou escrita em dados reais.'

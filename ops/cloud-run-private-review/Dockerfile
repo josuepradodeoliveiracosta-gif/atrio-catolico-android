@@ -1,12 +1,11 @@
-# Candidate image only. Build from the REPOSITORY ROOT, never deploy directly.
-# Runtime image MUST be promoted by immutable Artifact Registry sha256 digest
-# and reviewed with vulnerability scanning before Terraform is applied.
+# Read-only candidate. Build from repository root; NO push or deployment.
+# Base tag is still mutable: final image must be pinned by reviewed digest.
 FROM node:22-alpine
 ENV NODE_ENV=production
 WORKDIR /srv
-COPY ops/cloud-run-private-review/package.json /srv/ops/cloud-run-private-review/package.json
+COPY ops/cloud-run-private-review/package.json ops/cloud-run-private-review/package-lock.json /srv/ops/cloud-run-private-review/
 RUN cd /srv/ops/cloud-run-private-review && \
-    npm install --omit=dev --ignore-scripts --no-audit --no-fund --package-lock=false
+    npm ci --omit=dev --ignore-scripts --no-audit --no-fund
 COPY cloudflare/account-deletion-audit/package.json /srv/cloudflare/account-deletion-audit/package.json
 COPY cloudflare/account-deletion-audit/src /srv/cloudflare/account-deletion-audit/src
 COPY ops/cloud-run-private-review/server.mjs /srv/ops/cloud-run-private-review/server.mjs

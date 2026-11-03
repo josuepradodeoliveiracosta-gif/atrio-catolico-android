@@ -158,3 +158,27 @@ A CI contém testes para interrupção após uma resposta, ausência de
 novas leituras, rejeição de mais de 320 chamadas, propagação do sinal
 de cancelamento e término de uma conexão HTTP abandonada. Nenhuma
 leitura real, deleção, deploy, assinatura ou alteração IAM foi feita.
+
+
+## Dependências e imagem reproduzível — 03/11/2026
+
+O lockfile **verdadeiro** `ops/cloud-run-private-review/package-lock.json` foi resolvido
+por `npm` em um runner GitHub Actions sem segredos e versionado após
+conferência de `firebase-admin` **14.5.0**, integridades e manifesto. O
+Dockerfile deixou de usar `npm install --package-lock=false` e agora exige
+`npm ci --omit=dev --ignore-scripts`, preservando versões e integridade
+das dependências. `Dockerfile.dockerignore` restringe o contexto do build
+ao código necessário e não altera outros builds Android.
+
+A workflow `private-cloud-run-lockfile-qa.yml` testa lockfile,
+instalação limpa, auditoria de vulnerabilidades altas/críticas e
+**docker build sem docker push ou deploy**. Um teste aprovado prova
+somente que a imagem candidata é compilável no runner, não que foi
+publicada ou homologada para dados reais. O resultado negativo mantém
+a PR bloqueada até correção — não é permitido contornar a auditoria.
+
+**Limitação relevante:** a base `node:22-alpine` é ainda uma tag
+mutável. Uma imagem de entrega precisará de uma base fixada por digest,
+SBOM, auditoria de dependências e digest imutável no Artifact Registry.
+O Terraform já exige digest imutável no parâmetro de imagem. Não há
+autorização para publicar contêiner, criar conta IAM ou implantar Cloud Run.
