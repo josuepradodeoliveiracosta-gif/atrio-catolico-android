@@ -107,3 +107,14 @@ precisa verificar separadamente no Play Console o certificado de assinatura
 do app versus o certificado dos APKs OTA já instalados, antes de escolher
 o Play App Signing. Esta verificação não autoriza envio, migração de
 instalações, nem substitui privacidade, UGC e aprovação humana.
+
+
+### Página pública de solicitação por e-mail — Cloudflare Workers (03/11/2026)
+
+Novo código versionado em `cloudflare/account-deletion-support/public-request-worker.js`, implantado como Worker **independente** `atrio-exclusao` e com subdomínio público habilitado na Cloudflare. Endereço configurado:
+`https://atrio-exclusao.atrio-catolico.workers.dev/exclusao`.
+O Worker usa somente HTML/CSS estáticos, sem Firebase, cookies, analytics, login, envio de dados para APIs ou operações de exclusão. Exibe instruções para contatar `atriocatolico.privacidade@gmail.com` e esclarece que o envio do e-mail inicia uma solicitação, **não** executa a exclusão.
+
+A API Cloudflare confirmou o envio do código e o subdomínio habilitado. Uma tentativa de acesso público externo realizada nesta sessão falhou por limitação de rede da ferramenta: a disponibilidade HTTPS real **não foi homologada**. Também não foi verificado o recebimento de mensagens na caixa postal nem o tratamento manual dos pedidos. Não preencher os manifestos Play como `verified:true` com base nesta implantação.
+
+O canal externo serve para iniciar solicitações sem reinstalar o aplicativo, mas a Google Play exige **processamento efetivo** da exclusão de Auth, Firestore, mídia e outros dados relacionados. Não usar este recurso sozinho como prova de conformidade. A política de privacidade pública e os Termos continuam sem aprovação final.
