@@ -93,9 +93,11 @@ export async function inspectOperationalDeletionReadSources({
   // endpoints, regardless of how the underlying fetcher is implemented.
   const readTransport=(url,options)=>{
     const endpoint=String(url),method=options?.method;
-    const allowed=endpoint.startsWith(ROOT+'/') &&
-      ((method==='GET' && !endpoint.includes(':')) ||
-       (method==='POST' && endpoint.endsWith(':listCollectionIds'))) ||
+    const relative=endpoint.startsWith(ROOT+'/')
+      ?endpoint.slice(ROOT.length):null;
+    const allowed=(relative!==null &&
+      ((method==='GET' && !relative.includes(':')) ||
+       (method==='POST' && relative.endsWith(':listCollectionIds')))) ||
       (endpoint===ROOT+':runQuery' && method==='POST');
     if(!allowed)fail('unexpected_firestore_endpoint');
     return fetcher(url,options);
