@@ -185,6 +185,124 @@ export async function threadParticipants(token, postId, actor, owner, replyTime)
  * Qualquer indisponibilidade aborta o envio; nunca tratar falha como "livre".
  * O modo estrito nunca utiliza FCM topics e rejeita destinatários em excesso.
  */
+/**
+ * One additional bounded Firestore read of the ALL relevant block/freeze
+ * markers after notice fanout. A second N*3 individual GET pass would exceed
+ * Workers Free's 50 external-subrequest budget for busy reply threads.
+ * BatchGet is strongly consistent by default but NOT a distributed fence.
+ */
+export async function recheckThreadRecipientPresence(token,actorUid,recipientUids) {
+  if(typeof token!=='string'||!token||!uidPart(actorUid)||
+    !Array.isArray(recipientUids)||
+    recipientUids.length>THREAD_BLOCK_SAFE_MAX_RECIPIENTS||
+    recipientUids.some(uid=>!uidPart(uid)))
+    throw Error('block_safe_batch_scope_invalid');
+  const recipients=[...new Set(recipientUids)].filter(uid=>uid!==actorUid);
+  if(!recipients.length)return [];
+
+  const prefix='projects/'+PROJECT+'/databases/(default)/documents/';
+  const marker='account_deletion_freeze/';
+  const blocked='users/';
+  const paths=[marker+actorUid];
+  for(const uid of recipients)paths.push(
+    marker+uid,
+    blocked+actorUid+'/blockedMembers/'+uid,
+    blocked+uid+'/blockedMembers/'+actorUid
+  );
+  const expected=new Set(paths.map(path=>prefix+path));
+  if(expected.size!==paths.length)throw Error('block_safe_batch_duplicate');
+  const res=await fetch(ROOT+':batchGet',{
+    method:'POST',headers:{
+      Authorization:'Bearer '+token,'Content-Type':'application/json'
+    },
+    // A field mask avoids disclosing user-authored document contents.
+    body:JSON.stringify({documents:[...expected],mask:{
+      fieldPaths:['__atrio_presence_check_only']
+    }})
+  });
+  if(!res.ok||!res.body?.getReader)throw Error('block_safe_batch_unavailable');
+  const MAX_BYTES=65536;
+  const declared=res.headers.get('content-length');
+  if(declared!==null&&(!/^\d+$/.test(declared)||Number(declared)>MAX_BYTES))
+    throw Error('block_safe_batch_oversized');
+  const reader=res.body.getReader();
+  let total=0;const chunks=[];
+  try{
+    while(true){
+      const {done,value}=await reader.read();
+      if(done)break;
+      total+=value.byteLength;
+      if(total>MAX_BYTES){
+        await reader.cancel();
+        throw Error('block_safe_batch_oversized');
+      }
+      chunks.push(value);
+    }
+  }finally{reader.releaseLock();}
+  if(!total)throw Error('block_safe_batch_empty');
+  const bytes=new Uint8Array(total);
+  let offset=0;
+  for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.byteLength;}
+  let raw;
+  try{raw=new TextDecoder('utf-8',{fatal:true}).decode(bytes).trim();}
+  catch{throw Error('block_safe_batch_invalid_encoding');}
+  if(!raw)throw Error('block_safe_batch_empty');
+  // Firestore REST returns a stream of JSON objects. The emulator may
+  // return a single JSON array. Reject incomplete and ambiguous responses.
+  let rows;
+  try{
+    const parsed=JSON.parse(raw);
+    rows=Array.isArray(parsed)?parsed:[parsed];
+  }catch{
+    rows=[];let i=0;
+    while(i<raw.length){
+      while(i<raw.length&&/\s/.test(raw[i]))i++;
+      if(i===raw.length)break;
+      if(raw[i]!=='{')throw Error('block_safe_batch_malformed');
+      let depth=0,inString=false,escape=false,start=i;
+      for(;i<raw.length;i++){
+        const ch=raw[i];
+        if(inString){
+          if(escape)escape=false;
+          else if(ch==='\\')escape=true;
+          else if(ch==='"')inString=false;
+        }else if(ch==='"')inString=true;
+        else if(ch==='{')depth++;
+        else if(ch==='}'){
+          depth--;
+          if(depth===0){i++;break;}
+          if(depth<0)throw Error('block_safe_batch_malformed');
+        }
+      }
+      if(depth!==0||inString)throw Error('block_safe_batch_malformed');
+      try{rows.push(JSON.parse(raw.slice(start,i)));}
+      catch{throw Error('block_safe_batch_malformed');}
+      if(rows.length>expected.size)throw Error('block_safe_batch_unbounded');
+      if(i<raw.length&&!/\s/.test(raw[i]))throw Error('block_safe_batch_malformed');
+    }
+  }
+  if(!Array.isArray(rows)||rows.length!==expected.size)
+    throw Error('block_safe_batch_incomplete');
+  const found=new Set(),seen=new Set();
+  for(const entry of rows){
+    if(!entry||typeof entry!=='object'||Array.isArray(entry))
+      throw Error('block_safe_batch_malformed');
+    const hasFound=Object.hasOwn(entry,'found'),hasMissing=Object.hasOwn(entry,'missing');
+    if(hasFound===hasMissing)throw Error('block_safe_batch_malformed');
+    const name=hasFound?entry.found?.name:entry.missing;
+    if(typeof name!=='string'||!expected.has(name)||seen.has(name))
+      throw Error('block_safe_batch_unexpected_path');
+    seen.add(name);
+    if(hasFound)found.add(name);
+  }
+  const documentExists=path=>found.has(prefix+path);
+  if(documentExists(marker+actorUid))return [];
+  return recipients.filter(uid=>
+    !documentExists(marker+uid)&&
+    !documentExists(blocked+actorUid+'/blockedMembers/'+uid)&&
+    !documentExists(blocked+uid+'/blockedMembers/'+actorUid));
+}
+
 export async function blockSafeThreadRecipients(token, actorUid, recipientUids) {
   if (!uidPart(actorUid) || !Array.isArray(recipientUids)
       || recipientUids.length > THREAD_BLOCK_SAFE_MAX_RECIPIENTS
@@ -854,7 +972,7 @@ export default {
       // fails the whole event before any FCM attempt. Bounded to five UIDs.
       // This narrows the race; it is NOT a durable cross-service fence.
       const deliveryRecipients=blockSafeMode && recipients.length
-        ? await blockSafeThreadRecipients(token,uid,recipients)
+        ? await recheckThreadRecipientPresence(token,uid,recipients)
         : recipients;
       // Events expire after five minutes; keep delivery markers for one day.
       // Bounded cleanup prevents an unbounded D1 retention table.

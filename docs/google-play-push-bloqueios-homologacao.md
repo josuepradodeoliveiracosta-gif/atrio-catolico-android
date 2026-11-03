@@ -465,3 +465,29 @@ interno gravado antes dela pode persistir; somente uma barreira
 distribuída real e reconciliação administrativa podem oferecer
 garantias mais fortes. A rotina permanece na PR, sem implantação
 do Worker, sem novas flags, sem assinatura ou liberação Play.
+
+
+## Otimização do limite gratuito: um único batchGet (03/11/2026)
+
+A segunda verificação de bloqueio/freeze agora usa **um único**
+`documents:batchGet` somente-leitura para todos os marcadores do
+remetente e dos destinatários, no lugar de até 16 GETs adicionais.
+O endpoint oficial Firestore aceita retorno fora de ordem: a rotina
+compara cada resposta com todos os caminhos solicitados, exige
+cobertura exata, rejeita duplicatas e falhas, e limita a resposta
+a 64 KiB. Uma máscara de campos evita trazer conteúdo completo dos
+documentos e a rotina permite somente resultados `found`/`missing`.
+Foi preservado o máximo anterior de cinco destinatários.
+
+A Cloudflare informa limite de **50 subrequisições externas por
+invocação no plano Workers Free**. Reduzir a segunda verificação a uma
+consulta mantém o custo bem menor; esse limite total ainda depende
+dos demais GETs, páginas de respostas, dispositivos, FCM e eventuais
+redirecionamentos. A rotina falha conservadoramente se o Firestore
+não responder de forma verificável.
+
+Testes em memória cobrem retorno fora de ordem, respostas parciais,
+duplicadas, injetadas, oversized, erros HTTP, bloqueio e
+congelamento aplicados entre o aviso interno e o FCM. Ainda não há
+garantia atômica entre Firestore e FCM, nem homologação do plano
+Free sob carga com aparelhos reais; não foi feito deploy.

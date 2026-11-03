@@ -48,7 +48,7 @@ export const QA_WORKER_SOURCES=Object.freeze([
   {
     "service": "push",
     "file": "cloudflare/push-worker/src/index.js",
-    "gitBlob": "517bfb3b3baeadf3ef4153c5e58e1dc0275f4a87",
+    "gitBlob": "72073ea2e64db2f48f37cb81e0ed6388934ef272",
     "mustContain": [
       "export async function writeThreadNotices(",
       "export async function cleanupInvalidDevice(",
@@ -68,6 +68,8 @@ export const QA_WORKER_SOURCES=Object.freeze([
       "const blockSafeMode = event.kind==='reply';",
       "const deliveryRecipients=blockSafeMode && recipients.length",
       "for(const recipient of deliveryRecipients) {",
+      "recheckThreadRecipientPresence(token,uid,recipients)",
+      "ROOT+':batchGet'",
       "'account_deletion_freeze/'+enc(actorUid)",
       "'account_deletion_freeze/'+enc(uid)",
       "ROOT+':batchWrite'",

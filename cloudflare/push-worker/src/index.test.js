@@ -1,7 +1,7 @@
 import test, {afterEach} from 'node:test';
 import assert from 'node:assert/strict';
 import worker, {resolveEvent, readEventBody, auditDelivery, cleanupInvalidDevice,
-  threadParticipants, writeThreadNotices, blockSafeThreadRecipients, pushAccountFrozen, classifyGuardiao, guardiaoAiAssessment, enrichGuardiaoReport, reserveGuardiaoAdminPush, guardiaoAutoHoldAllowed, holdGuardiaoContent} from './index.js';
+  threadParticipants, writeThreadNotices, blockSafeThreadRecipients, recheckThreadRecipientPresence, pushAccountFrozen, classifyGuardiao, guardiaoAiAssessment, enrichGuardiaoReport, reserveGuardiaoAdminPush, guardiaoAutoHoldAllowed, holdGuardiaoContent} from './index.js';
 
 const iso = () => new Date(Date.now() - 2000).toISOString();
 const doc = (data={}) => ({fields:Object.fromEntries(Object.entries(data).map(([key,value]) =>
@@ -218,6 +218,20 @@ test('fluxo completo autenticado, deduplicação e falha FCM sem credenciais rea
     }
     if(url.includes('firestore.googleapis.com/')) {
       assert.equal(options.headers.Authorization,'Bearer fake-oauth');
+      if(url.includes('/documents:batchGet')) {
+        assert.equal(options.method,'POST');
+        const request=JSON.parse(options.body);
+        assert.deepEqual(request.mask,{fieldPaths:['__atrio_presence_check_only']});
+        const rows=request.documents.map(name=>{
+          const relative=name.split('/documents/')[1];
+          if(relative==='users/dono/blockedMembers/autor'&&blockAfterFanout)
+            return {found:{name}};
+          if(relative==='account_deletion_freeze/dono'&&freezeAfterFanout)
+            return {found:{name}};
+          return {missing:name};
+        }).reverse();
+        return new Response(rows.map(row=>JSON.stringify(row)).join('\n'),{status:200});
+      }
       if(url.includes('/documents:batchWrite')) {
         const payload=JSON.parse(options.body);
         assert.equal(payload.writes.length,1);
@@ -619,6 +633,14 @@ test('modo seguro nao envia topic FCM nem notificacao in-app a bloqueado',async(
     if(u==='https://oauth2.googleapis.com/token')
       return Response.json({access_token:'service-qa',expires_in:3600});
     if(u.includes('firestore.googleapis.com/')) {
+      if(u.endsWith('/documents:batchGet')){
+        const request=JSON.parse(opts.body);
+        const rows=request.documents.map(name=>{
+          const path=name.split('/documents/')[1];
+          return docs[path]?{found:{name}}:{missing:name};
+        }).reverse();
+        return new Response(rows.map(row=>JSON.stringify(row)).join('\n'),{status:200});
+      }
       if(u.endsWith('/documents:batchWrite')){
         const data=JSON.parse(opts.body);
         writes.push(...data.writes);
@@ -654,6 +676,66 @@ test('modo seguro nao envia topic FCM nem notificacao in-app a bloqueado',async(
   assert.equal(writes.length,2);
   assert.ok(writes.every(w=>!w.update.name.includes('users/joao/')));
   assert.ok(![...keys].some(k=>k.startsWith('topic:')));
+});
+
+test('second eligibility check uses one bounded Firestore batchGet regardless of recipient count',async()=>{
+  const seen=[];
+  const actor='ana';
+  const list=['dono','joao','maria'];
+  globalThis.fetch=async(url,opts)=>{
+    seen.push({url:String(url),method:opts?.method});
+    assert.equal(opts?.method,'POST');
+    assert.ok(String(url).endsWith('/documents:batchGet'));
+    const request=JSON.parse(opts.body);
+    assert.equal(request.documents.length,10);
+    assert.deepEqual(request.mask,{fieldPaths:['__atrio_presence_check_only']});
+    const rows=request.documents.map(name=>{
+      if(name.endsWith('/users/maria/blockedMembers/ana'))
+        return {found:{name}};
+      return {missing:name};
+    }).reverse();
+    return Response.json(rows);
+  };
+  const allowed=await recheckThreadRecipientPresence('qa',actor,list);
+  assert.deepEqual(allowed,['dono','joao']);
+  assert.equal(seen.length,1);
+});
+test('batchGet must reject partial, duplicate, forged, oversized and failed responses',async()=>{
+  const prefix='projects/atrio-catolico/databases/(default)/documents/';
+  const names=[
+    prefix+'account_deletion_freeze/ana',
+    prefix+'account_deletion_freeze/dono',
+    prefix+'users/ana/blockedMembers/dono',
+    prefix+'users/dono/blockedMembers/ana'
+  ];
+  const good=names.map(name=>({missing:name}));
+  const invalid=[
+    good.slice(0,3),
+    [...good.slice(0,3),good[0]],
+    [...good.slice(0,3),{missing:prefix+'users/other/blockedMembers/dono'}],
+    [...good.slice(0,3),{found:{fields:{}}}],
+    [...good.slice(0,3),{}]
+  ];
+  for(const rows of invalid){
+    globalThis.fetch=async()=>Response.json(rows);
+    await assert.rejects(
+      ()=>recheckThreadRecipientPresence('qa','ana',['dono']),
+      /block_safe_batch_/);
+  }
+  for(const status of [401,403,429,500,503]){
+    globalThis.fetch=async()=>new Response('{}',{status});
+    await assert.rejects(()=>recheckThreadRecipientPresence('qa','ana',['dono']),
+      /block_safe_batch_unavailable/);
+  }
+  globalThis.fetch=async()=>new Response('x'.repeat(65537));
+  await assert.rejects(()=>recheckThreadRecipientPresence('qa','ana',['dono']),
+    /block_safe_batch_oversized/);
+  let requests=0;
+  globalThis.fetch=async()=>{requests++;throw Error('should not request');};
+  assert.deepEqual(await recheckThreadRecipientPresence('qa','ana',[]),[]);
+  await assert.rejects(()=>recheckThreadRecipientPresence('qa','ana',['../admin']),
+    /block_safe_batch_scope_invalid/);
+  assert.equal(requests,0);
 });
 
 test('fanout inclui dono e cada comentarista apenas uma vez, mas exclui remetente',async()=>{
