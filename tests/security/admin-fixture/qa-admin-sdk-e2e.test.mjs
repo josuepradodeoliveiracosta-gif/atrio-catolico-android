@@ -318,7 +318,8 @@ try {
         try {
           const deleted=await purger.purge(A,{
             assertLease:()=>true,
-            assertAuthorized:()=>freeze.verify(A) && workers.verify(A)
+            assertAuthorized:async()=>await freeze.verify(A) === true &&
+              workers.verify(A) === true
           });
           assert.ok(deleted.deletedCount>=1);
           assert.equal(deleted.productionReady,false);
@@ -328,7 +329,8 @@ try {
           // Re-running after crash/timeout is idempotent.
           const repeated=await purger.purge(A,{
             assertLease:()=>true,
-            assertAuthorized:()=>freeze.verify(A) && workers.verify(A)
+            assertAuthorized:async()=>await freeze.verify(A) === true &&
+              workers.verify(A) === true
           });
           assert.equal(repeated.deletedCount,0);
         } finally {await purger.close();}
@@ -360,13 +362,15 @@ try {
           await assert.rejects(foreign.purge(A,{
             approvedQaReview:false,
             assertLease:()=>true,
-            assertAuthorized:()=>freeze.verify(A) && workers.verify(A)
+            assertAuthorized:async()=>await freeze.verify(A) === true &&
+              workers.verify(A) === true
           }),/qa_foreign_reference_cleanup_review_required/);
           assert.equal((await getDoc(doc(db,aliceNotice))).exists(),true);
           const completed=await foreign.purge(A,{
             approvedQaReview:true,
             assertLease:()=>true,
-            assertAuthorized:()=>freeze.verify(A) && workers.verify(A)
+            assertAuthorized:async()=>await freeze.verify(A) === true &&
+              workers.verify(A) === true
           });
           assert.equal(completed.removedActorNotices,1);
           assert.equal(completed.removedForeignBlocks,1);
@@ -381,7 +385,8 @@ try {
           const repeat=await foreign.purge(A,{
             approvedQaReview:true,
             assertLease:()=>true,
-            assertAuthorized:()=>freeze.verify(A) && workers.verify(A)
+            assertAuthorized:async()=>await freeze.verify(A) === true &&
+              workers.verify(A) === true
           });
           assert.equal(repeat.removedActorNotices,0);
           assert.equal(repeat.removedForeignBlocks,0);

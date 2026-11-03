@@ -35,7 +35,9 @@ function guard(){
     deny('live_environment_denied');
 }
 function foreignPath(ref,uid,collection){
-  const p=ref?.path?.split('/');
+  // QueryDocumentSnapshot holds its path in .ref; a reference in .path.
+  const actualPath=typeof ref?.path==='string'?ref.path:ref?.ref?.path;
+  const p=actualPath?.split('/');
   return !!(p && p.length===4 && p[0]==='users' &&
     p[1]!==uid && SEGMENT.test(p[1]) && p[2]===collection &&
     SEGMENT.test(p[3]));
@@ -73,8 +75,7 @@ export function createQaAdminForeignReferenceCleanup(){
     if(!allBlocks || allBlocks.size>MAX || allBlocks.size!==allBlocks.docs.length)
       deny('unbounded_blocked_member_inventory');
     // Unknown paths do not grant deletion rights, even with an exact ID.
-    if(allBlocks.docs.some(d=>!foreignPath(d,uid,'blockedMembers') &&
-      d.ref.path.split('/').length!==4))
+    if(allBlocks.docs.some(d=>!foreignPath(d.ref,uid,'blockedMembers')))
       deny('unreviewed_blocked_member_path');
     const blocks=allBlocks.docs.filter(d=>d.id===uid &&
       foreignPath(d.ref,uid,'blockedMembers'));
