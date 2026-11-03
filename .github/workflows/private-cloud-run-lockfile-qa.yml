@@ -56,6 +56,12 @@ jobs:
         working-directory: ops/cloud-run-private-review
         shell: bash
         run: npm audit --omit=dev --audit-level=high
+      - name: Testar auditoria IAM offline e negar privilégios excessivos
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s ops/cloud-run-private-review -p 'test_iam_audit.py' -v
+          test ! -f ops/cloud-run-private-review/iam-live-policy.json
       - name: Preparar Terraform CLI sem conta Cloud
         uses: hashicorp/setup-terraform@v4
         with:
