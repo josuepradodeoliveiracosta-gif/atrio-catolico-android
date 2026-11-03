@@ -15,6 +15,9 @@ import {QA_STAGE_WRITE_ROUTES,QA_STAGE_WRITE_COVERAGE,qaStageWriteGrant}
   from '../../privacy-freeze-stage/src/write-route-grants.js';
 import {QA_MUTATION_ROUTES,qaCoverageSummary}
   from './qa-worker-coverage-contract.js';
+import {runQaTicketedFixtureEffect,reconcileQaTicketedFixtureEffect,
+  QA_FIXTURE_EFFECT_READINESS}
+  from '../../privacy-freeze-stage/src/qa-ticketed-fixture-effect.js';
 
 const A='qa-freeze-alice',B='qa-freeze-bob';
 const roles=['avatar','guardian','push','admin','reconciler'];
@@ -595,5 +598,214 @@ test('new scoped admission refuses replayed HMAC nonce and missing stage secrets
       operationId:admitted.operationId,fixtureEvidence:'demo-confirmed'
     });
     assert.equal((await f.pending()).length,0);
+  })}finally{f.close()}
+});
+
+
+/**
+ * Only a synthetic SQLite table is touched. Each fixture write validates
+ * its just-admitted D1 ticket and persists its UUID as an idempotency key.
+ */
+function qaFixtureEffectStore(f){
+  const sqlite=f.stageEnv.STAGE_FREEZE_DB.raw;
+  sqlite.exec([
+    'CREATE TABLE IF NOT EXISTS qa_fake_provider_effects (',
+    '  operation_id TEXT PRIMARY KEY,',
+    "  role TEXT NOT NULL CHECK(role IN ('avatar','guardian','push')),",
+    '  route TEXT NOT NULL, kind TEXT NOT NULL,',
+    '  created_ms INTEGER NOT NULL CHECK(created_ms>0)',
+    ')'
+  ].join(' '));
+  const count=()=>sqlite.prepare(
+    'SELECT COUNT(*) AS n FROM qa_fake_provider_effects').get().n;
+  const get=operationId=>sqlite.prepare(
+    'SELECT operation_id,role,route,kind FROM qa_fake_provider_effects WHERE operation_id=?'
+  ).get(operationId)||null;
+  return {
+    count,get,
+    async applyFixture({operationId,role,route,kind}){
+      const pending=await f.pending();
+      if(!pending.some(x=>x.operation_id===operationId&&x.kind===kind))
+        throw Error('qa_unadmitted_fixture_effect');
+      sqlite.prepare(
+        'INSERT INTO qa_fake_provider_effects(operation_id,role,route,kind,created_ms) '+
+        'VALUES (?,?,?,?,?)'
+      ).run(operationId,role,route,kind,Date.now());
+      return {status:'qa_fixture_applied'};
+    }
+  };
+}
+test('Avatar Guardian and Push fixture effects require HMAC admission and independent close',async()=>{
+  const f=setup();
+  try{await offline(async()=>{
+    const store=qaFixtureEffectStore(f);
+    for(const [role,route,scope] of [
+      ['avatar','avatar.upload',{ownerUid:'qa-freeze-alice'}],
+      ['guardian','guardian.scan',{ownerUid:'qa-freeze-bob'}],
+      ['push','push.event.fcm',{actorUid:'qa-freeze-alice',
+        recipientUid:'qa-freeze-bob'}]
+    ]){
+      const ticket=await runQaTicketedFixtureEffect({
+        client:f.client(role),role,route,scope,fixtureStore:store
+      });
+      assert.equal(ticket.status,'qa_fixture_effect_pending_reconciliation');
+      assert.equal(ticket.productionReady,false);
+      assert.equal(ticket.externalProviderEffectVerified,false);
+      assert.equal(store.get(ticket.operationId)?.route,route);
+      assert.equal((await f.pending()).filter(x=>x.operation_id===ticket.operationId).length,
+        role==='push'?2:1);
+      const closed=await reconcileQaTicketedFixtureEffect({
+        reconciler:f.client('reconciler'),operationId:ticket.operationId,
+        independentReadback:async id=>store.get(id)?.route===route &&
+          store.get(id)?.role===role
+      });
+      assert.equal(closed.status,'qa_fixture_ticket_reconciled');
+      assert.equal(closed.realProviderDeleted,false);
+      assert.equal((await f.pending()).length,0);
+    }
+    assert.equal(store.count(),3);
+    assert.equal(QA_FIXTURE_EFFECT_READINESS.productionIntegrated,false);
+    assert.equal(QA_FIXTURE_EFFECT_READINESS.automaticTicketRelease,false);
+    assert.equal(QA_FIXTURE_EFFECT_READINESS.autoRetryOnUnknownResult,false);
+  })}finally{f.close()}
+});
+test('draining account denies admission BEFORE any synthetic fixture effect runs',async()=>{
+  const f=setup();
+  try{await offline(async()=>{
+    const store=qaFixtureEffectStore(f);
+    await f.client('admin').request('drain',{uid:'qa-freeze-alice'});
+    let applied=0;
+    await expectDenied(runQaTicketedFixtureEffect({
+      client:f.client('avatar'),role:'avatar',route:'avatar.upload',
+      scope:{ownerUid:'qa-freeze-alice'},
+      fixtureStore:{applyFixture:async()=>{applied++;return {status:'qa_fixture_applied'};}}
+    }));
+    assert.equal(applied,0);
+    assert.equal(store.count(),0);
+    assert.equal((await f.pending()).length,0);
+    await f.client('admin').request('finalize',{uid:'qa-freeze-alice'});
+  })}finally{f.close()}
+});
+test('late uncertainty after persisted fake write survives restart and blocks freeze',async()=>{
+  const f=setup();
+  try{await offline(async()=>{
+    const store=qaFixtureEffectStore(f);
+    await assert.rejects(runQaTicketedFixtureEffect({
+      client:f.client('avatar'),role:'avatar',route:'avatar.upload',
+      scope:{ownerUid:'qa-freeze-alice'},
+      fixtureStore:{applyFixture:async input=>{
+        await store.applyFixture(input);
+        throw Error('qa_synthetic_timeout_after_commit');
+      }}
+    }),/qa_synthetic_timeout_after_commit/);
+    const before=await f.pending();
+    assert.equal(before.length,1);
+    const id=before[0].operation_id;
+    assert.ok(store.get(id));
+    await f.client('admin').request('drain',{uid:'qa-freeze-alice'});
+    await expectDenied(f.client('admin').request('finalize',{uid:'qa-freeze-alice'}));
+    f.resetDb(); // fresh SQLite connection to the same private fixture D1 file
+    assert.equal((await f.pending()).length,1);
+    assert.ok(store.get(id)); // persisted effect, not replayed on restart
+    assert.equal(store.count(),1);
+    await reconcileQaTicketedFixtureEffect({
+      reconciler:f.client('reconciler'),operationId:id,
+      independentReadback:async x=>store.get(x)?.route==='avatar.upload'
+    });
+    await f.client('admin').request('finalize',{uid:'qa-freeze-alice'});
+    assert.equal((await f.pending()).length,0);
+    assert.equal(store.count(),1);
+  })}finally{f.close()}
+});
+test('failed fixture write has a pending ticket but no false successful effect',async()=>{
+  const f=setup();
+  try{await offline(async()=>{
+    const store=qaFixtureEffectStore(f);
+    await assert.rejects(runQaTicketedFixtureEffect({
+      client:f.client('guardian'),role:'guardian',route:'guardian.scan',
+      scope:{ownerUid:'qa-freeze-bob'},
+      fixtureStore:{applyFixture:async()=>{throw Error('qa_simulated_write_failed');}}
+    }),/qa_simulated_write_failed/);
+    assert.equal(store.count(),0);
+    assert.equal((await f.pending()).length,1);
+    const id=(await f.pending())[0].operation_id;
+    await assert.rejects(reconcileQaTicketedFixtureEffect({
+      reconciler:f.client('reconciler'),operationId:id,
+      independentReadback:async()=>false
+    }),/qa_fixture_readback_unverified/);
+    await f.client('admin').request('drain',{uid:'qa-freeze-bob'});
+    await expectDenied(f.client('admin').request('finalize',{uid:'qa-freeze-bob'}));
+    assert.equal((await f.pending()).length,1);
+  })}finally{f.close()}
+});
+test('unverified readback or wrong HMAC role cannot close a synthetic effect ticket',async()=>{
+  const f=setup();
+  try{await offline(async()=>{
+    const store=qaFixtureEffectStore(f);
+    const ticket=await runQaTicketedFixtureEffect({
+      client:f.client('avatar'),role:'avatar',route:'avatar.delete',
+      scope:{ownerUid:'qa-freeze-alice'},fixtureStore:store
+    });
+    await assert.rejects(reconcileQaTicketedFixtureEffect({
+      reconciler:f.client('reconciler'),operationId:ticket.operationId,
+      independentReadback:async()=>undefined
+    }),/qa_fixture_readback_unverified/);
+    await expectDenied(reconcileQaTicketedFixtureEffect({
+      reconciler:f.client('avatar'),operationId:ticket.operationId,
+      independentReadback:async()=>true
+    }));
+    assert.equal((await f.pending()).length,1);
+    await reconcileQaTicketedFixtureEffect({
+      reconciler:f.client('reconciler'),operationId:ticket.operationId,
+      independentReadback:async id=>store.get(id)?.kind==='avatar_remove'
+    });
+    assert.equal((await f.pending()).length,0);
+  })}finally{f.close()}
+});
+test('forged scope and unavailable Service Binding cannot execute fake effects',async()=>{
+  const f=setup();
+  try{await offline(async()=>{
+    let effects=0;
+    const fixtureStore={applyFixture:async()=>{
+      effects++;return {status:'qa_fixture_applied'};
+    }};
+    await assert.rejects(runQaTicketedFixtureEffect({
+      client:f.client('avatar'),role:'avatar',route:'avatar.upload',
+      scope:{ownerUid:'real-customer-uid'},fixtureStore
+    }),/qa_fixture_effect_denied/);
+    await assert.rejects(runQaTicketedFixtureEffect({
+      client:f.client('push'),role:'push',route:'avatar.upload',
+      scope:{ownerUid:'qa-freeze-alice'},fixtureStore
+    }),/qa_fixture_effect_denied/);
+    delete f.stageEnv.STAGE_FREEZE_DB;
+    await expectDenied(runQaTicketedFixtureEffect({
+      client:f.client('avatar'),role:'avatar',route:'avatar.upload',
+      scope:{ownerUid:'qa-freeze-alice'},fixtureStore
+    }));
+    assert.equal(effects,0);
+    f.resetDb(); // inspect persistence through a fresh QA D1 connection
+    assert.equal(await f.nonces(),0);
+  })}finally{f.close()}
+});
+test('two-account push ticket prevents premature freeze of the recipient',async()=>{
+  const f=setup();
+  try{await offline(async()=>{
+    const store=qaFixtureEffectStore(f);
+    const ticket=await runQaTicketedFixtureEffect({
+      client:f.client('push'),role:'push',route:'push.event.fcm',
+      scope:{actorUid:'qa-freeze-alice',recipientUid:'qa-freeze-bob'},
+      fixtureStore:store
+    });
+    assert.equal((await f.pending()).length,2);
+    await f.client('admin').request('drain',{uid:'qa-freeze-bob'});
+    await expectDenied(f.client('admin').request('finalize',{uid:'qa-freeze-bob'}));
+    await reconcileQaTicketedFixtureEffect({
+      reconciler:f.client('reconciler'),operationId:ticket.operationId,
+      independentReadback:async id=>store.get(id)?.role==='push'
+    });
+    await f.client('admin').request('finalize',{uid:'qa-freeze-bob'});
+    assert.equal((await f.pending()).length,0);
+    assert.equal((await f.client('admin').request('status',{
+      uid:'qa-freeze-alice'})).state,'active');
   })}finally{f.close()}
 });
