@@ -290,10 +290,12 @@ try{
     const result=await resumedExecutor.run({uid:ALICE,caseId:CASE});
     assert.equal(result.state,'isolated_qa_deletion_reconciled');
     assert.equal((await resumedLedger.status({uid:ALICE,caseId:CASE})).epoch,2);
-    assert.deepEqual(ledger,CONTROLLED_DELETION_PHASES);
-    assert.deepEqual((await journal.status({uid:ALICE,caseId:CASE})).completed,
+    // The original audit array belonged to the interrupted process.
+    // Only the REOPENED durable journal is the source of phase truth.
+    assert.deepEqual(ledger,CONTROLLED_DELETION_PHASES.slice(0,5));
+    assert.deepEqual((await resumedLedger.status({uid:ALICE,caseId:CASE})).completed,
       CONTROLLED_DELETION_PHASES);
-    assert.equal((await journal.status({uid:ALICE,caseId:CASE})).state,'complete');
+    assert.equal((await resumedLedger.status({uid:ALICE,caseId:CASE})).state,'complete');
     assert.equal(await authExists(ALICE),false);
     assert.equal(await authExists(BOB),true);
     assert.deepEqual(await readAll(aliceOwned),aliceOwned.map(()=>false));
