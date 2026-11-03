@@ -73,13 +73,13 @@ jobs:
           test -z "${GOOGLE_CREDENTIALS:-}"
           test -z "${GCLOUD_PROJECT:-}"
           terraform fmt -check -diff -no-color
-          terraform init -backend=false -input=false -no-color
+          test -f .terraform.lock.hcl
+          grep -q 'version     = "7.46.2"' .terraform.lock.hcl
+          terraform init -backend=false -input=false -lockfile=readonly -no-color
           terraform validate -no-color
-          test ! -d .terraform/terraform.tfstate
-          echo 'ATRIO_TERRAFORM_LOCK_BEGIN'
-          base64 -w 512 .terraform.lock.hcl
-          echo 'ATRIO_TERRAFORM_LOCK_END'
-          echo 'Terraform apenas validado: não houve plan/apply nem chamada a recursos reais.'
+          test ! -e terraform.tfstate
+          test ! -e terraform.tfstate.backup
+          echo 'Terraform validado com provedor fixado, sem plan, apply ou credenciais.'
       - name: Construir imagem Docker apenas localmente, sem envio
         shell: bash
         run: |

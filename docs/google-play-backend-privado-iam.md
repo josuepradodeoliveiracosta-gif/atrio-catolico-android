@@ -194,3 +194,15 @@ atributos do provedor — **não** consulta permissões IAM reais, não
 cria recursos no projeto e não valida a conectividade de Cloud Run.
 O lock de provedor gerado deve ser versionado após revisão para impedir
 mudanças silenciosas de versão entre builds.
+
+
+### Provedor Terraform fixado após validação offline
+
+O runner da CI instalou o provedor Google **7.46.2** e concluiu
+`terraform fmt -check`, `terraform init -backend=false` e
+`terraform validate` com sucesso. O arquivo
+`ops/cloud-run-private-review/infra/.terraform.lock.hcl` agora
+registra a versão escolhida e as verificações de integridade do
+provedor; a CI passou a exigir `-lockfile=readonly`, impedindo
+atualizações silenciosas. Isso valida **código de infraestrutura**,
+não concede nem confirma permissões IAM no projeto real.
