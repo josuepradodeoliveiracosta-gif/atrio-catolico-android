@@ -1,6 +1,6 @@
 /**
  * QA INTEGRATION — real Firebase Admin SDK calls against local Auth and
- * Firestore emulators; Cloudinary, D1 and FCM remain in-memory doubles.
+ * Firestore emulators; avatar D1 uses in-memory SQLite, while Cloudinary\n * and FCM remain in-memory provider doubles.
  * No production endpoint, secret or project is supported. This is NOT
  * homologation of live users, legal retention or deployed Worker fencing.
  */
@@ -9,6 +9,9 @@ import assert from 'node:assert/strict';
 import {initializeApp,deleteApp} from 'firebase-admin/app';
 import {getAuth} from 'firebase-admin/auth';
 import {getFirestore} from 'firebase-admin/firestore';
+import {DatabaseSync} from 'node:sqlite';
+import {scrubQaAvatarD1}
+  from '../../../cloudflare/account-deletion-processor/src/qa-avatar-d1-cleanup.js';
 import {
   createControlledQaDeletionExecutor,CONTROLLED_DELETION_PHASES
 } from '../../../cloudflare/account-deletion-processor/src/controlled-executor.js';
@@ -16,6 +19,8 @@ import {
 const PROJECT='demo-atrio-v11';
 const ALICE='qa-delete-candidate',BOB='qa-delete-neighbor';
 const CASE='fa00bbaa-4a09-4fd2-b399-001122334455';
+const ALICE_AVATAR='atrio-avatares/'+ALICE+'/123e4567-e89b-42d3-a456-426614174001';
+const BOB_AVATAR='atrio-avatares/'+BOB+'/123e4567-e89b-42d3-a456-426614174002';
 function guard(){
   if(process.env.GCLOUD_PROJECT!==PROJECT ||
      process.env.FIRESTORE_EMULATOR_HOST!=='127.0.0.1:8089' ||
@@ -31,6 +36,7 @@ function guard(){
 guard();
 const account=initializeApp({projectId:PROJECT},'controlled-e2e-only');
 const auth=getAuth(account),db=getFirestore(account);
+let avatarDb=null;
 const aliceOwned=[
   'users/'+ALICE+'/pushDevices/device-a',
   'users/'+ALICE+'/notifications/notice-a',
@@ -76,7 +82,23 @@ try{
     await set('posts/post-neighbor',{uid:BOB,title:'Preservar'});
     await set('users/'+BOB+'/notifications/neighbor-own',{actorUid:BOB});
 
-    const ledger=[],effects=[],media=new Set(['cloudinary-alice','d1-alice']);
+    avatarDb=new DatabaseSync(':memory:');
+    avatarDb.exec([
+      'CREATE TABLE avatar_pending(uid TEXT PRIMARY KEY NOT NULL,public_id TEXT NOT NULL UNIQUE,created_at INTEGER NOT NULL)',
+      'CREATE TABLE avatar_rate(uid TEXT PRIMARY KEY NOT NULL,next_at INTEGER NOT NULL)',
+      'CREATE TABLE avatar_mutex(uid TEXT PRIMARY KEY NOT NULL,nonce TEXT NOT NULL,expires_at INTEGER NOT NULL)',
+      'CREATE TABLE avatar_moderation(id INTEGER PRIMARY KEY AUTOINCREMENT,actor_uid TEXT NOT NULL,target_uid TEXT NOT NULL,reason TEXT NOT NULL,created_at INTEGER NOT NULL)'
+    ].join(';')+';');
+    for(const [uid,id] of [[ALICE,ALICE_AVATAR],[BOB,BOB_AVATAR]]){
+      avatarDb.prepare('INSERT INTO avatar_pending VALUES (?,?,?)').run(uid,id,100);
+      avatarDb.prepare('INSERT INTO avatar_rate VALUES (?,?)').run(uid,200);
+    }
+    const avatarAbsent=()=>['avatar_pending','avatar_rate','avatar_mutex']
+      .every(table=>avatarDb.prepare('SELECT COUNT(*) AS n FROM '+table+' WHERE uid=?')
+        .get(ALICE).n===0) &&
+      avatarDb.prepare('SELECT COUNT(*) AS n FROM avatar_moderation WHERE actor_uid=? OR target_uid=?')
+        .get(ALICE,ALICE).n===0;
+    const ledger=[],effects=[],avatarCloudinary=new Set([ALICE_AVATAR,BOB_AVATAR]);
     const fcm=new Set(['token-alice']);
     const ctxCheck=x=>{
       guard();
@@ -153,8 +175,22 @@ try{
         }
       },
       media:{
-        async purge(x){ctxCheck(x);media.clear();effects.push('media-stub');},
-        async empty(x){ctxCheck(x);return media.size===0;}
+        async purge(x){
+          ctxCheck(x);
+          avatarCloudinary.delete(ALICE_AVATAR); // synthetic Cloudinary effect
+          await scrubQaAvatarD1({
+            db:avatarDb,uid:ALICE,
+            assertAuthorized:async()=>backend.approvals.confirm(x),
+            assertFrozen:async()=>backend.freeze.verify(x),
+            verifyCloudinaryGone:async(uid,id)=>
+              uid===ALICE && id===ALICE_AVATAR && !avatarCloudinary.has(id)
+          });
+          effects.push('media-d1-sqlite');
+        },
+        async empty(x){
+          ctxCheck(x);
+          return avatarAbsent() && !avatarCloudinary.has(ALICE_AVATAR);
+        }
       },
       fcm:{
         async revoke(x){ctxCheck(x);fcm.clear();effects.push('fcm-stub');},
@@ -165,7 +201,9 @@ try{
           ctxCheck(x);
           // Independent final verification before the real Emulator SDK call.
           assert.deepEqual(await readAll(aliceOwned),aliceOwned.map(()=>false));
-          assert.equal(media.size,0);assert.equal(fcm.size,0);
+          assert.equal(avatarAbsent(),true);
+          assert.equal(avatarCloudinary.has(ALICE_AVATAR),false);
+          assert.equal(fcm.size,0);
           effects.push('auth-sdk');
           await auth.deleteUser(ALICE);
         },
@@ -183,8 +221,14 @@ try{
     assert.deepEqual(await readAll(aliceOwned),aliceOwned.map(()=>false));
     assert.deepEqual(await readAll(bobUntouched),bobUntouched.map(()=>true));
     assert.equal(await exists('account_deletion_freeze/'+ALICE),true);
+    assert.equal(avatarAbsent(),true);
+    assert.equal(avatarCloudinary.has(BOB_AVATAR),true);
+    assert.equal(avatarDb.prepare('SELECT COUNT(*) AS n FROM avatar_pending WHERE uid=?')
+      .get(BOB).n,1);
+    assert.equal(avatarDb.prepare('SELECT COUNT(*) AS n FROM avatar_rate WHERE uid=?')
+      .get(BOB).n,1);
     assert.ok(effects.indexOf('auth-sdk')>effects.indexOf('firestore'));
-    assert.ok(effects.indexOf('auth-sdk')>effects.indexOf('media-stub'));
+    assert.ok(effects.indexOf('auth-sdk')>effects.indexOf('media-d1-sqlite'));
     assert.ok(effects.indexOf('auth-sdk')>effects.indexOf('fcm-stub'));
     assert.equal((await executor.run({uid:ALICE,caseId:CASE})).completed,7);
     assert.equal(effects.filter(x=>x==='auth-sdk').length,1);
@@ -201,4 +245,4 @@ try{
   // Node test() runs asynchronously after registration: cleanup belongs to
   // test.after(), not a surrounding synchronous finally block.
 }
-test.after(async()=>{await deleteApp(account);});
+test.after(async()=>{avatarDb?.close();await deleteApp(account);});

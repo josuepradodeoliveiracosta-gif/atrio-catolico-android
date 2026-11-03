@@ -12,7 +12,8 @@ import {DatabaseSync} from 'node:sqlite';
 import {validAvatarPublicId}
   from '../../account-deletion-audit/src/avatar-media-inventory.js';
 
-const PROJECT='demo-atrio-v11', UID='qa-delete-alice';
+const PROJECT='demo-atrio-v11';
+const ALLOWED_UIDS=new Set(['qa-delete-alice','qa-delete-candidate']);
 const SCHEMA=Object.freeze({
   avatar_pending:'uid,public_id,created_at',
   avatar_rate:'uid,next_at',
@@ -58,18 +59,18 @@ function count(db,sql,uid){
   if(!row||!Number.isSafeInteger(row.n)||row.n<0)deny('untrusted_count');
   return row.n;
 }
-function residual(db){
-  return count(db,'SELECT COUNT(*) AS n FROM avatar_pending WHERE uid=?',UID)+
-    count(db,'SELECT COUNT(*) AS n FROM avatar_rate WHERE uid=?',UID)+
-    count(db,'SELECT COUNT(*) AS n FROM avatar_mutex WHERE uid=?',UID)+
-    count(db,'SELECT COUNT(*) AS n FROM avatar_moderation WHERE actor_uid=?',UID)+
-    count(db,'SELECT COUNT(*) AS n FROM avatar_moderation WHERE target_uid=?',UID);
+function residual(db,uid){
+  return count(db,'SELECT COUNT(*) AS n FROM avatar_pending WHERE uid=?',uid)+
+    count(db,'SELECT COUNT(*) AS n FROM avatar_rate WHERE uid=?',uid)+
+    count(db,'SELECT COUNT(*) AS n FROM avatar_mutex WHERE uid=?',uid)+
+    count(db,'SELECT COUNT(*) AS n FROM avatar_moderation WHERE actor_uid=?',uid)+
+    count(db,'SELECT COUNT(*) AS n FROM avatar_moderation WHERE target_uid=?',uid);
 }
 export async function scrubQaAvatarD1({
   db,uid,assertAuthorized,assertFrozen,verifyCloudinaryGone
 }={}){
   environment();
-  if(uid!==UID)deny('non_fixture_uid');
+  if(!ALLOWED_UIDS.has(uid))deny('non_fixture_uid');
   if(typeof assertAuthorized!=='function'||typeof assertFrozen!=='function'||
      typeof verifyCloudinaryGone!=='function')deny('missing_safety_probes');
   localDb(db);
@@ -84,14 +85,14 @@ export async function scrubQaAvatarD1({
   await ready();
   // Neither an in-flight mutex nor evidence concerning third parties may be
   // silently erased or interpreted as a completed deletion.
-  if(count(db,'SELECT COUNT(*) AS n FROM avatar_mutex WHERE uid=?',UID)!==0)
+  if(count(db,'SELECT COUNT(*) AS n FROM avatar_mutex WHERE uid=?',uid)!==0)
     deny('avatar_operation_inflight');
-  if(count(db,'SELECT COUNT(*) AS n FROM avatar_moderation WHERE actor_uid=?',UID)+
-     count(db,'SELECT COUNT(*) AS n FROM avatar_moderation WHERE target_uid=?',UID)>0)
+  if(count(db,'SELECT COUNT(*) AS n FROM avatar_moderation WHERE actor_uid=?',uid)+
+     count(db,'SELECT COUNT(*) AS n FROM avatar_moderation WHERE target_uid=?',uid)>0)
     deny('moderation_retention_unresolved');
   const pending=db.prepare(
     'SELECT public_id FROM avatar_pending WHERE uid=?'
-  ).all(UID);
+  ).all(uid);
   if(pending.length>1)deny('unexpected_pending_cardinality');
   if(pending.length){
     const id=pending[0].public_id;
@@ -104,14 +105,14 @@ export async function scrubQaAvatarD1({
     // Cloudinary proof for a different public_id.
     const removed=db.prepare(
       'DELETE FROM avatar_pending WHERE uid=? AND public_id=?'
-    ).run(UID,id);
+    ).run(uid,id);
     if(removed.changes!==1)deny('pending_changed_during_cleanup');
     await ready();
   }
   await ready();
-  db.prepare('DELETE FROM avatar_rate WHERE uid=?').run(UID);
+  db.prepare('DELETE FROM avatar_rate WHERE uid=?').run(uid);
   await ready();
-  if(residual(db)!==0)deny('residual_or_raced_d1_records');
+  if(residual(db,uid)!==0)deny('residual_or_raced_d1_records');
   return Object.freeze({
     status:'qa_in_memory_avatar_d1_cleaned',
     productionReady:false,cloudinaryLiveDeletionVerified:false,
