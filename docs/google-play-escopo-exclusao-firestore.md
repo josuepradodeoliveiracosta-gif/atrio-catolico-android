@@ -133,3 +133,31 @@ que o esquema dos bancos D1 implantados corresponda ao código, não
 decide prazo de retenção, não habilita exclusões e não autoriza Play.
 A eventual migração de um banco real requer inventário operacional
 independente, revisão jurídica e procedimento seguro.
+
+
+## Metadados D1 efetivamente implantados — inspeção somente-leitura (03/11/2026)
+
+A conexão Cloudflare autorizada foi consultada **somente sobre o
+`sqlite_master`** (nome e DDL das tabelas, sem linhas de usuários)
+nos bancos `atrio-avatar-control` e `atrio-push-delivery`.
+As quatro tabelas de Avatar e três de Push têm as definições
+esperadas pelo repositório; em ambos existe adicionalmente a tabela
+interna da plataforma `_cf_KV`, que não é dado do aplicativo.
+Nenhuma escrita/alteração foi realizada ou solicitada.
+
+O validador `qa-live-d1-schema-review.js` agora compara um extrato
+**privado, somente estrutural** dessas duas fontes com o contrato
+versionado de colunas, tipos e chaves. O comando offline é:
+`node cloudflare/account-deletion-audit/src/qa-live-d1-schema-review.js --schema-only /caminho/privado/estruturas.json`
+onde o JSON contém exatamente `{"avatar":[{"name":"...","sql":"CREATE TABLE ..."}],"push":[...]}`.
+Não incluir credenciais, linhas reais, e-mails ou tokens no arquivo,
+GitHub ou log. A operação de consulta à Cloudflare é uma operação
+READ-ONLY de metadados; a CLI não acessa a rede.
+
+Esta constatação **não** comprova a identidade de quem extraiu o
+JSON, integridade assinada, política de retenção, apagamento real de
+linhas, Cloudinary/Auth nem operação de congelamento. O validador
+retorna explicitamente `sourceAuthenticityVerified:false`,
+`retentionLegallyApproved:false` e `playReleaseAuthorized:false`.
+Os testes Node executam apenas SQL simulado a partir dos arquivos
+do projeto e rejeitam qualquer coluna/tabela não declarada.
