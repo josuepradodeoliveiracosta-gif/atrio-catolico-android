@@ -114,7 +114,6 @@ test('Terraform private Cloud Run contract has no anonymous Invoker, public ingr
   for(const statement of [
     'INGRESS_TRAFFIC_INTERNAL_ONLY',
     'invoker_iam_disabled = false',
-    'deletion_protection = true',
     'roles/datastore.viewer',
     'roles/firebaseauth.viewer',
     'roles/run.invoker',
@@ -123,6 +122,9 @@ test('Terraform private Cloud Run contract has no anonymous Invoker, public ingr
     'max_instance_count = 1',
     'prevent_destroy = true'
   ]) assert.ok(tf.includes(statement),statement);
+  assert.match(tf,/^\s*deletion_protection\s*=\s*true\s*$/m);
+  assert.match(tf,/^\s*invoker_iam_disabled\s*=\s*false\s*$/m);
+  assert.match(tf,/^\s*ingress\s*=\s*"INGRESS_TRAFFIC_INTERNAL_ONLY"\s*$/m);
   for(const forbidden of [
     'allUsers','allAuthenticatedUsers',
     'roles/datastore.user','roles/datastore.admin',
