@@ -12,6 +12,8 @@ import {createQaPrivilegedWriteBarrier}
   from '../../account-deletion-audit/src/qa-privileged-write-barrier.js';
 import {createQaDeletionCaseLedger,QA_DELETION_PHASES}
   from './deletion-case-ledger.js';
+import {runHostedCanary,validHostedCanary}
+  from './hosted-canary.js';
 import {
   STAGE_HOST,STAGE_ID,STAGE_ROLES,stageNonceOk,
   stageFixtureUid,strictStageKey
@@ -29,7 +31,8 @@ const OPERATIONS=Object.freeze({
   '/v1/close':'close',
   '/v1/status':'status',
   '/v1/case/open':'caseOpen','/v1/case/status':'caseStatus',
-  '/v1/case/attest':'caseAttest','/v1/case/advance':'caseAdvance'
+  '/v1/case/attest':'caseAttest','/v1/case/advance':'caseAdvance',
+  '/v1/canary':'canary'
 });
 const text=(status,code,extra={})=>new Response(JSON.stringify({status:code,...extra}),{
   status,headers:{'Content-Type':'application/json','Cache-Control':'no-store',
@@ -98,6 +101,12 @@ async function reserveNonce(db,nonce,moment){
     throw Error('stage_replayed_nonce');
 }
 function validateOperation(path,role,input){
+  if(path==='/v1/canary'){
+    if(!['avatar','guardian','push'].includes(role)||
+       !validHostedCanary(role,input))
+      throw Error('stage_canary_scope');
+    return input;
+  }
   if(path==='/v1/admit'){
     if(!Object.hasOwn(serviceKinds,role))
       throw Error('stage_role_scope');
@@ -192,6 +201,11 @@ export default {
       const data=validateOperation(url.pathname,role,obj);
       await reserveNonce(env.STAGE_FREEZE_DB,nonce,moment);
       const barrier=createQaPrivilegedWriteBarrier(env.STAGE_FREEZE_DB);
+      if(url.pathname==='/v1/canary'){
+        const proof=await runHostedCanary(env.STAGE_FREEZE_DB,role,data,moment);
+        return text(200,proof.status,{syntheticOnly:true,
+          productionReady:false,providerEffectsVerified:false});
+      }
       // Case routes reuse the same private HMAC + D1 nonce boundary.
       if(url.pathname.startsWith('/v1/case/')){
         const ledger=createQaDeletionCaseLedger(env.STAGE_FREEZE_DB);

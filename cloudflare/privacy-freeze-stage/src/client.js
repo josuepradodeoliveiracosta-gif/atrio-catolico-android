@@ -11,13 +11,20 @@ const routes=Object.freeze({
   admit:'/v1/admit',drain:'/v1/drain',
   finalize:'/v1/finalize',close:'/v1/close',status:'/v1/status',
   caseOpen:'/v1/case/open',caseStatus:'/v1/case/status',
-  caseAttest:'/v1/case/attest',caseAdvance:'/v1/case/advance'
+  caseAttest:'/v1/case/attest',caseAdvance:'/v1/case/advance',
+  canary:'/v1/canary'
 });
 const deny=()=>{throw Error('qa_stage_client_denied');};
 function validate(role,op,payload){
   if(!payload||typeof payload!=='object'||Array.isArray(payload))deny();
   const keys=Object.keys(payload).sort().join(',');
-  if(op==='admit'){
+  if(op==='canary'){
+    const expected=role==='avatar'?'qa-freeze-alice':
+      role==='guardian'?'qa-freeze-bob':
+      role==='push'?'qa-freeze-alice':null;
+    if(!expected||keys!=='runId,uid'||
+       payload.uid!==expected||payload.runId!=='qa-hosted-20261103-a')deny();
+  }else if(op==='admit'){
     if(!['avatar','guardian','push'].includes(role))deny();
     // Only two synthetic UIDs can be part of a broadcast QA admission.
     const broadcast=role==='push'&&keys==='actorUid,recipientUids';
@@ -85,7 +92,7 @@ export function createStageServiceClient({
       if(!(response instanceof Response)||!response.ok)deny();
       const result=await response.json();
       if(!result||typeof result.status!=='string'||
-         !/^stage_(admitted|draining|frozen|reconciled|status|case_open|case_status|case_attested|case_advanced)$/.test(result.status))
+         !/^stage_(admitted|draining|frozen|reconciled|status|case_open|case_status|case_attested|case_advanced|canary_completed)$/.test(result.status))
         deny();
       return result;
     }
