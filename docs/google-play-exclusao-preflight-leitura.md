@@ -60,3 +60,33 @@ Firestore falso e conferem escopos exatos, bloqueio de pedido inválido,
 perda de autorização, subcoleções inesperadas, falhas de consulta e
 ausência de quaisquer chamadas destrutivas. São incluídos na suíte Node
 Play já existente, sem novo workflow ou recompilação Android.
+
+
+## Verificação contínua de autorização e pedido imutável — 03/11/2026
+
+O diagnóstico administrativo de leitura agora invoca
+`assertAuthorizedRead` **antes e depois de cada requisição remota**,
+não apenas entre fases maiores de inventário. Se a autorização do
+operador for revogada durante uma varredura paginada ou durante uma
+resposta de rede, a rotina interrompe a leitura, não consulta a
+próxima página e não retorna um resumo obtido com a sessão revogada.
+
+Após consultar todas as fontes Firestore implementadas, a rotina
+também **relê o pedido original** e exige a mesma origem e data da
+solicitação observadas no início. Alteração de status, substituição
+administrativa do pedido ou erro de leitura bloqueia a conclusão
+do diagnóstico. A verificação não torna as leituras um snapshot
+transacional; outras coleções ainda podem mudar entre páginas.
+
+Os testes no workflow Play existente incluem perda de autorização
+entre as etapas de uma leitura, perda durante a leitura de subcoleções
+e substituição do pedido ao final. O resumo não carrega dados privados
+e continua declarando `operatorIdentityIndependentlyVerified:false`,
+`accountDeletionAuthorized:false` e
+`googlePlayReleaseAuthorized:false`.
+
+**Dependência externa:** `assertAuthorizedRead` continua sendo um
+callback de infraestrutura confiável; não é uma implementação de
+autenticação real de operador. Um backend privado com IAM mínimo,
+validação de sessão e registro auditável será necessário antes de
+consultar dados de produção. Nenhum deploy ou exclusão foi efetuado.

@@ -9,17 +9,22 @@ const doc='projects/atrio-catolico/databases/(default)/documents';
 const now=new Date('2026-11-03T18:00:00.000Z');
 const at='2026-11-03T15:00:00.000Z';
 
-function fakeFirestore({badRequest=false,extraCollection=false,failQuery=false}={}){
+function fakeFirestore({badRequest=false,extraCollection=false,
+  failQuery=false,requestChangedOnSecondRead=false}={}){
   const calls=[];
+  let requestReads=0;
   const fetcher=async(url,options={})=>{
     const address=String(url),method=options.method;
     calls.push({address,method});
     assert.equal(options.headers.Authorization,'Bearer '+oauthToken);
-    if(address===base+'/account_deletion_requests/'+uid&&method==='GET')
+    if(address===base+'/account_deletion_requests/'+uid&&method==='GET'){
+      requestReads++;
       return Response.json({name:doc+'/account_deletion_requests/'+uid,
         fields:{status:{stringValue:badRequest?'completed':'requested'},
           source:{stringValue:'android'},
-          requestedAt:{timestampValue:at}}});
+          requestedAt:{timestampValue:requestChangedOnSecondRead &&
+            requestReads===2?'2026-11-03T16:00:00.000Z':at}}});
+    }
     if(address===base+'/profiles/'+uid&&method==='GET')
       return Response.json({name:doc+'/profiles/'+uid});
     if(method==='GET'&&address.includes('?pageSize=100')){
@@ -64,7 +69,11 @@ test('composes genuine read-only Firestore adapter paths without enabling deleti
   assert.equal(result.firestoreRelationalReferences,1);
   assert.equal(result.relationalKinds.moderation_retention,1);
   assert.equal(result.queriedRelationalScopeCount,12);
-  assert.equal(result.authorizationRechecks,4);
+  // Four stage checks + one final consistency check, and per-RPC guards
+  // before and after every remote read.
+  assert.equal(result.authorizationRechecks,5+2*io.calls.length);
+  assert.equal(io.calls.filter(x=>x.address.includes(
+    '/account_deletion_requests/')).length,2);
   assert.ok(result.unresolvedScopes.includes('firebase_auth_and_fcm_registration'));
   for(const flag of ['transactionalSnapshotVerified','allAccountDataDiscovered',
     'thirdPartyRetentionReviewed','operatorIdentityIndependentlyVerified',
@@ -95,10 +104,32 @@ test('authorization loss after request blocks further private reads',async()=>{
   const io=fakeFirestore();
   let n=0;
   await assert.rejects(inspect({
-    ...io,assertAuthorizedRead:async()=>++n===1
+    ...io,assertAuthorizedRead:async()=>++n<3
   }),/operator_authorization_lost/);
+  // The request was sent but its response was not admitted after revocation.
   assert.equal(io.calls.length,1);
 });
+test('revocation during an owned tree scan prevents the next private read',async()=>{
+  const io=fakeFirestore({extraCollection:true});
+  let revoked=false;
+  const fetcher=async(...args)=>{
+    const response=await io.fetcher(...args);
+    if(io.calls.length===7)revoked=true;
+    return response;
+  };
+  await assert.rejects(inspect({
+    fetcher,assertAuthorizedRead:async()=>!revoked
+  }),/operator_authorization_lost/);
+  assert.equal(io.calls.length,7);
+});
+
+test('a replaced deletion request cannot be accepted after a long inventory',async()=>{
+  const io=fakeFirestore({requestChangedOnSecondRead:true});
+  await assert.rejects(inspect(io),/request_changed_during_scan/);
+  assert.equal(io.calls.filter(x=>x.address.includes(
+    '/account_deletion_requests/')).length,2);
+});
+
 test('invalid request or query failure cannot produce partial clearance',async()=>{
   for(const opts of [{badRequest:true},{failQuery:true}]){
     const io=fakeFirestore(opts);

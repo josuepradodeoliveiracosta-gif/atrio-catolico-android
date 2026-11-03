@@ -59,7 +59,12 @@ async function readRequest(uid,oauthToken,fetcher,now){
   if(!Number.isFinite(millis)||millis>now.getTime() ||
     millis<Date.parse('2020-01-01T00:00:00.000Z'))
     fail('request_timestamp_invalid');
-  return true; // Never return request content, UID or metadata.
+  // This identity is private to the preflight and never returned to clients.
+  // It permits a second request read to detect an administrative replacement
+  // while long, paginated inventories were in progress.
+  return Object.freeze({
+    source:data.fields.source.stringValue,requestedAt:at
+  });
 }
 
 /**
@@ -91,7 +96,7 @@ export async function inspectOperationalDeletionReadSources({
   };
   // This wrapper closes the transport to Firestore's reviewed read-only
   // endpoints, regardless of how the underlying fetcher is implemented.
-  const readTransport=(url,options)=>{
+  const readTransport=async(url,options)=>{
     const endpoint=String(url),method=options?.method;
     const relative=endpoint.startsWith(ROOT+'/')
       ?endpoint.slice(ROOT.length):null;
@@ -100,10 +105,16 @@ export async function inspectOperationalDeletionReadSources({
        (method==='POST' && relative.endsWith(':listCollectionIds')))) ||
       (endpoint===ROOT+':runQuery' && method==='POST');
     if(!allowed)fail('unexpected_firestore_endpoint');
-    return fetcher(url,options);
+    // A long paginated scan can outlive the operator's rights. Re-check
+    // BEFORE every Firestore operation and AFTER each network wait.
+    // Do not expose even a summary derived from a response after revocation.
+    await authorize();
+    const response=await fetcher(url,options);
+    await authorize();
+    return response;
   };
   await authorize();
-  await readRequest(uid,oauthToken,readTransport,now);
+  const firstRequest=await readRequest(uid,oauthToken,readTransport,now);
   await authorize();
   const owned=await inventoryOwnedDocuments(uid,
     createFirestoreReadAdapter(uid,oauthToken,readTransport));
@@ -114,6 +125,14 @@ export async function inspectOperationalDeletionReadSources({
     fail('owned_tree_not_exhaustively_scanned');
   const relational=await discoverRelationalCandidates(uid,
     createRelationalFirestoreReadAdapter(uid,oauthToken,readTransport));
+  await authorize();
+  // An operator could replace the request after the initial read. Require
+  // its source and timestamp to remain unchanged after every paginated scan.
+  // This is a consistency guard, NOT a distributed transactional snapshot.
+  const lastRequest=await readRequest(uid,oauthToken,readTransport,now);
+  if(lastRequest.source!==firstRequest.source ||
+     lastRequest.requestedAt!==firstRequest.requestedAt)
+    fail('request_changed_during_scan');
   await authorize();
   const cross=summarizeRelationalCandidates(relational);
   if(relational.safeToExecute!==false ||
