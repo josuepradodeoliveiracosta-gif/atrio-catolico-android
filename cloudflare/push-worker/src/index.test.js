@@ -178,11 +178,15 @@ test('fluxo completo autenticado, deduplicação e falha FCM sem credenciais rea
     'posts/p1':doc({uid:'dono'}),
     'posts/p1/replies/r1':doc({uid:'autor',createdAt:iso()}),
     'posts/p1/replies/r2':doc({uid:'autor',createdAt:iso()}),
+    'posts/p1/replies/r3':doc({uid:'autor',createdAt:iso()}),
     'users/dono/notifications/r1':doc({
       actorUid:'autor',postId:'p1',replyId:'r1',read:false,
     }),
     'users/dono/notifications/r2':doc({
       actorUid:'autor',postId:'p1',replyId:'r2',read:false,
+    }),
+    'users/dono/notifications/r3':doc({
+      actorUid:'autor',postId:'p1',replyId:'r3',read:false,
     }),
     'users/dono/pushDevices':{documents:[doc({token:'token-test-device-1234567890',updatedAt:iso()})]},
     'posts/p1/replies':{documents:[]},
@@ -190,6 +194,7 @@ test('fluxo completo autenticado, deduplicação e falha FCM sem credenciais rea
   let sent=0;
   let fanouts=0;
   let failFCM=false;
+  let failFanout=false;
   globalThis.fetch=async (input,options={})=>{
     const url=String(input);
     if(url.startsWith('https://identitytoolkit.googleapis.com/')) {
@@ -207,6 +212,7 @@ test('fluxo completo autenticado, deduplicação e falha FCM sem credenciais rea
         assert.equal(payload.writes.length,1);
         assert.equal(payload.writes[0].currentDocument.exists,false);
         fanouts++;
+        if(failFanout)return new Response('{}',{status:503});
         return new Response(JSON.stringify({status:[{code:6}]}),{status:200});
       }
       const u=new URL(url);
@@ -255,6 +261,15 @@ test('fluxo completo autenticado, deduplicação e falha FCM sem credenciais rea
   assert.equal(failed.status,503);
   assert.deepEqual(await failed.json(),{status:'delivery_failed'});
   assert.equal(sent,2);
+
+  // Failure after identity resolution must not consume D1 marker or send FCM.
+  failFanout=true;
+  const blocked=await emit('r3');
+  assert.equal(blocked.status,503);
+  assert.deepEqual(await blocked.json(),{status:'fanout_failed'});
+  assert.equal(sent,2);
+  assert.equal(fanouts,3);
+  assert.equal(records.has('reply:p1:r3:dono'),false);
 });
 
 
@@ -648,6 +663,29 @@ test('Firestore fanout usa precondicao de criacao e somente participantes verifi
   assert.ok(writes[0].update.name.endsWith('/users/joao/notifications/r2'));
   assert.ok(writes[1].update.name.endsWith('/users/maria/notifications/r2'));
   assert.equal(writes[0].update.fields.read.booleanValue,false);
+});
+
+test('fanout Firestore rejects missing, partial and invalid per-write acknowledgements',async()=>{
+  const event={topic:'atrio_thread_p1',recipients:['joao','maria'],
+    notice:{postId:'p1',replyId:'r9',actorUid:'ana',
+      actorName:'Ana',createdAt:iso()}};
+  const invalid=[
+    {},{status:[]},{status:[{}]},{status:[{},null]},
+    {status:[{}, {code:7}]},{status:[{code:0},{code:3.5}]},
+    {status:'ok'}
+  ];
+  for(const payload of invalid){
+    globalThis.fetch=async(url,opts)=>{
+      assert.ok(String(url).endsWith('/documents:batchWrite'));
+      assert.equal(opts.method,'POST');
+      assert.equal(JSON.parse(opts.body).writes.length,2);
+      return Response.json(payload);
+    };
+    await assert.rejects(()=>writeThreadNotices('fake',event),
+      /thread_fanout_partial/);
+  }
+  globalThis.fetch=async()=>Response.json({status:[{}, {code:6}]});
+  await assert.doesNotReject(()=>writeThreadNotices('fake',event));
 });
 
 test('limite de participantes impede fanout incompleto ou silencioso',async()=>{

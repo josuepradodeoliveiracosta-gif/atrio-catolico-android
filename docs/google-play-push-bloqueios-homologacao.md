@@ -414,3 +414,28 @@ habilitado e nenhum requisito Play foi marcado como `verified:true`.
 
 Sem provisionamento, deploy, assinatura, merge, alteração da
 `main`, produção ou backups.
+
+
+## Falha de confirmação Firestore interrompe Push de respostas (03/11/2026)
+
+A rota `POST /event` do Worker Push da PR #71 deixou de continuar para
+FCM quando `posts/*/replies/*` exige distribuição de avisos internos e
+o `documents:batchWrite` falha. Antes, um erro de fanout era registrado,
+mas o fluxo seguia tentando entregar FCM, podendo enviar um alerta sem a
+notificação correspondente no aplicativo.
+
+Agora `writeThreadNotices` exige que o Firestore responda com **exatamente
+um status por gravação**. Respostas HTTP 200 truncadas, sem `status`,
+com erro por escrita ou estrutura inesperada falham de maneira conservadora;
+somente sucesso explícito e `ALREADY_EXISTS` (código 6, para a gravação
+idempotente) são aceitos. A rota retorna `503 fanout_failed` **antes**
+de buscar tokens, consumir o marcador de entrega D1 ou emitir FCM.
+
+A suíte existente de Push passou a cobrir respostas parciais/malformadas e
+um erro de `batchWrite` no fluxo autenticado com Firestore/FCM fictícios,
+confirmando zero FCM e zero marcador para esse evento. A correção não faz
+novas consultas, não habilita broadcast e não altera produção. Por ser
+`batchWrite` não atômico, gravações parciais podem continuar no Firestore;
+o retry usa `exists:false`, enquanto a reconciliação completa permanece
+pendente de homologação operacional e de barreira distribuída. Sem assinatura
+nem liberação Play.

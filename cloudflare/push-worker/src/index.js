@@ -232,7 +232,14 @@ export async function writeThreadNotices(token, event) {
   });
   if(!res.ok) throw Error('thread_fanout_unavailable');
   const result=await res.json();
-  if((result.status||[]).some(x=>x && x.code && x.code!==6))
+  // Firestore batchWrite has one status per attempted write. Missing,
+  // truncated or malformed 200 responses cannot authorize FCM delivery.
+  // Code 6 means ALREADY_EXISTS for the create-only idempotent notice.
+  if(!Array.isArray(result?.status) ||
+    result.status.length!==writes.length ||
+    result.status.some(x=>!x||typeof x!=='object'||
+      Array.isArray(x)||!Number.isInteger(x.code??0)||
+      ![0,6].includes(x.code??0)))
     throw Error('thread_fanout_partial');
 }
 
@@ -830,12 +837,14 @@ export default {
         ? await blockSafeThreadRecipients(token,uid,event.recipients)
         : await filterNonReplyRecipientsForDeletion(token,uid,event.recipients);
       const safeEvent={...event,recipients};
-      let fanoutOk=true;
       if(event.topic) {
         try { await writeThreadNotices(token,safeEvent); }
         catch {
-          fanoutOk=false;
+          // Never send FCM if in-app notices were not fully acknowledged.
+          // This also prevents consuming a delivery marker after a partial
+          // Firestore response. A retry can safely use exists:false.
           await auditDelivery(env,'thread','fanout_failed');
+          return response(503,'fanout_failed');
         }
       }
       // Events expire after five minutes; keep delivery markers for one day.
@@ -882,8 +891,7 @@ export default {
         : accepted ? 'accepted_by_fcm' : 'no_devices_or_duplicate';
       await auditDelivery(env,event.kind,outcome,attempted,accepted,failedHttp);
       if(cleaned) await auditDelivery(env,'cleanup','unregistered_removed',cleaned,0,404);
-      return response(outcome==='delivery_failed'||!fanoutOk ? 503 : 202,
-        !fanoutOk ? 'fanout_failed' : outcome);
+      return response(outcome==='delivery_failed' ? 503 : 202,outcome);
     } catch {
       // Não registrar ID tokens, chaves, UID, FCM tokens nem payloads em logs.
       return response(503,'unavailable');
