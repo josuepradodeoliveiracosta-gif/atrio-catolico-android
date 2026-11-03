@@ -107,16 +107,29 @@ export function createPrivateReviewHttpHandler({reader}={}){
     if(inFlight)
       return send(res,429,{error:'temporarily_unavailable'});
     inFlight=true;
+    const controller=new AbortController();
+    const close=()=>{
+      if(!res.writableEnded)controller.abort();
+    };
+    const aborted=()=>controller.abort();
+    req.once('aborted',aborted);
+    res.once('close',close);
     try{
       const body=await parseRequest(req);
-      const report=await reader.inspect(body);
+      if(controller.signal.aborted)invalid('request_cancelled');
+      const report=await reader.inspect(body,{signal:controller.signal});
+      if(controller.signal.aborted)invalid('request_cancelled');
       const safe=boundedReport(report);
-      return send(res,200,safe);
+      if(!res.destroyed)return send(res,200,safe);
     }catch{
       // Never include exception messages, Firestore paths, UIDs, tokens,
       // reports or retry details in client output.
-      if(!res.headersSent)
+      if(!res.headersSent && !res.destroyed)
         return send(res,403,{error:'review_unavailable'});
-    }finally{inFlight=false;}
+    }finally{
+      req.off('aborted',aborted);
+      res.off('close',close);
+      inFlight=false;
+    }
   };
 }

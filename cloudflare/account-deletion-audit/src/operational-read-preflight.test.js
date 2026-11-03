@@ -55,9 +55,11 @@ function fakeFirestore({badRequest=false,extraCollection=false,
   };
   return {fetcher,calls};
 }
-async function inspect({fetcher,assertAuthorizedRead=async()=>true}={}){
+async function inspect({
+  fetcher,assertAuthorizedRead=async()=>true,signal,maxReads
+}={}){
   return inspectOperationalDeletionReadSources({
-    uid,oauthToken,fetcher,assertAuthorizedRead,now
+    uid,oauthToken,fetcher,assertAuthorizedRead,now,signal,maxReads
   });
 }
 test('composes genuine read-only Firestore adapter paths without enabling deletion',async()=>{
@@ -155,4 +157,37 @@ test('rejects wrong project, missing operator, invalid identity and token',async
       assertAuthorizedRead:async()=>true,now}),
     /invalid_backend_token/);
   assert.equal(io.calls.length,0);
+});
+
+
+test('cancelled account inventory does not read another document or emit a report',async()=>{
+  const io=fakeFirestore(),controller=new AbortController();
+  const fetcher=async(...args)=>{
+    const response=await io.fetcher(...args);
+    controller.abort('qa-client-closed');
+    return response;
+  };
+  await assert.rejects(inspect({fetcher,signal:controller.signal}),
+    /operational_read_preflight_read_cancelled/);
+  assert.equal(io.calls.length,1);
+});
+
+test('the read budget prevents paginated inventory growth before network I/O',async()=>{
+  const io=fakeFirestore();
+  await assert.rejects(inspect({...io,maxReads:1}),
+    /operational_read_preflight_read_budget_exceeded/);
+  assert.equal(io.calls.length,1);
+  await assert.rejects(inspect({...io,maxReads:321}),
+    /operational_read_preflight_invalid_read_budget/);
+  assert.equal(io.calls.length,1);
+});
+
+test('each Firestore RPC receives a bounded cancellation signal',async()=>{
+  const io=fakeFirestore();
+  const fetcher=async(url,options)=>{
+    assert.equal(options.signal instanceof AbortSignal,true);
+    return io.fetcher(url,options);
+  };
+  const result=await inspect({fetcher});
+  assert.equal(result.accountDeletionAuthorized,false);
 });

@@ -133,3 +133,28 @@ Fontes oficiais:
 - https://docs.cloud.google.com/run/docs/securing/ingress
 - https://firebase.google.com/docs/auth/admin/manage-sessions
 - https://firebase.google.com/docs/admin/setup
+
+
+## Limites de custo e interrupção de consultas — 03/11/2026
+
+A infraestrutura privada agora possui orçamento de **45 segundos por
+diagnóstico**, **8 segundos por chamada de rede Firestore** e **até 320
+leituras REST** por solicitação. O transporte continua limitado a
+consultas Firestore permitidas. Quando o orçamento se esgota, a
+operação é interrompida sem relatório parcial, exclusão ou aprovação.
+O cliente HTTP também sinaliza o cancelamento da consulta se a
+conexão for encerrada antes da resposta.
+
+A verificação de identidade e as leituras são revalidadas antes e
+depois das chamadas remotas. Esse orçamento reduz o risco de
+varreduras ilimitadas e custos inesperados, mas **não garante o
+cancelamento imediato de uma chamada Firebase Admin já iniciada**;
+sua conclusão ainda deve ser tratada como não autorizada após o
+cancelamento. Em caso de fonte muito grande, a análise deve seguir um
+procedimento privado de paginação revisada, e não elevar
+automaticamente o limite nem ignorar documentos pendentes.
+
+A CI contém testes para interrupção após uma resposta, ausência de
+novas leituras, rejeição de mais de 320 chamadas, propagação do sinal
+de cancelamento e término de uma conexão HTTP abandonada. Nenhuma
+leitura real, deleção, deploy, assinatura ou alteração IAM foi feita.

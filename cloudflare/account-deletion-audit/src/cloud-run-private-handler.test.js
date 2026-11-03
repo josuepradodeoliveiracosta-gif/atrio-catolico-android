@@ -132,3 +132,30 @@ test('Terraform private Cloud Run contract has no anonymous Invoker, public ingr
     'INGRESS_TRAFFIC_ALL','invoker_iam_disabled = true'
   ])assert.ok(!tf.includes(forbidden),forbidden);
 });
+
+
+test('an abandoned HTTP client cancels the in-flight private review',async()=>{
+  let started;
+  const entered=new Promise(resolve=>{started=resolve;});
+  let cancelled=false;
+  await withServer({inspect(_body,{signal}){
+    return new Promise(resolve=>{
+      signal.addEventListener('abort',()=>{
+        cancelled=true;
+        resolve(sample);
+      },{once:true});
+      started();
+    });
+  }},async origin=>{
+    const controller=new AbortController();
+    const pending=request(origin,{uid:'qa-alice',idToken:seed},{
+      signal:controller.signal
+    }).catch(()=>null);
+    await entered;
+    controller.abort();
+    await pending;
+    // Wait only for the direct HTTP close event (no long polling).
+    await new Promise(resolve=>setImmediate(resolve));
+  });
+  assert.equal(cancelled,true);
+});

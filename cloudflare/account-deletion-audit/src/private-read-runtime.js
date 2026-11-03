@@ -92,7 +92,16 @@ export function createPrivateDeletionReadRuntime({
      typeof metadataFetch!=='function' ||
      typeof clock!=='function')fail('missing_backend_transport');
   return Object.freeze({
-    async inspect(request){
+    async inspect(request,{signal}={}){
+      if(signal!==undefined && !(signal instanceof AbortSignal))
+        fail('invalid_abort_signal');
+      const activeSignal=signal ?
+        AbortSignal.any([signal,AbortSignal.timeout(45000)]) :
+        AbortSignal.timeout(45000);
+      const active=()=>{
+        if(activeSignal.aborted)fail('read_cancelled');
+      };
+      active();
       if(!request || Object.getPrototypeOf(request)!==Object.prototype ||
          Object.keys(request).sort().join(',')!=='idToken,uid' ||
          !validUid(request.uid))
@@ -100,17 +109,23 @@ export function createPrivateDeletionReadRuntime({
       if(!allowedRuntime(env)||!tiedSdk(app,auth,db))
         fail('runtime_changed');
       await assertReaderIdentity(metadataFetch);
+      active();
       const authorize=createFounderDeletionReadGate({
         idToken:request.idToken,auth,db,clock
       });
       // Authenticate the founder *before* minting/accessing Google OAuth.
       if(await authorize()!==true)fail('founder_authorization_required');
+      active();
       const oauthToken=await readScopedToken(app);
+      active();
       const result=await inspectOperationalDeletionReadSources({
         uid:request.uid,oauthToken,fetcher:httpFetch,
-        now:new Date(clock()),assertAuthorizedRead:authorize
+        now:new Date(clock()),assertAuthorizedRead:authorize,
+        signal:activeSignal,maxReads:320
       });
+      active();
       if(await authorize()!==true)fail('founder_authorization_lost');
+      active();
       // Metadata identity does not prove IAM role bindings. Even when the
       // dry-run completes, the actual production IAM policy, other services,
       // retention and release remain unverified.

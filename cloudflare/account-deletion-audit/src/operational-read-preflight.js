@@ -78,7 +78,7 @@ async function readRequest(uid,oauthToken,fetcher,now){
  */
 export async function inspectOperationalDeletionReadSources({
   uid,oauthToken,projectId=PROJECT,fetcher=fetch,
-  assertAuthorizedRead,now=new Date()
+  assertAuthorizedRead,now=new Date(),signal,maxReads=320
 }={}){
   if(projectId!==PROJECT)fail('unexpected_project');
   if(!validUid(uid))fail('invalid_uid');
@@ -88,10 +88,24 @@ export async function inspectOperationalDeletionReadSources({
   if(typeof fetcher!=='function'||typeof assertAuthorizedRead!=='function'||
     !(now instanceof Date)||!Number.isFinite(now.getTime()))
     fail('missing_trusted_backend');
-  let checks=0;
+  if(signal!==undefined && !(signal instanceof AbortSignal))
+    fail('invalid_abort_signal');
+  if(!Number.isInteger(maxReads)||maxReads<1||maxReads>320)
+    fail('invalid_read_budget');
+  // Never use a caller-provided value to increase the maximum. All reads
+  // share a hard deadline, including callers outside the Cloud Run handler.
+  const activeSignal=signal ?
+    AbortSignal.any([signal,AbortSignal.timeout(45000)]) :
+    AbortSignal.timeout(45000);
+  let checks=0,reads=0;
+  const active=()=>{
+    if(activeSignal.aborted)fail('read_cancelled');
+  };
   const authorize=async()=>{
+    active();
     if(await assertAuthorizedRead()!==true)
       fail('operator_authorization_lost');
+    active();
     checks++;
   };
   // This wrapper closes the transport to Firestore's reviewed read-only
@@ -105,12 +119,18 @@ export async function inspectOperationalDeletionReadSources({
        (method==='POST' && relative.endsWith(':listCollectionIds')))) ||
       (endpoint===ROOT+':runQuery' && method==='POST');
     if(!allowed)fail('unexpected_firestore_endpoint');
-    // A long paginated scan can outlive the operator's rights. Re-check
-    // BEFORE every Firestore operation and AFTER each network wait.
-    // Do not expose even a summary derived from a response after revocation.
+    active();
+    if(++reads>maxReads)fail('read_budget_exceeded');
+    // A bounded per-RPC timeout prevents a stalled Google request from
+    // consuming the entire Cloud Run request lifetime.
     await authorize();
-    const response=await fetcher(url,options);
+    const requestSignal=AbortSignal.any([
+      activeSignal,AbortSignal.timeout(8000)
+    ]);
+    const response=await fetcher(url,{...options,signal:requestSignal});
+    active();
     await authorize();
+    active();
     return response;
   };
   await authorize();
@@ -140,6 +160,7 @@ export async function inspectOperationalDeletionReadSources({
     cross.safeToExecute!==false)
     fail('untrusted_relational_summary');
   const unverified=[...new Set([...UNVERIFIED,...relational.unverifiedScopes])].sort();
+  active();
   // Counts only; no raw documents, report text, account identifier, OAuth
   // token, Cloudinary ID, D1 row, device token or review evidence is returned.
   return Object.freeze({

@@ -176,3 +176,33 @@ test('token provider failure or expiring OAuth fails closed',async()=>{
     assert.equal(f.state.firestore.length,0);
   }
 });
+
+
+test('an aborted private review cannot invoke metadata, Auth or OAuth',async()=>{
+  const f=fixture();
+  await assert.rejects(f.start().inspect(
+    {uid:target,idToken:bearer},{signal:AbortSignal.abort()}
+  ),/private_read_runtime_read_cancelled/);
+  assert.equal(f.state.metaCalls,0);
+  assert.equal(f.state.authChecks,0);
+  assert.equal(f.state.oauthCalls,0);
+  assert.equal(f.state.firestore.length,0);
+});
+
+test('client cancellation after the first RPC stops further IAM-backed reads',async()=>{
+  const f=fixture();
+  const controller=new AbortController();
+  const fetcher=async(...args)=>{
+    const result=await f.httpFetch(...args);
+    controller.abort();
+    return result;
+  };
+  const reader=createPrivateDeletionReadRuntime({
+    env:env(),app:f.app,auth:f.auth,db:f.db,
+    httpFetch:fetcher,metadataFetch:f.metadataFetch,clock:()=>instant
+  });
+  await assert.rejects(reader.inspect(
+    {uid:target,idToken:bearer},{signal:controller.signal}
+  ),/operational_read_preflight_read_cancelled|private_read_runtime_read_cancelled/);
+  assert.equal(f.state.firestore.length,1);
+});
