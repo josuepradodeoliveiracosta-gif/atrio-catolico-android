@@ -123,3 +123,17 @@ test('response byte size limit applies to UTF-8 not JS string length',async()=>{
   await assert.rejects(adapter.listPage('users/'+uid+'/notifications'),
     /firestore_response_too_large/);
 });
+
+test('Firestore REST adapter rejects empty or malformed nonterminal cursors',async()=>{
+  const address='users/'+uid+'/pushDevices';
+  for(const cursor of ['',false,0,'bad token','<>']) {
+    const adapter=createFirestoreReadAdapter(uid,token,async()=>json({
+      documents:[],nextPageToken:cursor
+    }));
+    await assert.rejects(adapter.listPage(address),/invalid_firestore_response/);
+  }
+  const legitimate=createFirestoreReadAdapter(uid,token,async()=>json({
+    documents:[],nextPageToken:'valid_opaque_cursor'
+  }));
+  assert.equal((await legitimate.listPage(address)).nextPageToken,'valid_opaque_cursor');
+});

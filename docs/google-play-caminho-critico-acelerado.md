@@ -291,3 +291,21 @@ de geração é defesa local; **não prova** entrega de FCM, exclusão
 efetiva de conta, serialização de serviços externos nem revogação
 completa de tokens no Google. Homologação em aparelhos e aprovação
 das evidências reais permanecem pendentes. Não houve deploy.
+
+
+## Inventário de exclusão: paginação explicitamente verificada — 02/11/2026
+
+A coleta somente-leitura em `cloudflare/account-deletion-audit` agora
+rejeita páginas que omitem o marcador `nextPageToken`, incluem campos
+desconhecidos, ou retornam um cursor falsy/malformado
+(`undefined`, `false`, `0`, string vazia). **Somente `null`
+explícito** encerra a paginação. O adaptador REST do Firestore
+também rejeita respostas HTTP 200 com `nextPageToken` presente
+porém vazio, ao invés de tratá-lo silenciosamente como ausência.
+
+As regressões cobrem essas respostas e a listagem paginada correta de
+`users/{uid}/pushDevices`, preservando isolamento entre contas.
+A auditoria permanece apenas de leitura, com
+`pagesComplete:false` e sem poderes de exclusão; esses testes não
+autorizam a publicação. Executados no workflow AAB Play já existente
+(sem criar CI adicional), sem credenciais ou contato com produção.

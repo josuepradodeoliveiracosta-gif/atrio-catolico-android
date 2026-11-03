@@ -70,14 +70,15 @@ export function createFirestoreReadAdapter(uid,oauthToken,fetcher=fetch) {
         '?'+query.toString());
       if(!json || typeof json!=='object' || Array.isArray(json) ||
           (json.documents!==undefined && !Array.isArray(json.documents)) ||
-          (json.nextPageToken!==undefined && typeof json.nextPageToken!=='string') ||
+          (json.nextPageToken!==undefined &&
+            (typeof json.nextPageToken!=='string' || !tokenOK(json.nextPageToken))) ||
           Object.keys(json).some(k=>k!=='documents' && k!=='nextPageToken'))
         throw Error('invalid_firestore_response');
       const documents=json.documents||[];
       if(documents.length>pageSize) throw Error('firestore_page_too_large');
       return {
         paths:documents.map(d=>verifyRemoteName(d?.name,collection)),
-        nextPageToken:json.nextPageToken||null
+        nextPageToken:json.nextPageToken??null
       };
     }
   });

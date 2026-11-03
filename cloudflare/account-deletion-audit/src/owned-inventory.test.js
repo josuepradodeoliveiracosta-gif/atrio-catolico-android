@@ -113,3 +113,33 @@ test('network failure aborts entire inventory without claiming completion',async
   adapter.listPage=async()=>{throw Error('firestore_unavailable');};
   await assert.rejects(inventoryOwnedDocuments(uid,adapter),/firestore_unavailable/);
 });
+
+test('ambiguous pagination metadata never silently ends a deletion inventory',async()=>{
+  const base='users/alice_123/pushDevices';
+  for(const result of [
+    {paths:[]},
+    {paths:[],nextPageToken:undefined},
+    {paths:[],nextPageToken:false},
+    {paths:[],nextPageToken:0},
+    {paths:[],nextPageToken:''},
+    {paths:[],nextPageToken:{opaque:'cursor'}},
+    {paths:[],nextPageToken:null,incomplete:true}
+  ]) {
+    const adapter=makeAdapter();
+    adapter.listPage=async(collection)=>collection===base
+      ? result : {paths:[],nextPageToken:null};
+    await assert.rejects(inventoryOwnedDocuments(uid,adapter),
+      /invalid_page(?:_token)?/);
+  }
+});
+test('explicit null pagination terminator is accepted only as an incomplete QA audit',async()=>{
+  const adapter=makeAdapter({
+    pages:{'users/alice_123/pushDevices':{
+      start:{paths:['users/alice_123/pushDevices/syntheticDevice'],nextPageToken:null}
+    }}
+  });
+  const result=await inventoryOwnedDocuments(uid,adapter);
+  assert.ok(result.documents.some(d=>d.path==='users/alice_123/pushDevices/syntheticDevice'));
+  assert.equal(result.pagesComplete,false);
+  assert.equal(result.hasUnknownCollections,true);
+});

@@ -31,8 +31,14 @@ async function listBounded(adapter,collection) {
   let cursor=null;
   for(let page=0;page<MAX_PAGES;page++) {
     const result=await adapter.listPage(collection,cursor,PAGE_SIZE);
-    if(!result || !Array.isArray(result.paths) ||
-        result.paths.length>PAGE_SIZE) throw Error('invalid_page');
+    // O contrato é fechado: metadados desconhecidos ou cursor omitido
+    // nunca podem ser confundidos com fim real do inventário.
+    if(!result || typeof result!=='object' || Array.isArray(result) ||
+        !Object.hasOwn(result,'paths') ||
+        !Object.hasOwn(result,'nextPageToken') ||
+        Object.keys(result).some(k=>k!=='paths' && k!=='nextPageToken') ||
+        !Array.isArray(result.paths) || result.paths.length>PAGE_SIZE)
+      throw Error('invalid_page');
     const seenPaths=new Set(docs);
     for(const path of result.paths) {
       assertDocumentPath(path,collection);
@@ -42,7 +48,7 @@ async function listBounded(adapter,collection) {
       if(docs.length>MAX_DOCUMENTS) throw Error('inventory_too_large');
     }
     const token=result.nextPageToken;
-    if(!token) return docs;
+    if(token===null) return docs;
     if(typeof token!=='string' || !TOKEN_PATTERN.test(token) || tokens.has(token))
       throw Error('invalid_page_token');
     tokens.add(token);
