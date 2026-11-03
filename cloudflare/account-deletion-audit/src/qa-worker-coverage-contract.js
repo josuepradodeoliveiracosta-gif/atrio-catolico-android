@@ -7,7 +7,7 @@ export const QA_WORKER_SOURCES=Object.freeze([
   {
     "service": "avatar",
     "file": "cloudflare/avatar-worker/src/index.js",
-    "gitBlob": "f39a135170ab41ef18b1cb383b7f0f5052f226d3",
+    "gitBlob": "bf8a0aac259cee5fa6ab77e3784c4330f80ee1e3",
     "mustContain": [
       "if(pathname==='/avatar/upload')",
       "if(pathname==='/avatar/status')",

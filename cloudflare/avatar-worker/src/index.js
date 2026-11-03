@@ -246,26 +246,33 @@ async function upload(env, uid, request) {
   // Do not begin a Cloudinary upload using a stale entry-point check.
   if(await avatarWriteDenied(env,uid)) return json(409,'account_deletion_in_progress');
   const id='atrio-avatares/'+uid+'/'+crypto.randomUUID();
-  const result=await uploadProtected(env,id,bytes);
-  // The Cloudinary request is asynchronous. If a freeze arrived mid-upload,
-  // discard the new private image and never persist a new pending D1 row.
-  if(await avatarWriteDenied(env,uid)){
-    try{await destroy(env,id,'authenticated');}catch{}
-    return json(409,'account_deletion_in_progress');
-  }
-  const previous=await env.AVATAR_DB.prepare('SELECT public_id FROM avatar_pending WHERE uid=?').bind(uid).first();
+  await uploadProtected(env,id,bytes);
+  // Any failure AFTER Cloudinary accepted the private upload (including a
+  // failed freeze check, D1 SELECT or INSERT) must attempt compensation.
+  // A missing pending row otherwise makes the object undiscoverable by the
+  // account deletion processor. Do not claim guaranteed remote deletion:
+  // a failed Cloudinary destroy remains an operational reconciliation hold.
+  let pendingRecorded=false;
   try {
+    if(await avatarWriteDenied(env,uid))
+      return json(409,'account_deletion_in_progress');
+    const previous=await env.AVATAR_DB.prepare(
+      'SELECT public_id FROM avatar_pending WHERE uid=?').bind(uid).first();
+    // A slow D1 SELECT can overlap the start of account deletion.
+    if(await avatarWriteDenied(env,uid))
+      return json(409,'account_deletion_in_progress');
     await env.AVATAR_DB.prepare('INSERT INTO avatar_pending (uid,public_id,created_at) VALUES (?,?,?) ON CONFLICT(uid) DO UPDATE SET public_id=excluded.public_id, created_at=excluded.created_at')
       .bind(uid,id,Date.now()).run();
-  } catch(error) {
-    // Evitar um upload órfão quando o registro D1 falhar.
-    try { await destroy(env,id,'authenticated'); } catch {}
-    throw error;
+    pendingRecorded=true;
+    if(previous?.public_id && previous.public_id!==id) {
+      try {await destroy(env,previous.public_id,'authenticated');} catch {}
+    }
+    return json(202,'pending_moderation');
+  } finally {
+    if(!pendingRecorded){
+      try {await destroy(env,id,'authenticated');} catch {}
+    }
   }
-  if(previous?.public_id && previous.public_id!==id) {
-    try {await destroy(env,previous.public_id,'authenticated');} catch {}
-  }
-  return json(202,'pending_moderation');
 }
 async function status(env,uid) {
   const pending=await env.AVATAR_DB.prepare('SELECT public_id FROM avatar_pending WHERE uid=?').bind(uid).first();
@@ -281,10 +288,15 @@ async function status(env,uid) {
   // become frozen AFTER acquiring the D1 lock and BEFORE this promotion.
   if(await avatarWriteDenied(env,uid)) return json(409,'account_deletion_in_progress');
   // Aprovação verificável no Cloudinary, jamais pelo cliente.
+  // Read profile metadata BEFORE making any image publicly deliverable.
+  // If Firestore is unavailable, no promotion may begin. This read is not
+  // a transactional fence; the pre-write freeze check is still required.
+  const before=await firestoreGet(env,uid);
+  if(await avatarWriteDenied(env,uid))
+    return json(409,'account_deletion_in_progress');
   const promoted=await cloudSigned(env,'rename',{from_public_id:id,to_public_id:id,
     type:'authenticated',to_type:'upload',overwrite:'false'},null,'promote');
   if(promoted.type!=='upload'||promoted.public_id!==id) throw Error('promotion_failed');
-  const before=await firestoreGet(env,uid);
   try {
     // A freeze can also appear during the external rename / profile read.
     // Compensate the newly promoted image, retain pending D1 for operator

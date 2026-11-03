@@ -197,7 +197,7 @@ test('freeze do avatar nega falhas HTTP e UID forjado sem chamadas adicionais',a
 
 // Exercita o handler real e a checagem REST do Firestore, com serviços
 // simulados em memória. Chaves RSA são sintéticas e geradas no próprio teste.
-async function qaAvatarStatusFixture(freezeStates){
+async function qaAvatarStatusFixture(freezeStates,{profileReadFails=false}={}){
   const key=await webcrypto.subtle.generateKey({
     name:'RSASSA-PKCS1-v1_5',modulusLength:2048,
     publicExponent:new Uint8Array([1,0,1]),hash:'SHA-256'
@@ -252,7 +252,7 @@ async function qaAvatarStatusFixture(freezeStates){
     }
     if(value.includes('/profile_photos/')){
       if(options.method==='PATCH'){patches++;return Response.json({});}
-      return new Response('{}',{status:404});
+      return new Response('{}',{status:profileReadFails?503:404});
     }
     if(value.includes('/image/destroy')){
       destroys++;
@@ -291,4 +291,120 @@ test('status: freeze during promotion compensates public image without profile w
   assert.equal(result.pendingDeletes,0);
   assert.equal(result.locks,1);
   assert.equal(result.unlocks,1);
+});
+
+test('status: a failed Firestore profile read never promotes the image',async()=>{
+  const r=await qaAvatarStatusFixture([404,404,404],{
+    profileReadFails:true
+  });
+  assert.equal(r.status,503);
+  assert.equal(r.renames,0);
+  assert.equal(r.patches,0);
+  assert.equal(r.pendingDeletes,0);
+  assert.equal(r.destroys,0);
+  assert.equal(r.unlocks,1);
+});
+
+async function qaAvatarUploadFailureFixture(freezeStatusAfterUpload,{
+  failPendingRead=false
+}={}){
+  const key=await webcrypto.subtle.generateKey({
+    name:'RSASSA-PKCS1-v1_5',modulusLength:2048,
+    publicExponent:new Uint8Array([1,0,1]),hash:'SHA-256'
+  },true,['sign','verify']);
+  const pkcs8=await webcrypto.subtle.exportKey('pkcs8',key.privateKey);
+  const pem='-----BEGIN PRIVATE KEY-----\n'+Buffer.from(pkcs8).toString('base64')+
+    '\n-----END PRIVATE KEY-----';
+  const uid='qa-alice';
+  let freezeChecks=0,uploads=0,destroys=0,pendingWrites=0;
+  let locks=0,unlocks=0,quotaWrites=0;
+  const qaEnv={...env,FIREBASE_SERVICE_ACCOUNT_JSON:JSON.stringify({
+    project_id:'atrio-catolico',client_email:'qa-only@atrio.invalid',
+    private_key:pem
+  }),AVATAR_DB:{
+    prepare(sql){
+      return {bind(...args){
+        return {
+          async first(){
+            assert.match(sql,/SELECT public_id FROM avatar_pending/);
+            assert.equal(args[0],uid);
+            if(failPendingRead)throw Error('synthetic_d1_read_failed');
+            return null;
+          },
+          async run(){
+            if(sql.startsWith('INSERT INTO avatar_mutex'))locks++;
+            else if(sql.startsWith('DELETE FROM avatar_mutex'))unlocks++;
+            else if(sql.startsWith('INSERT INTO avatar_rate'))quotaWrites++;
+            else if(sql.startsWith('INSERT INTO avatar_pending'))pendingWrites++;
+            else throw Error('unexpected_D1_write');
+            return {meta:{changes:1}};
+          }
+        };
+      }};
+    }
+  }};
+  const orig=globalThis.fetch;
+  globalThis.fetch=async (url,options={})=>{
+    const u=String(url);
+    if(u.startsWith('https://identitytoolkit.googleapis.com/'))
+      return Response.json({users:[{localId:uid,disabled:false}]});
+    if(u==='https://oauth2.googleapis.com/token')
+      return Response.json({access_token:'qa-fake-oauth',expires_in:3600});
+    if(u.includes('/account_deletion_freeze/')){
+      freezeChecks++;
+      return new Response('{}',{status:
+        freezeChecks===4?freezeStatusAfterUpload:404});
+    }
+    if(u.endsWith('/image/authenticated')){
+      uploads++;
+      const id=options.body.get('public_id');
+      assert.match(id,/^atrio-avatares\/qa-alice\/[0-9a-f-]{36}$/);
+      return Response.json({type:'authenticated',public_id:id,
+        moderation:[{kind:'manual',status:'pending'}]});
+    }
+    if(u.endsWith('/image/destroy')){
+      destroys++;
+      assert.equal(options.body.get('type'),'authenticated');
+      return Response.json({result:'ok'});
+    }
+    throw Error('Unexpected QA upload endpoint');
+  };
+  try {
+    const photo=Uint8Array.from({length:400},(_,i)=>
+      i===0||i===398?0xff:i===1?0xd8:i===399?0xd9:1);
+    const request=new Request('https://test.invalid/avatar/upload',{
+      method:'POST',headers:{
+        Authorization:'Bearer '+'q'.repeat(150),'Content-Type':'image/jpeg'
+      },body:photo,duplex:'half'
+    });
+    const response=await handler.fetch(request,qaEnv);
+    return {status:response.status,body:await response.json(),
+      freezeChecks,uploads,destroys,pendingWrites,locks,unlocks,quotaWrites};
+  } finally {globalThis.fetch=orig;}
+}
+test('upload: freeze read unavailable after upload destroys unattached private image',async()=>{
+  const r=await qaAvatarUploadFailureFixture(503);
+  assert.equal(r.status,503);
+  assert.equal(r.uploads,1);
+  assert.equal(r.destroys,1);
+  assert.equal(r.pendingWrites,0);
+  assert.equal(r.locks,1);
+  assert.equal(r.unlocks,1);
+});
+test('upload: failed D1 pending SELECT compensates private Cloudinary image',async()=>{
+  const r=await qaAvatarUploadFailureFixture(404,{failPendingRead:true});
+  assert.equal(r.status,503);
+  assert.equal(r.uploads,1);
+  assert.equal(r.destroys,1);
+  assert.equal(r.pendingWrites,0);
+  assert.equal(r.locks,1);
+  assert.equal(r.unlocks,1);
+});
+test('upload: deletion freeze after Cloudinary upload returns conflict and cleans up',async()=>{
+  const r=await qaAvatarUploadFailureFixture(200);
+  assert.equal(r.status,409);
+  assert.equal(r.body.status,'account_deletion_in_progress');
+  assert.equal(r.uploads,1);
+  assert.equal(r.destroys,1);
+  assert.equal(r.pendingWrites,0);
 });

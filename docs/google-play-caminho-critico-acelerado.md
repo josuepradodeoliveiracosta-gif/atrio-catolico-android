@@ -498,3 +498,28 @@ Cloudinary. A operação pode competir após a última leitura, e
 uma compensação pode falhar. A habilitação em produção exige
 coordenação transacional/lease com todos os escritores e verificação
 posterior, sem considerar este commit uma homologação. Nenhum deploy.
+
+
+### Revisão de compensação Cloudinary e Firestore — 03/11/2026
+
+O Worker Avatar recebeu correção para **toda a janela após o upload
+privado e antes do registro D1**, cobrindo indisponibilidade da leitura
+de congelamento, falha na leitura `avatar_pending`, novo congelamento
+durante SELECT e falha no INSERT. Nessas situações tenta excluir a
+imagem privada recém-criada mesmo quando nenhum registro D1 foi
+persistido. A tentativa de compensação não constitui prova de exclusão
+se a própria Cloudinary estiver indisponível; a operação segue com
+pendência de reconciliação e a execução real de remoção de conta
+permanece bloqueada.
+
+Na promoção, a leitura de `profile_photos/{uid}` ocorre **antes** de
+converter a foto para entrega pública. Se o Firestore falhar nessa
+consulta, a imagem não é promovida. A verificação de congelamento é
+repetida antes da renomeação e novamente antes da gravação do perfil.
+Essa proteção continua **não transacional** entre serviços.
+
+Foram adicionados testes que executam o handler verdadeiro com
+Firestore, D1, Auth e Cloudinary falsos, cobrindo falha de leitura
+Firestore, falha D1, falha do marcador e congelamento após upload.
+Nenhum dado real foi apagado, nenhum Worker de produção foi
+atualizado e nenhum manifesto Play foi marcado como homologado.
