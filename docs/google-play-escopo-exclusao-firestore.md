@@ -47,3 +47,23 @@ Cloudinary, D1, referências relacionais ou documentos de moderação.
 O contrato permanece bloqueado para release até a aprovação de IAM,
 retenção, processamento de terceiros e fence distribuído. Não publicar o
 aplicativo por causa de uma prova do emulador.
+
+
+## Referências cruzadas de notificações/bloqueios — QA isolado (03/11/2026)
+
+O novo `qa-admin-foreign-reference-cleanup.mjs` remove, **apenas no
+Firestore Emulator** e com revisão explícita da fixture, duas classes
+estreitamente delimitadas: notificações automáticas cujo `actorUid`
+pertence à conta sintética excluída e preferências `blockedMembers`
+de terceiros cuja chave identifica exatamente aquela conta. A rotina
+faz inventário completo limitado, confere a identidade/caminho e o
+esquema da notificação, revisa a autorização e o fence de QA antes de
+cada efeito, relê o registro e confirma ausência depois da operação.
+
+No mesmo teste de Admin SDK, criar referências tardias agora bloqueia
+a remoção de Auth; a limpeza remove apenas esses vínculos e preserva
+notificações próprias do segundo usuário, outros bloqueios, sua árvore
+privada, Auth e registros de moderação. Reexecução não repete exclusões.
+A rotina **não** trata denúncias, histórico de Guardião, conteúdo
+público, retenção, D1, imagens nem corrida entre serviços reais;
+não é integrada ao backend de produção e não autoriza publicação.
