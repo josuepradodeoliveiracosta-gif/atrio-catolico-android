@@ -137,11 +137,13 @@ test('Terraform private Cloud Run contract has no anonymous Invoker, public ingr
 test('an abandoned HTTP client cancels the in-flight private review',async()=>{
   let started;
   const entered=new Promise(resolve=>{started=resolve;});
-  let cancelled=false;
+  let cancelled=false,confirm;
+  const observed=new Promise(resolve=>{confirm=resolve;});
   await withServer({inspect(_body,{signal}){
     return new Promise(resolve=>{
       signal.addEventListener('abort',()=>{
         cancelled=true;
+        confirm();
         resolve(sample);
       },{once:true});
       started();
@@ -154,8 +156,16 @@ test('an abandoned HTTP client cancels the in-flight private review',async()=>{
     await entered;
     controller.abort();
     await pending;
-    // Wait only for the direct HTTP close event (no long polling).
-    await new Promise(resolve=>setImmediate(resolve));
+    // Undici reports AbortError to the client before Node emits res.close
+    // on the server. Observe the actual cancellation, not a single tick.
+    await Promise.race([
+      observed,
+      new Promise((_,reject)=>{
+        const timer=setTimeout(()=>reject(
+          Error('qa_server_disconnect_not_observed')),2000);
+        observed.then(()=>clearTimeout(timer));
+      })
+    ]);
   });
   assert.equal(cancelled,true);
 });
