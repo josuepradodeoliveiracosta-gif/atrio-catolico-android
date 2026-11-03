@@ -24,6 +24,9 @@ on:
       - 'scripts/play_store_bundle_check.py'
       - 'scripts/test_play_store_bundle_check.py'
       - 'scripts/play_release_gate.py'
+      - 'scripts/play_listing_preflight.py'
+      - 'scripts/test_play_listing_preflight.py'
+      - 'fastlane/metadata/android/**'
       - 'scripts/validar_firebase.py'
       - 'scripts/play_ci_android_scope.py'
       - 'scripts/play_ci_heavy_scope.py'
@@ -78,6 +81,8 @@ jobs:
           python3 -m unittest discover -s scripts -p 'test_play_store_bundle_check.py' -v
           python3 -m unittest discover -s scripts -p 'test_termux_firebase_play_audit.py' -v
           python3 scripts/play_release_gate.py --audit
+          python3 -m unittest discover -s scripts -p 'test_play_listing_preflight.py' -v
+          python3 scripts/play_listing_preflight.py
       - name: Conferir que a assinatura manual valida HTTPS real sem segredos
         run: |
           python3 - <<'PY'

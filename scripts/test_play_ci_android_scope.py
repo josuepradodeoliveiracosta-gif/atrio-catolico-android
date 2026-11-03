@@ -25,6 +25,9 @@ class BuildScopeTests(unittest.TestCase):
             "docs/google-play-ugc-evidencias.json",
             "tests/security/community-terms.test.mjs",
             "scripts/test_play_release_gate.py",
+            "scripts/play_listing_preflight.py",
+            "scripts/test_play_listing_preflight.py",
+            "fastlane/metadata/android/pt-BR/title.txt",
         ]))
 
     def test_any_android_path_wins_over_docs(self):

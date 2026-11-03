@@ -5,6 +5,9 @@ class HeavyEmulatorScopeTests(unittest.TestCase):
     def test_known_review_only_paths_skip_emulators(self):
         self.assertFalse(requires_heavy_emulators([
             "docs/google-play-caminho-critico-acelerado.md",
+            "fastlane/metadata/android/pt-BR/changelogs/37.txt",
+            "scripts/play_listing_preflight.py",
+            "scripts/test_play_listing_preflight.py",
             "cloudflare/account-deletion-support/site-bundle.test.mjs",
             "cloudflare/account-deletion-audit/src/qa-moderation-case-review.js",
             "cloudflare/account-deletion-audit/src/qa-moderation-deletion-preflight.test.js",

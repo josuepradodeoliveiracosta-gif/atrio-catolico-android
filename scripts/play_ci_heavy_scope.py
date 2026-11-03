@@ -12,12 +12,15 @@ import argparse
 from pathlib import Path
 
 _REVIEW_FILES = frozenset({
+    "scripts/play_listing_preflight.py",
+    "scripts/test_play_listing_preflight.py",
     "cloudflare/account-deletion-audit/src/qa-moderation-case-review.js",
     "cloudflare/account-deletion-audit/src/qa-moderation-case-review.test.js",
     "cloudflare/account-deletion-audit/src/qa-moderation-deletion-preflight.js",
     "cloudflare/account-deletion-audit/src/qa-moderation-deletion-preflight.test.js",
 })
-_REVIEW_PREFIXES = ("docs/", "cloudflare/account-deletion-support/")
+_REVIEW_PREFIXES = ("docs/", "cloudflare/account-deletion-support/",
+                    "fastlane/metadata/android/")
 
 def requires_heavy_emulators(paths: list[str] | None) -> bool:
     if not paths or len(paths) > 1000:

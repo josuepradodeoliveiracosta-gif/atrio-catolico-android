@@ -23,9 +23,11 @@ _ANDROID_FILES = frozenset({
     "scripts/play_ci_android_scope.py",
     "scripts/test_play_ci_android_scope.py",
 })
-_NON_ANDROID_PREFIXES = ("docs/", "cloudflare/", "tests/")
+_NON_ANDROID_PREFIXES = ("docs/", "cloudflare/", "tests/",
+                         "fastlane/metadata/android/")
 _NON_ANDROID_FILES = frozenset({
     "README.md", "CHANGELOG.md", "SECURITY.md",
+    "scripts/play_listing_preflight.py",
 })
 
 

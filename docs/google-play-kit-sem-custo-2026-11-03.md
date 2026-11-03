@@ -25,6 +25,8 @@ Arquivos em formato de metadados pt-BR, prontos para **copiar e revisar**, e com
 
 Os textos respeitam os limites do Google (nome 30 caracteres, curta 80, completa 4.000 e notas de versão 500). **Não configuram um aplicativo na Play Console nem ativam distribuição automática.** Antes de utilizar, conferir se os recursos citados são efetivamente visíveis e estáveis na candidata assinada.
 
+**Nova verificação sem custos:** `python3 scripts/play_listing_preflight.py` examina os quatro textos da loja, o `applicationId`, o `versionCode` do Gradle, caracteres de controle, limites, placeholders e promessas de exclusão não comprovadas. Mostra separadamente os totais ainda pendentes da privacidade e UGC. O teste automatizado `scripts/test_play_listing_preflight.py` roda na CI e o mesmo verificador é obrigatório antes da assinatura manual. Resultado `METADADOS_PLAY: OK` **não significa** que a Play autorizou uma publicação. O script não confere imagens, certificados, URL ou revisão jurídica. Alterações restritas a textos de metadados não precisam recompilar o aplicativo ou reiniciar emuladores.
+
 A infraestrutura gratuita existente já tem código de página de suporte/exclusão e propostas de política e termos, mas **não há publicação HTTPS comprovada**, nem homologação da exclusão real e de UGC. A Cloudflare Pages `atrio-catolico-privacidade-qa` foi consultada e **não tinha deploy**; o domínio `-qa.pages.dev` é apenas para QA e não deve ser apresentado como URL de produção.
 
 ## Trabalhos que podemos concluir sem criar a conta Play

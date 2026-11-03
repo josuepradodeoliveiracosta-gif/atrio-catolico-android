@@ -83,6 +83,7 @@ jobs:
           python3 -m unittest discover -s scripts -p 'test_play_app_signing_continuity.py' -v
           python3 scripts/play_app_signing_continuity.py
           python3 scripts/play_release_gate.py --enforce
+          python3 scripts/play_listing_preflight.py
       - name: Conferir páginas HTTPS realmente publicadas antes de carregar segredos
         shell: bash
         run: |
