@@ -1,0 +1,62 @@
+# Átrio Católico — inspeção operacional de fontes Firestore (somente leitura)
+
+**PR #71 · 03/11/2026 · NÃO IMPLANTAR COMO SERVIÇO PÚBLICO.**
+A fase de exclusão operacional continua **não homologada**.
+
+## O que foi integrado
+
+`operational-read-preflight.js` agora reúne duas implementações já existentes:
+`firestore-read-adapter.js` e `relational-firestore-read-adapter.js`.
+Com uma identidade administrativa **autenticada externamente** e um token
+OAuth do backend limitado por IAM, o módulo consegue:
+
+- Confirmar a solicitação vigente diretamente no documento
+  `account_deletion_requests/{uid}`, no projeto Firestore configurado.
+- Inspecionar todas as raízes de dados associados ao UID, descobrir
+  subcoleções, inclusive pais ausentes, e percorrer a árvore própria com
+  limite de profundidade e paginação estrita.
+- Consultar referências por identificadores em publicações, respostas,
+  notificações, denúncias e registros do Guardião, preservando os casos
+  que exigem revisão individual e direitos de terceiros.
+- Retornar **somente contagens e bloqueios gerais**, sem expor UIDs,
+  caminhos de documentos, credenciais, conteúdo ou denúncias.
+
+A implementação usa **GET**, `:listCollectionIds` e `:runQuery`;
+os dois últimos são operações de leitura da API Firestore, embora usem
+HTTP POST. Nenhum `:commit`, `:batchWrite`, `deleteUser`, Cloudinary
+destroy ou D1 mutável pode ser invocado por esse módulo.
+
+## Integração segura e limites
+
+O módulo não possui endpoint HTTP, script CLI de produção, agendamento,
+credenciais ou função para obter tokens; nada é implantado ou executado
+em dados reais nesta etapa. Antes de conectá-lo a uma infraestrutura
+operacional, um serviço privado deverá autenticar e autorizar o
+operador, obter um token IAM somente-leitura e prover o callback
+`assertAuthorizedRead`, revalidado após as consultas principais.
+**Fornecer um callback não é evidência de identidade**, apenas permite
+integrar mais tarde um mecanismo de controle real.
+
+As buscas são de momentos diferentes, **não são um snapshot
+transacional**. Também faltam inventários autenticados de Auth,
+Cloudinary, D1 Avatar, D1 Push, FCM, referências legadas e decisões
+jurídicas. Uma ausência no inventário conhecido **não prova** exclusão
+global. Por isso o relatório mantém permanentemente
+`allAccountDataDiscovered:false`,
+`destructiveOperationsEnabled:false`,
+`accountDeletionAuthorized:false` e
+`googlePlayReleaseAuthorized:false`.
+
+Não utilizar a saída como comprovante de exclusão nem registrar
+`verified:true` nos manifestos da Play. A preparação da fase
+destrutiva dependerá de IAM e identidade reais, aprovação jurídica de
+retenção, coordenação de todos os escritores, processamento por etapas
+idempotentes e reconciliação final independente.
+
+## Verificação
+
+Os testes `operational-read-preflight.test.js` utilizam um transporte
+Firestore falso e conferem escopos exatos, bloqueio de pedido inválido,
+perda de autorização, subcoleções inesperadas, falhas de consulta e
+ausência de quaisquer chamadas destrutivas. São incluídos na suíte Node
+Play já existente, sem novo workflow ou recompilação Android.
