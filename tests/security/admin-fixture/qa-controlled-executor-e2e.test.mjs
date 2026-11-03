@@ -1,6 +1,7 @@
 /**
  * QA INTEGRATION — real Firebase Admin SDK calls against local Auth and
- * Firestore emulators; avatar D1 uses in-memory SQLite, while Cloudinary\n * and FCM remain in-memory provider doubles.
+ * Firestore emulators; avatar D1 uses in-memory SQLite. Media uses strict
+ * Cloudinary-shaped HTTP localhost and FCM remains a synthetic double.
  * No production endpoint, secret or project is supported. This is NOT
  * homologation of live users, legal retention or deployed Worker fencing.
  */
@@ -10,6 +11,9 @@ import {initializeApp,deleteApp} from 'firebase-admin/app';
 import {getAuth} from 'firebase-admin/auth';
 import {getFirestore} from 'firebase-admin/firestore';
 import {DatabaseSync} from 'node:sqlite';
+import {createServer} from 'node:http';
+import {createQaControlledCloudinaryLoopback}
+  from './qa-controlled-cloudinary-loopback.mjs';
 import {mkdtempSync,chmodSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -35,13 +39,14 @@ function guard(){
      process.env.GOOGLE_CLOUD_PROJECT ||
      process.env.CLOUDINARY_API_SECRET ||
      process.env.CLOUDINARY_API_KEY ||
+     process.env.CLOUDINARY_CLOUD_NAME ||
      process.env.ATRIO_ACCOUNT_DELETION_EXECUTION_ENABLED)
     throw Error('controlled_e2e_production_environment_denied');
 }
 guard();
 const account=initializeApp({projectId:PROJECT},'controlled-e2e-only');
 const auth=getAuth(account),db=getFirestore(account);
-let avatarDb=null;
+let avatarDb=null,mediaServer=null;
 let journalDb=null,journalDir=null,journalPath=null;
 const aliceOwned=[
   'users/'+ALICE+'/pushDevices/device-a',
@@ -115,6 +120,60 @@ try{
       projectId:PROJECT,db:journalDb
     });
     const ledger=[],effects=[],avatarCloudinary=new Set([ALICE_AVATAR,BOB_AVATAR]);
+    let mediaDeletes=0;
+    const respond=(res,status,data)=>{
+      res.writeHead(status,{'Content-Type':'application/json',
+        'Cache-Control':'no-store'});
+      res.end(JSON.stringify(data));
+    };
+    mediaServer=createServer(async(req,res)=>{
+      const u=new URL(req.url,'http://127.0.0.1');
+      if(req.method==='GET'&&u.pathname==='/qa-controlled-cloudinary/inventory'){
+        const uid=u.searchParams.get('uid');
+        const type=u.searchParams.get('type');
+        if(![ALICE,BOB].includes(uid)||
+           !['upload','authenticated','private'].includes(type)||
+           u.searchParams.get('limit')!=='25'||u.searchParams.has('cursor')||
+           [...u.searchParams.keys()].sort().join(',')!=='limit,type,uid')
+          return respond(res,403,{error:'unapproved_inventory'});
+        const assets=[...avatarCloudinary].filter(id=>
+          id.startsWith('atrio-avatares/'+uid+'/') &&
+          (id===ALICE_AVATAR?'authenticated':'upload')===type);
+        return respond(res,200,{items:assets.map(public_id=>({
+          public_id,type})),nextCursor:null});
+      }
+      if(req.method==='POST'&&u.pathname==='/qa-controlled-cloudinary/destroy'){
+        const parts=[];let length=0;
+        for await(const part of req){
+          length+=part.length;
+          if(length>1024)return respond(res,413,{error:'too_large'});
+          parts.push(part);
+        }
+        let body;
+        try{body=JSON.parse(Buffer.concat(parts).toString('utf8'));}
+        catch{return respond(res,400,{error:'bad_json'});}
+        if(!body||Object.keys(body).sort().join(',')!==
+          'fixtureUid,invalidate,public_id,type'||
+           body.fixtureUid!==ALICE||body.public_id!==ALICE_AVATAR||
+           body.invalidate!==true||body.type!=='authenticated')
+          return respond(res,403,{error:'wrong_fixture'});
+        mediaDeletes++;
+        const changed=avatarCloudinary.delete(ALICE_AVATAR);
+        return respond(res,200,{public_id:ALICE_AVATAR,
+          result:changed?'deleted':'not_found'});
+      }
+      return respond(res,404,{error:'unknown_route'});
+    });
+    const mediaUrl=await new Promise((resolve,reject)=>{
+      mediaServer.once('error',reject);
+      mediaServer.listen(0,'127.0.0.1',()=>{
+        mediaServer.off('error',reject);
+        resolve('http://127.0.0.1:'+mediaServer.address().port+'/');
+      });
+    });
+    assert.throws(()=>createQaControlledCloudinaryLoopback(
+      'https://api.cloudinary.com/'),/only_private_loopback/);
+    const mediaAdapter=createQaControlledCloudinaryLoopback(mediaUrl);
     let injectedAuthTimeout=true;
     const fcm=new Set(['token-alice']);
     const ctxCheck=x=>{
@@ -195,19 +254,20 @@ try{
       media:{
         async purge(x){
           ctxCheck(x);
-          avatarCloudinary.delete(ALICE_AVATAR); // synthetic Cloudinary effect
+          await mediaAdapter.purge(); // strict loopback HTTP; no live Cloudinary
           await scrubQaAvatarD1({
             db:avatarDb,uid:ALICE,
             assertAuthorized:async()=>backend.approvals.confirm(x),
             assertFrozen:async()=>backend.freeze.verify(x),
             verifyCloudinaryGone:async(uid,id)=>
-              uid===ALICE && id===ALICE_AVATAR && !avatarCloudinary.has(id)
+              uid===ALICE && id===ALICE_AVATAR &&
+              (await mediaAdapter.empty())===true
           });
           effects.push('media-d1-sqlite');
         },
         async empty(x){
           ctxCheck(x);
-          return avatarAbsent() && !avatarCloudinary.has(ALICE_AVATAR);
+          return avatarAbsent() && (await mediaAdapter.empty())===true;
         }
       },
       fcm:{
@@ -220,6 +280,7 @@ try{
           // Independent final verification before the real Emulator SDK call.
           assert.deepEqual(await readAll(aliceOwned),aliceOwned.map(()=>false));
           assert.equal(avatarAbsent(),true);
+          assert.equal(await mediaAdapter.empty(),true);
           assert.equal(avatarCloudinary.has(ALICE_AVATAR),false);
           assert.equal(fcm.size,0);
           effects.push('auth-sdk');
@@ -264,7 +325,7 @@ try{
             CONTROLLED_DELETION_PHASES.slice(0,5).join(',') &&
           (await authExists(ALICE))===false &&
           status.remaining===0 && status.unknownScopes===0 &&
-          avatarAbsent() && !avatarCloudinary.has(ALICE_AVATAR) &&
+          avatarAbsent() && await mediaAdapter.empty()===true &&
           fcm.size===0 &&
           await backend.freeze.verify({
             uid:ALICE,caseId:CASE,epoch:snapshot.epoch
@@ -303,6 +364,8 @@ try{
     assert.equal(await exists('account_deletion_freeze/'+ALICE),true);
     assert.equal(avatarAbsent(),true);
     assert.equal(avatarCloudinary.has(BOB_AVATAR),true);
+    assert.equal(await mediaAdapter.empty(),true);
+    assert.equal(mediaDeletes,1);
     assert.equal(avatarDb.prepare('SELECT COUNT(*) AS n FROM avatar_pending WHERE uid=?')
       .get(BOB).n,1);
     assert.equal(avatarDb.prepare('SELECT COUNT(*) AS n FROM avatar_rate WHERE uid=?')
@@ -341,6 +404,7 @@ try{
 test.after(async()=>{
   avatarDb?.close();
   journalDb?.close();
+  if(mediaServer)await new Promise(resolve=>mediaServer.close(resolve));
   if(journalDir)rmSync(journalDir,{recursive:true,force:true});
   await deleteApp(account);
 });
