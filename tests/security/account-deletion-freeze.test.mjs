@@ -63,8 +63,21 @@ try{
     const db=c.firestore();
     await setDoc(doc(db,'profiles',A),{displayName:nameA,createdAt:new Date()});
     await setDoc(doc(db,'profiles',B),{displayName:nameB,createdAt:new Date()});
+    // The same account can own the privacy request AND an admin role.
+    // A frozen role must not bypass accountWritable through isAdmin().
+    await setDoc(doc(db,'admins',A),{enabled:true});
     await setDoc(doc(db,postA),{...post(A,nameA),createdAt:new Date()});
     await setDoc(doc(db,postB),{...post(B,nameB),createdAt:new Date()});
+    await setDoc(doc(db,'posts/qa_pre_freeze_admin_delete'),
+      {...post(B,nameB),createdAt:new Date()});
+    await setDoc(doc(db,'reports/qa_freeze_admin_report'),{
+      postId:'qa_freeze_bob_post',reporterUid:B,reason:'Denúncia QA',
+      createdAt:new Date(),status:'pending'
+    });
+    await setDoc(doc(db,'user_reports/qa_freeze_member_report'),{
+      reporterUid:B,targetUid:A,reason:'Denúncia QA do usuário',
+      createdAt:new Date(),status:'pending'
+    });
     await setDoc(doc(db,'posts/qa_freeze_bob_post/replies/qa_freeze_alice_old'),{
       ...reply(A,nameA),createdAt:new Date()
     });
@@ -122,6 +135,14 @@ try{
     // Restaurar apenas a fixture Alice para o teste de congelamento.
     await assertSucceeds(setDoc(aliceRef,{token,updatedAt:serverTimestamp()}));
   });
+  await check('administrador ainda pode moderar ANTES do congelamento',async()=>{
+    const adminReports=await assertSucceeds(getDocs(collection(alice,'reports')));
+    const memberReports=await assertSucceeds(getDocs(collection(alice,'user_reports')));
+    assert.equal(adminReports.size,1);
+    assert.equal(memberReports.size,1);
+    await assertSucceeds(deleteDoc(doc(alice,'posts/qa_pre_freeze_admin_delete')));
+    assert.equal((await assertSucceeds(getDoc(doc(bob,postB)))).exists(),true);
+  });
   await check('cliente não cria marcador administrativo',async()=>{
     await assertFails(setDoc(doc(alice,marker),{status:'processing'}));
     await assertFails(setDoc(doc(bob,marker),{status:'processing'}));
@@ -139,6 +160,19 @@ try{
     await assertFails(deleteDoc(doc(alice,marker)));
     await assertFails(updateDoc(doc(alice,marker),{status:'cancelled'}));
     await assertFails(deleteDoc(doc(bob,marker)));
+  });
+  await check('administrador congelado perde leitura de denúncias e poderes de moderação',async()=>{
+    await assertFails(getDocs(collection(alice,'reports')));
+    await assertFails(getDoc(doc(alice,'reports/qa_freeze_admin_report')));
+    await assertFails(getDocs(collection(alice,'user_reports')));
+    await assertFails(getDoc(doc(alice,'user_reports/qa_freeze_member_report')));
+    await assertFails(updateDoc(doc(alice,'user_reports/qa_freeze_member_report'),{
+      status:'reviewed',reviewedBy:A,reviewedAt:serverTimestamp(),
+      reviewNote:'Decisão não autorizada por conta congelada'
+    }));
+    await assertFails(deleteDoc(doc(alice,postB)));
+    const otherPost=await assertSucceeds(getDoc(doc(bob,postB)));
+    assert.equal(otherPost.exists(),true);
   });
   await check('titular congelado não cria nem altera publicações',async()=>{
     await assertFails(setDoc(doc(alice,'posts/qa_after_freeze'),post(A,'Alice Teste')));
@@ -240,6 +274,9 @@ try{
   await check('retirada administrativa do freeze reabilita escrita sem mudar pedido',async()=>{
     await assertSucceeds(setDoc(doc(alice,'posts/qa_resumed'),post(A,'Alice Teste')));
     assert.equal((await getDoc(doc(alice,request))).data().status,'requested');
+    // The admin role was never deleted, only suspended during the freeze.
+    await assertSucceeds(getDocs(collection(alice,'reports')));
+    await assertSucceeds(getDocs(collection(alice,'user_reports')));
   });
   await check('FCM: offline não confirma exclusão; resposta do servidor é obrigatória',async()=>{
     const device=doc(alice,'users',A,'pushDevices','same_physical_device');

@@ -93,3 +93,24 @@ sem apagar arbitrariamente provas de denúncias nem publicações de
 terceiros. Essa varredura integral limitada é só para base descartável:
 a operação real requer inventário administrativo paginado em todas as
 coleções e prova independente de ausência. Não habilita Play.
+
+
+## Revogação de privilégios administrativos durante o congelamento (03/11/2026)
+
+A função `isAdmin()` do `firestore.rules` agora exige
+`accountWritable(request.auth.uid)` **antes** de conceder o papel
+administrativo. O marcador de exclusão, criado exclusivamente por
+serviço privilegiado, bloqueia também leitura de `reports` e
+`user_reports`, decisões de moderação e exclusão de publicações
+alheias através do cliente, mesmo quando `admins/{uid}.enabled`
+permanece `true`. A regra preserva os acessos anteriores enquanto
+não houver congelamento e os recupera quando o marcador é retirado por
+operador autorizado.
+
+A suíte existente `tests/security/account-deletion-freeze.test.mjs`
+verifica a sequência **antes → congelado → descongelado** com uma conta
+fictícia administradora, comprovando que a conta de outro membro e
+suas publicações não são alteradas. Não foi necessário novo workflow.
+Essa mudança é apenas nas Rules da PR; não implantamos as regras no
+Firebase real. Workers Admin SDK contornam as Rules e ainda precisam
+de proteção própria. Não autoriza execução real de exclusão ou Play.

@@ -17,7 +17,11 @@ service cloud.firestore {
     }
     // Provisionamento e revogação somente pelo Console/Admin SDK autorizado.
     function isAdmin() {
+      // Congelamento de exclusão suspende TAMBÉM poderes administrativos:
+      // leitura de denúncias, exclusão de posts e decisões de moderação.
+      // Um cliente antigo não pode ignorar o marcador nem pela rota admin.
       return signedIn()
+        && accountWritable(request.auth.uid)
         && exists(/databases/$(database)/documents/admins/$(request.auth.uid))
         && get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.enabled == true;
     }
