@@ -52,7 +52,10 @@ internal fun MemberReportsReviewPanel(db: FirebaseFirestore, moderatorUid: Strin
         var active = true
         if (!authorized()) {
             reports = emptyList()
+            lastPageDocument = null
             morePages = false
+            selected = null
+            note = ""
             loading = false
         } else {
             loading = true
@@ -61,21 +64,38 @@ internal fun MemberReportsReviewPanel(db: FirebaseFirestore, moderatorUid: Strin
             val query = if (page == 0 || lastPageDocument == null) base
                 else base.startAfter(lastPageDocument!!)
             query.get(Source.SERVER).addOnCompleteListener { task ->
-                if (!active || !authorized()) return@addOnCompleteListener
+                if (!active) return@addOnCompleteListener
+                val snapshot = if (task.isSuccessful) task.result else null
+                val trusted = verifiedAdminNoticeSnapshot(
+                    expectedUid = moderatorUid,
+                    authenticatedUid = FirebaseAuth.getInstance().currentUser?.uid,
+                    hasError = !task.isSuccessful,
+                    hasData = snapshot != null,
+                    fromCache = snapshot?.metadata?.isFromCache ?: true,
+                    pendingWrites = snapshot?.metadata?.hasPendingWrites() ?: true
+                )
                 loading = false
-                error = !task.isSuccessful
-                if (task.isSuccessful) {
-                    val docs = task.result?.documents.orEmpty()
-                    val current = docs.map {
-                        MemberSafetyReport(it.id, it.getString("targetUid").orEmpty(),
-                            it.getString("reason").orEmpty(),
-                            it.getString("status") ?: "pending")
-                    }
-                    reports = if (page == 0) current else
-                        (reports + current).distinctBy { it.id }
-                    lastPageDocument = docs.lastOrNull()
-                    morePages = docs.size == 20
-                } else morePages = false
+                error = !trusted
+                if (!trusted) {
+                    // Falha/revogação não pode manter motivos ou UIDs
+                    // retornados por uma página previamente autorizada.
+                    reports = emptyList()
+                    lastPageDocument = null
+                    morePages = false
+                    selected = null
+                    note = ""
+                    return@addOnCompleteListener
+                }
+                val docs = snapshot!!.documents
+                val current = docs.map {
+                    MemberSafetyReport(it.id, it.getString("targetUid").orEmpty(),
+                        it.getString("reason").orEmpty(),
+                        it.getString("status") ?: "pending")
+                }
+                reports = if (page == 0) current else
+                    (reports + current).distinctBy { it.id }
+                lastPageDocument = docs.lastOrNull()
+                morePages = docs.size == 20
             }
         }
         onDispose { active = false }

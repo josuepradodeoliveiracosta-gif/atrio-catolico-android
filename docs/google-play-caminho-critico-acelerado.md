@@ -411,3 +411,21 @@ o executor sem apagar a identidade. O workflow `selos-ci.yml` retira
 Firebase Admin local sem credenciais; mantém projeto fictício, somente
 localhost e rejeição de chaves reais. O serviço continua de QA,
 sem deploy e sem autorizar eliminação de usuários reais.
+
+
+## Prompt 29 — proteção de leitura administrativa contra cache (03/11/2026)
+
+As filas de moderação `reports` e de denúncias de usuários `user_reports`
+agora aplicam a mesma condição de snapshot confiável já testada pelas
+notificações administrativas: UID de sessão correspondente, resposta
+confirmada pelo servidor, sem erro, cache ou escritas pendentes.
+`reports` passa a escutar mudanças de metadata para revogar dados
+visíveis imediatamente quando a origem vira cache. No painel paginado
+de `user_reports`, falha de servidor ou sessão limpa também páginas
+anteriores, cursor, seleção e justificativa temporária; não mantém
+motivos/identificadores privados na interface após perda de autoridade.
+
+Reutilizado `verifiedAdminNoticeSnapshot` e os testes JUnit existentes,
+sem nova suíte, workflow ou build manual. A autorização definitiva de
+leitura continua nas Firestore Security Rules; o reforço é de interface.
+Nenhum dado ou serviço real foi alterado e nada libera assinatura/Play.

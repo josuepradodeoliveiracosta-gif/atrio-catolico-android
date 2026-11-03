@@ -135,27 +135,38 @@ internal fun ModerationScreen(db: FirebaseFirestore, uid: String, onBack: () -> 
         loading = true
         loadError = false
         val registration = db.collection("reports").orderBy("createdAt", Query.Direction.DESCENDING)
-            .limit(limit.toLong() + 1).addSnapshotListener { snapshot, failure ->
+            .limit(limit.toLong() + 1)
+            .addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, failure ->
                 if (active) {
+                    // Denúncias são informações sensíveis. Cache, escrita pendente,
+                    // erro, troca de sessão ou revogação escondem a lista imediatamente.
+                    val trusted = adminApproved && verifiedAdminNoticeSnapshot(
+                        expectedUid = uid,
+                        authenticatedUid = FirebaseAuth.getInstance().currentUser?.uid,
+                        hasError = failure != null,
+                        hasData = snapshot != null,
+                        fromCache = snapshot?.metadata?.isFromCache ?: true,
+                        pendingWrites = snapshot?.metadata?.hasPendingWrites() ?: true
+                    )
                     loading = false
-                    loadError = failure != null
-                    if (failure != null || !GuardianUiPolicy.sameSession(
-                            uid, FirebaseAuth.getInstance().currentUser?.uid)) {
+                    loadError = !trusted
+                    if (!trusted) {
                         reports = emptyList()
+                        hasMore = false
                         selectedId = null
                         photoConfirm = false
                         photoTarget = ""
                         photoReason = ""
-                        message = "Não foi possível consultar denúncias. Confira a sessão, as regras e sua permissão."
+                        message = "Não foi possível confirmar denúncias no servidor. Confira a conexão, sessão e sua permissão."
                     } else {
-                        hasMore = (snapshot?.size() ?: 0) > limit
-                        reports = snapshot?.documents?.take(limit)?.map {
+                        hasMore = snapshot!!.size() > limit
+                        reports = snapshot.documents.take(limit).map {
                             ModerationReport(it.id, it.getString("postId").orEmpty(),
                                 it.getString("reason").orEmpty(), it.getString("status") ?: "pending",
                                 it.getString("reviewNote").orEmpty(), it.getString("reviewedBy").orEmpty(),
                                 it.getString("replyId"), it.getString("source").orEmpty(),
                                 it.getString("aiAssessment").orEmpty())
-                        } ?: emptyList()
+                        }
                     }
                 }
             }
