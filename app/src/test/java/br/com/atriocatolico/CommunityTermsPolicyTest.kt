@@ -62,4 +62,21 @@ class CommunityTermsPolicyTest {
             "community-v1", "https://atrio-catolico.org/termos?uid=123", true, true
         ).available)
     }
+    @Test fun cachePendingWritesAndOtherSessionsCannotAuthorizeTerms() {
+        assertTrue(confirmedCommunityTermsServerSnapshot(true, false, false))
+        assertFalse(confirmedCommunityTermsServerSnapshot(true, true, false))
+        assertFalse(confirmedCommunityTermsServerSnapshot(true, false, true))
+        assertFalse(confirmedCommunityTermsServerSnapshot(false, false, false))
+
+        val verified = CommunityTermsStatus(
+            loaded = true, policy = CommunityTermsPolicy("community-v1", official, true, true),
+            accepted = true, acceptanceLoaded = true
+        )
+        assertTrue(verified.canPublish)
+        assertFalse(verified.copy(loaded = false).canPublish)
+        assertFalse(verified.copy(accepted = false).canPublish)
+        assertFalse(verified.copy(acceptanceLoaded = false).canPublish)
+        // Termos continuam legíveis após o aceite, desde que o servidor esteja confirmado.
+        assertTrue(verified.readablePublishedPolicy != null)
+    }
 }

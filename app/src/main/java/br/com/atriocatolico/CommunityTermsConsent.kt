@@ -76,6 +76,11 @@ internal data class CommunityTermsStatus(
     )
 }
 
+/** Um snapshot em cache ou com writes pendentes nunca autoriza UGC. */
+internal fun confirmedCommunityTermsServerSnapshot(
+    sameSession: Boolean, fromCache: Boolean, pendingWrites: Boolean
+): Boolean = sameSession && !fromCache && !pendingWrites
+
 /** Status remoto, sempre isolado pelo UID da sessao; cache local nunca prova aceite. */
 @Composable
 internal fun rememberCommunityTermsStatus(
@@ -89,13 +94,15 @@ internal fun rememberCommunityTermsStatus(
     DisposableEffect(db, uid) {
         val registration = db.document("app_config/community_terms")
             .addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, error ->
-                if (auth.currentUser?.uid != uid) return@addSnapshotListener
-                if (error != null) {
+                val sameSession = auth.currentUser?.uid == uid
+                if (error != null || !sameSession) {
                     loaded = false
-                    failed = true
+                    failed = error != null
                     policy = null
-                } else if (snapshot != null && !snapshot.metadata.isFromCache
-                    && !snapshot.metadata.hasPendingWrites()) {
+                } else if (snapshot != null && confirmedCommunityTermsServerSnapshot(
+                        sameSession, snapshot.metadata.isFromCache,
+                        snapshot.metadata.hasPendingWrites()
+                    )) {
                     policy = if (snapshot.exists()) CommunityTermsPolicy(
                         version = snapshot.getString("version").orEmpty(),
                         url = snapshot.getString("url").orEmpty(),
@@ -104,6 +111,11 @@ internal fun rememberCommunityTermsStatus(
                     ) else null
                     loaded = true
                     failed = false
+                } else {
+                    // Não conservar confirmação antiga se a fonte voltou ao cache.
+                    loaded = false
+                    failed = false
+                    policy = null
                 }
             }
         onDispose { registration.remove() }
@@ -122,15 +134,22 @@ internal fun rememberCommunityTermsStatus(
             val registration = db.collection("users").document(uid)
                 .collection("acceptedTerms").document(version)
                 .addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, error ->
-                    if (auth.currentUser?.uid != uid) return@addSnapshotListener
-                    if (error != null) {
+                    val sameSession = auth.currentUser?.uid == uid
+                    if (error != null || !sameSession) {
                         accepted = false
                         acceptanceLoaded = false
-                    } else if (snapshot != null && !snapshot.metadata.isFromCache
-                        && !snapshot.metadata.hasPendingWrites()) {
+                    } else if (snapshot != null && confirmedCommunityTermsServerSnapshot(
+                            sameSession, snapshot.metadata.isFromCache,
+                            snapshot.metadata.hasPendingWrites()
+                        )) {
                         accepted = snapshot.exists()
                             && snapshot.getString("version") == version
                         acceptanceLoaded = true
+                    } else {
+                        // O aceite previamente visto no servidor não vale como
+                        // confirmação nova durante indisponibilidade/cache.
+                        accepted = false
+                        acceptanceLoaded = false
                     }
                 }
             onDispose { registration.remove() }
@@ -158,6 +177,17 @@ internal fun CommunityTermsConsent(
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Termos de Uso e Política da Comunidade",
                 style = MaterialTheme.typography.titleMedium)
+            // O link permanece visível inclusive após o aceite da versão atual.
+            val readablePolicy = status.readablePublishedPolicy
+            if (readablePolicy != null) {
+                TextButton(
+                    onClick = {
+                        runCatching { uriHandler.openUri(readablePolicy.url) }
+                            .onFailure { info = "Não foi possível abrir os Termos. Tente novamente." }
+                    },
+                    modifier = Modifier.testTag("atrio-community-terms-open")
+                ) { Text("Ler os Termos oficiais") }
+            }
             when {
                 status.failed -> Text("Não foi possível verificar os Termos no servidor. Verifique a conexão.")
                 !status.loaded -> CircularProgressIndicator()
@@ -166,10 +196,6 @@ internal fun CommunityTermsConsent(
                 status.accepted -> Text("Você aceitou a versão vigente da Política da Comunidade.")
                 else -> {
                     Text("Para publicar ou responder, leia os Termos oficiais e registre seu aceite.")
-                    TextButton(onClick = { uriHandler.openUri(policy.url) },
-                        modifier = Modifier.testTag("atrio-community-terms-open")) {
-                        Text("Ler os Termos oficiais")
-                    }
                     Row {
                         Checkbox(checked = confirmed,
                             onCheckedChange = { confirmed = it },
