@@ -41,7 +41,7 @@ async function qaHostedProviderAuthorized(db){
 async function qaHostedProviderPreflight(db){
   const states=await db.prepare(
     "SELECT uid,state FROM qa_privileged_accounts ORDER BY uid"
-  ).all();
+  ).bind().all();
   if(!Array.isArray(states?.results)||states.results.length!==2||
      states.results[0].uid!==QA_HOSTED_PROVIDER_UID||
      states.results[1].uid!==QA_HOSTED_PROVIDER_NEIGHBOR||
