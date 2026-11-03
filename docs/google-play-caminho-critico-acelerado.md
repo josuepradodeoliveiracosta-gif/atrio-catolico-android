@@ -342,3 +342,28 @@ todos os nomes descobertos no primeiro nível pertencem à allowlist.
 `directRootSubcollectionDiscoveryComplete` permitem inspecionar a
 cobertura parcial sem apresentar ausência global de órfãos. A
 autorização de exclusão segue bloqueada.
+
+
+## Auditoria recursiva de descendentes Firestore próprios — 03/11/2026
+
+A partir da PR #71, o adaptador REST de auditoria pode **ler**, sob
+`OWNED_ROOTS/{uid}`, nomes de coleções e páginas de documentos
+descendentes, recusando qualquer caminho fora do UID autorizado. A
+listagem usa `showMissing=true` na API Firestore, para descobrir
+pais sem documento que ainda possuem subcoleções órfãs.
+
+`inventoryOwnedDocuments` percorre essas coleções por fila, com
+paginação/cursor estritos, limites de profundidade, total de documentos
+e de coleções. Descobre caminhos até o limite e **falha fechado**
+diante de profundidade excessiva, dados de outra conta ou paginação
+ambígua. Uma leitura `listCollectionIds` usa POST por especificação
+do REST do Firestore, mas não faz escritas. Adaptadores legados sem
+essa capacidade seguem no inventário incompleto.
+
+`ownedNestedTreeScanComplete` identifica apenas a **varredura dos
+descendentes dentro de raízes próprias conhecidas**; nunca comprova
+todas as coleções globais ou relacionais. `pagesComplete:false`,
+`hasUnknownCollections:true`, `safeToExecute:false` e os bloqueios
+de IAM/retencão/Cloudinary/FCM/Auth permanecem. Testes sintéticos
+cobrem netos órfãos, sessão de outra conta, cursor inválido e excesso
+de profundidade. Nenhuma conta ou dado real foi consultado.

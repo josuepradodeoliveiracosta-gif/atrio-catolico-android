@@ -14,6 +14,7 @@ import {
 const PAGE_SIZE=100;
 const MAX_PAGES=200;
 const MAX_DOCUMENTS=20_000;
+const MAX_DOCUMENT_SEGMENTS=12;
 const TOKEN_PATTERN=/^[A-Za-z0-9_+\/=.-]{1,2048}$/;
 const PART=/^[A-Za-z0-9_-]{1,160}$/;
 
@@ -113,6 +114,87 @@ async function listBounded(adapter,collection) {
   throw Error('pagination_limit_exceeded');
 }
 
+
+/**
+ * Varre todas as coleções de primeiro nível descobertas e, para CADA
+ * documento, descobre e percorre seus filhos até o limite explícito.
+ * getDoc não é usado: listDocuments(showMissing=true) alcança documentos
+ * pais ausentes que ainda possuem netos órfãos.
+ *
+ * A lista é somente de caminhos, sem campos de documentos nem exclusão.
+ */
+export async function discoverOwnedNestedDocuments(uid,adapter,topology) {
+  if(!validUid(uid))throw Error('invalid_uid');
+  if(typeof adapter?.listChildCollections!=='function' ||
+     typeof adapter?.listPage!=='function' ||
+     topology?.uid!==uid || topology?.readOnly!==true)
+    throw Error('invalid_nested_audit_context');
+  const collections=[];
+  for(const root of OWNED_ROOTS) {
+    const ids=topology.discovered?.[root];
+    if(!Array.isArray(ids))throw Error('invalid_nested_root_topology');
+    for(const id of ids) {
+      if(typeof id!=='string' || !COLLECTION_ID.test(id))
+        throw Error('invalid_nested_collection');
+      collections.push(root+'/'+uid+'/'+id);
+    }
+  }
+  if(collections.length>MAX_DOCUMENTS)throw Error('nested_collection_limit');
+  const seenCollections=new Set(),seenDocuments=new Set();
+  const documents=[];
+  let nestedCollections=0;
+  for(let index=0;index<collections.length;index++) {
+    const name=collections[index];
+    const parts=name.split('/');
+    if(parts.length>MAX_DOCUMENT_SEGMENTS-1 ||
+       seenCollections.has(name))
+      throw Error('nested_collection_invalid_or_duplicate');
+    seenCollections.add(name);
+    if(parts.length>3)nestedCollections++;
+    const current=await listBounded(adapter,name);
+    for(const path of current) {
+      const segments=path.split('/');
+      if(segments.length>MAX_DOCUMENT_SEGMENTS || seenDocuments.has(path))
+        throw Error('nested_document_invalid_or_duplicate');
+      seenDocuments.add(path);
+      documents.push(path);
+      if(documents.length>MAX_DOCUMENTS)
+        throw Error('nested_document_limit');
+      // Paginação estrita inclusive sob pais ausentes.
+      const ids=new Set(),tokens=new Set();
+      let cursor=null,complete=false;
+      for(let page=0;page<MAX_PAGES;page++) {
+        const result=await adapter.listChildCollections(path,cursor,PAGE_SIZE);
+        if(!result || typeof result!=='object' || Array.isArray(result) ||
+           !Object.hasOwn(result,'collectionIds') ||
+           !Object.hasOwn(result,'nextPageToken') ||
+           Object.keys(result).some(k=>k!=='collectionIds' && k!=='nextPageToken') ||
+           !Array.isArray(result.collectionIds) ||
+           result.collectionIds.length>PAGE_SIZE)
+          throw Error('invalid_nested_subcollection_page');
+        for(const id of result.collectionIds) {
+          if(typeof id!=='string' || !COLLECTION_ID.test(id) || ids.has(id))
+            throw Error('invalid_nested_subcollection_id');
+          ids.add(id);
+          if(segments.length>=MAX_DOCUMENT_SEGMENTS)
+            throw Error('nested_depth_limit');
+          collections.push(path+'/'+id);
+          if(collections.length>MAX_DOCUMENTS)
+            throw Error('nested_collection_limit');
+        }
+        const token=result.nextPageToken;
+        if(token===null){complete=true;break;}
+        if(typeof token!=='string' || !TOKEN_PATTERN.test(token) || tokens.has(token))
+          throw Error('invalid_nested_subcollection_cursor');
+        tokens.add(token);cursor=token;
+      }
+      if(!complete)throw Error('nested_subcollection_pagination_limit');
+    }
+  }
+  return Object.freeze({uid,documents,nestedCollections,
+    treeScanComplete:true,readOnly:true});
+}
+
 export async function inventoryOwnedDocuments(uid,adapter) {
   if(!validUid(uid)) throw Error('invalid_uid');
   if(typeof adapter?.getDocument!=='function' ||
@@ -124,24 +206,28 @@ export async function inventoryOwnedDocuments(uid,adapter) {
     if(typeof exists!=='boolean') throw Error('invalid_document_response');
     if(exists) documents.push({path,kind:'owned'});
   }
-  for(const child of USER_SUBCOLLECTIONS) {
-    // Mesmo que /users/{uid} não exista, suas subcoleções podem persistir.
-    const collection='users/'+uid+'/'+child;
-    for(const path of await listBounded(adapter,collection))
-      documents.push({path,kind:'owned'});
-  }
-  for(const child of GUARDIAN_SUBCOLLECTIONS) {
-    const collection='guardian_notices/'+uid+'/'+child;
-    for(const path of await listBounded(adapter,collection))
-      documents.push({path,kind:'owned'});
-  }
-  if(documents.length>MAX_DOCUMENTS) throw Error('inventory_too_large');
-
-  // Contrato antigo sem descoberta continua bloqueado, jamais assume vazio.
-  // Quando disponível, detectar nomes inesperados sob TODOS os pais
-  // conhecidos, não apenas users e guardian_notices.
+  // Com RPC de descoberta disponível, fazer varredura profunda e única;
+  // sem ela, manter apenas leitura conhecida e sinalizar lacunas.
   const topology=typeof adapter.listChildCollections==='function'
     ? await discoverOwnedSubcollectionIds(uid,adapter) : null;
+  const nested=topology
+    ? await discoverOwnedNestedDocuments(uid,adapter,topology) : null;
+  if(nested) {
+    for(const path of nested.documents)
+      documents.push({path,kind:'owned'});
+  }else{
+    for(const child of USER_SUBCOLLECTIONS) {
+      const collection='users/'+uid+'/'+child;
+      for(const path of await listBounded(adapter,collection))
+        documents.push({path,kind:'owned'});
+    }
+    for(const child of GUARDIAN_SUBCOLLECTIONS) {
+      const collection='guardian_notices/'+uid+'/'+child;
+      for(const path of await listBounded(adapter,collection))
+        documents.push({path,kind:'owned'});
+    }
+  }
+  if(documents.length>MAX_DOCUMENTS) throw Error('inventory_too_large');
   return {
     uid,documents,
     // Estes escopos exigem a varredura relacional, de mídia e de Auth.
@@ -157,6 +243,10 @@ export async function inventoryOwnedDocuments(uid,adapter) {
       topology.unexpected.length>0,
     unknownDirectSubcollections:topology?.unexpected||[],
     directRootSubcollectionDiscoveryComplete:topology!==null,
+    ownedNestedTreeScanComplete:nested?.treeScanComplete===true,
+    nestedOwnedCollectionCount:nested?.nestedCollections||0,
+    // A árvore própria pode estar inventariada, mas escopos globais,
+    // referências cruzadas, mídia e Auth continuam NÃO homologados.
     contentReferencesUnresolved:true,
     mediaStateUncertain:true,
     directReadCompleted:true

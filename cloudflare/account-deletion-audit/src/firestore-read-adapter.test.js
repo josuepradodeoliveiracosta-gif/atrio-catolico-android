@@ -60,7 +60,7 @@ test('rejects unauthorized collection paths and page parameters without network'
   const fetcher=async()=>{throw Error('must_not_fetch');};
   const adapter=createFirestoreReadAdapter(uid,token,fetcher);
   for(const path of ['users/bob/notifications','posts','guardian_runtime/global',
-                     'users/alice_123/unknownCollection']) {
+                     'users/alice_123-other/unknownCollection']) {
     await assert.rejects(adapter.listPage(path),/disallowed_collection_query/);
   }
   await assert.rejects(adapter.listPage('users/'+uid+'/likedPosts',null,101),/disallowed_collection_query/);
@@ -165,7 +165,7 @@ test('read-only discovery enumerates orphaned collections via Firestore listColl
 test('subcollection discovery is limited to exact owner roots with strict response schema',async()=>{
   const address='users/'+uid;
   const adapter=createFirestoreReadAdapter(uid,token,async()=>json({collectionIds:[]}));
-  for(const invalid of ['users/bob','users/'+uid+'/pushDevices/child',
+  for(const invalid of ['users/bob','users/'+uid+'/pushDevices',
                         'posts/'+uid,'app_config/founder']) {
     await assert.rejects(adapter.listChildCollections(invalid),
       /disallowed_collection_discovery/);
@@ -191,4 +191,41 @@ test('subcollection discovery is limited to exact owner roots with strict respon
   }
   const missing=createFirestoreReadAdapter(uid,token,async()=>new Response('',{status:503}));
   await assert.rejects(missing.listChildCollections(address),/firestore_discovery_failed/);
+});
+
+test('nested owned collections are readable but foreign siblings are denied',async()=>{
+  const calls=[];
+  const adapter=createFirestoreReadAdapter(uid,token,async(url,options)=>{
+    calls.push({url,options});
+    if(url.endsWith(':listCollectionIds'))
+      return json({collectionIds:['deepChildren']});
+    return json({documents:[{name:ROOT+
+      'users/'+uid+'/notifications/missingParent/deepChildren/nestedLeaf'}]});
+  });
+  const parent='users/'+uid+'/notifications/missingParent';
+  const child=parent+'/deepChildren';
+  assert.deepEqual((await adapter.listChildCollections(parent)).collectionIds,['deepChildren']);
+  assert.deepEqual((await adapter.listPage(child)).paths,[child+'/nestedLeaf']);
+  assert.ok(calls.find(x=>x.url.includes('showMissing=true')));
+  for(const bad of [
+    'users/bob/notifications/missingParent/deepChildren',
+    'users/'+uid+'/notifications/missingParent/deepChildren/nestedLeaf',
+    'users/'+uid+'/notifications/missingParent/deepChildren/nestedLeaf/great/grand/too/deep'
+  ]) {
+    await assert.rejects(adapter.listPage(bad),/disallowed_collection_query/);
+  }
+  await assert.rejects(adapter.listChildCollections(
+    'users/bob/notifications/hidden'),/disallowed_collection_discovery/);
+});
+test('nested Firestore listing validates response owner and depth',async()=>{
+  const child='users/'+uid+'/notifications/a/deep';
+  const foreign=createFirestoreReadAdapter(uid,token,async()=>json({
+    documents:[{name:ROOT+'users/bob/notifications/a/deep/z'}]
+  }));
+  await assert.rejects(foreign.listPage(child),/unexpected_firestore_resource/);
+  const missingParent=createFirestoreReadAdapter(uid,token,async(url)=>{
+    assert.match(url,/showMissing=true/);
+    return json({documents:[{name:ROOT+child+'/orphan'}]});
+  });
+  assert.deepEqual((await missingParent.listPage(child)).paths,[child+'/orphan']);
 });

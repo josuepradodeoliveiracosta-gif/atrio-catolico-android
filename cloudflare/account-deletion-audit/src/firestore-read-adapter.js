@@ -5,8 +5,7 @@
  */
 import {validUid} from './plan.js';
 import {readBoundedFirestoreJson} from './bounded-firestore-response.js';
-import {OWNED_ROOTS,USER_SUBCOLLECTIONS,GUARDIAN_SUBCOLLECTIONS}
-  from './deletion-orchestrator.js';
+import {OWNED_ROOTS} from './deletion-orchestrator.js';
 
 const ROOT='https://firestore.googleapis.com/v1/projects/atrio-catolico/databases/(default)/documents';
 const MAX_RESPONSE=2_000_000;
@@ -15,9 +14,18 @@ const KEY=/^[A-Za-z0-9_-]{1,160}$/;
 const tokenOK=cursor=>typeof cursor==='string' &&
   /^[A-Za-z0-9_+\/=.-]{1,2048}$/.test(cursor);
 
-function fixedCollection(uid,value) {
-  return USER_SUBCOLLECTIONS.some(x=>value==='users/'+uid+'/'+x) ||
-    GUARDIAN_SUBCOLLECTIONS.some(x=>value==='guardian_notices/'+uid+'/'+x);
+// Escopo de leitura restrito à árvore de uma única conta.
+ // Um nome inesperado, mas pertencente ao UID, deve ser descoberto
+ // pelo inventário em vez de ser ignorado por uma allowlist estática.
+const MAX_DOCUMENT_SEGMENTS=12;
+function ownedPath(uid,value,document) {
+  if(typeof value!=='string' || value.length>1900)return false;
+  const parts=value.split('/');
+  if(parts.length<(document?2:3) ||
+     parts.length>(document?MAX_DOCUMENT_SEGMENTS:MAX_DOCUMENT_SEGMENTS-1) ||
+     parts.length%2!==(document?0:1))return false;
+  return OWNED_ROOTS.includes(parts[0]) && parts[1]===uid &&
+    parts.every(part=>KEY.test(part));
 }
 
 function verifyRemoteName(name,collection) {
@@ -65,7 +73,7 @@ export function createFirestoreReadAdapter(uid,oauthToken,fetcher=fetch) {
     // apesar do verbo HTTP POST. Não adiciona documentos nem escreve dados.
     // Inspeciona inclusive pais ausentes, cujas subcoleções podem sobreviver.
     async listChildCollections(parent,cursor=null,pageSize=100) {
-      if(!OWNED_ROOTS.some(root=>parent===root+'/'+uid) ||
+      if(!ownedPath(uid,parent,true) ||
           !Number.isInteger(pageSize) || pageSize<1 || pageSize>100 ||
           (cursor!==null && !tokenOK(cursor)))
         throw Error('disallowed_collection_discovery');
@@ -96,10 +104,12 @@ export function createFirestoreReadAdapter(uid,oauthToken,fetcher=fetch) {
       return {collectionIds:collections,nextPageToken:json.nextPageToken??null};
     },
     async listPage(collection,cursor=null,pageSize=100) {
-      if(!fixedCollection(uid,collection) || !Number.isInteger(pageSize) ||
+      if(!ownedPath(uid,collection,false) || !Number.isInteger(pageSize) ||
           pageSize<1 || pageSize>100 || (cursor!==null && !tokenOK(cursor)))
         throw Error('disallowed_collection_query');
-      const query=new URLSearchParams({pageSize:String(pageSize)});
+      // showMissing inclui pais sem documento cujas subcoleções sobrevivem.
+      // Sem isso, netos órfãos poderiam não ser alcançados na recursão.
+      const query=new URLSearchParams({pageSize:String(pageSize),showMissing:'true'});
       if(cursor) query.set('pageToken',cursor);
       const json=await responseJson(ROOT+'/'+collection.split('/').map(encodeURIComponent).join('/')+
         '?'+query.toString());

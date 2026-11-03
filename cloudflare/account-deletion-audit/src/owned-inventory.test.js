@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {inventoryOwnedDocuments,discoverOwnedSubcollectionIds} from './owned-inventory.js';
+import {inventoryOwnedDocuments,discoverOwnedSubcollectionIds,discoverOwnedNestedDocuments}
+  from './owned-inventory.js';
 import {buildDeletionPlan} from './deletion-orchestrator.js';
 
 const uid='alice_123';
@@ -211,4 +212,86 @@ test('unknown subcollection pagination, duplicate IDs and bad metadata fail clos
   })};
   await assert.rejects(discoverOwnedSubcollectionIds(uid,adapter),
     /invalid_subcollection_cursor/);
+});
+
+test('recursive owned audit traverses grandchildren and missing document parents',async()=>{
+  const lists=new Map([
+    ['users/'+uid,['notifications']],
+    ['users/'+uid+'/notifications/missing',['hiddenChild']],
+    ['users/'+uid+'/notifications/missing/hiddenChild/deep',['leaf']]
+  ]);
+  const documents=new Map([
+    ['users/'+uid+'/notifications',['users/'+uid+'/notifications/missing']],
+    ['users/'+uid+'/notifications/missing/hiddenChild',[
+      'users/'+uid+'/notifications/missing/hiddenChild/deep']],
+    ['users/'+uid+'/notifications/missing/hiddenChild/deep/leaf',[
+      'users/'+uid+'/notifications/missing/hiddenChild/deep/leaf/final']]
+  ]);
+  const visited=[];
+  const adapter={
+    getDocument:async()=>false,
+    listChildCollections:async(parent)=>({
+      collectionIds:lists.get(parent)||[],nextPageToken:null
+    }),
+    listPage:async(name)=>{
+      visited.push(name);
+      return {paths:documents.get(name)||[],nextPageToken:null};
+    }
+  };
+  const result=await inventoryOwnedDocuments(uid,adapter);
+  assert.equal(result.ownedNestedTreeScanComplete,true);
+  assert.equal(result.nestedOwnedCollectionCount,2);
+  assert.equal(result.pagesComplete,false);
+  assert.equal(result.hasUnknownCollections,true);
+  assert.deepEqual(result.documents.map(x=>x.path),[
+    'users/'+uid+'/notifications/missing',
+    'users/'+uid+'/notifications/missing/hiddenChild/deep',
+    'users/'+uid+'/notifications/missing/hiddenChild/deep/leaf/final'
+  ]);
+  assert.ok(visited.includes('users/'+uid+'/notifications/missing/hiddenChild'));
+});
+test('deep traversal rejects malformed nested cursor before treating tree as complete',async()=>{
+  const topology=await discoverOwnedSubcollectionIds(uid,{
+    listChildCollections:async parent=>({
+      collectionIds:parent==='users/'+uid?['notifications']:[],
+      nextPageToken:null
+    })
+  });
+  const adapter={
+    listPage:async name=>({
+      paths:name==='users/'+uid+'/notifications'?
+        ['users/'+uid+'/notifications/a']:[],nextPageToken:null
+    }),
+    listChildCollections:async parent=>parent==='users/'+uid+'/notifications/a'?
+      {collectionIds:[],nextPageToken:''}:
+      {collectionIds:[],nextPageToken:null}
+  };
+  await assert.rejects(discoverOwnedNestedDocuments(uid,adapter,topology),
+    /invalid_nested_subcollection_cursor/);
+});
+test('no recursive audit may proceed past depth or ownership bounds',async()=>{
+  const topology=await discoverOwnedSubcollectionIds(uid,{
+    listChildCollections:async parent=>({
+      collectionIds:parent==='users/'+uid?['notifications']:[],
+      nextPageToken:null
+    })
+  });
+  const adapter={
+    listPage:async name=>({
+      paths:[name+'/a'],nextPageToken:null
+    }),
+    listChildCollections:async()=>({
+      collectionIds:['nested'],nextPageToken:null
+    })
+  };
+  await assert.rejects(discoverOwnedNestedDocuments(uid,adapter,topology),
+    /nested_depth_limit/);
+  const invalid={
+    ...adapter,
+    listPage:async name=>({
+      paths:[name.replace('users/'+uid,'users/bob')+'/a'],nextPageToken:null
+    })
+  };
+  await assert.rejects(discoverOwnedNestedDocuments(uid,invalid,topology),
+    /unexpected_collection_document/);
 });
