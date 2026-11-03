@@ -15,18 +15,18 @@ const KINDS=Object.freeze([
   'avatar_d1_pointer','cloudinary_qa_pointer',
   'push_registration_pointer'
 ]);
-const CASE=/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
+const QA_PROVIDER_CASE_RE=/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
 const deny=reason=>{throw Error('qa_provider_fixture_denied:'+reason)};
 function safeUidCase(uid,caseId){
-  if(!stageFixtureUid(uid)||typeof caseId!=='string'||!CASE.test(caseId))
+  if(!stageFixtureUid(uid)||typeof caseId!=='string'||!QA_PROVIDER_CASE_RE.test(caseId))
     deny('untrusted_identity');
 }
-async function first(db,sql,...args){
-  const x=await db.prepare(sql).bind(...args).first();
+async function qaProviderFirst(db,sql,...args){
+  const x=await db.prepare(sql).bind(...args).qaProviderFirst();
   if(x===undefined)deny('unknown_d1_read');
   return x;
 }
-async function rows(db,sql,...args){
+async function qaProviderRows(db,sql,...args){
   const r=await db.prepare(sql).bind(...args).all();
   if(!r||!Array.isArray(r.results))deny('unknown_d1_rows');
   return r.results;
@@ -36,7 +36,7 @@ function exactCount(value){
   return value;
 }
 async function currentGate(db,uid,caseId){
-  const row=await first(db,
+  const row=await qaProviderFirst(db,
     "SELECT a.state,c.case_id,c.step,"+
     "(SELECT COUNT(*) FROM qa_privileged_operations WHERE uid=a.uid) AS pending,"+
     "(SELECT COUNT(*) FROM qa_provider_fixture_holds WHERE uid=a.uid) AS holds "+
@@ -48,7 +48,7 @@ async function currentGate(db,uid,caseId){
     deny('fence_case_or_retention');
 }
 async function manifest(db,uid){
-  const items=await rows(db,
+  const items=await qaProviderRows(db,
     "SELECT kind,fixture_ref FROM qa_provider_fixture_refs WHERE uid=? ORDER BY kind",uid);
   if(items.length!==KINDS.length ||
      items.some((item,i)=>item.kind!==[...KINDS].sort()[i] ||
@@ -57,9 +57,9 @@ async function manifest(db,uid){
     deny('manifest_incomplete_or_unknown');
 }
 async function independentPostcheck(db,uid,caseId){
-  const m=await first(db,
+  const m=await qaProviderFirst(db,
     "SELECT COUNT(*) AS n FROM qa_provider_fixture_refs WHERE uid=?",uid);
-  const j=await first(db,
+  const j=await qaProviderFirst(db,
     "SELECT case_id FROM qa_provider_fixture_reconciliations WHERE uid=?",uid);
   if(exactCount(m?.n)!==0||j?.case_id!==caseId)
     deny('residual_or_ambiguous_effect');
@@ -85,7 +85,7 @@ export async function reconcileQaProviderFixture(db,{
     await currentGate(db,uid,caseId);
   };
   await reauthorize();
-  const prior=await first(db,
+  const prior=await qaProviderFirst(db,
     "SELECT case_id FROM qa_provider_fixture_reconciliations WHERE uid=?",uid);
   if(prior){
     if(prior.case_id!==caseId)deny('case_conflict');

@@ -14,6 +14,8 @@ import {createQaDeletionCaseLedger,QA_DELETION_PHASES}
   from './deletion-case-ledger.js';
 import {runHostedCanary,validHostedCanary}
   from './hosted-canary.js';
+import {runQaHostedProviderDrill}
+  from './qa-hosted-provider-drill.js';
 import {
   STAGE_HOST,STAGE_ID,STAGE_ROLES,stageNonceOk,
   stageFixtureUid,strictStageKey
@@ -184,6 +186,21 @@ async function reconcile(db,barrier,operationId){
   await barrier.complete(ticket,{verified:async()=>true});
 }
 export default {
+  // Hosted D1 fixture drill: private scheduled entrypoint only.
+  async scheduled(controller,env){
+    if(env?.ATRIO_PRIVACY_STAGE_ID!==STAGE_ID||
+       typeof env?.STAGE_FREEZE_DB?.prepare!=='function'||
+       typeof env?.STAGE_FREEZE_DB?.batch!=='function'||
+       !keysReady(env))return;
+    try{
+      await runQaHostedProviderDrill(env.STAGE_FREEZE_DB,{
+        cron:controller?.cron,scheduledTime:controller?.scheduledTime
+      });
+    }catch{
+      // Fail closed; inspect the D1 one-shot ledger instead of auto-retry.
+      console.warn('qa_hosted_provider_drill_not_verified');
+    }
+  },
   async fetch(request,env){
     // The Worker must be *internal only*: workers_dev=false and no routes
     // in a dedicated staging account/configuration. No public URL.
