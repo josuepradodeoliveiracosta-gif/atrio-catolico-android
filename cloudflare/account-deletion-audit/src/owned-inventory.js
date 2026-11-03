@@ -148,10 +148,15 @@ export async function inventoryOwnedDocuments(uid,adapter) {
     pagesComplete:false,
     scopesComplete:[],
     externalResources:[],
-    hasUnknownCollections:topology===null || topology.unexpected.length>0,
-    // Não mostrar valores ou conteúdo de documentos; caminhos são internos.
-    unknownSubcollections:topology?.unexpected||[],
-    subcollectionDiscoveryComplete:topology!==null,
+    // Esta descoberta cobre apenas o primeiro nível abaixo dos pais
+    // conhecidos. Documentos nas subcoleções podem ter OUTROS descendentes.
+    // Não afirmar ausência global de coleções desconhecidas sem auditoria
+    // recursiva separada e validação de todos os escopos.
+    hasUnknownCollections:true,
+    hasUnknownDirectSubcollections:topology===null ||
+      topology.unexpected.length>0,
+    unknownDirectSubcollections:topology?.unexpected||[],
+    directRootSubcollectionDiscoveryComplete:topology!==null,
     contentReferencesUnresolved:true,
     mediaStateUncertain:true,
     directReadCompleted:true

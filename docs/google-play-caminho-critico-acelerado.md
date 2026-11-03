@@ -331,3 +331,14 @@ subcoleções não previstas. Se o adaptador não oferecer a nova operação,
 bloqueios: ainda faltam dados relacionais, mídia, retenção, IAM e
 processamento real. Os testes exercitam um pai ausente com subcoleções
 órfãs, IDs inesperados e cursor irregular sem acessar o Firebase real.
+
+
+**Precisão da cobertura:** a descoberta acima só audita os nomes de
+subcoleções **diretamente sob cada documento raiz conhecido**, não os
+netos ou níveis profundos sob documentos filhos. Por isso a auditoria
+mantém obrigatoriamente `hasUnknownCollections:true`, mesmo quando
+todos os nomes descobertos no primeiro nível pertencem à allowlist.
+`hasUnknownDirectSubcollections` e
+`directRootSubcollectionDiscoveryComplete` permitem inspecionar a
+cobertura parcial sem apresentar ausência global de órfãos. A
+autorização de exclusão segue bloqueada.

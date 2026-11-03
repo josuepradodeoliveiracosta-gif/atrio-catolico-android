@@ -159,9 +159,10 @@ test('discovers unknown orphaned child collections even when root document is ab
     return {collectionIds:[],nextPageToken:null};
   };
   const result=await inventoryOwnedDocuments(uid,adapter);
-  assert.equal(result.subcollectionDiscoveryComplete,true);
+  assert.equal(result.directRootSubcollectionDiscoveryComplete,true);
   assert.equal(result.hasUnknownCollections,true);
-  assert.deepEqual(result.unknownSubcollections.sort(),[
+  assert.equal(result.hasUnknownDirectSubcollections,true);
+  assert.deepEqual(result.unknownDirectSubcollections.sort(),[
     'profile_photos/'+uid+'/oldMediaJobs',
     'users/'+uid+'/hiddenLegacy'
   ].sort());
@@ -178,13 +179,17 @@ test('known subcollections can be discovered without declaring full deletion rea
   // Some roots have no declared child namespaces: this remains an unknown.
   const blocked=await inventoryOwnedDocuments(uid,adapter);
   assert.equal(blocked.hasUnknownCollections,true);
+  assert.equal(blocked.hasUnknownDirectSubcollections,true);
   adapter.listChildCollections=async(parent)=>({
     collectionIds:parent==='users/'+uid?['pushDevices','notifications']:[],
     nextPageToken:null
   });
   const result=await inventoryOwnedDocuments(uid,adapter);
-  assert.equal(result.hasUnknownCollections,false);
-  assert.equal(result.subcollectionDiscoveryComplete,true);
+  assert.equal(result.hasUnknownDirectSubcollections,false);
+  assert.equal(result.directRootSubcollectionDiscoveryComplete,true);
+  // Ausência de filhos desconhecidos no nível raiz NÃO exclui netos
+  // ou novas coleções legadas sob documentos dos filhos.
+  assert.equal(result.hasUnknownCollections,true);
   assert.equal(result.pagesComplete,false);
 });
 test('unknown subcollection pagination, duplicate IDs and bad metadata fail closed',async()=>{
