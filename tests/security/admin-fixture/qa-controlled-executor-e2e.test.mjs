@@ -10,6 +10,11 @@ import {initializeApp,deleteApp} from 'firebase-admin/app';
 import {getAuth} from 'firebase-admin/auth';
 import {getFirestore} from 'firebase-admin/firestore';
 import {DatabaseSync} from 'node:sqlite';
+import {mkdtempSync,chmodSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {createQaPersistentDeletionLedger}
+  from '../../../cloudflare/account-deletion-processor/src/qa-persistent-case-ledger.js';
 import {scrubQaAvatarD1}
   from '../../../cloudflare/account-deletion-processor/src/qa-avatar-d1-cleanup.js';
 import {
@@ -37,6 +42,7 @@ guard();
 const account=initializeApp({projectId:PROJECT},'controlled-e2e-only');
 const auth=getAuth(account),db=getFirestore(account);
 let avatarDb=null;
+let journalDb=null,journalDir=null,journalPath=null;
 const aliceOwned=[
   'users/'+ALICE+'/pushDevices/device-a',
   'users/'+ALICE+'/notifications/notice-a',
@@ -98,6 +104,16 @@ try{
         .get(ALICE).n===0) &&
       avatarDb.prepare('SELECT COUNT(*) AS n FROM avatar_moderation WHERE actor_uid=? OR target_uid=?')
         .get(ALICE,ALICE).n===0;
+    // The real Firebase SDK integration now uses a DURABLE, private journal,
+    // rather than an in-memory checkpoint array. The array below is only
+    // an independent assertion log, never the source of authorization.
+    journalDir=mkdtempSync(join(tmpdir(),'atrio-qa-delete-ledger-'));
+    journalPath=join(journalDir,'ledger.sqlite');
+    journalDb=new DatabaseSync(journalPath);
+    chmodSync(journalPath,0o600);
+    const journal=createQaPersistentDeletionLedger({
+      projectId:PROJECT,db:journalDb
+    });
     const ledger=[],effects=[],avatarCloudinary=new Set([ALICE_AVATAR,BOB_AVATAR]);
     const fcm=new Set(['token-alice']);
     const ctxCheck=x=>{
@@ -116,12 +132,13 @@ try{
         }
       },
       ledger:{
-        async acquire(x){ctxCheck(x);return {epoch:1,completed:[...ledger]};},
-        async check(x){ctxCheck(x);return x.epoch===1;},
+        async acquire(x){ctxCheck(x);return journal.acquire(x);},
+        async check(x){ctxCheck(x);return journal.check(x);},
         async complete(x){
           ctxCheck(x);
-          if(x.phase!==CONTROLLED_DELETION_PHASES[ledger.length])return false;
-          ledger.push(x.phase);return true;
+          const ok=await journal.complete(x);
+          if(ok)ledger.push(x.phase);
+          return ok;
         }
       },
       freeze:{
@@ -216,6 +233,9 @@ try{
     const result=await executor.run({uid:ALICE,caseId:CASE});
     assert.equal(result.state,'isolated_qa_deletion_reconciled');
     assert.deepEqual(ledger,CONTROLLED_DELETION_PHASES);
+    assert.deepEqual((await journal.status({uid:ALICE,caseId:CASE})).completed,
+      CONTROLLED_DELETION_PHASES);
+    assert.equal((await journal.status({uid:ALICE,caseId:CASE})).state,'complete');
     assert.equal(await authExists(ALICE),false);
     assert.equal(await authExists(BOB),true);
     assert.deepEqual(await readAll(aliceOwned),aliceOwned.map(()=>false));
@@ -230,7 +250,20 @@ try{
     assert.ok(effects.indexOf('auth-sdk')>effects.indexOf('firestore'));
     assert.ok(effects.indexOf('auth-sdk')>effects.indexOf('media-d1-sqlite'));
     assert.ok(effects.indexOf('auth-sdk')>effects.indexOf('fcm-stub'));
-    assert.equal((await executor.run({uid:ALICE,caseId:CASE})).completed,7);
+    // Simulate process restart: reload the case ledger from a fresh SQLite
+    // connection and re-verify all completed phases without re-deleting Auth.
+    journalDb.close();
+    journalDb=new DatabaseSync(journalPath);
+    chmodSync(journalPath,0o600);
+    const persisted=createQaPersistentDeletionLedger({
+      projectId:PROJECT,db:journalDb
+    });
+    backend.ledger=persisted;
+    const restarted=createControlledQaDeletionExecutor({
+      projectId:PROJECT,backend
+    });
+    assert.equal((await restarted.run({uid:ALICE,caseId:CASE})).completed,7);
+    assert.equal((await persisted.status({uid:ALICE,caseId:CASE})).state,'complete');
     assert.equal(effects.filter(x=>x==='auth-sdk').length,1);
     // Admin SDK bypasses Firestore Rules: prove that a participating writer
     // can observe the persisted freeze rather than resurrect the account.
@@ -245,4 +278,9 @@ try{
   // Node test() runs asynchronously after registration: cleanup belongs to
   // test.after(), not a surrounding synchronous finally block.
 }
-test.after(async()=>{avatarDb?.close();await deleteApp(account);});
+test.after(async()=>{
+  avatarDb?.close();
+  journalDb?.close();
+  if(journalDir)rmSync(journalDir,{recursive:true,force:true});
+  await deleteApp(account);
+});
