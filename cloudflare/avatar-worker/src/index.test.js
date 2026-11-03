@@ -282,7 +282,8 @@ test('status: freeze after remote Cloudinary read blocks public promotion',async
 });
 test('status: freeze during promotion compensates public image without profile write',async()=>{
   // The owner freezes during Cloudinary rename / profile retrieval.
-  const result=await qaAvatarStatusFixture([404,404,404,200]);
+  // An additional freeze check now precedes the external Cloudinary rename.
+  const result=await qaAvatarStatusFixture([404,404,404,404,200]);
   assert.equal(result.status,409);
   assert.equal(result.body.status,'account_deletion_in_progress');
   assert.equal(result.renames,1);
