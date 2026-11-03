@@ -54,6 +54,117 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # QA de políticas, privacidade e AAB em runners independentes. Não há
+  # needs: o resultado global do workflow exige sucesso dos três jobs,
+  # enquanto a compilação unsigned não depende da conclusão dos testes Node.
+  release-policy-gates:
+    # Parallel and required: workflow status fails if any of these jobs fail.
+    if: github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android'
+    name: Auditar política Play e bloqueios de assinatura
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Obter código sem token persistido
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Testar separacao dos gates de pre-assinatura e pos-envio sem segredos
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_play_release_gate.py' -v
+          python3 -m unittest discover -s scripts -p 'test_play_web_live_preflight.py' -v
+          python3 -m unittest discover -s scripts -p 'test_play_upload_certificate_check.py' -v
+          python3 -m unittest discover -s scripts -p 'test_play_app_signing_continuity.py' -v
+          python3 -m unittest discover -s scripts -p 'test_play_store_bundle_check.py' -v
+          python3 -m unittest discover -s scripts -p 'test_termux_firebase_play_audit.py' -v
+          python3 scripts/play_release_gate.py --audit
+      - name: Conferir que a assinatura manual valida HTTPS real sem segredos
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          workflow=Path('.github/workflows/play-signed-aab-manual.yml').read_text()
+          live='python3 scripts/play_web_live_preflight.py --check'
+          gate='python3 scripts/play_release_gate.py --enforce'
+          secret='Assinar AAB com chave existente somente no runner temporário'
+          assert workflow.count(live)==1
+          assert workflow.index(gate)<workflow.index(live)<workflow.index(secret)
+          print('OK: leitura de recursos públicos antes de qualquer assinatura')
+          PY
+      - name: Verificar sintaxe do futuro serviço Cloud Run sem inicializar credenciais
+        run: |
+          node --check ops/cloud-run-private-review/server.mjs
+          node --check cloudflare/account-deletion-audit/src/cloud-run-private-handler.js
+          test ! -f ops/cloud-run-private-review/.env
+          test ! -e ops/cloud-run-private-review/credentials.json
+      - name: Impedir publicação automática de rascunhos de privacidade
+        run: |
+          grep -q 'RASCUNHO INTERNO. NÃO PUBLICAR.' docs/google-play-politica-privacidade-minuta-nao-publicar.md
+          grep -q 'NÃO PREENCHER O FORMULÁRIO COMO DEFINITIVO' docs/google-play-seguranca-dados-matriz-revisao.md
+      - name: Garantir que a assinatura manual exige Auth/Firestore Emulator sem segredos
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          text = Path('.github/workflows/play-signed-aab-manual.yml').read_text()
+          required = (
+              "Exigir processamento real apenas no Auth e Firestore Emulator antes de assinar",
+              "admin-fixture/qa-admin-sdk-e2e.test.mjs",
+              "npx firebase emulators:exec --only firestore,auth --project demo-atrio-v11",
+              "test -z \"${GOOGLE_APPLICATION_CREDENTIALS:-}\"",
+              "test -z \"${FIREBASE_SERVICE_ACCOUNT_JSON:-}\"",
+          )
+          assert all(fragment in text for fragment in required)
+          assert text.index("Exigir processamento real apenas no Auth e Firestore Emulator antes de assinar") < text.index("Assinar AAB com chave existente somente no runner temporário")
+          print("OK: exclusão administrativa demo é obrigatória antes dos segredos de assinatura")
+          PY
+      - name: Preparar Node 22 para portal de privacidade sem deploy
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Testar autorização revogada antes do Auth no QA (sem Firebase)
+        shell: bash
+        run: |
+          # A fronteira de identidade exige um reconciliador injetado;
+          # estes testes usam apenas SQLite em memória e simulações.
+          node --experimental-sqlite --test tests/security/qa-deletion-auth-fence.test.mjs
+  account-deletion-qa:
+    # Parallel and required: workflow status fails if any of these jobs fail.
+    if: github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android'
+    name: Validar portal e exclusão QA sem credenciais
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Obter código sem token persistido
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Preparar Node 22 para portal de privacidade sem deploy
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validar alternativa de solicitação por atendimento público sem publicar
+        run: |
+          node --test cloudflare/account-deletion-support/build.test.mjs
+          node --test cloudflare/account-deletion-support/privacy-policy.test.mjs
+          node --test cloudflare/account-deletion-support/community-terms.test.mjs
+          node --test cloudflare/account-deletion-support/site-bundle.test.mjs
+          node --test cloudflare/account-deletion-support/public-request-worker.test.mjs
+          test ! -e cloudflare/account-deletion-support/bundle-dist/index.html
+          test ! -e cloudflare/account-deletion-support/dist/index.html
+          test ! -e cloudflare/account-deletion-support/policy-dist/privacidade/index.html
+          test ! -e cloudflare/account-deletion-support/terms-dist/termos/community-v1/index.html
+      - name: Testar portal de exclusão isolado e impedir habilitação de pedidos
+        run: |
+          node --check cloudflare/account-deletion-portal/public/app.js
+          npm --prefix cloudflare/account-deletion-portal test
+          test ! -e cloudflare/account-deletion-portal/public/config.js
+          test ! -e cloudflare/account-deletion-portal/dist/config.js
+      - name: Simular inventário de exclusão apenas em projeto fictício
+        run: |
+          npm --prefix cloudflare/account-deletion-processor test
+          test ! -e cloudflare/account-deletion-processor/dist
+      - name: Verificar inventário determinístico e checkpoints de exclusão sem escrita
+        run: npm --prefix cloudflare/account-deletion-audit test
   unsigned-play-bundle:
     if: github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android'
     runs-on: ubuntu-latest
@@ -90,86 +201,6 @@ jobs:
             git diff --name-only --diff-filter=ACDMRT -z "$BEFORE_SHA" "$PR_HEAD_SHA" > "$RUNNER_TEMP/play-changed-files.bin"
             python3 scripts/play_ci_android_scope.py --changed-file "$RUNNER_TEMP/play-changed-files.bin" >> "$GITHUB_OUTPUT"
           fi
-      - name: Testar separacao dos gates de pre-assinatura e pos-envio sem segredos
-        run: |
-          python3 -m unittest discover -s scripts -p 'test_play_release_gate.py' -v
-          python3 -m unittest discover -s scripts -p 'test_play_web_live_preflight.py' -v
-          python3 -m unittest discover -s scripts -p 'test_play_upload_certificate_check.py' -v
-          python3 -m unittest discover -s scripts -p 'test_play_app_signing_continuity.py' -v
-          python3 -m unittest discover -s scripts -p 'test_play_store_bundle_check.py' -v
-          python3 -m unittest discover -s scripts -p 'test_termux_firebase_play_audit.py' -v
-          python3 scripts/play_release_gate.py --audit
-      - name: Conferir que a assinatura manual valida HTTPS real sem segredos
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          workflow=Path('.github/workflows/play-signed-aab-manual.yml').read_text()
-          live='python3 scripts/play_web_live_preflight.py --check'
-          gate='python3 scripts/play_release_gate.py --enforce'
-          secret='Assinar AAB com chave existente somente no runner temporário'
-          assert workflow.count(live)==1
-          assert workflow.index(gate)<workflow.index(live)<workflow.index(secret)
-          print('OK: leitura de recursos públicos antes de qualquer assinatura')
-          PY
-      - name: Preparar Node 22 para portal de privacidade sem deploy
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Validar alternativa de solicitação por atendimento público sem publicar
-        run: |
-          node --test cloudflare/account-deletion-support/build.test.mjs
-          node --test cloudflare/account-deletion-support/privacy-policy.test.mjs
-          node --test cloudflare/account-deletion-support/community-terms.test.mjs
-          node --test cloudflare/account-deletion-support/site-bundle.test.mjs
-          node --test cloudflare/account-deletion-support/public-request-worker.test.mjs
-          test ! -e cloudflare/account-deletion-support/bundle-dist/index.html
-          test ! -e cloudflare/account-deletion-support/dist/index.html
-          test ! -e cloudflare/account-deletion-support/policy-dist/privacidade/index.html
-          test ! -e cloudflare/account-deletion-support/terms-dist/termos/community-v1/index.html
-      - name: Testar portal de exclusão isolado e impedir habilitação de pedidos
-        run: |
-          node --check cloudflare/account-deletion-portal/public/app.js
-          npm --prefix cloudflare/account-deletion-portal test
-          test ! -e cloudflare/account-deletion-portal/public/config.js
-          test ! -e cloudflare/account-deletion-portal/dist/config.js
-      - name: Simular inventário de exclusão apenas em projeto fictício
-        run: |
-          npm --prefix cloudflare/account-deletion-processor test
-          test ! -e cloudflare/account-deletion-processor/dist
-      - name: Verificar inventário determinístico e checkpoints de exclusão sem escrita
-        run: npm --prefix cloudflare/account-deletion-audit test
-      - name: Verificar sintaxe do futuro serviço Cloud Run sem inicializar credenciais
-        run: |
-          node --check ops/cloud-run-private-review/server.mjs
-          node --check cloudflare/account-deletion-audit/src/cloud-run-private-handler.js
-          test ! -f ops/cloud-run-private-review/.env
-          test ! -e ops/cloud-run-private-review/credentials.json
-      - name: Testar autorização revogada antes do Auth no QA (sem Firebase)
-        shell: bash
-        run: |
-          # A fronteira de identidade exige um reconciliador injetado;
-          # estes testes usam apenas SQLite em memória e simulações.
-          node --experimental-sqlite --test tests/security/qa-deletion-auth-fence.test.mjs
-      - name: Impedir publicação automática de rascunhos de privacidade
-        run: |
-          grep -q 'RASCUNHO INTERNO. NÃO PUBLICAR.' docs/google-play-politica-privacidade-minuta-nao-publicar.md
-          grep -q 'NÃO PREENCHER O FORMULÁRIO COMO DEFINITIVO' docs/google-play-seguranca-dados-matriz-revisao.md
-      - name: Garantir que a assinatura manual exige Auth/Firestore Emulator sem segredos
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          text = Path('.github/workflows/play-signed-aab-manual.yml').read_text()
-          required = (
-              "Exigir processamento real apenas no Auth e Firestore Emulator antes de assinar",
-              "admin-fixture/qa-admin-sdk-e2e.test.mjs",
-              "npx firebase emulators:exec --only firestore,auth --project demo-atrio-v11",
-              "test -z \"${GOOGLE_APPLICATION_CREDENTIALS:-}\"",
-              "test -z \"${FIREBASE_SERVICE_ACCOUNT_JSON:-}\"",
-          )
-          assert all(fragment in text for fragment in required)
-          assert text.index("Exigir processamento real apenas no Auth e Firestore Emulator antes de assinar") < text.index("Assinar AAB com chave existente somente no runner temporário")
-          print("OK: exclusão administrativa demo é obrigatória antes dos segredos de assinatura")
-          PY
       - name: Preparar Java 17
         if: steps.android_scope.outputs.android == 'true'
         uses: actions/setup-java@v4
@@ -201,7 +232,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "### Google Play — validação de candidato" >> "$GITHUB_STEP_SUMMARY"
-          echo "Testes de privacidade e release gate concluídos sem assinatura nem deploy." >> "$GITHUB_STEP_SUMMARY"
+          echo "Privacidade, exclusão e gates de assinatura são verificados em dois jobs paralelos obrigatórios, sem deploy." >> "$GITHUB_STEP_SUMMARY"
           if [[ "$ANDROID_SCOPE" == 'true' ]]; then
             echo "AAB Play recompilado e examinado nesta revisão, **sem assinatura ou publicação**." >> "$GITHUB_STEP_SUMMARY"
           else
