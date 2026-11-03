@@ -987,6 +987,16 @@ export default {
         if(!uidPart(recipient)||recipient===uid) continue;
         const list=await devices(token,recipient);
         if(!list.length) continue;
+        // Deletion may begin while we are listing pushDevices. A second,
+        // fail-closed read immediately before reserving a D1 delivery marker
+        // prevents delivery when the actor or recipient froze during lookup.
+        // This narrows the race, but does NOT replace distributed admission
+        // and draining of already-in-flight operations.
+        const [actorNowFrozen,recipientNowFrozen]=await Promise.all([
+          pushAccountFrozen(token,uid),
+          pushAccountFrozen(token,recipient),
+        ]);
+        if(actorNowFrozen||recipientNowFrozen) continue;
         // At most once: a network fault may lose a push, not duplicate or spam it.
         const marker=event.key+':'+recipient;
         const record=await env.PUSH_DB.prepare(

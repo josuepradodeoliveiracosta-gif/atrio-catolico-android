@@ -253,3 +253,116 @@ test('evento real de selo nao consulta dispositivos nem FCM para destinatario co
  assert.ok(calls.some(url=>url.endsWith('/account_deletion_freeze/membro')));
  assert.ok(!calls.some(url=>url.includes('/pushDevices')||url.includes('fcm.googleapis.com')));
 });
+
+
+test('congelamento entre consulta de dispositivos e reserva D1 bloqueia FCM',async()=>{
+ const calls=[],sqlCalls=[];
+ let recipientFreezeChecks=0;
+ const now=new Date(Date.now()-2000).toISOString();
+ const docsPrefix=PREFIX+'/users/membro/pushDevices';
+ const deviceRecord={
+  name:docsPrefix+'/qa-device-one',
+  updateTime:now,
+  fields:{token:{stringValue:'qa-fake-fcm-token-not-real-123456789'},
+   updatedAt:{timestampValue:now}}
+ };
+ globalThis.fetch=async(input,options={})=>{
+  const url=String(input);
+  calls.push({url,method:options.method||'GET'});
+  if(url.startsWith('https://identitytoolkit.googleapis.com/'))
+   return Response.json({users:[{localId:'revisor',disabled:false}]});
+  if(url==='https://oauth2.googleapis.com/token')
+   return Response.json({access_token:'qa-service-token',expires_in:3600});
+  if(url.endsWith('/admins/revisor'))
+   return Response.json({fields:{enabled:{booleanValue:true}}});
+  if(url.endsWith('/badge_requests/membro'))
+   return Response.json({fields:{status:{stringValue:'approved'},
+    reviewedBy:{stringValue:'revisor'},
+    reviewedAt:{timestampValue:now}}});
+  if(url.endsWith('/account_deletion_freeze/revisor'))
+   return Response.json({}, {status:404});
+  if(url.endsWith('/account_deletion_freeze/membro')){
+   recipientFreezeChecks++;
+   // Initially eligible; after the Worker reads pushDevices,
+   // another admin freezes the same synthetic account.
+   if(recipientFreezeChecks===1)return Response.json({}, {status:404});
+   return Response.json({fields:{state:{stringValue:'frozen'}}});
+  }
+  if(url.startsWith(docsPrefix+'?pageSize='))
+   return Response.json({documents:[deviceRecord]});
+  throw Error('late-freeze must prevent any FCM or unapproved HTTP request: '+url);
+ };
+ const db={prepare(sql){
+  sqlCalls.push(sql);
+  if(sql.startsWith('DELETE FROM delivered'))return{
+   bind(){return {async run(){return {meta:{changes:0}};}};}
+  };
+  throw Error('late-freeze must prevent D1 reservation');
+ }};
+ const env={PUSH_ENABLED:'true',PUSH_DB:db,
+  FIREBASE_WEB_API_KEY:'qa-only',
+  FIREBASE_SERVICE_ACCOUNT_JSON:service};
+ const request=new Request('https://test.invalid/event',{
+  method:'POST',headers:{Authorization:'Bearer '+'x'.repeat(120)},
+  body:JSON.stringify({type:'badge_result',targetUid:'membro'})
+ });
+ const response=await (await import('./index.js')).default.fetch(request,env);
+ assert.equal(response.status,202);
+ assert.deepEqual(await response.json(),{status:'no_devices_or_duplicate'});
+ assert.equal(recipientFreezeChecks,2);
+ assert.ok(calls.some(x=>x.url.startsWith(docsPrefix+'?pageSize=')));
+ assert.ok(!calls.some(x=>x.url.includes('fcm.googleapis.com')));
+ assert.ok(!sqlCalls.some(sql=>sql.startsWith('INSERT OR IGNORE INTO delivered')));
+});
+
+test('erro no segundo marcador após consultar devices bloqueia a entrega',async()=>{
+ const calls=[],sqlCalls=[];
+ let checks=0;
+ const now=new Date(Date.now()-2000).toISOString();
+ const devicePath=PREFIX+'/users/membro/pushDevices';
+ globalThis.fetch=async(input,options={})=>{
+  const url=String(input);calls.push(url);
+  if(url.startsWith('https://identitytoolkit.googleapis.com/'))
+   return Response.json({users:[{localId:'revisor',disabled:false}]});
+  if(url==='https://oauth2.googleapis.com/token')
+   return Response.json({access_token:'qa-service-token',expires_in:3600});
+  if(url.endsWith('/admins/revisor'))
+   return Response.json({fields:{enabled:{booleanValue:true}}});
+  if(url.endsWith('/badge_requests/membro'))
+   return Response.json({fields:{status:{stringValue:'approved'},
+    reviewedBy:{stringValue:'revisor'},reviewedAt:{timestampValue:now}}});
+  if(url.endsWith('/account_deletion_freeze/revisor'))
+   return Response.json({}, {status:404});
+  if(url.endsWith('/account_deletion_freeze/membro')){
+   checks++;
+   return Response.json({}, {status:checks===1?404:503});
+  }
+  if(url.startsWith(devicePath+'?pageSize='))
+   return Response.json({documents:[{
+    name:devicePath+'/qa-device-one',updateTime:now,
+    fields:{token:{stringValue:'qa-fcm-token-is-fake-only-123456789'},
+     updatedAt:{timestampValue:now}}
+   }]});
+  throw Error('no external delivery permitted: '+url);
+ };
+ const db={prepare(sql){
+  sqlCalls.push(sql);
+  if(sql.startsWith('DELETE FROM delivered'))return{
+   bind(){return {async run(){return {meta:{changes:0}};}};}
+  };
+  throw Error('should not reserve D1 after freeze read error');
+ }};
+ const env={PUSH_ENABLED:'true',PUSH_DB:db,
+  FIREBASE_WEB_API_KEY:'qa-only',
+  FIREBASE_SERVICE_ACCOUNT_JSON:service};
+ const request=new Request('https://test.invalid/event',{
+  method:'POST',headers:{Authorization:'Bearer '+'x'.repeat(120)},
+  body:JSON.stringify({type:'badge_result',targetUid:'membro'})
+ });
+ const response=await (await import('./index.js')).default.fetch(request,env);
+ assert.equal(response.status,503);
+ assert.deepEqual(await response.json(),{status:'unavailable'});
+ assert.equal(checks,2);
+ assert.ok(!calls.some(x=>x.includes('fcm.googleapis.com')));
+ assert.ok(!sqlCalls.some(x=>x.startsWith('INSERT OR IGNORE INTO delivered')));
+});
