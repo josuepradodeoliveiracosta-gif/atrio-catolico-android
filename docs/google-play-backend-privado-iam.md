@@ -182,3 +182,15 @@ mutável. Uma imagem de entrega precisará de uma base fixada por digest,
 SBOM, auditoria de dependências e digest imutável no Artifact Registry.
 O Terraform já exige digest imutável no parâmetro de imagem. Não há
 autorização para publicar contêiner, criar conta IAM ou implantar Cloud Run.
+
+
+## Validação estática Terraform na CI
+
+A workflow de QA do contêiner agora instala Terraform 1.14.6 e executa
+`terraform fmt -check`, `terraform init -backend=false` e
+`terraform validate`, sem credenciais Google e sem comandos `plan` ou
+`apply`. O resultado confirma somente a validade do código e dos
+atributos do provedor — **não** consulta permissões IAM reais, não
+cria recursos no projeto e não valida a conectividade de Cloud Run.
+O lock de provedor gerado deve ser versionado após revisão para impedir
+mudanças silenciosas de versão entre builds.

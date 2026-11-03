@@ -56,6 +56,30 @@ jobs:
         working-directory: ops/cloud-run-private-review
         shell: bash
         run: npm audit --omit=dev --audit-level=high
+      - name: Preparar Terraform CLI sem conta Cloud
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: '1.14.6'
+          terraform_wrapper: false
+      - name: Verificar formatação e sintaxe do Terraform (sem GCP)
+        shell: bash
+        working-directory: ops/cloud-run-private-review/infra
+        env:
+          TF_IN_AUTOMATION: 'true'
+          CHECKPOINT_DISABLE: '1'
+        run: |
+          set -euo pipefail
+          test -z "${GOOGLE_APPLICATION_CREDENTIALS:-}"
+          test -z "${GOOGLE_CREDENTIALS:-}"
+          test -z "${GCLOUD_PROJECT:-}"
+          terraform fmt -check -diff -no-color
+          terraform init -backend=false -input=false -no-color
+          terraform validate -no-color
+          test ! -d .terraform/terraform.tfstate
+          echo 'ATRIO_TERRAFORM_LOCK_BEGIN'
+          base64 -w 512 .terraform.lock.hcl
+          echo 'ATRIO_TERRAFORM_LOCK_END'
+          echo 'Terraform apenas validado: não houve plan/apply nem chamada a recursos reais.'
       - name: Construir imagem Docker apenas localmente, sem envio
         shell: bash
         run: |
