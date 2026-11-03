@@ -190,3 +190,43 @@ sem nova compilação manual ou execução de exclusão. A PR mantém
 um falso inventário aprovado, mas **não** implementa o tratamento
 jurídico nem a exclusão operacional; nenhuma alteração foi feita
 em contas reais, Auth, D1, Cloudinary, Rules publicadas ou main.
+
+
+## Ficha privada por denúncia/caso de moderação (03/11/2026)
+
+A auditoria de exclusão da PR #71 recebeu o módulo
+`qa-moderation-case-review.js`, sem capacidade de escrita ou remoção.
+Ele gera uma **ficha individual para cada documento** enumerado em
+`reports`, `user_reports`, `guardian_cases`, `guardian_audit` e
+`guardiao_quarantine`. O documento pode envolver o titular e
+terceiros; ser encontrado no inventário jamais autoriza sua exclusão.
+
+A rotina exige UID e escopos coerentes, inventário declarado completo,
+sem duplicatas, escopo alheio ou alteração silenciosa. O hash de
+inventário vincula o conjunto exato de caminhos à ficha; um novo caso
+invalida a revisão anterior. Para cada documento, registra uma
+**proposta**, nunca uma decisão legal definitiva: conservar até data
+justificada, propor anonimização ou propor exclusão, com base legal,
+análise de terceiros, revisão técnica e jurídica independentes,
+comprovante e plano de tratamento. Ao faltar qualquer campo, a ficha
+fica incompleta. Um resumo contém **apenas contagens**, sem nomes,
+identificadores ou URLs de casos.
+
+Uso **estritamente local**, com arquivo de inventário administrativo
+privado e sem credenciais no GitHub:
+
+```sh
+node cloudflare/account-deletion-audit/src/qa-moderation-case-review.js --template /caminho/privado/inventario.json > /caminho/privado/casos-moderacao.json
+node cloudflare/account-deletion-audit/src/qa-moderation-case-review.js --review /caminho/privado/inventario.json /caminho/privado/casos-moderacao.json
+```
+
+O inventário deve ser obtido de fonte administrativa confiável;
+`pagesComplete:true` fornecido em JSON **não comprova** uma varredura
+real. A identidade dos revisores e as bases legais também exigem
+autenticação e validação externa. A ficha **não** elimina nem libera
+casos no `buildDeletionPlan`: o bloqueio
+`moderation_evidence_requires_independent_resolution` continua
+obrigatório. Não cobre, por si, moderação no D1 Avatar nem referências
+legadas. Todos os sinalizadores de aprovação de exclusão, retenção,
+IAM e publicação na Play continuam falsos. Os testes usam apenas
+registros inventados na suíte Node preexistente.
