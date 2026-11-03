@@ -11,6 +11,10 @@ import {stageSignature,STAGE_HOST,STAGE_ID}
   from '../../privacy-freeze-stage/src/protocol.js';
 import {collectQaBroadcastInventory,runQaBroadcast,QA_BROADCAST_READINESS}
   from './qa-broadcast-inventory.js';
+import {QA_STAGE_WRITE_ROUTES,QA_STAGE_WRITE_COVERAGE,qaStageWriteGrant}
+  from '../../privacy-freeze-stage/src/write-route-grants.js';
+import {QA_MUTATION_ROUTES,qaCoverageSummary}
+  from './qa-worker-coverage-contract.js';
 
 const A='qa-freeze-alice',B='qa-freeze-bob';
 const roles=['avatar','guardian','push','admin','reconciler'];
@@ -437,4 +441,158 @@ test('QA-only inventory cannot accept a real actor or unsafe request identifiers
   await assert.rejects(collectQaBroadcastInventory({actorUid:A,
     readPage:async()=>({...qaRows.first,rows:[{uid:A,optedIn:true,
       token:'production-fcm-token'}]})}),/qa_broadcast_inventory_unverified/);
+});
+
+
+const qaWritePayload=(route,owner='qa-freeze-alice',peer='qa-freeze-bob')=>{
+  const grant=QA_STAGE_WRITE_ROUTES[route];
+  if(!grant)throw Error('qa_unreviewed_write_route');
+  const scope={};
+  for(const field of grant.keys.split(',')){
+    if(field==='ownerUid'||field==='actorUid')scope[field]=owner;
+    else if(field==='recipientUid')scope[field]=peer;
+    else if(field==='recipientUids')scope[field]=[peer];
+  }
+  return {route,scope};
+};
+test('15 candidate privileged write entrypoints have scoped QA-only grants',()=>{
+  const routes=Object.keys(QA_STAGE_WRITE_ROUTES);
+  assert.equal(routes.length,15);
+  assert.equal(routes.length,QA_MUTATION_ROUTES.length);
+  for(const role of ['avatar','guardian','push'])
+    assert.equal(routes.filter(route=>QA_STAGE_WRITE_ROUTES[route].role===role).length,
+      QA_MUTATION_ROUTES.filter(x=>x.service===role).length);
+  const counts=arr=>arr.reduce((a,x)=>(a[x.kind]=(a[x.kind]||0)+1,a),{});
+  assert.deepEqual(counts(Object.values(QA_STAGE_WRITE_ROUTES)),counts(QA_MUTATION_ROUTES));
+  assert.equal(QA_STAGE_WRITE_COVERAGE.knownCandidateRoutes,15);
+  assert.equal(QA_STAGE_WRITE_COVERAGE.productionIntegrated,false);
+  assert.equal(QA_STAGE_WRITE_COVERAGE.allLiveWritePathsFenced,false);
+  assert.equal(QA_STAGE_WRITE_COVERAGE.externalEffectApproval,false);
+  assert.equal(qaCoverageSummary().unprotectedWriteEntries,15);
+});
+test('HMAC Service Binding admits each of 15 QA routes; independent verifier closes D1 tickets',async()=>{
+  const f=setup();
+  try{await offline(async()=>{
+    for(const [route,grant] of Object.entries(QA_STAGE_WRITE_ROUTES)){
+      const response=await f.client(grant.role).request('writeAdmit',qaWritePayload(route));
+      assert.equal(response.status,'stage_admitted',route);
+      const records=(await f.pending()).filter(x=>x.operation_id===response.operationId);
+      const expectedAccounts=grant.keys.includes('actorUid')?2:1;
+      assert.equal(records.length,expectedAccounts,route);
+      assert.ok(records.every(x=>x.kind===grant.kind),route);
+      await f.client('reconciler').request('close',{
+        operationId:response.operationId,fixtureEvidence:'demo-confirmed'
+      });
+      assert.equal((await f.pending()).length,0);
+    }
+    assert.equal(await f.nonces(),30);
+  })}finally{f.close()}
+});
+test('QA write grants never permit cross-role operations, extra fields or real accounts',async()=>{
+  const f=setup();
+  try{await offline(async()=>{
+    for(const [route,grant] of Object.entries(QA_STAGE_WRITE_ROUTES)){
+      for(const role of ['avatar','guardian','push'].filter(r=>r!==grant.role))
+        await expectDenied(f.client(role).request('writeAdmit',qaWritePayload(route)));
+      const payload=qaWritePayload(route);
+      payload.scope[Object.keys(payload.scope)[0]]='real-user-id';
+      await expectDenied(f.client(grant.role).request('writeAdmit',payload));
+    }
+    for(const input of [
+      {route:'avatar.unknown',scope:{ownerUid:'qa-freeze-alice'}},
+      {route:'avatar.upload',scope:{ownerUid:'qa-freeze-alice'},admin:true},
+      {route:'avatar.upload',scope:{ownerUid:'qa-freeze-alice',admin:true}},
+      {route:'push.broadcast.fcm',scope:{actorUid:'qa-freeze-alice',
+        recipientUids:['qa-freeze-bob','qa-freeze-bob']}},
+      {route:'push.event.fcm',scope:{actorUid:'qa-freeze-alice',
+        recipientUid:'qa-freeze-alice'}}
+    ])assert.equal(qaStageWriteGrant(QA_STAGE_WRITE_ROUTES[input.route]?.role||'avatar',input),null);
+    assert.equal((await f.pending()).length,0);
+    assert.equal(await f.nonces(),0);
+  })}finally{f.close()}
+});
+test('signed role escalation is rejected on Worker before nonce is written',async()=>{
+  const f=setup();
+  try{await offline(async()=>{
+    const body=JSON.stringify(qaWritePayload('avatar.upload'));
+    const timestamp=Date.now(),nonce=crypto.randomUUID(),role='push',path='/v1/write/admit';
+    const signature=await stageSignature(key(role),{role,timestamp,nonce,path,body});
+    const response=await f.binding.fetch(new Request(STAGE_HOST+path,{
+      method:'POST',body,headers:{
+        'x-atrio-role':role,'x-atrio-time':String(timestamp),
+        'x-atrio-nonce':nonce,'x-atrio-signature':signature
+      }
+    }));
+    assert.equal(response.status,403);
+    assert.equal(await f.nonces(),0);
+    assert.equal((await f.pending()).length,0);
+  })}finally{f.close()}
+});
+test('drain blocks all 15 operations and in-flight ticket prevents premature freeze',async()=>{
+  const f=setup();
+  try{await offline(async()=>{
+    const first=await f.client('avatar').request('writeAdmit',
+      qaWritePayload('avatar.upload'));
+    await f.client('admin').request('drain',{uid:'qa-freeze-alice'});
+    await expectDenied(f.client('admin').request('finalize',{uid:'qa-freeze-alice'}));
+    for(const [route,grant] of Object.entries(QA_STAGE_WRITE_ROUTES))
+      await expectDenied(f.client(grant.role).request('writeAdmit',qaWritePayload(route)));
+    assert.equal((await f.pending()).length,1);
+    await f.client('reconciler').request('close',{
+      operationId:first.operationId,fixtureEvidence:'demo-confirmed'
+    });
+    await f.client('admin').request('finalize',{uid:'qa-freeze-alice'});
+    await expectDenied(f.client('avatar').request('writeAdmit',
+      qaWritePayload('avatar.upload')));
+    const control=await f.client('avatar').request('writeAdmit',
+      qaWritePayload('avatar.upload','qa-freeze-bob','qa-freeze-alice'));
+    assert.equal(control.status,'stage_admitted');
+    await f.client('reconciler').request('close',{
+      operationId:control.operationId,fixtureEvidence:'demo-confirmed'
+    });
+    assert.equal((await f.pending()).length,0);
+  })}finally{f.close()}
+});
+test('concurrent multi-account admission versus freeze can never partially admit',async()=>{
+  for(let i=0;i<4;i++){
+    const f=setup();
+    try{await offline(async()=>{
+      const [admission,drain]=await Promise.allSettled([
+        f.client('push').request('writeAdmit',qaWritePayload('push.event.fcm')),
+        f.client('admin').request('drain',{uid:'qa-freeze-alice'})
+      ]);
+      assert.equal(drain.status,'fulfilled');
+      const records=await f.pending();
+      if(admission.status==='fulfilled'){
+        assert.equal(records.length,2);
+        await expectDenied(f.client('admin').request('finalize',{uid:'qa-freeze-alice'}));
+        await f.client('reconciler').request('close',{
+          operationId:admission.value.operationId,fixtureEvidence:'demo-confirmed'
+        });
+      }else assert.equal(records.length,0);
+      await f.client('admin').request('finalize',{uid:'qa-freeze-alice'});
+      await expectDenied(f.client('push').request('writeAdmit',
+        qaWritePayload('push.event.fcm')));
+      assert.equal((await f.pending()).length,0);
+    })}finally{f.close()}
+  }
+});
+test('new scoped admission refuses replayed HMAC nonce and missing stage secrets',async()=>{
+  const f=setup();
+  try{await offline(async()=>{
+    const nonce=crypto.randomUUID();
+    const fixed=createStageServiceClient({
+      binding:f.binding,role:'avatar',secret:key('avatar'),createNonce:()=>nonce
+    });
+    const admitted=await fixed.request('writeAdmit',qaWritePayload('avatar.upload'));
+    await expectDenied(fixed.request('writeAdmit',qaWritePayload('avatar.upload')));
+    assert.equal((await f.pending()).length,1);
+    delete f.stageEnv.STAGE_GUARDIAN_HMAC;
+    await expectDenied(f.client('avatar').request('writeAdmit',qaWritePayload('avatar.status')));
+    f.stageEnv.STAGE_GUARDIAN_HMAC=key('guardian');
+    await f.client('reconciler').request('close',{
+      operationId:admitted.operationId,fixtureEvidence:'demo-confirmed'
+    });
+    assert.equal((await f.pending()).length,0);
+  })}finally{f.close()}
 });

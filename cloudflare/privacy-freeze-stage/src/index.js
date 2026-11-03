@@ -16,6 +16,8 @@ import {runHostedCanary,validHostedCanary}
   from './hosted-canary.js';
 import {runQaHostedProviderDrill}
   from './qa-hosted-provider-drill.js';
+import {qaStageWriteGrant}
+  from './write-route-grants.js';
 import {
   STAGE_HOST,STAGE_ID,STAGE_ROLES,stageNonceOk,
   stageFixtureUid,strictStageKey
@@ -28,6 +30,7 @@ const serviceKinds=Object.freeze({
 });
 const OPERATIONS=Object.freeze({
   '/v1/admit':'admit',
+  '/v1/write/admit':'writeAdmit',
   '/v1/drain':'drain',
   '/v1/finalize':'finalize',
   '/v1/close':'close',
@@ -103,6 +106,11 @@ async function reserveNonce(db,nonce,moment){
     throw Error('stage_replayed_nonce');
 }
 function validateOperation(path,role,input){
+  if(path==='/v1/write/admit'){
+    const granted=qaStageWriteGrant(role,input);
+    if(!granted)throw Error('stage_write_route_denied');
+    return granted;
+  }
   if(path==='/v1/canary'){
     if(!['avatar','guardian','push'].includes(role)||
        !validHostedCanary(role,input))
@@ -241,7 +249,7 @@ export default {
         const value=await ledger.advance(data);
         return text(200,'stage_case_advanced',value);
       }
-      if(url.pathname==='/v1/admit'){
+      if(url.pathname==='/v1/admit'||url.pathname==='/v1/write/admit'){
         const ticket=await barrier.begin(data.kind,data.scope);
         return text(200,'stage_admitted',{operationId:ticket.id});
       }

@@ -6,9 +6,10 @@ import {
   STAGE_HOST,STAGE_ID,STAGE_ROLES,stageSignature,
   stageNonceOk,stageFixtureUid,strictStageKey
 } from './protocol.js';
+import {qaStageWriteGrant} from './write-route-grants.js';
 
 const routes=Object.freeze({
-  admit:'/v1/admit',drain:'/v1/drain',
+  admit:'/v1/admit',writeAdmit:'/v1/write/admit',drain:'/v1/drain',
   finalize:'/v1/finalize',close:'/v1/close',status:'/v1/status',
   caseOpen:'/v1/case/open',caseStatus:'/v1/case/status',
   caseAttest:'/v1/case/attest',caseAdvance:'/v1/case/advance',
@@ -18,7 +19,9 @@ const deny=()=>{throw Error('qa_stage_client_denied');};
 function validate(role,op,payload){
   if(!payload||typeof payload!=='object'||Array.isArray(payload))deny();
   const keys=Object.keys(payload).sort().join(',');
-  if(op==='canary'){
+  if(op==='writeAdmit'){
+    if(!qaStageWriteGrant(role,payload))deny();
+  }else if(op==='canary'){
     const expected=role==='avatar'?'qa-freeze-alice':
       role==='guardian'?'qa-freeze-bob':
       role==='push'?'qa-freeze-alice':null;
