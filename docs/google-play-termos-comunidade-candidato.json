@@ -1,0 +1,21 @@
+{
+  "appName": "Átrio Católico",
+  "controller": "Josué Prado de Oliveira Costa",
+  "supportEmail": "atriocatolico.privacidade@gmail.com",
+  "version": "community-v1",
+  "effectiveDate": null,
+  "privacyUrl": null,
+  "sections": {
+    "about": "O Átrio Católico é uma comunidade de debate, apoio e convivência sobre temas relacionados ao catolicismo. Os participantes expressam opiniões pessoais, e a participação não implica representação oficial da Igreja Católica, de dioceses ou de outras instituições. O ambiente pretende favorecer diálogo respeitoso, inclusive diante de divergências, sem tolerar práticas ilícitas ou ataques a pessoas.",
+    "userContent": "A conta deve ser usada pelo seu titular. Quem publica é responsável pela legitimidade de textos, imagens, comentários e demais materiais enviados e deve respeitar direitos de terceiros. O nome público, as discussões, respostas, fotos e selos poderão ser visíveis a outros membros conforme a versão efetiva do aplicativo. A participação com publicações ou respostas depende do aceite dos Termos vigentes, registrado pela aplicação e validado pelo serviço.",
+    "prohibited": "São proibidos ameaças, perseguição, assédio, incentivo à violência, discriminação ilícita, exploração de crianças, material sexual ilícito, fraudes, golpes, impersonação de sacerdotes ou de outros usuários, envio de malware, spam abusivo, obtenção indevida de credenciais, violação de direitos autorais e divulgação de dados pessoais de terceiros sem autorização. Também são proibidas denúncias deliberadamente falsas e tentativas de burlar bloqueios ou medidas de segurança.",
+    "reporting": "O participante poderá denunciar publicações, respostas e usuários pelos meios disponibilizados na versão homologada do serviço e bloquear pessoas com quem não deseja interagir. Denúncias devem apontar conduta concreta, sem incluir senhas ou documentos pessoais desnecessários. O bloqueio e o relato não asseguram exclusão imediata do conteúdo nem sigilo absoluto perante obrigações legais, e seu funcionamento requer validação antes da publicação.",
+    "moderation": "A equipe responsável poderá examinar denúncias e aplicar medidas proporcionais, como advertir, limitar interações, ocultar conteúdo, suspender privilégios ou encaminhar casos graves para análise humana. Os critérios considerarão contexto e gravidade. A automação pode auxiliar na triagem, mas decisões sensíveis e registros de interesse de terceiros necessitam de supervisão e controles de auditoria. Não há promessa de atendimento ininterrupto ou de resultado automático para toda denúncia.",
+    "privacy": "Os dados de conta, publicações, preferências, fotos, notificações e registros administrativos são tratados segundo a Política de Privacidade efetivamente publicada. A solicitação de exclusão deve estar disponível no aplicativo e por um canal externo acessível sem sua instalação; solicitar não significa concluir o apagamento. A conservação excepcional de dados de denúncias ou obrigações legais exige avaliação específica, sem apagar arbitrariamente informações de outros participantes.",
+    "minors": "A participação de crianças e adolescentes depende da idade mínima, da classificação indicativa e das salvaguardas que vierem a ser aprovadas para a distribuição. É vedado explorar menores, coletar seus dados indevidamente ou publicar materiais que coloquem crianças e adolescentes em risco. O responsável deverá confirmar e comunicar os requisitos de idade aplicáveis antes de colocar estes Termos em vigor.",
+    "updates": "Os Termos podem ser revistos para refletir mudanças legais, de segurança ou de funcionamento da comunidade. Quando alterações relevantes criarem novos deveres aos participantes, o aplicativo deverá apresentar a versão vigente e exigir novo aceite antes de novas publicações e respostas. A data de vigência, a versão e o endereço oficial de consulta serão divulgados depois da aprovação e publicação efetivas."
+  },
+  "approvedBy": null,
+  "reviewedAt": null,
+  "approval": null
+}
