@@ -14,7 +14,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {DatabaseSync} from 'node:sqlite';
 import {initializeTestEnvironment,assertFails} from '@firebase/rules-unit-testing';
-import {doc,setDoc,getDoc} from 'firebase/firestore';
+import {doc,setDoc,getDoc,deleteDoc} from 'firebase/firestore';
 import {QaAdministrativeDeletionExecutor,QA_ADMIN_ORDER_TEMPLATE}
   from '../qa-admin-executor.mjs';
 import {QaSqliteLease} from '../qa-deletion-sqlite-lease.mjs';
@@ -27,6 +27,8 @@ import {createQaAdminSdkAuthAdapter,QA_ADMIN_SDK_UIDS}
   from './qa-admin-sdk-auth.mjs';
 import {createQaAdminFirestoreFreezeAdapter}
   from './qa-admin-firestore-freeze.mjs';
+import {createQaAdminOwnedTreeAudit}
+  from './qa-admin-owned-tree-audit.mjs';
 import {createQaWorkerDrainAdapter} from './qa-worker-drain.mjs';
 import {createQaAvatarD1PreAuthAdapter}
   from './qa-avatar-d1-pre-auth.mjs';
@@ -109,7 +111,7 @@ async function listen(){
   });
 }
 
-let admin,secondAdmin,freeze,secondFreeze,journal;
+let admin,secondAdmin,freeze,secondFreeze,nested,secondNested,journal;
 let workerDb,secondWorkerDb,workerDir;
 try {
   await test('Admin SDK SAME UID: remote outage, after-delete crash, new adapter retry',
@@ -118,6 +120,7 @@ try {
       const media=createQaCloudinaryHttpAdapter(address);
       admin=createQaAdminSdkAuthAdapter();
       freeze=createQaAdminFirestoreFreezeAdapter();
+      nested=createQaAdminOwnedTreeAudit();
       const alice=await admin.seed(A);
       const bob=await admin.seed(B);
       assert.equal(alice.uid,A);
@@ -191,7 +194,7 @@ try {
             return admin.remove(uid);
           }
         };
-        const external={auth:remoteAuth,media,freeze,workers,d1,retention};
+        const external={auth:remoteAuth,media,freeze,workers,d1,retention,nested};
         const openRunner=()=>new QaAdministrativeDeletionExecutor({
           db,journal,auth:fakeAuth,media:fakeMedia,external,
           lease:new QaSqliteLease(journal)
@@ -284,6 +287,22 @@ try {
         assert.equal(mediaState.has(QA_EXTERNAL_BOB_PHOTO),true);
         assert.equal(fakeAuth.has(A),true);
 
+        // Orphaned grandchild survives deletion of users/A and its missing
+        // intermediate parent. The independent Admin SDK scan must block
+        // Auth, while the unrelated Bob tree stays untouched.
+        const orphan='users/'+A+'/legacyHidden/missingParent/deepChild/orphan';
+        const bobOrphan='users/'+B+'/legacyHidden/missingParent/deepChild/bobOrphan';
+        await setDoc(doc(db,orphan),{origin:'qa-orphan-grandchild',uid:A});
+        await setDoc(doc(db,bobOrphan),{origin:'qa-other-account',uid:B});
+        await assert.rejects(openRunner().execute({
+          order:QA_ADMIN_ORDER_TEMPLATE,caseId
+        }),/qa_admin_owned_tree_residual_owned_document/);
+        assert.equal(await admin.exists(A),true);
+        assert.equal(await admin.exists(B),true);
+        assert.equal((await getDoc(doc(db,orphan))).exists(),true);
+        await deleteDoc(doc(db,orphan));
+        assert.equal((await getDoc(doc(db,bobOrphan))).exists(),true);
+
         // D1 retention/audit rows require review and prevent Auth deletion.
         workerDb.prepare('INSERT INTO avatar_moderation(actor_uid,target_uid,reason,created_at) VALUES (?,?,?,?)')
           .run(B,A,'qa-retention-review',1);
@@ -331,8 +350,11 @@ try {
         admin=null;
         await freeze.close();
         freeze=null;
+        await nested.close();
+        nested=null;
         secondAdmin=createQaAdminSdkAuthAdapter();
         secondFreeze=createQaAdminFirestoreFreezeAdapter();
+        secondNested=createQaAdminOwnedTreeAudit();
         workerDb.close();workerDb=null;
         secondWorkerDb=new DatabaseSync(workerPath);
         const resumedWorkers=createQaWorkerDrainAdapter(secondWorkerDb);
@@ -346,7 +368,8 @@ try {
         assert.equal(await secondFreeze.verify(A),true,
           'freeze must survive an Admin SDK process restart');
         const restartedExternal={auth:secondAdmin,media,freeze:secondFreeze,
-          workers:resumedWorkers,d1:resumedD1,retention:resumedRetention};
+          workers:resumedWorkers,d1:resumedD1,retention:resumedRetention,
+          nested:secondNested};
         const resumed=new QaAdministrativeDeletionExecutor({
           db,journal,media:fakeMedia,auth:fakeAuth,external:restartedExternal,
           lease:new QaSqliteLease(journal)
@@ -379,6 +402,7 @@ try {
         assert.equal((await getDoc(doc(db,'profiles/'+A))).exists(),false);
         assert.equal((await getDoc(doc(db,'users/'+A))).exists(),false);
         assert.equal((await getDoc(doc(db,'profiles/'+B))).exists(),true);
+        assert.equal((await getDoc(doc(db,'users/'+B+'/legacyHidden/missingParent/deepChild/bobOrphan'))).exists(),true);
         assert.equal(await secondFreeze.existsWrite(B,'bobAfter'),true);
         const repeat=await resumed.execute({order:QA_ADMIN_ORDER_TEMPLATE,caseId});
         assert.equal(repeat.completedPhases,QA_STEPS.length);
@@ -404,6 +428,8 @@ try {
   await secondAdmin?.close();
   await freeze?.close();
   await secondFreeze?.close();
+  await nested?.close();
+  await secondNested?.close();
   if(journal)journal.close();
   if(workerDb)workerDb.close();
   if(secondWorkerDb)secondWorkerDb.close();

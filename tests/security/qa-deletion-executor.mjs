@@ -127,6 +127,11 @@ function stages(self){
         assertLease();
         await verifyRetention(db,external);
         assertLease();
+        // Independent Admin SDK deep-tree scan is enabled ONLY for the
+        // disposable QA fixture that supplies the explicit adapter.
+        if(external?.nested && await external.nested.assertEmpty(UID)!==true)
+          fail('pre_auth_nested_inventory_unverified');
+        assertLease();
         return removeQaAuthAfterReconciliation({
           uid:UID,db,media,auth,context,assertLease,
           reconcile:assertQaReconciled,
@@ -153,6 +158,11 @@ function stages(self){
                 fail('last_mile_d1_inventory_unverified');
               assertLease();
               await verifyRetention(db,external);
+              assertLease();
+              // Repeat AFTER async reconciliation and all external waits.
+              // A late orphan must never pass the final Auth fence.
+              if(external.nested && await external.nested.assertEmpty(uid)!==true)
+                fail('last_mile_nested_inventory_unverified');
               assertLease();
               return true;
             }
@@ -182,6 +192,8 @@ function stages(self){
           return false;
         if(external && await external.d1.assertOwnerCleared(UID)!==true)
           return false;
+        if(external?.nested && await external.nested.assertEmpty(UID)!==true)
+          return false;
         await verifyRetention(db,external);
         return true;
       }}
@@ -206,6 +218,8 @@ export class QaDeletionRunner {
        typeof external?.media?.assertOwnerEmpty!=='function' ||
        typeof external?.d1?.assertOwnerCleared!=='function' ||
        typeof external?.retention?.verify!=='function' ||
+       (external.nested!==undefined &&
+         typeof external.nested?.assertEmpty!=='function') ||
        (external.freeze!==undefined &&
          (typeof external.freeze?.acquire!=='function' ||
           typeof external.freeze?.verify!=='function')) ||

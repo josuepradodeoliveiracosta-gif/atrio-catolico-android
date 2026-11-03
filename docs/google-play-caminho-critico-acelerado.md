@@ -367,3 +367,28 @@ todas as coleções globais ou relacionais. `pagesComplete:false`,
 de IAM/retencão/Cloudinary/FCM/Auth permanecem. Testes sintéticos
 cobrem netos órfãos, sessão de outra conta, cursor inválido e excesso
 de profundidade. Nenhuma conta ou dado real foi consultado.
+
+
+## Prompt 25 — barreira Admin SDK para filhos órfãos antes de Auth (03/11/2026)
+
+A QA com Admin SDK real conectado **somente** aos emuladores Firebase
+Auth/Firestore ganhou auditoria independente `qa-admin-owned-tree-audit.mjs`.
+Ela varre, com `listCollections()` e `listDocuments()`, as árvores sob
+`OWNED_ROOTS/{uid}`, inclusive documentos-pai inexistentes com descendentes.
+Imposta allowlist de UID sintético exato, limites de profundidade/quantidade,
+checagens de caminho e rejeição total de credenciais ou URLs reais.
+Não possui delete, write, API pública nem deployment.
+
+Quando esse adaptador está presente no executor administrativo de QA,
+`remove_auth_stub_last` faz a varredura depois de verificação de mídia,
+D1 e retenção, **repetindo** a inspeção após a reconciliação assíncrona
+na última barreira antes do delete no Auth Emulator. O checkpoint final
+também a exige. Fixture E2E cria um neto órfão da conta Alice e dados
+separados de Bob; exige rejeição da remoção Auth até retirar o neto de
+Alice, sem tocar na conta Bob. Teste executado no workflow
+`selos-ci.yml` preexistente, sem criar pipeline novo.
+
+Esta verificação cobre somente as raízes de propriedade conhecidas;
+não substitui varredura relacional global, revisão LGPD, retenção,
+Workers em produção, autorização real ou teste manual. O executor
+continua de QA e `releaseAuthorized:false`.
