@@ -82,7 +82,8 @@ const emptyCheck=f=>{
 test('Hosted schedule freezes QA Alice, atomically removes only synthetic refs and keeps Bob',async()=>{
   const f=fixture();
   try{
-    await f.tick();
+    const status=await runQaHostedProviderDrill(f.raw,{cron:'* * * * *',scheduledTime:TIME});
+    assert.equal(status.state,'qa_hosted_provider_verified');
     assert.equal(f.one('SELECT state FROM qa_privileged_accounts WHERE uid=?',A).state,'frozen');
     assert.equal(f.one('SELECT state FROM qa_privileged_accounts WHERE uid=?',B).state,'active');
     assert.equal(f.count('qa_provider_fixture_refs'),0);
