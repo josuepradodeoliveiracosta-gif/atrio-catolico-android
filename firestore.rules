@@ -24,6 +24,13 @@ service cloud.firestore {
       allow get: if signedIn();
       allow list, create, update, delete: if false;
     }
+    // Portão de aceite: a administração ativa via Console apenas depois
+    // de implantar as regras, testar e migrar clientes compatíveis.
+    // Não é possível escrever a configuração pelo APK.
+    match /app_config/community_rules {
+      allow get: if signedIn();
+      allow list, create, update, delete: if false;
+    }
     // Ativação admin-only após publicação e QA. Negado por padrão.
     match /app_config/engagement {
       allow get: if signedIn();
