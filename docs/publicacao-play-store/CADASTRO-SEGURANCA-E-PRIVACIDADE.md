@@ -24,13 +24,14 @@
 - `user_reports/{reporterUid}__{targetUid}` recebe denúncia privada de usuário,
   com motivo de 10 a 500 caracteres. Somente o denunciante e admins podem
   consultar. Um par denunciante/alvo possui uma denúncia imutável.
+- O painel administrativo inclui uma fila das 30 denúncias de participantes mais recentes, com opção de marcar como analisadas; a decisão fica associada ao UID do administrador e ao tempo do servidor.
 - As denúncias de posts e respostas anteriores permanecem funcionando.
 
 **Pendências de UGC ainda relevantes:** o controle do aceite deve ser validado
 também nas regras de publicação do servidor antes do envio à Play. As versões
 antigas do APK não possuem a nova tela; adicionar bloqueio estrito diretamente
-às regras sem migração interromperia essas versões. O painel de moderação
-precisa incorporar a fila `user_reports`, definir atendimento e critérios
+às regras sem migração interromperia essas versões. O painel de moderação tem uma fila inicial `user_reports`, mas ainda é necessário
+definir atendimento, medidas corretivas, prevenção de abuso e critérios
 operacionais. Bloqueio é pessoal/visual: não é expulsão nem impede
 todas as interações originadas do bloqueado em outros dispositivos.
 
@@ -42,7 +43,7 @@ todas as interações originadas do bloqueado em outros dispositivos.
 4. **Exclusão de conta:** o pedido é armazenado, mas **NÃO exclui automaticamente** Firebase Auth, perfis, postagens/respostas, fotos, notificações, dispositivos FCM ou metadados de moderação. Precisa de backend privilegiado auditável, operação administrativa e prazos de retenção, com verificação de identidade e tratamentos legais. Nunca apagar só Auth e deixar dados órfãos.
 5. **Canal externo:** publicar uma página HTTPS acessível sem login que permita solicitar exclusão mesmo depois da desinstalação; registrar sua URL no Play Console. Nenhuma URL foi inventada.
 6. **Privacidade e Termos legais:** aprovar e publicar documentos completos e verdadeiros: controlador, contato, tratamento de dados, finalidade, bases legais, provedores, retenção, direitos e exclusão. A UI atual só traz aviso de transição e regras da comunidade. Revisão jurídica/LGPD necessária.
-7. **UGC:** aceite de regras para contas antigas e novas, denúncia de usuário e bloqueio visual foram adicionados ao APK. **Ainda faltam** bloqueio/autorização no servidor para versões antigas, auditoria de interações e atendimento de `user_reports` pelo painel de moderação. A Play requer moderação contínua real.
+7. **UGC:** aceite de regras para contas antigas e novas, denúncia de usuário e bloqueio visual foram adicionados ao APK. **Ainda faltam** bloqueio/autorização no servidor para versões antigas, auditoria de interações e atendimento de `user_reports` pelo painel de moderação. A Play requer moderação contínua real: uma fila que marca como analisada não substitui investigação e ação.
 8. **Play Console:** preencher Data Safety, política de público-alvo, classificação Social, conteúdo infantil se aplicável, política CSAM e instruções de denúncia. Gerar AAB oficial, assinar, testar e publicar em fluxo separado autorizado.
 
 ## Cenários mínimos de homologação
