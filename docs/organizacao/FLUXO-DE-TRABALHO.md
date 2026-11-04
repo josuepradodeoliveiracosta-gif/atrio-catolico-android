@@ -38,4 +38,10 @@ Os modelos [técnico](../../.github/ISSUE_TEMPLATE/tarefa-tecnica.md) e [de desi
 5. Proteger código de produção, dados pessoais, backup e credenciais.
 6. Não inventar quadro GitHub Projects ou URL; se necessário, configurar Project através de ferramenta com acesso explícito ao recurso.
 
+## Encerramento por escopo
+
+Uma fase pode ser encerrada **administrativamente** quando suas entregas, evidências, limites e decisões de não executar trabalhos arriscados estiverem explícitos. Esse encerramento não altera o status de Issues de desenvolvimento, segurança, infraestrutura ou publicação.
+
+Para a organização básica do repositório, o [termo de encerramento](ENCERRAMENTO-FASE-2026-11-04.md) documenta a matriz de aceite. Ao integrá-lo, registrar o SHA do merge na [Issue central #105](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/issues/105), preservando pendências independentes (revisão visual, design futuro, aferição de custos, Guardião, privacidade e Play Store). Não fechar Issues técnicas só porque a documentação foi integrada.
+
 [Índice](../INDEX.md).
