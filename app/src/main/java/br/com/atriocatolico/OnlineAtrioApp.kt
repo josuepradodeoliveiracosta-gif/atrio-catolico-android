@@ -325,18 +325,28 @@ private fun registrationErrorMessage(failure: Exception): String {
 @Composable
 private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: FirebaseUser) {
     val uid = user.uid
+    // Rollout seguro: o novo portão só liga APÓS implantar as regras Firestore
+    // e aprovar explicitamente app_config/community_rules pelo Console.
+    // Sem configuração publicada (ou em erro/offline), não bloquear contas.
+    var rulesGateEnabled by remember(uid) { mutableStateOf(false) }
     var consentLoaded by remember(uid) { mutableStateOf(false) }
     var consentAccepted by remember(uid) { mutableStateOf(false) }
     DisposableEffect(db, uid) {
-        val listener = db.collection("community_consents").document(uid)
+        val feature = db.document("app_config/community_rules")
             .addSnapshotListener { snapshot, failure ->
-                consentLoaded = true
+                rulesGateEnabled = failure == null &&
+                    snapshot?.getBoolean("enabled") == true &&
+                    snapshot.getString("version") == CommunityRulesPolicy.VERSION
+            }
+        val acceptance = db.collection("community_consents").document(uid)
+            .addSnapshotListener { snapshot, failure ->
+                consentLoaded = failure == null
                 consentAccepted = failure == null &&
                     snapshot?.getString("version") == CommunityRulesPolicy.VERSION
             }
-        onDispose { listener.remove() }
+        onDispose { feature.remove(); acceptance.remove() }
     }
-    if (!consentAccepted) {
+    if (rulesGateEnabled && !consentAccepted) {
         CommunityRulesGate(db, uid, loaded = consentLoaded)
         return
     }
