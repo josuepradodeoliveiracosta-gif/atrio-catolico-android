@@ -1,5 +1,10 @@
 # Átrio Católico — aplicativo Android
 
+> **Central de navegação:** [Índice do projeto](docs/INDEX.md) · [Arquitetura](docs/arquitetura/MAPA-REPOSITORIO.md) · [Estado das funcionalidades](docs/funcionalidades/STATUS.md) · [Gestão de tarefas](docs/organizacao/FLUXO-DE-TRABALHO.md) · [Biblioteca de design](design/README.md).
+>
+> Documentação, testes, código integrado e publicação são etapas diferentes. Consulte o status e as evidências antes de declarar um recurso disponível.
+
+
 Comunidade católica desenvolvida em Kotlin/Jetpack Compose com Firebase Authentication
 e Cloud Firestore. Os APKs release são assinados pelo fluxo de GitHub Actions.
 **O repositório está público no GitHub na auditoria de 30/10/2026:** nunca
