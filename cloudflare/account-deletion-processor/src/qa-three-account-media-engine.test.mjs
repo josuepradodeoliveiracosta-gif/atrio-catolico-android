@@ -183,7 +183,8 @@ function backendFixture(mediaFixture,dbFixture){
     },
     freeze:{
       async enable(){frozen=true;},
-      async verify(){return frozen;}
+      async verify(){return frozen;},
+      async drained(){return true;}
     },
     firestore:{
       async purge(){docs=0;},

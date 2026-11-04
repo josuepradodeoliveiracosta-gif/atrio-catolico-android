@@ -50,7 +50,8 @@ function fixture(){
     },
     freeze:{
       async enable(x){assertUid(x);log.push('freeze:'+x.uid);frozen.add(x.uid);},
-      async verify(x){assertUid(x);return frozen.has(x.uid);}
+      async verify(x){assertUid(x);return frozen.has(x.uid);},
+      async drained(x){assertUid(x);return true;}
     },
     firestore:{
       async purge(x){assertUid(x);log.push('firestore:'+x.uid);docs.get(x.uid).clear();},
@@ -225,4 +226,23 @@ test('a completed QA case cannot report success after reviewer revocation during
   await assert.rejects(q.executor.run(request()),/approval_revoked/);
   assert.equal(q.log.length,previousEffects);
   assert.equal(q.auth.has(B),true);
+});
+
+test('a frozen marker without a drained privileged write ledger blocks deletion',async()=>{
+  const q=fixture();
+  q.backend.freeze.drained=async()=>false;
+  await assert.rejects(q.executor.run(request()),/phase_not_reconciled/);
+  assert.equal(q.frozen.has(A),true);
+  assert.equal(q.docs.get(A).size,2);
+  assert.equal(q.media.get(A).size,2);
+  assert.equal(q.auth.has(A),true);
+  assert.deepEqual(q.ledger.get(A).completed,[]);
+});
+test('missing independent drain adapter is denied before acquiring a case',()=>{
+  const q=fixture();
+  delete q.backend.freeze.drained;
+  assert.throws(()=>createControlledQaDeletionExecutor({
+    projectId:'demo-atrio-v11',backend:q.backend
+  }),/missing_backend_freeze_drained/);
+  assert.equal(q.log.length,0);
 });

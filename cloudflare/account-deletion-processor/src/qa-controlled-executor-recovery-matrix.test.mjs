@@ -37,6 +37,7 @@ function fixture(target,location='after'){
   let firestoreAmbiguous=false,mediaUnknown=false,fcmUnknown=false,authUnknown=false;
   let allowRetry=true;
   let allowedRetryPhase=null;
+  let pendingTickets=0;
   const retryCalls=[];
   const effects=[];
   const state={
@@ -83,7 +84,8 @@ function fixture(target,location='after'){
     },
     freeze:{
       enable:mutation('freeze_writes',()=>{state.frozen=true;}),
-      async verify(x){validate(x);return state.frozen;}
+      async verify(x){validate(x);return state.frozen;},
+      async drained(x){validate(x);return pendingTickets===0;}
     },
     firestore:{
       purge:mutation('purge_firestore',()=>{state.documents=0;}),
@@ -115,6 +117,7 @@ function fixture(target,location='after'){
   return {
     effects,state,build,backend,retryCalls,
     setAllowRetry:x=>{allowRetry=Boolean(x);},
+    setPendingTickets:x=>{pendingTickets=x;},
     setAllowedRetryPhase:x=>{allowedRetryPhase=x;},
     setFirestoreAmbiguous:x=>{firestoreAmbiguous=Boolean(x);},
     setMediaUnknown:x=>{mediaUnknown=Boolean(x);},
@@ -318,5 +321,42 @@ test('loss of distributed freeze during phase-specific review blocks the next mu
     assert.equal(f.state.documents,3);
     assert.equal(f.state.auth,true);
     assert.deepEqual((await f.ledger.status(ctx)).completed,['freeze_writes']);
+  }finally{f.close();}
+});
+
+test('a recovery grant cannot bypass a newly unresolved privileged write',async()=>{
+  const f=fixture('freeze_writes','after');
+  try{
+    await assert.rejects(f.build().run(ctx),/qa_failed_after_freeze_writes/);
+    await f.ledger.approveRecovery(ctx,{independentReview:async()=>true});
+    f.restart();
+    const approve=f.backend.approvals.authorizeRecoveryRetry;
+    f.backend.approvals.authorizeRecoveryRetry=async x=>{
+      const allowed=await approve(x);
+      if(x.phase==='purge_firestore')f.setPendingTickets(1);
+      return allowed;
+    };
+    await assert.rejects(f.build().run(ctx),
+      /controlled_deletion_denied:distributed_drain_unverified/);
+    assert.deepEqual(f.retryCalls,['purge_firestore']);
+    assert.deepEqual(f.effects,['freeze_writes']);
+    assert.equal(f.state.documents,3);
+    assert.equal(f.state.media,2);
+    assert.equal(f.state.auth,true);
+    assert.deepEqual((await f.ledger.status(ctx)).completed,['freeze_writes']);
+  }finally{f.close();}
+});
+test('unknown drain readback during recovery never requests a retry grant',async()=>{
+  const f=fixture('freeze_writes','after');
+  try{
+    await assert.rejects(f.build().run(ctx),/qa_failed_after_freeze_writes/);
+    await f.ledger.approveRecovery(ctx,{independentReview:async()=>true});
+    f.restart();
+    f.backend.freeze.drained=async()=>undefined;
+    await assert.rejects(f.build().run(ctx),
+      /controlled_deletion_denied:distributed_drain_unverified/);
+    assert.deepEqual(f.retryCalls,[]);
+    assert.deepEqual(f.effects,['freeze_writes']);
+    assert.equal(f.state.auth,true);
   }finally{f.close();}
 });

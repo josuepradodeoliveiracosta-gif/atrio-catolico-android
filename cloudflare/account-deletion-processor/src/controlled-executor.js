@@ -27,7 +27,7 @@ function exactTrue(value,reason){if(value!==true)deny(reason);}
 function ensureBackend(b){
   const methods={
     approvals:['confirm'],ledger:['acquire','check','complete'],
-    freeze:['enable','verify'],firestore:['purge','assess'],
+    freeze:['enable','verify','drained'],firestore:['purge','assess'],
     media:['purge','empty'],fcm:['revoke','empty'],
     auth:['remove','exists']
   };
@@ -59,7 +59,8 @@ function isEmptyReport(r){
  *    authorized decisions bound to the ORIGINAL immutable request and case.
  *  ledger.acquire/check/complete must be durable, per UID and fenced by epoch.
  *  freeze.verify must attest ALL currently deployed privileged write paths,
- *    not merely a Firestore marker.
+ *    not merely a Firestore marker. freeze.drained must independently attest
+ *    zero admitted unfinished writes across every deployed provider path.
  *  firestore.assess must freshly scan all owned AND foreign references and
  *    adjudicate moderation/retention, without trusting the deletion journal.
  *  media.empty and fcm.empty must independently verify provider state.
@@ -92,6 +93,10 @@ export function createControlledQaDeletionExecutor({projectId,backend}={}){
       const freezeIsActive=async()=>{
         exactTrue(await backend.freeze.verify(fenced),
           'distributed_freeze_unverified');
+        // A freeze blocks new admissions; pending writes also must drain.
+        // Never treat a local marker as proof of global quiescence.
+        exactTrue(await backend.freeze.drained(fenced),
+          'distributed_drain_unverified');
       };
       const clean=async()=>{
         await freezeIsActive();
@@ -125,7 +130,8 @@ export function createControlledQaDeletionExecutor({projectId,backend}={}){
       const verify=async phase=>{
         switch(phase){
           case 'freeze_writes':
-            return await backend.freeze.verify(fenced)===true;
+            return await backend.freeze.verify(fenced)===true &&
+              await backend.freeze.drained(fenced)===true;
           case 'purge_firestore':
             return isEmptyReport(await backend.firestore.assess(fenced))===true;
           case 'purge_media_and_d1':
@@ -149,7 +155,10 @@ export function createControlledQaDeletionExecutor({projectId,backend}={}){
           case 'freeze_writes':{
             const state=await backend.freeze.verify(fenced);
             if(typeof state!=='boolean')deny('freeze_readback_unknown');
-            return state;
+            if(!state)return false;
+            const drained=await backend.freeze.drained(fenced);
+            if(drained!==true)deny('distributed_drain_unverified');
+            return true;
           }
           case 'purge_firestore':{
             const state=await backend.firestore.assess(fenced);

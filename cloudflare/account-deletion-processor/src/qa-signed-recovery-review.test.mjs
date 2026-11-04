@@ -256,7 +256,8 @@ test('signed single-use reviewer grants authorize exactly the four remaining QA 
       },
       freeze:{
         async enable(){throw Error('already frozen: should not replay');},
-        async verify(){return state.frozen;}
+        async verify(){return state.frozen;},
+        async drained(){return true;}
       },
       firestore:{
         async purge(){effects.push('purge_firestore');state.documents=0;},
