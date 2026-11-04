@@ -12,7 +12,8 @@ export const QA_SIGNED_REVIEW_COLUMNS=
   'nonce,uid,case_id,epoch,purpose,phase,created_ms';
 const PROJECT='demo-atrio-v11';
 const REVIEWER='qa-independent-reviewer-01';
-const UID=new Set(['qa-delete-alice','qa-delete-candidate']);
+const UID=new Set(['qa-delete-alice','qa-delete-candidate',
+  'qa-delete-neighbor','qa-delete-observer']);
 const UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
 const SHA=/^[a-f0-9]{64}$/;
 const B64=/^[A-Za-z0-9_-]{86}$/;

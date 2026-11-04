@@ -13,7 +13,8 @@ import {basename,dirname,join} from 'node:path';
 import {CONTROLLED_DELETION_PHASES} from './controlled-executor.js';
 
 const PROJECT='demo-atrio-v11';
-const UIDS=new Set(['qa-delete-alice','qa-delete-candidate']);
+const UIDS=new Set(['qa-delete-alice','qa-delete-candidate',
+  'qa-delete-neighbor','qa-delete-observer']);
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const TABLE='qa_controlled_case_ledger';
 const FIELDS='uid,case_id,epoch,state,completed_json,updated_ms';
@@ -21,7 +22,8 @@ const REVIEW_TABLE='qa_signed_reviewer_receipts';
 const REVIEW_FIELDS='nonce,uid,case_id,epoch,purpose,phase,created_ms';
 const DDL=[
   'CREATE TABLE IF NOT EXISTS '+TABLE+' (',
-  "uid TEXT PRIMARY KEY NOT NULL CHECK(uid IN ('qa-delete-alice','qa-delete-candidate')),",
+  "uid TEXT PRIMARY KEY NOT NULL CHECK(uid IN ('qa-delete-alice','qa-delete-candidate',"+
+  "'qa-delete-neighbor','qa-delete-observer')),",
   'case_id TEXT NOT NULL, epoch INTEGER NOT NULL CHECK(epoch>=1),',
   "state TEXT NOT NULL CHECK(state IN ('active','recovery_approved','complete')),",
   'completed_json TEXT NOT NULL, updated_ms INTEGER NOT NULL CHECK(updated_ms>0)) STRICT'
