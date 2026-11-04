@@ -1,131 +1,143 @@
 package br.com.atriocatolico
 
-import android.content.Context
 import android.media.MediaPlayer
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.widget.VideoView
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import com.google.firebase.FirebaseApp
-import com.google.firebase.firestore.FirebaseFirestore
-import kotlinx.coroutines.delay
 
-/** State belongs to this task, not a navigation screen or an individual login. */
-@Composable
-internal fun OpeningVideo(activity: ComponentActivity, authenticated: Boolean) {
-    val prefs = remember { activity.getSharedPreferences("atrio-opening", Context.MODE_PRIVATE) }
-    var enabled by remember { mutableStateOf(prefs.getBoolean("enabled", true)) }
-    var ready by rememberSaveable { mutableStateOf(false) }
-    var consumed by rememberSaveable { mutableStateOf(false) }
-    // A short, non-blocking opportunity to receive the remote switch before showing.
-    LaunchedEffect(authenticated) {
-        if (authenticated) { delay(1200); ready = true }
-    }
-    DisposableEffect(activity, authenticated) {
-        var active = true
-        val registration = if (authenticated && FirebaseApp.getApps(activity).isNotEmpty()) {
-            FirebaseFirestore.getInstance().document("app_config/opening_video")
-                .addSnapshotListener { snapshot, error ->
-                    if (active && error == null && snapshot != null && !snapshot.metadata.isFromCache) {
-                        // Missing or malformed configuration uses the bundled default (enabled).
-                        val value = snapshot.data?.get("enabled") as? Boolean ?: true
-                        prefs.edit().putBoolean("enabled", value).apply()
-                        enabled = value
-                        ready = true
-                    }
-                }
-        } else null
-        onDispose { active = false; registration?.remove() }
-    }
-    LaunchedEffect(ready, enabled, authenticated) {
-        if (authenticated && ready && !enabled) consumed = true
-    }
-    if (authenticated && ready && enabled && !consumed) {
-        AtrioTheme { OpeningVideoDialog(activity, onClose = { consumed = true }) }
-    }
-}
+private const val MAX_OPENING_DURATION_MS = 15_000L
 
+/**
+ * Full-screen, offline opening shown once per new MainActivity launch.
+ * The 9:16 movie uses VideoView's aspect-preserving fit; never crop its content.
+ *
+ * The startup movie is purely visual and is not a Firebase loading indicator.
+ * Authentication and the community UI start normally after playback or failure.
+ * The bundled asset can be replaced independently at res/raw/abertura_atrio.mp4.
+ */
 @Composable
-private fun OpeningVideoDialog(activity: ComponentActivity, onClose: () -> Unit) {
-    var muted by rememberSaveable { mutableStateOf(true) }
-    var position by rememberSaveable { mutableStateOf(0) }
-    var prepared by remember { mutableStateOf(false) }
-    var player by remember { mutableStateOf<MediaPlayer?>(null) }
-    val close by rememberUpdatedState(onClose)
-    val video = remember(activity) { VideoView(activity) }
-    // A corrupt or unsupported video must not trap the user on the opening screen.
-    LaunchedEffect(prepared) { if (!prepared) { delay(8000); close() } }
-    DisposableEffect(video) {
+internal fun AtrioStartupVideo(activity: ComponentActivity, onFinished: () -> Unit) {
+    val currentFinish by rememberUpdatedState(onFinished)
+    var finished by remember { mutableStateOf(false) }
+    val finishOnce: () -> Unit = {
+        if (!finished) {
+            finished = true
+            currentFinish()
+        }
+    }
+
+    val videoView = remember(activity) { VideoView(activity) }
+    BackHandler(enabled = !finished) { finishOnce() }
+
+    // Keep system bars hidden only during the video. Restore them for login/feed.
+    DisposableEffect(activity) {
+        val bars = WindowInsetsControllerCompat(activity.window, activity.window.decorView)
+        bars.systemBarsBehavior =
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        bars.hide(WindowInsetsCompat.Type.systemBars())
+        onDispose { bars.show(WindowInsetsCompat.Type.systemBars()) }
+    }
+
+    DisposableEffect(videoView, activity) {
+        val handler = Handler(Looper.getMainLooper())
+        val watchdog = Runnable { finishOnce() }
+        var prepared = false
         var disposed = false
-        video.setOnPreparedListener { media ->
+
+        videoView.setOnPreparedListener { media: MediaPlayer ->
             if (!disposed) {
-                player = media
-                media.isLooping = false
-                media.setVolume(if (muted) 0f else 1f, if (muted) 0f else 1f)
                 prepared = true
-                if (position > 0) video.seekTo(position)
-                if (activity.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) video.start()
+                media.isLooping = false
+                // Never play loud audio unexpectedly when opening the app.
+                media.setVolume(0f, 0f)
+                if (activity.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                    videoView.start()
+                }
             }
         }
-        video.setOnCompletionListener { if (!disposed) close() }
-        video.setOnErrorListener { _, _, _ -> if (!disposed) close(); true }
-        val observer = LifecycleEventObserver { _, event ->
+        videoView.setOnCompletionListener { if (!disposed) finishOnce() }
+        videoView.setOnErrorListener { _, _, _ ->
+            if (!disposed) finishOnce()
+            true
+        }
+
+        val lifecycleObserver = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_PAUSE -> {
-                    position = video.currentPosition.coerceAtLeast(0)
-                    video.pause()
+                Lifecycle.Event.ON_RESUME -> {
+                    handler.removeCallbacks(watchdog)
+                    handler.postDelayed(watchdog, MAX_OPENING_DURATION_MS)
+                    if (prepared) videoView.start()
                 }
-                Lifecycle.Event.ON_RESUME -> if (prepared) video.start()
+                Lifecycle.Event.ON_PAUSE -> {
+                    handler.removeCallbacks(watchdog)
+                    if (prepared) videoView.pause()
+                }
                 else -> Unit
             }
         }
-        activity.lifecycle.addObserver(observer)
-        video.setVideoURI(Uri.parse("android.resource://${activity.packageName}/${R.raw.abertura_atrio}"))
+        activity.lifecycle.addObserver(lifecycleObserver)
+        // Local resource: works without internet, network permissions or a Worker.
+        videoView.setVideoURI(
+            Uri.parse("android.resource://${activity.packageName}/${R.raw.abertura_atrio}")
+        )
+        if (activity.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            handler.postDelayed(watchdog, MAX_OPENING_DURATION_MS)
+        }
+
         onDispose {
             disposed = true
-            position = video.currentPosition.coerceAtLeast(0)
-            activity.lifecycle.removeObserver(observer)
-            video.setOnPreparedListener(null)
-            video.setOnCompletionListener(null)
-            video.setOnErrorListener(null)
-            player = null
-            video.stopPlayback()
+            handler.removeCallbacks(watchdog)
+            activity.lifecycle.removeObserver(lifecycleObserver)
+            videoView.setOnPreparedListener(null)
+            videoView.setOnCompletionListener(null)
+            videoView.setOnErrorListener(null)
+            videoView.stopPlayback()
         }
     }
-    LaunchedEffect(muted, player) {
-        player?.setVolume(if (muted) 0f else 1f, if (muted) 0f else 1f)
-    }
-    Dialog(onDismissRequest = { close() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(Modifier.widthIn(max = 640.dp).fillMaxWidth().padding(16.dp),
-            shape = RoundedCornerShape(20.dp), color = Paper) {
-            Column(Modifier.verticalScroll(rememberScrollState()).padding(12.dp)) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    TextButton(onClick = { close() }) { Text("Fechar") }
-                }
-                AndroidView(factory = { video }, modifier = Modifier.fillMaxWidth()
-                    .aspectRatio(16f / 9f).background(Color.Black))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    TextButton(onClick = { muted = !muted }, enabled = prepared) {
-                        Text(if (muted) "Ativar som" else "Silenciar")
-                    }
-                    if (!prepared) Text("Carregando…", modifier = Modifier.padding(12.dp))
-                }
-            }
+
+    Box(Modifier.fillMaxSize().background(Paper).testTag("atrio-opening-fullscreen")) {
+        AndroidView(
+            factory = { videoView },
+            modifier = Modifier.fillMaxSize().testTag("atrio-opening-video")
+        )
+        TextButton(
+            onClick = finishOnce,
+            modifier = Modifier.align(Alignment.BottomEnd)
+                .navigationBarsPadding()
+                .padding(16.dp)
+                .heightIn(min = 48.dp)
+                .testTag("atrio-opening-skip"),
+            colors = ButtonDefaults.textButtonColors(contentColor = Wine)
+        ) {
+            Text("Pular")
         }
     }
 }
