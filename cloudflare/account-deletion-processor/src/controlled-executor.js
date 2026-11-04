@@ -150,8 +150,16 @@ export function createControlledQaDeletionExecutor({projectId,backend}={}){
           case 'verify_before_auth':
             await clean();return true;
           case 'delete_auth_last':
-          case 'verify_final':
-            await clean();return await backend.auth.exists(fenced)===false;
+          case 'verify_final':{
+            await clean();
+            const absent=await backend.auth.exists(fenced)===false;
+            // A provider can acquire a late residual *during* the remote
+            // Auth read, even when Auth is already absent. Do not checkpoint
+            // delete_auth_last or report verify_final success on stale data.
+            // Recheck the full independent provider inventory after lookup.
+            await clean();
+            return absent;
+          }
           default:deny('unknown_phase');
         }
       };
@@ -197,6 +205,11 @@ export function createControlledQaDeletionExecutor({projectId,backend}={}){
             await clean();
             const state=await backend.auth.exists(fenced);
             if(typeof state!=='boolean')deny('auth_readback_unknown');
+            // On a reviewed restart, an absent Auth user may be an already
+            // committed remote side effect with a lost SQLite checkpoint.
+            // A late Firestore/Cloudinary/FCM residue after this lookup must
+            // block reconciliation just as it blocks first-time deletion.
+            await clean();
             return state===false;
           }
           default:deny('unknown_phase');

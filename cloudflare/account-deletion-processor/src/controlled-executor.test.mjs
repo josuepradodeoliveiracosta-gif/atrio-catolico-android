@@ -385,3 +385,87 @@ test('a late residual can be reconciled on a separate reviewed QA retry without 
   assert.equal(q.auth.has(B),true);
   assert.equal(q.log.filter(x=>x==='auth:'+A).length,1);
 });
+
+test('post-delete Auth readback cannot commit its checkpoint if a foreign reference appears',async()=>{
+  const q=fixture(),original=q.backend.auth.exists;
+  let injected=false;
+  q.backend.auth.exists=async x=>{
+    const present=await original(x);
+    if(present===false&&!injected){
+      injected=true;
+      q.docs.get(A).add('users/b/notifications/late-post-auth');
+    }
+    return present;
+  };
+  await assert.rejects(q.executor.run(request()),
+    /controlled_deletion_denied:firestore_residual_or_unknown/);
+  assert.equal(injected,true);
+  assert.equal(q.auth.has(A),false,'remote Auth deletion preceded the late reference');
+  assert.equal(q.auth.has(B),true);
+  assert.deepEqual(q.ledger.get(A).completed,
+    CONTROLLED_DELETION_PHASES.slice(0,5),
+    'the Auth checkpoint must NOT be committed after a stale readback');
+  assert.equal(q.log.filter(x=>x==='auth:'+A).length,1);
+});
+test('completed case must not report success when a device appears during final Auth lookup',async()=>{
+  const q=fixture(),original=q.backend.auth.exists;
+  await q.executor.run(request());
+  let count=0,late=false;
+  q.backend.auth.exists=async x=>{
+    const present=await original(x);
+    if(present===false&&++count===2){
+      late=true;
+      q.fcm.get(A).add('late-fcm-after-final-auth-lookup');
+    }
+    return present;
+  };
+  await assert.rejects(q.executor.run(request()),
+    /controlled_deletion_denied:fcm_residual_or_unknown/);
+  assert.equal(late,true);
+  assert.equal(count,2);
+  assert.equal(q.auth.has(A),false);
+  assert.equal(q.auth.has(B),true);
+  assert.equal(q.log.filter(x=>x==='auth:'+A).length,1,
+    'a completed case must never reissue Auth deletion');
+});
+test('reviewed recovery cannot mark absent Auth reconciled after a late media asset',async()=>{
+  const q=fixture(),original=q.backend.auth.exists;
+  await q.executor.run(request());
+  const checkpoint=q.ledger.get(A);
+  checkpoint.completed.splice(5);
+  checkpoint.epoch=2;
+  q.setEpoch(2);
+  let late=false;
+  q.backend.auth.exists=async x=>{
+    const present=await original(x);
+    if(present===false&&!late){
+      late=true;
+      q.media.get(A).add('cloudinary:recovered-late-media');
+    }
+    return present;
+  };
+  await assert.rejects(q.executor.run(request()),
+    /controlled_deletion_denied:media_residual_or_unknown/);
+  assert.equal(late,true);
+  assert.deepEqual(checkpoint.completed,CONTROLLED_DELETION_PHASES.slice(0,5),
+    'lost checkpoint must not be reconciled from a stale Auth absence read');
+  assert.equal(q.auth.has(A),false);
+  assert.equal(q.auth.has(B),true);
+  assert.equal(q.log.filter(x=>x==='auth:'+A).length,1);
+});
+test('reconciled Auth readback with no new provider effects remains idempotent',async()=>{
+  const q=fixture();
+  await q.executor.run(request());
+  const before=q.log.filter(x=>x==='auth:'+A).length;
+  const checkpoint=q.ledger.get(A);
+  checkpoint.completed.splice(5);
+  checkpoint.epoch=2;
+  q.setEpoch(2);
+  // A valid recovered readback should restore both final checkpoints
+  // without replaying an already committed remote Auth effect.
+  const result=await q.executor.run(request());
+  assert.equal(result.completed,7);
+  assert.deepEqual(checkpoint.completed,CONTROLLED_DELETION_PHASES);
+  assert.equal(q.log.filter(x=>x==='auth:'+A).length,before);
+  assert.equal(q.auth.has(B),true);
+});
