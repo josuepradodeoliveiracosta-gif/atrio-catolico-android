@@ -92,6 +92,17 @@ service cloud.firestore {
     function validTime() {
       return request.resource.data.createdAt == request.time;
     }
+    // Portao de publicacao no servidor, ativado SOMENTE pelo Console apos rollout.
+    // Na ausencia do documento ou com enabled=false, preserva clientes legados.
+    function communityPublicationAllowed() {
+      let settings = /databases/$(database)/documents/app_config/community_rules;
+      let acceptance = /databases/$(database)/documents/community_consents/$(request.auth.uid);
+      return !exists(settings)
+        || get(settings).data.get('enabled', false) != true
+        || (get(settings).data.get('version', '') == '2026-11-v1'
+          && exists(acceptance)
+          && get(acceptance).data.version == '2026-11-v1');
+    }
     function publicNameMatchesProfile() {
       return request.resource.data.authorName ==
         get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.displayName;
@@ -281,6 +292,7 @@ service cloud.firestore {
     match /posts/{postId} {
       allow get, list: if signedIn();
       allow create: if signedIn()
+        && communityPublicationAllowed()
         && request.resource.data.keys().hasOnly([
           'uid', 'authorName', 'title', 'body', 'category', 'createdAt'
         ])
@@ -308,6 +320,7 @@ service cloud.firestore {
       match /replies/{replyId} {
         allow get, list: if signedIn();
         allow create: if signedIn()
+          && communityPublicationAllowed()
           && exists(/databases/$(database)/documents/posts/$(postId))
           && request.resource.data.keys().hasOnly([
             'uid', 'authorName', 'body', 'createdAt', 'replyToId', 'replyToUid',
