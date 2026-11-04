@@ -280,3 +280,78 @@ test('a pending ticket prevents HMAC proof even when a stale readback reports su
     ).get().n,1);
   }finally{t.close();}
 });
+
+test('lost Service Binding response after durable readback is recoverable by private QA ledger',async()=>{
+  const t=setup();
+  try{
+    await t.admin.request('drain',{uid:'qa-freeze-alice'});
+    await t.admin.request('finalize',{uid:'qa-freeze-alice'});
+    let delivered=0;
+    const env=t.consumerEnv('avatar');
+    const previous=env.PRIVACY_FREEZE_STAGE;
+    env.PRIVACY_FREEZE_STAGE={async fetch(request){
+      const response=await previous.fetch(request);
+      delivered++;
+      assert.equal(response.status,200);
+      // Simulate a gateway disconnect AFTER the stage committed the proof.
+      throw Error('simulated_response_lost_after_commit');
+    }};
+    const tick={cron:'* * * * *',
+      scheduledTime:Date.parse('2026-11-04T13:30:00Z')};
+    await consumer.scheduled(tick,env);
+    assert.equal(delivered,1);
+    assert.equal(t.sqlite.prepare(
+      "SELECT COUNT(*) AS n FROM qa_stage_hmac_role_proofs WHERE role='avatar'"
+    ).get().n,1);
+    assert.equal(t.sqlite.prepare(
+      "SELECT COUNT(*) AS n FROM qa_stage_nonces WHERE nonce='44444444-4444-4444-8444-444444444444'"
+    ).get().n,1);
+    // The fixed nonce is burned: never auto-replay an ambiguous outcome.
+    // Recovery is an independent durable D1 read, not a second effect.
+    env.PRIVACY_FREEZE_STAGE=previous;
+    await consumer.scheduled(tick,env);
+    assert.equal(t.sqlite.prepare(
+      'SELECT COUNT(*) AS n FROM qa_stage_hmac_role_proofs'
+    ).get().n,1);
+    assert.equal(t.counts().pending,0);
+  }finally{t.close();}
+});
+test('one role receipt cannot certify other roles after neighbor state revocation',async()=>{
+  const t=setup();
+  try{
+    await t.admin.request('drain',{uid:'qa-freeze-alice'});
+    await t.admin.request('finalize',{uid:'qa-freeze-alice'});
+    const tick=Date.parse('2026-11-04T13:45:00Z');
+    await t.scheduled('avatar',{scheduledTime:tick});
+    // A separate synthetic account changes state before the others attest.
+    await t.admin.request('drain',{uid:'qa-freeze-bob'});
+    await t.admin.request('finalize',{uid:'qa-freeze-bob'});
+    await t.scheduled('guardian',{scheduledTime:tick});
+    await t.scheduled('push',{scheduledTime:tick});
+    const rows=t.sqlite.prepare(
+      'SELECT role,observed_state FROM qa_stage_hmac_role_proofs ORDER BY role'
+    ).all();
+    assert.deepEqual(rows.map(x=>x.role),['avatar']);
+    assert.equal(rows[0].observed_state,'frozen');
+    assert.equal(t.counts().pending,0);
+  }finally{t.close();}
+});
+test('simultaneous at-least-once role probe produces a single durable read receipt',async()=>{
+  const t=setup();
+  try{
+    await t.admin.request('drain',{uid:'qa-freeze-alice'});
+    await t.admin.request('finalize',{uid:'qa-freeze-alice'});
+    const tick={scheduledTime:Date.parse('2026-11-04T14:00:00Z')};
+    await Promise.all([
+      t.scheduled('push',tick),
+      t.scheduled('push',tick)
+    ]);
+    const rows=t.sqlite.prepare(
+      'SELECT role,nonce FROM qa_stage_hmac_role_proofs ORDER BY role'
+    ).all();
+    assert.equal(rows.length,1);
+    assert.equal(rows[0].role,'push');
+    assert.equal(rows[0].nonce,'66666666-6666-4666-8666-666666666666');
+    assert.equal(t.counts().pending,0);
+  }finally{t.close();}
+});
