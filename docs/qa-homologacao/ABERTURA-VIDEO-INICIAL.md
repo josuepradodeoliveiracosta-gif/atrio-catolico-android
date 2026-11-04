@@ -6,7 +6,7 @@
 
 - `MainActivity` exibe `AtrioStartupVideo` antes da autenticação ou da demonstração, em todo **novo lançamento** da Activity (após fechar e reabrir). Não reaparece ao alternar para outro aplicativo e retornar à mesma instância.
 - A apresentação ocupa a área toda, esconde temporariamente as barras de sistema e **preserva a proporção do vídeo** (sem cortar conteúdo). Em telas com outra proporção podem existir faixas na cor do fundo.
-- Reproduz **uma vez, com o áudio embutido no vídeo**, respeitando o volume de mídia/silêncio do Android (não força volume nem contorna o silêncio do usuário); conclui ao fim, após erro de leitura, pelo botão acessível **Pular**, pela tecla Voltar ou após 15 segundos de retomada ativa sem conclusão.
+- Reproduz **uma vez, com o áudio embutido no vídeo**, respeitando o volume de mídia do Android (não altera o ajuste do sistema); conclui ao fim, após erro de leitura, pelo botão acessível **Pular**, pela tecla Voltar ou após 15 segundos de retomada ativa sem conclusão.
 - Ao finalizar, restaura as barras de sistema e abre o fluxo já existente, sem mexer em autenticação, navegação, Firestore, avisos, Workers ou segurança.
 - A antiga chamada após autenticação fica temporariamente com função de compatibilidade inerte; não há segundo vídeo após login.
 
@@ -35,7 +35,7 @@
 
 ## Homologação da abertura e do áudio
 
-- [x] MP4 correto presente na branch e identificado pelo SHA de blob Git acima.
+- [x] MP4 otimizado da PR #118 preservado (SHA-256 informado na seção da mídia atual); não foi alterado nesta PR.
 - [ ] Compilação Android de testes e verificações de segurança/versão/Firestore aprovadas no **head atualizado** (conferir após último commit documental).
 - [ ] Em aparelho Android: iniciar sem internet, com volume de mídia audível, e conferir o vídeo completo (~10 segundos), com trilha sonora sincronizada e nenhuma tela de login à frente.
 - [ ] Conferir ausência de som com volume de mídia no mínimo, controle de volume durante o vídeo e interrupção da trilha em Pular/Voltar/encerramento.
