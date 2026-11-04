@@ -459,6 +459,7 @@ private fun OnlineCommunity(
     val otaSnackbar = remember { SnackbarHostState() }
     var lastAnnouncedOtaVersion by remember { mutableStateOf<String?>(null) }
     var sourcePosts by remember(uid) { mutableStateOf<List<Post>>(emptyList()) }
+    val blockedMembers = rememberBlockedMembers(db, uid)
     var likedIds by remember(uid) { mutableStateOf<Set<String>>(emptySet()) }
     var savedIds by remember(uid) { mutableStateOf<Set<String>>(emptySet()) }
     val notificationAdmin = onModeration != null && onClergyReview != null
@@ -646,11 +647,14 @@ private fun OnlineCommunity(
             (openedPost?.ownerUid == uid || detailReplies.any { it.mine }))
             ThreadPushSubscriptions.track(context, uid, id)
     }
-    val posts = sourcePosts.map { it.copy(liked = it.id in likedIds, saved = it.id in savedIds) }
+    val posts = sourcePosts.filter { it.ownerUid !in blockedMembers }
+        .map { it.copy(liked = it.id in likedIds, saved = it.id in savedIds) }
     val allPosts = (sourcePosts + savedPosts.values + listOfNotNull(openedPost))
+        .filter { it.ownerUid !in blockedMembers }
         .associateBy { it.id }.values.map { it.copy(liked = it.id in likedIds, saved = it.id in savedIds) }
     val savedDisplay = savedOrder.take(savedLimit).mapNotNull { id ->
-        savedPosts[id]?.copy(liked = id in likedIds, saved = id in savedIds)
+        savedPosts[id]?.takeUnless { it.ownerUid in blockedMembers }
+            ?.copy(liked = id in likedIds, saved = id in savedIds)
     }
     fun navigate(destination: Tab) {
         if (BuildConfig.DEBUG &&
@@ -887,10 +891,11 @@ private fun OnlineCommunity(
         )
     }, bottomBar = { AtrioBottomBar(selected = tab, onSelect = ::navigate) }) { inset ->
         Box(Modifier.padding(inset)) {
-            val detail = openedPost?.copy(liked = detailId in likedIds, saved = detailId in savedIds)
+            val detail = openedPost?.takeUnless { it.ownerUid in blockedMembers }
+                ?.copy(liked = detailId in likedIds, saved = detailId in savedIds)
             if (publicProfileTarget != null && !profilePostOpen) {
                 PublicMemberProfileScreen(
-                    db = db, target = publicProfileTarget!!,
+                    db = db, target = publicProfileTarget!!, viewerUid = uid,
                     onBack = ::closeNoticeDestination,
                     onOpenDiscussion = { postId -> profilePostOpen = true; detailId = postId }
                 )
@@ -924,7 +929,7 @@ private fun OnlineCommunity(
                     if (detailError) "Tentar novamente" else "Voltar",
                     { if (detailError) detailRetry++ else closeNoticeDestination() })
             } else if (detail != null) {
-                DetailScreen(detail.copy(replies = detailReplies), name,
+                DetailScreen(detail.copy(replies = detailReplies.filter { it.ownerUid !in blockedMembers }), name,
                     onLike = { toggle("likedPosts", detail.id, detail.liked) },
                     onSave = { toggle("savedPosts", detail.id, detail.saved) },
                     onReply = { body, done ->
