@@ -1,0 +1,151 @@
+package br.com.atriocatolico
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.FirebaseFirestore
+
+/** A verificação enviada na inscrição é revalidada pelo servidor quando solicitada. */
+@Composable
+internal fun EmailVerificationPanel(uid: String) {
+    val auth = remember { FirebaseAuth.getInstance() }
+    var verified by remember(uid) { mutableStateOf(auth.currentUser?.isEmailVerified == true) }
+    var busy by remember(uid) { mutableStateOf(false) }
+    var info by remember(uid) { mutableStateOf("") }
+    if (verified) return
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("E-mail ainda não confirmado",
+            style = androidx.compose.material3.MaterialTheme.typography.titleSmall)
+        Text("Para proteger sua conta, confirme o endereço pelo link enviado ao cadastrar. " +
+            "Se não o encontrou, solicite um novo link.")
+        OutlinedButton(
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth().testTag("atrio-auth-resend-verification"),
+            onClick = {
+                val user = auth.currentUser
+                if (user == null || user.uid != uid) {
+                    info = "Sua sessão mudou. Entre novamente."
+                } else {
+                    busy = true
+                    user.sendEmailVerification().addOnCompleteListener { task ->
+                        busy = false
+                        info = if (task.isSuccessful) "Enviamos um link de confirmação."
+                            else "Não foi possível enviar o link. Tente novamente."
+                    }
+                }
+            }
+        ) { Text("Reenviar confirmação") }
+        TextButton(
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth().testTag("atrio-auth-check-verification"),
+            onClick = {
+                val user = auth.currentUser
+                if (user == null || user.uid != uid) {
+                    info = "Sua sessão mudou. Entre novamente."
+                } else {
+                    busy = true
+                    user.reload().addOnCompleteListener { task ->
+                        busy = false
+                        verified = task.isSuccessful && auth.currentUser?.uid == uid &&
+                            auth.currentUser?.isEmailVerified == true
+                        info = if (verified) "E-mail confirmado."
+                            else "Ainda não foi possível confirmar. Verifique sua caixa de entrada."
+                    }
+                }
+            }
+        ) { Text("Já confirmei meu e-mail") }
+        if (info.isNotBlank()) Text(info,
+            style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
+    }
+}
+
+/**
+ * Somente REGISTRA uma solicitação privada para tratamento administrativo.
+ * Não apagar a conta Firebase aqui: apagar Auth antes de eliminar todas as
+ * subcoleções deixaria dados órfãos e seria incompatível com a Google Play.
+ * A exclusão final exige backend auditado e processo externo de solicitação.
+ */
+@Composable
+internal fun AccountDeletionRequestPanel(db: FirebaseFirestore, uid: String) {
+    var pending by remember(uid) { mutableStateOf(false) }
+    var loading by remember(uid) { mutableStateOf(true) }
+    var confirm by remember(uid) { mutableStateOf(false) }
+    var busy by remember(uid) { mutableStateOf(false) }
+    var info by remember(uid) { mutableStateOf("") }
+    val request = remember(db, uid) { db.collection("account_deletion_requests").document(uid) }
+
+    LaunchedEffect(db, uid) {
+        request.get().addOnCompleteListener { result ->
+            loading = false
+            if (result.isSuccessful) {
+                pending = result.result?.exists() == true
+            } else info = "Não foi possível consultar a solicitação. Verifique a conexão."
+        }
+    }
+
+    if (pending) {
+        Text("Solicitação de exclusão registrada. A exclusão efetiva de conta e dados " +
+            "depende do atendimento administrativo.",
+            style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
+    } else {
+        OutlinedButton(
+            onClick = { confirm = true },
+            enabled = !busy && !loading,
+            modifier = Modifier.fillMaxWidth().testTag("atrio-account-deletion-request")
+        ) { Text("Solicitar exclusão da conta e dos dados") }
+    }
+    if (info.isNotBlank()) Text(info,
+        style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
+
+    if (confirm) {
+        AlertDialog(
+            onDismissRequest = { if (!busy) confirm = false },
+            title = { Text("Solicitar exclusão da conta?") },
+            text = {
+                Text("Esta ação registra uma solicitação para a administração. " +
+                    "A conta e os dados NÃO serão apagados imediatamente. " +
+                    "Você poderá continuar acessando o Átrio até a conclusão do processo. " +
+                    "A exclusão completa exige atendimento e verificação dos dados associados.")
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !busy,
+                    modifier = Modifier.testTag("atrio-account-deletion-confirm"),
+                    onClick = {
+                        busy = true
+                        request.set(mapOf(
+                            "status" to "pending",
+                            "requestedAt" to FieldValue.serverTimestamp()
+                        )).addOnCompleteListener { task ->
+                            busy = false
+                            confirm = false
+                            if (task.isSuccessful) {
+                                pending = true
+                                info = "Solicitação registrada para análise."
+                            } else info = "Não foi possível registrar. Confira a internet ou tente novamente."
+                        }
+                    }
+                ) { Text(if (busy) "Registrando..." else "Confirmar solicitação") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirm = false }, enabled = !busy) { Text("Cancelar") }
+            }
+        )
+    }
+}
