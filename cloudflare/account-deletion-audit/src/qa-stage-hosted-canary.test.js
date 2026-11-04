@@ -111,7 +111,7 @@ test('Cron is ignored outside exact QA time window or with missing stage binding
   const t=setup();
   try{
     await t.scheduled('avatar',{cron:'0 0 1 1 *'});
-    await t.scheduled('avatar',{scheduledTime:Date.parse('2026-11-04T00:00:00Z')});
+    await t.scheduled('avatar',{scheduledTime:Date.parse('2026-11-05T00:00:00Z')});
     await t.scheduled('avatar',{scheduledTime:Date.parse('2026-11-02T00:00:00Z')});
     const env=t.consumerEnv('avatar');
     delete env.PRIVACY_FREEZE_STAGE;
@@ -193,10 +193,9 @@ test('per-role probes reject cross-UID reads and cannot inherit admin authority'
   try{
     for(const [role,wrong] of [['avatar','qa-freeze-bob'],
       ['guardian','qa-freeze-alice'],['push','qa-freeze-bob']]){
-      await assert.rejects(t.consumerEnv(role).PRIVACY_FREEZE_STAGE
-        ? createStageServiceClient({binding:t.binding,role,secret:KEY(role)})
-          .request('roleStatus',{uid:wrong})
-        : Promise.resolve(),/qa_stage_client_denied/);
+      await assert.rejects(createStageServiceClient({
+        binding:t.binding,role,secret:KEY(role)
+      }).request('roleStatus',{uid:wrong}),/qa_stage_client_denied/);
     }
     await assert.rejects(t.admin.request('roleStatus',{uid:'qa-freeze-alice'}),
       /qa_stage_client_denied/);
