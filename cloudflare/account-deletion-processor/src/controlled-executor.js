@@ -202,7 +202,9 @@ export function createControlledQaDeletionExecutor({projectId,backend}={}){
           exactTrue(await verify(phase),'completed_phase_no_longer_valid');
           // A reviewer can revoke access during asynchronous provider readback.
           // Never report a completed case if its final authorization is stale.
+          // Provider readback itself may have outlived a distributed freeze.
           await authorize();
+          await freezeIsActive();
           continue;
         }
         // On an explicitly reviewed recovery (epoch > 1), the preceding
@@ -215,6 +217,9 @@ export function createControlledQaDeletionExecutor({projectId,backend}={}){
           const alreadyCompleted=await verifyRecovery(phase);
           if(alreadyCompleted===true){
             await authorize();
+            // Reconciliation is also a checkpoint transition. An async
+            // remote readback must not bypass the final distributed fence.
+            await freezeIsActive();
             exactTrue(await backend.ledger.complete({...fenced,phase}),
               'checkpoint_not_committed');
             continue;
@@ -240,9 +245,16 @@ export function createControlledQaDeletionExecutor({projectId,backend}={}){
         await authorize();
         exactTrue(await verify(phase),'phase_not_reconciled');
         await authorize();
+        // Even an authoritative provider read can race a late admission,
+        // revocation, or unreconciled in-flight write before journal commit.
+        await freezeIsActive();
         exactTrue(await backend.ledger.complete({...fenced,phase}),
           'checkpoint_not_committed');
       }
+      // A successful last journal write is not sufficient to report final
+      // success if distributed write prevention was lost during commit.
+      await authorize();
+      await freezeIsActive();
       return Object.freeze({
         state:'isolated_qa_deletion_reconciled',
         completed:CONTROLLED_DELETION_PHASES.length,

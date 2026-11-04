@@ -246,3 +246,53 @@ test('missing independent drain adapter is denied before acquiring a case',()=>{
   }),/missing_backend_freeze_drained/);
   assert.equal(q.log.length,0);
 });
+
+test('freeze loss during asynchronous media readback cannot checkpoint media',async()=>{
+  const q=fixture(),original=q.backend.media.empty;
+  let changed=false;
+  q.backend.media.empty=async x=>{
+    const empty=await original(x);
+    if(empty&&!changed){changed=true;q.frozen.delete(A);}
+    return empty;
+  };
+  await assert.rejects(q.executor.run(request()),
+    /controlled_deletion_denied:distributed_freeze_unverified/);
+  assert.equal(changed,true);
+  assert.deepEqual(q.ledger.get(A).completed,
+    CONTROLLED_DELETION_PHASES.slice(0,2));
+  assert.equal(q.auth.has(A),true);
+  assert.equal(q.auth.has(B),true);
+  assert.equal(q.docs.get(B).size,1);
+});
+test('late in-flight operation during FCM readback blocks checkpoint and Auth',async()=>{
+  const q=fixture(),original=q.backend.fcm.empty;
+  let pending=0;
+  q.backend.freeze.drained=async()=>pending===0;
+  q.backend.fcm.empty=async x=>{
+    const empty=await original(x);
+    if(empty)pending++;
+    return empty;
+  };
+  await assert.rejects(q.executor.run(request()),
+    /controlled_deletion_denied:distributed_drain_unverified/);
+  assert.equal(pending,1);
+  assert.deepEqual(q.ledger.get(A).completed,
+    CONTROLLED_DELETION_PHASES.slice(0,3));
+  assert.equal(q.auth.has(A),true);
+  assert.equal(q.auth.has(B),true);
+});
+test('final checkpoint alone cannot claim success after freeze is revoked',async()=>{
+  const q=fixture(),original=q.backend.ledger.complete;
+  q.backend.ledger.complete=async x=>{
+    const recorded=await original(x);
+    if(x.phase==='verify_final')q.frozen.delete(A);
+    return recorded;
+  };
+  await assert.rejects(q.executor.run(request()),
+    /controlled_deletion_denied:distributed_freeze_unverified/);
+  assert.equal(q.ledger.get(A).completed.length,7);
+  // Auth was deleted in this synthetic case, but a stale "success" must
+  // never be reported while write admission is no longer fenced.
+  assert.equal(q.auth.has(A),false);
+  assert.equal(q.auth.has(B),true);
+});
