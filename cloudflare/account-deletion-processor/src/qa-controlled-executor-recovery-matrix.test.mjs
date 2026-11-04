@@ -34,6 +34,9 @@ function fixture(target,location='after'){
   let ledger=createQaPersistentDeletionLedger({projectId:PROJECT,db});
   let shouldFail=true;
   let mediaReadUnreachable=false;
+  let allowRetry=true;
+  let allowedRetryPhase=null;
+  const retryCalls=[];
   const effects=[];
   const state={
     frozen:false,documents:3,media:2,tokens:2,auth:true,
@@ -54,7 +57,17 @@ function fixture(target,location='after'){
     change();
   };
   const backend={
-    approvals:{async confirm(x){validate(x);return true;}},
+    approvals:{
+      async confirm(x){validate(x);return true;},
+      async authorizeRecoveryRetry(x){
+        validate(x);
+        assert.equal(x.epoch,2);
+        assert.ok(CONTROLLED_DELETION_PHASES.includes(x.phase));
+        retryCalls.push(x.phase);
+        return allowRetry && (allowedRetryPhase===null||
+          allowedRetryPhase===x.phase);
+      }
+    },
     ledger:{
       async acquire(x){validate(x);return ledger.acquire(x);},
       async check(x){validate(x);return ledger.check(x);},
@@ -98,7 +111,9 @@ function fixture(target,location='after'){
   };
   const build=()=>createControlledQaDeletionExecutor({projectId:PROJECT,backend});
   return {
-    effects,state,build,
+    effects,state,build,backend,retryCalls,
+    setAllowRetry:x=>{allowRetry=Boolean(x);},
+    setAllowedRetryPhase:x=>{allowedRetryPhase=x;},
     setMediaReadUnreachable:x=>{mediaReadUnreachable=Boolean(x);},
     get ledger(){return ledger;},
     restart(){
@@ -199,5 +214,49 @@ test('unavailable readback during recovery blocks re-execution and keeps case ac
     assert.equal((await f.ledger.status(ctx)).epoch,2);
     await assert.rejects(f.build().run(ctx),
       /qa_persistent_ledger_active_case_needs_review/);
+  }finally{f.close();}
+});
+
+test('phase-specific second approval blocks replay when a recovered phase remains present',async()=>{
+  const f=fixture('freeze_writes','after');
+  try{
+    await assert.rejects(f.build().run(ctx),/qa_failed_after_freeze_writes/);
+    assert.deepEqual(f.effects,['freeze_writes']);
+    await f.ledger.approveRecovery(ctx,{independentReview:async()=>true});
+    f.restart();
+    f.setAllowRetry(false);
+    await assert.rejects(f.build().run(ctx),
+      /controlled_deletion_denied:recovery_retry_unapproved/);
+    assert.deepEqual(f.effects,['freeze_writes']);
+    assert.deepEqual(f.retryCalls,['purge_firestore']);
+    assert.deepEqual((await f.ledger.status(ctx)).completed,['freeze_writes']);
+    await assert.rejects(f.build().run(ctx),
+      /qa_persistent_ledger_active_case_needs_review/);
+  }finally{f.close();}
+});
+test('wrong-phase recovery approval cannot authorize a different provider effect',async()=>{
+  const f=fixture('freeze_writes','after');
+  try{
+    await assert.rejects(f.build().run(ctx),/qa_failed_after_freeze_writes/);
+    await f.ledger.approveRecovery(ctx,{independentReview:async()=>true});
+    f.restart();
+    f.setAllowedRetryPhase('delete_auth_last');
+    await assert.rejects(f.build().run(ctx),
+      /controlled_deletion_denied:recovery_retry_unapproved/);
+    assert.deepEqual(f.retryCalls,['purge_firestore']);
+    assert.deepEqual(f.effects,['freeze_writes']);
+  }finally{f.close();}
+});
+test('absent phase-specific reviewer is fail-closed even after general recovery',async()=>{
+  const f=fixture('freeze_writes','after');
+  try{
+    await assert.rejects(f.build().run(ctx),/qa_failed_after_freeze_writes/);
+    await f.ledger.approveRecovery(ctx,{independentReview:async()=>true});
+    f.restart();
+    delete f.backend.approvals.authorizeRecoveryRetry;
+    await assert.rejects(f.build().run(ctx),
+      /controlled_deletion_denied:recovery_retry_authority_missing/);
+    assert.deepEqual(f.effects,['freeze_writes']);
+    assert.deepEqual((await f.ledger.status(ctx)).completed,['freeze_writes']);
   }finally{f.close();}
 });

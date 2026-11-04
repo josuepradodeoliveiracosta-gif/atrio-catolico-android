@@ -64,6 +64,11 @@ function isEmptyReport(r){
  *    adjudicate moderation/retention, without trusting the deletion journal.
  *  media.empty and fcm.empty must independently verify provider state.
  *  auth.remove is only ever called after those independent verifications.
+ *  approvals.authorizeRecoveryRetry({uid,caseId,epoch,phase}) is a SECOND
+ *    phase-bound approval, distinct from general case recovery. A recovered
+ *    phase with verified remaining effects cannot be replayed without it.
+ *    This injected adapter must authenticate a separate reviewer and attest
+ *    the actual provider state. A bare QA test callback is NOT proof of IAM.
  *
  * Neither this contract nor passing fixtures proves such adapters exist.
  */
@@ -150,11 +155,25 @@ export function createControlledQaDeletionExecutor({projectId,backend}={}){
         // effect must not be repeated. This never applies on first acquire,
         // and a false/unknown readback is not accepted as completion.
         // Each adapter must provide genuinely independent provider evidence.
-        if(lease.epoch>1 && await verify(phase)===true){
+        if(lease.epoch>1){
+          const alreadyCompleted=await verify(phase);
+          if(alreadyCompleted===true){
+            await authorize();
+            exactTrue(await backend.ledger.complete({...fenced,phase}),
+              'checkpoint_not_committed');
+            continue;
+          }
+          // An uncertain/outage response must never be converted into an
+          // automatic repeat. Even a verified false ("still present") needs
+          // a fresh, phase-scoped SECOND authorization before any retry.
+          if(alreadyCompleted!==false)
+            deny('recovery_readback_unknown');
+          if(typeof backend.approvals.authorizeRecoveryRetry!=='function')
+            deny('recovery_retry_authority_missing');
+          exactTrue(await backend.approvals.authorizeRecoveryRetry(
+            Object.freeze({...fenced,phase})
+          ),'recovery_retry_unapproved');
           await authorize();
-          exactTrue(await backend.ledger.complete({...fenced,phase}),
-            'checkpoint_not_committed');
-          continue;
         }
         // Re-check after any previous asynchronous read and before side
         // effects. Every adapter must enforce its own fence too.
