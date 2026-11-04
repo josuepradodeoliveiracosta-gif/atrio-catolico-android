@@ -107,6 +107,15 @@ export function createQaAdminOwnedDescendantPurger(){
       // partial removal when an unexpected subtree exceeds safety limits.
       const found=await inventory(db,uid,ready);
       await fenced();
+      // An orphan grandchild or previously unknown subtree may have
+      // appeared during the asynchronous traversal. Stop BEFORE the first
+      // destructive call when the owner tree changed since inventory.
+      // Individual Firestore lastUpdateTime checks still protect subsequent
+      // races and any partial failure requires a new reviewed inventory.
+      const latest=await inventory(db,uid,ready);
+      const paths=docs=>docs.map(x=>x.path).sort();
+      if(JSON.stringify(paths(found))!==JSON.stringify(paths(latest)))
+        deny('precommit_tree_changed');
       found.sort((a,b)=>b.path.split('/').length-a.path.split('/').length ||
         a.path.localeCompare(b.path));
       for(const ref of found){

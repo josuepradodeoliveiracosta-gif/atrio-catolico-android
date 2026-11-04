@@ -82,6 +82,25 @@ export function createQaAdminForeignReferenceCleanup(){
     if(blocks.length+notices.size>MAX)deny('unbounded_total');
     return {notices:notices.docs,blocks};
   }
+  // For foreign-user data an old snapshot is not permission to remove
+  // the newer document. Compare the full selected set AND each immutable
+  // Firestore updateTime before the FIRST deletion, then continue to rely
+  // on per-document lastUpdateTime conditional writes.
+  function signature(groups){
+    const docs=[...groups.notices,...groups.blocks];
+    const records=docs.map(snap=>{
+      const time=snap.updateTime;
+      if(typeof snap.ref?.path!=='string'||
+         !Number.isSafeInteger(time?.seconds)||
+         !Number.isSafeInteger(time?.nanoseconds)||
+         time.nanoseconds<0||time.nanoseconds>=1000000000)
+        deny('missing_document_version');
+      return snap.ref.path+'@'+time.seconds+':'+time.nanoseconds;
+    }).sort();
+    if(new Set(records.map(x=>x.split('@')[0])).size!==records.length)
+      deny('duplicate_foreign_path');
+    return records.join('|');
+  }
   return Object.freeze({
     async purge(uid,{approvedQaReview=false,assertAuthorized,assertLease}={}){
       ready();
@@ -103,6 +122,13 @@ export function createQaAdminForeignReferenceCleanup(){
       // or user-authored content are read or touched by this cleanup.
       const before=await inventory(uid);
       await fenced();
+      const originalSignature=signature(before);
+      const current=await inventory(uid);
+      if(signature(current)!==originalSignature)
+        deny('precommit_inventory_changed');
+      // An admission can change during the second asynchronous inventory.
+      // The first per-record fenced check, updateTime CAS, and final
+      // inventory still refuse stale or incomplete success.
       for(const [group,allowed] of [
         [before.notices,ref=>validNotice(ref,uid)],
         [before.blocks,ref=>foreignPath(ref,uid,'blockedMembers') && ref.id===uid]

@@ -565,6 +565,82 @@ try {
       });
     });
 
+
+  await test('ADMIN QA blocks a new owned subtree before the first Firestore deletion',
+    async()=>{
+      await environment.withSecurityRulesDisabled(async context=>{
+        const db=context.firestore();
+        const original='users/'+A+'/qaBeforeCommit/first';
+        const late='users/'+A+'/qaBeforeCommit/second';
+        await setDoc(doc(db,original),{uid:A,label:'must-survive'});
+        const purger=createQaAdminOwnedDescendantPurger();
+        try{
+          let checks=0;
+          await assert.rejects(purger.purge(A,{
+            assertLease:async()=>true,
+            assertAuthorized:async()=>{
+              // The second admission happens immediately AFTER inventory.
+              if(++checks===2)await setDoc(doc(db,late),{uid:A,label:'new'});
+              return true;
+            }
+          }),/qa_owned_descendant_purge_precommit_tree_changed/);
+          assert.equal(checks,2);
+          assert.equal((await getDoc(doc(db,original))).exists(),true,
+            'the first row must not be deleted before drift detection');
+          assert.equal((await getDoc(doc(db,late))).exists(),true);
+          assert.equal(await secondAdmin.exists(B),true);
+        }finally{
+          await purger.close();
+          await deleteDoc(doc(db,original)).catch(()=>{});
+          await deleteDoc(doc(db,late)).catch(()=>{});
+        }
+      });
+    });
+
+  await test('ADMIN QA refuses a changed or new foreign reference before the first deletion',
+    async()=>{
+      await environment.withSecurityRulesDisabled(async context=>{
+        const db=context.firestore();
+        const now=new Date('2026-10-31T12:00:00Z');
+        const first='users/'+B+'/notifications/qa_precommit_old';
+        const late='users/'+B+'/notifications/qa_precommit_new';
+        const notice=(label)=>({
+          postId:'qa_post_1',replyId:'qa_reply_1',actorUid:A,
+          actorName:label,read:false,createdAt:now
+        });
+        const cases=[
+          {name:'new foreign notice',inject:()=>setDoc(doc(db,late),notice('Late'))},
+          {name:'edited existing notice',inject:()=>setDoc(doc(db,first),notice('Edited'))}
+        ];
+        const cleanup=createQaAdminForeignReferenceCleanup();
+        try{
+          for(const scenario of cases){
+            await setDoc(doc(db,first),notice('Original'));
+            await deleteDoc(doc(db,late)).catch(()=>{});
+            let checks=0;
+            await assert.rejects(cleanup.purge(A,{
+              approvedQaReview:true,assertLease:async()=>true,
+              assertAuthorized:async()=>{
+                if(++checks===2)await scenario.inject();
+                return true;
+              }
+            }),/qa_foreign_reference_cleanup_precommit_inventory_changed/,
+            scenario.name);
+            assert.equal(checks,2,scenario.name);
+            assert.equal((await getDoc(doc(db,first))).exists(),true,
+              'no foreign record should be deleted on stale inventory');
+            assert.equal((await getDoc(doc(db,first))).data().actorName,
+              scenario.name==='edited existing notice'?'Edited':'Original');
+            assert.equal(await secondAdmin.exists(B),true);
+          }
+        }finally{
+          await cleanup.close();
+          await deleteDoc(doc(db,first)).catch(()=>{});
+          await deleteDoc(doc(db,late)).catch(()=>{});
+        }
+      });
+    });
+
   await test('ADMIN QA refuses asynchronous lease loss before foreign or owned cleanup',
     async()=>{
       await environment.withSecurityRulesDisabled(async context=>{
