@@ -99,8 +99,8 @@ service cloud.firestore {
       let acceptance = /databases/$(database)/documents/community_consents/$(request.auth.uid);
       return !exists(settings)
         || get(settings).data.get('enabled', false) != true
-        || (get(settings).data.get('version', '') == '2026-11-v1'
-          && exists(acceptance)
+        || get(settings).data.get('version', '') != '2026-11-v1'
+        || (exists(acceptance)
           && get(acceptance).data.version == '2026-11-v1');
     }
     function publicNameMatchesProfile() {
