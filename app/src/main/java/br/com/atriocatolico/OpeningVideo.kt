@@ -76,8 +76,8 @@ internal fun AtrioStartupVideo(activity: ComponentActivity, onFinished: () -> Un
             if (!disposed) {
                 prepared = true
                 media.isLooping = false
-                // Reproduz a trilha do MP4 e respeita o volume de mídia do aparelho.
-                // O volume 1f aqui não ignora o silêncio nem o ajuste do usuário.
+                // Reproduz a trilha do MP4 respeitando o volume de mídia do aparelho.
+                // O ganho do player não aumenta nem altera o volume do sistema.
                 media.setVolume(1f, 1f)
                 if (activity.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
                     videoView.start()
