@@ -186,8 +186,9 @@ private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
                         modifier = Modifier.testTag("atrio-auth-read-rules")) {
                         Text("Ler as Regras da Comunidade")
                     }
-                    Text("O cadastro utiliza Firebase Authentication. Os termos legais " +
-                        "e a Política de Privacidade completos serão publicados antes da distribuição na Google Play.",
+                    Text("O cadastro utiliza Firebase Authentication. Antes da publicação na Google Play, " +
+                        "serão disponibilizados Termos de Uso, Política de Privacidade e solicitação de exclusão de conta. " +
+                        "O aceite acima refere-se somente às Regras da Comunidade.",
                         fontSize = 11.sp, color = Muted, lineHeight = 15.sp)
                 }
                 if (error.isNotBlank()) {
