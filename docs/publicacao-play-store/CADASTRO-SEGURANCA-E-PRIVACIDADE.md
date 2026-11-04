@@ -37,8 +37,10 @@ as coleções novas (`community_consents`, `user_reports`,
 disponibilizar APK compatível; somente então habilitar
 `app_config/community_rules` no Firestore Console. Nunca ativar antes de
 distribuir a versão compatível. Se houver falha de leitura da configuração,
-o portão não bloqueia o usuário. O bloqueio **server-side** de publicação
-continua pendente até sua migração segura.
+o portão não bloqueia o usuário. O bloqueio **server-side** de novas publicações e respostas já existe nas regras propostas,
+mas permanece **desativado** enquanto `app_config/community_rules.enabled` não for
+ativado no Console. A ativação exige migração segura, testes e implantação prévia
+das regras e do APK compatível. Não habilitar a configuração antes desses passos.
 
 **Pendências de UGC ainda relevantes:** o controle do aceite deve ser validado
 também nas regras de publicação do servidor antes do envio à Play. As versões
@@ -47,6 +49,15 @@ antigas do APK não possuem a nova tela; adicionar bloqueio estrito diretamente
 definir atendimento, medidas corretivas, prevenção de abuso e critérios
 operacionais. Bloqueio é pessoal/visual: não é expulsão nem impede
 todas as interações originadas do bloqueado em outros dispositivos.
+
+## Testes automatizados acrescentados
+
+- `tests/security/community-registration.test.mjs` testa no Firebase Emulator o isolamento
+  dos aceites, a privacidade dos bloqueios, a prevenção de denúncias duplicadas,
+  a revisão administrativa e a impossibilidade de autorizar publicação sem aceite
+  **quando o portão estiver ativado**.
+- Antes da ativação, contas antigas continuam publicando e respondendo normalmente.
+- Essa suíte não substitui QA em aparelho real nem ativação das regras em produção.
 
 ## Portões de produção NÃO atendidos por esta etapa
 
