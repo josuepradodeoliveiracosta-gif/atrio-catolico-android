@@ -141,3 +141,13 @@ internal fun AtrioStartupVideo(activity: ComponentActivity, onFinished: () -> Un
         }
     }
 }
+
+
+/**
+ * Compatibilidade com a chamada antiga em OnlineAtrioApp.
+ * A abertura agora pertence exclusivamente ao início de MainActivity:
+ * autenticar uma conta nunca deve exibir o vídeo uma segunda vez.
+ */
+@Composable
+@Suppress("UNUSED_PARAMETER")
+internal fun OpeningVideo(activity: ComponentActivity, authenticated: Boolean) = Unit
