@@ -41,6 +41,10 @@ try {
     for (const uid of ['unverified','verified','legacy'])
       await setDoc(doc(db,'profiles/'+uid),{displayName:uid,createdAt:serverTimestamp()});
   });
+  await check('cliente nao pode criar configuracao de verificacao', () =>
+    assertFails(setDoc(doc(unchecked,configPath),{
+      enabled:true,version:'2026-11-v1'
+    })));
   await check('sem configuracao conta antiga publica', () =>
     assertSucceeds(post(legacy,'legacy','legacy-before')));
   await check('sem configuracao email nao confirmado pode publicar', () =>
@@ -65,6 +69,17 @@ try {
     updateDoc(doc(ctx.firestore(),configPath),{enabled:true}));
   await check('email verificado pode publicar com flag ativa', () =>
     assertSucceeds(post(checked,'verified','post-verified')));
+  // Um campo gravado em perfil (ou removido dele) nao pode falsificar
+  // o claim emitido pelo Firebase Authentication.
+  await env.withSecurityRulesDisabled(async ctx=>{
+    const db=ctx.firestore();
+    await updateDoc(doc(db,'profiles/unverified'),{email_verified:true});
+    await updateDoc(doc(db,'profiles/verified'),{email_verified:false});
+  });
+  await check('campo de perfil nao substitui email_verified do Auth', () =>
+    assertFails(post(unchecked,'unverified','forged-profile-claim')));
+  await check('perfil sem flag nao invalida claim verificado do Auth', () =>
+    assertSucceeds(post(checked,'verified','verified-auth-only')));
   await check('email nao confirmado nao pode publicar com flag ativa', () =>
     assertFails(post(unchecked,'unverified','unverified-denied')));
   await check('email nao confirmado nao pode responder com flag ativa', () =>
