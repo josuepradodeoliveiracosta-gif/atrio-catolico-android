@@ -31,6 +31,12 @@ service cloud.firestore {
       allow get: if signedIn();
       allow list, create, update, delete: if false;
     }
+    // A exigencia de e-mail confirmado so pode ser ativada administrativamente
+    // depois da migracao, nunca por uma conta no aplicativo.
+    match /app_config/email_verification {
+      allow get: if signedIn();
+      allow list, create, update, delete: if false;
+    }
     // Ativação admin-only após publicação e QA. Negado por padrão.
     match /app_config/engagement {
       allow get: if signedIn();
@@ -102,6 +108,16 @@ service cloud.firestore {
         || get(settings).data.get('version', '') != '2026-11-v1'
         || (exists(acceptance)
           && get(acceptance).data.version == '2026-11-v1');
+    }
+    // Bloqueio de escrita opt-in: versao/flag ausente ou invalida nunca ativa
+    // a exigencia por acidente em contas antigas. Somente cria posts/respostas.
+    // A autoridade e o claim Firebase Auth, nao a UI nem o perfil Firestore.
+    function emailVerificationAllowsPublishing() {
+      let policy = /databases/$(database)/documents/app_config/email_verification;
+      return !exists(policy)
+        || get(policy).data.get('enabled', false) != true
+        || get(policy).data.get('version', '') != '2026-11-v1'
+        || request.auth.token.get('email_verified', false) == true;
     }
     function publicNameMatchesProfile() {
       return request.resource.data.authorName ==
@@ -293,6 +309,7 @@ service cloud.firestore {
       allow get, list: if signedIn();
       allow create: if signedIn()
         && communityPublicationAllowed()
+        && emailVerificationAllowsPublishing()
         && request.resource.data.keys().hasOnly([
           'uid', 'authorName', 'title', 'body', 'category', 'createdAt'
         ])
@@ -321,6 +338,7 @@ service cloud.firestore {
         allow get, list: if signedIn();
         allow create: if signedIn()
           && communityPublicationAllowed()
+          && emailVerificationAllowsPublishing()
           && exists(/databases/$(database)/documents/posts/$(postId))
           && request.resource.data.keys().hasOnly([
             'uid', 'authorName', 'body', 'createdAt', 'replyToId', 'replyToUid',

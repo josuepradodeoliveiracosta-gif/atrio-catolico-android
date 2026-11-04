@@ -507,6 +507,18 @@ private fun OnlineCommunity(
     var returnToNotices by remember(uid) { mutableStateOf(false) }
     var noticesOpen by remember(uid) { mutableStateOf(false) }
     var message by remember(uid) { mutableStateOf("") }
+    var emailVerificationRequired by remember(uid) { mutableStateOf(false) }
+    DisposableEffect(db, uid) {
+        val listener = db.document("app_config/email_verification")
+            .addSnapshotListener { snapshot, failure ->
+                // Sem ativacao explicita, apenas o servidor decide; contas
+                // antigas nao devem ser bloqueadas pela interface.
+                emailVerificationRequired = failure == null &&
+                    snapshot?.getBoolean("enabled") == true &&
+                    snapshot.getString("version") == "2026-11-v1"
+            }
+        onDispose { listener.remove() }
+    }
     var tab by remember { mutableStateOf(Tab.HOME) }
     var filter by remember { mutableStateOf("Todos") }
     var search by remember { mutableStateOf("") }
@@ -739,7 +751,21 @@ private fun OnlineCommunity(
         val request = if (currentlyActive) ref.delete() else ref.set(mapOf("createdAt" to FieldValue.serverTimestamp()))
         request.addOnFailureListener { message = it.localizedMessage ?: "Não foi possível atualizar." }
     }
+    fun canPublishWithCurrentSession(): Boolean {
+        val current = FirebaseAuth.getInstance().currentUser
+        if (current?.uid != uid) {
+            message = "Sua sessão mudou. Entre novamente."
+            return false
+        }
+        if (emailVerificationRequired && !current.isEmailVerified) {
+            message = "Confirme seu e-mail para publicar ou responder. Abra Meu perfil, " +
+                "use Reenviar confirmação e depois Já confirmei meu e-mail."
+            return false
+        }
+        return true
+    }
     fun publish(title: String, body: String, category: String) {
+        if (!canPublishWithCurrentSession()) return
         // Diagnóstico somente no laboratório Android com Firebase emulado:
         // não registrar conteúdo de publicação nem dados pessoais.
         val qaLab = BuildConfig.DEBUG &&
@@ -770,13 +796,20 @@ private fun OnlineCommunity(
                     ThreadPushSubscriptions.track(context, uid, it)
                     InstantPushRelay.moderatePost(it)
                 }
-            } else message = result.exception?.localizedMessage ?: "Não foi possível publicar."
+            } else message = if (emailVerificationRequired &&
+                FirebaseAuth.getInstance().currentUser?.isEmailVerified != true)
+                "Confirme seu e-mail em Meu perfil antes de publicar."
+                else "Não foi possível publicar. Confira a conexão e as regras da comunidade."
         }
     }
     fun reply(
         id: String, body: String, done: (Boolean) -> Unit,
         target: Reply? = null, mention: MentionCandidate? = null
     ) {
+        if (!canPublishWithCurrentSession()) {
+            done(false)
+            return
+        }
         if (openedPost?.id != id) {
             message = "Discussão indisponível. Atualize o fórum e tente novamente."
             done(false)
@@ -877,8 +910,10 @@ private fun OnlineCommunity(
                     // Confirmar imediatamente o resultado para a interface.
                     // Inscrições FCM e relay não devem bloquear o botão Responder.
                     if (!result.isSuccessful) {
-                        message = result.exception?.localizedMessage ?:
-                            "Não foi possível responder. Confira as regras."
+                        message = if (emailVerificationRequired &&
+                            FirebaseAuth.getInstance().currentUser?.isEmailVerified != true)
+                            "Confirme seu e-mail em Meu perfil antes de responder."
+                            else "Não foi possível responder. Confira a conexão e as regras."
                     }
                     done(result.isSuccessful)
                     val qaLab = BuildConfig.DEBUG &&

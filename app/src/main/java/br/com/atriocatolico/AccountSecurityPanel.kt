@@ -60,12 +60,24 @@ internal fun EmailVerificationPanel(uid: String) {
                     info = "Sua sessão mudou. Entre novamente."
                 } else {
                     busy = true
-                    user.reload().addOnCompleteListener { task ->
-                        busy = false
-                        verified = task.isSuccessful && auth.currentUser?.uid == uid &&
-                            auth.currentUser?.isEmailVerified == true
-                        info = if (verified) "E-mail confirmado."
-                            else "Ainda não foi possível confirmar. Verifique sua caixa de entrada."
+                    user.reload().addOnCompleteListener { reload ->
+                        if (!reload.isSuccessful || auth.currentUser?.uid != uid ||
+                            auth.currentUser?.isEmailVerified != true) {
+                            busy = false
+                            verified = false
+                            info = "Ainda não foi possível confirmar. Confira o link no e-mail."
+                        } else {
+                            // As regras Firestore conferem o claim no ID token,
+                            // portanto nao basta mudar apenas o estado visual.
+                            user.getIdToken(true).addOnCompleteListener { token ->
+                                busy = false
+                                verified = token.isSuccessful &&
+                                    auth.currentUser?.uid == uid &&
+                                    auth.currentUser?.isEmailVerified == true
+                                info = if (verified) "E-mail confirmado. Você já pode publicar."
+                                    else "O e-mail foi confirmado, mas a sessão não foi atualizada. Tente novamente."
+                            }
+                        }
                     }
                 }
             }
