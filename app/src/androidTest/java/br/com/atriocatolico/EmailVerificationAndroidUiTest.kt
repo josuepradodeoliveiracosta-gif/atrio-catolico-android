@@ -139,3 +139,4 @@ class EmailVerificationAndroidUiTest {
         val token = Tasks.await(auth.currentUser!!.getIdToken(true), 15, TimeUnit.SECONDS)
         assertEquals(true, token.claims["email_verified"])
     }
+}
