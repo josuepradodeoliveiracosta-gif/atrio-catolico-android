@@ -48,7 +48,8 @@ internal object CommunityRulesPolicy {
 internal fun CommunityRulesGate(
     db: FirebaseFirestore,
     uid: String,
-    loaded: Boolean
+    loaded: Boolean,
+    loadError: Boolean = false
 ) {
     var accepted by remember(uid) { mutableStateOf(false) }
     var busy by remember(uid) { mutableStateOf(false) }
@@ -66,6 +67,10 @@ internal fun CommunityRulesGate(
                 Text("Para participar das discussões do Átrio Católico, " +
                     "leia e aceite as regras abaixo.", style = MaterialTheme.typography.bodyMedium)
                 Text(CommunityRulesPolicy.RULES, style = MaterialTheme.typography.bodyMedium)
+                if (loadError) Text("Não foi possível consultar seu aceite. " +
+                    "Verifique a conexão ou saia e tente novamente.",
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(
                         checked = accepted,
@@ -78,7 +83,7 @@ internal fun CommunityRulesGate(
                 if (info.isNotBlank()) Text(info, color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodySmall)
                 Button(
-                    enabled = accepted && !busy,
+                    enabled = accepted && !busy && !loadError,
                     modifier = Modifier.fillMaxWidth().testTag("atrio-rules-accept"),
                     onClick = {
                         busy = true
