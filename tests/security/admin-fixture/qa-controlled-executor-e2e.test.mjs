@@ -98,7 +98,9 @@ try{
       'CREATE TABLE avatar_pending(uid TEXT PRIMARY KEY NOT NULL,public_id TEXT NOT NULL UNIQUE,created_at INTEGER NOT NULL)',
       'CREATE TABLE avatar_rate(uid TEXT PRIMARY KEY NOT NULL,next_at INTEGER NOT NULL)',
       'CREATE TABLE avatar_mutex(uid TEXT PRIMARY KEY NOT NULL,nonce TEXT NOT NULL,expires_at INTEGER NOT NULL)',
-      'CREATE TABLE avatar_moderation(id INTEGER PRIMARY KEY AUTOINCREMENT,actor_uid TEXT NOT NULL,target_uid TEXT NOT NULL,reason TEXT NOT NULL,created_at INTEGER NOT NULL)'
+      'CREATE TABLE avatar_moderation(id INTEGER PRIMARY KEY AUTOINCREMENT,actor_uid TEXT NOT NULL,target_uid TEXT NOT NULL,reason TEXT NOT NULL,created_at INTEGER NOT NULL)',
+      // A disposable SQLite ticket ledger, not a production drain oracle.
+      "CREATE TABLE qa_privileged_inflight(operation_id TEXT PRIMARY KEY NOT NULL,uid TEXT NOT NULL CHECK(uid IN ('qa-delete-candidate','qa-delete-neighbor')),state TEXT NOT NULL CHECK(state='pending'))"
     ].join(';')+';');
     for(const [uid,id] of [[ALICE,ALICE_AVATAR],[BOB,BOB_AVATAR]]){
       avatarDb.prepare('INSERT INTO avatar_pending VALUES (?,?,?)').run(uid,id,100);
@@ -221,6 +223,15 @@ try{
           const marker=await db.doc('account_deletion_freeze/'+ALICE).get();
           return marker.exists && marker.data()?.caseId===CASE &&
             marker.data()?.state==='frozen' && marker.data()?.epoch===1;
+        },
+        async drained(x){
+          ctxCheck(x);
+          // Independent fresh read of in-flight operations from disposable
+          // SQLite. Does not attest production Workers or remote providers.
+          const pending=avatarDb.prepare(
+            'SELECT COUNT(*) AS n FROM qa_privileged_inflight WHERE uid=?'
+          ).get(ALICE).n;
+          return Number.isSafeInteger(pending) && pending===0;
         }
       },
       firestore:{
@@ -387,6 +398,20 @@ try{
     });
     assert.equal((await restarted.run({uid:ALICE,caseId:CASE})).completed,7);
     assert.equal((await persisted.status({uid:ALICE,caseId:CASE})).state,'complete');
+    assert.equal(effects.filter(x=>x==='auth-sdk').length,1);
+    // An unresolved in-flight ticket invalidates even a completed case.
+    // Closing this QA ticket re-enables read-only reconciliation, not deletion.
+    avatarDb.prepare("INSERT INTO qa_privileged_inflight VALUES (?,?,'pending')")
+      .run('qa-delayed-avatar-write',ALICE);
+    assert.equal(await backend.freeze.verify({uid:ALICE,caseId:CASE}),true);
+    assert.equal(await backend.freeze.drained({uid:ALICE,caseId:CASE}),false);
+    await assert.rejects(restarted.run({uid:ALICE,caseId:CASE}),
+      /controlled_deletion_denied:distributed_drain_unverified/);
+    assert.equal(await authExists(BOB),true);
+    assert.equal(effects.filter(x=>x==='auth-sdk').length,1);
+    avatarDb.prepare('DELETE FROM qa_privileged_inflight WHERE operation_id=?')
+      .run('qa-delayed-avatar-write');
+    assert.equal((await restarted.run({uid:ALICE,caseId:CASE})).completed,7);
     assert.equal(effects.filter(x=>x==='auth-sdk').length,1);
     // Admin SDK bypasses Firestore Rules: prove that a participating writer
     // can observe the persisted freeze rather than resurrect the account.
