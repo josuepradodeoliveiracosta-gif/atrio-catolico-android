@@ -330,7 +330,7 @@ test('two-page complete inventory admits HMAC/D1 and sends one fixture token onl
       recipientUid:B,fakeToken:'qa-fcm-fixture-bob'}]);
     assert.equal((await f.pending()).length,2);
     assert.deepEqual((await f.client('admin').request('status',{uid:B})),
-      {status:'stage_status',state:'active',inFlight:1});
+      {status:'stage_status',uid:B,state:'active',inFlight:1});
     await f.client('admin').request('drain',{uid:B});
     await expectDenied(f.client('admin').request('finalize',{uid:B}));
     // Independent fixture reconciler, never the sender, closes the ticket.
@@ -830,14 +830,14 @@ test('readback must have bounded state and integral in-flight ticket count',asyn
     role:'admin',secret:key('admin')
   });
   for(const reply of [
-    {status:'stage_status',state:'frozen',inFlight:1},
-    {status:'stage_status',state:'active',inFlight:-1},
-    {status:'stage_status',state:'active',inFlight:'0'},
-    {status:'stage_status',state:'unknown',inFlight:0}
+    {status:'stage_status',uid:A,state:'frozen',inFlight:1},
+    {status:'stage_status',uid:A,state:'active',inFlight:-1},
+    {status:'stage_status',uid:A,state:'active',inFlight:'0'},
+    {status:'stage_status',uid:A,state:'unknown',inFlight:0}
   ]){
     await expectDenied(mock(reply).request('status',{uid:A}));
   }
-  const safe=await mock({status:'stage_status',state:'frozen',inFlight:0})
+  const safe=await mock({status:'stage_status',uid:A,state:'frozen',inFlight:0})
     .request('status',{uid:A});
   assert.equal(safe.inFlight,0);
 });
@@ -851,4 +851,43 @@ test('an admission needs a valid UUID ticket even if the stage reports success',
     });
     await expectDenied(client.request('admit',{ownerUid:A}));
   }
+});
+
+test('stale or cross-account coordinator status is never accepted as a freeze proof',async()=>{
+  const admin=reply=>createStageServiceClient({
+    binding:{async fetch(){return Response.json(reply)}},
+    role:'admin',secret:key('admin')
+  });
+  for(const [op,body,reply] of [
+    ['status',{uid:A},{status:'stage_status',uid:B,state:'frozen',inFlight:0}],
+    ['drain',{uid:A},{status:'stage_draining',uid:B}],
+    ['finalize',{uid:A},{status:'stage_frozen',uid:B}]
+  ])await expectDenied(admin(reply).request(op,body));
+});
+test('case HMAC responses must echo the exact UID, case ID and checkpoint',async()=>{
+  const C='fa00bbaa-4a09-4fd2-b399-001122334455';
+  const D='fa00bbaa-4a09-4fd2-b399-001122334466';
+  const response=(reply,role='admin')=>createStageServiceClient({
+    binding:{async fetch(){return Response.json(reply)}},
+    role,secret:key(role)
+  });
+  const base={status:'stage_case_status',uid:B,caseId:C,generation:1,
+    completedPhases:0,nextPhase:'firestore_reconciled',
+    caseState:'qa_fixture_pending',productionReady:false,
+    providerEffectsVerified:false,accountDeleted:false};
+  for(const reply of [{...base,uid:A},{...base,caseId:D},
+    {...base,completedPhases:-1},{...base,accountDeleted:true}])
+    await expectDenied(response(reply).request('caseStatus',{uid:B,caseId:C}));
+  await expectDenied(response({...base,status:'stage_case_advanced',
+    completedPhases:4},'reconciler').request('caseAdvance',
+      {uid:B,caseId:C,expectedStep:0,fixtureEvidence:'qa-synthetic-only-reviewed'}));
+});
+test('independent closure needs the exact same admitted operation ID echoed back',async()=>{
+  const id=crypto.randomUUID(),other=crypto.randomUUID();
+  const reconciler=reply=>createStageServiceClient({
+    binding:{async fetch(){return Response.json(reply)}},
+    role:'reconciler',secret:key('reconciler')
+  });
+  await expectDenied(reconciler({status:'stage_reconciled',operationId:other})
+    .request('close',{operationId:id,fixtureEvidence:'demo-confirmed'}));
 });

@@ -244,7 +244,10 @@ export default {
         }
         if(url.pathname==='/v1/case/attest'){
           const value=await ledger.attest({...data,role,at:moment});
-          return text(200,'stage_case_attested',value);
+          // Echo immutable identity: a successful answer must not be
+          // reused as proof for a different subject or case.
+          return text(200,'stage_case_attested',
+            {...value,uid:data.uid,caseId:data.caseId});
         }
         const value=await ledger.advance(data);
         return text(200,'stage_case_advanced',value);
@@ -255,18 +258,18 @@ export default {
       }
       if(url.pathname==='/v1/drain'){
         await barrier.beginFreeze(data.uid);
-        return text(200,'stage_draining');
+        return text(200,'stage_draining',{uid:data.uid});
       }
       if(url.pathname==='/v1/finalize'){
         await barrier.finalizeFreeze(data.uid);
-        return text(200,'stage_frozen');
+        return text(200,'stage_frozen',{uid:data.uid});
       }
       if(url.pathname==='/v1/status'){
         const value=await barrier.status(data.uid);
-        return text(200,'stage_status',value);
+        return text(200,'stage_status',{uid:data.uid,...value});
       }
       await reconcile(env.STAGE_FREEZE_DB,barrier,data.operationId);
-      return text(200,'stage_reconciled');
+      return text(200,'stage_reconciled',{operationId:data.operationId});
     }catch{return denied();}
   }
 };

@@ -108,11 +108,31 @@ export function createStageServiceClient({
          result.status!==expectedReply[op])deny();
       if((op==='admit'||op==='writeAdmit')&&
          !stageNonceOk(result.operationId))deny();
+      // A success response from the wrong UID/operation must never be
+      // accepted as a distributed freeze or provider reconciliation proof.
+      if(['drain','finalize','status','caseOpen','caseStatus',
+          'caseAttest','caseAdvance'].includes(op)&&
+         result.uid!==payload.uid)deny();
       if(op==='status'&&(
          !['active','draining','frozen'].includes(result.state)||
          !Number.isSafeInteger(result.inFlight)||
          result.inFlight<0||
          (result.state==='frozen'&&result.inFlight!==0)))deny();
+      if(['caseOpen','caseStatus','caseAttest','caseAdvance'].includes(op)&&
+         result.caseId!==payload.caseId)deny();
+      if(['caseOpen','caseStatus','caseAdvance'].includes(op)&&(
+         result.generation!==1||
+         !Number.isSafeInteger(result.completedPhases)||
+         result.completedPhases<0||result.completedPhases>6||
+         !['qa_fixture_pending','qa_fixture_complete'].includes(result.caseState)||
+         result.accountDeleted!==false||result.productionReady!==false))deny();
+      if(op==='caseAdvance'&&
+         result.completedPhases!==payload.expectedStep+1)deny();
+      if(op==='caseAttest'&&(
+         result.phase!==payload.phase||
+         result.attestationState!=='qa_fixture_attested'||
+         result.productionReady!==false))deny();
+      if(op==='close'&&result.operationId!==payload.operationId)deny();
       return result;
     }
   });
