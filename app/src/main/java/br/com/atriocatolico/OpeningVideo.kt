@@ -10,12 +10,6 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -23,10 +17,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -39,8 +31,8 @@ private const val MAX_OPENING_DURATION_MS = 15_000L
  * Full-screen, offline opening shown once per new MainActivity launch.
  * The 9:16 movie uses VideoView's aspect-preserving fit; never crop its content.
  *
- * The startup movie is purely visual and is not a Firebase loading indicator.
- * Authentication and the community UI start normally after playback or failure.
+ * The startup movie includes audio and is not a Firebase loading indicator.
+ * Authentication and the community UI start after playback, or on media failure/timeout.
  * The bundled asset can be replaced independently at res/raw/abertura_atrio.mp4.
  */
 @Composable
@@ -55,7 +47,9 @@ internal fun AtrioStartupVideo(activity: ComponentActivity, onFinished: () -> Un
     }
 
     val videoView = remember(activity) { VideoView(activity) }
-    BackHandler(enabled = !finished) { finishOnce() }
+    // Voltar fecha o aplicativo, nunca permite entrar sem assistir ao vídeo.
+    // Uma nova abertura cria uma nova Activity e reinicia a apresentação.
+    BackHandler(enabled = !finished) { activity.finish() }
 
     // Keep system bars hidden only during the video. Restore them for login/feed.
     DisposableEffect(activity) {
@@ -129,17 +123,6 @@ internal fun AtrioStartupVideo(activity: ComponentActivity, onFinished: () -> Un
             factory = { videoView },
             modifier = Modifier.fillMaxSize().testTag("atrio-opening-video")
         )
-        TextButton(
-            onClick = finishOnce,
-            modifier = Modifier.align(Alignment.BottomEnd)
-                .navigationBarsPadding()
-                .padding(16.dp)
-                .heightIn(min = 48.dp)
-                .testTag("atrio-opening-skip"),
-            colors = ButtonDefaults.textButtonColors(contentColor = Wine)
-        ) {
-            Text("Pular")
-        }
     }
 }
 
