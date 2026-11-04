@@ -15,6 +15,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -24,6 +25,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 
@@ -94,8 +96,11 @@ internal fun CommunityRulesGate(
                         }
                     }
                 ) { Text(if (busy) "Registrando..." else "Aceitar e entrar") }
-                Text("Seu aceite fica vinculado à conta. Regras e política de privacidade " +
-                    "completa deverão ser revisadas antes da publicação na Play.",
+                TextButton(onClick = { FirebaseAuth.getInstance().signOut() },
+                    modifier = Modifier.fillMaxWidth()) { Text("Sair sem aceitar") }
+                AccountDeletionRequestPanel(db, uid)
+                Text("Seu aceite fica vinculado à conta. A Política de Privacidade e " +
+                    "os termos legais completos ainda exigem revisão antes da publicação na Play.",
                     style = MaterialTheme.typography.bodySmall)
             }
         }
