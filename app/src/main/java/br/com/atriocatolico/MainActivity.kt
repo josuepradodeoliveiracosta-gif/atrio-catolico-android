@@ -37,6 +37,7 @@ import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -151,8 +152,17 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val prefs = getSharedPreferences("atrio-demo", Context.MODE_PRIVATE)
+        // A abertura é exibida em cada novo lançamento do app, não em
+        // simples retornos do segundo plano. O estado salvo evita reiniciar
+        // a experiência durante uma mudança de configuração.
+        val coldStart = savedInstanceState == null
         setContent {
-            if (com.google.firebase.FirebaseApp.getApps(this).isNotEmpty()) {
+            var opening by rememberSaveable { mutableStateOf(coldStart) }
+            if (opening) {
+                AtrioTheme {
+                    AtrioStartupVideo(this@MainActivity) { opening = false }
+                }
+            } else if (com.google.firebase.FirebaseApp.getApps(this).isNotEmpty()) {
                 OnlineAtrioApp(this@MainActivity)
             } else {
                 AtrioDemoApp(prefs)
