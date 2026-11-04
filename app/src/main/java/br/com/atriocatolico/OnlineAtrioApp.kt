@@ -330,6 +330,7 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
     // Sem configuração publicada (ou em erro/offline), não bloquear contas.
     var rulesGateEnabled by remember(uid) { mutableStateOf(false) }
     var consentLoaded by remember(uid) { mutableStateOf(false) }
+    var consentReadFailed by remember(uid) { mutableStateOf(false) }
     var consentAccepted by remember(uid) { mutableStateOf(false) }
     DisposableEffect(db, uid) {
         val feature = db.document("app_config/community_rules")
@@ -340,14 +341,15 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
             }
         val acceptance = db.collection("community_consents").document(uid)
             .addSnapshotListener { snapshot, failure ->
-                consentLoaded = failure == null
+                consentLoaded = true // Erro também libera a tela de saída, nunca spinner eterno.
+                consentReadFailed = failure != null
                 consentAccepted = failure == null &&
                     snapshot?.getString("version") == CommunityRulesPolicy.VERSION
             }
         onDispose { feature.remove(); acceptance.remove() }
     }
     if (rulesGateEnabled && !consentAccepted) {
-        CommunityRulesGate(db, uid, loaded = consentLoaded)
+        CommunityRulesGate(db, uid, loaded = consentLoaded, loadError = consentReadFailed)
         return
     }
     // Firebase Auth mantém displayName entre logins: ele evita que o
