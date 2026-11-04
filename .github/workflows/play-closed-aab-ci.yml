@@ -170,6 +170,26 @@ jobs:
           test ! -e cloudflare/account-deletion-processor/dist
       - name: Verificar inventário determinístico e checkpoints de exclusão sem escrita
         run: npm --prefix cloudflare/account-deletion-audit test
+      - name: Preparar pacote de fontes do Worker privado (não implantar)
+        env:
+          SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          # Checkout de PR pode apontar ao merge sintético; a fonte do
+          # pacote tem de corresponder ao HEAD realmente conferido.
+          ACTUAL_HEAD="$(git rev-parse HEAD)"
+          if [[ "$ACTUAL_HEAD" != "$SOURCE_COMMIT" ]]; then
+            echo "PR checkout difere de HEAD: gerar somente snapshot do checkout."
+            SOURCE_COMMIT="$ACTUAL_HEAD"
+          fi
+          node --experimental-vm-modules cloudflare/privacy-freeze-stage/scripts/build-offline.mjs --build . "$RUNNER_TEMP/atrio-qa-stage-module-source" "$SOURCE_COMMIT"
+      - name: Guardar pacote reproduzível de QA sem credenciais (3 dias)
+        uses: actions/upload-artifact@v4
+        with:
+          name: atrio-private-stage-source-${{ github.run_id }}
+          path: ${{ runner.temp }}/atrio-qa-stage-module-source/
+          if-no-files-found: error
+          retention-days: 3
   unsigned-play-bundle:
     if: github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android'
     runs-on: ubuntu-latest
