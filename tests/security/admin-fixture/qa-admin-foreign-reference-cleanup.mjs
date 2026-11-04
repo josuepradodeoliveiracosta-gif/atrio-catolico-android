@@ -92,11 +92,10 @@ export function createQaAdminForeignReferenceCleanup(){
       const fenced=async()=>{
         ready();
         if(await assertAuthorized()!==true)deny('authorization_lost');
-        // Accept legacy throw-on-loss checks (undefined) and explicit true;
-        // asynchronous checks must be awaited and false/unknown fail closed.
+        // Missing/undefined/ambiguous lease results must never authorize
+        // deletion, including from older throw-on-loss callbacks.
         const leaseValid=await assertLease();
-        if(leaseValid!==true&&leaseValid!==undefined)
-          deny('lease_lost');
+        if(leaseValid!==true)deny('lease_lost');
         ready();
       };
       await fenced();

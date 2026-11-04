@@ -97,8 +97,9 @@ export function createQaAdminOwnedDescendantPurger(){
         // Lease check may be asynchronous. A rejected Promise or a false
         // return must not permit a privileged Firestore deletion.
         const leaseValid=await assertLease();
-        if(leaseValid!==true&&leaseValid!==undefined)
-          deny('lease_lost');
+        // A missing/undefined lease is NOT authorization, even for legacy
+        // throw-on-loss callbacks. Every destructive call must prove true.
+        if(leaseValid!==true)deny('lease_lost');
         ready();
       }
       await fenced();

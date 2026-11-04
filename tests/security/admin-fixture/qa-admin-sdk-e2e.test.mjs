@@ -581,16 +581,20 @@ try {
         const owned=createQaAdminOwnedDescendantPurger();
         try{
           for(const gate of [foreign,owned]){
+            // Only an explicit Boolean true is valid lease authorization.
+            // Undefined used to pass through the write guard.
+            for(const value of [undefined,null,false,0,1,'true',{}]){
+              await assert.rejects(gate.purge(A,{
+                approvedQaReview:true,
+                assertLease:async()=>value,
+                assertAuthorized:async()=>true
+              }),/lease_lost/);
+              assert.equal((await getDoc(doc(db,notice))).exists(),true);
+              assert.equal((await getDoc(doc(db,nested))).exists(),true);
+            }
             await assert.rejects(gate.purge(A,{
               approvedQaReview:true,
-              assertLease:async()=>false,
-              assertAuthorized:async()=>true
-            }),/lease_lost/);
-            await assert.rejects(gate.purge(A,{
-              approvedQaReview:true,
-              assertLease:async()=>{
-                throw Error('qa_async_lease_revoked');
-              },
+              assertLease:async()=>{throw Error('qa_async_lease_revoked');},
               assertAuthorized:async()=>true
             }),/qa_async_lease_revoked/);
           }
