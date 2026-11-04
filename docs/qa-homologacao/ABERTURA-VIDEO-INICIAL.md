@@ -1,6 +1,6 @@
 # Abertura em tela cheia — vídeo de inicialização
 
-**Estado:** código Android preparado em PR técnica; a **substituição do MP4 em binário é pendente**. Não confundir código pronto com vídeo novo incluído no APK ou APK instalado.
+**Estado:** código Android e MP4 exato **integrados à branch da PR #116**; ainda dependem de verificações obrigatórias, revisão e merge para integrar a `main`. Não confundir branch/CI com APK instalado ou publicado.
 
 ## Comportamento previsto
 
@@ -23,14 +23,13 @@
 | Git blob SHA-1 calculado | `3d8fe939b612492014b35b2f5e727d4d128900c4` |
 | Blob MP4 previamente presente na `main` | `005e8dbc2d9ddc25a11588891b2669ec756e3607` (3.378.959 bytes), **não é o arquivo enviado** |
 
-**Pendente:** substituir esse arquivo binário **na branch da PR**, preservando o nome `abertura_atrio.mp4`, e conferir que a árvore Git exiba o blob `3d8fe939b612492014b35b2f5e727d4d128900c4`. O código usa `R.raw.abertura_atrio`, portanto a substituição não requer mudanças em Kotlin nem dependências de reprodução novas.
+**Integridade confirmada na PR #116:** o blob da branch para `app/src/main/res/raw/abertura_atrio.mp4` agora é `3d8fe939b612492014b35b2f5e727d4d128900c4` — idêntico ao SHA-1 calculado do arquivo enviado. O código usa `R.raw.abertura_atrio`; reprodução offline, sem hospedagem remota e sem introduzir dependência nova.
 
-A integração disponível via ferramenta nesta conversa só autoriza escrita UTF-8 no repositório; por isso a mídia foi preparada separadamente como arquivo original e pacote com o caminho correto. Não foi realizado um upload binário não verificável, tampouco usado um servidor remoto como substituto oculto.
 
 ## Homologação antes da integração
 
-- [ ] MP4 correto presente na branch e identificado pelo SHA de blob Git acima.
-- [ ] Compilação Android de testes e verificações de segurança/versão/Firestore aprovadas no **head atualizado**.
+- [x] MP4 correto presente na branch e identificado pelo SHA de blob Git acima.
+- [ ] Compilação Android de testes e verificações de segurança/versão/Firestore aprovadas no **head atualizado** (conferir após último commit documental).
 - [ ] Em aparelho Android: iniciar sem internet e conferir o vídeo completo (10 segundos), som silenciado e nenhuma tela de login à frente.
 - [ ] Tocar em **Pular** / botão Voltar e conferir transição sem travamento.
 - [ ] Fechar o app e abrir pelo ícone: reproduzir outra vez.
