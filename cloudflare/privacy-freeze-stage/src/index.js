@@ -37,7 +37,7 @@ const OPERATIONS=Object.freeze({
   '/v1/status':'status',
   '/v1/case/open':'caseOpen','/v1/case/status':'caseStatus',
   '/v1/case/attest':'caseAttest','/v1/case/advance':'caseAdvance',
-  '/v1/canary':'canary'
+  '/v1/canary':'canary', '/v1/role/status':'roleStatus'
 });
 const text=(status,code,extra={})=>new Response(JSON.stringify({status:code,...extra}),{
   status,headers:{'Content-Type':'application/json','Cache-Control':'no-store',
@@ -115,6 +115,16 @@ function validateOperation(path,role,input){
     if(!['avatar','guardian','push'].includes(role)||
        !validHostedCanary(role,input))
       throw Error('stage_canary_scope');
+    return input;
+  }
+  if(path==='/v1/role/status'){
+    // This is a bounded, read-only QA proof for the three role-specific
+    // private Service Bindings, not an admission or a deletion authorization.
+    const roleUid={avatar:'qa-freeze-alice',guardian:'qa-freeze-bob',
+      push:'qa-freeze-alice'};
+    if(!Object.hasOwn(roleUid,role)||
+       !exactKeys(input,['uid'])||input.uid!==roleUid[role])
+      throw Error('stage_role_status_scope');
     return input;
   }
   if(path==='/v1/admit'){
@@ -230,6 +240,13 @@ export default {
         const proof=await runHostedCanary(env.STAGE_FREEZE_DB,role,data,moment);
         return text(200,proof.status,{syntheticOnly:true,
           productionReady:false,providerEffectsVerified:false});
+      }
+      if(url.pathname==='/v1/role/status'){
+        const snapshot=await barrier.status(data.uid);
+        return text(200,'stage_role_status',{
+          uid:data.uid,...snapshot,syntheticOnly:true,
+          productionReady:false,providerEffectsVerified:false
+        });
       }
       // Case routes reuse the same private HMAC + D1 nonce boundary.
       if(url.pathname.startsWith('/v1/case/')){

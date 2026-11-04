@@ -13,7 +13,7 @@ const routes=Object.freeze({
   finalize:'/v1/finalize',close:'/v1/close',status:'/v1/status',
   caseOpen:'/v1/case/open',caseStatus:'/v1/case/status',
   caseAttest:'/v1/case/attest',caseAdvance:'/v1/case/advance',
-  canary:'/v1/canary'
+  canary:'/v1/canary',roleStatus:'/v1/role/status'
 });
 // HMAC authenticates the request, not the returned payload. Reject a
 // success envelope for a DIFFERENT operation, including stale/misrouted
@@ -23,7 +23,8 @@ const expectedReply=Object.freeze({
   drain:'stage_draining',finalize:'stage_frozen',close:'stage_reconciled',
   status:'stage_status',caseOpen:'stage_case_open',
   caseStatus:'stage_case_status',caseAttest:'stage_case_attested',
-  caseAdvance:'stage_case_advanced',canary:'stage_canary_completed'
+  caseAdvance:'stage_case_advanced',canary:'stage_canary_completed',
+  roleStatus:'stage_role_status'
 });
 const deny=()=>{throw Error('qa_stage_client_denied');};
 function validate(role,op,payload){
@@ -37,6 +38,11 @@ function validate(role,op,payload){
       role==='push'?'qa-freeze-alice':null;
     if(!expected||keys!=='runId,uid'||
        payload.uid!==expected||payload.runId!=='qa-hosted-20261103-a')deny();
+  }else if(op==='roleStatus'){
+    const uid={avatar:'qa-freeze-alice',guardian:'qa-freeze-bob',
+      push:'qa-freeze-alice'};
+    if(!Object.hasOwn(uid,role)||keys!=='uid'||payload.uid!==uid[role])
+      deny();
   }else if(op==='admit'){
     if(!['avatar','guardian','push'].includes(role))deny();
     // Only two synthetic UIDs can be part of a broadcast QA admission.
@@ -110,14 +116,17 @@ export function createStageServiceClient({
          !stageNonceOk(result.operationId))deny();
       // A success response from the wrong UID/operation must never be
       // accepted as a distributed freeze or provider reconciliation proof.
-      if(['drain','finalize','status','caseOpen','caseStatus',
+      if(['drain','finalize','status','roleStatus','caseOpen','caseStatus',
           'caseAttest','caseAdvance'].includes(op)&&
          result.uid!==payload.uid)deny();
-      if(op==='status'&&(
+      if((op==='status'||op==='roleStatus')&&(
          !['active','draining','frozen'].includes(result.state)||
          !Number.isSafeInteger(result.inFlight)||
          result.inFlight<0||
          (result.state==='frozen'&&result.inFlight!==0)))deny();
+      if(op==='roleStatus'&&(
+         result.syntheticOnly!==true||result.productionReady!==false||
+         result.providerEffectsVerified!==false))deny();
       if(['caseOpen','caseStatus','caseAttest','caseAdvance'].includes(op)&&
          result.caseId!==payload.caseId)deny();
       if(['caseOpen','caseStatus','caseAdvance'].includes(op)&&(

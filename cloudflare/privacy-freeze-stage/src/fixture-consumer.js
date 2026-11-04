@@ -34,12 +34,24 @@ export default {
       guardian:{uid:'qa-freeze-bob',nonce:'22222222-2222-4222-8222-222222222222'},
       push:{uid:'qa-freeze-alice',nonce:'33333333-3333-4333-8333-333333333333'}
     };
+    // A second ONE-SHOT run may query state only, and NEVER admit tickets.
+    // Its fixed per-role UUIDs are D1 replay-protected; a schedule left on
+    // cannot generate additional writes after the first successful probe.
+    const readNonces={
+      avatar:'44444444-4444-4444-8444-444444444444',
+      guardian:'55555555-5555-4555-8555-555555555555',
+      push:'66666666-6666-4666-8666-666666666666'
+    };
     const selected=Object.hasOwn(config,role)?config[role]:null;
     const moment=controller?.scheduledTime;
+    const oldWindow=Number.isSafeInteger(moment)&&
+      moment>=Date.parse('2026-11-03T00:00:00Z')&&
+      moment<Date.parse('2026-11-04T00:00:00Z');
+    const readOnlyWindow=Number.isSafeInteger(moment)&&
+      moment>=Date.parse('2026-11-04T00:00:00Z')&&
+      moment<Date.parse('2026-11-05T00:00:00Z');
     if(controller?.cron!=='* * * * *'||
-       !Number.isSafeInteger(moment)||
-       moment<Date.parse('2026-11-03T00:00:00Z')||
-       moment>=Date.parse('2026-11-04T00:00:00Z')||
+       (!oldWindow&&!readOnlyWindow)||
        env?.ATRIO_QA_CONSUMER_FIXTURE!=='demo-atrio-v11'||
        typeof env?.PRIVACY_FREEZE_STAGE?.fetch!=='function'||
        !selected)return;
@@ -47,14 +59,19 @@ export default {
       const client=createStageServiceClient({
         binding:env.PRIVACY_FREEZE_STAGE,role,
         secret:env.ATRIO_QA_CONSUMER_HMAC,
-        createNonce:()=>selected.nonce
+        createNonce:()=>readOnlyWindow?readNonces[role]:selected.nonce
       });
-      await client.request('canary',{
-        runId:'qa-hosted-20261103-a',uid:selected.uid
-      });
+      if(readOnlyWindow){
+        const proof=await client.request('roleStatus',{uid:selected.uid});
+        if(proof.inFlight!==0)throw Error('qa_probe_has_inflight');
+      }else{
+        await client.request('canary',{
+          runId:'qa-hosted-20261103-a',uid:selected.uid
+        });
+      }
     }catch{
-      // No secrets, tokens, UIDs or error payloads written to logs.
-      console.warn('qa_hosted_canary_not_verified');
+      // Keep role-specific secrets and identity out of logs.
+      console.warn('qa_hosted_private_probe_not_verified');
     }
   },
   async fetch(request,env){

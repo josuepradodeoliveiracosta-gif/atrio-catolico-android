@@ -153,3 +153,62 @@ test('no public URL or client fetch permission, only private scheduled handler',
     assert.equal(t.counts().canaries,0);
   }finally{t.close()}
 });
+
+test('read-only per-role HMAC probe crosses Service Binding but never opens a ticket',async()=>{
+  const t=setup();
+  try{await noNetwork(async()=>{
+    // First prove the target of the old canary is already frozen while a
+    // neighbor is still active. This matches the hosted QA fixture state.
+    await t.admin.request('drain',{uid:'qa-freeze-alice'});
+    await t.admin.request('finalize',{uid:'qa-freeze-alice'});
+    const prior=t.counts();
+    const at=Date.parse('2026-11-04T13:05:00Z');
+    for(const role of ROLES)await t.scheduled(role,{scheduledTime:at});
+    const after=t.counts();
+    assert.equal(after.canaries,prior.canaries);
+    assert.equal(after.pending,0);
+    assert.equal(after.nonces,prior.nonces+3);
+    for(const nonce of [
+      '44444444-4444-4444-8444-444444444444',
+      '55555555-5555-4555-8555-555555555555',
+      '66666666-6666-4666-8666-666666666666'
+    ]){
+      assert.equal(t.sqlite.prepare(
+        'SELECT COUNT(*) AS n FROM qa_stage_nonces WHERE nonce=?'
+      ).get(nonce).n,1);
+    }
+    assert.equal((await t.admin.request('status',{uid:'qa-freeze-alice'})).state,
+      'frozen');
+    assert.equal((await t.admin.request('status',{uid:'qa-freeze-bob'})).state,
+      'active');
+    for(const role of ROLES)await t.scheduled(role,{scheduledTime:at+60000});
+    assert.equal(t.counts().nonces,after.nonces+2);
+    // The two additional D1 nonces above are from the admin status calls,
+    // NOT from replaying a fixed per-role probe.
+    assert.equal(t.counts().pending,0);
+  })}finally{t.close();}
+});
+test('per-role probes reject cross-UID reads and cannot inherit admin authority',async()=>{
+  const t=setup();
+  try{
+    for(const [role,wrong] of [['avatar','qa-freeze-bob'],
+      ['guardian','qa-freeze-alice'],['push','qa-freeze-bob']]){
+      await assert.rejects(t.consumerEnv(role).PRIVACY_FREEZE_STAGE
+        ? createStageServiceClient({binding:t.binding,role,secret:KEY(role)})
+          .request('roleStatus',{uid:wrong})
+        : Promise.resolve(),/qa_stage_client_denied/);
+    }
+    await assert.rejects(t.admin.request('roleStatus',{uid:'qa-freeze-alice'}),
+      /qa_stage_client_denied/);
+    assert.deepEqual(t.counts(),{canaries:0,pending:0,nonces:0});
+  }finally{t.close();}
+});
+test('private probe is disabled after its single UTC fixture day',async()=>{
+  const t=setup();
+  try{
+    await t.scheduled('avatar',{scheduledTime:Date.parse('2026-11-05T00:00:00Z')});
+    await t.scheduled('guardian',{scheduledTime:Date.parse('2026-11-06T13:00:00Z')});
+    await t.scheduled('push',{cron:'0 0 * * *',scheduledTime:Date.parse('2026-11-04T13:00:00Z')});
+    assert.deepEqual(t.counts(),{canaries:0,pending:0,nonces:0});
+  }finally{t.close();}
+});
