@@ -158,3 +158,88 @@ test('nega UID real e variáveis de credenciais de produção',async()=>{
     assert.equal(q.count('avatar_pending'),1);
   }finally{delete process.env.CLOUDINARY_API_SECRET;q.db.close();}
 });
+
+test('same public_id with newer created_at is not erased under stale Cloudinary proof',async()=>{
+  const q=fixture();
+  try{
+    q.options.verifyCloudinaryGone=async()=>{
+      q.db.prepare('UPDATE avatar_pending SET created_at=? WHERE uid=?')
+        .run(777,UID);
+      return true;
+    };
+    await assert.rejects(scrubQaAvatarD1(q.options),
+      /pending_changed_during_cleanup/);
+    assert.equal(q.count('avatar_pending'),1);
+    assert.equal(q.count('avatar_rate'),1);
+    assert.equal(q.db.prepare('SELECT created_at FROM avatar_pending WHERE uid=?')
+      .get(UID).created_at,777);
+    assert.equal(q.count('avatar_pending',BOB),1);
+  }finally{q.db.close();}
+});
+test('new rate version during media readback cannot be erased',async()=>{
+  const q=fixture();
+  try{
+    q.options.verifyCloudinaryGone=async()=>{
+      q.db.prepare('UPDATE avatar_rate SET next_at=? WHERE uid=?').run(888,UID);
+      return true;
+    };
+    await assert.rejects(scrubQaAvatarD1(q.options),
+      /rate_changed_during_cleanup/);
+    assert.equal(q.count('avatar_pending'),1);
+    assert.equal(q.count('avatar_rate'),1);
+    assert.equal(q.db.prepare('SELECT next_at FROM avatar_rate WHERE uid=?')
+      .get(UID).next_at,888);
+  }finally{q.db.close();}
+});
+test('late mutex and moderation records deny deletion after remote media check',async t=>{
+  for(const kind of ['mutex','moderation']){
+    await t.test(kind,async()=>{
+      const q=fixture();
+      try{
+        q.options.verifyCloudinaryGone=async()=>{
+          if(kind==='mutex')
+            q.db.prepare('INSERT INTO avatar_mutex VALUES (?,?,?)')
+              .run(UID,'qa-late-operation',777);
+          else
+            q.db.prepare(
+              'INSERT INTO avatar_moderation(actor_uid,target_uid,reason,created_at) VALUES (?,?,?,?)'
+            ).run(BOB,UID,'qa-new-retention-hold',777);
+          return true;
+        };
+        await assert.rejects(scrubQaAvatarD1(q.options),
+          /fence_or_retention_changed/);
+        assert.equal(q.count('avatar_pending'),1);
+        assert.equal(q.count('avatar_rate'),1);
+        assert.equal(q.count('avatar_pending',BOB),1);
+      }finally{q.db.close();}
+    });
+  }
+});
+test('rate row inserted during remote media proof is preserved and blocks stale cleanup',async()=>{
+  const q=fixture();
+  try{
+    q.db.prepare('DELETE FROM avatar_rate WHERE uid=?').run(UID);
+    q.options.verifyCloudinaryGone=async()=>{
+      q.db.prepare('INSERT INTO avatar_rate(uid,next_at) VALUES (?,?)').run(UID,999);
+      return true;
+    };
+    await assert.rejects(scrubQaAvatarD1(q.options),
+      /rate_changed_during_cleanup/);
+    assert.equal(q.count('avatar_pending'),1);
+    assert.equal(q.count('avatar_rate'),1);
+  }finally{q.db.close();}
+});
+test('idempotent retry without a baseline rate row preserves neighbor',async()=>{
+  const q=fixture();
+  try{
+    q.db.prepare('DELETE FROM avatar_rate WHERE uid=?').run(UID);
+    const first=await scrubQaAvatarD1(q.options);
+    assert.equal(first.erasedPendingFixture,1);
+    const retry=await scrubQaAvatarD1(q.options);
+    assert.equal(retry.erasedPendingFixture,0);
+    assert.equal(q.count('avatar_pending'),0);
+    assert.equal(q.count('avatar_rate'),0);
+    assert.equal(q.count('avatar_pending',BOB),1);
+    assert.equal(q.count('avatar_rate',BOB),1);
+  }finally{q.db.close();}
+});

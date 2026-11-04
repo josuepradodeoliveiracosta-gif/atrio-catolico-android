@@ -91,9 +91,28 @@ export async function scrubQaAvatarD1({
      count(db,'SELECT COUNT(*) AS n FROM avatar_moderation WHERE target_uid=?',uid)>0)
     deny('moderation_retention_unresolved');
   const pending=db.prepare(
-    'SELECT public_id FROM avatar_pending WHERE uid=?'
+    'SELECT public_id,created_at FROM avatar_pending WHERE uid=?'
   ).all(uid);
   if(pending.length>1)deny('unexpected_pending_cardinality');
+  if(pending.length&&(!Number.isSafeInteger(pending[0].created_at)||
+     pending[0].created_at<0))deny('untrusted_pending_version');
+  // Capture rate before the awaited Cloudinary proof, not after it.
+  const rate=db.prepare('SELECT next_at FROM avatar_rate WHERE uid=?').all(uid);
+  if(rate.length>1)deny('unexpected_rate_cardinality');
+  if(rate.length&&(!Number.isSafeInteger(rate[0].next_at)||
+     rate[0].next_at<0))deny('untrusted_rate_version');
+  const rateAt=rate.length?rate[0].next_at:0;
+  const rateUnchanged=()=>{
+    const newer=db.prepare('SELECT next_at FROM avatar_rate WHERE uid=?')
+      .all(uid);
+    return newer.length===rate.length&&
+      (newer.length===0||newer[0].next_at===rateAt);
+  };
+  const fenceClear=()=>(
+    count(db,'SELECT COUNT(*) AS n FROM avatar_mutex WHERE uid=?',uid)===0&&
+    count(db,'SELECT COUNT(*) AS n FROM avatar_moderation WHERE actor_uid=?',uid)+
+      count(db,'SELECT COUNT(*) AS n FROM avatar_moderation WHERE target_uid=?',uid)===0
+  );
   if(pending.length){
     const id=pending[0].public_id;
     if(!validAvatarPublicId(uid,id))deny('untrusted_media_ownership');
@@ -101,16 +120,31 @@ export async function scrubQaAvatarD1({
     if(await verifyCloudinaryGone(uid,id)!==true)
       deny('cloudinary_residual_or_unknown');
     await ready();
-    // CAS: a concurrently changed upload must not be deleted under an old
-    // Cloudinary proof for a different public_id.
+    // A stale public ID can refer to a newer upload with a different
+    // created_at. Prevent deletion under an earlier media readback.
+    if(!rateUnchanged())deny('rate_changed_during_cleanup');
+    if(!fenceClear())deny('fence_or_retention_changed');
     const removed=db.prepare(
-      'DELETE FROM avatar_pending WHERE uid=? AND public_id=?'
-    ).run(uid,id);
+      'DELETE FROM avatar_pending WHERE uid=? AND public_id=? '+
+      'AND created_at=? AND NOT EXISTS '+
+      '(SELECT 1 FROM avatar_mutex WHERE uid=?) AND NOT EXISTS '+
+      '(SELECT 1 FROM avatar_moderation WHERE actor_uid=? OR target_uid=?)'
+    ).run(uid,id,pending[0].created_at,uid,uid,uid);
     if(removed.changes!==1)deny('pending_changed_during_cleanup');
     await ready();
   }
   await ready();
-  db.prepare('DELETE FROM avatar_rate WHERE uid=?').run(uid);
+  if(!rateUnchanged())deny('rate_changed_during_cleanup');
+  if(!fenceClear())deny('fence_or_retention_changed');
+  if(rate.length){
+    const removed=db.prepare(
+      'DELETE FROM avatar_rate WHERE uid=? AND next_at=? '+
+      'AND NOT EXISTS (SELECT 1 FROM avatar_mutex WHERE uid=?) '+
+      'AND NOT EXISTS (SELECT 1 FROM avatar_moderation '+
+      'WHERE actor_uid=? OR target_uid=?)'
+    ).run(uid,rateAt,uid,uid,uid);
+    if(removed.changes!==1)deny('rate_changed_during_cleanup');
+  }
   await ready();
   if(residual(db,uid)!==0)deny('residual_or_raced_d1_records');
   return Object.freeze({
