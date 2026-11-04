@@ -210,3 +210,19 @@ test('não executa exclusão sem aprovação vinculada à conta fictícia',async
   assert.equal(q.log.length,0);
   assert.equal(q.auth.has(A),true);
 });
+
+test('a completed QA case cannot report success after reviewer revocation during final readback',async()=>{
+  const q=fixture();
+  await q.executor.run(request());
+  const original=q.backend.auth.exists;
+  const previousEffects=q.log.length;
+  let readbacks=0;
+  q.backend.auth.exists=async x=>{
+    const present=await original(x);
+    if(++readbacks===2)q.confirmed.set(A,false);
+    return present;
+  };
+  await assert.rejects(q.executor.run(request()),/approval_revoked/);
+  assert.equal(q.log.length,previousEffects);
+  assert.equal(q.auth.has(B),true);
+});

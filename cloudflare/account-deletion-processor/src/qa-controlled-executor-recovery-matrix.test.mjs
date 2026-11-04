@@ -298,3 +298,25 @@ test('unknown provider state cannot authorize a destructive retry even with phas
     });
   }
 });
+
+test('loss of distributed freeze during phase-specific review blocks the next mutation',async()=>{
+  const f=fixture('freeze_writes','after');
+  try{
+    await assert.rejects(f.build().run(ctx),/qa_failed_after_freeze_writes/);
+    await f.ledger.approveRecovery(ctx,{independentReview:async()=>true});
+    f.restart();
+    const original=f.backend.approvals.authorizeRecoveryRetry;
+    f.backend.approvals.authorizeRecoveryRetry=async x=>{
+      const allowed=await original(x);
+      if(x.phase==='purge_firestore')f.state.frozen=false;
+      return allowed;
+    };
+    await assert.rejects(f.build().run(ctx),
+      /controlled_deletion_denied:distributed_freeze_unverified/);
+    assert.deepEqual(f.retryCalls,['purge_firestore']);
+    assert.deepEqual(f.effects,['freeze_writes']);
+    assert.equal(f.state.documents,3);
+    assert.equal(f.state.auth,true);
+    assert.deepEqual((await f.ledger.status(ctx)).completed,['freeze_writes']);
+  }finally{f.close();}
+});

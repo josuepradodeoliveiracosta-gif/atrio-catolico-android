@@ -191,6 +191,9 @@ export function createControlledQaDeletionExecutor({projectId,backend}={}){
         if(i>0)await freezeIsActive();
         if(i<lease.completed.length){
           exactTrue(await verify(phase),'completed_phase_no_longer_valid');
+          // A reviewer can revoke access during asynchronous provider readback.
+          // Never report a completed case if its final authorization is stale.
+          await authorize();
           continue;
         }
         // On an explicitly reviewed recovery (epoch > 1), the preceding
@@ -220,8 +223,10 @@ export function createControlledQaDeletionExecutor({projectId,backend}={}){
           await authorize();
         }
         // Re-check after any previous asynchronous read and before side
-        // effects. Every adapter must enforce its own fence too.
+        // effects. A remote second-review call may have outlived the freeze
+        // checked at the start of this phase. Adapters must also fence writes.
         await authorize();
+        if(i>0)await freezeIsActive();
         await actions[phase]();
         await authorize();
         exactTrue(await verify(phase),'phase_not_reconciled');
