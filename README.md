@@ -20,7 +20,7 @@ um arquivo para declarar a versão atual.**
   [app/build.gradle.kts da main](app/build.gradle.kts). Essa é a única fonte
   de versão do código oficialmente integrado.
 - **Compilação disponível:** conferir a execução correspondente ao mesmo commit
-  em [GitHub Actions](../../actions/workflows/build-apk.yml) e o artefato
+  em [GitHub Actions](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/actions/workflows/build-apk.yml) e o artefato
   `atrio-catolico-release-assinado`. Código integrado não comprova que a
   compilação terminou ou que a instalação ocorreu.
 - **Versão em desenvolvimento:** PRs e branches, como os projetos 0.19.x, são
@@ -74,7 +74,7 @@ Nenhum backend pago é ativado por este README ou pela consulta de versão.
 ## Compilar e instalar
 
 1. Consulte o commit principal e a versão pelo script.
-2. Entre no [workflow de APK](../../actions/workflows/build-apk.yml) e
+2. Entre no [workflow de APK](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/actions/workflows/build-apk.yml) e
    confira **conclusão success para o commit correspondente**.
 3. Baixe o artefato **atrio-catolico-release-assinado** do workflow validado.
 4. Instale o APK com o mesmo identificador `br.com.atriocatolico`, assinado

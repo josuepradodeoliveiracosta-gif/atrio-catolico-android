@@ -8,7 +8,7 @@ O índice é a **porta de entrada única** para conhecer os módulos, entender o
 | Saber o que está integrado ou em homologação | [Estado das funcionalidades](funcionalidades/STATUS.md) |
 | Registrar uma tarefa, proposta ou bloqueio | [Gestão de demandas](organizacao/FLUXO-DE-TRABALHO.md) |
 | Ver a fotografia do repositório e o plano gradual | [Inventário e migração](organizacao/INVENTARIO-E-PLANO.md) |
-| Organizar e economizar GitHub Actions com segurança | [Automações](operacoes/AUTOMACOES.md) |
+| Organizar e economizar GitHub Actions com segurança | [Automações](operacoes/AUTOMACOES.md) · [Auditoria de 300 execuções](operacoes/RELATORIO-CI-2026-11-04.md) |
 | Saber os testes necessários e o que comprovam | [Homologação e evidências](qa-homologacao/CRITERIOS.md) |
 | Acompanhar preparação para Play Store | [Portões de publicação](publicacao-play-store/ESTADO-E-PORTOES.md) |
 | Trabalhar telas, animações e selos | [Biblioteca de design](../design/README.md) |

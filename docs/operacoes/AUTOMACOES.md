@@ -13,6 +13,10 @@ Nesta etapa **não foram alterados workflows, gatilhos, permissões ou secrets**
 
 **Fotografia de 04/11/2026: 21 workflows na `main`.** A PR #71 contém outros workflows em desenvolvimento.
 
+## Auditoria de referência e plano de economia
+
+Foi realizada uma medição de 300 execuções e uma análise das configurações dos 21 workflows da `main`. Consulte o [relatório detalhado de 04/11/2026](RELATORIO-CI-2026-11-04.md), com duração observada, riscos, casos negativos e critérios para otimização. **Não houve mudança de triggers nem redução de cobertura nesta etapa.**
+
 ## Estudo recomendado (ainda não implementado)
 
 - Mapear quais diretórios, scripts e regras são testados por cada job.
