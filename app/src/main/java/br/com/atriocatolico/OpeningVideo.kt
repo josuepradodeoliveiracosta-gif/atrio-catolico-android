@@ -1,5 +1,6 @@
 package br.com.atriocatolico
 
+import android.content.Context
 import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Handler
@@ -10,6 +11,12 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -17,8 +24,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -26,17 +35,29 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 
 private const val MAX_OPENING_DURATION_MS = 15_000L
+private const val STARTUP_PREFS = "atrio-startup-video"
+private const val WATCHED_TO_END_KEY = "watched_to_end"
 
 /**
- * Full-screen, offline opening shown once per new MainActivity launch.
+ * Full-screen, offline opening shown on every new MainActivity launch.
  * The 9:16 movie uses VideoView's aspect-preserving fit; never crop its content.
  *
  * The startup movie includes audio and is not a Firebase loading indicator.
- * Authentication and the community UI start after playback, or on media failure/timeout.
+ * The first successful viewing is mandatory. Later launches show a Skip button.
+ * Authentication and the community UI start after playback, on a permitted skip,
+ * or on media failure/timeout (which must not count as a completed viewing).
  * The bundled asset can be replaced independently at res/raw/abertura_atrio.mp4.
  */
 @Composable
 internal fun AtrioStartupVideo(activity: ComponentActivity, onFinished: () -> Unit) {
+    // O registro local permanece após atualizações, mas é apagado ao limpar os
+    // dados/reinstalar (android:allowBackup=false no manifesto).
+    val prefs = remember(activity) {
+        activity.getSharedPreferences(STARTUP_PREFS, Context.MODE_PRIVATE)
+    }
+    val canSkip = remember(activity) {
+        prefs.getBoolean(WATCHED_TO_END_KEY, false)
+    }
     val currentFinish by rememberUpdatedState(onFinished)
     var finished by remember { mutableStateOf(false) }
     val finishOnce: () -> Unit = {
@@ -47,7 +68,7 @@ internal fun AtrioStartupVideo(activity: ComponentActivity, onFinished: () -> Un
     }
 
     val videoView = remember(activity) { VideoView(activity) }
-    // Voltar fecha o aplicativo, nunca permite entrar sem assistir ao vídeo.
+    // Voltar fecha o aplicativo; não dispensa a primeira visualização.
     // Uma nova abertura cria uma nova Activity e reinicia a apresentação.
     BackHandler(enabled = !finished) { activity.finish() }
 
@@ -78,7 +99,15 @@ internal fun AtrioStartupVideo(activity: ComponentActivity, onFinished: () -> Un
                 }
             }
         }
-        videoView.setOnCompletionListener { if (!disposed) finishOnce() }
+        videoView.setOnCompletionListener {
+            if (!disposed && !finished) {
+                // Registrar apenas o término natural: Pular, erro, timeout e
+                // fechamento do app nunca marcam o primeiro vídeo como visto.
+                // commit() confirma a gravação antes de navegar para o app.
+                prefs.edit().putBoolean(WATCHED_TO_END_KEY, true).commit()
+                finishOnce()
+            }
+        }
         videoView.setOnErrorListener { _, _, _ ->
             if (!disposed) finishOnce()
             true
@@ -123,6 +152,19 @@ internal fun AtrioStartupVideo(activity: ComponentActivity, onFinished: () -> Un
             factory = { videoView },
             modifier = Modifier.fillMaxSize().testTag("atrio-opening-video")
         )
+        if (canSkip) {
+            TextButton(
+                onClick = finishOnce,
+                modifier = Modifier.align(Alignment.BottomEnd)
+                    .navigationBarsPadding()
+                    .padding(16.dp)
+                    .heightIn(min = 48.dp)
+                    .testTag("atrio-opening-skip"),
+                colors = ButtonDefaults.textButtonColors(contentColor = Wine)
+            ) {
+                Text("Pular")
+            }
+        }
     }
 }
 
