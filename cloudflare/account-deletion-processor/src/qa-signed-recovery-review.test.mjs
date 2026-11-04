@@ -52,7 +52,7 @@ function fixture(){
     get authority(){return components.authority;},
     get db(){return db;},
     token,reseal,
-    async setupRetry(){
+    async setupRetry({acquire=true}={}){
       await components.ledger.acquire(CTX);
       await components.ledger.complete({...CTX,epoch:1,phase:'freeze_writes'});
       const resume=token({purpose:'case_resume',phase:'case_resume',epoch:1,
@@ -60,8 +60,10 @@ function fixture(){
       await components.ledger.approveRecovery(CTX,{
         independentReview:s=>components.authority.approveCaseResume(s,resume)
       });
-      const {epoch}=await components.ledger.acquire(CTX);
-      assert.equal(epoch,2);
+      if(acquire){
+        const {epoch}=await components.ledger.acquire(CTX);
+        assert.equal(epoch,2);
+      }
       const grant=token({purpose:'phase_retry',phase:'purge_firestore',epoch:2,
         completed:['freeze_writes']});
       return {grant,resume};
@@ -222,7 +224,8 @@ test('the signed checkpoint hash tracks immutable ordered steps',()=>{
 test('signed single-use reviewer grants authorize exactly the four remaining QA provider mutations',async()=>{
   const f=fixture();
   try{
-    await f.setupRetry();
+    // Only the executor acquires the reviewed epoch-2 lease.
+    await f.setupRetry({acquire:false});
     const phases=['purge_firestore','purge_media_and_d1',
       'revoke_fcm','delete_auth_last'];
     // Reviewer signs exact future checkpoints OUTSIDE the injected executor.
