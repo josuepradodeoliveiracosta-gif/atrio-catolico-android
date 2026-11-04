@@ -336,6 +336,37 @@ service cloud.firestore {
       }
     }
 
+    // Bloqueios privados: só o titular lê e altera sua lista. Não criar auto-bloqueio.
+    match /users/{uid}/blockedMembers/{blockedUid} {
+      allow get, list: if me(uid);
+      allow create: if me(uid)
+        && validId(blockedUid)
+        && blockedUid != uid
+        && request.resource.data.keys().hasOnly(['createdAt'])
+        && request.resource.data.keys().hasAll(['createdAt'])
+        && request.resource.data.createdAt == request.time;
+      allow delete: if me(uid);
+      allow update: if false;
+    }
+
+    // Denúncia de usuário (além das denúncias existentes de posts/respostas).
+    // IDs determinísticos impedem denúncias duplicadas do mesmo par.
+    match /user_reports/{reportId} {
+      allow get: if isAdmin() ||
+        (signedIn() && resource.data.reporterUid == request.auth.uid);
+      allow list: if isAdmin();
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['reporterUid', 'targetUid', 'reason', 'createdAt'])
+        && request.resource.data.keys().hasAll(['reporterUid', 'targetUid', 'reason', 'createdAt'])
+        && request.resource.data.reporterUid == request.auth.uid
+        && validId(request.resource.data.targetUid)
+        && request.resource.data.targetUid != request.auth.uid
+        && reportId == request.auth.uid + '__' + request.resource.data.targetUid
+        && validText(request.resource.data.reason, 10, 500)
+        && request.resource.data.createdAt == request.time;
+      allow update, delete: if false;
+    }
+
     match /users/{uid}/likedPosts/{postId} {
       allow get, list: if me(uid);
       allow create: if me(uid)
