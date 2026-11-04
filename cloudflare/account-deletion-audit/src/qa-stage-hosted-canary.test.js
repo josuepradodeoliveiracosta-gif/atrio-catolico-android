@@ -171,7 +171,7 @@ test('read-only per-role HMAC probe crosses Service Binding but never opens a ti
     assert.equal(after.nonces,prior.nonces+3);
     const proofs=t.sqlite.prepare(
       'SELECT role,uid,observed_state,in_flight FROM qa_stage_hmac_role_proofs ORDER BY role'
-    ).all();
+    ).all().map(row=>({...row}));
     assert.deepEqual(proofs,[
       {role:'avatar',uid:'qa-freeze-alice',observed_state:'frozen',in_flight:0},
       {role:'guardian',uid:'qa-freeze-bob',observed_state:'active',in_flight:0},
