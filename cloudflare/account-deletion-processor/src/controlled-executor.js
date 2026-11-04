@@ -118,6 +118,15 @@ export function createControlledQaDeletionExecutor({projectId,backend}={}){
           await clean();
           const existingAuth=await backend.auth.exists(fenced);
           if(existingAuth===true){
+            // The remote Auth presence lookup is asynchronous. A late
+            // Firestore reference, media asset or device registration could
+            // appear while it runs. Re-scan ALL independent providers after
+            // the lookup, not merely the fence/approval, before starting
+            // the irreversible Auth removal.
+            //
+            // This is defense in depth, NOT a substitute for per-provider
+            // distributed write fencing (which real Workers still lack).
+            await clean();
             await authorize();
             await freezeIsActive();
             await backend.auth.remove(fenced);

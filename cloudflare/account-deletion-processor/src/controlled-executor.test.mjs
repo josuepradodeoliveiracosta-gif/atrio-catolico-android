@@ -296,3 +296,92 @@ test('final checkpoint alone cannot claim success after freeze is revoked',async
   assert.equal(q.auth.has(A),false);
   assert.equal(q.auth.has(B),true);
 });
+
+test('late provider state during async Auth lookup blocks irreversible Auth deletion',async t=>{
+  for(const scenario of [
+    {name:'late_foreign_firestore_reference',reason:'firestore_residual_or_unknown',
+      inject:q=>q.docs.get(A).add('users/b/notifications/late-reference')},
+    {name:'late_private_media_asset',reason:'media_residual_or_unknown',
+      inject:q=>q.media.get(A).add('cloudinary:late-private-a')},
+    {name:'late_fcm_device',reason:'fcm_residual_or_unknown',
+      inject:q=>q.fcm.get(A).add('qa-late-device-a')}
+  ]){
+    await t.test(scenario.name,async()=>{
+      const q=fixture(),original=q.backend.auth.exists;
+      let reads=0;
+      q.backend.auth.exists=async x=>{
+        const present=await original(x);
+        if(reads++===0)scenario.inject(q);
+        return present;
+      };
+      await assert.rejects(q.executor.run(request()),
+        new RegExp('controlled_deletion_denied:'+scenario.reason));
+      assert.equal(reads,1,'the late fixture must arise on the Auth lookup');
+      assert.deepEqual(q.ledger.get(A).completed,
+        CONTROLLED_DELETION_PHASES.slice(0,5));
+      assert.equal(q.log.filter(x=>x==='auth:'+A).length,0);
+      assert.equal(q.auth.has(A),true);
+      assert.equal(q.auth.has(B),true);
+      assert.equal(q.docs.get(B).size,1);
+      assert.equal(q.media.get(B).size,1);
+      assert.equal(q.fcm.get(B).size,1);
+    });
+  }
+});
+test('Auth removal is preceded by a fresh independent scan of EVERY provider after Auth lookup',async()=>{
+  const q=fixture(),observed=[];
+  let authLookedUp=false;
+  const originalExists=q.backend.auth.exists,
+    originalAssess=q.backend.firestore.assess,
+    originalMedia=q.backend.media.empty,
+    originalFcm=q.backend.fcm.empty,
+    originalRemove=q.backend.auth.remove;
+  q.backend.auth.exists=async x=>{
+    const present=await originalExists(x);
+    if(present)authLookedUp=true;
+    return present;
+  };
+  q.backend.firestore.assess=async x=>{
+    if(authLookedUp)observed.push('firestore');
+    return originalAssess(x);
+  };
+  q.backend.media.empty=async x=>{
+    if(authLookedUp)observed.push('media');
+    return originalMedia(x);
+  };
+  q.backend.fcm.empty=async x=>{
+    if(authLookedUp)observed.push('fcm');
+    return originalFcm(x);
+  };
+  q.backend.auth.remove=async x=>{
+    assert.deepEqual(observed.slice(0,3),['firestore','media','fcm'],
+      'all independent providers must be rechecked after lookup and before delete');
+    return originalRemove(x);
+  };
+  await q.executor.run(request());
+  assert.equal(q.auth.has(A),false);
+  assert.equal(q.auth.has(B),true);
+  assert.equal(q.log.filter(x=>x==='auth:'+A).length,1);
+});
+test('a late residual can be reconciled on a separate reviewed QA retry without duplicate Auth removal',async()=>{
+  const q=fixture(),original=q.backend.auth.exists;
+  let injected=false;
+  q.backend.auth.exists=async x=>{
+    const present=await original(x);
+    if(!injected){injected=true;q.fcm.get(A).add('late-device-after-lookup');}
+    return present;
+  };
+  await assert.rejects(q.executor.run(request()),
+    /controlled_deletion_denied:fcm_residual_or_unknown/);
+  assert.equal(q.auth.has(A),true);
+  assert.equal(q.ledger.get(A).completed.length,5);
+  // This simplified unit fixture reuses its single-epoch journal; actual
+  // persistent cases require a second-review recovery grant, tested in the
+  // dedicated signed-ledger and Firebase emulator suites.
+  q.fcm.get(A).clear();
+  const result=await q.executor.run(request());
+  assert.equal(result.completed,7);
+  assert.equal(q.auth.has(A),false);
+  assert.equal(q.auth.has(B),true);
+  assert.equal(q.log.filter(x=>x==='auth:'+A).length,1);
+});
