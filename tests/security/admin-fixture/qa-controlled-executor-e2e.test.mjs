@@ -551,6 +551,122 @@ test('Auth Emulator lookup that creates a late foreign Firestore reference block
   // authorization for production deletion.
 });
 
+
+test('real Auth Emulator deletion cannot be checkpointed if a reference appears during absent-user readback',async()=>{
+  guard();
+  if(process.env.FIREBASE_CONFIG||process.env.GOOGLE_APPLICATION_CREDENTIALS)
+    throw Error('qa_post_auth_emulator_only_no_credentials');
+  const owner='qa-delete-postauth-candidate',
+    neighbor='qa-delete-postauth-neighbor',
+    caseId='fa00bbaa-4a09-4fd2-b399-001122334477',
+    owned='profiles/'+owner,
+    neighborProfile='profiles/'+neighbor,
+    late='users/'+neighbor+'/notifications/qa-postauth-race';
+  await auth.createUser({uid:owner,email:owner+'@example.invalid'});
+  await auth.createUser({uid:neighbor,email:neighbor+'@example.invalid'});
+  await set(owned,{uid:owner,origin:'QA only'});
+  await set(neighborProfile,{uid:neighbor,origin:'QA preserved'});
+  await set('account_deletion_requests/'+owner,{
+    status:'requested',source:'android',
+    requestedAt:new Date('2026-11-04T12:00:00Z')
+  });
+  const journal=[],events=[];
+  let clearedMedia=false,clearedFcm=false,injected=false,authDeletes=0;
+  const check=x=>{
+    guard();
+    if(x?.uid!==owner||x?.caseId!==caseId)
+      throw Error('qa_post_auth_case_mismatch');
+  };
+  const backend={
+    approvals:{async confirm(x){check(x);return true;}},
+    ledger:{
+      async acquire(x){check(x);return {epoch:1,completed:[...journal]};},
+      async check(x){check(x);return x.epoch===1;},
+      async complete(x){
+        check(x);
+        if(x.epoch!==1||
+           CONTROLLED_DELETION_PHASES[journal.length]!==x.phase)return false;
+        journal.push(x.phase);
+        return true;
+      }
+    },
+    freeze:{
+      async enable(x){
+        check(x);
+        await db.doc('account_deletion_freeze/'+owner).set({
+          caseId,uid:owner,state:'frozen',epoch:1
+        });
+      },
+      async verify(x){
+        check(x);
+        const marker=await db.doc('account_deletion_freeze/'+owner).get();
+        return marker.exists && marker.data()?.uid===owner &&
+          marker.data()?.caseId===caseId&&marker.data()?.state==='frozen';
+      },
+      async drained(x){check(x);return true;}
+    },
+    firestore:{
+      async purge(x){check(x);await db.doc(owned).delete();},
+      async assess(x){
+        check(x);
+        const [main,foreign]=await Promise.all([
+          db.doc(owned).get(),db.doc(late).get()
+        ]);
+        return {allKnownScopesScanned:true,foreignReferencesResolved:true,
+          retentionAdjudicated:true,
+          remaining:Number(main.exists)+Number(
+            foreign.exists&&foreign.data()?.actorUid===owner
+          ),unknownScopes:0};
+      }
+    },
+    media:{
+      async purge(x){check(x);clearedMedia=true;events.push('media');},
+      async empty(x){check(x);return clearedMedia;}
+    },
+    fcm:{
+      async revoke(x){check(x);clearedFcm=true;events.push('fcm');},
+      async empty(x){check(x);return clearedFcm;}
+    },
+    auth:{
+      async remove(x){
+        check(x);authDeletes++;
+        events.push('auth');
+        await auth.deleteUser(owner);
+      },
+      async exists(x){
+        check(x);
+        const present=await authExists(owner);
+        if(present===false&&!injected){
+          injected=true;
+          // A privileged writer racing after remote Auth deletion would
+          // resurrect a third-party reference. Never accept stale success.
+          await set(late,{actorUid:owner,recipientUid:neighbor,
+            origin:'QA injected after Auth deleted'});
+        }
+        return present;
+      }
+    }
+  };
+  const executor=createControlledQaDeletionExecutor({
+    projectId:PROJECT,backend
+  });
+  await assert.rejects(executor.run({uid:owner,caseId}),
+    /controlled_deletion_denied:firestore_residual_or_unknown/);
+  assert.equal(injected,true);
+  assert.equal(authDeletes,1,
+    'genuine Firebase Auth Emulator delete happened once before the race');
+  assert.equal(await authExists(owner),false);
+  assert.equal(await authExists(neighbor),true);
+  assert.equal(await exists(late),true);
+  assert.equal(await exists(neighborProfile),true);
+  assert.deepEqual(journal,CONTROLLED_DELETION_PHASES.slice(0,5),
+    'no Auth checkpoint should be committed from stale readback');
+  assert.deepEqual(events,['media','fcm','auth']);
+  assert.equal(await exists('account_deletion_freeze/'+owner),true);
+  // This deliberately stops in an INTERRUPTED state. Restart needs
+  // independently reviewed recovery, not a blind second deleteUser call.
+});
+
 test.after(async()=>{
   drainDb?.close();
   avatarDb?.close();
