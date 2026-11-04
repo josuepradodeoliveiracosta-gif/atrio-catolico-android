@@ -14,8 +14,11 @@
 
 ## Segunda etapa: moderação e Regras da Comunidade
 
-- `community_consents/{uid}` registra aceite versionado das regras, individual e privado;
-  contas antigas precisam aceitar antes de acessar a comunidade no APK atualizado.
+- `community_consents/{uid}` registra aceite versionado das regras, individual e privado.
+  Contas antigas receberão o portão **somente depois da ativação segura** via
+  `app_config/community_rules` (`enabled=true`, `version="2026-11-v1"`).
+  Sem implantação das regras e sem essa ativação, o app continua acessível:
+  evita bloquear usuários existentes de forma acidental.
 - No cadastro, o aceite já é solicitado e gravado após criação Firebase; o listener
   deve liberar a navegação somente quando o Firestore confirmar o registro.
 - `users/{uid}/blockedMembers/{blockedUid}` mantém bloqueios privados por conta.
@@ -26,6 +29,16 @@
   consultar. Um par denunciante/alvo possui uma denúncia imutável.
 - O painel administrativo inclui uma fila das 30 denúncias de participantes mais recentes, com opção de marcar como analisadas; a decisão fica associada ao UID do administrador e ao tempo do servidor.
 - As denúncias de posts e respostas anteriores permanecem funcionando.
+
+**Sequência obrigatória de rollout:** executar QA com Firebase Emulator;
+implantar `firestore.rules` pelo fluxo de produção autorizado; verificar que
+as coleções novas (`community_consents`, `user_reports`,
+`users/{uid}/blockedMembers`) funcionam nos dois papéis e na conta antiga;
+disponibilizar APK compatível; somente então habilitar
+`app_config/community_rules` no Firestore Console. Nunca ativar antes de
+distribuir a versão compatível. Se houver falha de leitura da configuração,
+o portão não bloqueia o usuário. O bloqueio **server-side** de publicação
+continua pendente até sua migração segura.
 
 **Pendências de UGC ainda relevantes:** o controle do aceite deve ser validado
 também nas regras de publicação do servidor antes do envio à Play. As versões
