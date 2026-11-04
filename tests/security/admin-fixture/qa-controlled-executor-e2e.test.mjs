@@ -433,6 +433,124 @@ try{
   // Node test() runs asynchronously after registration: cleanup belongs to
   // test.after(), not a surrounding synchronous finally block.
 }
+
+test('Auth Emulator lookup that creates a late foreign Firestore reference blocks final Auth deletion',async()=>{
+  guard();
+  if(process.env.FIREBASE_CONFIG||process.env.GOOGLE_APPLICATION_CREDENTIALS)
+    throw Error('qa_emulator_only_no_credentials');
+  // Dedicated users avoid touching the already completed E2E case.
+  const owner='qa-delete-auth-readback',neighbor='qa-delete-auth-control';
+  const caseId='fa00bbaa-4a09-4fd2-b399-001122334466';
+  const profile='profiles/'+owner;
+  const neighborProfile='profiles/'+neighbor;
+  const lateRef='users/'+neighbor+'/notifications/late-auth-race';
+  await auth.createUser({uid:owner,email:owner+'@example.invalid'});
+  await auth.createUser({uid:neighbor,email:neighbor+'@example.invalid'});
+  await set(profile,{uid:owner,body:'QA owned source'});
+  await set(neighborProfile,{uid:neighbor,body:'QA neighbor preserved'});
+  await set('account_deletion_requests/'+owner,{
+    status:'requested',source:'android',
+    requestedAt:new Date('2026-11-04T11:00:00Z')
+  });
+  const journal=[];
+  let mediaRemoved=false,deviceRevoked=false,authRemovals=0,lateInjected=false;
+  const check=x=>{
+    guard();
+    if(x?.uid!==owner||x?.caseId!==caseId)
+      throw Error('qa_late_auth_case_mismatch');
+  };
+  const backend={
+    approvals:{async confirm(x){check(x);return true;}},
+    ledger:{
+      async acquire(x){check(x);return {epoch:1,completed:[...journal]};},
+      async check(x){check(x);return x.epoch===1;},
+      async complete(x){
+        check(x);
+        if(x.epoch!==1||x.phase!==CONTROLLED_DELETION_PHASES[journal.length])
+          return false;
+        journal.push(x.phase);
+        return true;
+      }
+    },
+    freeze:{
+      async enable(x){
+        check(x);
+        await set('account_deletion_freeze/'+owner,{
+          uid:owner,caseId,state:'frozen',epoch:1
+        });
+      },
+      async verify(x){
+        check(x);
+        const marker=await db.doc('account_deletion_freeze/'+owner).get();
+        return marker.exists&&marker.data()?.uid===owner&&
+          marker.data()?.caseId===caseId&&marker.data()?.state==='frozen';
+      },
+      async drained(x){check(x);return true;}
+    },
+    firestore:{
+      async purge(x){check(x);await db.doc(profile).delete();},
+      async assess(x){
+        check(x);
+        const [owned,foreign]=await Promise.all([
+          db.doc(profile).get(),db.doc(lateRef).get()
+        ]);
+        return {allKnownScopesScanned:true,
+          foreignReferencesResolved:true,
+          retentionAdjudicated:true,
+          remaining:Number(owned.exists)+Number(
+            foreign.exists&&foreign.data()?.actorUid===owner
+          ),unknownScopes:0};
+      }
+    },
+    media:{
+      async purge(x){check(x);mediaRemoved=true;},
+      async empty(x){check(x);return mediaRemoved;}
+    },
+    fcm:{
+      async revoke(x){check(x);deviceRevoked=true;},
+      async empty(x){check(x);return deviceRevoked;}
+    },
+    auth:{
+      async exists(x){
+        check(x);
+        const isPresent=await authExists(owner);
+        if(isPresent&&!lateInjected){
+          lateInjected=true;
+          // Simulates an unsafe privileged writer bypassing Firestore Rules
+          // while Firebase Admin SDK is performing an Auth presence read.
+          await set(lateRef,{
+            actorUid:owner,recipientUid:neighbor,origin:'QA race only'
+          });
+        }
+        return isPresent;
+      },
+      async remove(x){
+        check(x);
+        authRemovals++;
+        await auth.deleteUser(owner);
+      }
+    }
+  };
+  const executor=createControlledQaDeletionExecutor({
+    projectId:PROJECT,backend
+  });
+  await assert.rejects(executor.run({uid:owner,caseId}),
+    /controlled_deletion_denied:firestore_residual_or_unknown/);
+  assert.equal(lateInjected,true);
+  assert.equal(authRemovals,0,'Auth SDK deleteUser must NOT begin');
+  assert.equal(await authExists(owner),true);
+  assert.equal(await authExists(neighbor),true);
+  assert.equal(await exists(neighborProfile),true);
+  assert.equal(await exists(lateRef),true);
+  assert.deepEqual(journal,CONTROLLED_DELETION_PHASES.slice(0,5));
+  assert.equal(mediaRemoved,true);
+  assert.equal(deviceRevoked,true);
+  assert.equal(await exists('account_deletion_freeze/'+owner),true);
+  // The genuine SDK mutation stopped before the irreversible Auth step.
+  // This fixture does NOT claim global Firestore scope coverage, IAM or
+  // authorization for production deletion.
+});
+
 test.after(async()=>{
   drainDb?.close();
   avatarDb?.close();

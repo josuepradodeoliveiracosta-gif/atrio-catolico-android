@@ -17,3 +17,9 @@ Isso reduz a janela entre a checagem de provedores e a remoção irreversível. 
 - Quando o resíduo é reconciliado e a execução tem revisão/lease válidos, Auth continua sendo removido por último, nunca repetido.
 
 Os testes aqui são de interfaces sintéticas e NÃO usam credenciais reais. O projeto permitido permanece `demo-atrio-v11` e UIDs de QA; a suíte real do Firebase Auth Emulator continua sendo uma verificação distinta. A PR #71 permanece em rascunho, sem alteração de `main`, produção, backups ou Play Store.
+
+## Validação adicional com Firebase Admin SDK no emulador
+
+A suíte `tests/security/admin-fixture/qa-controlled-executor-e2e.test.mjs` também reproduz o intervalo com o Firebase **Auth Emulator real** e o **Firestore Emulator real**: a consulta `getUser(uid)` do Auth introduz, por injeção de teste, uma referência tardia na coleção de notificações de uma conta fictícia vizinha, simulando um escritor administrativo não protegido.
+
+Com a segunda reconciliação, a rotina rejeita a referência, deixa o Auth da conta solicitante intacto, preserva o vizinho e mantém o checkpoint antes de `delete_auth_last`. A injeção demonstra o problema de uma leitura isolada sem fencing e a utilidade da nova checagem, mas não supre a obrigação futura de cercar **todos** os escritores administrativos distribuídos. Esta prova roda exclusivamente no projeto e nos ports emulados, sem acesso aos provedores oficiais.
