@@ -188,6 +188,25 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // Aceite privado e persistente de regras por usuário.
+    // A versão deve mudar quando as regras forem atualizadas.
+    match /community_consents/{uid} {
+      allow get: if me(uid);
+      allow list: if false;
+      allow create: if me(uid)
+        && request.resource.data.keys().hasOnly(['version', 'acceptedAt'])
+        && request.resource.data.keys().hasAll(['version', 'acceptedAt'])
+        && request.resource.data.version == '2026-11-v1'
+        && request.resource.data.acceptedAt == request.time;
+      allow update: if me(uid)
+        && request.resource.data.keys().hasOnly(['version', 'acceptedAt'])
+        && request.resource.data.keys().hasAll(['version', 'acceptedAt'])
+        && request.resource.data.version == '2026-11-v1'
+        && request.resource.data.version != resource.data.version
+        && request.resource.data.acceptedAt == request.time;
+      allow delete: if false;
+    }
+
     match /profiles/{uid} {
       // Os perfis não podem ser enumerados, apenas lidos pelo proprietário.
       allow get: if me(uid);
