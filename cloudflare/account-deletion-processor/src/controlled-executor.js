@@ -140,6 +140,50 @@ export function createControlledQaDeletionExecutor({projectId,backend}={}){
           default:deny('unknown_phase');
         }
       };
+      // Strict recovery-only state inspection. A provider that cannot
+      // establish "absent" or "present" must NOT return a false-looking
+      // value that can trigger a destructive retry with the second grant.
+      // First-run verification retains its existing fail-closed gates.
+      const verifyRecovery=async phase=>{
+        switch(phase){
+          case 'freeze_writes':{
+            const state=await backend.freeze.verify(fenced);
+            if(typeof state!=='boolean')deny('freeze_readback_unknown');
+            return state;
+          }
+          case 'purge_firestore':{
+            const state=await backend.firestore.assess(fenced);
+            if(!state||Object.getPrototypeOf(state)!==Object.prototype||
+               state.allKnownScopesScanned!==true||
+               state.foreignReferencesResolved!==true||
+               state.retentionAdjudicated!==true||
+               !Number.isSafeInteger(state.remaining)||state.remaining<0||
+               state.unknownScopes!==0)
+              deny('firestore_readback_unknown');
+            return state.remaining===0;
+          }
+          case 'purge_media_and_d1':{
+            const state=await backend.media.empty(fenced);
+            if(typeof state!=='boolean')deny('media_readback_unknown');
+            return state;
+          }
+          case 'revoke_fcm':{
+            const state=await backend.fcm.empty(fenced);
+            if(typeof state!=='boolean')deny('fcm_readback_unknown');
+            return state;
+          }
+          case 'verify_before_auth':
+            await clean();return true;
+          case 'delete_auth_last':
+          case 'verify_final':{
+            await clean();
+            const state=await backend.auth.exists(fenced);
+            if(typeof state!=='boolean')deny('auth_readback_unknown');
+            return state===false;
+          }
+          default:deny('unknown_phase');
+        }
+      };
       for(let i=0;i<CONTROLLED_DELETION_PHASES.length;i++){
         const phase=CONTROLLED_DELETION_PHASES[i];
         await authorize();
@@ -156,7 +200,7 @@ export function createControlledQaDeletionExecutor({projectId,backend}={}){
         // and a false/unknown readback is not accepted as completion.
         // Each adapter must provide genuinely independent provider evidence.
         if(lease.epoch>1){
-          const alreadyCompleted=await verify(phase);
+          const alreadyCompleted=await verifyRecovery(phase);
           if(alreadyCompleted===true){
             await authorize();
             exactTrue(await backend.ledger.complete({...fenced,phase}),

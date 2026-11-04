@@ -27,6 +27,8 @@ A matriz `cloudflare/account-deletion-processor/src/qa-controlled-executor-recov
 2. A autorização específica para `delete_auth_last` não permite executar `purge_firestore`.
 3. Um backend sem `authorizeRecoveryRetry` não pode repetir efeitos depois da recuperação, mesmo se a revisão geral tiver sido aprovada.
 
+**Verificação de três estados adicionada:** o verificador específico de recuperação rejeita resultados ambíguos. Firestore deve confirmar todos os escopos examinados, ausência de referências estrangeiras não resolvidas, retenção analisada, zero escopos desconhecidos e contagem inteira não negativa. Freeze, mídia, FCM e Firebase Auth precisam devolver booleanos explícitos. Uma resposta `undefined`, `null`, string, escopo desconhecido ou erro de leitura **interrompe a recuperação antes de pedir uma autorização para repetir a exclusão**. Quatro cenários adicionais cobrem respostas ambíguas para Firestore, Cloudinary/D1, FCM e Auth. Essa verificação só é adicionada ao caminho de retomada (epoch > 1); as verificações de primeira execução seguem fail-closed.
+
 **Limitações:** nesses testes as autorizações são callbacks QA; não há assinatura de operador independente, IAM do Firebase/Cloudinary remoto, nem certificação de backups, CDN, tópicos FCM e bloqueio em todos os Workers implantados. Os serviços de produção seguem intocados. A regra não garante, isoladamente, segurança de uma chamada remota que já estava em andamento; cada adapter deve impor o próprio bloqueio durável.
 
 **Estado:** PR #71 em rascunho, `releaseAuthorized:false`, nenhuma exclusão de conta real ou autorização de publicação na Play Store.

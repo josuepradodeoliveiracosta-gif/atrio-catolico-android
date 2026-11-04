@@ -34,6 +34,7 @@ function fixture(target,location='after'){
   let ledger=createQaPersistentDeletionLedger({projectId:PROJECT,db});
   let shouldFail=true;
   let mediaReadUnreachable=false;
+  let firestoreAmbiguous=false,mediaUnknown=false,fcmUnknown=false,authUnknown=false;
   let allowRetry=true;
   let allowedRetryPhase=null;
   const retryCalls=[];
@@ -88,8 +89,9 @@ function fixture(target,location='after'){
       purge:mutation('purge_firestore',()=>{state.documents=0;}),
       async assess(x){
         validate(x);
-        return {allKnownScopesScanned:true,foreignReferencesResolved:true,
-          retentionAdjudicated:true,remaining:state.documents,unknownScopes:0};
+        return {allKnownScopesScanned:!firestoreAmbiguous,
+          foreignReferencesResolved:true,retentionAdjudicated:true,
+          remaining:state.documents,unknownScopes:firestoreAmbiguous?1:0};
       }
     },
     media:{
@@ -97,16 +99,16 @@ function fixture(target,location='after'){
       async empty(x){
         validate(x);
         if(mediaReadUnreachable)throw Error('qa_independent_readback_unavailable');
-        return state.media===0;
+        return mediaUnknown?undefined:state.media===0;
       }
     },
     fcm:{
       revoke:mutation('revoke_fcm',()=>{state.tokens=0;}),
-      async empty(x){validate(x);return state.tokens===0;}
+      async empty(x){validate(x);return fcmUnknown?null:state.tokens===0;}
     },
     auth:{
       remove:mutation('delete_auth_last',()=>{state.auth=false;}),
-      async exists(x){validate(x);return state.auth;}
+      async exists(x){validate(x);return authUnknown?'unknown':state.auth;}
     }
   };
   const build=()=>createControlledQaDeletionExecutor({projectId:PROJECT,backend});
@@ -114,6 +116,10 @@ function fixture(target,location='after'){
     effects,state,build,backend,retryCalls,
     setAllowRetry:x=>{allowRetry=Boolean(x);},
     setAllowedRetryPhase:x=>{allowedRetryPhase=x;},
+    setFirestoreAmbiguous:x=>{firestoreAmbiguous=Boolean(x);},
+    setMediaUnknown:x=>{mediaUnknown=Boolean(x);},
+    setFcmUnknown:x=>{fcmUnknown=Boolean(x);},
+    setAuthUnknown:x=>{authUnknown=Boolean(x);},
     setMediaReadUnreachable:x=>{mediaReadUnreachable=Boolean(x);},
     get ledger(){return ledger;},
     restart(){
@@ -259,4 +265,36 @@ test('absent phase-specific reviewer is fail-closed even after general recovery'
     assert.deepEqual(f.effects,['freeze_writes']);
     assert.deepEqual((await f.ledger.status(ctx)).completed,['freeze_writes']);
   }finally{f.close();}
+});
+
+test('unknown provider state cannot authorize a destructive retry even with phase approval',async t=>{
+  for(const item of [
+    {target:'freeze_writes',location:'after',
+      setter:'setFirestoreAmbiguous',reason:'firestore_readback_unknown'},
+    {target:'purge_media_and_d1',location:'before',
+      setter:'setMediaUnknown',reason:'media_readback_unknown'},
+    {target:'revoke_fcm',location:'before',
+      setter:'setFcmUnknown',reason:'fcm_readback_unknown'},
+    {target:'delete_auth_last',location:'before',
+      setter:'setAuthUnknown',reason:'auth_readback_unknown'}
+  ]){
+    await t.test(item.reason,async()=>{
+      const f=fixture(item.target,item.location);
+      try{
+        await assert.rejects(f.build().run(ctx),
+          new RegExp('qa_failed_'+item.location+'_'+item.target));
+        const before=f.effects.length;
+        await f.ledger.approveRecovery(ctx,{independentReview:async()=>true});
+        f.restart();
+        f[item.setter](true);
+        await assert.rejects(f.build().run(ctx),
+          new RegExp('controlled_deletion_denied:'+item.reason));
+        assert.equal(f.effects.length,before,'unknown must never repeat a mutation');
+        assert.equal((await f.ledger.status(ctx)).state,'active');
+        assert.equal((await f.ledger.status(ctx)).epoch,2);
+        assert.deepEqual(f.retryCalls,[],
+          'unknown must be rejected before asking for retry authorization');
+      }finally{f.close();}
+    });
+  }
 });
