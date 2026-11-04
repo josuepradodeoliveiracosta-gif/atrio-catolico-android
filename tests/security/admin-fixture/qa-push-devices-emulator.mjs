@@ -83,16 +83,19 @@ export const QA_PUSH_DEVICE_UIDS=Object.freeze({alice:ALICE,bob:BOB});
 export const QA_PUSH_DEVICE_CASE=CASE;
 
 /**
- * The injected hook is allowed ONLY in an emulator test to force a version
- * race immediately before commit. It never authorizes a write.
+ * The injected hooks are allowed ONLY in an emulator fixture to force
+ * changes before the second inventory or just before Firestore batch commit.
+ * Neither hook grants permission to delete a record.
  */
 export async function reconcileQaPushDeviceDocsEmulator({
-  db,uid,caseId,beforeCommitForQa
+  db,uid,caseId,beforeCommitForQa,beforeBatchCommitForQa
 }={}){
   guard(db);
   if(uid!==ALICE||caseId!==CASE||
      (beforeCommitForQa!==undefined&&
-      typeof beforeCommitForQa!=='function'))
+      typeof beforeCommitForQa!=='function')||
+     (beforeBatchCommitForQa!==undefined&&
+      typeof beforeBatchCommitForQa!=='function'))
     fail('unapproved_account_case');
   await requireFreeze(db);
   const [owned,neighbor]=await Promise.all([
@@ -103,10 +106,26 @@ export async function reconcileQaPushDeviceDocsEmulator({
   await requireFreeze(db);
   if(beforeCommitForQa)await beforeCommitForQa();
   await requireFreeze(db);
+  // A new device or a neighbor edit after the original inventory must
+  // prevent the owner's destructive batch, not merely fail the readback
+  // AFTER some documents were already removed. Recheck all versions in
+  // both namespaces and treat any drift as a request for new review.
+  const [latestOwned,latestNeighbor]=await Promise.all([
+    inventory(db,ALICE),inventory(db,BOB)
+  ]);
+  if(!same(owned,latestOwned)||!same(neighbor,latestNeighbor))
+    fail('precommit_inventory_changed');
+  await requireFreeze(db);
   guard(db);
   const batch=db.batch();
   for(const item of owned)
     batch.delete(item.ref,{lastUpdateTime:item.version});
+  // Only the synthetic test suite may race a write in the tiny window
+  // AFTER the last inventory and BEFORE the atomic versioned commit.
+  // Firestore lastUpdateTime CAS must then abort the entire batch.
+  if(beforeBatchCommitForQa)await beforeBatchCommitForQa();
+  await requireFreeze(db);
+  guard(db);
   // The Emulator's Firestore WriteBatch is atomic. A concurrent update
   // invalidates the entire batch (FAILED_PRECONDITION).
   await batch.commit();

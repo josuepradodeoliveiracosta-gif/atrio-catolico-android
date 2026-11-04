@@ -104,8 +104,48 @@ test('Firestore Admin SDK removes all QA device documents after freeze, with ver
         token:'qa-updated-token-after-inventory'
       });
     }
-  }));
+  }),/qa_push_admin_precommit_inventory_changed/);
   assert.equal((await db.collection('users/'+A+'/pushDevices').get()).size,fixtureCount);
+  assert.equal((await db.collection('users/'+B+'/pushDevices').get()).size,2);
+
+ 
+  // A neighbor device edit (no owner changes) must abort BEFORE the owner's
+  // first batch, not only trigger a post-delete alarm.
+  await assert.rejects(reconcileQaPushDeviceDocsEmulator({
+    db,uid:A,caseId:QA_PUSH_DEVICE_CASE,
+    beforeCommitForQa:async()=>{
+      await db.doc('users/'+B+'/pushDevices/qa-device-control-1')
+        .update({token:'qa-neighbor-new-version'});
+    }
+  }),/qa_push_admin_precommit_inventory_changed/);
+  assert.equal((await db.collection('users/'+A+'/pushDevices').get()).size,
+    fixtureCount);
+  assert.equal((await db.collection('users/'+B+'/pushDevices').get()).size,2);
+
+  // A new device between inventories must also block the batch.
+  await assert.rejects(reconcileQaPushDeviceDocsEmulator({
+    db,uid:A,caseId:QA_PUSH_DEVICE_CASE,
+    beforeCommitForQa:async()=>{
+      await db.doc('users/'+A+'/pushDevices/qa-device-new-registrant')
+        .set({token:'qa-late-new-registration'});
+    }
+  }),/qa_push_admin_precommit_inventory_changed/);
+  assert.equal((await db.collection('users/'+A+'/pushDevices').get()).size,
+    fixtureCount+1);
+  assert.equal((await db.collection('users/'+B+'/pushDevices').get()).size,2);
+  await db.doc('users/'+A+'/pushDevices/qa-device-new-registrant').delete();
+
+  // After the second inventory, a concurrent update must still be caught
+  // by Firestore's batch-wide lastUpdateTime preconditions (no partial wipe).
+  await assert.rejects(reconcileQaPushDeviceDocsEmulator({
+    db,uid:A,caseId:QA_PUSH_DEVICE_CASE,
+    beforeBatchCommitForQa:async()=>{
+      await db.doc('users/'+A+'/pushDevices/qa-device-006')
+        .update({token:'qa-last-millisecond-cas-race'});
+    }
+  }));
+  assert.equal((await db.collection('users/'+A+'/pushDevices').get()).size,
+    fixtureCount);
   assert.equal((await db.collection('users/'+B+'/pushDevices').get()).size,2);
 
   const result=await reconcileQaPushDeviceDocsEmulator({
