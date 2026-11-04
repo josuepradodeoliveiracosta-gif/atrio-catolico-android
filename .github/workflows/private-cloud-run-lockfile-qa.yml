@@ -1,0 +1,98 @@
+name: QA privado Cloud Run — dependências reproduzíveis (sem deploy)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'ops/cloud-run-private-review/**'
+      - '.github/workflows/private-cloud-run-lockfile-qa.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: private-read-image-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  locked-container:
+    if: github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Código sem token persistido
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validar lockfile e instalar dependências imutáveis
+        working-directory: ops/cloud-run-private-review
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e .env && test ! -e credentials.json
+          node - <<'NODE'
+          const fs=require('node:fs');
+          const manifest=require('./package.json');
+          const lock=require('./package-lock.json');
+          if(lock.lockfileVersion!==3 ||
+             JSON.stringify(lock.packages[''].dependencies)!==
+               JSON.stringify(manifest.dependencies) ||
+             lock.packages['node_modules/firebase-admin']?.version!=='14.5.0')
+            throw Error('lockfile_manifest_drift');
+          if(!lock.packages['node_modules/firebase-admin']?.integrity)
+            throw Error('missing_dependency_integrity');
+          if(Object.values(lock.packages).some(item=>
+            item.resolved && !item.resolved.startsWith('https://registry.npmjs.org/')))
+            throw Error('unexpected_dependency_registry');
+          console.log('OK: lockfile verificado e vinculado ao manifest.');
+          NODE
+          npm ci --omit=dev --ignore-scripts --no-audit --no-fund
+          node --check server.mjs
+      - name: Checar vulnerabilidades graves nas dependências de produção
+        working-directory: ops/cloud-run-private-review
+        shell: bash
+        run: npm audit --omit=dev --audit-level=high
+      - name: Testar auditoria IAM offline e negar privilégios excessivos
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s ops/cloud-run-private-review -p 'test_iam_audit.py' -v
+          test ! -f ops/cloud-run-private-review/iam-live-policy.json
+      - name: Preparar Terraform CLI sem conta Cloud
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: '1.14.6'
+          terraform_wrapper: false
+      - name: Verificar formatação e sintaxe do Terraform (sem GCP)
+        shell: bash
+        working-directory: ops/cloud-run-private-review/infra
+        env:
+          TF_IN_AUTOMATION: 'true'
+          CHECKPOINT_DISABLE: '1'
+        run: |
+          set -euo pipefail
+          test -z "${GOOGLE_APPLICATION_CREDENTIALS:-}"
+          test -z "${GOOGLE_CREDENTIALS:-}"
+          test -z "${GCLOUD_PROJECT:-}"
+          terraform fmt -check -diff -no-color
+          test -f .terraform.lock.hcl
+          grep -q 'version     = "7.46.2"' .terraform.lock.hcl
+          terraform init -backend=false -input=false -lockfile=readonly -no-color
+          terraform validate -no-color
+          test ! -e terraform.tfstate
+          test ! -e terraform.tfstate.backup
+          echo 'Terraform validado com provedor fixado, sem plan, apply ou credenciais.'
+      - name: Construir imagem Docker apenas localmente, sem envio
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --pull --progress=plain \
+            -f ops/cloud-run-private-review/Dockerfile \
+            -t atrio-private-read-review:qa .
+          docker image inspect atrio-private-read-review:qa \
+            --format 'Build QA local: {{.Id}}'
+          echo 'QA completo: nenhum push, deploy, IAM ou escrita em dados reais.'

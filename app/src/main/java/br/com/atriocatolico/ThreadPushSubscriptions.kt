@@ -31,15 +31,25 @@ internal object ThreadPushSubscriptions {
         // quando a pessoa ativar avisos, sem exigir nova participação.
         val after = (before.toList() + postId).takeLast(MAX_TRACKED).toSet()
         prefs(context).edit().putStringSet(key(uid), after).apply()
-        if (PushRegistry.enabled(context, uid))
+        // A build Play usa envio por dispositivo com filtro bilateral de
+        // bloqueios no Worker. Nunca criar novos assinantes de tópicos
+        // de discussão nessa build; preservar inscrição OTA legada.
+        if (PushRegistry.enabled(context, uid) && !BuildConfig.PLAY_STORE_BUILD)
             FirebaseMessaging.getInstance().subscribeToTopic(topic(postId))
         // Se a capacidade local for excedida, desinscrever os mais antigos.
         (before - after).forEach { FirebaseMessaging.getInstance().unsubscribeFromTopic(topic(it)) }
     }
 
     fun sync(context: Context, uid: String) {
-        if (!PushRegistry.enabled(context, uid) ||
-            FirebaseAuth.getInstance().currentUser?.uid != uid) return
+        if (FirebaseAuth.getInstance().currentUser?.uid != uid) return
+        if (BuildConfig.PLAY_STORE_BUILD) {
+            // Mesmo sem intenção de renovar a inscrição, remover as antigas.
+            // Não depender de topic para notificar no Play: backend deve
+            // entregar mensagens individualmente e respeitar bloqueios.
+            unsubscribeAll(context, uid)
+            return
+        }
+        if (!PushRegistry.enabled(context, uid)) return
         get(context, uid).forEach {
             if (idPattern.matches(it))
                 FirebaseMessaging.getInstance().subscribeToTopic(topic(it))

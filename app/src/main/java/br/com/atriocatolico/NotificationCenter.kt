@@ -27,8 +27,11 @@ import java.util.Date
 /** Local preferences never grant a role. Permissions are checked by Firestore. */
 internal class NotificationInbox(val db: FirebaseFirestore, val uid: String, private val prefs: SharedPreferences) {
     var replies by mutableStateOf<List<NoticeEvent>>(emptyList())
+    var blockedUids by mutableStateOf<Set<String>>(emptySet())
+    var blockedListReady by mutableStateOf(false)
     var review by mutableStateOf<NoticeEvent?>(null)
     var reports by mutableStateOf<List<NoticeEvent>>(emptyList())
+    var memberReports by mutableStateOf<List<NoticeEvent>>(emptyList())
     var requests by mutableStateOf<List<NoticeEvent>>(emptyList())
     var seen by mutableStateOf(prefs.getStringSet("seen", emptySet())!!.toSet())
     var enabledReplies by mutableStateOf(prefs.getBoolean("replies", true))
@@ -38,6 +41,7 @@ internal class NotificationInbox(val db: FirebaseFirestore, val uid: String, pri
     var retry by mutableStateOf(0)
     var replyMore by mutableStateOf(false)
     var reportsMore by mutableStateOf(false)
+    var memberReportsMore by mutableStateOf(false)
     var requestsMore by mutableStateOf(false)
     var loadingReplies by mutableStateOf(true)
     var loadingReview by mutableStateOf(true)
@@ -45,14 +49,16 @@ internal class NotificationInbox(val db: FirebaseFirestore, val uid: String, pri
     var replyError by mutableStateOf(false)
     var reviewError by mutableStateOf(false)
     var reportsError by mutableStateOf(false)
+    var memberReportsError by mutableStateOf(false)
     var requestsError by mutableStateOf(false)
     var busy by mutableStateOf(false)
     var feedback by mutableStateOf("")
 
     fun groups(admin: Boolean): List<NoticeGroup> {
         val local = (if (enabledReview) listOfNotNull(review) else emptyList()) +
-            (if (admin && enabledAdmin) reports + requests else emptyList())
-        return groupNotices((if (enabledReplies) replies else emptyList()) +
+            (if (admin && enabledAdmin) reports + memberReports + requests else emptyList())
+        return groupNotices((if (enabledReplies && blockedListReady)
+                replies.filterNot { it.actorUid in blockedUids } else emptyList()) +
             local.map { it.copy(read = it.localToken in seen) }, admin)
     }
     fun preference(key: String, value: Boolean) {
@@ -124,10 +130,15 @@ internal fun rememberNotificationInbox(db: FirebaseFirestore, uid: String, admin
         val listener = db.collection("users").document(uid).collection("notifications")
             .orderBy("createdAt", Query.Direction.DESCENDING).limit(inbox.limit.toLong() + 1)
             .addSnapshotListener { data, error -> if (active) {
+                val sameSession = currentPersonalNoticeSession(
+                    uid, com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+                )
                 inbox.loadingReplies = false
-                inbox.replyError = error != null
-                inbox.replyMore = error == null && (data?.size() ?: 0) > inbox.limit
-                inbox.replies = if (error != null) emptyList() else data?.documents?.take(inbox.limit)?.mapNotNull {
+                inbox.replyError = error != null || !sameSession
+                inbox.replyMore = sameSession && error == null &&
+                    (data?.size() ?: 0) > inbox.limit
+                inbox.replies = if (error != null || !sameSession) emptyList() else
+                    data?.documents?.take(inbox.limit)?.mapNotNull {
                     val post = it.getString("postId").orEmpty()
                     if (post.isBlank() || '/' in post) null else {
                         val mentioned = !it.getString("mentionUid").isNullOrBlank()
@@ -140,7 +151,8 @@ internal fun rememberNotificationInbox(db: FirebaseFirestore, uid: String, admin
                         NoticeEvent(it.id, NoticeKind.REPLY, post, title,
                             "Toque para abrir a conversa.", it.noticeTime(),
                             it.getBoolean("read") == true,
-                            directReply = direct, mentioned = mentioned)
+                            directReply = direct, mentioned = mentioned,
+                            actorUid = it.getString("actorUid").orEmpty())
                     }
                 } ?: emptyList()
             } }
@@ -152,10 +164,15 @@ internal fun rememberNotificationInbox(db: FirebaseFirestore, uid: String, admin
         inbox.reviewError = false
         val listener = db.collection("badge_requests").document(uid).addSnapshotListener { data, error ->
             if (active) {
+                val sameSession = currentPersonalNoticeSession(
+                    uid, com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+                )
                 inbox.loadingReview = false
-                inbox.reviewError = error != null
-                // Never expose reviewNote, reviewedBy or another member's private profile.
-                inbox.review = if (error != null || data == null || !data.exists()) null else reviewNotice(
+                inbox.reviewError = error != null || !sameSession
+                // Never expose a previous account's seal review on session switch.
+                // Nor reveal reviewNote, reviewedBy or private profile fields.
+                inbox.review = if (error != null || !sameSession ||
+                    data == null || !data.exists()) null else reviewNotice(
                     data.getString("status").orEmpty(), data.getString("kind").orEmpty(),
                     data.noticeTime("reviewedAt"), data.noticeToken("review", "reviewedAt") + ":" + data.getString("status"))
             }
@@ -165,43 +182,108 @@ internal fun rememberNotificationInbox(db: FirebaseFirestore, uid: String, admin
     DisposableEffect(db, uid, admin, inbox.limit, inbox.retry) {
         var active = true
         inbox.reports = emptyList()
+        inbox.memberReports = emptyList()
         inbox.requests = emptyList()
         inbox.reportsMore = false
+        inbox.memberReportsMore = false
         inbox.requestsMore = false
         inbox.reportsError = false
+        inbox.memberReportsError = false
         inbox.requestsError = false
         inbox.loadingAdmin = admin
         if (!admin) {
             onDispose { active = false }
         } else {
             var reportsLoaded = false
+            var memberReportsLoaded = false
             var requestsLoaded = false
+            fun updateAdminLoading() {
+                inbox.loadingAdmin = !(reportsLoaded && memberReportsLoaded && requestsLoaded)
+            }
             // Legacy reports omit status; scan paginated records to include those pending reports.
             val reports = db.collection("reports").orderBy("createdAt", Query.Direction.DESCENDING)
-                .limit(inbox.limit.toLong() + 1).addSnapshotListener { data, error -> if (active) {
-                    reportsLoaded = true
-                    inbox.loadingAdmin = !requestsLoaded
-                    inbox.reportsError = error != null
-                    inbox.reportsMore = error == null && (data?.size() ?: 0) > inbox.limit
-                    inbox.reports = if (error != null) emptyList() else data?.documents?.take(inbox.limit)
-                        ?.filter { (it.getString("status") ?: "pending") == "pending" }?.map {
-                            NoticeEvent(it.id, NoticeKind.REPORTS, title = "Denúncia pendente", body = "",
-                                at = it.noticeTime(), localToken = it.noticeToken("report"))
-                        } ?: emptyList()
-                } }
+                .limit(inbox.limit.toLong() + 1)
+                .addSnapshotListener(com.google.firebase.firestore.MetadataChanges.INCLUDE) { data, error ->
+                    if (active) {
+                        reportsLoaded = true
+                        updateAdminLoading()
+                        val authoritative = verifiedAdminNoticeSnapshot(
+                            uid, com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid,
+                            error != null, data != null,
+                            data?.metadata?.isFromCache ?: true,
+                            data?.metadata?.hasPendingWrites() ?: true
+                        )
+                        inbox.reportsError = !authoritative
+                        inbox.reportsMore = authoritative && (data?.size() ?: 0) > inbox.limit
+                        inbox.reports = if (!authoritative) emptyList() else
+                            data!!.documents.take(inbox.limit)
+                                .filter { (it.getString("status") ?: "pending") == "pending" }
+                                .map {
+                                    NoticeEvent(it.id, NoticeKind.REPORTS,
+                                        title = "Denúncia pendente", body = "",
+                                        at = it.noticeTime(), localToken = it.noticeToken("report"))
+                                }
+                    }
+                }
+            // O segundo tipo de denuncia tambem precisa aparecer para a
+            // moderação. Não carregar identidade do denunciante nem motivo
+            // no aviso; somente a central e a fila de revisão conhecem o total.
+            // Uma leitura de cache não prova acesso administrativo vigente.
+            val memberReportsListener = db.collection("user_reports")
+                .orderBy("createdAt", Query.Direction.DESCENDING)
+                .limit(inbox.limit.toLong() + 1)
+                .addSnapshotListener(com.google.firebase.firestore.MetadataChanges.INCLUDE) { data, error ->
+                    if (active) {
+                        memberReportsLoaded = true
+                        updateAdminLoading()
+                        val authoritative = verifiedAdminNoticeSnapshot(
+                            uid, com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid,
+                            error != null, data != null,
+                            data?.metadata?.isFromCache ?: true,
+                            data?.metadata?.hasPendingWrites() ?: true
+                        )
+                        inbox.memberReportsError = !authoritative
+                        inbox.memberReportsMore = authoritative &&
+                            (data?.size() ?: 0) > inbox.limit
+                        inbox.memberReports = if (!authoritative) emptyList() else
+                            data!!.documents.take(inbox.limit).mapNotNull {
+                                val created = it.getTimestamp("createdAt")
+                                pendingMemberReportNotice(
+                                    it.id, it.getString("status"), created?.toDate()?.time ?: 0L,
+                                    created?.nanoseconds ?: 0
+                                )
+                            }
+                    }
+                }
             // Equality-only query avoids requiring a new composite index.
             val requests = db.collection("badge_requests").whereEqualTo("status", "pending")
-                .limit(inbox.limit.toLong() + 1).addSnapshotListener { data, error -> if (active) {
-                    requestsLoaded = true
-                    inbox.loadingAdmin = !reportsLoaded
-                    inbox.requestsError = error != null
-                    inbox.requestsMore = error == null && (data?.size() ?: 0) > inbox.limit
-                    inbox.requests = if (error != null) emptyList() else data?.documents?.take(inbox.limit)?.map {
-                        NoticeEvent(it.id, NoticeKind.REQUESTS, title = "Solicitação pendente", body = "",
-                            at = it.noticeTime(), localToken = it.noticeToken("request"))
-                    } ?: emptyList()
-                } }
-            onDispose { active = false; reports.remove(); requests.remove() }
+                .limit(inbox.limit.toLong() + 1)
+                .addSnapshotListener(com.google.firebase.firestore.MetadataChanges.INCLUDE) { data, error ->
+                    if (active) {
+                        requestsLoaded = true
+                        updateAdminLoading()
+                        val authoritative = verifiedAdminNoticeSnapshot(
+                            uid, com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid,
+                            error != null, data != null,
+                            data?.metadata?.isFromCache ?: true,
+                            data?.metadata?.hasPendingWrites() ?: true
+                        )
+                        inbox.requestsError = !authoritative
+                        inbox.requestsMore = authoritative && (data?.size() ?: 0) > inbox.limit
+                        inbox.requests = if (!authoritative) emptyList() else
+                            data!!.documents.take(inbox.limit).map {
+                                NoticeEvent(it.id, NoticeKind.REQUESTS,
+                                    title = "Solicitação pendente", body = "",
+                                    at = it.noticeTime(), localToken = it.noticeToken("request"))
+                            }
+                    }
+                }
+            onDispose {
+                active = false
+                reports.remove()
+                memberReportsListener.remove()
+                requests.remove()
+            }
         }
     }
     return inbox
@@ -223,8 +305,8 @@ internal fun NotificationCenter(
         else -> true
     } }
     val loading = inbox.loadingReplies || inbox.loadingReview || (admin && inbox.loadingAdmin)
-    val failed = inbox.replyError || inbox.reviewError || (admin && (inbox.reportsError || inbox.requestsError))
-    val more = inbox.replyMore || (admin && (inbox.reportsMore || inbox.requestsMore))
+    val failed = inbox.replyError || inbox.reviewError || (admin && (inbox.reportsError || inbox.memberReportsError || inbox.requestsError))
+    val more = inbox.replyMore || (admin && (inbox.reportsMore || inbox.memberReportsMore || inbox.requestsMore))
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {

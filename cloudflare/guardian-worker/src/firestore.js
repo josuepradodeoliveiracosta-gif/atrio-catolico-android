@@ -67,6 +67,86 @@ export async function token(env) {
   cached={project:intended,email:config.client_email,keyId:config.private_key_id,
     value:data.access_token,exp:Date.now()+Math.min(600_000,Number(data.expires_in||900)*1000-60_000)};return cached.value;
 }
+/** Decode the bounded streaming Firestore REST batchGet response.
+ * Production may return multiple JSON objects in a stream, while the local
+ * emulator sometimes returns one JSON array. Never use an unbounded r.json()
+ * for this operation. Reject incomplete, malformed or oversized streams.
+ */
+const MAX_BATCH_GET_BYTES=4*1024*1024;
+const MAX_BATCH_GET_ROWS=16;
+export async function parseFirestoreBatchGetStream(response) {
+  if(!response?.body?.getReader)throw Error('firestore_batch_get_invalid_body');
+  const header=response.headers?.get('content-length');
+  if(header!==null && (!/^\d+$/.test(header)||Number(header)>MAX_BATCH_GET_BYTES))
+    throw Error('firestore_batch_get_oversized');
+  const reader=response.body.getReader();
+  let total=0;
+  const chunks=[];
+  try {
+    while(true) {
+      const {done,value}=await reader.read();
+      if(done)break;
+      if(!(value instanceof Uint8Array))throw Error('firestore_batch_get_invalid_chunk');
+      total+=value.byteLength;
+      if(total>MAX_BATCH_GET_BYTES) {
+        await reader.cancel();
+        throw Error('firestore_batch_get_oversized');
+      }
+      chunks.push(value);
+    }
+  }finally{reader.releaseLock();}
+  if(total===0)throw Error('firestore_batch_get_empty');
+  const bytes=new Uint8Array(total);
+  let offset=0;
+  for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.byteLength;}
+  let source;
+  try{source=new TextDecoder('utf-8',{fatal:true}).decode(bytes).trim();}
+  catch{throw Error('firestore_batch_get_invalid_utf8');}
+  if(!source)throw Error('firestore_batch_get_empty');
+
+  let rows;
+  try {
+    // The Firebase Emulator can emit a single JSON array. Production REST
+    // may emit separate JSON objects, one per streaming response.
+    const parsed=JSON.parse(source);
+    rows=Array.isArray(parsed)?parsed:[parsed];
+  }catch{
+    rows=[];
+    let i=0;
+    while(i<source.length) {
+      while(/\s/.test(source[i]||'') && i<source.length)i++;
+      if(i>=source.length)break;
+      if(source[i]!=='{')throw Error('firestore_batch_get_malformed_stream');
+      const begin=i;
+      let depth=0,inString=false,escaped=false;
+      for(;i<source.length;i++) {
+        const c=source[i];
+        if(inString){
+          if(escaped)escaped=false;
+          else if(c==='\\')escaped=true;
+          else if(c==='"')inString=false;
+        }else if(c==='"')inString=true;
+        else if(c==='{')depth++;
+        else if(c==='}'){
+          depth--;
+          if(depth===0){i++;break;}
+          if(depth<0)throw Error('firestore_batch_get_malformed_stream');
+        }
+      }
+      if(depth!==0||inString)throw Error('firestore_batch_get_malformed_stream');
+      try{rows.push(JSON.parse(source.slice(begin,i)));}
+      catch{throw Error('firestore_batch_get_malformed_stream');}
+      if(rows.length>MAX_BATCH_GET_ROWS)throw Error('firestore_batch_get_too_many_rows');
+      if(i<source.length&&!/\s/.test(source[i]))
+        throw Error('firestore_batch_get_malformed_stream');
+    }
+  }
+  if(!rows.length||rows.length>MAX_BATCH_GET_ROWS||
+     rows.some(x=>!x||typeof x!=='object'||Array.isArray(x)))
+    throw Error('firestore_batch_get_invalid_rows');
+  return rows;
+}
+
 export class Firestore {
   constructor(access,project=PROJECT,api=API){
     if(!projectValid(project)||!['https://firestore.googleapis.com/v1','http://127.0.0.1:8089/v1'].includes(api))throw Error('invalid_backend');
@@ -75,7 +155,7 @@ export class Firestore {
     this.resource='projects/'+project+'/databases/(default)/documents';
   }
   async send(path,method='GET',payload){
-    const r=await fetch(this.root+path,{method,headers:{Authorization:'Bearer '+this.access,'Content-Type':'application/json'},body:payload?JSON.stringify(payload):undefined});
+    const r=await fetch(this.root+path,{method,headers:{Authorization:'Bearer '+this.access,'Content-Type':'application/json'},body:payload?JSON.stringify(payload):undefined,signal:AbortSignal.timeout(15000)});
     if(r.status===404 && method==='GET')return null;
     if(!r.ok){
       // Firestore REST uses 400/409/412 for optimistic-write precondition failures.
@@ -87,6 +167,7 @@ export class Firestore {
       e.status=conflict?409:r.status;
       throw e;
     }
+    if(path===':batchGet')return parseFirestoreBatchGetStream(r);
     return r.status===204?{}:r.json();
   }
   get(path){return this.send('/'+path.split('/').map(enc).join('/'));}
@@ -162,7 +243,81 @@ export class Firestore {
     if(!Array.isArray(result))throw Error('invalid_qa_query');
     return result.map(x=>x.document).filter(Boolean);
   }
-  commit(writes){return this.send(':commit','POST',{writes});}
+  /** The Firestore REST Write union has NO "verify" operation.
+   * Translate conditional reads into a real read-write transaction.
+   * All verified docs (including missing freeze markers) are read using
+   * the same transaction ID as the subsequent atomic Commit.
+   */
+  async commit(writes){
+    if(!Array.isArray(writes)||writes.length<1)throw Error('invalid_firestore_writes');
+    const checks=writes.filter(w=>Object.hasOwn(w,'verify'));
+    if(!checks.length)return this.send(':commit','POST',{writes});
+    const updates=writes.filter(w=>!Object.hasOwn(w,'verify'));
+    if(!updates.length)throw Error('missing_firestore_mutation');
+    const paths=[];
+    for(const check of checks){
+      if(Object.keys(check).some(k=>k!=='verify'&&k!=='currentDocument'))
+        throw Error('invalid_firestore_verify_operation');
+      const path=check.verify;
+      const prefix=this.resource+'/';
+      if(typeof path!=='string'||!path.startsWith(prefix)||
+         !/^[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)+$/.test(path.slice(prefix.length)))
+        throw Error('invalid_firestore_verify_path');
+      if(check.currentDocument?.exists!==false &&
+        !(typeof check.currentDocument?.updateTime==='string'&&
+          Number.isFinite(Date.parse(check.currentDocument.updateTime))))
+        throw Error('invalid_firestore_verify_condition');
+      paths.push([path.slice(prefix.length),check.currentDocument]);
+    }
+    // Firestore emulator can hang on GET /document?transaction=... .
+    // Official batchGet starts the read-write transaction and reads its
+    // full verification set in one request. Missing docs are explicit.
+    const response=await this.send(':batchGet','POST',{
+      documents:paths.map(([path])=>this.resource+'/'+path),
+      newTransaction:{readWrite:{}}
+    });
+    const rows=Array.isArray(response)?response:[response];
+    const expectedPaths=new Map(paths.map(([path,condition])=>
+      [this.resource+'/'+path,condition]));
+    const seen=new Set();
+    let transaction=null;
+    for(const row of rows){
+      if(row?.transaction){
+        if(transaction && transaction!==row.transaction)
+          throw Error('invalid_firestore_transaction');
+        transaction=row.transaction;
+      }
+      const name=row?.found?.name||row?.missing;
+      if(!name)continue; // A transaction-only response is allowed.
+      if(!expectedPaths.has(name)||seen.has(name)||
+        (row?.found&&row?.missing))
+        throw Error('invalid_firestore_batch_get_response');
+      seen.add(name);
+    }
+    if(typeof transaction!=='string'||transaction.length>4096||
+       !/^[A-Za-z0-9+/]+={0,2}$/.test(transaction)||
+       seen.size!==expectedPaths.size)
+      throw Error('invalid_firestore_batch_get_response');
+    try {
+      for(const row of rows){
+        const name=row?.found?.name||row?.missing;
+        if(!name)continue;
+        const expected=expectedPaths.get(name);
+        const found=row.found||null;
+        if(expected.exists===false ? found!==null :
+          !found||found.updateTime!==expected.updateTime){
+          const e=Error('firestore_verified_document_changed');
+          e.status=409;
+          throw e;
+        }
+      }
+      // Serializable read set + commit: marker creation invalidates read set.
+      return await this.send(':commit','POST',{writes:updates,transaction});
+    }catch(error){
+      try{await this.send(':rollback','POST',{transaction});}catch{}
+      throw error;
+    }
+  }
   async create(path,fields){return this.commit([{update:{name:this.resource+'/'+path,fields},currentDocument:{exists:false}}]);}
   async update(path,fields,oldTime){const keys=Object.keys(fields);return this.commit([{update:{name:this.resource+'/'+path,fields},updateMask:{fieldPaths:keys},currentDocument:{updateTime:oldTime}}]);}
 }

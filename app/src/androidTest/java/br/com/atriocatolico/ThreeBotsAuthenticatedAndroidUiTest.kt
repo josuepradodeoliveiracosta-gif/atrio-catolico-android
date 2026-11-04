@@ -16,6 +16,7 @@ import androidx.compose.ui.test.printToString
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
 import com.google.android.gms.tasks.Tasks
@@ -114,6 +115,33 @@ class ThreeBotsAuthenticatedAndroidUiTest {
             check(FirebaseApp.getInstance().options.projectId == "demo-atrio-v11")
             android.util.Log.w("AtrioQaAuth", "temporary_signup_error_retry_once_emulator")
             compose.onNodeWithTag("atrio-auth-submit").assertIsEnabled().performClick()
+        }
+        // O app só deve liberar o feed após o Firestore confirmar o perfil.
+        // Um erro de rede não autoriza criar um perfil existente: a interface
+        // oferece UM retry explícito e o teste exige gravação no servidor.
+        fun profileReadyOrRecoverable(): Boolean =
+            listOf("atrio-tab-publish", "atrio-profile-finish", "atrio-profile-retry")
+                .any { tag -> compose.onAllNodesWithTag(tag, useUnmergedTree = true)
+                    .fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(45_000) { profileReadyOrRecoverable() }
+        if (compose.onAllNodesWithTag("atrio-profile-retry", useUnmergedTree = true)
+                .fetchSemanticsNodes().isNotEmpty()) {
+            check(FirebaseApp.getInstance().options.projectId == "demo-atrio-v11")
+            compose.onNodeWithTag("atrio-profile-retry").performClick()
+            compose.waitUntil(45_000) { profileReadyOrRecoverable() }
+            assertTrue("A verificação do perfil ainda está falhando",
+                compose.onAllNodesWithTag("atrio-profile-retry", useUnmergedTree = true)
+                    .fetchSemanticsNodes().isEmpty())
+        }
+        if (compose.onAllNodesWithTag("atrio-profile-finish", useUnmergedTree = true)
+                .fetchSemanticsNodes().isNotEmpty()) {
+            check(FirebaseApp.getInstance().options.projectId == "demo-atrio-v11")
+            compose.onNodeWithTag("atrio-profile-finish-name")
+                .performTextClearance()
+            compose.onNodeWithTag("atrio-profile-finish-name")
+                .performTextInput(name)
+            compose.onNodeWithTag("atrio-profile-finish")
+                .assertIsEnabled().performClick()
         }
         waitFor("atrio-tab-publish", 45_000)
         val currentUser = auth.currentUser ?: error("Login Firebase não criou usuário")
@@ -321,6 +349,63 @@ class ThreeBotsAuthenticatedAndroidUiTest {
                 events.size() == 2 && events.documents.all { it.getBoolean("read") == true }
             }.getOrDefault(false)
         }
+    }
+
+    @Test fun titularRegistraExclusaoNoServidorEEncontraPedidoAposNovoLogin() {
+        // Somente Auth/Firestore Emulator do projeto fictício. Nunca apaga
+        // usuários; exercita o pedido real da UI e o registro imutável.
+        check(FirebaseApp.getInstance().options.projectId == "demo-atrio-v11")
+        compose.setContent { OnlineAtrioApp(compose.activity) }
+        val uid = register("João (BOT DE TESTE)", "delete_joao")
+        val request = db.collection("account_deletion_requests").document(uid)
+
+        compose.onNodeWithTag("atrio-tab-profile").performClick()
+        waitFor("atrio-profile-list")
+        compose.onNodeWithTag("atrio-profile-list", useUnmergedTree = true)
+            .performScrollToNode(hasTestTag("atrio-account-deletion-request"))
+        waitFor("atrio-deletion-request-open", 35_000)
+        compose.onNodeWithTag("atrio-deletion-request-open")
+            .assertIsDisplayed().performClick()
+        waitFor("atrio-deletion-request-confirm")
+        compose.onNodeWithTag("atrio-deletion-request-confirm")
+            .assertIsEnabled().performClick()
+
+        // Nao aceitar a escrita local como prova: o status da interface
+        // precisa do ACK e da leitura Source.SERVER depois da gravacao.
+        waitFor("atrio-deletion-request-saved", 40_000)
+        // O contato oficial deve permanecer disponível para acompanhar
+        // o pedido, sem abrir aplicativo externo durante o teste isolado.
+        compose.onNodeWithTag("atrio-profile-list", useUnmergedTree = true)
+            .performScrollToNode(hasTestTag("atrio-deletion-support-open"))
+        compose.onNodeWithTag("atrio-deletion-support-open")
+            .assertIsDisplayed().assertIsEnabled()
+        compose.onNodeWithText(ACCOUNT_DELETION_SUPPORT_EMAIL, useUnmergedTree = true)
+            .assertExists()
+        val recorded = Tasks.await(request.get(Source.SERVER), 10, TimeUnit.SECONDS)
+        assertTrue("Pedido nao foi persistido no Firestore emulado", recorded.exists())
+        assertEquals("requested", recorded.getString("status"))
+        assertEquals("android", recorded.getString("source"))
+        assertTrue("Carimbo de tempo do servidor ausente",
+            recorded.getTimestamp("requestedAt") != null)
+        assertTrue("Leitura do pedido nao pode vir do cache",
+            !recorded.metadata.isFromCache && !recorded.metadata.hasPendingWrites())
+
+        logoutByTouch()
+        login("delete_joao")
+        assertEquals("A conta do titular mudou", uid, auth.currentUser?.uid)
+        compose.onNodeWithTag("atrio-tab-profile").performClick()
+        waitFor("atrio-profile-list")
+        compose.onNodeWithTag("atrio-profile-list", useUnmergedTree = true)
+            .performScrollToNode(hasTestTag("atrio-account-deletion-request"))
+        waitFor("atrio-deletion-request-saved", 35_000)
+        assertTrue("Nenhum segundo pedido deve ser oferecido ao titular",
+            compose.onAllNodesWithTag("atrio-deletion-request-open", useUnmergedTree = true)
+                .fetchSemanticsNodes().isEmpty())
+        val again = Tasks.await(request.get(Source.SERVER), 10, TimeUnit.SECONDS)
+        assertEquals("O pedido deve manter a data original",
+            recorded.getTimestamp("requestedAt"), again.getTimestamp("requestedAt"))
+        assertEquals("requested", again.getString("status"))
+        assertTrue("O pedido nao exclui a conta Firebase Auth", auth.currentUser != null)
     }
 
     @Test fun claraEditaPerfilESelecionaSeloLeigaPelaTela() {

@@ -1,0 +1,307 @@
+/**
+ * Firestore write-freeze regression tests: demo-only, never production.
+ * Admin SDK / privileged Worker bypasses rules and MUST enforce its own freeze.
+ */
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {initializeTestEnvironment,assertSucceeds,assertFails}
+  from '@firebase/rules-unit-testing';
+import {
+  doc,collection,getDocs,setDoc,updateDoc,deleteDoc,getDoc,getDocFromCache,
+  disableNetwork,enableNetwork,serverTimestamp,writeBatch
+} from 'firebase/firestore';
+
+if(process.env.FIRESTORE_EMULATOR_HOST!=='127.0.0.1:8089' ||
+  process.env.GCLOUD_PROJECT!=='demo-atrio-v11' ||
+  process.env.GOOGLE_APPLICATION_CREDENTIALS ||
+  process.env.FIREBASE_SERVICE_ACCOUNT_JSON)
+  throw Error('freeze_test_requires_local_demo_emulator');
+
+const env=await initializeTestEnvironment({
+  projectId:'demo-atrio-v11',
+  firestore:{host:'127.0.0.1',port:8089,rules:readFileSync('firestore.rules','utf8')}
+});
+const A='freeze-alice',B='freeze-bob',nameA='Alice de QA',nameB='Bruno de QA';
+const alice=env.authenticatedContext(A).firestore();
+const bob=env.authenticatedContext(B).firestore();
+const anon=env.unauthenticatedContext().firestore();
+const marker='account_deletion_freeze/'+A;
+const request='account_deletion_requests/'+A;
+const postA='posts/qa_freeze_alice_post';
+const postB='posts/qa_freeze_bob_post';
+const post=(uid,name)=>({
+  uid,authorName:name,title:'Discussão segura de teste',
+  body:'Conteúdo fictício destinado aos testes de proteção.',
+  category:'Vida espiritual',createdAt:serverTimestamp()
+});
+const reply=(uid,name)=>({
+  uid,authorName:name,body:'Resposta de teste.',createdAt:serverTimestamp()
+});
+const note=(postId,replyId)=>({
+  postId,replyId,actorUid:B,actorName:nameB,read:false,createdAt:serverTimestamp()
+});
+let total=0;
+async function check(label,fn){await fn();total++;console.log('PASS WRITE FREEZE',label);}
+
+// Fail quickly and identify stalled SDK stages instead of consuming CI minutes.
+async function boundedQa(promise, stage) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_,reject)=>{
+        timer=setTimeout(()=>reject(Error('fcm_offline_stage_timeout:'+stage)),10000);
+      })
+    ]);
+  }finally{
+    clearTimeout(timer);
+  }
+}
+try{
+  await env.clearFirestore();
+  await env.withSecurityRulesDisabled(async c=>{
+    const db=c.firestore();
+    await setDoc(doc(db,'profiles',A),{displayName:nameA,createdAt:new Date()});
+    await setDoc(doc(db,'profiles',B),{displayName:nameB,createdAt:new Date()});
+    // The same account can own the privacy request AND an admin role.
+    // A frozen role must not bypass accountWritable through isAdmin().
+    await setDoc(doc(db,'admins',A),{enabled:true});
+    await setDoc(doc(db,postA),{...post(A,nameA),createdAt:new Date()});
+    await setDoc(doc(db,postB),{...post(B,nameB),createdAt:new Date()});
+    await setDoc(doc(db,'posts/qa_pre_freeze_admin_delete'),
+      {...post(B,nameB),createdAt:new Date()});
+    await setDoc(doc(db,'reports/qa_freeze_admin_report'),{
+      postId:'qa_freeze_bob_post',reporterUid:B,reason:'Denúncia QA',
+      createdAt:new Date(),status:'pending'
+    });
+    await setDoc(doc(db,'user_reports/qa_freeze_member_report'),{
+      reporterUid:B,targetUid:A,reason:'Denúncia QA do usuário',
+      createdAt:new Date(),status:'pending'
+    });
+    await setDoc(doc(db,'posts/qa_freeze_bob_post/replies/qa_freeze_alice_old'),{
+      ...reply(A,nameA),createdAt:new Date()
+    });
+    await setDoc(doc(db,'users',A,'notifications','old_notice'),{
+      postId:postA.slice(6),replyId:'old_notice',actorUid:B,actorName:nameB,
+      read:false,createdAt:new Date()
+    });
+  });
+  await check('pedido próprio permitido e NÃO congela sozinho',async()=>{
+    await assertSucceeds(setDoc(doc(alice,request),{
+      status:'requested',source:'android',requestedAt:serverTimestamp()
+    }));
+    await assertSucceeds(setDoc(doc(alice,'posts/qa_before_freeze'),post(A,nameA)));
+    await assertSucceeds(updateDoc(doc(alice,'profiles',A),{displayName:'Alice Teste'}));
+    await assertSucceeds(getDoc(doc(alice,request)));
+  });
+  await check('notificação direta e reação funcionam ANTES do freeze',async()=>{
+    const id='qa_before_freeze_notice';
+    const batch=writeBatch(bob);
+    batch.set(doc(bob,postB+'/replies/'+id),{
+      ...reply(B,nameB),replyToId:'qa_freeze_alice_old',replyToUid:A
+    });
+    batch.set(doc(bob,'users',A,'notifications',id),{
+      ...note('qa_freeze_bob_post',id),replyToId:'qa_freeze_alice_old'
+    });
+    await assertSucceeds(batch.commit());
+    await assertSucceeds(setDoc(doc(bob,
+      postB+'/replies/qa_freeze_alice_old/reactions/'+B),{
+        kind:'heart',createdAt:serverTimestamp()
+    }));
+  });
+  await check('FCM: duas contas com mesmo deviceId permanecem isoladas',async()=>{
+    const device='same_physical_device';
+    const token='synthetic-only-fcm-destination-token-abcdefghijklmnopqrstuvwxyz';
+    const aliceRef=doc(alice,'users',A,'pushDevices',device);
+    const bobRef=doc(bob,'users',B,'pushDevices',device);
+    await assertSucceeds(setDoc(aliceRef,{token,updatedAt:serverTimestamp()}));
+    await assertSucceeds(setDoc(bobRef,{token:token+'-bob',updatedAt:serverTimestamp()}));
+    assert.equal((await assertSucceeds(getDoc(aliceRef))).exists(),true);
+    assert.equal((await assertSucceeds(getDoc(bobRef))).exists(),true);
+    // Logout Alice não autoriza usar a sessão Bob no mesmo aparelho.
+    await assertFails(getDoc(doc(bob,'users',A,'pushDevices',device)));
+    await assertFails(getDocs(collection(bob,'users',A,'pushDevices')));
+    await assertFails(deleteDoc(doc(bob,'users',A,'pushDevices',device)));
+    await assertFails(updateDoc(doc(bob,'users',A,'pushDevices',device),{
+      token:'synthetic-other-token-0123456789abcdef',updatedAt:serverTimestamp()
+    }));
+    await assertFails(deleteDoc(doc(anon,'users',A,'pushDevices',device)));
+    assert.equal((await assertSucceeds(getDoc(aliceRef))).exists(),true);
+    assert.equal((await assertSucceeds(getDoc(bobRef))).exists(),true);
+    // A exclusão do registro Alice não pode remover a conta Bob.
+    await assertSucceeds(deleteDoc(aliceRef));
+    assert.equal((await assertSucceeds(getDoc(aliceRef))).exists(),false);
+    assert.equal((await assertSucceeds(getDoc(bobRef))).exists(),true);
+    // Restaurar apenas a fixture Alice para o teste de congelamento.
+    await assertSucceeds(setDoc(aliceRef,{token,updatedAt:serverTimestamp()}));
+  });
+  await check('administrador ainda pode moderar ANTES do congelamento',async()=>{
+    const adminReports=await assertSucceeds(getDocs(collection(alice,'reports')));
+    const memberReports=await assertSucceeds(getDocs(collection(alice,'user_reports')));
+    assert.equal(adminReports.size,1);
+    assert.equal(memberReports.size,1);
+    await assertSucceeds(deleteDoc(doc(alice,'posts/qa_pre_freeze_admin_delete')));
+    assert.equal((await assertSucceeds(getDoc(doc(bob,postB)))).exists(),true);
+  });
+  await check('cliente não cria marcador administrativo',async()=>{
+    await assertFails(setDoc(doc(alice,marker),{status:'processing'}));
+    await assertFails(setDoc(doc(bob,marker),{status:'processing'}));
+    await assertFails(setDoc(doc(anon,marker),{status:'processing'}));
+  });
+  // Only privileged emulator seed simulates the future administrative server.
+  await env.withSecurityRulesDisabled(async c=>{
+    await setDoc(doc(c.firestore(),marker),{
+      status:'processing',reason:'qa-only',at:new Date()
+    });
+  });
+  await check('marcador é privado, imutável e legível apenas ao titular',async()=>{
+    await assertSucceeds(getDoc(doc(alice,marker)));
+    await assertFails(getDoc(doc(bob,marker)));
+    await assertFails(deleteDoc(doc(alice,marker)));
+    await assertFails(updateDoc(doc(alice,marker),{status:'cancelled'}));
+    await assertFails(deleteDoc(doc(bob,marker)));
+  });
+  await check('administrador congelado perde leitura de denúncias e poderes de moderação',async()=>{
+    await assertFails(getDocs(collection(alice,'reports')));
+    await assertFails(getDoc(doc(alice,'reports/qa_freeze_admin_report')));
+    await assertFails(getDocs(collection(alice,'user_reports')));
+    await assertFails(getDoc(doc(alice,'user_reports/qa_freeze_member_report')));
+    await assertFails(updateDoc(doc(alice,'user_reports/qa_freeze_member_report'),{
+      status:'reviewed',reviewedBy:A,reviewedAt:serverTimestamp(),
+      reviewNote:'Decisão não autorizada por conta congelada'
+    }));
+    await assertFails(deleteDoc(doc(alice,postB)));
+    const otherPost=await assertSucceeds(getDoc(doc(bob,postB)));
+    assert.equal(otherPost.exists(),true);
+  });
+  await check('titular congelado não cria nem altera publicações',async()=>{
+    await assertFails(setDoc(doc(alice,'posts/qa_after_freeze'),post(A,'Alice Teste')));
+    await assertFails(updateDoc(doc(alice,'posts/qa_before_freeze'),{
+      title:'Título alterado',updatedAt:serverTimestamp()
+    }));
+    await assertFails(deleteDoc(doc(alice,'posts/qa_before_freeze')));
+    await assertFails(setDoc(doc(alice,postB+'/replies/qa_frozen_reply'),
+      reply(A,'Alice Teste')));
+  });
+  await check('titular congelado não edita perfil, selo ou dados públicos',async()=>{
+    await assertFails(updateDoc(doc(alice,'profiles',A),{displayName:'Alice Nova'}));
+    await assertFails(setDoc(doc(alice,'badges',A),{lay:'leiga'}));
+    await assertFails(deleteDoc(doc(alice,'public_profiles',A)));
+    await assertFails(setDoc(doc(alice,'public_profiles',A),{
+      displayName:'Alice Teste',bio:'QA',joinedAt:new Date(),updatedAt:serverTimestamp()
+    }));
+  });
+  await check('FCM: freeze impede exclusão client-side; exige reconciliação confiável',async()=>{
+    const device=doc(alice,'users',A,'pushDevices','same_physical_device');
+    await assertFails(deleteDoc(device));
+    assert.equal((await assertSucceeds(getDoc(device))).exists(),true);
+    // Conta Bob permanece capaz de administrar os próprios dispositivos.
+    const other=doc(bob,'users',B,'pushDevices','same_physical_device');
+    await assertSucceeds(deleteDoc(other));
+    assert.equal((await assertSucceeds(getDoc(device))).exists(),true);
+  });
+  await check('titular congelado não insere curtidas, acompanhamentos ou token FCM',async()=>{
+    await assertFails(setDoc(doc(alice,'users',A,'likedPosts','qa_freeze_bob_post'),
+      {createdAt:serverTimestamp()}));
+    await assertFails(setDoc(doc(alice,'users',A,'savedPosts','qa_freeze_bob_post'),
+      {createdAt:serverTimestamp()}));
+    await assertFails(setDoc(doc(alice,'users',A,'followedPosts','qa_freeze_bob_post'),
+      {createdAt:serverTimestamp()}));
+    await assertFails(setDoc(doc(alice,'users',A,'pushDevices','phone_1'),{
+      token:'fcm-test-device-token-not-real-abcdefghijklmnopqrstuvwxyz',
+      updatedAt:serverTimestamp()
+    }));
+  });
+  await check('titular congelado não cria denúncia nem altera notificações',async()=>{
+    await assertFails(setDoc(doc(alice,'reports',A+'_post_qa_freeze_bob_post'),{
+      postId:'qa_freeze_bob_post',reporterUid:A,reason:'Denúncia de teste',
+      createdAt:serverTimestamp()
+    }));
+    await assertFails(updateDoc(doc(alice,'users',A,'notifications','old_notice'),
+      {read:true}));
+    await assertFails(deleteDoc(doc(alice,'users',A,'notifications','old_notice')));
+    await assertSucceeds(getDoc(doc(alice,'users',A,'notifications','old_notice')));
+  });
+  await check('reação a comentário congelado não pode ser alterada por terceiro',async()=>{
+    await assertFails(updateDoc(doc(bob,
+      postB+'/replies/qa_freeze_alice_old/reactions/'+B),{
+        kind:'prayer'
+    }));
+  });
+  await check('outro usuário não cria respostas no post congelado nem novas referências',async()=>{
+    await assertFails(setDoc(doc(bob,postA+'/replies/new_bob_reply'),
+      reply(B,nameB)));
+    await assertFails(setDoc(doc(bob,'users',B,'likedPosts','qa_freeze_alice_post'),
+      {createdAt:serverTimestamp()}));
+    await assertFails(setDoc(doc(bob,'users',B,'savedPosts','qa_freeze_alice_post'),
+      {createdAt:serverTimestamp()}));
+    await assertFails(setDoc(doc(bob,'users',B,'followedPosts','qa_freeze_alice_post'),
+      {createdAt:serverTimestamp()}));
+  });
+  await check('nenhuma notificação nova pode ser entregue a destinatário congelado',async()=>{
+    const id='qa_bob_to_alice_notification';
+    const batch=writeBatch(bob);
+    batch.set(doc(bob,postB+'/replies/'+id),{
+      ...reply(B,nameB),replyToId:'qa_freeze_alice_old',replyToUid:A
+    });
+    batch.set(doc(bob,'users',A,'notifications',id),{
+      ...note('qa_freeze_bob_post',id),replyToId:'qa_freeze_alice_old'
+    });
+    await assertFails(batch.commit());
+  });
+  await check('outro usuário mantém publicações, respostas e tokens funcionando',async()=>{
+    await assertSucceeds(setDoc(doc(bob,'posts/qa_active_bob'),post(B,nameB)));
+    await assertSucceeds(setDoc(doc(bob,postB+'/replies/qa_active_reply'),
+      reply(B,nameB)));
+    await assertSucceeds(setDoc(doc(bob,'users',B,'likedPosts','qa_active_bob'),
+      {createdAt:serverTimestamp()}));
+    await assertSucceeds(setDoc(doc(bob,'users',B,'pushDevices','phone_2'),{
+      token:'fcm-test-device-token-not-real-abcdefghijklmnopqrstuvwxyz',
+      updatedAt:serverTimestamp()
+    }));
+  });
+  await check('leitura da conta congelada e pedido permanecem disponíveis',async()=>{
+    await assertSucceeds(getDoc(doc(alice,'profiles',A)));
+    await assertSucceeds(getDoc(doc(alice,postA)));
+    const r=await assertSucceeds(getDoc(doc(alice,request)));
+    assert.equal(r.data().status,'requested');
+    await assertFails(updateDoc(doc(alice,request),{status:'completed'}));
+  });
+  // Model approved cancellation only in local emulator, never from a user.
+  await env.withSecurityRulesDisabled(async c=>{
+    await deleteDoc(doc(c.firestore(),marker));
+  });
+  await check('retirada administrativa do freeze reabilita escrita sem mudar pedido',async()=>{
+    await assertSucceeds(setDoc(doc(alice,'posts/qa_resumed'),post(A,'Alice Teste')));
+    assert.equal((await getDoc(doc(alice,request))).data().status,'requested');
+    // The admin role was never deleted, only suspended during the freeze.
+    await assertSucceeds(getDocs(collection(alice,'reports')));
+    await assertSucceeds(getDocs(collection(alice,'user_reports')));
+  });
+  await check('FCM: offline não confirma exclusão; resposta do servidor é obrigatória',async()=>{
+    const device=doc(alice,'users',A,'pushDevices','same_physical_device');
+    assert.equal((await assertSucceeds(getDoc(device))).exists(),true);
+    await boundedQa(disableNetwork(alice),'disconnect');
+    try {
+      // Com a rede desligada, a leitura é apenas um snapshot local:
+      // nunca pode ser confundida com confirmação de remoção remota.
+      const cached=await boundedQa(getDocFromCache(device),'cache_read');
+      assert.equal(cached.metadata.fromCache,true);
+      assert.equal(cached.exists(),true);
+      console.log('QA FCM offline: snapshot local não é ACK de remoção');
+    }finally{
+      await boundedQa(enableNetwork(alice),'reconnect');
+    }
+    // A ausência de pedido remoto confirmado não revoga o cadastro.
+    assert.equal((await assertSucceeds(getDoc(device))).exists(),true);
+    // O callback de uma exclusão online só é aceito após o servidor
+    // responder; o registro da outra conta nunca é afetado.
+    await boundedQa(assertSucceeds(deleteDoc(device)),'confirmed_delete');
+    assert.equal((await assertSucceeds(getDoc(device))).exists(),false);
+    const bobDevice=doc(bob,'users',B,'pushDevices','phone_2');
+    assert.equal((await assertSucceeds(getDoc(bobDevice))).exists(),true);
+  });
+  console.log('OK: '+total+' testes write-freeze no Firestore Emulator, zero produção');
+}finally{
+  await env.cleanup();
+}

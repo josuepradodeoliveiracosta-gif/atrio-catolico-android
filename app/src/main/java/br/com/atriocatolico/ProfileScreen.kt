@@ -26,6 +26,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
@@ -43,6 +44,7 @@ internal fun OnlineProfileScreen(
     onCreate: () -> Unit, onOpen: (String) -> Unit,
     onLike: (String) -> Unit, onSave: (String) -> Unit,
     onSavedPosts: () -> Unit, onNotifications: () -> Unit, onReviews: () -> Unit,
+    communityTerms: CommunityTermsStatus,
     followedRevision: Int = 0, savedCount: Int = 0,
     followedRemoteEnabled: Boolean = false, followedRemoteIds: Set<String> = emptySet(),
     followedRemoteLoading: Boolean = false, followedRemoteFailed: Boolean = false,
@@ -90,6 +92,10 @@ internal fun OnlineProfileScreen(
             LocalFounderUid.current.isNotBlank() && LocalFounderUid.current == uid
         val mine = remember(posts, uid) { posts.filter { it.mine } }
         val context = LocalContext.current
+        val uriHandler = LocalUriHandler.current
+        val publishedTerms = communityTerms.readablePublishedPolicy
+        var termsBrowserUnavailable by remember(uid, publishedTerms?.url) { mutableStateOf(false) }
+        var privacyBrowserUnavailable by remember(uid) { mutableStateOf(false) }
         val followedCount = if (followedRemoteEnabled) followedRemoteIds.size
             else remember(uid, followedRevision) { LocalFollowedDiscussions.ids(context, uid).size }
         LazyColumn(Modifier.fillMaxSize().testTag("atrio-profile-list"), contentPadding = PaddingValues(16.dp),
@@ -175,12 +181,71 @@ internal fun OnlineProfileScreen(
                         Text("Seu e-mail é privado. Sua apresentação só fica pública após sua autorização.",
                             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text("Átrio Católico · ${BuildConfig.ATRIO_VISIBLE_VERSION}", style = MaterialTheme.typography.labelMedium)
+                        if (BuildConfig.PRIVACY_POLICY_URL.isNotBlank()) {
+                            OutlinedButton(
+                                onClick = {
+                                    privacyBrowserUnavailable = runCatching {
+                                        uriHandler.openUri(BuildConfig.PRIVACY_POLICY_URL)
+                                    }.isFailure
+                                },
+                                modifier = Modifier.fillMaxWidth().testTag("atrio-profile-privacy-policy")
+                            ) { Text("Política de privacidade") }
+                            if (privacyBrowserUnavailable) Text(
+                                "Não foi possível abrir a política neste aparelho. " +
+                                    "Confira o navegador e tente novamente.",
+                                modifier = Modifier.testTag("atrio-profile-privacy-error"),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        } else if (BuildConfig.PLAY_STORE_BUILD) {
+                            Text(
+                                "Política de privacidade pendente. Esta compilação Play é somente para QA.",
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        // O aceite anterior não oculta o texto vigente.
+                        // Reutilizar a mesma configuração versionada e validada
+                        // que controla o direito de publicar.
+                        if (publishedTerms != null) {
+                            OutlinedButton(
+                                onClick = {
+                                    termsBrowserUnavailable = runCatching {
+                                        uriHandler.openUri(publishedTerms.url)
+                                    }.isFailure
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                                    .testTag("atrio-profile-community-terms")
+                            ) { Text("Termos de Uso e Política da Comunidade") }
+                            Text(
+                                "Versão vigente: ${publishedTerms.version}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            if (termsBrowserUnavailable) Text(
+                                "Não foi possível abrir os Termos neste aparelho. " +
+                                    "Confira o navegador e tente novamente.",
+                                modifier = Modifier.testTag("atrio-profile-community-terms-error"),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        } else if (BuildConfig.PLAY_STORE_BUILD) {
+                            Text(
+                                "Termos da Comunidade ainda não confirmados pelo servidor. " +
+                                    "Esta compilação Play não deve ser distribuída.",
+                                modifier = Modifier.testTag("atrio-profile-community-terms-pending"),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
                         OutlinedButton(onClick = onSignOut, modifier = Modifier.fillMaxWidth().testTag("atrio-profile-signout")) {
                             Text("Sair da conta")
                         }
                     }
                 }
             }
+            // Somente registro de pedido, sem exclusão remota neste estágio.
+            item { AccountDeletionRequestSection(db, uid) }
             if (onModeration != null || onClergyReview != null) item {
                 HorizontalDivider(color = Line)
                 Spacer(Modifier.height(16.dp))

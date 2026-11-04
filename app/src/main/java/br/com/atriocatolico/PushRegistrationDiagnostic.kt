@@ -4,8 +4,41 @@ package br.com.atriocatolico
  * Diagnóstico público e seguro do cadastro FCM.
  * Não expor UID, token, endpoint, credenciais ou mensagens de exceção.
  */
+/**
+ * O token FCM é um endereço de entrega do dispositivo, não um diagnóstico
+ * público. A operação assíncrona deve revalidar a sessão ao concluir.
+ * Nunca disponibilizar cópia do token na variante da Google Play.
+ */
+internal fun mayUseFcmTokenDiagnostics(
+    playStoreBuild: Boolean,
+    expectedUid: String,
+    authenticatedUid: String?,
+    enabledOnDevice: Boolean
+): Boolean = !playStoreBuild && expectedUid.isNotBlank()
+    && authenticatedUid == expectedUid && enabledOnDevice
+
+/**
+ * A resposta tardia de um register() não pode reativar avisos depois
+ * de revogação, troca de sessão ou de uma nova tentativa de cadastro.
+ * Sem acesso ao Firebase: política pura para regressões de corrida.
+ */
+internal fun mayContinueFcmRegistration(
+    expectedUid: String,
+    authenticatedUid: String?,
+    enabledOnDevice: Boolean,
+    removalPending: Boolean,
+    expectedEpoch: Long,
+    currentEpoch: Long
+): Boolean = expectedUid.isNotBlank() && authenticatedUid == expectedUid
+    && enabledOnDevice && !removalPending && expectedEpoch == currentEpoch
+
+internal fun mayCompletePushSafeLogout(
+    expectedUid: String, authenticatedUid: String?, remoteRemoved: Boolean
+): Boolean = expectedUid.isNotBlank() && authenticatedUid == expectedUid && remoteRemoved
+
 internal enum class PushRegistrationProblem {
     SESSION_CHANGED,
+    REVOCATION_PENDING,
     TOKEN_UNAVAILABLE,
     PLAY_SERVICES_UNAVAILABLE,
     TOKEN_SERVICE_UNAVAILABLE,
@@ -19,6 +52,8 @@ internal enum class PushRegistrationProblem {
 internal fun pushRegistrationMessage(problem: PushRegistrationProblem?): String = when (problem) {
     PushRegistrationProblem.SESSION_CHANGED ->
         "Sua sessão mudou durante o cadastro. Entre na conta e tente novamente."
+    PushRegistrationProblem.REVOCATION_PENDING ->
+        "A remoção anterior ainda não foi confirmada pelo servidor. Tente remover o cadastro antigo antes de reativar os avisos."
     PushRegistrationProblem.TOKEN_UNAVAILABLE ->
         "Etapa 1/3 — Token FCM: não foi possível obter o token. Verifique a conexão e tente novamente."
     PushRegistrationProblem.PLAY_SERVICES_UNAVAILABLE ->

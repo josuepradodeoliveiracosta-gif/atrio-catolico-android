@@ -51,6 +51,34 @@ internal object PushRegistry {
     }
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     private fun enabledKey(uid: String) = "enabled_$uid"
+    private fun pendingRemovalKey(uid: String) = "removal_pending_$uid"
+    private fun registrationEpochKey(uid: String) = "registration_epoch_$uid"
+
+    // O registro precisa ser invalidado antes de qualquer nova intenção de
+    // ativação/desativação. SharedPreferences conserva a geração no reinício.
+    private fun epoch(context: Context, uid: String): Long =
+        prefs(context).getLong(registrationEpochKey(uid), 0L)
+
+    @Synchronized
+    private fun invalidateRegistrations(context: Context, uid: String): Long {
+        val next = epoch(context, uid) + 1L
+        prefs(context).edit().putLong(registrationEpochKey(uid), next).apply()
+        return next
+    }
+
+    private fun registrationCurrent(context: Context, uid: String, capturedEpoch: Long): Boolean =
+        mayContinueFcmRegistration(
+            expectedUid = uid,
+            authenticatedUid = FirebaseAuth.getInstance().currentUser?.uid,
+            enabledOnDevice = enabled(context, uid),
+            removalPending = pendingRemoteRemoval(context, uid),
+            expectedEpoch = capturedEpoch,
+            currentEpoch = epoch(context, uid)
+        )
+
+    /** Pendência local não é prova de exclusão confirmada no Firestore. */
+    fun pendingRemoteRemoval(context: Context, uid: String): Boolean =
+        uid.isNotBlank() && prefs(context).getBoolean(pendingRemovalKey(uid), false)
 
     fun enabled(context: Context, uid: String): Boolean =
         uid.isNotBlank() && prefs(context).getBoolean(enabledKey(uid), false)
@@ -72,7 +100,8 @@ internal object PushRegistry {
         db: FirebaseFirestore,
         done: (Boolean, PushRegistrationProblem?) -> Unit = { _, _ -> }
     ) {
-        if (FirebaseAuth.getInstance().currentUser?.uid != uid || !enabled(context, uid)) {
+        val capturedEpoch = epoch(context, uid)
+        if (!registrationCurrent(context, uid, capturedEpoch)) {
             done(false, PushRegistrationProblem.SESSION_CHANGED)
             return
         }
@@ -84,7 +113,7 @@ internal object PushRegistry {
         FirebaseMessaging.getInstance().isAutoInitEnabled = true
         FirebaseMessaging.getInstance().token
             .addOnSuccessListener { token ->
-                if (FirebaseAuth.getInstance().currentUser?.uid != uid || !enabled(context, uid)) {
+                if (!registrationCurrent(context, uid, capturedEpoch)) {
                     done(false, PushRegistrationProblem.SESSION_CHANGED)
                     return@addOnSuccessListener
                 }
@@ -96,24 +125,39 @@ internal object PushRegistry {
                     "token" to token,
                     "updatedAt" to FieldValue.serverTimestamp()
                 )).addOnCompleteListener { result ->
-                    if (FirebaseAuth.getInstance().currentUser?.uid != uid || !enabled(context, uid)) {
+                    if (!registrationCurrent(context, uid, capturedEpoch)) {
                         done(false, PushRegistrationProblem.SESSION_CHANGED)
                     } else if (result.isSuccessful) {
-                        FirebaseMessaging.getInstance().subscribeToTopic(COMMUNICATION_TOPIC)
-                            .addOnCompleteListener { subscribed ->
-                                if (FirebaseAuth.getInstance().currentUser?.uid != uid
-                                    || !enabled(context, uid)) {
-                                    FirebaseMessaging.getInstance().unsubscribeFromTopic(COMMUNICATION_TOPIC)
-                                    done(false, PushRegistrationProblem.SESSION_CHANGED)
-                                } else if (subscribed.isSuccessful) {
-                                    ThreadPushSubscriptions.sync(context, uid)
-                                    done(true, null)
-                                } else {
-                                    // O cadastro pessoal funciona, mas não ativamos a opção
-                                    // enquanto a inscrição nos comunicados não estiver confirmada.
-                                    done(false, PushRegistrationProblem.TOPIC_SUBSCRIPTION_FAILED)
+                        if (BuildConfig.PLAY_STORE_BUILD) {
+                            // O Play envia comunicados apenas por token individual.
+                            // Não cadastrar novos assinantes do topic geral legado.
+                            // Desinscrição é best-effort; a filtragem ao receber
+                            // recusa broadcasts de topic mesmo se a rede falhar.
+                            FirebaseMessaging.getInstance().unsubscribeFromTopic(COMMUNICATION_TOPIC)
+                                .addOnCompleteListener {
+                                    if (!registrationCurrent(context, uid, capturedEpoch)) {
+                                        done(false, PushRegistrationProblem.SESSION_CHANGED)
+                                    } else {
+                                        ThreadPushSubscriptions.sync(context, uid)
+                                        done(true, null)
+                                    }
                                 }
-                            }
+                        } else {
+                            // Compatibilidade com APKs OTA existentes; sem mudar
+                            // as preferências ou tópicos desses usuários.
+                            FirebaseMessaging.getInstance().subscribeToTopic(COMMUNICATION_TOPIC)
+                                .addOnCompleteListener { subscribed ->
+                                    if (!registrationCurrent(context, uid, capturedEpoch)) {
+                                        FirebaseMessaging.getInstance().unsubscribeFromTopic(COMMUNICATION_TOPIC)
+                                        done(false, PushRegistrationProblem.SESSION_CHANGED)
+                                    } else if (subscribed.isSuccessful) {
+                                        ThreadPushSubscriptions.sync(context, uid)
+                                        done(true, null)
+                                    } else {
+                                        done(false, PushRegistrationProblem.TOPIC_SUBSCRIPTION_FAILED)
+                                    }
+                                }
+                        }
                     } else {
                         val issue = when ((result.exception as? FirebaseFirestoreException)?.code) {
                             FirebaseFirestoreException.Code.PERMISSION_DENIED ->
@@ -128,7 +172,9 @@ internal object PushRegistry {
                 }
             }
             .addOnFailureListener { error ->
-                done(false, diagnoseFcm(context, error))
+                if (!registrationCurrent(context, uid, capturedEpoch))
+                    done(false, PushRegistrationProblem.SESSION_CHANGED)
+                else done(false, diagnoseFcm(context, error))
             }
     }
 
@@ -142,9 +188,23 @@ internal object PushRegistry {
             done(false, PushRegistrationProblem.SESSION_CHANGED)
             return
         }
+        if (pendingRemoteRemoval(context, uid)) {
+            // Não registrar outro token enquanto a remoção antiga ainda
+            // pode chegar ao servidor depois do novo cadastro.
+            done(false, PushRegistrationProblem.REVOCATION_PENDING)
+            return
+        }
+        val capturedEpoch = invalidateRegistrations(context, uid)
         prefs(context).edit().putBoolean(enabledKey(uid), true).apply()
         register(context, uid, db) { ok, issue ->
-            if (!ok && FirebaseAuth.getInstance().currentUser?.uid == uid) {
+            // Um callback antigo não pode desligar uma ativação mais nova.
+            if (epoch(context, uid) != capturedEpoch ||
+                FirebaseAuth.getInstance().currentUser?.uid != uid ||
+                pendingRemoteRemoval(context, uid)) {
+                done(false, PushRegistrationProblem.SESSION_CHANGED)
+                return@register
+            }
+            if (!ok) {
                 prefs(context).edit().putBoolean(enabledKey(uid), false).apply()
                 FirebaseMessaging.getInstance().isAutoInitEnabled = false
             }
@@ -153,19 +213,42 @@ internal object PushRegistry {
     }
 
     fun refreshIfEnabled(context: Context, uid: String, db: FirebaseFirestore) {
-        if (enabled(context, uid)) register(context, uid, db)
+        if (FirebaseAuth.getInstance().currentUser?.uid != uid) return
+        if (pendingRemoteRemoval(context, uid)) {
+            // Reconciliar a pendência apenas sob a mesma identidade.
+            deactivate(context, uid, db)
+        } else if (enabled(context, uid)) register(context, uid, db)
     }
 
-    fun deactivate(context: Context, uid: String, db: FirebaseFirestore) {
-        if (uid.isBlank()) return
-        prefs(context).edit().putBoolean(enabledKey(uid), false).apply()
+    /**
+     * Retorna sucesso somente quando o servidor Firestore confirmou delete
+     * ainda sob a mesma sessão. Não comprova revogação de todo token FCM.
+     * Em offline, a pendência local sobrevive até nova autenticação do titular.
+     */
+    fun deactivate(
+        context: Context, uid: String, db: FirebaseFirestore,
+        done: (Boolean) -> Unit = {}
+    ) {
+        if (uid.isBlank() || FirebaseAuth.getInstance().currentUser?.uid != uid) {
+            done(false)
+            return
+        }
+        // Invalida callbacks FCM antigos ANTES de iniciar a remoção remota.
+        val capturedEpoch = invalidateRegistrations(context, uid)
+        prefs(context).edit()
+            .putBoolean(enabledKey(uid), false)
+            .putBoolean(pendingRemovalKey(uid), true).apply()
         FirebaseMessaging.getInstance().isAutoInitEnabled = false
         FirebaseMessaging.getInstance().unsubscribeFromTopic(COMMUNICATION_TOPIC)
         ThreadPushSubscriptions.unsubscribeAll(context, uid)
-        // A exclusao remota e a rotacao do token sao tentativas assincronas.
-        // Nao mostramos informacoes pessoais no corpo de avisos enviados.
-        document(db, uid, context).delete()
         FirebaseMessaging.getInstance().deleteToken()
+        document(db, uid, context).delete().addOnCompleteListener { task ->
+            val currentAttempt = FirebaseAuth.getInstance().currentUser?.uid == uid &&
+                epoch(context, uid) == capturedEpoch
+            if (currentAttempt && task.isSuccessful)
+                prefs(context).edit().putBoolean(pendingRemovalKey(uid), false).apply()
+            done(currentAttempt && task.isSuccessful)
+        }
     }
 
     fun createChannel(context: Context) {
@@ -286,11 +369,24 @@ class AtrioPushService : FirebaseMessagingService() {
         // Nunca use texto fornecido no payload como conteudo da notificacao.
         val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
         if (message.data["kind"] == "broadcast") {
+            // No Play, só comunicado individual destinado ao UID autenticado.
+            // Uma mensagem por tópico jamais contorna bloqueios via payload.
+            if (!PlayBroadcastDeliveryPolicy.accepts(
+                    playStoreBuild = BuildConfig.PLAY_STORE_BUILD,
+                    currentUid = uid,
+                    destinationUid = message.data["uid"],
+                    sender = message.from,
+                    addressedTo = message.to
+                )) return
             PushRegistry.showBroadcast(applicationContext, uid,
                 message.data["title"].orEmpty(), message.data["body"].orEmpty())
             return
         }
         if (message.data["kind"] == "discussion_reply") {
+            // Defense in depth: a build da Play nunca deve mostrar Push de
+            // tópico legado. O envio seguro deve chegar por token individual.
+            // Nenhum payload não autenticado de tópico pode contornar bloqueio.
+            if (BuildConfig.PLAY_STORE_BUILD) return
             PushRegistry.showDiscussionReply(applicationContext, uid,
                 message.data["postId"].orEmpty(), message.data["replyId"].orEmpty(),
                 message.data["actorUid"].orEmpty(), topicDelivery = true)

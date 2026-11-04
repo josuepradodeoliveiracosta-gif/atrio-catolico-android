@@ -8,12 +8,13 @@ const MAX_ADMINS = 8;
 const MAX_TOKENS = 3;
 const MAX_AGE_MS = 5 * 60_000;
 const MAX_SUBJECT = 128;
-const BROADCAST_TOPIC = 'atrio_comunicados_v1';
-const BROADCAST_COOLDOWN_MS = 60 * 60_000;
+// FCM topic broadcast removed: frozen subscribers cannot be filtered.
 // Fan-out: limite explícito para respeitar o plano Workers Free e o tamanho do batchWrite.
 const THREAD_REPLY_PAGE_SIZE = 200;
 const THREAD_MAX_PAGES = 10;
 const THREAD_MAX_RECIPIENTS = 250;
+// Estrito e opt-in: limites de subrequests no Workers Free; excesso suprime push.
+const THREAD_BLOCK_SAFE_MAX_RECIPIENTS = 5;
 
 
 const stringField = (doc, key) => doc?.fields?.[key]?.stringValue ?? '';
@@ -110,6 +111,37 @@ async function firestoreGet(token, path) {
   if (!res.ok) throw Error('Firestore indisponível');
   return res.json();
 }
+/** Prevent privileged moderation writes while a subject is deleting.
+ * This is a read-only preflight, NOT a durable cross-service fence: operations
+ * already in flight may still need reconciliation before Auth deletion.
+ */
+export async function pushAccountFrozen(token, uid) {
+  if(!uidPart(uid)||typeof token!=='string'||token.length===0)
+    throw Error('push_freeze_invalid_scope');
+  return Boolean(await firestoreGet(token,'account_deletion_freeze/'+enc(uid)));
+}
+/**
+ * Non-reply events (badge requests, clergy decisions and reports) must also
+ * respect an account-deletion freeze. This is a read-only, fail-closed
+ * preflight; it cannot replace the durable distributed deletion fence.
+ *
+ * No FCM device lookup or delivery marker should occur for filtered UIDs.
+ * In particular, a failed Firestore read must NEVER mean "not frozen".
+ */
+export async function filterNonReplyRecipientsForDeletion(token, actorUid, recipientUids) {
+  if(typeof token!=='string' || !token || !uidPart(actorUid)
+    || !Array.isArray(recipientUids) || recipientUids.length>MAX_ADMINS
+    || recipientUids.some(uid=>!uidPart(uid)))
+    throw Error('push_privacy_recipient_scope_invalid');
+  if(await pushAccountFrozen(token,actorUid))return [];
+  const accepted=[];
+  for(const recipient of new Set(recipientUids)){
+    if(recipient===actorUid)continue;
+    if(!await pushAccountFrozen(token,recipient))accepted.push(recipient);
+  }
+  return accepted;
+}
+
 async function firestoreList(token, path, max) {
   const res = await fetch(ROOT+'/'+path+'?pageSize='+max,
     {headers:{Authorization:'Bearer '+token}});
@@ -148,6 +180,157 @@ export async function threadParticipants(token, postId, actor, owner, replyTime)
   throw Error('thread_reply_limit');
 }
 
+/**
+ * Listas de bloqueio privadas, consultadas somente via identidade de serviço.
+ * Qualquer indisponibilidade aborta o envio; nunca tratar falha como "livre".
+ * O modo estrito nunca utiliza FCM topics e rejeita destinatários em excesso.
+ */
+/**
+ * One additional bounded Firestore read of the ALL relevant block/freeze
+ * markers after notice fanout. A second N*3 individual GET pass would exceed
+ * Workers Free's 50 external-subrequest budget for busy reply threads.
+ * BatchGet is strongly consistent by default but NOT a distributed fence.
+ */
+export async function recheckThreadRecipientPresence(token,actorUid,recipientUids) {
+  if(typeof token!=='string'||!token||!uidPart(actorUid)||
+    !Array.isArray(recipientUids)||
+    recipientUids.length>THREAD_BLOCK_SAFE_MAX_RECIPIENTS||
+    recipientUids.some(uid=>!uidPart(uid)))
+    throw Error('block_safe_batch_scope_invalid');
+  const recipients=[...new Set(recipientUids)].filter(uid=>uid!==actorUid);
+  if(!recipients.length)return [];
+
+  const prefix='projects/'+PROJECT+'/databases/(default)/documents/';
+  const marker='account_deletion_freeze/';
+  const blocked='users/';
+  const paths=[marker+actorUid];
+  for(const uid of recipients)paths.push(
+    marker+uid,
+    blocked+actorUid+'/blockedMembers/'+uid,
+    blocked+uid+'/blockedMembers/'+actorUid
+  );
+  const expected=new Set(paths.map(path=>prefix+path));
+  if(expected.size!==paths.length)throw Error('block_safe_batch_duplicate');
+  const res=await fetch(ROOT+':batchGet',{
+    method:'POST',headers:{
+      Authorization:'Bearer '+token,'Content-Type':'application/json'
+    },
+    // A field mask avoids disclosing user-authored document contents.
+    body:JSON.stringify({documents:[...expected],mask:{
+      fieldPaths:['__atrio_presence_check_only']
+    }})
+  });
+  if(!res.ok||!res.body?.getReader)throw Error('block_safe_batch_unavailable');
+  const MAX_BYTES=65536;
+  const declared=res.headers.get('content-length');
+  if(declared!==null&&(!/^\d+$/.test(declared)||Number(declared)>MAX_BYTES))
+    throw Error('block_safe_batch_oversized');
+  const reader=res.body.getReader();
+  let total=0;const chunks=[];
+  try{
+    while(true){
+      const {done,value}=await reader.read();
+      if(done)break;
+      total+=value.byteLength;
+      if(total>MAX_BYTES){
+        await reader.cancel();
+        throw Error('block_safe_batch_oversized');
+      }
+      chunks.push(value);
+    }
+  }finally{reader.releaseLock();}
+  if(!total)throw Error('block_safe_batch_empty');
+  const bytes=new Uint8Array(total);
+  let offset=0;
+  for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.byteLength;}
+  let raw;
+  try{raw=new TextDecoder('utf-8',{fatal:true}).decode(bytes).trim();}
+  catch{throw Error('block_safe_batch_invalid_encoding');}
+  if(!raw)throw Error('block_safe_batch_empty');
+  // Firestore REST returns a stream of JSON objects. The emulator may
+  // return a single JSON array. Reject incomplete and ambiguous responses.
+  let rows;
+  try{
+    const parsed=JSON.parse(raw);
+    rows=Array.isArray(parsed)?parsed:[parsed];
+  }catch{
+    rows=[];let i=0;
+    while(i<raw.length){
+      while(i<raw.length&&/\s/.test(raw[i]))i++;
+      if(i===raw.length)break;
+      if(raw[i]!=='{')throw Error('block_safe_batch_malformed');
+      let depth=0,inString=false,escape=false,start=i;
+      for(;i<raw.length;i++){
+        const ch=raw[i];
+        if(inString){
+          if(escape)escape=false;
+          else if(ch==='\\')escape=true;
+          else if(ch==='"')inString=false;
+        }else if(ch==='"')inString=true;
+        else if(ch==='{')depth++;
+        else if(ch==='}'){
+          depth--;
+          if(depth===0){i++;break;}
+          if(depth<0)throw Error('block_safe_batch_malformed');
+        }
+      }
+      if(depth!==0||inString)throw Error('block_safe_batch_malformed');
+      try{rows.push(JSON.parse(raw.slice(start,i)));}
+      catch{throw Error('block_safe_batch_malformed');}
+      if(rows.length>expected.size)throw Error('block_safe_batch_unbounded');
+      if(i<raw.length&&!/\s/.test(raw[i]))throw Error('block_safe_batch_malformed');
+    }
+  }
+  if(!Array.isArray(rows)||rows.length!==expected.size)
+    throw Error('block_safe_batch_incomplete');
+  const found=new Set(),seen=new Set();
+  for(const entry of rows){
+    if(!entry||typeof entry!=='object'||Array.isArray(entry))
+      throw Error('block_safe_batch_malformed');
+    const hasFound=Object.hasOwn(entry,'found'),hasMissing=Object.hasOwn(entry,'missing');
+    if(hasFound===hasMissing)throw Error('block_safe_batch_malformed');
+    const name=hasFound?entry.found?.name:entry.missing;
+    if(typeof name!=='string'||!expected.has(name)||seen.has(name))
+      throw Error('block_safe_batch_unexpected_path');
+    seen.add(name);
+    if(hasFound)found.add(name);
+  }
+  const documentExists=path=>found.has(prefix+path);
+  if(documentExists(marker+actorUid))return [];
+  return recipients.filter(uid=>
+    !documentExists(marker+uid)&&
+    !documentExists(blocked+actorUid+'/blockedMembers/'+uid)&&
+    !documentExists(blocked+uid+'/blockedMembers/'+actorUid));
+}
+
+export async function blockSafeThreadRecipients(token, actorUid, recipientUids) {
+  if (!uidPart(actorUid) || !Array.isArray(recipientUids)
+      || recipientUids.length > THREAD_BLOCK_SAFE_MAX_RECIPIENTS
+      || recipientUids.some(uid => !uidPart(uid)))
+    throw Error('block_safe_capacity_or_invalid');
+  // Defence in depth: accounts undergoing deletion must not create or
+  // receive fresh reply notifications. Unlike Firestore client rules,
+  // this check also applies to privileged Worker writes.
+  // This read alone is NOT a durable cross-service fence: an admin
+  // coordinator must still drain in-flight operations before deletion.
+  if (await firestoreGet(token,'account_deletion_freeze/'+enc(actorUid)))
+    return [];
+  const allowed=[];
+  for (const uid of [...new Set(recipientUids)]) {
+    if (uid===actorUid) continue;
+    // Missing marker (404) means not frozen. Any other read failure throws,
+    // suppressing the entire event instead of allowing a bypass.
+    if (await firestoreGet(token,'account_deletion_freeze/'+enc(uid)))
+      continue;
+    const [actorBlockedRecipient, recipientBlockedActor] = await Promise.all([
+      firestoreGet(token,'users/'+enc(actorUid)+'/blockedMembers/'+enc(uid)),
+      firestoreGet(token,'users/'+enc(uid)+'/blockedMembers/'+enc(actorUid)),
+    ]);
+    if (!actorBlockedRecipient && !recipientBlockedActor) allowed.push(uid);
+  }
+  return allowed;
+}
+
 export async function writeThreadNotices(token, event) {
   if(!event.topic || !event.recipients?.length) return;
   const {postId,replyId,actorUid,actorName,createdAt}=event.notice;
@@ -167,7 +350,14 @@ export async function writeThreadNotices(token, event) {
   });
   if(!res.ok) throw Error('thread_fanout_unavailable');
   const result=await res.json();
-  if((result.status||[]).some(x=>x && x.code && x.code!==6))
+  // Firestore batchWrite has one status per attempted write. Missing,
+  // truncated or malformed 200 responses cannot authorize FCM delivery.
+  // Code 6 means ALREADY_EXISTS for the create-only idempotent notice.
+  if(!Array.isArray(result?.status) ||
+    result.status.length!==writes.length ||
+    result.status.some(x=>!x||typeof x!=='object'||
+      Array.isArray(x)||!Number.isInteger(x.code??0)||
+      ![0,6].includes(x.code??0)))
     throw Error('thread_fanout_partial');
 }
 
@@ -339,26 +529,13 @@ export async function handleBroadcast(request, env) {
     if (!admin || !boolField(admin,'enabled') || !founder
         || stringField(founder,'uid') !== actor)
       return response(403,'forbidden');
-
-    // Um envio no máximo por hora, inclusive se dois aparelhos do fundador tentarem.
-    // O banco realiza o teste e o bloqueio num único comando atômico.
-    const now = Date.now();
-    const inserted = await env.PUSH_DB.prepare(
-      "INSERT INTO delivered (event_key,created_at) VALUES ('broadcast:cooldown',?) " +
-      "ON CONFLICT(event_key) DO UPDATE SET created_at=excluded.created_at " +
-      "WHERE delivered.created_at < ?"
-    ).bind(now,now-BROADCAST_COOLDOWN_MS).run();
-    if (inserted.meta?.changes !== 1) return response(429,'broadcast_cooldown');
-
-    const res = await fetch('https://fcm.googleapis.com/v1/projects/'+PROJECT+'/messages:send',{
-      method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
-      body:JSON.stringify({message:{
-        topic:BROADCAST_TOPIC,
-        data:{kind:'broadcast',title:data.title,body:data.body,messageId:data.requestId},
-        android:{priority:'HIGH',ttl:'3600s'},
-      }}),
-    });
-    return response(res.ok ? 202 : 503,res.ok ? 'accepted_by_fcm' : 'delivery_failed');
+    // Topic subscribers cannot be enumerated or excluded when deleting an account.
+    // Do not access tokens, cooldown D1, or FCM until all recipients have
+    // durable cross-service admission and independently reconciled delivery.
+    // No environment flag may bypass this fail-closed protection.
+    if(await pushAccountFrozen(token,actor))
+      return response(409,'account_deletion_in_progress');
+    return response(503,'broadcast_privacy_coordinator_required');
   } catch {
     // Nunca retornar UID, token FCM, ID token, chave ou detalhes do provedor.
     return response(503,'unavailable');
@@ -522,6 +699,8 @@ export async function handleGuardiaoEvent(request,env) {
     const actor=await verifyIdentity(request,env);
     if(!actor) return response(401,'unauthorized');
     const service=await oauth(env);
+    if(await pushAccountFrozen(service,actor))
+      return response(409,'account_deletion_in_progress');
     const path='posts/'+enc(data.postId)+(data.type==='reply'?'/replies/'+enc(data.replyId):'');
     const doc=await firestoreGet(service,path);
     if(!doc||stringField(doc,'uid')!==actor||!recent(timeField(doc,'createdAt')))
@@ -563,6 +742,10 @@ export async function handleGuardiaoEvent(request,env) {
     try {
       if(env.PUSH_ENABLED==='true' && await reserveGuardiaoAdminPush(env.PUSH_DB))
       for(const admin of await adminUids(service,actor)) {
+        // Notification recipients in an account deletion must not receive
+        // new admin FCM. An unavailable marker read suppresses delivery,
+        // without losing the already persisted moderation report.
+        if(await pushAccountFrozen(service,admin))continue;
         for(const device of await devices(service,admin)) {
           const delivered=await send(service,device.token,admin,'admin');
           if(!delivered.ok) await cleanupInvalidDevice(service,device,delivered);
@@ -595,6 +778,8 @@ async function firestoreCommit(service,writes) {
 export async function holdGuardiaoContent(env,service,reportId,event,document,decision) {
   if(!document?.updateTime || !document?.name ||
     !uidPart(stringField(document,'uid'))) return false;
+  // Direct callers of this helper must also respect owner freeze.
+  if(await pushAccountFrozen(service,stringField(document,'uid'))) return false;
   const report=await firestoreGet(service,'reports/'+enc(reportId));
   if(!report||stringField(report,'status')!=='pending'||
     stringField(report,'source')!=='guardiao'||
@@ -639,6 +824,8 @@ export async function handleGuardiaoReview(request,env) {
     const service=await oauth(env);
     const admin=await firestoreGet(service,'admins/'+enc(uid));
     if(!admin||!boolField(admin,'enabled')) return response(403,'not_admin');
+    if(await pushAccountFrozen(service,uid))
+      return response(409,'account_deletion_in_progress');
     const [guard,report]=await Promise.all([
       firestoreGet(service,'guardiao_quarantine/'+enc(input.caseId)),
       firestoreGet(service,'reports/'+enc(input.caseId)),
@@ -648,8 +835,11 @@ export async function handleGuardiaoReview(request,env) {
       stringField(report,'source')!=='guardiao'||
       stringField(report,'reporterUid')!=='atrio_guardiao'||
       !guard.updateTime||!report.updateTime) return response(409,'already_reviewed');
-    if(stringField(guard,'ownerUid')===uid)
-      return response(403,'self_review_forbidden');
+    const ownerUid=stringField(guard,'ownerUid');
+    if(!uidPart(ownerUid)) return response(409,'inconsistent_case');
+    if(ownerUid===uid) return response(403,'self_review_forbidden');
+    if(await pushAccountFrozen(service,ownerUid))
+      return response(409,'account_deletion_in_progress');
     const postId=stringField(guard,'postId');
     const replyId=stringField(guard,'replyId');
     const type=stringField(guard,'targetType');
@@ -753,16 +943,37 @@ export default {
       if(event.recipients.length>(event.topic?THREAD_MAX_RECIPIENTS:MAX_ADMINS))
         return response(503,'capacity_limit');
       if(event.degraded) await auditDelivery(env,'thread','capacity_fallback');
-      // Em caso de falha do fan-out de avisos internos, preservar o Push
-      // individual que já funciona na versão anterior.
-      let fanoutOk=true;
+      // Privacidade obrigatoria para toda resposta, inclusive em clientes
+      // antigos: inscritos em topicos FCM nao podem ser filtrados individualmente.
+      // Nao permitir downgrade por variavel Cloudflare ausente ou false.
+      const blockSafeMode = event.kind==='reply';
+      if(blockSafeMode && event.recipients.length>THREAD_BLOCK_SAFE_MAX_RECIPIENTS) {
+        await auditDelivery(env,'thread','block_safe_capacity_suppressed');
+        return response(202,'block_safe_capacity_suppressed');
+      }
+      const recipients = blockSafeMode
+        ? await blockSafeThreadRecipients(token,uid,event.recipients)
+        : await filterNonReplyRecipientsForDeletion(token,uid,event.recipients);
+      const safeEvent={...event,recipients};
       if(event.topic) {
-        try { await writeThreadNotices(token,event); }
+        try { await writeThreadNotices(token,safeEvent); }
         catch {
-          fanoutOk=false;
+          // Never send FCM if in-app notices were not fully acknowledged.
+          // This also prevents consuming a delivery marker after a partial
+          // Firestore response. A retry can safely use exists:false.
           await auditDelivery(env,'thread','fanout_failed');
+          return response(503,'fanout_failed');
         }
       }
+      // A block or deletion freeze may be added WHILE the Firestore notice
+      // fanout is running. Recheck ALL approved reply recipients before
+      // looking up any device or reserving a D1 delivery marker. The initial
+      // check remains mandatory before the write, and a failed second read
+      // fails the whole event before any FCM attempt. Bounded to five UIDs.
+      // This narrows the race; it is NOT a durable cross-service fence.
+      const deliveryRecipients=blockSafeMode && recipients.length
+        ? await recheckThreadRecipientPresence(token,uid,recipients)
+        : recipients;
       // Events expire after five minutes; keep delivery markers for one day.
       // Bounded cleanup prevents an unbounded D1 retention table.
       await env.PUSH_DB.prepare('DELETE FROM delivered WHERE event_key IN ' +
@@ -772,30 +983,20 @@ export default {
       let accepted=0;
       let failedHttp=0;
       let cleaned=0;
-      if(event.topic) {
-        // Um único envio por tópico para todos os participantes inscritos.
-        const marker='topic:'+event.key;
-        const insert=await env.PUSH_DB.prepare(
-          'INSERT OR IGNORE INTO delivered (event_key,created_at) VALUES (?,?)'
-        ).bind(marker,Date.now()).run();
-        if(insert.meta?.changes) {
-          const res=await fetch('https://fcm.googleapis.com/v1/projects/'+PROJECT+'/messages:send',{
-            method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
-            body:JSON.stringify({message:{
-              topic:event.topic,
-              data:{kind:'discussion_reply',postId:event.notice.postId,
-                replyId:event.notice.replyId,actorUid:event.notice.actorUid},
-              android:{priority:'HIGH',ttl:'3600s'},
-            }}),
-          });
-          attempted++;
-          if(res.ok) accepted++; else failedHttp=res.status;
-        }
-      }
-      for(const recipient of (event.topic?event.legacyOwner?[event.legacyOwner]:[]:event.recipients)) {
+      for(const recipient of deliveryRecipients) {
         if(!uidPart(recipient)||recipient===uid) continue;
         const list=await devices(token,recipient);
         if(!list.length) continue;
+        // Deletion may begin while we are listing pushDevices. A second,
+        // fail-closed read immediately before reserving a D1 delivery marker
+        // prevents delivery when the actor or recipient froze during lookup.
+        // This narrows the race, but does NOT replace distributed admission
+        // and draining of already-in-flight operations.
+        const [actorNowFrozen,recipientNowFrozen]=await Promise.all([
+          pushAccountFrozen(token,uid),
+          pushAccountFrozen(token,recipient),
+        ]);
+        if(actorNowFrozen||recipientNowFrozen) continue;
         // At most once: a network fault may lose a push, not duplicate or spam it.
         const marker=event.key+':'+recipient;
         const record=await env.PUSH_DB.prepare(
@@ -827,8 +1028,7 @@ export default {
         : accepted ? 'accepted_by_fcm' : 'no_devices_or_duplicate';
       await auditDelivery(env,event.kind,outcome,attempted,accepted,failedHttp);
       if(cleaned) await auditDelivery(env,'cleanup','unregistered_removed',cleaned,0,404);
-      return response(outcome==='delivery_failed'||!fanoutOk ? 503 : 202,
-        !fanoutOk ? 'fanout_failed' : outcome);
+      return response(outcome==='delivery_failed' ? 503 : 202,outcome);
     } catch {
       // Não registrar ID tokens, chaves, UID, FCM tokens nem payloads em logs.
       return response(503,'unavailable');

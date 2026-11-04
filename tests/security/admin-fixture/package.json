@@ -1,0 +1,10 @@
+{
+  "name": "atrio-privacy-admin-sdk-emulator-fixture",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Isolated QA dependencies; no production imports or build dependencies",
+  "dependencies": {
+    "firebase-admin": "14.5.0"
+  }
+}

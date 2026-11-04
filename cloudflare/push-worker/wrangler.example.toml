@@ -6,6 +6,9 @@ workers_dev = true
 [vars]
 GUARDIAO_AI_ENABLED = "false"
 PUSH_ENABLED = "false"
+# Respostas nunca usam FCM topic: filtragem bilateral ativa por codigo.
+# A variavel legada PUSH_BLOCK_SAFE_FANOUT_ENABLED nao permite desativar
+# a protecao, e este exemplo nunca modifica Workers ja implantados.
 # Broadcast exige ativação separada, depois de testes e auditoria.
 BROADCAST_ENABLED = "false"
 

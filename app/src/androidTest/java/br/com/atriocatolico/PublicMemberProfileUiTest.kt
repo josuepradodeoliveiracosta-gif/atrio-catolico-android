@@ -98,4 +98,21 @@ class PublicMemberProfileUiTest {
         compose.onNodeWithTag("atrio-public-profile-back").performClick()
         compose.runOnIdle { assertEquals(true, returned) }
     }
+    @Test fun publicProfileDoesNotRevealDiscussionsBeforeBlockCheck() {
+        check(FirebaseApp.getInstance().options.projectId == "demo-atrio-v11")
+        compose.setContent {
+            AtrioTheme {
+                PublicMemberProfileScreen(
+                    db = FirebaseFirestore.getInstance(),
+                    target = PublicMemberTarget("qa-other-author", "Joana"),
+                    viewerUid = "qa-visitor",
+                    onBack = {}, onOpenDiscussion = {}
+                )
+            }
+        }
+        // Sem uma sessao e snapshot remoto confirmados, a secao permanece oculta.
+        compose.onNodeWithText("Discussões").assertDoesNotExist()
+        compose.onAllNodesWithTag("atrio-public-load-more").assertCountEquals(0)
+    }
+
 }

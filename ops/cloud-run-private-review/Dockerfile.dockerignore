@@ -1,0 +1,12 @@
+# Dockerfile-specific allowlist; does not affect other Android Docker builds.
+**
+!ops
+!ops/cloud-run-private-review
+!ops/cloud-run-private-review/package.json
+!ops/cloud-run-private-review/package-lock.json
+!ops/cloud-run-private-review/server.mjs
+!cloudflare
+!cloudflare/account-deletion-audit
+!cloudflare/account-deletion-audit/package.json
+!cloudflare/account-deletion-audit/src
+!cloudflare/account-deletion-audit/src/**

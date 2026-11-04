@@ -7,9 +7,21 @@ service cloud.firestore {
     function me(uid) {
       return signedIn() && request.auth.uid == uid;
     }
+    // Marcador administrativo QA; criar pedido nao congela automaticamente.
+    function accountWritable(uid) {
+      return !exists(/databases/$(database)/documents/account_deletion_freeze/$(uid));
+    }
+    match /account_deletion_freeze/{uid} {
+      allow get: if me(uid);
+      allow list, create, update, delete: if false;
+    }
     // Provisionamento e revogação somente pelo Console/Admin SDK autorizado.
     function isAdmin() {
+      // Congelamento de exclusão suspende TAMBÉM poderes administrativos:
+      // leitura de denúncias, exclusão de posts e decisões de moderação.
+      // Um cliente antigo não pode ignorar o marcador nem pela rota admin.
       return signedIn()
+        && accountWritable(request.auth.uid)
         && exists(/databases/$(database)/documents/admins/$(request.auth.uid))
         && get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.enabled == true;
     }
@@ -28,6 +40,23 @@ service cloud.firestore {
     match /app_config/engagement {
       allow get: if signedIn();
       allow list, create, update, delete: if false;
+    }
+    // O servidor publica a versao efetiva depois da aprovacao juridica.
+    // Sem documento de configuracao nada e ativado em producao.
+    match /app_config/community_terms {
+      allow get: if signedIn();
+      allow list, create, update, delete: if false;
+    }
+    function communityTermsMayPublish(uid) {
+      let config = /databases/$(database)/documents/app_config/community_terms;
+      return !exists(config)
+        || get(config).data.get('enforce', false) == false
+        || (get(config).data.get('enforce', false) == true
+          && get(config).data.get('published', false) == true
+          && get(config).data.get('version', '') is string
+          && exists(/databases/$(database)/documents/users/$(uid)/acceptedTerms/$(get(config).data.version))
+          && get(/databases/$(database)/documents/users/$(uid)/acceptedTerms/$(get(config).data.version)).data.version
+             == get(config).data.version);
     }
     match /admins/{uid} {
       allow get: if me(uid);
@@ -62,6 +91,28 @@ service cloud.firestore {
     }
     function validId(value) {
       return validText(value, 1, 128) && !value.matches('.*[/].*');
+    }
+    // Um bloqueio impede novas interações direcionadas nos dois sentidos.
+    // Não equivale a ocultar consultas Firestore ou suprimir Push de Worker.
+    function canMembersInteract(senderUid, recipientUid) {
+      return validId(senderUid) && validId(recipientUid)
+        && !exists(/databases/$(database)/documents/users/$(senderUid)/blockedMembers/$(recipientUid))
+        && !exists(/databases/$(database)/documents/users/$(recipientUid)/blockedMembers/$(senderUid));
+    }
+    // Interacoes derivadas de publicacoes devem respeitar bloqueio bilateral.
+    function mayEngageWithPost(actorUid, postId) {
+      let post = /databases/$(database)/documents/posts/$(postId);
+      // A leitura do documento canonico já valida sua existência; evita
+      // um exists extra e preserva os limites de acesso das Security Rules.
+      return validId(get(post).data.uid)
+        && canMembersInteract(actorUid, get(post).data.uid);
+    }
+    // Reacao a resposta nao deve contornar bloqueio do autor ou do comentarista.
+    function mayReactToReply(actorUid, postId, replyId) {
+      let reply = /databases/$(database)/documents/posts/$(postId)/replies/$(replyId);
+      return mayEngageWithPost(actorUid, postId)
+        && validId(get(reply).data.uid)
+        && canMembersInteract(actorUid, get(reply).data.uid);
     }
     // A decisão de uma resposta não pode apagar nem alterar a publicação principal.
     function reportParentUnchanged() {
@@ -121,14 +172,14 @@ service cloud.firestore {
     match /badges/{uid} {
       allow get: if signedIn();
       allow list: if false;
-      allow create: if (me(uid)
+      allow create: if (me(uid) && accountWritable(uid)
         && request.resource.data.keys().hasOnly(['lay'])
         && request.resource.data.keys().hasAll(['lay'])
         && request.resource.data.lay in ['leigo', 'leiga'])
         || (approvedClergyGrant(uid, request.resource.data.get('clergy', ''))
           && request.resource.data.keys().hasOnly(['clergy'])
           && request.resource.data.clergy in ['padre', 'diacono']);
-      allow update: if (me(uid)
+      allow update: if (me(uid) && accountWritable(uid)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lay'])
         && request.resource.data.keys().hasAll(['lay'])
         && request.resource.data.lay in ['leigo', 'leiga', ''])
@@ -144,13 +195,13 @@ service cloud.firestore {
     match /badge_requests/{uid} {
       allow get: if me(uid) || isAdmin();
       allow list: if isAdmin();
-      allow create: if me(uid)
+      allow create: if me(uid) && accountWritable(uid)
         && request.resource.data.keys().hasOnly(['kind', 'status', 'createdAt'])
         && request.resource.data.keys().hasAll(['kind', 'status', 'createdAt'])
         && request.resource.data.kind in ['padre', 'diacono']
         && request.resource.data.status == 'pending'
         && validTime();
-      allow update: if (me(uid)
+      allow update: if (me(uid) && accountWritable(uid)
         && resource.data.status in ['rejected', 'dismissed']
         && request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly(['kind', 'status', 'createdAt'])
@@ -178,12 +229,12 @@ service cloud.firestore {
       // Os perfis não podem ser enumerados, apenas lidos pelo proprietário.
       allow get: if me(uid);
       allow list: if false;
-      allow create: if me(uid)
+      allow create: if me(uid) && accountWritable(uid)
         && request.resource.data.keys().hasOnly(['displayName', 'createdAt'])
         && request.resource.data.keys().hasAll(['displayName', 'createdAt'])
         && validText(request.resource.data.displayName, 2, 35)
         && validTime();
-      allow update: if me(uid)
+      allow update: if me(uid) && accountWritable(uid)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'bio'])
         && validText(request.resource.data.displayName, 2, 35)
         && request.resource.data.get('bio', '') is string
@@ -217,7 +268,8 @@ service cloud.firestore {
       allow list: if false;
       // getAfter valida o perfil privado após a mesma transação de atualização.
       // APKs antigos devem revogar a publicação antes de editar a bio privada.
-      allow create, update: if me(uid)
+      allow create, update: if me(uid) && accountWritable(uid)
+        && communityTermsMayPublish(uid)
         && exists(/databases/$(database)/documents/profiles/$(uid))
         && request.resource.data.keys().hasOnly([
           'displayName', 'bio', 'joinedAt', 'updatedAt'
@@ -235,12 +287,12 @@ service cloud.firestore {
         && request.resource.data.joinedAt ==
           getAfter(/databases/$(database)/documents/profiles/$(uid)).data.createdAt
         && request.resource.data.updatedAt == request.time;
-      allow delete: if me(uid);
+      allow delete: if me(uid) && accountWritable(uid);
     }
 
     match /posts/{postId} {
       allow get, list: if signedIn();
-      allow create: if signedIn()
+      allow create: if signedIn() && accountWritable(request.auth.uid)
         && request.resource.data.keys().hasOnly([
           'uid', 'authorName', 'title', 'body', 'category', 'createdAt'
         ])
@@ -248,6 +300,7 @@ service cloud.firestore {
           'uid', 'authorName', 'title', 'body', 'category', 'createdAt'
         ])
         && request.resource.data.uid == request.auth.uid
+        && communityTermsMayPublish(request.auth.uid)
         && publicNameMatchesProfile()
         && validText(request.resource.data.title, 5, 120)
         && validText(request.resource.data.body, 5, 1200)
@@ -256,19 +309,23 @@ service cloud.firestore {
       // Aplicativo ainda não publicado: exigir updatedAt em toda edição.
       // Isso impede edições que não geram evento para o Guardião V2.
       // Somente para testes até distribuir APK Debug compatível.
-      allow update: if signedIn()
+      // Uma edição também é UGC novo: cliente antigo não pode contornar
+      // o aceite da versão atual dos Termos depois da publicação da política.
+      allow update: if signedIn() && accountWritable(request.auth.uid)
         && resource.data.uid == request.auth.uid
+        && communityTermsMayPublish(request.auth.uid)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'body', 'updatedAt'])
         && request.resource.data.diff(resource.data).affectedKeys().hasAll(['updatedAt'])
         && request.resource.data.updatedAt == request.time
         && validText(request.resource.data.title, 5, 120)
         && validText(request.resource.data.body, 5, 1200);
-      allow delete: if signedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow delete: if signedIn() && ((resource.data.uid == request.auth.uid && accountWritable(request.auth.uid)) || isAdmin());
 
       match /replies/{replyId} {
         allow get, list: if signedIn();
-        allow create: if signedIn()
+        allow create: if signedIn() && accountWritable(request.auth.uid)
           && exists(/databases/$(database)/documents/posts/$(postId))
+          && accountWritable(get(/databases/$(database)/documents/posts/$(postId)).data.uid)
           && request.resource.data.keys().hasOnly([
             'uid', 'authorName', 'body', 'createdAt', 'replyToId', 'replyToUid',
             'mentionUid', 'mentionReplyId'
@@ -277,6 +334,13 @@ service cloud.firestore {
             'uid', 'authorName', 'body', 'createdAt'
           ])
           && request.resource.data.uid == request.auth.uid
+          && communityTermsMayPublish(request.auth.uid)
+          && canMembersInteract(request.auth.uid,
+            get(/databases/$(database)/documents/posts/$(postId)).data.uid)
+          && (!request.resource.data.keys().hasAny(['replyToUid']) ||
+            canMembersInteract(request.auth.uid, request.resource.data.replyToUid))
+          && (!request.resource.data.keys().hasAny(['mentionUid']) ||
+            canMembersInteract(request.auth.uid, request.resource.data.mentionUid))
           && publicNameMatchesProfile()
           && validText(request.resource.data.body, 1, 600)
           && validTime()
@@ -303,57 +367,98 @@ service cloud.firestore {
                 : get(/databases/$(database)/documents/posts/$(postId)).data.uid == request.resource.data.mentionUid))
             : true);
         allow update: if false;
-        allow delete: if signedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+        allow delete: if signedIn() && ((resource.data.uid == request.auth.uid && accountWritable(request.auth.uid)) || isAdmin());
 
         match /reactions/{uid} {
           allow get, list: if signedIn();
-          allow create: if me(uid)
-            && exists(/databases/$(database)/documents/posts/$(postId)/replies/$(replyId))
+          allow create: if me(uid) && accountWritable(uid)
+            && mayReactToReply(uid, postId, replyId)
+            && accountWritable(get(/databases/$(database)/documents/posts/$(postId)).data.uid)
+            && accountWritable(get(/databases/$(database)/documents/posts/$(postId)/replies/$(replyId)).data.uid)
             && request.resource.data.keys().hasOnly(['kind', 'createdAt'])
             && request.resource.data.keys().hasAll(['kind', 'createdAt'])
             && validReactionKind(request.resource.data.kind)
             && request.resource.data.createdAt == request.time;
-          allow update: if me(uid)
-            && exists(/databases/$(database)/documents/posts/$(postId)/replies/$(replyId))
+          allow update: if me(uid) && accountWritable(uid)
+            && mayReactToReply(uid, postId, replyId)
+            && accountWritable(get(/databases/$(database)/documents/posts/$(postId)).data.uid)
+            && accountWritable(get(/databases/$(database)/documents/posts/$(postId)/replies/$(replyId)).data.uid)
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['kind'])
             && validReactionKind(request.resource.data.kind);
-          allow delete: if me(uid);
+          allow delete: if me(uid) && accountWritable(uid);
         }
       }
     }
 
-    match /users/{uid}/likedPosts/{postId} {
+    // O titular pode bloquear/desbloquear pessoas; terceiros não leem a lista.
+    match /users/{uid}/blockedMembers/{memberUid} {
       allow get, list: if me(uid);
-      allow create: if me(uid)
-        && exists(/databases/$(database)/documents/posts/$(postId))
+      allow create: if me(uid) && accountWritable(uid)
+        && validId(memberUid)
+        && memberUid != uid
+        && exists(/databases/$(database)/documents/profiles/$(memberUid))
         && request.resource.data.keys().hasOnly(['createdAt'])
         && request.resource.data.keys().hasAll(['createdAt'])
         && validTime();
-      allow delete: if me(uid);
+      allow delete: if me(uid) && accountWritable(uid);
+      allow update: if false;
+    }
+
+    // Aceite expresso e imutavel, conforme politica ativa e versionada.
+    // A configuracao deve ser publicada pelo backend, nunca por um APK.
+    match /users/{uid}/acceptedTerms/{version} {
+      allow get, list: if me(uid);
+      allow create: if me(uid) && accountWritable(uid)
+        && version.matches('community-v[0-9]{1,4}')
+        && exists(/databases/$(database)/documents/app_config/community_terms)
+        && get(/databases/$(database)/documents/app_config/community_terms).data.get('published', false) == true
+        && get(/databases/$(database)/documents/app_config/community_terms).data.get('enforce', false) == true
+        && get(/databases/$(database)/documents/app_config/community_terms).data.get('version', '') == version
+        && request.resource.data.keys().hasOnly(['version', 'acceptedAt'])
+        && request.resource.data.keys().hasAll(['version', 'acceptedAt'])
+        && request.resource.data.version == version
+        && request.resource.data.acceptedAt == request.time;
+      allow update, delete: if false;
+    }
+
+    match /users/{uid}/likedPosts/{postId} {
+      allow get, list: if me(uid);
+      allow create: if me(uid) && accountWritable(uid)
+        && mayEngageWithPost(uid, postId)
+        && exists(/databases/$(database)/documents/posts/$(postId))
+        && accountWritable(get(/databases/$(database)/documents/posts/$(postId)).data.uid)
+        && request.resource.data.keys().hasOnly(['createdAt'])
+        && request.resource.data.keys().hasAll(['createdAt'])
+        && validTime();
+      allow delete: if me(uid) && accountWritable(uid);
       allow update: if false;
     }
 
     match /users/{uid}/savedPosts/{postId} {
       allow get, list: if me(uid);
-      allow create: if me(uid)
+      allow create: if me(uid) && accountWritable(uid)
+        && mayEngageWithPost(uid, postId)
         && exists(/databases/$(database)/documents/posts/$(postId))
+        && accountWritable(get(/databases/$(database)/documents/posts/$(postId)).data.uid)
         && request.resource.data.keys().hasOnly(['createdAt'])
         && request.resource.data.keys().hasAll(['createdAt'])
         && validTime();
-      allow delete: if me(uid);
+      allow delete: if me(uid) && accountWritable(uid);
       allow update: if false;
     }
 
     // Acompanhamento persistente: somente o próprio usuário pode editar.
     match /users/{uid}/followedPosts/{postId} {
       allow get, list: if me(uid);
-      allow create: if me(uid)
+      allow create: if me(uid) && accountWritable(uid)
+        && mayEngageWithPost(uid, postId)
         && validId(postId)
         && exists(/databases/$(database)/documents/posts/$(postId))
+        && accountWritable(get(/databases/$(database)/documents/posts/$(postId)).data.uid)
         && request.resource.data.keys().hasOnly(['createdAt'])
         && request.resource.data.keys().hasAll(['createdAt'])
         && validTime();
-      allow delete: if me(uid);
+      allow delete: if me(uid) && accountWritable(uid);
       allow update: if false;
     }
 
@@ -362,13 +467,13 @@ service cloud.firestore {
     // O envio exige backend de confianca com credenciais fora do aplicativo.
     match /users/{uid}/pushDevices/{deviceId} {
       allow get, list: if me(uid);
-      allow create, update: if me(uid)
+      allow create, update: if me(uid) && accountWritable(uid)
         && validId(deviceId)
         && request.resource.data.keys().hasOnly(['token', 'updatedAt'])
         && request.resource.data.keys().hasAll(['token', 'updatedAt'])
         && validText(request.resource.data.token, 20, 4096)
         && request.resource.data.updatedAt == request.time;
-      allow delete: if me(uid);
+      allow delete: if me(uid) && accountWritable(uid);
     }
 
     match /users/{recipientUid}/notifications/{notificationId} {
@@ -403,7 +508,7 @@ service cloud.firestore {
       allow get, list: if me(recipientUid);
       // O remetente não pode inventar notificações: a resposta relacionada
       // precisa nascer no mesmo batch, pertencer a ele e ter data atual.
-      allow create: if signedIn()
+      allow create: if signedIn() && accountWritable(request.auth.uid) && accountWritable(recipientUid)
         && request.auth.uid != recipientUid
         && request.resource.data.keys().hasOnly([
           'postId', 'replyId', 'actorUid', 'actorName', 'read', 'createdAt', 'replyToId',
@@ -413,6 +518,7 @@ service cloud.firestore {
           'postId', 'replyId', 'actorUid', 'actorName', 'read', 'createdAt'
         ])
         && request.resource.data.actorUid == request.auth.uid
+        && canMembersInteract(request.auth.uid, recipientUid)
         && request.resource.data.read == false
         && notificationId == request.resource.data.replyId
         && validText(request.resource.data.postId, 1, 128)
@@ -433,11 +539,11 @@ service cloud.firestore {
         && getAfter(/databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(notificationId)).data.uid == request.auth.uid
         && getAfter(/databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(notificationId)).data.authorName == request.resource.data.actorName
         && getAfter(/databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(notificationId)).data.createdAt == request.time;
-      allow update: if me(recipientUid)
+      allow update: if me(recipientUid) && accountWritable(recipientUid)
         && resource.data.read == false
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])
         && request.resource.data.read == true;
-      allow delete: if me(recipientUid);
+      allow delete: if me(recipientUid) && accountWritable(recipientUid);
     }
 
     // Guarda privada de conteúdo temporariamente retirado do fórum.
@@ -448,7 +554,7 @@ service cloud.firestore {
         resource.data.ownerUid == request.auth.uid);
       allow create, delete: if false;
       // Recurso único do autor, sem alterar conteúdo, status ou decisão humana.
-      allow update: if signedIn()
+      allow update: if signedIn() && accountWritable(request.auth.uid)
         && resource.data.ownerUid == request.auth.uid
         && resource.data.status == 'held'
         && !resource.data.keys().hasAny(['appealText','appealedAt'])
@@ -459,10 +565,40 @@ service cloud.firestore {
         && request.resource.data.appealedAt == request.time;
     }
 
+    // Denúncia de usuário: ID determinístico evita duplicatas; identidade privada.
+    // Disponível para revisão humana por administradores habilitados.
+    match /user_reports/{reportId} {
+      allow get, list: if isAdmin();
+      allow create: if signedIn() && accountWritable(request.auth.uid)
+        && request.resource.data.keys().hasOnly([
+          'reporterUid','targetUid','reason','createdAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'reporterUid','targetUid','reason','createdAt'
+        ])
+        && request.resource.data.reporterUid == request.auth.uid
+        && validId(request.resource.data.targetUid)
+        && request.resource.data.targetUid != request.auth.uid
+        && exists(/databases/$(database)/documents/profiles/$(request.resource.data.targetUid))
+        && reportId == request.auth.uid + '_user_' + request.resource.data.targetUid
+        && validText(request.resource.data.reason, 5, 300)
+        && validTime();
+      allow update: if isAdmin()
+        && resource.data.get('status','pending') == 'pending'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status','reviewedBy','reviewedAt','reviewNote'
+        ])
+        && request.resource.data.status in ['reviewed','dismissed']
+        && request.resource.data.reviewedBy == request.auth.uid
+        && request.resource.data.reviewedAt == request.time
+        && validText(request.resource.data.reviewNote, 5, 300);
+      allow delete: if false;
+    }
+
     match /reports/{reportId} {
       // Denúncias são privadas; somente administradores ativos podem consultá-las.
       allow read: if isAdmin();
-      allow create: if signedIn()
+      allow create: if signedIn() && accountWritable(request.auth.uid)
         && request.resource.data.keys().hasOnly([
           'postId', 'replyId', 'reporterUid', 'reason', 'createdAt'
         ])
@@ -588,6 +724,27 @@ service cloud.firestore {
     match /guardian_runtime/{id} {
       allow get, list: if isAdmin();
       allow create, update, delete: if false;
+    }
+
+    // Pedido autenticado em QA: não exclui a conta nem concede privilégios.
+    // Só o titular cria uma solicitação; processamento exige backend confiável.
+    match /account_deletion_requests/{uid} {
+      allow get: if me(uid);
+      // Fila de acompanhamento: só fundador COM papel admin ativo, não
+      // congelado, usando paginação limitada. Apenas leitura de pedidos.
+      // Moderadores comuns não têm acesso aos UIDs dos solicitantes.
+      allow list: if isAdmin()
+        && accountWritable(request.auth.uid)
+        && exists(/databases/$(database)/documents/app_config/founder)
+        && get(/databases/$(database)/documents/app_config/founder).data.uid == request.auth.uid
+        && request.query.limit <= 20;
+      allow create: if me(uid)
+        && request.resource.data.keys().hasOnly(['status', 'source', 'requestedAt'])
+        && request.resource.data.keys().hasAll(['status', 'source', 'requestedAt'])
+        && request.resource.data.status == 'requested'
+        && request.resource.data.source in ['android', 'web']
+        && request.resource.data.requestedAt == request.time;
+      allow update, delete: if false;
     }
 
     match /{document=**} {

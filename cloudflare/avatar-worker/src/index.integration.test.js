@@ -17,7 +17,7 @@ const json = (data,status=200) => new Response(JSON.stringify(data),{
 
 function fixture() {
   const events = [];
-  const state = {pending:null,publicPhoto:null,cloudId:null,approval:'pending',rate:0,failNextUpload:false};
+  const state = {pending:null,publicPhoto:null,cloudId:null,approval:'pending',rate:0,failNextUpload:false,frozen:false};
   const db = {
     prepare(statement) {
       return {
@@ -68,6 +68,8 @@ function fixture() {
       return json({users:[{localId:userId,disabled:false}]});
     if(endpoint.includes('oauth2.googleapis.com/token'))
       return json({access_token:'offline-iam-token',expires_in:3600});
+    if(endpoint.endsWith('/account_deletion_freeze/'+userId))
+      return state.frozen ? json({fields:{state:{stringValue:'draining'}}}) : json({},404);
     if(endpoint.endsWith('/image/authenticated') && method==='POST') {
       if(state.failNextUpload) { state.failNextUpload=false; return json({error:'simulated'},503); }
       const form=options.body;
@@ -214,4 +216,25 @@ test('solicitação sem token nunca altera estado de perfil',async()=>{
     assert.equal(f.state.publicPhoto,null);
     assert.equal(f.events.length,0);
   } finally {globalThis.fetch=oldFetch;}
+});
+
+test('freeze bloqueia novo upload, status e remoção ANTES de qualquer mutação D1/Cloudinary',async()=>{
+  const oldFetch=globalThis.fetch;
+  const f=fixture();
+  f.state.frozen=true;
+  globalThis.fetch=f.response;
+  try {
+    const image=Uint8Array.from({length:400},(_,i)=>
+      i===0||i===398?255:i===1?216:i===399?217:1);
+    for(const [path,method,body] of [
+      ['/avatar/upload','POST',image],['/avatar/status','POST',null],['/avatar','DELETE',null]
+    ]) {
+      const response=await f.call(path,method,body);
+      assert.deepEqual(response,{status:409,body:'account_deletion_in_progress'});
+    }
+    assert.equal(f.state.rate,0);
+    assert.equal(f.state.pending,null);
+    assert.equal(f.state.publicPhoto,null);
+    assert.ok(!f.events.some(e=>e.endpoint.includes('api.cloudinary.com')));
+  }finally{globalThis.fetch=oldFetch;}
 });

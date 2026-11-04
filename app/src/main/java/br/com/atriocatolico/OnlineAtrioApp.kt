@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -81,6 +82,14 @@ private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
     var resetInfo by remember { mutableStateOf("") }
+    var legalLinkError by remember { mutableStateOf("") }
+    val uriHandler = LocalUriHandler.current
+    // Links são recursos públicos: nunca incluir UID, e-mail, senha ou token na URL.
+    fun openLegalResource(url: String) {
+        legalLinkError = if (runCatching { uriHandler.openUri(url) }.isFailure)
+            "Não foi possível abrir o recurso. Confira o navegador ou cliente de e-mail."
+        else ""
+    }
 
     Column(
         Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Wine, Color(0xFF8B4B5A))))
@@ -175,6 +184,41 @@ private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
                         }
                     }, modifier = Modifier.fillMaxWidth()) { Text("Esqueci minha senha") }
                 }
+                HorizontalDivider(Modifier.padding(vertical = 12.dp))
+                Text("Privacidade e atendimento",
+                    style = MaterialTheme.typography.titleSmall)
+                if (BuildConfig.PRIVACY_POLICY_URL.isNotBlank()) {
+                    TextButton(
+                        onClick = { openLegalResource(BuildConfig.PRIVACY_POLICY_URL) },
+                        modifier = Modifier.fillMaxWidth().testTag("atrio-auth-privacy-policy")
+                    ) { Text("Política de privacidade") }
+                } else if (BuildConfig.PLAY_STORE_BUILD) {
+                    Text("Política pública pendente. Esta versão Play não deve ser distribuída.",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall)
+                }
+                if (BuildConfig.DELETION_WEB_URL.isNotBlank()) {
+                    TextButton(
+                        onClick = { openLegalResource(BuildConfig.DELETION_WEB_URL) },
+                        modifier = Modifier.fillMaxWidth().testTag("atrio-auth-deletion-web")
+                    ) { Text("Solicitar exclusão de conta pelo site") }
+                }
+                Text("Canal público de privacidade e exclusão: " +
+                    ACCOUNT_DELETION_SUPPORT_EMAIL,
+                    style = MaterialTheme.typography.bodySmall)
+                TextButton(
+                    onClick = {
+                        openLegalResource("mailto:" + ACCOUNT_DELETION_SUPPORT_EMAIL +
+                            "?subject=Atrio%20Catolico%20-%20Privacidade")
+                    },
+                    modifier = Modifier.fillMaxWidth().testTag("atrio-auth-privacy-contact")
+                ) { Text("Contatar atendimento por e-mail") }
+                if (legalLinkError.isNotBlank()) {
+                    Text(legalLinkError,
+                        modifier = Modifier.testTag("atrio-auth-legal-link-error"),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall)
+                }
                 Text("Cadastro por e-mail · Discussões compartilhadas · Respeito em primeiro lugar",
                     fontSize = 11.sp, color = Muted, lineHeight = 16.sp, textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth())
@@ -186,15 +230,43 @@ private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
 @Composable
 private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: FirebaseUser) {
     val uid = user.uid
-    // Firebase Auth mantém displayName entre logins: ele evita que o
-    // usuário fique preso no carregamento enquanto o listener do perfil
-    // reconecta após logout/login da mesma conta.
-    val authName = user.displayName?.trim().orEmpty().takeIf { it.isNotBlank() }
-    var name by remember(uid) { mutableStateOf<String?>(authName) }
+    // Nome de Firebase Auth e snapshots com escrita pendente não provam que
+    // profiles/{uid} foi persistido. A comunidade só pode abrir após uma
+    // confirmação do Firestore pelo servidor para a sessão atual.
+    var name by remember(uid) { mutableStateOf<String?>(null) }
     var biography by remember(uid) { mutableStateOf("") }
-    var profileLoading by remember(uid) { mutableStateOf(authName == null) }
+    var profileLoading by remember(uid) { mutableStateOf(true) }
+    var profileReadFailed by remember(uid) { mutableStateOf(false) }
+    var profileRetryRevision by remember(uid) { mutableIntStateOf(0) }
     var error by remember(uid) { mutableStateOf("") }
     val context = LocalContext.current
+    var logoutPending by remember(uid) { mutableStateOf(false) }
+    var logoutUnconfirmed by remember(uid) { mutableStateOf(false) }
+    var logoutAttempt by remember(uid) { mutableIntStateOf(0) }
+
+    fun cancelLogout() {
+        // Invalidar callbacks atrasados após o usuário cancelar a saída.
+        logoutAttempt++
+        logoutPending = false
+        logoutUnconfirmed = false
+    }
+
+    fun beginLogout() {
+        if (logoutPending || auth.currentUser?.uid != uid) return
+        logoutAttempt++
+        val attempt = logoutAttempt
+        logoutPending = true
+        logoutUnconfirmed = false
+        BackgroundNoticeScheduler.disable(context, uid)
+        PushRegistry.deactivate(context, uid, db) { removed ->
+            if (logoutAttempt != attempt || auth.currentUser?.uid != uid)
+                return@deactivate
+            logoutPending = false
+            if (mayCompletePushSafeLogout(uid, auth.currentUser?.uid, removed)) {
+                auth.signOut()
+            } else logoutUnconfirmed = true
+        }
+    }
     var photoRevision by remember(uid) { mutableIntStateOf(0) }
     val localPhoto = remember(uid, photoRevision) {
         ProfilePhotoStore.load(context, uid)?.asImageBitmap()
@@ -219,38 +291,60 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
     }
     DisposableEffect(db, uid) {
         var active = true
-        val registration = db.collection("admins").document(uid).addSnapshotListener { snapshot, failure ->
-            if (active) {
-                isAdmin = failure == null && snapshot?.getBoolean("enabled") == true
-                if (!isAdmin) { moderationOpen = false; clergyReviewOpen = false }
+        // Uma permissão em cache pode estar revogada no servidor.
+        // Mudanças de metadata fazem o app retirar o privilégio quando
+        // perde conectividade/autoridade e revalidá-lo na reconexão.
+        val registration = db.collection("admins").document(uid)
+            .addSnapshotListener(com.google.firebase.firestore.MetadataChanges.INCLUDE) { snapshot, failure ->
+                if (active) {
+                    isAdmin = verifiedAdminRoleSnapshot(
+                        expectedUid = uid,
+                        authenticatedUid = auth.currentUser?.uid,
+                        hasError = failure != null,
+                        hasData = snapshot != null && snapshot.exists(),
+                        fromCache = snapshot?.metadata?.isFromCache ?: true,
+                        pendingWrites = snapshot?.metadata?.hasPendingWrites() ?: true,
+                        roleEnabled = snapshot?.getBoolean("enabled") == true
+                    )
+                    if (!isAdmin) {
+                        moderationOpen = false
+                        clergyReviewOpen = false
+                    }
+                }
             }
-        }
         onDispose { active = false; registration.remove() }
     }
 
-    DisposableEffect(db, uid) {
+    DisposableEffect(db, uid, profileRetryRevision) {
         var active = true
         val profile = db.collection("profiles").document(uid)
         fun showProfile(snapshot: DocumentSnapshot?) {
-            if (!active) return
+            if (!active || auth.currentUser?.uid != uid || snapshot == null) return
+            // Um snapshot local pode incluir escrita de cadastro ainda sem
+            // confirmação remota. Nunca liberar publicação baseado nesse estado.
+            if (snapshot.metadata.isFromCache || snapshot.metadata.hasPendingWrites()) return
             profileLoading = false
-            if (snapshot?.exists() == true) {
-                val found = snapshot.getString("displayName")?.trim().orEmpty()
-                if (found.isNotBlank()) {
-                    name = found
-                    biography = snapshot.getString("bio").orEmpty()
-                    error = ""
-                }
+            profileReadFailed = false
+            val found = if (snapshot.exists()) {
+                snapshot.getString("displayName")?.trim().orEmpty()
+            } else ""
+            if (found.isNotBlank()) {
+                name = found
+                biography = snapshot.getString("bio").orEmpty()
+                error = ""
+            } else {
+                name = null
+                error = "Seu perfil ainda não foi confirmado. Conclua o cadastro para participar."
             }
-            // Não apagar o nome após receber um snapshot temporariamente
-            // vazio: a restauração do cache pode anteceder a resposta remota.
         }
         val registration = profile.addSnapshotListener { snapshot, failure ->
-            if (!active) return@addSnapshotListener
+            if (!active || auth.currentUser?.uid != uid) return@addSnapshotListener
             if (failure != null) {
                 error = "Erro ao sincronizar perfil. Verifique sua conexão."
-                // Não ficar no spinner infinito nem derrubar sessão autenticada.
-                if (name != null) profileLoading = false
+                // Erro de leitura NÃO prova ausência do perfil: nunca permitir
+                // 'Concluir' criando um perfil sobre uma conta já existente.
+                profileReadFailed = true
+                profileLoading = false
             } else {
                 showProfile(snapshot)
             }
@@ -259,11 +353,12 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
         // A leitura direta completa a inicialização se não houver snapshot.
         profile.get(com.google.firebase.firestore.Source.SERVER)
             .addOnCompleteListener { result ->
-                if (!active) return@addOnCompleteListener
+                if (!active || auth.currentUser?.uid != uid) return@addOnCompleteListener
                 if (result.isSuccessful) showProfile(result.result)
-                else if (name == null) {
+                else {
+                    profileReadFailed = true
                     profileLoading = false
-                    error = "Não foi possível carregar seu perfil. Tente novamente."
+                    error = "Não foi possível confirmar seu perfil no servidor. Verifique a conexão."
                 }
             }
         onDispose { active = false; registration.remove() }
@@ -271,6 +366,20 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
 
     if (profileLoading) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+    } else if (profileReadFailed) {
+        Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center) {
+            SectionTitle("Não foi possível confirmar seu perfil")
+            Text(error.ifBlank { "Verifique a conexão para tentar novamente." }, color = Muted)
+            Spacer(Modifier.height(12.dp))
+            Button(onClick = {
+                profileReadFailed = false
+                profileLoading = true
+                profileRetryRevision++
+            }, modifier = Modifier.fillMaxWidth().testTag("atrio-profile-retry")) {
+                Text("Tentar novamente")
+            }
+            TextButton(onClick = { beginLogout() }) { Text("Sair desta conta") }
+        }
     } else if (name.isNullOrBlank()) {
         var newName by remember(uid) { mutableStateOf(user.displayName.orEmpty()) }
         var saving by remember(uid) { mutableStateOf(false) }
@@ -280,7 +389,8 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
             Text("Escolha o nome que aparecerá em suas discussões.", color = Muted)
             Spacer(Modifier.height(15.dp))
             OutlinedTextField(newName, { if (it.length <= 35) newName = it },
-                label = { Text("Nome público") }, modifier = Modifier.fillMaxWidth())
+                label = { Text("Nome público") },
+                modifier = Modifier.fillMaxWidth().testTag("atrio-profile-finish-name"))
             if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
             Spacer(Modifier.height(12.dp))
             Button(enabled = !saving && newName.trim().length >= 2, onClick = {
@@ -288,11 +398,16 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
                 db.collection("profiles").document(uid).set(mapOf(
                     "displayName" to newName.trim(), "createdAt" to FieldValue.serverTimestamp()
                 )).addOnCompleteListener { task ->
+                    if (auth.currentUser?.uid != uid) return@addOnCompleteListener
                     saving = false
-                    if (!task.isSuccessful) error = task.exception?.localizedMessage ?: "Não foi possível salvar."
+                    if (!task.isSuccessful) {
+                        error = "Não foi possível confirmar o perfil. Confira a conexão e tente novamente."
+                    }
                 }
-            }, modifier = Modifier.fillMaxWidth()) { Text("Começar") }
-            TextButton(onClick = { BackgroundNoticeScheduler.disable(context, uid); PushRegistry.deactivate(context, uid, db); auth.signOut() }) { Text("Sair desta conta") }
+            }, modifier = Modifier.fillMaxWidth().testTag("atrio-profile-finish")) {
+                Text(if (saving) "Confirmando..." else "Começar")
+            }
+            TextButton(onClick = { beginLogout() }) { Text("Sair desta conta") }
         }
     } else {
         CompositionLocalProvider(
@@ -305,7 +420,7 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
             visible = !(isAdmin && (moderationOpen || clergyReviewOpen)),
             onModeration = if (isAdmin) ({ moderationOpen = true }) else null,
             onClergyReview = if (isAdmin) ({ clergyReviewOpen = true }) else null,
-            onSignOut = { BackgroundNoticeScheduler.disable(context, uid); PushRegistry.deactivate(context, uid, db); auth.signOut() })
+            onSignOut = { beginLogout() })
         if (moderationOpen && isAdmin) ModerationScreen(db, uid, onBack = { moderationOpen = false })
         else if (clergyReviewOpen && isAdmin) ClergyBadgeReviewScreen(db, uid, onBack = { clergyReviewOpen = false })
         if (error.isNotBlank()) {
@@ -314,6 +429,40 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
         }
         }
     }
+    // A operação Firestore pode permanecer pendente quando não há internet;
+    // sair continua possível, mas não se apresenta remoção como confirmada.
+    if (logoutPending || logoutUnconfirmed) AlertDialog(
+        onDismissRequest = { cancelLogout() },
+        title = { Text("Sair e desativar notificações") },
+        text = { Text(if (logoutPending)
+            "As notificações foram desativadas localmente. A remoção do cadastro " +
+                "deste aparelho ainda aguarda confirmação do servidor. " +
+                "Você pode permanecer conectado ou sair sem essa confirmação."
+            else
+            "O servidor não confirmou a remoção do cadastro FCM. " +
+                "Você pode tentar novamente ou sair sem confirmação. " +
+                "Sair não garante que o registro remoto foi removido.") },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    if (auth.currentUser?.uid == uid) {
+                        cancelLogout()
+                        auth.signOut()
+                    }
+                },
+                modifier = Modifier.testTag("atrio-logout-unconfirmed")
+            ) { Text("Sair sem confirmação") }
+        },
+        dismissButton = {
+            Row {
+                TextButton(onClick = { cancelLogout() }) { Text("Permanecer conectado") }
+                if (logoutUnconfirmed) TextButton(
+                    onClick = { logoutUnconfirmed = false; beginLogout() },
+                    modifier = Modifier.testTag("atrio-logout-retry")
+                ) { Text("Tentar novamente") }
+            }
+        }
+    )
 }
 
 @Composable
@@ -324,6 +473,8 @@ private fun OnlineCommunity(
     onClergyReview: (() -> Unit)?
 ) {
     val context = LocalContext.current
+    val communityTerms = rememberCommunityTermsStatus(db, uid)
+    var communityTermsPrompt by remember(uid) { mutableStateOf(false) }
     val ota = rememberOtaUpdateController()
     val otaScope = rememberCoroutineScope()
     val otaSnackbar = remember { SnackbarHostState() }
@@ -516,11 +667,42 @@ private fun OnlineCommunity(
             (openedPost?.ownerUid == uid || detailReplies.any { it.mine }))
             ThreadPushSubscriptions.track(context, uid, id)
     }
-    val posts = sourcePosts.map { it.copy(liked = it.id in likedIds, saved = it.id in savedIds) }
+    // Filtro de convivência da conta atual. Firestore Rules protegem escritas,
+    // enquanto consultas de feed continuam paginadas no servidor.
+    var blockedMemberUids by remember(uid) { mutableStateOf<Set<String>>(emptySet()) }
+    var blockedListReady by remember(uid) { mutableStateOf(false) }
+    DisposableEffect(db, uid) {
+        blockedListReady = false
+        val listener = db.collection("users").document(uid).collection("blockedMembers")
+            .addSnapshotListener(com.google.firebase.firestore.MetadataChanges.INCLUDE) { snapshot, error ->
+                if (FirebaseAuth.getInstance().currentUser?.uid != uid) return@addSnapshotListener
+                if (error != null) {
+                    // Nao tratar falha de rede ou permissao como "ninguem bloqueado".
+                    blockedListReady = false
+                    blockedMemberUids = emptySet()
+                } else if (snapshot != null && !snapshot.metadata.isFromCache
+                    && !snapshot.metadata.hasPendingWrites()) {
+                    blockedMemberUids = snapshot.documents.map { it.id }.toSet()
+                    blockedListReady = true
+                }
+            }
+        onDispose { listener.remove() }
+    }
+    // Central e feed usam a mesma observacao remota, com bloqueio conservador
+    // antes da primeira resposta autoritativa do servidor.
+    SideEffect {
+        inbox.blockedUids = blockedMemberUids
+        inbox.blockedListReady = blockedListReady
+    }
+    val posts = (if (blockedListReady) sourcePosts else emptyList())
+        .filterNot { it.ownerUid in blockedMemberUids }
+        .map { it.copy(liked = it.id in likedIds, saved = it.id in savedIds) }
     val allPosts = (sourcePosts + savedPosts.values + listOfNotNull(openedPost))
+        .filterNot { !blockedListReady || it.ownerUid in blockedMemberUids }
         .associateBy { it.id }.values.map { it.copy(liked = it.id in likedIds, saved = it.id in savedIds) }
     val savedDisplay = savedOrder.take(savedLimit).mapNotNull { id ->
-        savedPosts[id]?.copy(liked = id in likedIds, saved = id in savedIds)
+        savedPosts[id]?.takeUnless { !blockedListReady || it.ownerUid in blockedMemberUids }
+            ?.copy(liked = id in likedIds, saved = id in savedIds)
     }
     fun navigate(destination: Tab) {
         if (BuildConfig.DEBUG &&
@@ -569,6 +751,12 @@ private fun OnlineCommunity(
         request.addOnFailureListener { message = it.localizedMessage ?: "Não foi possível atualizar." }
     }
     fun publish(title: String, body: String, category: String) {
+        if (FirebaseAuth.getInstance().currentUser?.uid != uid) return
+        if (!communityTerms.canPublish) {
+            message = "Antes de publicar, consulte e aceite os Termos da Comunidade."
+            communityTermsPrompt = true
+            return
+        }
         // Diagnóstico somente no laboratório Android com Firebase emulado:
         // não registrar conteúdo de publicação nem dados pessoais.
         val qaLab = BuildConfig.DEBUG &&
@@ -584,6 +772,8 @@ private fun OnlineCommunity(
             "body" to body, "category" to category,
             "createdAt" to FieldValue.serverTimestamp()
         )).addOnCompleteListener { result ->
+            // A escrita pode terminar depois do logout; nao usar outra sessao para efeitos de cliente.
+            if (FirebaseAuth.getInstance().currentUser?.uid != uid) return@addOnCompleteListener
             working = false
             if (qaLab) android.util.Log.d("AtrioQaPublish",
                 if (result.isSuccessful) "commit_ok" else "commit_failed_" +
@@ -606,6 +796,13 @@ private fun OnlineCommunity(
         id: String, body: String, done: (Boolean) -> Unit,
         target: Reply? = null, mention: MentionCandidate? = null
     ) {
+        if (FirebaseAuth.getInstance().currentUser?.uid != uid) { done(false); return }
+        if (!communityTerms.canPublish) {
+            message = "Antes de responder, consulte e aceite os Termos da Comunidade."
+            communityTermsPrompt = true
+            done(false)
+            return
+        }
         if (openedPost?.id != id) {
             message = "Discussão indisponível. Atualize o fórum e tente novamente."
             done(false)
@@ -616,6 +813,8 @@ private fun OnlineCommunity(
         // Não publicar silenciosamente uma resposta sem o aviso obrigatório.
         db.collection("posts").document(id).get(com.google.firebase.firestore.Source.SERVER)
             .addOnCompleteListener { parentResult ->
+                if (FirebaseAuth.getInstance().currentUser?.uid != uid)
+                    return@addOnCompleteListener
                 val parent = if (parentResult.isSuccessful) parentResult.result else null
                 val ownerUid = if (parent?.exists() == true)
                     parent.getString("uid").orEmpty() else ""
@@ -703,6 +902,8 @@ private fun OnlineCommunity(
                 }
                 // Resposta e notificações continuam atômicas.
                 batch.commit().addOnCompleteListener { result ->
+                    if (FirebaseAuth.getInstance().currentUser?.uid != uid)
+                        return@addOnCompleteListener
                     // Confirmar imediatamente o resultado para a interface.
                     // Inscrições FCM e relay não devem bloquear o botão Responder.
                     if (!result.isSuccessful) {
@@ -757,10 +958,13 @@ private fun OnlineCommunity(
         )
     }, bottomBar = { AtrioBottomBar(selected = tab, onSelect = ::navigate) }) { inset ->
         Box(Modifier.padding(inset)) {
-            val detail = openedPost?.copy(liked = detailId in likedIds, saved = detailId in savedIds)
+            val detail = openedPost?.takeUnless {
+                !blockedListReady || it.ownerUid in blockedMemberUids
+            }
+                ?.copy(liked = detailId in likedIds, saved = detailId in savedIds)
             if (publicProfileTarget != null && !profilePostOpen) {
                 PublicMemberProfileScreen(
-                    db = db, target = publicProfileTarget!!,
+                    db = db, target = publicProfileTarget!!, viewerUid = uid,
                     onBack = ::closeNoticeDestination,
                     onOpenDiscussion = { postId -> profilePostOpen = true; detailId = postId }
                 )
@@ -794,7 +998,7 @@ private fun OnlineCommunity(
                     if (detailError) "Tentar novamente" else "Voltar",
                     { if (detailError) detailRetry++ else closeNoticeDestination() })
             } else if (detail != null) {
-                DetailScreen(detail.copy(replies = detailReplies), name,
+                DetailScreen(detail.copy(replies = detailReplies.filterNot { it.ownerUid in blockedMemberUids }), name,
                     onLike = { toggle("likedPosts", detail.id, detail.liked) },
                     onSave = { toggle("savedPosts", detail.id, detail.saved) },
                     onReply = { body, done ->
@@ -869,11 +1073,13 @@ private fun OnlineCommunity(
                         }
                     })
                 Tab.COMMUNITIES -> CommunityScreen(posts) { category -> navigate(Tab.HOME); filter = category }
-                Tab.PUBLISH -> PublishScreen { title, body, category ->
-                    confirmGuardianBeforeSend(title + "\n" + body) {
-                        publish(title, body, category)
+                Tab.PUBLISH -> if (communityTerms.canPublish) {
+                    PublishScreen { title, body, category ->
+                        confirmGuardianBeforeSend(title + "\n" + body) {
+                            publish(title, body, category)
+                        }
                     }
-                }
+                } else CommunityTermsConsent(db, uid, communityTerms)
                 Tab.SAVED -> SavedScreen(savedDisplay,
                     onDiscover = { navigate(Tab.HOME) }, onOpen = { detailId = it },
                     onLike = { id -> allPosts.firstOrNull { it.id == id }?.let { toggle("likedPosts", id, it.liked) } },
@@ -898,6 +1104,7 @@ private fun OnlineCommunity(
                     onSignOut = onSignOut, onModeration = onModeration,
                     onClergyReview = onClergyReview,
                     onSavedPosts = { navigate(Tab.SAVED) },
+                    communityTerms = communityTerms,
                     followedRevision = followedRevision, savedCount = savedOrder.size,
                     followedRemoteEnabled = advancedEngagement,
                     followedRemoteIds = syncedFollow.ids,
@@ -920,6 +1127,14 @@ private fun OnlineCommunity(
             }
         }
     }
+    if (communityTermsPrompt) AlertDialog(
+        onDismissRequest = { communityTermsPrompt = false },
+        title = { Text("Termos da Comunidade") },
+        text = { CommunityTermsConsent(db, uid, communityTerms) },
+        confirmButton = { TextButton(onClick = { communityTermsPrompt = false }) {
+            Text("Fechar")
+        } }
+    )
     // A autoria é verificada também nas regras do Firestore, não apenas nos botões.
     val editablePost = allPosts.firstOrNull { it.id == editingPostId && it.mine }
     if (editablePost != null) {
@@ -1023,14 +1238,22 @@ private fun OnlineCommunity(
         key(target.postId, target.replyId) {
             ReplyReportDialog(db, uid, target,
                 onClose = { reportReply = null },
-                onSuccess = { reportReply = null; message = "Denúncia da resposta enviada para análise." })
+                onSuccess = {
+                    if (FirebaseAuth.getInstance().currentUser?.uid == uid &&
+                        reportReply?.postId == target.postId && reportReply?.replyId == target.replyId) {
+                        reportReply = null
+                        message = "Denúncia da resposta enviada para análise."
+                    }
+                })
         }
     }
     if (reportPost != null) {
-        var reason by remember { mutableStateOf("") }
-        var sendingReport by remember(reportPost) { mutableStateOf(false) }
         val id = reportPost!!
-        AlertDialog(onDismissRequest = { reportPost = null }, title = { Text("Denunciar discussão") },
+        // O motivo pertence somente ao alvo e à sessão atual, nunca a outra denúncia.
+        var reason by remember(uid, id) { mutableStateOf("") }
+        var sendingReport by remember(uid, id) { mutableStateOf(false) }
+        AlertDialog(onDismissRequest = { if (!sendingReport) reportPost = null },
+            title = { Text("Denunciar discussão") },
             text = { Column {
                 Text("Por que esta discussão deve ser analisada?", fontSize = 13.sp)
                 Spacer(Modifier.height(8.dp))
@@ -1040,13 +1263,18 @@ private fun OnlineCommunity(
                 Text("A denúncia será enviada para análise. Não remove a publicação automaticamente.",
                     fontSize = 11.sp, color = Muted)
             } },
-            confirmButton = { TextButton(enabled = !sendingReport && reason.trim().length >= 5, onClick = {
+            confirmButton = { TextButton(enabled = !sendingReport && reason.trim().length >= 5
+                && FirebaseAuth.getInstance().currentUser?.uid == uid, onClick = {
+                if (FirebaseAuth.getInstance().currentUser?.uid != uid || reportPost != id) return@TextButton
                 sendingReport = true
                 val reportId = ReportDocumentIds.post(uid, id)
                 db.collection("reports").document(reportId).set(mapOf(
                     "postId" to id, "reporterUid" to uid,
                     "reason" to reason.trim(), "createdAt" to FieldValue.serverTimestamp()
                 )).addOnCompleteListener { result ->
+                    // Callback atrasado nao altera a tela de outra conta/alvo nem dispara relay.
+                    if (FirebaseAuth.getInstance().currentUser?.uid != uid || reportPost != id)
+                        return@addOnCompleteListener
                     sendingReport = false
                     if (result.isSuccessful) InstantPushRelay.report(reportId)
                     message = if (result.isSuccessful) "Denúncia enviada para análise da moderação." else
@@ -1054,7 +1282,8 @@ private fun OnlineCommunity(
                     if (result.isSuccessful) reportPost = null
                 }
             }, modifier = Modifier.testTag("atrio-report-post-submit")) { Text("Enviar") } },
-            dismissButton = { TextButton(onClick = { reportPost = null }) { Text("Cancelar") } })
+            dismissButton = { TextButton(enabled = !sendingReport,
+                onClick = { reportPost = null }) { Text("Cancelar") } })
     }
     if (guardianWarning != null) {
         fun dismissGuardianWarning(confirmed: Boolean) {
@@ -1127,9 +1356,10 @@ private fun ReplyReportDialog(
     db: FirebaseFirestore, uid: String, target: ReplyReportTarget,
     onClose: () -> Unit, onSuccess: () -> Unit
 ) {
-    var reason by remember { mutableStateOf("") }
-    var busy by remember { mutableStateOf(false) }
-    var failure by remember { mutableStateOf("") }
+    // Isolar cada rascunho da resposta e da conta que abriu a denúncia.
+    var reason by remember(uid, target.postId, target.replyId) { mutableStateOf("") }
+    var busy by remember(uid, target.postId, target.replyId) { mutableStateOf(false) }
+    var failure by remember(uid, target.postId, target.replyId) { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = { if (!busy) onClose() },
         title = { Text("Denunciar resposta") },
@@ -1145,7 +1375,9 @@ private fun ReplyReportDialog(
             }
         },
         confirmButton = {
-            TextButton(enabled = !busy && reason.trim().length in 5..300, onClick = {
+            TextButton(enabled = !busy && reason.trim().length in 5..300
+                && FirebaseAuth.getInstance().currentUser?.uid == uid, onClick = {
+                if (FirebaseAuth.getInstance().currentUser?.uid != uid) return@TextButton
                 busy = true
                 failure = ""
                 val reportId = ReportDocumentIds.reply(uid, target.postId, target.replyId)
@@ -1154,6 +1386,9 @@ private fun ReplyReportDialog(
                     "reporterUid" to uid, "reason" to reason.trim(),
                     "createdAt" to FieldValue.serverTimestamp()
                 )).addOnCompleteListener { result ->
+                    // Outra sessão não pode receber efeito visual nem relay deste callback.
+                    if (FirebaseAuth.getInstance().currentUser?.uid != uid)
+                        return@addOnCompleteListener
                     busy = false
                     if (result.isSuccessful) {
                         InstantPushRelay.report(reportId)

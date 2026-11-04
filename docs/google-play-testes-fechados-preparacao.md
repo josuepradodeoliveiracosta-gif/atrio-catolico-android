@@ -1,0 +1,120 @@
+# Átrio Católico — preparação para testes fechados na Google Play
+
+Preparado em 31/10/2026. **Proposta em branch; nenhum envio à Google Play.**
+O canal OTA/GitHub e a atual versão instalada são preservados até análise e integração.
+
+## Arquitetura de dois canais
+
+| Canal | Task | Instalação/atualizações |
+| --- | --- | --- |
+| Direto (GitHub) | `assembleRelease` | APK oficial; detector/download/instalador OTA com consentimento do Android |
+| Google Play | `bundlePlayRelease` | Android App Bundle (`.aab`); Google Play gerencia instalação e atualizações |
+| QA | `assembleDebug` | APK debug com assinatura de testes, sem OTA |
+
+A variante `playRelease` preserva o pacote `br.com.atriocatolico` e o `versionCode`, marca `BuildConfig.PLAY_STORE_BUILD=true`, retira a permissão `REQUEST_INSTALL_PACKAGES` e o `FileProvider` OTA do manifesto final e impede qualquer tentativa de sideload de APK via código de execução.
+A variante direta usa `PLAY_STORE_BUILD=false` e continua independente da Play. Para cumprir a política de envios da Play em 2026, a proposta atualiza `targetSdk` para **36**, aplicado aos builds do módulo: todas as telas e fluxos precisam de regressão (inclusive edge-to-edge e notificações).
+
+A variante Play mostra **Atualizações pela Google Play**, sem consulta à API GitHub. Atualizações automáticas do Google Play estão disponíveis pelo mecanismo da loja; integração visual com Play In-App Updates API (Play Core) é trabalho separado e não está anunciada como concluída.
+
+## Criar o AAB de pré-validação (sem assinatura)
+
+Em execução isolada na PR, `.github/workflows/play-closed-aab-ci.yml` testa primeiro `scripts/play_release_gate.py --audit` e os testes unitários (o bloqueio de publicação é esperado), e em seguida executa `gradle :app:bundlePlayRelease` sem segredos, testa o arquivo `app/build/outputs/bundle/playRelease/app-playRelease.aab`, o manifesto final e `PLAY_STORE_BUILD=true`.
+Não publica, não gera APK instalável Play, não salva um AAB não assinado como download.
+
+O fluxo manual de assinatura, **antes de acessar qualquer chave**, executa `scripts/play_release_gate.py --enforce`. Esse controle valida as oito evidências de privacidade anteriores ao primeiro AAB e as cinco evidências UGC anteriores à distribuição, incluindo Push sem bypass de bloqueios, além de revisores, datas UTC não futuras, URLs HTTPS não fictícias, `targetSdk=36`, pacote e overlay Play. As duas evidências de E2E pela própria faixa só podem ser obtidas posteriormente. Também exige `versionCode > 36`, pois o candidato OTA v0.20.1 da PR #70 reserva o código 36. Isso não certifica URLs, exclusão real ou autenticação do site; essas comprovações continuam externas e humanas. **Não elevar a versão do app automaticamente**, não tratar QA offline como autorização.
+
+O canal de APK existente `build-apk.yml` continua com os mesmos nomes de tarefas/artifacts e a assinatura oficial continua exigindo aprovação do Guardião V2. Nenhuma assinatura nova é criada pela proposta.
+
+## Chave de assinatura e migração — decisão obrigatória ANTES do primeiro envio
+
+**Atenção especial:** o mesmo `applicationId` não basta para atualizar por cima do APK distribuído aos amigos: o certificado do APK entregue pela Google Play precisa corresponder ao certificado permanente do APK antigo.
+
+No Play Console, **antes de cadastrar a assinatura padrão como definitiva**, decidir entre:
+
+1. **Preservar a assinatura permanente:** configurar Play App Signing com a chave de assinatura original, seguindo o fluxo do Google Play (PEPK, caso indicado). A chave original não deve aparecer em repositório, mensagem, log nem publicação. O Play pode usar uma chave de **upload** diferente da chave que assina o APK instalado; isso é normal e recomendável. Essa é a opção preferida **quando o objetivo é manter a compatibilidade com instalações OTA existentes**.
+2. **Chave gerada pelo Google:** simplifica a custódia de chaves, mas normalmente impede atualizar diretamente o APK OTA pré-instalado com assinatura diferente. Seria necessária migração planejada e preservação de dados antes da troca de origem.
+
+Conferir no Play Console **certificado da chave de assinatura do app** (não apenas o certificado da chave de upload) e compará-lo com o certificado do Átrio antigo. Verificar também o SHA-1/SHA-256 de certificados no Firebase Authentication conforme os métodos de login utilizados. Não inventar fingerprints.
+A proposta **não** faz upload de chaves privadas para Google.
+
+## Gates separados — 31/10/2026
+
+**Fluxo de dois momentos, sem publicação automática:**
+
+1. **Antes da primeira assinatura (`--enforce`):** exigir os **8 controles de privacidade anteriores à distribuição** (`in_app_request`, `external_portal`, `deletion_executor`, `worker_freeze`, `retention_review`, `public_privacy_policy`, `data_safety`, `operational_security`) com evidências genuínas, revisores e datas UTC; exigir **5 controles de UGC pré-distribuição** de `docs/google-play-ugc-evidencias.json` (termos aceitos antes de publicar, denúncias, bloqueio, moderação e verificação operacional de Push individual que respeite bloqueios); exigir `versionCode>36`, Play API 36, pacote, overlay sem OTA, Firebase oficial e aprovação humana do workflow. A auditoria é apenas estática e **não verifica** a autenticidade do servidor ou da política publicada. Nem assinatura nem upload estão aprovados hoje.
+2. **Após instalar pela faixa fechada:** provar `closed_track_e2e` (privacidade, testes de contas em aparelho instalado pela Play) e `closed_track_ugc_e2e` (termos, denúncia e bloqueio na instalação da Play) com evidência e revisão. **Esses testes não podem ser marcados como concluídos antes da distribuição**, e a autorização de liberação do projeto (`releaseAuthorized`) continua `false` enquanto houver requisito de privacidade pendente.
+3. **Antes de produção:** cumprir o período de testes aplicável à conta, resolver incidentes, rever a conformidade, obter homologação, respeitar chave/versionCode e decidir manualmente sobre o lançamento. O CLI não envia AAB nem permite alterar o Play Console.
+
+**Observação (atualizada):** `docs/google-play-ugc-evidencias.json` continua com **0/6 verificações**. O manifesto `docs/google-play-privacidade-evidencias.json` foi copiado **sem alterações** da PR #98 para esta PR #71, com **0/9** e `releaseAuthorized:false`. Isso habilita auditoria completa. **A tela Android e o código do portal e dos simuladores QA já foram integrados**, mas o portal segue com formulário desabilitado e **não existe executor real homologado**. Isso **não libera** assinatura; nenhuma evidência foi artificialmente aprovada.
+
+**Achado operacional conferido por consulta de metadados à Cloudflare em 31/10/2026:** o Worker `atrio-push` tem `PUSH_ENABLED=true`, porém **não tem** o binding/variável `PUSH_BLOCK_SAFE_FANOUT_ENABLED` configurado. Também não foi identificado um Worker público de exclusão de contas na listagem atual. Essa constatação **não permite** marcar `push_block_safe_delivery` como verificado; exige implantação separada e testes reais. Nenhum recurso da conta foi modificado nessa inspeção. Procedimento técnico: `docs/google-play-push-bloqueios-homologacao.md`.
+
+Política UGC oficial: https://support.google.com/googleplay/android-developer/answer/9876937
+
+## Checklist obrigatório antes de iniciar o teste fechado
+
+- [ ] CI do AAB Play aprovado: target API 36; sem `REQUEST_INSTALL_PACKAGES`; sem instalador APK na variante Play.
+- [ ] Validar telas em Android 16/API 36: navegação, margens sob barras de sistema, teclados e notificações.
+- [ ] Encerre a homologação da versão 0.20.1 OTA (PRs #69/#70) antes de sincronizar `versionCode` na variante Play. O `versionCode` Play assinado deve ser **maior que 36** neste gate (código 36 reservado à candidata OTA); reavaliar o limite sempre que houver nova versão OTA. Não anunciar nem publicar uma nova numeração antes de testar atualização e assinatura.
+- [ ] Confirme assinatura e plano de migração dos aparelhos atuais, evitando desinstalações precipitadas.
+- [ ] Gerar AAB assinado **somente via workflow manual aprovado** e conferir SHA-256 do arquivo e certificado de upload.
+- [ ] Criar/configurar o app no Play Console, `br.com.atriocatolico`, nome, categoria, imagens, descrição, contato e classificação indicativa.
+- [ ] **Bloqueio de operação e publicação:** PR #71 já inclui solicitação de exclusão no Perfil, o projeto do portal web (desabilitado) e simuladores de QA. Falta integrar e homologar **um executor real seguro** para Firebase Authentication, Firestore, Cloudinary, notificações, retenção, reconciliação e Workers privilegiados, além de publicar **HTTPS com canal de pedidos funcional**. Uma tela ou um formulário isolado não comprova exclusão efetiva. Consulte `docs/google-play-entrega-final-e-pendencias.md`.
+- [ ] Adicionar política de privacidade pública, declarações de segurança dos dados, conteúdo e acesso de revisores; revisar moderação de conteúdo gerado pelos usuários e políticas aplicáveis.
+- [ ] Testar autenticação Firebase, mensagens push, Guardião, discussões, perfil e atualização por cima em aparelhos reais **com a instalação proveniente da Google Play**.
+- [ ] Definir a lista de testadores e faixa fechada, obter o link opt-in e confirmar aceite.
+- [ ] Somente depois enviar o pacote à Google Play; nenhum workflow deve publicar automaticamente.
+
+Em contas pessoais de desenvolvedor criadas após **13/11/2023**, para solicitar acesso de produção é exigido teste fechado com **pelo menos 12 testadores inscritos continuamente por 14 dias**. Isso **não impede** iniciar o teste fechado antes dos 14 dias.
+
+## URLs oficiais para validação de requisitos
+
+- Exclusão de conta e dados: https://support.google.com/googleplay/android-developer/answer/13327111
+- Política de permissão de instalação: https://support.google.com/googleplay/android-developer/answer/12085295
+- Alvo API 36 em 2026: https://support.google.com/googleplay/android-developer/answer/11926878
+- Play App Signing e opções de chave: https://support.google.com/googleplay/android-developer/answer/9842756
+- Testadores fechados: https://support.google.com/googleplay/android-developer/answer/14151465
+
+**Estado:** projeto preparado para **validar o AAB**, não aprovado para publicar na Play Store sem revisão técnica e escolha da assinatura.
+
+## Avanço do gate de assinatura — 31/10/2026
+
+- `scripts/play_release_gate.py`: auditoria local sem rede e sem credenciais; `--audit` permite inspecionar candidatos ainda bloqueados e `--enforce` aborta assinatura antes do material de chave.
+- `scripts/test_play_release_gate.py`: testes de regressão para colisão com versão OTA, API 35, variante/permissão OTA, URLs fictícias, evidências incompletas, revisões futuras, JSON inválido e ausência de manifesto.
+- O workflow de CI sem assinatura executa os testes e o modo audit. O workflow manual exige o modo enforce antes da preparação de SDK e dos segredos de assinatura. O modo enforce é exclusivamente **gate de assinatura para a faixa** e NÃO libera upload ou produção.
+- **Atualização do estado da branch Play (31/10/2026):** `app/build.gradle.kts` reserva `versionCode 37` / `versionName 0.20.2` apenas nesta PR, acima do código 36 da candidata OTA (#70). O registro histórico de code 35 acima não é mais o valor atual. Isso resolve somente a colisão estática de versões: **não** homologa atualização sobre APK existente, assinatura, migração nem distribuição. `docs/google-play-privacidade-evidencias.json` está nesta branch com 0/9 evidências homologadas. A tela de pedido e o código do portal e dos módulos QA foram integrados após esta nota histórica, **mas nenhum executor real ou portal público foi ativado**. A `main` não foi alterada e o gate continua bloqueado por 8 requisitos pré-assinatura de privacidade e 5 de UGC.
+- Os resultados do gate não comprovam que o certificado de assinatura do app gerenciado pelo Google coincide com o APK já instalado. É obrigatória comparação externa no Play Console antes de upload ou migração de usuários.
+
+
+## Integridade do certificado de upload — verificação antes da assinatura
+
+O workflow de assinatura manual exige que a impressão digital SHA-256 do
+**certificado público da chave de upload** esteja previamente aprovada e
+registrada na variável do GitHub Actions `ATRIO_PLAY_UPLOAD_CERT_SHA256`.
+Aceita 64 dígitos hexadecimais ou 32 pares separados por dois-pontos.
+Se a variável faltar, for inválida ou for diferente do certificado exportado
+do JKS existente, **aborta antes de assinar**, sem gerar nova chave.
+
+A verificação usa `keytool -exportcert` com senha lida exclusivamente de
+variável de ambiente, compara o hash do DER público em
+`scripts/play_upload_certificate_check.py`, não revela impressões digitais
+ou senhas em logs e remove o certificado temporário junto ao JKS.
+Testes offline executam na CI AAB antes do build.
+
+**Importante:** chave de *upload* não é necessariamente a mesma chave de
+**assinatura do aplicativo distribuído** pela Google Play. O proprietário
+precisa verificar separadamente no Play Console o certificado de assinatura
+do app versus o certificado dos APKs OTA já instalados, antes de escolher
+o Play App Signing. Esta verificação não autoriza envio, migração de
+instalações, nem substitui privacidade, UGC e aprovação humana.
+
+
+### Página pública de solicitação por e-mail — Cloudflare Workers (03/11/2026)
+
+Novo código versionado em `cloudflare/account-deletion-support/public-request-worker.js`, implantado como Worker **independente** `atrio-exclusao` e com subdomínio público habilitado na Cloudflare. Endereço configurado:
+`https://atrio-exclusao.atrio-catolico.workers.dev/exclusao`.
+O Worker usa somente HTML/CSS estáticos, sem Firebase, cookies, analytics, login, envio de dados para APIs ou operações de exclusão. Exibe instruções para contatar `atriocatolico.privacidade@gmail.com` e esclarece que o envio do e-mail inicia uma solicitação, **não** executa a exclusão.
+
+A API Cloudflare confirmou o envio do código e o subdomínio habilitado. Uma tentativa de acesso público externo realizada nesta sessão falhou por limitação de rede da ferramenta: a disponibilidade HTTPS real **não foi homologada**. Também não foi verificado o recebimento de mensagens na caixa postal nem o tratamento manual dos pedidos. Não preencher os manifestos Play como `verified:true` com base nesta implantação.
+
+O canal externo serve para iniciar solicitações sem reinstalar o aplicativo, mas a Google Play exige **processamento efetivo** da exclusão de Auth, Firestore, mídia e outros dados relacionados. Não usar este recurso sozinho como prova de conformidade. A política de privacidade pública e os Termos continuam sem aprovação final.

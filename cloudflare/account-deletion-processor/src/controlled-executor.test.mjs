@@ -1,0 +1,471 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  createControlledQaDeletionExecutor,CONTROLLED_DELETION_PHASES
+} from './controlled-executor.js';
+
+const A='qa-delete-alice',B='qa-delete-bob';
+const CASE='123e4567-e89b-42d3-a456-426614174001';
+function fixture(){
+  const log=[],confirmed=new Map([[A,true],[B,true]]);
+  const frozen=new Set(),auth=new Set([A,B]);
+  const docs=new Map([[A,new Set(['profiles/a','users/b/notifications/from-a'])],
+    [B,new Set(['profiles/b'])]]);
+  const media=new Map([[A,new Set(['cloudinary:private-a','d1:pending-a'])],
+    [B,new Set(['cloudinary:private-b'])]]);
+  const fcm=new Map([[A,new Set(['device-a'])],[B,new Set(['device-b'])]]);
+  const ledger=new Map();
+  let unknown=0,resolved=true,hold=true,activeEpoch=1;
+  let failAfterMedia=false,failAfterAuth=false;
+  const assertUid=x=>{
+    assert.ok(x && [A,B].includes(x.uid));
+    assert.equal(x.caseId,CASE);
+  };
+  const backend={
+    approvals:{
+      async confirm(x){assertUid(x);return confirmed.get(x.uid)===true;}
+    },
+    ledger:{
+      async acquire(x){
+        assertUid(x);
+        if(!ledger.has(x.uid))
+          ledger.set(x.uid,{epoch:activeEpoch,completed:[]});
+        const v=ledger.get(x.uid);
+        return {epoch:v.epoch,completed:[...v.completed]};
+      },
+      async check(x){
+        assertUid(x);
+        return ledger.get(x.uid)?.epoch===x.epoch && x.epoch===activeEpoch;
+      },
+      async complete(x){
+        assertUid(x);
+        const v=ledger.get(x.uid);
+        if(v.epoch!==x.epoch ||
+           x.phase!==CONTROLLED_DELETION_PHASES[v.completed.length])
+          return false;
+        v.completed.push(x.phase);
+        log.push('checkpoint:'+x.phase);
+        return true;
+      }
+    },
+    freeze:{
+      async enable(x){assertUid(x);log.push('freeze:'+x.uid);frozen.add(x.uid);},
+      async verify(x){assertUid(x);return frozen.has(x.uid);},
+      async drained(x){assertUid(x);return true;}
+    },
+    firestore:{
+      async purge(x){assertUid(x);log.push('firestore:'+x.uid);docs.get(x.uid).clear();},
+      async assess(x){
+        assertUid(x);
+        return {allKnownScopesScanned:unknown===0,
+          foreignReferencesResolved:resolved,retentionAdjudicated:hold,
+          remaining:docs.get(x.uid).size,unknownScopes:unknown};
+      }
+    },
+    media:{
+      async purge(x){
+        assertUid(x);log.push('media:'+x.uid);media.get(x.uid).clear();
+        if(failAfterMedia){failAfterMedia=false;throw Error('injected_cloudinary_timeout');}
+      },
+      async empty(x){assertUid(x);return media.get(x.uid).size===0;}
+    },
+    fcm:{
+      async revoke(x){assertUid(x);log.push('fcm:'+x.uid);fcm.get(x.uid).clear();},
+      async empty(x){assertUid(x);return fcm.get(x.uid).size===0;}
+    },
+    auth:{
+      async remove(x){
+        assertUid(x);log.push('auth:'+x.uid);auth.delete(x.uid);
+        if(failAfterAuth){failAfterAuth=false;throw Error('injected_auth_timeout');}
+      },
+      async exists(x){assertUid(x);return auth.has(x.uid);}
+    }
+  };
+  const executor=createControlledQaDeletionExecutor({
+    projectId:'demo-atrio-v11',backend
+  });
+  return {backend,executor,log,confirmed,frozen,docs,media,fcm,auth,ledger,
+    setUnknown:x=>{unknown=x;},
+    setResolved:x=>{resolved=x;},
+    setHold:x=>{hold=x;},
+    setEpoch:x=>{activeEpoch=x;},
+    failMedia:()=>{failAfterMedia=true;},
+    failAuth:()=>{failAfterAuth=true;}
+  };
+}
+const request=(uid=A)=>({uid,caseId:CASE});
+
+test('homologação isolada: remove a conta fictícia, preserva a outra e apaga Auth por último',async()=>{
+  const q=fixture();
+  const result=await q.executor.run(request());
+  assert.equal(result.state,'isolated_qa_deletion_reconciled');
+  assert.equal(result.productionAuthorized,false);
+  assert.equal(result.externalProvidersHomologated,false);
+  assert.equal(result.googlePlayAuthorized,false);
+  assert.deepEqual(q.ledger.get(A).completed,CONTROLLED_DELETION_PHASES);
+  assert.equal(q.auth.has(A),false);
+  assert.equal(q.auth.has(B),true);
+  assert.equal(q.docs.get(B).size,1);
+  assert.equal(q.media.get(B).size,1);
+  assert.equal(q.fcm.get(B).size,1);
+  assert.ok(q.frozen.has(A));
+  assert.ok(!q.frozen.has(B));
+  const authIndex=q.log.indexOf('auth:'+A);
+  for(const effect of ['freeze:'+A,'firestore:'+A,'media:'+A,'fcm:'+A])
+    assert.ok(q.log.indexOf(effect)>=0 && q.log.indexOf(effect)<authIndex);
+  assert.ok(authIndex>=0);
+});
+test('reexecução idempotente valida checkpoints sem apagar duas vezes',async()=>{
+  const q=fixture();
+  await q.executor.run(request());
+  const authCount=q.log.filter(s=>s==='auth:'+A).length;
+  const checkpoints=q.log.filter(s=>s.startsWith('checkpoint:')).length;
+  await q.executor.run(request());
+  assert.equal(q.log.filter(s=>s==='auth:'+A).length,authCount);
+  assert.equal(q.log.filter(s=>s.startsWith('checkpoint:')).length,checkpoints);
+});
+test('falha após exclusão de Cloudinary/D1 exige retomada e mantém Auth',async()=>{
+  const q=fixture();q.failMedia();
+  await assert.rejects(q.executor.run(request()),/injected_cloudinary_timeout/);
+  assert.equal(q.auth.has(A),true);
+  assert.deepEqual(q.ledger.get(A).completed,CONTROLLED_DELETION_PHASES.slice(0,2));
+  await q.executor.run(request());
+  assert.equal(q.auth.has(A),false);
+  assert.equal(q.media.get(A).size,0);
+});
+test('timeout de Auth depois do efeito é recuperável, sem repetição destrutiva',async()=>{
+  const q=fixture();q.failAuth();
+  await assert.rejects(q.executor.run(request()),/injected_auth_timeout/);
+  assert.equal(q.auth.has(A),false);
+  assert.deepEqual(q.ledger.get(A).completed,CONTROLLED_DELETION_PHASES.slice(0,5));
+  await q.executor.run(request());
+  assert.equal(q.log.filter(s=>s==='auth:'+A).length,1);
+  assert.equal(q.ledger.get(A).completed.length,7);
+});
+test('aprovação revogada antes da fase seguinte bloqueia o processamento',async()=>{
+  const q=fixture();
+  const original=q.backend.firestore.purge;
+  q.backend.firestore.purge=async x=>{await original(x);q.confirmed.set(A,false);};
+  await assert.rejects(q.executor.run(request()),/approval_revoked/);
+  assert.equal(q.auth.has(A),true);
+  assert.deepEqual(q.ledger.get(A).completed,['freeze_writes']);
+});
+test('perda de fence/lease após side effect não permite avançar',async()=>{
+  const q=fixture();
+  const original=q.backend.media.purge;
+  q.backend.media.purge=async x=>{await original(x);q.setEpoch(2);};
+  await assert.rejects(q.executor.run(request()),/stale_lease/);
+  assert.equal(q.auth.has(A),true);
+  assert.deepEqual(q.ledger.get(A).completed,CONTROLLED_DELETION_PHASES.slice(0,2));
+});
+test('ausência de congelamento distribuído bloqueia toda exclusão',async()=>{
+  const q=fixture();
+  q.backend.freeze.verify=async()=>false;
+  await assert.rejects(q.executor.run(request()),/phase_not_reconciled/);
+  assert.equal(q.auth.has(A),true);
+  assert.equal(q.docs.get(A).size,2);
+  assert.equal(q.ledger.get(A).completed.length,0);
+});
+test('referência estrangeira residual, escopo desconhecido ou retenção não analisada bloqueiam Auth',async()=>{
+  for(const kind of ['residual','unknown','foreign','retention']){
+    const q=fixture();
+    if(kind==='residual')q.docs.get(A).add('users/b/notifications/unknown-a');
+    if(kind==='unknown')q.setUnknown(1);
+    if(kind==='foreign')q.setResolved(false);
+    if(kind==='retention')q.setHold(false);
+    if(kind==='residual'){
+      q.backend.firestore.purge=async()=>{}; // simula erro sem apagar tudo
+    }
+    await assert.rejects(q.executor.run(request()),/phase_not_reconciled/);
+    assert.equal(q.auth.has(A),true,kind);
+  }
+});
+test('checkpoint inválido ou fora de ordem não autoriza avanço',async()=>{
+  for(const completed of [['delete_auth_last'],['freeze_writes','freeze_writes'],
+     ['freeze_writes','purge_media_and_d1']]){
+    const q=fixture();
+    q.backend.ledger.acquire=async()=>({epoch:1,completed});
+    await assert.rejects(q.executor.run(request()),/non_prefix_or_duplicate_checkpoint/);
+    assert.equal(q.log.length,0);
+  }
+});
+test('não aceita projeto de produção, UID real, caso falso ou interfaces ausentes',async()=>{
+  const q=fixture();
+  assert.throws(()=>createControlledQaDeletionExecutor({
+    projectId:'atrio-catolico',backend:q.backend
+  }),/not_disposable_project/);
+  assert.throws(()=>createControlledQaDeletionExecutor({
+    projectId:'demo-atrio-v11',backend:{}
+  }),/missing_backend/);
+  for(const r of [
+    {uid:'usuario-real',caseId:CASE},{uid:'../qa-delete-alice',caseId:CASE},
+    {uid:A,caseId:'not-a-uuid'}
+  ]){
+    await assert.rejects(q.executor.run(r),/invalid_qa_case/);
+  }
+  assert.equal(q.log.length,0);
+});
+test('não executa exclusão sem aprovação vinculada à conta fictícia',async()=>{
+  const q=fixture();q.confirmed.set(A,false);
+  await assert.rejects(q.executor.run(request()),/approval_missing/);
+  assert.equal(q.log.length,0);
+  assert.equal(q.auth.has(A),true);
+});
+
+test('a completed QA case cannot report success after reviewer revocation during final readback',async()=>{
+  const q=fixture();
+  await q.executor.run(request());
+  const original=q.backend.auth.exists;
+  const previousEffects=q.log.length;
+  let readbacks=0;
+  q.backend.auth.exists=async x=>{
+    const present=await original(x);
+    if(++readbacks===2)q.confirmed.set(A,false);
+    return present;
+  };
+  await assert.rejects(q.executor.run(request()),/approval_revoked/);
+  assert.equal(q.log.length,previousEffects);
+  assert.equal(q.auth.has(B),true);
+});
+
+test('a frozen marker without a drained privileged write ledger blocks deletion',async()=>{
+  const q=fixture();
+  q.backend.freeze.drained=async()=>false;
+  await assert.rejects(q.executor.run(request()),/phase_not_reconciled/);
+  assert.equal(q.frozen.has(A),true);
+  assert.equal(q.docs.get(A).size,2);
+  assert.equal(q.media.get(A).size,2);
+  assert.equal(q.auth.has(A),true);
+  assert.deepEqual(q.ledger.get(A).completed,[]);
+});
+test('missing independent drain adapter is denied before acquiring a case',()=>{
+  const q=fixture();
+  delete q.backend.freeze.drained;
+  assert.throws(()=>createControlledQaDeletionExecutor({
+    projectId:'demo-atrio-v11',backend:q.backend
+  }),/missing_backend_freeze_drained/);
+  assert.equal(q.log.length,0);
+});
+
+test('freeze loss during asynchronous media readback cannot checkpoint media',async()=>{
+  const q=fixture(),original=q.backend.media.empty;
+  let changed=false;
+  q.backend.media.empty=async x=>{
+    const empty=await original(x);
+    if(empty&&!changed){changed=true;q.frozen.delete(A);}
+    return empty;
+  };
+  await assert.rejects(q.executor.run(request()),
+    /controlled_deletion_denied:distributed_freeze_unverified/);
+  assert.equal(changed,true);
+  assert.deepEqual(q.ledger.get(A).completed,
+    CONTROLLED_DELETION_PHASES.slice(0,2));
+  assert.equal(q.auth.has(A),true);
+  assert.equal(q.auth.has(B),true);
+  assert.equal(q.docs.get(B).size,1);
+});
+test('late in-flight operation during FCM readback blocks checkpoint and Auth',async()=>{
+  const q=fixture(),original=q.backend.fcm.empty;
+  let pending=0;
+  q.backend.freeze.drained=async()=>pending===0;
+  q.backend.fcm.empty=async x=>{
+    const empty=await original(x);
+    if(empty)pending++;
+    return empty;
+  };
+  await assert.rejects(q.executor.run(request()),
+    /controlled_deletion_denied:distributed_drain_unverified/);
+  assert.equal(pending,1);
+  assert.deepEqual(q.ledger.get(A).completed,
+    CONTROLLED_DELETION_PHASES.slice(0,3));
+  assert.equal(q.auth.has(A),true);
+  assert.equal(q.auth.has(B),true);
+});
+test('final checkpoint alone cannot claim success after freeze is revoked',async()=>{
+  const q=fixture(),original=q.backend.ledger.complete;
+  q.backend.ledger.complete=async x=>{
+    const recorded=await original(x);
+    if(x.phase==='verify_final')q.frozen.delete(A);
+    return recorded;
+  };
+  await assert.rejects(q.executor.run(request()),
+    /controlled_deletion_denied:distributed_freeze_unverified/);
+  assert.equal(q.ledger.get(A).completed.length,7);
+  // Auth was deleted in this synthetic case, but a stale "success" must
+  // never be reported while write admission is no longer fenced.
+  assert.equal(q.auth.has(A),false);
+  assert.equal(q.auth.has(B),true);
+});
+
+test('late provider state during async Auth lookup blocks irreversible Auth deletion',async t=>{
+  for(const scenario of [
+    {name:'late_foreign_firestore_reference',reason:'firestore_residual_or_unknown',
+      inject:q=>q.docs.get(A).add('users/b/notifications/late-reference')},
+    {name:'late_private_media_asset',reason:'media_residual_or_unknown',
+      inject:q=>q.media.get(A).add('cloudinary:late-private-a')},
+    {name:'late_fcm_device',reason:'fcm_residual_or_unknown',
+      inject:q=>q.fcm.get(A).add('qa-late-device-a')}
+  ]){
+    await t.test(scenario.name,async()=>{
+      const q=fixture(),original=q.backend.auth.exists;
+      let reads=0;
+      q.backend.auth.exists=async x=>{
+        const present=await original(x);
+        if(reads++===0)scenario.inject(q);
+        return present;
+      };
+      await assert.rejects(q.executor.run(request()),
+        new RegExp('controlled_deletion_denied:'+scenario.reason));
+      assert.equal(reads,1,'the late fixture must arise on the Auth lookup');
+      assert.deepEqual(q.ledger.get(A).completed,
+        CONTROLLED_DELETION_PHASES.slice(0,5));
+      assert.equal(q.log.filter(x=>x==='auth:'+A).length,0);
+      assert.equal(q.auth.has(A),true);
+      assert.equal(q.auth.has(B),true);
+      assert.equal(q.docs.get(B).size,1);
+      assert.equal(q.media.get(B).size,1);
+      assert.equal(q.fcm.get(B).size,1);
+    });
+  }
+});
+test('Auth removal is preceded by a fresh independent scan of EVERY provider after Auth lookup',async()=>{
+  const q=fixture(),observed=[];
+  let authLookedUp=false;
+  const originalExists=q.backend.auth.exists,
+    originalAssess=q.backend.firestore.assess,
+    originalMedia=q.backend.media.empty,
+    originalFcm=q.backend.fcm.empty,
+    originalRemove=q.backend.auth.remove;
+  q.backend.auth.exists=async x=>{
+    const present=await originalExists(x);
+    if(present)authLookedUp=true;
+    return present;
+  };
+  q.backend.firestore.assess=async x=>{
+    if(authLookedUp)observed.push('firestore');
+    return originalAssess(x);
+  };
+  q.backend.media.empty=async x=>{
+    if(authLookedUp)observed.push('media');
+    return originalMedia(x);
+  };
+  q.backend.fcm.empty=async x=>{
+    if(authLookedUp)observed.push('fcm');
+    return originalFcm(x);
+  };
+  q.backend.auth.remove=async x=>{
+    assert.deepEqual(observed.slice(0,3),['firestore','media','fcm'],
+      'all independent providers must be rechecked after lookup and before delete');
+    return originalRemove(x);
+  };
+  await q.executor.run(request());
+  assert.equal(q.auth.has(A),false);
+  assert.equal(q.auth.has(B),true);
+  assert.equal(q.log.filter(x=>x==='auth:'+A).length,1);
+});
+test('a late residual can be reconciled on a separate reviewed QA retry without duplicate Auth removal',async()=>{
+  const q=fixture(),original=q.backend.auth.exists;
+  let injected=false;
+  q.backend.auth.exists=async x=>{
+    const present=await original(x);
+    if(!injected){injected=true;q.fcm.get(A).add('late-device-after-lookup');}
+    return present;
+  };
+  await assert.rejects(q.executor.run(request()),
+    /controlled_deletion_denied:fcm_residual_or_unknown/);
+  assert.equal(q.auth.has(A),true);
+  assert.equal(q.ledger.get(A).completed.length,5);
+  // This simplified unit fixture reuses its single-epoch journal; actual
+  // persistent cases require a second-review recovery grant, tested in the
+  // dedicated signed-ledger and Firebase emulator suites.
+  q.fcm.get(A).clear();
+  const result=await q.executor.run(request());
+  assert.equal(result.completed,7);
+  assert.equal(q.auth.has(A),false);
+  assert.equal(q.auth.has(B),true);
+  assert.equal(q.log.filter(x=>x==='auth:'+A).length,1);
+});
+
+test('post-delete Auth readback cannot commit its checkpoint if a foreign reference appears',async()=>{
+  const q=fixture(),original=q.backend.auth.exists;
+  let injected=false;
+  q.backend.auth.exists=async x=>{
+    const present=await original(x);
+    if(present===false&&!injected){
+      injected=true;
+      q.docs.get(A).add('users/b/notifications/late-post-auth');
+    }
+    return present;
+  };
+  await assert.rejects(q.executor.run(request()),
+    /controlled_deletion_denied:firestore_residual_or_unknown/);
+  assert.equal(injected,true);
+  assert.equal(q.auth.has(A),false,'remote Auth deletion preceded the late reference');
+  assert.equal(q.auth.has(B),true);
+  assert.deepEqual(q.ledger.get(A).completed,
+    CONTROLLED_DELETION_PHASES.slice(0,5),
+    'the Auth checkpoint must NOT be committed after a stale readback');
+  assert.equal(q.log.filter(x=>x==='auth:'+A).length,1);
+});
+test('completed case must not report success when a device appears during final Auth lookup',async()=>{
+  const q=fixture(),original=q.backend.auth.exists;
+  await q.executor.run(request());
+  let count=0,late=false;
+  q.backend.auth.exists=async x=>{
+    const present=await original(x);
+    if(present===false&&++count===2){
+      late=true;
+      q.fcm.get(A).add('late-fcm-after-final-auth-lookup');
+    }
+    return present;
+  };
+  await assert.rejects(q.executor.run(request()),
+    /controlled_deletion_denied:fcm_residual_or_unknown/);
+  assert.equal(late,true);
+  assert.equal(count,2);
+  assert.equal(q.auth.has(A),false);
+  assert.equal(q.auth.has(B),true);
+  assert.equal(q.log.filter(x=>x==='auth:'+A).length,1,
+    'a completed case must never reissue Auth deletion');
+});
+test('reviewed recovery cannot mark absent Auth reconciled after a late media asset',async()=>{
+  const q=fixture(),original=q.backend.auth.exists;
+  await q.executor.run(request());
+  const checkpoint=q.ledger.get(A);
+  checkpoint.completed.splice(5);
+  checkpoint.epoch=2;
+  q.setEpoch(2);
+  let late=false;
+  q.backend.auth.exists=async x=>{
+    const present=await original(x);
+    if(present===false&&!late){
+      late=true;
+      q.media.get(A).add('cloudinary:recovered-late-media');
+    }
+    return present;
+  };
+  await assert.rejects(q.executor.run(request()),
+    /controlled_deletion_denied:media_residual_or_unknown/);
+  assert.equal(late,true);
+  assert.deepEqual(checkpoint.completed,CONTROLLED_DELETION_PHASES.slice(0,5),
+    'lost checkpoint must not be reconciled from a stale Auth absence read');
+  assert.equal(q.auth.has(A),false);
+  assert.equal(q.auth.has(B),true);
+  assert.equal(q.log.filter(x=>x==='auth:'+A).length,1);
+});
+test('reconciled Auth readback with no new provider effects remains idempotent',async()=>{
+  const q=fixture();
+  await q.executor.run(request());
+  const before=q.log.filter(x=>x==='auth:'+A).length;
+  const checkpoint=q.ledger.get(A);
+  checkpoint.completed.splice(5);
+  checkpoint.epoch=2;
+  q.setEpoch(2);
+  // A valid recovered readback should restore both final checkpoints
+  // without replaying an already committed remote Auth effect.
+  const result=await q.executor.run(request());
+  assert.equal(result.completed,7);
+  assert.deepEqual(checkpoint.completed,CONTROLLED_DELETION_PHASES);
+  assert.equal(q.log.filter(x=>x==='auth:'+A).length,before);
+  assert.equal(q.auth.has(B),true);
+});

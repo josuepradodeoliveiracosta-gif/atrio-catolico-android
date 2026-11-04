@@ -1,0 +1,744 @@
+/**
+ * QA integration: Firebase Admin SDK + Auth Emulator, Firestore Emulator,
+ * Cloudinary-like HTTP localhost, SQLite lease and the existing deletion
+ * phases. ONE exact UID is shared between Auth and Firestore.
+ *
+ * NEVER run with Google credentials, live Firebase or Cloudinary.
+ * The second fixture account and all its records MUST survive.
+ */
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {createServer} from 'node:http';
+import {readFileSync,mkdtempSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {DatabaseSync} from 'node:sqlite';
+import {initializeTestEnvironment,assertFails} from '@firebase/rules-unit-testing';
+import {doc,setDoc,getDoc,deleteDoc} from 'firebase/firestore';
+import {QaAdministrativeDeletionExecutor,QA_ADMIN_ORDER_TEMPLATE}
+  from '../qa-admin-executor.mjs';
+import {QaSqliteLease} from '../qa-deletion-sqlite-lease.mjs';
+import {QA_FIXTURES,QA_STEPS} from '../qa-deletion-executor.mjs';
+import {createQaCloudinaryHttpAdapter,QA_EXTERNAL_PHOTO,
+  QA_EXTERNAL_BOB_PHOTO,QA_EXTERNAL_ORPHAN_PHOTO,
+  QA_EXTERNAL_MEDIA_PATH,QA_EXTERNAL_MEDIA_INVENTORY_PATH}
+  from '../qa-external-emulators.mjs';
+import {createQaAdminSdkAuthAdapter,QA_ADMIN_SDK_UIDS}
+  from './qa-admin-sdk-auth.mjs';
+import {createQaAdminFirestoreFreezeAdapter}
+  from './qa-admin-firestore-freeze.mjs';
+import {createQaAdminOwnedTreeAudit}
+  from './qa-admin-owned-tree-audit.mjs';
+import {createQaAdminOwnedDescendantPurger}
+  from './qa-admin-owned-descendant-purge.mjs';
+import {createQaAdminForeignReferenceCleanup}
+  from './qa-admin-foreign-reference-cleanup.mjs';
+import {createQaWorkerDrainAdapter} from './qa-worker-drain.mjs';
+import {createQaAvatarD1PreAuthAdapter}
+  from './qa-avatar-d1-pre-auth.mjs';
+import {createQaRetentionEvidenceAdapter}
+  from './qa-retention-evidence.mjs';
+
+const A=QA_ADMIN_SDK_UIDS.alice,B=QA_ADMIN_SDK_UIDS.bob;
+const PROJECT='demo-atrio-v11';
+if(process.env.GCLOUD_PROJECT!==PROJECT ||
+   process.env.FIRESTORE_EMULATOR_HOST!=='127.0.0.1:8089' ||
+   process.env.FIREBASE_AUTH_EMULATOR_HOST!=='127.0.0.1:9099' ||
+   process.env.GOOGLE_APPLICATION_CREDENTIALS ||
+   process.env.FIREBASE_SERVICE_ACCOUNT_JSON ||
+   process.env.CLOUDINARY_API_SECRET ||
+   process.env.CLOUDINARY_API_KEY ||
+   process.env.CLOUDINARY_CLOUD_NAME)
+  throw Error('qa_same_uid_nonlocal_environment_denied');
+
+const environment=await initializeTestEnvironment({
+  projectId:PROJECT,firestore:{host:'127.0.0.1',port:8089,
+    rules:readFileSync('firestore.rules','utf8')}
+});
+const mediaState=new Set([QA_EXTERNAL_PHOTO,QA_EXTERNAL_BOB_PHOTO]);
+let failNextHttp=false;
+let forbiddenMediaCalls=0;
+const send=(res,status,data)=>{
+  res.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store'});
+  res.end(JSON.stringify(data));
+};
+const server=createServer(async(req,res)=>{
+  const u=new URL(req.url,'http://127.0.0.1');
+  if(req.method==='GET'&&u.pathname.startsWith('/qa-assets/')){
+    const id=decodeURIComponent(u.pathname.slice('/qa-assets/'.length));
+    if(![QA_EXTERNAL_PHOTO,QA_EXTERNAL_BOB_PHOTO].includes(id))
+      return send(res,404,{error:'qa_unlisted_asset'});
+    return send(res,200,{public_id:id,exists:mediaState.has(id)});
+  }
+  if(req.method==='GET'&&u.pathname===QA_EXTERNAL_MEDIA_INVENTORY_PATH){
+    if(u.searchParams.get('uid')!==A ||
+       !['upload','authenticated'].includes(u.searchParams.get('type')) ||
+       u.searchParams.get('limit')!=='100'||u.searchParams.has('cursor'))
+      return send(res,403,{error:'qa_wrong_inventory_scope'});
+    const type=u.searchParams.get('type');
+    const assets=[...mediaState].filter(id=>
+      id.startsWith('atrio-avatares/'+A+'/') &&
+      (id===QA_EXTERNAL_ORPHAN_PHOTO?'upload':'authenticated')===type);
+    return send(res,200,{items:assets.map(public_id=>({type,public_id})),
+      nextCursor:null});
+  }
+  if(req.method==='POST'&&u.pathname===QA_EXTERNAL_MEDIA_PATH){
+    let raw='';
+    for await(const part of req){
+      raw+=part;
+      if(raw.length>1500)return send(res,413,{error:'qa_payload_large'});
+    }
+    let data;
+    try{data=JSON.parse(raw);}catch{return send(res,400,{error:'qa_bad_json'});}
+    if(data?.fixtureUid!==A || data?.public_id!==QA_EXTERNAL_PHOTO ||
+       data.invalidate!==true){
+      forbiddenMediaCalls++;
+      return send(res,403,{error:'qa_not_owner'});
+    }
+    if(failNextHttp){
+      failNextHttp=false;
+      return send(res,503,{error:'qa_transient_failure'});
+    }
+    const existed=mediaState.delete(QA_EXTERNAL_PHOTO);
+    return send(res,200,{public_id:QA_EXTERNAL_PHOTO,
+      result:existed?'deleted':'not_found'});
+  }
+  return send(res,404,{error:'qa_unexpected_route'});
+});
+async function listen(){
+  return new Promise((resolve,reject)=>{
+    server.once('error',reject);
+    server.listen(0,'127.0.0.1',()=>{
+      server.off('error',reject);
+      resolve('http://127.0.0.1:'+server.address().port+'/');
+    });
+  });
+}
+
+let admin,secondAdmin,freeze,secondFreeze,nested,secondNested,journal;
+let workerDb,secondWorkerDb,workerDir;
+try {
+  await test('Admin SDK SAME UID: remote outage, after-delete crash, new adapter retry',
+    async()=>{
+      const address=await listen();
+      const media=createQaCloudinaryHttpAdapter(address);
+      admin=createQaAdminSdkAuthAdapter();
+      freeze=createQaAdminFirestoreFreezeAdapter();
+      nested=createQaAdminOwnedTreeAudit();
+      const alice=await admin.seed(A);
+      const bob=await admin.seed(B);
+      assert.equal(alice.uid,A);
+      assert.equal(bob.uid,B);
+      assert.equal(await admin.exists(A),true);
+      assert.equal(await admin.exists(B),true);
+      await assert.rejects(admin.remove(B),
+        /qa_admin_sdk_other_user_delete_forbidden/);
+      await environment.clearFirestore();
+      await environment.withSecurityRulesDisabled(async context=>{
+        const db=context.firestore();
+        for(const path of [...QA_FIXTURES.nested,...QA_FIXTURES.relational,
+          ...QA_FIXTURES.roots,...QA_FIXTURES.preserved]){
+          await setDoc(doc(db,path),{
+            uid:path.includes('qa-delete-bob')?B:A,origin:'qa-admin-sdk'
+          });
+        }
+        await setDoc(doc(db,'account_deletion_requests/'+A),{
+          status:'requested',source:'android',
+          requestedAt:new Date('2026-10-31T12:00:00Z')
+        });
+        const profile=await getDoc(doc(db,'profiles/'+A));
+        const owner=await getDoc(doc(db,'users/'+A));
+        const bobProfile=await getDoc(doc(db,'profiles/'+B));
+        assert.equal(profile.exists(),true);
+        assert.equal(owner.exists(),true);
+        assert.equal(bobProfile.exists(),true);
+        assert.equal(profile.id,alice.uid); // EXACT SAME Auth + Firestore UID
+        assert.equal(owner.id,alice.uid);
+        assert.equal(bobProfile.id,bob.uid);
+
+        // A privileged write is allowed BEFORE a deletion freeze.
+        await freeze.guardedWrite(A,'before');
+        assert.equal(await freeze.existsWrite(A,'before'),true);
+        // A separate durable SQLite ledger uses the EXACT SAME UID as
+        // Firestore and Auth, not the earlier qa-freeze-* mock aliases.
+        workerDir=mkdtempSync(join(tmpdir(),'atrio-qa-worker-drain-'));
+        const workerPath=join(workerDir,'worker-ops.sqlite');
+        workerDb=new DatabaseSync(workerPath);
+        workerDb.exec(readFileSync(new URL(
+          '../../../cloudflare/avatar-worker/schema.sql',import.meta.url),'utf8'));
+        const workers=createQaWorkerDrainAdapter(workerDb);
+        const d1=createQaAvatarD1PreAuthAdapter(workerDb);
+        const retention=createQaRetentionEvidenceAdapter(workerDb,{
+          now:()=>Date.parse('2026-10-31T15:00:00.000Z')
+        });
+        const review=()=>retention.review({
+          uid:A,requestAt:'2026-10-31T12:00:00.000Z',decision:'clear',
+          approvals:['qa-privacy-reviewer','qa-security-reviewer'],
+          reviewedAt:'2026-10-31T14:00:00.000Z',
+          expiresAt:'2026-10-31T20:00:00.000Z'
+        });
+        review();
+        workerDb.prepare('INSERT INTO avatar_rate(uid,next_at) VALUES (?,?)')
+          .run(B,100);
+        // A Push fanout originating from Bob and addressed to Alice is
+        // ALSO an Alice write. Its single durable ticket holds both UIDs.
+        const fanout=workers.beginFanout(B,[A]);
+        const independent=workers.begin(B,'avatar_upload');
+        journal=new DatabaseSync(':memory:');
+        const fakeAuth=new Set([A,B]);
+        const fakeMedia=new Set([QA_EXTERNAL_PHOTO,QA_EXTERNAL_BOB_PHOTO]);
+        let failAuthOnce=true;
+        const remoteAuth={
+          exists:uid=>admin.exists(uid),
+          remove:async uid=>{
+            if(failAuthOnce){
+              failAuthOnce=false;
+              throw Error('qa_injected_admin_auth_unavailable');
+            }
+            return admin.remove(uid);
+          }
+        };
+        const external={auth:remoteAuth,media,freeze,workers,d1,retention,nested};
+        assert.throws(()=>new QaAdministrativeDeletionExecutor({
+          db,journal,auth:fakeAuth,media:fakeMedia,
+          external:{auth:remoteAuth,media,freeze,workers,d1,retention},
+          lease:new QaSqliteLease(journal)
+        }),/qa_independent_owned_tree_audit_required/);
+        assert.equal(await admin.exists(A),true);
+        const openRunner=()=>new QaAdministrativeDeletionExecutor({
+          db,journal,auth:fakeAuth,media:fakeMedia,external,
+          lease:new QaSqliteLease(journal)
+        });
+        const firstCaseRunner=openRunner();
+        const caseRequest={uid:A,...QA_ADMIN_ORDER_TEMPLATE.request};
+        const caseId=firstCaseRunner.caseRegistry.issue(caseRequest).caseId;
+        for(const review of QA_ADMIN_ORDER_TEMPLATE.approvals)
+          firstCaseRunner.caseRegistry.approve({
+            caseId,request:caseRequest,role:review.role,reviewer:review.reviewer
+          });
+
+        // An unresolved privileged Worker operation MUST block deletion
+        // before any media/Firestore removal or administrative Auth effect.
+        await assert.rejects(openRunner().execute({
+          order:QA_ADMIN_ORDER_TEMPLATE,caseId
+        }),/qa_worker_drain_pending_privileged_effect/);
+        assert.equal(await admin.exists(A),true);
+        assert.equal(mediaState.has(QA_EXTERNAL_PHOTO),true);
+        assert.deepEqual(workers.status(A),{state:'draining',pending:1});
+        assert.deepEqual(workers.status(B),{state:'active',pending:2});
+        assert.throws(()=>workers.beginFanout(B,[A]),
+          /qa_worker_drain_privileged_effect_blocked/);
+        assert.throws(()=>workers.begin(A,'avatar_upload'),
+          /qa_worker_drain_privileged_effect_blocked/);
+        assert.equal(await workers.completeFanout(fanout,{
+          verify:async()=>true
+        }),true);
+        assert.equal(workers.seal(A),true);
+        assert.equal(workers.verify(A),true);
+        // An independent account's unfinished operation is allowed and
+        // cannot be deleted by the Alice-only executor.
+        assert.deepEqual(workers.status(B),{state:'active',pending:1});
+
+        failNextHttp=true;
+        await assert.rejects(openRunner().execute({
+          order:QA_ADMIN_ORDER_TEMPLATE,caseId
+        }),/qa_external_media_http_failure/);
+        assert.equal(await admin.exists(A),true);
+        assert.equal(mediaState.has(QA_EXTERNAL_PHOTO),true);
+        assert.equal(fakeAuth.has(A),true);
+        // A tampered or missing Worker fence invalidates a previous
+        // checkpoint, even though Firestore is still frozen.
+        workerDb.prepare("UPDATE qa_worker_drain_accounts SET state='active' "+
+          "WHERE uid=?").run(A);
+        await assert.rejects(openRunner().execute({
+          order:QA_ADMIN_ORDER_TEMPLATE,caseId
+        }),/qa_worker_drain_not_quiescent/);
+        assert.equal(await admin.exists(A),true);
+        workerDb.prepare("UPDATE qa_worker_drain_accounts SET state='frozen' "+
+          "WHERE uid=?").run(A);
+        assert.equal(workers.verify(A),true);
+        // Admin created a REAL Firestore marker in the local emulator.
+        assert.equal(await freeze.verify(A),true);
+        const lock=await getDoc(doc(db,'account_deletion_freeze/'+A));
+        assert.equal(lock.exists(),true);
+        assert.equal(lock.data().uid,A);
+        await assert.rejects(freeze.guardedWrite(A,'after'),
+          /qa_admin_freeze_privileged_write_frozen/);
+        assert.equal(await freeze.existsWrite(A,'after'),false);
+        // Firestore client Security Rules and privileged admin adapter both
+        // stop Alice; neither restricts independent user Bob.
+        const aliceClient=environment.authenticatedContext(A).firestore();
+        await assertFails(setDoc(doc(aliceClient,'users',A,'pushDevices','clientAfter'),{
+          token:'qa-client-untrusted-token-abcdef123456',
+          updatedAt:new Date()
+        }));
+        await freeze.guardedWrite(B,'bobAfter');
+        assert.equal(await freeze.existsWrite(B,'bobAfter'),true);
+        // A forged/changed marker must invalidate an earlier journal
+        // checkpoint rather than permitting a restart into deletion.
+        await setDoc(doc(db,'account_deletion_freeze/'+A),{
+          uid:A,status:'cancelled',scope:'qa-only',generation:1
+        });
+        await assert.rejects(openRunner().execute({
+          order:QA_ADMIN_ORDER_TEMPLATE,caseId
+        }),/qa_admin_freeze_missing_or_invalid_freeze/);
+        assert.equal(await admin.exists(A),true);
+        await setDoc(doc(db,'account_deletion_freeze/'+A),{
+          uid:A,status:'processing',scope:'qa-only',generation:1
+        });
+        assert.equal(await freeze.verify(A),true);
+
+        await assert.rejects(openRunner().execute({
+          order:QA_ADMIN_ORDER_TEMPLATE,caseId
+        }),/qa_injected_admin_auth_unavailable/);
+        assert.equal(await admin.exists(A),true);
+        assert.equal(await admin.exists(B),true);
+        assert.equal(mediaState.has(QA_EXTERNAL_PHOTO),false);
+        assert.equal(mediaState.has(QA_EXTERNAL_BOB_PHOTO),true);
+        assert.equal(fakeAuth.has(A),true);
+
+        // Orphaned grandchild survives deletion of users/A and its missing
+        // intermediate parent. The independent Admin SDK scan must block
+        // Auth, while the unrelated Bob tree stays untouched.
+        const orphan='users/'+A+'/legacyHidden/missingParent/deepChild/orphan';
+        const bobOrphan='users/'+B+'/legacyHidden/missingParent/deepChild/bobOrphan';
+        await setDoc(doc(db,orphan),{origin:'qa-orphan-grandchild',uid:A});
+        await setDoc(doc(db,bobOrphan),{origin:'qa-other-account',uid:B});
+        await assert.rejects(openRunner().execute({
+          order:QA_ADMIN_ORDER_TEMPLATE,caseId
+        }),/qa_admin_owned_tree_residual_owned_document/);
+        assert.equal(await admin.exists(A),true);
+        assert.equal(await admin.exists(B),true);
+        assert.equal((await getDoc(doc(db,orphan))).exists(),true);
+        // The emulator-only Admin SDK can remove previously unknown,
+        // orphaned descendants without touching Bob's independent account.
+        // This does not imply cross-account references or external media
+        // have been reconciled: the runner still gates Auth separately.
+        const purger=createQaAdminOwnedDescendantPurger();
+        try {
+          const deleted=await purger.purge(A,{
+            assertLease:()=>true,
+            assertAuthorized:async()=>await freeze.verify(A) === true &&
+              workers.verify(A) === true
+          });
+          assert.ok(deleted.deletedCount>=1);
+          assert.equal(deleted.productionReady,false);
+          assert.equal((await getDoc(doc(db,orphan))).exists(),false);
+          assert.equal((await getDoc(doc(db,bobOrphan))).exists(),true);
+          assert.equal(await admin.exists(B),true);
+          // Re-running after crash/timeout is idempotent.
+          const repeated=await purger.purge(A,{
+            assertLease:()=>true,
+            assertAuthorized:async()=>await freeze.verify(A) === true &&
+              workers.verify(A) === true
+          });
+          assert.equal(repeated.deletedCount,0);
+        } finally {await purger.close();}
+        assert.equal((await getDoc(doc(db,bobOrphan))).exists(),true);
+
+        // Cross-account references generated by Alice remain after her
+        // private tree disappears. A fresh Auth fence must refuse to delete.
+        const aliceNotice='users/'+B+'/notifications/qa_alice_actor_notice';
+        const bobNotice='users/'+B+'/notifications/qa_bob_actor_notice';
+        const aliceBlock='users/'+B+'/blockedMembers/'+A;
+        const otherBlock='users/'+B+'/blockedMembers/qa-unrelated';
+        const now=new Date('2026-10-31T12:00:00Z');
+        await setDoc(doc(db,aliceNotice),{
+          postId:'qa_post_a',replyId:'qa_reply_a',actorUid:A,
+          actorName:'Pessoa a excluir',read:false,createdAt:now
+        });
+        await setDoc(doc(db,bobNotice),{
+          postId:'qa_post_b',replyId:'qa_reply_b',actorUid:B,
+          actorName:'Pessoa preservada',read:false,createdAt:now
+        });
+        await setDoc(doc(db,aliceBlock),{createdAt:now});
+        await setDoc(doc(db,otherBlock),{createdAt:now});
+        await assert.rejects(openRunner().execute({
+          order:QA_ADMIN_ORDER_TEMPLATE,caseId
+        }),/qa_reconciliation_residual_firestore/);
+        assert.equal(await admin.exists(A),true);
+        const foreign=createQaAdminForeignReferenceCleanup();
+        try {
+          await assert.rejects(foreign.purge(A,{
+            approvedQaReview:false,
+            assertLease:()=>true,
+            assertAuthorized:async()=>await freeze.verify(A) === true &&
+              workers.verify(A) === true
+          }),/qa_foreign_reference_cleanup_review_required/);
+          assert.equal((await getDoc(doc(db,aliceNotice))).exists(),true);
+          const completed=await foreign.purge(A,{
+            approvedQaReview:true,
+            assertLease:()=>true,
+            assertAuthorized:async()=>await freeze.verify(A) === true &&
+              workers.verify(A) === true
+          });
+          assert.equal(completed.removedActorNotices,1);
+          assert.equal(completed.removedForeignBlocks,1);
+          assert.equal(completed.productionReady,false);
+          assert.equal((await getDoc(doc(db,aliceNotice))).exists(),false);
+          assert.equal((await getDoc(doc(db,aliceBlock))).exists(),false);
+          assert.equal((await getDoc(doc(db,bobNotice))).exists(),true);
+          assert.equal((await getDoc(doc(db,otherBlock))).exists(),true);
+          assert.equal((await getDoc(doc(db,bobOrphan))).exists(),true);
+          assert.equal((await getDoc(doc(db,'reports/qa-delete-moderation-case'))).exists(),true);
+          assert.equal(await admin.exists(B),true);
+          const repeat=await foreign.purge(A,{
+            approvedQaReview:true,
+            assertLease:()=>true,
+            assertAuthorized:async()=>await freeze.verify(A) === true &&
+              workers.verify(A) === true
+          });
+          assert.equal(repeat.removedActorNotices,0);
+          assert.equal(repeat.removedForeignBlocks,0);
+        } finally {await foreign.close();}
+
+        // D1 retention/audit rows require review and prevent Auth deletion.
+        workerDb.prepare('INSERT INTO avatar_moderation(actor_uid,target_uid,reason,created_at) VALUES (?,?,?,?)')
+          .run(B,A,'qa-retention-review',1);
+        await assert.rejects(openRunner().execute({
+          order:QA_ADMIN_ORDER_TEMPLATE,caseId
+        }),/qa_avatar_d1_owned_rows_remaining/);
+        assert.equal(await admin.exists(A),true);
+        workerDb.prepare('DELETE FROM avatar_moderation WHERE target_uid=?').run(A);
+
+        // A second unreferenced media asset MUST block Admin Auth deletion,
+        // even though the originally known media identifier was removed.
+        mediaState.add(QA_EXTERNAL_ORPHAN_PHOTO);
+        await assert.rejects(openRunner().execute({
+          order:QA_ADMIN_ORDER_TEMPLATE,caseId
+        }),/qa_external_owned_media_remaining/);
+        assert.equal(await admin.exists(A),true);
+        assert.equal(await admin.exists(B),true);
+        mediaState.delete(QA_EXTERNAL_ORPHAN_PHOTO);
+
+        // A new retention hold invalidates the earlier approval, even if
+        // that hold is subsequently resolved without renewing the review.
+        retention.hold(A,'qa-case-legal-hold');
+        await assert.rejects(openRunner().execute({
+          order:QA_ADMIN_ORDER_TEMPLATE,caseId
+        }),/qa_retention_review_stale/);
+        assert.equal(await admin.exists(A),true);
+        retention.resolve(A,'qa-case-legal-hold');
+        await assert.rejects(openRunner().execute({
+          order:QA_ADMIN_ORDER_TEMPLATE,caseId
+        }),/qa_retention_review_stale/);
+        review();
+
+        // Effect happens on Auth Emulator; crash before SQLite checkpoint.
+        await assert.rejects(openRunner().execute({
+          order:QA_ADMIN_ORDER_TEMPLATE,caseId,
+          failAfterEffect:'remove_auth_stub_last'
+        }),/injected_failure_after_effect:remove_auth_stub_last/);
+        assert.equal(await admin.exists(A),false);
+        assert.equal(await admin.exists(B),true);
+        assert.equal(fakeAuth.has(A),false);
+        assert.equal(new QaSqliteLease(journal).isBoundTo(journal),true);
+
+        // New Admin SDK app has NO user mapping; exact UID allows restart.
+        await admin.close();
+        admin=null;
+        await freeze.close();
+        freeze=null;
+        await nested.close();
+        nested=null;
+        secondAdmin=createQaAdminSdkAuthAdapter();
+        secondFreeze=createQaAdminFirestoreFreezeAdapter();
+        secondNested=createQaAdminOwnedTreeAudit();
+        workerDb.close();workerDb=null;
+        secondWorkerDb=new DatabaseSync(workerPath);
+        const resumedWorkers=createQaWorkerDrainAdapter(secondWorkerDb);
+        const resumedD1=createQaAvatarD1PreAuthAdapter(secondWorkerDb);
+        const resumedRetention=createQaRetentionEvidenceAdapter(secondWorkerDb,{
+          now:()=>Date.parse('2026-10-31T15:00:00.000Z')
+        });
+        assert.equal(resumedWorkers.verify(A),true,
+          'Worker freeze must survive new SQLite connection');
+        assert.deepEqual(resumedWorkers.status(B),{state:'active',pending:1});
+        assert.equal(await secondFreeze.verify(A),true,
+          'freeze must survive an Admin SDK process restart');
+        const restartedExternal={auth:secondAdmin,media,freeze:secondFreeze,
+          workers:resumedWorkers,d1:resumedD1,retention:resumedRetention,
+          nested:secondNested};
+        const resumed=new QaAdministrativeDeletionExecutor({
+          db,journal,media:fakeMedia,auth:fakeAuth,external:restartedExternal,
+          lease:new QaSqliteLease(journal)
+        });
+        const result=await resumed.execute({order:QA_ADMIN_ORDER_TEMPLATE,caseId});
+        assert.equal(result.status,'qa_fixture_admin_workflow_finished');
+        assert.equal(result.completedPhases,QA_STEPS.length);
+        assert.equal(result.productionReady,false);
+        assert.equal(result.firebaseAuthActuallyDeleted,false);
+        assert.equal(result.reviewerIdentityReal,false);
+        assert.equal(await secondAdmin.exists(A),false);
+        assert.equal(await secondAdmin.exists(B),true);
+        assert.equal(resumedWorkers.verify(A),true);
+        assert.throws(()=>resumedWorkers.begin(A,'guardian_commit'),
+          /qa_worker_drain_privileged_effect_blocked/);
+        assert.equal(await resumedWorkers.complete(independent,{
+          verify:async()=>true
+        }),true);
+        assert.deepEqual(resumedWorkers.status(B),{state:'active',pending:0});
+        assert.equal(await secondFreeze.verify(A),true);
+        await assert.rejects(secondFreeze.guardedWrite(A,'after'),
+          /qa_admin_freeze_privileged_write_frozen/);
+        assert.equal(mediaState.has(QA_EXTERNAL_BOB_PHOTO),true);
+        assert.equal(mediaState.has(QA_EXTERNAL_ORPHAN_PHOTO),false);
+        assert.equal(forbiddenMediaCalls,0);
+        for(const path of QA_FIXTURES.preserved){
+          const item=await getDoc(doc(db,path));
+          assert.equal(item.exists(),true,path);
+        }
+        assert.equal((await getDoc(doc(db,'profiles/'+A))).exists(),false);
+        assert.equal((await getDoc(doc(db,'users/'+A))).exists(),false);
+        assert.equal((await getDoc(doc(db,'profiles/'+B))).exists(),true);
+        assert.equal((await getDoc(doc(db,'users/'+B+'/legacyHidden/missingParent/deepChild/bobOrphan'))).exists(),true);
+        assert.equal(await secondFreeze.existsWrite(B,'bobAfter'),true);
+        const repeat=await resumed.execute({order:QA_ADMIN_ORDER_TEMPLATE,caseId});
+        assert.equal(repeat.completedPhases,QA_STEPS.length);
+        assert.equal(await secondAdmin.exists(B),true);
+      });
+    });
+
+  await test('QA foreign-reference cleanup never erases a record concurrently changed by Bob',
+    async()=>{
+      // Isolated Firestore/Auth emulators only. Alice's fake Auth has already
+      // been removed in the preceding test; this exercises stale cross-user
+      // references, not an Auth deletion.
+      await environment.withSecurityRulesDisabled(async context=>{
+        const db=context.firestore();
+        const notice='users/'+B+'/notifications/qa_foreign_race';
+        const pref='users/'+B+'/blockedMembers/'+A;
+        const now=new Date('2026-10-31T12:00:00Z');
+        await setDoc(doc(db,notice),{
+          postId:'qa_post_1',replyId:'qa_reply_1',actorUid:A,
+          actorName:'Alice',read:false,createdAt:now
+        });
+        const cleanup=createQaAdminForeignReferenceCleanup();
+        try{
+          let checks=0;
+          await assert.rejects(cleanup.purge(A,{
+            approvedQaReview:true,assertLease:()=>true,
+            assertAuthorized:async()=>{
+              // At check #4, the cleanup has re-read the notification but
+              // has not deleted it. Bob changes the record at that instant.
+              if(++checks===4){
+                await setDoc(doc(db,notice),{
+                  postId:'qa_post_1',replyId:'qa_reply_1',actorUid:B,
+                  actorName:'Bob',read:true,createdAt:now
+                });
+              }
+              return true;
+            }
+          }),/qa_foreign_reference_cleanup_concurrent_record_changed/);
+          const retained=await getDoc(doc(db,notice));
+          assert.equal(retained.exists(),true);
+          assert.equal(retained.data().actorUid,B);
+          assert.equal(retained.data().read,true);
+          assert.equal(checks,4);
+          assert.equal(await secondAdmin.exists(B),true);
+          await deleteDoc(doc(db,notice));
+
+          // A foreign user's block preference is also version-protected.
+          await setDoc(doc(db,pref),{createdAt:now});
+          checks=0;
+          await assert.rejects(cleanup.purge(A,{
+            approvedQaReview:true,assertLease:()=>true,
+            assertAuthorized:async()=>{
+              if(++checks===4){
+                await setDoc(doc(db,pref),{
+                  createdAt:new Date('2026-11-01T10:00:00Z'),
+                  note:'Bob edited preference in QA'
+                });
+              }
+              return true;
+            }
+          }),/qa_foreign_reference_cleanup_concurrent_record_changed/);
+          const block=await getDoc(doc(db,pref));
+          assert.equal(block.exists(),true);
+          assert.equal(block.data().note,'Bob edited preference in QA');
+          assert.equal(await secondAdmin.exists(B),true);
+        }finally{
+          await cleanup.close();
+          await deleteDoc(doc(db,notice)).catch(()=>{});
+          await deleteDoc(doc(db,pref)).catch(()=>{});
+        }
+      });
+    });
+
+
+  await test('ADMIN QA blocks a new owned subtree before the first Firestore deletion',
+    async()=>{
+      await environment.withSecurityRulesDisabled(async context=>{
+        const db=context.firestore();
+        const original='users/'+A+'/qaBeforeCommit/first';
+        const late='users/'+A+'/qaBeforeCommit/second';
+        await setDoc(doc(db,original),{uid:A,label:'must-survive'});
+        const purger=createQaAdminOwnedDescendantPurger();
+        try{
+          let checks=0;
+          await assert.rejects(purger.purge(A,{
+            assertLease:async()=>true,
+            assertAuthorized:async()=>{
+              // The second admission happens immediately AFTER inventory.
+              if(++checks===2)await setDoc(doc(db,late),{uid:A,label:'new'});
+              return true;
+            }
+          }),/qa_owned_descendant_purge_precommit_tree_changed/);
+          assert.equal(checks,2);
+          assert.equal((await getDoc(doc(db,original))).exists(),true,
+            'the first row must not be deleted before drift detection');
+          assert.equal((await getDoc(doc(db,late))).exists(),true);
+          assert.equal(await secondAdmin.exists(B),true);
+        }finally{
+          await purger.close();
+          await deleteDoc(doc(db,original)).catch(()=>{});
+          await deleteDoc(doc(db,late)).catch(()=>{});
+        }
+      });
+    });
+
+  await test('ADMIN QA refuses a changed or new foreign reference before the first deletion',
+    async()=>{
+      await environment.withSecurityRulesDisabled(async context=>{
+        const db=context.firestore();
+        const now=new Date('2026-10-31T12:00:00Z');
+        const first='users/'+B+'/notifications/qa_precommit_old';
+        const late='users/'+B+'/notifications/qa_precommit_new';
+        const notice=(label)=>({
+          postId:'qa_post_1',replyId:'qa_reply_1',actorUid:A,
+          actorName:label,read:false,createdAt:now
+        });
+        const cases=[
+          {name:'new foreign notice',inject:()=>setDoc(doc(db,late),notice('Late'))},
+          {name:'edited existing notice',inject:()=>setDoc(doc(db,first),notice('Edited'))}
+        ];
+        const cleanup=createQaAdminForeignReferenceCleanup();
+        try{
+          for(const scenario of cases){
+            await setDoc(doc(db,first),notice('Original'));
+            await deleteDoc(doc(db,late)).catch(()=>{});
+            let checks=0;
+            await assert.rejects(cleanup.purge(A,{
+              approvedQaReview:true,assertLease:async()=>true,
+              assertAuthorized:async()=>{
+                if(++checks===2)await scenario.inject();
+                return true;
+              }
+            }),/qa_foreign_reference_cleanup_precommit_inventory_changed/,
+            scenario.name);
+            assert.equal(checks,2,scenario.name);
+            assert.equal((await getDoc(doc(db,first))).exists(),true,
+              'no foreign record should be deleted on stale inventory');
+            assert.equal((await getDoc(doc(db,first))).data().actorName,
+              scenario.name==='edited existing notice'?'Edited':'Original');
+            assert.equal(await secondAdmin.exists(B),true);
+          }
+        }finally{
+          await cleanup.close();
+          await deleteDoc(doc(db,first)).catch(()=>{});
+          await deleteDoc(doc(db,late)).catch(()=>{});
+        }
+      });
+    });
+
+  await test('ADMIN QA refuses asynchronous lease loss before foreign or owned cleanup',
+    async()=>{
+      await environment.withSecurityRulesDisabled(async context=>{
+        const db=context.firestore();
+        const notice='users/'+B+'/notifications/qa_async_lease';
+        const nested='users/'+A+'/leaseQA/owned';
+        const now=new Date('2026-10-31T12:00:00Z');
+        await setDoc(doc(db,notice),{
+          postId:'qa_post_1',replyId:'qa_reply_1',actorUid:A,
+          actorName:'Alice',read:false,createdAt:now
+        });
+        await setDoc(doc(db,nested),{uid:A,createdAt:now});
+        const foreign=createQaAdminForeignReferenceCleanup();
+        const owned=createQaAdminOwnedDescendantPurger();
+        try{
+          for(const gate of [foreign,owned]){
+            // Only an explicit Boolean true is valid lease authorization.
+            // Undefined used to pass through the write guard.
+            for(const value of [undefined,null,false,0,1,'true',{}]){
+              await assert.rejects(gate.purge(A,{
+                approvedQaReview:true,
+                assertLease:async()=>value,
+                assertAuthorized:async()=>true
+              }),/lease_lost/);
+              assert.equal((await getDoc(doc(db,notice))).exists(),true);
+              assert.equal((await getDoc(doc(db,nested))).exists(),true);
+            }
+            await assert.rejects(gate.purge(A,{
+              approvedQaReview:true,
+              assertLease:async()=>{throw Error('qa_async_lease_revoked');},
+              assertAuthorized:async()=>true
+            }),/qa_async_lease_revoked/);
+          }
+          assert.equal((await getDoc(doc(db,notice))).exists(),true);
+          assert.equal((await getDoc(doc(db,nested))).exists(),true);
+          assert.equal(await secondAdmin.exists(B),true);
+        }finally{
+          await foreign.close();
+          await owned.close();
+          await deleteDoc(doc(db,notice));
+          await deleteDoc(doc(db,nested));
+        }
+      });
+    });
+
+  await test('ADMIN QA does not erase owned descendant edited during recursive purge',
+    async()=>{
+      await environment.withSecurityRulesDisabled(async context=>{
+        const db=context.firestore();
+        const target='users/'+A+'/qaConcurrent/one';
+        await setDoc(doc(db,target),{uid:A,version:'original'});
+        const purger=createQaAdminOwnedDescendantPurger();
+        try{
+          let validations=0;
+          await assert.rejects(purger.purge(A,{
+            assertLease:async()=>true,
+            assertAuthorized:async()=>{
+              // First two checks surround inventory; the fourth happens
+              // after re-reading the document and before conditional delete.
+              if(++validations===4)
+                await setDoc(doc(db,target),{uid:B,version:'changed_by_bob'});
+              return true;
+            }
+          }),/qa_owned_descendant_purge_concurrent_owned_document_changed/);
+          assert.equal((await getDoc(doc(db,target))).data().version,
+            'changed_by_bob');
+          assert.equal(await secondAdmin.exists(B),true);
+        }finally{
+          await purger.close();
+          await deleteDoc(doc(db,target));
+        }
+      });
+    });
+
+  await test('Admin SDK fails closed with unsafe environment and unauthorized UID',
+    async()=>{
+      if(!secondAdmin)throw Error('qa_admin_sdk_previous_test_required');
+      await assert.rejects(secondAdmin.exists('real-member-uid'),
+        /qa_admin_sdk_unrecognized_uid/);
+      const before=process.env.FIREBASE_AUTH_EMULATOR_HOST;
+      try{
+        process.env.FIREBASE_AUTH_EMULATOR_HOST='identitytoolkit.googleapis.com:443';
+        await assert.rejects(secondAdmin.exists(B),
+          /qa_admin_sdk_live_environment_forbidden/);
+      }finally{process.env.FIREBASE_AUTH_EMULATOR_HOST=before;}
+      assert.equal(await secondAdmin.exists(B),true);
+    });
+} finally {
+  await admin?.close();
+  await secondAdmin?.close();
+  await freeze?.close();
+  await secondFreeze?.close();
+  await nested?.close();
+  await secondNested?.close();
+  if(journal)journal.close();
+  if(workerDb)workerDb.close();
+  if(secondWorkerDb)secondWorkerDb.close();
+  if(workerDir)rmSync(workerDir,{recursive:true,force:true});
+  if(server.listening)await new Promise(resolve=>server.close(resolve));
+  await environment.cleanup();
+}

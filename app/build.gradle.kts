@@ -1,3 +1,5 @@
+import java.net.URI
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -18,7 +20,8 @@ val atrioKeyAlias = System.getenv("ATRIO_SIGNING_KEY_ALIAS")
 val atrioKeyPassword = System.getenv("ATRIO_SIGNING_KEY_PASSWORD")
 
 // Versão do APK de testes: avançar para 2, 3, ... a cada NOVA atualização Debug.
-// Release V2 autorizado: candidato 0.20.0 / versionCode 35. Assinatura permanece restrita ao workflow manual na main.
+// OTA 0.20.1 / code 36 está reservado na PR #70 (não mesclada).
+// Candidato Play 0.20.2 / code 37 é só metadado de QA; sem assinatura nem autorização de publicação.
 val atrioDebugPatch = 7
 val atrioDebugVersionName = "0.19.$atrioDebugPatch"
 val atrioDebugVersionCode = 27 + atrioDebugPatch
@@ -31,10 +34,14 @@ android {
         applicationId = "br.com.atriocatolico"
         testInstrumentationRunner = "br.com.atriocatolico.QaAndroidTestRunner"
         minSdk = 26
-        targetSdk = 35
-        versionCode = 35
-        versionName = "0.20.0"
-        buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"0.20.0\"")
+        // Google Play (outubro/2026) exige API 36 para novos envios e atualizacoes.
+        // Validar edge-to-edge e regressao de notificacoes antes de integrar.
+        targetSdk = 36
+        versionCode = 37
+        versionName = "0.20.2"
+        buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"0.20.2\"")
+        // Variante Play nunca baixa ou instala APKs fora da loja.
+        buildConfigField("boolean", "PLAY_STORE_BUILD", "false")
         val relayUrl = System.getenv("ATRIO_PUSH_WORKER_URL").orEmpty()
         val allowed = Regex("^https://[a-zA-Z0-9-]+\\.[a-zA-Z0-9-]+\\.workers\\.dev$")
         require(relayUrl.isBlank() || allowed.matches(relayUrl)) { "ATRIO_PUSH_WORKER_URL invalida" }
@@ -48,6 +55,43 @@ android {
         val avatarUrl = System.getenv("ATRIO_AVATAR_WORKER_URL").orEmpty()
         require(avatarUrl.isBlank() || allowed.matches(avatarUrl)) { "ATRIO_AVATAR_WORKER_URL invalida" }
         buildConfigField("String", "AVATAR_WORKER_URL", "\"$avatarUrl\"")
+        // A URL pertence ao responsavel pelo app. O release Play a exige no gate.
+        // Nenhuma politica provisoria ou link falso deve aparecer no aplicativo.
+        val policyUrl = System.getenv("ATRIO_PRIVACY_POLICY_URL").orEmpty()
+        val policyUri = runCatching { URI(policyUrl) }.getOrNull()
+        require(policyUrl.isBlank() || (
+            policyUrl.length <= 2048 &&
+            policyUri?.scheme == "https" &&
+            policyUri.host?.contains(".") == true &&
+            policyUri.userInfo == null &&
+            policyUri.query == null &&
+            policyUri.fragment == null &&
+            !policyUrl.contains('"') &&
+            !policyUrl.contains('\\') &&
+            !policyUrl.contains('\n') &&
+            !policyUrl.contains('\r')
+        )) { "ATRIO_PRIVACY_POLICY_URL deve ser uma URL HTTPS de politica publica, sem parametros" }
+        buildConfigField("String", "PRIVACY_POLICY_URL", "\"$policyUrl\"")
+
+        // Link externo exigido pela Play para iniciar exclusão mesmo sem app.
+        // Em builds QA, o valor fica vazio. Nunca publicar placeholders.
+        val deletionWebUrl = System.getenv("ATRIO_DELETION_PORTAL_URL").orEmpty()
+        val deletionWebUri = runCatching { URI(deletionWebUrl) }.getOrNull()
+        require(deletionWebUrl.isBlank() || (
+            deletionWebUrl.length <= 2048 &&
+            deletionWebUri?.scheme == "https" &&
+            deletionWebUri.host?.contains(".") == true &&
+            deletionWebUri.userInfo == null &&
+            deletionWebUri.query == null &&
+            deletionWebUri.fragment == null &&
+            (deletionWebUri.port == -1 || deletionWebUri.port == 443) &&
+            !deletionWebUrl.contains('"') &&
+            !deletionWebUrl.contains('\\') &&
+            !deletionWebUrl.contains('\n') &&
+            !deletionWebUrl.contains('\r')
+        )) { "ATRIO_DELETION_PORTAL_URL deve ser HTTPS público sem parâmetros" }
+        buildConfigField("String", "DELETION_WEB_URL", "\"$deletionWebUrl\"")
+
     }
 
     signingConfigs {
@@ -68,6 +112,14 @@ android {
             buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"$atrioDebugVersionName\"")
         }
         getByName("release") {
+            // Canal APK OTA: permanece com build/task/assinatura originais.
+            signingConfigs.findByName("atrioRelease")?.let { signingConfig = it }
+        }
+        create("playRelease") {
+            // Mesmo applicationId/versionCode, mas política de distribuição diferente.
+            initWith(getByName("release"))
+            matchingFallbacks += listOf("release")
+            buildConfigField("boolean", "PLAY_STORE_BUILD", "true")
             signingConfigs.findByName("atrioRelease")?.let { signingConfig = it }
         }
     }

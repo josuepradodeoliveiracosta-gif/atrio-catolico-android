@@ -41,7 +41,7 @@ export async function scanPagedCycle(db,settings,{onDocument,onReport},now=new D
    typeof db?.create!=='function'||typeof db?.update!=='function'||
    typeof onDocument!=='function'||typeof onReport!=='function'||!iso(now))
    throw Error('paged_scanner_not_configured');
- const counters={clear:0,review:0,warn:0,hold:0,invalid:0,
+ const counters={clear:0,review:0,warn:0,hold:0,frozen:0,invalid:0,
    duplicate_or_changed:0,changed:0,ignored:0,missing:0,error:0,
    pages:0,backlogGroups:0,pausedGroups:0};
  for(const task of SCANS){

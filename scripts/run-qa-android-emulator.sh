@@ -109,6 +109,7 @@ if ! adb pull /data/local/tmp/atrio-profile-preview/. qa-android-suite-results/p
 fi
 run_suite ProfileEditorUiTest
 run_suite ThreeBotsAndroidUiTest
+run_suite AccountDeletionRequestStateTest
 run_suite ThreeBotsAuthenticatedAndroidUiTest
 run_suite ThreeBotsOnlineEmulatorTest
 echo "QA Android: suítes concluídas em processos separados; status=$qa_failed"

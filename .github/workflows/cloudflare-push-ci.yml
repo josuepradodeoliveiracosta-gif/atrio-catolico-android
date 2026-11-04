@@ -26,4 +26,4 @@ jobs:
         with:
           node-version: "22"
       - name: Testes isolados sem Firebase ou Cloudflare de produção
-        run: node --test cloudflare/push-worker/src/index.test.js
+        run: npm test --prefix cloudflare/push-worker

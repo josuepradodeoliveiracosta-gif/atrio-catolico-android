@@ -4,6 +4,57 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class NotificationModelsTest {
+    @Test fun personalNoticesCannotUpdateAfterAccountSwitchOrLogout() {
+        assertTrue(currentPersonalNoticeSession("alice", "alice"))
+        assertTrue(currentPersonalNoticeSession("bob", "bob"))
+        assertFalse(currentPersonalNoticeSession("alice", "bob"))
+        assertFalse(currentPersonalNoticeSession("bob", "alice"))
+        assertFalse(currentPersonalNoticeSession("alice", null))
+        assertFalse(currentPersonalNoticeSession("", ""))
+        assertFalse(currentPersonalNoticeSession("", null))
+    }
+
+    @Test fun moderatorRoleRequiresLiveServerConfirmationAndUnchangedSession() {
+        fun allowed(
+            uid: String? = "admin-qa",
+            error: Boolean = false,
+            present: Boolean = true,
+            cache: Boolean = false,
+            pending: Boolean = false,
+            enabled: Boolean = true
+        ) = verifiedAdminRoleSnapshot("admin-qa", uid, error, present, cache, pending, enabled)
+        assertTrue(allowed())
+        assertFalse(allowed(uid = "different-user"))
+        assertFalse(allowed(uid = null))
+        assertFalse(allowed(error = true))
+        assertFalse(allowed(present = false))
+        assertFalse(allowed(cache = true))
+        assertFalse(allowed(pending = true))
+        assertFalse(allowed(enabled = false))
+        // Documento persistido em cache nunca reativa a moderação sozinho.
+        assertFalse(allowed(cache = true, enabled = true))
+    }
+
+    @Test fun adminAlertsRequireCurrentUserAndServerConfirmedSnapshot() {
+        val expected = "admin-qa"
+        assertTrue(verifiedAdminNoticeSnapshot(expected, expected,
+            hasError = false, hasData = true, fromCache = false, pendingWrites = false))
+        assertFalse(verifiedAdminNoticeSnapshot(expected, "other-account",
+            hasError = false, hasData = true, fromCache = false, pendingWrites = false))
+        assertFalse(verifiedAdminNoticeSnapshot(expected, null,
+            hasError = false, hasData = true, fromCache = false, pendingWrites = false))
+        assertFalse(verifiedAdminNoticeSnapshot("", "",
+            hasError = false, hasData = true, fromCache = false, pendingWrites = false))
+        assertFalse(verifiedAdminNoticeSnapshot(expected, expected,
+            hasError = true, hasData = true, fromCache = false, pendingWrites = false))
+        assertFalse(verifiedAdminNoticeSnapshot(expected, expected,
+            hasError = false, hasData = false, fromCache = false, pendingWrites = false))
+        assertFalse(verifiedAdminNoticeSnapshot(expected, expected,
+            hasError = false, hasData = true, fromCache = true, pendingWrites = false))
+        assertFalse(verifiedAdminNoticeSnapshot(expected, expected,
+            hasError = false, hasData = true, fromCache = false, pendingWrites = true))
+    }
+
     private fun event(id: String, kind: NoticeKind, target: String = "", read: Boolean = false, at: Long = 1) =
         NoticeEvent(id, kind, target, "title", "body", at, read)
 
@@ -52,6 +103,35 @@ class NotificationModelsTest {
         assertTrue(groups.first().unread)
         assertEquals("direct:p", groups[1].id)
         assertEquals("reply:p", groups.last().id)
+    }
+
+    @Test fun memberReportsJoinExistingAdminAlertsWithoutExposingIdentity() {
+        val reportId = "rep_alice_user_bob"
+        val member = pendingMemberReportNotice(reportId, "pending", 1700000000000L, 42)!!
+        val post = event("post_1", NoticeKind.REPORTS, at = 1700000001000L)
+        val group = groupNotices(listOf(post, member), true).single()
+        assertEquals(NoticeKind.REPORTS, group.kind)
+        assertEquals(2, group.events.size)
+        assertTrue(group.body.contains("usuários denunciados"))
+        assertFalse(group.title.contains("alice"))
+        assertFalse(member.id.contains("alice"))
+        assertFalse(member.localToken.contains("alice"))
+        assertFalse(member.localToken.contains("bob"))
+        assertTrue(groupNotices(listOf(post, member), false).isEmpty())
+    }
+
+    @Test fun memberReportsOnlyAlertWhilePendingWithStablePrivateToken() {
+        val id = "alice_user_bob"
+        val original = pendingMemberReportNotice(id, "pending", 1700000000000L, 1)!!
+        assertEquals(original, pendingMemberReportNotice(id, "pending", 1700000000000L, 1))
+        assertFalse(original.localToken == pendingMemberReportNotice(
+            id, "pending", 1700000000000L, 2)!!.localToken)
+        for (status in listOf("reviewed", "dismissed", "unknown", "")) {
+            assertNull(pendingMemberReportNotice(id, status, 1700000000000L, 1))
+        }
+        assertNotNull(pendingMemberReportNotice(id, null, 1700000000000L, 1))
+        assertNull(pendingMemberReportNotice("", "pending", 1700000000000L, 1))
+        assertNull(pendingMemberReportNotice(id, "pending", 0L, 1))
     }
 
     @Test fun adminDataNeverAppearsForCommonUserOrRevokedAdmin() {

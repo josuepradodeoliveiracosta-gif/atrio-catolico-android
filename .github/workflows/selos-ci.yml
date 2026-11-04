@@ -10,9 +10,11 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  # Uma atualização não pode interromper um teste já iniciado.
-  # O GitHub poderá substituir somente uma execução ainda pendente.
-  cancel-in-progress: false
+  # Uma atualização da PR substitui somente sua própria validação anterior.
+  # Testes Firebase offline podem travar; evitar fila indefinida e gastar
+  # minutos validando um commit que já deixou de ser o HEAD da PR.
+  # A execução manual/push de outro ref continua isolada pelo grupo.
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -21,24 +23,86 @@ jobs:
   firestore-rules:
     name: Regras de seguranca Firestore
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - name: Obter codigo
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Classificar diff incremental para evitar emuladores redundantes
+        id: scope
+        shell: bash
+        env:
+          PR_ACTION: ${{ github.event.action }}
+          BEFORE_SHA: ${{ github.event.before }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts -p 'test_play_ci_heavy_scope.py' -v
+          # First PR, manual dispatch, push, unknown or rewritten history:
+          # always run the complete emulator suite.
+          if [[ "$GITHUB_EVENT_NAME" != "pull_request" || "$PR_ACTION" != "synchronize" ||
+                ! "$BEFORE_SHA" =~ ^[0-9a-f]{40}$ || ! "$PR_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo 'heavy=true' >> "$GITHUB_OUTPUT"
+          elif ! git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null ||
+               ! git cat-file -e "${PR_HEAD_SHA}^{commit}" 2>/dev/null ||
+               ! git merge-base --is-ancestor "$BEFORE_SHA" "$PR_HEAD_SHA"; then
+            echo 'heavy=true' >> "$GITHUB_OUTPUT"
+          else
+            git diff --name-only --diff-filter=ACDMRT -z "$BEFORE_SHA" "$PR_HEAD_SHA" > "$RUNNER_TEMP/qa-heavy-changes.bin"
+            python3 scripts/play_ci_heavy_scope.py --changed-file "$RUNNER_TEMP/qa-heavy-changes.bin" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Declarar dispensa explicita dos emuladores nesta sincronizacao
+        if: steps.scope.outputs.heavy == 'false'
+        run: |
+          echo 'Somente documentos/paginas/fichas offline: emuladores nao executados neste commit.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'As auditorias Google Play e seguranca da PR seguem independentes; o resultado NAO e uma homologacao de release.' >> "$GITHUB_STEP_SUMMARY"
       - name: Preparar Node.js
+        if: steps.scope.outputs.heavy == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '20'
       - name: Preparar Java para emulador
+        if: steps.scope.outputs.heavy == 'true'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
       - name: Instalar dependencias dos testes
+        if: steps.scope.outputs.heavy == 'true'
         working-directory: tests/security
         run: npm ci
       - name: Testar regras do Firestore no emulador (sem acessar producao)
+        if: steps.scope.outputs.heavy == 'true'
         working-directory: tests/security
+        # Impedir que um cliente SDK offline prenda os demais QA da PR.
+        timeout-minutes: 8
         run: npm test
+      - name: Preparar Node 22 para QA administrativo (SQLite e Firebase Admin)
+        if: steps.scope.outputs.heavy == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Instalar Firebase Admin exclusivamente na fixture
+        if: steps.scope.outputs.heavy == 'true'
+        working-directory: tests/security
+        run: npm install --prefix admin-fixture --no-save --package-lock=false --ignore-scripts --no-audit --no-fund
+      - name: Testar exclusao apenas em emuladores e HTTP localhost
+        if: steps.scope.outputs.heavy == 'true'
+        working-directory: tests/security
+        shell: bash
+        env:
+          GCLOUD_PROJECT: demo-atrio-v11
+        run: |
+          set -euo pipefail
+          test -z "${GOOGLE_APPLICATION_CREDENTIALS:-}"
+          test -z "${FIREBASE_SERVICE_ACCOUNT_JSON:-}"
+          test -z "${CLOUDINARY_API_SECRET:-}"
+          test -z "${CLOUDINARY_API_KEY:-}"
+          node prepare.mjs
+          npx firebase emulators:exec --only firestore,auth --project demo-atrio-v11 \
+            "node guardian-firestore-transaction-emulator.test.mjs && node relational-inventory-emulator.test.mjs && node --experimental-sqlite qa-deletion-auth-fence.test.mjs && node --experimental-sqlite qa-deletion-emulator.test.mjs && env -u FIREBASE_CONFIG node --experimental-sqlite qa-auth-cloudinary-emulator.test.mjs && env -u FIREBASE_CONFIG node --experimental-sqlite admin-fixture/qa-worker-drain.test.mjs && env -u FIREBASE_CONFIG node --experimental-sqlite admin-fixture/qa-avatar-d1-pre-auth.test.mjs && env -u FIREBASE_CONFIG node --experimental-sqlite admin-fixture/qa-retention-evidence.test.mjs && env -u FIREBASE_CONFIG node --experimental-sqlite admin-fixture/qa-admin-sdk-e2e.test.mjs && env -u FIREBASE_CONFIG node admin-fixture/qa-controlled-executor-e2e.test.mjs && env -u FIREBASE_CONFIG node admin-fixture/qa-push-devices-emulator.test.mjs && env -u FIREBASE_CONFIG node admin-fixture/qa-founder-gate-emulator.test.mjs && node account-deletion-freeze.test.mjs"
 
   android:
     name: Compilar Android de testes
@@ -46,28 +110,70 @@ jobs:
     steps:
       - name: Obter codigo
         uses: actions/checkout@v4
+        with:
+          # Comparacao confiavel entre commits da mesma PR; nao guardar token.
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Identificar se Android realmente mudou nesta sincronizacao
+        id: scope
+        shell: bash
+        env:
+          PR_ACTION: ${{ github.event.action }}
+          BEFORE_SHA: ${{ github.event.before }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          # Falha fechada: primeiro envio, execucao manual, push QA legado,
+          # SHA inesperado ou rebase sempre executam a compilacao.
+          if [[ "$GITHUB_EVENT_NAME" != "pull_request" || "$PR_ACTION" != "synchronize" ||
+                ! "$BEFORE_SHA" =~ ^[0-9a-f]{40}$ || ! "$PR_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo 'android=true' >> "$GITHUB_OUTPUT"
+          elif ! git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null ||
+               ! git cat-file -e "${PR_HEAD_SHA}^{commit}" 2>/dev/null ||
+               ! git merge-base --is-ancestor "$BEFORE_SHA" "$PR_HEAD_SHA"; then
+            echo 'android=true' >> "$GITHUB_OUTPUT"
+          else
+            git diff --name-only --diff-filter=ACDMRT -z "$BEFORE_SHA" "$PR_HEAD_SHA" > "$RUNNER_TEMP/selos-changed.bin"
+            python3 scripts/play_ci_android_scope.py --changed-file "$RUNNER_TEMP/selos-changed.bin" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Registrar escopo sem enfraquecer testes Firestore
+        shell: bash
+        env:
+          ANDROID_SCOPE: ${{ steps.scope.outputs.android }}
+        run: |
+          set -euo pipefail
+          if [[ "$ANDROID_SCOPE" == 'true' ]]; then
+            echo 'Selos CI: verificacao Android exigida para esta revisao.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Selos CI: apenas Android dispensado por diff nao-Android seguro; Firestore/QA administrativo seguem obrigatorios.' >> "$GITHUB_STEP_SUMMARY"
+          fi
       - name: Configurar Java 17
+        if: steps.scope.outputs.android == 'true'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
       - name: Preparar Android SDK
+        if: steps.scope.outputs.android == 'true'
         uses: android-actions/setup-android@v4
       - name: Configurar Gradle 8.13
+        if: steps.scope.outputs.android == 'true'
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
       - name: Instalar plataforma Android 36
+        if: steps.scope.outputs.android == 'true'
         run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
       - name: Validar configuracao Firebase
         run: python3 scripts/validar_firebase.py
       - name: Compilar sem alterar a assinatura de producao
+        if: steps.scope.outputs.android == 'true'
         env:
           ATRIO_PUSH_WORKER_URL: ${{ vars.ATRIO_PUSH_WORKER_URL || 'https://atrio-push.atrio-catolico.workers.dev' }}
           ATRIO_AVATAR_WORKER_URL: ${{ vars.ATRIO_AVATAR_WORKER_URL || '' }}
         run: gradle :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --stacktrace
       - name: Disponibilizar APK debug apenas para testes da PR
-        if: ${{ github.event_name == 'pull_request' }}
+        if: github.event_name == 'pull_request' && steps.scope.outputs.android == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: atrio-catolico-v0190-debug-testes

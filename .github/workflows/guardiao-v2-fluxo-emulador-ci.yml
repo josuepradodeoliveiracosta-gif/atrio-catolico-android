@@ -11,6 +11,8 @@ on:
       - 'cloudflare/guardian-worker/src/scan-paged.js'
       - 'firestore.rules'
       - '.github/workflows/guardiao-v2-fluxo-emulador-ci.yml'
+      - 'scripts/play_ci_heavy_scope.py'
+      - 'scripts/test_play_ci_heavy_scope.py'
   workflow_dispatch:
 
 permissions:
@@ -33,16 +35,48 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: 0
+      - name: Classificar diff incremental para evitar emuladores redundantes
+        id: scope
+        shell: bash
+        env:
+          PR_ACTION: ${{ github.event.action }}
+          BEFORE_SHA: ${{ github.event.before }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts -p 'test_play_ci_heavy_scope.py' -v
+          # First PR, manual dispatch, push, unknown or rewritten history:
+          # always run the complete emulator suite.
+          if [[ "$GITHUB_EVENT_NAME" != "pull_request" || "$PR_ACTION" != "synchronize" ||
+                ! "$BEFORE_SHA" =~ ^[0-9a-f]{40}$ || ! "$PR_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo 'heavy=true' >> "$GITHUB_OUTPUT"
+          elif ! git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null ||
+               ! git cat-file -e "${PR_HEAD_SHA}^{commit}" 2>/dev/null ||
+               ! git merge-base --is-ancestor "$BEFORE_SHA" "$PR_HEAD_SHA"; then
+            echo 'heavy=true' >> "$GITHUB_OUTPUT"
+          else
+            git diff --name-only --diff-filter=ACDMRT -z "$BEFORE_SHA" "$PR_HEAD_SHA" > "$RUNNER_TEMP/qa-heavy-changes.bin"
+            python3 scripts/play_ci_heavy_scope.py --changed-file "$RUNNER_TEMP/qa-heavy-changes.bin" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Declarar dispensa explicita dos emuladores nesta sincronizacao
+        if: steps.scope.outputs.heavy == 'false'
+        run: |
+          echo 'Somente documentos/paginas/fichas offline: emuladores nao executados neste commit.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'As auditorias Google Play e seguranca da PR seguem independentes; o resultado NAO e uma homologacao de release.' >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/setup-node@v4
+        if: steps.scope.outputs.heavy == 'true'
         with:
           node-version: '20'
           cache: npm
           cache-dependency-path: tests/security/package-lock.json
       - uses: actions/setup-java@v4
+        if: steps.scope.outputs.heavy == 'true'
         with:
           distribution: temurin
           java-version: '17'
       - name: Preparar dependencias e executar SOMENTE os cenarios de integracao novos
+        if: steps.scope.outputs.heavy == 'true'
         working-directory: tests/security
         run: |
           npm ci

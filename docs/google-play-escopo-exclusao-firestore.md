@@ -1,0 +1,265 @@
+# Contrato de escopo de exclusão — Firestore Rules e inventário
+
+Este é um **alarme estático de cobertura**, não uma declaração de que
+as contas podem ser excluídas em produção.
+
+A nova suíte `cloudflare/account-deletion-audit/src/qa-firestore-schema-contract.test.js`
+compara a lista ordenada de todos os blocos `match` do
+`firestore.rules` com o contrato revisado. Uma nova coleção, subcoleção,
+renomeação ou remoção causa falha na CI até que sua classificação de
+privacidade seja atualizada.
+
+As categorias distinguem perfis do titular, dados em coleções aninhadas,
+referências relacionais, avisos de outros usuários, registros de moderação,
+configuração sistêmica, marcadores administrativos e recibos de exclusão.
+
+**Lacunas que continuam abertas:** `account_deletion_freeze`,
+`account_deletion_requests`, `guardian_runtime`, referência ao fundador,
+coleções órfãs e relações sem UID indexado; além de Cloudinary, FCM,
+Firebase Auth e D1. Nenhuma dessas áreas recebeu autorização de exclusão
+automática. `deletion_executor`, `worker_freeze` e `releaseAuthorized`
+continuam não homologados.
+
+O contrato é lido pela CI atual do `account-deletion-audit` (Node test)
+e não executa consultas nem alterações na produção. Uma mudança nas regras
+**exige revisão humana de privacidade**, não somente atualizar uma lista
+para fazer a CI ficar verde.
+
+
+## Limpeza recursiva administrativa de subcoleções órfãs (QA, 03/11/2026)
+
+Novo módulo `tests/security/admin-fixture/qa-admin-owned-descendant-purge.mjs`
+executa **remoção real de documentos no Firestore Emulator local**, usando
+Firebase Admin SDK e **somente o UID sintético** `qa-delete-alice`. Percorre
+subcoleções de qualquer nome sob as raízes privadas do titular, inclusive
+documentos netos com pais ausentes, aplicando limites explícitos de
+profundidade e quantidade, validação estrita do caminho e exclusão dos filhos
+antes dos pais. Inventaria a árvore inteira antes da primeira alteração.
+Checa autorização administrativa de QA e fence a cada operação; nova leitura
+verifica ausência e reexecução não repete efeitos. As raízes não são apagadas
+pelo novo método, e dados de terceiros não entram no escopo.
+
+A suíte E2E **existente** do Admin SDK passou a usar o método depois de
+comprovar que o auditor independente bloqueou Auth diante de um neto órfão;
+também preserva a árvore de Bob e testa repetição sem efeitos. O método
+não é invocado em produção, não possui HTTP público, não remove Auth,
+Cloudinary, D1, referências relacionais ou documentos de moderação.
+O contrato permanece bloqueado para release até a aprovação de IAM,
+retenção, processamento de terceiros e fence distribuído. Não publicar o
+aplicativo por causa de uma prova do emulador.
+
+
+## Referências cruzadas de notificações/bloqueios — QA isolado (03/11/2026)
+
+O novo `qa-admin-foreign-reference-cleanup.mjs` remove, **apenas no
+Firestore Emulator** e com revisão explícita da fixture, duas classes
+estreitamente delimitadas: notificações automáticas cujo `actorUid`
+pertence à conta sintética excluída e preferências `blockedMembers`
+de terceiros cuja chave identifica exatamente aquela conta. A rotina
+faz inventário completo limitado, confere a identidade/caminho e o
+esquema da notificação, revisa a autorização e o fence de QA antes de
+cada efeito, relê o registro e confirma ausência depois da operação.
+
+No mesmo teste de Admin SDK, criar referências tardias agora bloqueia
+a remoção de Auth; a limpeza remove apenas esses vínculos e preserva
+notificações próprias do segundo usuário, outros bloqueios, sua árvore
+privada, Auth e registros de moderação. Reexecução não repete exclusões.
+A rotina **não** trata denúncias, histórico de Guardião, conteúdo
+público, retenção, D1, imagens nem corrida entre serviços reais;
+não é integrada ao backend de produção e não autoriza publicação.
+
+
+## IDs determinísticos são dados pessoais (reconciliação, 03/11/2026)
+
+A auditoria independente `qa-deletion-reconciliation.mjs` agora
+reconhece referências ao UID **dentro dos IDs de documentos**, mesmo
+quando um registro deixa de conter `reporterUid` ou `targetUid`:
+`reports/{reporterUid}_post_*`,
+`reports/{reporterUid}_reply_*`,
+`user_reports/{reporterUid}_user_{targetUid}` e
+`posts/*/replies/*/reactions/{uid}`. A varredura do Firebase Emulator
+é limitada a 2000 documentos por coleção/classe e **falha fechada**
+quando esse limite é excedido ou os caminhos diferem do esquema.
+Um único identificador remanescente impede remover até mesmo a
+identidade Auth de teste. O teste existente `qa-deletion-emulator.test.mjs`
+cobre documentos que não têm campo UID indexado; também confirma
+que os documentos de moderação não são excluídos automaticamente.
+
+**Decisão:** apagar `reporterUid` do conteúdo de uma denúncia não
+constitui anonimização se o UID ainda aparece no próprio ID. O
+procedimento real dependerá de revisão jurídica dos registros e de
+mecanismo seguro para reidentificação/migração ou retenção fundamentada,
+sem apagar arbitrariamente provas de denúncias nem publicações de
+terceiros. Essa varredura integral limitada é só para base descartável:
+a operação real requer inventário administrativo paginado em todas as
+coleções e prova independente de ausência. Não habilita Play.
+
+
+## Revogação de privilégios administrativos durante o congelamento (03/11/2026)
+
+A função `isAdmin()` do `firestore.rules` agora exige
+`accountWritable(request.auth.uid)` **antes** de conceder o papel
+administrativo. O marcador de exclusão, criado exclusivamente por
+serviço privilegiado, bloqueia também leitura de `reports` e
+`user_reports`, decisões de moderação e exclusão de publicações
+alheias através do cliente, mesmo quando `admins/{uid}.enabled`
+permanece `true`. A regra preserva os acessos anteriores enquanto
+não houver congelamento e os recupera quando o marcador é retirado por
+operador autorizado.
+
+A suíte existente `tests/security/account-deletion-freeze.test.mjs`
+verifica a sequência **antes → congelado → descongelado** com uma conta
+fictícia administradora, comprovando que a conta de outro membro e
+suas publicações não são alteradas. Não foi necessário novo workflow.
+Essa mudança é apenas nas Rules da PR; não implantamos as regras no
+Firebase real. Workers Admin SDK contornam as Rules e ainda precisam
+de proteção própria. Não autoriza execução real de exclusão ou Play.
+
+
+## Proteção contra novas colunas D1 sem revisão (03/11/2026)
+
+O gate de retenção `requireD1ReviewCoverage` verificava as sete
+tabelas conhecidas dos Workers Avatar/Push, mas não mudanças nas
+suas **colunas**. Agora compara também a definição completa de
+colunas, tipos, obrigatoriedade, valores padrão e chaves compostas,
+com estrutura revisada e versionada em código. Novas colunas como
+`recipient_uid`, alteração de `public_id` ou de chave primária,
+remoção de coluna e `ALTER TABLE` provocam falha na CI até revisão
+explícita da classificação de privacidade. Foi reutilizada a suíte
+Node já existente, sem novo job ou serviço.
+
+A verificação é **somente sobre o SQL do repositório**: não afirma
+que o esquema dos bancos D1 implantados corresponda ao código, não
+decide prazo de retenção, não habilita exclusões e não autoriza Play.
+A eventual migração de um banco real requer inventário operacional
+independente, revisão jurídica e procedimento seguro.
+
+
+## Metadados D1 efetivamente implantados — inspeção somente-leitura (03/11/2026)
+
+A conexão Cloudflare autorizada foi consultada **somente sobre o
+`sqlite_master`** (nome e DDL das tabelas, sem linhas de usuários)
+nos bancos `atrio-avatar-control` e `atrio-push-delivery`.
+As quatro tabelas de Avatar e três de Push têm as definições
+esperadas pelo repositório; em ambos existe adicionalmente a tabela
+interna da plataforma `_cf_KV`, que não é dado do aplicativo.
+Nenhuma escrita/alteração foi realizada ou solicitada.
+
+O validador `qa-live-d1-schema-review.js` agora compara um extrato
+**privado, somente estrutural** dessas duas fontes com o contrato
+versionado de colunas, tipos e chaves. O comando offline é:
+`node cloudflare/account-deletion-audit/src/qa-live-d1-schema-review.js --schema-only /caminho/privado/estruturas.json`
+onde o JSON contém exatamente `{"avatar":[{"name":"...","sql":"CREATE TABLE ..."}],"push":[...]}`.
+Não incluir credenciais, linhas reais, e-mails ou tokens no arquivo,
+GitHub ou log. A operação de consulta à Cloudflare é uma operação
+READ-ONLY de metadados; a CLI não acessa a rede.
+
+Esta constatação **não** comprova a identidade de quem extraiu o
+JSON, integridade assinada, política de retenção, apagamento real de
+linhas, Cloudinary/Auth nem operação de congelamento. O validador
+retorna explicitamente `sourceAuthenticityVerified:false`,
+`retentionLegallyApproved:false` e `playReleaseAuthorized:false`.
+Os testes Node executam apenas SQL simulado a partir dos arquivos
+do projeto e rejeitam qualquer coluna/tabela não declarada.
+
+
+## Inventário de exclusão: reações e provas de moderação (03/11/2026)
+
+O planejador **somente de QA**
+`cloudflare/account-deletion-audit/src/deletion-orchestrator.js` passou
+a rejeitar reações em
+`posts/{postId}/replies/{replyId}/reactions/{uid}` quando o
+identificador final da reação **não é** o UID do titular, ainda que
+o registro consultado alegue `ownerUid` correspondente. O bloqueio
+é `reaction_document_uid_mismatch`. O teste usa duas identidades
+fictícias e confirma que o documento de outro membro nunca é
+considerado parte do titular para exclusão.
+
+Denúncias `reports` e `user_reports`, casos `guardian_cases`,
+`guardian_audit` e `guardiao_quarantine` passam a exigir
+`moderation_evidence_requires_independent_resolution` em qualquer
+plano que os encontre. Essa exigência não pode ser retirada apenas
+com um booleano genérico de aprovação/retensão: é necessário um
+processo independente para cada prova, levando em conta denunciante,
+pessoa denunciada, anonimização e deveres legais. Os IDs que
+incorporam UIDs também ficam retidos para análise.
+
+Os testes Node do planejador estão na suíte Play já existente,
+sem nova compilação manual ou execução de exclusão. A PR mantém
+`safeToExecute:false` para todos os planos. Esse aperto impede
+um falso inventário aprovado, mas **não** implementa o tratamento
+jurídico nem a exclusão operacional; nenhuma alteração foi feita
+em contas reais, Auth, D1, Cloudinary, Rules publicadas ou main.
+
+
+## Ficha privada por denúncia/caso de moderação (03/11/2026)
+
+A auditoria de exclusão da PR #71 recebeu o módulo
+`qa-moderation-case-review.js`, sem capacidade de escrita ou remoção.
+Ele gera uma **ficha individual para cada documento** enumerado em
+`reports`, `user_reports`, `guardian_cases`, `guardian_audit` e
+`guardiao_quarantine`. O documento pode envolver o titular e
+terceiros; ser encontrado no inventário jamais autoriza sua exclusão.
+
+A rotina exige UID e escopos coerentes, inventário declarado completo,
+sem duplicatas, escopo alheio ou alteração silenciosa. O hash de
+inventário vincula o conjunto exato de caminhos à ficha; um novo caso
+invalida a revisão anterior. Para cada documento, registra uma
+**proposta**, nunca uma decisão legal definitiva: conservar até data
+justificada, propor anonimização ou propor exclusão, com base legal,
+análise de terceiros, revisão técnica e jurídica independentes,
+comprovante e plano de tratamento. Ao faltar qualquer campo, a ficha
+fica incompleta. Um resumo contém **apenas contagens**, sem nomes,
+identificadores ou URLs de casos.
+
+Uso **estritamente local**, com arquivo de inventário administrativo
+privado e sem credenciais no GitHub:
+
+```sh
+node cloudflare/account-deletion-audit/src/qa-moderation-case-review.js --template /caminho/privado/inventario.json > /caminho/privado/casos-moderacao.json
+node cloudflare/account-deletion-audit/src/qa-moderation-case-review.js --review /caminho/privado/inventario.json /caminho/privado/casos-moderacao.json
+```
+
+O inventário deve ser obtido de fonte administrativa confiável;
+`pagesComplete:true` fornecido em JSON **não comprova** uma varredura
+real. A identidade dos revisores e as bases legais também exigem
+autenticação e validação externa. A ficha **não** elimina nem libera
+casos no `buildDeletionPlan`: o bloqueio
+`moderation_evidence_requires_independent_resolution` continua
+obrigatório. Não cobre, por si, moderação no D1 Avatar nem referências
+legadas. Todos os sinalizadores de aprovação de exclusão, retenção,
+IAM e publicação na Play continuam falsos. Os testes usam apenas
+registros inventados na suíte Node preexistente.
+
+
+## Consolidação do diagnóstico administrativo com a ficha de denúncias (03/11/2026)
+
+O módulo `qa-moderation-deletion-preflight.js` conecta **sem qualquer
+ação destrutiva** o planejador `buildDeletionPlan` à ficha individual
+`auditModerationCaseDossier`. Um operador pode produzir um diagnóstico
+consolidado dos bloqueios existentes, do número de casos de moderação,
+de propostas incompletas e dos casos que ainda exigem revisão
+independente. A função não devolve UID, caminhos, evidências, textos
+de denúncias ou identidade de revisores.
+
+Quando a ficha inexiste, está incompleta, usa inventário antigo ou
+declara cobertura incompatível, a integração falha conservadoramente
+com `moderation_dossier_missing_or_invalid` ou
+`moderation_case_proposal_incomplete`. Mesmo se todas as fichas
+contiverem propostas estruturalmente válidas, o bloqueio
+`moderation_evidence_requires_independent_resolution` do planejador
+não é removido. Um bloqueio explícito adicional,
+`moderation_independent_legal_resolution_required`, exige decisão
+jurídica autêntica, reconciliação de terceiros e execução em etapa
+isolada, não representada neste módulo.
+
+Os testes da auditoria abrangem fichas ausentes, antigas, adulteradas,
+revisão de dois casos, perda de aprovação administrativa e inventário
+sem casos. Nem o cenário sem bloqueios gera autorização de operação:
+`accountDeletionAuthorized:false`,
+`destructiveOperationsEnabled:false` e
+`googlePlayReleaseAuthorized:false` são permanentes. Trata-se de
+inspeção offline; um JSON com `pagesComplete:true` não autentica
+inventário vivo. Para uso efetivo exigem-se serviço confiável de
+identidade, retenção jurídica, inventário real, fence distribuído e
+comprovantes de exclusão. Nenhum deploy, assinatura ou envio Play.

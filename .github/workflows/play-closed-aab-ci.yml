@@ -1,0 +1,267 @@
+name: Google Play — validar AAB de testes fechados (sem assinatura)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'gradle/**'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
+      - 'gradle.properties'
+      - 'firestore.rules'
+      - 'tests/security/**'
+      - 'cloudflare/privacy-batch-stage/**'
+      - 'cloudflare/privacy-freeze-stage/**'
+      - 'cloudflare/push-worker/**'
+      - 'cloudflare/account-deletion-portal/**'
+      - 'cloudflare/account-deletion-support/**'
+      - 'cloudflare/account-deletion-processor/**'
+      - 'cloudflare/account-deletion-audit/**'
+      - 'ops/cloud-run-private-review/**'
+      - 'docs/google-play-politica-privacidade-minuta-nao-publicar.md'
+      - 'docs/google-play-seguranca-dados-matriz-revisao.md'
+      - 'scripts/play_store_bundle_check.py'
+      - 'scripts/test_play_store_bundle_check.py'
+      - 'scripts/play_release_gate.py'
+      - 'scripts/play_listing_preflight.py'
+      - 'scripts/test_play_listing_preflight.py'
+      - 'fastlane/metadata/android/**'
+      - 'scripts/validar_firebase.py'
+      - 'scripts/play_ci_android_scope.py'
+      - 'scripts/play_ci_heavy_scope.py'
+      - 'scripts/test_play_ci_heavy_scope.py'
+      - 'scripts/play_web_live_preflight.py'
+      - 'scripts/test_play_web_live_preflight.py'
+      - 'scripts/test_play_ci_android_scope.py'
+      - 'scripts/play_upload_certificate_check.py'
+      - 'scripts/test_play_upload_certificate_check.py'
+      - 'scripts/play_app_signing_continuity.py'
+      - 'scripts/test_play_app_signing_continuity.py'
+      - 'scripts/test_play_release_gate.py'
+      - 'scripts/termux_firebase_play_audit.py'
+      - 'scripts/test_termux_firebase_play_audit.py'
+      - 'docs/google-play-ugc-evidencias.json'
+      - 'docs/google-play-privacidade-evidencias.json'
+      - 'docs/google-play-testes-fechados-preparacao.md'
+      - 'docs/google-play-ficha-loja-teste-fechado.md'
+      - '.github/workflows/play-closed-aab-ci.yml'
+      - '.github/workflows/play-signed-aab-manual.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: play-aab-qa-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # QA de políticas, privacidade e AAB em runners independentes. Não há
+  # needs: o resultado global do workflow exige sucesso dos três jobs,
+  # enquanto a compilação unsigned não depende da conclusão dos testes Node.
+  release-policy-gates:
+    # Parallel and required: workflow status fails if any of these jobs fail.
+    if: github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android'
+    name: Auditar política Play e bloqueios de assinatura
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Obter código sem token persistido
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Testar separacao dos gates de pre-assinatura e pos-envio sem segredos
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_play_release_gate.py' -v
+          python3 -m unittest discover -s scripts -p 'test_play_web_live_preflight.py' -v
+          python3 -m unittest discover -s scripts -p 'test_play_upload_certificate_check.py' -v
+          python3 -m unittest discover -s scripts -p 'test_play_app_signing_continuity.py' -v
+          python3 -m unittest discover -s scripts -p 'test_play_store_bundle_check.py' -v
+          python3 -m unittest discover -s scripts -p 'test_termux_firebase_play_audit.py' -v
+          python3 scripts/play_release_gate.py --audit
+          python3 -m unittest discover -s scripts -p 'test_play_listing_preflight.py' -v
+          python3 scripts/play_listing_preflight.py
+      - name: Conferir que a assinatura manual valida HTTPS real sem segredos
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          workflow=Path('.github/workflows/play-signed-aab-manual.yml').read_text()
+          live='python3 scripts/play_web_live_preflight.py --check'
+          gate='python3 scripts/play_release_gate.py --enforce'
+          secret='Assinar AAB com chave existente somente no runner temporário'
+          assert workflow.count(live)==1
+          assert workflow.index(gate)<workflow.index(live)<workflow.index(secret)
+          print('OK: leitura de recursos públicos antes de qualquer assinatura')
+          PY
+      - name: Verificar sintaxe do futuro serviço Cloud Run sem inicializar credenciais
+        run: |
+          node --check ops/cloud-run-private-review/server.mjs
+          node --check cloudflare/account-deletion-audit/src/cloud-run-private-handler.js
+          test ! -f ops/cloud-run-private-review/.env
+          test ! -e ops/cloud-run-private-review/credentials.json
+      - name: Impedir publicação automática de rascunhos de privacidade
+        run: |
+          grep -q 'RASCUNHO INTERNO. NÃO PUBLICAR.' docs/google-play-politica-privacidade-minuta-nao-publicar.md
+          grep -q 'NÃO PREENCHER O FORMULÁRIO COMO DEFINITIVO' docs/google-play-seguranca-dados-matriz-revisao.md
+      - name: Garantir que a assinatura manual exige Auth/Firestore Emulator sem segredos
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          text = Path('.github/workflows/play-signed-aab-manual.yml').read_text()
+          required = (
+              "Exigir processamento real apenas no Auth e Firestore Emulator antes de assinar",
+              "admin-fixture/qa-admin-sdk-e2e.test.mjs",
+              "npx firebase emulators:exec --only firestore,auth --project demo-atrio-v11",
+              "test -z \"${GOOGLE_APPLICATION_CREDENTIALS:-}\"",
+              "test -z \"${FIREBASE_SERVICE_ACCOUNT_JSON:-}\"",
+          )
+          assert all(fragment in text for fragment in required)
+          assert text.index("Exigir processamento real apenas no Auth e Firestore Emulator antes de assinar") < text.index("Assinar AAB com chave existente somente no runner temporário")
+          print("OK: exclusão administrativa demo é obrigatória antes dos segredos de assinatura")
+          PY
+      - name: Preparar Node 22 para portal de privacidade sem deploy
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Testar autorização revogada antes do Auth no QA (sem Firebase)
+        shell: bash
+        run: |
+          # A fronteira de identidade exige um reconciliador injetado;
+          # estes testes usam apenas SQLite em memória e simulações.
+          node --experimental-sqlite --test tests/security/qa-deletion-auth-fence.test.mjs
+  account-deletion-qa:
+    # Parallel and required: workflow status fails if any of these jobs fail.
+    if: github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android'
+    name: Validar portal e exclusão QA sem credenciais
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Obter código sem token persistido
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Preparar Node 22 para portal de privacidade sem deploy
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validar alternativa de solicitação por atendimento público sem publicar
+        run: |
+          node --test cloudflare/account-deletion-support/build.test.mjs
+          node --test cloudflare/account-deletion-support/privacy-policy.test.mjs
+          node --test cloudflare/account-deletion-support/community-terms.test.mjs
+          node --test cloudflare/account-deletion-support/site-bundle.test.mjs
+          node --test cloudflare/account-deletion-support/public-request-worker.test.mjs
+          test ! -e cloudflare/account-deletion-support/bundle-dist/index.html
+          test ! -e cloudflare/account-deletion-support/dist/index.html
+          test ! -e cloudflare/account-deletion-support/policy-dist/privacidade/index.html
+          test ! -e cloudflare/account-deletion-support/terms-dist/termos/community-v1/index.html
+      - name: Testar portal de exclusão isolado e impedir habilitação de pedidos
+        run: |
+          node --check cloudflare/account-deletion-portal/public/app.js
+          npm --prefix cloudflare/account-deletion-portal test
+          test ! -e cloudflare/account-deletion-portal/public/config.js
+          test ! -e cloudflare/account-deletion-portal/dist/config.js
+      - name: Simular inventário de exclusão apenas em projeto fictício
+        run: |
+          npm --prefix cloudflare/account-deletion-processor test
+          test ! -e cloudflare/account-deletion-processor/dist
+      - name: Verificar inventário determinístico e checkpoints de exclusão sem escrita
+        run: npm --prefix cloudflare/account-deletion-audit test
+      - name: Preparar pacote de fontes do Worker privado (não implantar)
+        env:
+          SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          # Checkout de PR pode apontar ao merge sintético; a fonte do
+          # pacote tem de corresponder ao HEAD realmente conferido.
+          ACTUAL_HEAD="$(git rev-parse HEAD)"
+          if [[ "$ACTUAL_HEAD" != "$SOURCE_COMMIT" ]]; then
+            echo "PR checkout difere de HEAD: gerar somente snapshot do checkout."
+            SOURCE_COMMIT="$ACTUAL_HEAD"
+          fi
+          node --experimental-vm-modules cloudflare/privacy-freeze-stage/scripts/build-offline.mjs --build . "$RUNNER_TEMP/atrio-qa-stage-module-source" "$SOURCE_COMMIT"
+      - name: Guardar pacote reproduzível de QA sem credenciais (3 dias)
+        uses: actions/upload-artifact@v4
+        with:
+          name: atrio-private-stage-source-${{ github.run_id }}
+          path: ${{ runner.temp }}/atrio-qa-stage-module-source/
+          if-no-files-found: error
+          retention-days: 3
+  unsigned-play-bundle:
+    if: github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Obter código sem token persistido
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Identificar se esta revisão precisa recompilar o AAB
+        id: android_scope
+        env:
+          PR_ACTION: ${{ github.event.action }}
+          BEFORE_SHA: ${{ github.event.before }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts -p 'test_play_ci_android_scope.py' -v
+          python3 -m unittest discover -s scripts -p 'test_play_ci_heavy_scope.py' -v
+          # Primeiro envio, execução manual, SHA ausente ou história reescrita:
+          # compilar por segurança. Nunca presumir que houve build recente.
+          if [[ "$GITHUB_EVENT_NAME" != "pull_request" || "$PR_ACTION" != "synchronize" ||
+                ! "$BEFORE_SHA" =~ ^[0-9a-f]{40}$ || ! "$PR_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo 'android=true' >> "$GITHUB_OUTPUT"
+            echo 'Compilação completa exigida: primeiro envio/manual ou diff indisponível.'
+          elif ! git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null ||
+               ! git cat-file -e "${PR_HEAD_SHA}^{commit}" 2>/dev/null ||
+               ! git merge-base --is-ancestor "$BEFORE_SHA" "$PR_HEAD_SHA"; then
+            echo 'android=true' >> "$GITHUB_OUTPUT"
+            echo 'Compilação completa exigida: histórico anterior não confiável.'
+          else
+            git diff --name-only --diff-filter=ACDMRT -z "$BEFORE_SHA" "$PR_HEAD_SHA" > "$RUNNER_TEMP/play-changed-files.bin"
+            python3 scripts/play_ci_android_scope.py --changed-file "$RUNNER_TEMP/play-changed-files.bin" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Preparar Java 17
+        if: steps.android_scope.outputs.android == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Preparar Android SDK
+        if: steps.android_scope.outputs.android == 'true'
+        uses: android-actions/setup-android@v4
+      - name: Configurar Gradle 8.13
+        if: steps.android_scope.outputs.android == 'true'
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - name: Instalar plataforma Android API 36
+        if: steps.android_scope.outputs.android == 'true'
+        run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+      - name: Verificar configuração Firebase antes de compilar
+        run: python3 scripts/validar_firebase.py
+      - name: Compilar AAB e testar somente a validacao local dos Termos
+        if: steps.android_scope.outputs.android == 'true'
+        run: gradle :app:bundlePlayRelease :app:testPlayReleaseUnitTest --tests br.com.atriocatolico.CommunityTermsPolicyTest --tests br.com.atriocatolico.PlayBroadcastDeliveryPolicyTest --tests br.com.atriocatolico.PushRegistrationDiagnosticTest --no-daemon --stacktrace
+      - name: Examinar AAB e manifesto mesclado
+        if: steps.android_scope.outputs.android == 'true'
+        run: python3 scripts/play_store_bundle_check.py
+      - name: Registrar status correto sem sugerir AAB novo quando pulado
+        env:
+          ANDROID_SCOPE: ${{ steps.android_scope.outputs.android }}
+        run: |
+          set -euo pipefail
+          echo "### Google Play — validação de candidato" >> "$GITHUB_STEP_SUMMARY"
+          echo "Privacidade, exclusão e gates de assinatura são verificados em dois jobs paralelos obrigatórios, sem deploy." >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$ANDROID_SCOPE" == 'true' ]]; then
+            echo "AAB Play recompilado e examinado nesta revisão, **sem assinatura ou publicação**." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "AAB NÃO recompilado nesta revisão: alterações restritas a QA/backend/documentação." >> "$GITHUB_STEP_SUMMARY"
+            echo "Antes de assinatura, executar manualmente uma compilação integral na revisão candidata." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "Nenhuma evidência Play foi marcada como aprovada; APK OTA não alterado." >> "$GITHUB_STEP_SUMMARY"
