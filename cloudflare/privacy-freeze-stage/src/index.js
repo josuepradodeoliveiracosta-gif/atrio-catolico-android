@@ -18,6 +18,8 @@ import {runQaHostedProviderDrill}
   from './qa-hosted-provider-drill.js';
 import {qaStageWriteGrant}
   from './write-route-grants.js';
+import {recordQaHostedRoleProof}
+  from './qa-role-hmac-proof.js';
 import {
   STAGE_HOST,STAGE_ID,STAGE_ROLES,stageNonceOk,
   stageFixtureUid,strictStageKey
@@ -243,9 +245,12 @@ export default {
       }
       if(url.pathname==='/v1/role/status'){
         const snapshot=await barrier.status(data.uid);
+        const proof=await recordQaHostedRoleProof({
+          db:env.STAGE_FREEZE_DB,role,uid:data.uid,nonce,at:moment,
+          snapshot
+        });
         return text(200,'stage_role_status',{
-          uid:data.uid,...snapshot,syntheticOnly:true,
-          productionReady:false,providerEffectsVerified:false
+          uid:data.uid,...snapshot,...proof
         });
       }
       // Case routes reuse the same private HMAC + D1 nonce boundary.

@@ -21,7 +21,8 @@ const when=Date.parse('2026-11-03T20:39:00Z');
 function setup(){
   const sqlite=new DatabaseSync(':memory:');
   for(const filename of ['0001_fixture_only.sql','0002_qa_deletion_cases.sql',
-    '0003_qa_hosted_canary.sql']){
+    '0003_qa_hosted_canary.sql',
+    '0006_qa_role_hmac_probes.sql']){
     sqlite.exec(readFileSync(new URL(
       '../../privacy-freeze-stage/migrations/'+filename,import.meta.url),'utf8'));
   }
@@ -168,6 +169,14 @@ test('read-only per-role HMAC probe crosses Service Binding but never opens a ti
     assert.equal(after.canaries,prior.canaries);
     assert.equal(after.pending,0);
     assert.equal(after.nonces,prior.nonces+3);
+    const proofs=t.sqlite.prepare(
+      'SELECT role,uid,observed_state,in_flight FROM qa_stage_hmac_role_proofs ORDER BY role'
+    ).all();
+    assert.deepEqual(proofs,[
+      {role:'avatar',uid:'qa-freeze-alice',observed_state:'frozen',in_flight:0},
+      {role:'guardian',uid:'qa-freeze-bob',observed_state:'active',in_flight:0},
+      {role:'push',uid:'qa-freeze-alice',observed_state:'frozen',in_flight:0}
+    ]);
     for(const nonce of [
       '44444444-4444-4444-8444-444444444444',
       '55555555-5555-4555-8555-555555555555',
@@ -186,6 +195,9 @@ test('read-only per-role HMAC probe crosses Service Binding but never opens a ti
     // The two additional D1 nonces above are from the admin status calls,
     // NOT from replaying a fixed per-role probe.
     assert.equal(t.counts().pending,0);
+    assert.equal(t.sqlite.prepare(
+      'SELECT COUNT(*) AS n FROM qa_stage_hmac_role_proofs'
+    ).get().n,3);
   })}finally{t.close();}
 });
 test('per-role probes reject cross-UID reads and cannot inherit admin authority',async()=>{
@@ -209,5 +221,62 @@ test('private probe is disabled after its single UTC fixture day',async()=>{
     await t.scheduled('guardian',{scheduledTime:Date.parse('2026-11-06T13:00:00Z')});
     await t.scheduled('push',{cron:'0 0 * * *',scheduledTime:Date.parse('2026-11-04T13:00:00Z')});
     assert.deepEqual(t.counts(),{canaries:0,pending:0,nonces:0});
+  }finally{t.close();}
+});
+
+test('nonce consumed during rejected probe must never masquerade as successful readback',async()=>{
+  const t=setup();
+  try{
+    const api=createStageServiceClient({
+      binding:t.binding,role:'avatar',secret:KEY('avatar'),
+      createNonce:()=> '44444444-4444-4444-8444-444444444444'
+    });
+    // Alice is ACTIVE, not frozen. The new probe must fail after nonce
+    // authentication and without inserting any successful proof.
+    await assert.rejects(api.request('roleStatus',{uid:'qa-freeze-alice'}),
+      /qa_stage_client_denied/);
+    assert.equal(t.sqlite.prepare(
+      "SELECT COUNT(*) AS n FROM qa_stage_nonces WHERE nonce='44444444-4444-4444-8444-444444444444'"
+    ).get().n,1);
+    assert.equal(t.sqlite.prepare(
+      'SELECT COUNT(*) AS n FROM qa_stage_hmac_role_proofs'
+    ).get().n,0);
+    await assert.rejects(api.request('roleStatus',{uid:'qa-freeze-alice'}),
+      /qa_stage_client_denied/);
+  }finally{t.close();}
+});
+test('role HMAC receipts cannot be forged or bypass single-account scope constraints',async()=>{
+  const t=setup();
+  try{
+    await assert.rejects(t.admin.request('roleStatus',{uid:'qa-freeze-alice'}),
+      /qa_stage_client_denied/);
+    assert.throws(()=>t.sqlite.prepare(
+      "INSERT INTO qa_stage_hmac_role_proofs VALUES ('push','qa-freeze-bob',"+
+      "'66666666-6666-4666-8666-666666666666','frozen',0,2000000000000)"
+    ).run(),/CHECK constraint failed/);
+    assert.equal(t.sqlite.prepare(
+      'SELECT COUNT(*) AS n FROM qa_stage_hmac_role_proofs'
+    ).get().n,0);
+  }finally{t.close();}
+});
+test('a pending ticket prevents HMAC proof even when a stale readback reports success',async()=>{
+  const t=setup();
+  try{
+    await t.admin.request('drain',{uid:'qa-freeze-alice'});
+    await t.admin.request('finalize',{uid:'qa-freeze-alice'});
+    t.sqlite.prepare('INSERT INTO qa_privileged_operations VALUES (?,?,?)')
+      .run(crypto.randomUUID(),'qa-freeze-bob','guardian_content_write');
+    const client=createStageServiceClient({
+      binding:t.binding,role:'avatar',secret:KEY('avatar'),
+      createNonce:()=> '44444444-4444-4444-8444-444444444444'
+    });
+    await assert.rejects(client.request('roleStatus',{uid:'qa-freeze-alice'}),
+      /qa_stage_client_denied/);
+    assert.equal(t.sqlite.prepare(
+      'SELECT COUNT(*) AS n FROM qa_stage_hmac_role_proofs'
+    ).get().n,0);
+    assert.equal(t.sqlite.prepare(
+      'SELECT COUNT(*) AS n FROM qa_privileged_operations'
+    ).get().n,1);
   }finally{t.close();}
 });

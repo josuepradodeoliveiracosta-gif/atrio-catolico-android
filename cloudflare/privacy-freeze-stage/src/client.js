@@ -126,7 +126,8 @@ export function createStageServiceClient({
          (result.state==='frozen'&&result.inFlight!==0)))deny();
       if(op==='roleStatus'&&(
          result.syntheticOnly!==true||result.productionReady!==false||
-         result.providerEffectsVerified!==false))deny();
+         result.providerEffectsVerified!==false||
+         result.proofRecorded!==true))deny();
       if(['caseOpen','caseStatus','caseAttest','caseAdvance'].includes(op)&&
          result.caseId!==payload.caseId)deny();
       if(['caseOpen','caseStatus','caseAdvance'].includes(op)&&(
