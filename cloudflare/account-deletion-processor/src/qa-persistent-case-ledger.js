@@ -17,6 +17,8 @@ const UIDS=new Set(['qa-delete-alice','qa-delete-candidate']);
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const TABLE='qa_controlled_case_ledger';
 const FIELDS='uid,case_id,epoch,state,completed_json,updated_ms';
+const REVIEW_TABLE='qa_signed_reviewer_receipts';
+const REVIEW_FIELDS='nonce,uid,case_id,epoch,purpose,phase,created_ms';
 const DDL=[
   'CREATE TABLE IF NOT EXISTS '+TABLE+' (',
   "uid TEXT PRIMARY KEY NOT NULL CHECK(uid IN ('qa-delete-alice','qa-delete-candidate')),",
@@ -46,12 +48,14 @@ function allowedDb(db){
   const objects=db.prepare(
     "SELECT name,type FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'"
   ).all();
-  if(objects.length>1||objects.some(x=>x.name!==TABLE||x.type!=='table'))
+  const expected=new Map([[TABLE,FIELDS],[REVIEW_TABLE,REVIEW_FIELDS]]);
+  if(objects.length>expected.size||objects.some(x=>
+    !expected.has(x.name)||x.type!=='table'))
     deny('unexpected_schema');
-  if(objects.length===1){
-    const names=db.prepare('PRAGMA table_info('+TABLE+')').all()
+  for(const item of objects){
+    const names=db.prepare('PRAGMA table_info('+item.name+')').all()
       .map(x=>x.name).join(',');
-    if(names!==FIELDS)deny('schema_drift');
+    if(names!==expected.get(item.name))deny('schema_drift');
   }
 }
 function validCase(ctx){
