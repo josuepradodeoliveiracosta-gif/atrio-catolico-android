@@ -410,8 +410,10 @@ try{
       .run('qa-delayed-avatar-write',ALICE);
     assert.equal(await backend.freeze.verify({uid:ALICE,caseId:CASE}),true);
     assert.equal(await backend.freeze.drained({uid:ALICE,caseId:CASE}),false);
+    // A previously completed freeze checkpoint is now invalid: the
+    // executor correctly rejects the case before any external effect.
     await assert.rejects(restarted.run({uid:ALICE,caseId:CASE}),
-      /controlled_deletion_denied:distributed_drain_unverified/);
+      /controlled_deletion_denied:completed_phase_no_longer_valid/);
     assert.equal(await authExists(BOB),true);
     assert.equal(effects.filter(x=>x==='auth-sdk').length,1);
     drainDb.prepare('DELETE FROM qa_privileged_inflight WHERE operation_id=?')

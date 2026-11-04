@@ -809,3 +809,46 @@ test('two-account push ticket prevents premature freeze of the recipient',async(
       uid:'qa-freeze-alice'})).state,'active');
   })}finally{f.close()}
 });
+
+test('private Service Binding client rejects response envelopes for a different operation',async()=>{
+  const mock=(role,reply)=>createStageServiceClient({
+    binding:{async fetch(){return Response.json(reply);}},
+    role,secret:key(role)
+  });
+  for(const [role,op,payload,reply] of [
+    ['admin','drain',{uid:A},{status:'stage_frozen'}],
+    ['admin','status',{uid:A},{status:'stage_draining'}],
+    ['avatar','admit',{ownerUid:A},
+      {status:'stage_status',state:'active',inFlight:0}]
+  ]){
+    await expectDenied(mock(role,reply).request(op,payload));
+  }
+});
+test('readback must have bounded state and integral in-flight ticket count',async()=>{
+  const mock=reply=>createStageServiceClient({
+    binding:{async fetch(){return Response.json(reply);}},
+    role:'admin',secret:key('admin')
+  });
+  for(const reply of [
+    {status:'stage_status',state:'frozen',inFlight:1},
+    {status:'stage_status',state:'active',inFlight:-1},
+    {status:'stage_status',state:'active',inFlight:'0'},
+    {status:'stage_status',state:'unknown',inFlight:0}
+  ]){
+    await expectDenied(mock(reply).request('status',{uid:A}));
+  }
+  const safe=await mock({status:'stage_status',state:'frozen',inFlight:0})
+    .request('status',{uid:A});
+  assert.equal(safe.inFlight,0);
+});
+test('an admission needs a valid UUID ticket even if the stage reports success',async()=>{
+  for(const operationId of [undefined,'invalid','a'.repeat(36)]){
+    const binding={async fetch(){
+      return Response.json({status:'stage_admitted',operationId});
+    }};
+    const client=createStageServiceClient({
+      binding,role:'avatar',secret:key('avatar')
+    });
+    await expectDenied(client.request('admit',{ownerUid:A}));
+  }
+});

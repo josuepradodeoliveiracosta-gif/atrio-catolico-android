@@ -15,6 +15,16 @@ const routes=Object.freeze({
   caseAttest:'/v1/case/attest',caseAdvance:'/v1/case/advance',
   canary:'/v1/canary'
 });
+// HMAC authenticates the request, not the returned payload. Reject a
+// success envelope for a DIFFERENT operation, including stale/misrouted
+// responses that could otherwise masquerade as a freeze or drain proof.
+const expectedReply=Object.freeze({
+  admit:'stage_admitted',writeAdmit:'stage_admitted',
+  drain:'stage_draining',finalize:'stage_frozen',close:'stage_reconciled',
+  status:'stage_status',caseOpen:'stage_case_open',
+  caseStatus:'stage_case_status',caseAttest:'stage_case_attested',
+  caseAdvance:'stage_case_advanced',canary:'stage_canary_completed'
+});
 const deny=()=>{throw Error('qa_stage_client_denied');};
 function validate(role,op,payload){
   if(!payload||typeof payload!=='object'||Array.isArray(payload))deny();
@@ -94,9 +104,15 @@ export function createStageServiceClient({
       }));
       if(!(response instanceof Response)||!response.ok)deny();
       const result=await response.json();
-      if(!result||typeof result.status!=='string'||
-         !/^stage_(admitted|draining|frozen|reconciled|status|case_open|case_status|case_attested|case_advanced|canary_completed)$/.test(result.status))
-        deny();
+      if(!result||Object.getPrototypeOf(result)!==Object.prototype ||
+         result.status!==expectedReply[op])deny();
+      if((op==='admit'||op==='writeAdmit')&&
+         !stageNonceOk(result.operationId))deny();
+      if(op==='status'&&(
+         !['active','draining','frozen'].includes(result.state)||
+         !Number.isSafeInteger(result.inFlight)||
+         result.inFlight<0||
+         (result.state==='frozen'&&result.inFlight!==0)))deny();
       return result;
     }
   });
