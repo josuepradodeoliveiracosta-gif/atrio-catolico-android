@@ -216,6 +216,15 @@ private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
                                         created.sendEmailVerification().addOnFailureListener {
                                             android.util.Log.w("AtrioAuth", "email_verification_delivery_failed")
                                         }
+                                        // A aceitação do cadastro é guardada na conta,
+                                        // para não obrigar o mesmo usuário a aceitar outra vez.
+                                        db.collection("community_consents").document(created.uid)
+                                            .set(mapOf(
+                                                "version" to CommunityRulesPolicy.VERSION,
+                                                "acceptedAt" to FieldValue.serverTimestamp()
+                                            )).addOnFailureListener {
+                                                android.util.Log.w("AtrioAuth", "community_consent_write_failed")
+                                            }
                                         db.collection("profiles").document(created.uid).set(mapOf(
                                             "displayName" to publicName,
                                             "createdAt" to FieldValue.serverTimestamp()
@@ -316,6 +325,21 @@ private fun registrationErrorMessage(failure: Exception): String {
 @Composable
 private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: FirebaseUser) {
     val uid = user.uid
+    var consentLoaded by remember(uid) { mutableStateOf(false) }
+    var consentAccepted by remember(uid) { mutableStateOf(false) }
+    DisposableEffect(db, uid) {
+        val listener = db.collection("community_consents").document(uid)
+            .addSnapshotListener { snapshot, failure ->
+                consentLoaded = true
+                consentAccepted = failure == null &&
+                    snapshot?.getString("version") == CommunityRulesPolicy.VERSION
+            }
+        onDispose { listener.remove() }
+    }
+    if (!consentAccepted) {
+        CommunityRulesGate(db, uid, loaded = consentLoaded)
+        return
+    }
     // Firebase Auth mantém displayName entre logins: ele evita que o
     // usuário fique preso no carregamento enquanto o listener do perfil
     // reconecta após logout/login da mesma conta.
