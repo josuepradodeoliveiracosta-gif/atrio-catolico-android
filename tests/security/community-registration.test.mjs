@@ -161,6 +161,12 @@ try {
     assertFails(newPost('legacy','legacy-after-activation',legacy)));
   await check('ativacao reativa protecao nas respostas para conta antiga', () =>
     assertFails(newReply('legacy','legacy-after-activation',legacy)));
+  await env.withSecurityRulesDisabled(async context =>
+    updateDoc(doc(context.firestore(),'app_config/community_rules'),{
+      version:'versao-incompativel'
+    }));
+  await check('configuracao com versao incorreta nao bloqueia contas antigas', () =>
+    assertSucceeds(newPost('legacy','legacy-bad-version',legacy)));
   console.log('OK: '+count+' verificacoes de cadastro e moderacao.');
 } finally {
   await env.cleanup();
