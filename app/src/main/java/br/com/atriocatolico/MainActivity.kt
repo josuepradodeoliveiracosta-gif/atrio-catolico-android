@@ -7,6 +7,8 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.viewModels
+import androidx.lifecycle.ViewModel
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -148,19 +150,25 @@ private fun persistPosts(prefs: SharedPreferences, posts: List<Post>) {
     prefs.edit().putString("posts", all.toString()).apply()
 }
 
+/**
+ * Estado somente em memória: mantém o vídeo concluído ao girar a tela ou
+ * retornar do segundo plano, mas exige nova reprodução após fechar/reabrir
+ * o app, inclusive se o Android restaurar um processo que foi encerrado.
+ */
+internal class AtrioStartupStateViewModel : ViewModel() {
+    var opening by mutableStateOf(true)
+}
+
 class MainActivity : ComponentActivity() {
+    private val startupState: AtrioStartupStateViewModel by viewModels()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val prefs = getSharedPreferences("atrio-demo", Context.MODE_PRIVATE)
-        // A abertura é exibida em cada novo lançamento do app, não em
-        // simples retornos do segundo plano. O estado salvo evita reiniciar
-        // a experiência durante uma mudança de configuração.
-        val coldStart = savedInstanceState == null
         setContent {
-            var opening by rememberSaveable { mutableStateOf(coldStart) }
-            if (opening) {
+            if (startupState.opening) {
                 AtrioTheme {
-                    AtrioStartupVideo(this@MainActivity) { opening = false }
+                    AtrioStartupVideo(this@MainActivity) { startupState.opening = false }
                 }
             } else if (com.google.firebase.FirebaseApp.getApps(this).isNotEmpty()) {
                 OnlineAtrioApp(this@MainActivity)
