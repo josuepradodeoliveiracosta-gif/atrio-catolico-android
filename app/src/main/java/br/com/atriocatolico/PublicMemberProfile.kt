@@ -38,7 +38,8 @@ internal fun PublicMemberProfileScreen(
     db: FirebaseFirestore,
     target: PublicMemberTarget,
     onBack: () -> Unit,
-    onOpenDiscussion: (String) -> Unit
+    onOpenDiscussion: (String) -> Unit,
+    viewerUid: String = ""
 ) {
     val uid = target.uid
     var info by remember(uid) { mutableStateOf<PublicMemberInfo?>(null) }
@@ -50,6 +51,12 @@ internal fun PublicMemberProfileScreen(
     var loading by remember(uid) { mutableStateOf(true) }
     var failed by remember(uid) { mutableStateOf(false) }
     var more by remember(uid) { mutableStateOf(false) }
+    val blockedMembers = rememberBlockedMembers(db, viewerUid)
+    val blocked = uid in blockedMembers
+    var actionBusy by remember(viewerUid, uid) { mutableStateOf(false) }
+    var reportOpen by remember(viewerUid, uid) { mutableStateOf(false) }
+    var reportReason by remember(viewerUid, uid) { mutableStateOf("") }
+    var reportMessage by remember(viewerUid, uid) { mutableStateOf("") }
 
     BackHandler(onBack = onBack)
     DisposableEffect(db, uid) {
@@ -138,13 +145,42 @@ internal fun PublicMemberProfileScreen(
                 }
             }
         }
+        if (viewerUid.isNotBlank() && uid != viewerUid) item {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    enabled = !actionBusy,
+                    onClick = {
+                        actionBusy = true
+                        val ref = db.collection("users").document(viewerUid)
+                            .collection("blockedMembers").document(uid)
+                        val task = if (blocked) ref.delete()
+                            else ref.set(mapOf("createdAt" to FieldValue.serverTimestamp()))
+                        task.addOnCompleteListener { result ->
+                            actionBusy = false
+                            reportMessage = if (result.isSuccessful) {
+                                if (blocked) "Participante desbloqueado." else "Participante bloqueado."
+                            } else "Não foi possível atualizar o bloqueio. Tente novamente."
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().testTag("atrio-member-block")
+                ) { Text(if (blocked) "Desbloquear participante" else "Bloquear participante") }
+                OutlinedButton(
+                    onClick = { reportOpen = true },
+                    modifier = Modifier.fillMaxWidth().testTag("atrio-member-report")
+                ) { Text("Denunciar participante") }
+                if (reportMessage.isNotBlank()) Text(reportMessage,
+                    style = MaterialTheme.typography.bodySmall, color = Muted)
+                if (blocked) Text("As publicações deste participante estão ocultas para você.",
+                    style = MaterialTheme.typography.bodySmall, color = Muted)
+            }
+        }
         item {
             Text("Discussões", style = MaterialTheme.typography.titleLarge)
             Text("${entries.size} discussões carregadas · lista paginada",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        items(entries, key = { "public-post-${it.id}" }) { post ->
+        if (!blocked) items(entries, key = { "public-post-${it.id}" }) { post ->
             Card(onClick = { onOpenDiscussion(post.id) }, modifier = Modifier.fillMaxWidth()
                 .testTag("atrio-public-post-${post.id}")) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -162,13 +198,60 @@ internal fun PublicMemberProfileScreen(
                 color = MaterialTheme.colorScheme.error)
             OutlinedButton(onClick = { nextPage++ }) { Text("Tentar novamente") }
         }
-        if (!loading && !failed && entries.isEmpty()) item {
+        if (!blocked && !loading && !failed && entries.isEmpty()) item {
             Text("Este participante ainda não publicou discussões disponíveis.")
         }
-        if (!loading && !failed && more) item {
+        if (!blocked && !loading && !failed && more) item {
             OutlinedButton(onClick = { nextPage++ }, modifier = Modifier.fillMaxWidth()
                 .testTag("atrio-public-load-more")) { Text("Carregar mais discussões") }
         }
+    }
+    if (reportOpen && viewerUid.isNotBlank() && uid != viewerUid) {
+        AlertDialog(
+            onDismissRequest = { if (!actionBusy) reportOpen = false },
+            title = { Text("Denunciar participante") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Explique o comportamento que precisa de análise. " +
+                        "A denúncia é privada e não aparece para o participante.")
+                    OutlinedTextField(
+                        reportReason, { reportReason = it.take(500) },
+                        label = { Text("Motivo da denúncia") },
+                        minLines = 3, maxLines = 5,
+                        modifier = Modifier.fillMaxWidth().testTag("atrio-member-report-reason"),
+                        supportingText = { Text(reportReason.trim().length.toString() + "/500 caracteres") }
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !actionBusy && reportReason.trim().length in 10..500,
+                    onClick = {
+                        actionBusy = true
+                        val id = viewerUid + "__" + uid
+                        db.collection("user_reports").document(id).set(mapOf(
+                            "reporterUid" to viewerUid,
+                            "targetUid" to uid,
+                            "reason" to reportReason.trim(),
+                            "createdAt" to FieldValue.serverTimestamp()
+                        )).addOnCompleteListener { result ->
+                            actionBusy = false
+                            reportOpen = false
+                            reportMessage = if (result.isSuccessful)
+                                "Denúncia registrada para análise da moderação."
+                                else "Não foi possível registrar. Caso já tenha denunciado, " +
+                                    "sua denúncia anterior permanece registrada."
+                        }
+                    },
+                    modifier = Modifier.testTag("atrio-member-report-submit")
+                ) { Text("Enviar denúncia") }
+            },
+            dismissButton = {
+                TextButton(onClick = { reportOpen = false }, enabled = !actionBusy) {
+                    Text("Cancelar")
+                }
+            }
+        )
     }
 }
 

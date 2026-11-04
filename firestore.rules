@@ -24,6 +24,13 @@ service cloud.firestore {
       allow get: if signedIn();
       allow list, create, update, delete: if false;
     }
+    // Portão de aceite: a administração ativa via Console apenas depois
+    // de implantar as regras, testar e migrar clientes compatíveis.
+    // Não é possível escrever a configuração pelo APK.
+    match /app_config/community_rules {
+      allow get: if signedIn();
+      allow list, create, update, delete: if false;
+    }
     // Ativação admin-only após publicação e QA. Negado por padrão.
     match /app_config/engagement {
       allow get: if signedIn();
@@ -84,6 +91,17 @@ service cloud.firestore {
     }
     function validTime() {
       return request.resource.data.createdAt == request.time;
+    }
+    // Portao de publicacao no servidor, ativado SOMENTE pelo Console apos rollout.
+    // Na ausencia do documento ou com enabled=false, preserva clientes legados.
+    function communityPublicationAllowed() {
+      let settings = /databases/$(database)/documents/app_config/community_rules;
+      let acceptance = /databases/$(database)/documents/community_consents/$(request.auth.uid);
+      return !exists(settings)
+        || get(settings).data.get('enabled', false) != true
+        || get(settings).data.get('version', '') != '2026-11-v1'
+        || (exists(acceptance)
+          && get(acceptance).data.version == '2026-11-v1');
     }
     function publicNameMatchesProfile() {
       return request.resource.data.authorName ==
@@ -188,6 +206,25 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // Aceite privado e persistente de regras por usuário.
+    // A versão deve mudar quando as regras forem atualizadas.
+    match /community_consents/{uid} {
+      allow get: if me(uid);
+      allow list: if false;
+      allow create: if me(uid)
+        && request.resource.data.keys().hasOnly(['version', 'acceptedAt'])
+        && request.resource.data.keys().hasAll(['version', 'acceptedAt'])
+        && request.resource.data.version == '2026-11-v1'
+        && request.resource.data.acceptedAt == request.time;
+      allow update: if me(uid)
+        && request.resource.data.keys().hasOnly(['version', 'acceptedAt'])
+        && request.resource.data.keys().hasAll(['version', 'acceptedAt'])
+        && request.resource.data.version == '2026-11-v1'
+        && request.resource.data.version != resource.data.version
+        && request.resource.data.acceptedAt == request.time;
+      allow delete: if false;
+    }
+
     match /profiles/{uid} {
       // Os perfis não podem ser enumerados, apenas lidos pelo proprietário.
       allow get: if me(uid);
@@ -255,6 +292,7 @@ service cloud.firestore {
     match /posts/{postId} {
       allow get, list: if signedIn();
       allow create: if signedIn()
+        && communityPublicationAllowed()
         && request.resource.data.keys().hasOnly([
           'uid', 'authorName', 'title', 'body', 'category', 'createdAt'
         ])
@@ -282,6 +320,7 @@ service cloud.firestore {
       match /replies/{replyId} {
         allow get, list: if signedIn();
         allow create: if signedIn()
+          && communityPublicationAllowed()
           && exists(/databases/$(database)/documents/posts/$(postId))
           && request.resource.data.keys().hasOnly([
             'uid', 'authorName', 'body', 'createdAt', 'replyToId', 'replyToUid',
@@ -334,6 +373,45 @@ service cloud.firestore {
           allow delete: if me(uid);
         }
       }
+    }
+
+    // Bloqueios privados: só o titular lê e altera sua lista. Não criar auto-bloqueio.
+    match /users/{uid}/blockedMembers/{blockedUid} {
+      allow get, list: if me(uid);
+      allow create: if me(uid)
+        && validId(blockedUid)
+        && blockedUid != uid
+        && request.resource.data.keys().hasOnly(['createdAt'])
+        && request.resource.data.keys().hasAll(['createdAt'])
+        && request.resource.data.createdAt == request.time;
+      allow delete: if me(uid);
+      allow update: if false;
+    }
+
+    // Denúncia de usuário (além das denúncias existentes de posts/respostas).
+    // IDs determinísticos impedem denúncias duplicadas do mesmo par.
+    match /user_reports/{reportId} {
+      allow get: if isAdmin() ||
+        (signedIn() && resource.data.reporterUid == request.auth.uid);
+      allow list: if isAdmin();
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['reporterUid', 'targetUid', 'reason', 'createdAt'])
+        && request.resource.data.keys().hasAll(['reporterUid', 'targetUid', 'reason', 'createdAt'])
+        && request.resource.data.reporterUid == request.auth.uid
+        && validId(request.resource.data.targetUid)
+        && request.resource.data.targetUid != request.auth.uid
+        && reportId == request.auth.uid + '__' + request.resource.data.targetUid
+        && validText(request.resource.data.reason, 10, 500)
+        && request.resource.data.createdAt == request.time;
+      allow update: if isAdmin()
+        && resource.data.get('status', 'pending') == 'pending'
+        && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['status', 'reviewedBy', 'reviewedAt'])
+        && request.resource.data.keys().hasAll(['status', 'reviewedBy', 'reviewedAt'])
+        && request.resource.data.status == 'reviewed'
+        && request.resource.data.reviewedBy == request.auth.uid
+        && request.resource.data.reviewedAt == request.time;
+      allow delete: if false;
     }
 
     match /users/{uid}/likedPosts/{postId} {

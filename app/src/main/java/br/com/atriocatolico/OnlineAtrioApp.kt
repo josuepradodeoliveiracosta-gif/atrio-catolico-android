@@ -217,6 +217,15 @@ private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
                                         created.sendEmailVerification().addOnFailureListener {
                                             android.util.Log.w("AtrioAuth", "email_verification_delivery_failed")
                                         }
+                                        // A aceitação do cadastro é guardada na conta,
+                                        // para não obrigar o mesmo usuário a aceitar outra vez.
+                                        db.collection("community_consents").document(created.uid)
+                                            .set(mapOf(
+                                                "version" to CommunityRulesPolicy.VERSION,
+                                                "acceptedAt" to FieldValue.serverTimestamp()
+                                            )).addOnFailureListener {
+                                                android.util.Log.w("AtrioAuth", "community_consent_write_failed")
+                                            }
                                         db.collection("profiles").document(created.uid).set(mapOf(
                                             "displayName" to publicName,
                                             "createdAt" to FieldValue.serverTimestamp()
@@ -317,6 +326,33 @@ private fun registrationErrorMessage(failure: Exception): String {
 @Composable
 private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: FirebaseUser) {
     val uid = user.uid
+    // Rollout seguro: o novo portão só liga APÓS implantar as regras Firestore
+    // e aprovar explicitamente app_config/community_rules pelo Console.
+    // Sem configuração publicada (ou em erro/offline), não bloquear contas.
+    var rulesGateEnabled by remember(uid) { mutableStateOf(false) }
+    var consentLoaded by remember(uid) { mutableStateOf(false) }
+    var consentReadFailed by remember(uid) { mutableStateOf(false) }
+    var consentAccepted by remember(uid) { mutableStateOf(false) }
+    DisposableEffect(db, uid) {
+        val feature = db.document("app_config/community_rules")
+            .addSnapshotListener { snapshot, failure ->
+                rulesGateEnabled = failure == null &&
+                    snapshot?.getBoolean("enabled") == true &&
+                    snapshot.getString("version") == CommunityRulesPolicy.VERSION
+            }
+        val acceptance = db.collection("community_consents").document(uid)
+            .addSnapshotListener { snapshot, failure ->
+                consentLoaded = true // Erro também libera a tela de saída, nunca spinner eterno.
+                consentReadFailed = failure != null
+                consentAccepted = failure == null &&
+                    snapshot?.getString("version") == CommunityRulesPolicy.VERSION
+            }
+        onDispose { feature.remove(); acceptance.remove() }
+    }
+    if (rulesGateEnabled && !consentAccepted) {
+        CommunityRulesGate(db, uid, loaded = consentLoaded, loadError = consentReadFailed)
+        return
+    }
     // Firebase Auth mantém displayName entre logins: ele evita que o
     // usuário fique preso no carregamento enquanto o listener do perfil
     // reconecta após logout/login da mesma conta.
@@ -460,6 +496,7 @@ private fun OnlineCommunity(
     val otaSnackbar = remember { SnackbarHostState() }
     var lastAnnouncedOtaVersion by remember { mutableStateOf<String?>(null) }
     var sourcePosts by remember(uid) { mutableStateOf<List<Post>>(emptyList()) }
+    val blockedMembers = rememberBlockedMembers(db, uid)
     var likedIds by remember(uid) { mutableStateOf<Set<String>>(emptySet()) }
     var savedIds by remember(uid) { mutableStateOf<Set<String>>(emptySet()) }
     val notificationAdmin = onModeration != null && onClergyReview != null
@@ -647,11 +684,14 @@ private fun OnlineCommunity(
             (openedPost?.ownerUid == uid || detailReplies.any { it.mine }))
             ThreadPushSubscriptions.track(context, uid, id)
     }
-    val posts = sourcePosts.map { it.copy(liked = it.id in likedIds, saved = it.id in savedIds) }
+    val posts = sourcePosts.filter { it.ownerUid !in blockedMembers }
+        .map { it.copy(liked = it.id in likedIds, saved = it.id in savedIds) }
     val allPosts = (sourcePosts + savedPosts.values + listOfNotNull(openedPost))
+        .filter { it.ownerUid !in blockedMembers }
         .associateBy { it.id }.values.map { it.copy(liked = it.id in likedIds, saved = it.id in savedIds) }
     val savedDisplay = savedOrder.take(savedLimit).mapNotNull { id ->
-        savedPosts[id]?.copy(liked = id in likedIds, saved = id in savedIds)
+        savedPosts[id]?.takeUnless { it.ownerUid in blockedMembers }
+            ?.copy(liked = id in likedIds, saved = id in savedIds)
     }
     fun navigate(destination: Tab) {
         if (BuildConfig.DEBUG &&
@@ -888,10 +928,11 @@ private fun OnlineCommunity(
         )
     }, bottomBar = { AtrioBottomBar(selected = tab, onSelect = ::navigate) }) { inset ->
         Box(Modifier.padding(inset)) {
-            val detail = openedPost?.copy(liked = detailId in likedIds, saved = detailId in savedIds)
+            val detail = openedPost?.takeUnless { it.ownerUid in blockedMembers }
+                ?.copy(liked = detailId in likedIds, saved = detailId in savedIds)
             if (publicProfileTarget != null && !profilePostOpen) {
                 PublicMemberProfileScreen(
-                    db = db, target = publicProfileTarget!!,
+                    db = db, target = publicProfileTarget!!, viewerUid = uid,
                     onBack = ::closeNoticeDestination,
                     onOpenDiscussion = { postId -> profilePostOpen = true; detailId = postId }
                 )
@@ -925,7 +966,7 @@ private fun OnlineCommunity(
                     if (detailError) "Tentar novamente" else "Voltar",
                     { if (detailError) detailRetry++ else closeNoticeDestination() })
             } else if (detail != null) {
-                DetailScreen(detail.copy(replies = detailReplies), name,
+                DetailScreen(detail.copy(replies = detailReplies.filter { it.ownerUid !in blockedMembers }), name,
                     onLike = { toggle("likedPosts", detail.id, detail.liked) },
                     onSave = { toggle("savedPosts", detail.id, detail.saved) },
                     onReply = { body, done ->
