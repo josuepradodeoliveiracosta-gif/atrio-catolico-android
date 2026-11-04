@@ -118,6 +118,49 @@ try {
     })));
   await check('revisao e imutavel', () =>
     assertFails(updateDoc(doc(admin,reportPath),{status:'pending'})));
+  // Portao da publicacao deve valer no servidor, nao apenas na tela Compose.
+  await env.withSecurityRulesDisabled(async context => {
+    const db = context.firestore();
+    for (const uid of ['alice', 'bob', 'legacy']) {
+      await setDoc(doc(db,'profiles/'+uid),{
+        displayName:uid,createdAt:serverTimestamp()
+      });
+    }
+  });
+  const legacy = env.authenticatedContext('legacy').firestore();
+  const newPost = (uid, id, db) => setDoc(doc(db,'posts/'+id),{
+    uid,authorName:uid,title:'Discussao de teste',
+    body:'Texto comunitario com contexto para teste',category:'Liturgia',
+    createdAt:serverTimestamp()
+  });
+  const newReply = (uid,id,db) => setDoc(doc(db,'posts/a-post/replies/'+id),{
+    uid,authorName:uid,body:'Resposta de teste',
+    createdAt:serverTimestamp()
+  });
+  await check('conta com aceite pode publicar', () =>
+    assertSucceeds(newPost('alice','a-post',alice)));
+  await check('conta sem aceite nao pode publicar com portao ativo', () =>
+    assertFails(newPost('bob','b-post',bob)));
+  await check('conta sem aceite nao pode responder com portao ativo', () =>
+    assertFails(newReply('bob','b-reply',bob)));
+  await check('conta que aceita as regras pode publicar', async () => {
+    await assertSucceeds(setDoc(doc(bob,'community_consents/bob'),accepted()));
+    await assertSucceeds(newPost('bob','b-post',bob));
+  });
+  await check('conta que aceita as regras pode responder', () =>
+    assertSucceeds(newReply('bob','b-reply',bob)));
+  await env.withSecurityRulesDisabled(async context =>
+    updateDoc(doc(context.firestore(),'app_config/community_rules'),{enabled:false}));
+  await check('antes do rollout contas antigas seguem podendo publicar', () =>
+    assertSucceeds(newPost('legacy','legacy-post',legacy)));
+  await check('antes do rollout contas antigas seguem podendo responder', () =>
+    assertSucceeds(newReply('legacy','legacy-reply',legacy)));
+  await env.withSecurityRulesDisabled(async context =>
+    updateDoc(doc(context.firestore(),'app_config/community_rules'),{enabled:true}));
+  await check('ativacao reativa protecao na publicacao para conta antiga', () =>
+    assertFails(newPost('legacy','legacy-after-activation',legacy)));
+  await check('ativacao reativa protecao nas respostas para conta antiga', () =>
+    assertFails(newReply('legacy','legacy-after-activation',legacy)));
   console.log('OK: '+count+' verificacoes de cadastro e moderacao.');
 } finally {
   await env.cleanup();
