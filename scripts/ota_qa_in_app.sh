@@ -217,6 +217,18 @@ case "${1:-}" in
       fi
     done
 
+    # Permissao de fontes desconhecidas deve permanecer uma decisao do
+    # Android, nunca concedida automaticamente pelo Átrio. Apenas .otalab.
+    adb shell appops set "$PACKAGE" REQUEST_INSTALL_PACKAGES ignore
+    run_ui_test unknownSourcesDeniedKeepsInstallerBlockedAndVersionUnchanged valid
+    adb shell appops set "$PACKAGE" REQUEST_INSTALL_PACKAGES default
+    for filename in atrio-catolico-ota.part.apk atrio-catolico-ota.apk; do
+      if adb shell run-as "$PACKAGE" ls "cache/ota/$filename" >/dev/null 2>&1; then
+        echo "::error::Cache residual apos recusa de instalacao: $filename" >&2
+        exit 1
+      fi
+    done
+
     # Apenas depois dos testes de bloqueio, atualizar por ADB.
     # Não se trata de consentimento do instalador Android; esse teste foi
     # comprovado separadamente em aparelho físico pelo operador.
