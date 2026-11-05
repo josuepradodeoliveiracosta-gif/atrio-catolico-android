@@ -43,4 +43,15 @@ A CI `.github/workflows/worker-bundle-dry-run-ci.yml` executa `wrangler deploy -
 
 O Termux já possui Firebase CLI autenticado e uma auditoria anterior em `~/atrio-limpeza/auditar_email_atrio.js`. **Não reexecutar automaticamente esse script**: a auditoria anterior também salvou uma cópia local das regras e não foi comprovado que uma nova execução não alteraria um arquivo de backup. O backup está protegido pela orientação expressa do responsável.
 
-Para uma nova inspeção, utilizar exclusivamente uma rotina de **somente leitura, sem criação de snapshots, backups ou arquivos**, após examinar o código executado. O preflight separado `scripts/email-verification-production-preflight.mjs` não grava arquivos, mas exige um OAuth token Google com permissão de leitura; não presumir que `gcloud` esteja instalado no Termux. Nunca colar credenciais ou tokens na conversa. Até confirmar uma via de leitura que preserve o backup, manter o status do Firebase como **não homologado** e a publicação Release bloqueada.
+Uma rotina nova, auditável e sem gravação foi acrescentada em `scripts/termux-email-production-readonly.mjs`. Ela aproveita a **sessão existente de login do Firebase CLI global**, sem executar `firebase login`, sem depender de `gcloud`, sem exportar tokens e sem abrir o script anterior de backup. Deve ser executada somente após integrar e atualizar o repositório e com **Node 22+**:
+
+```sh
+# A partir da raiz da cópia atualizada do repositório Átrio Católico:
+node scripts/termux-email-production-readonly.mjs
+```
+
+O programa consulta as mesmas três rotas HTTP `GET` do preflight auditado, usando o token renovado **em memória** pelo `firebase-tools` local; não executa gravações nem cria arquivos ou backups. Não é necessário informar ou copiar uma credencial para o chat.
+
+Em caso de `atrio_termux_preflight_firebase_cli_incompatible`, o Firebase CLI local utiliza uma estrutura interna diferente: abortar e revisar a compatibilidade, sem tentar extrair o token do arquivo de login. Caso apareça `firebase_login_unavailable` ou `permission_denied`, não executar um deploy para contornar o erro; conferir a autenticação e as permissões. Mensagens `ready: false`, `emailPolicy.state: DISABLED` ou `MISSING` são esperadas antes da ativação: significam que **não é permitido autorizar Release**, não que a auditoria tenha alterado o estado do Firebase.
+
+O preflight alternativo `scripts/email-verification-production-preflight.mjs` ainda aceita um OAuth token disponibilizado por ambiente Google autorizado, se necessário. Nenhum dos auditores realiza deploy. Nunca colar credenciais ou tokens na conversa. Até conferir as regras publicadas e a política real, manter o estado do Firebase como **não homologado** e o Release bloqueado.
