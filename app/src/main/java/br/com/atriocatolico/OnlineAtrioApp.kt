@@ -44,6 +44,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.MetadataChanges
 import com.google.firebase.firestore.FieldValue
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.launch
@@ -83,7 +84,9 @@ internal fun OnlineAtrioApp(activity: androidx.activity.ComponentActivity) {
                 DisposableEffect(db, user.uid, policyRetry) {
                     verificationPolicy = EmailVerificationPolicyAccess.CHECKING
                     val policy = db.document("app_config/email_verification")
-                        .addSnapshotListener { snapshot, failure ->
+                        // INCLUDE: sem dados novos, a transicao cache -> servidor
+                        // so gera evento quando mudancas de metadata sao observadas.
+                        .addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, failure ->
                             verificationPolicy = when {
                                 failure != null || snapshot == null ->
                                     EmailVerificationPolicyAccess.UNAVAILABLE
