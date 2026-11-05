@@ -89,7 +89,11 @@ internal fun OnlineAtrioApp(activity: androidx.activity.ComponentActivity) {
                     MandatoryEmailVerificationGate(
                         uid = user.uid,
                         onVerified = { verifiedThisSession = true },
-                        onSignOut = { auth.signOut() }
+                        onSignOut = {
+                            BackgroundNoticeScheduler.disable(activity, user.uid)
+                            PushRegistry.deactivate(activity, user.uid, db)
+                            auth.signOut()
+                        }
                     )
                 } else {
                     OnlineUserScreen(auth = auth, db = db, user = user)
