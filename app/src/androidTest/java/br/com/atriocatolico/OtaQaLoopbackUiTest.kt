@@ -25,6 +25,10 @@ class OtaQaLoopbackUiTest {
     @Test fun discoversAndVerifiesDownloadInApp() {
         assumeTrue(BuildConfig.DEBUG && OtaQaChannel.active)
         compose.onNodeWithTag("atrio-ota-qa-loopback").assertExists()
+        // Marcador gravado PELA interface: o teste posterior de atualização
+        // deve comprovar que o arquivo privado persistiu após trocar o APK.
+        compose.onNodeWithTag("atrio-ota-qa-save-marker").performClick()
+        compose.waitForIdle()
         compose.waitUntil(45_000) {
             compose.onAllNodesWithTag("atrio-ota-available").fetchSemanticsNodes().isNotEmpty()
         }
@@ -37,5 +41,36 @@ class OtaQaLoopbackUiTest {
         // Botao so surge depois de OtaApkDelivery validar pacote, SHA-256,
         // versao, versionCode e fingerprint do certificado instalado.
         assertTrue(OtaQaChannel.active)
+    }
+
+    @Test fun rejectsWrongCertificateBeforeDownload() {
+        assumeTrue(BuildConfig.DEBUG && OtaQaChannel.active)
+        compose.waitUntil(45_000) {
+            compose.onAllNodesWithTag("atrio-ota-unavailable").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("atrio-ota-unavailable").assertExists()
+        compose.onNodeWithTag("atrio-ota-download").assertDoesNotExist()
+        compose.onNodeWithTag("atrio-ota-install").assertDoesNotExist()
+    }
+
+    @Test fun rejectsWrongApkChecksumAfterDownloading() {
+        assumeTrue(BuildConfig.DEBUG && OtaQaChannel.active)
+        compose.waitUntil(45_000) {
+            compose.onAllNodesWithTag("atrio-ota-available").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("atrio-ota-download").performClick()
+        compose.waitUntil(90_000) {
+            compose.onAllNodesWithTag("atrio-ota-download-failed").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("atrio-ota-install").assertDoesNotExist()
+    }
+
+    @Test fun rejectsDowngradeWithoutOfferingDownload() {
+        assumeTrue(BuildConfig.DEBUG && OtaQaChannel.active)
+        compose.waitUntil(45_000) {
+            compose.onAllNodesWithTag("atrio-ota-up-to-date").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("atrio-ota-download").assertDoesNotExist()
+        compose.onNodeWithTag("atrio-ota-install").assertDoesNotExist()
     }
 }
