@@ -1,3 +1,4 @@
+import {emailAllowsCommunity} from '../../email-verification-policy.mjs';
 // Átrio Católico 0.19.7 — Worker isolado. NÃO implantar sem autorização.
 // Uploads começam autenticados (não entregáveis), são moderados manualmente,
 // e só se tornam públicos após aprovação + promoção pelo backend.
@@ -17,7 +18,7 @@ function requireEnv(env) {
       !env.FIREBASE_WEB_API_KEY || !env.FIREBASE_SERVICE_ACCOUNT_JSON || !env.AVATAR_DB)
     throw Error('missing_configuration');
 }
-async function verify(request, env) {
+export async function verify(request, env) {
   const match = /^Bearer ([A-Za-z0-9._-]{100,5000})$/.exec(request.headers.get('Authorization') || '');
   if (!match) return null;
   const res = await fetch('https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=' +
@@ -25,7 +26,11 @@ async function verify(request, env) {
     headers:{'Content-Type':'application/json'},body:JSON.stringify({idToken:match[1]})});
   if (!res.ok) return null;
   const user = (await res.json()).users?.[0];
-  return user && !user.disabled && uidOk(user.localId) ? user.localId : null;
+  if(!user || user.disabled || !uidOk(user.localId)) return null;
+  // Antes de usar Cloudinary/credenciais de servico, respeitar o portao
+  // administrativo de email confirmado. Erro de consulta falha fechado.
+  if(!await emailAllowsCommunity(match[1],user.emailVerified)) return null;
+  return user.localId;
 }
 function base64url(bytes) {
   let result = '';
