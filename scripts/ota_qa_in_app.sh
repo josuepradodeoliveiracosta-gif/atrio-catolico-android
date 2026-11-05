@@ -126,6 +126,16 @@ case "${1:-}" in
       fi
     done
 
+    # APK correto no primeiro download, mas adulterado por byte antes
+    # do toque Instalar: a UI deve revalidar e descartar os dois caches.
+    run_ui_test rejectsTamperedDownloadedApkBeforeInstall valid
+    for filename in atrio-catolico-ota.part.apk atrio-catolico-ota.apk; do
+      if adb shell run-as "$PACKAGE" ls "cache/ota/$filename" >/dev/null 2>&1; then
+        echo "::error::APK adulterado continuou no cache apos rejeicao: $filename" >&2
+        exit 1
+      fi
+    done
+
     # Apenas depois dos testes de bloqueio, atualizar por ADB.
     # Não se trata de consentimento do instalador Android; esse teste foi
     # comprovado separadamente em aparelho físico pelo operador.
@@ -142,7 +152,7 @@ case "${1:-}" in
       echo "::error::Android nao confirmou QA versionCode=35" >&2
       exit 1
     }
-    echo "PASSOU: OTA no app, rejeicao de hash/certificado/downgrade/offline/truncado/cancelado/sem-espaco e dados da UI preservados em code 34 -> 35."
+    echo "PASSOU: OTA no app, rejeicao de hash/certificado/downgrade/offline/truncado/cancelado/sem-espaco/adulteracao-pos-download e dados da UI preservados em code 34 -> 35."
     ;;
   *)
     echo "Uso: bash scripts/ota_qa_in_app.sh prepare|emulator" >&2

@@ -39,6 +39,12 @@ A suíte de QA introduz um teste instrumentado da mesma interface que força **z
 
 **Pendente na homologação física:** baixa disponibilidade de armazenamento real, comportamento de instalação do sistema, preservação de sessão no pacote oficial e validação de assinatura permanente. Não habilitar os gates de Release por este ensaio.
 
+## Complemento — revalidação antes de instalar
+
+O botão **Instalar atualização** revalida o APK presente no cache privado antes de abrir o instalador Android, mesmo que o download já tenha sido aprovado. Um novo cenário do AndroidTest baixa um APK válido e altera **um único byte sem modificar o tamanho** do arquivo depois que o botão aparece. Ao tocar em Instalar, a interface deve rejeitar o arquivo, retirar o botão de instalação, informar que é necessário baixar novamente e descartar o APK alterado e o arquivo parcial. O CI confirma também que não ficam arquivos no cache privado.
+
+Essa prova evita depender apenas da validação feita durante o download e confere a limpeza no caminho de falha. Não substitui a validação final de assinatura feita pelo Android nem comprova a inexistência de condições de corrida entre verificação e abertura do instalador. O fluxo oficial com assinatura permanente, sessão e consentimento do Android real permanece pendente. Não libera Release.
+
 ## O que foi reaproveitado
 
 A mesma implementação de produção `OtaReleaseClient`, `OtaUpdatePolicy`, `OtaApkPolicy`, `OtaApkDelivery`, `OtaUpdateController` e `OtaUpdatesSection` detecta, baixa, confere e oferece o botão de instalação. Nenhuma segunda implementação de downloader ou de validador de assinatura foi criada.

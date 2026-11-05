@@ -119,7 +119,15 @@ internal class OtaUpdateController(private val appContext: Context) {
             installMessage = if (started)
                 "Confirme a atualização na tela do Android."
             else "Autorize instalações pelo Átrio nas configurações do Android, volte ao app e toque em Instalar."
+        } catch (cancelled: CancellationException) {
+            // Nao deixar um pacote pronto apos interrupcao da validacao.
+            OtaApkDelivery.discardCachedApk(appContext)
+            downloadState = OtaDownloadState.Idle
+            throw cancelled
         } catch (_: Exception) {
+            // Um APK alterado apos o download nao deve permanecer no cache.
+            // Exige novo download e nova verificacao de certificado/SHA-256.
+            OtaApkDelivery.discardCachedApk(appContext)
             downloadState = OtaDownloadState.Failed(
                 "O Android não conseguiu abrir a instalação, ou a verificação falhou. Baixe novamente."
             )
