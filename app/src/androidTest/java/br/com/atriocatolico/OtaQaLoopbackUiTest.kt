@@ -98,4 +98,22 @@ class OtaQaLoopbackUiTest {
         // O erro conserva a opção de tentar novamente, sem contornar a validação.
         compose.onNodeWithTag("atrio-ota-download").assertExists()
     }
+
+    @Test fun cancelsSlowDownloadWithoutOfferingInstallation() {
+        assumeTrue(BuildConfig.DEBUG && OtaQaChannel.active)
+        compose.waitUntil(45_000) {
+            compose.onAllNodesWithTag("atrio-ota-available").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("atrio-ota-download").performClick()
+        compose.waitUntil(30_000) {
+            compose.onAllNodesWithTag("atrio-ota-cancel").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("atrio-ota-cancel").performClick()
+        compose.waitUntil(30_000) {
+            compose.onAllNodesWithTag("atrio-ota-download").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("atrio-ota-install").assertDoesNotExist()
+        // A mesma oferta pode ser baixada novamente depois de cancelar.
+        compose.onNodeWithTag("atrio-ota-download").assertExists()
+    }
 }
