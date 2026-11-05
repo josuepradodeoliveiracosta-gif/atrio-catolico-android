@@ -97,7 +97,7 @@ O resultado deve ser revisado por quem controla o projeto antes de substituir re
 **Conclusão da comparação de 05/11/2026:** as 31 linhas exclusivas da produção correspondem principalmente à função antiga do portão de e-mail, permissões anteriores e comentários/posicionamento. A coleção app_config/engagement também existe no repositório. A versão no GitHub passou nos testes do Firebase Emulator. Isso não substitui a verificação de que o ruleset publicado continua intacto no momento do deploy.
 
 A rotina scripts/termux-firestore-rules-guarded-deploy.mjs **só permite alterar as regras** se:
-- O SHA-256 das regras publicadas ainda for 9c7678a7dfbadecceb30d5f770a25fb81c6f5926fedafc75e303c7e3bb3e6a02 (auditoria real);
+- O SHA-256 das regras publicadas ainda for 9c7678a7dfbadececb30d5f770a25fb81c6f5926fedafc75e303c7e3bb3e6a02 (auditoria real);
 - O SHA-256 das regras locais ainda for 4b479daa1d4d8673c3e1e9f70a2f9d752e7df996d414aefa1397ad86661bd76e;
 - A política de confirmação de e-mail estiver MISSING e a de consentimento comunitário não estiver ativa;
 - Uma segunda leitura logo antes do deploy ainda confirmar as mesmas pré-condições;
