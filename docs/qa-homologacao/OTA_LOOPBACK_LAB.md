@@ -53,6 +53,14 @@ O teste Compose pressiona **Baixar atualização**, confirma que a primeira tent
 
 A prova confirma retentativa manual em emulador e integridade no canal local isolado. **Não confirma** retomada parcial (resume), rede móvel real, falhas de espaço durante a gravação, download em segundo plano nem homologação do Release com assinatura permanente. Os gates e a publicação oficial permanecem bloqueados.
 
+## Complemento — recuperação de cache parcial após encerramento abrupto
+
+Quando o processo Android é encerrado abruptamente (por exemplo, por falta de memória ou **Forçar parada**), o bloco `finally` do download pode não executar. Para impedir que um arquivo `.part.apk` grande permaneça indefinidamente, a **primeira verificação OTA de uma nova instância do controlador** elimina somente `cache/ota/atrio-catolico-ota.part.apk`, na pasta privada, antes de consultar o canal. A limpeza é síncrona em `Dispatchers.IO` e não abre o instalador.
+
+**Exceção deliberada de segurança:** um APK final `cache/ota/atrio-catolico-ota.apk` não é apagado nesse momento, pois o instalador Android pode estar lendo o arquivo por `FileProvider`. A interface recém-iniciada **não** passa a confiar automaticamente nesse APK; para instalar uma atualização é necessário baixar e validar novamente no fluxo controlado. Também não são removidos outros arquivos de cache.
+
+O laboratório executa um teste de reinício com APK final anteriormente validado, `.part.apk` simulado e arquivo de cache não relacionado. Após `am force-stop` e nova Activity, exige ausência do parcial, preservação do APK final e dos arquivos não relacionados, ausência do botão **Instalar** e presença de **Baixar atualização**. Em seguida, o script remove os marcadores artificiais. Esse ensaio **não comprova** que o Android conclui a instalação se o app for morto durante o uso do `FileProvider`; o comportamento no aparelho real segue pendente.
+
 ## O que foi reaproveitado
 
 A mesma implementação de produção `OtaReleaseClient`, `OtaUpdatePolicy`, `OtaApkPolicy`, `OtaApkDelivery`, `OtaUpdateController` e `OtaUpdatesSection` detecta, baixa, confere e oferece o botão de instalação. Nenhuma segunda implementação de downloader ou de validador de assinatura foi criada.
