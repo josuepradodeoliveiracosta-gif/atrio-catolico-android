@@ -1,9 +1,17 @@
 package br.com.atriocatolico
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -14,15 +22,58 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 
+/**
+ * Portal de entrada para contas sem e-mail verificado.
+ * So aparece quando a politica admin-only de verificacao estiver ativa.
+ * Manter reenvio, atualizacao de token e saida acessiveis sem entrar no forum.
+ */
+@Composable
+internal fun MandatoryEmailVerificationGate(
+    uid: String, onVerified: () -> Unit, onSignOut: () -> Unit
+) {
+    Column(
+        Modifier.fillMaxSize().background(Wine)
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp, vertical = 36.dp)
+            .testTag("atrio-email-verification-gate"),
+        verticalArrangement = Arrangement.spacedBy(18.dp)
+    ) {
+        Text("Átrio Católico", color = Gold, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+        Card(colors = CardDefaults.cardColors(containerColor = Paper)) {
+            Column(
+                Modifier.fillMaxWidth().padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    "Confirmação de e-mail obrigatória",
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.testTag("atrio-email-verification-required-title")
+                )
+                Text(
+                    "Para entrar na comunidade, confirme o endereço usado no cadastro. " +
+                        "Abra o link recebido e depois volte a esta tela."
+                )
+                EmailVerificationPanel(uid = uid, onVerified = onVerified)
+                OutlinedButton(
+                    onClick = onSignOut,
+                    modifier = Modifier.fillMaxWidth().testTag("atrio-email-verification-signout")
+                ) { Text("Sair da conta") }
+            }
+        }
+    }
+}
+
 /** A verificação enviada na inscrição é revalidada pelo servidor quando solicitada. */
 @Composable
-internal fun EmailVerificationPanel(uid: String) {
+internal fun EmailVerificationPanel(uid: String, onVerified: (() -> Unit)? = null) {
     val auth = remember { FirebaseAuth.getInstance() }
     var verified by remember(uid) { mutableStateOf(auth.currentUser?.isEmailVerified == true) }
     var busy by remember(uid) { mutableStateOf(false) }
@@ -76,6 +127,7 @@ internal fun EmailVerificationPanel(uid: String) {
                                     auth.currentUser?.isEmailVerified == true
                                 info = if (verified) "E-mail confirmado. Você já pode publicar."
                                     else "O e-mail foi confirmado, mas a sessão não foi atualizada. Tente novamente."
+                                if (verified) onVerified?.invoke()
                             }
                         }
                     }
