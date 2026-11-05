@@ -80,6 +80,14 @@ A suíte Python comprova que os fixtures respondem `302` e preservam os outros m
 
 Essas verificações são **ensaios de bloqueio**: nenhuma requisição aos endereços externos deve ser feita. Não representam permissões para acessar domínios de terceiros, não afetam o Firebase e não comprovam a homologação física do canal oficial. A assinatura permanente e a autorização de Release seguem pendentes.
 
+## Complemento — redirecionamentos circulares com limite de segurança
+
+O laboratório isolado simula dois casos de servidor que responde **HTTP 302 apontando para o próprio recurso**: um no manifesto `update.json` (`manifest-redirect-loop`) e outro no APK (`apk-redirect-loop`). A URL inicial permanece válida e nenhum domínio externo é acessado; o problema a evitar é a repetição infinita das consultas.
+
+O cliente de consulta de manifesto e o downloader do APK já limitam redirecionamentos a **cinco saltos, com seis respostas HTTP 302 ao todo**. Os dois testes de interface confirmam que a operação é recusada dentro do limite e que nenhum botão Instalar aparece. No loop do manifesto, não deve haver sequer GET pelo APK. No loop do APK, qualquer arquivo parcial ou final deve ser descartado e a interface deve continuar permitindo nova tentativa. O script de CI confirma nos logs **exatamente seis** respostas 302 em cada cenário, verificando o limite real do código; um loop infinito provoca falha do teste.
+
+São ensaios exclusivamente no pacote Debug `.otalab`, sem instalação no Android, sem comunicação com Firebase de produção, sem alterar assinatura e sem autorização de Release oficial. Não demonstram comportamento de uma CDN real nem substituem a homologação física com assinatura permanente.
+
 ## O que foi reaproveitado
 
 A mesma implementação de produção `OtaReleaseClient`, `OtaUpdatePolicy`, `OtaApkPolicy`, `OtaApkDelivery`, `OtaUpdateController` e `OtaUpdatesSection` detecta, baixa, confere e oferece o botão de instalação. Nenhuma segunda implementação de downloader ou de validador de assinatura foi criada.
