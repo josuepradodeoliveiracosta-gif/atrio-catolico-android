@@ -103,6 +103,14 @@ case "${1:-}" in
     run_ui_test rejectsDowngradeWithoutOfferingDownload downgrade
     run_ui_test handlesOfflineServerWithoutOfferingInstallation offline
     run_ui_test rejectsInterruptedDownloadWithoutOfferingInstallation truncated-apk
+    run_ui_test retriesInterruptedDownloadInSameScreenAndVerifiesApk truncated-once
+    # O fixture registra o primeiro GET truncado e o segundo completo.
+    # Um teste que apenas reusa cache nao deve ser confundido com retentativa.
+    attempt_count=$(grep -cF       'GET /releases/download/v0.19.8/atrio-catolico.apk HTTP/1.1'       "$OUT/server-truncated-once.log" || :)
+    [[ "$attempt_count" == "2" ]] || {
+      echo "::error::Retentativa OTA nao fez exatamente dois GETs de APK: $attempt_count" >&2
+      exit 1
+    }
     run_ui_test cancelsSlowDownloadWithoutOfferingInstallation slow-apk
     run_ui_test refusesDownloadWhenStorageIsInsufficient valid
     # Este ultimo servidor 'valid' atende somente o teste sem espaco.
@@ -152,7 +160,7 @@ case "${1:-}" in
       echo "::error::Android nao confirmou QA versionCode=35" >&2
       exit 1
     }
-    echo "PASSOU: OTA no app, rejeicao de hash/certificado/downgrade/offline/truncado/cancelado/sem-espaco/adulteracao-pos-download e dados da UI preservados em code 34 -> 35."
+    echo "PASSOU: OTA no app, rejeicao de hash/certificado/downgrade/offline/truncado/cancelado/sem-espaco/adulteracao-pos-download, retentativa de rede e dados da UI preservados em code 34 -> 35."
     ;;
   *)
     echo "Uso: bash scripts/ota_qa_in_app.sh prepare|emulator" >&2
