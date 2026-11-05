@@ -59,6 +59,7 @@ internal class OtaUpdateController(private val appContext: Context) {
             (status !is OtaCheckStatus.Available ||
                 (status as OtaCheckStatus.Available).apk !=
                     (downloadState as OtaDownloadState.Ready).offer)) {
+            OtaApkDelivery.discardCachedApk(appContext)
             downloadState = OtaDownloadState.Idle
         }
     }
@@ -78,14 +79,16 @@ internal class OtaUpdateController(private val appContext: Context) {
             }
             // Outro release pode ter sido publicado durante o download.
             if ((status as? OtaCheckStatus.Available)?.apk != offer) {
-                apk.delete()
+                OtaApkDelivery.discardCachedApk(appContext)
                 downloadState = OtaDownloadState.Idle
             } else {
                 downloadState = OtaDownloadState.Ready(offer, apk)
             }
         } catch (cancelled: CancellationException) {
+            OtaApkDelivery.discardCachedApk(appContext)
             downloadState = OtaDownloadState.Idle
         } catch (_: Exception) {
+            OtaApkDelivery.discardCachedApk(appContext)
             downloadState = OtaDownloadState.Failed(
                 "Não foi possível baixar ou validar o APK. Confira a conexão e tente novamente."
             )
@@ -183,7 +186,8 @@ internal fun OtaUpdatesSection(
                         LinearProgressIndicator(progress = { progress },
                             modifier = Modifier.fillMaxWidth().testTag("atrio-ota-progress"))
                         Text("Baixando: ${(progress * 100).toInt()}%")
-                        OutlinedButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) {
+                        OutlinedButton(onClick = onCancel,
+                            modifier = Modifier.fillMaxWidth().testTag("atrio-ota-cancel")) {
                             Text("Cancelar download")
                         }
                     }
