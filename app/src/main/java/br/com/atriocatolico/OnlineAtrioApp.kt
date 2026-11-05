@@ -69,7 +69,32 @@ internal fun OnlineAtrioApp(activity: androidx.activity.ComponentActivity) {
         if (user == null) {
             OnlineAuthScreen(auth = auth, db = db)
         } else {
-            key(user.uid) { OnlineUserScreen(auth = auth, db = db, user = user) }
+            key(user.uid) {
+                // A exigencia e definida pelo Firebase de forma administrativa,
+                // sem confiar em um atributo que o usuario possa gravar no perfil.
+                var verificationRequired by remember(user.uid) { mutableStateOf(false) }
+                var verifiedThisSession by remember(user.uid) {
+                    mutableStateOf(user.isEmailVerified)
+                }
+                DisposableEffect(db, user.uid) {
+                    val policy = db.document("app_config/email_verification")
+                        .addSnapshotListener { snapshot, failure ->
+                            verificationRequired = failure == null &&
+                                snapshot?.getBoolean("enabled") == true &&
+                                snapshot.getString("version") == "2026-11-v1"
+                        }
+                    onDispose { policy.remove() }
+                }
+                if (verificationRequired && !verifiedThisSession) {
+                    MandatoryEmailVerificationGate(
+                        uid = user.uid,
+                        onVerified = { verifiedThisSession = true },
+                        onSignOut = { auth.signOut() }
+                    )
+                } else {
+                    OnlineUserScreen(auth = auth, db = db, user = user)
+                }
+            }
         }
         // Keep session state outside the login branch and user key.
         // O laboratório isolado de instrumentação não deve abrir vídeo,
