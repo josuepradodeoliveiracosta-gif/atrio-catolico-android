@@ -7,6 +7,12 @@ plugins {
 // A QA OTA usa um pacote isolado .otalab e não toca Firebase de produção.
 // Por isso NÃO aplica Google Services nesse build exclusivamente Debug.
 val atrioOtaQaLoopback = System.getenv("ATRIO_OTA_QA_LOOPBACK") == "1"
+if (atrioOtaQaLoopback && gradle.startParameter.taskNames.any { task ->
+    val name = task.substringAfterLast(':').lowercase()
+    name.contains("release") || name == "assemble" || name == "build" || name == "bundle"
+}) {
+    error("O laboratorio OTA isolado nunca pode compilar APK ou bundle Release.")
+}
 // Com app/google-services.json presente, o Google Services gera os recursos Firebase.
 // Sem o arquivo, este projeto ainda pode ser compilado em modo demonstração.
 if (file("google-services.json").exists() && !atrioOtaQaLoopback) {
