@@ -1,0 +1,31 @@
+name: Auditoria de email Firebase — testes offline
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/email-verification-production-preflight*.mjs'
+      - '.github/workflows/email-verification-preflight-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Obter codigo sem credenciais
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Preparar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Testar somente mocks, sem rede nem segredos de producao
+        env:
+          ATRIO_READONLY_OAUTH_TOKEN: ''
+        run: node --test scripts/email-verification-production-preflight.test.mjs
+      - name: Verificar sintaxe do auditor
+        run: node --check scripts/email-verification-production-preflight.mjs
