@@ -8,7 +8,7 @@ Estado em 05/11/2026: **código de interface preparado para revisão, política 
 - O perfil permite reenviar o link e atualizar a sessão com `reload()` e `getIdToken(true)`.
 - As regras do Firestore negam **criação de posts e respostas** se a configuração administrativa está ativa e o token Firebase Authentication não contém `email_verified=true`.
 - O aplicativo apresenta uma tela de confirmação antes de entrar na comunidade quando a política está ativa. Ela permite reenvio, conferência e saída da conta.
-- **Segurança de entrada (fail-closed):** para contas não verificadas, o aplicativo aguarda a política obtida diretamente do servidor. Cache local, carregamento inicial ou erro de leitura nunca liberam a navegação. Em falha há opção de tentar novamente ou sair; conta com claim autêntico de e-mail confirmado pode entrar.
+- **Segurança de entrada (fail-closed):** para contas não verificadas, o aplicativo aguarda a política obtida diretamente do servidor. Cache local, carregamento inicial ou erro de leitura nunca liberam a navegação. O listener inclui mudanças de metadados (`MetadataChanges.INCLUDE`) para reconhecer a passagem cache → servidor mesmo se os dados do documento não mudarem. Em falha há opção de tentar novamente ou sair; conta com claim autêntico de e-mail confirmado pode entrar.
 - A liberação após confirmar usa `reload()`, renovação do token e verificação explícita de `email_verified=true` no token atualizado.
 - Os testes de Firestore e Android rodam somente com Firebase Emulator (`demo-atrio-v11`).
 
