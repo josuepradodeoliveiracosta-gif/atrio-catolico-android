@@ -34,6 +34,19 @@ A ausência das variables equivale a `false`; qualquer outro valor bloqueia a op
 
 **Backup protegido:** não editar o backup original nem recriar a chave de assinatura oficial. Testes e artefatos temporários permanecem separados.
 
+## Compatibilidade com a verificação de desenvolvedor Android (Brasil, 2026)
+
+A partir de **30/09/2026**, a verificação de desenvolvedor Android começou no Brasil, Indonésia, Singapura e Tailândia **nas lojas participantes**. O cronograma oficial prevê expansão global a partir de 2027. É incorreto afirmar, apenas por essa data, que todo APK baixado de GitHub Releases esteja proibido; a documentação também descreve instalação por fluxo avançado e por ADB. No entanto, o percurso real pode variar por dispositivo certificado, loja, origem e atualização do sistema.
+
+**Antes da distribuição:**
+1. Confirmar a modalidade de distribuição pretendida: APK do GitHub instalado diretamente, loja participante, Play Store ou grupo limitado. Não tratar esses caminhos como equivalentes.
+2. Verificar no **Android Developer Console** ou **Play Console**, conforme a modalidade escolhida, o status de registro do desenvolvedor e do pacote oficial `br.com.atriocatolico`; não presumir cadastro já concluído. Manter o mesmo certificado de assinatura usado pelos APKs oficiais. Nunca publicar nem enviar a chave privada ou suas senhas.
+3. Ensaiar num aparelho Android certificado no Brasil **a origem real de instalação**: atualização A → B pelo fluxo `Perfil → Atualizações do Átrio`, consentimento de fontes externas, verificação do desenvolvedor quando aplicável, confirmação do instalador e retorno ao app sem perda de sessão/dados. Registrar a versão do Android, a origem e eventuais telas de bloqueio **sem dados sensíveis**.
+4. Para instalação direta de um app ainda não registrado, considerar o fluxo avançado documentado pelo Android e as limitações de experiência; ADB é ferramenta de desenvolvimento, não deve ser anunciado como rotina simples para usuários finais.
+5. Não confundir a homologação do APK no laboratório `.otalab` com a aprovação do pacote oficial ou com o registro de desenvolvedor. As duas variáveis de autorização OTA e as demais travas de Release permanecem inalteradas até aceite explícito.
+
+**Fontes oficiais consultadas em 05/11/2026:** [Android Developers — guia de verificação](https://developer.android.com/developer-verification/guides), [Android Developers Blog — lançamento no Brasil e outras regiões](https://android-developers.googleblog.com/2026/06/android-developer-verification.html) e [Android Developer Console — FAQ](https://support.google.com/android-developer-console/answer/16561738?hl=en).
+
 ## Próxima implementação
 
 A primeira pendência concreta é desenvolver e ativar o canal piloto no aplicativo de QA para demonstrar OTA dentro da interface, porque o OTA da build Debug atual está desabilitado e a prova com `adb install -r` não atende à condição de lançamento.
