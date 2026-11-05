@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {emailAllowsCommunity,EMAIL_VERIFICATION_POLICY_URL} from './email-verification-policy.mjs';
 
-const token='t'.repeat(150);
+const token='qa-service-oauth-'+ 't'.repeat(150);
 const policy=(enabled,version='2026-11-v1')=>Response.json({
   name:'projects/atrio-catolico/databases/(default)/documents/app_config/email_verification',
   fields:{
@@ -13,7 +13,7 @@ const policy=(enabled,version='2026-11-v1')=>Response.json({
 
 test('conta confirmada nunca depende de flag ou disponibilidade da politica',async()=>{
   let called=0;
-  assert.equal(await emailAllowsCommunity(token,true,async()=>{called++;throw Error('offline');}),true);
+  assert.equal(await emailAllowsCommunity(null,true,async()=>{called++;throw Error('offline');}),true);
   assert.equal(called,0);
 });
 
@@ -74,7 +74,7 @@ test('emailVerified so aceita boolean true, jamais texto ou perfil',async()=>{
   assert.equal(await emailAllowsCommunity(token,undefined,async()=>policy(true)),false);
 });
 
-test('token nao confiavel nao gera consulta de politica',async()=>{
+test('OAuth de servico ausente nao gera consulta de politica',async()=>{
   await assert.rejects(emailAllowsCommunity('',false,async()=>{throw Error('must not call');}),
     /invalid_identity/);
 });

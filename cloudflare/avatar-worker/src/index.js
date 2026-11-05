@@ -29,7 +29,10 @@ export async function verify(request, env) {
   if(!user || user.disabled || !uidOk(user.localId)) return null;
   // Antes de usar Cloudinary/credenciais de servico, respeitar o portao
   // administrativo de email confirmado. Erro de consulta falha fechado.
-  if(!await emailAllowsCommunity(match[1],user.emailVerified)) return null;
+  // Firebase Auth valida o usuario; a leitura da flag e administrativa.
+  // Usar OAuth de servico evita depender de permissao REST do ID token.
+  const policyAccessToken=user.emailVerified===true?null:await firestoreToken(env);
+  if(!await emailAllowsCommunity(policyAccessToken,user.emailVerified)) return null;
   return user.localId;
 }
 function base64url(bytes) {

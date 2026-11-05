@@ -105,7 +105,10 @@ export async function verifyIdentity(req,env) {
   if(!account || account.disabled || !uidPart(account.localId)) return null;
   // As operacoes subsequentes usam credencial de servico, portanto a
   // verificacao da conta e da politica deve ocorrer ANTES da mutacao.
-  if(!await emailAllowsCommunity(match[1],account.emailVerified)) return null;
+  // Identidade conferida no Firebase Auth; a politica e lida pelo
+  // token de servico ja usado nas demais operacoes do Guardiao/Push.
+  const policyAccessToken=account.emailVerified===true?null:await oauth(env);
+  if(!await emailAllowsCommunity(policyAccessToken,account.emailVerified)) return null;
   return account.localId;
 }
 
