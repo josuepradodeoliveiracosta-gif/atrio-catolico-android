@@ -96,6 +96,21 @@ case "${1:-}" in
     # A UI também grava um marcador de dados que deve persistir após upgrade.
     run_ui_test discoversAndVerifiesDownloadInApp valid
 
+    # Simula encerramento abrupto apos download valido: o APK final ainda
+    # pode estar sob leitura do instalador, mas .part nao pode persistir.
+    adb shell run-as "$PACKAGE" ls cache/ota/atrio-catolico-ota.apk >/dev/null
+    adb shell run-as "$PACKAGE" touch cache/ota/atrio-catolico-ota.part.apk
+    adb shell run-as "$PACKAGE" touch cache/ota/qa-other-cache.txt
+    run_ui_test clearsOrphanedPartialOnAppStartWithoutDeletingInstallerApk valid
+    if adb shell run-as "$PACKAGE" ls cache/ota/atrio-catolico-ota.part.apk >/dev/null 2>&1; then
+      echo "::error::Arquivo OTA parcial orfao nao foi removido no inicio" >&2
+      exit 1
+    fi
+    adb shell run-as "$PACKAGE" ls cache/ota/atrio-catolico-ota.apk >/dev/null
+    adb shell run-as "$PACKAGE" ls cache/ota/qa-other-cache.txt >/dev/null
+    # Terminou a simulacao; nao propagar arquivos aos casos negativos seguintes.
+    adb shell run-as "$PACKAGE" rm -f cache/ota/atrio-catolico-ota.apk cache/ota/qa-other-cache.txt
+
     # Testes negativos na própria interface, com os mesmos componentes usados
     # no release (sem permitir baixar/install APK que viole a política).
     run_ui_test rejectsWrongCertificateBeforeDownload bad-cert
@@ -108,7 +123,7 @@ case "${1:-}" in
     run_ui_test refusesDownloadWhenStorageIsInsufficient valid
     # Este ultimo servidor 'valid' atende somente o teste sem espaco.
     # O manifesto pode ser consultado, mas o APK nao deve ser requisitado.
-    if grep -Eq 'GET /releases/download/[^ ]+/atrio-catolico\\.apk ' \
+    if grep -Eq 'GET /releases/download/[^ ]+/atrio-catolico[.]apk ' \
       "$OUT/server-valid.log"; then
       echo "::error::APK foi requisitado apesar de espaco insuficiente" >&2
       exit 1
@@ -153,7 +168,7 @@ case "${1:-}" in
       echo "::error::Android nao confirmou QA versionCode=35" >&2
       exit 1
     }
-    echo "PASSOU: OTA no app, rejeicao de hash/certificado/downgrade/offline/truncado/cancelado/sem-espaco/adulteracao-pos-download e retentativa segura e dados da UI preservados em code 34 -> 35."
+    echo "PASSOU: OTA no app, rejeicao de hash/certificado/downgrade/offline/truncado/cancelado/sem-espaco/adulteracao-pos-download e retentativa segura, cache parcial limpo no reinicio e dados da UI preservados em code 34 -> 35."
     ;;
   *)
     echo "Uso: bash scripts/ota_qa_in_app.sh prepare|emulator" >&2

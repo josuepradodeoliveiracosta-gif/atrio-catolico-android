@@ -157,6 +157,27 @@ class OtaQaLoopbackUiTest {
         compose.onNodeWithTag("atrio-ota-download").assertExists()
     }
 
+    @Test fun clearsOrphanedPartialOnAppStartWithoutDeletingInstallerApk() {
+        assumeTrue(BuildConfig.DEBUG && OtaQaChannel.active)
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val folder = File(context.cacheDir, "ota")
+        val partial = File(folder, "atrio-catolico-ota.part.apk")
+        val ready = File(folder, "atrio-catolico-ota.apk")
+        val unrelated = File(folder, "qa-other-cache.txt")
+        // O script de QA criou estes arquivos antes da Activity iniciar.
+        // O controlador deve recuperar apenas o .part na consulta inicial.
+        compose.waitUntil(45_000) {
+            compose.onAllNodesWithTag("atrio-ota-available").fetchSemanticsNodes().isNotEmpty()
+        }
+        assertTrue("Arquivo parcial nao foi descartado no primeiro refresh", !partial.exists())
+        assertTrue("Arquivo pronto pode estar em uso pelo instalador", ready.isFile)
+        assertTrue("Cache de outros componentes nao pode ser excluido", unrelated.isFile)
+        // Um APK pronto de processo anterior nao e confiado pela nova UI.
+        // O download exige nova verificacao completa, nunca instala sozinho.
+        compose.onNodeWithTag("atrio-ota-install").assertDoesNotExist()
+        compose.onNodeWithTag("atrio-ota-download").assertExists()
+    }
+
     @Test fun refusesDownloadWhenStorageIsInsufficient() {
         assumeTrue(BuildConfig.DEBUG && OtaQaChannel.active)
         val context = InstrumentationRegistry.getInstrumentation().targetContext
