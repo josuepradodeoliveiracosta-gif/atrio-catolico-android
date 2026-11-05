@@ -97,7 +97,8 @@ class ThreeBotsOnlineEmulatorTest {
     private fun enter(email: String, expectedName: String) {
         awaitScreen("Entrar na comunidade")
         compose.onNodeWithText("E-mail").performTextInput(email)
-        compose.onNodeWithText("Senha (mínimo 6 caracteres)")
+        // O login mudou de rotulo; a tag e estavel entre versoes.
+        compose.onNodeWithTag("atrio-auth-password")
             .performTextInput("QaEmulator2026!")
         compose.onNodeWithText("Entrar").performClick()
         awaitScreen("Paz e bem, ${expectedName.substringBefore(' ')}!")
