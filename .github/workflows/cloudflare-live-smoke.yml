@@ -1,0 +1,66 @@
+name: Smoke de endpoints públicos Cloudflare (sem segredos)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/cloudflare-live-smoke.yml'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/cloudflare-live-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  public-http-smoke:
+    name: Validar rotas HTTP sem autenticação
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Preparar Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validar saúde Push e contratos HTTP de Avatar
+        env:
+          PUSH_URL: 'https://atrio-push.atrio-catolico.workers.dev'
+          AVATAR_URL: 'https://atrio-avatares.atrio-catolico.workers.dev'
+        run: |
+          node --input-type=module <<'NODE'
+          const endpoints=[
+            {label:'push/health',url:process.env.PUSH_URL+'/health',status:200,state:'configured'},
+            {label:'avatar/method',url:process.env.AVATAR_URL+'/avatar/status',status:405,state:'method_not_allowed'},
+            {label:'avatar/not-found',url:process.env.AVATAR_URL+'/__atrio_nonexistent_probe',status:404,state:'not_found'}
+          ];
+          let failures=0;
+          for(const endpoint of endpoints) {
+            let observed;
+            for(let attempt=1;attempt<=3;attempt++){
+              try{
+                const r=await fetch(endpoint.url,{
+                  method:'GET',headers:{Accept:'application/json'},
+                  redirect:'error',signal:AbortSignal.timeout(7000)
+                });
+                const body=await r.text();
+                const actual=body.length<=1000?JSON.parse(body):null;
+                observed={status:r.status,state:actual?.status};
+                if(observed.status===endpoint.status && observed.state===endpoint.state) break;
+              }catch{observed={status:'network_error'};}
+              if(attempt<3)await new Promise(resolve=>setTimeout(resolve,1500));
+            }
+            const ok=observed?.status===endpoint.status&&observed?.state===endpoint.state;
+            console.log(JSON.stringify({
+              endpoint:endpoint.label,
+              expectedHttp:endpoint.status,
+              actualHttp:observed?.status,
+              expectedState:endpoint.state,
+              actualState:observed?.state||null,
+              pass:ok
+            }));
+            if(!ok)failures++;
+          }
+          if(failures){console.error('Cloudflare live smoke reprovado: '+failures+' endpoint(s).');process.exitCode=1;}
+          NODE
