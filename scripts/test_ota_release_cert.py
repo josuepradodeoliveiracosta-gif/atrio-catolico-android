@@ -95,7 +95,7 @@ class ReleaseCertificateContinuityTests(unittest.TestCase):
             / "app/src/main/java/br/com/atriocatolico/OtaOfficialSigner.kt"
         ).read_text(encoding="utf-8")
         matches = re.findall(
-            r'CERTIFICATE_SHA256\\s*=\\s*"([0-9a-f]{64})"', kotlin
+            r'CERTIFICATE_SHA256\s*=\s*"([0-9a-f]{64})"', kotlin
         )
         self.assertEqual(matches, [PINNED_OFFICIAL_CERT_SHA256])
         self.assertIn("OtaQaChannel.active", kotlin)
