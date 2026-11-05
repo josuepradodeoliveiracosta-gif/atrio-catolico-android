@@ -106,11 +106,25 @@ jobs:
           ATRIO_GUARDIAN_V2_WORKER_URL: ${{ vars.ATRIO_GUARDIAN_V2_WORKER_URL || 'https://atrio-guardian-v2.atrio-catolico.workers.dev' }}
           ATRIO_GUARDIAN_V2_RELEASE_APPROVED: ${{ vars.ATRIO_GUARDIAN_V2_RELEASE_APPROVED || 'false' }}
           ATRIO_EMAIL_VERIFICATION_RELEASE_APPROVED: ${{ vars.ATRIO_EMAIL_VERIFICATION_RELEASE_APPROVED || 'false' }}
+          ATRIO_OTA_E2E_TESTED: ${{ vars.ATRIO_OTA_E2E_TESTED || 'false' }}
+          ATRIO_OTA_RELEASE_APPROVED: ${{ vars.ATRIO_OTA_RELEASE_APPROVED || 'false' }}
           ATRIO_KEYSTORE_BASE64: ${{ secrets.ATRIO_KEYSTORE_BASE64 }}
           ATRIO_STORE_PASSWORD: ${{ secrets.ATRIO_STORE_PASSWORD }}
           ATRIO_KEY_PASSWORD: ${{ secrets.ATRIO_KEY_PASSWORD }}
         run: |
           set -euo pipefail
+          # Trava prioritária de OTA: só assinar após um ciclo ponta a ponta
+          # REAL no aparelho, com download dentro do Átrio, instalação
+          # por cima, assinatura idêntica, versionCode crescente e dados mantidos.
+          # A aprovação final da distribuição é separada da evidência de QA.
+          if [[ "$ATRIO_OTA_E2E_TESTED" != "true" ]]; then
+            echo "::error::APK Release bloqueado: OTA não homologado de ponta a ponta em aparelho real (ATRIO_OTA_E2E_TESTED)."
+            exit 1
+          fi
+          if [[ "$ATRIO_OTA_RELEASE_APPROVED" != "true" ]]; then
+            echo "::error::APK Release bloqueado: falta autorização explícita após ativar e homologar OTA (ATRIO_OTA_RELEASE_APPROVED)."
+            exit 1
+          fi
           # Trava independente: nao lancar release enquanto o e-mail confirmado
           # nao for obrigatorio e homologado no Firebase de producao.
           # False por padrao; so aprovar apos rollout e verificacao de contas antigas.
