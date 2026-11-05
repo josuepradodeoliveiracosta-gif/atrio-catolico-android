@@ -105,6 +105,18 @@ case "${1:-}" in
     run_ui_test rejectsInterruptedDownloadWithoutOfferingInstallation truncated-apk
     run_ui_test cancelsSlowDownloadWithoutOfferingInstallation slow-apk
     run_ui_test refusesDownloadWhenStorageIsInsufficient valid
+    # Este ultimo servidor 'valid' atende somente o teste sem espaco.
+    # O manifesto pode ser consultado, mas o APK nao deve ser requisitado.
+    if grep -Eq 'GET /releases/download/[^ ]+/atrio-catolico\\.apk ' \
+      "$OUT/server-valid.log"; then
+      echo "::error::APK foi requisitado apesar de espaco insuficiente" >&2
+      exit 1
+    fi
+    if adb shell run-as "$PACKAGE" cat shared_prefs/atrio_ota_lab_prefs.xml \
+      | grep -q 'qa_force_low_space'; then
+      echo "::error::Preferencia de simulacao de espaco nao foi removida" >&2
+      exit 1
+    fi
     # Nem o download temporario nem um APK pronto podem sobreviver a
     # interrupcao remota OU ao cancelamento iniciado pelo usuario.
     for filename in atrio-catolico-ota.part.apk atrio-catolico-ota.apk; do
