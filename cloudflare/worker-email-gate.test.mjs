@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {verify as verifyAvatar} from './avatar-worker/src/index.js';
-import {verifyIdentity as verifyPush} from './push-worker/src/index.js';
+import avatarHandler, {verify as verifyAvatar} from './avatar-worker/src/index.js';
+import pushHandler, {verifyIdentity as verifyPush} from './push-worker/src/index.js';
 
 const token='a'.repeat(150);
 const authHeaders={Authorization:'Bearer '+token};
@@ -71,4 +71,61 @@ for (const [name,identify] of [['avatar',verifyAvatar],['push',verifyPush]]) {
     await assert.rejects(scenario({policyReply:()=>new Response('',{status:503})}),
       /email_policy_unavailable/);
   });
+}
+
+/** Requisicoes HTTP diretas nao podem contornar o portao antes do servico. */
+const endpoints=[
+  {
+    name:'avatar/status',
+    handler:avatarHandler,
+    url:'https://qa.invalid/avatar/status',
+    env:{
+      CLOUDINARY_CLOUD_NAME:'qa',CLOUDINARY_API_KEY:'qa',
+      CLOUDINARY_API_SECRET:'qa',FIREBASE_WEB_API_KEY:'fake-qa-key',
+      FIREBASE_SERVICE_ACCOUNT_JSON:'{}',AVATAR_DB:{}
+    },
+    body:undefined
+  },
+  {
+    name:'push/event',
+    handler:pushHandler,
+    url:'https://qa.invalid/event',
+    env:{
+      PUSH_ENABLED:'true',PUSH_DB:{},
+      FIREBASE_WEB_API_KEY:'fake-qa-key',FIREBASE_SERVICE_ACCOUNT_JSON:'{}'
+    },
+    body:JSON.stringify({type:'reply'})
+  }
+];
+for(const endpoint of endpoints) {
+  for(const [policyCode,expected] of [['required',401],['unavailable',503]]) {
+    test(endpoint.name+': HTTP nao aceita bypass quando politica '+policyCode,async()=>{
+      const old=globalThis.fetch;
+      const contacted=[];
+      globalThis.fetch=async(url,options={})=>{
+        const target=String(url);
+        contacted.push(target);
+        if(target.includes('identitytoolkit.googleapis.com/v1/accounts:lookup'))
+          return Response.json({users:[{localId:'qa-member',disabled:false,emailVerified:false}]});
+        if(target.endsWith('/documents/app_config/email_verification')) {
+          assert.equal(options.headers.Authorization,'Bearer '+token);
+          return policyCode==='required'?policy(true):new Response('',{status:503});
+        }
+        throw Error('Operacao privilegiada indevida: '+target);
+      };
+      try {
+        const resp=await endpoint.handler.fetch(new Request(endpoint.url,{
+          method:'POST',headers:{
+            ...authHeaders,...(endpoint.body?{'Content-Type':'application/json'}:{})
+          },
+          body:endpoint.body
+        }),endpoint.env);
+        assert.equal(resp.status,expected);
+        assert.equal(contacted.length,2);
+        assert.equal((await resp.json()).status,
+          policyCode==='required'?'unauthorized':
+          endpoint.name==='avatar/status'?'temporarily_unavailable':'unavailable');
+      } finally {globalThis.fetch=old;}
+    });
+  }
 }
