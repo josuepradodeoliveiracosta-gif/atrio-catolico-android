@@ -35,7 +35,8 @@ export async function emailAllowsCommunity(policyAccessToken,emailVerified,fetch
     res=await fetcher(EMAIL_VERIFICATION_POLICY_URL,{
       method:'GET',
       headers:{Authorization:'Bearer '+policyAccessToken},
-      redirect:'error',
+      // Workers nao implementa redirect:'error': usa manual e rejeita 3xx.
+      redirect:'manual',
       cache:'no-store',
       signal:AbortSignal.timeout(7000)
     });
