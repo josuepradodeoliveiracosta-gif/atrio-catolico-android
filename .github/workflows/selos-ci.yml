@@ -21,6 +21,7 @@ jobs:
   firestore-rules:
     name: Regras de seguranca Firestore
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Obter codigo
         uses: actions/checkout@v4
@@ -43,6 +44,7 @@ jobs:
   android:
     name: Compilar Android de testes
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - name: Obter codigo
         uses: actions/checkout@v4
