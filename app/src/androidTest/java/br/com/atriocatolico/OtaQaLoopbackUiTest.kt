@@ -3,8 +3,10 @@ package br.com.atriocatolico
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Rule
@@ -115,5 +117,31 @@ class OtaQaLoopbackUiTest {
         compose.onNodeWithTag("atrio-ota-install").assertDoesNotExist()
         // A mesma oferta pode ser baixada novamente depois de cancelar.
         compose.onNodeWithTag("atrio-ota-download").assertExists()
+    }
+
+    @Test fun refusesDownloadWhenStorageIsInsufficient() {
+        assumeTrue(BuildConfig.DEBUG && OtaQaChannel.active)
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val prefs = context.getSharedPreferences("atrio_ota_lab_prefs", 0)
+        compose.waitUntil(45_000) {
+            compose.onAllNodesWithTag("atrio-ota-available").fetchSemanticsNodes().isNotEmpty()
+        }
+        // Apenas o laboratório .otalab permite injetar zero bytes livres.
+        // Nenhum dado ou particao de armazenamento e realmente esgotado.
+        assertTrue(prefs.edit().putBoolean("qa_force_low_space", true).commit())
+        try {
+            compose.onNodeWithTag("atrio-ota-download").performClick()
+            compose.waitUntil(30_000) {
+                compose.onAllNodesWithTag("atrio-ota-download-failed")
+                    .fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onNodeWithText(
+                "Espaço insuficiente para baixar a atualização. Libere espaço e tente novamente."
+            ).assertExists()
+            compose.onNodeWithTag("atrio-ota-install").assertDoesNotExist()
+            compose.onNodeWithTag("atrio-ota-download").assertExists()
+        } finally {
+            prefs.edit().remove("qa_force_low_space").commit()
+        }
     }
 }
