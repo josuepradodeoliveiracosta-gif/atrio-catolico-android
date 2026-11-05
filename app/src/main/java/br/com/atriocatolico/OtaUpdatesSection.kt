@@ -53,8 +53,15 @@ internal class OtaUpdateController(private val appContext: Context) {
         if (status == OtaCheckStatus.Checking ||
             downloadState is OtaDownloadState.Downloading ||
             downloadState == OtaDownloadState.Verifying) return
+        val firstCheck = status == OtaCheckStatus.Idle
         status = OtaCheckStatus.Checking
-        status = withContext(Dispatchers.IO) { OtaReleaseClient.check(appContext) }
+        status = withContext(Dispatchers.IO) {
+            // A interrupcao forcada do processo nao executa finally do download.
+            // Na primeira abertura, remover .part orfao sem tocar no APK pronto,
+            // que ainda pode estar em uso pelo instalador do Android.
+            if (firstCheck) OtaApkDelivery.discardAbandonedPartial(appContext)
+            OtaReleaseClient.check(appContext)
+        }
         if (downloadState is OtaDownloadState.Ready &&
             (status !is OtaCheckStatus.Available ||
                 (status as OtaCheckStatus.Available).apk !=
