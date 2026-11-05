@@ -94,7 +94,8 @@ def build_fixture(info: dict, *, fixture_mode: str = "valid") -> tuple[dict, dic
         manifest["certificateSha256"] = "0" * 64
     elif fixture_mode == "downgrade":
         manifest["versionCode"] = 1
-    elif fixture_mode not in ("valid", "truncated-apk", "truncated-once", "slow-apk", "api-unavailable-once"):
+    elif fixture_mode not in ("valid", "truncated-apk", "truncated-once", "slow-apk", "api-unavailable-once",
+                              "manifest-redirect-external", "apk-redirect-external"):
         raise ValueError("Modo de fixture nao autorizado")
     release = {
         "tag_name": tag,
@@ -131,6 +132,24 @@ def make_handler(apk: Path, release: dict, manifest: dict, fixture_mode: str = "
             url = urlsplit(self.path)
             if url.query or url.fragment:
                 self.send_error(404)
+                return
+            # Respostas maliciosas simuladas SOMENTE no laboratório local.
+            # O cliente deve recusar o Location externo antes de conectar.
+            if (fixture_mode == "manifest-redirect-external" and
+                    url.path == asset_prefix + "update.json"):
+                self.send_response(302)
+                self.send_header("Location", "https://untrusted.invalid/update.json")
+                self.send_header("Content-Length", "0")
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                return
+            if (fixture_mode == "apk-redirect-external" and
+                    url.path == asset_prefix + "atrio-catolico.apk"):
+                self.send_response(302)
+                self.send_header("Location", "https://untrusted.invalid/atrio-catolico.apk")
+                self.send_header("Content-Length", "0")
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
                 return
             if url.path == "/releases/latest" and fixture_mode == "api-unavailable-once":
                 with release_lock:
@@ -205,7 +224,7 @@ def main() -> None:
                         help="Gravar update.json para distribuir junto aos dois APKs QA")
     parser.add_argument("--verify-only", action="store_true",
                         help="Validar e/ou gerar manifesto sem ligar o servidor")
-    parser.add_argument("--mode", choices=["valid", "bad-hash", "bad-cert", "downgrade", "truncated-apk", "truncated-once", "slow-apk", "api-unavailable-once"],
+    parser.add_argument("--mode", choices=["valid", "bad-hash", "bad-cert", "downgrade", "truncated-apk", "truncated-once", "slow-apk", "api-unavailable-once", "manifest-redirect-external", "apk-redirect-external"],
                         default="valid")
     args = parser.parse_args()
     apk = args.apk.resolve(strict=True)
