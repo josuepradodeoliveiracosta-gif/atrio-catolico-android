@@ -31,6 +31,14 @@ O controlador descarta o cache quando o download é cancelado, falha ou uma ofer
 
 O teste automatizado no emulador não comprova cancelamento pelo usuário em todos os aparelhos Android nem espaço insuficiente no dispositivo. **Nenhum Release oficial é assinado ou publicado nesta etapa.**
 
+## Complemento — proteção contra armazenamento insuficiente
+
+O downloader agora consulta os bytes livres no cache privado **antes de abrir a conexão**. A política exige capacidade para o APK mais uma reserva defensiva de 16 MiB. Quando a condição falha, o usuário vê uma mensagem específica para liberar espaço e tentar novamente, sem receber botão de instalação ou arquivo parcial. Esta reserva é apenas uma verificação antecipada: **o instalador Android pode exigir espaço adicional** e precisa validar novamente a operação.
+
+A suíte de QA introduz um teste instrumentado da mesma interface que força **zero bytes livres somente no pacote Debug isolado** `.otalab` por uma preferência privada temporária. O teste não enche o armazenamento físico; valida a recusa e a mensagem na UI. A preferência é apagada após o ensaio. Os testes unitários verificam os limites matemáticos, os tamanhos inválidos e a margem mínima.
+
+**Pendente na homologação física:** baixa disponibilidade de armazenamento real, comportamento de instalação do sistema, preservação de sessão no pacote oficial e validação de assinatura permanente. Não habilitar os gates de Release por este ensaio.
+
 ## O que foi reaproveitado
 
 A mesma implementação de produção `OtaReleaseClient`, `OtaUpdatePolicy`, `OtaApkPolicy`, `OtaApkDelivery`, `OtaUpdateController` e `OtaUpdatesSection` detecta, baixa, confere e oferece o botão de instalação. Nenhuma segunda implementação de downloader ou de validador de assinatura foi criada.
