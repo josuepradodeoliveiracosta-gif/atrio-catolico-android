@@ -118,3 +118,22 @@ Em 05/11/2026, com a política **MISSING**, o teste real no Termux mostrou que a
 O código dos dois Workers foi alterado para reutilizar **o OAuth da service account que já existe nesses Workers**, exclusivamente para consultar a política. O ID token do usuário continua sendo validado pelo Identity Toolkit antes de qualquer privilégio. Se OAuth, Firestore, rede, corpo ou autorização falhar, o Worker permanece em **fail-closed 503**; se o documento estiver ausente, preserva a compatibilidade do rollout; se a política estiver ativa, nega o acesso ao usuário não confirmado.
 
 Testes unitários simulam Auth, OAuth administrativo e Firestore REST; a autenticação do usuário não pode ser substituída pelo token de serviço. A correção NÃO deve ser considerada homologada apenas porque o CI passou. É obrigatória uma nova versão dos Workers e repetição dos dois testes reais com `--policy=MISSING`, antes de qualquer ativação administrativa. Não liberar APK Release.
+
+
+## Diagnóstico seguro do 503 após atualização de Workers
+
+Em 05/11/2026, a conta QA **não verificada** continuou recebendo HTTP 503 em avatar e Push/Guardião, mesmo após a correção OAuth da PR #145. O Firebase Auth confirmou `emailVerified:false`; Firestore retornou 404 para post inexistente; a conta QA verificada passou 404/403/202. **A causa do 503 ainda não está comprovada.**
+
+A PR de diagnóstico adiciona, **apenas para o endpoint do Guardião** e sob solicitação explícita com `X-Atrio-QA-Diagnostic: 1`, um código fechado e limitado para o caso de erro após autenticação. Ex.: `policy_service_oauth_failed`, `policy_fetch_runtime_cache`, `policy_fetch_failed`, `policy_http_403`, `policy_http_503`, `policy_invalid_response`. O HTTP permanece 503 e nenhuma operação é liberada. Sem o cabeçalho, continua aparecendo somente `status: unavailable`.
+
+O Termux lê e apresenta exclusivamente esse código como `pushDiagnostic`; não imprime token, e-mail, senha, resposta remota ou nome de conta. Códigos desconhecidos viram `unclassified_503`. Isso é instrumento **temporário de diagnóstico**, não uma autorização para abrir a comunidade.
+
+Após atualizar a cópia de auditoria, repetir **somente** a conta QA não verificada em política MISSING, sem ativar nenhuma flag:
+
+```sh
+cd ~/atrio-auditoria
+git pull --ff-only origin main
+node scripts/termux-real-email-auth-smoke.mjs --policy=MISSING --user=unverified
+```
+
+O valor `pushDiagnostic`, se exibido, identifica a próxima correção a realizar no GitHub. Não habilitar a política, não publicar APK Release e não alterar o backup enquanto o resultado for `allPassed:false`.
