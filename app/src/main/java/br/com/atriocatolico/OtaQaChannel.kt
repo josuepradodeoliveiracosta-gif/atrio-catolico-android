@@ -16,11 +16,12 @@ internal object OtaQaChannel {
 
     fun isAllowedUri(uri: URI, productionHosts: Set<String>): Boolean {
         if (uri.rawUserInfo != null || uri.rawFragment != null ||
-            uri.rawQuery != null || uri.rawPath.isNullOrBlank()) return false
+            uri.rawPath.isNullOrBlank()) return false
         return if (active) {
-            // Nao permitir HTTP em interface publica, redirecionar a Internet
-            // ou consultar servicos produtivos quando a QA foi ativada.
-            uri.scheme == "http" && uri.host == "127.0.0.1" && uri.port == 8765
+            // No laboratorio, nenhum token, query, redirect ou host externo.
+            // Em producao, redirects assinados do CDN GitHub podem ter query.
+            uri.rawQuery == null && uri.scheme == "http" &&
+                uri.host == "127.0.0.1" && uri.port == 8765
         } else {
             uri.scheme == "https" && uri.host in productionHosts && uri.port == -1
         }
