@@ -30,8 +30,11 @@ def require_official_certificate(fingerprint):
 
 def verify_existing_signed_apk(apk, *, sdk, runner=None):
     """Read APK cert/package/version; reject wrong signer without modifying it."""
+    apk = Path(apk)
+    if not apk.is_file() or apk.stat().st_size == 0:
+        raise PreflightError("APK oficial ausente ou vazio")
     kwargs = {"runner": runner} if runner is not None else {}
-    details = inspect_apk(Path(apk), Path(sdk), **kwargs)
+    details = inspect_apk(apk, Path(sdk), **kwargs)
     require_official_certificate(details["certificate_sha256"])
     return details
 
