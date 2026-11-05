@@ -11,6 +11,7 @@ import hashlib
 import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from threading import Lock
 import re
 import subprocess
 import sys
@@ -93,7 +94,7 @@ def build_fixture(info: dict, *, fixture_mode: str = "valid") -> tuple[dict, dic
         manifest["certificateSha256"] = "0" * 64
     elif fixture_mode == "downgrade":
         manifest["versionCode"] = 1
-    elif fixture_mode not in ("valid", "truncated-apk", "slow-apk"):
+    elif fixture_mode not in ("valid", "truncated-apk", "truncated-once", "slow-apk"):
         raise ValueError("Modo de fixture nao autorizado")
     release = {
         "tag_name": tag,
@@ -115,6 +116,11 @@ def make_handler(apk: Path, release: dict, manifest: dict, fixture_mode: str = "
         "/releases/latest": json.dumps(release, ensure_ascii=False).encode(),
         asset_prefix + "update.json": json.dumps(manifest, ensure_ascii=False).encode(),
     }
+    # Teste de recuperacao: a primeira leitura do APK falha e a seguinte
+    # recebe o arquivo correto. A contagem e protegida por lock porque
+    # ThreadingHTTPServer atende requisicoes em threads diferentes.
+    transfer_attempts = [0]
+    transfer_lock = Lock()
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -131,14 +137,20 @@ def make_handler(apk: Path, release: dict, manifest: dict, fixture_mode: str = "
                 self.end_headers()
                 self.wfile.write(body)
             elif url.path == asset_prefix + "atrio-catolico.apk":
+                with transfer_lock:
+                    transfer_attempts[0] += 1
+                    attempt = transfer_attempts[0]
                 self.send_response(200)
                 self.send_header("Content-Type", "application/vnd.android.package-archive")
                 self.send_header("Content-Length", str(apk.stat().st_size))
                 self.send_header("Cache-Control", "no-store")
                 self.end_headers()
                 with apk.open("rb") as source:
-                    if fixture_mode == "truncated-apk":
-                        # Declara o tamanho completo, mas corta a conexão no início.
+                    if fixture_mode == "truncated-apk" or (
+                        fixture_mode == "truncated-once" and attempt == 1
+                    ):
+                        # Declara o tamanho completo, mas corta a primeira conexão.
+                        # A repetição no modo truncated-once recebe o APK válido.
                         # O cliente deve rejeitar o arquivo e apagar o .part.
                         self.wfile.write(source.read(min(4096, max(1, apk.stat().st_size // 2))))
                         self.wfile.flush()
@@ -179,7 +191,7 @@ def main() -> None:
                         help="Gravar update.json para distribuir junto aos dois APKs QA")
     parser.add_argument("--verify-only", action="store_true",
                         help="Validar e/ou gerar manifesto sem ligar o servidor")
-    parser.add_argument("--mode", choices=["valid", "bad-hash", "bad-cert", "downgrade", "truncated-apk", "slow-apk"],
+    parser.add_argument("--mode", choices=["valid", "bad-hash", "bad-cert", "downgrade", "truncated-apk", "truncated-once", "slow-apk"],
                         default="valid")
     args = parser.parse_args()
     apk = args.apk.resolve(strict=True)
