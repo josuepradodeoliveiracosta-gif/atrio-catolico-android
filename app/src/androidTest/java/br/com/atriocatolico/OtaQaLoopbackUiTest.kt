@@ -89,6 +89,36 @@ class OtaQaLoopbackUiTest {
         compose.onNodeWithTag("atrio-ota-check-button").assertExists()
     }
 
+    @Test fun recoversFromUnavailableServerAfterManualRefresh() {
+        assumeTrue(BuildConfig.DEBUG && OtaQaChannel.active)
+        // O servidor QA devolve HTTP 503 SOMENTE na primeira consulta.
+        // Nenhum download ou instalador pode ser mostrado durante a falha.
+        compose.waitUntil(45_000) {
+            compose.onAllNodesWithTag("atrio-ota-unavailable").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("atrio-ota-download").assertDoesNotExist()
+        compose.onNodeWithTag("atrio-ota-install").assertDoesNotExist()
+
+        // Repetir sem fechar a Activity: a segunda consulta agora e valida.
+        compose.onNodeWithTag("atrio-ota-check-button").performClick()
+        compose.waitUntil(45_000) {
+            compose.onAllNodesWithTag("atrio-ota-available").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("atrio-ota-available").assertExists()
+        compose.onNodeWithTag("atrio-ota-download").performClick()
+        compose.waitUntil(90_000) {
+            compose.onAllNodesWithTag("atrio-ota-install").fetchSemanticsNodes().isNotEmpty()
+        }
+        // A disponibilidade recuperada nao pula SHA-256, assinatura e versionCode.
+        compose.onNodeWithTag("atrio-ota-install").assertExists()
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val apk = File(context.cacheDir, "ota/atrio-catolico-ota.apk")
+        assertTrue("APK valido nao foi salvo apos recuperacao", apk.isFile)
+        assertTrue("O APK recuperado nao pode ser parcial", apk.length() > 4096L)
+        // Nunca abre o instalador automaticamente no teste.
+        OtaApkDelivery.discardCachedApk(context)
+    }
+
     @Test fun rejectsInterruptedDownloadWithoutOfferingInstallation() {
         assumeTrue(BuildConfig.DEBUG && OtaQaChannel.active)
         compose.waitUntil(45_000) {
