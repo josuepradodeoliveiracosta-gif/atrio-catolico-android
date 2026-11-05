@@ -14,6 +14,19 @@ Estado em 05/11/2026: **código de interface preparado para revisão, política 
 
 **Atenção:** o cliente não é fronteira de segurança; as restrições acima dependem das regras **efetivamente implantadas** no projeto de produção. Os dados privados necessários ao cadastro, ao aceite das regras e à recuperação/exclusão da conta continuam acessíveis ao titular; a exigência não equivale a bloquear o Firebase Authentication inteiro.
 
+## Gateway obrigatório nos Workers Cloudflare (PR de segurança #134)
+
+Os Workers de avatar e push executam operações privilegiadas que não dependem das Security Rules dos clientes. Antes de qualquer operação comunitária autenticada, ambos devem:
+
+- Validar a sessão no endpoint oficial Firebase Identity Toolkit `accounts:lookup` e rejeitar UIDs inválidos e contas desativadas.
+- Liberar imediatamente uma conta com `emailVerified === true` devolvido pelo Firebase Auth, nunca por parâmetro, perfil ou string.
+- Para conta ainda não verificada, consultar `app_config/email_verification` por **REST Firestore com o próprio ID token já validado**, não com credencial de serviço. `enabled=true` e `version=2026-11-v1` impedem a operação.
+- Tratar `404` da política como rollout ainda ausente; flag explicitamente desligada ou versão não ativada preservam compatibilidade. **401, 403, 429, 5xx, rede indisponível ou documento malformado NÃO autorizam a operação**.
+- Permanecer sem deploy até testes offline, análise dos endpoints e homologação do ambiente produtivo. Nenhum segredo deve ser impresso, nem o Worker de QA deve acessar produção.
+
+A política deve ser a mesma entre Android, Security Rules, Workers de avatar e push. Após a implantação, testar os dois Workers com conta real verificada e não verificada, sem permitir bypass de operação via chamada REST direta.
+
+
 ## Configuração administrativa — não ativar sem homologação
 
 Documento Firestore (projeto `atrio-catolico`):

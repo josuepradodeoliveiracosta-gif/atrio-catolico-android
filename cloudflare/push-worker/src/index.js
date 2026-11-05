@@ -1,4 +1,5 @@
 import {executeQaCommand} from './qa-manual.js';
+import {emailAllowsCommunity} from '../../email-verification-policy.mjs';
 // Emissor FCM para Cloudflare Workers Free. Credenciais SOMENTE em Worker Secrets.
 // Recebe eventos autenticados pelo Firebase, confere documentos no Firestore,
 // limita destinatários e evita reenvios com Cloudflare D1.
@@ -89,7 +90,7 @@ async function oauth(env) {
   return cachedOAuth.token;
 }
 
-async function verifyIdentity(req,env) {
+export async function verifyIdentity(req,env) {
   const auth = req.headers.get('Authorization') || '';
   const match = /^Bearer ([A-Za-z0-9._-]{100,5000})$/.exec(auth);
   if (!match) return null;
@@ -101,7 +102,11 @@ async function verifyIdentity(req,env) {
   if (!validated.ok) return null;
   const data = await validated.json();
   const account = data.users?.[0];
-  return account && !account.disabled && uidPart(account.localId) ? account.localId : null;
+  if(!account || account.disabled || !uidPart(account.localId)) return null;
+  // As operacoes subsequentes usam credencial de servico, portanto a
+  // verificacao da conta e da politica deve ocorrer ANTES da mutacao.
+  if(!await emailAllowsCommunity(match[1],account.emailVerified)) return null;
+  return account.localId;
 }
 
 async function firestoreGet(token, path) {
