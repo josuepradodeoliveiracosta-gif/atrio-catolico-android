@@ -73,3 +73,20 @@ node scripts/termux-firestore-rules-diff-readonly.mjs
 `git pull` atualiza exclusivamente essa cópia de trabalho; não execute o comando dentro da pasta de backup. O script imprime SHA-256, contagens e **trechos limitados** das regiões diferentes, incluindo declarações `match` e `function` que existirem apenas de um lado. Não executa `firebase deploy` e não grava arquivos. Se o CLI mudar ou o acesso falhar, aborta sem ação alternativa.
 
 É fundamental examinar declarações exclusivas de produção antes de avançar. O relatório de diferenças **não constitui autorização de implantação**. Qualquer implantação de regras deve ter controle explícito sobre as diferenças, política administrativa inicialmente desativada e verificação posterior. Enquanto a homologação não for comprovada, a assinatura APK Release permanece bloqueada.
+
+
+## 6. Revisão final de linhas exclusivamente produtivas
+
+O diagnóstico de 05/11/2026 detectou **33 regiões diferentes, 31 linhas exclusivas das regras publicadas e 138 linhas exclusivas da versão do GitHub**. O resumo de 16 regiões omite outras 17. Uma declaração antiga `emailVerificationAllowsPublishing` aparece só na produção, mas somente essa constatação não é suficiente para garantir que toda a diferença seja segura.
+
+O relatório complementar **somente leitura**, `scripts/termux-firestore-production-only-readonly.mjs`, lista apenas as linhas que estavam na produção mas não existem na versão do repositório, com números e texto estrutural abreviado. Comentários, trechos longos e possíveis segredos são omitidos. O comando usa a mesma sessão existente do Firebase CLI, consulta apenas release/ruleset via **dois GET**, sem criar snapshot, backup, arquivo ou executar deploy.
+
+Na cópia de auditoria já existente:
+
+```sh
+cd ~/atrio-auditoria
+git pull --ff-only origin main
+node scripts/termux-firestore-production-only-readonly.mjs
+```
+
+O resultado deve ser revisado por quem controla o projeto antes de substituir regras. `deploymentApproved` e `releaseApproved` permanecem **false**, mesmo se todas as linhas antigas forem explicáveis. Não substituir regras do Firebase nem ativar a política de e-mail durante a análise.
