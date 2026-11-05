@@ -2,6 +2,19 @@
 
 **Data:** 05/11/2026. **Estado:** implementação de laboratório; não confundir com OTA ativado em produção.
 
+## Revalidação complementar — integridade negativa e persistência (05/11/2026)
+
+O proprietário concluiu no aparelho Android real a sequência 0.19.7 → 0.19.8 pela tela do laboratório, com consulta, download interno, confirmação do instalador Android e reconhecimento da versão atualizada. **Essa prova é do laboratório Debug de pacote isolado, não do canal assinado oficial.**
+
+Para tornar a próxima execução de QA mais forte:
+- A tela do laboratório oferece **Salvar marcador local de teste** e exibe **Marcador local preservado: SIM/NÃO**. Esse marcador fica somente em `SharedPreferences` da instalação `.otalab`, não utiliza Firebase nem dados pessoais.
+- O CI grava o marcador **pela UI do aplicativo antigo**, instala o APK novo por cima usando ADB e lê o mesmo marcador no diretório privado. Uma falha no valor impede aprovação.
+- O CI inicia o servidor local em quatro modos sucessivos: `valid`, `bad-cert`, `bad-hash` e `downgrade`. Testes instrumentados verificam, respectivamente, download permitido, certificado incompatível bloqueado antes de baixar, hash inválido recusado após download e downgrade sem oferta.
+- O laboratório apresenta versões e estados como **de teste**, evitando confundi-los com publicações oficiais. Os textos da versão de produção não mudam.
+- Se for necessário repetir a prova física com um novo artefato do CI, as chaves Debug temporárias podem diferir entre execuções: desinstale **somente a instalação de laboratório `.otalab`**, depois instale o APK antigo do **mesmo** novo artefato. Não desinstale o Átrio original e não presuma preservação de dados entre APKs assinados por chaves de teste diferentes.
+
+**Ainda exigido antes do Release:** funcionamento do canal estável GitHub Releases com certificado permanente conhecido, testes de assinatura/versionCode/ausência de downgrade, preservação de login e dados em versão assinada, e autorização final específica do proprietário. Não configurar antecipadamente as duas variáveis de liberação OTA.
+
 ## O que foi reaproveitado
 
 A mesma implementação de produção `OtaReleaseClient`, `OtaUpdatePolicy`, `OtaApkPolicy`, `OtaApkDelivery`, `OtaUpdateController` e `OtaUpdatesSection` detecta, baixa, confere e oferece o botão de instalação. Nenhuma segunda implementação de downloader ou de validador de assinatura foi criada.
