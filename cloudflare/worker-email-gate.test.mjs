@@ -4,128 +4,152 @@ import avatarHandler, {verify as verifyAvatar} from './avatar-worker/src/index.j
 import pushHandler, {verifyIdentity as verifyPush} from './push-worker/src/index.js';
 
 const token='a'.repeat(150);
+const accessToken='service-qa-oauth-'+ 's'.repeat(150);
 const authHeaders={Authorization:'Bearer '+token};
-const config={FIREBASE_WEB_API_KEY:'fake-qa-key'};
+// Chave RSA efemera gerada somente na memoria do teste. Nunca usa
+// credenciais reais ou acessa Firebase produtivo.
+const keypair=await crypto.subtle.generateKey({
+  name:'RSASSA-PKCS1-v1_5',modulusLength:2048,
+  publicExponent:new Uint8Array([1,0,1]),hash:'SHA-256'
+},true,['sign','verify']);
+const pkcs8=await crypto.subtle.exportKey('pkcs8',keypair.privateKey);
+const serviceJson=JSON.stringify({
+  project_id:'atrio-catolico',
+  client_email:'qa-policy@atrio-catolico.iam.gserviceaccount.com',
+  private_key:'-----BEGIN PRIVATE KEY-----\n'+Buffer.from(pkcs8).toString('base64')+'\n-----END PRIVATE KEY-----'
+});
+const config={
+  FIREBASE_WEB_API_KEY:'fake-qa-key',
+  FIREBASE_SERVICE_ACCOUNT_JSON:serviceJson
+};
 const policy=(enabled,version='2026-11-v1')=>Response.json({
   fields:{enabled:{booleanValue:enabled},version:{stringValue:version}}
 });
 
-/**
- * As duas portas consultam o mesmo Firebase real, mas cada integracao deve
- * recusar uma conta nao verificada ANTES de qualquer operacao privilegiada.
- * Simulamos apenas rede local com respostas sinteticas, sem Firebase produtivo.
- */
-for (const [name,identify] of [['avatar',verifyAvatar],['push',verifyPush]]) {
-  async function scenario({emailVerified=false,disabled=false,uid='qa-member',
-    policyReply=()=>policy(true),expectedPolicyCalls=1}={}) {
+const identityUrl='https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=';
+const policyUrl='/documents/app_config/email_verification';
+
+/** Rede 100% simulada: nao usamos usuarios nem tokens verdadeiros. */
+function fakeNetwork({emailVerified=false,disabled=false,uid='qa-member',
+  policyReply=()=>policy(true),serviceError=false}={}){
+  const record={authCalls:0,oauthCalls:0,policyCalls:0,unexpected:0};
+  const fetcher=async(url,options={})=>{
+    const target=String(url);
+    if(target.startsWith(identityUrl)) {
+      record.authCalls++;
+      assert.equal(options.method,'POST');
+      assert.equal(JSON.parse(options.body).idToken,token);
+      return Response.json({users:[{
+        localId:uid,disabled,emailVerified,
+        email_verified:true,profile:{email_verified:true}
+      }]});
+    }
+    if(target==='https://oauth2.googleapis.com/token') {
+      record.oauthCalls++;
+      assert.equal(options.method,'POST');
+      if(serviceError)return new Response('',{status:503});
+      return Response.json({access_token:accessToken,expires_in:3600});
+    }
+    if(target.endsWith(policyUrl)) {
+      record.policyCalls++;
+      // O token do cliente tem autorizacao APENAS para validar identidade.
+      // A politica e sempre consultada pelo OAuth da conta de servico.
+      assert.equal(options.headers.Authorization,'Bearer '+accessToken);
+      assert.notEqual(options.headers.Authorization,'Bearer '+token);
+      assert.equal(options.method,'GET');
+      assert.equal(options.cache,'no-store');
+      return policyReply();
+    }
+    record.unexpected++;
+    throw Error('rede externa inesperada');
+  };
+  return {record,fetcher};
+}
+
+for(const [name,identify] of [['avatar',verifyAvatar],['push',verifyPush]]) {
+  async function scenario(opts={}, expectedPolicyCalls=1){
     const old=globalThis.fetch;
-    let authCalls=0,policyCalls=0;
-    globalThis.fetch=async(url,options={})=>{
-      const target=String(url);
-      if(target.startsWith('https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=')) {
-        authCalls++;
-        assert.equal(options.method,'POST');
-        assert.equal(JSON.parse(options.body).idToken,token);
-        return Response.json({users:[{
-          localId:uid,disabled,emailVerified,
-          // A marca do perfil NAO tem autoridade para aprovar o acesso.
-          email_verified:true,profile:{email_verified:true}
-        }]});
-      }
-      if(target.endsWith('/documents/app_config/email_verification')) {
-        policyCalls++;
-        assert.equal(options.headers.Authorization,'Bearer '+token);
-        return policyReply();
-      }
-      throw Error('rede externa inesperada: '+target);
-    };
+    const mock=fakeNetwork(opts);
+    globalThis.fetch=mock.fetcher;
     try {
       const user=await identify(new Request('https://qa.invalid/test',{
         headers:authHeaders
       }),config);
-      assert.equal(authCalls,1);
-      assert.equal(policyCalls,expectedPolicyCalls);
+      assert.equal(mock.record.authCalls,1);
+      assert.equal(mock.record.policyCalls,expectedPolicyCalls);
+      assert.equal(mock.record.unexpected,0);
       return user;
     } finally {globalThis.fetch=old;}
   }
 
-  test(name+': nao verificado e bloqueado com flag ativa, apesar de perfil falsificado',async()=>{
+  test(name+': conta nao verificada bloqueada quando politica ativa; perfil nao tem autoridade',async()=>{
     assert.equal(await scenario(),null);
   });
-  test(name+': apenas emailVerified boolean true do Firebase permite entrada direta',async()=>{
-    assert.equal(await scenario({emailVerified:true,expectedPolicyCalls:0}),'qa-member');
+  test(name+': conta verificada no Auth ignora completamente leitura da politica',async()=>{
+    assert.equal(await scenario({emailVerified:true},0),'qa-member');
   });
-  test(name+': sem configuracao ainda aceita cliente legado',async()=>{
+  test(name+': politica ausente deixa cliente legado entrar sem alterar documento',async()=>{
     assert.equal(await scenario({policyReply:()=>new Response('',{status:404})}),'qa-member');
   });
-  test(name+': politica desativada aceita usuario nao verificado',async()=>{
+  test(name+': politica desativada permite uso nao verificado',async()=>{
     assert.equal(await scenario({policyReply:()=>policy(false)}),'qa-member');
   });
-  test(name+': politica de versao divergente preserva estado legado',async()=>{
+  test(name+': versao de politica divergente preserva rollout antigo',async()=>{
     assert.equal(await scenario({policyReply:()=>policy(true,'outro-contrato')}),'qa-member');
   });
-  test(name+': conta desativada e bloqueada sem consultar politica',async()=>{
-    assert.equal(await scenario({disabled:true,expectedPolicyCalls:0}),null);
+  test(name+': conta desativada e bloqueada antes da consulta privilegiada',async()=>{
+    assert.equal(await scenario({disabled:true},0),null);
   });
-  test(name+': falha na politica resulta em indisponibilidade, nunca bypass',async()=>{
-    await assert.rejects(scenario({policyReply:()=>new Response('',{status:503})}),
-      /email_policy_unavailable/);
+  test(name+': falha da politica resulta em indisponibilidade, nunca bypass',async()=>{
+    await assert.rejects(scenario({
+      policyReply:()=>new Response('',{status:503})
+    }),/email_policy_unavailable/);
+  });
+  test(name+': conta nao verificada sem OAuth de servico nao recebe permissao',async()=>{
+    const old=globalThis.fetch;
+    const mock=fakeNetwork();
+    globalThis.fetch=mock.fetcher;
+    try{
+      // Para nao ser afetado pelo cache de acesso no Worker, usar
+      // projeto de servico invalido, bloqueado antes de consultar Firestore.
+      await assert.rejects(identify(new Request('https://qa.invalid/test',{
+        headers:authHeaders
+      }),{...config,FIREBASE_SERVICE_ACCOUNT_JSON:'{}'}),/invalid_service_account|Configuração de identidade inválida/);
+    }finally{globalThis.fetch=old;}
   });
 }
 
-/** Requisicoes HTTP diretas nao podem contornar o portao antes do servico. */
 const endpoints=[
-  {
-    name:'avatar/status',
-    handler:avatarHandler,
-    url:'https://qa.invalid/avatar/status',
-    env:{
-      CLOUDINARY_CLOUD_NAME:'qa',CLOUDINARY_API_KEY:'qa',
-      CLOUDINARY_API_SECRET:'qa',FIREBASE_WEB_API_KEY:'fake-qa-key',
-      FIREBASE_SERVICE_ACCOUNT_JSON:'{}',AVATAR_DB:{}
-    },
-    body:undefined
-  },
-  {
-    name:'push/event',
-    handler:pushHandler,
-    url:'https://qa.invalid/event',
-    env:{
-      PUSH_ENABLED:'true',PUSH_DB:{},
-      FIREBASE_WEB_API_KEY:'fake-qa-key',FIREBASE_SERVICE_ACCOUNT_JSON:'{}'
-    },
-    body:JSON.stringify({type:'reply'})
-  }
+  {name:'avatar/status',handler:avatarHandler,url:'https://qa.invalid/avatar/status',
+    env:{...config,CLOUDINARY_CLOUD_NAME:'qa',CLOUDINARY_API_KEY:'qa',
+      CLOUDINARY_API_SECRET:'qa',AVATAR_DB:{}},body:undefined},
+  {name:'push/event',handler:pushHandler,url:'https://qa.invalid/event',
+    env:{...config,PUSH_ENABLED:'true',PUSH_DB:{}},
+    body:JSON.stringify({type:'reply'})}
 ];
-for(const endpoint of endpoints) {
-  for(const [policyCode,expected] of [['required',401],['unavailable',503]]) {
-    test(endpoint.name+': HTTP nao aceita bypass quando politica '+policyCode,async()=>{
+
+for(const endpoint of endpoints){
+  for(const [scenarioName,policyReply,expectedState,expectedHttp] of [
+    ['required',()=>policy(true),'unauthorized',401],
+    ['unavailable',()=>new Response('',{status:503}),
+      endpoint.name==='avatar/status'?'temporarily_unavailable':'unavailable',503]
+  ]){
+    test(endpoint.name+': porta HTTP '+scenarioName+' valida OAuth administrativo primeiro',async()=>{
       const old=globalThis.fetch;
-      const contacted=[];
-      globalThis.fetch=async(url,options={})=>{
-        const target=String(url);
-        contacted.push(target);
-        if(target.includes('identitytoolkit.googleapis.com/v1/accounts:lookup'))
-          return Response.json({users:[{localId:'qa-member',disabled:false,emailVerified:false}]});
-        if(target.endsWith('/documents/app_config/email_verification')) {
-          assert.equal(options.headers.Authorization,'Bearer '+token);
-          return policyCode==='required'?policy(true):new Response('',{status:503});
-        }
-        throw Error('Operacao privilegiada indevida: '+target);
-      };
-      try {
+      const mock=fakeNetwork({policyReply});
+      globalThis.fetch=mock.fetcher;
+      try{
         const resp=await endpoint.handler.fetch(new Request(endpoint.url,{
-          method:'POST',headers:{
-            ...authHeaders,...(endpoint.body?{'Content-Type':'application/json'}:{})
-          },
+          method:'POST',
+          headers:{...authHeaders,...(endpoint.body?{'Content-Type':'application/json'}:{})},
           body:endpoint.body
         }),endpoint.env);
-        assert.equal(resp.status,expected);
-        assert.equal(contacted.length,2);
-        assert.equal((await resp.json()).status,
-          policyCode==='required'?'unauthorized':
-          endpoint.name==='avatar/status'?'temporarily_unavailable':'unavailable');
-      } finally {globalThis.fetch=old;}
+        assert.equal(resp.status,expectedHttp);
+        assert.equal((await resp.json()).status,expectedState);
+        assert.equal(mock.record.authCalls,1);
+        assert.equal(mock.record.policyCalls,1);
+        assert.equal(mock.record.unexpected,0);
+      }finally{globalThis.fetch=old;}
     });
   }
 }
