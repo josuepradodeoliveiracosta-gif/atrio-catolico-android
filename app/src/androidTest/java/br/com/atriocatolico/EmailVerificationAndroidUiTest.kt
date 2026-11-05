@@ -139,4 +139,44 @@ class EmailVerificationAndroidUiTest {
         val token = Tasks.await(auth.currentUser!!.getIdToken(true), 15, TimeUnit.SECONDS)
         assertEquals(true, token.claims["email_verified"])
     }
+    @Test fun portalObrigatorioPermiteReenvioESairSemAcessarForum() {
+        val app = FirebaseApp.getInstance()
+        assertTrue("Teste deve usar apenas Firebase Emulator",
+            app.options.projectId == project && BuildConfig.DEBUG)
+        assertTrue("Nao conectar ao Worker oficial",
+            BuildConfig.PUSH_RELAY_URL.isBlank())
+
+        auth = FirebaseAuth.getInstance(app)
+        auth.useEmulator("127.0.0.1", 9099)
+        auth.signOut()
+        val email = "portal." + System.nanoTime() + "@qa.invalid"
+        val result = Tasks.await(
+            auth.createUserWithEmailAndPassword(email, "FraseSeguraParaQA2026!"),
+            20, TimeUnit.SECONDS
+        )
+        val user = result.user ?: error("Conta de ensaio ausente")
+        assertFalse(user.isEmailVerified)
+
+        compose.setContent {
+            AtrioTheme {
+                MandatoryEmailVerificationGate(
+                    uid = user.uid,
+                    onVerified = {},
+                    onSignOut = { auth.signOut() }
+                )
+            }
+        }
+        waitForTag("atrio-email-verification-gate")
+        waitForTag("atrio-email-verification-required-title")
+        waitForTag("atrio-auth-resend-verification")
+        waitForTag("atrio-auth-check-verification")
+        // Uma conta sem verificacao nao encontra navegacao para publicar.
+        assertTrue(
+            compose.onAllNodesWithTag("atrio-tab-publish", useUnmergedTree = true)
+                .fetchSemanticsNodes().isEmpty()
+        )
+        compose.onNodeWithTag("atrio-email-verification-signout").performClick()
+        compose.waitUntil(15000) { auth.currentUser == null }
+    }
+
 }
