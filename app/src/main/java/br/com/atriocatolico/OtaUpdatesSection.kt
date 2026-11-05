@@ -142,26 +142,34 @@ internal fun OtaUpdatesSection(
         modifier = Modifier.fillMaxWidth().testTag("atrio-ota-section"),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
+        val laboratory = OtaQaChannel.active
         Text("Atualizações do Átrio", style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.primary)
         when (status) {
             OtaCheckStatus.Idle -> Text("Aguardando a primeira verificação.")
             OtaCheckStatus.Checking -> {
                 CircularProgressIndicator(modifier = Modifier.testTag("atrio-ota-checking"))
-                Text("Verificando atualizações oficiais...")
+                Text(if (laboratory) "Verificando atualização de laboratório..."
+                     else "Verificando atualizações oficiais...")
             }
             OtaCheckStatus.NoRelease ->
-                Text("Ainda não há atualizações publicadas no canal oficial.")
+                Text(if (laboratory) "Nenhuma versão de teste disponível no servidor local."
+                     else "Ainda não há atualizações publicadas no canal oficial.")
             OtaCheckStatus.UpToDate ->
-                Text("O aplicativo está atualizado conforme o canal oficial.")
+                Text(if (laboratory) "Laboratório OTA atualizado — nenhuma versão nova."
+                     else "O aplicativo está atualizado conforme o canal oficial.")
             OtaCheckStatus.TestBuild ->
                 Text("Versão de testes. Atualizações oficiais exigem um APK release assinado.")
             OtaCheckStatus.Incompatible ->
-                Text("Há uma versão oficial que exige um Android mais recente.")
+                Text(if (laboratory) "A versão de teste exige um Android mais recente."
+                     else "Há uma versão oficial que exige um Android mais recente.")
             OtaCheckStatus.Unavailable ->
-                Text("Não foi possível confirmar as atualizações. Confira a internet e tente novamente.")
+                Text(if (laboratory)
+                    "Não foi possível consultar o servidor OTA local. Verifique o Termux e tente novamente."
+                    else "Não foi possível confirmar as atualizações. Confira a internet e tente novamente.")
             is OtaCheckStatus.Available -> {
-                Text("Nova versão oficial detectada: ${status.version}",
+                Text(if (laboratory) "Nova versão de laboratório detectada: ${status.version}"
+                     else "Nova versão oficial detectada: ${status.version}",
                     style = MaterialTheme.typography.titleSmall,
                     modifier = Modifier.testTag("atrio-ota-available"))
                 Text(status.notes, style = MaterialTheme.typography.bodyMedium,
