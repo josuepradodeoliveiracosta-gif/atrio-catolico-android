@@ -1,5 +1,6 @@
 """Contrato de origem local OTA: fixtures nunca sao releases publicos."""
 import importlib.util
+from http.client import IncompleteRead
 import io
 import json
 from pathlib import Path
@@ -50,6 +51,10 @@ class OtaQaLoopbackTests(unittest.TestCase):
                          "0" * 64)
         self.assertEqual(ota.build_fixture(self.metadata, fixture_mode="downgrade")[1]["versionCode"],
                          1)
+        self.assertEqual(
+            ota.build_fixture(self.metadata, fixture_mode="truncated-apk")[1],
+            ota.build_fixture(self.metadata, fixture_mode="valid")[1],
+        )
         with self.assertRaises(ValueError):
             ota.build_fixture(self.metadata, fixture_mode="unsupported")
 
@@ -73,6 +78,30 @@ class OtaQaLoopbackTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
             thread.join(timeout=5)
+
+
+    def test_truncated_body_declares_full_size_but_ends_early(self):
+        release, manifest = ota.build_fixture(self.metadata)
+        handler = ota.make_handler(
+            self.apk, release, manifest, fixture_mode="truncated-apk"
+        )
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        thread = Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        url = (
+            f"http://127.0.0.1:{server.server_port}/releases/download/"
+            "v0.19.8/atrio-catolico.apk"
+        )
+        try:
+            with urlopen(url) as response:
+                self.assertEqual(response.headers["Content-Length"], str(self.apk.stat().st_size))
+                with self.assertRaises(IncompleteRead):
+                    response.read()
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
 
 
 if __name__ == "__main__":

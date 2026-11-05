@@ -49,24 +49,33 @@ case "${1:-}" in
 
     run_ui_test() {
       local test_method="$1" fixture_mode="$2"
-      python3 scripts/ota_qa_loopback_server.py \
-        --apk "$NEW" --manifest "$OUT/update.json" --mode "$fixture_mode" \
-        > "$OUT/server-$fixture_mode.log" 2>&1 &
-      SERVER_PID=$!
-      local ready=false
-      for attempt in $(seq 1 35); do
-        if curl --noproxy '*' -fsS http://127.0.0.1:8765/releases/latest \
-          > "$OUT/release-$fixture_mode.json"; then
-          ready=true
-          break
+      if [[ "$fixture_mode" == "offline" ]]; then
+        # A recusa de conexao deve ser detectada sem nenhuma oferta de APK.
+        if curl --noproxy '*' -fsS --max-time 3 \
+          http://127.0.0.1:8765/releases/latest >/dev/null 2>&1; then
+          echo "::error::Cenario offline invalido: servidor ainda esta acessivel" >&2
+          exit 1
         fi
-        sleep 1
-      done
-      [[ "$ready" == "true" ]] || {
-        echo "::error::Servidor OTA local nao iniciou: $fixture_mode" >&2
-        cat "$OUT/server-$fixture_mode.log"
-        exit 1
-      }
+      else
+        python3 scripts/ota_qa_loopback_server.py \
+          --apk "$NEW" --manifest "$OUT/update.json" --mode "$fixture_mode" \
+          > "$OUT/server-$fixture_mode.log" 2>&1 &
+        SERVER_PID=$!
+        local ready=false
+        for attempt in $(seq 1 35); do
+          if curl --noproxy '*' -fsS http://127.0.0.1:8765/releases/latest \
+            > "$OUT/release-$fixture_mode.json"; then
+            ready=true
+            break
+          fi
+          sleep 1
+        done
+        [[ "$ready" == "true" ]] || {
+          echo "::error::Servidor OTA local nao iniciou: $fixture_mode" >&2
+          cat "$OUT/server-$fixture_mode.log"
+          exit 1
+        }
+      fi
 
       # Cada chamada abre a interface OTA em estado limpo, sem Firebase real.
       # O prefixo do teste limita qual cenário será executado nesse servidor.
@@ -92,6 +101,15 @@ case "${1:-}" in
     run_ui_test rejectsWrongCertificateBeforeDownload bad-cert
     run_ui_test rejectsWrongApkChecksumAfterDownloading bad-hash
     run_ui_test rejectsDowngradeWithoutOfferingDownload downgrade
+    run_ui_test handlesOfflineServerWithoutOfferingInstallation offline
+    run_ui_test rejectsInterruptedDownloadWithoutOfferingInstallation truncated-apk
+    # Nem o download temporario nem um APK pronto podem sobreviver a interrupcao.
+    for filename in atrio-catolico-ota.part.apk atrio-catolico-ota.apk; do
+      if adb shell run-as "$PACKAGE" ls "cache/ota/$filename" >/dev/null 2>&1; then
+        echo "::error::Arquivo OTA residual apos falha: $filename" >&2
+        exit 1
+      fi
+    done
 
     # Apenas depois dos testes de bloqueio, atualizar por ADB.
     # Não se trata de consentimento do instalador Android; esse teste foi
@@ -109,7 +127,7 @@ case "${1:-}" in
       echo "::error::Android nao confirmou QA versionCode=35" >&2
       exit 1
     }
-    echo "PASSOU: OTA no app, rejeicao de hash/certificado/downgrade e dados da UI preservados em code 34 -> 35."
+    echo "PASSOU: OTA no app, rejeicao de hash/certificado/downgrade/offline/download truncado e dados da UI preservados em code 34 -> 35."
     ;;
   *)
     echo "Uso: bash scripts/ota_qa_in_app.sh prepare|emulator" >&2

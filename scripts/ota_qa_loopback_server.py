@@ -92,7 +92,7 @@ def build_fixture(info: dict, *, fixture_mode: str = "valid") -> tuple[dict, dic
         manifest["certificateSha256"] = "0" * 64
     elif fixture_mode == "downgrade":
         manifest["versionCode"] = 1
-    elif fixture_mode != "valid":
+    elif fixture_mode not in ("valid", "truncated-apk"):
         raise ValueError("Modo de fixture nao autorizado")
     release = {
         "tag_name": tag,
@@ -107,7 +107,7 @@ def build_fixture(info: dict, *, fixture_mode: str = "valid") -> tuple[dict, dic
     return release, manifest
 
 
-def make_handler(apk: Path, release: dict, manifest: dict):
+def make_handler(apk: Path, release: dict, manifest: dict, fixture_mode: str = "valid"):
     tag = release["tag_name"]
     asset_prefix = "/releases/download/" + tag + "/"
     urls = {
@@ -136,8 +136,15 @@ def make_handler(apk: Path, release: dict, manifest: dict):
                 self.send_header("Cache-Control", "no-store")
                 self.end_headers()
                 with apk.open("rb") as source:
-                    while chunk := source.read(131072):
-                        self.wfile.write(chunk)
+                    if fixture_mode == "truncated-apk":
+                        # Declara o tamanho completo, mas corta a conexão no início.
+                        # O cliente deve rejeitar o arquivo e apagar o .part.
+                        self.wfile.write(source.read(min(4096, max(1, apk.stat().st_size // 2))))
+                        self.wfile.flush()
+                        self.close_connection = True
+                    else:
+                        while chunk := source.read(131072):
+                            self.wfile.write(chunk)
             else:
                 self.send_error(404)
 
@@ -160,7 +167,7 @@ def main() -> None:
                         help="Gravar update.json para distribuir junto aos dois APKs QA")
     parser.add_argument("--verify-only", action="store_true",
                         help="Validar e/ou gerar manifesto sem ligar o servidor")
-    parser.add_argument("--mode", choices=["valid", "bad-hash", "bad-cert", "downgrade"],
+    parser.add_argument("--mode", choices=["valid", "bad-hash", "bad-cert", "downgrade", "truncated-apk"],
                         default="valid")
     args = parser.parse_args()
     apk = args.apk.resolve(strict=True)
@@ -194,7 +201,7 @@ def main() -> None:
     if args.verify_only:
         return
     httpd = ThreadingHTTPServer(("127.0.0.1", 8765),
-                                make_handler(apk, release, manifest))
+                                make_handler(apk, release, manifest, fixture_mode=args.mode))
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

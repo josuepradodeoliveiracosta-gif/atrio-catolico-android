@@ -15,6 +15,14 @@ Para tornar a próxima execução de QA mais forte:
 
 **Ainda exigido antes do Release:** funcionamento do canal estável GitHub Releases com certificado permanente conhecido, testes de assinatura/versionCode/ausência de downgrade, preservação de login e dados em versão assinada, e autorização final específica do proprietário. Não configurar antecipadamente as duas variáveis de liberação OTA.
 
+## Complemento de testes — falhas de rede (PR de homologação)
+
+O laboratório automatizado adiciona dois cenários de interface:
+- **Servidor offline:** o servidor de `127.0.0.1:8765` fica intencionalmente parado. O app deve mostrar a falha de consulta, sem botão de download ou instalação, permitindo consultar novamente.
+- **Download interrompido:** o servidor informa o `Content-Length` verdadeiro, porém encerra a conexão após enviar uma fração do APK. A tela deve rejeitar o download e permitir tentar novamente, sem oferecer o instalador. O script de CI também verifica que não restam APKs `.part` nem instaláveis na pasta privada de cache.
+
+Esses casos comprovam isolamento e comportamento de falha **somente no emulador de QA** quando seus jobs concluírem com sucesso. Não demonstram atualização oficial, assinatura permanente, rede móvel ou instalação Android após perda de conexão. A aprovação de Release segue proibida até a homologação exigida na issue #149.
+
 ## O que foi reaproveitado
 
 A mesma implementação de produção `OtaReleaseClient`, `OtaUpdatePolicy`, `OtaApkPolicy`, `OtaApkDelivery`, `OtaUpdateController` e `OtaUpdatesSection` detecta, baixa, confere e oferece o botão de instalação. Nenhuma segunda implementação de downloader ou de validador de assinatura foi criada.
