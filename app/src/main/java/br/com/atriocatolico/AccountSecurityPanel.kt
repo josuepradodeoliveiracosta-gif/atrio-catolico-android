@@ -175,6 +175,7 @@ internal fun EmailVerificationPanel(uid: String, onVerified: (() -> Unit)? = nul
                             user.getIdToken(true).addOnCompleteListener { token ->
                                 busy = false
                                 verified = token.isSuccessful &&
+                                    token.result?.claims?.get("email_verified") == true &&
                                     auth.currentUser?.uid == uid &&
                                     auth.currentUser?.isEmailVerified == true
                                 info = if (verified) "E-mail confirmado. Você já pode publicar."
