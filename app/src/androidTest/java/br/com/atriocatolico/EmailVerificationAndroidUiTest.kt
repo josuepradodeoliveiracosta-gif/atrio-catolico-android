@@ -254,6 +254,24 @@ class EmailVerificationAndroidUiTest {
         assertTrue("Com politica ativa o forum nao pode aparecer",
             compose.onAllNodesWithTag("atrio-tab-publish", useUnmergedTree = true)
                 .fetchSemanticsNodes().isEmpty())
+
+        // Deve ser possivel concluir a verificacao SEM sair do portao.
+        compose.waitUntil(35000) { verificationLinks(email).isNotEmpty() }
+        val previousCount = verificationLinks(email).size
+        compose.onNodeWithTag("atrio-auth-resend-verification")
+            .performScrollTo().performClick()
+        compose.waitUntil(35000) { verificationLinks(email).size > previousCount }
+        val link = verificationLinks(email).last()
+        assertTrue("Verificacao somente no Firebase Auth Emulator",
+            JSONObject(readEmulator(link)).has("authEmulator"))
+        compose.onNodeWithTag("atrio-auth-check-verification")
+            .performScrollTo().performClick()
+        compose.waitUntil(35000) { auth.currentUser?.isEmailVerified == true }
+        // Agora o callback da UI deve liberar a comunidade e nao apenas
+        // alterar um campo local sem renovar o token.
+        waitForTag("atrio-tab-publish")
+        val token = Tasks.await(auth.currentUser!!.getIdToken(true), 15, TimeUnit.SECONDS)
+        assertEquals(true, token.claims["email_verified"])
     }
 
 }
