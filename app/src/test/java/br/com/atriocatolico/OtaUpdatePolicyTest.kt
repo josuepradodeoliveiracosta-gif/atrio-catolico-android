@@ -7,7 +7,7 @@ import java.net.URI
 import org.junit.Test
 
 class OtaUpdatePolicyTest {
-    private val certificate = "a".repeat(64)
+    private val certificate = OtaOfficialSigner.CERTIFICATE_SHA256
     private val version = "0.20.1"
     private val tag = "v$version"
     private val release = OtaRemoteRelease(
@@ -61,6 +61,36 @@ class OtaUpdatePolicyTest {
             inspect(currentCertificate = "c".repeat(64)))
         assertEquals(OtaCheckStatus.Unavailable,
             inspect(remoteManifest = manifest.copy(certificateSha256 = "")))
+    }
+
+    @Test fun productionRequiresPinnedHistoricalSignerEvenWithMatchingManifest() {
+        val wrongButMatching = "c".repeat(64)
+        // Em .otalab apenas APKs Debug com a MESMA assinatura podem atualizar
+        // o fixture. Em producao, assinatura arbitraria nunca e oficial.
+        val status = inspect(
+            currentCertificate = wrongButMatching,
+            remoteManifest = manifest.copy(certificateSha256 = wrongButMatching)
+        )
+        if (OtaQaChannel.active) {
+            assertTrue("Laboratorio isolado deve aceitar signer Debug valido",
+                status is OtaCheckStatus.Available)
+        } else {
+            assertEquals(OtaCheckStatus.Unavailable, status)
+        }
+    }
+
+    @Test fun officialSignerFingerprintIsStrictAndOnlyQaCanBypass() {
+        assertTrue(OtaOfficialSigner.acceptsInstalledSigner(
+            OtaOfficialSigner.CERTIFICATE_SHA256))
+        assertTrue(OtaOfficialSigner.acceptsInstalledSigner(
+            OtaOfficialSigner.CERTIFICATE_SHA256.uppercase()))
+        assertFalse(OtaOfficialSigner.acceptsInstalledSigner(""))
+        assertFalse(OtaOfficialSigner.acceptsInstalledSigner("invalid"))
+        assertFalse(OtaOfficialSigner.acceptsInstalledSigner("0".repeat(63)))
+        assertFalse(OtaOfficialSigner.acceptsInstalledSigner(
+            "0".repeat(63) + "g"))
+        assertEquals(OtaQaChannel.active, OtaOfficialSigner.acceptsInstalledSigner(
+            "c".repeat(64)))
     }
 
     @Test fun untrustedHostsOrMismatchedLinksAreRejected() {
