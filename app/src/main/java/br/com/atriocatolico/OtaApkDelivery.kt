@@ -48,6 +48,12 @@ internal object OtaApkDelivery {
         temporary.delete()
         var connection: HttpURLConnection? = null
         try {
+            // Verifica o espaco antes de abrir a conexao. A reserva nao garante
+            // a instalacao: o sistema Android realiza seus proprios checks.
+            if (!OtaStoragePolicy.canStageApk(
+                    OtaQaChannel.freeSpaceForUpdate(context, folder), offer.sizeBytes)) {
+                throw OtaInsufficientSpaceException()
+            }
             var uri = URI(offer.url)
             for (redirectCount in 0..5) {
                 require(OtaQaChannel.isAllowedUri(uri, redirectHosts)) {
