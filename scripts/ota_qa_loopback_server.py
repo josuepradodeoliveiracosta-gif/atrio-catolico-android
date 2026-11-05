@@ -14,6 +14,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import time
 from urllib.parse import urlsplit
 
 ORIGIN = "http://127.0.0.1:8765"
@@ -92,7 +93,7 @@ def build_fixture(info: dict, *, fixture_mode: str = "valid") -> tuple[dict, dic
         manifest["certificateSha256"] = "0" * 64
     elif fixture_mode == "downgrade":
         manifest["versionCode"] = 1
-    elif fixture_mode not in ("valid", "truncated-apk"):
+    elif fixture_mode not in ("valid", "truncated-apk", "slow-apk"):
         raise ValueError("Modo de fixture nao autorizado")
     release = {
         "tag_name": tag,
@@ -142,6 +143,17 @@ def make_handler(apk: Path, release: dict, manifest: dict, fixture_mode: str = "
                         self.wfile.write(source.read(min(4096, max(1, apk.stat().st_size // 2))))
                         self.wfile.flush()
                         self.close_connection = True
+                    elif fixture_mode == "slow-apk":
+                        # Garante uma janela de cancelamento pela interface real.
+                        # O certificado, SHA-256 e metadados continuam validos.
+                        try:
+                            while chunk := source.read(16384):
+                                self.wfile.write(chunk)
+                                self.wfile.flush()
+                                time.sleep(0.15)
+                        except (BrokenPipeError, ConnectionResetError):
+                            # Ao cancelar, o cliente encerra o socket de proposito.
+                            pass
                     else:
                         while chunk := source.read(131072):
                             self.wfile.write(chunk)
@@ -167,7 +179,7 @@ def main() -> None:
                         help="Gravar update.json para distribuir junto aos dois APKs QA")
     parser.add_argument("--verify-only", action="store_true",
                         help="Validar e/ou gerar manifesto sem ligar o servidor")
-    parser.add_argument("--mode", choices=["valid", "bad-hash", "bad-cert", "downgrade", "truncated-apk"],
+    parser.add_argument("--mode", choices=["valid", "bad-hash", "bad-cert", "downgrade", "truncated-apk", "slow-apk"],
                         default="valid")
     args = parser.parse_args()
     apk = args.apk.resolve(strict=True)
