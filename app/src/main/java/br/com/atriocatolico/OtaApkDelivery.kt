@@ -126,6 +126,15 @@ internal object OtaApkDelivery {
     }
 
     /**
+     * Recuperacao apos morte abrupta do processo (sem finally de corrotina):
+     * remove somente o download parcial. NUNCA apaga o APK pronto no inicio
+     * da tela: o instalador Android pode estar lendo-o via FileProvider.
+     */
+    fun discardAbandonedPartial(context: Context) {
+        File(File(context.cacheDir, "ota"), "atrio-catolico-ota.part.apk").delete()
+    }
+
+    /**
      * Exclui somente os dois nomes fixos do cache privado de atualizacao.
      * Usado ao cancelar uma tarefa ou invalidar uma oferta ja baixada.
      */
