@@ -4,6 +4,8 @@ on:
     branches: [main]
     paths:
       - 'cloudflare/avatar-worker/**'
+      - 'cloudflare/email-verification-policy*.mjs'
+      - 'cloudflare/worker-email-gate.test.mjs'
       - '.github/workflows/avatar-cloudinary-ci.yml'
   workflow_dispatch:
 
@@ -22,5 +24,7 @@ jobs:
       - name: Testes offline sem segredos nem acesso à produção
         working-directory: cloudflare/avatar-worker
         run: npm test
+      - name: Validar portao de e-mail offline compartilhado
+        run: node --test cloudflare/email-verification-policy.test.mjs cloudflare/worker-email-gate.test.mjs
       - name: Verificar sintaxe de JavaScript
-        run: node --check cloudflare/avatar-worker/src/index.js
+        run: node --check cloudflare/avatar-worker/src/index.js && node --check cloudflare/email-verification-policy.mjs
