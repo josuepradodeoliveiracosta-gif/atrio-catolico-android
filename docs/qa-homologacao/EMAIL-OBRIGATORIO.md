@@ -55,3 +55,25 @@ O administrador pode definir `enabled=false` no documento administrativo, revert
 ## Política de Release
 
 `.github/workflows/build-apk.yml` mantém assinatura bloqueada sem `ATRIO_EMAIL_VERIFICATION_RELEASE_APPROVED=true` **e** aprovação independente do Guardião V2. Publicação OTA também exige a aprovação de e-mail. **Não aprovar a variável antes de implementar e comprovar a obrigatoriedade em produção**. Builds Debug para QA permanecem permitidos.
+
+
+## Auditoria read-only da produção (Termux / ambiente Google autorizado)
+
+O script `scripts/email-verification-production-preflight.mjs` realiza apenas três operações **GET**: consulta a release `cloud.firestore`, lê a fonte do Ruleset publicado e consulta `app_config/email_verification` no projeto fixo `atrio-catolico`. Não faz deploy, não cria nem atualiza documentos e não acessa listas de usuários. A fonte das regras permanece somente em memória; a saída mostra hashes SHA-256, presença de verificações e o estado administrativo, jamais tokens ou dados pessoais.
+
+Em um terminal que tenha **Node.js 22+** e **gcloud autenticado com permissões somente de leitura**, executar a partir da raiz do repositório atualizado:
+
+```bash
+ATRIO_READONLY_OAUTH_TOKEN="$(gcloud auth print-access-token)" \
+  node scripts/email-verification-production-preflight.mjs
+```
+
+O token OAuth deve permanecer exclusivamente no terminal do operador; **não compartilhar credenciais, JSON de contas de serviço nem o token no chat ou em Issues do GitHub**. O acesso precisa ler a política Firestore e as releases/rulesets do Firebase Rules. Se a conta não tiver autorização, o auditor retorna `atrio_preflight_permission_denied` e não altera nada.
+
+`ready: true` é resultado somente das inspeções de configuração: exige identidade do projeto, regras publicadas exatamente iguais às do arquivo `firestore.rules` atual, função de proteção presente, verificação de claim e política `ACTIVE`. Se aparecer `ready: false`, **não aprovar Release**. Mesmo com `ready: true`, continuam obrigatórios os testes reais com Firebase Auth, Android e Workers após um rollout autorizado. A igualdade de regras é deliberadamente estrita: arquivos divergentes precisam de revisão, jamais aprovação automática.
+
+O comando local de testes unitários, sem rede nem acesso à produção, é:
+
+```bash
+node --test scripts/email-verification-production-preflight.test.mjs
+```
