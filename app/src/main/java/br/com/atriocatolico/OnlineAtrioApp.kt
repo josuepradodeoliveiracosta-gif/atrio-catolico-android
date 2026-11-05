@@ -70,33 +70,52 @@ internal fun OnlineAtrioApp(activity: androidx.activity.ComponentActivity) {
             OnlineAuthScreen(auth = auth, db = db)
         } else {
             key(user.uid) {
-                // A exigencia e definida pelo Firebase de forma administrativa,
-                // sem confiar em um atributo que o usuario possa gravar no perfil.
-                var verificationRequired by remember(user.uid) { mutableStateOf(false) }
+                // Seguranca de entrada: o cliente deve conhecer a politica do
+                // servidor antes de apresentar a comunidade a uma conta nao verificada.
+                // O cache local e erros de rede NUNCA equivalem a enabled=false.
+                var verificationPolicy by remember(user.uid) {
+                    mutableStateOf(EmailVerificationPolicyAccess.CHECKING)
+                }
+                var policyRetry by remember(user.uid) { mutableIntStateOf(0) }
                 var verifiedThisSession by remember(user.uid) {
                     mutableStateOf(user.isEmailVerified)
                 }
-                DisposableEffect(db, user.uid) {
+                DisposableEffect(db, user.uid, policyRetry) {
+                    verificationPolicy = EmailVerificationPolicyAccess.CHECKING
                     val policy = db.document("app_config/email_verification")
                         .addSnapshotListener { snapshot, failure ->
-                            verificationRequired = failure == null &&
-                                snapshot?.getBoolean("enabled") == true &&
-                                snapshot.getString("version") == "2026-11-v1"
+                            verificationPolicy = when {
+                                failure != null || snapshot == null ->
+                                    EmailVerificationPolicyAccess.UNAVAILABLE
+                                snapshot.metadata.isFromCache ->
+                                    EmailVerificationPolicyAccess.CHECKING
+                                else -> emailVerificationPolicyFromServer(
+                                    snapshot.getBoolean("enabled"),
+                                    snapshot.getString("version")
+                                )
+                            }
                         }
                     onDispose { policy.remove() }
                 }
-                if (verificationRequired && !verifiedThisSession) {
+                val onGateSignOut: () -> Unit = {
+                    BackgroundNoticeScheduler.disable(activity, user.uid)
+                    PushRegistry.deactivate(activity, user.uid, db)
+                    auth.signOut()
+                }
+                if (canEnterAtrioCommunity(verifiedThisSession, verificationPolicy)) {
+                    OnlineUserScreen(auth = auth, db = db, user = user)
+                } else if (verificationPolicy == EmailVerificationPolicyAccess.REQUIRED) {
                     MandatoryEmailVerificationGate(
                         uid = user.uid,
                         onVerified = { verifiedThisSession = true },
-                        onSignOut = {
-                            BackgroundNoticeScheduler.disable(activity, user.uid)
-                            PushRegistry.deactivate(activity, user.uid, db)
-                            auth.signOut()
-                        }
+                        onSignOut = onGateSignOut
                     )
                 } else {
-                    OnlineUserScreen(auth = auth, db = db, user = user)
+                    EmailVerificationPolicyStatusScreen(
+                        unavailable = verificationPolicy == EmailVerificationPolicyAccess.UNAVAILABLE,
+                        onRetry = { policyRetry++ },
+                        onSignOut = onGateSignOut
+                    )
                 }
             }
         }
