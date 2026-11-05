@@ -61,6 +61,14 @@ Quando o processo Android é encerrado abruptamente (por exemplo, por falta de m
 
 O laboratório executa um teste de reinício com APK final anteriormente validado, `.part.apk` simulado e arquivo de cache não relacionado. Após `am force-stop` e nova Activity, exige ausência do parcial, preservação do APK final e dos arquivos não relacionados, ausência do botão **Instalar** e presença de **Baixar atualização**. Em seguida, o script remove os marcadores artificiais. Esse ensaio **não comprova** que o Android conclui a instalação se o app for morto durante o uso do `FileProvider`; o comportamento no aparelho real segue pendente.
 
+## Complemento — segunda verificação após indisponibilidade HTTP
+
+A consulta inicial do cliente OTA pode receber HTTP **503 Service Unavailable**. O laboratório automatizado agora simula essa falha apenas no **primeiro** `GET /releases/latest` de um servidor local `api-unavailable-once`, seguido da resposta normal (HTTP 200) para a mesma URL. O manifesto e o APK permanecem inalterados, sem acesso à API real do GitHub ou ao Firebase.
+
+O teste instrumentado exige que a primeira consulta exiba **Não foi possível consultar o servidor OTA local** e **não** mostre botões de download ou instalação. Em seguida, pressiona **Verificar atualizações** na *mesma Activity*, espera que o app detecte a oferta válida, baixa o APK e só aceita o botão de instalação após as verificações normais de tamanho, SHA-256, versão e certificado. Os testes Python confirmam a sequência `503 → 200 → 200` e a estabilidade dos assets.
+
+A sondagem de prontidão no CI consulta **somente o caminho fixo do `update.json`**, calculado a partir do manifesto QA. Assim, não consome indevidamente o primeiro erro destinado ao aplicativo; os logs de HTTP devem demonstrar uma falha e posterior recuperação. Não testa rede celular real, autenticação de GitHub, nem valida assinatura permanente; o OTA oficial continua aguardando homologação e autorização.
+
 ## O que foi reaproveitado
 
 A mesma implementação de produção `OtaReleaseClient`, `OtaUpdatePolicy`, `OtaApkPolicy`, `OtaApkDelivery`, `OtaUpdateController` e `OtaUpdatesSection` detecta, baixa, confere e oferece o botão de instalação. Nenhuma segunda implementação de downloader ou de validador de assinatura foi criada.
