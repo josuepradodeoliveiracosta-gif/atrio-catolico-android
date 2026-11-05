@@ -157,7 +157,8 @@ internal fun OtaUpdatesSection(
                      else "Ainda não há atualizações publicadas no canal oficial.")
             OtaCheckStatus.UpToDate ->
                 Text(if (laboratory) "Laboratório OTA atualizado — nenhuma versão nova."
-                     else "O aplicativo está atualizado conforme o canal oficial.")
+                     else "O aplicativo está atualizado conforme o canal oficial.",
+                     modifier = Modifier.testTag("atrio-ota-up-to-date"))
             OtaCheckStatus.TestBuild ->
                 Text("Versão de testes. Atualizações oficiais exigem um APK release assinado.")
             OtaCheckStatus.Incompatible ->
@@ -166,7 +167,8 @@ internal fun OtaUpdatesSection(
             OtaCheckStatus.Unavailable ->
                 Text(if (laboratory)
                     "Não foi possível consultar o servidor OTA local. Verifique o Termux e tente novamente."
-                    else "Não foi possível confirmar as atualizações. Confira a internet e tente novamente.")
+                    else "Não foi possível confirmar as atualizações. Confira a internet e tente novamente.",
+                    modifier = Modifier.testTag("atrio-ota-unavailable"))
             is OtaCheckStatus.Available -> {
                 Text(if (laboratory) "Nova versão de laboratório detectada: ${status.version}"
                      else "Nova versão oficial detectada: ${status.version}",
@@ -200,7 +202,8 @@ internal fun OtaUpdatesSection(
                     }
                     else -> {
                         if (download is OtaDownloadState.Failed) {
-                            Text(download.message, color = MaterialTheme.colorScheme.error)
+                            Text(download.message, color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.testTag("atrio-ota-download-failed"))
                         }
                         Button(onClick = { onDownload(status.apk) },
                             modifier = Modifier.fillMaxWidth().testTag("atrio-ota-download")) {
