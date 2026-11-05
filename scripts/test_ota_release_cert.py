@@ -90,7 +90,13 @@ class ReleaseCertificateContinuityTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         build = (root / ".github/workflows/build-apk.yml").read_text()
         publish = (root / "scripts/ota_release.py").read_text()
-        self.assertIn("python3 scripts/ota_release_cert.py", build)
+        guard = "python3 scripts/ota_release_cert.py"
+        self.assertIn(guard, build)
+        self.assertLess(build.index("gradle :app:assembleRelease"), build.index(guard))
+        self.assertLess(
+            build.index(guard),
+            build.index("- name: Disponibilizar APK com assinatura permanente"),
+        )
         self.assertIn("from scripts.ota_release_cert import require_official_certificate", publish)
         self.assertIn("cert = require_official_certificate(expected_certificate)", publish)
 
