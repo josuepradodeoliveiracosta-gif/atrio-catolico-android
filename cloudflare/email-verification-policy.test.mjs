@@ -78,3 +78,32 @@ test('OAuth de servico ausente nao gera consulta de politica',async()=>{
   await assert.rejects(emailAllowsCommunity('',false,async()=>{throw Error('must not call');}),
     /invalid_identity/);
 });
+
+
+test('classifica status HTTP sem expor resposta ou OAuth',async()=>{
+  for(const status of [401,403,429,500,503]){
+    await assert.rejects(emailAllowsCommunity(token,false,async()=>new Response(
+      'secret-remote-error-body',{status})),err=>{
+      assert.equal(err.message,'email_policy_unavailable');
+      assert.equal(err.qaCode,'policy_http_'+status);
+      assert.equal(JSON.stringify(err).includes('secret-remote-error-body'),false);
+      return true;
+    });
+  }
+});
+test('erro do runtime cache e distinguido sem revelar excecao bruta',async()=>{
+  await assert.rejects(emailAllowsCommunity(token,false,async()=>{
+    throw Error("The 'cache' field on 'RequestInitializerDict' is not implemented.");
+  }),err=>{
+    assert.equal(err.message,'email_policy_unavailable');
+    assert.equal(err.qaCode,'policy_fetch_runtime_cache');
+    return true;
+  });
+});
+test('rede e JSON incorreto nao autorizam acesso e tem codigo limitado',async()=>{
+  await assert.rejects(emailAllowsCommunity(token,false,async()=>{
+    throw Error('Falha com informacao privada');
+  }),err=>err.qaCode==='policy_fetch_failed' && err.message==='email_policy_unavailable');
+  await assert.rejects(emailAllowsCommunity(token,false,async()=>Response.json({})),
+    err=>err.qaCode==='policy_invalid_response');
+});

@@ -142,3 +142,38 @@ for(const endpoint of endpoints){
     });
   }
 }
+
+
+test('Push 503 inclui apenas codigo seguro quando QA pede explicitamente',async()=>{
+  const old=globalThis.fetch;
+  const mocked=fakeNetwork({policyReply:()=>new Response('secret-token-in-body',{status:403})});
+  globalThis.fetch=mocked.fetcher;
+  try{
+    const base={method:'POST',
+      headers:{...authHeaders,'Content-Type':'application/json',
+        'X-Atrio-QA-Diagnostic':'1'},
+      body:JSON.stringify({type:'post',postId:'qa-nonexistent-1234'})};
+    const res=await pushHandler.fetch(new Request('https://qa.invalid/moderation/event',base),{
+      ...config,PUSH_ENABLED:'true',GUARDIAO_ENABLED:'true',PUSH_DB:{}
+    });
+    assert.equal(res.status,503);
+    const body=await res.json();
+    assert.deepEqual(body,{status:'unavailable',qaDiagnostic:'policy_http_403'});
+    assert.ok(!JSON.stringify(body).includes(token));
+    assert.ok(!JSON.stringify(body).includes('secret-token-in-body'));
+    assert.equal(mocked.record.policyCalls,1);
+  } finally{globalThis.fetch=old;}
+});
+test('Push 503 continua generico sem diagnostico voluntario',async()=>{
+  const old=globalThis.fetch;
+  const mocked=fakeNetwork({policyReply:()=>new Response('',{status:403})});
+  globalThis.fetch=mocked.fetcher;
+  try{
+    const res=await pushHandler.fetch(new Request('https://qa.invalid/moderation/event',{
+      method:'POST',headers:{...authHeaders,'Content-Type':'application/json'},
+      body:JSON.stringify({type:'post',postId:'qa-nonexistent-1234'})
+    }),{...config,PUSH_ENABLED:'true',GUARDIAO_ENABLED:'true',PUSH_DB:{}});
+    assert.equal(res.status,503);
+    assert.deepEqual(await res.json(),{status:'unavailable'});
+  }finally{globalThis.fetch=old;}
+});

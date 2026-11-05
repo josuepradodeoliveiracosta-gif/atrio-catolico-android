@@ -23,7 +23,7 @@ const pushRoot='https://atrio-push.atrio-catolico.workers.dev';
 const policyVersion='2026-11-v1';
 const fail=reason=>{throw Error('atrio_real_auth_qa_'+reason);};
 
-async function request(url,{method='GET',token,body,oauth}={},fetcher=fetch){
+async function request(url,{method='GET',token,body,oauth,qaDiagnostic=false}={},fetcher=fetch){
   let r;
   try {
     r=await fetcher(url,{
@@ -32,7 +32,8 @@ async function request(url,{method='GET',token,body,oauth}={},fetcher=fetch){
         Accept:'application/json',
         ...(body?{'Content-Type':'application/json'}:{}),
         ...(token?{Authorization:'Bearer '+token}:{}),
-        ...(oauth?{Authorization:'Bearer '+oauth}:{})
+        ...(oauth?{Authorization:'Bearer '+oauth}:{}),
+        ...(qaDiagnostic?{'X-Atrio-QA-Diagnostic':'1'}:{})
       },
       ...(body?{body:JSON.stringify(body)}:{}),
       signal:AbortSignal.timeout(12000)
@@ -158,11 +159,23 @@ export async function runRealAccountQa({
   // O Guardiao consulta um post aleatorio inexistente e retorna 202 ignored.
   // Sem endereco real, nao cria relato, nao envia push nem altera moderacao.
   const push=await request(pushRoot+'/moderation/event',{
-    method:'POST',token:signed.idToken,
+    method:'POST',token:signed.idToken,qaDiagnostic:true,
     body:{type:'post',postId:nonexistent}
   },fetcher);
-  return evaluateQaStatuses({policyState,verified:signed.emailVerified,
+  const result=evaluateQaStatuses({policyState,verified:signed.emailVerified,
     results:{firestore:firestore.status,avatar:avatar.status,push:push.status}});
+  if(push.status===503) {
+    let diagnostic='unclassified_503';
+    try{
+      const payload=await responseJson(push);
+      const value=payload?.qaDiagnostic;
+      if(typeof value==='string' &&
+        /^(?:policy_service_oauth_failed|policy_timeout|policy_fetch_runtime_cache|policy_fetch_failed|policy_http_(?:401|403|429|500|502|503|504|other)|policy_invalid_response)$/.test(value))
+        diagnostic=value;
+    }catch{/* Nao imprimir o corpo HTTP bruto nem tokens. */}
+    result.pushDiagnostic=diagnostic;
+  }
+  return result;
 }
 
 /** Credenciais inseridas no terminal em modo raw, sem eco nem logs. */
