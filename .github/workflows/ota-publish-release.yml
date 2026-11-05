@@ -61,6 +61,7 @@ jobs:
       APK_SHA256: ${{ inputs.expected_apk_sha256 }}
       APPROVED_NOTES: ${{ inputs.release_notes }}
       EXPECTED_CERT: ${{ vars.ATRIO_RELEASE_CERT_SHA256 }}
+      ATRIO_EMAIL_VERIFICATION_RELEASE_APPROVED: ${{ vars.ATRIO_EMAIL_VERIFICATION_RELEASE_APPROVED || 'false' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -73,6 +74,10 @@ jobs:
           [[ "$APK_SHA256" =~ ^[a-fA-F0-9]{64}$ ]]
           [[ "$EXPECTED_CERT" =~ ^[a-fA-F0-9:]{64,95}$ ]]
           if [[ "${{ inputs.mode }}" == "publish" ]]; then
+            [[ "$ATRIO_EMAIL_VERIFICATION_RELEASE_APPROVED" == "true" ]] || {
+              echo "::error::Publicacao bloqueada: verificacao de e-mail obrigatoria nao homologada"
+              exit 1
+            }
             [[ "${{ inputs.confirmation }}" == "PUBLICAR ATRIO" ]] || {
               echo "::error::Publicação não autorizada: confirmação explícita ausente"
               exit 1
@@ -165,7 +170,7 @@ jobs:
           retention-days: 1
 
   publish-release:
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.mode == 'publish' && inputs.confirmation == 'PUBLICAR ATRIO' && github.run_attempt == 1
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.mode == 'publish' && inputs.confirmation == 'PUBLICAR ATRIO' && github.run_attempt == 1 && vars.ATRIO_EMAIL_VERIFICATION_RELEASE_APPROVED == 'true'
     needs: validate-release
     name: Publicar versão aprovada sem assinar ou recompilar
     runs-on: ubuntu-latest

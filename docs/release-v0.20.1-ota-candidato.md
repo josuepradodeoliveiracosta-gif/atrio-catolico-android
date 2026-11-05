@@ -50,3 +50,14 @@ Os checks de PR são reaproveitados. O release assinado deve continuar restrito 
 - O último APK oficial `0.20.0` / code 35 foi assinado em 31/10/2026 (run `41174393714`), em commit anterior à verificação de e-mail. Esse APK não pode homologar o novo cadastro.
 - Não gerar assinatura nem publicar a versão sem a aprovação explícita da integração Guardian V2 exigida em `.github/workflows/build-apk.yml`; nunca alterar ou ignorar essa trava por conveniência.
 - A flag `app_config/email_verification` permanece desativada em produção até teste no Android real e migração das contas antigas.
+
+## Nova condição obrigatória de lançamento (05/11/2026)
+
+**Decisão do responsável pelo projeto:** nenhum novo APK **Release assinado** nem publicação pelo GitHub Releases antes da implementação e homologação da confirmação **obrigatória** de e-mail. APKs **Debug para QA** podem continuar, sem distribuição como Release.
+
+- O teste Android Debug com cadastro, reenvio e confirmação de e-mail foi aprovado no aparelho pelo responsável. Isso **não** demonstra que a exigência já está ativa para todos os usuários.
+- O Firebase de produção mantém a política `app_config/email_verification` desativada/ausente. A publicação e as respostas de contas não verificadas devem ser negadas no Firestore pelo claim verdadeiro do Firebase Auth, não por um marcador no perfil.
+- Antes de autorizar Release: implementar e validar a obrigatoriedade em produção; testar contas verificadas e não verificadas; documentar a migração das contas antigas sem interrupção inesperada; comprovar reenvio, atualização do token e novo login no Android; estabelecer rollback seguro.
+- A trava `ATRIO_EMAIL_VERIFICATION_RELEASE_APPROVED` é **independente** da aprovação do Guardião V2. `.github/workflows/build-apk.yml` exige as duas aprovações para gerar APK assinado, e `.github/workflows/ota-publish-release.yml` exige a aprovação de e-mail para publicar. A ausência da variável, ou valor diferente de `true`, mantém o lançamento bloqueado.
+- A variável só deve ser configurada **após comprovar a obrigatoriedade**. Seu valor, isoladamente, não configura nem verifica a segurança do Firebase.
+- Nenhum backup, segredo, Worker ou regra do Firebase foi modificado nesta atualização documental/de CI.

@@ -97,11 +97,19 @@ jobs:
           ATRIO_AVATAR_WORKER_URL: ${{ vars.ATRIO_AVATAR_WORKER_URL || '' }}
           ATRIO_GUARDIAN_V2_WORKER_URL: ${{ vars.ATRIO_GUARDIAN_V2_WORKER_URL || 'https://atrio-guardian-v2.atrio-catolico.workers.dev' }}
           ATRIO_GUARDIAN_V2_RELEASE_APPROVED: ${{ vars.ATRIO_GUARDIAN_V2_RELEASE_APPROVED || 'false' }}
+          ATRIO_EMAIL_VERIFICATION_RELEASE_APPROVED: ${{ vars.ATRIO_EMAIL_VERIFICATION_RELEASE_APPROVED || 'false' }}
           ATRIO_KEYSTORE_BASE64: ${{ secrets.ATRIO_KEYSTORE_BASE64 }}
           ATRIO_STORE_PASSWORD: ${{ secrets.ATRIO_STORE_PASSWORD }}
           ATRIO_KEY_PASSWORD: ${{ secrets.ATRIO_KEY_PASSWORD }}
         run: |
           set -euo pipefail
+          # Trava independente: nao lancar release enquanto o e-mail confirmado
+          # nao for obrigatorio e homologado no Firebase de producao.
+          # False por padrao; so aprovar apos rollout e verificacao de contas antigas.
+          if [[ "$ATRIO_EMAIL_VERIFICATION_RELEASE_APPROVED" != "true" ]]; then
+            echo "::error::Release bloqueado: confirmacao obrigatoria de e-mail nao homologada (ATRIO_EMAIL_VERIFICATION_RELEASE_APPROVED)."
+            exit 1
+          fi
           # Nao assinar o release V2 sem servidor produtivo distinto do laboratorio.
           # Um URL valido nao comprova que o servidor esta homologado: exige aceite
           # separado da configuracao de release do repositorio.
