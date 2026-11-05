@@ -103,6 +103,37 @@ class OtaQaLoopbackUiTest {
         compose.onNodeWithTag("atrio-ota-download").assertExists()
     }
 
+    @Test fun retriesInterruptedDownloadInSameScreenAndVerifiesApk() {
+        assumeTrue(BuildConfig.DEBUG && OtaQaChannel.active)
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val cached = File(context.cacheDir, "ota/atrio-catolico-ota.apk")
+        val partial = File(context.cacheDir, "ota/atrio-catolico-ota.part.apk")
+        compose.waitUntil(45_000) {
+            compose.onAllNodesWithTag("atrio-ota-available").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("atrio-ota-download").performClick()
+        // O primeiro GET de APK e truncado intencionalmente pelo fixture local.
+        compose.waitUntil(90_000) {
+            compose.onAllNodesWithTag("atrio-ota-download-failed")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("atrio-ota-install").assertDoesNotExist()
+        compose.onNodeWithTag("atrio-ota-download").assertExists()
+        assertTrue("Falha deve descartar APK parcial", !partial.exists())
+        assertTrue("Falha deve descartar APK pronto", !cached.exists())
+
+        // Sem reiniciar Activity ou renovar manifesto, usuario toca de novo.
+        // O MESMO servidor responde o segundo GET com o APK real completo.
+        compose.onNodeWithTag("atrio-ota-download").performClick()
+        compose.waitUntil(90_000) {
+            compose.onAllNodesWithTag("atrio-ota-install").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("atrio-ota-download-failed").assertDoesNotExist()
+        compose.onNodeWithTag("atrio-ota-install").assertExists()
+        assertTrue("Arquivo apos a retentativa precisa ser completo", cached.length() > 4096)
+        assertTrue("Nenhuma parte residual apos sucesso", !partial.exists())
+    }
+
     @Test fun cancelsSlowDownloadWithoutOfferingInstallation() {
         assumeTrue(BuildConfig.DEBUG && OtaQaChannel.active)
         compose.waitUntil(45_000) {

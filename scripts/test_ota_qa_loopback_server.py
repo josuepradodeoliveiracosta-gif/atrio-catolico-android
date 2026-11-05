@@ -59,6 +59,10 @@ class OtaQaLoopbackTests(unittest.TestCase):
             ota.build_fixture(self.metadata, fixture_mode="slow-apk")[1],
             ota.build_fixture(self.metadata, fixture_mode="valid")[1],
         )
+        self.assertEqual(
+            ota.build_fixture(self.metadata, fixture_mode="truncated-once")[1],
+            ota.build_fixture(self.metadata, fixture_mode="valid")[1],
+        )
         with self.assertRaises(ValueError):
             ota.build_fixture(self.metadata, fixture_mode="unsupported")
 
@@ -106,6 +110,39 @@ class OtaQaLoopbackTests(unittest.TestCase):
             server.server_close()
             thread.join(timeout=5)
 
+
+
+    def test_interrupted_first_download_can_retry_without_changing_manifest(self):
+        # Primeiro GET possui Content-Length completo mas termina cedo;
+        # segundo GET na MESMA instancia entrega exatamente os bytes corretos.
+        self.apk.write_bytes(b"A" * 12_000)
+        self.metadata["apkSizeBytes"] = self.apk.stat().st_size
+        release, manifest = ota.build_fixture(self.metadata, fixture_mode="truncated-once")
+        server = ThreadingHTTPServer(
+            ("127.0.0.1", 0),
+            ota.make_handler(self.apk, release, manifest, fixture_mode="truncated-once"),
+        )
+        thread = Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        url = (
+            f"http://127.0.0.1:{server.server_port}/releases/download/"
+            "v0.19.8/atrio-catolico.apk"
+        )
+        try:
+            with urlopen(url) as response:
+                self.assertEqual(int(response.headers["Content-Length"]), 12_000)
+                with self.assertRaises(IncompleteRead):
+                    response.read()
+            with urlopen(url) as response:
+                self.assertEqual(int(response.headers["Content-Length"]), 12_000)
+                self.assertEqual(response.read(), self.apk.read_bytes())
+            with urlopen("http://127.0.0.1:" + str(server.server_port)
+                         + "/releases/download/v0.19.8/update.json") as response:
+                self.assertEqual(json.load(response), manifest)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
 
 
     def test_slow_stream_allows_the_client_to_disconnect(self):
