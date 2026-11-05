@@ -18,7 +18,7 @@ val atrioKeyAlias = System.getenv("ATRIO_SIGNING_KEY_ALIAS")
 val atrioKeyPassword = System.getenv("ATRIO_SIGNING_KEY_PASSWORD")
 
 // Versão do APK de testes: avançar para 2, 3, ... a cada NOVA atualização Debug.
-// Próximo release OTA proposto: candidato 0.20.1 / versionCode 36. Assinatura restrita ao workflow manual na main.
+// Proximo release OTA candidato 0.20.1 / versionCode 36; assinacao oficial exclusivamente no workflow manual aprovado.
 val atrioDebugPatch = 7
 val atrioDebugVersionName = "0.19.$atrioDebugPatch"
 val atrioDebugVersionCode = 27 + atrioDebugPatch

@@ -100,6 +100,8 @@ class ThreeBotsAuthenticatedAndroidUiTest {
         compose.onNodeWithTag("atrio-auth-email")
             .performTextInput("$prefix.$session@qa.invalid")
         compose.onNodeWithTag("atrio-auth-password").performTextInput(password)
+        compose.onNodeWithTag("atrio-auth-confirm").performTextInput(password)
+        compose.onNodeWithTag("atrio-auth-rules").performScrollTo().performClick()
         compose.onNodeWithTag("atrio-auth-submit").performScrollTo().performClick()
         // Emulador Auth: às vezes a verificação reCAPTCHA de cadastro falha
         // por rede externa mesmo quando o Firebase Auth emulado está ativo.
@@ -173,6 +175,8 @@ class ThreeBotsAuthenticatedAndroidUiTest {
         compose.onNodeWithTag("atrio-auth-email")
             .performTextInput("$prefix.$session@qa.invalid")
         compose.onNodeWithTag("atrio-auth-password").performTextInput(password)
+        // Os campos de confirmacao e aceite existem apenas no cadastro.
+        // No login, usar somente e-mail, senha e o botao Entrar.
         compose.onNodeWithTag("atrio-auth-submit").performScrollTo().performClick()
         waitFor("atrio-tab-publish", 45_000)
     }

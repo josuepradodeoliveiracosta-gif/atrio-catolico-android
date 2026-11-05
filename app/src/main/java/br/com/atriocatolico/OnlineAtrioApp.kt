@@ -21,6 +21,16 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.autofill.ContentType
+import androidx.compose.ui.semantics.contentType
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -78,9 +88,23 @@ private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
     var displayName by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var confirmation by remember { mutableStateOf("") }
+    var acceptedRules by remember { mutableStateOf(false) }
+    var showRules by remember { mutableStateOf(false) }
+    var showPassword by remember { mutableStateOf(false) }
+    var showConfirmation by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
     var resetInfo by remember { mutableStateOf("") }
+
+    val emailValid = RegistrationPolicy.validEmail(email)
+    val passwordIssue = if (registering && password.isNotEmpty())
+        RegistrationPolicy.passwordProblem(password, email, displayName) else null
+    val confirmationIssue = if (registering && confirmation.isNotEmpty())
+        RegistrationPolicy.confirmProblem(password, confirmation) else null
+    val ready = if (registering) {
+        RegistrationPolicy.ready(displayName, email, password, confirmation, acceptedRules)
+    } else emailValid && password.length >= 6 // Não bloquear senhas antigas no login.
 
     Column(
         Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Wine, Color(0xFF8B4B5A))))
@@ -94,44 +118,114 @@ private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
         Text("Um lugar para aprender e compartilhar a fé.", color = Color(0xFFF7E9EB), fontSize = 15.sp)
         Spacer(Modifier.height(26.dp))
         Card(colors = CardDefaults.cardColors(containerColor = Paper), shape = RoundedCornerShape(20.dp)) {
-            Column(Modifier.padding(20.dp)) {
+            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(if (registering) "Criar conta" else "Entrar na comunidade",
                     fontSize = 22.sp, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(14.dp))
                 if (registering) {
-                    OutlinedTextField(displayName, { if (it.length <= 35) displayName = it },
-                        modifier = Modifier.fillMaxWidth().testTag("atrio-auth-name"), label = { Text("Nome público") }, singleLine = true)
-                    Spacer(Modifier.height(10.dp))
+                    OutlinedTextField(displayName, { displayName = it.take(35) },
+                        modifier = Modifier.fillMaxWidth().testTag("atrio-auth-name"),
+                        label = { Text("Nome público") }, singleLine = true, enabled = !busy,
+                        isError = displayName.isNotBlank() && !RegistrationPolicy.validName(displayName),
+                        supportingText = { Text("De 2 a 35 caracteres. Será exibido nas publicações.") },
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next))
                 }
-                OutlinedTextField(email, { email = it.take(150) }, modifier = Modifier.fillMaxWidth().testTag("atrio-auth-email"),
-                    label = { Text("E-mail") }, singleLine = true)
-                Spacer(Modifier.height(10.dp))
-                OutlinedTextField(password, { password = it.take(128) }, modifier = Modifier.fillMaxWidth().testTag("atrio-auth-password"),
-                    label = { Text("Senha (mínimo 6 caracteres)") }, singleLine = true,
-                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation())
+                OutlinedTextField(email, { email = it.take(150) },
+                    modifier = Modifier.fillMaxWidth().testTag("atrio-auth-email")
+                        .semantics { contentType = ContentType.EmailAddress },
+                    label = { Text("E-mail") }, singleLine = true, enabled = !busy,
+                    isError = email.isNotBlank() && !emailValid,
+                    supportingText = if (email.isNotBlank() && !emailValid) {
+                        { Text("Confira o formato do e-mail.") }
+                    } else null,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next))
+                OutlinedTextField(password, { password = it.take(RegistrationPolicy.MAX_PASSWORD) },
+                    modifier = Modifier.fillMaxWidth().testTag("atrio-auth-password")
+                        .semantics {
+                            contentType = if (registering) ContentType.NewPassword else ContentType.Password
+                        },
+                    label = { Text(if (registering) "Senha (15 caracteres ou mais)" else "Senha") },
+                    singleLine = true, enabled = !busy, isError = passwordIssue != null,
+                    visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password,
+                        imeAction = if (registering) ImeAction.Next else ImeAction.Done),
+                    trailingIcon = {
+                        IconButton(onClick = { showPassword = !showPassword }, enabled = !busy) {
+                            Icon(if (showPassword) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                                contentDescription = if (showPassword) "Ocultar senha" else "Mostrar senha")
+                        }
+                    },
+                    supportingText = if (registering) {
+                        { Text(passwordIssue ?: "Use uma frase-senha ou um gerenciador. " +
+                            password.length + "/128 caracteres.") }
+                    } else null)
+                if (registering) {
+                    OutlinedTextField(confirmation, { confirmation = it.take(RegistrationPolicy.MAX_PASSWORD) },
+                        modifier = Modifier.fillMaxWidth().testTag("atrio-auth-confirm")
+                            .semantics { contentType = ContentType.NewPassword },
+                        label = { Text("Confirmar senha") }, singleLine = true, enabled = !busy,
+                        isError = confirmationIssue != null,
+                        visualTransformation = if (showConfirmation) VisualTransformation.None else PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+                        trailingIcon = {
+                            IconButton(onClick = { showConfirmation = !showConfirmation }, enabled = !busy) {
+                                Icon(if (showConfirmation) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                                    contentDescription = if (showConfirmation) "Ocultar confirmação" else "Mostrar confirmação")
+                            }
+                        },
+                        supportingText = if (confirmationIssue != null) {
+                            { Text(confirmationIssue) }
+                        } else null)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = acceptedRules,
+                            onCheckedChange = { acceptedRules = it },
+                            modifier = Modifier.testTag("atrio-auth-rules"),
+                            enabled = !busy)
+                        Text("Li e aceito as Regras da Comunidade.", fontSize = 13.sp)
+                    }
+                    TextButton(onClick = { showRules = true }, enabled = !busy,
+                        modifier = Modifier.testTag("atrio-auth-read-rules")) {
+                        Text("Ler as Regras da Comunidade")
+                    }
+                    Text("O cadastro utiliza Firebase Authentication. Antes da publicação na Google Play, " +
+                        "serão disponibilizados Termos de Uso, Política de Privacidade e solicitação de exclusão de conta. " +
+                        "O aceite acima refere-se somente às Regras da Comunidade.",
+                        fontSize = 11.sp, color = Muted, lineHeight = 15.sp)
+                }
                 if (error.isNotBlank()) {
-                    Spacer(Modifier.height(8.dp))
                     Text(error, modifier = Modifier.testTag("atrio-auth-error"),
-                        color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                        color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
                 }
-                if (resetInfo.isNotBlank()) {
-                    Spacer(Modifier.height(8.dp))
-                    Text(resetInfo, color = Wine, fontSize = 12.sp)
-                }
-                Spacer(Modifier.height(16.dp))
+                if (resetInfo.isNotBlank()) Text(resetInfo, color = Wine, fontSize = 13.sp)
                 Button(
-                    modifier = Modifier.fillMaxWidth().testTag("atrio-auth-submit"), enabled = !busy && email.contains('@') &&
-                        password.length >= 6 && (!registering || displayName.trim().length in 2..35),
+                    modifier = Modifier.fillMaxWidth().testTag("atrio-auth-submit"),
+                    enabled = !busy && ready,
                     onClick = {
-                        busy = true; error = ""; resetInfo = ""
+                        busy = true
+                        error = ""
+                        resetInfo = ""
                         if (registering) {
                             val publicName = displayName.trim()
                             auth.createUserWithEmailAndPassword(email.trim(), password)
                                 .addOnSuccessListener { result ->
                                     val created = result.user
                                     if (created == null) {
-                                        busy = false; error = "Não foi possível concluir o cadastro."
+                                        busy = false
+                                        error = "Não foi possível concluir o cadastro. Tente novamente."
                                     } else {
+                                        // E-mail enviado após a criação. O backend deve ser configurado
+                                        // para impedir UGC não verificado antes de ativar exigência global.
+                                        created.sendEmailVerification().addOnFailureListener {
+                                            android.util.Log.w("AtrioAuth", "email_verification_delivery_failed")
+                                        }
+                                        // A aceitação do cadastro é guardada na conta,
+                                        // para não obrigar o mesmo usuário a aceitar outra vez.
+                                        db.collection("community_consents").document(created.uid)
+                                            .set(mapOf(
+                                                "version" to CommunityRulesPolicy.VERSION,
+                                                "acceptedAt" to FieldValue.serverTimestamp()
+                                            )).addOnFailureListener {
+                                                android.util.Log.w("AtrioAuth", "community_consent_write_failed")
+                                            }
                                         db.collection("profiles").document(created.uid).set(mapOf(
                                             "displayName" to publicName,
                                             "createdAt" to FieldValue.serverTimestamp()
@@ -140,40 +234,54 @@ private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
                                                 .setDisplayName(publicName).build()
                                             created.updateProfile(update)
                                             busy = false
-                                        }.addOnFailureListener { failure ->
+                                        }.addOnFailureListener {
                                             busy = false
-                                            error = "Conta criada, mas o perfil não foi salvo: ${failure.localizedMessage}. Você pode concluir o perfil na próxima tela."
+                                            error = "Sua conta foi criada, mas o perfil ainda não foi salvo. " +
+                                                "Conclua o perfil após entrar novamente."
                                         }
                                     }
                                 }.addOnFailureListener { failure ->
-                                    busy = false; error = failure.localizedMessage ?: "Erro ao cadastrar."
+                                    busy = false
+                                    error = registrationErrorMessage(failure)
                                 }
                         } else {
                             auth.signInWithEmailAndPassword(email.trim(), password)
                                 .addOnCompleteListener { task ->
                                     busy = false
-                                    if (!task.isSuccessful) error = "Não foi possível entrar. Confira as credenciais."
+                                    if (!task.isSuccessful) {
+                                        error = "Não foi possível entrar. Confira o e-mail e a senha."
+                                    }
                                 }
                         }
                     }
-                ) { Text(if (busy) "Aguarde..." else if (registering) "Criar conta" else "Entrar") }
-                Spacer(Modifier.height(6.dp))
-                TextButton(onClick = { registering = !registering; error = ""; resetInfo = "" }, modifier = Modifier.fillMaxWidth().testTag("atrio-auth-toggle")) {
+                ) { Text(if (busy) "Aguarde..." else if (registering) "Criar minha conta" else "Entrar") }
+                TextButton(onClick = {
+                    registering = !registering
+                    password = ""
+                    confirmation = ""
+                    acceptedRules = false
+                    error = ""
+                    resetInfo = ""
+                    showPassword = false
+                    showConfirmation = false
+                }, enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("atrio-auth-toggle")) {
                     Text(if (registering) "Já tenho conta" else "Ainda não tenho conta")
                 }
                 if (!registering) {
                     TextButton(onClick = {
-                        if (!email.contains('@')) {
-                            error = "Informe seu e-mail para recuperar a senha."
+                        if (!emailValid) {
+                            error = "Informe um e-mail válido para recuperar a senha."
                         } else {
                             error = ""
                             auth.sendPasswordResetEmail(email.trim()).addOnCompleteListener {
                                 resetInfo = if (it.isSuccessful)
-                                    "Se o endereço estiver cadastrado, você receberá as instruções por e-mail."
+                                    "Se o endereço estiver cadastrado, você receberá instruções por e-mail."
                                 else "Não foi possível solicitar a recuperação agora."
                             }
                         }
-                    }, modifier = Modifier.fillMaxWidth()) { Text("Esqueci minha senha") }
+                    }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+                        Text("Esqueci minha senha")
+                    }
                 }
                 Text("Cadastro por e-mail · Discussões compartilhadas · Respeito em primeiro lugar",
                     fontSize = 11.sp, color = Muted, lineHeight = 16.sp, textAlign = TextAlign.Center,
@@ -181,11 +289,70 @@ private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
             }
         }
     }
+    if (showRules) {
+        AlertDialog(
+            onDismissRequest = { showRules = false },
+            title = { Text("Regras da Comunidade") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    Text("O Átrio Católico é um espaço para diálogo respeitoso sobre a fé. " +
+                        "Não são permitidos assédio, ameaças, discursos de ódio, exploração sexual, " +
+                        "exposição de dados privados, fraudes, spam ou divulgação de conteúdo ilegal. " +
+                        "É proibido se passar por padres, diáconos, moderadores ou administradores. " +
+                        "Publicações e respostas podem ser denunciadas e moderadas. " +
+                        "Não compartilhe informações sensíveis de outras pessoas.",
+                        style = MaterialTheme.typography.bodyMedium)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showRules = false }) { Text("Entendi") }
+            }
+        )
+    }
+}
+
+private fun registrationErrorMessage(failure: Exception): String {
+    val code = (failure as? com.google.firebase.auth.FirebaseAuthException)?.errorCode.orEmpty()
+    return when (code) {
+        "ERROR_EMAIL_ALREADY_IN_USE" -> "Este e-mail já possui uma conta. Tente entrar ou recuperar a senha."
+        "ERROR_INVALID_EMAIL" -> "Informe um endereço de e-mail válido."
+        "ERROR_WEAK_PASSWORD" -> "A senha foi recusada pela política do Firebase. Escolha outra."
+        "ERROR_NETWORK_REQUEST_FAILED" -> "Sem conexão. Verifique a internet e tente novamente."
+        "ERROR_TOO_MANY_REQUESTS" -> "Muitas tentativas. Aguarde antes de tentar novamente."
+        else -> "Não foi possível criar a conta. Verifique a conexão e tente novamente."
+    }
 }
 
 @Composable
 private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: FirebaseUser) {
     val uid = user.uid
+    // Rollout seguro: o novo portão só liga APÓS implantar as regras Firestore
+    // e aprovar explicitamente app_config/community_rules pelo Console.
+    // Sem configuração publicada (ou em erro/offline), não bloquear contas.
+    var rulesGateEnabled by remember(uid) { mutableStateOf(false) }
+    var consentLoaded by remember(uid) { mutableStateOf(false) }
+    var consentReadFailed by remember(uid) { mutableStateOf(false) }
+    var consentAccepted by remember(uid) { mutableStateOf(false) }
+    DisposableEffect(db, uid) {
+        val feature = db.document("app_config/community_rules")
+            .addSnapshotListener { snapshot, failure ->
+                rulesGateEnabled = failure == null &&
+                    snapshot?.getBoolean("enabled") == true &&
+                    snapshot.getString("version") == CommunityRulesPolicy.VERSION
+            }
+        val acceptance = db.collection("community_consents").document(uid)
+            .addSnapshotListener { snapshot, failure ->
+                consentLoaded = true // Erro também libera a tela de saída, nunca spinner eterno.
+                consentReadFailed = failure != null
+                consentAccepted = failure == null &&
+                    snapshot?.getString("version") == CommunityRulesPolicy.VERSION
+            }
+        onDispose { feature.remove(); acceptance.remove() }
+    }
+    if (rulesGateEnabled && !consentAccepted) {
+        CommunityRulesGate(db, uid, loaded = consentLoaded, loadError = consentReadFailed)
+        return
+    }
     // Firebase Auth mantém displayName entre logins: ele evita que o
     // usuário fique preso no carregamento enquanto o listener do perfil
     // reconecta após logout/login da mesma conta.
@@ -329,6 +496,7 @@ private fun OnlineCommunity(
     val otaSnackbar = remember { SnackbarHostState() }
     var lastAnnouncedOtaVersion by remember { mutableStateOf<String?>(null) }
     var sourcePosts by remember(uid) { mutableStateOf<List<Post>>(emptyList()) }
+    val blockedMembers = rememberBlockedMembers(db, uid)
     var likedIds by remember(uid) { mutableStateOf<Set<String>>(emptySet()) }
     var savedIds by remember(uid) { mutableStateOf<Set<String>>(emptySet()) }
     val notificationAdmin = onModeration != null && onClergyReview != null
@@ -339,6 +507,18 @@ private fun OnlineCommunity(
     var returnToNotices by remember(uid) { mutableStateOf(false) }
     var noticesOpen by remember(uid) { mutableStateOf(false) }
     var message by remember(uid) { mutableStateOf("") }
+    var emailVerificationRequired by remember(uid) { mutableStateOf(false) }
+    DisposableEffect(db, uid) {
+        val listener = db.document("app_config/email_verification")
+            .addSnapshotListener { snapshot, failure ->
+                // Sem ativacao explicita, apenas o servidor decide; contas
+                // antigas nao devem ser bloqueadas pela interface.
+                emailVerificationRequired = failure == null &&
+                    snapshot?.getBoolean("enabled") == true &&
+                    snapshot.getString("version") == "2026-11-v1"
+            }
+        onDispose { listener.remove() }
+    }
     var tab by remember { mutableStateOf(Tab.HOME) }
     var filter by remember { mutableStateOf("Todos") }
     var search by remember { mutableStateOf("") }
@@ -516,11 +696,14 @@ private fun OnlineCommunity(
             (openedPost?.ownerUid == uid || detailReplies.any { it.mine }))
             ThreadPushSubscriptions.track(context, uid, id)
     }
-    val posts = sourcePosts.map { it.copy(liked = it.id in likedIds, saved = it.id in savedIds) }
+    val posts = sourcePosts.filter { it.ownerUid !in blockedMembers }
+        .map { it.copy(liked = it.id in likedIds, saved = it.id in savedIds) }
     val allPosts = (sourcePosts + savedPosts.values + listOfNotNull(openedPost))
+        .filter { it.ownerUid !in blockedMembers }
         .associateBy { it.id }.values.map { it.copy(liked = it.id in likedIds, saved = it.id in savedIds) }
     val savedDisplay = savedOrder.take(savedLimit).mapNotNull { id ->
-        savedPosts[id]?.copy(liked = id in likedIds, saved = id in savedIds)
+        savedPosts[id]?.takeUnless { it.ownerUid in blockedMembers }
+            ?.copy(liked = id in likedIds, saved = id in savedIds)
     }
     fun navigate(destination: Tab) {
         if (BuildConfig.DEBUG &&
@@ -568,7 +751,21 @@ private fun OnlineCommunity(
         val request = if (currentlyActive) ref.delete() else ref.set(mapOf("createdAt" to FieldValue.serverTimestamp()))
         request.addOnFailureListener { message = it.localizedMessage ?: "Não foi possível atualizar." }
     }
+    fun canPublishWithCurrentSession(): Boolean {
+        val current = FirebaseAuth.getInstance().currentUser
+        if (current?.uid != uid) {
+            message = "Sua sessão mudou. Entre novamente."
+            return false
+        }
+        if (emailVerificationRequired && !current.isEmailVerified) {
+            message = "Confirme seu e-mail para publicar ou responder. Abra Meu perfil, " +
+                "use Reenviar confirmação e depois Já confirmei meu e-mail."
+            return false
+        }
+        return true
+    }
     fun publish(title: String, body: String, category: String) {
+        if (!canPublishWithCurrentSession()) return
         // Diagnóstico somente no laboratório Android com Firebase emulado:
         // não registrar conteúdo de publicação nem dados pessoais.
         val qaLab = BuildConfig.DEBUG &&
@@ -599,13 +796,20 @@ private fun OnlineCommunity(
                     ThreadPushSubscriptions.track(context, uid, it)
                     InstantPushRelay.moderatePost(it)
                 }
-            } else message = result.exception?.localizedMessage ?: "Não foi possível publicar."
+            } else message = if (emailVerificationRequired &&
+                FirebaseAuth.getInstance().currentUser?.isEmailVerified != true)
+                "Confirme seu e-mail em Meu perfil antes de publicar."
+                else "Não foi possível publicar. Confira a conexão e as regras da comunidade."
         }
     }
     fun reply(
         id: String, body: String, done: (Boolean) -> Unit,
         target: Reply? = null, mention: MentionCandidate? = null
     ) {
+        if (!canPublishWithCurrentSession()) {
+            done(false)
+            return
+        }
         if (openedPost?.id != id) {
             message = "Discussão indisponível. Atualize o fórum e tente novamente."
             done(false)
@@ -706,8 +910,10 @@ private fun OnlineCommunity(
                     // Confirmar imediatamente o resultado para a interface.
                     // Inscrições FCM e relay não devem bloquear o botão Responder.
                     if (!result.isSuccessful) {
-                        message = result.exception?.localizedMessage ?:
-                            "Não foi possível responder. Confira as regras."
+                        message = if (emailVerificationRequired &&
+                            FirebaseAuth.getInstance().currentUser?.isEmailVerified != true)
+                            "Confirme seu e-mail em Meu perfil antes de responder."
+                            else "Não foi possível responder. Confira a conexão e as regras."
                     }
                     done(result.isSuccessful)
                     val qaLab = BuildConfig.DEBUG &&
@@ -757,10 +963,11 @@ private fun OnlineCommunity(
         )
     }, bottomBar = { AtrioBottomBar(selected = tab, onSelect = ::navigate) }) { inset ->
         Box(Modifier.padding(inset)) {
-            val detail = openedPost?.copy(liked = detailId in likedIds, saved = detailId in savedIds)
+            val detail = openedPost?.takeUnless { it.ownerUid in blockedMembers }
+                ?.copy(liked = detailId in likedIds, saved = detailId in savedIds)
             if (publicProfileTarget != null && !profilePostOpen) {
                 PublicMemberProfileScreen(
-                    db = db, target = publicProfileTarget!!,
+                    db = db, target = publicProfileTarget!!, viewerUid = uid,
                     onBack = ::closeNoticeDestination,
                     onOpenDiscussion = { postId -> profilePostOpen = true; detailId = postId }
                 )
@@ -794,7 +1001,7 @@ private fun OnlineCommunity(
                     if (detailError) "Tentar novamente" else "Voltar",
                     { if (detailError) detailRetry++ else closeNoticeDestination() })
             } else if (detail != null) {
-                DetailScreen(detail.copy(replies = detailReplies), name,
+                DetailScreen(detail.copy(replies = detailReplies.filter { it.ownerUid !in blockedMembers }), name,
                     onLike = { toggle("likedPosts", detail.id, detail.liked) },
                     onSave = { toggle("savedPosts", detail.id, detail.saved) },
                     onReply = { body, done ->

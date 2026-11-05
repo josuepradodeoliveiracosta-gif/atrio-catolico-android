@@ -7,6 +7,8 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.viewModels
+import androidx.lifecycle.ViewModel
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -37,6 +39,7 @@ import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -147,12 +150,27 @@ private fun persistPosts(prefs: SharedPreferences, posts: List<Post>) {
     prefs.edit().putString("posts", all.toString()).apply()
 }
 
+/**
+ * Estado somente em memória: mantém o vídeo concluído ao girar a tela ou
+ * retornar do segundo plano, mas exige nova reprodução após fechar/reabrir
+ * o app, inclusive se o Android restaurar um processo que foi encerrado.
+ */
+internal class AtrioStartupStateViewModel : ViewModel() {
+    var opening by mutableStateOf(true)
+}
+
 class MainActivity : ComponentActivity() {
+    private val startupState: AtrioStartupStateViewModel by viewModels()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val prefs = getSharedPreferences("atrio-demo", Context.MODE_PRIVATE)
         setContent {
-            if (com.google.firebase.FirebaseApp.getApps(this).isNotEmpty()) {
+            if (startupState.opening) {
+                AtrioTheme {
+                    AtrioStartupVideo(this@MainActivity) { startupState.opening = false }
+                }
+            } else if (com.google.firebase.FirebaseApp.getApps(this).isNotEmpty()) {
                 OnlineAtrioApp(this@MainActivity)
             } else {
                 AtrioDemoApp(prefs)

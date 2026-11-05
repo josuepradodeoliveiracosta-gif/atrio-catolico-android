@@ -42,3 +42,11 @@ A versão 0.20.0 não contém detector nem instalador: portanto, quem usa 0.20.0
 ## Operação e custo
 
 Os checks de PR são reaproveitados. O release assinado deve continuar restrito ao acionamento manual aprovado na `main`. A distribuição via GitHub Releases não exige contratação de serviço novo, mas está sujeita a políticas e limites do GitHub e do Android. O backup original continua intocado.
+
+## Reconciliação com a main em 04/11/2026
+
+- Integra-se a `main` no commit `1c66a76a2b43c42d0ac1b6dc65fab0dd27771f4c` sem descartar as mudanças já incorporadas ao aplicativo.
+- O candidato `0.20.1` / `versionCode 36` agora inclui o cadastro aprimorado e a confirmação de e-mail exercitados no Firebase Emulator pela PR #127. **Isso não comprova entrega de e-mail real.**
+- O último APK oficial `0.20.0` / code 35 foi assinado em 31/10/2026 (run `41174393714`), em commit anterior à verificação de e-mail. Esse APK não pode homologar o novo cadastro.
+- Não gerar assinatura nem publicar a versão sem a aprovação explícita da integração Guardian V2 exigida em `.github/workflows/build-apk.yml`; nunca alterar ou ignorar essa trava por conveniência.
+- A flag `app_config/email_verification` permanece desativada em produção até teste no Android real e migração das contas antigas.
