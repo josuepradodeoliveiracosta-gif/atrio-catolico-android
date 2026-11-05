@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {initializeTestEnvironment, assertFails, assertSucceeds} from '@firebase/rules-unit-testing';
 import {
-  doc, setDoc, updateDoc, getDoc, getDocs, collection, serverTimestamp
+  doc, setDoc, updateDoc, deleteDoc, getDoc, getDocs, collection, serverTimestamp
 } from 'firebase/firestore';
 
 const env = await initializeTestEnvironment({
@@ -86,19 +86,62 @@ try {
     assertFails(reply(unchecked,'unverified','unverified-reply-denied')));
   await check('email verificado pode responder com flag ativa', () =>
     assertSucceeds(reply(checked,'verified','verified-reply')));
-  await check('email nao confirmado ainda pode consultar discussoes', () =>
-    assertSucceeds(getDoc(doc(unchecked,'posts/post-verified'))));
-  await check('email nao confirmado ainda pode acessar perfil privado', () =>
+  // A UI nao e uma fronteira de seguranca: leitura direta via SDK tambem
+  // deve ser negada enquanto a exigencia administrativa estiver ativa.
+  await check('sem verificacao nao le publicacoes diretamente', () =>
+    assertFails(getDoc(doc(unchecked,'posts/post-verified'))));
+  await check('sem verificacao nao enumera o feed', () =>
+    assertFails(getDocs(collection(unchecked,'posts'))));
+  await check('sem verificacao nao le respostas diretamente', () =>
+    assertFails(getDoc(doc(unchecked,'posts/post-verified/replies/verified-reply'))));
+  await check('sem verificacao nao lista respostas', () =>
+    assertFails(getDocs(collection(unchecked,'posts/post-verified/replies'))));
+  await check('email confirmado continua lendo o forum', () =>
+    assertSucceeds(getDoc(doc(checked,'posts/post-verified'))));
+  await check('email confirmado continua lendo respostas', () =>
+    assertSucceeds(getDoc(doc(checked,'posts/post-verified/replies/verified-reply'))));
+  await check('email nao confirmado nao edita publicacao anterior', () =>
+    assertFails(updateDoc(doc(unchecked,'posts/unverified-before'),{
+      title:'Alteracao de ensaio',body:'Teste de bloqueio de edicao',
+      updatedAt:serverTimestamp()
+    })));
+  await check('email nao confirmado nao apaga publicacao anterior', () =>
+    assertFails(deleteDoc(doc(unchecked,'posts/unverified-before'))));
+  await check('email nao confirmado nao reage a respostas', () =>
+    assertFails(setDoc(doc(unchecked,
+      'posts/post-verified/replies/verified-reply/reactions/unverified'),{
+      kind:'heart',createdAt:serverTimestamp()
+    })));
+  for (const path of ['likedPosts','savedPosts','followedPosts']) {
+    await check('sem verificacao nao altera '+path, () =>
+      assertFails(setDoc(doc(unchecked,'users/unverified/'+path+'/post-verified'),{
+        createdAt:serverTimestamp()
+      })));
+  }
+  await check('sem verificacao nao consulta notificacoes comunitarias', () =>
+    assertFails(getDocs(collection(unchecked,'users/unverified/notifications'))));
+  await check('sem verificacao nao registra token de push', () =>
+    assertFails(setDoc(doc(unchecked,'users/unverified/pushDevices/qa-device'),{
+      token:'qa-token-demonstracao-de-tamanho-suficiente',
+      updatedAt:serverTimestamp()
+    })));
+  await check('email nao confirmado ainda pode consultar perfil privado', () =>
     assertSucceeds(getDoc(doc(unchecked,'profiles/unverified'))));
+  await check('email nao confirmado ainda pode consultar a politica', () =>
+    assertSucceeds(getDoc(doc(unchecked,configPath))));
 
   await env.withSecurityRulesDisabled(async ctx=>
     updateDoc(doc(ctx.firestore(),configPath),{version:'versao-desconhecida'}));
   await check('versao incorreta nao bloqueia cliente legado', () =>
     assertSucceeds(post(legacy,'legacy','legacy-wrong-version')));
+  await check('versao incorreta restaura leitura comunitaria', () =>
+    assertSucceeds(getDoc(doc(unchecked,'posts/post-verified'))));
   await env.withSecurityRulesDisabled(async ctx=>
     updateDoc(doc(ctx.firestore(),configPath),{enabled:false,version:'2026-11-v1'}));
   await check('desativacao reverte a exigencia sem mudar contas', () =>
     assertSucceeds(reply(unchecked,'unverified','unverified-after-disable')));
+  await check('desativacao restaura leitura das publicacoes', () =>
+    assertSucceeds(getDoc(doc(unchecked,'posts/post-verified'))));
   console.log('OK: '+passed+' verificacoes de email no Firestore Emulator.');
 } finally {
   await env.cleanup();
