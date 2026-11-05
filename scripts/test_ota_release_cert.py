@@ -1,4 +1,5 @@
 """No-secret regression checks for official OTA signing certificate continuity."""
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -85,6 +86,19 @@ class ReleaseCertificateContinuityTests(unittest.TestCase):
                 return "br.com.atriocatolico"
             with self.assertRaisesRegex(PreflightError, "unico assinante"):
                 verify_existing_signed_apk(apk, sdk=temp, runner=stub)
+
+    def test_android_release_pin_matches_official_ci_signer(self):
+        # Duas politicas independentes (workflow e app) nao podem divergir
+        # silenciosamente depois de uma alteracao de release.
+        kotlin = (
+            Path(__file__).resolve().parents[1]
+            / "app/src/main/java/br/com/atriocatolico/OtaOfficialSigner.kt"
+        ).read_text(encoding="utf-8")
+        matches = re.findall(
+            r'CERTIFICATE_SHA256\\s*=\\s*"([0-9a-f]{64})"', kotlin
+        )
+        self.assertEqual(matches, [PINNED_OFFICIAL_CERT_SHA256])
+        self.assertIn("OtaQaChannel.active", kotlin)
 
     def test_signing_and_publication_paths_invoke_the_guard(self):
         root = Path(__file__).resolve().parents[1]
