@@ -13,6 +13,7 @@ import subprocess
 import sys
 
 from scripts.ota_apk_preflight import PreflightError, digest, verify
+from scripts.ota_release_cert import require_official_certificate
 
 REPO = "josuepradodeoliveiracosta-gif/atrio-catolico-android"
 PACKAGE = "br.com.atriocatolico"
@@ -112,7 +113,10 @@ def prepare(apk, source, *, sdk, expected_certificate, expected_apk_sha256,
             "notas_de_release_obrigatorias_10_a_3000_caracteres")
     require(expected_apk_sha256, "hash_previamente_conhecido_obrigatorio")
     expected_apk_sha256 = digest(expected_apk_sha256)
-    cert = digest(expected_certificate)
+    # O SHA da variavel do repositorio e apenas uma declaracao: ele tambem
+    # precisa coincidir com o certificado historico validado do Atrio.
+    # Rotacao de chave requer revisao explicita, nao troca silenciosa da variavel.
+    cert = require_official_certificate(expected_certificate)
     kwargs = dict(
         sdk=sdk, expected_cert=cert, expected_code=code, expected_name=name,
         expected_apk_sha256=expected_apk_sha256,

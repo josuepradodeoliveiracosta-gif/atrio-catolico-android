@@ -47,6 +47,16 @@ A partir de **30/09/2026**, a verificação de desenvolvedor Android começou no
 
 **Fontes oficiais consultadas em 05/11/2026:** [Android Developers — guia de verificação](https://developer.android.com/developer-verification/guides), [Android Developers Blog — lançamento no Brasil e outras regiões](https://android-developers.googleblog.com/2026/06/android-developer-verification.html) e [Android Developer Console — FAQ](https://support.google.com/android-developer-console/answer/16561738?hl=en).
 
+## Continuidade do certificado de assinatura permanente — proteção adicional
+
+O APK oficial histórico **0.20.0 / versionCode 35** foi assinado e conferido no workflow GitHub Actions [41174393714](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/actions/runs/41174393714). O certificado público (não a chave privada) possui fingerprint SHA-256:
+
+`ba2e86eacf32e2785718040d704609d3c95c3b88363c08dd3d7c5abe299902b0`
+
+O novo verificador **somente de leitura** `scripts/ota_release_cert.py` aplica uma trava adicional: mesmo que um APK passe pela verificação criptográfica do `apksigner`, o workflow de assinatura oficial deve **recusar entrega** caso o assinante não corresponda ao certificado público do APK 0.20.0. A preparação de `update.json` também exige que a configuração do certificado oficial corresponda a esse valor; alterar apenas a variável do repositório **não** contorna a referência.
+
+**Limitações:** a referência histórica não prova que toda instalação anterior de usuários utiliza o mesmo certificado; a compatibilidade precisa ser conferida em aparelhos reais. Uma futura rotação de chave é uma operação excepcional que deve ser explicitamente autorizada, documentada e testada com as regras de continuidade/linhagem de assinatura do Android, antes de alterar essa referência. Não incluir JKS, chave privada, aliases secretos ou senhas nos registros. Esta revisão não assina, instala nem publica novos APKs e não libera as variáveis de homologação OTA.
+
 ## Próxima implementação
 
 O laboratório piloto já foi integrado e exercitado em aparelho real com versões 0.19.7 → 0.19.8. **Pendências concretas:** confirmar no Android real os cenários de armazenamento insuficiente e retomada após falhas, validar comportamento e registro do Android certificado no Brasil, conferir assinatura permanente e canal GitHub Releases, testar preservação de sessão/dados em duas versões oficiais quando existir autorização expressa para o piloto assinado e só depois avaliar os gates de publicação. Os cenários de cancelamento já foram aprovados no laboratório emulado. Nenhum Release é autorizado por este documento.

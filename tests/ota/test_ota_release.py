@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from scripts.ota_apk_preflight import PreflightError
+from scripts.ota_release_cert import PINNED_OFFICIAL_CERT_SHA256
 from scripts.ota_release import (
     LEGACY_ARTIFACT, LEGACY_COMMIT, LEGACY_RUN_ID, LEGACY_WORKFLOW,
     NORMAL_ARTIFACT, NORMAL_WORKFLOW, REPO,
@@ -15,7 +16,7 @@ from scripts.ota_release import (
 
 MAIN_HEAD = "1" * 40
 NORMAL_SHA = "2" * 40
-CERT = "ab" * 32
+CERT = PINNED_OFFICIAL_CERT_SHA256
 GRADLE = ('android {\\n    defaultConfig {\\n'
           '        applicationId = "br.com.atriocatolico"\\n'
           '        versionCode = 35\\n'
@@ -174,6 +175,18 @@ class ReleaseManifestTests(unittest.TestCase):
         with self.assertRaises(PreflightError):
             prepare(self.apk, self.source,
                     **{**self.args, "runner": FakeAndroid(signer="ee" * 32)})
+
+    def test_reject_alternate_certificate_even_when_configured_as_expected(self):
+        # Alterar somente a variavel editavel nao autoriza troca de chave:
+        # um APK assinado com outra chave deve falhar antes da publicacao.
+        alternate = "ee" * 32
+        with self.assertRaisesRegex(PreflightError, "Certificado divergente"):
+            prepare(self.apk, self.source, **{
+                **self.args,
+                "expected_certificate": alternate,
+                "runner": FakeAndroid(signer=alternate),
+            })
+        self.assertFalse(self.out.exists())
 
     def test_reject_debuggable_apk(self):
         with self.assertRaises(PreflightError):
