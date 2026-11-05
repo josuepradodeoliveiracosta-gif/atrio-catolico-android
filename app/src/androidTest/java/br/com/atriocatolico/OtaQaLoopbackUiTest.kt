@@ -73,4 +73,29 @@ class OtaQaLoopbackUiTest {
         compose.onNodeWithTag("atrio-ota-download").assertDoesNotExist()
         compose.onNodeWithTag("atrio-ota-install").assertDoesNotExist()
     }
+
+    @Test fun handlesOfflineServerWithoutOfferingInstallation() {
+        assumeTrue(BuildConfig.DEBUG && OtaQaChannel.active)
+        // Servidor intencionalmente parado: nenhuma oferta nem instalador.
+        compose.waitUntil(45_000) {
+            compose.onAllNodesWithTag("atrio-ota-unavailable").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("atrio-ota-download").assertDoesNotExist()
+        compose.onNodeWithTag("atrio-ota-install").assertDoesNotExist()
+        compose.onNodeWithTag("atrio-ota-check-button").assertExists()
+    }
+
+    @Test fun rejectsInterruptedDownloadWithoutOfferingInstallation() {
+        assumeTrue(BuildConfig.DEBUG && OtaQaChannel.active)
+        compose.waitUntil(45_000) {
+            compose.onAllNodesWithTag("atrio-ota-available").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("atrio-ota-download").performClick()
+        compose.waitUntil(90_000) {
+            compose.onAllNodesWithTag("atrio-ota-download-failed").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("atrio-ota-install").assertDoesNotExist()
+        // O erro conserva a opção de tentar novamente, sem contornar a validação.
+        compose.onNodeWithTag("atrio-ota-download").assertExists()
+    }
 }
