@@ -36,39 +36,80 @@ case "${1:-}" in
     adb shell run-as "$PACKAGE" touch files/ota-lab-preserved
     adb reverse tcp:8765 tcp:8765
 
-    python3 scripts/ota_qa_loopback_server.py \
-      --apk "$NEW" --manifest "$OUT/update.json" > "$OUT/server.log" 2>&1 &
-    SERVER_PID=$!
-    trap 'kill "$SERVER_PID" 2>/dev/null || :; wait "$SERVER_PID" 2>/dev/null || :' EXIT
-    ready=false
-    for attempt in $(seq 1 35); do
-      if curl --noproxy '*' -fsS http://127.0.0.1:8765/releases/latest > "$OUT/release.json"; then
-        ready=true
-        break
+    SERVER_PID=""
+    cleanup() {
+      if [[ -n "$SERVER_PID" ]]; then
+        kill "$SERVER_PID" 2>/dev/null || :
+        wait "$SERVER_PID" 2>/dev/null || :
+        SERVER_PID=""
       fi
-      sleep 1
-    done
-    [[ "$ready" == "true" ]] || { echo "Servidor loopback nao iniciou" >&2; cat "$OUT/server.log"; exit 1; }
+    }
+    trap cleanup EXIT
     adb install --no-streaming "$INSTRUMENTATION"
 
-    # O teste abre a tela REAL do cliente OTA, consulta, baixa, verifica
-    # tamanho, hash, pacote, versionCode e certificado, até o botão Instalar.
-    # Ele NAO confirma instalação do Android (exige consentimento).
-    adb shell am instrument -w -r \
-      -e class br.com.atriocatolico.OtaQaLoopbackUiTest \
-      "$PACKAGE.test/br.com.atriocatolico.QaAndroidTestRunner" | tee "$OUTPUT"
-    grep -q 'OK (1 test)' "$OUTPUT" || {
-      echo "::error::O app nao comprovou download OTA verificado"; exit 1;
+    run_ui_test() {
+      local test_method="$1" fixture_mode="$2"
+      python3 scripts/ota_qa_loopback_server.py \
+        --apk "$NEW" --manifest "$OUT/update.json" --mode "$fixture_mode" \
+        > "$OUT/server-$fixture_mode.log" 2>&1 &
+      SERVER_PID=$!
+      local ready=false
+      for attempt in $(seq 1 35); do
+        if curl --noproxy '*' -fsS http://127.0.0.1:8765/releases/latest \
+          > "$OUT/release-$fixture_mode.json"; then
+          ready=true
+          break
+        fi
+        sleep 1
+      done
+      [[ "$ready" == "true" ]] || {
+        echo "::error::Servidor OTA local nao iniciou: $fixture_mode" >&2
+        cat "$OUT/server-$fixture_mode.log"
+        exit 1
+      }
+
+      # Cada chamada abre a interface OTA em estado limpo, sem Firebase real.
+      # O prefixo do teste limita qual cenário será executado nesse servidor.
+      adb shell am force-stop "$PACKAGE" || :
+      local result="$OUT/ota-in-app-$fixture_mode.txt"
+      adb shell am instrument -w -r \
+        -e class "br.com.atriocatolico.OtaQaLoopbackUiTest#$test_method" \
+        "$PACKAGE.test/br.com.atriocatolico.QaAndroidTestRunner" | tee "$result"
+      grep -q 'OK (1 test)' "$result" || {
+        echo "::error::Teste OTA do app falhou: $fixture_mode / $test_method" >&2
+        exit 1
+      }
+      cleanup
     }
 
-    # Prova de upgrade do MESMO pacote com ADB; distinta de instalar pelo app.
+    # O teste positivo faz o download autenticado pelo contrato OTA, valida
+    # tamanho, SHA-256, versão, assinatura e oferece botão Instalar.
+    # A UI também grava um marcador de dados que deve persistir após upgrade.
+    run_ui_test discoversAndVerifiesDownloadInApp valid
+
+    # Testes negativos na própria interface, com os mesmos componentes usados
+    # no release (sem permitir baixar/install APK que viole a política).
+    run_ui_test rejectsWrongCertificateBeforeDownload bad-cert
+    run_ui_test rejectsWrongApkChecksumAfterDownloading bad-hash
+    run_ui_test rejectsDowngradeWithoutOfferingDownload downgrade
+
+    # Apenas depois dos testes de bloqueio, atualizar por ADB.
+    # Não se trata de consentimento do instalador Android; esse teste foi
+    # comprovado separadamente em aparelho físico pelo operador.
     adb install -r --no-streaming "$NEW"
     adb shell run-as "$PACKAGE" ls files/ota-lab-preserved >/dev/null
+    adb shell run-as "$PACKAGE" cat \
+      shared_prefs/atrio_ota_lab_prefs.xml | grep -Eq \
+      'name="qa_marker_preserved" value="true"' || {
+      echo "::error::Dados gravados no app nao foram preservados pelo upgrade" >&2
+      exit 1
+    }
     installed=$(adb shell dumpsys package "$PACKAGE" | grep -m 1 'versionCode=' || :)
     echo "$installed" | grep -Eq 'versionCode=35([[:space:]]|$)' || {
-      echo "::error::Android nao confirmou QA versionCode=35"; exit 1;
+      echo "::error::Android nao confirmou QA versionCode=35" >&2
+      exit 1
     }
-    echo "PASSOU: consulta e download na UI, verificacao do APK e instalacao -r em QA. Instalação pelo toque no Android ainda precisa de homologacao real."
+    echo "PASSOU: OTA no app, rejeicao de hash/certificado/downgrade e dados da UI preservados em code 34 -> 35."
     ;;
   *)
     echo "Uso: bash scripts/ota_qa_in_app.sh prepare|emulator" >&2
