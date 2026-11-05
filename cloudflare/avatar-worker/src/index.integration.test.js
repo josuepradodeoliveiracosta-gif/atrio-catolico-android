@@ -65,7 +65,7 @@ function fixture() {
     const method=options.method||'GET';
     events.push({endpoint,method});
     if(endpoint.includes('identitytoolkit.googleapis.com'))
-      return json({users:[{localId:userId,disabled:false}]});
+      return json({users:[{localId:userId,disabled:false,emailVerified:true}]});
     if(endpoint.includes('oauth2.googleapis.com/token'))
       return json({access_token:'offline-iam-token',expires_in:3600});
     if(endpoint.endsWith('/image/authenticated') && method==='POST') {
