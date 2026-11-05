@@ -6,8 +6,8 @@
 
 - A `main` já possui `OtaUpdatePolicy`, `OtaReleaseClient`, `OtaApkDelivery` e a tela `OtaUpdatesSection` integrada ao Perfil. São implementações reais, mas **não uma homologação ponta a ponta**.
 - O app consulta a última GitHub Release estável (assets `update.json` e `atrio-catolico.apk`), confere o manifesto e oferece download/integridade/instalador.
-- A rotina OTA **deliberadamente não executa em APK Debug** (`BuildConfig.DEBUG` retorna `TestBuild`). Logo o Debug utilizado para homologar e-mail **não prova que OTA funciona**.
-- A prova automatizada `ota-upgrade-qa.yml` usa `adb install -r` entre dois APKs Debug no emulador, **sem abrir o atualizador**. Essa prova não cobre a detecção, download ou instalação pelo fluxo dentro do aplicativo.
+- O **Debug normal** continua sem OTA e retorna `TestBuild`. O **laboratório Debug isolado** (`ATRIO_OTA_QA_LOOPBACK=1`, pacote `br.com.atriocatolico.otalab`) reutiliza o cliente real, sem Firebase de produção, e já passou por homologação de atualização no aparelho; não é um APK Release oficial.
+- O ensaio histórico `ota-upgrade-qa.yml` usa `adb install -r`, sem atualizar pela interface. O laboratório mais recente `ota-in-app-qa.yml` exercita detecção, download, validações, falhas e preservação de marcador na **UI real**; a instalação pelo botão do Android foi comprovada separadamente em telefone físico no pacote isolado. A assinatura oficial e a persistência de sessão de produção ainda não foram comprovadas.
 - Na consulta ao repositório de 05/11/2026, não havia GitHub Releases públicos cadastrados. **Não criar release público apenas para aparentar que OTA foi testado.**
 - O primeiro APK que contenha OTA ainda precisará ser instalado **uma vez por meio externo**. A experiência de atualizar dentro do app só é demonstrável entre essa instalação-base e outra versão posterior, com mesmo pacote e certificado e `versionCode` crescente.
 - No Android de distribuição fora da Google Play, o usuário pode precisar autorizar a origem de instalação e confirmar a atualização pelo instalador. Não prometer atualização silenciosa sem interação.
@@ -25,7 +25,7 @@ A ausência das variables equivale a `false`; qualquer outro valor bloqueia a op
 
 ## Plano de homologação
 
-1. Implementar um **canal OTA piloto isolado**, de modo que duas versões de QA possam exercitar a interface de consulta, download e instalador. Não reutilizar a assinatura oficial em pacotes de QA sem necessidade e não apontar canal de testes para produção. Como `BuildConfig.DEBUG` bloqueia OTA, é necessário primeiro planejar e implementar uma rota de teste explícita, segura e separada.
+1. **Concluído no laboratório:** canal OTA piloto isolado `.otalab` com duas versões de QA, mesma assinatura temporária, UI de detecção, download e instalador Android. Não reutilizar a assinatura oficial em pacotes de QA nem apontar o canal de testes para produção. Essa prova não substitui a etapa de assinatura permanente.
 2. Validar origem HTTPS, manifesto e `versionCode` com duas versões reais de teste assinadas **com a mesma chave**. Testar também URL divergente, arquivo corrompido, SHA-256 incorreto, assinatura diferente e versão inferior ou repetida. Nenhuma dessas falhas deve abrir o instalador.
 3. Em Android real, partir da versão A, abrir a tela **Perfil → Atualizações do Átrio**, descobrir versão B, concluir o download dentro do app, autorizar o instalador Android e instalar B **por cima de A**, sem remover nem perder sessão, configurações e dados locais. Conferir também interrupção de rede, cancelamento, falta de espaço e retentativa.
 4. Confirmar o funcionamento da assinatura **permanente** do canal de produção, o certificado e os incrementos de `versionCode` antes de qualquer divulgação, sem expor o JKS nem suas senhas.
@@ -49,4 +49,4 @@ A partir de **30/09/2026**, a verificação de desenvolvedor Android começou no
 
 ## Próxima implementação
 
-A primeira pendência concreta é desenvolver e ativar o canal piloto no aplicativo de QA para demonstrar OTA dentro da interface, porque o OTA da build Debug atual está desabilitado e a prova com `adb install -r` não atende à condição de lançamento.
+O laboratório piloto já foi integrado e exercitado em aparelho real com versões 0.19.7 → 0.19.8. **Pendências concretas:** concluir os testes adicionais de cancelamento, validar comportamento e registro do Android certificado no Brasil, confirmar assinatura permanente e canal GitHub Releases, testar preservação de sessão/dados em duas versões oficiais quando existir autorização expressa para o piloto assinado e só depois avaliar os gates de publicação. Nenhum Release é autorizado por este documento.
