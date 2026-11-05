@@ -38,7 +38,7 @@ function setup(isAdmin=true) {
     const method=options.method||'GET';
     state.calls.push({address,method});
     if(address.includes('identitytoolkit.googleapis.com'))
-      return reply({users:[{localId:actor,disabled:false}]});
+      return reply({users:[{localId:actor,disabled:false,emailVerified:true}]});
     if(address.includes('/documents/admins/'+actor))
       return isAdmin?reply({fields:{enabled:{booleanValue:true}}}):reply({},404);
     if(address.includes('/resources/image/authenticated/'+publicId)) {
