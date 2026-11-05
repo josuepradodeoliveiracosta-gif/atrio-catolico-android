@@ -194,7 +194,7 @@ test('fluxo completo autenticado, deduplicação e falha FCM sem credenciais rea
     const url=String(input);
     if(url.startsWith('https://identitytoolkit.googleapis.com/')) {
       assert.equal(new URL(url).searchParams.get('key'),'only-identity-toolkit');
-      return new Response(JSON.stringify({users:[{localId:'autor',disabled:false}]}),{status:200});
+      return new Response(JSON.stringify({users:[{localId:'autor',disabled:false,emailVerified:true}]}),{status:200});
     }
     if(url==='https://oauth2.googleapis.com/token') {
       assert.match(String(options.body),/jwt-bearer/);
@@ -300,7 +300,7 @@ test('somente fundador administrador envia a tópico FCM e há limitação de fr
   globalThis.fetch=async (input,options={})=>{
     const url=String(input);
     if(url.startsWith('https://identitytoolkit.googleapis.com/'))
-      return new Response(JSON.stringify({users:[{localId:actor,disabled:false}]}),{status:200});
+      return new Response(JSON.stringify({users:[{localId:actor,disabled:false,emailVerified:true}]}),{status:200});
     if(url==='https://oauth2.googleapis.com/token')
       return new Response(JSON.stringify({access_token:'fake-oauth',expires_in:3600}),{status:200});
     if(url.includes('/documents/admins/'))
@@ -624,7 +624,7 @@ test('moderador automático autentica e cria uma única denúncia com título se
   globalThis.fetch=async(input,options={})=>{
     const url=String(input);
     if(url.startsWith('https://identitytoolkit.googleapis.com/'))
-      return new Response(JSON.stringify({users:[{localId:actor,disabled:false}]}),{status:200});
+      return new Response(JSON.stringify({users:[{localId:actor,disabled:false,emailVerified:true}]}),{status:200});
     if(url==='https://oauth2.googleapis.com/token')
       return new Response(JSON.stringify({access_token:'fake-oauth',expires_in:3600}),{status:200});
     if(url.endsWith('/documents/posts/p1'))
@@ -677,7 +677,7 @@ async function guardiaoScenario({payload={type:'reply',postId:'p1',replyId:'r1'}
     const url=new URL(String(input));
     requests.push({url:String(url),method:options.method||'GET'});
     if(url.hostname==='identitytoolkit.googleapis.com')
-      return Response.json({users:[{localId:actor,disabled}]});
+      return Response.json({users:[{localId:actor,disabled,emailVerified:true}]});
     if(url.hostname==='oauth2.googleapis.com')
       return Response.json({access_token:'fake-oauth',expires_in:3600});
     if(url.pathname.endsWith('/posts/p1/replies/r1'))
