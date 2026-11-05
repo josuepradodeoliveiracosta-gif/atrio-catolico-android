@@ -109,10 +109,13 @@ service cloud.firestore {
         || (exists(acceptance)
           && get(acceptance).data.version == '2026-11-v1');
     }
-    // Bloqueio de escrita opt-in: versao/flag ausente ou invalida nunca ativa
-    // a exigencia por acidente em contas antigas. Somente cria posts/respostas.
+    // Portao do servidor: quando ativo, exige e-mail confirmado para ler ou
+    // interagir com a comunidade (posts, respostas, reacoes, preferencias,
+    // notificacoes e dispositivos push). Cadastro, configuracao e dados
+    // privados da conta permanecem acessiveis para concluir a verificacao.
+    // Flag ausente ou invalida preserva o comportamento legado ate o rollout.
     // A autoridade e o claim Firebase Auth, nao a UI nem o perfil Firestore.
-    function emailVerificationAllowsPublishing() {
+    function emailVerificationAllowsCommunityAccess() {
       let policy = /databases/$(database)/documents/app_config/email_verification;
       return !exists(policy)
         || get(policy).data.get('enabled', false) != true
@@ -306,10 +309,10 @@ service cloud.firestore {
     }
 
     match /posts/{postId} {
-      allow get, list: if signedIn();
+      allow get, list: if signedIn() && emailVerificationAllowsCommunityAccess();
       allow create: if signedIn()
         && communityPublicationAllowed()
-        && emailVerificationAllowsPublishing()
+        && emailVerificationAllowsCommunityAccess()
         && request.resource.data.keys().hasOnly([
           'uid', 'authorName', 'title', 'body', 'category', 'createdAt'
         ])
@@ -326,19 +329,21 @@ service cloud.firestore {
       // Isso impede edições que não geram evento para o Guardião V2.
       // Somente para testes até distribuir APK Debug compatível.
       allow update: if signedIn()
+        && emailVerificationAllowsCommunityAccess()
         && resource.data.uid == request.auth.uid
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'body', 'updatedAt'])
         && request.resource.data.diff(resource.data).affectedKeys().hasAll(['updatedAt'])
         && request.resource.data.updatedAt == request.time
         && validText(request.resource.data.title, 5, 120)
         && validText(request.resource.data.body, 5, 1200);
-      allow delete: if signedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow delete: if signedIn() && emailVerificationAllowsCommunityAccess()
+          && (resource.data.uid == request.auth.uid || isAdmin());
 
       match /replies/{replyId} {
-        allow get, list: if signedIn();
+        allow get, list: if signedIn() && emailVerificationAllowsCommunityAccess();
         allow create: if signedIn()
           && communityPublicationAllowed()
-          && emailVerificationAllowsPublishing()
+          && emailVerificationAllowsCommunityAccess()
           && exists(/databases/$(database)/documents/posts/$(postId))
           && request.resource.data.keys().hasOnly([
             'uid', 'authorName', 'body', 'createdAt', 'replyToId', 'replyToUid',
@@ -374,21 +379,24 @@ service cloud.firestore {
                 : get(/databases/$(database)/documents/posts/$(postId)).data.uid == request.resource.data.mentionUid))
             : true);
         allow update: if false;
-        allow delete: if signedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+        allow delete: if signedIn() && emailVerificationAllowsCommunityAccess()
+          && (resource.data.uid == request.auth.uid || isAdmin());
 
         match /reactions/{uid} {
-          allow get, list: if signedIn();
+          allow get, list: if signedIn() && emailVerificationAllowsCommunityAccess();
           allow create: if me(uid)
+            && emailVerificationAllowsCommunityAccess()
             && exists(/databases/$(database)/documents/posts/$(postId)/replies/$(replyId))
             && request.resource.data.keys().hasOnly(['kind', 'createdAt'])
             && request.resource.data.keys().hasAll(['kind', 'createdAt'])
             && validReactionKind(request.resource.data.kind)
             && request.resource.data.createdAt == request.time;
           allow update: if me(uid)
+            && emailVerificationAllowsCommunityAccess()
             && exists(/databases/$(database)/documents/posts/$(postId)/replies/$(replyId))
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['kind'])
             && validReactionKind(request.resource.data.kind);
-          allow delete: if me(uid);
+          allow delete: if me(uid) && emailVerificationAllowsCommunityAccess();
         }
       }
     }
@@ -433,37 +441,40 @@ service cloud.firestore {
     }
 
     match /users/{uid}/likedPosts/{postId} {
-      allow get, list: if me(uid);
+      allow get, list: if me(uid) && emailVerificationAllowsCommunityAccess();
       allow create: if me(uid)
+        && emailVerificationAllowsCommunityAccess()
         && exists(/databases/$(database)/documents/posts/$(postId))
         && request.resource.data.keys().hasOnly(['createdAt'])
         && request.resource.data.keys().hasAll(['createdAt'])
         && validTime();
-      allow delete: if me(uid);
+      allow delete: if me(uid) && emailVerificationAllowsCommunityAccess();
       allow update: if false;
     }
 
     match /users/{uid}/savedPosts/{postId} {
-      allow get, list: if me(uid);
+      allow get, list: if me(uid) && emailVerificationAllowsCommunityAccess();
       allow create: if me(uid)
+        && emailVerificationAllowsCommunityAccess()
         && exists(/databases/$(database)/documents/posts/$(postId))
         && request.resource.data.keys().hasOnly(['createdAt'])
         && request.resource.data.keys().hasAll(['createdAt'])
         && validTime();
-      allow delete: if me(uid);
+      allow delete: if me(uid) && emailVerificationAllowsCommunityAccess();
       allow update: if false;
     }
 
     // Acompanhamento persistente: somente o próprio usuário pode editar.
     match /users/{uid}/followedPosts/{postId} {
-      allow get, list: if me(uid);
+      allow get, list: if me(uid) && emailVerificationAllowsCommunityAccess();
       allow create: if me(uid)
+        && emailVerificationAllowsCommunityAccess()
         && validId(postId)
         && exists(/databases/$(database)/documents/posts/$(postId))
         && request.resource.data.keys().hasOnly(['createdAt'])
         && request.resource.data.keys().hasAll(['createdAt'])
         && validTime();
-      allow delete: if me(uid);
+      allow delete: if me(uid) && emailVerificationAllowsCommunityAccess();
       allow update: if false;
     }
 
@@ -471,14 +482,15 @@ service cloud.firestore {
     // NENHUM cliente pode enviar mensagens FCM ou listar tokens alheios.
     // O envio exige backend de confianca com credenciais fora do aplicativo.
     match /users/{uid}/pushDevices/{deviceId} {
-      allow get, list: if me(uid);
+      allow get, list: if me(uid) && emailVerificationAllowsCommunityAccess();
       allow create, update: if me(uid)
+        && emailVerificationAllowsCommunityAccess()
         && validId(deviceId)
         && request.resource.data.keys().hasOnly(['token', 'updatedAt'])
         && request.resource.data.keys().hasAll(['token', 'updatedAt'])
         && validText(request.resource.data.token, 20, 4096)
         && request.resource.data.updatedAt == request.time;
-      allow delete: if me(uid);
+      allow delete: if me(uid) && emailVerificationAllowsCommunityAccess();
     }
 
     match /users/{recipientUid}/notifications/{notificationId} {
@@ -510,10 +522,11 @@ service cloud.firestore {
               && get(/databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(sourceId)).data.uid == recipientUid));
       }
       // Somente o destinatário consulta, marca como lida ou dispensa notificações.
-      allow get, list: if me(recipientUid);
+      allow get, list: if me(recipientUid) && emailVerificationAllowsCommunityAccess();
       // O remetente não pode inventar notificações: a resposta relacionada
       // precisa nascer no mesmo batch, pertencer a ele e ter data atual.
       allow create: if signedIn()
+        && emailVerificationAllowsCommunityAccess()
         && request.auth.uid != recipientUid
         && request.resource.data.keys().hasOnly([
           'postId', 'replyId', 'actorUid', 'actorName', 'read', 'createdAt', 'replyToId',
@@ -544,10 +557,11 @@ service cloud.firestore {
         && getAfter(/databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(notificationId)).data.authorName == request.resource.data.actorName
         && getAfter(/databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(notificationId)).data.createdAt == request.time;
       allow update: if me(recipientUid)
+        && emailVerificationAllowsCommunityAccess()
         && resource.data.read == false
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])
         && request.resource.data.read == true;
-      allow delete: if me(recipientUid);
+      allow delete: if me(recipientUid) && emailVerificationAllowsCommunityAccess();
     }
 
     // Guarda privada de conteúdo temporariamente retirado do fórum.
