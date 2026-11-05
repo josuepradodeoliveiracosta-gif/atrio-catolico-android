@@ -12,6 +12,8 @@ import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.File
+import java.io.RandomAccessFile
 
 /**
  * Testa consulta e download autentico dentro da UI com o mesmo controlador
@@ -143,5 +145,41 @@ class OtaQaLoopbackUiTest {
         } finally {
             prefs.edit().remove("qa_force_low_space").commit()
         }
+    }
+
+    @Test fun rejectsTamperedDownloadedApkBeforeInstall() {
+        assumeTrue(BuildConfig.DEBUG && OtaQaChannel.active)
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        compose.waitUntil(45_000) {
+            compose.onAllNodesWithTag("atrio-ota-available").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("atrio-ota-download").performClick()
+        compose.waitUntil(90_000) {
+            compose.onAllNodesWithTag("atrio-ota-install").fetchSemanticsNodes().isNotEmpty()
+        }
+        val apk = File(context.cacheDir, "ota/atrio-catolico-ota.apk")
+        assertTrue("APK verificado precisa existir no cache privado", apk.isFile)
+        assertTrue(apk.length() > 4096L)
+        val originalLength = apk.length()
+        // Modifica exatamente um byte SEM alterar o tamanho. So a nova
+        // verificacao SHA-256 imediatamente antes de instalar pode detectar.
+        RandomAccessFile(apk, "rw").use { file ->
+            val position = file.length() / 2L
+            file.seek(position)
+            val previous = file.readUnsignedByte()
+            file.seek(position)
+            file.writeByte(previous xor 1)
+        }
+        assertTrue(apk.length() == originalLength)
+        compose.onNodeWithTag("atrio-ota-install").performClick()
+        compose.waitUntil(30_000) {
+            compose.onAllNodesWithTag("atrio-ota-download-failed")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("atrio-ota-install").assertDoesNotExist()
+        compose.onNodeWithTag("atrio-ota-download").assertExists()
+        // Uma falha de revalidacao nao pode deixar APKs consumiveis no cache.
+        assertTrue(!apk.exists())
+        assertTrue(!File(context.cacheDir, "ota/atrio-catolico-ota.part.apk").exists())
     }
 }
