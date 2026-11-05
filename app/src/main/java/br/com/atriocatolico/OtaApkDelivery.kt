@@ -186,6 +186,12 @@ internal object OtaApkDelivery {
         require(installedCerts.size == 1 && archiveCerts.size == 1) {
             "Identidade de assinatura nao verificavel"
         }
+        // Defesa independente da verificacao feita ao consultar o release:
+        // um APK com assinatura arbitraria nao pode ser aceito como oficial.
+        // Apenas o pacote isolado .otalab admite assinaturas Debug temporarias.
+        require(OtaOfficialSigner.acceptsInstalledSigner(installedCerts.single())) {
+            "Assinatura instalada nao pertence ao canal oficial"
+        }
         @Suppress("DEPRECATION")
         val currentCode = if (Build.VERSION.SDK_INT >= 28)
             installed.longVersionCode else installed.versionCode.toLong()
