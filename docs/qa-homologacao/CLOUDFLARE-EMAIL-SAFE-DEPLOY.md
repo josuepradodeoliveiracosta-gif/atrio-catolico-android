@@ -90,3 +90,29 @@ node scripts/termux-firestore-production-only-readonly.mjs
 ```
 
 O resultado deve ser revisado por quem controla o projeto antes de substituir regras. `deploymentApproved` e `releaseApproved` permanecem **false**, mesmo se todas as linhas antigas forem explicáveis. Não substituir regras do Firebase nem ativar a política de e-mail durante a análise.
+
+
+## 7. Implantação protegida apenas de regras Firestore
+
+**Conclusão da comparação de 05/11/2026:** as 31 linhas exclusivas da produção correspondem principalmente à função antiga do portão de e-mail, permissões anteriores e comentários/posicionamento. A coleção app_config/engagement também existe no repositório. A versão no GitHub passou nos testes do Firebase Emulator. Isso não substitui a verificação de que o ruleset publicado continua intacto no momento do deploy.
+
+A rotina scripts/termux-firestore-rules-guarded-deploy.mjs **só permite alterar as regras** se:
+- O SHA-256 das regras publicadas ainda for 9c7678a7dfbadecceb30d5f770a25fb81c6f5926fedafc75e303c7e3bb3e6a02 (auditoria real);
+- O SHA-256 das regras locais ainda for 4b479daa1d4d8673c3e1e9f70a2f9d752e7df996d414aefa1397ad86661bd76e;
+- A política de confirmação de e-mail estiver MISSING e a de consentimento comunitário não estiver ativa;
+- Uma segunda leitura logo antes do deploy ainda confirmar as mesmas pré-condições;
+- A execução do Firebase CLI se limitar a firestore:rules no projeto atrio-catolico, sem implantar Cloudflare, documentos ou APK.
+
+O comando assume a sessão já autenticada no Firebase CLI do Termux. Use **somente a cópia de trabalho** ~/atrio-auditoria, nunca o backup original. Inspeção somente leitura (modo padrão):
+
+    cd ~/atrio-auditoria
+    git pull --ff-only origin main
+    node scripts/termux-firestore-rules-guarded-deploy.mjs
+
+Somente depois de conferir canApplyRules: true, emailPolicy: MISSING, o hash publicado antigo e a política de consentimento não ativa, o comando para publicar **apenas regras de produção** é:
+
+    node scripts/termux-firestore-rules-guarded-deploy.mjs --apply
+
+**ATENÇÃO: a segunda execução altera as regras Firestore produtivas.** Ela não cria/sobrescreve backups, não modifica documentos, não ativa a exigência de confirmação, não muda Workers e não libera APK Release. Se alguma pré-condição falhar, o comando aborta antes do deploy. Se a CLI falhar durante a implantação ou a validação posterior divergir, não repetir automaticamente; inspecionar o estado real.
+
+Após o deploy, a auditoria original deverá apresentar regras iguais às da main, mas emailPolicy: MISSING e ready: false. Isso é esperado: a obrigatoriedade só será ativada depois da atualização e homologação dos Workers e dos testes reais. Nenhuma regra é autorizada como Release por essa etapa.
