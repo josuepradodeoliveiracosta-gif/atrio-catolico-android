@@ -107,7 +107,15 @@ export async function verifyIdentity(req,env) {
   // verificacao da conta e da politica deve ocorrer ANTES da mutacao.
   // Identidade conferida no Firebase Auth; a politica e lida pelo
   // token de servico ja usado nas demais operacoes do Guardiao/Push.
-  const policyAccessToken=account.emailVerified===true?null:await oauth(env);
+  let policyAccessToken=null;
+  if(account.emailVerified!==true) {
+    try {policyAccessToken=await oauth(env);}
+    catch {
+      const error=Error('email_policy_unavailable');
+      Object.defineProperty(error,'qaCode',{value:'policy_service_oauth_failed'});
+      throw error;
+    }
+  }
   if(!await emailAllowsCommunity(policyAccessToken,account.emailVerified)) return null;
   return account.localId;
 }
@@ -580,7 +588,19 @@ export async function handleGuardiaoEvent(request,env) {
       // Falha na notificação não perde a denúncia criada no Firestore.
     }
     return response(202,'queued_for_review');
-  } catch {
+  } catch (error) {
+    // Observabilidade temporaria para QA autenticado. Codigo derivado somente
+    // de enum interno, jamais de resposta do Google, OAuth ou dados pessoais.
+    // O 503 permanece fail-closed e o comportamento normal e preservado.
+    const code=error?.qaCode;
+    if(request.headers.get('X-Atrio-QA-Diagnostic')==='1' &&
+      typeof code==='string' &&
+      /^(?:policy_service_oauth_failed|policy_timeout|policy_fetch_runtime_cache|policy_fetch_failed|policy_http_(?:401|403|429|500|502|503|504|other)|policy_invalid_response)$/.test(code)){
+      return new Response(JSON.stringify({status:'unavailable',qaDiagnostic:code}),{
+        status:503,
+        headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'}
+      });
+    }
     return response(503,'unavailable');
   }
 }
