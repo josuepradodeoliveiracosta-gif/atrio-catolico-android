@@ -1,0 +1,56 @@
+name: Empacotar Workers Cloudflare sem publicar
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'cloudflare/avatar-worker/**'
+      - 'cloudflare/push-worker/**'
+      - 'cloudflare/email-verification-policy*.mjs'
+      - 'cloudflare/worker-email-gate.test.mjs'
+      - '.github/workflows/worker-bundle-dry-run-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atrio-worker-dry-run-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build-only:
+    name: Wrangler bundle e validacao sem deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Obter codigo sem persistir credenciais
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Configurar Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Empacotar Worker de avatares sem login nem upload
+        env:
+          CLOUDFLARE_API_TOKEN: ''
+        run: |
+          npx --yes wrangler@4 deploy \
+            --config cloudflare/avatar-worker/wrangler.toml \
+            --dry-run \
+            --outdir "$RUNNER_TEMP/atrio-avatar-bundle"
+      - name: Empacotar Worker de notificacoes sem login nem upload
+        env:
+          CLOUDFLARE_API_TOKEN: ''
+        run: |
+          npx --yes wrangler@4 deploy \
+            --config cloudflare/push-worker/wrangler.toml \
+            --dry-run \
+            --outdir "$RUNNER_TEMP/atrio-push-bundle"
+      - name: Confirmar existencia dos pacotes gerados
+        run: |
+          test -d "$RUNNER_TEMP/atrio-avatar-bundle"
+          test -d "$RUNNER_TEMP/atrio-push-bundle"
+          test "$(find "$RUNNER_TEMP/atrio-avatar-bundle" -type f | wc -l)" -gt 0
+          test "$(find "$RUNNER_TEMP/atrio-push-bundle" -type f | wc -l)" -gt 0
