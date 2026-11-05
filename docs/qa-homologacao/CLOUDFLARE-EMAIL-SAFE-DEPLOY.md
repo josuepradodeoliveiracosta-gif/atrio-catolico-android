@@ -41,11 +41,6 @@ A CI `.github/workflows/worker-bundle-dry-run-ci.yml` executa `wrangler deploy -
 
 ## 4. Inspeção pelo Termux sem plugin Firebase
 
-O Termux já possui Firebase CLI autenticado e uma auditoria existente `~/atrio-limpeza/auditar_email_atrio.js`, criada no fluxo anterior. Reexecutar somente a leitura, jamais um comando de escrita sem a verificação de diferenças e autorização da implantação:
+O Termux já possui Firebase CLI autenticado e uma auditoria anterior em `~/atrio-limpeza/auditar_email_atrio.js`. **Não reexecutar automaticamente esse script**: a auditoria anterior também salvou uma cópia local das regras e não foi comprovado que uma nova execução não alteraria um arquivo de backup. O backup está protegido pela orientação expressa do responsável.
 
-```sh
-cd ~/atrio-limpeza
-node auditar_email_atrio.js
-```
-
-Se o script apresentar informações privadas, ocultá-las antes de compartilhar o resultado. Este documento não pressupõe que `gcloud` esteja instalado no Termux. O preflight separado `scripts/email-verification-production-preflight.mjs` exige um OAuth token Google com permissão de leitura e não precisa ser usado se a auditoria existente continuar disponível.
+Para uma nova inspeção, utilizar exclusivamente uma rotina de **somente leitura, sem criação de snapshots, backups ou arquivos**, após examinar o código executado. O preflight separado `scripts/email-verification-production-preflight.mjs` não grava arquivos, mas exige um OAuth token Google com permissão de leitura; não presumir que `gcloud` esteja instalado no Termux. Nunca colar credenciais ou tokens na conversa. Até confirmar uma via de leitura que preserve o backup, manter o status do Firebase como **não homologado** e a publicação Release bloqueada.
