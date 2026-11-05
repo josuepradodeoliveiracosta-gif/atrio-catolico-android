@@ -101,6 +101,9 @@ internal object OtaUpdatePolicy {
             digestPattern.matches(manifest.apkSha256) &&
             digestPattern.matches(manifest.certificateSha256) &&
             manifest.certificateSha256.equals(installedCertificateSha256, ignoreCase = true) &&
+            // Nao confiar apenas na assinatura do pacote instalado: no
+            // canal oficial ela deve pertencer ao assinante historico do Atrio.
+            OtaOfficialSigner.acceptsInstalledSigner(installedCertificateSha256) &&
             manifest.releaseNotes.length in 10..3000
         if (!linksValid || !validManifest) return OtaCheckStatus.Unavailable
         if (manifest.minimumAndroidSdk > deviceSdk) return OtaCheckStatus.Incompatible
