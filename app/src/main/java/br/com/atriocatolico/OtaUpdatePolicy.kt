@@ -55,7 +55,9 @@ internal data class OtaManifest(
 )
 
 internal object OtaUpdatePolicy {
-    const val PACKAGE = "br.com.atriocatolico"
+    val PACKAGE: String get() = if (OtaQaChannel.active)
+        "br.com.atriocatolico.otalab"
+    else "br.com.atriocatolico"
     const val REPO = "josuepradodeoliveiracosta-gif/atrio-catolico-android"
     val API: String get() = if (OtaQaChannel.active)
         "${OtaQaChannel.ORIGIN}/releases/latest"
