@@ -62,8 +62,17 @@ case "${1:-}" in
           > "$OUT/server-$fixture_mode.log" 2>&1 &
         SERVER_PID=$!
         local ready=false
+        local probe_url="http://127.0.0.1:8765/releases/latest"
+        if [[ "$fixture_mode" == "api-unavailable-once" ]]; then
+          # Nao consumir o primeiro 503 da API na sondagem do runner:
+          # verificar o endpoint imutavel do manifesto, preservando a falha
+          # exclusivamente para a primeira consulta feita pela Activity.
+          local fixture_tag
+          fixture_tag="$(python3 -c 'import json,sys;print("v"+json.load(open(sys.argv[1]))["versionName"])' "$OUT/update.json")"
+          probe_url="http://127.0.0.1:8765/releases/download/$fixture_tag/update.json"
+        fi
         for attempt in $(seq 1 35); do
-          if curl --noproxy '*' -fsS http://127.0.0.1:8765/releases/latest \
+          if curl --noproxy '*' -fsS "$probe_url" \
             > "$OUT/release-$fixture_mode.json"; then
             ready=true
             break
@@ -117,6 +126,17 @@ case "${1:-}" in
     run_ui_test rejectsWrongApkChecksumAfterDownloading bad-hash
     run_ui_test rejectsDowngradeWithoutOfferingDownload downgrade
     run_ui_test handlesOfflineServerWithoutOfferingInstallation offline
+    run_ui_test recoversFromUnavailableServerAfterManualRefresh api-unavailable-once
+    # O fixture deve ter fornecido exatamente uma falha HTTP, seguida de
+    # sucesso. O probe do runner consulta apenas update.json.
+    if [[ "$(grep -Ec 'GET /releases/latest HTTP/1[.]1" 503 ' "$OUT/server-api-unavailable-once.log")" -ne 1 ]]; then
+      echo "::error::API QA nao registrou uma unica consulta HTTP 503" >&2
+      exit 1
+    fi
+    if ! grep -Eq 'GET /releases/latest HTTP/1[.]1" 200 ' "$OUT/server-api-unavailable-once.log"; then
+      echo "::error::API QA nao registrou consulta recuperada HTTP 200" >&2
+      exit 1
+    fi
     run_ui_test rejectsInterruptedDownloadWithoutOfferingInstallation truncated-apk
     run_ui_test retriesInterruptedDownloadAndVerifiesSameOffer truncated-once
     run_ui_test cancelsSlowDownloadWithoutOfferingInstallation slow-apk
@@ -168,7 +188,7 @@ case "${1:-}" in
       echo "::error::Android nao confirmou QA versionCode=35" >&2
       exit 1
     }
-    echo "PASSOU: OTA no app, rejeicao de hash/certificado/downgrade/offline/truncado/cancelado/sem-espaco/adulteracao-pos-download e retentativa segura, cache parcial limpo no reinicio e dados da UI preservados em code 34 -> 35."
+    echo "PASSOU: OTA no app, rejeicao de hash/certificado/downgrade/offline/truncado/cancelado/sem-espaco/adulteracao-pos-download e retentativa segura, cache parcial limpo no reinicio, consulta 503 recuperada e dados da UI preservados em code 34 -> 35."
     ;;
   *)
     echo "Uso: bash scripts/ota_qa_in_app.sh prepare|emulator" >&2
