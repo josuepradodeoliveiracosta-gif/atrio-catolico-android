@@ -1,0 +1,36 @@
+name: OTA — proteger assinatura e publicacao ate homologacao real
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-apk.yml'
+      - '.github/workflows/ota-publish-release.yml'
+      - '.github/workflows/ota-release-gate-ci.yml'
+      - 'scripts/test_ota_release_gate.py'
+      - 'docs/qa-homologacao/OTA_RELEASE_GATE.md'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-apk.yml'
+      - '.github/workflows/ota-publish-release.yml'
+      - '.github/workflows/ota-release-gate-ci.yml'
+      - 'scripts/test_ota_release_gate.py'
+      - 'docs/qa-homologacao/OTA_RELEASE_GATE.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-gates:
+    name: Verificar release OTA bloqueado por padrao
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Obter codigo
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Rodar regressao das travas sem segredos
+        run: python3 -m unittest discover -s scripts -p 'test_ota_release_gate.py' -v

@@ -62,6 +62,8 @@ jobs:
       APPROVED_NOTES: ${{ inputs.release_notes }}
       EXPECTED_CERT: ${{ vars.ATRIO_RELEASE_CERT_SHA256 }}
       ATRIO_EMAIL_VERIFICATION_RELEASE_APPROVED: ${{ vars.ATRIO_EMAIL_VERIFICATION_RELEASE_APPROVED || 'false' }}
+      ATRIO_OTA_E2E_TESTED: ${{ vars.ATRIO_OTA_E2E_TESTED || 'false' }}
+      ATRIO_OTA_RELEASE_APPROVED: ${{ vars.ATRIO_OTA_RELEASE_APPROVED || 'false' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -74,6 +76,14 @@ jobs:
           [[ "$APK_SHA256" =~ ^[a-fA-F0-9]{64}$ ]]
           [[ "$EXPECTED_CERT" =~ ^[a-fA-F0-9:]{64,95}$ ]]
           if [[ "${{ inputs.mode }}" == "publish" ]]; then
+            [[ "$ATRIO_OTA_E2E_TESTED" == "true" ]] || {
+              echo "::error::Publicação OTA bloqueada: atualização OTA não homologada de ponta a ponta no celular."
+              exit 1
+            }
+            [[ "$ATRIO_OTA_RELEASE_APPROVED" == "true" ]] || {
+              echo "::error::Publicação OTA bloqueada: proprietário ainda não aprovou o lançamento com OTA ativado."
+              exit 1
+            }
             [[ "$ATRIO_EMAIL_VERIFICATION_RELEASE_APPROVED" == "true" ]] || {
               echo "::error::Publicacao bloqueada: verificacao de e-mail obrigatoria nao homologada"
               exit 1
@@ -170,7 +180,7 @@ jobs:
           retention-days: 1
 
   publish-release:
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.mode == 'publish' && inputs.confirmation == 'PUBLICAR ATRIO' && github.run_attempt == 1 && vars.ATRIO_EMAIL_VERIFICATION_RELEASE_APPROVED == 'true'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.mode == 'publish' && inputs.confirmation == 'PUBLICAR ATRIO' && github.run_attempt == 1 && vars.ATRIO_OTA_E2E_TESTED == 'true' && vars.ATRIO_OTA_RELEASE_APPROVED == 'true' && vars.ATRIO_EMAIL_VERIFICATION_RELEASE_APPROVED == 'true'
     needs: validate-release
     name: Publicar versão aprovada sem assinar ou recompilar
     runs-on: ubuntu-latest
