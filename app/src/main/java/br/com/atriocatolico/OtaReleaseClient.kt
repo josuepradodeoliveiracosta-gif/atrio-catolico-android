@@ -21,7 +21,7 @@ internal object OtaReleaseClient {
     private const val MANIFEST_RESPONSE_LIMIT = 32_768
 
     fun check(context: Context): OtaCheckStatus {
-        if (BuildConfig.DEBUG) return OtaCheckStatus.TestBuild
+        if (BuildConfig.DEBUG && !OtaQaChannel.active) return OtaCheckStatus.TestBuild
         return try {
             val api = fetchText(OtaUpdatePolicy.API, API_RESPONSE_LIMIT, setOf("api.github.com"))
             if (api.first == 404) return OtaCheckStatus.NoRelease
@@ -108,8 +108,7 @@ internal object OtaReleaseClient {
     private fun fetchText(url: String, maxBytes: Int, allowedHosts: Set<String>): Pair<Int, String> {
         var uri = URI(url)
         repeat(6) { redirectCount ->
-            require(uri.scheme == "https" && uri.host in allowedHosts &&
-                    uri.userInfo == null && uri.port == -1 && uri.fragment == null) {
+            require(OtaQaChannel.isAllowedUri(uri, allowedHosts)) {
                 "OTA: destino nao autorizado"
             }
             val connection = (uri.toURL().openConnection() as HttpURLConnection)

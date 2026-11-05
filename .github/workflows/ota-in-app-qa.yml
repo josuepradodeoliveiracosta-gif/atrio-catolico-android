@@ -1,0 +1,91 @@
+name: OTA QA — consulta e download dentro do app isolado
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/build.gradle.kts'
+      - 'app/src/main/java/br/com/atriocatolico/MainActivity.kt'
+      - 'app/src/main/java/br/com/atriocatolico/Ota*.kt'
+      - 'app/src/test/java/br/com/atriocatolico/Ota*.kt'
+      - 'app/src/androidTest/java/br/com/atriocatolico/OtaQaLoopbackUiTest.kt'
+      - 'scripts/ota_qa_upgrade.sh'
+      - 'scripts/ota_qa_in_app.sh'
+      - 'scripts/ota_qa_loopback_server.py'
+      - 'scripts/test_ota_qa_loopback_server.py'
+      - '.github/workflows/ota-in-app-qa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ota-in-app-qa-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  qa-loopback:
+    if: github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android'
+    name: APKs Debug separados e downloader OTA testado na UI
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      ATRIO_OTA_QA_LOOPBACK: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - name: Instalar SDK Android
+        run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+      - name: Validar identidade Firebase sem conexao de producao
+        run: python3 scripts/validar_firebase.py
+      - name: Testar origem local e manifestos sem iniciar Android
+        run: python3 -m unittest discover -s scripts -p 'test_ota_qa_loopback_server.py' -v
+      - name: Gerar dois APKs Debug do laboratorio com mesma chave no runner
+        run: bash scripts/ota_qa_upgrade.sh build-fixtures
+      - name: Testar politica OTA do laboratorio
+        run: gradle :app:testDebugUnitTest --no-daemon
+      - name: Gerar AndroidTest para consulta e download na UI
+        run: gradle :app:assembleDebugAndroidTest --no-daemon
+      - name: Preparar manifesto de QA pela assinatura real
+        run: bash scripts/ota_qa_in_app.sh prepare
+      - name: Arquivos QA de download, SEM assinatura de Release
+        uses: actions/upload-artifact@v4
+        with:
+          name: atrio-ota-lab-debug-par
+          path: |
+            ${{ runner.temp }}/atrio-ota-upgrade-qa/atrio-old-debug.apk
+            ${{ runner.temp }}/atrio-ota-upgrade-qa/atrio-new-debug.apk
+            ${{ runner.temp }}/atrio-ota-upgrade-qa/update.json
+          retention-days: 7
+          if-no-files-found: error
+      - name: Verificar KVM no runner
+        run: |
+          test -c /dev/kvm
+          sudo chmod 0666 /dev/kvm
+      - name: Exercitar tela e download OTA no emulador sem Firebase real
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: default
+          profile: pixel_4
+          disable-animations: true
+          disk-size: 2048M
+          ram-size: 2048M
+          script: bash scripts/ota_qa_in_app.sh emulator
+      - name: Registrar o que NAO foi provado
+        if: always()
+        run: |
+          echo "## Laboratorio OTA local: nenhum APK Release ou GitHub Release publicado" >> "$GITHUB_STEP_SUMMARY"
+          echo "Prova automatizada abrange cliente OTA, consulta, download e verificaçao no app, mais upgrade via ADB." >> "$GITHUB_STEP_SUMMARY"
+          echo "**Nao equivale a atualizacao pelo instalador Android em aparelho real.** Essa validação presencial continua obrigatoria antes de desbloquear o Release." >> "$GITHUB_STEP_SUMMARY"
+          echo "Pacote OTA isolado br.com.atriocatolico.otalab. Sem Firebase produtivo, sem chave oficial, sem backup alterado." >> "$GITHUB_STEP_SUMMARY"

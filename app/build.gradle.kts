@@ -4,9 +4,18 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// A QA OTA usa um pacote isolado .otalab e não toca Firebase de produção.
+// Por isso NÃO aplica Google Services nesse build exclusivamente Debug.
+val atrioOtaQaLoopback = System.getenv("ATRIO_OTA_QA_LOOPBACK") == "1"
+if (atrioOtaQaLoopback && gradle.startParameter.taskNames.any { task ->
+    val name = task.substringAfterLast(':').lowercase()
+    name.contains("release") || name == "assemble" || name == "build" || name == "bundle"
+}) {
+    error("O laboratorio OTA isolado nunca pode compilar APK ou bundle Release.")
+}
 // Com app/google-services.json presente, o Google Services gera os recursos Firebase.
 // Sem o arquivo, este projeto ainda pode ser compilado em modo demonstração.
-if (file("google-services.json").exists()) {
+if (file("google-services.json").exists() && !atrioOtaQaLoopback) {
     apply(plugin = "com.google.gms.google-services")
 }
 
@@ -19,6 +28,8 @@ val atrioKeyPassword = System.getenv("ATRIO_SIGNING_KEY_PASSWORD")
 
 // Versão do APK de testes: avançar para 2, 3, ... a cada NOVA atualização Debug.
 // Proximo release OTA candidato 0.20.1 / versionCode 36; assinacao oficial exclusivamente no workflow manual aprovado.
+// Laboratorio OTA: apenas Debug construido deliberadamente com esta variavel.
+// Nenhum APK Release consegue receber este canal, mesmo com o env ligado.
 val atrioDebugPatch = 7
 val atrioDebugVersionName = "0.19.$atrioDebugPatch"
 val atrioDebugVersionCode = 27 + atrioDebugPatch
@@ -64,10 +75,14 @@ android {
 
     buildTypes {
         getByName("debug") {
+            buildConfigField("boolean", "OTA_QA_LOOPBACK", atrioOtaQaLoopback.toString())
+            // Instala lado a lado do app oficial: jamais substituir o Debug usual.
+            if (atrioOtaQaLoopback) applicationIdSuffix = ".otalab"
             // A numeração de testes aparece também dentro da aba Perfil.
             buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"$atrioDebugVersionName\"")
         }
         getByName("release") {
+            buildConfigField("boolean", "OTA_QA_LOOPBACK", "false")
             signingConfigs.findByName("atrioRelease")?.let { signingConfig = it }
         }
     }

@@ -50,11 +50,10 @@ internal object OtaApkDelivery {
         try {
             var uri = URI(offer.url)
             for (redirectCount in 0..5) {
-                require(uri.scheme == "https" && uri.host in redirectHosts &&
-                    uri.port == -1 && uri.rawUserInfo == null && uri.fragment == null) {
+                require(OtaQaChannel.isAllowedUri(uri, redirectHosts)) {
                     "Redirecionamento do APK nao autorizado"
                 }
-                if (uri.host == "github.com") {
+                if (uri.host == "github.com" || OtaQaChannel.active) {
                     require(uri.toString() == expectedUrl) { "Caminho de arquivo inesperado" }
                 }
                 connection = uri.toURL().openConnection() as HttpURLConnection

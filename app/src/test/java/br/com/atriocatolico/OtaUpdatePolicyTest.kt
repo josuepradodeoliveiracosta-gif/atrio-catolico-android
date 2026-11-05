@@ -113,9 +113,9 @@ class OtaUpdatePolicyTest {
     }
 
     @Test fun exactRepositoryAndLatestApiStayPinned() {
-        assertEquals(
-            "https://api.github.com/repos/josuepradodeoliveiracosta-gif/atrio-catolico-android/releases/latest",
-            OtaUpdatePolicy.API
-        )
+        val expected = if (OtaQaChannel.active)
+            "http://127.0.0.1:8765/releases/latest"
+        else "https://api.github.com/repos/josuepradodeoliveiracosta-gif/atrio-catolico-android/releases/latest"
+        assertEquals(expected, OtaUpdatePolicy.API)
     }
 }

@@ -64,7 +64,8 @@ internal class OtaUpdateController(private val appContext: Context) {
     }
 
     suspend fun download(offer: OtaApkOffer) {
-        if (BuildConfig.DEBUG || (status as? OtaCheckStatus.Available)?.apk != offer ||
+        if ((BuildConfig.DEBUG && !OtaQaChannel.active) ||
+            (status as? OtaCheckStatus.Available)?.apk != offer ||
             downloadJob != null || downloadState == OtaDownloadState.Verifying) return
         downloadJob = currentCoroutineContext()[Job]
         installMessage = ""
@@ -99,7 +100,8 @@ internal class OtaUpdateController(private val appContext: Context) {
 
     suspend fun install() {
         val ready = downloadState as? OtaDownloadState.Ready ?: return
-        if (BuildConfig.DEBUG || (status as? OtaCheckStatus.Available)?.apk != ready.offer) return
+        if ((BuildConfig.DEBUG && !OtaQaChannel.active) ||
+            (status as? OtaCheckStatus.Available)?.apk != ready.offer) return
         installMessage = ""
         downloadState = OtaDownloadState.Verifying
         try {

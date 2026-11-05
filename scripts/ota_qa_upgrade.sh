@@ -4,7 +4,11 @@ set -euo pipefail
 
 MODE="${1:-}"
 SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+# O canal experimental usa pacote separado; a QA legada continua identica.
 PACKAGE="br.com.atriocatolico"
+if [[ "${ATRIO_OTA_QA_LOOPBACK:-0}" == "1" ]]; then
+  PACKAGE="br.com.atriocatolico.otalab"
+fi
 OUT="${RUNNER_TEMP:-/tmp}/atrio-ota-upgrade-qa"
 APK_PATH="app/build/outputs/apk/debug/app-debug.apk"
 GRADLE_FILE="app/build.gradle.kts"
