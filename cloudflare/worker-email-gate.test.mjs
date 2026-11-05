@@ -177,3 +177,22 @@ test('Push 503 continua generico sem diagnostico voluntario',async()=>{
     assert.deepEqual(await res.json(),{status:'unavailable'});
   }finally{globalThis.fetch=old;}
 });
+
+test('gate da politica usa modo de redirect suportado por Workers em ambas portas',async()=>{
+  for(const [name,identify] of [['avatar',verifyAvatar],['push',verifyPush]]){
+    const old=globalThis.fetch;
+    const mock=fakeNetwork({policyReply:()=>new Response('',{status:404})});
+    globalThis.fetch=async(url,options)=>{
+      if(String(url).endsWith('/documents/app_config/email_verification')){
+        assert.equal(options.redirect,'manual',name);
+        if(options.redirect==='error')throw TypeError('Workerd: redirect mode error unsupported');
+      }
+      return mock.fetcher(url,options);
+    };
+    try{
+      const user=await identify(new Request('https://qa.invalid/test',{headers:authHeaders}),config);
+      assert.equal(user,'qa-member');
+      assert.equal(mock.record.policyCalls,1);
+    }finally{globalThis.fetch=old;}
+  }
+});
