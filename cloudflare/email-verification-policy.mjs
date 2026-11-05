@@ -1,31 +1,32 @@
 /**
  * Portao de e-mail dos Workers do Atrio Catolico.
  *
- * Identity Toolkit autentica previamente o token; consultamos a politica com
- * ESSE MESMO token Firebase, sem Service Account, porque Firestore Rules
- * permite somente get autenticado de app_config/email_verification.
- * Sem depender de flags em perfil, parametros do request ou caches locais.
+ * Identity Toolkit valida previamente o ID token da conta. Se o email ainda
+ * nao estiver verificado, a consulta administrativa da politica utiliza um
+ * token OAuth de SERVICE ACCOUNT ja disponivel no Worker; a resposta nao
+ * depende de claims editaveis, parametros do request ou caches locais.
+ * Em caso de erro, a operacao comunitaria permanece bloqueada.
  */
 export const EMAIL_VERIFICATION_POLICY_URL =
   'https://firestore.googleapis.com/v1/projects/atrio-catolico/databases/(default)/documents/app_config/email_verification';
 const POLICY_VERSION='2026-11-v1';
 
 /**
- * @param {string} idToken ID token validado pelo Identity Toolkit antes da chamada.
- * @param {boolean} emailVerified Campo emailVerified devolvido pelo Identity Toolkit.
+ * @param {string} policyAccessToken OAuth de servico, nunca token do cliente.
+ * @param {boolean} emailVerified Campo emailVerified autenticado pelo Identity Toolkit.
  * @param {Function} fetcher Apenas injecao de testes. No Worker usa fetch nativo.
  * @returns {Promise<boolean>} true se a operacao comunitaria pode continuar.
  */
-export async function emailAllowsCommunity(idToken,emailVerified,fetcher=fetch) {
+export async function emailAllowsCommunity(policyAccessToken,emailVerified,fetcher=fetch) {
   // Um retorno autentico da conta verificada pode prosseguir sem nova consulta.
   if(emailVerified===true) return true;
-  if(typeof idToken!=='string'||idToken.length<100||idToken.length>5000)
+  if(typeof policyAccessToken!=='string'||policyAccessToken.length<20||policyAccessToken.length>12000)
     throw Error('invalid_identity');
   let res;
   try {
     res=await fetcher(EMAIL_VERIFICATION_POLICY_URL,{
       method:'GET',
-      headers:{Authorization:'Bearer '+idToken},
+      headers:{Authorization:'Bearer '+policyAccessToken},
       redirect:'error',
       cache:'no-store',
       signal:AbortSignal.timeout(7000)
