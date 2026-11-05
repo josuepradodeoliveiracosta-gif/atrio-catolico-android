@@ -4,9 +4,12 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// A QA OTA usa um pacote isolado .otalab e não toca Firebase de produção.
+// Por isso NÃO aplica Google Services nesse build exclusivamente Debug.
+val atrioOtaQaLoopback = System.getenv("ATRIO_OTA_QA_LOOPBACK") == "1"
 // Com app/google-services.json presente, o Google Services gera os recursos Firebase.
 // Sem o arquivo, este projeto ainda pode ser compilado em modo demonstração.
-if (file("google-services.json").exists()) {
+if (file("google-services.json").exists() && !atrioOtaQaLoopback) {
     apply(plugin = "com.google.gms.google-services")
 }
 
@@ -21,7 +24,6 @@ val atrioKeyPassword = System.getenv("ATRIO_SIGNING_KEY_PASSWORD")
 // Proximo release OTA candidato 0.20.1 / versionCode 36; assinacao oficial exclusivamente no workflow manual aprovado.
 // Laboratorio OTA: apenas Debug construido deliberadamente com esta variavel.
 // Nenhum APK Release consegue receber este canal, mesmo com o env ligado.
-val atrioOtaQaLoopback = System.getenv("ATRIO_OTA_QA_LOOPBACK") == "1"
 val atrioDebugPatch = 7
 val atrioDebugVersionName = "0.19.$atrioDebugPatch"
 val atrioDebugVersionCode = 27 + atrioDebugPatch
