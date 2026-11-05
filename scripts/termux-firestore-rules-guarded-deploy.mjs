@@ -20,7 +20,7 @@ import {accessTokenFromExistingFirebaseCli} from './termux-email-production-read
 
 export const EXPECTED={
   project:'atrio-catolico',
-  oldRulesSha256:'9c7678a7dfbadecceb30d5f770a25fb81c6f5926fedafc75e303c7e3bb3e6a02',
+  oldRulesSha256:'9c7678a7dfbadececb30d5f770a25fb81c6f5926fedafc75e303c7e3bb3e6a02',
   newRulesSha256:'4b479daa1d4d8673c3e1e9f70a2f9d752e7df996d414aefa1397ad86661bd76e'
 };
 
@@ -59,11 +59,15 @@ async function readCommunityFlag(token,fetcher){
 }
 
 function ensureState(report,stage,expectedPublished){
-  if(report?.project!==EXPECTED.project ||
-     report.rules?.localSha256!==EXPECTED.newRulesSha256 ||
-     report.rules?.deployedSha256!==expectedPublished ||
-     report.emailPolicy?.state!=='MISSING')
-    error(stage+'_fingerprint_or_policy_changed');
+  // Motivos individualizados sem imprimir tokens ou fontes completas.
+  if(report?.project!==EXPECTED.project)
+    error(stage+'_project_changed');
+  if(report.rules?.localSha256!==EXPECTED.newRulesSha256)
+    error(stage+'_repository_sha_changed');
+  if(report.rules?.deployedSha256!==expectedPublished)
+    error(stage+'_published_sha_changed');
+  if(report.emailPolicy?.state!=='MISSING')
+    error(stage+'_email_policy_changed');
   if(stage==='before' &&
     (report.rules?.verificationHelperPresent!==false ||
      report.rules?.guardOccurrences!==0 ||

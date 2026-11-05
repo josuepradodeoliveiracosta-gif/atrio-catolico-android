@@ -7,6 +7,13 @@ import {
 
 const rules=await readFile(new URL('../firestore.rules',import.meta.url),'utf8');
 const token='qa-test-token-in-memory-abcdefghijklmnopqrstuvwxyz';
+
+test('hash auditado na captura Termux impede transposicao de caracteres',()=>{
+  const hashAudited='9c7678a7dfbadececb30d5f770a25fb81c6f5926fedafc75e303c7e3bb3e6a02';
+  const previousTypo='9c7678a7dfbadecceb30d5f770a25fb81c6f5926fedafc75e303c7e3bb3e6a02';
+  assert.equal(EXPECTED.oldRulesSha256,hashAudited);
+  assert.notEqual(EXPECTED.oldRulesSha256,previousTypo);
+});
 const f=(published=EXPECTED.oldRulesSha256,stage='before',policy='MISSING')=>({
   project:EXPECTED.project,
   rules:{
@@ -92,7 +99,7 @@ test('mudanca de hash publicado bloqueia imediatamente o deploy',async()=>{
     inspected:[f('a'.repeat(64))]
   });
   await assert.rejects(guardedRulesUpdate(x.opts),
-    /atrio_rules_deploy_before_fingerprint_or_policy_changed/);
+    /atrio_rules_deploy_before_published_sha_changed/);
   assert.equal(x.stats().deployed,0);
 });
 
@@ -103,9 +110,9 @@ test('regras locais divergentes ou politicas ativas impedem substituicao',async(
     tokenProvider:async()=>{called++;return token;}
   }),/atrio_rules_deploy_local_sha_mismatch/);
   assert.equal(called,0);
-  const activeEmail=factory({apply:true,inspected:[f(undefined,'before','ACTIVE')]});
+  const activeEmail=factory({apply:true,inspected:[f(EXPECTED.oldRulesSha256,'before','ACTIVE')]});
   await assert.rejects(guardedRulesUpdate(activeEmail.opts),
-    /atrio_rules_deploy_before_fingerprint_or_policy_changed/);
+    /atrio_rules_deploy_before_email_policy_changed/);
   assert.equal(activeEmail.stats().deployed,0);
   const activeConsent=factory({
     apply:true,communityResponse:()=>community(true)
@@ -131,7 +138,7 @@ test('falha de rede e resposta administrativa invalida falham fechado',async()=>
 test('segunda leitura impede deploy se houver alteracao concorrente',async()=>{
   const x=factory({apply:true,inspected:[f(),f('b'.repeat(64))]});
   await assert.rejects(guardedRulesUpdate(x.opts),
-    /atrio_rules_deploy_before_fingerprint_or_policy_changed/);
+    /atrio_rules_deploy_before_published_sha_changed/);
   assert.equal(x.stats().deployed,0);
 });
 
@@ -155,6 +162,6 @@ test('mesmo com CLI exitosa, divergencia depois exige nova auditoria',async()=>{
     execute:()=>{}
   });
   await assert.rejects(guardedRulesUpdate(x.opts),
-    /atrio_rules_deploy_after_fingerprint_or_policy_changed/);
+    /atrio_rules_deploy_after_published_sha_changed/);
   assert.equal(x.stats().deployed,1);
 });
