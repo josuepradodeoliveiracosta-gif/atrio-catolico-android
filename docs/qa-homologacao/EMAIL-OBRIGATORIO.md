@@ -77,3 +77,36 @@ O comando local de testes unitários, sem rede nem acesso à produção, é:
 ```bash
 node --test scripts/email-verification-production-preflight.test.mjs
 ```
+
+
+## Homologação autenticada com contas QA reais — Termux
+
+Após a implantação das Firestore Rules e dos Workers, mas **antes** de ativar `app_config/email_verification`, preparar duas contas **existentes** de laboratório no aplicativo Debug: uma com endereço não confirmado, outra com endereço confirmado. Não usar contas pessoais de terceiros nem a conta administrativa. A ferramenta não cria contas.
+
+O programa `scripts/termux-real-email-auth-smoke.mjs` utiliza o Firebase CLI já autenticado no Termux para descobrir **em memória** a API key do app Android `br.com.atriocatolico` no projeto fixo `atrio-catolico`. No terminal, pede o e-mail e a senha de **uma conta por execução**, ambos sem eco. Não imprimir nem copiar as credenciais para a conversa, GitHub Issues ou arquivos.
+
+Na pasta de trabalho `~/atrio-auditoria` (não no backup original), após integrar o código:
+
+```sh
+cd ~/atrio-auditoria
+git pull --ff-only origin main
+node scripts/termux-real-email-auth-smoke.mjs --policy=MISSING --user=unverified
+node scripts/termux-real-email-auth-smoke.mjs --policy=MISSING --user=verified
+```
+
+Essas duas chamadas produzem apenas códigos HTTP e `pass: true/false` para consultas seguras: Firebase Authentication `accounts:lookup`, leitura da política, leitura de **post aleatório inexistente**, validação de autorização da prévia de avatar sem argumentos e evento de moderação para **post aleatório inexistente**. O último retorna `ignored` sem gravar denúncia, fila, notificação ou alterar qualquer publicação quando o post não existe. A autenticação normal pode atualizar metadados de último acesso no Firebase Authentication. Nenhum arquivo, backup ou documento Firestore é criado pelo teste.
+
+**Critérios da fase anterior à ativação (MISSING):** para as duas contas, o post inexistente retorna 404, a prévia de avatar retorna 400 ou 403 (acesso negado à função administrativa ou argumento ausente), e o evento de post inexistente retorna 202 (ignorado). A conta não confirmada é identificada como `emailVerified:false` pelo Firebase Auth. Isso comprova comunicação autenticada, não o bloqueio obrigatório.
+
+Após a **ativação administrativa controlada** da política (procedimento separado, ainda não realizado), repetir com as mesmas contas:
+
+```sh
+node scripts/termux-real-email-auth-smoke.mjs --policy=ACTIVE --user=unverified
+node scripts/termux-real-email-auth-smoke.mjs --policy=ACTIVE --user=verified
+```
+
+**Critérios com política ACTIVE:** não confirmada recebe **403** em Firestore, **401** no avatar e **401** no Guardião/push. Confirmada recebe **404** no post inexistente, **400 ou 403** na prévia administrativa e **202** para post inexistente no Guardião. O script interrompe os testes se a política não estiver exatamente no estado indicado, se o Firebase Auth relatar um estado de confirmação diferente ou se alguma autorização responder fora dos resultados esperados.
+
+Não executar a fase ACTIVE antes de estabelecer a política pelo procedimento apropriado. O teste não valida a UI do Android nem substitui a confirmação do link, logout, retry/offline, abertura de discussões e testes instrumentados. Mesmo com testes PASS, assinatura Release depende de homologação completa e aprovação formal.
+
+Se a sessão Firebase CLI não puder ler a configuração Android ou a API key estiver bloqueada para uso no Termux, **não copiar chaves nem desativar restrições para forçar o teste**: interromper e adaptar o processo. As duas contas devem ser exclusivamente de QA e não compartilhar senha com o assistente.
