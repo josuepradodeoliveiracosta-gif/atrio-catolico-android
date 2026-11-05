@@ -7,6 +7,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Rule
@@ -294,6 +295,43 @@ class OtaQaLoopbackUiTest {
             compose.onNodeWithTag("atrio-ota-download").assertExists()
         } finally {
             prefs.edit().remove("qa_force_low_space").commit()
+        }
+    }
+
+    @Test fun unknownSourcesDeniedKeepsInstallerBlockedAndVersionUnchanged() {
+        assumeTrue(BuildConfig.DEBUG && OtaQaChannel.active)
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        // O runner revoga explicitamente REQUEST_INSTALL_PACKAGES somente
+        // para o pacote de laboratorio. Nunca se tenta alterar o app oficial.
+        assertFalse("O laboratorio deve iniciar sem autorizacao de origem",
+            context.packageManager.canRequestPackageInstalls())
+        val packageManager = context.packageManager
+        val before = packageManager.getPackageInfo(context.packageName, 0).longVersionCode
+        compose.waitUntil(45_000) {
+            compose.onAllNodesWithTag("atrio-ota-available").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("atrio-ota-download").performClick()
+        compose.waitUntil(90_000) {
+            compose.onAllNodesWithTag("atrio-ota-install").fetchSemanticsNodes().isNotEmpty()
+        }
+        val apk = File(context.cacheDir, "ota/atrio-catolico-ota.apk")
+        assertTrue("Somente o arquivo previamente verificado pode ser oferecido",
+            apk.isFile)
+        try {
+            // Deve abrir apenas a pagina de autorizacao da fonte. Sem
+            // permissao, o fluxo nao pode abrir o instalador do APK.
+            compose.onNodeWithTag("atrio-ota-install").performClick()
+            compose.waitForIdle()
+            assertFalse("Nenhuma permissao pode ser concedida pelo aplicativo",
+                packageManager.canRequestPackageInstalls())
+            assertTrue("Sem consentimento nao deve haver atualizacao",
+                packageManager.getPackageInfo(context.packageName, 0)
+                    .longVersionCode == before)
+            assertTrue("Voltar das configuracoes permite nova tentativa",
+                apk.isFile)
+        } finally {
+            // Sem instalador iniciado, este cache pertence somente ao QA.
+            OtaApkDelivery.discardCachedApk(context)
         }
     }
 
