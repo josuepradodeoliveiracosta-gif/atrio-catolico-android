@@ -55,3 +55,21 @@ O programa consulta as mesmas três rotas HTTP `GET` do preflight auditado, usan
 Em caso de `atrio_termux_preflight_firebase_cli_incompatible`, o Firebase CLI local utiliza uma estrutura interna diferente: abortar e revisar a compatibilidade, sem tentar extrair o token do arquivo de login. Caso apareça `firebase_login_unavailable` ou `permission_denied`, não executar um deploy para contornar o erro; conferir a autenticação e as permissões. Mensagens `ready: false`, `emailPolicy.state: DISABLED` ou `MISSING` são esperadas antes da ativação: significam que **não é permitido autorizar Release**, não que a auditoria tenha alterado o estado do Firebase.
 
 O preflight alternativo `scripts/email-verification-production-preflight.mjs` ainda aceita um OAuth token disponibilizado por ambiente Google autorizado, se necessário. Nenhum dos auditores realiza deploy. Nunca colar credenciais ou tokens na conversa. Até conferir as regras publicadas e a política real, manter o estado do Firebase como **não homologado** e o Release bloqueado.
+
+## 5. Comparação de mudanças antes de publicar regras Firestore
+
+O primeiro preflight autenticado no Termux identificou uma divergência entre as regras publicadas e `firestore.rules` da `main`. Também confirmou que o documento de política de e-mail está **ausente**. Não é seguro substituir as regras produtivas somente porque a versão local passou no Firebase Emulator: pode haver ajustes exclusivos de produção.
+
+A rotina `scripts/termux-firestore-rules-diff-readonly.mjs` utiliza o login existente do Firebase CLI e realiza **exatamente duas requisições GET**, à release `cloud.firestore` e ao ruleset publicado. Toda comparação das regras é feita em memória, sem salvar snapshots, alterar o backup nem revelar tokens ou o conteúdo completo das regras.
+
+Execute **na cópia separada do repositório**, já criada no Termux como `~/atrio-auditoria`:
+
+```sh
+cd ~/atrio-auditoria
+git pull --ff-only origin main
+node scripts/termux-firestore-rules-diff-readonly.mjs
+```
+
+`git pull` atualiza exclusivamente essa cópia de trabalho; não execute o comando dentro da pasta de backup. O script imprime SHA-256, contagens e **trechos limitados** das regiões diferentes, incluindo declarações `match` e `function` que existirem apenas de um lado. Não executa `firebase deploy` e não grava arquivos. Se o CLI mudar ou o acesso falhar, aborta sem ação alternativa.
+
+É fundamental examinar declarações exclusivas de produção antes de avançar. O relatório de diferenças **não constitui autorização de implantação**. Qualquer implantação de regras deve ter controle explícito sobre as diferenças, política administrativa inicialmente desativada e verificação posterior. Enquanto a homologação não for comprovada, a assinatura APK Release permanece bloqueada.
