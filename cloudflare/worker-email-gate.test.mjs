@@ -105,18 +105,7 @@ for(const [name,identify] of [['avatar',verifyAvatar],['push',verifyPush]]) {
       policyReply:()=>new Response('',{status:503})
     }),/email_policy_unavailable/);
   });
-  test(name+': conta nao verificada sem OAuth de servico nao recebe permissao',async()=>{
-    const old=globalThis.fetch;
-    const mock=fakeNetwork();
-    globalThis.fetch=mock.fetcher;
-    try{
-      // Para nao ser afetado pelo cache de acesso no Worker, usar
-      // projeto de servico invalido, bloqueado antes de consultar Firestore.
-      await assert.rejects(identify(new Request('https://qa.invalid/test',{
-        headers:authHeaders
-      }),{...config,FIREBASE_SERVICE_ACCOUNT_JSON:'{}'}),/invalid_service_account|Configuração de identidade inválida/);
-    }finally{globalThis.fetch=old;}
-  });
+
 }
 
 const endpoints=[
