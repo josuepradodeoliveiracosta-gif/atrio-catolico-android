@@ -45,6 +45,12 @@ O botão **Instalar atualização** revalida o APK presente no cache privado ant
 
 Essa prova evita depender apenas da validação feita durante o download e confere a limpeza no caminho de falha. Não substitui a validação final de assinatura feita pelo Android nem comprova a inexistência de condições de corrida entre verificação e abertura do instalador. O fluxo oficial com assinatura permanente, sessão e consentimento do Android real permanece pendente. Não libera Release.
 
+## Complemento — recuperação de rede sem reiniciar a interface
+
+O laboratório implementa o fixture `truncated-once`: **o primeiro GET do APK declara o tamanho correto, mas transmite apenas uma fração do arquivo; o segundo GET devolve o APK íntegro**, usando a mesma URL, o mesmo manifesto e o mesmo servidor local. Um teste Android instrumentado toca em **Baixar atualização**, aguarda falha, verifica que não aparece botão de instalação e que o cache `.part.apk` e o APK pronto foram removidos. Em seguida, **na mesma Activity**, toca novamente em **Baixar atualização** e exige que a interface valide o APK completo e apresente **Instalar atualização**.
+
+O CI verifica também que o servidor recebeu **exatamente duas solicitações de APK**. Assim, uma recuperação aparente por reaproveitamento de arquivo incompleto não passa pelo teste. A assinatura temporária e o pacote `.otalab` continuam isolados do aplicativo oficial. Este ensaio não demonstra estabilidade de rede móvel, armazenamento real nem consentimento do instalador em aparelho físico; a homologação oficial continua bloqueada.
+
 ## O que foi reaproveitado
 
 A mesma implementação de produção `OtaReleaseClient`, `OtaUpdatePolicy`, `OtaApkPolicy`, `OtaApkDelivery`, `OtaUpdateController` e `OtaUpdatesSection` detecta, baixa, confere e oferece o botão de instalação. Nenhuma segunda implementação de downloader ou de validador de assinatura foi criada.
