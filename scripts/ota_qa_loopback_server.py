@@ -95,7 +95,8 @@ def build_fixture(info: dict, *, fixture_mode: str = "valid") -> tuple[dict, dic
     elif fixture_mode == "downgrade":
         manifest["versionCode"] = 1
     elif fixture_mode not in ("valid", "truncated-apk", "truncated-once", "slow-apk", "api-unavailable-once",
-                              "manifest-redirect-external", "apk-redirect-external"):
+                              "manifest-redirect-external", "apk-redirect-external",
+                              "manifest-redirect-loop", "apk-redirect-loop"):
         raise ValueError("Modo de fixture nao autorizado")
     release = {
         "tag_name": tag,
@@ -135,6 +136,18 @@ def make_handler(apk: Path, release: dict, manifest: dict, fixture_mode: str = "
                 return
             # Respostas maliciosas simuladas SOMENTE no laboratório local.
             # O cliente deve recusar o Location externo antes de conectar.
+            # Um servidor com redirect circular nao pode deixar o cliente
+            # preso em consultas nem abrir uma instalacao incompleta.
+            if (fixture_mode == "manifest-redirect-loop" and
+                    url.path == asset_prefix + "update.json") or (
+                    fixture_mode == "apk-redirect-loop" and
+                    url.path == asset_prefix + "atrio-catolico.apk"):
+                self.send_response(302)
+                self.send_header("Location", url.path)
+                self.send_header("Content-Length", "0")
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                return
             if (fixture_mode == "manifest-redirect-external" and
                     url.path == asset_prefix + "update.json"):
                 self.send_response(302)
@@ -224,7 +237,7 @@ def main() -> None:
                         help="Gravar update.json para distribuir junto aos dois APKs QA")
     parser.add_argument("--verify-only", action="store_true",
                         help="Validar e/ou gerar manifesto sem ligar o servidor")
-    parser.add_argument("--mode", choices=["valid", "bad-hash", "bad-cert", "downgrade", "truncated-apk", "truncated-once", "slow-apk", "api-unavailable-once", "manifest-redirect-external", "apk-redirect-external"],
+    parser.add_argument("--mode", choices=["valid", "bad-hash", "bad-cert", "downgrade", "truncated-apk", "truncated-once", "slow-apk", "api-unavailable-once", "manifest-redirect-external", "apk-redirect-external", "manifest-redirect-loop", "apk-redirect-loop"],
                         default="valid")
     args = parser.parse_args()
     apk = args.apk.resolve(strict=True)

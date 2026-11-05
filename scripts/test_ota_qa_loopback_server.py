@@ -225,6 +225,47 @@ class OtaQaLoopbackTests(unittest.TestCase):
                     thread.join(timeout=5)
 
 
+    def test_circular_redirects_return_same_location_without_serving_assets(self):
+        release, manifest = ota.build_fixture(self.metadata)
+        tag = release["tag_name"]
+        for mode, asset in (
+            ("manifest-redirect-loop", "update.json"),
+            ("apk-redirect-loop", "atrio-catolico.apk"),
+        ):
+            with self.subTest(mode=mode):
+                self.assertEqual(
+                    ota.build_fixture(self.metadata, fixture_mode=mode),
+                    ota.build_fixture(self.metadata, fixture_mode="valid"),
+                )
+                handler = ota.make_handler(
+                    self.apk, release, manifest, fixture_mode=mode
+                )
+                server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+                thread = Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                try:
+                    path = f"/releases/download/{tag}/{asset}"
+                    connection = HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+                    try:
+                        # O cliente Android deve impor seu proprio limite
+                        # de redirects; nao seguimos nenhum destino aqui.
+                        for _ in range(2):
+                            connection.request("GET", path)
+                            response = connection.getresponse()
+                            self.assertEqual(response.status, 302)
+                            self.assertEqual(response.getheader("Location"), path)
+                            self.assertEqual(response.read(), b"")
+                    finally:
+                        connection.close()
+                    with urlopen(
+                        f"http://127.0.0.1:{server.server_port}/releases/latest"
+                    ) as response:
+                        self.assertEqual(json.load(response), release)
+                finally:
+                    server.shutdown()
+                    server.server_close()
+                    thread.join(timeout=5)
+
     def test_slow_stream_allows_the_client_to_disconnect(self):
         # Este fixture faz a leitura parcial de um APK lento, sem utilizar
         # um aplicativo real nem esperar o arquivo inteiro.
