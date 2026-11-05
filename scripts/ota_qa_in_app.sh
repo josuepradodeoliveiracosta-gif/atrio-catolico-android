@@ -123,6 +123,27 @@ case "${1:-}" in
     # Testes negativos na própria interface, com os mesmos componentes usados
     # no release (sem permitir baixar/install APK que viole a política).
     run_ui_test rejectsWrongCertificateBeforeDownload bad-cert
+
+    # Redirect para host externo no manifesto: nao oferecer o APK.
+    run_ui_test blocksExternalRedirectForManifestBeforeOfferingDownload manifest-redirect-external
+    if ! grep -Eq 'GET /releases/download/[^ ]+/update[.]json HTTP/1[.]1" 302 ' \
+      "$OUT/server-manifest-redirect-external.log"; then
+      echo "::error::Fixture de redirect externo do manifesto nao foi usado" >&2
+      exit 1
+    fi
+    if grep -Eq 'GET /releases/download/[^ ]+/atrio-catolico[.]apk ' \
+      "$OUT/server-manifest-redirect-external.log"; then
+      echo "::error::APK foi requisitado apos manifesto redirecionado" >&2
+      exit 1
+    fi
+
+    # Redirect para host externo no APK: nenhuma instalacao nem cache residual.
+    run_ui_test blocksExternalRedirectForApkWithoutKeepingPartialFile apk-redirect-external
+    if ! grep -Eq 'GET /releases/download/[^ ]+/atrio-catolico[.]apk HTTP/1[.]1" 302 ' \
+      "$OUT/server-apk-redirect-external.log"; then
+      echo "::error::Fixture de redirect externo do APK nao foi usado" >&2
+      exit 1
+    fi
     run_ui_test rejectsWrongApkChecksumAfterDownloading bad-hash
     run_ui_test rejectsDowngradeWithoutOfferingDownload downgrade
     run_ui_test handlesOfflineServerWithoutOfferingInstallation offline
@@ -188,7 +209,7 @@ case "${1:-}" in
       echo "::error::Android nao confirmou QA versionCode=35" >&2
       exit 1
     }
-    echo "PASSOU: OTA no app, rejeicao de hash/certificado/downgrade/offline/truncado/cancelado/sem-espaco/adulteracao-pos-download e retentativa segura, cache parcial limpo no reinicio, consulta 503 recuperada e dados da UI preservados em code 34 -> 35."
+    echo "PASSOU: OTA no app, rejeicao de hash/certificado/downgrade/offline/truncado/cancelado/sem-espaco/adulteracao-pos-download e retentativa segura, cache parcial limpo no reinicio, consulta 503 recuperada, redirects externos bloqueados e dados da UI preservados em code 34 -> 35."
     ;;
   *)
     echo "Uso: bash scripts/ota_qa_in_app.sh prepare|emulator" >&2
