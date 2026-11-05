@@ -175,7 +175,7 @@ class EmailVerificationAndroidUiTest {
             compose.onAllNodesWithTag("atrio-tab-publish", useUnmergedTree = true)
                 .fetchSemanticsNodes().isEmpty()
         )
-        compose.onNodeWithTag("atrio-email-verification-signout").performClick()
+        compose.onNodeWithTag("atrio-email-verification-signout").performScrollTo().performClick()
         compose.waitUntil(15000) { auth.currentUser == null }
     }
 
