@@ -143,3 +143,44 @@ O valor `pushDiagnostic`, se exibido, identifica a próxima correção a realiza
 O erro real de QA `pushDiagnostic: policy_fetch_failed`, com política `MISSING` e conta não verificada, foi rastreado a uma incompatibilidade no código compartilhado: `redirect: 'error'` não é implementado pelo runtime Cloudflare Workers e lança TypeError antes de receber HTTP. A documentação da Cloudflare orienta `redirect: 'manual'` e checagem explícita dos códigos 3xx. A correção altera **somente** esse modo de redirecionamento no helper; todas as respostas não-2xx (inclusive 3xx, 401/403/5xx) continuam falhando fechado. O modo `cache: 'no-store'` e o timeout são preservados.
 
 Após passar CI, enviar novas versões com herança estrita de segredos/vínculos e executar novamente os testes QA reais, sem ativar a política obrigatória ou liberar APK Release.
+
+
+## Homologação pré-ativação aprovada e rollout protegido (05/11/2026)
+
+Após as correções da PR #147 e o rollout dos Workers Push **v35** e Avatares **v14**, as duas contas reais de laboratório passaram os três testes de autenticação com política **MISSING**: conta não verificada (`emailVerified:false`) e verificada (`emailVerified:true`), ambas com Firestore 404, Avatares 403 e Push/Guardião 202. Resultado em ambos: `allPassed:true`. Evidência registrada na issue #134.
+
+A ferramenta `scripts/termux-email-policy-rollout.mjs` permite ativação controlada pelo operador no Termux **sem gcloud, sem Firebase MCP e sem gravar backups**. O comando padrão é só leitura:
+
+```sh
+cd ~/atrio-auditoria
+git pull --ff-only origin main
+node scripts/termux-email-policy-rollout.mjs
+```
+
+Para autorizar a ativação de fato, o operador deve confirmar antes `canActivate:true`, `rulesMatch:true` e `emailPolicyBefore:MISSING`, e estar pronto para executar imediatamente os testes de QA pós-ativação. Somente então executa a operação **que cria um documento produtivo**:
+
+```sh
+node scripts/termux-email-policy-rollout.mjs --activate --confirm=ATRIO_EMAIL_POLICY_2026-11-v1
+```
+
+Esta operação usa `POST create` na coleção `app_config`, com ID fixo `email_verification`, e falha se o documento já existir (não realiza overwrite). O hash das regras locais e publicadas deve ser `4b479daa1d4d8673c3e1e9f70a2f9d752e7df996d414aefa1397ad86661bd76e`, com o helper e as verificações presentes. Uma nova inspeção imediatamente antes da escrita impede alterações inesperadas. Depois do POST, a ferramenta exige novamente estado `ACTIVE`, data de atualização correspondente e regras coincidentes. **Se o comando falhar após a escrita, não repeti-lo automaticamente: auditar o estado real.**
+
+Após resultado `emailPolicyAfter: ACTIVE`, **antes de qualquer Release**, executar na mesma cópia de auditoria:
+
+```sh
+node scripts/termux-email-production-readonly.mjs
+node scripts/termux-real-email-auth-smoke.mjs --policy=ACTIVE --user=unverified
+node scripts/termux-real-email-auth-smoke.mjs --policy=ACTIVE --user=verified
+```
+
+Esperado: `ready:true`; conta não confirmada bloqueada com Firestore 403, Avatares 401 e Push 401, sem perda de conexão ou 503; conta confirmada com Firestore 404, Avatares 400/403 e Push 202. Em seguida, completar QA manual no **Android Debug real**: tela de obrigatoriedade, reenvio do link, `reload`, token atualizado, acesso à comunidade somente após confirmar, leitura/escrita, reconexão, saída e retentativa. Nunca compartilhar e-mails, senhas, IDs de conta ou tokens.
+
+### Retorno emergencial controlado
+
+Se a política ativa causar bloqueios incorretos, **somente operador autorizado** pode executar:
+
+```sh
+node scripts/termux-email-policy-rollout.mjs --disable --confirm=ATRIO_EMAIL_POLICY_2026-11-v1
+```
+
+O rollback aplica `PATCH` **apenas** ao campo `enabled` usando `updateMask=enabled` e `currentDocument.updateTime` como precondição, para não sobrescrever atualização concorrente. A versão permanece `2026-11-v1`, mas `enabled:false` interrompe a obrigatoriedade. Se houver alteração concorrente, a operação falha sem forçar atualização; verificar o estado no Firebase. Rollback não altera o backup original, as regras, Workers ou APKs. Com política desligada, **Release continua proibido**. Mesmo com `ready:true`, o gate de Release só poderá ser liberado após a homologação Android e aprovação separada do Guardião.
