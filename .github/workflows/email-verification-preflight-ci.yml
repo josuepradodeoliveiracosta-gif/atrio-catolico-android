@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - 'scripts/email-verification-production-preflight*.mjs'
+      - 'scripts/termux-email-production-readonly*.mjs'
       - '.github/workflows/email-verification-preflight-ci.yml'
   workflow_dispatch:
 
@@ -26,6 +27,6 @@ jobs:
       - name: Testar somente mocks, sem rede nem segredos de producao
         env:
           ATRIO_READONLY_OAUTH_TOKEN: ''
-        run: node --test scripts/email-verification-production-preflight.test.mjs
+        run: node --test scripts/email-verification-production-preflight.test.mjs scripts/termux-email-production-readonly.test.mjs
       - name: Verificar sintaxe do auditor
-        run: node --check scripts/email-verification-production-preflight.mjs
+        run: node --check scripts/email-verification-production-preflight.mjs && node --check scripts/termux-email-production-readonly.mjs
