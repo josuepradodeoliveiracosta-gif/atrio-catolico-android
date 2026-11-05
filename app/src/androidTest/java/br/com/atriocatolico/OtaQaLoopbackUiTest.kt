@@ -103,6 +103,42 @@ class OtaQaLoopbackUiTest {
         compose.onNodeWithTag("atrio-ota-download").assertExists()
     }
 
+    @Test fun retriesInterruptedDownloadAndVerifiesSameOffer() {
+        assumeTrue(BuildConfig.DEBUG && OtaQaChannel.active)
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val folder = File(context.cacheDir, "ota")
+        val apk = File(folder, "atrio-catolico-ota.apk")
+        val partial = File(folder, "atrio-catolico-ota.part.apk")
+        compose.waitUntil(45_000) {
+            compose.onAllNodesWithTag("atrio-ota-available").fetchSemanticsNodes().isNotEmpty()
+        }
+        try {
+            // Primeira requisicao recebe Content-Length correto, corpo cortado.
+            compose.onNodeWithTag("atrio-ota-download").performClick()
+            compose.waitUntil(90_000) {
+                compose.onAllNodesWithTag("atrio-ota-download-failed")
+                    .fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onNodeWithTag("atrio-ota-install").assertDoesNotExist()
+            assertTrue("Falha deixou APK parcial", !partial.exists())
+            assertTrue("Falha deixou APK pronto", !apk.exists())
+
+            // A mesma oferta e consultada uma unica vez: a nova tentativa
+            // reutiliza-a, mas baixa e valida o arquivo inteiro de novo.
+            compose.onNodeWithTag("atrio-ota-download").performClick()
+            compose.waitUntil(90_000) {
+                compose.onAllNodesWithTag("atrio-ota-install").fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onNodeWithTag("atrio-ota-install").assertExists()
+            assertTrue("APK da segunda tentativa nao foi salvo", apk.isFile)
+            assertTrue("APK completo esperado na segunda tentativa", apk.length() > 4096L)
+            assertTrue("APK parcial sobreviveu a tentativa valida", !partial.exists())
+        } finally {
+            // Teste nao aciona instalador; remove cache de QA antes do proximo caso.
+            OtaApkDelivery.discardCachedApk(context)
+        }
+    }
+
     @Test fun cancelsSlowDownloadWithoutOfferingInstallation() {
         assumeTrue(BuildConfig.DEBUG && OtaQaChannel.active)
         compose.waitUntil(45_000) {
