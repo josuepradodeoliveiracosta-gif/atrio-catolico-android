@@ -88,6 +88,38 @@ class OtaQaLoopbackUiTest {
             !File(folder, "atrio-catolico-ota.part.apk").exists())
     }
 
+    @Test fun refusesCircularRedirectForManifestWithinBoundedRequests() {
+        assumeTrue(BuildConfig.DEBUG && OtaQaChannel.active)
+        // update.json responde 302 para ele mesmo. A consulta deve falhar
+        // sem ficar em loop e sem expor nenhuma oferta.
+        compose.waitUntil(45_000) {
+            compose.onAllNodesWithTag("atrio-ota-unavailable").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("atrio-ota-available").assertDoesNotExist()
+        compose.onNodeWithTag("atrio-ota-download").assertDoesNotExist()
+        compose.onNodeWithTag("atrio-ota-install").assertDoesNotExist()
+        compose.onNodeWithTag("atrio-ota-check-button").assertExists()
+    }
+
+    @Test fun refusesCircularRedirectForApkWithoutCacheOrInstallation() {
+        assumeTrue(BuildConfig.DEBUG && OtaQaChannel.active)
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val folder = File(context.cacheDir, "ota")
+        compose.waitUntil(45_000) {
+            compose.onAllNodesWithTag("atrio-ota-available").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("atrio-ota-download").performClick()
+        compose.waitUntil(45_000) {
+            compose.onAllNodesWithTag("atrio-ota-download-failed").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("atrio-ota-install").assertDoesNotExist()
+        compose.onNodeWithTag("atrio-ota-download").assertExists()
+        assertTrue("APK pronto nao pode persistir apos loop HTTP",
+            !File(folder, "atrio-catolico-ota.apk").exists())
+        assertTrue("APK parcial nao pode persistir apos loop HTTP",
+            !File(folder, "atrio-catolico-ota.part.apk").exists())
+    }
+
     @Test fun rejectsWrongApkChecksumAfterDownloading() {
         assumeTrue(BuildConfig.DEBUG && OtaQaChannel.active)
         compose.waitUntil(45_000) {
