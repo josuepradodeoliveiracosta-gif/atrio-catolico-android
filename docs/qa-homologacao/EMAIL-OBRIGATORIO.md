@@ -20,7 +20,7 @@ Os Workers de avatar e push executam operações privilegiadas que não dependem
 
 - Validar a sessão no endpoint oficial Firebase Identity Toolkit `accounts:lookup` e rejeitar UIDs inválidos e contas desativadas.
 - Liberar imediatamente uma conta com `emailVerified === true` devolvido pelo Firebase Auth, nunca por parâmetro, perfil ou string.
-- Para conta ainda não verificada, consultar `app_config/email_verification` por **REST Firestore com o próprio ID token já validado**, não com credencial de serviço. `enabled=true` e `version=2026-11-v1` impedem a operação.
+- Para conta ainda não verificada, consultar `app_config/email_verification` por **REST Firestore usando OAuth de serviço do Worker**, após validar o ID token do membro pelo Identity Toolkit. Nunca usar campos editáveis do perfil nem dispensar essa validação de identidade. `enabled=true` e `version=2026-11-v1` impedem a operação.
 - Tratar `404` da política como rollout ainda ausente; flag explicitamente desligada ou versão não ativada preservam compatibilidade. **401, 403, 429, 5xx, rede indisponível ou documento malformado NÃO autorizam a operação**.
 - Permanecer sem deploy até testes offline, análise dos endpoints e homologação do ambiente produtivo. Nenhum segredo deve ser impresso, nem o Worker de QA deve acessar produção.
 
@@ -110,3 +110,11 @@ node scripts/termux-real-email-auth-smoke.mjs --policy=ACTIVE --user=verified
 Não executar a fase ACTIVE antes de estabelecer a política pelo procedimento apropriado. O teste não valida a UI do Android nem substitui a confirmação do link, logout, retry/offline, abertura de discussões e testes instrumentados. Mesmo com testes PASS, assinatura Release depende de homologação completa e aprovação formal.
 
 Se a sessão Firebase CLI não puder ler a configuração Android ou a API key estiver bloqueada para uso no Termux, **não copiar chaves nem desativar restrições para forçar o teste**: interromper e adaptar o processo. As duas contas devem ser exclusivamente de QA e não compartilhar senha com o assistente.
+
+## Correção de homologação: Worker HTTP 503 com conta não verificada (PR #145)
+
+Em 05/11/2026, com a política **MISSING**, o teste real no Termux mostrou que a conta QA **não verificada** recebia 404 no GET de post inexistente (Firestore), mas **503** em ambos os Workers. A conta QA **verificada** recebeu 404, 403 e 202 nos três serviços, respectivamente. Isso isolou a falha ao ramo de leitura administrativa da política dos Workers, sem comprovar que ela era a única origem possível do erro.
+
+O código dos dois Workers foi alterado para reutilizar **o OAuth da service account que já existe nesses Workers**, exclusivamente para consultar a política. O ID token do usuário continua sendo validado pelo Identity Toolkit antes de qualquer privilégio. Se OAuth, Firestore, rede, corpo ou autorização falhar, o Worker permanece em **fail-closed 503**; se o documento estiver ausente, preserva a compatibilidade do rollout; se a política estiver ativa, nega o acesso ao usuário não confirmado.
+
+Testes unitários simulam Auth, OAuth administrativo e Firestore REST; a autenticação do usuário não pode ser substituída pelo token de serviço. A correção NÃO deve ser considerada homologada apenas porque o CI passou. É obrigatória uma nova versão dos Workers e repetição dos dois testes reais com `--policy=MISSING`, antes de qualquer ativação administrativa. Não liberar APK Release.
