@@ -68,6 +68,8 @@ android {
     buildTypes {
         getByName("debug") {
             buildConfigField("boolean", "OTA_QA_LOOPBACK", atrioOtaQaLoopback.toString())
+            // Instala lado a lado do app oficial: jamais substituir o Debug usual.
+            if (atrioOtaQaLoopback) applicationIdSuffix = ".otalab"
             // A numeração de testes aparece também dentro da aba Perfil.
             buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"$atrioDebugVersionName\"")
         }
