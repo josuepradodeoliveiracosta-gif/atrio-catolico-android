@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -65,6 +66,57 @@ internal fun MandatoryEmailVerificationGate(
                 OutlinedButton(
                     onClick = onSignOut,
                     modifier = Modifier.fillMaxWidth().testTag("atrio-email-verification-signout")
+                ) { Text("Sair da conta") }
+            }
+        }
+    }
+}
+
+/**
+ * Enquanto o Firestore nao confirma a politica diretamente do servidor,
+ * nao exibimos a comunidade para contas com e-mail ainda nao confirmado.
+ * Uma falha de rede nunca libera o acesso por acidente.
+ */
+@Composable
+internal fun EmailVerificationPolicyStatusScreen(
+    unavailable: Boolean, onRetry: () -> Unit, onSignOut: () -> Unit
+) {
+    Column(
+        Modifier.fillMaxSize().background(Wine)
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp, vertical = 36.dp)
+            .testTag("atrio-email-policy-pending"),
+        verticalArrangement = Arrangement.spacedBy(18.dp)
+    ) {
+        Text("Átrio Católico", color = Gold, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+        Card(colors = CardDefaults.cardColors(containerColor = Paper)) {
+            Column(
+                Modifier.fillMaxWidth().padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    if (unavailable) "Não foi possível verificar o acesso"
+                    else "Verificando sua conta",
+                    style = MaterialTheme.typography.titleLarge
+                )
+                if (unavailable) {
+                    Text(
+                        "Não conseguimos consultar as regras de confirmação de e-mail. " +
+                            "Confira a conexão e tente novamente. Sua conta permanece protegida."
+                    )
+                    OutlinedButton(
+                        onClick = onRetry,
+                        modifier = Modifier.fillMaxWidth().testTag("atrio-email-policy-retry")
+                    ) { Text("Tentar novamente") }
+                } else {
+                    Text("Consultando as regras de acesso com segurança...")
+                    CircularProgressIndicator(
+                        modifier = Modifier.testTag("atrio-email-policy-loading")
+                    )
+                }
+                OutlinedButton(
+                    onClick = onSignOut,
+                    modifier = Modifier.fillMaxWidth().testTag("atrio-email-policy-signout")
                 ) { Text("Sair da conta") }
             }
         }
