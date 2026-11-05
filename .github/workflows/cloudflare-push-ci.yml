@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - "cloudflare/push-worker/**"
+      - "cloudflare/email-verification-policy*.mjs"
+      - "cloudflare/worker-email-gate.test.mjs"
       - ".github/workflows/cloudflare-push-ci.yml"
   workflow_dispatch:
 
@@ -26,4 +28,4 @@ jobs:
         with:
           node-version: "22"
       - name: Testes isolados sem Firebase ou Cloudflare de produção
-        run: node --test cloudflare/push-worker/src/index.test.js
+        run: node --test cloudflare/push-worker/src/index.test.js cloudflare/email-verification-policy.test.mjs cloudflare/worker-email-gate.test.mjs
