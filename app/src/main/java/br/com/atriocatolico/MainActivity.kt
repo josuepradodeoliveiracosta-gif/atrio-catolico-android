@@ -166,7 +166,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val prefs = getSharedPreferences("atrio-demo", Context.MODE_PRIVATE)
         setContent {
-            if (startupState.opening) {
+            if (OtaQaChannel.active) {
+                OtaQaScreen()
+            } else if (startupState.opening) {
                 AtrioTheme {
                     AtrioStartupVideo(this@MainActivity) { startupState.opening = false }
                 }
