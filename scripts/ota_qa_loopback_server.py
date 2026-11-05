@@ -17,7 +17,7 @@ import sys
 from urllib.parse import urlsplit
 
 ORIGIN = "http://127.0.0.1:8765"
-PACKAGE = "br.com.atriocatolico"
+PACKAGE = "br.com.atriocatolico.otalab"
 MAX_APK_BYTES = 262_144_000
 
 
