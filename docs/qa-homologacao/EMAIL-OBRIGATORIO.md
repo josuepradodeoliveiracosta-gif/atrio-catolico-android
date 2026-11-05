@@ -137,3 +137,9 @@ node scripts/termux-real-email-auth-smoke.mjs --policy=MISSING --user=unverified
 ```
 
 O valor `pushDiagnostic`, se exibido, identifica a próxima correção a realizar no GitHub. Não habilitar a política, não publicar APK Release e não alterar o backup enquanto o resultado for `allPassed:false`.
+
+## Compatibilidade do fetch com Cloudflare Workers (05/11/2026)
+
+O erro real de QA `pushDiagnostic: policy_fetch_failed`, com política `MISSING` e conta não verificada, foi rastreado a uma incompatibilidade no código compartilhado: `redirect: 'error'` não é implementado pelo runtime Cloudflare Workers e lança TypeError antes de receber HTTP. A documentação da Cloudflare orienta `redirect: 'manual'` e checagem explícita dos códigos 3xx. A correção altera **somente** esse modo de redirecionamento no helper; todas as respostas não-2xx (inclusive 3xx, 401/403/5xx) continuam falhando fechado. O modo `cache: 'no-store'` e o timeout são preservados.
+
+Após passar CI, enviar novas versões com herança estrita de segredos/vínculos e executar novamente os testes QA reais, sem ativar a política obrigatória ou liberar APK Release.
