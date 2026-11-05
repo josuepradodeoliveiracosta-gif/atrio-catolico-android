@@ -24,7 +24,7 @@ test('conta nao confirmada e bloqueada por documento ativo na versao oficial',as
     assert.equal(url,EMAIL_VERIFICATION_POLICY_URL);
     assert.equal(options.method,'GET');
     assert.equal(options.headers.Authorization,'Bearer '+token);
-    assert.equal(options.redirect,'error');
+    assert.equal(options.redirect,'manual');
     assert.equal(options.cache,'no-store');
     assert.ok(options.signal);
     return policy(true);
@@ -106,4 +106,30 @@ test('rede e JSON incorreto nao autorizam acesso e tem codigo limitado',async()=
   }),err=>err.qaCode==='policy_fetch_failed' && err.message==='email_policy_unavailable');
   await assert.rejects(emailAllowsCommunity(token,false,async()=>Response.json({})),
     err=>err.qaCode==='policy_invalid_response');
+});
+
+test('Cloudflare suporta redirect manual e rejeita redirecionamentos sem liberar acesso',async()=>{
+  const token='qa-service-oauth-'+ 's'.repeat(150);
+  let requests=0;
+  await assert.rejects(emailAllowsCommunity(token,false,async(url,options)=>{
+    requests++;
+    assert.equal(options.redirect,'manual');
+    // Simula a restricao do workerd: redirect:error lancaria TypeError
+    // antes da requisicao. Modo manual preserva resposta HTTP 302.
+    if(options.redirect==='error')throw TypeError('Redirect mode error not implemented');
+    return new Response(null,{status:302,headers:{Location:'https://example.invalid/other'}});
+  }),err=>{
+    assert.equal(err.message,'email_policy_unavailable');
+    assert.equal(err.qaCode,'policy_http_other');
+    return true;
+  });
+  assert.equal(requests,1);
+});
+test('modo manual tambem preserva fail closed para redirect 307/308',async()=>{
+  for(const status of [301,307,308]){
+    await assert.rejects(emailAllowsCommunity(token,false,async(url,options)=>{
+      assert.equal(options.redirect,'manual');
+      return new Response(null,{status});
+    }),err=>err.message==='email_policy_unavailable'&&err.qaCode==='policy_http_other');
+  }
 });
