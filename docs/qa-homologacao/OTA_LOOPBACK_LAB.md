@@ -88,6 +88,12 @@ O cliente de consulta de manifesto e o downloader do APK já limitam redireciona
 
 São ensaios exclusivamente no pacote Debug `.otalab`, sem instalação no Android, sem comunicação com Firebase de produção, sem alterar assinatura e sem autorização de Release oficial. Não demonstram comportamento de uma CDN real nem substituem a homologação física com assinatura permanente.
 
+## Complemento — consentimento para instalar APK de fonte externa
+
+O teste instrumentado `unknownSourcesDeniedKeepsInstallerBlockedAndVersionUnchanged` utiliza o mesmo botão **Instalar atualização** depois de baixar e validar um APK válido. O runner marca **REQUEST_INSTALL_PACKAGES = ignore** exclusivamente para o pacote Debug `.otalab`; confirma que `canRequestPackageInstalls()` é falso, aciona o botão e verifica que a versão instalada não mudou e que o aplicativo não concedeu a permissão por conta própria. Ao final, restaura o estado de teste e remove o cache de QA.
+
+Essa prova **não automatiza o aceite da tela de configurações nem a confirmação da instalação**: essas decisões pertencem ao Android e continuam obrigatórias no aparelho físico. O teste não libera nenhum gate de produção nem altera o aplicativo ou as preferências oficiais.
+
 ## O que foi reaproveitado
 
 A mesma implementação de produção `OtaReleaseClient`, `OtaUpdatePolicy`, `OtaApkPolicy`, `OtaApkDelivery`, `OtaUpdateController` e `OtaUpdatesSection` detecta, baixa, confere e oferece o botão de instalação. Nenhuma segunda implementação de downloader ou de validador de assinatura foi criada.
