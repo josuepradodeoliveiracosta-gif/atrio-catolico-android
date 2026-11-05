@@ -57,13 +57,18 @@ internal data class OtaManifest(
 internal object OtaUpdatePolicy {
     const val PACKAGE = "br.com.atriocatolico"
     const val REPO = "josuepradodeoliveiracosta-gif/atrio-catolico-android"
-    const val API = "https://api.github.com/repos/$REPO/releases/latest"
+    val API: String get() = if (OtaQaChannel.active)
+        "${OtaQaChannel.ORIGIN}/releases/latest"
+    else "https://api.github.com/repos/$REPO/releases/latest"
     private val versionPattern = Regex("""[0-9]+\.[0-9]+\.[0-9]+""")
     private val digestPattern = Regex("""[0-9a-fA-F]{64}""")
 
-    fun expectedPage(tag: String) = "https://github.com/$REPO/releases/tag/$tag"
-    fun expectedAsset(tag: String, file: String) =
-        "https://github.com/$REPO/releases/download/$tag/$file"
+    fun expectedPage(tag: String): String = if (OtaQaChannel.active)
+        "${OtaQaChannel.ORIGIN}/releases/tag/$tag"
+    else "https://github.com/$REPO/releases/tag/$tag"
+    fun expectedAsset(tag: String, file: String): String = if (OtaQaChannel.active)
+        "${OtaQaChannel.ORIGIN}/releases/download/$tag/$file"
+    else "https://github.com/$REPO/releases/download/$tag/$file"
 
     /**
      * Never compare versionName lexically; Android's versionCode is authoritative.
