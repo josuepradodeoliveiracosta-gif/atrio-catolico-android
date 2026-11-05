@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from http.server import ThreadingHTTPServer
 from threading import Thread
+from urllib.error import HTTPError
 from urllib.request import urlopen
 
 MODULE = Path(__file__).with_name("ota_qa_loopback_server.py")
@@ -61,6 +62,10 @@ class OtaQaLoopbackTests(unittest.TestCase):
         )
         self.assertEqual(
             ota.build_fixture(self.metadata, fixture_mode="truncated-once")[1],
+            ota.build_fixture(self.metadata, fixture_mode="valid")[1],
+        )
+        self.assertEqual(
+            ota.build_fixture(self.metadata, fixture_mode="api-unavailable-once")[1],
             ota.build_fixture(self.metadata, fixture_mode="valid")[1],
         )
         with self.assertRaises(ValueError):
@@ -144,6 +149,35 @@ class OtaQaLoopbackTests(unittest.TestCase):
             server.server_close()
             thread.join(timeout=5)
 
+
+    def test_first_latest_query_returns_503_then_recovers_without_changing_assets(self):
+        release, manifest = ota.build_fixture(self.metadata)
+        handler = ota.make_handler(
+            self.apk, release, manifest, fixture_mode="api-unavailable-once"
+        )
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        thread = Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        base = f"http://127.0.0.1:{server.server_port}"
+        latest = base + "/releases/latest"
+        try:
+            with self.assertRaises(HTTPError) as response:
+                urlopen(latest)
+            self.assertEqual(response.exception.code, 503)
+            # O primeiro 503 deve atingir SOMENTE latest. Outros assets,
+            # incluindo o manifesto, permanecem corretos e imutaveis.
+            with urlopen(base + "/releases/download/v0.19.8/update.json") as response:
+                self.assertEqual(json.load(response), manifest)
+            with urlopen(latest) as response:
+                self.assertEqual(json.load(response), release)
+            with urlopen(latest) as response:
+                self.assertEqual(json.load(response), release)
+            with urlopen(base + "/releases/download/v0.19.8/atrio-catolico.apk") as response:
+                self.assertEqual(response.read(), self.apk.read_bytes())
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
 
     def test_slow_stream_allows_the_client_to_disconnect(self):
         # Este fixture faz a leitura parcial de um APK lento, sem utilizar

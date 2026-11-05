@@ -94,7 +94,7 @@ def build_fixture(info: dict, *, fixture_mode: str = "valid") -> tuple[dict, dic
         manifest["certificateSha256"] = "0" * 64
     elif fixture_mode == "downgrade":
         manifest["versionCode"] = 1
-    elif fixture_mode not in ("valid", "truncated-apk", "truncated-once", "slow-apk"):
+    elif fixture_mode not in ("valid", "truncated-apk", "truncated-once", "slow-apk", "api-unavailable-once"):
         raise ValueError("Modo de fixture nao autorizado")
     release = {
         "tag_name": tag,
@@ -121,6 +121,10 @@ def make_handler(apk: Path, release: dict, manifest: dict, fixture_mode: str = "
     # ThreadingHTTPServer atende requisicoes em threads diferentes.
     transfer_attempts = [0]
     transfer_lock = Lock()
+    # O servidor QA envia apenas UM HTTP 503 no endpoint latest. A proxima
+    # consulta responde normalmente, sem alterar o manifesto ou o APK.
+    release_attempts = [0]
+    release_lock = Lock()
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -128,6 +132,16 @@ def make_handler(apk: Path, release: dict, manifest: dict, fixture_mode: str = "
             if url.query or url.fragment:
                 self.send_error(404)
                 return
+            if url.path == "/releases/latest" and fixture_mode == "api-unavailable-once":
+                with release_lock:
+                    release_attempts[0] += 1
+                    first_request = release_attempts[0] == 1
+                if first_request:
+                    self.send_response(503)
+                    self.send_header("Content-Length", "0")
+                    self.send_header("Cache-Control", "no-store")
+                    self.end_headers()
+                    return
             if url.path in urls:
                 body = urls[url.path]
                 self.send_response(200)
@@ -191,7 +205,7 @@ def main() -> None:
                         help="Gravar update.json para distribuir junto aos dois APKs QA")
     parser.add_argument("--verify-only", action="store_true",
                         help="Validar e/ou gerar manifesto sem ligar o servidor")
-    parser.add_argument("--mode", choices=["valid", "bad-hash", "bad-cert", "downgrade", "truncated-apk", "truncated-once", "slow-apk"],
+    parser.add_argument("--mode", choices=["valid", "bad-hash", "bad-cert", "downgrade", "truncated-apk", "truncated-once", "slow-apk", "api-unavailable-once"],
                         default="valid")
     args = parser.parse_args()
     apk = args.apk.resolve(strict=True)
