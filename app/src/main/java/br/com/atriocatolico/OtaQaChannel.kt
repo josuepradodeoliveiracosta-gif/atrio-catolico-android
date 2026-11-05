@@ -1,5 +1,8 @@
 package br.com.atriocatolico
 
+import android.content.Context
+import android.os.StatFs
+import java.io.File
 import java.net.URI
 
 /**
@@ -13,6 +16,16 @@ import java.net.URI
 internal object OtaQaChannel {
     const val ORIGIN = "http://127.0.0.1:8765"
     val active: Boolean get() = BuildConfig.DEBUG && BuildConfig.OTA_QA_LOOPBACK
+
+    /**
+     * Simulacao de espaco zero exclusivamente no pacote Debug .otalab.
+     * Nunca altera o armazenamento nem os dados reais do usuario.
+     */
+    fun freeSpaceForUpdate(context: Context, folder: File): Long {
+        if (active && context.getSharedPreferences("atrio_ota_lab_prefs", Context.MODE_PRIVATE)
+                .getBoolean("qa_force_low_space", false)) return 0L
+        return StatFs(folder.absolutePath).availableBytes
+    }
 
     fun isAllowedUri(uri: URI, productionHosts: Set<String>): Boolean {
         if (uri.rawUserInfo != null || uri.rawFragment != null ||
