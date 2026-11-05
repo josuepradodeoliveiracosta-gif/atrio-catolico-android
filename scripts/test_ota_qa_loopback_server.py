@@ -59,6 +59,10 @@ class OtaQaLoopbackTests(unittest.TestCase):
             ota.build_fixture(self.metadata, fixture_mode="slow-apk")[1],
             ota.build_fixture(self.metadata, fixture_mode="valid")[1],
         )
+        self.assertEqual(
+            ota.build_fixture(self.metadata, fixture_mode="truncated-once")[1],
+            ota.build_fixture(self.metadata, fixture_mode="valid")[1],
+        )
         with self.assertRaises(ValueError):
             ota.build_fixture(self.metadata, fixture_mode="unsupported")
 
@@ -106,6 +110,39 @@ class OtaQaLoopbackTests(unittest.TestCase):
             server.server_close()
             thread.join(timeout=5)
 
+
+
+    def test_truncated_first_download_succeeds_on_retry_without_manifest_change(self):
+        self.apk.write_bytes(b"OTA QA RETRY " * 8_000)
+        self.metadata["apkSizeBytes"] = self.apk.stat().st_size
+        release, manifest = ota.build_fixture(self.metadata)
+        handler = ota.make_handler(
+            self.apk, release, manifest, fixture_mode="truncated-once"
+        )
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        thread = Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        base = f"http://127.0.0.1:{server.server_port}"
+        url = base + "/releases/download/v0.19.8/atrio-catolico.apk"
+        try:
+            with urlopen(base + "/releases/download/v0.19.8/update.json") as response:
+                self.assertEqual(json.load(response)["apkSizeBytes"], self.apk.stat().st_size)
+            with urlopen(url) as response:
+                self.assertEqual(
+                    response.headers["Content-Length"], str(self.apk.stat().st_size)
+                )
+                with self.assertRaises(IncompleteRead):
+                    response.read()
+            # A mesma URL deve entregar o arquivo completo na proxima tentativa,
+            # sem mudar o manifesto, certificado ou versao anunciada.
+            with urlopen(url) as response:
+                self.assertEqual(response.read(), self.apk.read_bytes())
+            with urlopen(base + "/releases/download/v0.19.8/update.json") as response:
+                self.assertEqual(json.load(response), manifest)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
 
 
     def test_slow_stream_allows_the_client_to_disconnect(self):

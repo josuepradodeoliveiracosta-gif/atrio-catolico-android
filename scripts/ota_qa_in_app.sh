@@ -103,6 +103,7 @@ case "${1:-}" in
     run_ui_test rejectsDowngradeWithoutOfferingDownload downgrade
     run_ui_test handlesOfflineServerWithoutOfferingInstallation offline
     run_ui_test rejectsInterruptedDownloadWithoutOfferingInstallation truncated-apk
+    run_ui_test retriesInterruptedDownloadAndVerifiesSameOffer truncated-once
     run_ui_test cancelsSlowDownloadWithoutOfferingInstallation slow-apk
     run_ui_test refusesDownloadWhenStorageIsInsufficient valid
     # Este ultimo servidor 'valid' atende somente o teste sem espaco.
@@ -152,7 +153,7 @@ case "${1:-}" in
       echo "::error::Android nao confirmou QA versionCode=35" >&2
       exit 1
     }
-    echo "PASSOU: OTA no app, rejeicao de hash/certificado/downgrade/offline/truncado/cancelado/sem-espaco/adulteracao-pos-download e dados da UI preservados em code 34 -> 35."
+    echo "PASSOU: OTA no app, rejeicao de hash/certificado/downgrade/offline/truncado/cancelado/sem-espaco/adulteracao-pos-download e retentativa segura e dados da UI preservados em code 34 -> 35."
     ;;
   *)
     echo "Uso: bash scripts/ota_qa_in_app.sh prepare|emulator" >&2
