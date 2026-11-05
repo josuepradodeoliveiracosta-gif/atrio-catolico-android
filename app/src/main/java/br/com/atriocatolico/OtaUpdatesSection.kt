@@ -87,6 +87,11 @@ internal class OtaUpdateController(private val appContext: Context) {
         } catch (cancelled: CancellationException) {
             OtaApkDelivery.discardCachedApk(appContext)
             downloadState = OtaDownloadState.Idle
+        } catch (_: OtaInsufficientSpaceException) {
+            OtaApkDelivery.discardCachedApk(appContext)
+            downloadState = OtaDownloadState.Failed(
+                "Espaço insuficiente para baixar a atualização. Libere espaço e tente novamente."
+            )
         } catch (_: Exception) {
             OtaApkDelivery.discardCachedApk(appContext)
             downloadState = OtaDownloadState.Failed(
