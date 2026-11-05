@@ -274,4 +274,38 @@ class EmailVerificationAndroidUiTest {
         assertEquals(true, token.claims["email_verified"])
     }
 
+
+    @Test fun aguardandoPoliticaNaoExibeForumNemBotaoDeBypass() {
+        compose.setContent {
+            AtrioTheme {
+                EmailVerificationPolicyStatusScreen(
+                    unavailable = false, onRetry = {}, onSignOut = {}
+                )
+            }
+        }
+        waitForTag("atrio-email-policy-pending")
+        waitForTag("atrio-email-policy-loading")
+        assertTrue(compose.onAllNodesWithTag("atrio-email-policy-retry").fetchSemanticsNodes().isEmpty())
+        assertTrue(compose.onAllNodesWithTag("atrio-tab-publish").fetchSemanticsNodes().isEmpty())
+    }
+
+    @Test fun falhaDePoliticaPermiteRepetirConsultaOuSairSemAbrirForum() {
+        var retries = 0
+        var signedOut = false
+        compose.setContent {
+            AtrioTheme {
+                EmailVerificationPolicyStatusScreen(
+                    unavailable = true,
+                    onRetry = { retries++ },
+                    onSignOut = { signedOut = true }
+                )
+            }
+        }
+        waitForTag("atrio-email-policy-pending")
+        assertTrue(compose.onAllNodesWithTag("atrio-tab-publish").fetchSemanticsNodes().isEmpty())
+        compose.onNodeWithTag("atrio-email-policy-retry").performScrollTo().performClick()
+        compose.runOnIdle { assertEquals(1, retries) }
+        compose.onNodeWithTag("atrio-email-policy-signout").performScrollTo().performClick()
+        compose.runOnIdle { assertTrue(signedOut) }
+    }
 }
