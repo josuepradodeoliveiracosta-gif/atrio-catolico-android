@@ -152,3 +152,39 @@ test('servico de autenticacao indisponivel falha fechado sem mensagens pessoais'
   await assert.rejects(signInQa(key,'qa@example.invalid','password-not-logged',f),
     e=>{assert.equal(e.message,'atrio_real_auth_qa_qa_signin_failed');return true;});
 });
+
+
+test('Termux mostra apenas codigo QA seguro do Push em 503',async()=>{
+  const f=authStub({verified:false,policy:'MISSING'});
+  const testFetch=async(url,options)=>{
+    if(String(url).endsWith('/moderation/event')){
+      assert.equal(options.headers['X-Atrio-QA-Diagnostic'],'1');
+      return json({status:'unavailable',qaDiagnostic:'policy_http_403'},503);
+    }
+    return f.fetcher(url,options);
+  };
+  const result=await runRealAccountQa({
+    apiKey:key,email:'qa@example.invalid',password:'password-not-logged',
+    expectedPolicy:'MISSING',expectedVerified:false,fetcher:testFetch,
+    randomId:()=> '12345678-1234-4234-a234-123456789abc'
+  });
+  assert.equal(result.allPassed,false);
+  assert.equal(result.pushDiagnostic,'policy_http_403');
+  assert.equal(JSON.stringify(result).includes(userToken),false);
+});
+test('Termux nunca imprime codigo arbitrario ou detalhes remotos',async()=>{
+  const f=authStub({verified:false,policy:'MISSING'});
+  const testFetch=async(url,options)=>{
+    if(String(url).endsWith('/moderation/event'))
+      return json({status:'unavailable',
+        qaDiagnostic:'private@example.com secret private key'},503);
+    return f.fetcher(url,options);
+  };
+  const result=await runRealAccountQa({
+    apiKey:key,email:'qa@example.invalid',password:'password-not-logged',
+    expectedPolicy:'MISSING',expectedVerified:false,fetcher:testFetch,
+    randomId:()=> '12345678-1234-4234-a234-123456789abc'
+  });
+  assert.equal(result.pushDiagnostic,'unclassified_503');
+  assert.ok(!JSON.stringify(result).includes('private@example.com'));
+});
