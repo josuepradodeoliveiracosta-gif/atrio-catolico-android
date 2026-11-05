@@ -61,7 +61,32 @@ class OtaReleaseGateTests(unittest.TestCase):
         ota_check = (
             ROOT / "app/src/main/java/br/com/atriocatolico/OtaReleaseClient.kt"
         ).read_text(encoding="utf-8")
-        self.assertIn("if (BuildConfig.DEBUG) return OtaCheckStatus.TestBuild", ota_check)
+        # O Debug convencional continua sem OTA. Somente o aplicativo
+        # .otalab, compilado deliberadamente em QA, exercita o cliente real.
+        self.assertIn(
+            "if (BuildConfig.DEBUG && !OtaQaChannel.active) return OtaCheckStatus.TestBuild",
+            ota_check,
+        )
+        qa_channel = (
+            ROOT / "app/src/main/java/br/com/atriocatolico/OtaQaChannel.kt"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "BuildConfig.DEBUG && BuildConfig.OTA_QA_LOOPBACK", qa_channel
+        )
+        gradle = (ROOT / "app/build.gradle.kts").read_text(encoding="utf-8")
+        self.assertIn(
+            'System.getenv("ATRIO_OTA_QA_LOOPBACK") == "1"', gradle
+        )
+        self.assertIn(
+            'if (atrioOtaQaLoopback) applicationIdSuffix = ".otalab"', gradle
+        )
+        self.assertIn(
+            'buildConfigField("boolean", "OTA_QA_LOOPBACK", "false")', gradle
+        )
+        self.assertIn(
+            "O laboratorio OTA isolado nunca pode compilar APK ou bundle Release.",
+            gradle,
+        )
         lab_qa = (
             ROOT / ".github/workflows/ota-upgrade-qa.yml"
         ).read_text(encoding="utf-8")
