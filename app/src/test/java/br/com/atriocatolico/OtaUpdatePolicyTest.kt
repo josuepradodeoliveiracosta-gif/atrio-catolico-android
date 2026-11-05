@@ -2,6 +2,8 @@ package br.com.atriocatolico
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
+import java.net.URI
 import org.junit.Test
 
 class OtaUpdatePolicyTest {
@@ -110,6 +112,29 @@ class OtaUpdatePolicyTest {
     @Test fun mandatoryUpdatesRemainDisabledInThisStage() {
         assertEquals(OtaCheckStatus.Unavailable,
             inspect(remoteManifest = manifest.copy(mandatory = true)))
+    }
+
+    @Test fun redirectAllowlistRejectsExternalOriginsAndUnsafeUriSyntax() {
+        val allowedProduction = setOf(
+            "github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com"
+        )
+        // Mesmo no laboratório, o navegador OTA nao pode sair do loopback.
+        assertFalse(OtaQaChannel.isAllowedUri(
+            URI("https://untrusted.invalid/atrio-catolico.apk"), allowedProduction))
+        assertFalse(OtaQaChannel.isAllowedUri(
+            URI("https://untrusted.invalid/update.json"), allowedProduction))
+        assertFalse(OtaQaChannel.isAllowedUri(
+            URI("https://github.com.evil.invalid/release.apk"), allowedProduction))
+        assertFalse(OtaQaChannel.isAllowedUri(
+            URI("http://127.0.0.1:8765/ota.apk?token=test"), allowedProduction))
+        assertFalse(OtaQaChannel.isAllowedUri(
+            URI("http://user@127.0.0.1:8765/ota.apk"), allowedProduction))
+        assertFalse(OtaQaChannel.isAllowedUri(
+            URI("http://127.0.0.1:8765/ota.apk#fragment"), allowedProduction))
+        val legitimate = if (OtaQaChannel.active)
+            URI("http://127.0.0.1:8765/releases/latest")
+        else URI("https://github.com/release.apk")
+        assertTrue(OtaQaChannel.isAllowedUri(legitimate, allowedProduction))
     }
 
     @Test fun exactRepositoryAndLatestApiStayPinned() {
