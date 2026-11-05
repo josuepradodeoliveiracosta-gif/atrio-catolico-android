@@ -23,6 +23,14 @@ O laboratório automatizado adiciona dois cenários de interface:
 
 Esses casos comprovam isolamento e comportamento de falha **somente no emulador de QA** quando seus jobs concluírem com sucesso. Não demonstram atualização oficial, assinatura permanente, rede móvel ou instalação Android após perda de conexão. A aprovação de Release segue proibida até a homologação exigida na issue #149.
 
+## Complemento — cancelamento manual e descarte de APK (PR de homologação)
+
+Foi acrescentado um cenário de **download lento** com APK válido, que permite pressionar o botão `Cancelar download` na interface. O teste verifica que a tela **não** oferece `Instalar atualização` após o cancelamento e retorna ao estado em que é possível tentar baixar novamente. O CI verifica também a ausência de `.part.apk` ou `atrio-catolico-ota.apk` remanescentes na pasta privada do laboratório.
+
+O controlador descarta o cache quando o download é cancelado, falha ou uma oferta anteriormente pronta deixa de ser válida; a limpeza usa somente dois nomes fixos dentro do próprio cache OTA. A lógica de assinatura e integridade existente permanece.
+
+O teste automatizado no emulador não comprova cancelamento pelo usuário em todos os aparelhos Android nem espaço insuficiente no dispositivo. **Nenhum Release oficial é assinado ou publicado nesta etapa.**
+
 ## O que foi reaproveitado
 
 A mesma implementação de produção `OtaReleaseClient`, `OtaUpdatePolicy`, `OtaApkPolicy`, `OtaApkDelivery`, `OtaUpdateController` e `OtaUpdatesSection` detecta, baixa, confere e oferece o botão de instalação. Nenhuma segunda implementação de downloader ou de validador de assinatura foi criada.

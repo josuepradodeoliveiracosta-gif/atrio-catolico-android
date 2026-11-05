@@ -55,6 +55,10 @@ class OtaQaLoopbackTests(unittest.TestCase):
             ota.build_fixture(self.metadata, fixture_mode="truncated-apk")[1],
             ota.build_fixture(self.metadata, fixture_mode="valid")[1],
         )
+        self.assertEqual(
+            ota.build_fixture(self.metadata, fixture_mode="slow-apk")[1],
+            ota.build_fixture(self.metadata, fixture_mode="valid")[1],
+        )
         with self.assertRaises(ValueError):
             ota.build_fixture(self.metadata, fixture_mode="unsupported")
 
@@ -102,6 +106,31 @@ class OtaQaLoopbackTests(unittest.TestCase):
             server.server_close()
             thread.join(timeout=5)
 
+
+
+    def test_slow_stream_allows_the_client_to_disconnect(self):
+        # Este fixture faz a leitura parcial de um APK lento, sem utilizar
+        # um aplicativo real nem esperar o arquivo inteiro.
+        self.apk.write_bytes(b"X" * 200_000)
+        self.metadata["apkSizeBytes"] = self.apk.stat().st_size
+        release, manifest = ota.build_fixture(self.metadata)
+        handler = ota.make_handler(self.apk, release, manifest, fixture_mode="slow-apk")
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        thread = Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        url = (
+            f"http://127.0.0.1:{server.server_port}/releases/download/"
+            "v0.19.8/atrio-catolico.apk"
+        )
+        try:
+            with urlopen(url) as response:
+                self.assertEqual(int(response.headers["Content-Length"]), 200_000)
+                self.assertEqual(response.read(1024), b"X" * 1024)
+                # Equivale ao cliente fechar o socket durante o download.
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
 
 
 if __name__ == "__main__":

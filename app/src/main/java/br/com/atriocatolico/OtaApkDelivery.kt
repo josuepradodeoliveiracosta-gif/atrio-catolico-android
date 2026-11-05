@@ -120,6 +120,16 @@ internal object OtaApkDelivery {
     }
 
     /**
+     * Exclui somente os dois nomes fixos do cache privado de atualizacao.
+     * Usado ao cancelar uma tarefa ou invalidar uma oferta ja baixada.
+     */
+    fun discardCachedApk(context: Context) {
+        val folder = File(context.cacheDir, "ota")
+        File(folder, "atrio-catolico-ota.part.apk").delete()
+        File(folder, "atrio-catolico-ota.apk").delete()
+    }
+
+    /**
      * Also called immediately before installation to detect changes in cache,
      * upgrades since download and certificate mismatch.
      */

@@ -86,6 +86,6 @@ jobs:
         if: always()
         run: |
           echo "## Laboratorio OTA local: nenhum APK Release ou GitHub Release publicado" >> "$GITHUB_STEP_SUMMARY"
-          echo "Prova automatizada abrange consulta, download e validação OTA na UI; cenários inválidos de certificado/hash/downgrade, servidor desligado e APK truncado (sem artefatos residuais), mais atualização por ADB com dados do app preservados." >> "$GITHUB_STEP_SUMMARY"
+          echo "Prova automatizada abrange consulta, download e validação OTA na UI; cenários inválidos de certificado/hash/downgrade, servidor desligado, APK truncado e download cancelado pelo usuário (sem artefatos residuais), mais atualização por ADB com dados do app preservados." >> "$GITHUB_STEP_SUMMARY"
           echo "**Nao equivale a atualizacao pelo instalador Android em aparelho real.** Essa validação presencial continua obrigatoria antes de desbloquear o Release." >> "$GITHUB_STEP_SUMMARY"
           echo "Pacote OTA isolado br.com.atriocatolico.otalab. Sem Firebase produtivo, sem chave oficial, sem backup alterado." >> "$GITHUB_STEP_SUMMARY"

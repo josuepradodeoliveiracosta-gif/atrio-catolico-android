@@ -103,7 +103,9 @@ case "${1:-}" in
     run_ui_test rejectsDowngradeWithoutOfferingDownload downgrade
     run_ui_test handlesOfflineServerWithoutOfferingInstallation offline
     run_ui_test rejectsInterruptedDownloadWithoutOfferingInstallation truncated-apk
-    # Nem o download temporario nem um APK pronto podem sobreviver a interrupcao.
+    run_ui_test cancelsSlowDownloadWithoutOfferingInstallation slow-apk
+    # Nem o download temporario nem um APK pronto podem sobreviver a
+    # interrupcao remota OU ao cancelamento iniciado pelo usuario.
     for filename in atrio-catolico-ota.part.apk atrio-catolico-ota.apk; do
       if adb shell run-as "$PACKAGE" ls "cache/ota/$filename" >/dev/null 2>&1; then
         echo "::error::Arquivo OTA residual apos falha: $filename" >&2
@@ -127,7 +129,7 @@ case "${1:-}" in
       echo "::error::Android nao confirmou QA versionCode=35" >&2
       exit 1
     }
-    echo "PASSOU: OTA no app, rejeicao de hash/certificado/downgrade/offline/download truncado e dados da UI preservados em code 34 -> 35."
+    echo "PASSOU: OTA no app, rejeicao de hash/certificado/downgrade/offline/truncado/cancelado e dados da UI preservados em code 34 -> 35."
     ;;
   *)
     echo "Uso: bash scripts/ota_qa_in_app.sh prepare|emulator" >&2
