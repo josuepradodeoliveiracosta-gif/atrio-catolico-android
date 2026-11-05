@@ -19,6 +19,9 @@ val atrioKeyPassword = System.getenv("ATRIO_SIGNING_KEY_PASSWORD")
 
 // Versão do APK de testes: avançar para 2, 3, ... a cada NOVA atualização Debug.
 // Proximo release OTA candidato 0.20.1 / versionCode 36; assinacao oficial exclusivamente no workflow manual aprovado.
+// Laboratorio OTA: apenas Debug construido deliberadamente com esta variavel.
+// Nenhum APK Release consegue receber este canal, mesmo com o env ligado.
+val atrioOtaQaLoopback = System.getenv("ATRIO_OTA_QA_LOOPBACK") == "1"
 val atrioDebugPatch = 7
 val atrioDebugVersionName = "0.19.$atrioDebugPatch"
 val atrioDebugVersionCode = 27 + atrioDebugPatch
@@ -64,10 +67,12 @@ android {
 
     buildTypes {
         getByName("debug") {
+            buildConfigField("boolean", "OTA_QA_LOOPBACK", atrioOtaQaLoopback.toString())
             // A numeração de testes aparece também dentro da aba Perfil.
             buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"$atrioDebugVersionName\"")
         }
         getByName("release") {
+            buildConfigField("boolean", "OTA_QA_LOOPBACK", "false")
             signingConfigs.findByName("atrioRelease")?.let { signingConfig = it }
         }
     }
