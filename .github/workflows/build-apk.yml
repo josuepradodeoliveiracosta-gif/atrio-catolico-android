@@ -7,6 +7,12 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# PR antiga nao deve continuar consumindo runner quando ha commit novo.
+# Nao interromper execucao manual de producao nem push na main.
+concurrency:
+  group: apk-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
@@ -63,6 +69,8 @@ jobs:
     if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.documentation_scope.outputs.heavy != 'false') }}
     name: Compilar aplicativo Android
     runs-on: ubuntu-latest
+    # Impede setup de SDK/Gradle indefinidamente ativo sem novo log.
+    timeout-minutes: 25
     steps:
       - name: Obter codigo
         uses: actions/checkout@v4
