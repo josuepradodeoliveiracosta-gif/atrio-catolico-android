@@ -57,6 +57,37 @@ class OtaQaLoopbackUiTest {
         compose.onNodeWithTag("atrio-ota-install").assertDoesNotExist()
     }
 
+    @Test fun blocksExternalRedirectForManifestBeforeOfferingDownload() {
+        assumeTrue(BuildConfig.DEBUG && OtaQaChannel.active)
+        // O servidor local anuncia o release, mas o update.json responde
+        // 302 para host HTTPS externo nao confiavel. Nenhum GET externo.
+        compose.waitUntil(45_000) {
+            compose.onAllNodesWithTag("atrio-ota-unavailable").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("atrio-ota-available").assertDoesNotExist()
+        compose.onNodeWithTag("atrio-ota-download").assertDoesNotExist()
+        compose.onNodeWithTag("atrio-ota-install").assertDoesNotExist()
+    }
+
+    @Test fun blocksExternalRedirectForApkWithoutKeepingPartialFile() {
+        assumeTrue(BuildConfig.DEBUG && OtaQaChannel.active)
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val folder = File(context.cacheDir, "ota")
+        compose.waitUntil(45_000) {
+            compose.onAllNodesWithTag("atrio-ota-available").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("atrio-ota-download").performClick()
+        compose.waitUntil(45_000) {
+            compose.onAllNodesWithTag("atrio-ota-download-failed").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("atrio-ota-install").assertDoesNotExist()
+        compose.onNodeWithTag("atrio-ota-download").assertExists()
+        assertTrue("APK pronto indevidamente apos redirect externo",
+            !File(folder, "atrio-catolico-ota.apk").exists())
+        assertTrue("APK parcial permaneceu apos redirect externo",
+            !File(folder, "atrio-catolico-ota.part.apk").exists())
+    }
+
     @Test fun rejectsWrongApkChecksumAfterDownloading() {
         assumeTrue(BuildConfig.DEBUG && OtaQaChannel.active)
         compose.waitUntil(45_000) {

@@ -69,6 +69,17 @@ O teste instrumentado exige que a primeira consulta exiba **Não foi possível c
 
 A sondagem de prontidão no CI consulta **somente o caminho fixo do `update.json`**, calculado a partir do manifesto QA. Assim, não consome indevidamente o primeiro erro destinado ao aplicativo; os logs de HTTP devem demonstrar uma falha e posterior recuperação. Não testa rede celular real, autenticação de GitHub, nem valida assinatura permanente; o OTA oficial continua aguardando homologação e autorização.
 
+## Complemento — redirecionamentos externos rejeitados
+
+O laboratório de QA adiciona dois cenários de redirecionamento **HTTP 302**, ambos originados no servidor local `127.0.0.1:8765`, apontando para um nome de domínio externo intencionalmente inválido (`untrusted.invalid`):
+
+- **Manifesto `update.json`:** a resposta anuncia um destino externo. O cliente deve rejeitar a consulta, sem mostrar botões de download ou instalação, e o servidor local não pode receber nenhuma requisição pelo APK.
+- **APK `atrio-catolico.apk`:** a oferta é apresentada validamente, mas o pedido do APK retorna um redirecionamento externo. O download deve falhar, continuar disponível para nova tentativa e remover qualquer APK parcial ou pronto, sem abrir o instalador.
+
+A suíte Python comprova que os fixtures respondem `302` e preservam os outros metadados; o script de QA exige a presença dos dois `302` nos logs do servidor. Testes unitários Kotlin também exercitam a lista de origens permitidas e recusam hosts parecidos, URL com credenciais, fragmentos e, no laboratório, parâmetros de consulta.
+
+Essas verificações são **ensaios de bloqueio**: nenhuma requisição aos endereços externos deve ser feita. Não representam permissões para acessar domínios de terceiros, não afetam o Firebase e não comprovam a homologação física do canal oficial. A assinatura permanente e a autorização de Release seguem pendentes.
+
 ## O que foi reaproveitado
 
 A mesma implementação de produção `OtaReleaseClient`, `OtaUpdatePolicy`, `OtaApkPolicy`, `OtaApkDelivery`, `OtaUpdateController` e `OtaUpdatesSection` detecta, baixa, confere e oferece o botão de instalação. Nenhuma segunda implementação de downloader ou de validador de assinatura foi criada.

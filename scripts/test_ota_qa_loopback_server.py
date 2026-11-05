@@ -1,6 +1,6 @@
 """Contrato de origem local OTA: fixtures nunca sao releases publicos."""
 import importlib.util
-from http.client import IncompleteRead
+from http.client import HTTPConnection, IncompleteRead
 import io
 import json
 from pathlib import Path
@@ -68,6 +68,11 @@ class OtaQaLoopbackTests(unittest.TestCase):
             ota.build_fixture(self.metadata, fixture_mode="api-unavailable-once")[1],
             ota.build_fixture(self.metadata, fixture_mode="valid")[1],
         )
+        for mode in ("manifest-redirect-external", "apk-redirect-external"):
+            self.assertEqual(
+                ota.build_fixture(self.metadata, fixture_mode=mode),
+                ota.build_fixture(self.metadata, fixture_mode="valid"),
+            )
         with self.assertRaises(ValueError):
             ota.build_fixture(self.metadata, fixture_mode="unsupported")
 
@@ -178,6 +183,47 @@ class OtaQaLoopbackTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
             thread.join(timeout=5)
+
+    def test_external_redirects_only_apply_to_chosen_asset(self):
+        release, manifest = ota.build_fixture(self.metadata)
+        tag = release["tag_name"]
+        cases = (
+            ("manifest-redirect-external", "update.json",
+             "https://untrusted.invalid/update.json"),
+            ("apk-redirect-external", "atrio-catolico.apk",
+             "https://untrusted.invalid/atrio-catolico.apk"),
+        )
+        for mode, asset, outside in cases:
+            with self.subTest(mode=mode):
+                handler = ota.make_handler(
+                    self.apk, release, manifest, fixture_mode=mode
+                )
+                server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+                thread = Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                try:
+                    connection = HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+                    try:
+                        connection.request(
+                            "GET", f"/releases/download/{tag}/{asset}"
+                        )
+                        response = connection.getresponse()
+                        self.assertEqual(response.status, 302)
+                        self.assertEqual(response.getheader("Location"), outside)
+                        self.assertEqual(response.read(), b"")
+                    finally:
+                        connection.close()
+                    # A API de descoberta permanece valida; so um asset
+                    # redireciona. A suite Android deve BLOQUEAR o Location.
+                    with urlopen(
+                        f"http://127.0.0.1:{server.server_port}/releases/latest"
+                    ) as response:
+                        self.assertEqual(json.load(response), release)
+                finally:
+                    server.shutdown()
+                    server.server_close()
+                    thread.join(timeout=5)
+
 
     def test_slow_stream_allows_the_client_to_disconnect(self):
         # Este fixture faz a leitura parcial de um APK lento, sem utilizar
