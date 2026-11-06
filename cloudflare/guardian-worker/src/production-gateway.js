@@ -35,9 +35,13 @@ async function firestore(t,path,method='GET',body){
     r=await fetch(BASE+path,{
       method,headers:{'authorization':'Bearer '+t,'content-type':'application/json'},
       body:body?JSON.stringify(body):undefined,
-      signal:AbortSignal.timeout(9000),redirect:'error'
+      // Cloudflare Workers nao implementa redirect:'error'; modo manual
+      // impede encaminhamento do Firebase ID token para terceiros.
+      signal:AbortSignal.timeout(9000),redirect:'manual'
     });
   }catch{return {ok:false,code:503};}
+  // Recusar explicitamente qualquer 3xx, inclusive redirecionamento com Location.
+  if(r.status>=300 && r.status<400)return {ok:false,code:503};
   if(!r.ok)return {ok:false,code:(r.status===401||r.status===403)?403:503};
   try{
     const raw=await r.text();
