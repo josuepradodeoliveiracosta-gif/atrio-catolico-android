@@ -142,6 +142,27 @@ class ReleasePairPreflightTests(unittest.TestCase):
                     sdk=self.sdk,
                 )
 
+    def test_readonly_workflow_is_manual_and_has_no_signing_or_release(self):
+        workflow = (Path(__file__).resolve().parents[1] /
+                    ".github/workflows/ota-release-pair-preflight.yml").read_text(
+                        encoding="utf-8")
+        self.assertIn("  workflow_dispatch:", workflow)
+        self.assertIn("  contents: read", workflow)
+        self.assertIn("  actions: read", workflow)
+        self.assertIn('run.get("path") == ".github/workflows/build-apk.yml"', workflow)
+        self.assertIn('run.get("event") == "workflow_dispatch"', workflow)
+        self.assertIn('run.get("run_attempt") == 1', workflow)
+        self.assertIn("scripts/ota_release_pair_preflight.py", workflow)
+        for forbidden in (
+            "  push:", "  pull_request:", "  workflow_run:", "  schedule:",
+            "secrets.", "contents: write", "gh release create", "gh release edit",
+            "gradle :app:assembleRelease", "actions/upload-artifact@",
+            "ATRIO_KEYSTORE_BASE64", "ATRIO_OTA_E2E_TESTED=true",
+            "ATRIO_OTA_RELEASE_APPROVED=true"
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, workflow)
+
 
 if __name__ == "__main__":
     unittest.main()
