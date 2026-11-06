@@ -53,8 +53,12 @@ try {
     assertFails(setDoc(doc(founder,key), {...support(), emailPrivado: 'dado-sensivel'})));
   await check('fundador não altera updatedBy', () =>
     assertFails(setDoc(doc(founder,key), {...support(),updatedBy:'other-support-test'})));
-  await check('fundador pode ocultar informações sem apagá-las', () =>
-    assertSucceeds(setDoc(doc(founder,key), {...support(),enabled:false})));
+  await check('não é permitido manter dados bancários quando a divulgação está desligada', () =>
+    assertFails(setDoc(doc(founder,key), {...support(),enabled:false})));
+  await check('fundador pode ocultar apoio apagando os dados publicados', () =>
+    assertSucceeds(setDoc(doc(founder,key), {
+      ...support(''), enabled:false, message:''
+    })));
   await check('documento público não pode ser excluído pelo cliente', () =>
     assertFails(deleteDoc(doc(founder,key))));
   await check('fundador perde edição ao perder autorização admin', async () => {
