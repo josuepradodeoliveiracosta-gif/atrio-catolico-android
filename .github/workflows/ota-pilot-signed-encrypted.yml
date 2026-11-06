@@ -103,15 +103,15 @@ jobs:
             APK="app/build/outputs/apk/otaPilot/app-otaPilot.apk"
             [[ -s "$APK" ]] || { echo "::error::APK piloto ausente"; exit 1; }
             cp "$APK" "$STAGE/$label.apk"
-            python3 scripts/ota_release_cert.py --apk "$STAGE/$label.apk" --android-sdk "$ANDROID_HOME"
+            python3 -m scripts.ota_release_cert --apk "$STAGE/$label.apk" --android-sdk "$ANDROID_HOME"
             "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$STAGE/$label.apk"
           done
           BASE_SHA="$(sha256sum "$STAGE/base.apk" | cut -d' ' -f1)"
           NEW_SHA="$(sha256sum "$STAGE/candidate.apk" | cut -d' ' -f1)"
-          python3 scripts/ota_release_pair_preflight.py \
+          python3 -m scripts.ota_release_pair_preflight \
             --base-apk "$STAGE/base.apk" --candidate-apk "$STAGE/candidate.apk" \
             --base-sha256 "$BASE_SHA" --candidate-sha256 "$NEW_SHA" --android-sdk "$ANDROID_HOME"
-          python3 scripts/ota_release_pilot_server.py \
+          python3 -m scripts.ota_release_pilot_server \
             --apk "$STAGE/candidate.apk" --android-sdk "$ANDROID_HOME" \
             --candidate-sha256 "$NEW_SHA" --base-code 36 \
             --write-manifest "$STAGE/update-piloto-local.json" --verify-only
