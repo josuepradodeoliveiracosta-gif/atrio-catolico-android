@@ -121,7 +121,7 @@ class OfficialHttpsReadOnlyTests(unittest.TestCase):
 
     def test_downgrade_same_code_draft_and_prerelease_are_rejected(self):
         release, manifest = official_fixture()
-        for code in (37, 38, 39):
+        for code in (38, 39, 40):
             with self.subTest(installed_code=code):
                 with self.assertRaises(PreflightError):
                     validate_release_contract(release, manifest, installed_code=code)
