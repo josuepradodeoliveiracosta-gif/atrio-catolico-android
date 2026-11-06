@@ -130,6 +130,9 @@ internal fun EmailVerificationPanel(uid: String, onVerified: (() -> Unit)? = nul
     var verified by remember(uid) { mutableStateOf(auth.currentUser?.isEmailVerified == true) }
     var busy by remember(uid) { mutableStateOf(false) }
     var info by remember(uid) { mutableStateOf("") }
+    // Limite local complementar ao limite do Firebase Auth.
+    // Não armazenar e-mail, token ou credenciais no controle de tentativas.
+    var lastResendElapsed by remember(uid) { mutableStateOf(0L) }
     if (verified) return
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -145,11 +148,17 @@ internal fun EmailVerificationPanel(uid: String, onVerified: (() -> Unit)? = nul
                 if (user == null || user.uid != uid) {
                     info = "Sua sessão mudou. Entre novamente."
                 } else {
-                    busy = true
-                    user.sendEmailVerification().addOnCompleteListener { task ->
-                        busy = false
-                        info = if (task.isSuccessful) "Enviamos um link de confirmação."
-                            else "Não foi possível enviar o link. Tente novamente."
+                    val now = android.os.SystemClock.elapsedRealtime()
+                    if (lastResendElapsed > 0 && now - lastResendElapsed < 60_000L) {
+                        info = "Aguarde um minuto antes de solicitar outro link."
+                    } else {
+                        busy = true
+                        user.sendEmailVerification().addOnCompleteListener { task ->
+                            busy = false
+                            if (task.isSuccessful) lastResendElapsed = now
+                            info = if (task.isSuccessful) "Enviamos um link de confirmação."
+                                else "Não foi possível enviar o link. Tente novamente."
+                        }
                     }
                 }
             }
