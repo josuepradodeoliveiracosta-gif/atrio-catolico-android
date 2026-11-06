@@ -14,6 +14,7 @@ from scripts.ota_apk_preflight import PreflightError
 from scripts.ota_release import (
     LEGACY_ARTIFACT, NORMAL_ARTIFACT,
     validate_publication_readiness,
+    validate_signing_readiness,
     PILOT_VERIFIED_CODE, PILOT_VERIFIED_NAME,
 )
 
@@ -92,6 +93,44 @@ class OtaReleaseReadinessTests(unittest.TestCase):
                 if expected == 1:
                     self.assertIn("Publicação OTA bloqueada", result.stderr)
 
+    def test_current_main_release_is_not_ready_to_sign(self):
+        # Physical pilot B uses versionCode 37, while normal Release still has 36.
+        with self.assertRaisesRegex(PreflightError, "versionCode"):
+            validate_signing_readiness(ROOT / "app/build.gradle.kts")
+        result = subprocess.run(
+            [sys.executable, "-m", "scripts.ota_release", "signing-readiness",
+             "--gradle-file", str(ROOT / "app/build.gradle.kts")],
+            cwd=ROOT, capture_output=True, text=True, timeout=12
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Publicação OTA bloqueada", result.stderr)
+
+    def test_future_signing_requires_matching_gradle_package_and_version(self):
+        def gradle(code, name, app_id="br.com.atriocatolico"):
+            return ('android {\n'
+                    '    defaultConfig {\n'
+                    f'        applicationId = "{app_id}"\n'
+                    f'        versionCode = {code}\n'
+                    f'        versionName = "{name}"\n'
+                    '    }\n'
+                    '}\n')
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "build.gradle.kts"
+            path.write_text(gradle(38, "0.20.3"), encoding="utf-8")
+            report = validate_signing_readiness(path)
+            self.assertEqual(report["versionCode"], 38)
+            self.assertFalse(report["signing_authorized"])
+            for code, name, package in [
+                (36, "0.20.1", "br.com.atriocatolico"),
+                (37, "0.20.2", "br.com.atriocatolico"),
+                (38, "0.20.2", "br.com.atriocatolico"),
+                (38, "0.20.3", "br.com.estranho"),
+            ]:
+                path.write_text(gradle(code, name, package), encoding="utf-8")
+                with self.subTest(code=code, name=name, package=package):
+                    with self.assertRaises(PreflightError):
+                        validate_signing_readiness(path)
+
     def test_publication_workflow_guardian_and_version_guards(self):
         publisher = (ROOT / ".github/workflows/ota-publish-release.yml").read_text()
         build = (ROOT / ".github/workflows/build-apk.yml").read_text()
@@ -109,6 +148,9 @@ class OtaReleaseReadinessTests(unittest.TestCase):
         self.assertIn('if [[ "$ATRIO_GUARDIAN_V2_RELEASE_APPROVED" != "true" ]]', build)
         self.assertIn('if [[ "$ATRIO_OTA_E2E_TESTED" != "true" ]]', build)
         self.assertIn('if [[ "$ATRIO_OTA_RELEASE_APPROVED" != "true" ]]', build)
+        self.assertIn(
+            "python3 -m scripts.ota_release signing-readiness", build
+        )
         self.assertNotIn("gh release create", build)
 
 
