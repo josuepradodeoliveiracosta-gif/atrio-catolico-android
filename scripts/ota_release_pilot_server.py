@@ -137,10 +137,10 @@ def serve_prevalidated_manifest(apk, *, manifest_file, expected_sha256, base_cod
         "releasePageUrl": page,
         "releaseNotes": "Homologação OTA local do Átrio Católico. Não distribuir.",
     }
-    if manifest != expected:
-        raise PreflightError("Contrato do manifesto do piloto divergente")
     if file_sha256(apk) != sha:
         raise PreflightError("APK nao corresponde ao SHA-256 independente")
+    if manifest != expected:
+        raise PreflightError("Contrato do manifesto do piloto divergente")
     release = {
         "tag_name": tag,
         "html_url": page,
