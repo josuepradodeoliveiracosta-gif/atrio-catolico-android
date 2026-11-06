@@ -206,6 +206,6 @@ class ThreeBotsAndroidUiTest {
             .performScrollToNode(hasTestTag("atrio-post-1"))
         compose.onNodeWithTag("atrio-save-1", useUnmergedTree = true).performClick()
         compose.waitForIdle()
-        compose.onNodeWithText("Nada salvo ainda").assertIsDisplayed()
+        compose.onNodeWithText("Suas discussões salvas aparecerão aqui").assertIsDisplayed()
     }
 }

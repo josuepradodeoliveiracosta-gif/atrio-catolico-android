@@ -108,6 +108,8 @@ if ! adb pull /data/local/tmp/atrio-profile-preview/. qa-android-suite-results/p
   echo "Falha ao coletar capturas; as outras suítes continuarão"
 fi
 run_suite ProfileEditorUiTest
+# Guia visual v2: casos de categorias, busca, falha e feedback de salvamento.
+run_suite DesignV2UiTest
 run_suite ThreeBotsAndroidUiTest
 run_suite ThreeBotsAuthenticatedAndroidUiTest
 run_suite ThreeBotsOnlineEmulatorTest

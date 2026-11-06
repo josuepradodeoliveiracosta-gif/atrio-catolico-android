@@ -1,5 +1,9 @@
 package br.com.atriocatolico
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.combinedClickable
 import android.content.Context
 import android.content.SharedPreferences
@@ -11,9 +15,13 @@ import androidx.activity.viewModels
 import androidx.lifecycle.ViewModel
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -36,6 +44,9 @@ import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.MenuBook
+import androidx.compose.material.icons.outlined.Shield
+import androidx.compose.material.icons.outlined.AccountBalance
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -43,9 +54,15 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -55,12 +72,12 @@ import androidx.compose.ui.unit.sp
 import org.json.JSONArray
 import org.json.JSONObject
 
-internal val Wine = Color(0xFF632D39)
-internal val WineSoft = Color(0xFFF3E8E8)
-internal val Gold = Color(0xFFD4B16E)
-internal val Paper = Color(0xFFF8F5F0)
-internal val Ink = Color(0xFF292526)
-internal val Muted = Color(0xFF827B77)
+internal val Wine = Color(0xFF641F32)
+internal val WineSoft = Color(0xFFF3E8EB)
+internal val Gold = Color(0xFFB49352)
+internal val Paper = Color(0xFFF7F3EA)
+internal val Ink = Color(0xFF29262A)
+internal val Muted = Color(0xFF5C5558)
 internal val Line = Color(0xFFEEE8E3)
 
 internal data class Reply(
@@ -83,6 +100,7 @@ internal data class Post(
     val likes: Int = 0,
     val liked: Boolean = false,
     val saved: Boolean = false,
+    val savePending: Boolean = false,
     val mine: Boolean = false,
     val replies: List<Reply> = emptyList(),
     val remote: Boolean = false,
@@ -379,8 +397,14 @@ internal fun AtrioTopBar(
 
 @Composable
 internal fun AtrioBottomBar(selected: Tab, onSelect: (Tab) -> Unit) {
+    val reduceMotion = AtrioMotion.reduced()
     NavigationBar(containerColor = Color.White, tonalElevation = 0.dp) {
         Tab.entries.forEach { tab ->
+            val opacity by animateFloatAsState(
+                targetValue = if (selected == tab) 1f else 0.8f,
+                animationSpec = if (reduceMotion) snap() else tween(AtrioMotion.TAB_MS),
+                label = "Navegação ${tab.label}"
+            )
             val icon = when (tab) {
                 Tab.HOME -> Icons.Outlined.Home
                 Tab.COMMUNITIES -> Icons.Outlined.Groups
@@ -391,7 +415,7 @@ internal fun AtrioBottomBar(selected: Tab, onSelect: (Tab) -> Unit) {
             NavigationBarItem(
                 selected = selected == tab, onClick = { onSelect(tab) },
                 modifier = Modifier.testTag("atrio-tab-${tab.name.lowercase()}"),
-                icon = { Icon(icon, contentDescription = null) }, label = { Text(tab.label, fontSize = 11.sp) },
+                icon = { Icon(icon, contentDescription = null, modifier = Modifier.graphicsLayer { alpha = opacity }) }, label = { Text(tab.label, fontSize = 11.sp) },
                 colors = NavigationBarItemDefaults.colors(selectedIconColor = Wine, selectedTextColor = Wine, indicatorColor = WineSoft)
             )
         }
@@ -408,6 +432,18 @@ internal fun Avatar(name: String, modifier: Modifier = Modifier) {
 @Composable
 internal fun DiscussionCard(post: Post, onOpen: (String) -> Unit, onLike: (String) -> Unit, onSave: (String) -> Unit, fullText: Boolean = false,
     onOpenProfile: (String, String) -> Unit = { _, _ -> }) {
+    val reduceMotion = AtrioMotion.reduced()
+    val savePulse = remember(post.id) { Animatable(1f) }
+    var lastConfirmedSaved by remember(post.id) { mutableStateOf(post.saved) }
+    LaunchedEffect(post.saved, post.savePending, reduceMotion) {
+        if (!post.savePending && post.saved != lastConfirmedSaved) {
+            lastConfirmedSaved = post.saved
+            if (post.saved && !reduceMotion) {
+                savePulse.animateTo(1.08f, tween(AtrioMotion.SAVE_MS / 2))
+                savePulse.animateTo(1f, tween(AtrioMotion.SAVE_MS / 2))
+            }
+        }
+    }
     Card(
         onClick = { onOpen(post.id) },
         modifier = Modifier.fillMaxWidth().testTag("atrio-post-${post.id}"),
@@ -443,12 +479,32 @@ internal fun DiscussionCard(post: Post, onOpen: (String) -> Unit, onLike: (Strin
                 IconButton(onClick = { onOpen(post.id) }) { Icon(Icons.Outlined.ChatBubbleOutline, "Respostas", tint = Muted, modifier = Modifier.size(20.dp)) }
                 Text(if (post.remote) "Ver respostas" else "${post.replies.size} respostas", color = Muted, fontSize = 12.sp)
                 Spacer(Modifier.weight(1f))
-                IconButton(
-                    onClick = { onSave(post.id) },
-                    modifier = Modifier.testTag("atrio-save-${post.id}")
-                ) {
-                    Icon(if (post.saved) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
-                        "Salvar", tint = if (post.saved) Wine else Muted, modifier = Modifier.size(21.dp))
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    IconButton(
+                        onClick = { onSave(post.id) },
+                        modifier = Modifier.testTag("atrio-save-${post.id}")
+                    ) {
+                        Icon(
+                            if (post.saved) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkBorder,
+                            contentDescription = if (post.savePending) "Salvamento pendente"
+                                else if (post.saved) "Remover dos salvos" else "Salvar discussão",
+                            tint = if (post.saved) Wine else Muted,
+                            modifier = Modifier.size(21.dp).graphicsLayer {
+                                scaleX = savePulse.value
+                                scaleY = savePulse.value
+                            }
+                        )
+                    }
+                    Text(
+                        when {
+                            post.savePending -> "Salvando…"
+                            post.saved -> "Salvo"
+                            else -> "Salvar"
+                        },
+                        color = if (post.saved) Wine else Muted,
+                        fontSize = 11.sp,
+                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
+                    )
                 }
             }
         }
@@ -460,15 +516,17 @@ internal fun HomeScreen(name: String, posts: List<Post>, filter: String, search:
     onSearch: (String) -> Unit, onFilter: (String) -> Unit, onCreate: () -> Unit,
     onForums: () -> Unit, onOpen: (String) -> Unit, onLike: (String) -> Unit, onSave: (String) -> Unit,
     footer: @Composable () -> Unit = {},
-    onOpenProfile: (String, String) -> Unit = { _, _ -> }
+    onOpenProfile: (String, String) -> Unit = { _, _ -> },
+    loading: Boolean = false, loadError: Boolean = false, onRetry: () -> Unit = {},
+    listState: LazyListState = rememberLazyListState()
 ) {
     val shown = posts.filter { (filter == "Todos" || it.category == filter) &&
         (search.isBlank() || listOf(it.title, it.body, it.category, it.author).any { s -> s.contains(search, ignoreCase = true) }) }
-    LazyColumn(Modifier.fillMaxSize().testTag("atrio-home-feed"), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    LazyColumn(Modifier.fillMaxSize().testTag("atrio-home-feed"), state = listState, contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Brush.horizontalGradient(listOf(Wine, Color(0xFF824657)))).padding(24.dp)) {
                 Column {
-                    Text("COMUNIDADE CATÓLICA", color = Gold, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.5.sp)
+                    Text("COMUNIDADE CATÓLICA", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.5.sp)
                     Spacer(Modifier.height(9.dp))
                     Text("Paz e bem, ${name.substringBefore(' ')}!", color = Color.White, fontFamily = FontFamily.Serif, fontSize = 27.sp)
                     Spacer(Modifier.height(7.dp))
@@ -501,7 +559,21 @@ internal fun HomeScreen(name: String, posts: List<Post>, filter: String, search:
             OutlinedTextField(value = search, onValueChange = onSearch, label = { Text("Buscar discussões") },
                 leadingIcon = { Icon(Icons.Outlined.Search, null) }, modifier = Modifier.fillMaxWidth().testTag("atrio-search-field"), singleLine = true)
         }
-        if (shown.isEmpty()) item { EmptyState("🕊️", "Nenhuma discussão", "Mude o filtro ou comece uma conversa.", "Criar publicação", onCreate) }
+        if (shown.isEmpty()) item {
+            when {
+                loading -> Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
+                loadError -> EmptyState("⚠️", "Não foi possível carregar as discussões",
+                    "Confira sua conexão e tente novamente.", "Tentar novamente", onRetry)
+                search.isNotBlank() -> EmptyState("🔎", "Nenhum resultado encontrado",
+                    "Tente outros termos ou limpe a busca.", "Limpar busca", { onSearch("") })
+                filter != "Todos" -> EmptyState("🕊️", "Ainda não há discussões nesta categoria.",
+                    "Seja o primeiro a iniciar uma conversa.", "Criar publicação", onCreate)
+                else -> EmptyState("🕊️", "Nenhuma discussão",
+                    "Comece uma conversa com a comunidade.", "Criar publicação", onCreate)
+            }
+        }
         items(shown, key = { it.id }) { p -> DiscussionCard(p, onOpen, onLike, onSave,
             onOpenProfile = onOpenProfile) }
         item { footer() }
@@ -510,26 +582,71 @@ internal fun HomeScreen(name: String, posts: List<Post>, filter: String, search:
 
 @Composable
 internal fun SectionTitle(label: String, modifier: Modifier = Modifier) {
-    Text(label, fontFamily = FontFamily.Serif, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = modifier)
+    Text(label, fontFamily = FontFamily.Serif, fontSize = 22.sp,
+        fontWeight = FontWeight.Bold, modifier = modifier.semantics { heading() })
+}
+
+/** Categorias oficiais do Átrio: o texto sempre identifica o destino, não a cor. */
+private fun forumIcon(category: String): ImageVector = when (category) {
+    "Sagradas Escrituras" -> Icons.Outlined.MenuBook
+    "Apologética" -> Icons.Outlined.Shield
+    "Vida espiritual" -> Icons.Outlined.FavoriteBorder
+    "História da Igreja" -> Icons.Outlined.AccountBalance
+    "Liturgia" -> Icons.Outlined.Home
+    "Santos" -> Icons.Outlined.AccountCircle
+    "Juventude" -> Icons.Outlined.Groups
+    else -> Icons.Outlined.ChatBubbleOutline
 }
 
 @Composable
 internal fun CommunityScreen(posts: List<Post>, onChoose: (String) -> Unit) {
-    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-        Spacer(Modifier.height(14.dp)); SectionTitle("Fóruns da comunidade")
+    val reduceMotion = AtrioMotion.reduced()
+    Column(Modifier.fillMaxSize().padding(horizontal = AtrioDimensions.ScreenMargin)) {
+        Spacer(Modifier.height(14.dp))
+        SectionTitle("Fóruns da comunidade")
         Spacer(Modifier.height(7.dp))
-        Text("Explore os temas e participe de discussões respeitosas.", fontSize = 13.sp, color = Muted)
+        Text("Encontre uma conversa sobre a fé.", fontSize = 14.sp, color = Muted)
         Spacer(Modifier.height(18.dp))
-        LazyVerticalGrid(columns = GridCells.Fixed(2), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(bottom = 25.dp)) {
-            gridItems(categories) { (cat, symbol) ->
-                Card(onClick = { onChoose(cat) }, shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color.White), border = BorderStroke(1.dp, Line)) {
-                    Column(Modifier.fillMaxWidth().height(125.dp).padding(13.dp), verticalArrangement = Arrangement.SpaceBetween) {
-                        Text(symbol, fontSize = 26.sp)
-                        Column {
-                            Text(cat, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, lineHeight = 16.sp)
-                            Text("${posts.count { it.category == cat }} discussões", fontSize = 11.sp, color = Muted)
-                        }
+        // A grade passa a uma coluna quando a largura ou a fonte não comportar duas.
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(minSize = 148.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(bottom = 25.dp)
+        ) {
+            gridItems(categories, key = { it.first }) { (cat, _) ->
+                val interaction = remember { MutableInteractionSource() }
+                val pressed by interaction.collectIsPressedAsState()
+                val scale by animateFloatAsState(
+                    targetValue = if (pressed) 0.98f else 1f,
+                    animationSpec = if (reduceMotion) snap() else tween(AtrioMotion.FORUM_MS),
+                    label = "Pressão no fórum"
+                )
+                Card(
+                    onClick = { onChoose(cat) },
+                    interactionSource = interaction,
+                    modifier = Modifier.fillMaxWidth().graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                    }.testTag("atrio-forum-${categories.indexOfFirst { it.first == cat }}"),
+                    shape = RoundedCornerShape(AtrioDimensions.CardRadius),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    border = BorderStroke(1.dp, Line)
+                ) {
+                    Column(
+                        Modifier.fillMaxWidth().heightIn(min = 125.dp).padding(14.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(forumIcon(cat), contentDescription = null, tint = Gold,
+                            modifier = Modifier.size(32.dp))
+                        Text(cat, color = Ink, fontWeight = FontWeight.SemiBold,
+                            fontSize = 14.sp, lineHeight = 18.sp, textAlign = TextAlign.Center)
+                        val count = posts.count { it.category == cat }
+                        Text(
+                            "$count " + if (count == 1) "discussão" else "discussões",
+                            color = Muted, fontSize = 11.sp, textAlign = TextAlign.Center
+                        )
                     }
                 }
             }
@@ -538,10 +655,10 @@ internal fun CommunityScreen(posts: List<Post>, onChoose: (String) -> Unit) {
 }
 
 @Composable
-internal fun PublishScreen(onPublish: (String, String, String) -> Unit) {
-    var title by remember { mutableStateOf("") }
-    var body by remember { mutableStateOf("") }
-    var category by remember { mutableStateOf(categories[0].first) }
+internal fun PublishScreen(publishing: Boolean = false, onPublish: (String, String, String) -> Unit) {
+    var title by rememberSaveable { mutableStateOf("") }
+    var body by rememberSaveable { mutableStateOf("") }
+    var category by rememberSaveable { mutableStateOf(categories[0].first) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(17.dp)) {
         SectionTitle("Nova discussão")
         Spacer(Modifier.height(7.dp))
@@ -571,18 +688,27 @@ internal fun PublishScreen(onPublish: (String, String, String) -> Unit) {
         // A confirmação pode ser adiada pelo Guardião ou falhar na rede.
         // O envio bem-sucedido sai desta tela e descarta o rascunho.
         Button(onClick = { onPublish(title.trim(), body.trim(), category) },
-            enabled = title.trim().length >= 5 && body.trim().length >= 5,
-            modifier = Modifier.fillMaxWidth().height(48.dp).testTag("atrio-publish-submit"), shape = RoundedCornerShape(12.dp)) { Text("Publicar discussão") }
+            enabled = !publishing && title.trim().length >= 5 && body.trim().length >= 5,
+            modifier = Modifier.fillMaxWidth().heightIn(min = AtrioDimensions.TouchTarget).testTag("atrio-publish-submit"), shape = RoundedCornerShape(12.dp)) {
+            if (publishing) CircularProgressIndicator(Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+            Text(if (publishing) "Publicando…" else "Publicar discussão")
+        }
     }
 }
 
 @Composable
 internal fun SavedScreen(posts: List<Post>, onDiscover: () -> Unit, onOpen: (String) -> Unit, onLike: (String) -> Unit, onSave: (String) -> Unit,
     loading: Boolean = false, footer: @Composable () -> Unit = {},
-    onOpenProfile: (String, String) -> Unit = { _, _ -> }) {
+    onOpenProfile: (String, String) -> Unit = { _, _ -> },
+    loadError: Boolean = false, onRetry: () -> Unit = {}) {
     LazyColumn(Modifier.fillMaxSize().testTag("atrio-saved-list"), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { SectionTitle("Publicações salvas") }
-        if (posts.isEmpty() && !loading) item { EmptyState("🔖", "Nada salvo ainda", "Toque no marcador de uma publicação para encontrá-la aqui.", "Explorar discussões", onDiscover) }
+        if (posts.isEmpty() && !loading) item {
+            if (loadError) EmptyState("⚠️", "Não foi possível carregar os salvos",
+                "Confira sua conexão e tente novamente.", "Tentar novamente", onRetry)
+            else EmptyState("🔖", "Suas discussões salvas aparecerão aqui",
+                "Toque no marcador de uma publicação para encontrá-la aqui.", "Explorar discussões", onDiscover)
+        }
         items(posts, key = { it.id }) { p -> DiscussionCard(p, onOpen, onLike, onSave,
             onOpenProfile = onOpenProfile) }
         item { footer() }

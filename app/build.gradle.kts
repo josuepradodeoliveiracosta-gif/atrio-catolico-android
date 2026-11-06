@@ -4,6 +4,8 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// Prévia visual v2: somente demonstração local, sem Firebase ou push oficiais.
+val atrioDesignPreview = System.getenv("ATRIO_DESIGN_PREVIEW") == "1"
 // A QA OTA usa um pacote isolado .otalab e não toca Firebase de produção.
 // Por isso NÃO aplica Google Services nesse build exclusivamente Debug.
 val atrioOtaQaLoopback = System.getenv("ATRIO_OTA_QA_LOOPBACK") == "1"
@@ -17,6 +19,24 @@ require(!(atrioOtaQaLoopback && atrioOtaPilotEnabled)) {
 }
 require(!(atrioOtaReleasePilot && atrioOtaPilotCompileOnly)) {
     "Use somente um modo de piloto por vez."
+}
+if (atrioDesignPreview) {
+    require(!atrioOtaQaLoopback && !atrioOtaPilotEnabled) {
+        "Previa de design nao pode coexistir com laboratorio OTA ou piloto Release."
+    }
+    require(gradle.startParameter.taskNames.all { task ->
+        task.substringAfterLast(':').lowercase() in setOf("assembledebug", "clean")
+    }) {
+        "Previa de design: somente assembleDebug e clean sao permitidos."
+    }
+    require(listOf(
+        "ATRIO_PUSH_WORKER_URL", "ATRIO_GUARDIAN_V2_WORKER_URL",
+        "ATRIO_AVATAR_WORKER_URL", "ATRIO_SIGNING_STORE_FILE",
+        "ATRIO_SIGNING_STORE_PASSWORD", "ATRIO_SIGNING_KEY_ALIAS",
+        "ATRIO_SIGNING_KEY_PASSWORD"
+    ).all { System.getenv(it).isNullOrBlank() }) {
+        "A previa de design nao aceita endpoints, credenciais nem assinatura de producao."
+    }
 }
 if (atrioOtaReleasePilot) {
     require(System.getenv("ATRIO_OTA_PILOT_CONFIRM") == "HOMOLOGAR ATRIO SEM PUBLICAR") {
@@ -41,7 +61,7 @@ if (atrioOtaQaLoopback && gradle.startParameter.taskNames.any { task ->
 }
 // Com app/google-services.json presente, o Google Services gera os recursos Firebase.
 // Sem o arquivo, este projeto ainda pode ser compilado em modo demonstração.
-if (file("google-services.json").exists() && !atrioOtaQaLoopback) {
+if (file("google-services.json").exists() && !atrioOtaQaLoopback && !atrioDesignPreview) {
     apply(plugin = "com.google.gms.google-services")
 }
 
@@ -111,8 +131,17 @@ android {
             buildConfigField("boolean", "OTA_RELEASE_PILOT_LOOPBACK", "false")
             // Instala lado a lado do app oficial: jamais substituir o Debug usual.
             if (atrioOtaQaLoopback) applicationIdSuffix = ".otalab"
+            if (atrioDesignPreview) {
+                // Identificador EXCLUSIVO para instalar junto ao aplicativo oficial.
+                // Nao substitui nem recebe os dados de br.com.atriocatolico.
+                applicationIdSuffix = ".v2preview"
+            }
             // A numeração de testes aparece também dentro da aba Perfil.
-            buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"$atrioDebugVersionName\"")
+            buildConfigField(
+                "String", "ATRIO_VISIBLE_VERSION",
+                if (atrioDesignPreview) "\"Design v2 • demonstração local\""
+                else "\"$atrioDebugVersionName\""
+            )
         }
         getByName("release") {
             buildConfigField("boolean", "OTA_QA_LOOPBACK", "false")
