@@ -2,6 +2,7 @@ package br.com.atriocatolico
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -14,6 +15,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowForward
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.Forum
+import androidx.compose.material.icons.outlined.Groups
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.ExpandLess
+import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material.icons.outlined.PersonOutline
 import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material.icons.outlined.VerifiedUser
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -61,6 +67,7 @@ internal fun OnlineProfileScreen(
     var discussionsOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var followedOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var savedMessage by remember(uid) { mutableStateOf(false) }
+    var accountExpanded by rememberSaveable(uid) { mutableStateOf(false) }
     BackHandler(enabled = badgesOpen && !editorOpen) { badgesOpen = false }
     BackHandler(enabled = discussionsOpen) { discussionsOpen = false }
     BackHandler(enabled = followedOpen) { followedOpen = false }
@@ -89,10 +96,7 @@ internal fun OnlineProfileScreen(
         val founderCanBroadcast = onModeration != null && onClergyReview != null &&
             LocalFounderUid.current.isNotBlank() && LocalFounderUid.current == uid
         val mine = remember(posts, uid) { posts.filter { it.mine } }
-        val context = LocalContext.current
-        val followedCount = if (followedRemoteEnabled) followedRemoteIds.size
-            else remember(uid, followedRevision) { LocalFollowedDiscussions.ids(context, uid).size }
-        LazyColumn(Modifier.fillMaxSize().testTag("atrio-profile-list"), contentPadding = PaddingValues(16.dp),
+        LazyColumn(Modifier.fillMaxSize().background(Paper).testTag("atrio-profile-list"), contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item {
                 ProfileSectionTitle("Perfil")
@@ -135,13 +139,9 @@ internal fun OnlineProfileScreen(
             }
             item {
                 ProfileSectionTitle("Minha participação")
-                Text("${mine.size} discussões próprias no feed carregado · " +
-                    "$savedCount salvas · $followedCount acompanhadas" +
-                        (if (followedRemoteEnabled) " na conta" else " neste aparelho"),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(bottom = 8.dp))
-                Card(Modifier.fillMaxWidth()) {
+                Card(Modifier.fillMaxWidth(), border = BorderStroke(1.dp, Line),
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                     ProfileAction("Minhas discussões", "Consulte suas últimas 50 discussões.",
                         Icons.Outlined.Forum) { discussionsOpen = true }
                     HorizontalDivider()
@@ -157,20 +157,30 @@ internal fun OnlineProfileScreen(
                         Icons.Outlined.VerifiedUser, onReviews)
                 }
             }
-            item {
-                ProfileSectionTitle("Preferências")
-                ProfileAction("Central de notificações", "Seus avisos e preferências por categoria.",
-                    Icons.Outlined.NotificationsNone, onNotifications)
-            }
-            item { PushSettings(uid, db) }
-            item {
-                OtaUpdatesSection(otaStatus, onRefreshUpdates, otaDownload, otaInstallMessage,
-                    onDownloadUpdate, onCancelUpdateDownload, onInstallUpdate)
-            }
+            item { ProfileSectionTitle("Preferências") }
+            item { PushSettings(uid, db, onNotifications = onNotifications) }
+            item { DeveloperSupportPanel(db, uid, founderAdmin = founderCanBroadcast) }
             item {
                 ProfileSectionTitle("Conta e privacidade")
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Card(Modifier.fillMaxWidth(), border = BorderStroke(1.dp, Line),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                    Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Surface(onClick = { accountExpanded = !accountExpanded },
+                            color = MaterialTheme.colorScheme.surface,
+                            modifier = Modifier.fillMaxWidth().testTag("atrio-account-toggle")) {
+                            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Outlined.PersonOutline, contentDescription = null, tint = Wine)
+                                Spacer(Modifier.width(12.dp))
+                                Text("Conta e privacidade", modifier = Modifier.weight(1f), color = Ink,
+                                    style = MaterialTheme.typography.titleMedium)
+                                Icon(if (accountExpanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                                    contentDescription = if (accountExpanded) "Recolher conta" else "Expandir conta",
+                                    tint = Wine)
+                            }
+                        }
+                        if (accountExpanded) {
+                            HorizontalDivider(color = Line)
                         Text(email.ifBlank { "Conta autenticada" }, style = MaterialTheme.typography.bodyLarge)
                         Text("Seu e-mail é privado. Sua apresentação só fica pública após sua autorização.",
                             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -185,8 +195,13 @@ internal fun OnlineProfileScreen(
                         OutlinedButton(onClick = onSignOut, modifier = Modifier.fillMaxWidth().testTag("atrio-profile-signout")) {
                             Text("Sair da conta")
                         }
+                        }
                     }
                 }
+            }
+            item {
+                OtaUpdatesSection(otaStatus, onRefreshUpdates, otaDownload, otaInstallMessage,
+                    onDownloadUpdate, onCancelUpdateDownload, onInstallUpdate)
             }
             if (onModeration != null || onClergyReview != null) item {
                 HorizontalDivider(color = Line)
@@ -325,18 +340,38 @@ private class ProfileEditorSession(var active: Boolean = true)
 
 @Composable
 private fun ProfileSectionTitle(title: String) {
-    Text(title, modifier = Modifier.padding(bottom = 8.dp).semantics { heading() },
-        style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+    val icon = when (title) {
+        "Minha participação" -> Icons.Outlined.Groups
+        "Preferências" -> Icons.Outlined.Settings
+        "Conta e privacidade" -> Icons.Outlined.VerifiedUser
+        "Minhas publicações" -> Icons.Outlined.Forum
+        else -> null
+    }
+    Row(Modifier.fillMaxWidth().padding(bottom = 8.dp).semantics { heading() },
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        if (icon != null) Icon(icon, contentDescription = null, tint = Gold, modifier = Modifier.size(26.dp))
+        Text(title, fontFamily = FontFamily.Serif, color = Wine, fontWeight = FontWeight.Bold,
+            fontSize = 22.sp)
+        HorizontalDivider(Modifier.weight(1f), color = Gold, thickness = 1.dp)
+    }
 }
 
 @Composable
 private fun ProfileAction(title: String, description: String, icon: ImageVector, onClick: () -> Unit) {
-    Surface(onClick = onClick, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
-        ListItem(
-            headlineContent = { Text(title) },
-            supportingContent = { Text(description) },
-            leadingContent = { Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-            trailingContent = { Icon(Icons.AutoMirrored.Outlined.ArrowForward, contentDescription = null) }
-        )
+    Surface(onClick = onClick, modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface) {
+        Row(Modifier.fillMaxWidth().heightIn(min = 58.dp).padding(horizontal = 14.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Icon(icon, contentDescription = null, tint = Wine, modifier = Modifier.size(24.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.bodyLarge, color = Ink,
+                    fontWeight = FontWeight.Medium)
+                // Informação contextual concisa, sem números potencialmente imprecisos.
+                if (description.isNotBlank()) Text(description,
+                    style = MaterialTheme.typography.bodySmall, color = Muted)
+            }
+            Icon(Icons.AutoMirrored.Outlined.ArrowForward, contentDescription = null, tint = Wine)
+        }
     }
 }
