@@ -239,7 +239,6 @@ jobs:
       TAG: ${{ needs.validate-release.outputs.tag }}
       ATRIO_RELEASE_MODERATION_MODE: ${{ needs.validate-release.outputs.moderation_mode }}
       ATRIO_GUARDIAN_V2_RELEASE_APPROVED: ${{ vars.ATRIO_GUARDIAN_V2_RELEASE_APPROVED || 'false' }}
-      ATRIO_RELEASE_MODERATION_MODE: ${{ vars.ATRIO_RELEASE_MODERATION_MODE || 'guardian_v2' }}
       ATRIO_GUARDIAN_V2_WORKER_URL: ${{ vars.ATRIO_GUARDIAN_V2_WORKER_URL || 'https://atrio-guardian-v2.atrio-catolico.workers.dev' }}
     steps:
       - uses: actions/checkout@v4
