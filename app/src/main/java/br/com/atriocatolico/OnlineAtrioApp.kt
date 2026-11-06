@@ -911,9 +911,9 @@ private fun OnlineCommunity(
             if (previous.result?.exists() == true) {
                 val data = previous.result
                 if (data?.getString("uid") == uid &&
-                    data.getString("title") == title &&
-                    data.getString("body") == body &&
-                    data.getString("category") == category) completeAccepted()
+                    data?.getString("title") == title &&
+                    data?.getString("body") == body &&
+                    data?.getString("category") == category) completeAccepted()
                 else {
                     working = false
                     message = "Não foi possível confirmar a publicação. Tente novamente."
@@ -936,10 +936,10 @@ private fun OnlineCommunity(
                         .addOnCompleteListener { lookup ->
                             val alreadyWritten = lookup.result
                             if (lookup.isSuccessful && alreadyWritten?.exists() == true &&
-                                alreadyWritten.getString("uid") == uid &&
-                                alreadyWritten.getString("title") == title &&
-                                alreadyWritten.getString("body") == body &&
-                                alreadyWritten.getString("category") == category) {
+                                alreadyWritten?.getString("uid") == uid &&
+                                alreadyWritten?.getString("title") == title &&
+                                alreadyWritten?.getString("body") == body &&
+                                alreadyWritten?.getString("category") == category) {
                                 completeAccepted()
                             } else {
                                 working = false
