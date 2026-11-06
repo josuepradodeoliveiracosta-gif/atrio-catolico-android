@@ -49,7 +49,7 @@ internal data class DeveloperSupportData(
     val bankComplete get() = bankName.isNotBlank() && agency.isNotBlank() && account.isNotBlank()
     val bankPartial get() = listOf(bankName, agency, account).any { it.isNotBlank() } && !bankComplete
     val hasPaymentMethod get() = pixKey.isNotBlank() || bankComplete
-    val valid get() = !bankPartial && (!enabled || hasPaymentMethod)
+    val valid get() = !enabled || (!bankPartial && hasPaymentMethod)
     fun normalized() = copy(
         pixKey = pixKey.trim(), bankName = bankName.trim(), agency = agency.trim(),
         account = account.trim(), message = message.trim()
