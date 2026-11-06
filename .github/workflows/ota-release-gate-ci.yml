@@ -14,6 +14,11 @@ on:
       - 'scripts/test_ota_baseline_0200.py'
       - 'scripts/ota_release_pair_preflight.py'
       - 'scripts/test_ota_release_pair_preflight.py'
+      - 'scripts/ota_release_pilot_server.py'
+      - 'scripts/test_ota_release_pilot_server.py'
+      - 'app/src/otaPilot/**'
+      - 'app/build.gradle.kts'
+      - 'app/src/main/java/br/com/atriocatolico/Ota*.kt'
       - '.github/workflows/ota-release-pair-preflight.yml'
       - 'scripts/ota_release.py'
       - 'scripts/ota_apk_preflight.py'
@@ -31,6 +36,11 @@ on:
       - 'scripts/test_ota_baseline_0200.py'
       - 'scripts/ota_release_pair_preflight.py'
       - 'scripts/test_ota_release_pair_preflight.py'
+      - 'scripts/ota_release_pilot_server.py'
+      - 'scripts/test_ota_release_pilot_server.py'
+      - 'app/src/otaPilot/**'
+      - 'app/build.gradle.kts'
+      - 'app/src/main/java/br/com/atriocatolico/Ota*.kt'
       - '.github/workflows/ota-release-pair-preflight.yml'
       - 'scripts/ota_release.py'
       - 'scripts/ota_apk_preflight.py'
@@ -56,3 +66,5 @@ jobs:
           python3 -m unittest discover -s scripts -p 'test_ota_release_cert.py' -v
           python3 -m unittest discover -s scripts -p 'test_ota_baseline_0200.py' -v
           python3 -m unittest discover -s scripts -p 'test_ota_release_pair_preflight.py' -v
+          python3 -m unittest discover -s scripts -p 'test_ota_release_pilot_server.py' -v
+          python3 -m py_compile scripts/ota_release_pilot_server.py

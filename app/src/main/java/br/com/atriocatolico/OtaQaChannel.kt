@@ -16,6 +16,11 @@ import java.net.URI
 internal object OtaQaChannel {
     const val ORIGIN = "http://127.0.0.1:8765"
     val active: Boolean get() = BuildConfig.DEBUG && BuildConfig.OTA_QA_LOOPBACK
+    // O piloto de Release mantém certificado oficial obrigatório e packageName
+    // original. Nunca confundir com o bypass de certificado do Debug .otalab.
+    val releasePilotActive: Boolean get() =
+        !BuildConfig.DEBUG && BuildConfig.OTA_RELEASE_PILOT_LOOPBACK
+    val usesLoopback: Boolean get() = active || releasePilotActive
 
     /**
      * Simulacao de espaco zero exclusivamente no pacote Debug .otalab.
@@ -30,7 +35,7 @@ internal object OtaQaChannel {
     fun isAllowedUri(uri: URI, productionHosts: Set<String>): Boolean {
         if (uri.rawUserInfo != null || uri.rawFragment != null ||
             uri.rawPath.isNullOrBlank()) return false
-        return if (active) {
+        return if (usesLoopback) {
             // No laboratorio, nenhum token, query, redirect ou host externo.
             // Em producao, redirects assinados do CDN GitHub podem ter query.
             uri.rawQuery == null && uri.scheme == "http" &&

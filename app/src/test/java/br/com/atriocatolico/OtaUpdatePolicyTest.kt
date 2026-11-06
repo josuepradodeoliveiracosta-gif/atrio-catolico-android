@@ -161,14 +161,14 @@ class OtaUpdatePolicyTest {
             URI("http://user@127.0.0.1:8765/ota.apk"), allowedProduction))
         assertFalse(OtaQaChannel.isAllowedUri(
             URI("http://127.0.0.1:8765/ota.apk#fragment"), allowedProduction))
-        val legitimate = if (OtaQaChannel.active)
+        val legitimate = if (OtaQaChannel.usesLoopback)
             URI("http://127.0.0.1:8765/releases/latest")
         else URI("https://github.com/release.apk")
         assertTrue(OtaQaChannel.isAllowedUri(legitimate, allowedProduction))
     }
 
     @Test fun exactRepositoryAndLatestApiStayPinned() {
-        val expected = if (OtaQaChannel.active)
+        val expected = if (OtaQaChannel.usesLoopback)
             "http://127.0.0.1:8765/releases/latest"
         else "https://api.github.com/repos/josuepradodeoliveiracosta-gif/atrio-catolico-android/releases/latest"
         assertEquals(expected, OtaUpdatePolicy.API)
