@@ -20,6 +20,7 @@ O comando `python3 -m scripts.ota_release signing-readiness --gradle-file app/bu
 - [x] Auditoria da **API** GitHub Releases pública: `latest` 404, lista `[]`; contrato offline de metadados HTTPS aprovado. **Isto não comprova download CDN real**.
 - [x] Travas de assinatura/publicação separadas para OTA, e-mail e Guardião V2, além de confirmação manual `PUBLICAR ATRIO`.
 - [ ] **Homologar integração produtiva do Guardião V2**, incluindo versão realmente implantada do gateway, identidade, políticas e comportamento autorizado. A PR #175 corrigiu o código de `redirect: manual` **somente no GitHub**, não foi implantada na Cloudflare.
+- [ ] **Privacidade e suporte ao público:** comprovar um aviso público verdadeiro sobre coleta/uso de dados, canal de contato e procedimento efetivo de exclusão de contas/dados, além de resposta a denúncias e moderação de conteúdo da comunidade. O pedido dentro do app, sozinho, não comprova exclusão concluída. A trilha de Google Play documenta essas pendências em `docs/publicacao-play-store/CADASTRO-SEGURANCA-E-PRIVACIDADE.md`; elas também importam para uma distribuição direta responsável.
 - [ ] **Confirmar exigências e registro do desenvolvedor Android** para a modalidade escolhida e documentar a experiência real em Android certificado no Brasil. Não presumir registro ou verificação de identidade concluídos.
 - [ ] Após **autorização separada**, integrar a versão candidata à `main`, gerar e assinar uma Release normal **0.20.3/code38** no workflow manual protegido, usando a **mesma chave permanente**, sem publicar. Conferir Android package, assinatura, SHA-256, versão e origem do artefato.
 - [ ] Com artefato autorizado, validar instalação sobre o piloto code37, preservação de sessão e dados, e QA de regressão funcional. Não desinstalar o app para corrigir falhas.
@@ -30,7 +31,7 @@ O comando `python3 -m scripts.ota_release signing-readiness --gradle-file app/bu
 ## Ordem de execução e portões
 
 1. **GO técnico de código:** revisão e CI da PR de metadados 0.20.3/code38.
-2. **GO de integração:** Guardião V2 e infraestrutura de e-mail/FireStore comprovados no estado realmente implantado (não basta código local); registro Android avaliado.
+2. **GO de integração:** Guardião V2 e infraestrutura de e-mail/Firestore comprovados no estado realmente implantado (não basta código local); privacidade, exclusão e operação de denúncias prontas; registro Android avaliado.
 3. **GO de assinatura:** autorização específica para assinar um APK oficial na `main`, sem publicar; validações de artefato e instalação privada.
 4. **GO de divulgação:** autorização explícita do responsável para criação de GitHub Release público, após avaliação do risco residual CDN, logs, recuperação e política de distribuição.
 
