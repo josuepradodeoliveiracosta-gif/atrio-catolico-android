@@ -166,6 +166,12 @@ internal fun OtaUpdatesSection(
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         val laboratory = OtaQaChannel.active
+        val pilot = OtaQaChannel.releasePilotActive
+        if (pilot) {
+            Text("Homologação OTA privada — somente neste aparelho.",
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall)
+        }
         Text("Atualizações do Átrio", style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.primary)
         when (status) {
@@ -173,13 +179,16 @@ internal fun OtaUpdatesSection(
             OtaCheckStatus.Checking -> {
                 CircularProgressIndicator(modifier = Modifier.testTag("atrio-ota-checking"))
                 Text(if (laboratory) "Verificando atualização de laboratório..."
+                     else if (pilot) "Verificando atualização do piloto local..."
                      else "Verificando atualizações oficiais...")
             }
             OtaCheckStatus.NoRelease ->
                 Text(if (laboratory) "Nenhuma versão de teste disponível no servidor local."
+                     else if (pilot) "Servidor local do piloto sem candidato disponível."
                      else "Ainda não há atualizações publicadas no canal oficial.")
             OtaCheckStatus.UpToDate ->
                 Text(if (laboratory) "Laboratório OTA atualizado — nenhuma versão nova."
+                     else if (pilot) "O piloto local está atualizado."
                      else "O aplicativo está atualizado conforme o canal oficial.",
                      modifier = Modifier.testTag("atrio-ota-up-to-date"))
             OtaCheckStatus.TestBuild ->
@@ -190,10 +199,12 @@ internal fun OtaUpdatesSection(
             OtaCheckStatus.Unavailable ->
                 Text(if (laboratory)
                     "Não foi possível consultar o servidor OTA local. Verifique o Termux e tente novamente."
+                    else if (pilot) "Servidor privado de homologação indisponível em 127.0.0.1:8765."
                     else "Não foi possível confirmar as atualizações. Confira a internet e tente novamente.",
                     modifier = Modifier.testTag("atrio-ota-unavailable"))
             is OtaCheckStatus.Available -> {
                 Text(if (laboratory) "Nova versão de laboratório detectada: ${status.version}"
+                     else if (pilot) "Versão do piloto local detectada: ${status.version}"
                      else "Nova versão oficial detectada: ${status.version}",
                     style = MaterialTheme.typography.titleSmall,
                     modifier = Modifier.testTag("atrio-ota-available"))
