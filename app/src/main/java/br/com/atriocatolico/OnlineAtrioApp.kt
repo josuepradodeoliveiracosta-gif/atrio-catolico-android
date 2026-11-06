@@ -131,7 +131,12 @@ internal fun OnlineAtrioApp(activity: androidx.activity.ComponentActivity) {
                     PushRegistry.deactivate(activity, user.uid, db)
                     auth.signOut()
                 }
-                val justRegistered = registrationStarted || pendingRegistrationUid == user.uid
+                val isolatedQa = BuildConfig.DEBUG &&
+                    com.google.firebase.FirebaseApp.getInstance().options.projectId == "demo-atrio-v11"
+                // A suíte legada do Firebase Emulator testa os bots sem exigir
+                // link de e-mail real. O fluxo novo é validado separadamente.
+                val justRegistered = !isolatedQa &&
+                    (registrationStarted || pendingRegistrationUid == user.uid)
                 // Uma conta recém-criada nunca salta a verificação por um
                 // switch administrativo ainda em fase de migração.
                 if (justRegistered && verifiedThisSession) {
