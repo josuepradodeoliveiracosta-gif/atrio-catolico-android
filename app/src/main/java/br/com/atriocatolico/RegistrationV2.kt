@@ -269,3 +269,42 @@ internal fun RegistrationOptionalPreferences(
         }
     }
 }
+
+
+/** Apenas a conta já confirmada chega aqui; sucesso só após Firebase Auth. */
+@Composable
+internal fun RegistrationOnboardingScreen(
+    db: FirebaseFirestore, uid: String, onFinish: () -> Unit
+) {
+    var confirmed by rememberSaveable(uid) { mutableStateOf(false) }
+    Column(
+        Modifier.fillMaxSize().background(Paper).verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp, vertical = 24.dp)
+            .testTag("atrio-onboarding-screen"),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Text("Átrio Católico", fontFamily = FontFamily.Serif,
+            color = Wine, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+        if (!confirmed) {
+            Text("E-mail confirmado · Passo 3 de 3",
+                color = Gold, style = MaterialTheme.typography.titleMedium)
+            RegistrationOptionalPreferences(
+                db = db, uid = uid, firstAccess = true,
+                onContinue = { confirmed = true }
+            )
+        } else {
+            Text("Cadastro concluído!", color = Wine,
+                fontSize = 26.sp, fontWeight = FontWeight.Bold)
+            Text("Seu e-mail foi confirmado. Bem-vindo(a) à comunidade! " +
+                "Você pode atualizar seus interesses ou sua apresentação mais tarde.",
+                color = Ink, style = MaterialTheme.typography.bodyLarge)
+            Button(
+                onClick = onFinish,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                    .testTag("atrio-onboarding-enter"),
+                colors = ButtonDefaults.buttonColors(containerColor = Wine),
+                shape = RoundedCornerShape(14.dp)
+            ) { Text("Entrar no Átrio") }
+        }
+    }
+}
