@@ -2,6 +2,11 @@ package br.com.atriocatolico
 
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -25,6 +30,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.autofill.ContentType
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.contentType
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.text.KeyboardOptions
@@ -549,6 +556,7 @@ private fun OnlineCommunity(
     val otaScope = rememberCoroutineScope()
     val otaSnackbar = remember { SnackbarHostState() }
     var lastAnnouncedOtaVersion by remember { mutableStateOf<String?>(null) }
+    var publishSuccessVisible by remember(uid) { mutableStateOf(false) }
     var sourcePosts by remember(uid) { mutableStateOf<List<Post>>(emptyList()) }
     val blockedMembers = rememberBlockedMembers(db, uid)
     var likedIds by remember(uid) { mutableStateOf<Set<String>>(emptySet()) }
@@ -896,7 +904,8 @@ private fun OnlineCommunity(
             search = ""
             searchOpen = false
             navigate(Tab.HOME)
-            Toast.makeText(context, "Discussão publicada!", Toast.LENGTH_SHORT).show()
+            // Feedback visual somente após confirmação do servidor, sem atrasar o retorno.
+            publishSuccessVisible = true
             if (!qaLab) {
                 ThreadPushSubscriptions.track(context, uid, id)
                 InstantPushRelay.moderatePost(id)
@@ -1102,6 +1111,13 @@ private fun OnlineCommunity(
     }
     // Preserve the central state while the separate admin panel is displayed.
     if (!visible) return
+    val reduceMotion = AtrioMotion.reduced()
+    LaunchedEffect(publishSuccessVisible) {
+        if (publishSuccessVisible) {
+            kotlinx.coroutines.delay(2400L)
+            publishSuccessVisible = false
+        }
+    }
     BackHandler(enabled = publicProfileTarget != null || detailId != null || noticesOpen || noticeBadgesOpen || guardiaoAppealsOpen) { closeNoticeDestination() }
 
     Scaffold(containerColor = Paper, snackbarHost = { SnackbarHost(otaSnackbar) }, topBar = {
@@ -1290,6 +1306,25 @@ private fun OnlineCommunity(
                     onCreate = { navigate(Tab.PUBLISH) }, onOpen = { detailId = it },
                     onLike = { id -> posts.firstOrNull { it.id == id }?.let { toggle("likedPosts", id, it.liked) } },
                     onSave = { id -> posts.firstOrNull { it.id == id }?.let { saveCoordinator.toggle(id, it.saved) } })
+                }
+            }
+            AnimatedVisibility(
+                visible = publishSuccessVisible,
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 12.dp),
+                enter = fadeIn(if (reduceMotion) snap() else tween(AtrioMotion.PUBLISH_MS)),
+                exit = fadeOut(if (reduceMotion) snap() else tween(AtrioMotion.PUBLISH_MS))
+            ) {
+                Surface(
+                    color = Wine, shape = RoundedCornerShape(16.dp),
+                    shadowElevation = 5.dp
+                ) {
+                    Text(
+                        "Discussão publicada!",
+                        color = Color.White,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp)
+                            .semantics { liveRegion = LiveRegionMode.Polite },
+                        fontWeight = FontWeight.SemiBold, fontSize = 14.sp
+                    )
                 }
             }
         }
