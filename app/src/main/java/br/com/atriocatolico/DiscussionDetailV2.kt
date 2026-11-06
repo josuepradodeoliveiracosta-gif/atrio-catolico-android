@@ -97,7 +97,9 @@ internal fun DetailScreen(
         ) {
             item(key = "discussion-header") {
                 Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    DiscussionCard(post, onOpen = {}, onLike = { onLike() }, onSave = { onSave() },
+                    DiscussionCard(post,
+                        onOpen = { scope.launch { listState.animateScrollToItem(1) } },
+                        onLike = { onLike() }, onSave = { onSave() },
                         fullText = true, onOpenProfile = onOpenProfile)
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         if (onFollow != null) {
