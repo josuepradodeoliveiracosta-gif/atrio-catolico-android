@@ -110,6 +110,7 @@ internal fun ClergyBadgeReviewScreen(
                 }
             }
             if (founderMode) item { FounderModeratorBadgePanel(db, reviewerUid) }
+            item { BadgeDecisionHistory(db) }
             if (failed) item {
                 Text("Não foi possível consultar a fila. Confira sua permissão de administrador, " +
                     "a conexão e as regras publicadas no Firebase.", color = MaterialTheme.colorScheme.error)
