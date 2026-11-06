@@ -43,6 +43,43 @@ O uso do Firebase Admin SDK ou Console pode ignorar Firestore Rules. Por isso, n
 6. Depois de possível publicação autorizada e conferência de hashes, validar o app em homologação com duas contas, incluindo verificação, rejeição, revogação, nova solicitação, perda de rede, perfil e discussões.
 7. Somente então avaliar distribuição de APK/Release, seguindo política de assinatura, versionamento e OTA.
 
+## Publicação controlada — revisão específica de 06/11/2026
+
+A auditoria realizada pelo responsável confirmou que as regras publicadas da
+produção correspondiam **exatamente** ao arquivo de regras do commit histórico
+`9e36ea3f29f1c7bd9c03eaa0ee947b9be368b546`, com SHA-256:
+
+```
+ddf58ff4a5db0b559b1162418006c69763381a37612933a4bf1c5b96e7b0d8f1
+```
+
+As regras atuais dos Selos V2, que preservam a íntegra das regras fora da seção
+de badges, correspondem ao SHA-256:
+
+```
+aa04c106e69287b7e7f513addf3dd4e9fc3ad246b69a7d20b2f38c5068c9899e
+```
+
+O novo `scripts/selos-v2-production-guarded-deploy.mjs` confere esses dois
+fingerprints, verifica `firebase.json`, reconsulta a origem imediatamente
+antes da operação e exige confirmação específica. Se qualquer referência
+mudar, **não publica**. O padrão do script faz somente leitura:
+
+```bash
+node --test scripts/selos-v2-production-guarded-deploy.test.mjs
+node scripts/selos-v2-production-guarded-deploy.mjs
+```
+
+A saída `READ_ONLY_PREVIEW` **não concede autorização de publicar**.
+Somente após autorização expressa do responsável, a execução com os dois
+argumentos `--apply` e `--confirm=atrio-catolico:selos-v2` poderá iniciar
+`firebase deploy --only firestore:rules --project atrio-catolico`. Se a CLI
+falhar, reconsulte o Firebase antes de qualquer nova tentativa: é possível
+que a publicação tenha ocorrido mesmo sem confirmação local.
+
+Essa preparação não altera regras em produção nem preserva backups do Firebase
+automaticamente: o backup protegido preexistente permanece intocado.
+
 ## Limites de segurança
 
 - O auditor usa apenas HTTPS GET ao Firebase Rules API, sem gravar documentos ou emitir comandos de deploy.
