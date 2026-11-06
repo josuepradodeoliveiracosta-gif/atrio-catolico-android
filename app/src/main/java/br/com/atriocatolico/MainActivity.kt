@@ -75,6 +75,7 @@ import org.json.JSONObject
 internal val Wine = Color(0xFF641F32)
 internal val WineSoft = Color(0xFFF3E8EB)
 internal val Gold = Color(0xFFB49352)
+internal val GoldTextOnWine = Color(0xFFF4DCA8) // contraste reforçado para texto pequeno
 internal val Paper = Color(0xFFF7F3EA)
 internal val Ink = Color(0xFF29262A)
 internal val Muted = Color(0xFF5C5558)
@@ -336,7 +337,7 @@ private fun WelcomeScreen(onEnter: (String) -> Unit) {
                 Text("✝", fontSize = 40.sp, color = Gold, fontFamily = FontFamily.Serif)
             }
             Spacer(Modifier.height(36.dp))
-            Text("BEM-VINDO AO ÁTRIO CATÓLICO", color = Gold, fontSize = AtrioType.compact, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+            Text("BEM-VINDO AO ÁTRIO CATÓLICO", color = GoldTextOnWine, fontSize = AtrioType.compact, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
             Spacer(Modifier.height(14.dp))
             Text("Uma comunidade.\nUma só fé.", color = Color.White, fontSize = 39.sp, lineHeight = 45.sp, fontFamily = FontFamily.Serif)
             Spacer(Modifier.height(20.dp))
@@ -373,7 +374,7 @@ internal fun AtrioTopBar(
     val textTint = if (wineHeader) Color.White else Wine
     Surface(color = if (wineHeader) Wine else Paper, modifier = Modifier.statusBarsPadding()) {
         Column {
-            Row(Modifier.fillMaxWidth().height(if (wineHeader) 82.dp else 68.dp)
+            Row(Modifier.fillMaxWidth().heightIn(min = if (wineHeader) 82.dp else 68.dp)
                 .padding(horizontal = 17.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (details) {
                     IconButton(onClick = onBack) {
