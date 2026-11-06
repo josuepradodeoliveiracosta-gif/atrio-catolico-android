@@ -1,0 +1,129 @@
+name: OTA Release — comparar dois APKs assinados (somente leitura)
+
+# NAO adicionar push, pull_request, workflow_run ou agendamento aqui.
+# Nao assina, instala, faz upload ou publica nenhum APK.
+on:
+  workflow_dispatch:
+    inputs:
+      base_run_id:
+        description: 'Execucao manual aprovada que gerou a versao base com OTA'
+        required: true
+        type: string
+      base_apk_sha256:
+        description: 'SHA-256 previamente registrado do APK base (nao do ZIP)'
+        required: true
+        type: string
+      candidate_run_id:
+        description: 'Execucao manual aprovada que gerou o novo APK'
+        required: true
+        type: string
+      candidate_apk_sha256:
+        description: 'SHA-256 previamente registrado do APK candidato (nao do ZIP)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: atrio-ota-release-pair-readonly
+  cancel-in-progress: false
+
+jobs:
+  compare-existing-apks:
+    if: github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      BASE_RUN_ID: ${{ inputs.base_run_id }}
+      CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+      BASE_SHA: ${{ inputs.base_apk_sha256 }}
+      CANDIDATE_SHA: ${{ inputs.candidate_apk_sha256 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validar origem dos dois artefatos assinados ja existentes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, subprocess
+          repo = os.environ["GITHUB_REPOSITORY"]
+          ids = [os.environ["BASE_RUN_ID"], os.environ["CANDIDATE_RUN_ID"]]
+          if any(not re.fullmatch(r"[1-9][0-9]{1,19}", rid) for rid in ids):
+              raise SystemExit("IDs de execucao invalidos")
+          if ids[0] == ids[1]:
+              raise SystemExit("Base e candidato devem vir de builds diferentes")
+          if any(not re.fullmatch(r"[a-fA-F0-9]{64}", os.environ[name])
+                 for name in ("BASE_SHA", "CANDIDATE_SHA")):
+              raise SystemExit("SHA-256 independente obrigatorio para cada APK")
+          def api(path):
+              return json.loads(subprocess.check_output(
+                  ["gh", "api", f"repos/{repo}/{path}"], text=True))
+          for rid in ids:
+              run = api(f"actions/runs/{rid}")
+              if not (
+                  run.get("repository", {}).get("full_name") == repo
+                  and run.get("head_branch") == "main"
+                  and run.get("path") == ".github/workflows/build-apk.yml"
+                  and run.get("event") == "workflow_dispatch"
+                  and run.get("status") == "completed"
+                  and run.get("conclusion") == "success"
+                  and run.get("run_attempt") == 1
+              ):
+                  raise SystemExit("Origem nao autorizada: " + rid)
+              assets = api(f"actions/runs/{rid}/artifacts?per_page=100").get("artifacts", [])
+              signed = [a for a in assets
+                        if a.get("name") == "atrio-catolico-release-assinado"
+                        and not a.get("expired") and a.get("size_in_bytes", 0) > 0]
+              if len(signed) != 1:
+                  raise SystemExit("Artefato Release assinado ausente ou ambiguo: " + rid)
+          print("Origens e hashes declarados conferidos; nenhuma publicacao.")
+          PY
+      - uses: actions/download-artifact@v4
+        with:
+          name: atrio-catolico-release-assinado
+          run-id: ${{ inputs.base_run_id }}
+          github-token: ${{ github.token }}
+          path: ota-pair/base
+      - uses: actions/download-artifact@v4
+        with:
+          name: atrio-catolico-release-assinado
+          run-id: ${{ inputs.candidate_run_id }}
+          github-token: ${{ github.token }}
+          path: ota-pair/candidate
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+      - name: Instalar apenas ferramentas de leitura de APK
+        run: sdkmanager 'build-tools;35.0.0'
+      - name: Comparar os dois APKs com certificado oficial imutavel
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' | tee "$GITHUB_STEP_SUMMARY"
+          import os, subprocess, sys
+          from pathlib import Path
+          base = list(Path("ota-pair/base").rglob("*.apk"))
+          candidate = list(Path("ota-pair/candidate").rglob("*.apk"))
+          if len(base) != 1 or len(candidate) != 1:
+              raise SystemExit("Esperado exatamente um APK em cada artefato")
+          subprocess.run([
+              sys.executable, "scripts/ota_release_pair_preflight.py",
+              "--base-apk", str(base[0]),
+              "--candidate-apk", str(candidate[0]),
+              "--base-sha256", os.environ["BASE_SHA"],
+              "--candidate-sha256", os.environ["CANDIDATE_SHA"],
+              "--android-sdk", os.environ["ANDROID_HOME"],
+          ], check=True)
+          PY
+      - name: Registrar o limite da evidencia
+        if: always()
+        run: |
+          echo "### Preflight somente de leitura" >> "$GITHUB_STEP_SUMMARY"
+          echo "Nenhuma instalacao, assinatura ou Release foi criada." >> "$GITHUB_STEP_SUMMARY"
+          echo "A compatibilidade metadata/assinatura nao comprova OTA na interface, sessao nem autorizacao de distribuicao." >> "$GITHUB_STEP_SUMMARY"
+          echo "ATRIO_OTA_E2E_TESTED e ATRIO_OTA_RELEASE_APPROVED continuam intocados." >> "$GITHUB_STEP_SUMMARY"

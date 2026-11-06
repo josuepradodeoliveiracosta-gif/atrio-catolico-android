@@ -12,6 +12,9 @@ on:
       - 'scripts/ota_release_cert.py'
       - 'scripts/ota_baseline_0200.py'
       - 'scripts/test_ota_baseline_0200.py'
+      - 'scripts/ota_release_pair_preflight.py'
+      - 'scripts/test_ota_release_pair_preflight.py'
+      - '.github/workflows/ota-release-pair-preflight.yml'
       - 'scripts/ota_release.py'
       - 'scripts/ota_apk_preflight.py'
       - 'docs/qa-homologacao/OTA_RELEASE_GATE.md'
@@ -26,6 +29,9 @@ on:
       - 'scripts/ota_release_cert.py'
       - 'scripts/ota_baseline_0200.py'
       - 'scripts/test_ota_baseline_0200.py'
+      - 'scripts/ota_release_pair_preflight.py'
+      - 'scripts/test_ota_release_pair_preflight.py'
+      - '.github/workflows/ota-release-pair-preflight.yml'
       - 'scripts/ota_release.py'
       - 'scripts/ota_apk_preflight.py'
       - 'docs/qa-homologacao/OTA_RELEASE_GATE.md'
@@ -49,3 +55,4 @@ jobs:
           python3 -m unittest discover -s scripts -p 'test_ota_release_gate.py' -v
           python3 -m unittest discover -s scripts -p 'test_ota_release_cert.py' -v
           python3 -m unittest discover -s scripts -p 'test_ota_baseline_0200.py' -v
+          python3 -m unittest discover -s scripts -p 'test_ota_release_pair_preflight.py' -v
