@@ -41,7 +41,7 @@ jobs:
       BASE_SHA: ${{ inputs.base_apk_sha256 }}
       CANDIDATE_SHA: ${{ inputs.candidate_apk_sha256 }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Validar origem dos dois artefatos assinados ja existentes

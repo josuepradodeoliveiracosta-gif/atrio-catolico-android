@@ -37,7 +37,7 @@ jobs:
       ATRIO_AVATAR_WORKER_URL: ${{ vars.ATRIO_AVATAR_WORKER_URL || '' }}
       ATRIO_GUARDIAN_V2_WORKER_URL: ${{ vars.ATRIO_GUARDIAN_V2_WORKER_URL || 'https://atrio-guardian-v2.atrio-catolico.workers.dev' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Conferir autorização manual e chave pública para encriptar
