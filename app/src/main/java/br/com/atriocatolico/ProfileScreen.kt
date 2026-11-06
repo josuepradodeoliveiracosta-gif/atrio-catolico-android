@@ -95,22 +95,22 @@ internal fun OnlineProfileScreen(
         LazyColumn(Modifier.fillMaxSize().testTag("atrio-profile-list"), contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item {
-                ProfileSectionTitle("Meu perfil")
+                ProfileSectionTitle("Perfil")
                 Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    shape = RoundedCornerShape(24.dp), border = BorderStroke(1.dp, Line)) {
+                    shape = RoundedCornerShape(AtrioDimensions.CardRadius), border = BorderStroke(1.dp, Line)) {
                     Column(Modifier.fillMaxWidth().padding(20.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        MemberAvatar(name, uid, Modifier.size(92.dp).testTag("atrio-profile-avatar"))
+                        MemberAvatar(name, uid, Modifier.size(80.dp).testTag("atrio-profile-avatar"))
                         if (LocalFounderUid.current.isNotBlank() && LocalFounderUid.current == uid) {
                             FounderBadgeArt(Modifier.size(58.dp), compact = true)
                         }
-                        Text(name, fontFamily = FontFamily.Serif, fontSize = 26.sp,
+                        Text(name, fontFamily = FontFamily.Serif, fontSize = 24.sp,
                             fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                         MemberBadgeRow(uid, Modifier.fillMaxWidth(), centered = true)
                         Text(biography.ifBlank { "Conte um pouco sobre sua caminhada na fé." },
                             color = Muted, fontSize = 14.sp, textAlign = TextAlign.Center)
-                        Button(onClick = { savedMessage = false; editorOpen = true },
+                        OutlinedButton(onClick = { savedMessage = false; editorOpen = true },
                             modifier = Modifier.fillMaxWidth().testTag("atrio-profile-edit")) { Text("Editar perfil") }
                         ProfilePhotoManager(uid = uid, onChanged = onPhotoChanged)
                         if (savedMessage) Text("Perfil atualizado.", color = Wine, fontSize = 14.sp,
@@ -125,7 +125,7 @@ internal fun OnlineProfileScreen(
             item {
                 Card(onClick = { badgesOpen = true }, modifier = Modifier.fillMaxWidth().testTag("atrio-profile-badges"),
                     colors = CardDefaults.cardColors(containerColor = WineSoft),
-                    shape = RoundedCornerShape(18.dp)) {
+                    shape = RoundedCornerShape(AtrioDimensions.CardRadius)) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text("Meus selos", color = Wine, fontWeight = FontWeight.Bold)
                         Text("Escolha sua identificação e acompanhe verificações.", color = Muted, fontSize = 13.sp)
@@ -142,7 +142,7 @@ internal fun OnlineProfileScreen(
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(bottom = 8.dp))
                 Card(Modifier.fillMaxWidth()) {
-                    ProfileAction("Minhas discussões", "Consulte até 50 discussões suas no Firestore.",
+                    ProfileAction("Minhas discussões", "Consulte suas últimas 50 discussões.",
                         Icons.Outlined.Forum) { discussionsOpen = true }
                     HorizontalDivider()
                     ProfileAction("Discussões acompanhadas",
@@ -158,7 +158,7 @@ internal fun OnlineProfileScreen(
                 }
             }
             item {
-                ProfileSectionTitle("Notificações")
+                ProfileSectionTitle("Preferências")
                 ProfileAction("Central de notificações", "Seus avisos e preferências por categoria.",
                     Icons.Outlined.NotificationsNone, onNotifications)
             }
