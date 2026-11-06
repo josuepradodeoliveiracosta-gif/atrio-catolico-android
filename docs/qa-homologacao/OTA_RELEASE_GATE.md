@@ -60,3 +60,20 @@ O novo verificador **somente de leitura** `scripts/ota_release_cert.py` aplica u
 ## Próxima implementação
 
 O laboratório piloto já foi integrado e exercitado em aparelho real com versões 0.19.7 → 0.19.8. **Pendências concretas:** confirmar no Android real os cenários de armazenamento insuficiente e retomada após falhas, validar comportamento e registro do Android certificado no Brasil, conferir assinatura permanente e canal GitHub Releases, testar preservação de sessão/dados em duas versões oficiais quando existir autorização expressa para o piloto assinado e só depois avaliar os gates de publicação. Os cenários de cancelamento já foram aprovados no laboratório emulado. Nenhum Release é autorizado por este documento.
+
+
+## Atualização de evidência — piloto físico A → B (06/11/2026)
+
+Os apontamentos de 05/11 acima eram o estado **anterior à homologação física**. Em 06/11 o proprietário realizou um ciclo OTA privado real no aparelho Android, sem desinstalar o Átrio.
+
+- **Procedência e assinatura:** [run manual #4, 42182257048](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/actions/runs/42182257048), sucesso. Base A `0.20.1/versionCode36` e candidato B `0.20.2/versionCode37` assinados com o mesmo certificado permanente SHA-256 `ba2e86eacf32e2785718040d704609d3c95c3b88363c08dd3d7c5abe299902b0`.
+- **Hashes individuais verificados:** A `0d1928794a518189b6917ab37fe3f6b4d8e76c70c74670b33d52dc1baf769fd5` e B `517df453a3b5d1897c11b63027a6e62cab5648b1b86331c3bf2fcc17a66cc719`.
+- **E2E no aparelho:** A detectou B no servidor privado loopback, baixou e exibiu "APK verificado"; o instalador Android pediu confirmação de atualização; ao concluir, Perfil exibiu a versão B `0.20.2` e a conta autenticada.
+- **Persistência:** à pergunta específica sobre sessão, discussões, publicações e preferências, o usuário confirmou "Tudo intacto". A evidência é relato do titular corroborado pelas capturas da UI, não auditoria dos dados privados.
+- **Privacidade:** as capturas contêm identificadores pessoais. Não as anexar ao GitHub público; usar descrições sanitizadas na [issue #149](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/issues/149).
+
+**Critério alcançado:** atualização OTA do piloto privado A→B em aparelho real, com assinatura permanente e preservação de sessão/dados. **Não foi comprovado** o canal HTTPS público do GitHub Releases nem todos os testes negativos em dispositivo físico. O laboratório automatizado cobre várias recusas, mas testes em emulador não substituem prova física.
+
+**Continuam pendentes:** testar recusa de permissão de instalação, rede indisponível/cancelamento, hash/assinatura/versionCode inválidos e espaço insuficiente em ambiente isolado, confirmar a modalidade real de distribuição e canal estável HTTPS do GitHub, e obter autorização distinta para distribuir. Não ligar `ATRIO_OTA_E2E_TESTED` ou `ATRIO_OTA_RELEASE_APPROVED` antecipadamente e não alterar backup/keystore.
+
+**Regressão encontrada e corrigida:** a primeira execução de piloto falhou ao importar `scripts.*` através de `python3 scripts/ota_release_cert.py`. A PR #171 corrigiu o workflow de piloto; os demais workflows oficiais devem usar `python3 -m scripts.<modulo>` e testes de regressão para não repetir a falha.

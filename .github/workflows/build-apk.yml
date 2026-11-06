@@ -166,7 +166,7 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "$RELEASE_APK"
           # Um APK valido criptograficamente nao garante continuidade da chave
           # do Atrio. Rejeitar assinatura diferente da referencia oficial 0.20.0.
-          python3 scripts/ota_release_cert.py \
+          python3 -m scripts.ota_release_cert \
             --apk "$RELEASE_APK" --android-sdk "$ANDROID_HOME"
       - name: Disponibilizar APK com assinatura permanente
         if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'

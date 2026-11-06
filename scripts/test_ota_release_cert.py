@@ -104,7 +104,7 @@ class ReleaseCertificateContinuityTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         build = (root / ".github/workflows/build-apk.yml").read_text()
         publish = (root / "scripts/ota_release.py").read_text()
-        guard = "python3 scripts/ota_release_cert.py"
+        guard = "python3 -m scripts.ota_release_cert"
         self.assertIn(guard, build)
         self.assertLess(build.index("gradle :app:assembleRelease"), build.index(guard))
         self.assertLess(
