@@ -54,6 +54,7 @@ jobs:
       version: ${{ steps.release-data.outputs.version }}
       source_sha: ${{ steps.release-data.outputs.source_sha }}
       tag: ${{ steps.release-data.outputs.tag }}
+      artifact_name: ${{ steps.release-data.outputs.artifact_name }}
     env:
       GH_TOKEN: ${{ github.token }}
       BUILD_RUN_ID: ${{ inputs.apk_run_id }}
@@ -62,6 +63,8 @@ jobs:
       APPROVED_NOTES: ${{ inputs.release_notes }}
       EXPECTED_CERT: ${{ vars.ATRIO_RELEASE_CERT_SHA256 }}
       ATRIO_EMAIL_VERIFICATION_RELEASE_APPROVED: ${{ vars.ATRIO_EMAIL_VERIFICATION_RELEASE_APPROVED || 'false' }}
+      ATRIO_GUARDIAN_V2_RELEASE_APPROVED: ${{ vars.ATRIO_GUARDIAN_V2_RELEASE_APPROVED || 'false' }}
+      ATRIO_GUARDIAN_V2_WORKER_URL: ${{ vars.ATRIO_GUARDIAN_V2_WORKER_URL || 'https://atrio-guardian-v2.atrio-catolico.workers.dev' }}
       ATRIO_OTA_E2E_TESTED: ${{ vars.ATRIO_OTA_E2E_TESTED || 'false' }}
       ATRIO_OTA_RELEASE_APPROVED: ${{ vars.ATRIO_OTA_RELEASE_APPROVED || 'false' }}
     steps:
@@ -88,6 +91,14 @@ jobs:
               echo "::error::Publicacao bloqueada: verificacao de e-mail obrigatoria nao homologada"
               exit 1
             }
+            [[ "$ATRIO_GUARDIAN_V2_RELEASE_APPROVED" == "true" ]] || {
+              echo "::error::Publicação bloqueada: Guardião V2 ainda não homologado."
+              exit 1
+            }
+            [[ "$ATRIO_GUARDIAN_V2_WORKER_URL" == "https://atrio-guardian-v2.atrio-catolico.workers.dev" ]] || {
+              echo "::error::Publicação bloqueada: gateway do Guardião V2 não é o oficial."
+              exit 1
+            }
             [[ "${{ inputs.confirmation }}" == "PUBLICAR ATRIO" ]] || {
               echo "::error::Publicação não autorizada: confirmação explícita ausente"
               exit 1
@@ -105,6 +116,12 @@ jobs:
             --artifact-name "$ARTIFACT_NAME" \
             --checkout-sha "$GITHUB_SHA" \
             --output "$RUNNER_TEMP/ota-source.json"
+      - name: Impedir publicação de artefato legado ou inferior ao piloto físico
+        if: inputs.mode == 'publish'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m scripts.ota_release publish-readiness --source-json "$RUNNER_TEMP/ota-source.json"
       - name: Baixar somente o APK assinado já produzido
         uses: actions/download-artifact@v4
         with:
@@ -164,6 +181,7 @@ jobs:
               print(f'version={manifest["versionName"]}', file=out)
               print(f'tag=v{manifest["versionName"]}', file=out)
               print(f'source_sha={source_sha}', file=out)
+              print(f'artifact_name={json.loads(Path(os.environ["RUNNER_TEMP"], "ota-source.json").read_text(encoding="utf-8"))["artifactName"]}', file=out)
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as out:
               print("## Pré-voo OTA aprovado — nenhuma publicação neste job", file=out)
               print(f'Versão: {manifest["versionName"]} (code {manifest["versionCode"]})', file=out)
@@ -180,7 +198,7 @@ jobs:
           retention-days: 1
 
   publish-release:
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.mode == 'publish' && inputs.confirmation == 'PUBLICAR ATRIO' && github.run_attempt == 1 && vars.ATRIO_OTA_E2E_TESTED == 'true' && vars.ATRIO_OTA_RELEASE_APPROVED == 'true' && vars.ATRIO_EMAIL_VERIFICATION_RELEASE_APPROVED == 'true'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.mode == 'publish' && inputs.confirmation == 'PUBLICAR ATRIO' && github.run_attempt == 1 && vars.ATRIO_OTA_E2E_TESTED == 'true' && vars.ATRIO_OTA_RELEASE_APPROVED == 'true' && vars.ATRIO_EMAIL_VERIFICATION_RELEASE_APPROVED == 'true' && vars.ATRIO_GUARDIAN_V2_RELEASE_APPROVED == 'true' && needs.validate-release.outputs.artifact_name == 'atrio-catolico-release-assinado'
     needs: validate-release
     name: Publicar versão aprovada sem assinar ou recompilar
     runs-on: ubuntu-latest
@@ -193,6 +211,8 @@ jobs:
       VERSION: ${{ needs.validate-release.outputs.version }}
       SOURCE_SHA: ${{ needs.validate-release.outputs.source_sha }}
       TAG: ${{ needs.validate-release.outputs.tag }}
+      ATRIO_GUARDIAN_V2_RELEASE_APPROVED: ${{ vars.ATRIO_GUARDIAN_V2_RELEASE_APPROVED || 'false' }}
+      ATRIO_GUARDIAN_V2_WORKER_URL: ${{ vars.ATRIO_GUARDIAN_V2_WORKER_URL || 'https://atrio-guardian-v2.atrio-catolico.workers.dev' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -205,6 +225,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          [[ "$ATRIO_GUARDIAN_V2_RELEASE_APPROVED" == "true" ]]
+          [[ "$ATRIO_GUARDIAN_V2_WORKER_URL" == "https://atrio-guardian-v2.atrio-catolico.workers.dev" ]]
           (cd dist && sha256sum --check SHA256SUMS.txt)
           python3 - <<'PY'
           import json, os
@@ -213,6 +235,9 @@ jobs:
           assert d["versionName"] == os.environ["VERSION"]
           assert "v" + d["versionName"] == os.environ["TAG"]
           assert d["mandatory"] is False
+          assert type(d.get("versionCode")) is int and d["versionCode"] > 37
+          from scripts.ota_release import version_tuple
+          assert version_tuple(d["versionName"]) > version_tuple("0.20.2")
           assert Path("dist/source-sha.txt").read_text().strip() == os.environ["SOURCE_SHA"]
           assert d["downloadUrl"].endswith("/" + os.environ["TAG"] + "/atrio-catolico.apk")
           PY
