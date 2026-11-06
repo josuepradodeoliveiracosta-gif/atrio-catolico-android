@@ -18,6 +18,30 @@ python3 scripts/ota_baseline_0200.py --apk /caminho/app-release.apk --android-sd
 
 O workflow manual `ota-apk-preflight.yml` executa essa proteção adicional quando o artefato selecionado é o Release histórico 0.20.0. Se o artefato estiver expirado, reportar indisponibilidade, nunca fabricar evidência.
 
+## Etapa seguinte — preflight read-only de dois APKs Release
+
+Um par oficial OTA só é elegível para **iniciar** a homologação física quando há duas versões posteriores ao 0.20.0, assinadas com o certificado permanente oficial, e ambos os **SHA-256 dos arquivos APK** foram registrados independentemente.
+
+O script `scripts/ota_release_pair_preflight.py` compara os dois APKs existentes usando Android SDK `apksigner` e `apkanalyzer`. Rejeita certificados diferentes do oficial, pacote errado, APK depurável, versões iguais/decrescentes e hashes divergentes. Rejeita explicitamente `0.20.0/code35` como versão-base porque ela não possui cliente OTA.
+
+Exemplo somente de leitura, sem publicação:
+
+```sh
+python3 scripts/ota_release_pair_preflight.py \
+  --base-apk /caminho/versao-a.apk \
+  --candidate-apk /caminho/versao-b.apk \
+  --base-sha256 SHA256_INDEPENDENTE_A \
+  --candidate-sha256 SHA256_INDEPENDENTE_B \
+  --android-sdk "$ANDROID_HOME"
+```
+
+O workflow manual `.github/workflows/ota-release-pair-preflight.yml` exige duas execuções anteriores bem-sucedidas, manuais e da branch `main` do workflow oficial de assinatura, com seus hashes previamente conferidos. **Nunca compila, assina ou publica.** Sem dois candidatos autorizados, o teste fica bloqueado.
+
+**Limites:** o relatório `offline_signature_and_version_preflight_only` não demonstra que a versão-base tem interface OTA funcional, que existe canal piloto privado, que o Android instalou por cima ou que a sessão e os dados persistiram. Essas evidências continuam obrigatórias.
+
+**Canal:** o cliente de produção consulta apenas GitHub Releases estável e público. É preciso projetar e validar um canal de piloto seguro e isolado para ensaiar a atualização, sem publicar antecipadamente. A autorização de homologação não altera as travas existentes de assinatura nem as de distribuição.
+
+
 ## Homologação ainda necessária
 
 1. **O 0.20.0 é exclusivamente a referência histórica de assinatura**: o commit `fcf063e835c37ca1e3f9363a56a4232d30cb8ea0` que gerou esse APK ainda não contém `OtaReleaseClient.kt` ou `OtaUpdatesSection.kt`. Portanto, é impossível homologar uma atualização **iniciada dentro do 0.20.0**.
