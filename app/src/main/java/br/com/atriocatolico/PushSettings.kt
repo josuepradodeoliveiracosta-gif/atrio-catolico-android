@@ -33,14 +33,16 @@ import com.google.firebase.messaging.FirebaseMessaging
  * sem backend emissor a ativacao prepara recebimento, nao envio automatico.
  */
 @Composable
-internal fun PushSettings(uid: String, db: FirebaseFirestore, onNotifications: () -> Unit = {}) {
+internal fun PushSettings(
+    uid: String, db: FirebaseFirestore,
+    onNotifications: () -> Unit = {}, advancedOnly: Boolean = false
+) {
     val context = LocalContext.current
     var active by remember(uid) { mutableStateOf(PushRegistry.enabled(context, uid)) }
     var busy by remember(uid) { mutableStateOf(false) }
     var feedback by remember(uid) { mutableStateOf("") }
     var backgroundEnabled by remember(uid) { mutableStateOf(BackgroundNoticeScheduler.enabled(context, uid)) }
     var diagnosticsOpen by rememberSaveable(uid) { mutableStateOf(false) }
-    var advancedOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var permissionForBackground by remember(uid) { mutableStateOf(false) }
     var lastRelayStatus by remember(uid) { mutableStateOf(InstantPushRelay.lastStatus(context, uid)) }
 
@@ -74,6 +76,7 @@ internal fun PushSettings(uid: String, db: FirebaseFirestore, onNotifications: (
         border = BorderStroke(1.dp, Line),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (!advancedOnly) {
             Row(Modifier.fillMaxWidth().heightIn(min = 60.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -81,7 +84,7 @@ internal fun PushSettings(uid: String, db: FirebaseFirestore, onNotifications: (
                     modifier = Modifier.size(28.dp))
                 Column(Modifier.weight(1f)) {
                     Text("Notificações", color = Wine, style = MaterialTheme.typography.titleMedium)
-                    Text("Receba avisos no celular sobre respostas e novas discussões.",
+                    Text("Receba avisos sobre respostas e atividades",
                         color = Muted, fontSize = 12.sp)
                 }
                 Switch(
@@ -106,14 +109,15 @@ internal fun PushSettings(uid: String, db: FirebaseFirestore, onNotifications: (
             if (busy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             if (feedback.isNotBlank()) Text(feedback, color = Wine, fontSize = 14.sp,
                 modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = onNotifications) { Text("Central de notificações", color = Wine) }
-                TextButton(onClick = { advancedOpen = !advancedOpen }) {
-                    Text(if (advancedOpen) "Menos opções" else "Mais opções", color = Wine)
-                }
+            TextButton(onClick = onNotifications, modifier = Modifier.fillMaxWidth()) {
+                Text("Personalizar avisos", color = Wine)
             }
-            if (advancedOpen) {
+            }
+            if (advancedOnly) {
+            Text("Ferramentas avançadas de notificações",
+                color = Wine, style = MaterialTheme.typography.titleMedium)
+            Text("As opções abaixo são independentes dos avisos na central.",
+                fontSize = 12.sp, color = Muted)
             HorizontalDivider()
             Text("Verificação em segundo plano", color = Wine,
                 style = MaterialTheme.typography.titleMedium)
@@ -177,7 +181,11 @@ internal fun PushSettings(uid: String, db: FirebaseFirestore, onNotifications: (
                     lastRelayStatus = InstantPushRelay.lastStatus(context, uid)
                 }, modifier = Modifier.fillMaxWidth()) { Text("Atualizar diagnóstico do Push") }
             }
-            }
+            if (advancedOnly && busy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            if (advancedOnly && feedback.isNotBlank()) Text(
+                feedback, color = Wine, fontSize = 14.sp,
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
+            )
         }
     }
 }
