@@ -7,6 +7,31 @@ plugins {
 // A QA OTA usa um pacote isolado .otalab e não toca Firebase de produção.
 // Por isso NÃO aplica Google Services nesse build exclusivamente Debug.
 val atrioOtaQaLoopback = System.getenv("ATRIO_OTA_QA_LOOPBACK") == "1"
+// O piloto NÃO é uma publicacao: somente um buildType distinto, nao depuravel,
+// com pacote e certificado oficiais. O modo normal fica completamente intocado.
+val atrioOtaReleasePilot = System.getenv("ATRIO_OTA_RELEASE_PILOT") == "1"
+val atrioOtaPilotCompileOnly = System.getenv("ATRIO_OTA_PILOT_COMPILE_ONLY") == "1"
+val atrioOtaPilotEnabled = atrioOtaReleasePilot || atrioOtaPilotCompileOnly
+require(!(atrioOtaQaLoopback && atrioOtaPilotEnabled)) {
+    "Laboratorio Debug e piloto Release nao podem ser ativos juntos."
+}
+require(!(atrioOtaReleasePilot && atrioOtaPilotCompileOnly)) {
+    "Use somente um modo de piloto por vez."
+}
+if (atrioOtaReleasePilot) {
+    require(System.getenv("ATRIO_OTA_PILOT_CONFIRM") == "HOMOLOGAR ATRIO SEM PUBLICAR") {
+        "Confirmacao explicita para gerar candidato de homologacao ausente."
+    }
+    require(gradle.startParameter.taskNames.any { task ->
+        task.substringAfterLast(':').lowercase().contains("otapilot")
+    }) { "Candidato piloto so pode ser gerado pela tarefa OtaPilot." }
+}
+val atrioPilotCode = (System.getenv("ATRIO_OTA_PILOT_VERSION_CODE") ?: "36").toIntOrNull()
+    ?: error("versionCode do piloto invalido")
+val atrioPilotName = System.getenv("ATRIO_OTA_PILOT_VERSION_NAME") ?: "0.20.1"
+require(atrioPilotCode >= 36 && Regex("[0-9]+\\.[0-9]+\\.[0-9]+").matches(atrioPilotName)) {
+    "Piloto exige versao posterior ao Release historico 0.20.0/code35."
+}
 if (atrioOtaQaLoopback && gradle.startParameter.taskNames.any { task ->
     val name = task.substringAfterLast(':').lowercase()
     name.contains("release") || name == "assemble" || name == "build" || name == "bundle"
@@ -25,6 +50,12 @@ val atrioStoreFile = System.getenv("ATRIO_SIGNING_STORE_FILE")
 val atrioStorePassword = System.getenv("ATRIO_SIGNING_STORE_PASSWORD")
 val atrioKeyAlias = System.getenv("ATRIO_SIGNING_KEY_ALIAS")
 val atrioKeyPassword = System.getenv("ATRIO_SIGNING_KEY_PASSWORD")
+if (atrioOtaReleasePilot) {
+    require(listOf(atrioStoreFile, atrioStorePassword, atrioKeyAlias, atrioKeyPassword)
+        .all { !it.isNullOrBlank() }) {
+        "Piloto real exige certificado oficial e assinatura permanente; nao aceitar APK unsigned."
+    }
+}
 
 // Versão do APK de testes: avançar para 2, 3, ... a cada NOVA atualização Debug.
 // Proximo release OTA candidato 0.20.1 / versionCode 36; assinacao oficial exclusivamente no workflow manual aprovado.
@@ -76,6 +107,7 @@ android {
     buildTypes {
         getByName("debug") {
             buildConfigField("boolean", "OTA_QA_LOOPBACK", atrioOtaQaLoopback.toString())
+            buildConfigField("boolean", "OTA_RELEASE_PILOT_LOOPBACK", "false")
             // Instala lado a lado do app oficial: jamais substituir o Debug usual.
             if (atrioOtaQaLoopback) applicationIdSuffix = ".otalab"
             // A numeração de testes aparece também dentro da aba Perfil.
@@ -83,6 +115,17 @@ android {
         }
         getByName("release") {
             buildConfigField("boolean", "OTA_QA_LOOPBACK", "false")
+            buildConfigField("boolean", "OTA_RELEASE_PILOT_LOOPBACK", "false")
+            signingConfigs.findByName("atrioRelease")?.let { signingConfig = it }
+        }
+        create("otaPilot") {
+            initWith(getByName("release"))
+            // Mesmo applicationId oficial: preserva dados e sessao durante A -> B.
+            // Nada de applicationIdSuffix, debug ou bypass do certificado oficial.
+            isDebuggable = false
+            matchingFallbacks += listOf("release")
+            buildConfigField("boolean", "OTA_QA_LOOPBACK", "false")
+            buildConfigField("boolean", "OTA_RELEASE_PILOT_LOOPBACK", "true")
             signingConfigs.findByName("atrioRelease")?.let { signingConfig = it }
         }
     }
@@ -94,6 +137,19 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+}
+
+// Esta variante nao participa de builds comuns nem de Releases oficiais.
+androidComponents {
+    beforeVariants(selector().withBuildType("otaPilot")) { variant ->
+        variant.enable = atrioOtaPilotEnabled
+    }
+    onVariants(selector().withBuildType("otaPilot")) { variant ->
+        variant.outputs.forEach { output ->
+            output.versionName.set(atrioPilotName)
+            output.versionCode.set(atrioPilotCode)
+        }
+    }
 }
 
 // Alterar somente os metadados do APK Debug via API oficial de variantes AGP.
