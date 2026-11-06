@@ -67,7 +67,7 @@ No Termux, com o código do repositório disponível:
 
 ```sh
 cd "$HOME/caminho-do-repositorio"
-python3 scripts/ota_release_pilot_server.py \
+python3 -m scripts.ota_release_pilot_server \
   --apk "$HOME/atrio-ota-homologacao/candidate.apk" \
   --validated-manifest "$HOME/atrio-ota-homologacao/update-piloto-local.json" \
   --candidate-sha256 SHA256_DO_CANDIDATE_APK \

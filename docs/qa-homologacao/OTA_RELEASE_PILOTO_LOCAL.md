@@ -33,7 +33,7 @@ O CI pode compilar a variante **sem assinar** em modo `ATRIO_OTA_PILOT_COMPILE_O
 **Preparação confiável no runner com Android SDK**, após verificar a assinatura do APK B:
 
 ```sh
-python3 scripts/ota_release_pilot_server.py \
+python3 -m scripts.ota_release_pilot_server \
   --apk /caminho/versao-b.apk \
   --android-sdk "$ANDROID_HOME" \
   --candidate-sha256 SHA256_INDEPENDENTE_DO_APK_B \
@@ -45,7 +45,7 @@ python3 scripts/ota_release_pilot_server.py \
 **Execução no Termux do celular**, com APK B e manifesto previamente validados transferidos privadamente ao aparelho:
 
 ```sh
-python3 scripts/ota_release_pilot_server.py \
+python3 -m scripts.ota_release_pilot_server \
   --apk /caminho/versao-b.apk \
   --validated-manifest /caminho/update-piloto-local.json \
   --candidate-sha256 SHA256_INDEPENDENTE_DO_APK_B \
