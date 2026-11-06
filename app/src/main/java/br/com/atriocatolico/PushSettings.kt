@@ -9,6 +9,10 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -29,13 +33,14 @@ import com.google.firebase.messaging.FirebaseMessaging
  * sem backend emissor a ativacao prepara recebimento, nao envio automatico.
  */
 @Composable
-internal fun PushSettings(uid: String, db: FirebaseFirestore) {
+internal fun PushSettings(uid: String, db: FirebaseFirestore, onNotifications: () -> Unit = {}) {
     val context = LocalContext.current
     var active by remember(uid) { mutableStateOf(PushRegistry.enabled(context, uid)) }
     var busy by remember(uid) { mutableStateOf(false) }
     var feedback by remember(uid) { mutableStateOf("") }
     var backgroundEnabled by remember(uid) { mutableStateOf(BackgroundNoticeScheduler.enabled(context, uid)) }
     var diagnosticsOpen by rememberSaveable(uid) { mutableStateOf(false) }
+    var advancedOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var permissionForBackground by remember(uid) { mutableStateOf(false) }
     var lastRelayStatus by remember(uid) { mutableStateOf(InstantPushRelay.lastStatus(context, uid)) }
 
@@ -65,32 +70,50 @@ internal fun PushSettings(uid: String, db: FirebaseFirestore) {
         permissionForBackground = false
     }
 
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp),
+        border = BorderStroke(1.dp, Line),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("Avisos neste aparelho", color = Wine, style = MaterialTheme.typography.titleMedium)
-            Text("Receba avisos mesmo quando o Átrio não estiver aberto. " +
-                "O cadastro do aparelho não confirma a entrega: ela também depende da conexão e das configurações do Android.",
-                color = Muted, fontSize = 12.sp)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text(if (active) "Dispositivo cadastrado" else "Desativado", fontSize = 14.sp, modifier = Modifier.weight(1f).padding(end = 12.dp))
-                Switch(modifier = Modifier.semantics { contentDescription = "Receber avisos neste aparelho" }, checked = active, enabled = !busy, onCheckedChange = { enabled ->
-                    feedback = ""
-                    if (enabled) {
-                        if (Build.VERSION.SDK_INT >= 33 &&
-                            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
-                            != PackageManager.PERMISSION_GRANTED) {
-                            requestPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-                        } else turnOn()
-                    } else {
-                        PushRegistry.deactivate(context, uid, db)
-                        active = false
-                        feedback = "Avisos desativados neste aparelho."
+            Row(Modifier.fillMaxWidth().heightIn(min = 60.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Icon(Icons.Outlined.NotificationsNone, contentDescription = null, tint = Wine,
+                    modifier = Modifier.size(28.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Notificações", color = Wine, style = MaterialTheme.typography.titleMedium)
+                    Text("Receba avisos no celular sobre respostas e novas discussões.",
+                        color = Muted, fontSize = 12.sp)
+                }
+                Switch(
+                    modifier = Modifier.semantics { contentDescription = "Receber avisos neste aparelho" },
+                    checked = active, enabled = !busy,
+                    onCheckedChange = { enabled ->
+                        feedback = ""
+                        if (enabled) {
+                            if (Build.VERSION.SDK_INT >= 33 &&
+                                context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                                != PackageManager.PERMISSION_GRANTED) {
+                                requestPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                            } else turnOn()
+                        } else {
+                            PushRegistry.deactivate(context, uid, db)
+                            active = false
+                            feedback = "Avisos desativados neste aparelho."
+                        }
                     }
-                })
+                )
             }
             if (busy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             if (feedback.isNotBlank()) Text(feedback, color = Wine, fontSize = 14.sp,
                 modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = onNotifications) { Text("Central de notificações", color = Wine) }
+                TextButton(onClick = { advancedOpen = !advancedOpen }) {
+                    Text(if (advancedOpen) "Menos opções" else "Mais opções", color = Wine)
+                }
+            }
+            if (advancedOpen) {
             HorizontalDivider()
             Text("Verificação em segundo plano", color = Wine,
                 style = MaterialTheme.typography.titleMedium)
@@ -153,6 +176,7 @@ internal fun PushSettings(uid: String, db: FirebaseFirestore) {
                 OutlinedButton(onClick = {
                     lastRelayStatus = InstantPushRelay.lastStatus(context, uid)
                 }, modifier = Modifier.fillMaxWidth()) { Text("Atualizar diagnóstico do Push") }
+            }
             }
         }
     }
