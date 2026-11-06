@@ -176,12 +176,19 @@ class ProfileLayoutUiTest {
             }
         }
         compose.onNodeWithTag("atrio-onboarding-save").assertIsNotEnabled()
-        compose.onNodeWithTag("atrio-onboarding-skip").performClick()
-        // A etapa opcional foi ignorada e o botão de prosseguir tornou-se
-        // acessível. O título da tela seguinte depende da consulta do perfil
-        // no servidor, que pode estar ausente neste UID sintético de QA.
+        // O formulário comprido deixa Pular abaixo da área visível no
+        // emulador pequeno. Um performClick sem rolagem toca fora da tela.
+        // Exercitar o toque real: rolar, verificar visibilidade e clicar.
+        compose.onNodeWithTag("atrio-onboarding-skip")
+            .performScrollTo().assertIsDisplayed().assertIsEnabled().performClick()
+        // Esperar a composição da próxima etapa, não assumir que a árvore
+        // semântica mudou no mesmo instante do clique.
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithTag("atrio-onboarding-enter")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("atrio-onboarding-enter").assertIsEnabled()
         compose.onNodeWithTag("atrio-onboarding-skip").assertDoesNotExist()
-        compose.onNodeWithTag("atrio-onboarding-enter").assertExists().assertIsEnabled()
         compose.onNodeWithTag("atrio-onboarding-save").assertDoesNotExist()
     }
 
