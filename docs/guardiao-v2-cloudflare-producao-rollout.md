@@ -32,3 +32,14 @@ Em 31/10/2026, o proprietário apresentou resultados do Google Cloud Shell:
 Esta evidência confirma o provisionamento de infraestrutura. **Não comprova que o workflow GitHub já conseguiu trocar o OIDC por credenciais**, nem que tenha criado casos em produção. O agendamento de escrita está ausente da `main` e o documento `guardian_config/policy` ainda precisa conter `autonomousWriteEnabled=true` para permitir triagem. Não habilitar variáveis do GitHub nem abrir escrita autônoma antes da integração revisada.
 
 Para respeitar a orientação de não executar novas baterias de testes, mudanças de código permanecem somente nesta branch. A integração na `main` acionaria workflows existentes de compilação e verificação, de modo que seu efeito precisa ser considerado antes do merge. O backup não foi alterado.
+
+
+## Correção de compatibilidade do gateway — revisão 06/11/2026
+
+**Achado no código fonte (não é prova de falha em produção):** o gateway administrativo `cloudflare/guardian-worker/src/production-gateway.js` fazia requisições Firestore com `redirect:'error'`. O runtime Cloudflare Workers **não implementa** esse modo e pode lançar `TypeError` antes de qualquer consulta, convertendo um acesso legítimo em HTTP 503/403. A [documentação oficial](https://developers.cloudflare.com/workers/runtime-apis/request/) exige o modo `manual` e a recusa explícita de status 3xx. Não confundir isso com redirecionamento `follow`, que pode encaminhar `Authorization` a outro host e **não** deve ser utilizado.
+
+**Correção no repositório:** substituir por `redirect:'manual'` e fazer todas as respostas HTTP 3xx falharem fechadas como indisponíveis, sem acompanhar `Location`. A suíte `production-gateway-redirect.test.js` simula credencial JWT **inteiramente falsa**, GET permitido e redirects externos em leitura de admin e política, além de 403; sem acesso a usuários, Cloudflare ou Firebase reais.
+
+**Limitação crítica:** testes e revisão de código não provam que a versão do gateway implantada em Cloudflare foi atualizada. O Worker `atrio-guardian-v2` estava implantado e o binding `GUARDIAN_V2_ADMIN_WRITES_ENABLED` constava `true` na inspeção de metadados de 06/11/2026, mas isso **não** comprova que o Firestore ou identidade autoriza qualquer escrita e **não** autoriza resolução administrativa, moderação ou rollout. O processo de publicação desse gateway, as diferenças de versão e o rollback exigem avaliação e autorização **separadas**.
+
+**Nenhuma implantação decorre desta correção**. Não alterar bindings, Worker, regras Firestore, WIF, cron, backups ou os gates de Release. A verificação do gateway real deverá ocorrer em operação controlada, depois de revisão de credenciais, regras e plano de rollback. Enquanto isso, o Guardian V2 e o APK oficial continuam **NO-GO**.
