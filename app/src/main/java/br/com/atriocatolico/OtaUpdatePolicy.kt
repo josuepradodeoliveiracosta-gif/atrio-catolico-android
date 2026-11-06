@@ -59,16 +59,16 @@ internal object OtaUpdatePolicy {
         "br.com.atriocatolico.otalab"
     else "br.com.atriocatolico"
     const val REPO = "josuepradodeoliveiracosta-gif/atrio-catolico-android"
-    val API: String get() = if (OtaQaChannel.active)
+    val API: String get() = if (OtaQaChannel.usesLoopback)
         "${OtaQaChannel.ORIGIN}/releases/latest"
     else "https://api.github.com/repos/$REPO/releases/latest"
     private val versionPattern = Regex("""[0-9]+\.[0-9]+\.[0-9]+""")
     private val digestPattern = Regex("""[0-9a-fA-F]{64}""")
 
-    fun expectedPage(tag: String): String = if (OtaQaChannel.active)
+    fun expectedPage(tag: String): String = if (OtaQaChannel.usesLoopback)
         "${OtaQaChannel.ORIGIN}/releases/tag/$tag"
     else "https://github.com/$REPO/releases/tag/$tag"
-    fun expectedAsset(tag: String, file: String): String = if (OtaQaChannel.active)
+    fun expectedAsset(tag: String, file: String): String = if (OtaQaChannel.usesLoopback)
         "${OtaQaChannel.ORIGIN}/releases/download/$tag/$file"
     else "https://github.com/$REPO/releases/download/$tag/$file"
 
