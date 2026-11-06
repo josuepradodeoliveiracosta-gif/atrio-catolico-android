@@ -460,6 +460,69 @@ service cloud.firestore {
       }
     }
 
+    // Cadastro V2: apenas metadados privados e mínimos. Não há papéis, selos,
+    // cargos, publicidade automática nem qualquer acesso ao documento de terceiros.
+    // A criação é aditiva: perfis antigos e seus selos não sofrem migração.
+    match /users/{uid}/private/account {
+      allow get: if me(uid);
+      allow list, delete: if false;
+      allow create: if me(uid)
+        && request.resource.data.keys().hasOnly([
+          'onboardingStatus', 'profileVersion', 'noticesOptIn',
+          'communityUpdates', 'updatedAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'onboardingStatus', 'profileVersion', 'noticesOptIn',
+          'communityUpdates', 'updatedAt'
+        ])
+        && request.resource.data.onboardingStatus == 'pending_email'
+        && request.resource.data.profileVersion == 2
+        && request.resource.data.noticesOptIn == false
+        && request.resource.data.communityUpdates == false
+        && request.resource.data.updatedAt == request.time;
+      allow update: if me(uid)
+        && resource.data.onboardingStatus == 'pending_email'
+        && request.auth.token.email_verified == true
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['onboardingStatus', 'updatedAt'])
+        && request.resource.data.onboardingStatus == 'complete'
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    // Informações de fé e paróquia são privadas e exigem consentimento
+    // específico. Não permitir alteração de privilégios ou campos extras.
+    // Exclusão pelo titular é a revogação integral das preferências opcionais.
+    match /users/{uid}/private/preferences {
+      allow get: if me(uid);
+      allow list: if false;
+      allow create, update: if me(uid)
+        && request.resource.data.keys().hasOnly([
+          'interests', 'participation', 'city', 'parish',
+          'consentVersion', 'consentAt', 'updatedAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'interests', 'participation', 'city', 'parish',
+          'consentVersion', 'consentAt', 'updatedAt'
+        ])
+        && request.resource.data.interests is list
+        && request.resource.data.interests.size() <= 4
+        && request.resource.data.interests.hasOnly([
+          'Oração', 'Formação', 'Comunidade', 'Notícias católicas'
+        ])
+        && request.resource.data.participation is string
+        && request.resource.data.participation in [
+          '', 'Leigo(a)', 'Religioso(a)', 'Padre/Diácono'
+        ]
+        && request.resource.data.city is string
+        && request.resource.data.city.size() <= 80
+        && request.resource.data.parish is string
+        && request.resource.data.parish.size() <= 80
+        && request.resource.data.consentVersion == 'cadastro-v2-2026-11'
+        && request.resource.data.consentAt == request.time
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if me(uid);
+    }
+
     // Bloqueios privados: só o titular lê e altera sua lista. Não criar auto-bloqueio.
     match /users/{uid}/blockedMembers/{blockedUid} {
       allow get, list: if me(uid);
