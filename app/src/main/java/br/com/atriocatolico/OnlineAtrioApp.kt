@@ -794,6 +794,7 @@ private fun OnlineCommunity(
     var feedError by remember(uid) { mutableStateOf(false) }
     var feedRetry by remember(uid) { mutableStateOf(0) }
     var replyLimit by remember(uid, detailId) { mutableStateOf(30) }
+    var replyNewestFirst by remember(uid, detailId) { mutableStateOf(false) }
     var repliesLoading by remember(uid, detailId) { mutableStateOf(true) }
     var repliesMore by remember(uid, detailId) { mutableStateOf(false) }
     var repliesError by remember(uid, detailId) { mutableStateOf(false) }
@@ -916,13 +917,14 @@ private fun OnlineCommunity(
         }
         onDispose { active = false; registration?.remove() }
     }
-    DisposableEffect(db, uid, detailId, replyLimit, repliesRetry) {
+    DisposableEffect(db, uid, detailId, replyLimit, repliesRetry, replyNewestFirst) {
         var active = true
         repliesLoading = true
         repliesError = false
         val registration = detailId?.let { id ->
             db.collection("posts").document(id).collection("replies")
-                .orderBy("createdAt", Query.Direction.ASCENDING).limit(replyLimit.toLong() + 1)
+                .orderBy("createdAt", if (replyNewestFirst) Query.Direction.DESCENDING else Query.Direction.ASCENDING)
+                .limit(replyLimit.toLong() + 1)
                 .addSnapshotListener { data, failure ->
                     if (active) {
                         repliesLoading = false
@@ -937,7 +939,8 @@ private fun OnlineCommunity(
                                     ownerUid = it.getString("uid").orEmpty(),
                                     replyToId = it.getString("replyToId").orEmpty(),
                                     replyToUid = it.getString("replyToUid").orEmpty(),
-                                    mentionUid = it.getString("mentionUid").orEmpty())
+                                    mentionUid = it.getString("mentionUid").orEmpty(),
+                                    createdAtMillis = it.getTimestamp("createdAt")?.toDate()?.time ?: 0L)
                             } ?: emptyList()
                         }
                     }
@@ -1399,6 +1402,16 @@ private fun OnlineCommunity(
                     repliesFooter = {
                         LoadMore(repliesLoading, repliesMore, repliesError, "Carregar mais respostas") {
                             if (repliesError) repliesRetry++ else replyLimit += 30
+                        }
+                    },
+                    moreReplies = repliesMore,
+                    repliesLoading = repliesLoading,
+                    newestFirst = replyNewestFirst,
+                    onReplySortChange = { newest ->
+                        if (newest != replyNewestFirst) {
+                            replyNewestFirst = newest
+                            replyLimit = 30
+                            detailReplies = emptyList()
                         }
                     }
                 )
