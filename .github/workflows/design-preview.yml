@@ -45,6 +45,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Remover SOMENTE na cópia descartável do runner; o repositório
+          # e sua configuração oficial permanecem intocados.
+          if [[ -f app/google-services.json ]]; then
+            rm -- app/google-services.json
+          fi
           test ! -e app/google-services.json
           test -z "${ATRIO_PUSH_WORKER_URL:-}"
           test -z "${ATRIO_GUARDIAN_V2_WORKER_URL:-}"
