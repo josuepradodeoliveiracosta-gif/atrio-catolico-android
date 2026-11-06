@@ -213,7 +213,26 @@ service cloud.firestore {
           || get(badgePath).data.get('clergy', '') != resource.data.kind);
     }
 
-    // Identificação leiga é autodeclarada; selo clerical exige admin e batch.
+    // Revogar um selo verificado exige remover o campo no mesmo batch.
+    function revokedVerifiedBadge(uid) {
+      let requestPath = /databases/$(database)/documents/badge_requests/$(uid);
+      return isAdmin()
+        && request.auth.uid != uid
+        && exists(requestPath)
+        && get(requestPath).data.status == 'approved'
+        && get(requestPath).data.kind == resource.data.get('clergy', '')
+        && getAfter(requestPath).data.status == 'revoked'
+        && getAfter(requestPath).data.revokedBy == request.auth.uid
+        && getAfter(requestPath).data.revokedAt == request.time;
+    }
+    function revokedRequestHasBadgeRemoved(uid) {
+      let badgePath = /databases/$(database)/documents/badges/$(uid);
+      return exists(badgePath)
+        && get(badgePath).data.get('clergy', '') == resource.data.kind
+        && getAfter(badgePath).data.get('clergy', '') == '';
+    }
+
+    // Leigos podem autodeclarar; identidade religiosa exige aprovação atômica.
     match /badges/{uid} {
       allow get: if signedIn();
       allow list: if false;
@@ -223,7 +242,11 @@ service cloud.firestore {
         && request.resource.data.lay in ['leigo', 'leiga'])
         || (approvedClergyGrant(uid, request.resource.data.get('clergy', ''))
           && request.resource.data.keys().hasOnly(['clergy'])
-          && request.resource.data.clergy in ['padre', 'diacono']);
+          && request.resource.data.clergy in ['padre', 'diacono', 'religioso', 'religiosa'])
+        || (isFounderAdmin()
+          && request.auth.uid != uid
+          && request.resource.data.keys().hasOnly(['moderator'])
+          && request.resource.data.moderator == true);
       allow update: if (me(uid)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lay'])
         && request.resource.data.keys().hasAll(['lay'])
@@ -231,7 +254,17 @@ service cloud.firestore {
         || (approvedClergyGrant(uid, request.resource.data.get('clergy', ''))
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['clergy'])
           && request.resource.data.diff(resource.data).affectedKeys().hasAll(['clergy'])
-          && request.resource.data.clergy in ['padre', 'diacono']);
+          && request.resource.data.clergy in ['padre', 'diacono', 'religioso', 'religiosa'])
+        || (revokedVerifiedBadge(uid)
+          && resource.data.get('clergy', '') in ['padre', 'diacono', 'religioso', 'religiosa']
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['clergy'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasAll(['clergy'])
+          && request.resource.data.get('clergy', '') == '')
+        || (isFounderAdmin()
+          && request.auth.uid != uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['moderator'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasAll(['moderator'])
+          && request.resource.data.moderator is bool);
       allow delete: if false;
     }
 
@@ -243,14 +276,14 @@ service cloud.firestore {
       allow create: if me(uid)
         && request.resource.data.keys().hasOnly(['kind', 'status', 'createdAt'])
         && request.resource.data.keys().hasAll(['kind', 'status', 'createdAt'])
-        && request.resource.data.kind in ['padre', 'diacono']
+        && request.resource.data.kind in ['padre', 'diacono', 'religioso', 'religiosa']
         && request.resource.data.status == 'pending'
         && validTime();
       allow update: if (me(uid)
-        && resource.data.status in ['rejected', 'dismissed']
+        && resource.data.status in ['rejected', 'dismissed', 'revoked']
         && request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly(['kind', 'status', 'createdAt'])
-        && request.resource.data.kind in ['padre', 'diacono']
+        && request.resource.data.kind in ['padre', 'diacono', 'religioso', 'religiosa']
         && request.resource.data.status == 'pending'
         && validTime())
         || (isAdmin()
@@ -266,8 +299,51 @@ service cloud.firestore {
           && request.resource.data.reviewedAt == request.time
           && validText(request.resource.data.reviewNote, 10, 300)
           && (request.resource.data.status == 'rejected'
-              || approvedRequestHasGrant(uid)));
+              || approvedRequestHasGrant(uid)))
+        || (isAdmin()
+          && request.auth.uid != uid
+          && resource.data.status == 'approved'
+          && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['status', 'revokedBy', 'revokedAt', 'revokeNote'])
+          && request.resource.data.keys().hasAll([
+              'status', 'revokedBy', 'revokedAt', 'revokeNote'
+            ])
+          && request.resource.data.status == 'revoked'
+          && request.resource.data.revokedBy == request.auth.uid
+          && request.resource.data.revokedAt == request.time
+          && validText(request.resource.data.revokeNote, 10, 300)
+          && revokedRequestHasBadgeRemoved(uid));
       allow delete: if false;
+    }
+
+    // Histórico append-only, visível apenas pela administração ativa.
+    match /badge_events/{eventId} {
+      allow get, list: if isAdmin();
+      allow create: if isAdmin()
+        && request.resource.data.keys().hasOnly([
+          'targetUid', 'kind', 'decision', 'actorUid', 'reason', 'createdAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'targetUid', 'kind', 'decision', 'actorUid', 'reason', 'createdAt'
+        ])
+        && validId(request.resource.data.targetUid)
+        && request.resource.data.targetUid != request.auth.uid
+        && request.resource.data.kind in ['padre', 'diacono', 'religioso', 'religiosa']
+        && request.resource.data.decision in ['approved', 'rejected', 'revoked']
+        && request.resource.data.actorUid == request.auth.uid
+        && validText(request.resource.data.reason, 10, 300)
+        && request.resource.data.createdAt == request.time
+        && getAfter(/databases/$(database)/documents/badge_requests/$(request.resource.data.targetUid)).data.kind
+            == request.resource.data.kind
+        && getAfter(/databases/$(database)/documents/badge_requests/$(request.resource.data.targetUid)).data.status
+            == request.resource.data.decision
+        && (request.resource.data.decision == 'rejected'
+          || (request.resource.data.decision == 'approved'
+            && getAfter(/databases/$(database)/documents/badges/$(request.resource.data.targetUid)).data.get('clergy', '')
+                == request.resource.data.kind)
+          || (request.resource.data.decision == 'revoked'
+            && getAfter(/databases/$(database)/documents/badges/$(request.resource.data.targetUid)).data.get('clergy', '') == ''));
+      allow update, delete: if false;
     }
 
     // Pedido de exclusão PRIVADO. Operador autorizado executará a limpeza
