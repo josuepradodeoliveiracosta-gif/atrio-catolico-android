@@ -177,7 +177,8 @@ class ProfileLayoutUiTest {
         }
         compose.onNodeWithTag("atrio-onboarding-save").assertIsNotEnabled()
         compose.onNodeWithTag("atrio-onboarding-skip").performClick()
-        compose.onNodeWithText("Cadastro concluído!").assertExists()
+        // UID de teste sem perfil persistido: não declarar sucesso fictício.
+        compose.onNodeWithText("E-mail confirmado").assertExists()
         compose.onNodeWithTag("atrio-onboarding-enter").assertExists()
     }
 
