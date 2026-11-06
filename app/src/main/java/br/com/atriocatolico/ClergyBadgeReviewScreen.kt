@@ -99,7 +99,7 @@ internal fun ClergyBadgeReviewScreen(
                 Text("Verificação de Padre, Diácono, Religioso e Religiosa", color = Wine)
                 Text("Confirme a identidade e o vínculo religioso por um canal eclesial " +
                     "independente. A autodeclaração não comprova ordenação ou vida consagrada.",
-                    color = Muted, fontSize = 13.sp)
+                    color = Muted, fontSize = AtrioType.secondary)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(selected = !showApproved, onClick = {
                         showApproved = false; selected = null; limit = 30
@@ -124,10 +124,10 @@ internal fun ClergyBadgeReviewScreen(
                 Card(onClick = { selected = item.uid }, modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("Solicitação de ${item.title}", color = Wine)
-                        Text("UID: ${item.uid}", fontSize = 11.sp)
+                        Text("UID: ${item.uid}", fontSize = AtrioType.compact)
                         Text(if (item.status == "approved") "Status: Verificado" else "Status: Pendente",
-                            color = Muted, fontSize = 12.sp)
-                        Text("Toque para verificar", fontSize = 12.sp)
+                            color = Muted, fontSize = AtrioType.secondary)
+                        Text("Toque para verificar", fontSize = AtrioType.secondary)
                     }
                 }
             }
@@ -225,32 +225,32 @@ private fun ClergyReviewDialog(
             else "Verificar solicitação de ${request.title}") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Conta solicitante:", fontSize = 12.sp)
-                SelectionContainer { Text(request.uid, fontSize = 12.sp) }
+                Text("Conta solicitante:", fontSize = AtrioType.secondary)
+                SelectionContainer { Text(request.uid, fontSize = AtrioType.secondary) }
                 if (ownRequest) {
                     Text("Você não pode analisar seu próprio pedido. Peça a outro administrador autorizado.",
-                        color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                        color = MaterialTheme.colorScheme.error, fontSize = AtrioType.secondary)
                 }
                 Text(if (request.status == "approved")
                     "A revogação remove imediatamente a identificação pública verificada. " +
                         "Confira os fatos antes de continuar."
                     else "Confira a identidade e o vínculo eclesial por meio confiável, " +
                         "independentemente da declaração do aplicativo.",
-                    fontSize = 12.sp, color = Muted)
+                    fontSize = AtrioType.secondary, color = Muted)
                 if (request.status == "pending") Row {
                     Checkbox(checked = verified, onCheckedChange = { verified = it },
                         enabled = !busy)
                     Text("Confirmei a identidade e a condição religiosa por fonte confiável.",
-                        modifier = Modifier.padding(top = 10.dp), fontSize = 12.sp)
+                        modifier = Modifier.padding(top = 10.dp), fontSize = AtrioType.secondary)
                 }
                 OutlinedTextField(value = note, onValueChange = { note = it.take(300) },
                     modifier = Modifier.fillMaxWidth(), enabled = !busy,
                     label = { Text("Justificativa da decisão") },
                     minLines = 2, maxLines = 4)
                 Text("Registre apenas a justificativa necessária. Não inclua documentos " +
-                    "pessoais ou informações sensíveis.", fontSize = 11.sp, color = Muted)
+                    "pessoais ou informações sensíveis.", fontSize = AtrioType.compact, color = Muted)
                 if (failure.isNotBlank())
-                    Text(failure, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                    Text(failure, color = MaterialTheme.colorScheme.error, fontSize = AtrioType.secondary)
             }
         },
         confirmButton = {
