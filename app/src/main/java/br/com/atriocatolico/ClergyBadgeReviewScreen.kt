@@ -25,16 +25,18 @@ import com.google.firebase.firestore.SetOptions
 private data class ClergyRequest(
     val uid: String,
     val kind: String,
+    val status: String,
     val createdAt: Timestamp?
 ) {
-    val title: String get() = if (kind == "padre") "Padre" else "Diácono"
+    val title: String get() = verifiedBadgeLabel(kind)
 }
 
 private fun DocumentSnapshot.toClergyRequest(): ClergyRequest? {
-    if (getString("status") != "pending") return null
+    val status = getString("status") ?: return null
+    if (status !in listOf("pending", "approved")) return null
     val kind = getString("kind") ?: return null
-    if (kind !in listOf("padre", "diacono")) return null
-    return ClergyRequest(id, kind, getTimestamp("createdAt"))
+    if (kind !in listOf("padre", "diacono", "religioso", "religiosa")) return null
+    return ClergyRequest(id, kind, status, getTimestamp("createdAt"))
 }
 
 @Composable
@@ -44,6 +46,7 @@ internal fun ClergyBadgeReviewScreen(
     var requests by remember(reviewerUid) { mutableStateOf<List<ClergyRequest>>(emptyList()) }
     var limit by remember(reviewerUid) { mutableStateOf(30) }
     var retry by remember(reviewerUid) { mutableStateOf(0) }
+    var showApproved by remember(reviewerUid) { mutableStateOf(false) }
     var loading by remember(reviewerUid) { mutableStateOf(true) }
     var failed by remember(reviewerUid) { mutableStateOf(false) }
     var more by remember(reviewerUid) { mutableStateOf(false) }
@@ -52,13 +55,13 @@ internal fun ClergyBadgeReviewScreen(
 
     BackHandler { if (selected != null) selected = null else onBack() }
 
-    DisposableEffect(db, reviewerUid, limit, retry) {
+    DisposableEffect(db, reviewerUid, showApproved, limit, retry) {
         var active = true
         loading = true
         failed = false
         // Somente administradores podem listar esta coleção (validado no servidor).
         val registration = db.collection("badge_requests")
-            .whereEqualTo("status", "pending")
+            .whereEqualTo("status", if (showApproved) "approved" else "pending")
             .limit(limit.toLong() + 1)
             .addSnapshotListener { snapshot, error ->
                 if (active) {
@@ -92,10 +95,18 @@ internal fun ClergyBadgeReviewScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
-                Text("Verificação de Padres e Diáconos", color = Wine)
-                Text("A solicitação não comprova a ordenação. Confira a identidade do titular " +
-                    "e sua condição de ministro ordenado por um canal eclesial confiável antes de aprovar.",
+                Text("Verificação de Padre, Diácono, Religioso e Religiosa", color = Wine)
+                Text("Confirme a identidade e o vínculo religioso por um canal eclesial " +
+                    "independente. A autodeclaração não comprova ordenação ou vida consagrada.",
                     color = Muted, fontSize = 13.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(selected = !showApproved, onClick = {
+                        showApproved = false; selected = null; limit = 30
+                    }, label = { Text("Pendentes") })
+                    FilterChip(selected = showApproved, onClick = {
+                        showApproved = true; selected = null; limit = 30
+                    }, label = { Text("Aprovados") })
+                }
             }
             if (failed) item {
                 Text("Não foi possível consultar a fila. Confira sua permissão de administrador, " +
@@ -103,14 +114,16 @@ internal fun ClergyBadgeReviewScreen(
                 OutlinedButton(onClick = { retry++ }) { Text("Tentar novamente") }
             }
             if (!loading && !failed && requests.isEmpty()) item {
-                Text("Nenhuma solicitação pendente nesta página.", color = Muted)
+                Text(if (showApproved) "Nenhum selo aprovado nesta página." else
+                    "Nenhuma solicitação pendente nesta página.", color = Muted)
             }
             items(requests, key = { it.uid }) { item ->
                 Card(onClick = { selected = item.uid }, modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("Solicitação de ${item.title}", color = Wine)
                         Text("UID: ${item.uid}", fontSize = 11.sp)
-                        Text("Status: Pendente", color = Muted, fontSize = 12.sp)
+                        Text(if (item.status == "approved") "Status: Verificado" else "Status: Pendente",
+                            color = Muted, fontSize = 12.sp)
                         Text("Toque para verificar", fontSize = 12.sp)
                     }
                 }
@@ -154,29 +167,48 @@ private fun ClergyReviewDialog(
 
     fun decide(approve: Boolean) {
         val justification = note.trim()
-        if (busy || ownRequest || justification.length !in 10..300 || (approve && !verified)) return
+        if (busy || ownRequest || justification.length !in 10..300 ||
+            (request.status == "pending" && approve && !verified)) return
         busy = true
         failure = ""
         val requestRef = db.collection("badge_requests").document(request.uid)
         val batch = db.batch()
-        batch.update(requestRef, mapOf(
-            "status" to if (approve) "approved" else "rejected",
-            "reviewedBy" to reviewerUid,
-            "reviewedAt" to FieldValue.serverTimestamp(),
-            "reviewNote" to justification
-        ))
-        if (approve) {
-            // Conceder a medalha e revisar o pedido no MESMO batch.
-            // As regras exigem o estado 'pending' antes e 'approved' depois.
-            batch.set(db.collection("badges").document(request.uid),
-                mapOf("clergy" to request.kind), SetOptions.merge())
+        val revoking = request.status == "approved"
+        val decision = if (revoking) "revoked" else if (approve) "approved" else "rejected"
+        if (revoking) {
+            batch.update(requestRef, mapOf(
+                "status" to "revoked", "revokedBy" to reviewerUid,
+                "revokedAt" to FieldValue.serverTimestamp(), "revokeNote" to justification
+            ))
+            batch.update(db.collection("badges").document(request.uid),
+                "clergy", FieldValue.delete())
+        } else {
+            batch.update(requestRef, mapOf(
+                "status" to decision,
+                "reviewedBy" to reviewerUid,
+                "reviewedAt" to FieldValue.serverTimestamp(),
+                "reviewNote" to justification
+            ))
+            if (approve) {
+                // Concessão e decisão no mesmo batch, protegidos por getAfter().
+                batch.set(db.collection("badges").document(request.uid),
+                    mapOf("clergy" to request.kind), SetOptions.merge())
+            }
         }
+        batch.set(db.collection("badge_events").document(), mapOf(
+            "targetUid" to request.uid, "kind" to request.kind,
+            "decision" to decision, "actorUid" to reviewerUid,
+            "reason" to justification, "createdAt" to FieldValue.serverTimestamp()
+        ))
         batch.commit().addOnCompleteListener { result ->
             busy = false
             if (result.isSuccessful) {
                 InstantPushRelay.badgeResult(request.uid)
-                onResult(if (approve) "Identidade verificada. Selo ${request.title} concedido."
-                    else "Solicitação rejeitada e registrada.")
+                onResult(when (decision) {
+                    "revoked" -> "Selo ${request.title} revogado e registrado."
+                    "approved" -> "Identidade verificada. Selo ${request.title} concedido."
+                    else -> "Solicitação rejeitada e registrada."
+                })
             } else {
                 failure = "Não foi possível registrar a decisão. Confira as regras do Firebase, " +
                     "sua permissão administrativa e se o pedido ainda está pendente."
@@ -186,7 +218,8 @@ private fun ClergyReviewDialog(
 
     AlertDialog(
         onDismissRequest = { if (!busy) onClose() },
-        title = { Text("Verificar solicitação de ${request.title}") },
+        title = { Text(if (request.status == "approved") "Revogar selo de ${request.title}"
+            else "Verificar solicitação de ${request.title}") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Conta solicitante:", fontSize = 12.sp)
@@ -195,13 +228,16 @@ private fun ClergyReviewDialog(
                     Text("Você não pode analisar seu próprio pedido. Peça a outro administrador autorizado.",
                         color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
                 }
-                Text("Confira este UID no Firebase Authentication e confirme a identidade " +
-                    "e ordenação por um contato independente. Não use apenas uma declaração do aplicativo.",
+                Text(if (request.status == "approved")
+                    "A revogação remove imediatamente a identificação pública verificada. " +
+                        "Confira os fatos antes de continuar."
+                    else "Confira a identidade e o vínculo eclesial por meio confiável, " +
+                        "independentemente da declaração do aplicativo.",
                     fontSize = 12.sp, color = Muted)
-                Row {
+                if (request.status == "pending") Row {
                     Checkbox(checked = verified, onCheckedChange = { verified = it },
                         enabled = !busy)
-                    Text("Confirmei a identidade e a ordenação por meio confiável.",
+                    Text("Confirmei a identidade e a condição religiosa por fonte confiável.",
                         modifier = Modifier.padding(top = 10.dp), fontSize = 12.sp)
                 }
                 OutlinedTextField(value = note, onValueChange = { note = it.take(300) },
@@ -216,14 +252,19 @@ private fun ClergyReviewDialog(
         },
         confirmButton = {
             TextButton(onClick = { decide(true) },
-                enabled = !busy && !ownRequest && verified && note.trim().length in 10..300) {
-                Text(if (busy) "Registrando..." else "Aprovar e conceder")
+                enabled = !busy && !ownRequest &&
+                    (request.status == "approved" || verified) &&
+                    note.trim().length in 10..300) {
+                Text(if (busy) "Registrando..." else
+                    if (request.status == "approved") "Revogar selo" else "Aprovar e conceder")
             }
         },
         dismissButton = {
             Row {
-                TextButton(enabled = !busy && !ownRequest && note.trim().length in 10..300,
-                    onClick = { decide(false) }) { Text("Rejeitar") }
+                if (request.status == "pending") {
+                    TextButton(enabled = !busy && !ownRequest && note.trim().length in 10..300,
+                        onClick = { decide(false) }) { Text("Rejeitar") }
+                }
                 TextButton(enabled = !busy, onClick = onClose) { Text("Cancelar") }
             }
         }
