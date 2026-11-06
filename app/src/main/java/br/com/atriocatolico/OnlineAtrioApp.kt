@@ -901,8 +901,19 @@ private fun OnlineCommunity(
         // Se este ID já foi gravado numa tentativa anterior, reconciliar
         // primeiro. Nunca sobrescrever uma discussão publicada.
         ref.get(com.google.firebase.firestore.Source.SERVER).addOnCompleteListener { previous ->
-            if (previous.isSuccessful && previous.result?.exists() == true) {
-                if (previous.result?.getString("uid") == uid) completeAccepted()
+            if (!previous.isSuccessful) {
+                // Não enfileirar gravação offline por tempo indefinido.
+                // O ID da tentativa e todos os campos permanecem no rascunho.
+                working = false
+                message = "Sem conexão com o servidor. Seu rascunho está preservado; tente novamente."
+                return@addOnCompleteListener
+            }
+            if (previous.result?.exists() == true) {
+                val data = previous.result
+                if (data?.getString("uid") == uid &&
+                    data.getString("title") == title &&
+                    data.getString("body") == body &&
+                    data.getString("category") == category) completeAccepted()
                 else {
                     working = false
                     message = "Não foi possível confirmar a publicação. Tente novamente."
@@ -923,8 +934,12 @@ private fun OnlineCommunity(
                     // Conferir pelo mesmo ID antes de oferecer nova tentativa.
                     ref.get(com.google.firebase.firestore.Source.SERVER)
                         .addOnCompleteListener { lookup ->
-                            if (lookup.isSuccessful && lookup.result?.exists() == true &&
-                                lookup.result?.getString("uid") == uid) {
+                            val alreadyWritten = lookup.result
+                            if (lookup.isSuccessful && alreadyWritten?.exists() == true &&
+                                alreadyWritten.getString("uid") == uid &&
+                                alreadyWritten.getString("title") == title &&
+                                alreadyWritten.getString("body") == body &&
+                                alreadyWritten.getString("category") == category) {
                                 completeAccepted()
                             } else {
                                 working = false
@@ -1202,7 +1217,7 @@ private fun OnlineCommunity(
                 )
             } else when (tab) {
                 Tab.HOME -> HomeScreen(name, posts, filter, search, searchOpen,
-                    onSearch = { search = it },
+                    onSearch = { search = it; otaScope.launch { homeListState.scrollToItem(0) } },
                     onFilter = { filter = it; otaScope.launch { homeListState.scrollToItem(0) } },
                     loading = feedLoading, loadError = feedError,
                     onRetry = { feedRetry++ }, listState = homeListState,
