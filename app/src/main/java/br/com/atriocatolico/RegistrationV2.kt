@@ -304,7 +304,7 @@ internal fun RegistrationOnboardingScreen(
             color = Wine, fontSize = 28.sp, fontWeight = FontWeight.Bold)
         if (!confirmed) {
             Text("E-mail confirmado · Passo 3 de 3",
-                color = Gold, style = MaterialTheme.typography.titleMedium)
+                color = Wine, style = MaterialTheme.typography.titleMedium)
             RegistrationOptionalPreferences(
                 db = db, uid = uid, firstAccess = true,
                 onContinue = { confirmed = true }
