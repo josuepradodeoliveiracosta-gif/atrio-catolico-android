@@ -143,6 +143,10 @@ jobs:
             echo "::error::Release V2 bloqueado: URL deve apontar para o gateway oficial do Guardião."
             exit 1
           fi
+          # Garante que o APK oficial nao sera inferior ao B do piloto real.
+          # A versao atual defaultConfig 0.20.1/code36 deve falhar ate
+          # uma revisao/novo versionamento explicito, sem modificar o piloto.
+          python3 -m scripts.ota_release signing-readiness --gradle-file app/build.gradle.kts
           # No acionamento manual da main, o release deve falhar se faltar qualquer secret.
           if [[ -z "$ATRIO_KEYSTORE_BASE64" || -z "$ATRIO_STORE_PASSWORD" || -z "$ATRIO_KEY_PASSWORD" ]]; then
             echo "::error::Release indisponivel: confira os secrets ATRIO_KEYSTORE_BASE64, ATRIO_STORE_PASSWORD e ATRIO_KEY_PASSWORD."

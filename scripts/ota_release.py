@@ -26,6 +26,10 @@ LEGACY_ARTIFACT = "atrio-catolico-0.20.0-release-assinado"
 APK_ASSET = "atrio-catolico.apk"
 MANIFEST_ASSET = "update.json"
 
+# Latest approved physical OTA private pilot: 0.20.2 / versionCode 37.
+PILOT_VERIFIED_NAME = "0.20.2"
+PILOT_VERIFIED_CODE = 37
+
 
 def require(ok, code):
     if not ok:
@@ -95,6 +99,58 @@ def validate_source(run, artifacts, artifact_name, *, checkout_sha, git_runner=N
         "runId": run["id"], "sourceSha": sha,
         "versionCode": int(codes[0]), "versionName": names[0],
         "artifactName": artifact_name, "artifactId": matching["id"],
+    }
+
+
+def require_version_after_pilot(name, code):
+    require(type(code) is int and code > PILOT_VERIFIED_CODE,
+            "versionCode_nao_supera_piloto_fisico_37")
+    require(version_tuple(name) > version_tuple(PILOT_VERIFIED_NAME),
+            "versionName_nao_supera_piloto_fisico_0.20.2")
+    return True
+
+
+def validate_signing_readiness(gradle_file):
+    """Reject signing an official APK that would downgrade pilot users."""
+    contents = Path(gradle_file).read_text(encoding="utf-8")
+    match = re.search(r"(?ms)^\s{4}defaultConfig\s*\{(.*?)^\s{4}\}", contents)
+    require(match is not None, "defaultConfig_release_ausente")
+    block = match.group(1)
+    codes = re.findall(r"(?m)^\s*versionCode\s*=\s*(\d+)\s*$", block)
+    names = re.findall(r'(?m)^\s*versionName\s*=\s*"([^"]+)"\s*$', block)
+    ids = re.findall(r'(?m)^\s*applicationId\s*=\s*"([^"]+)"\s*$', block)
+    require(len(codes) == len(names) == len(ids) == 1 and ids[0] == PACKAGE,
+            "metadados_release_gradle_invalidos")
+    require_version_after_pilot(names[0], int(codes[0]))
+    return {
+        "source": "app/build.gradle.kts:defaultConfig",
+        "versionName": names[0],
+        "versionCode": int(codes[0]),
+        "signing_authorized": False,
+        "distribution_authorized": False,
+    }
+
+
+def validate_publication_readiness(source):
+    """Only a verified official artifact newer than the pilot may be published.
+
+    An independent authorization is still required. This check signs nothing.
+    """
+    require(isinstance(source, dict), "fonte_release_invalida")
+    require(source.get("artifactName") == NORMAL_ARTIFACT,
+            "publicacao_proibida_de_artefato_historico_sem_OTA")
+    code = source.get("versionCode")
+    name = source.get("versionName")
+    require_version_after_pilot(name, code)
+    sha = source.get("sourceSha")
+    require(isinstance(sha, str) and re.fullmatch(r"[a-f0-9]{40}", sha),
+            "commit_da_origem_invalido")
+    return {
+        "ready_for_release_validation": True,
+        "public_release_approved": False,
+        "versionName": name,
+        "versionCode": code,
+        "artifactName": NORMAL_ARTIFACT,
     }
 
 
@@ -208,6 +264,12 @@ def main():
     gen.add_argument("--expected-apk-sha256", required=True)
     gen.add_argument("--notes-file", required=True)
     gen.add_argument("--output", required=True)
+    signing = sub.add_parser("signing-readiness",
+                             help="Validate release Gradle version without signing")
+    signing.add_argument("--gradle-file", required=True)
+    readiness = sub.add_parser("publish-readiness",
+                               help="Reject legacy/downgrade artifacts before publishing")
+    readiness.add_argument("--source-json", required=True)
     newer = sub.add_parser("newer", help="Check version ordering before publishing")
     newer.add_argument("--version", required=True)
     newer.add_argument("--latest-tag", default="")
@@ -221,6 +283,13 @@ def main():
                                        args.artifact_name, checkout_sha=args.checkout_sha)
             Path(args.output).write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
             print(f"Origem aprovada: {metadata['versionName']} (code {metadata['versionCode']})")
+        elif args.command == "signing-readiness":
+            report = validate_signing_readiness(args.gradle_file)
+            print(json.dumps(report, indent=2))
+        elif args.command == "publish-readiness":
+            source = json.loads(Path(args.source_json).read_text(encoding="utf-8"))
+            report = validate_publication_readiness(source)
+            print(json.dumps(report, indent=2))
         elif args.command == "prepare":
             source = json.loads(Path(args.source_json).read_text(encoding="utf-8"))
             notes = Path(args.notes_file).read_text(encoding="utf-8")
