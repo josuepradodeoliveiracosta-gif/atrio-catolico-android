@@ -15,6 +15,7 @@ from scripts.ota_release import (
     LEGACY_ARTIFACT, NORMAL_ARTIFACT,
     validate_publication_readiness,
     validate_signing_readiness,
+    assert_newer_than_releases,
     PILOT_VERIFIED_CODE, PILOT_VERIFIED_NAME,
 )
 
@@ -22,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 VALID_SHA = "0123456789abcdef" * 2 + "01234567"
 
 
-def source(code=38, name="0.20.3", artifact=NORMAL_ARTIFACT):
+def source(code=39, name="0.20.4", artifact=NORMAL_ARTIFACT):
     return {
         "artifactName": artifact,
         "versionCode": code,
@@ -36,8 +37,8 @@ class OtaReleaseReadinessTests(unittest.TestCase):
         self.assertEqual((PILOT_VERIFIED_NAME, PILOT_VERIFIED_CODE),
                          ("0.20.2", 37))
         report = validate_publication_readiness(source())
-        self.assertEqual(report["versionCode"], 38)
-        self.assertEqual(report["versionName"], "0.20.3")
+        self.assertEqual(report["versionCode"], 39)
+        self.assertEqual(report["versionName"], "0.20.4")
         self.assertFalse(report["public_release_approved"])
 
     def test_signed_historical_artifact_is_not_app_ota_publication(self):
@@ -50,18 +51,29 @@ class OtaReleaseReadinessTests(unittest.TestCase):
         for code in (35, 36, 37):
             with self.subTest(code=code):
                 with self.assertRaisesRegex(PreflightError, "versionCode"):
-                    validate_publication_readiness(source(code, "0.20.3"))
+                    validate_publication_readiness(source(code, "0.20.4"))
         for name in ("0.20.0", "0.20.1", "0.20.2"):
             with self.subTest(name=name):
                 with self.assertRaisesRegex(PreflightError, "versionName"):
                     validate_publication_readiness(source(38, name))
+
+    def test_new_public_candidate_is_newer_than_current_published_release(self):
+        # 0.20.3/code38 is already public; passing the older private pilot
+        # gate is not enough for a new stable GitHub Release.
+        published = [{"tagName": "v0.20.3",
+                      "isDraft": False, "isPrerelease": False}]
+        self.assertTrue(assert_newer_than_releases("0.20.4", published))
+        with self.assertRaisesRegex(PreflightError, "versao_nao_superior"):
+            assert_newer_than_releases("0.20.3", published)
+        with self.assertRaisesRegex(PreflightError, "versao_nao_superior"):
+            assert_newer_than_releases("0.20.2", published)
 
     def test_type_and_source_are_not_optional(self):
         for metadata in (
             source(code=True),
             source(code="38"),
             source(code=0),
-            source(name="0.20.3-rc1"),
+            source(name="0.20.4-rc1"),
             source(name="bad"),
             source(artifact="unknown"),
             {**source(), "sourceSha": ""},
@@ -76,7 +88,7 @@ class OtaReleaseReadinessTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             info = Path(tmp) / "source.json"
             for code, name, expected in (
-                (38, "0.20.3", 0),
+                (39, "0.20.4", 0),
                 (36, "0.20.1", 1),
                 (37, "0.20.2", 1),
             ):
@@ -94,11 +106,11 @@ class OtaReleaseReadinessTests(unittest.TestCase):
                     self.assertIn("Publicação OTA bloqueada", result.stderr)
 
     def test_candidate_metadata_ready_without_signing_or_publication_approval(self):
-        # The preparatory change only updates defaultConfig to 0.20.3/code38.
+        # The preparatory change updates defaultConfig to 0.20.4/code39 without signing.
         # Satisfying a version check does not set any release approval flags.
         report = validate_signing_readiness(ROOT / "app/build.gradle.kts")
-        self.assertEqual(report["versionCode"], 38)
-        self.assertEqual(report["versionName"], "0.20.3")
+        self.assertEqual(report["versionCode"], 39)
+        self.assertEqual(report["versionName"], "0.20.4")
         self.assertFalse(report["signing_authorized"])
         self.assertFalse(report["distribution_authorized"])
         result = subprocess.run(
@@ -121,15 +133,15 @@ class OtaReleaseReadinessTests(unittest.TestCase):
                     '}\n')
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "build.gradle.kts"
-            path.write_text(gradle(38, "0.20.3"), encoding="utf-8")
+            path.write_text(gradle(39, "0.20.4"), encoding="utf-8")
             report = validate_signing_readiness(path)
-            self.assertEqual(report["versionCode"], 38)
+            self.assertEqual(report["versionCode"], 39)
             self.assertFalse(report["signing_authorized"])
             for code, name, package in [
                 (36, "0.20.1", "br.com.atriocatolico"),
                 (37, "0.20.2", "br.com.atriocatolico"),
                 (38, "0.20.2", "br.com.atriocatolico"),
-                (38, "0.20.3", "br.com.estranho"),
+                (39, "0.20.4", "br.com.estranho"),
             ]:
                 path.write_text(gradle(code, name, package), encoding="utf-8")
                 with self.subTest(code=code, name=name, package=package):
