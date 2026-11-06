@@ -228,6 +228,10 @@ private fun OnlineAuthScreen(
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
     var resetInfo by remember { mutableStateOf("") }
+    BackHandler(enabled = entranceChosen && !isIsolatedQa && !busy) {
+        entranceChosen = false
+        error = ""
+    }
 
     if (!entranceChosen) {
         RegistrationWelcomeScreen(
