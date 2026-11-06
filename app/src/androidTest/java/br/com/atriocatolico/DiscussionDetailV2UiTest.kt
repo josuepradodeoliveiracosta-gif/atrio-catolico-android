@@ -87,9 +87,17 @@ class DiscussionDetailV2UiTest {
         compose.onNodeWithTag("atrio-replies-sort").performClick()
         compose.onNodeWithText("Mais recentes primeiro").performClick()
         compose.runOnIdle { assertTrue(newestFirst) }
+        // Espera o fechamento do menu e leva a linha preguiçosa ao viewport
+        // antes de medir dimensões. Não tratar um nó ainda não posicionado
+        // como falha de espaçamento.
+        compose.waitForIdle()
         compose.onNodeWithTag("atrio-detail-replies").performScrollToIndex(1)
-        val message = compose.onNodeWithText("Vamos orar juntos.").getUnclippedBoundsInRoot()
-        val reaction = compose.onNodeWithTag("qa-inline-reaction").getUnclippedBoundsInRoot()
+        val reactionNode = compose.onNodeWithTag("qa-inline-reaction", useUnmergedTree = true)
+        reactionNode.performScrollTo().assertIsDisplayed()
+        val messageNode = compose.onNodeWithText("Vamos orar juntos.", useUnmergedTree = true)
+        messageNode.assertIsDisplayed()
+        val message = messageNode.getUnclippedBoundsInRoot()
+        val reaction = reactionNode.getUnclippedBoundsInRoot()
         assertTrue("Reações precisam estar imediatamente abaixo da resposta",
             reaction.top.value - message.bottom.value < 60f)
     }
