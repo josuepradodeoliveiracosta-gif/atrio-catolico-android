@@ -93,17 +93,22 @@ class OtaReleaseReadinessTests(unittest.TestCase):
                 if expected == 1:
                     self.assertIn("Publicação OTA bloqueada", result.stderr)
 
-    def test_current_main_release_is_not_ready_to_sign(self):
-        # Physical pilot B uses versionCode 37, while normal Release still has 36.
-        with self.assertRaisesRegex(PreflightError, "versionCode"):
-            validate_signing_readiness(ROOT / "app/build.gradle.kts")
+    def test_candidate_metadata_ready_without_signing_or_publication_approval(self):
+        # The preparatory change only updates defaultConfig to 0.20.3/code38.
+        # Satisfying a version check does not set any release approval flags.
+        report = validate_signing_readiness(ROOT / "app/build.gradle.kts")
+        self.assertEqual(report["versionCode"], 38)
+        self.assertEqual(report["versionName"], "0.20.3")
+        self.assertFalse(report["signing_authorized"])
+        self.assertFalse(report["distribution_authorized"])
         result = subprocess.run(
             [sys.executable, "-m", "scripts.ota_release", "signing-readiness",
              "--gradle-file", str(ROOT / "app/build.gradle.kts")],
             cwd=ROOT, capture_output=True, text=True, timeout=12
         )
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("Publicação OTA bloqueada", result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('"signing_authorized": false', result.stdout)
+        self.assertIn('"distribution_authorized": false', result.stdout)
 
     def test_future_signing_requires_matching_gradle_package_and_version(self):
         def gradle(code, name, app_id="br.com.atriocatolico"):
