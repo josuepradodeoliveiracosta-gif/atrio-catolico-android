@@ -6,6 +6,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -162,8 +163,15 @@ class ThreeBotsAuthenticatedAndroidUiTest {
     private fun logoutByTouch() {
         compose.onNodeWithTag("atrio-tab-profile").performClick()
         waitFor("atrio-profile-list")
-        compose.onNodeWithTag("atrio-profile-list", useUnmergedTree = true)
-            .performScrollToNode(hasTestTag("atrio-profile-signout"))
+        // A interface V2 mantém Conta e privacidade recolhida por padrão.
+        // O teste deve abrir o painel antes de procurar a ação de sair.
+        val list = compose.onNodeWithTag("atrio-profile-list", useUnmergedTree = true)
+        list.performScrollToNode(hasTestTag("atrio-account-toggle"))
+        if (compose.onAllNodesWithContentDescription("Expandir conta")
+                .fetchSemanticsNodes().isNotEmpty()) {
+            compose.onNodeWithTag("atrio-account-toggle").performClick()
+        }
+        list.performScrollToNode(hasTestTag("atrio-profile-signout"))
         compose.onNodeWithTag("atrio-profile-signout")
             .performClick()
         waitFor("atrio-auth-toggle")

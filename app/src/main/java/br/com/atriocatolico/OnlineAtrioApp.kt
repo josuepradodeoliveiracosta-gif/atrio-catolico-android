@@ -1127,6 +1127,7 @@ private fun OnlineCommunity(
                 else if (guardiaoAppealsOpen) "Minhas revisões" else if (noticeBadgesOpen) "Meus selos"
                 else if (noticesOpen) "Notificações" else "Discussão",
             unreadCount = inbox.groups(notificationAdmin).count { it.unread },
+            profileMode = tab == Tab.PROFILE,
             onBack = ::closeNoticeDestination,
             onSearch = { val open = !searchOpen; navigate(Tab.HOME); searchOpen = open },
             onNotification = {
