@@ -153,6 +153,7 @@ class ReleasePairPreflightTests(unittest.TestCase):
         self.assertIn('run.get("event") == "workflow_dispatch"', workflow)
         self.assertIn('run.get("run_attempt") == 1', workflow)
         self.assertIn("scripts/ota_release_pair_preflight.py", workflow)
+        self.assertIn("set -euo pipefail", workflow)
         for forbidden in (
             "  push:", "  pull_request:", "  workflow_run:", "  schedule:",
             "secrets.", "contents: write", "gh release create", "gh release edit",
