@@ -163,11 +163,12 @@ class ThreeBotsAndroidUiTest {
         compose.onNodeWithTag("atrio-home-feed", useUnmergedTree = true)
             .performScrollToNode(hasTestTag("atrio-post-1"))
         compose.onNodeWithTag("atrio-post-1", useUnmergedTree = true).performClick()
-        compose.onNodeWithTag("atrio-reply-submit").performScrollTo().assertIsNotEnabled()
-        compose.onNodeWithTag("atrio-reply-input").performScrollTo()
+        // A entrada de resposta V2 está ancorada fora da lista de rolagem.
+        compose.onNodeWithTag("atrio-open-reply-composer").assertIsDisplayed().performClick()
+        compose.onNodeWithTag("atrio-reply-submit").assertIsNotEnabled()
+        compose.onNodeWithTag("atrio-reply-input")
             .performTextInput("Resposta de teste enviada pelo toque no Android.")
-        compose.onNodeWithTag("atrio-reply-submit").performScrollTo().assertIsEnabled()
-            .performClick()
+        compose.onNodeWithTag("atrio-reply-submit").assertIsEnabled().performClick()
         compose.runOnIdle {
             val all = org.json.JSONArray(prefs.getString("posts", "[]").orEmpty())
             val post = (0 until all.length()).map { all.getJSONObject(it) }
