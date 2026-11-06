@@ -54,6 +54,8 @@ class ProfileLayoutUiTest {
         list.performScrollToNode(hasContentDescription("Receber avisos neste aparelho"))
         compose.onNodeWithContentDescription("Receber avisos neste aparelho").assertIsOff()
         screenshot("02-notificacoes-fonte-ampliada")
+        list.performScrollToNode(hasTestTag("atrio-account-toggle"))
+        compose.onNodeWithTag("atrio-account-toggle").performClick()
         list.performScrollToNode(hasTestTag("atrio-profile-signout"))
         compose.onNodeWithTag("atrio-profile-signout").assertIsDisplayed().performClick()
         compose.runOnIdle { assertEquals("logout", destination) }
@@ -63,6 +65,30 @@ class ProfileLayoutUiTest {
         list.performScrollToNode(hasText("Criar discussão"))
         compose.onNodeWithText("Criar discussão").performClick()
         compose.runOnIdle { assertEquals("create", destination) }
+    }
+
+    @Test fun developerSupportStartsClosedAndCanBeExpanded() {
+        check(FirebaseApp.getInstance().options.projectId == "demo-atrio-v11")
+        compose.setContent {
+            AtrioTheme {
+                OnlineProfileScreen(
+                    db = FirebaseFirestore.getInstance(), uid = "profile-layout-only",
+                    name = "Maria da Comunidade", email = "maria@example.test",
+                    biography = "", posts = emptyList(), publicationsFooter = {},
+                    onSignOut = {}, onModeration = null, onClergyReview = null,
+                    onCreate = {}, onOpen = {}, onLike = {}, onSave = {},
+                    onSavedPosts = {}, onNotifications = {}, onReviews = {}
+                )
+            }
+        }
+        val list = compose.onNodeWithTag("atrio-profile-list")
+        list.performScrollToNode(hasTestTag("atrio-support-toggle"))
+        compose.onNodeWithContentDescription("Expandir apoio").assertExists()
+        compose.onNodeWithTag("atrio-support-toggle").performClick()
+        compose.onNodeWithContentDescription("Recolher apoio").assertExists()
+        compose.onNodeWithTag("atrio-support-edit").assertDoesNotExist()
+        compose.onNodeWithTag("atrio-support-toggle").performClick()
+        compose.onNodeWithContentDescription("Expandir apoio").assertExists()
     }
 
     @Test fun badgesAndEditorRemainUsableWithLargeText() {
