@@ -82,7 +82,7 @@ if (atrioOtaReleasePilot) {
 // Candidato OTA publico 0.20.4 / versionCode 39; manter aprovacao manual, certificado permanente e mesmo applicationId.
 // Laboratorio OTA: apenas Debug construido deliberadamente com esta variavel.
 // O piloto Release é outro buildType, habilitado somente por confirmacao manual.
-val atrioDebugPatch = 8
+val atrioDebugPatch = 9
 val atrioDebugVersionName = "0.19.$atrioDebugPatch"
 val atrioDebugVersionCode = 27 + atrioDebugPatch
 
