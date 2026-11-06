@@ -43,6 +43,9 @@ jobs:
       - name: Testar preflight dos selos V2 em modo totalmente offline
         # Mocks locais: não usa login Firebase nem acessa o projeto real.
         run: node --test scripts/selos-v2-production-preflight.test.mjs
+      - name: Validar proteções do procedimento de publicação sem acessar produção
+        # O teste simula Firebase CLI: não utiliza token nem envia alterações.
+        run: node --test scripts/selos-v2-production-guarded-deploy.test.mjs
 
   android:
     name: Compilar Android de testes
