@@ -69,8 +69,8 @@ class ProfileLayoutUiTest {
         compose.onNodeWithTag("atrio-ota-section").assertDoesNotExist()
         list.performScrollToNode(hasTestTag("atrio-profile-publications"))
         compose.onNodeWithTag("atrio-profile-publications").performClick()
-        list.performScrollToNode(hasText("Criar discussão"))
-        compose.onNodeWithText("Criar discussão").performClick()
+        list.performScrollToNode(hasTestTag("atrio-profile-create-discussion"))
+        compose.onNodeWithTag("atrio-profile-create-discussion").performClick()
         compose.runOnIdle { assertEquals("create", destination) }
     }
 
