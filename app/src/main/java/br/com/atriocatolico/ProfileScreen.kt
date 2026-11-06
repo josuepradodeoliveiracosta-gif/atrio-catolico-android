@@ -234,6 +234,7 @@ internal fun OnlineProfileScreen(
                 items(mine, key = { "profile-post-${it.id}" }) { DiscussionCard(it, onOpen, onLike, onSave) }
                 item { publicationsFooter() }
             }
+            item { ProfileBasilicaFooter() }
         }
     }
     if (editorOpen) ProfileEditor(db, uid, name, biography,
