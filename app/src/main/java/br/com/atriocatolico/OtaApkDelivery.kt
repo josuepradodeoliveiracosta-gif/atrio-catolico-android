@@ -59,7 +59,7 @@ internal object OtaApkDelivery {
                 require(OtaQaChannel.isAllowedUri(uri, redirectHosts)) {
                     "Redirecionamento do APK nao autorizado"
                 }
-                if (uri.host == "github.com" || OtaQaChannel.active) {
+                if (uri.host == "github.com" || OtaQaChannel.usesLoopback) {
                     require(uri.toString() == expectedUrl) { "Caminho de arquivo inesperado" }
                 }
                 connection = uri.toURL().openConnection() as HttpURLConnection
