@@ -525,7 +525,7 @@ internal fun HomeScreen(name: String, posts: List<Post>, filter: String, search:
         item {
             Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Brush.horizontalGradient(listOf(Wine, Color(0xFF824657)))).padding(24.dp)) {
                 Column {
-                    Text("COMUNIDADE CATÓLICA", color = Gold, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.5.sp)
+                    Text("COMUNIDADE CATÓLICA", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.5.sp)
                     Spacer(Modifier.height(9.dp))
                     Text("Paz e bem, ${name.substringBefore(' ')}!", color = Color.White, fontFamily = FontFamily.Serif, fontSize = 27.sp)
                     Spacer(Modifier.height(7.dp))
