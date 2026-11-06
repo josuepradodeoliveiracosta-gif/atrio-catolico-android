@@ -47,9 +47,13 @@ internal fun ReactionEmojiPicker(
         }
     }
     val catalog = device.catalog
-    Column(modifier) {
+    // Contagem e ação numa faixa horizontal compacta. Não reserva uma segunda
+    // linha nem cria grandes áreas vazias sob cada comentário.
+    Row(modifier, verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         if (summaries.isNotEmpty()) {
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.weight(1f, fill = false)) {
                 items(summaries, key = { it.emoji }) { summary ->
                     FilterChip(
                         selected = summary.mine, enabled = !busy,
