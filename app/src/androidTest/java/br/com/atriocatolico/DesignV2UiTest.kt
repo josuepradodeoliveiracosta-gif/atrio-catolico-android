@@ -81,5 +81,10 @@ class DesignV2UiTest {
             AtrioTheme { PublishScreen(publishing = true) { _, _, _ -> } }
         }
         compose.onNodeWithText("Publicando…").assertExists()
+        compose.onNodeWithTag("atrio-publish-title")
+            .performTextInput("Teste de publicação enquanto aguarda rede")
+        compose.onNodeWithTag("atrio-publish-body")
+            .performTextInput("Texto suficiente para habilitar o envio normalmente.")
+        compose.onNodeWithTag("atrio-publish-submit").assertIsNotEnabled()
     }
 }
