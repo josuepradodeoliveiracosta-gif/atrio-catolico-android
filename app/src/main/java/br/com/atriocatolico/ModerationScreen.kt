@@ -221,13 +221,13 @@ internal fun ModerationScreen(db: FirebaseFirestore, uid: String, onBack: () -> 
                             else "Denúncia de ${report.kind.lowercase()}", color = Wine)
                         Text(report.reason)
                         if (report.fromGuardiao) Text("Sinalização automática — análise humana obrigatória.",
-                            fontSize = 12.sp, color = Muted)
+                            fontSize = AtrioType.secondary, color = Muted)
                         Text(when (report.status) {
                             "removed" -> "Analisada — ${report.kind.lowercase()} removida"
                             "dismissed" -> "Analisada — encerrada sem remoção"
                             else -> "Pendente de análise"
-                        }, color = Wine, fontSize = 12.sp)
-                        Text("Toque para analisar", fontSize = 12.sp)
+                        }, color = Wine, fontSize = AtrioType.secondary)
+                        Text("Toque para analisar", fontSize = AtrioType.secondary)
                     }
                 }
             }
@@ -414,20 +414,20 @@ private fun ReportReviewDialog(
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (report.fromGuardiao) Text("Átrio Guardião: alerta automático sujeito a enganos. Confira o contexto antes de decidir.",
-                    color = Wine, fontSize = 12.sp)
+                    color = Wine, fontSize = AtrioType.secondary)
                 if (report.fromGuardiao && report.aiAssessment.isNotBlank()) Text(
                     when (report.aiAssessment) {
                         "concern" -> "IA: possível risco no contexto. Avaliação humana necessária."
                         "contextual" -> "IA: pode ser citação, relato ou prevenção. Confira o contexto; o alerta continua pendente."
                         "uncertain" -> "IA: contexto insuficiente para avaliar."
                         else -> "Análise contextual indisponível. Alerta baseado nas regras iniciais."
-                    }, fontSize = 12.sp, color = Muted)
+                    }, fontSize = AtrioType.secondary, color = Muted)
                 Text("Motivo: ${report.reason}")
                 if (held) Text("Conteúdo retido em quarentena privada. Pode ser restaurado.",
-                    color = Wine, fontSize = 12.sp)
+                    color = Wine, fontSize = AtrioType.secondary)
                 if (held && appealText.isNotBlank()) Text("Contestação do autor: $appealText",
-                    color = Wine, fontSize = 12.sp)
-                if (report.isReply) Text(parentContext, fontSize = 12.sp, color = Muted)
+                    color = Wine, fontSize = AtrioType.secondary)
+                if (report.isReply) Text(parentContext, fontSize = AtrioType.secondary, color = Muted)
                 when {
                     loading -> Text("Carregando ${report.kind.lowercase()}...")
                     loadFailed -> {
@@ -453,7 +453,7 @@ private fun ReportReviewDialog(
                     Text(if (report.isReply)
                         "A remoção se aplica somente à resposta denunciada. A discussão e as outras respostas são preservadas."
                         else "Remover retira a publicação do fórum. Respostas e referências podem permanecer armazenadas até uma limpeza administrativa.",
-                        fontSize = 12.sp, color = Muted)
+                        fontSize = AtrioType.secondary, color = Muted)
                     if (held) OutlinedButton(
                         onClick = { decideHeld(true) },
                         enabled = !busy && archivedContent != null && note.trim().length >= 5
@@ -466,7 +466,7 @@ private fun ReportReviewDialog(
                 } else {
                     Text("Decisão: ${if (report.status == "removed") "Removida" else "Encerrada sem remoção"}")
                     Text("Justificativa: ${report.reviewNote}")
-                    Text("Administrador: ${report.reviewedBy}", fontSize = 12.sp)
+                    Text("Administrador: ${report.reviewedBy}", fontSize = AtrioType.secondary)
                 }
             }
         },
