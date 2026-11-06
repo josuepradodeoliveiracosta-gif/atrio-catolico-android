@@ -15,6 +15,8 @@ import androidx.activity.viewModels
 import androidx.lifecycle.ViewModel
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -42,6 +44,9 @@ import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.MenuBook
+import androidx.compose.material.icons.outlined.Shield
+import androidx.compose.material.icons.outlined.AccountBalance
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -56,6 +61,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -578,23 +584,62 @@ internal fun SectionTitle(label: String, modifier: Modifier = Modifier) {
     Text(label, fontFamily = FontFamily.Serif, fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = modifier)
 }
 
+/** Categorias oficiais do Átrio: o texto sempre identifica o destino, não a cor. */
+private fun forumIcon(category: String): ImageVector = when (category) {
+    "Sagradas Escrituras" -> Icons.Outlined.MenuBook
+    "Apologética" -> Icons.Outlined.Shield
+    "Vida espiritual" -> Icons.Outlined.FavoriteBorder
+    "História da Igreja" -> Icons.Outlined.AccountBalance
+    "Liturgia" -> Icons.Outlined.Home
+    "Santos" -> Icons.Outlined.AccountCircle
+    "Juventude" -> Icons.Outlined.Groups
+    else -> Icons.Outlined.ChatBubbleOutline
+}
+
 @Composable
 internal fun CommunityScreen(posts: List<Post>, onChoose: (String) -> Unit) {
-    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-        Spacer(Modifier.height(14.dp)); SectionTitle("Fóruns da comunidade")
+    val reduceMotion = AtrioMotion.reduced()
+    Column(Modifier.fillMaxSize().padding(horizontal = AtrioDimensions.ScreenMargin)) {
+        Spacer(Modifier.height(14.dp))
+        SectionTitle("Fóruns da comunidade")
         Spacer(Modifier.height(7.dp))
-        Text("Explore os temas e participe de discussões respeitosas.", fontSize = 13.sp, color = Muted)
+        Text("Encontre uma conversa sobre a fé.", fontSize = 14.sp, color = Muted)
         Spacer(Modifier.height(18.dp))
-        LazyVerticalGrid(columns = GridCells.Adaptive(minSize = 160.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(bottom = 25.dp)) {
-            gridItems(categories) { (cat, symbol) ->
-                Card(onClick = { onChoose(cat) }, shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color.White), border = BorderStroke(1.dp, Line)) {
-                    Column(Modifier.fillMaxWidth().heightIn(min = 125.dp).padding(13.dp), verticalArrangement = Arrangement.SpaceBetween) {
-                        Text(symbol, fontSize = 26.sp)
-                        Column {
-                            Text(cat, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, lineHeight = 16.sp)
-                            Text("${posts.count { it.category == cat }} discussões", fontSize = 11.sp, color = Muted)
-                        }
+        // A grade passa a uma coluna quando a largura ou a fonte não comportar duas.
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(minSize = 160.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(bottom = 25.dp)
+        ) {
+            gridItems(categories, key = { it.first }) { (cat, _) ->
+                val interaction = remember { MutableInteractionSource() }
+                val pressed by interaction.collectIsPressedAsState()
+                val scale by animateFloatAsState(
+                    targetValue = if (pressed) 0.98f else 1f,
+                    animationSpec = if (reduceMotion) snap() else tween(AtrioMotion.FORUM_MS),
+                    label = "Pressão no fórum"
+                )
+                Card(
+                    onClick = { onChoose(cat) },
+                    interactionSource = interaction,
+                    modifier = Modifier.fillMaxWidth().graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                    }.testTag("atrio-forum-${categories.indexOfFirst { it.first == cat }}"),
+                    shape = RoundedCornerShape(AtrioDimensions.CardRadius),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    border = BorderStroke(1.dp, Line)
+                ) {
+                    Column(
+                        Modifier.fillMaxWidth().heightIn(min = 125.dp).padding(14.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(forumIcon(cat), contentDescription = null, tint = Gold,
+                            modifier = Modifier.size(32.dp))
+                        Text(cat, color = Ink, fontWeight = FontWeight.SemiBold,
+                            fontSize = 14.sp, lineHeight = 18.sp, textAlign = TextAlign.Center)
                     }
                 }
             }
