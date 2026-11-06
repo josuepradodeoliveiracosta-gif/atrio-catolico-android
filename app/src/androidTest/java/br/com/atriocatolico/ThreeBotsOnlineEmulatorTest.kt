@@ -203,16 +203,15 @@ class ThreeBotsOnlineEmulatorTest {
         // Abrir a discussão inicia uma leitura assíncrona do documento.
         // A interface fica em carregamento até o snapshot chegar.
         compose.waitUntil(30000) {
-            compose.onAllNodesWithTag("atrio-reply-input")
+            compose.onAllNodesWithTag("atrio-open-reply-composer")
                 .fetchSemanticsNodes().size == 1
         }
+        compose.onNodeWithTag("atrio-open-reply-composer").performClick()
         compose.onNodeWithTag("atrio-reply-input")
-            .performScrollTo()
             .assertIsDisplayed()
             .assertIsEnabled()
             .performTextInput("Resposta de Miguel pelo app Android conectado.")
         compose.onNodeWithTag("atrio-reply-submit")
-            .performScrollTo()
             .assertIsDisplayed()
             .assertIsEnabled()
             .performClick()

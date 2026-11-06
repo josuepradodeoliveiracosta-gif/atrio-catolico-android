@@ -205,14 +205,14 @@ class ThreeBotsAuthenticatedAndroidUiTest {
         }
         compose.onNodeWithTag("atrio-post-$postId", useUnmergedTree = true)
             .assertIsDisplayed().performClick()
-        waitFor("atrio-reply-input")
+        waitFor("atrio-open-reply-composer")
     }
 
     private fun sendReply(body: String) {
-        compose.onNodeWithTag("atrio-reply-input").performScrollTo()
-            .performTextInput(body)
-        compose.onNodeWithTag("atrio-reply-submit")
-            .performScrollTo().performClick()
+        compose.onNodeWithTag("atrio-open-reply-composer").performClick()
+        waitFor("atrio-reply-input")
+        compose.onNodeWithTag("atrio-reply-input").performTextInput(body)
+        compose.onNodeWithTag("atrio-reply-submit").assertIsEnabled().performClick()
     }
 
     @Test fun claraMiguelLuciaFazemLoginPublicamRespondemERecebemAvisos() {
@@ -409,8 +409,9 @@ class ThreeBotsAuthenticatedAndroidUiTest {
         val luciaUid = register("Lúcia (BOT DE TESTE)", "report_lucia")
         openDiscussion(post.id)
         // Garantir que o botão está no viewport antes de efetuar o toque.
-        compose.onNodeWithTag("atrio-detail-report-post")
-            .performScrollTo().assertIsDisplayed().performClick()
+        compose.onNodeWithTag("atrio-discussion-options")
+            .assertIsDisplayed().performClick()
+        compose.onNodeWithText("Denunciar discussão").assertIsDisplayed().performClick()
         waitFor("atrio-report-post-reason")
         compose.onNodeWithTag("atrio-report-post-reason")
             .performTextInput("Simulação autorizada de denúncia, sem conteúdo ofensivo.")
@@ -427,8 +428,9 @@ class ThreeBotsAuthenticatedAndroidUiTest {
         // PR #35: a segunda tentativa deve ser recusada pela regra real
         // do Firestore emulado, mesmo após o usuário reenviar pela interface.
         compose.onNodeWithText("Entendi").performClick()
-        compose.onNodeWithTag("atrio-detail-report-post")
-            .performScrollTo().assertIsDisplayed().performClick()
+        compose.onNodeWithTag("atrio-discussion-options")
+            .assertIsDisplayed().performClick()
+        compose.onNodeWithText("Denunciar discussão").assertIsDisplayed().performClick()
         waitFor("atrio-report-post-reason")
         compose.onNodeWithTag("atrio-report-post-reason")
             .performTextInput("Segunda denúncia duplicada, deve ser bloqueada.")

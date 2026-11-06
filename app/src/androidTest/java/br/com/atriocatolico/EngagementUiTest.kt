@@ -52,13 +52,13 @@ class EngagementUiTest {
         }
         compose.onNodeWithTag("atrio-detail-replies").performScrollToIndex(1)
         compose.onNodeWithTag("atrio-quote-reply").performClick()
-        compose.onNodeWithTag("atrio-detail-replies").performScrollToIndex(2)
-        compose.onNodeWithText("Citando Miguel").assertExists()
+        // Compositor V2 fica fixo na base, não é item da LazyColumn.
+        compose.onNodeWithText("Respondendo a Miguel").assertExists()
         screenshot("08-citacao-engajamento")
         compose.onNodeWithTag("atrio-reply-input").performTextInput("Amém!")
         compose.onNodeWithTag("atrio-reply-submit").performClick()
         compose.runOnIdle { assertEquals("↳ Em resposta a Miguel: Amém!", submitted) }
-        compose.onNodeWithText("Citando Miguel").assertDoesNotExist()
+        compose.onNodeWithText("Respondendo a Miguel").assertDoesNotExist()
     }
 
     @Test fun mentionsOnlyLoadedParticipantsAndKeepsCanonicalUid() {
@@ -88,7 +88,7 @@ class EngagementUiTest {
                 )
             }
         }
-        compose.onNodeWithTag("atrio-detail-replies").performScrollToIndex(2)
+        compose.onNodeWithTag("atrio-open-reply-composer").performClick()
         compose.onNodeWithTag("atrio-mention-pick").performClick()
         compose.onNodeWithText("@Miguel").performClick()
         compose.onNodeWithText("Mencionando @Miguel").assertExists()
