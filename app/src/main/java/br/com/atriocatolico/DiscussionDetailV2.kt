@@ -1,5 +1,6 @@
 package br.com.atriocatolico
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
@@ -57,6 +58,7 @@ internal fun DetailScreen(
     onOpenProfile: (String, String) -> Unit = { _, _ -> },
     repliesFooter: @Composable () -> Unit = {},
     moreReplies: Boolean = false,
+    repliesLoading: Boolean = false,
     newestFirst: Boolean = false,
     onReplySortChange: ((Boolean) -> Unit)? = null
 ) {
@@ -80,6 +82,11 @@ internal fun DetailScreen(
     }
     LaunchedEffect(composerOpen) {
         if (composerOpen) focusRequester.requestFocus()
+    }
+    BackHandler(enabled = composerOpen) {
+        composerOpen = false
+        focusManager.clearFocus()
+        keyboard?.hide()
     }
 
     Column(Modifier.fillMaxSize().imePadding().testTag("atrio-detail-v2")) {
@@ -162,8 +169,14 @@ internal fun DetailScreen(
                             }
                         }
                     }
-                    if (post.replies.isEmpty()) Text("Seja a primeira pessoa a responder!",
-                        color = Muted, fontSize = 13.sp, modifier = Modifier.padding(vertical = 12.dp))
+                    if (post.replies.isEmpty()) {
+                        if (repliesLoading) {
+                            LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 12.dp))
+                        } else {
+                            Text("Seja a primeira pessoa a responder!",
+                                color = Muted, fontSize = 13.sp, modifier = Modifier.padding(vertical = 12.dp))
+                        }
+                    }
                 }
             }
             itemsIndexed(post.replies, key = { index, r ->
