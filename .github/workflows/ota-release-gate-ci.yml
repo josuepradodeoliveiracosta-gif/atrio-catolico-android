@@ -16,6 +16,8 @@ on:
       - 'scripts/test_ota_release_pair_preflight.py'
       - 'scripts/ota_release_pilot_server.py'
       - 'scripts/test_ota_release_pilot_server.py'
+      - '.github/workflows/ota-pilot-signed-encrypted.yml'
+      - 'scripts/test_ota_pilot_signed_workflow.py'
       - 'app/src/otaPilot/**'
       - 'app/build.gradle.kts'
       - 'app/src/main/java/br/com/atriocatolico/Ota*.kt'
@@ -38,6 +40,8 @@ on:
       - 'scripts/test_ota_release_pair_preflight.py'
       - 'scripts/ota_release_pilot_server.py'
       - 'scripts/test_ota_release_pilot_server.py'
+      - '.github/workflows/ota-pilot-signed-encrypted.yml'
+      - 'scripts/test_ota_pilot_signed_workflow.py'
       - 'app/src/otaPilot/**'
       - 'app/build.gradle.kts'
       - 'app/src/main/java/br/com/atriocatolico/Ota*.kt'
@@ -68,3 +72,4 @@ jobs:
           python3 -m unittest discover -s scripts -p 'test_ota_release_pair_preflight.py' -v
           python3 -m unittest discover -s scripts -p 'test_ota_release_pilot_server.py' -v
           python3 -m py_compile scripts/ota_release_pilot_server.py
+          python3 -m unittest discover -s scripts -p 'test_ota_pilot_signed_workflow.py' -v

@@ -1,0 +1,149 @@
+name: OTA homologação — par A/B criptografado sem publicar
+on:
+  workflow_dispatch:
+    inputs:
+      age_public_recipient:
+        description: 'Chave PUBLICA age1... gerada no Termux; nunca informe a chave privada'
+        required: true
+        type: string
+      confirmation:
+        description: 'Digite HOMOLOGAR ATRIO SEM PUBLICAR para assinar somente o piloto'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atrio-ota-pilot-ab-encrypted
+  cancel-in-progress: false
+
+jobs:
+  sign-encrypted-pair:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android' &&
+      github.ref == 'refs/heads/main' &&
+      github.actor == 'josuepradodeoliveiracosta-gif' &&
+      github.run_attempt == 1 &&
+      inputs.confirmation == 'HOMOLOGAR ATRIO SEM PUBLICAR'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    environment: ota-pilot-homologacao
+    env:
+      AGE_PUBLIC_RECIPIENT: ${{ inputs.age_public_recipient }}
+      CONFIRMATION: ${{ inputs.confirmation }}
+      ATRIO_PUSH_WORKER_URL: ${{ vars.ATRIO_PUSH_WORKER_URL || 'https://atrio-push.atrio-catolico.workers.dev' }}
+      ATRIO_AVATAR_WORKER_URL: ${{ vars.ATRIO_AVATAR_WORKER_URL || '' }}
+      ATRIO_GUARDIAN_V2_WORKER_URL: ${{ vars.ATRIO_GUARDIAN_V2_WORKER_URL || 'https://atrio-guardian-v2.atrio-catolico.workers.dev' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Conferir autorização manual e chave pública para encriptar
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REPOSITORY" == "josuepradodeoliveiracosta-gif/atrio-catolico-android" ]]
+          [[ "$GITHUB_REF" == "refs/heads/main" ]]
+          [[ "$GITHUB_ACTOR" == "josuepradodeoliveiracosta-gif" ]]
+          [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]
+          [[ "$GITHUB_RUN_ATTEMPT" == "1" ]]
+          [[ "$CONFIRMATION" == "HOMOLOGAR ATRIO SEM PUBLICAR" ]]
+          [[ "$AGE_PUBLIC_RECIPIENT" =~ ^age1[a-z0-9]{58}$ ]] || {
+            echo "::error::Destinatário age inválido. Informe somente a chave PÚBLICA."
+            exit 1
+          }
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - name: Preparar SDK e criptografia
+        run: |
+          set -euo pipefail
+          sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends age
+          command -v age
+      - name: Assinar duas versões piloto e selar tudo ANTES de exportar
+        shell: bash
+        env:
+          ATRIO_KEYSTORE_BASE64: ${{ secrets.ATRIO_KEYSTORE_BASE64 }}
+          ATRIO_STORE_PASSWORD: ${{ secrets.ATRIO_STORE_PASSWORD }}
+          ATRIO_KEY_PASSWORD: ${{ secrets.ATRIO_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ -n "$ATRIO_KEYSTORE_BASE64" && -n "$ATRIO_STORE_PASSWORD" && -n "$ATRIO_KEY_PASSWORD" ]] || {
+            echo "::error::Segredos de assinatura histórica ausentes; não prosseguir"
+            exit 1
+          }
+          KEYSTORE="$RUNNER_TEMP/atrio-pilot.jks"
+          STAGE="$RUNNER_TEMP/atrio-ota-pilot-staging"
+          mkdir -p "$STAGE" encrypted-output
+          trap 'rm -f "$KEYSTORE" "$RUNNER_TEMP/atrio-ota-pilot-bundle.zip"; rm -rf "$STAGE"' EXIT
+          printf '%s' "$ATRIO_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE"
+          chmod 600 "$KEYSTORE"
+          export ATRIO_SIGNING_STORE_FILE="$KEYSTORE"
+          export ATRIO_SIGNING_STORE_PASSWORD="$ATRIO_STORE_PASSWORD"
+          export ATRIO_SIGNING_KEY_ALIAS="atrio"
+          export ATRIO_SIGNING_KEY_PASSWORD="$ATRIO_KEY_PASSWORD"
+          export ATRIO_OTA_RELEASE_PILOT=1
+          export ATRIO_OTA_PILOT_CONFIRM="HOMOLOGAR ATRIO SEM PUBLICAR"
+          for candidate in "36 0.20.1 base" "37 0.20.2 candidate"; do
+            read -r code name label <<< "$candidate"
+            export ATRIO_OTA_PILOT_VERSION_CODE="$code"
+            export ATRIO_OTA_PILOT_VERSION_NAME="$name"
+            gradle :app:assembleOtaPilot --no-daemon --console=plain
+            APK="app/build/outputs/apk/otaPilot/app-otaPilot.apk"
+            [[ -s "$APK" ]] || { echo "::error::APK piloto ausente"; exit 1; }
+            cp "$APK" "$STAGE/$label.apk"
+            python3 scripts/ota_release_cert.py --apk "$STAGE/$label.apk" --android-sdk "$ANDROID_HOME"
+            "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$STAGE/$label.apk"
+          done
+          BASE_SHA="$(sha256sum "$STAGE/base.apk" | cut -d' ' -f1)"
+          NEW_SHA="$(sha256sum "$STAGE/candidate.apk" | cut -d' ' -f1)"
+          python3 scripts/ota_release_pair_preflight.py \
+            --base-apk "$STAGE/base.apk" --candidate-apk "$STAGE/candidate.apk" \
+            --base-sha256 "$BASE_SHA" --candidate-sha256 "$NEW_SHA" --android-sdk "$ANDROID_HOME"
+          python3 scripts/ota_release_pilot_server.py \
+            --apk "$STAGE/candidate.apk" --android-sdk "$ANDROID_HOME" \
+            --candidate-sha256 "$NEW_SHA" --base-code 36 \
+            --write-manifest "$STAGE/update-piloto-local.json" --verify-only
+          python3 - <<'PY'
+          import hashlib, json, os, zipfile
+          from pathlib import Path
+          root = Path(os.environ["RUNNER_TEMP"])
+          staging = root / "atrio-ota-pilot-staging"
+          hashes = {n: hashlib.sha256((staging / (n + ".apk")).read_bytes()).hexdigest()
+                    for n in ("base", "candidate")}
+          (staging / "hashes.json").write_text(json.dumps({
+              "source_commit": os.environ["GITHUB_SHA"], "sha256": hashes,
+              "published": False, "ota_e2e_proven": False,
+          }, indent=2) + "\n", encoding="utf-8")
+          with zipfile.ZipFile(root / "atrio-ota-pilot-bundle.zip", "w",
+                               compression=zipfile.ZIP_DEFLATED) as out:
+              for filename in ("base.apk", "candidate.apk", "hashes.json",
+                               "update-piloto-local.json"):
+                  out.write(staging / filename, arcname=filename)
+          PY
+          age -r "$AGE_PUBLIC_RECIPIENT" \
+            -o encrypted-output/atrio-ota-piloto-ab.zip.age \
+            "$RUNNER_TEMP/atrio-ota-pilot-bundle.zip"
+          [[ -s encrypted-output/atrio-ota-piloto-ab.zip.age ]]
+          echo "## Apenas par de homologação assinado e criptografado" >> "$GITHUB_STEP_SUMMARY"
+          echo "SHA-256 A: $BASE_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "SHA-256 B: $NEW_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "Nenhum APK em claro será disponibilizado; release público e gates intactos." >> "$GITHUB_STEP_SUMMARY"
+      - name: Exportar somente o ZIP criptografado por 1 dia
+        uses: actions/upload-artifact@v4
+        with:
+          name: atrio-ota-piloto-ab-cifrado
+          path: encrypted-output/atrio-ota-piloto-ab.zip.age
+          if-no-files-found: error
+          retention-days: 1
