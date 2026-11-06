@@ -22,9 +22,10 @@ if (atrioOtaReleasePilot) {
     require(System.getenv("ATRIO_OTA_PILOT_CONFIRM") == "HOMOLOGAR ATRIO SEM PUBLICAR") {
         "Confirmacao explicita para gerar candidato de homologacao ausente."
     }
-    require(gradle.startParameter.taskNames.any { task ->
-        task.substringAfterLast(':').lowercase().contains("otapilot")
-    }) { "Candidato piloto so pode ser gerado pela tarefa OtaPilot." }
+    require(gradle.startParameter.taskNames.isNotEmpty() &&
+        gradle.startParameter.taskNames.all { task ->
+            task.substringAfterLast(':') == "assembleOtaPilot"
+        }) { "Candidato piloto so pode ser gerado exclusivamente por :app:assembleOtaPilot." }
 }
 val atrioPilotCode = (System.getenv("ATRIO_OTA_PILOT_VERSION_CODE") ?: "36").toIntOrNull()
     ?: error("versionCode do piloto invalido")
@@ -60,7 +61,7 @@ if (atrioOtaReleasePilot) {
 // Versão do APK de testes: avançar para 2, 3, ... a cada NOVA atualização Debug.
 // Proximo release OTA candidato 0.20.1 / versionCode 36; assinacao oficial exclusivamente no workflow manual aprovado.
 // Laboratorio OTA: apenas Debug construido deliberadamente com esta variavel.
-// Nenhum APK Release consegue receber este canal, mesmo com o env ligado.
+// O piloto Release é outro buildType, habilitado somente por confirmacao manual.
 val atrioDebugPatch = 7
 val atrioDebugVersionName = "0.19.$atrioDebugPatch"
 val atrioDebugVersionCode = 27 + atrioDebugPatch
