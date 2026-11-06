@@ -26,6 +26,12 @@ LEGACY_ARTIFACT = "atrio-catolico-0.20.0-release-assinado"
 APK_ASSET = "atrio-catolico.apk"
 MANIFEST_ASSET = "update.json"
 
+# Last physical private OTA pilot completed on Android: 0.20.2/versionCode 37.
+# An official Release must not downgrade that installed package or use the
+# historical 0.20.0 artifact without an in-app updater.
+PILOT_VERIFIED_NAME = "0.20.2"
+PILOT_VERIFIED_CODE = 37
+
 
 def require(ok, code):
     if not ok:
@@ -95,6 +101,34 @@ def validate_source(run, artifacts, artifact_name, *, checkout_sha, git_runner=N
         "runId": run["id"], "sourceSha": sha,
         "versionCode": int(codes[0]), "versionName": names[0],
         "artifactName": artifact_name, "artifactId": matching["id"],
+    }
+
+
+
+def validate_publication_readiness(source):
+    """Reject obsolete/legacy artifacts before any official publication work.
+
+    This guard is independent of approval flags. It never signs or publishes.
+    A future approved version must advance beyond the physical OTA pilot B.
+    """
+    require(isinstance(source, dict), "fonte_release_invalida")
+    require(source.get("artifactName") == NORMAL_ARTIFACT,
+            "publicacao_proibida_de_artefato_historico_sem_OTA")
+    code = source.get("versionCode")
+    require(type(code) is int and code > PILOT_VERIFIED_CODE,
+            "versionCode_nao_supera_piloto_fisico_37")
+    name = source.get("versionName")
+    require(version_tuple(name) > version_tuple(PILOT_VERIFIED_NAME),
+            "versionName_nao_supera_piloto_fisico_0.20.2")
+    sha = source.get("sourceSha")
+    require(isinstance(sha, str) and re.fullmatch(r"[a-f0-9]{40}", sha),
+            "commit_da_origem_invalido")
+    return {
+        "ready_for_release_validation": True,
+        "public_release_approved": False,
+        "versionName": name,
+        "versionCode": code,
+        "artifactName": NORMAL_ARTIFACT,
     }
 
 
@@ -208,6 +242,9 @@ def main():
     gen.add_argument("--expected-apk-sha256", required=True)
     gen.add_argument("--notes-file", required=True)
     gen.add_argument("--output", required=True)
+    readiness = sub.add_parser("publish-readiness",
+                               help="Reject legacy or non-upgrade artifacts before publishing")
+    readiness.add_argument("--source-json", required=True)
     newer = sub.add_parser("newer", help="Check version ordering before publishing")
     newer.add_argument("--version", required=True)
     newer.add_argument("--latest-tag", default="")
@@ -221,6 +258,10 @@ def main():
                                        args.artifact_name, checkout_sha=args.checkout_sha)
             Path(args.output).write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
             print(f"Origem aprovada: {metadata['versionName']} (code {metadata['versionCode']})")
+        elif args.command == "publish-readiness":
+            source = json.loads(Path(args.source_json).read_text(encoding="utf-8"))
+            report = validate_publication_readiness(source)
+            print(json.dumps(report, indent=2))
         elif args.command == "prepare":
             source = json.loads(Path(args.source_json).read_text(encoding="utf-8"))
             notes = Path(args.notes_file).read_text(encoding="utf-8")
