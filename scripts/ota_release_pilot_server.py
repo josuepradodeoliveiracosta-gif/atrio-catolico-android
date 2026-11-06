@@ -88,6 +88,71 @@ def prepare_offer(apk, *, sdk, expected_sha256, base_code):
     return release, manifest
 
 
+
+def serve_prevalidated_manifest(apk, *, manifest_file, expected_sha256, base_code):
+    """Termux path: check a manifest produced by offline Android SDK preflight.
+
+    Metadata cannot prove the APK signing certificate by itself. The app's
+    independent PackageManager verification remains mandatory before install.
+    """
+    apk = Path(apk).resolve(strict=True)
+    manifest_path = Path(manifest_file).resolve(strict=True)
+    if manifest_path.stat().st_size > 32768:
+        raise PreflightError("Manifesto muito grande")
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raise PreflightError("Manifesto JSON invalido") from None
+    if not isinstance(manifest, dict):
+        raise PreflightError("Manifesto deve ser objeto JSON")
+    if not apk.is_file() or not (0 < apk.stat().st_size <= MAX_APK_BYTES):
+        raise PreflightError("APK ausente ou tamanho invalido")
+    sha = digest(expected_sha256)
+    version = manifest.get("versionName")
+    code = manifest.get("versionCode")
+    minimum = manifest.get("minimumAndroidSdk")
+    if not (isinstance(version, str) and
+            re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version) and
+            type(code) is int and type(minimum) is int and
+            minimum >= 26 and base_code >= MINIMUM_BASE_VERSION_CODE and
+            code > base_code):
+        raise PreflightError("Versao do piloto invalida")
+    require_official_certificate(manifest.get("certificateSha256", ""))
+    tag = "v" + version
+    page = ORIGIN + "/releases/tag/" + tag
+    asset = ORIGIN + "/releases/download/" + tag + "/atrio-catolico.apk"
+    expected = {
+        "schemaVersion": 1,
+        "channel": "stable",
+        "applicationId": PACKAGE,
+        "versionName": version,
+        "versionCode": code,
+        "mandatory": False,
+        "minimumAndroidSdk": minimum,
+        "apkAsset": "atrio-catolico.apk",
+        "apkSizeBytes": apk.stat().st_size,
+        "apkSha256": sha,
+        "certificateSha256": manifest["certificateSha256"],
+        "downloadUrl": asset,
+        "releasePageUrl": page,
+        "releaseNotes": "Homologação OTA local do Átrio Católico. Não distribuir.",
+    }
+    if manifest != expected:
+        raise PreflightError("Contrato do manifesto do piloto divergente")
+    if file_sha256(apk) != sha:
+        raise PreflightError("APK nao corresponde ao SHA-256 independente")
+    release = {
+        "tag_name": tag,
+        "html_url": page,
+        "draft": False,
+        "prerelease": False,
+        "assets": [
+            {"name": "update.json", "browser_download_url": ORIGIN + "/releases/download/" + tag + "/update.json"},
+            {"name": "atrio-catolico.apk", "browser_download_url": asset},
+        ],
+    }
+    return release, manifest
+
 def make_handler(apk, release, manifest):
     """Only three fixed paths. Reject path traversal and changed source APK."""
     apk = Path(apk)
@@ -150,16 +215,34 @@ def make_handler(apk, release, manifest):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apk", type=Path, required=True)
-    parser.add_argument("--android-sdk", required=True, type=Path)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--android-sdk", type=Path)
+    source.add_argument("--validated-manifest", type=Path,
+                        help="Manifesto produzido por preflight SDK anterior, para Termux")
+    parser.add_argument("--write-manifest", type=Path,
+                        help="Gravar JSON verificado ao preparar com SDK")
     parser.add_argument("--candidate-sha256", required=True)
     parser.add_argument("--base-code", required=True, type=int)
     parser.add_argument("--verify-only", action="store_true")
     args = parser.parse_args()
     try:
-        release, manifest = prepare_offer(
-            args.apk, sdk=args.android_sdk,
-            expected_sha256=args.candidate_sha256, base_code=args.base_code
-        )
+        if args.android_sdk is not None:
+            release, manifest = prepare_offer(
+                args.apk, sdk=args.android_sdk,
+                expected_sha256=args.candidate_sha256, base_code=args.base_code
+            )
+        else:
+            release, manifest = serve_prevalidated_manifest(
+                args.apk, manifest_file=args.validated_manifest,
+                expected_sha256=args.candidate_sha256, base_code=args.base_code,
+            )
+        if args.write_manifest:
+            if args.android_sdk is None:
+                raise PreflightError("Somente a validacao com Android SDK gera manifesto")
+            args.write_manifest.write_text(
+                json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
         print(json.dumps({
             "mode": "PRIVATE_LOCAL_ONLY", "bind": "127.0.0.1:8765",
             "candidate": manifest["versionName"], "code": manifest["versionCode"],
