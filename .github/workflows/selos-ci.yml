@@ -46,6 +46,9 @@ jobs:
       - name: Validar proteções do procedimento de publicação sem acessar produção
         # O teste simula Firebase CLI: não utiliza token nem envia alterações.
         run: node --test scripts/selos-v2-production-guarded-deploy.test.mjs
+      - name: Testar ativação do Fundador com simulação local
+        # Todos os tokens, documentos e chamadas HTTP são simulados.
+        run: node --test scripts/termux-founder-access-guard.test.mjs
 
   android:
     name: Compilar Android de testes
