@@ -59,7 +59,7 @@ if (atrioOtaReleasePilot) {
 }
 
 // Versão do APK de testes: avançar para 2, 3, ... a cada NOVA atualização Debug.
-// Candidato de Release publico 0.20.3 / versionCode 38; assinatura e publicacao exigem aprovacoes manuais independentes.
+// Candidato OTA publico 0.20.4 / versionCode 39; manter aprovacao manual, certificado permanente e mesmo applicationId.
 // Laboratorio OTA: apenas Debug construido deliberadamente com esta variavel.
 // O piloto Release é outro buildType, habilitado somente por confirmacao manual.
 val atrioDebugPatch = 7
@@ -75,9 +75,9 @@ android {
         testInstrumentationRunner = "br.com.atriocatolico.QaAndroidTestRunner"
         minSdk = 26
         targetSdk = 35
-        versionCode = 38
-        versionName = "0.20.3"
-        buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"0.20.3\"")
+        versionCode = 39
+        versionName = "0.20.4"
+        buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"0.20.4\"")
         val relayUrl = System.getenv("ATRIO_PUSH_WORKER_URL").orEmpty()
         val allowed = Regex("^https://[a-zA-Z0-9-]+\\.[a-zA-Z0-9-]+\\.workers\\.dev$")
         require(relayUrl.isBlank() || allowed.matches(relayUrl)) { "ATRIO_PUSH_WORKER_URL invalida" }
