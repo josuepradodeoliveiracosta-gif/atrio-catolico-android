@@ -111,6 +111,7 @@ jobs:
           EXPECTED_CODE: ${{ inputs.expected_version_code }}
           EXPECTED_NAME: ${{ inputs.expected_version_name }}
           EXPECTED_APK_SHA256: ${{ inputs.expected_apk_sha256 }}
+          ARTIFACT_NAME: ${{ inputs.artifact_name }}
         shell: bash
         run: |
           set -euo pipefail
@@ -129,4 +130,7 @@ jobs:
             ARGS+=(--expected-apk-sha256 "$EXPECTED_APK_SHA256")
           fi
           python3 scripts/ota_apk_preflight.py "${ARGS[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [[ "$ARTIFACT_NAME" == "atrio-catolico-0.20.0-release-assinado" ]]; then
+            python3 scripts/ota_baseline_0200.py --apk "${APKS[0]}" --android-sdk "$ANDROID_HOME" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
           echo "Teste em aparelho e comparação com instalação anterior ainda são obrigatórios." >> "$GITHUB_STEP_SUMMARY"
