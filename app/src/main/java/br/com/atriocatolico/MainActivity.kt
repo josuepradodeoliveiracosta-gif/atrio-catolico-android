@@ -207,7 +207,7 @@ internal fun AtrioTheme(content: @Composable () -> Unit) {
             primary = Wine, onPrimary = Color.White, secondary = Gold,
             background = Paper, onBackground = Ink, surface = Color.White,
             onSurface = Ink, surfaceVariant = WineSoft
-        ), content = content
+        ), typography = AtrioMaterialTypography, content = content
     )
 }
 
