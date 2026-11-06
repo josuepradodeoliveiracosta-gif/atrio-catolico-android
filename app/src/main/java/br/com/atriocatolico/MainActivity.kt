@@ -607,7 +607,7 @@ internal fun CommunityScreen(posts: List<Post>, onChoose: (String) -> Unit) {
         Spacer(Modifier.height(18.dp))
         // A grade passa a uma coluna quando a largura ou a fonte não comportar duas.
         LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = 160.dp),
+            columns = GridCells.Adaptive(minSize = 148.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
             contentPadding = PaddingValues(bottom = 25.dp)
