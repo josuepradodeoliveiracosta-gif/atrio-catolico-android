@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -163,6 +164,14 @@ class ThreeBotsOnlineEmulatorTest {
             .performTextInput("Discussão conectada QA ${nonce}")
         compose.onNodeWithTag("atrio-publish-body")
             .performTextInput("Publicação fictícia de QA, criada pela interface online do Átrio.")
+        // Um rascunho não deve desaparecer ao visitar outra aba e retornar.
+        compose.onNodeWithTag("atrio-tab-communities").performClick()
+        compose.onNodeWithTag("atrio-tab-publish").performClick()
+        compose.onNodeWithTag("atrio-publish-title")
+            .assertTextContains("Discussão conectada QA ${nonce}", substring = true)
+        compose.onNodeWithTag("atrio-publish-body")
+            .assertTextContains("Publicação fictícia de QA, criada pela interface online do Átrio.",
+                substring = true)
         // Os botões ficam abaixo do formulário em uma coluna rolável.
         // Um toque fora do viewport não comprova envio pela interface.
         compose.onNodeWithTag("atrio-publish-submit")
