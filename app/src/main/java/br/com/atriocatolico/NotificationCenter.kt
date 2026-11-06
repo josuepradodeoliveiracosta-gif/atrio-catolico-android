@@ -229,7 +229,7 @@ internal fun NotificationCenter(
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             SectionTitle("Sua central de avisos")
-            Text("Respostas, verificações e novidades dos seus pedidos, dentro do aplicativo.", color = Muted, fontSize = 13.sp)
+            Text("Respostas, verificações e novidades dos seus pedidos, dentro do aplicativo.", color = Muted, fontSize = AtrioType.secondary)
             TextButton(onClick = { preferences = true }) { Text("Preferências de avisos") }
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(listOf("Todas", "Não lidas") + if (admin) listOf("Administração") else emptyList()) { label ->
@@ -242,14 +242,14 @@ internal fun NotificationCenter(
         }
         if (admin && inbox.enabledAdmin) item {
             Text("As pendências continuam abertas até uma decisão. Ler o aviso não conclui a análise. " +
-                "As contagens consideram os registros carregados.", color = Muted, fontSize = 12.sp)
+                "As contagens consideram os registros carregados.", color = Muted, fontSize = AtrioType.secondary)
         }
         if (failed) item {
             Text("Alguns avisos não puderam ser consultados. Confira sua conexão e suas permissões.",
-                color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
+                color = MaterialTheme.colorScheme.error, fontSize = AtrioType.secondary)
             OutlinedButton(onClick = { inbox.retry++ }) { Text("Tentar novamente") }
         }
-        if (inbox.feedback.isNotBlank()) item { Text(inbox.feedback, color = Wine, fontSize = 13.sp) }
+        if (inbox.feedback.isNotBlank()) item { Text(inbox.feedback, color = Wine, fontSize = AtrioType.secondary) }
         if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
         if (shown.isEmpty() && !loading && !failed) item {
             Text(if (more) "Nenhum aviso neste filtro entre os registros carregados. Busque mais para consultar os anteriores."
@@ -266,15 +266,15 @@ internal fun NotificationCenter(
                             NoticeKind.REVIEW -> "Verificação de selo"
                             NoticeKind.REPORTS -> "Administração · denúncias"
                             NoticeKind.REQUESTS -> "Administração · selos"
-                        }, color = Wine, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                        }, color = Wine, fontSize = AtrioType.secondary, modifier = Modifier.weight(1f))
                         if (group.unread) Badge { Text("Novo") }
                     }
                     Text(group.title, fontWeight = FontWeight.Bold)
                     Text(if (group.kind == NoticeKind.REPLY) postTitles[group.target] ?: group.body else group.body,
-                        color = Muted, fontSize = 13.sp)
+                        color = Muted, fontSize = AtrioType.reading, lineHeight = AtrioType.readingLine)
                     if (group.at > 0L) Text(DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
-                        .format(Date(group.at)), color = Muted, fontSize = 11.sp)
-                    if (group.administrative) Text("Pendente de decisão", color = Wine, fontSize = 12.sp)
+                        .format(Date(group.at)), color = Muted, fontSize = AtrioType.metadata)
+                    if (group.administrative) Text("Pendente de decisão", color = Wine, fontSize = AtrioType.secondary)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (group.unread) TextButton(enabled = !inbox.busy,
                             onClick = { inbox.markRead(listOf(group)) }) { Text("Marcar como lido") }
@@ -296,9 +296,9 @@ internal fun NotificationCenter(
                 NoticePreference("Respostas às minhas discussões", inbox.enabledReplies) { inbox.preference("replies", it) }
                 NoticePreference("Resultado da verificação de selo", inbox.enabledReview) { inbox.preference("review", it) }
                 if (admin) NoticePreference("Pendências administrativas", inbox.enabledAdmin) { inbox.preference("admin", it) }
-                Text("Estas opções controlam os avisos exibidos na central e no sino. Não apagam pedidos nem denúncias.", fontSize = 12.sp, color = Muted)
+                Text("Estas opções controlam os avisos exibidos na central e no sino. Não apagam pedidos nem denúncias.", fontSize = AtrioType.secondary, color = Muted)
                 Text("Preferências e leitura dos avisos de verificação e administração são salvas por conta neste aparelho. " +
-                    "A leitura das respostas é sincronizada na sua conta. Para avisos fora do aplicativo, confira Avisos neste aparelho no Perfil.", fontSize = 12.sp, color = Muted)
+                    "A leitura das respostas é sincronizada na sua conta. Para avisos fora do aplicativo, confira Avisos neste aparelho no Perfil.", fontSize = AtrioType.secondary, color = Muted)
             }
         }, confirmButton = { TextButton(onClick = { preferences = false }) { Text("Concluir") } })
     dismissTarget?.let { target -> AlertDialog(onDismissRequest = { dismissTarget = null },
