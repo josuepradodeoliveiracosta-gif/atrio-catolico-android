@@ -245,7 +245,8 @@ internal fun AtrioDemoApp(prefs: SharedPreferences) {
                         details = detailId != null,
                         onBack = { detailId = null },
                         onSearch = { val shouldOpen = !searchOpen; visit(Tab.HOME); searchOpen = shouldOpen },
-                        onNotification = { Toast.makeText(context, "Nenhuma notificação nova", Toast.LENGTH_SHORT).show() }
+                        onNotification = { Toast.makeText(context, "Nenhuma notificação nova", Toast.LENGTH_SHORT).show() },
+                        profileMode = tab == Tab.PROFILE
                     )
                 },
                 bottomBar = { AtrioBottomBar(selected = tab, onSelect = ::visit) }
@@ -365,32 +366,55 @@ private fun WelcomeScreen(onEnter: (String) -> Unit) {
 @Composable
 internal fun AtrioTopBar(
     details: Boolean, onBack: () -> Unit, onSearch: () -> Unit, onNotification: () -> Unit,
-    unreadCount: Int = 0, detailsTitle: String = "Discussão"
+    unreadCount: Int = 0, detailsTitle: String = "Discussão", profileMode: Boolean = false
 ) {
-    // O Android desenha o app sob a barra de status; reserva a área do relógio.
-    Surface(color = Paper, modifier = Modifier.statusBarsPadding()) {
-        Row(Modifier.fillMaxWidth().height(68.dp).padding(horizontal = 17.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (details) {
-                IconButton(onClick = onBack) { Icon(Icons.Outlined.ArrowBack, contentDescription = "Voltar", tint = Wine) }
-                Text(detailsTitle, fontSize = 23.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Serif, color = Wine)
-            } else {
-                Box(Modifier.size(39.dp).clip(RoundedCornerShape(12.dp)).background(Wine), contentAlignment = Alignment.Center) {
-                    Text("✝", fontSize = 25.sp, fontFamily = FontFamily.Serif, color = Gold)
-                }
-                Spacer(Modifier.width(10.dp))
-                Text("Átrio", fontSize = 26.sp, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, color = Wine)
-            }
-            Spacer(Modifier.weight(1f))
-            IconButton(onClick = onSearch, modifier = Modifier.testTag("atrio-top-search")) { Icon(Icons.Outlined.Search, "Buscar", tint = Wine) }
-            IconButton(onClick = onNotification, modifier = Modifier.testTag("atrio-top-notifications")) {
-                BadgedBox(badge = {
-                    if (unreadCount > 0) Badge {
-                        Text(if (unreadCount > 99) "99+" else unreadCount.toString())
+    val wineHeader = profileMode && !details
+    val textTint = if (wineHeader) Color.White else Wine
+    Surface(color = if (wineHeader) Wine else Paper, modifier = Modifier.statusBarsPadding()) {
+        Column {
+            Row(Modifier.fillMaxWidth().height(if (wineHeader) 82.dp else 68.dp)
+                .padding(horizontal = 17.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (details) {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Outlined.ArrowBack, contentDescription = "Voltar", tint = Wine)
                     }
-                }) {
-                    Icon(Icons.Outlined.NotificationsNone, "Notificações", tint = Wine)
+                    Text(detailsTitle, fontSize = 23.sp, fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Serif, color = Wine)
+                } else {
+                    Box(Modifier.size(if (wineHeader) 46.dp else 39.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(if (wineHeader) Gold else Wine),
+                        contentAlignment = Alignment.Center) {
+                        Text("✝", fontSize = 25.sp, fontFamily = FontFamily.Serif,
+                            color = if (wineHeader) Wine else Gold)
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    if (wineHeader) {
+                        Column {
+                            Text("Átrio", fontSize = 28.sp, fontFamily = FontFamily.Serif,
+                                fontWeight = FontWeight.Bold, color = Color.White)
+                            Text("CATÓLICO", color = Gold, fontWeight = FontWeight.SemiBold,
+                                letterSpacing = 2.sp, fontSize = 10.sp)
+                        }
+                    } else Text("Átrio", fontSize = 26.sp, fontFamily = FontFamily.Serif,
+                        fontWeight = FontWeight.Bold, color = Wine)
+                }
+                Spacer(Modifier.weight(1f))
+                IconButton(onClick = onSearch, modifier = Modifier.testTag("atrio-top-search")) {
+                    Icon(Icons.Outlined.Search, contentDescription = "Buscar", tint = textTint)
+                }
+                IconButton(onClick = onNotification, modifier = Modifier.testTag("atrio-top-notifications")) {
+                    BadgedBox(badge = {
+                        if (unreadCount > 0) Badge {
+                            Text(if (unreadCount > 99) "99+" else unreadCount.toString())
+                        }
+                    }) {
+                        Icon(Icons.Outlined.NotificationsNone, contentDescription = "Notificações",
+                            tint = textTint)
+                    }
                 }
             }
+            if (wineHeader) HorizontalDivider(color = Gold, thickness = 2.dp)
         }
     }
 }
@@ -416,7 +440,11 @@ internal fun AtrioBottomBar(selected: Tab, onSelect: (Tab) -> Unit) {
                 selected = selected == tab, onClick = { onSelect(tab) },
                 modifier = Modifier.testTag("atrio-tab-${tab.name.lowercase()}"),
                 icon = { Icon(icon, contentDescription = null, modifier = Modifier.graphicsLayer { alpha = opacity }) }, label = { Text(tab.label, fontSize = 11.sp) },
-                colors = NavigationBarItemDefaults.colors(selectedIconColor = Wine, selectedTextColor = Wine, indicatorColor = WineSoft)
+                colors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = if (tab == Tab.PROFILE) Color.White else Wine,
+                    selectedTextColor = Wine,
+                    indicatorColor = if (tab == Tab.PROFILE) Wine else WineSoft
+                )
             )
         }
     }
