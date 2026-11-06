@@ -68,6 +68,7 @@ internal fun OnlineProfileScreen(
     var followedOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var savedMessage by remember(uid) { mutableStateOf(false) }
     var accountExpanded by rememberSaveable(uid) { mutableStateOf(false) }
+    var helpExpanded by rememberSaveable(uid) { mutableStateOf(false) }
     BackHandler(enabled = badgesOpen && !editorOpen) { badgesOpen = false }
     BackHandler(enabled = discussionsOpen) { discussionsOpen = false }
     BackHandler(enabled = followedOpen) { followedOpen = false }
@@ -99,7 +100,7 @@ internal fun OnlineProfileScreen(
         LazyColumn(Modifier.fillMaxSize().background(Paper).testTag("atrio-profile-list"), contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item {
-                ProfileSectionTitle("Perfil")
+                ProfileSectionTitle("Meu perfil")
                 Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     shape = RoundedCornerShape(AtrioDimensions.CardRadius), border = BorderStroke(1.dp, Line)) {
                     Column(Modifier.fillMaxWidth().padding(20.dp),
@@ -142,7 +143,7 @@ internal fun OnlineProfileScreen(
                 Card(Modifier.fillMaxWidth(), border = BorderStroke(1.dp, Line),
                     shape = RoundedCornerShape(18.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-                    ProfileAction("Minhas discussões", "Consulte suas últimas 50 discussões.",
+                    ProfileAction("Minhas discussões", "Consulte até 50 discussões; seu histórico pode ser maior.",
                         Icons.Outlined.Forum) { discussionsOpen = true }
                     HorizontalDivider()
                     ProfileAction("Discussões acompanhadas",
@@ -155,7 +156,25 @@ internal fun OnlineProfileScreen(
                     HorizontalDivider()
                     ProfileAction("Minhas revisões", "Acompanhe suas revisões no Átrio Guardião.",
                         Icons.Outlined.VerifiedUser, onReviews)
+                    HorizontalDivider()
+                    OutlinedButton(onClick = { publicationsOpen = !publicationsOpen },
+                        modifier = Modifier.fillMaxWidth().testTag("atrio-profile-publications")) {
+                        Text(if (publicationsOpen) "Recolher publicações carregadas" else "Ver publicações carregadas")
+                    }
                 }
+            }
+            if (publicationsOpen) {
+                item {
+                    Text("Mostramos apenas suas publicações já carregadas no feed. Esta lista não é o histórico completo.",
+                        color = Muted, style = MaterialTheme.typography.bodyMedium)
+                }
+                if (mine.isEmpty()) item {
+                    Text("Nenhuma publicação sua nesta lista. Busque mais discussões ou inicie uma conversa.",
+                        color = Muted, style = MaterialTheme.typography.bodyMedium)
+                    OutlinedButton(onClick = onCreate) { Text("Criar discussão") }
+                }
+                items(mine, key = { "profile-post-${it.id}" }) { DiscussionCard(it, onOpen, onLike, onSave) }
+                item { publicationsFooter() }
             }
             item { ProfileSectionTitle("Preferências") }
             item { PushSettings(uid, db, onNotifications = onNotifications) }
@@ -172,7 +191,7 @@ internal fun OnlineProfileScreen(
                                 verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Outlined.PersonOutline, contentDescription = null, tint = Wine)
                                 Spacer(Modifier.width(12.dp))
-                                Text("Conta e privacidade", modifier = Modifier.weight(1f), color = Ink,
+                                Text("Gerenciar conta", modifier = Modifier.weight(1f), color = Ink,
                                     style = MaterialTheme.typography.titleMedium)
                                 Icon(if (accountExpanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
                                     contentDescription = if (accountExpanded) "Recolher conta" else "Expandir conta",
@@ -200,39 +219,50 @@ internal fun OnlineProfileScreen(
                 }
             }
             item {
-                OtaUpdatesSection(otaStatus, onRefreshUpdates, otaDownload, otaInstallMessage,
-                    onDownloadUpdate, onCancelUpdateDownload, onInstallUpdate)
-            }
-            if (onModeration != null || onClergyReview != null) item {
-                HorizontalDivider(color = Line)
-                Spacer(Modifier.height(16.dp))
-                Text("Administração", fontWeight = FontWeight.Bold, color = Wine)
-                onModeration?.let { action ->
-                    OutlinedButton(onClick = action, modifier = Modifier.fillMaxWidth()) { Text("Moderação de conteúdo e fotos") }
+                ProfileSectionTitle("Ajuda e suporte")
+                Card(Modifier.fillMaxWidth(), border = BorderStroke(1.dp, Line),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                    Column(Modifier.fillMaxWidth().padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("Átrio Católico · ${BuildConfig.ATRIO_VISIBLE_VERSION}",
+                            style = MaterialTheme.typography.labelMedium, color = Muted)
+                        Text("Encontre atualizações, orientações e recursos para resolver dificuldades.",
+                            color = Muted, style = MaterialTheme.typography.bodySmall)
+                        OutlinedButton(onClick = { helpExpanded = !helpExpanded },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                                .testTag("atrio-help-toggle")) {
+                            Text(if (helpExpanded) "Recolher ajuda e ferramentas" else "Ver ajuda e ferramentas")
+                            Spacer(Modifier.width(8.dp))
+                            Icon(if (helpExpanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                                contentDescription = if (helpExpanded) "Recolher ajuda" else "Expandir ajuda",
+                                tint = Wine)
+                        }
+                        if (helpExpanded) {
+                            HorizontalDivider(color = Line)
+                            Text("Atualizações e instalação",
+                                color = Wine, style = MaterialTheme.typography.titleMedium)
+                            OtaUpdatesSection(otaStatus, onRefreshUpdates, otaDownload, otaInstallMessage,
+                                onDownloadUpdate, onCancelUpdateDownload, onInstallUpdate)
+                            HorizontalDivider(color = Line)
+                            PushSettings(uid, db, advancedOnly = true)
+                            if (onModeration != null || onClergyReview != null) {
+                                HorizontalDivider(color = Line)
+                                Text("Administração", fontWeight = FontWeight.Bold, color = Wine)
+                                onModeration?.let { action ->
+                                    OutlinedButton(onClick = action, modifier = Modifier.fillMaxWidth()) {
+                                        Text("Moderação de conteúdo e fotos")
+                                    }
+                                }
+                                onClergyReview?.let { action ->
+                                    OutlinedButton(onClick = action, modifier = Modifier.fillMaxWidth()) {
+                                        Text("Solicitações de selos")
+                                    }
+                                }
+                            }
+                            if (founderCanBroadcast) AdminBroadcastPanel()
+                        }
+                    }
                 }
-                onClergyReview?.let { action ->
-                    OutlinedButton(onClick = action, modifier = Modifier.fillMaxWidth()) { Text("Solicitações de selos") }
-                }
-            }
-            // Somente o fundador que também é administrador vê a opção.
-            if (founderCanBroadcast) item { AdminBroadcastPanel() }
-            item {
-                ProfileSectionTitle("Minhas publicações")
-                Text("Esta lista mostra apenas suas publicações entre as discussões já carregadas; não é seu histórico completo.",
-                    color = Muted, style = MaterialTheme.typography.bodyMedium)
-                OutlinedButton(onClick = { publicationsOpen = !publicationsOpen },
-                    modifier = Modifier.fillMaxWidth().testTag("atrio-profile-publications")) {
-                    Text(if (publicationsOpen) "Recolher publicações" else "Ver minhas publicações")
-                }
-            }
-            if (publicationsOpen) {
-                if (mine.isEmpty()) item {
-                    Text("Nenhuma publicação sua nesta lista. Busque mais discussões ou inicie uma conversa.",
-                        color = Muted, style = MaterialTheme.typography.bodyMedium)
-                    OutlinedButton(onClick = onCreate) { Text("Criar discussão") }
-                }
-                items(mine, key = { "profile-post-${it.id}" }) { DiscussionCard(it, onOpen, onLike, onSave) }
-                item { publicationsFooter() }
             }
             item { ProfileBasilicaFooter() }
         }
@@ -345,6 +375,7 @@ private fun ProfileSectionTitle(title: String) {
         "Minha participação" -> Icons.Outlined.Groups
         "Preferências" -> Icons.Outlined.Settings
         "Conta e privacidade" -> Icons.Outlined.VerifiedUser
+        "Ajuda e suporte" -> Icons.Outlined.Settings
         "Minhas publicações" -> Icons.Outlined.Forum
         else -> null
     }
