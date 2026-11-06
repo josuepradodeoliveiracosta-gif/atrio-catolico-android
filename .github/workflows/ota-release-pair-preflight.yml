@@ -112,7 +112,7 @@ jobs:
           if len(base) != 1 or len(candidate) != 1:
               raise SystemExit("Esperado exatamente um APK em cada artefato")
           subprocess.run([
-              sys.executable, "scripts/ota_release_pair_preflight.py",
+              sys.executable, "-m", "scripts.ota_release_pair_preflight",
               "--base-apk", str(base[0]),
               "--candidate-apk", str(candidate[0]),
               "--base-sha256", os.environ["BASE_SHA"],
