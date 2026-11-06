@@ -204,16 +204,17 @@ internal fun OnlineProfileScreen(
                         Text("Seu e-mail é privado. Sua apresentação só fica pública após sua autorização.",
                             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         EmailVerificationPanel(uid)
+                        OutlinedButton(onClick = onSignOut,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                                .testTag("atrio-profile-signout")) {
+                            Text("Sair da conta")
+                        }
                         HorizontalDivider()
                         AccountDeletionRequestPanel(db, uid)
                         Text("A solicitação de exclusão não remove os dados imediatamente. " +
                             "A publicação na Google Play exige também um canal externo de solicitação.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("Átrio Católico · ${BuildConfig.ATRIO_VISIBLE_VERSION}", style = MaterialTheme.typography.labelMedium)
-                        OutlinedButton(onClick = onSignOut, modifier = Modifier.fillMaxWidth().testTag("atrio-profile-signout")) {
-                            Text("Sair da conta")
-                        }
                         }
                     }
                 }
