@@ -6,6 +6,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -15,6 +16,7 @@ import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.Logout
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -550,6 +552,8 @@ private fun OnlineCommunity(
     val blockedMembers = rememberBlockedMembers(db, uid)
     var likedIds by remember(uid) { mutableStateOf<Set<String>>(emptySet()) }
     var savedIds by remember(uid) { mutableStateOf<Set<String>>(emptySet()) }
+    var pendingSaveIds by remember(uid) { mutableStateOf<Set<String>>(emptySet()) }
+    var saveOverrides by remember(uid) { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
     val notificationAdmin = onModeration != null && onClergyReview != null
     val advancedEngagement = rememberAdvancedEngagementEnabled(db, uid)
     val inbox = rememberNotificationInbox(db, uid, notificationAdmin)
@@ -570,10 +574,12 @@ private fun OnlineCommunity(
             }
         onDispose { listener.remove() }
     }
-    var tab by remember { mutableStateOf(Tab.HOME) }
-    var filter by remember { mutableStateOf("Todos") }
-    var search by remember { mutableStateOf("") }
-    var searchOpen by remember { mutableStateOf(false) }
+    var tab by rememberSaveable(uid) { mutableStateOf(Tab.HOME) }
+    var filter by rememberSaveable(uid) { mutableStateOf("Todos") }
+    var search by rememberSaveable(uid) { mutableStateOf("") }
+    var searchOpen by rememberSaveable(uid) { mutableStateOf(false) }
+    // O estado de rolagem vive fora da tela Início para sobreviver à troca de abas.
+    val homeListState = rememberLazyListState()
     var detailId by remember { mutableStateOf<String?>(null) }
     var publicProfileTarget by remember(uid) { mutableStateOf<PublicMemberTarget?>(null) }
     var profilePostOpen by remember(uid) { mutableStateOf(false) }
@@ -633,6 +639,30 @@ private fun OnlineCommunity(
     val followedIds = if (advancedEngagement) syncedFollow.ids
         else remember(uid, followedRevision) { LocalFollowedDiscussions.ids(context, uid) }
     var followBusy by remember(uid, detailId) { mutableStateOf(false) }
+
+    // Gravações sequenciais por discussão. A última intenção vence; em erro
+    // o marcador volta ao último estado confirmado. Nenhum backend novo.
+    val saveCoordinator = remember(db, uid) {
+        AtrioSaveIntentCoordinator(
+            write = { id, shouldSave, done ->
+                val ref = db.collection("users").document(uid)
+                    .collection("savedPosts").document(id)
+                val task = if (shouldSave)
+                    ref.set(mapOf("createdAt" to FieldValue.serverTimestamp()))
+                else ref.delete()
+                task.addOnCompleteListener { done(it.isSuccessful) }
+            },
+            onState = { id, isSaved, pending ->
+                saveOverrides = if (pending) saveOverrides + (id to isSaved)
+                    else saveOverrides - id
+                pendingSaveIds = if (pending) pendingSaveIds + id else pendingSaveIds - id
+                if (!pending) {
+                    savedIds = if (isSaved) savedIds + id else savedIds - id
+                }
+            },
+            onFailure = { message = "Não foi possível atualizar os salvos. Tente novamente." }
+        )
+    }
 
     DisposableEffect(db, uid, feedLimit, feedRetry) {
         var active = true
@@ -748,13 +778,23 @@ private fun OnlineCommunity(
             ThreadPushSubscriptions.track(context, uid, id)
     }
     val posts = sourcePosts.filter { it.ownerUid !in blockedMembers }
-        .map { it.copy(liked = it.id in likedIds, saved = it.id in savedIds) }
+        .map {
+            it.copy(liked = it.id in likedIds,
+                saved = saveOverrides[it.id] ?: (it.id in savedIds),
+                savePending = it.id in pendingSaveIds)
+        }
     val allPosts = (sourcePosts + savedPosts.values + listOfNotNull(openedPost))
         .filter { it.ownerUid !in blockedMembers }
-        .associateBy { it.id }.values.map { it.copy(liked = it.id in likedIds, saved = it.id in savedIds) }
+        .associateBy { it.id }.values.map {
+            it.copy(liked = it.id in likedIds,
+                saved = saveOverrides[it.id] ?: (it.id in savedIds),
+                savePending = it.id in pendingSaveIds)
+        }
     val savedDisplay = savedOrder.take(savedLimit).mapNotNull { id ->
         savedPosts[id]?.takeUnless { it.ownerUid in blockedMembers }
-            ?.copy(liked = id in likedIds, saved = id in savedIds)
+            ?.copy(liked = id in likedIds,
+                saved = saveOverrides[id] ?: (id in savedIds),
+                savePending = id in pendingSaveIds)
     }
     fun navigate(destination: Tab) {
         if (BuildConfig.DEBUG &&
@@ -765,7 +805,8 @@ private fun OnlineCommunity(
         publicProfileTarget = null; profilePostOpen = false; previousDetailId = null
         guardiaoAppealsOpen = false
         noticeBadgesOpen = false; returnToNotices = false
-        filter = "Todos"; search = ""; searchOpen = false
+        // Não apagar a busca ou o filtro ao alternar abas. O usuário volta
+        // ao contexto em que estava lendo.
     }
     LaunchedEffect(ota.status) {
         val result = ota.status
@@ -815,42 +856,86 @@ private fun OnlineCommunity(
         }
         return true
     }
+    var lastPublishFingerprint by rememberSaveable(uid) { mutableStateOf("") }
+    var lastPublishId by rememberSaveable(uid) { mutableStateOf("") }
     fun publish(title: String, body: String, category: String) {
         if (!canPublishWithCurrentSession()) return
-        // Diagnóstico somente no laboratório Android com Firebase emulado:
-        // não registrar conteúdo de publicação nem dados pessoais.
         val qaLab = BuildConfig.DEBUG &&
             com.google.firebase.FirebaseApp.getInstance().options.projectId == "demo-atrio-v11"
         if (working) {
             if (qaLab) android.util.Log.d("AtrioQaPublish", "ignored_busy")
             return
         }
+        // Mesma tentativa lógica mantém o mesmo ID mesmo depois de erro/rotação.
+        // Se o Firestore gravar e a resposta de rede se perder, a nova tentativa
+        // não criará uma segunda publicação.
+        val fingerprint = listOf(title.trim(), body.trim(), category).joinToString("\u001f")
+        val id = if (fingerprint == lastPublishFingerprint && lastPublishId.isNotBlank()) {
+            lastPublishId
+        } else {
+            java.util.UUID.randomUUID().toString().also {
+                lastPublishFingerprint = fingerprint
+                lastPublishId = it
+            }
+        }
+        val ref = db.collection("posts").document(id)
+        fun completeAccepted() {
+            working = false
+            lastPublishFingerprint = ""
+            lastPublishId = ""
+            // Após publicar, mostrar o novo tópico no feed sem ocultá-lo por
+            // um filtro ou pesquisa anteriores.
+            filter = "Todos"
+            search = ""
+            searchOpen = false
+            navigate(Tab.HOME)
+            Toast.makeText(context, "Discussão publicada!", Toast.LENGTH_SHORT).show()
+            if (!qaLab) {
+                ThreadPushSubscriptions.track(context, uid, id)
+                InstantPushRelay.moderatePost(id)
+            }
+        }
         if (qaLab) android.util.Log.d("AtrioQaPublish", "submit_dispatched")
         working = true
-        db.collection("posts").add(mapOf(
-            "uid" to uid, "authorName" to name, "title" to title,
-            "body" to body, "category" to category,
-            "createdAt" to FieldValue.serverTimestamp()
-        )).addOnCompleteListener { result ->
-            working = false
-            if (qaLab) android.util.Log.d("AtrioQaPublish",
-                if (result.isSuccessful) "commit_ok" else "commit_failed_" +
-                    ((result.exception as? com.google.firebase.firestore.FirebaseFirestoreException)
-                        ?.code?.name ?: result.exception?.javaClass?.simpleName ?: "unknown"))
-            if (result.isSuccessful) {
-                // O retorno à interface não deve depender de FCM/Push.
-                // Em especial, nenhum serviço externo pode travar a navegação
-                // depois de a publicação já ter sido aceita pelo Firestore.
-                navigate(Tab.HOME)
-                Toast.makeText(context, "Discussão publicada!", Toast.LENGTH_SHORT).show()
-                if (!qaLab) result.result?.id?.let {
-                    ThreadPushSubscriptions.track(context, uid, it)
-                    InstantPushRelay.moderatePost(it)
+
+        // Se este ID já foi gravado numa tentativa anterior, reconciliar
+        // primeiro. Nunca sobrescrever uma discussão publicada.
+        ref.get(com.google.firebase.firestore.Source.SERVER).addOnCompleteListener { previous ->
+            if (previous.isSuccessful && previous.result?.exists() == true) {
+                if (previous.result?.getString("uid") == uid) completeAccepted()
+                else {
+                    working = false
+                    message = "Não foi possível confirmar a publicação. Tente novamente."
                 }
-            } else message = if (emailVerificationRequired &&
-                FirebaseAuth.getInstance().currentUser?.isEmailVerified != true)
-                "Confirme seu e-mail em Meu perfil antes de publicar."
-                else "Não foi possível publicar. Confira a conexão e as regras da comunidade."
+                return@addOnCompleteListener
+            }
+            ref.set(mapOf(
+                "uid" to uid, "authorName" to name, "title" to title,
+                "body" to body, "category" to category,
+                "createdAt" to FieldValue.serverTimestamp()
+            )).addOnCompleteListener { result ->
+                if (qaLab) android.util.Log.d("AtrioQaPublish",
+                    if (result.isSuccessful) "commit_ok" else "commit_failed")
+                if (result.isSuccessful) {
+                    completeAccepted()
+                } else {
+                    // Falha de resposta pode ocorrer depois do commit remoto.
+                    // Conferir pelo mesmo ID antes de oferecer nova tentativa.
+                    ref.get(com.google.firebase.firestore.Source.SERVER)
+                        .addOnCompleteListener { lookup ->
+                            if (lookup.isSuccessful && lookup.result?.exists() == true &&
+                                lookup.result?.getString("uid") == uid) {
+                                completeAccepted()
+                            } else {
+                                working = false
+                                message = if (emailVerificationRequired &&
+                                    FirebaseAuth.getInstance().currentUser?.isEmailVerified != true)
+                                    "Confirme seu e-mail em Meu perfil antes de publicar."
+                                else "Não foi possível confirmar a publicação. O rascunho foi mantido; tente novamente."
+                            }
+                        }
+                }
+            }
         }
     }
     fun reply(
@@ -1015,7 +1100,9 @@ private fun OnlineCommunity(
     }, bottomBar = { AtrioBottomBar(selected = tab, onSelect = ::navigate) }) { inset ->
         Box(Modifier.padding(inset)) {
             val detail = openedPost?.takeUnless { it.ownerUid in blockedMembers }
-                ?.copy(liked = detailId in likedIds, saved = detailId in savedIds)
+                ?.copy(liked = detailId in likedIds,
+                    saved = saveOverrides[detailId] ?: (detailId in savedIds),
+                    savePending = detailId in pendingSaveIds)
             if (publicProfileTarget != null && !profilePostOpen) {
                 PublicMemberProfileScreen(
                     db = db, target = publicProfileTarget!!, viewerUid = uid,
@@ -1054,7 +1141,7 @@ private fun OnlineCommunity(
             } else if (detail != null) {
                 DetailScreen(detail.copy(replies = detailReplies.filter { it.ownerUid !in blockedMembers }), name,
                     onLike = { toggle("likedPosts", detail.id, detail.liked) },
-                    onSave = { toggle("savedPosts", detail.id, detail.saved) },
+                    onSave = { saveCoordinator.toggle(detail.id, detail.saved) },
                     onReply = { body, done ->
                         confirmGuardianBeforeSend(body, onCancel = { done(false) }) {
                             reply(detail.id, body, done)
@@ -1115,11 +1202,14 @@ private fun OnlineCommunity(
                 )
             } else when (tab) {
                 Tab.HOME -> HomeScreen(name, posts, filter, search, searchOpen,
-                    onSearch = { search = it }, onFilter = { filter = it },
+                    onSearch = { search = it },
+                    onFilter = { filter = it; otaScope.launch { homeListState.scrollToItem(0) } },
+                    loading = feedLoading, loadError = feedError,
+                    onRetry = { feedRetry++ }, listState = homeListState,
                     onCreate = { navigate(Tab.PUBLISH) }, onForums = { navigate(Tab.COMMUNITIES) },
                     onOpen = { detailId = it },
                     onLike = { id -> posts.firstOrNull { it.id == id }?.let { toggle("likedPosts", id, it.liked) } },
-                    onSave = { id -> posts.firstOrNull { it.id == id }?.let { toggle("savedPosts", id, it.saved) } },
+                    onSave = { id -> posts.firstOrNull { it.id == id }?.let { saveCoordinator.toggle(id, it.saved) } },
                     onOpenProfile = ::openMemberProfile,
                     footer = {
                         LoadMore(feedLoading, feedMore, feedError, "Carregar mais publicações") {
@@ -1127,7 +1217,7 @@ private fun OnlineCommunity(
                         }
                     })
                 Tab.COMMUNITIES -> CommunityScreen(posts) { category -> navigate(Tab.HOME); filter = category }
-                Tab.PUBLISH -> PublishScreen { title, body, category ->
+                Tab.PUBLISH -> PublishScreen(publishing = working) { title, body, category ->
                     confirmGuardianBeforeSend(title + "\n" + body) {
                         publish(title, body, category)
                     }
@@ -1135,8 +1225,10 @@ private fun OnlineCommunity(
                 Tab.SAVED -> SavedScreen(savedDisplay,
                     onDiscover = { navigate(Tab.HOME) }, onOpen = { detailId = it },
                     onLike = { id -> allPosts.firstOrNull { it.id == id }?.let { toggle("likedPosts", id, it.liked) } },
-                    onSave = { id -> allPosts.firstOrNull { it.id == id }?.let { toggle("savedPosts", id, it.saved) } },
+                    onSave = { id -> allPosts.firstOrNull { it.id == id }?.let { saveCoordinator.toggle(id, it.saved) } },
                     loading = savesLoading || savedPending.isNotEmpty(),
+                    loadError = savesError || savedFailures.isNotEmpty(),
+                    onRetry = { savedRetry++ },
                     onOpenProfile = ::openMemberProfile,
                     footer = {
                         LoadMore(savesLoading || savedPending.isNotEmpty(), savedOrder.size > savedLimit,
@@ -1173,7 +1265,7 @@ private fun OnlineCommunity(
                     onReviews = { guardiaoAppealsOpen = true },
                     onCreate = { navigate(Tab.PUBLISH) }, onOpen = { detailId = it },
                     onLike = { id -> posts.firstOrNull { it.id == id }?.let { toggle("likedPosts", id, it.liked) } },
-                    onSave = { id -> posts.firstOrNull { it.id == id }?.let { toggle("savedPosts", id, it.saved) } })
+                    onSave = { id -> posts.firstOrNull { it.id == id }?.let { saveCoordinator.toggle(id, it.saved) } })
                 }
             }
         }
