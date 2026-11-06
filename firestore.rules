@@ -70,6 +70,16 @@ service cloud.firestore {
           || request.resource.data.pixKey.size() > 0
           || request.resource.data.bankName.size() > 0
         )
+        && (
+          request.resource.data.enabled == true
+          || (
+            request.resource.data.pixKey.size() == 0
+            && request.resource.data.bankName.size() == 0
+            && request.resource.data.agency.size() == 0
+            && request.resource.data.account.size() == 0
+            && request.resource.data.message.size() == 0
+          )
+        )
         && request.resource.data.updatedBy == request.auth.uid
         && request.resource.data.updatedAt == request.time;
     }
