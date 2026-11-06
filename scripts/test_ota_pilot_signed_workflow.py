@@ -45,9 +45,9 @@ class PilotSignedWorkflowSafetyTests(unittest.TestCase):
         self.assertIn("gradle :app:assembleOtaPilot", self.wf)
         self.assertEqual(self.wf.count("gradle :app:assembleOtaPilot"), 1)
         self.assertIn('"36 0.20.1 base" "37 0.20.2 candidate"', self.wf)
-        self.assertIn("python3 scripts/ota_release_cert.py", self.wf)
-        self.assertIn("python3 scripts/ota_release_pair_preflight.py", self.wf)
-        self.assertIn("python3 scripts/ota_release_pilot_server.py", self.wf)
+        self.assertIn("python3 -m scripts.ota_release_cert", self.wf)
+        self.assertIn("python3 -m scripts.ota_release_pair_preflight", self.wf)
+        self.assertIn("python3 -m scripts.ota_release_pilot_server", self.wf)
         self.assertIn("ATRIO_OTA_PILOT_CONFIRM", self.wf)
         self.assertIn("ATRIO_OTA_RELEASE_PILOT=1", self.wf)
         for forbidden in ("gradle :app:assembleRelease", "gh release create",
@@ -56,6 +56,30 @@ class PilotSignedWorkflowSafetyTests(unittest.TestCase):
                           "git push", "firebase deploy", "wrangler deploy"):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, self.wf)
+
+    def test_pilot_python_modules_launch_from_repository_root(self):
+        # A execução #1 falhou porque python3 scripts/... altera sys.path[0]
+        # para scripts/, impedindo importar os pacotes "scripts.*".
+        import subprocess
+        import sys
+        for module in (
+            "scripts.ota_release_cert",
+            "scripts.ota_release_pair_preflight",
+            "scripts.ota_release_pilot_server",
+        ):
+            with self.subTest(module=module):
+                result = subprocess.run(
+                    [sys.executable, "-m", module, "--help"],
+                    cwd=ROOT, capture_output=True, text=True,
+                    timeout=10, check=False,
+                )
+                self.assertEqual(
+                    result.returncode, 0,
+                    f"{module} deve iniciar sem erro de import: {result.stderr}",
+                )
+        self.assertNotIn("python3 scripts/ota_release_cert.py", self.wf)
+        self.assertNotIn("python3 scripts/ota_release_pair_preflight.py", self.wf)
+        self.assertNotIn("python3 scripts/ota_release_pilot_server.py", self.wf)
 
     def test_official_gates_remain_inseparable(self):
         normal = NORMAL_BUILD.read_text(encoding="utf-8")
