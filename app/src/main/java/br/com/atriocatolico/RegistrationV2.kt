@@ -185,7 +185,8 @@ internal fun RegistrationOptionalPreferences(
                 Text(option, modifier = Modifier.padding(start = 6.dp), color = Ink)
             }
         }
-        Text("Selecionar Padre/Diácono não concede selo nem privilégios.",
+        Text("Padre, Diácono, Religioso(a) exigem verificação administrativa. " +
+            "Esta escolha não concede selo nem privilégios.",
             color = Muted, style = MaterialTheme.typography.bodySmall)
         OutlinedTextField(
             city, { city = it.take(80) }, label = { Text("Cidade (opcional)") },
