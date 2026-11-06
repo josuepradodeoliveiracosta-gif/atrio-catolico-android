@@ -151,6 +151,36 @@ class ProfileLayoutUiTest {
         compose.onNodeWithTag("atrio-profile-edit").assertExists()
     }
 
+    @Test fun registrationWelcomeKeepsBothDestinationsAvailable() {
+        var selected = ""
+        compose.setContent {
+            AtrioTheme {
+                RegistrationWelcomeScreen(
+                    onCreate = { selected = "create" },
+                    onLogin = { selected = "login" }
+                )
+            }
+        }
+        compose.onNodeWithTag("atrio-welcome-create").assertExists().performClick()
+        compose.runOnIdle { assertEquals("create", selected) }
+        compose.onNodeWithTag("atrio-welcome-login").assertExists().performClick()
+        compose.runOnIdle { assertEquals("login", selected) }
+    }
+
+    @Test fun optionalOnboardingCanBeSkippedWithoutChoosingReligion() {
+        check(FirebaseApp.getInstance().options.projectId == "demo-atrio-v11")
+        compose.setContent {
+            AtrioTheme {
+                RegistrationOnboardingScreen(FirebaseFirestore.getInstance(),
+                    uid = "qa-onboarding-skippable", onFinish = {})
+            }
+        }
+        compose.onNodeWithTag("atrio-onboarding-save").assertIsNotEnabled()
+        compose.onNodeWithTag("atrio-onboarding-skip").performClick()
+        compose.onNodeWithText("Cadastro concluído!").assertExists()
+        compose.onNodeWithTag("atrio-onboarding-enter").assertExists()
+    }
+
     private fun screenshot(name: String) {
         // O Gradle pode desinstalar o APK ao terminar a suíte. Guardar a captura
         // no diretório do shell de QA evita perdê-la junto com os dados do app.
