@@ -68,6 +68,15 @@ internal fun OnlineAtrioApp(activity: androidx.activity.ComponentActivity) {
     val auth = remember { FirebaseAuth.getInstance() }
     val db = remember { FirebaseFirestore.getInstance() }
     var signedUser by remember { mutableStateOf(auth.currentUser) }
+    // Escopo local: somente contas NOVAS criadas neste fluxo de cadastro V2.
+    // Nunca impor onboarding retroativamente aos UIDs existentes.
+    val registrationPrefs = remember(activity) {
+        activity.getSharedPreferences("atrio-registration-v2", android.content.Context.MODE_PRIVATE)
+    }
+    var registrationStarted by rememberSaveable { mutableStateOf(false) }
+    var pendingRegistrationUid by remember {
+        mutableStateOf(registrationPrefs.getString("pendingUid", null))
+    }
 
     DisposableEffect(auth) {
         val listener = FirebaseAuth.AuthStateListener { signedUser = it.currentUser }
@@ -78,7 +87,13 @@ internal fun OnlineAtrioApp(activity: androidx.activity.ComponentActivity) {
     AtrioTheme {
         val user = signedUser
         if (user == null) {
-            OnlineAuthScreen(auth = auth, db = db)
+            OnlineAuthScreen(auth = auth, db = db,
+                onRegistrationStarted = { registrationStarted = true },
+                onRegistrationCreated = { uid ->
+                    pendingRegistrationUid = uid
+                    registrationPrefs.edit().putString("pendingUid", uid).apply()
+                },
+                onRegistrationFailed = { registrationStarted = false })
         } else {
             key(user.uid) {
                 // Seguranca de entrada: o cliente deve conhecer a politica do
@@ -111,11 +126,32 @@ internal fun OnlineAtrioApp(activity: androidx.activity.ComponentActivity) {
                     onDispose { policy.remove() }
                 }
                 val onGateSignOut: () -> Unit = {
+                    registrationStarted = false
                     BackgroundNoticeScheduler.disable(activity, user.uid)
                     PushRegistry.deactivate(activity, user.uid, db)
                     auth.signOut()
                 }
-                if (canEnterAtrioCommunity(verifiedThisSession, verificationPolicy)) {
+                val justRegistered = registrationStarted || pendingRegistrationUid == user.uid
+                // Uma conta recém-criada nunca salta a verificação por um
+                // switch administrativo ainda em fase de migração.
+                if (justRegistered && verifiedThisSession) {
+                    RegistrationOnboardingScreen(db, user.uid, onFinish = {
+                        db.document("users/${user.uid}/private/account")
+                            .update(mapOf(
+                                "onboardingStatus" to "complete",
+                                "updatedAt" to FieldValue.serverTimestamp()
+                            ))
+                        registrationStarted = false
+                        pendingRegistrationUid = null
+                        registrationPrefs.edit().remove("pendingUid").apply()
+                    })
+                } else if (justRegistered && !verifiedThisSession) {
+                    MandatoryEmailVerificationGate(
+                        uid = user.uid,
+                        onVerified = { verifiedThisSession = true },
+                        onSignOut = onGateSignOut
+                    )
+                } else if (canEnterAtrioCommunity(verifiedThisSession, verificationPolicy)) {
                     OnlineUserScreen(auth = auth, db = db, user = user)
                 } else if (verificationPolicy == EmailVerificationPolicyAccess.REQUIRED) {
                     MandatoryEmailVerificationGate(
@@ -144,7 +180,15 @@ internal fun OnlineAtrioApp(activity: androidx.activity.ComponentActivity) {
 }
 
 @Composable
-private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
+private fun OnlineAuthScreen(
+    auth: FirebaseAuth, db: FirebaseFirestore,
+    onRegistrationStarted: () -> Unit = {},
+    onRegistrationCreated: (String) -> Unit = {},
+    onRegistrationFailed: () -> Unit = {}
+) {
+    val isIsolatedQa = BuildConfig.DEBUG &&
+        com.google.firebase.FirebaseApp.getInstance().options.projectId == "demo-atrio-v11"
+    var entranceChosen by rememberSaveable { mutableStateOf(isIsolatedQa) }
     var registering by remember { mutableStateOf(false) }
     var displayName by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
@@ -157,6 +201,14 @@ private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
     var resetInfo by remember { mutableStateOf("") }
+
+    if (!entranceChosen) {
+        RegistrationWelcomeScreen(
+            onCreate = { registering = true; entranceChosen = true },
+            onLogin = { registering = false; entranceChosen = true }
+        )
+        return
+    }
 
     val emailValid = RegistrationPolicy.validEmail(email)
     val passwordIssue = if (registering && password.isNotEmpty())
@@ -180,8 +232,12 @@ private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
         Spacer(Modifier.height(26.dp))
         Card(colors = CardDefaults.cardColors(containerColor = Paper), shape = RoundedCornerShape(20.dp)) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(if (registering) "Criar conta" else "Entrar na comunidade",
+                Text(if (registering) "Criar sua conta" else "Entrar na comunidade",
                     fontSize = 22.sp, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
+                if (registering) Text(
+                    "Passo 1 de 3 · Depois você confirmará seu e-mail. A personalização é opcional.",
+                    fontSize = 12.sp, color = Muted
+                )
                 if (registering) {
                     OutlinedTextField(displayName, { displayName = it.take(35) },
                         modifier = Modifier.fillMaxWidth().testTag("atrio-auth-name"),
@@ -266,13 +322,26 @@ private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
                         resetInfo = ""
                         if (registering) {
                             val publicName = displayName.trim()
+                            onRegistrationStarted()
                             auth.createUserWithEmailAndPassword(email.trim(), password)
                                 .addOnSuccessListener { result ->
                                     val created = result.user
                                     if (created == null) {
+                                        onRegistrationFailed()
                                         busy = false
                                         error = "Não foi possível concluir o cadastro. Tente novamente."
                                     } else {
+                                        onRegistrationCreated(created.uid)
+                                        // Registro mínimo no esquema V2; as Rules novas
+                                        // precisam de deploy separado antes de produção.
+                                        db.document("users/${created.uid}/private/account")
+                                            .set(mapOf(
+                                                "onboardingStatus" to "pending_email",
+                                                "profileVersion" to 2,
+                                                "noticesOptIn" to false,
+                                                "communityUpdates" to false,
+                                                "updatedAt" to FieldValue.serverTimestamp()
+                                            ))
                                         // E-mail enviado após a criação. O backend deve ser configurado
                                         // para impedir UGC não verificado antes de ativar exigência global.
                                         created.sendEmailVerification().addOnFailureListener {
@@ -302,6 +371,7 @@ private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
                                         }
                                     }
                                 }.addOnFailureListener { failure ->
+                                    onRegistrationFailed()
                                     busy = false
                                     error = registrationErrorMessage(failure)
                                 }
