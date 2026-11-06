@@ -17,6 +17,7 @@ import androidx.compose.material.icons.outlined.Logout
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -578,6 +579,10 @@ private fun OnlineCommunity(
     var filter by rememberSaveable(uid) { mutableStateOf("Todos") }
     var search by rememberSaveable(uid) { mutableStateOf("") }
     var searchOpen by rememberSaveable(uid) { mutableStateOf(false) }
+    // Preservar rascunho ao alternar abas, sem guardar estado de outra conta.
+    // A chave muda após publicação bem-sucedida, começando um formulário limpo.
+    val draftStateHolder = rememberSaveableStateHolder()
+    var publishDraftEpoch by rememberSaveable(uid) { mutableIntStateOf(0) }
     // O estado de rolagem vive fora da tela Início para sobreviver à troca de abas.
     val homeListState = rememberLazyListState()
     var detailId by remember { mutableStateOf<String?>(null) }
@@ -883,6 +888,8 @@ private fun OnlineCommunity(
             working = false
             lastPublishFingerprint = ""
             lastPublishId = ""
+            draftStateHolder.removeState("$uid:publish:$publishDraftEpoch")
+            publishDraftEpoch++
             // Após publicar, mostrar o novo tópico no feed sem ocultá-lo por
             // um filtro ou pesquisa anteriores.
             filter = "Todos"
@@ -1232,9 +1239,11 @@ private fun OnlineCommunity(
                         }
                     })
                 Tab.COMMUNITIES -> CommunityScreen(posts) { category -> navigate(Tab.HOME); filter = category }
-                Tab.PUBLISH -> PublishScreen(publishing = working) { title, body, category ->
-                    confirmGuardianBeforeSend(title + "\n" + body) {
-                        publish(title, body, category)
+                Tab.PUBLISH -> draftStateHolder.SaveableStateProvider("$uid:publish:$publishDraftEpoch") {
+                    PublishScreen(publishing = working) { title, body, category ->
+                        confirmGuardianBeforeSend(title + "\n" + body) {
+                            publish(title, body, category)
+                        }
                     }
                 }
                 Tab.SAVED -> SavedScreen(savedDisplay,
