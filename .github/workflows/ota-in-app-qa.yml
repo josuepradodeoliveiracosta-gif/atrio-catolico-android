@@ -13,6 +13,9 @@ on:
       - 'scripts/ota_qa_in_app.sh'
       - 'scripts/ota_qa_loopback_server.py'
       - 'scripts/test_ota_qa_loopback_server.py'
+      - 'scripts/ota_release_pilot_server.py'
+      - 'scripts/test_ota_release_pilot_server.py'
+      - 'app/src/otaPilot/**'
       - '.github/workflows/ota-in-app-qa.yml'
   workflow_dispatch:
 
@@ -49,6 +52,13 @@ jobs:
         run: python3 scripts/validar_firebase.py
       - name: Testar origem local e manifestos sem iniciar Android
         run: python3 -m unittest discover -s scripts -p 'test_ota_qa_loopback_server.py' -v
+      - name: Compilar variante OTA piloto sem assinar nem gerar APK
+        env:
+          ATRIO_OTA_QA_LOOPBACK: '0'
+          ATRIO_OTA_PILOT_COMPILE_ONLY: '1'
+          ATRIO_OTA_PILOT_VERSION_CODE: '36'
+          ATRIO_OTA_PILOT_VERSION_NAME: '0.20.1'
+        run: gradle :app:compileOtaPilotKotlin :app:testOtaPilotUnitTest --no-daemon
       - name: Gerar dois APKs Debug do laboratorio com mesma chave no runner
         run: bash scripts/ota_qa_upgrade.sh build-fixtures
       - name: Testar politica OTA do laboratorio
