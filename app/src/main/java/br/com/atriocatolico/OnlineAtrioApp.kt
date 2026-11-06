@@ -268,7 +268,7 @@ private fun OnlineAuthScreen(
                     fontSize = 22.sp, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
                 if (registering) Text(
                     "Passo 1 de 3 · Depois você confirmará seu e-mail. A personalização é opcional.",
-                    fontSize = 12.sp, color = Muted
+                    fontSize = AtrioType.secondary, color = Muted
                 )
                 if (registering) {
                     OutlinedTextField(displayName, { displayName = it.take(35) },
@@ -329,7 +329,7 @@ private fun OnlineAuthScreen(
                             onCheckedChange = { acceptedRules = it },
                             modifier = Modifier.testTag("atrio-auth-rules"),
                             enabled = !busy)
-                        Text("Li e aceito as Regras da Comunidade.", fontSize = 13.sp)
+                        Text("Li e aceito as Regras da Comunidade.", fontSize = AtrioType.secondary)
                     }
                     TextButton(onClick = { showRules = true }, enabled = !busy,
                         modifier = Modifier.testTag("atrio-auth-read-rules")) {
@@ -347,7 +347,7 @@ private fun OnlineAuthScreen(
                             onCheckedChange = { acceptedTerms = it },
                             enabled = !busy, modifier = Modifier.testTag("atrio-auth-terms"))
                         Text("Li e concordo com as condições de uso apresentadas.",
-                            fontSize = 13.sp)
+                            fontSize = AtrioType.secondary)
                     }
                     TextButton(
                         onClick = { legalDocument = "privacy" },
@@ -357,17 +357,17 @@ private fun OnlineAuthScreen(
                         Checkbox(checked = acknowledgedPrivacy,
                             onCheckedChange = { acknowledgedPrivacy = it },
                             enabled = !busy, modifier = Modifier.testTag("atrio-auth-privacy"))
-                        Text("Li as informações de privacidade.", fontSize = 13.sp)
+                        Text("Li as informações de privacidade.", fontSize = AtrioType.secondary)
                     }
                     Text("As políticas completas, retenção de dados e bases legais ainda requerem " +
                         "revisão antes do lançamento oficial. Preferências religiosas serão opcionais.",
-                        fontSize = 11.sp, color = Muted, lineHeight = 15.sp)
+                        fontSize = AtrioType.secondary, color = Muted, lineHeight = AtrioType.secondaryLine)
                 }
                 if (error.isNotBlank()) {
                     Text(error, modifier = Modifier.testTag("atrio-auth-error"),
-                        color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
+                        color = MaterialTheme.colorScheme.error, fontSize = AtrioType.secondary)
                 }
-                if (resetInfo.isNotBlank()) Text(resetInfo, color = Wine, fontSize = 13.sp)
+                if (resetInfo.isNotBlank()) Text(resetInfo, color = Wine, fontSize = AtrioType.secondary)
                 Button(
                     modifier = Modifier.fillMaxWidth().testTag("atrio-auth-submit"),
                     enabled = !busy && ready,
@@ -473,7 +473,7 @@ private fun OnlineAuthScreen(
                     }
                 }
                 Text("Cadastro por e-mail · Discussões compartilhadas · Respeito em primeiro lugar",
-                    fontSize = 11.sp, color = Muted, lineHeight = 16.sp, textAlign = TextAlign.Center,
+                    fontSize = AtrioType.secondary, color = Muted, lineHeight = AtrioType.secondaryLine, textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth())
             }
         }
@@ -672,7 +672,7 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
             Spacer(Modifier.height(15.dp))
             OutlinedTextField(newName, { if (it.length <= 35) newName = it },
                 label = { Text("Nome público") }, modifier = Modifier.fillMaxWidth())
-            if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+            if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error, fontSize = AtrioType.secondary)
             Spacer(Modifier.height(12.dp))
             Button(enabled = !saving && newName.trim().length >= 2, onClick = {
                 saving = true
@@ -1453,7 +1453,7 @@ private fun OnlineCommunity(
                             if (savesError || savedFailures.isNotEmpty()) savedRetry++ else savedLimit += 30
                         }
                         if (savedPending.isEmpty() && savedDisplay.size < visibleSavedIds.size && savedFailures.isEmpty() && !savesError)
-                            Text("Algumas publicações salvas foram removidas.", color = Muted, fontSize = 12.sp)
+                            Text("Algumas publicações salvas foram removidas.", color = Muted, fontSize = AtrioType.secondary)
                     })
                 Tab.PROFILE -> {
                     OnlineProfileScreen(db, uid, name, email, biography, posts,
@@ -1525,7 +1525,7 @@ private fun OnlineCommunity(
                         label = { Text("Texto") }, modifier = Modifier.fillMaxWidth(),
                         minLines = 3, maxLines = 7
                     )
-                    Text("A categoria e a autoria não podem ser alteradas.", fontSize = 12.sp, color = Muted)
+                    Text("A categoria e a autoria não podem ser alteradas.", fontSize = AtrioType.secondary, color = Muted)
                 }
             },
             confirmButton = {
@@ -1618,13 +1618,13 @@ private fun OnlineCommunity(
         val id = reportPost!!
         AlertDialog(onDismissRequest = { reportPost = null }, title = { Text("Denunciar discussão") },
             text = { Column {
-                Text("Por que esta discussão deve ser analisada?", fontSize = 13.sp)
+                Text("Por que esta discussão deve ser analisada?", fontSize = AtrioType.secondary)
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(reason, { reason = it.take(300) },
                     label = { Text("Motivo da denúncia") },
                      modifier = Modifier.fillMaxWidth().testTag("atrio-report-post-reason"))
                 Text("A denúncia será enviada para análise. Não remove a publicação automaticamente.",
-                    fontSize = 11.sp, color = Muted)
+                    fontSize = AtrioType.secondary, color = Muted)
             } },
             confirmButton = { TextButton(enabled = !sendingReport && reason.trim().length >= 5, onClick = {
                 sendingReport = true
@@ -1722,12 +1722,12 @@ private fun ReplyReportDialog(
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Resposta de ${target.author}", color = Wine)
-                Text(target.body, fontSize = 13.sp)
+                Text(target.body, fontSize = AtrioType.secondary)
                 OutlinedTextField(reason, { reason = it.take(300) }, enabled = !busy,
                     label = { Text("Motivo da denúncia") }, minLines = 2,
                     modifier = Modifier.fillMaxWidth())
-                Text("A moderação analisará esta resposta. O envio não a remove automaticamente.", fontSize = 12.sp, color = Muted)
-                if (failure.isNotBlank()) Text(failure, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                Text("A moderação analisará esta resposta. O envio não a remove automaticamente.", fontSize = AtrioType.secondary, color = Muted)
+                if (failure.isNotBlank()) Text(failure, color = MaterialTheme.colorScheme.error, fontSize = AtrioType.secondary)
             }
         },
         confirmButton = {

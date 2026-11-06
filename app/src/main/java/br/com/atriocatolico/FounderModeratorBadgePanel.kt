@@ -28,7 +28,7 @@ internal fun FounderModeratorBadgePanel(db: FirebaseFirestore, founderUid: Strin
         Text("Moderadores", color = Wine, style = MaterialTheme.typography.titleMedium)
         Text("Informe o UID da conta. Este selo não concede privilégios; " +
             "as permissões reais são definidas separadamente na administração.",
-            fontSize = 12.sp, color = Muted)
+            fontSize = AtrioType.secondary, color = Muted)
         OutlinedTextField(
             value = targetUid,
             onValueChange = {
@@ -69,7 +69,7 @@ internal fun FounderModeratorBadgePanel(db: FirebaseFirestore, founderUid: Strin
         ) { Text("Consultar identificação") }
         if (loaded && selectedUid == targetUid) {
             Text(if (moderator) "Selo de Moderador: ativo" else "Selo de Moderador: inativo",
-                fontSize = 13.sp, color = Wine)
+                fontSize = AtrioType.secondary, color = Wine)
             Button(
                 onClick = {
                     busy = true
@@ -91,6 +91,6 @@ internal fun FounderModeratorBadgePanel(db: FirebaseFirestore, founderUid: Strin
                 modifier = Modifier.testTag("atrio-moderator-toggle")
             ) { Text(if (moderator) "Revogar selo de Moderador" else "Conceder selo de Moderador") }
         }
-        if (error.isNotBlank()) Text(error, color = Wine, fontSize = 12.sp)
+        if (error.isNotBlank()) Text(error, color = Wine, fontSize = AtrioType.secondary)
     }
 }

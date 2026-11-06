@@ -46,7 +46,7 @@ internal fun BadgeDecisionHistory(db: FirebaseFirestore) {
         }
         if (expanded) {
             Text("Últimas 20 decisões. Justificativas privadas da administração.",
-                color = Muted, fontSize = 12.sp)
+                color = Muted, fontSize = AtrioType.secondary)
             if (loading) CircularProgressIndicator(Modifier.size(24.dp))
             if (failed) Text("Não foi possível consultar o histórico.", color = Wine)
             if (!loading && !failed && events.isEmpty()) Text("Nenhum evento registrado.", color = Muted)
@@ -54,8 +54,8 @@ internal fun BadgeDecisionHistory(db: FirebaseFirestore) {
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp)) {
                         Text(title, style = MaterialTheme.typography.labelLarge, color = Wine)
-                        Text("UID: $target", fontSize = 11.sp, color = Muted)
-                        Text(reason, fontSize = 12.sp)
+                        Text("UID: $target", fontSize = AtrioType.compact, color = Muted)
+                        Text(reason, fontSize = AtrioType.secondary)
                     }
                 }
             }

@@ -86,7 +86,7 @@ internal fun OnlineProfileScreen(
             item {
                 TextButton(onClick = { badgesOpen = false }) { Text("Voltar ao perfil") }
                 SectionTitle("Gerenciar selos")
-                Text("Sua identificação na comunidade", color = Muted, fontSize = 13.sp)
+                Text("Sua identificação na comunidade", color = Muted, fontSize = AtrioType.secondary)
             }
             item { MemberBadgeRow(uid, Modifier.fillMaxWidth(), centered = true) }
             item {
@@ -114,7 +114,8 @@ internal fun OnlineProfileScreen(
                             fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                         MemberBadgeRow(uid, Modifier.fillMaxWidth(), centered = true)
                         Text(biography.ifBlank { "Conte um pouco sobre sua caminhada na fé." },
-                            color = Muted, fontSize = 14.sp, textAlign = TextAlign.Center)
+                            color = Muted, fontSize = AtrioType.reading, lineHeight = AtrioType.readingLine,
+                            textAlign = TextAlign.Center)
                         OutlinedButton(onClick = { savedMessage = false; editorOpen = true },
                             modifier = Modifier.fillMaxWidth().testTag("atrio-profile-edit")) { Text("Editar perfil") }
                         ProfilePhotoManager(uid = uid, onChanged = onPhotoChanged)
@@ -133,8 +134,8 @@ internal fun OnlineProfileScreen(
                     shape = RoundedCornerShape(AtrioDimensions.CardRadius)) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text("Meus selos", color = Wine, fontWeight = FontWeight.Bold)
-                        Text("Escolha sua identificação e acompanhe verificações.", color = Muted, fontSize = 13.sp)
-                        Text("Gerenciar selos →", color = Wine, fontSize = 13.sp)
+                        Text("Escolha sua identificação e acompanhe verificações.", color = Muted, fontSize = AtrioType.secondary)
+                        Text("Gerenciar selos →", color = Wine, fontSize = AtrioType.secondary)
                     }
                 }
             }
@@ -222,7 +223,7 @@ internal fun OnlineProfileScreen(
                         AccountDeletionRequestPanel(db, uid)
                         Text("A solicitação de exclusão não remove os dados imediatamente. " +
                             "A publicação na Google Play exige também um canal externo de solicitação.",
-                            style = MaterialTheme.typography.bodySmall,
+                            style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
@@ -237,7 +238,7 @@ internal fun OnlineProfileScreen(
                         Text("Átrio Católico · ${BuildConfig.ATRIO_VISIBLE_VERSION}",
                             style = MaterialTheme.typography.labelMedium, color = Muted)
                         Text("Encontre atualizações, orientações e recursos para resolver dificuldades.",
-                            color = Muted, style = MaterialTheme.typography.bodySmall)
+                            color = Muted, style = MaterialTheme.typography.bodyMedium)
                         OutlinedButton(onClick = { helpExpanded = !helpExpanded },
                             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                                 .testTag("atrio-help-toggle")) {
@@ -348,7 +349,7 @@ internal fun ProfileEditorDialog(
                     label = { Text("Apresentação (opcional)") },
                     supportingText = { Text("${draftBio.length}/180 caracteres") })
                 Text("O nome será usado nas próximas publicações. Sua apresentação só é pública com sua autorização.",
-                    color = Muted, fontSize = 12.sp)
+                    color = Muted, fontSize = AtrioType.secondary)
                 if (failure.isNotBlank()) Text(failure, color = MaterialTheme.colorScheme.error, fontSize = 14.sp,
                     modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
             }
@@ -411,7 +412,7 @@ private fun ProfileAction(title: String, description: String, icon: ImageVector,
                     fontWeight = FontWeight.Medium)
                 // Informação contextual concisa, sem números potencialmente imprecisos.
                 if (description.isNotBlank()) Text(description,
-                    style = MaterialTheme.typography.bodySmall, color = Muted)
+                    style = MaterialTheme.typography.bodyMedium, color = Muted)
             }
             Icon(Icons.AutoMirrored.Outlined.ArrowForward, contentDescription = null, tint = Wine)
         }

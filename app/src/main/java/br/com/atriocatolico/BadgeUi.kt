@@ -94,7 +94,7 @@ internal fun MemberBadgeRow(uid: String, modifier: Modifier = Modifier, centered
                         Row(verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                             MinimalBadgeIcon(badge.kind, Modifier.size(22.dp))
-                            Text(badge.name, color = badge.tint, fontSize = 10.sp)
+                            Text(badge.name, color = badge.tint, fontSize = AtrioType.compact)
                         }
                     }
                 )
@@ -138,7 +138,7 @@ internal fun BadgeSettings(uid: String) {
 
     Text("Selos da comunidade", fontWeight = FontWeight.Bold, color = Wine)
     Text("Leigo e Leiga são identificações opcionais escolhidas pelo próprio usuário.",
-        color = Muted, fontSize = 12.sp)
+        color = Muted, fontSize = AtrioType.secondary)
 
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         for ((label, value) in listOf("Leigo" to "leigo", "Leiga" to "leiga", "Nenhum" to "")) {
@@ -162,21 +162,21 @@ internal fun BadgeSettings(uid: String) {
 
     Spacer(Modifier.height(8.dp))
     if (badges.clergy.isNotBlank()) {
-        Text("Sua identidade religiosa já está registrada.", color = Wine, fontSize = 12.sp)
+        Text("Sua identidade religiosa já está registrada.", color = Wine, fontSize = AtrioType.secondary)
     } else {
         Text("Padre, Diácono, Religioso e Religiosa exigem verificação administrativa.",
-            color = Muted, fontSize = 12.sp)
+            color = Muted, fontSize = AtrioType.secondary)
         when (requestStatus) {
             "pending" -> Text(
                 "Solicitação de ${verifiedBadgeLabel(requestKind)} em análise.",
-                color = Wine, fontSize = 12.sp
+                color = Wine, fontSize = AtrioType.secondary
             )
             "approved" -> Text("Solicitação aprovada pela administração.",
-                color = Wine, fontSize = 12.sp)
+                color = Wine, fontSize = AtrioType.secondary)
             else -> {
                 if (requestStatus in listOf("rejected", "dismissed", "revoked")) {
                     Text("Solicitação anterior não aprovada. Você pode enviar uma nova.",
-                        color = Muted, fontSize = 12.sp)
+                        color = Muted, fontSize = AtrioType.secondary)
                 }
                 OutlinedButton(onClick = { choosingKind = true }, enabled = !busy) {
                     Text("Solicitar verificação")
@@ -190,14 +190,14 @@ internal fun BadgeSettings(uid: String) {
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Selecione a identificação que deseja verificar. O selo será concedido após análise da administração.",
-                    fontSize = 13.sp, color = Muted)
+                    fontSize = AtrioType.secondary, color = Muted)
                 for ((label, kind) in listOf("Padre" to "padre", "Diácono" to "diacono",
                     "Religioso" to "religioso", "Religiosa" to "religiosa")) {
                     FilterChip(selected = selectedKind == kind,
                         onClick = { selectedKind = kind }, enabled = !busy,
                         label = { Text(label) })
                 }
-                if (feedback.isNotBlank()) Text(feedback, fontSize = 12.sp, color = Wine)
+                if (feedback.isNotBlank()) Text(feedback, fontSize = AtrioType.secondary, color = Wine)
             }
         },
         confirmButton = {
@@ -220,7 +220,7 @@ internal fun BadgeSettings(uid: String) {
         dismissButton = { TextButton(enabled = !busy, onClick = { choosingKind = false }) { Text("Cancelar") } }
     )
     Text("Os selos de Fundador e Moderador são definidos apenas pela administração.",
-        color = Muted, fontSize = 11.sp)
-    if (feedback.isNotBlank()) Text(feedback, color = Wine, fontSize = 12.sp)
+        color = Muted, fontSize = AtrioType.secondary)
+    if (feedback.isNotBlank()) Text(feedback, color = Wine, fontSize = AtrioType.secondary)
 }
 

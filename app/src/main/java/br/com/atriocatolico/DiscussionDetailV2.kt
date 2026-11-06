@@ -112,7 +112,7 @@ internal fun DetailScreen(
                             )
                             Spacer(Modifier.width(8.dp))
                             Text(if (followIsSynced) "Sem novos avisos" else "Só neste aparelho",
-                                color = Muted, fontSize = 10.sp, modifier = Modifier.weight(1f))
+                                color = Muted, fontSize = AtrioType.compact, modifier = Modifier.weight(1f))
                         } else Spacer(Modifier.weight(1f))
                         if (onReport != null || onEdit != null || onDelete != null) {
                             Box {
@@ -147,7 +147,7 @@ internal fun DetailScreen(
                             Box {
                                 TextButton(onClick = { sortMenuOpen = true },
                                     modifier = Modifier.testTag("atrio-replies-sort")) {
-                                    Text(if (newestFirst) "Recentes" else "Antigas", fontSize = 12.sp)
+                                    Text(if (newestFirst) "Recentes" else "Antigas", fontSize = AtrioType.uiAction)
                                     Icon(Icons.Outlined.ArrowDropDown, contentDescription = "Ordenar respostas")
                                 }
                                 DropdownMenu(expanded = sortMenuOpen, onDismissRequest = { sortMenuOpen = false }) {
@@ -176,7 +176,7 @@ internal fun DetailScreen(
                             LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 12.dp))
                         } else {
                             Text("Seja a primeira pessoa a responder!",
-                                color = Muted, fontSize = 13.sp, modifier = Modifier.padding(vertical = 12.dp))
+                                color = Muted, fontSize = AtrioType.secondary, modifier = Modifier.padding(vertical = 12.dp))
                         }
                     }
                 }
@@ -200,7 +200,7 @@ internal fun DetailScreen(
                         Spacer(Modifier.width(10.dp))
                         Column(Modifier.weight(1f)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(r.author, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                                Text(r.author, fontSize = AtrioType.author, fontWeight = FontWeight.Bold,
                                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier.weight(1f, fill = false)
                                         .clickable(enabled = r.ownerUid.isNotBlank()) {
@@ -209,7 +209,7 @@ internal fun DetailScreen(
                                 val age = replyAgeLabel(r.createdAtMillis, System.currentTimeMillis())
                                 if (age.isNotBlank()) {
                                     Spacer(Modifier.width(7.dp))
-                                    Text(age, fontSize = 10.sp, color = Muted, maxLines = 1)
+                                    Text(age, fontSize = AtrioType.metadata, color = Muted, maxLines = 1)
                                 }
                                 Spacer(Modifier.weight(1f))
                                 if (r.id.isNotBlank() && (onReportReply != null || (r.mine && onDeleteReply != null))) {
@@ -234,7 +234,7 @@ internal fun DetailScreen(
                             if (r.replyToId.isNotBlank()) {
                                 val target = post.replies.firstOrNull { it.id == r.replyToId }
                                 Text("↳ Em resposta a @" + (target?.author ?: "participante"),
-                                    fontSize = 11.sp, color = Wine,
+                                    fontSize = AtrioType.compact, color = Wine,
                                     modifier = Modifier.clickable(enabled = target?.ownerUid?.isNotBlank() == true) {
                                         target?.let { onOpenProfile(it.ownerUid, it.author) }
                                     }.testTag("atrio-open-quoted-member-" + r.id))
@@ -243,12 +243,12 @@ internal fun DetailScreen(
                                 val person = if (r.mentionUid == post.ownerUid) post.author
                                     else post.replies.firstOrNull { it.ownerUid == r.mentionUid }?.author
                                 if (!person.isNullOrBlank()) {
-                                    Text("Mencionou @" + person, fontSize = 11.sp, color = Wine,
+                                    Text("Mencionou @" + person, fontSize = AtrioType.compact, color = Wine,
                                         modifier = Modifier.clickable { onOpenProfile(r.mentionUid, person) }
                                             .testTag("atrio-open-mentioned-member-" + r.id))
                                 }
                             }
-                            Text(r.message, color = Ink, fontSize = 14.sp, lineHeight = 20.sp,
+                            Text(r.message, color = Ink, fontSize = AtrioType.reading, lineHeight = AtrioType.readingLine,
                                 modifier = Modifier.padding(top = 3.dp, bottom = 2.dp))
                             if (r.id.isNotBlank()) {
                                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -262,7 +262,7 @@ internal fun DetailScreen(
                                         mentioned = null
                                         composerOpen = true
                                     }, modifier = Modifier.testTag("atrio-quote-reply")) {
-                                        Text("Responder", fontSize = 12.sp, color = Wine)
+                                        Text("Responder", fontSize = AtrioType.uiAction, color = Wine)
                                     }
                                 }
                             }
@@ -291,7 +291,7 @@ internal fun DetailScreen(
                     }
                 } else {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Responder como $name", color = Wine, fontSize = 12.sp,
+                        Text("Responder como $name", color = Wine, fontSize = AtrioType.uiAction,
                             fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                         IconButton(onClick = {
                             composerOpen = false
@@ -306,7 +306,7 @@ internal fun DetailScreen(
                             TextButton(onClick = { mentionMenuOpen = true },
                                 modifier = Modifier.testTag("atrio-mention-pick")) {
                                 Text(if (mentioned == null) "Mencionar participante @" else "Mencionando " + mentionDisplay(mentioned!!),
-                                    fontSize = 12.sp)
+                                    fontSize = AtrioType.uiAction)
                             }
                             DropdownMenu(expanded = mentionMenuOpen,
                                 onDismissRequest = { mentionMenuOpen = false }) {
@@ -320,7 +320,7 @@ internal fun DetailScreen(
                             }
                         }
                         if (mentioned != null) TextButton(onClick = { mentioned = null }) {
-                            Text("Retirar menção", fontSize = 11.sp)
+                            Text("Retirar menção", fontSize = AtrioType.compact)
                         }
                     }
                     quotedReply?.let { target ->
@@ -328,9 +328,9 @@ internal fun DetailScreen(
                             Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
                                     Text("Respondendo a " + target.author, color = Wine,
-                                        fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
+                                        fontWeight = FontWeight.SemiBold, fontSize = AtrioType.compact)
                                     Text(target.message.take(90), maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                        fontSize = 11.sp, color = Muted)
+                                        fontSize = AtrioType.compact, color = Muted)
                                 }
                                 IconButton(onClick = { quotedReply = null }, modifier = Modifier.size(32.dp)) {
                                     Icon(Icons.Outlined.Close, contentDescription = "Retirar citação")
