@@ -30,7 +30,7 @@ internal fun AdminBroadcastPanel() {
             Text("Notificações gerais", style = MaterialTheme.typography.titleMedium, color = Wine)
             Text("Envie um comunicado aos aparelhos inscritos e com avisos ativados. " +
                 "A entrega depende do FCM e pode sofrer atrasos.",
-                color = Muted, fontSize = 12.sp)
+                color = Muted, fontSize = AtrioType.secondary)
             OutlinedTextField(title, { title = it.take(60); feedback = "" },
                 label = { Text("Título") }, supportingText = { Text("${title.length}/60") },
                 singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !sending)
@@ -41,7 +41,7 @@ internal fun AdminBroadcastPanel() {
                 enabled = !sending && validTitle && validBody,
                 onClick = { confirm = true }, modifier = Modifier.fillMaxWidth()
             ) { Text(if (sending) "Enviando..." else "Enviar notificação para todos") }
-            if (feedback.isNotBlank()) Text(feedback, color = Wine, fontSize = 12.sp)
+            if (feedback.isNotBlank()) Text(feedback, color = Wine, fontSize = AtrioType.secondary)
         }
     }
 
@@ -55,7 +55,7 @@ internal fun AdminBroadcastPanel() {
                 Text("Título: $title", style = MaterialTheme.typography.titleSmall)
                 Text(message)
                 Text("O envio não poderá ser cancelado após aceitação pelo FCM.",
-                    color = Muted, fontSize = 12.sp)
+                    color = Muted, fontSize = AtrioType.secondary)
             }
         },
         confirmButton = {
