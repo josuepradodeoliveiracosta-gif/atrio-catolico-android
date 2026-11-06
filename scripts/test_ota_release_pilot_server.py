@@ -118,6 +118,49 @@ class PrivateReleasePilotTests(unittest.TestCase):
             server.server_close()
             thread.join(timeout=5)
 
+    def test_termux_manifest_requires_exact_contract_and_independent_hash(self):
+        _, manifest = self.prepare()
+        path = self.sdk / "update.json"
+        path.write_text(json.dumps(manifest), encoding="utf-8")
+        _, accepted = pilot.serve_prevalidated_manifest(
+            self.apk, manifest_file=path,
+            expected_sha256=self.sha(), base_code=36,
+        )
+        self.assertEqual(accepted, manifest)
+        with self.assertRaisesRegex(PreflightError, "SHA-256"):
+            pilot.serve_prevalidated_manifest(
+                self.apk, manifest_file=path,
+                expected_sha256="f" * 64, base_code=36,
+            )
+        manifest["certificateSha256"] = "f" * 64
+        path.write_text(json.dumps(manifest), encoding="utf-8")
+        with self.assertRaisesRegex(PreflightError, "Certificado divergente"):
+            pilot.serve_prevalidated_manifest(
+                self.apk, manifest_file=path,
+                expected_sha256=self.sha(), base_code=36,
+            )
+
+    def test_termux_manifest_refuses_remote_host_and_version_downgrade(self):
+        _, manifest = self.prepare()
+        path = self.sdk / "update.json"
+        manifest["downloadUrl"] = "http://attacker.invalid/file.apk"
+        path.write_text(json.dumps(manifest), encoding="utf-8")
+        with self.assertRaisesRegex(PreflightError, "Contrato"):
+            pilot.serve_prevalidated_manifest(
+                self.apk, manifest_file=path,
+                expected_sha256=self.sha(), base_code=36,
+            )
+        manifest["downloadUrl"] = (
+            "http://127.0.0.1:8765/releases/download/v0.20.2/atrio-catolico.apk"
+        )
+        manifest["versionCode"] = 36
+        path.write_text(json.dumps(manifest), encoding="utf-8")
+        with self.assertRaisesRegex(PreflightError, "Versao"):
+            pilot.serve_prevalidated_manifest(
+                self.apk, manifest_file=path,
+                expected_sha256=self.sha(), base_code=36,
+            )
+
     def test_variant_cannot_bypass_official_signer(self):
         root = Path(__file__).resolve().parents[1]
         signer = (root / "app/src/main/java/br/com/atriocatolico/OtaOfficialSigner.kt").read_text()
