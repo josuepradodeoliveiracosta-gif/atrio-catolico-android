@@ -153,8 +153,11 @@ class EmailVerificationAndroidUiTest {
 
         compose.onNodeWithTag("atrio-tab-profile").performClick()
         waitForTag("atrio-profile-list")
-        compose.onNodeWithTag("atrio-profile-list", useUnmergedTree = true)
-            .performScrollToNode(hasTestTag("atrio-auth-resend-verification"))
+        // Na V2, o painel de verificação faz parte de Conta e privacidade.
+        val list = compose.onNodeWithTag("atrio-profile-list", useUnmergedTree = true)
+        list.performScrollToNode(hasTestTag("atrio-account-toggle"))
+        compose.onNodeWithTag("atrio-account-toggle").performClick()
+        list.performScrollToNode(hasTestTag("atrio-auth-resend-verification"))
         compose.onNodeWithTag("atrio-auth-resend-verification").performClick()
 
         compose.waitUntil(35000) { verificationLinks(email).size > previousCount }
