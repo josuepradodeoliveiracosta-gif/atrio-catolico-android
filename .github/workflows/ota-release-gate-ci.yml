@@ -10,6 +10,8 @@ on:
       - 'scripts/test_ota_release_gate.py'
       - 'scripts/test_ota_release_cert.py'
       - 'scripts/ota_release_cert.py'
+      - 'scripts/ota_baseline_0200.py'
+      - 'scripts/test_ota_baseline_0200.py'
       - 'scripts/ota_release.py'
       - 'scripts/ota_apk_preflight.py'
       - 'docs/qa-homologacao/OTA_RELEASE_GATE.md'
@@ -22,6 +24,8 @@ on:
       - 'scripts/test_ota_release_gate.py'
       - 'scripts/test_ota_release_cert.py'
       - 'scripts/ota_release_cert.py'
+      - 'scripts/ota_baseline_0200.py'
+      - 'scripts/test_ota_baseline_0200.py'
       - 'scripts/ota_release.py'
       - 'scripts/ota_apk_preflight.py'
       - 'docs/qa-homologacao/OTA_RELEASE_GATE.md'
@@ -44,3 +48,4 @@ jobs:
         run: |
           python3 -m unittest discover -s scripts -p 'test_ota_release_gate.py' -v
           python3 -m unittest discover -s scripts -p 'test_ota_release_cert.py' -v
+          python3 -m unittest discover -s scripts -p 'test_ota_baseline_0200.py' -v
