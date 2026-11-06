@@ -257,6 +257,11 @@ try {
    await assertSucceeds(batch.commit());
    assert.equal((await getDoc(doc(dora,'badges/dora'))).data().clergy,'religiosa');
  });
+ await test('admin não fabrica evento retroativo de aprovação',()=>assertFails(
+   setDoc(doc(admin,'badge_events/dora-aprovada-duplicada'),{
+     targetUid:'dora',kind:'religiosa',decision:'approved',actorUid:'admin',
+     reason:'Vínculo religioso confirmado pela congregação.',createdAt:serverTimestamp()
+   })));
  await test('membro não consulta histórico administrativo',()=>assertFails(
    getDoc(doc(dora,'badge_events/dora-aprovada'))));
  await test('evento de revisão não pode ser alterado ou excluído',async()=>{
@@ -287,6 +292,11 @@ try {
    assert.equal((await getDoc(doc(dora,'badges/dora'))).data()?.clergy,undefined);
    assert.equal((await getDoc(doc(dora,'badge_requests/dora'))).data().status,'revoked');
  });
+ await test('admin não fabrica evento retroativo de revogação',()=>assertFails(
+   setDoc(doc(admin,'badge_events/dora-revogacao-duplicada'),{
+     targetUid:'dora',kind:'religiosa',decision:'revoked',actorUid:'admin',
+     reason:'Vínculo previamente declarado não confirmado.',createdAt:serverTimestamp()
+   })));
  await test('titular pode requerer nova avaliação após revogação',()=>assertSucceeds(
    updateDoc(doc(dora,'badge_requests/dora'),{
      kind:'religioso',status:'pending',createdAt:serverTimestamp()
@@ -302,6 +312,27 @@ try {
      reason:'Não foram confirmados os requisitos de identificação.',createdAt:serverTimestamp()
    });
    await assertSucceeds(batch.commit());
+ });
+ await test('admin não fabrica evento retroativo de rejeição',()=>assertFails(
+   setDoc(doc(admin,'badge_events/dora-rejeicao-duplicada'),{
+     targetUid:'dora',kind:'religioso',decision:'rejected',actorUid:'admin',
+     reason:'Não foram confirmados os requisitos de identificação.',createdAt:serverTimestamp()
+   })));
+ await test('admin não cria evento com justificativa diferente da decisão',async()=>{
+   const carlos=env.authenticatedContext('carlos').firestore();
+   await setDoc(doc(carlos,'badge_requests/carlos'),{
+     kind:'religioso',status:'pending',createdAt:serverTimestamp()
+   });
+   const batch=writeBatch(admin);
+   batch.update(doc(admin,'badge_requests/carlos'),{
+     status:'rejected',reviewedBy:'admin',reviewedAt:serverTimestamp(),
+     reviewNote:'Não foram confirmados os requisitos de identificação.'
+   });
+   batch.set(doc(admin,'badge_events/carlos-justificativa-adulterada'),{
+     targetUid:'carlos',kind:'religioso',decision:'rejected',actorUid:'admin',
+     reason:'Motivo incorreto divergente do pedido.',createdAt:serverTimestamp()
+   });
+   await assertFails(batch.commit());
  });
  await test('membro não pode criar selo de Fundador por campo extra',()=>assertFails(
    setDoc(doc(edu,'badges/edu'),{lay:'leigo',founder:true})));
