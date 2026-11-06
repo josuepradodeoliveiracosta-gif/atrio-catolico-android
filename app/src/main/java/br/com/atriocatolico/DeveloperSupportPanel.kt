@@ -188,7 +188,9 @@ internal fun DeveloperSupportPanel(db: FirebaseFirestore, uid: String, founderAd
         initial = editorInitial, uid = uid,
         onDismiss = { editorOpen = false },
         onSave = { values, complete ->
-            val update = values.normalized()
+            // Desativar a publicação apaga valores bancários do documento público.
+            val normalized = values.normalized()
+            val update = if (normalized.enabled) normalized else DeveloperSupportData()
             db.document("app_config/developer_support").set(mapOf(
                 "enabled" to update.enabled,
                 "pixKey" to update.pixKey,
@@ -272,6 +274,8 @@ private fun DeveloperSupportEditor(
                 OutlinedTextField(message, { message = it.take(180) }, enabled = !busy,
                     label = { Text("Mensagem de apoio (opcional)") },
                     minLines = 2, maxLines = 4, modifier = Modifier.fillMaxWidth())
+                if (!enabled) Text("Ao salvar com a divulgação desligada, os dados de pagamento publicados serão apagados.",
+                    style = MaterialTheme.typography.bodySmall, color = Wine)
                 Text("Informe todos os campos bancários ou deixe-os vazios. Para publicar, configure o Pix ou os dados bancários.",
                     style = MaterialTheme.typography.bodySmall, color = Muted)
                 if (!valid) Text("Complete os dados bancários e configure ao menos uma forma de apoio para publicar.",
