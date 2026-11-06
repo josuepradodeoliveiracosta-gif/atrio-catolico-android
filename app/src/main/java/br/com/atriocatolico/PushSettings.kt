@@ -85,7 +85,7 @@ internal fun PushSettings(
                 Column(Modifier.weight(1f)) {
                     Text("Notificações", color = Wine, style = MaterialTheme.typography.titleMedium)
                     Text("Receba avisos sobre respostas e atividades",
-                        color = Muted, fontSize = 12.sp)
+                        color = Muted, fontSize = AtrioType.secondary)
                 }
                 Switch(
                     modifier = Modifier.semantics { contentDescription = "Receber avisos neste aparelho" },
@@ -117,14 +117,14 @@ internal fun PushSettings(
             Text("Ferramentas avançadas de notificações",
                 color = Wine, style = MaterialTheme.typography.titleMedium)
             Text("As opções abaixo são independentes dos avisos na central.",
-                fontSize = 12.sp, color = Muted)
+                fontSize = AtrioType.secondary, color = Muted)
             HorizontalDivider()
             Text("Verificação em segundo plano", color = Wine,
                 style = MaterialTheme.typography.titleMedium)
             Text("Consulta novos avisos periodicamente, mesmo sem o Átrio aberto na tela. " +
                 "Intervalo aproximado de 30 minutos; o Android pode atrasar ou impedir a " +
                 "execução se o aplicativo for forçado a parar. Usa leituras da franquia Firestore.",
-                fontSize = 12.sp, color = Muted)
+                fontSize = AtrioType.secondary, color = Muted)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text(if (backgroundEnabled) "Verificação ativada" else "Desativada", fontSize = 14.sp, modifier = Modifier.weight(1f).padding(end = 12.dp))
                 Switch(modifier = Modifier.semantics { contentDescription = "Verificação periódica em segundo plano" }, checked = backgroundEnabled, onCheckedChange = { newValue ->
@@ -148,7 +148,7 @@ internal fun PushSettings(
             }
             Text("Esta verificação é complementar ao push e respeita as categorias " +
                 "habilitadas na central de notificações.",
-                fontSize = 11.sp, color = Muted)
+                fontSize = AtrioType.secondary, color = Muted)
             OutlinedButton(onClick = { diagnosticsOpen = !diagnosticsOpen }, modifier = Modifier.fillMaxWidth()) {
                 Text(if (diagnosticsOpen) "Ocultar diagnóstico avançado" else "Diagnóstico avançado")
             }
@@ -168,15 +168,15 @@ internal fun PushSettings(
                         }
                     }) { Text("Copiar token para teste no Firebase") }
                     Text("O token identifica este aparelho como destino de mensagens, não a sua " +
-                        "identidade. Mantenha-o privado.", fontSize = 11.sp, color = Muted)
+                        "identidade. Mantenha-o privado.", fontSize = AtrioType.secondary, color = Muted)
                 }
                 HorizontalDivider()
                 Text("Última tentativa de envio", color = Wine,
                     style = MaterialTheme.typography.titleMedium)
                 Text("Veja a resposta do Cloudflare no aparelho que publicou uma resposta. " +
                     "Esse registro não confirma recebimento no outro celular. Consultar não envia avisos extras.",
-                    fontSize = 12.sp, color = Muted)
-                Text(lastRelayStatus, fontSize = 12.sp, color = Wine)
+                    fontSize = AtrioType.secondary, color = Muted)
+                Text(lastRelayStatus, fontSize = AtrioType.secondary, color = Wine)
                 OutlinedButton(onClick = {
                     lastRelayStatus = InstantPushRelay.lastStatus(context, uid)
                 }, modifier = Modifier.fillMaxWidth()) { Text("Atualizar diagnóstico do Push") }
