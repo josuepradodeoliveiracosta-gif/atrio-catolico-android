@@ -9,6 +9,9 @@ on:
       - '.github/workflows/ota-release-gate-ci.yml'
       - 'scripts/test_ota_release_gate.py'
       - 'scripts/test_ota_official_entrypoints.py'
+      - 'scripts/ota_official_https_probe.py'
+      - 'scripts/test_ota_official_https_probe.py'
+      - '.github/workflows/ota-official-https-readonly.yml'
       - 'scripts/test_ota_release_cert.py'
       - 'scripts/ota_release_cert.py'
       - 'scripts/ota_baseline_0200.py'
@@ -34,6 +37,9 @@ on:
       - '.github/workflows/ota-release-gate-ci.yml'
       - 'scripts/test_ota_release_gate.py'
       - 'scripts/test_ota_official_entrypoints.py'
+      - 'scripts/ota_official_https_probe.py'
+      - 'scripts/test_ota_official_https_probe.py'
+      - '.github/workflows/ota-official-https-readonly.yml'
       - 'scripts/test_ota_release_cert.py'
       - 'scripts/ota_release_cert.py'
       - 'scripts/ota_baseline_0200.py'
@@ -70,6 +76,7 @@ jobs:
         run: |
           python3 -m unittest discover -s scripts -p 'test_ota_release_gate.py' -v
           python3 -m unittest discover -s scripts -p 'test_ota_official_entrypoints.py' -v
+          python3 -m unittest discover -s scripts -p 'test_ota_official_https_probe.py' -v
           python3 -m unittest discover -s scripts -p 'test_ota_release_cert.py' -v
           python3 -m unittest discover -s scripts -p 'test_ota_baseline_0200.py' -v
           python3 -m unittest discover -s scripts -p 'test_ota_release_pair_preflight.py' -v
