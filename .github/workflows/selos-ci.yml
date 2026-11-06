@@ -40,6 +40,9 @@ jobs:
       - name: Testar regras do Firestore no emulador (sem acessar producao)
         working-directory: tests/security
         run: npm test
+      - name: Testar preflight dos selos V2 em modo totalmente offline
+        # Mocks locais: não usa login Firebase nem acessa o projeto real.
+        run: node --test scripts/selos-v2-production-preflight.test.mjs
 
   android:
     name: Compilar Android de testes
