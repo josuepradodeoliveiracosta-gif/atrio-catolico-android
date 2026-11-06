@@ -642,6 +642,11 @@ internal fun CommunityScreen(posts: List<Post>, onChoose: (String) -> Unit) {
                             modifier = Modifier.size(32.dp))
                         Text(cat, color = Ink, fontWeight = FontWeight.SemiBold,
                             fontSize = 14.sp, lineHeight = 18.sp, textAlign = TextAlign.Center)
+                        val count = posts.count { it.category == cat }
+                        Text(
+                            "$count " + if (count == 1) "discussão" else "discussões",
+                            color = Muted, fontSize = 11.sp, textAlign = TextAlign.Center
+                        )
                     }
                 }
             }
