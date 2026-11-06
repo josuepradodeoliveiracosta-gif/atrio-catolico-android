@@ -55,6 +55,7 @@ jobs:
       source_sha: ${{ steps.release-data.outputs.source_sha }}
       tag: ${{ steps.release-data.outputs.tag }}
       artifact_name: ${{ steps.release-data.outputs.artifact_name }}
+      moderation_mode: ${{ steps.release-data.outputs.moderation_mode }}
     env:
       GH_TOKEN: ${{ github.token }}
       BUILD_RUN_ID: ${{ inputs.apk_run_id }}
@@ -64,6 +65,7 @@ jobs:
       EXPECTED_CERT: ${{ vars.ATRIO_RELEASE_CERT_SHA256 }}
       ATRIO_EMAIL_VERIFICATION_RELEASE_APPROVED: ${{ vars.ATRIO_EMAIL_VERIFICATION_RELEASE_APPROVED || 'false' }}
       ATRIO_GUARDIAN_V2_RELEASE_APPROVED: ${{ vars.ATRIO_GUARDIAN_V2_RELEASE_APPROVED || 'false' }}
+      ATRIO_RELEASE_MODERATION_MODE: ${{ vars.ATRIO_RELEASE_MODERATION_MODE || 'guardian_v2' }}
       ATRIO_GUARDIAN_V2_WORKER_URL: ${{ vars.ATRIO_GUARDIAN_V2_WORKER_URL || 'https://atrio-guardian-v2.atrio-catolico.workers.dev' }}
       ATRIO_OTA_E2E_TESTED: ${{ vars.ATRIO_OTA_E2E_TESTED || 'false' }}
       ATRIO_OTA_RELEASE_APPROVED: ${{ vars.ATRIO_OTA_RELEASE_APPROVED || 'false' }}
@@ -91,14 +93,20 @@ jobs:
               echo "::error::Publicacao bloqueada: verificacao de e-mail obrigatoria nao homologada"
               exit 1
             }
-            [[ "$ATRIO_GUARDIAN_V2_RELEASE_APPROVED" == "true" ]] || {
-              echo "::error::Publicação bloqueada: Guardião V2 ainda não homologado."
-              exit 1
-            }
-            [[ "$ATRIO_GUARDIAN_V2_WORKER_URL" == "https://atrio-guardian-v2.atrio-catolico.workers.dev" ]] || {
-              echo "::error::Publicação bloqueada: gateway do Guardião V2 não é o oficial."
-              exit 1
-            }
+            case "$ATRIO_RELEASE_MODERATION_MODE" in
+              guardian_v2)
+                [[ "$ATRIO_GUARDIAN_V2_RELEASE_APPROVED" == "true" ]] || {
+                  echo "::error::Publicação bloqueada: Guardião V2 ainda não homologado."
+                  exit 1
+                }
+                [[ "$ATRIO_GUARDIAN_V2_WORKER_URL" == "https://atrio-guardian-v2.atrio-catolico.workers.dev" ]] || {
+                  echo "::error::Publicação bloqueada: gateway do Guardião V2 não é o oficial."
+                  exit 1
+                }
+                ;;
+              human) echo "Modo publico de moderacao humana solicitado explicitamente." ;;
+              *) echo "::error::Modo de moderacao nao permitido."; exit 1 ;;
+            esac
             [[ "${{ inputs.confirmation }}" == "PUBLICAR ATRIO" ]] || {
               echo "::error::Publicação não autorizada: confirmação explícita ausente"
               exit 1
@@ -129,6 +137,19 @@ jobs:
           run-id: ${{ inputs.apk_run_id }}
           github-token: ${{ github.token }}
           path: ota-original
+      - name: Confirmar modo de moderacao do artefato assinado
+        if: inputs.artifact_name == 'atrio-catolico-release-assinado'
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -f ota-original/release-moderation-mode.txt ]] || {
+            echo "::error::Artefato sem atestado de moderacao; nao publicar."
+            exit 1
+          }
+          [[ "$(cat ota-original/release-moderation-mode.txt)" == "$ATRIO_RELEASE_MODERATION_MODE" ]] || {
+            echo "::error::Modo do APK assinado difere do modo de publicacao."
+            exit 1
+          }
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -160,6 +181,9 @@ jobs:
             --notes-file "$RUNNER_TEMP/ota-notes.md" \
             --output dist
           (cd dist && sha256sum --check SHA256SUMS.txt)
+          if [[ "$ARTIFACT_NAME" == "atrio-catolico-release-assinado" ]]; then
+            cp ota-original/release-moderation-mode.txt dist/release-moderation-mode.txt
+          fi
       - name: Validar ordem das versões antes de divulgar
         shell: bash
         run: |
@@ -182,6 +206,8 @@ jobs:
               print(f'tag=v{manifest["versionName"]}', file=out)
               print(f'source_sha={source_sha}', file=out)
               print(f'artifact_name={json.loads(Path(os.environ["RUNNER_TEMP"], "ota-source.json").read_text(encoding="utf-8"))["artifactName"]}', file=out)
+              proof = Path("dist/release-moderation-mode.txt")
+              print(f'moderation_mode={proof.read_text(encoding="utf-8").strip() if proof.is_file() else "legacy"}', file=out)
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as out:
               print("## Pré-voo OTA aprovado — nenhuma publicação neste job", file=out)
               print(f'Versão: {manifest["versionName"]} (code {manifest["versionCode"]})', file=out)
@@ -198,7 +224,7 @@ jobs:
           retention-days: 1
 
   publish-release:
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.mode == 'publish' && inputs.confirmation == 'PUBLICAR ATRIO' && github.run_attempt == 1 && vars.ATRIO_OTA_E2E_TESTED == 'true' && vars.ATRIO_OTA_RELEASE_APPROVED == 'true' && vars.ATRIO_EMAIL_VERIFICATION_RELEASE_APPROVED == 'true' && vars.ATRIO_GUARDIAN_V2_RELEASE_APPROVED == 'true' && needs.validate-release.outputs.artifact_name == 'atrio-catolico-release-assinado'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.mode == 'publish' && inputs.confirmation == 'PUBLICAR ATRIO' && github.run_attempt == 1 && vars.ATRIO_OTA_E2E_TESTED == 'true' && vars.ATRIO_OTA_RELEASE_APPROVED == 'true' && vars.ATRIO_EMAIL_VERIFICATION_RELEASE_APPROVED == 'true' && (vars.ATRIO_GUARDIAN_V2_RELEASE_APPROVED == 'true' || vars.ATRIO_RELEASE_MODERATION_MODE == 'human') && needs.validate-release.outputs.moderation_mode == (vars.ATRIO_RELEASE_MODERATION_MODE || 'guardian_v2') && needs.validate-release.outputs.artifact_name == 'atrio-catolico-release-assinado'
     needs: validate-release
     name: Publicar versão aprovada sem assinar ou recompilar
     runs-on: ubuntu-latest
@@ -211,7 +237,9 @@ jobs:
       VERSION: ${{ needs.validate-release.outputs.version }}
       SOURCE_SHA: ${{ needs.validate-release.outputs.source_sha }}
       TAG: ${{ needs.validate-release.outputs.tag }}
+      ATRIO_RELEASE_MODERATION_MODE: ${{ needs.validate-release.outputs.moderation_mode }}
       ATRIO_GUARDIAN_V2_RELEASE_APPROVED: ${{ vars.ATRIO_GUARDIAN_V2_RELEASE_APPROVED || 'false' }}
+      ATRIO_RELEASE_MODERATION_MODE: ${{ vars.ATRIO_RELEASE_MODERATION_MODE || 'guardian_v2' }}
       ATRIO_GUARDIAN_V2_WORKER_URL: ${{ vars.ATRIO_GUARDIAN_V2_WORKER_URL || 'https://atrio-guardian-v2.atrio-catolico.workers.dev' }}
     steps:
       - uses: actions/checkout@v4
@@ -225,8 +253,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          [[ "$ATRIO_GUARDIAN_V2_RELEASE_APPROVED" == "true" ]]
-          [[ "$ATRIO_GUARDIAN_V2_WORKER_URL" == "https://atrio-guardian-v2.atrio-catolico.workers.dev" ]]
+          [[ "$(cat dist/release-moderation-mode.txt)" == "$ATRIO_RELEASE_MODERATION_MODE" ]] || exit 1
+          case "$ATRIO_RELEASE_MODERATION_MODE" in
+            guardian_v2)
+              [[ "$ATRIO_GUARDIAN_V2_RELEASE_APPROVED" == "true" ]]
+              [[ "$ATRIO_GUARDIAN_V2_WORKER_URL" == "https://atrio-guardian-v2.atrio-catolico.workers.dev" ]]
+              ;;
+            human) echo "Publicacao com moderacao humana; sem conexao ao gateway V2 no APK." ;;
+            *) echo "::error::Modo nao homologado"; exit 1 ;;
+          esac
           (cd dist && sha256sum --check SHA256SUMS.txt)
           python3 - <<'PY'
           import json, os
