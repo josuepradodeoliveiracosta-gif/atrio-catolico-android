@@ -281,8 +281,9 @@ internal fun RegistrationOnboardingScreen(
     LaunchedEffect(db, uid) {
         db.collection("profiles").document(uid).get(Source.SERVER)
             .addOnCompleteListener { result ->
-                profileSaved = result.isSuccessful &&
-                    result.result?.getString("displayName")?.trim()?.length in 2..35
+                val validNameLength = result.result?.getString("displayName")
+                    ?.trim()?.length ?: 0
+                profileSaved = result.isSuccessful && validNameLength in 2..35
             }
     }
     Column(
