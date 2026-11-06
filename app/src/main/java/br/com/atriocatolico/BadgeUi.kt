@@ -36,37 +36,36 @@ private fun DocumentSnapshot?.asPublicBadges() = PublicBadges(
 )
 
 private data class BadgeDescription(
-    val symbol: String,
+    val kind: String,
     val name: String,
     val details: String,
-    val tint: Color,
-    val isFounder: Boolean = false,
-    val isPriest: Boolean = false,
-    val isDeacon: Boolean = false,
-    val isModerator: Boolean = false,
-    val isLayMale: Boolean = false,
-    val isLayFemale: Boolean = false
+    val tint: Color
 )
 
+internal fun verifiedBadgeLabel(kind: String): String = when (kind) {
+    "padre" -> "Padre"
+    "diacono" -> "Diácono"
+    "religioso" -> "Religioso"
+    "religiosa" -> "Religiosa"
+    else -> "Identificação religiosa"
+}
+
 private fun listBadges(value: PublicBadges, founder: Boolean): List<BadgeDescription> = buildList {
-    if (founder) add(BadgeDescription(
-        "⛪", "Fundador", "Conta oficial do criador do Átrio Católico.", Color(0xFF927020), isFounder = true
-    ))
-    when (value.clergy) {
-        "padre" -> add(BadgeDescription("✝", "Padre",
-            "Identidade sacerdotal verificada pela administração.", Wine, isPriest = true))
-        "diacono" -> add(BadgeDescription("✝", "Diácono",
-            "Identidade diaconal verificada pela administração.", Wine, isDeacon = true))
+    // Somente um selo de identidade principal; o cargo Moderador é adicional.
+    if (founder) {
+        add(BadgeDescription("fundador", "Fundador", "Conta oficial do criador do Átrio Católico.",
+            Color(0xFF710E22)))
+    } else if (value.clergy in listOf("padre", "diacono", "religioso", "religiosa")) {
+        add(BadgeDescription(value.clergy, verifiedBadgeLabel(value.clergy),
+            "Identidade verificada pela administração do Átrio Católico.", Color(0xFF710E22)))
+    } else if (value.lay in listOf("leigo", "leiga")) {
+        add(BadgeDescription(value.lay, if (value.lay == "leiga") "Leiga" else "Leigo",
+            "Identificação opcional declarada pelo próprio membro.", Muted))
     }
-    if (value.moderator) add(BadgeDescription("⬟", "Moderador",
-        "Identificação atribuída pela administração da comunidade.", Color(0xFF315C91), isModerator = true))
-    if (value.clergy.isBlank()) {
-        when (value.lay) {
-            "leigo" -> add(BadgeDescription("◈", "Leigo",
-                "Identificação opcional declarada pelo próprio membro.", Muted, isLayMale = true))
-            "leiga" -> add(BadgeDescription("◈", "Leiga",
-                "Identificação opcional declarada pela própria integrante.", Muted, isLayFemale = true))
-        }
+    if (value.moderator) {
+        add(BadgeDescription("moderador", "Moderador",
+            "Função de moderação designada pela administração da comunidade.",
+            Color(0xFF710E22)))
     }
 }
 
@@ -94,15 +93,7 @@ internal fun MemberBadgeRow(uid: String, modifier: Modifier = Modifier, centered
                     label = {
                         Row(verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                            when {
-                                badge.isFounder -> FounderBadgeArt(Modifier.size(27.dp), compact = true)
-                                badge.isPriest -> PriestBadgeArt(Modifier.size(27.dp), compact = true)
-                                badge.isDeacon -> DeaconBadgeArt(Modifier.size(27.dp), compact = true)
-                                badge.isModerator -> ModeratorBadgeArt(Modifier.size(27.dp), compact = true)
-                                badge.isLayMale -> LayBadgeArt("leigo", Modifier.size(27.dp))
-                                badge.isLayFemale -> LayBadgeArt("leiga", Modifier.size(27.dp))
-                                else -> Text(badge.symbol, color = badge.tint, fontSize = 12.sp)
-                            }
+                            MinimalBadgeIcon(badge.kind, Modifier.size(22.dp))
                             Text(badge.name, color = badge.tint, fontSize = 10.sp)
                         }
                     }
@@ -173,17 +164,17 @@ internal fun BadgeSettings(uid: String) {
     if (badges.clergy.isNotBlank()) {
         Text("Sua identidade religiosa já está registrada.", color = Wine, fontSize = 12.sp)
     } else {
-        Text("Padre e Diácono exigem verificação pela administração.",
+        Text("Padre, Diácono, Religioso e Religiosa exigem verificação administrativa.",
             color = Muted, fontSize = 12.sp)
         when (requestStatus) {
             "pending" -> Text(
-                "Solicitação de ${if (requestKind == "padre") "Padre" else "Diácono"} em análise.",
+                "Solicitação de ${verifiedBadgeLabel(requestKind)} em análise.",
                 color = Wine, fontSize = 12.sp
             )
             "approved" -> Text("Solicitação aprovada pela administração.",
                 color = Wine, fontSize = 12.sp)
             else -> {
-                if (requestStatus in listOf("rejected", "dismissed")) {
+                if (requestStatus in listOf("rejected", "dismissed", "revoked")) {
                     Text("Solicitação anterior não aprovada. Você pode enviar uma nova.",
                         color = Muted, fontSize = 12.sp)
                 }
@@ -200,7 +191,8 @@ internal fun BadgeSettings(uid: String) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Selecione a identificação que deseja verificar. O selo será concedido após análise da administração.",
                     fontSize = 13.sp, color = Muted)
-                for ((label, kind) in listOf("Padre" to "padre", "Diácono" to "diacono")) {
+                for ((label, kind) in listOf("Padre" to "padre", "Diácono" to "diacono",
+                    "Religioso" to "religioso", "Religiosa" to "religiosa")) {
                     FilterChip(selected = selectedKind == kind,
                         onClick = { selectedKind = kind }, enabled = !busy,
                         label = { Text(label) })

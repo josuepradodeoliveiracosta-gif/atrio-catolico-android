@@ -1,7 +1,7 @@
 import {readFileSync} from 'node:fs';
 import assert from 'node:assert/strict';
 import {initializeTestEnvironment,assertFails,assertSucceeds} from '@firebase/rules-unit-testing';
-import {doc,setDoc,getDoc,getDocs,collection,updateDoc,deleteDoc,writeBatch,serverTimestamp,Timestamp,query,where} from 'firebase/firestore';
+import {doc,setDoc,getDoc,getDocs,collection,updateDoc,deleteDoc,writeBatch,serverTimestamp,deleteField,Timestamp,query,where} from 'firebase/firestore';
 const env=await initializeTestEnvironment({projectId:'demo-atrio-v11',firestore:{host:'127.0.0.1',port:8089,rules:readFileSync('firestore.rules','utf8')}});
 let passed=0;
 async function test(name,fn){await fn();passed++;console.log('PASS',name);}
@@ -224,6 +224,105 @@ try {
    updateDoc(doc(carol,'badge_requests/carol'),{kind:'diacono',status:'pending',createdAt:serverTimestamp()})));
  await test('solicitante não apaga trilha da revisão administrativa',()=>assertFails(
    deleteDoc(doc(carol,'badge_requests/carol'))));
+
+ // Selos de religiosos: autodeclaração NUNCA concede reconhecimento.
+ const dora=env.authenticatedContext('dora').firestore();
+ const edu=env.authenticatedContext('edu').firestore();
+ await test('membro solicita selo de Religiosa, sem concessão automática',async()=>{
+   await assertSucceeds(setDoc(doc(dora,'badge_requests/dora'),{
+     kind:'religiosa',status:'pending',createdAt:serverTimestamp()
+   }));
+   assert.equal((await getDoc(doc(dora,'badges/dora'))).exists(),false);
+ });
+ await test('membro não consegue se conceder selo de Religiosa',()=>assertFails(
+   setDoc(doc(dora,'badges/dora'),{clergy:'religiosa'})));
+ await test('membro não falsifica log administrativo',()=>assertFails(
+   setDoc(doc(dora,'badge_events/forjado'),{
+     targetUid:'dora',kind:'religiosa',decision:'approved',actorUid:'dora',
+     reason:'Aprovação não autorizada.',createdAt:serverTimestamp()
+   })));
+ await test('admin não concede Religiosa sem decidir no mesmo lote',()=>assertFails(
+   setDoc(doc(admin,'badges/dora'),{clergy:'religiosa'})));
+ await test('admin aprova Religiosa com evento imutável no mesmo lote',async()=>{
+   const batch=writeBatch(admin);
+   batch.set(doc(admin,'badges/dora'),{clergy:'religiosa'},{merge:true});
+   batch.update(doc(admin,'badge_requests/dora'),{
+     status:'approved',reviewedBy:'admin',reviewedAt:serverTimestamp(),
+     reviewNote:'Vínculo religioso confirmado pela congregação.'
+   });
+   batch.set(doc(admin,'badge_events/dora-aprovada'),{
+     targetUid:'dora',kind:'religiosa',decision:'approved',actorUid:'admin',
+     reason:'Vínculo religioso confirmado pela congregação.',createdAt:serverTimestamp()
+   });
+   await assertSucceeds(batch.commit());
+   assert.equal((await getDoc(doc(dora,'badges/dora'))).data().clergy,'religiosa');
+ });
+ await test('membro não consulta histórico administrativo',()=>assertFails(
+   getDoc(doc(dora,'badge_events/dora-aprovada'))));
+ await test('evento de revisão não pode ser alterado ou excluído',async()=>{
+   await assertFails(updateDoc(doc(admin,'badge_events/dora-aprovada'),{decision:'rejected'}));
+   await assertFails(deleteDoc(doc(admin,'badge_events/dora-aprovada')));
+ });
+ await test('solicitante não pode revogar selo próprio fora da administração',()=>assertFails(
+   updateDoc(doc(dora,'badges/dora'),{clergy:deleteField()})));
+ await test('admin não revoga selo sem atualizar o pedido',()=>assertFails(
+   updateDoc(doc(admin,'badges/dora'),{clergy:deleteField()})));
+ await test('admin não revoga pedido sem remover selo atomicamente',()=>assertFails(
+   updateDoc(doc(admin,'badge_requests/dora'),{
+     status:'revoked',revokedBy:'admin',revokedAt:serverTimestamp(),
+     revokeNote:'Vínculo previamente declarado não confirmado.'
+   })));
+ await test('admin revoga Religiosa e mantém evento de auditoria',async()=>{
+   const batch=writeBatch(admin);
+   batch.update(doc(admin,'badge_requests/dora'),{
+     status:'revoked',revokedBy:'admin',revokedAt:serverTimestamp(),
+     revokeNote:'Vínculo previamente declarado não confirmado.'
+   });
+   batch.update(doc(admin,'badges/dora'),{clergy:deleteField()});
+   batch.set(doc(admin,'badge_events/dora-revogada'),{
+     targetUid:'dora',kind:'religiosa',decision:'revoked',actorUid:'admin',
+     reason:'Vínculo previamente declarado não confirmado.',createdAt:serverTimestamp()
+   });
+   await assertSucceeds(batch.commit());
+   assert.equal((await getDoc(doc(dora,'badges/dora'))).data()?.clergy,undefined);
+   assert.equal((await getDoc(doc(dora,'badge_requests/dora'))).data().status,'revoked');
+ });
+ await test('titular pode requerer nova avaliação após revogação',()=>assertSucceeds(
+   updateDoc(doc(dora,'badge_requests/dora'),{
+     kind:'religioso',status:'pending',createdAt:serverTimestamp()
+   })));
+ await test('requerimento de Religioso pode ser recusado com motivação',async()=>{
+   const batch=writeBatch(admin);
+   batch.update(doc(admin,'badge_requests/dora'),{
+     status:'rejected',reviewedBy:'admin',reviewedAt:serverTimestamp(),
+     reviewNote:'Não foram confirmados os requisitos de identificação.'
+   });
+   batch.set(doc(admin,'badge_events/dora-recusada'),{
+     targetUid:'dora',kind:'religioso',decision:'rejected',actorUid:'admin',
+     reason:'Não foram confirmados os requisitos de identificação.',createdAt:serverTimestamp()
+   });
+   await assertSucceeds(batch.commit());
+ });
+ await test('membro não pode criar selo de Fundador por campo extra',()=>assertFails(
+   setDoc(doc(edu,'badges/edu'),{lay:'leigo',founder:true})));
+ await env.withSecurityRulesDisabled(async ctx=>{
+   const root=ctx.firestore();
+   await setDoc(doc(root,'app_config/founder'),{uid:'founder'});
+   await setDoc(doc(root,'admins/founder'),{enabled:true});
+ });
+ const founder=env.authenticatedContext('founder').firestore();
+ await test('admin comum não atribui selo visual de moderador',()=>assertFails(
+   setDoc(doc(admin,'badges/edu'),{moderator:true})));
+ await test('fundador atribui e revoga moderador sem alterar cargo religioso',async()=>{
+   await assertSucceeds(setDoc(doc(founder,'badges/edu'),{moderator:true}));
+   await assertFails(updateDoc(doc(edu,'badges/edu'),{moderator:false}));
+   await assertSucceeds(updateDoc(doc(founder,'badges/edu'),{moderator:false}));
+ });
+ await test('fundador não pode conceder Padre sem revisão religiosa',()=>assertFails(
+   setDoc(doc(founder,'badges/edu'),{clergy:'padre'})));
+ await test('usuário não pode editar configuração do Fundador',()=>assertFails(
+   updateDoc(doc(edu,'app_config/founder'),{uid:'edu'})));
+
  // FCM: tokens privados apenas para o titular, sem operacoes entre contas.
  await test('token FCM requer autenticacao',()=>assertFails(
    getDoc(doc(anon,'users/bob/pushDevices/android-1'))));
