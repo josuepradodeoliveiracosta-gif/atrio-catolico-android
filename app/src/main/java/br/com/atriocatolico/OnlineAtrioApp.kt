@@ -1405,6 +1405,7 @@ private fun OnlineCommunity(
                         }
                     },
                     moreReplies = repliesMore,
+                    repliesLoading = repliesLoading,
                     newestFirst = replyNewestFirst,
                     onReplySortChange = { newest ->
                         if (newest != replyNewestFirst) {
