@@ -13,6 +13,13 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/admins/$(request.auth.uid))
         && get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.enabled == true;
     }
+    // A configuração de apoio só pode ser escrita pela conta oficial que
+    // também mantém a permissão administrativa ativa.
+    function isFounderAdmin() {
+      return isAdmin()
+        && exists(/databases/$(database)/documents/app_config/founder)
+        && get(/databases/$(database)/documents/app_config/founder).data.uid == request.auth.uid;
+    }
     // Public, non-sensitive switch; changes only through Console/Admin SDK.
     match /app_config/opening_video {
       allow get: if true;
@@ -23,6 +30,48 @@ service cloud.firestore {
     match /app_config/founder {
       allow get: if signedIn();
       allow list, create, update, delete: if false;
+    }
+    // Pix/dados bancários opt-in: uma única configuração pública para usuários
+    // autenticados. A UI não é fronteira de segurança; regras validam fundador
+    // E administrador ativo. Nunca expor credenciais de autenticação.
+    match /app_config/developer_support {
+      allow get: if signedIn();
+      allow list, delete: if false;
+      allow create, update: if isFounderAdmin()
+        && request.resource.data.keys().hasOnly([
+          'enabled', 'pixKey', 'bankName', 'agency', 'account',
+          'message', 'updatedBy', 'updatedAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'enabled', 'pixKey', 'bankName', 'agency', 'account',
+          'message', 'updatedBy', 'updatedAt'
+        ])
+        && request.resource.data.enabled is bool
+        && request.resource.data.pixKey is string
+        && request.resource.data.pixKey.size() <= 140
+        && request.resource.data.bankName is string
+        && request.resource.data.bankName.size() <= 80
+        && request.resource.data.agency is string
+        && request.resource.data.agency.size() <= 30
+        && request.resource.data.account is string
+        && request.resource.data.account.size() <= 50
+        && request.resource.data.message is string
+        && request.resource.data.message.size() <= 180
+        && (
+          (request.resource.data.bankName.size() == 0
+            && request.resource.data.agency.size() == 0
+            && request.resource.data.account.size() == 0)
+          || (request.resource.data.bankName.size() > 0
+            && request.resource.data.agency.size() > 0
+            && request.resource.data.account.size() > 0)
+        )
+        && (
+          request.resource.data.enabled == false
+          || request.resource.data.pixKey.size() > 0
+          || request.resource.data.bankName.size() > 0
+        )
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.updatedAt == request.time;
     }
     // Portão de aceite: a administração ativa via Console apenas depois
     // de implantar as regras, testar e migrar clientes compatíveis.
