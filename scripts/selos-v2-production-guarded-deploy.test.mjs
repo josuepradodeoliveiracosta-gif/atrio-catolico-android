@@ -111,14 +111,14 @@ test('publicação exige SHA remoto antigo, revalida e confirma novo SHA', async
 });
 
 test('mudança concorrente das regras aborta sem executar deploy', async() => {
-  const f = makeFixture({afterFirstRead:'outra versão remota alterada'});
+  const f = makeFixture({afterFirstRead:rulesText+'\n// versão remota modificada durante a auditoria'});
   await assert.rejects(verifyBadgeDeployment({...f.opts,apply:true}),
     /atrio_selos_guard_production_rules_changed_during_run/);
   assert.equal(f.stats().deployed, 0);
 });
 
 test('regras de produção inesperadas falham antes de qualquer escrita', async() => {
-  const f = makeFixture({initial:'origem divergente'});
+  const f = makeFixture({initial:rulesText+'\n// regras alteradas por outra publicação'});
   await assert.rejects(verifyBadgeDeployment({...f.opts,apply:true}),
     /atrio_selos_guard_production_rules_changed_since_audit/);
   assert.equal(f.stats().deployed, 0);
