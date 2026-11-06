@@ -1,6 +1,6 @@
 # Selos minimalistas e verificação religiosa — implementação V2
 
-**Escopo:** branch de desenvolvimento; sem publicação automática de regras, backend ou APK Release.
+**Escopo:** implementação integrada ao GitHub; publicação de regras e APK Release requerem etapas independentes de auditoria e autorização.
 
 ## O que mudou
 
@@ -30,7 +30,7 @@
 - Os logs legados anteriores à criação de `badge_events` permanecem nos pedidos antigos quando disponíveis; a nova coleção não reconstrói eventos históricos.
 - Eventos gravados pela interface são imutáveis, mas intervenções pelo Admin SDK/Console não são bloqueadas pelas Firestore Rules; acessos administrativos fora do app exigem controle operacional.
 - Perfis com `clergy` já existentes continuam visíveis conforme o estado legado. Não serão revogados ou revalidados automaticamente.
-- Esta ramificação não publica regras no Firebase, não altera o backup, não distribui APK e não realiza alterações no ambiente real.
+- A implementação versionada não comprova publicação no Firebase, instalação no aparelho ou distribuição de Release. A auditoria read-only está documentada em `docs/selos-seguranca.md` e pode ser executada pelo Termux autenticado.
 
 ## Critérios de aceite
 
