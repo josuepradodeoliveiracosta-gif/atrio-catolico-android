@@ -99,7 +99,7 @@ jobs:
           set -euo pipefail
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID" > "$RUNNER_TEMP/ota-source-run.json"
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID/artifacts?per_page=100" > "$RUNNER_TEMP/ota-source-artifacts.json"
-          python3 scripts/ota_release.py source \
+          python3 -m scripts.ota_release source \
             --run-json "$RUNNER_TEMP/ota-source-run.json" \
             --artifacts-json "$RUNNER_TEMP/ota-source-artifacts.json" \
             --artifact-name "$ARTIFACT_NAME" \
@@ -134,7 +134,7 @@ jobs:
           Path(os.environ["RUNNER_TEMP"], "ota-notes.md").write_text(
               os.environ["APPROVED_NOTES"].strip() + "\n", encoding="utf-8")
           PY
-          python3 scripts/ota_release.py prepare \
+          python3 -m scripts.ota_release prepare \
             --apk "${APKS[0]}" \
             --source-json "$RUNNER_TEMP/ota-source.json" \
             --android-sdk "$ANDROID_HOME" \
@@ -148,7 +148,7 @@ jobs:
         run: |
           set -euo pipefail
           gh release list --limit 100 --json tagName,isDraft,isPrerelease > "$RUNNER_TEMP/ota-existing-releases.json"
-          python3 scripts/ota_release.py newer \
+          python3 -m scripts.ota_release newer \
             --version "$(python3 -c 'import json;print(json.load(open("dist/update.json"))["versionName"])')" \
             --releases-json "$RUNNER_TEMP/ota-existing-releases.json"
       - name: Guardar somente os metadados da verificação
@@ -231,7 +231,7 @@ jobs:
             fi
           fi
           gh release list --limit 100 --json tagName,isDraft,isPrerelease > "$RUNNER_TEMP/releases.json"
-          python3 scripts/ota_release.py newer --version "$VERSION" --releases-json "$RUNNER_TEMP/releases.json"
+          python3 -m scripts.ota_release newer --version "$VERSION" --releases-json "$RUNNER_TEMP/releases.json"
       - name: Criar Release em rascunho com todos os arquivos
         shell: bash
         run: |
