@@ -105,6 +105,399 @@ def validate_source(run, artifacts, artifact_name, *, checkout_sha, git_runner=N
 
 
 
+
+def require_version_after_pilot(name, code):
+    require(type(code) is int and code > PILOT_VERIFIED_CODE,
+            "versionCode_nao_supera_piloto_fisico_37")
+    require(version_tuple(name) > version_tuple(PILOT_VERIFIED_NAME),
+            "versionName_nao_supera_piloto_fisico_0.20.2")
+    return True
+
+
+def validate_signing_readiness(gradle_file):
+    """Reject signing an official APK that would downgrade pilot users."""
+    contents = Path(gradle_file).read_text(encoding="utf-8")
+    match = re.search(r"(?ms)^\s{4}defaultConfig\s*\{(.*?)^\s{4}\}", contents)
+    require(match is not None, "defaultConfig_release_ausente")
+    block = match.group(1)
+    codes = re.findall(r"(?m)^\s*versionCode\s*=\s*(\d+)\s*$", block)
+    names = re.findall(r'(?m)^\s*versionName\s*=\s*"([^"]+)"\s*
+    """Reject obsolete/legacy artifacts before any official publication work.
+
+    This guard is independent of approval flags. It never signs or publishes.
+    A future approved version must advance beyond the physical OTA pilot B.
+    """
+    require(isinstance(source, dict), "fonte_release_invalida")
+    require(source.get("artifactName") == NORMAL_ARTIFACT,
+            "publicacao_proibida_de_artefato_historico_sem_OTA")
+    code = source.get("versionCode")
+    name = source.get("versionName")
+    require_version_after_pilot(name, code)
+    sha = source.get("sourceSha")
+    require(isinstance(sha, str) and re.fullmatch(r"[a-f0-9]{40}", sha),
+            "commit_da_origem_invalido")
+    return {
+        "ready_for_release_validation": True,
+        "public_release_approved": False,
+        "versionName": name,
+        "versionCode": code,
+        "artifactName": NORMAL_ARTIFACT,
+    }
+
+
+def prepare(apk, source, *, sdk, expected_certificate, expected_apk_sha256,
+            notes, output, runner=None):
+    require(isinstance(source, dict), "origem_nao_verificada")
+    require(source.get("artifactName") in (NORMAL_ARTIFACT, LEGACY_ARTIFACT),
+            "artefato_de_origem_invalido")
+    require(isinstance(source.get("sourceSha"), str)
+            and re.fullmatch(r"[a-f0-9]{40}", source["sourceSha"]),
+            "commit_de_origem_invalido")
+    code, name = source.get("versionCode"), source.get("versionName")
+    require(type(code) is int and code > 0, "codigo_de_versao_invalido")
+    version_tuple(name)
+    require(isinstance(notes, str) and 10 <= len(notes.strip()) <= 3000,
+            "notas_de_release_obrigatorias_10_a_3000_caracteres")
+    require(expected_apk_sha256, "hash_previamente_conhecido_obrigatorio")
+    expected_apk_sha256 = digest(expected_apk_sha256)
+    # O SHA da variavel do repositorio e apenas uma declaracao: ele tambem
+    # precisa coincidir com o certificado historico validado do Atrio.
+    # Rotacao de chave requer revisao explicita, nao troca silenciosa da variavel.
+    cert = require_official_certificate(expected_certificate)
+    kwargs = dict(
+        sdk=sdk, expected_cert=cert, expected_code=code, expected_name=name,
+        expected_apk_sha256=expected_apk_sha256,
+    )
+    if runner is not None:
+        kwargs["runner"] = runner
+    result = verify(apk, **kwargs)
+    tag = "v" + name
+    asset_url = f"https://github.com/{REPO}/releases/download/{tag}/{APK_ASSET}"
+    release_url = f"https://github.com/{REPO}/releases/tag/{tag}"
+    metadata = {
+        "schemaVersion": 1,
+        "channel": "stable",
+        "applicationId": PACKAGE,
+        "versionName": name,
+        "versionCode": code,
+        "mandatory": False,
+        "minimumAndroidSdk": 26,
+        "apkAsset": APK_ASSET,
+        "apkSizeBytes": Path(apk).stat().st_size,
+        "apkSha256": result["apk_sha256"],
+        "certificateSha256": cert,  # informational, never a trust anchor in the app
+        "downloadUrl": asset_url,
+        "releasePageUrl": release_url,
+        "releaseNotes": notes.strip(),
+    }
+    output = Path(output)
+    require(not output.exists() or not any(output.iterdir()),
+            "diretorio_de_saida_deve_estar_vazio")
+    output.mkdir(parents=True, exist_ok=True)
+    apk_output = output / APK_ASSET
+    shutil.copyfile(apk, apk_output)
+    manifest_output = output / MANIFEST_ASSET
+    manifest_output.write_text(json.dumps(metadata, indent=2, ensure_ascii=False,
+                                          sort_keys=True) + "\n", encoding="utf-8")
+    manifest_hash = hashlib.sha256(manifest_output.read_bytes()).hexdigest()
+    (output / "SHA256SUMS.txt").write_text(
+        f'{result["apk_sha256"]}  {APK_ASSET}\n{manifest_hash}  {MANIFEST_ASSET}\n',
+        encoding="utf-8",
+    )
+    (output / "release-notes.md").write_text(notes.strip() + "\n", encoding="utf-8")
+    (output / "source-sha.txt").write_text(source["sourceSha"] + "\n", encoding="utf-8")
+    return metadata
+
+
+def assert_newer(current, latest_tag):
+    version_tuple(current)
+    if latest_tag is None or latest_tag == "":
+        return True
+    require(re.fullmatch(r"v\d+\.\d+\.\d+", latest_tag) is not None,
+            "tag_de_ultima_versao_invalida")
+    require(version_tuple(current) > version_tuple(latest_tag[1:]),
+            "versao_nao_superior_a_ultima_publicada")
+    return True
+
+
+def assert_newer_than_releases(current, releases):
+    require(isinstance(releases, list), "lista_de_releases_invalida")
+    require(len(releases) <= 100, "consulta_de_releases_inesperada")
+    stable = []
+    for item in releases:
+        require(isinstance(item, dict), "release_invalida")
+        if item.get("isDraft") or item.get("isPrerelease"):
+            continue
+        tag = item.get("tagName")
+        require(isinstance(tag, str) and re.fullmatch(r"v\d+\.\d+\.\d+", tag),
+                "tag_publica_fora_do_padrao")
+        stable.append(tag)
+    if not stable:
+        return assert_newer(current, "")
+    latest = max(stable, key=lambda value: version_tuple(value[1:]))
+    return assert_newer(current, latest)
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__)
+    sub = p.add_subparsers(dest="command", required=True)
+    source = sub.add_parser("source", help="Pin approved successful signed workflow run")
+    source.add_argument("--run-json", required=True)
+    source.add_argument("--artifacts-json", required=True)
+    source.add_argument("--artifact-name", required=True)
+    source.add_argument("--checkout-sha", required=True)
+    source.add_argument("--output", required=True)
+    gen = sub.add_parser("prepare", help="Produce release APK and update manifest offline")
+    gen.add_argument("--apk", required=True)
+    gen.add_argument("--source-json", required=True)
+    gen.add_argument("--android-sdk", required=True)
+    gen.add_argument("--expected-cert", required=True)
+    gen.add_argument("--expected-apk-sha256", required=True)
+    gen.add_argument("--notes-file", required=True)
+    gen.add_argument("--output", required=True)
+    readiness = sub.add_parser("publish-readiness",
+                               help="Reject legacy or non-upgrade artifacts before publishing")
+    readiness.add_argument("--source-json", required=True)
+    signing = sub.add_parser("signing-readiness", help="Validate official Gradle version without signing")
+    signing.add_argument("--gradle-file", required=True)
+    newer = sub.add_parser("newer", help="Check version ordering before publishing")
+    newer.add_argument("--version", required=True)
+    newer.add_argument("--latest-tag", default="")
+    newer.add_argument("--releases-json", help="Lista JSON do GitHub CLI; falha se indisponível")
+    args = p.parse_args()
+    try:
+        if args.command == "source":
+            run = json.loads(Path(args.run_json).read_text(encoding="utf-8"))
+            artifacts = json.loads(Path(args.artifacts_json).read_text(encoding="utf-8"))
+            metadata = validate_source(run, artifacts["artifacts"],
+                                       args.artifact_name, checkout_sha=args.checkout_sha)
+            Path(args.output).write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+            print(f"Origem aprovada: {metadata['versionName']} (code {metadata['versionCode']})")
+        elif args.command == "signing-readiness":
+            report = validate_signing_readiness(args.gradle_file)
+            print(json.dumps(report, indent=2))
+        elif args.command == "publish-readiness":
+            source = json.loads(Path(args.source_json).read_text(encoding="utf-8"))
+            report = validate_publication_readiness(source)
+            print(json.dumps(report, indent=2))
+        elif args.command == "prepare":
+            source = json.loads(Path(args.source_json).read_text(encoding="utf-8"))
+            notes = Path(args.notes_file).read_text(encoding="utf-8")
+            result = prepare(args.apk, source, sdk=args.android_sdk,
+                             expected_certificate=args.expected_cert,
+                             expected_apk_sha256=args.expected_apk_sha256,
+                             notes=notes, output=args.output)
+            print(json.dumps(result, indent=2, ensure_ascii=False))
+        else:
+            if args.releases_json:
+                releases = json.loads(Path(args.releases_json).read_text(encoding="utf-8"))
+                assert_newer_than_releases(args.version, releases)
+                print(f"Nova versão {args.version} supera os releases estáveis consultados")
+            else:
+                assert_newer(args.version, args.latest_tag)
+                print(f"Nova versão {args.version} supera {args.latest_tag or 'nenhuma publicação'}")
+        return 0
+    except (PreflightError, KeyError, ValueError, OSError, TypeError,
+            json.JSONDecodeError) as exc:
+        print(f"Publicação OTA bloqueada: {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+, block)
+    ids = re.findall(r'(?m)^\s*applicationId\s*=\s*"([^"]+)"\s*
+    """Reject obsolete/legacy artifacts before any official publication work.
+
+    This guard is independent of approval flags. It never signs or publishes.
+    A future approved version must advance beyond the physical OTA pilot B.
+    """
+    require(isinstance(source, dict), "fonte_release_invalida")
+    require(source.get("artifactName") == NORMAL_ARTIFACT,
+            "publicacao_proibida_de_artefato_historico_sem_OTA")
+    code = source.get("versionCode")
+    name = source.get("versionName")
+    require_version_after_pilot(name, code)
+    sha = source.get("sourceSha")
+    require(isinstance(sha, str) and re.fullmatch(r"[a-f0-9]{40}", sha),
+            "commit_da_origem_invalido")
+    return {
+        "ready_for_release_validation": True,
+        "public_release_approved": False,
+        "versionName": name,
+        "versionCode": code,
+        "artifactName": NORMAL_ARTIFACT,
+    }
+
+
+def prepare(apk, source, *, sdk, expected_certificate, expected_apk_sha256,
+            notes, output, runner=None):
+    require(isinstance(source, dict), "origem_nao_verificada")
+    require(source.get("artifactName") in (NORMAL_ARTIFACT, LEGACY_ARTIFACT),
+            "artefato_de_origem_invalido")
+    require(isinstance(source.get("sourceSha"), str)
+            and re.fullmatch(r"[a-f0-9]{40}", source["sourceSha"]),
+            "commit_de_origem_invalido")
+    code, name = source.get("versionCode"), source.get("versionName")
+    require(type(code) is int and code > 0, "codigo_de_versao_invalido")
+    version_tuple(name)
+    require(isinstance(notes, str) and 10 <= len(notes.strip()) <= 3000,
+            "notas_de_release_obrigatorias_10_a_3000_caracteres")
+    require(expected_apk_sha256, "hash_previamente_conhecido_obrigatorio")
+    expected_apk_sha256 = digest(expected_apk_sha256)
+    # O SHA da variavel do repositorio e apenas uma declaracao: ele tambem
+    # precisa coincidir com o certificado historico validado do Atrio.
+    # Rotacao de chave requer revisao explicita, nao troca silenciosa da variavel.
+    cert = require_official_certificate(expected_certificate)
+    kwargs = dict(
+        sdk=sdk, expected_cert=cert, expected_code=code, expected_name=name,
+        expected_apk_sha256=expected_apk_sha256,
+    )
+    if runner is not None:
+        kwargs["runner"] = runner
+    result = verify(apk, **kwargs)
+    tag = "v" + name
+    asset_url = f"https://github.com/{REPO}/releases/download/{tag}/{APK_ASSET}"
+    release_url = f"https://github.com/{REPO}/releases/tag/{tag}"
+    metadata = {
+        "schemaVersion": 1,
+        "channel": "stable",
+        "applicationId": PACKAGE,
+        "versionName": name,
+        "versionCode": code,
+        "mandatory": False,
+        "minimumAndroidSdk": 26,
+        "apkAsset": APK_ASSET,
+        "apkSizeBytes": Path(apk).stat().st_size,
+        "apkSha256": result["apk_sha256"],
+        "certificateSha256": cert,  # informational, never a trust anchor in the app
+        "downloadUrl": asset_url,
+        "releasePageUrl": release_url,
+        "releaseNotes": notes.strip(),
+    }
+    output = Path(output)
+    require(not output.exists() or not any(output.iterdir()),
+            "diretorio_de_saida_deve_estar_vazio")
+    output.mkdir(parents=True, exist_ok=True)
+    apk_output = output / APK_ASSET
+    shutil.copyfile(apk, apk_output)
+    manifest_output = output / MANIFEST_ASSET
+    manifest_output.write_text(json.dumps(metadata, indent=2, ensure_ascii=False,
+                                          sort_keys=True) + "\n", encoding="utf-8")
+    manifest_hash = hashlib.sha256(manifest_output.read_bytes()).hexdigest()
+    (output / "SHA256SUMS.txt").write_text(
+        f'{result["apk_sha256"]}  {APK_ASSET}\n{manifest_hash}  {MANIFEST_ASSET}\n',
+        encoding="utf-8",
+    )
+    (output / "release-notes.md").write_text(notes.strip() + "\n", encoding="utf-8")
+    (output / "source-sha.txt").write_text(source["sourceSha"] + "\n", encoding="utf-8")
+    return metadata
+
+
+def assert_newer(current, latest_tag):
+    version_tuple(current)
+    if latest_tag is None or latest_tag == "":
+        return True
+    require(re.fullmatch(r"v\d+\.\d+\.\d+", latest_tag) is not None,
+            "tag_de_ultima_versao_invalida")
+    require(version_tuple(current) > version_tuple(latest_tag[1:]),
+            "versao_nao_superior_a_ultima_publicada")
+    return True
+
+
+def assert_newer_than_releases(current, releases):
+    require(isinstance(releases, list), "lista_de_releases_invalida")
+    require(len(releases) <= 100, "consulta_de_releases_inesperada")
+    stable = []
+    for item in releases:
+        require(isinstance(item, dict), "release_invalida")
+        if item.get("isDraft") or item.get("isPrerelease"):
+            continue
+        tag = item.get("tagName")
+        require(isinstance(tag, str) and re.fullmatch(r"v\d+\.\d+\.\d+", tag),
+                "tag_publica_fora_do_padrao")
+        stable.append(tag)
+    if not stable:
+        return assert_newer(current, "")
+    latest = max(stable, key=lambda value: version_tuple(value[1:]))
+    return assert_newer(current, latest)
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__)
+    sub = p.add_subparsers(dest="command", required=True)
+    source = sub.add_parser("source", help="Pin approved successful signed workflow run")
+    source.add_argument("--run-json", required=True)
+    source.add_argument("--artifacts-json", required=True)
+    source.add_argument("--artifact-name", required=True)
+    source.add_argument("--checkout-sha", required=True)
+    source.add_argument("--output", required=True)
+    gen = sub.add_parser("prepare", help="Produce release APK and update manifest offline")
+    gen.add_argument("--apk", required=True)
+    gen.add_argument("--source-json", required=True)
+    gen.add_argument("--android-sdk", required=True)
+    gen.add_argument("--expected-cert", required=True)
+    gen.add_argument("--expected-apk-sha256", required=True)
+    gen.add_argument("--notes-file", required=True)
+    gen.add_argument("--output", required=True)
+    readiness = sub.add_parser("publish-readiness",
+                               help="Reject legacy or non-upgrade artifacts before publishing")
+    readiness.add_argument("--source-json", required=True)
+    newer = sub.add_parser("newer", help="Check version ordering before publishing")
+    newer.add_argument("--version", required=True)
+    newer.add_argument("--latest-tag", default="")
+    newer.add_argument("--releases-json", help="Lista JSON do GitHub CLI; falha se indisponível")
+    args = p.parse_args()
+    try:
+        if args.command == "source":
+            run = json.loads(Path(args.run_json).read_text(encoding="utf-8"))
+            artifacts = json.loads(Path(args.artifacts_json).read_text(encoding="utf-8"))
+            metadata = validate_source(run, artifacts["artifacts"],
+                                       args.artifact_name, checkout_sha=args.checkout_sha)
+            Path(args.output).write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+            print(f"Origem aprovada: {metadata['versionName']} (code {metadata['versionCode']})")
+        elif args.command == "publish-readiness":
+            source = json.loads(Path(args.source_json).read_text(encoding="utf-8"))
+            report = validate_publication_readiness(source)
+            print(json.dumps(report, indent=2))
+        elif args.command == "prepare":
+            source = json.loads(Path(args.source_json).read_text(encoding="utf-8"))
+            notes = Path(args.notes_file).read_text(encoding="utf-8")
+            result = prepare(args.apk, source, sdk=args.android_sdk,
+                             expected_certificate=args.expected_cert,
+                             expected_apk_sha256=args.expected_apk_sha256,
+                             notes=notes, output=args.output)
+            print(json.dumps(result, indent=2, ensure_ascii=False))
+        else:
+            if args.releases_json:
+                releases = json.loads(Path(args.releases_json).read_text(encoding="utf-8"))
+                assert_newer_than_releases(args.version, releases)
+                print(f"Nova versão {args.version} supera os releases estáveis consultados")
+            else:
+                assert_newer(args.version, args.latest_tag)
+                print(f"Nova versão {args.version} supera {args.latest_tag or 'nenhuma publicação'}")
+        return 0
+    except (PreflightError, KeyError, ValueError, OSError, TypeError,
+            json.JSONDecodeError) as exc:
+        print(f"Publicação OTA bloqueada: {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+, block)
+    require(len(codes) == len(names) == len(ids) == 1 and ids[0] == PACKAGE,
+            "metadados_release_gradle_invalidos")
+    require_version_after_pilot(names[0], int(codes[0]))
+    return {
+        "source": "app/build.gradle.kts:defaultConfig",
+        "versionName": names[0],
+        "versionCode": int(codes[0]),
+        "signing_authorized": False,
+        "distribution_authorized": False,
+    }
+
+
 def validate_publication_readiness(source):
     """Reject obsolete/legacy artifacts before any official publication work.
 
@@ -115,11 +508,8 @@ def validate_publication_readiness(source):
     require(source.get("artifactName") == NORMAL_ARTIFACT,
             "publicacao_proibida_de_artefato_historico_sem_OTA")
     code = source.get("versionCode")
-    require(type(code) is int and code > PILOT_VERIFIED_CODE,
-            "versionCode_nao_supera_piloto_fisico_37")
     name = source.get("versionName")
-    require(version_tuple(name) > version_tuple(PILOT_VERIFIED_NAME),
-            "versionName_nao_supera_piloto_fisico_0.20.2")
+    require_version_after_pilot(name, code)
     sha = source.get("sourceSha")
     require(isinstance(sha, str) and re.fullmatch(r"[a-f0-9]{40}", sha),
             "commit_da_origem_invalido")
