@@ -316,6 +316,23 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // O evento só nasce durante uma mudança real de estado do pedido.
+    // Impede inserir posteriormente registros que aleguem aprovações/revogações
+    // antigas ou com justificativas diferentes das decisões correspondentes.
+    function badgeEventMatchesTransition(uid, decision, reason) {
+      let path = /databases/$(database)/documents/badge_requests/$(uid);
+      return exists(path)
+        && get(path).data.status == (decision == 'revoked' ? 'approved' : 'pending')
+        && getAfter(path).data.status == decision
+        && (decision == 'revoked'
+          ? (getAfter(path).data.revokedBy == request.auth.uid
+              && getAfter(path).data.revokeNote == reason
+              && getAfter(path).data.revokedAt == request.time)
+          : (getAfter(path).data.reviewedBy == request.auth.uid
+              && getAfter(path).data.reviewNote == reason
+              && getAfter(path).data.reviewedAt == request.time));
+    }
+
     // Histórico append-only, visível apenas pela administração ativa.
     match /badge_events/{eventId} {
       allow get, list: if isAdmin();
@@ -335,8 +352,11 @@ service cloud.firestore {
         && request.resource.data.createdAt == request.time
         && getAfter(/databases/$(database)/documents/badge_requests/$(request.resource.data.targetUid)).data.kind
             == request.resource.data.kind
-        && getAfter(/databases/$(database)/documents/badge_requests/$(request.resource.data.targetUid)).data.status
-            == request.resource.data.decision
+        && badgeEventMatchesTransition(
+            request.resource.data.targetUid,
+            request.resource.data.decision,
+            request.resource.data.reason
+          )
         && (request.resource.data.decision == 'rejected'
           || (request.resource.data.decision == 'approved'
             && getAfter(/databases/$(database)/documents/badges/$(request.resource.data.targetUid)).data.get('clergy', '')
