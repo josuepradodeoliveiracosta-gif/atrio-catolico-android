@@ -48,8 +48,8 @@ class ProfileLayoutUiTest {
         list.performScrollToNode(hasText("Minhas revisões"))
         compose.onNodeWithText("Minhas revisões").performClick()
         compose.runOnIdle { assertEquals("reviews", destination) }
-        list.performScrollToNode(hasText("Central de notificações"))
-        compose.onNodeWithText("Central de notificações").performClick()
+        list.performScrollToNode(hasText("Personalizar avisos"))
+        compose.onNodeWithText("Personalizar avisos").performClick()
         compose.runOnIdle { assertEquals("notices", destination) }
         list.performScrollToNode(hasContentDescription("Receber avisos neste aparelho"))
         compose.onNodeWithContentDescription("Receber avisos neste aparelho").assertIsOff()
@@ -60,6 +60,13 @@ class ProfileLayoutUiTest {
         compose.onNodeWithTag("atrio-profile-signout").assertIsDisplayed().performClick()
         compose.runOnIdle { assertEquals("logout", destination) }
         screenshot("03-conta-fonte-ampliada")
+        list.performScrollToNode(hasTestTag("atrio-help-toggle"))
+        compose.onNodeWithTag("atrio-ota-section").assertDoesNotExist()
+        compose.onNodeWithTag("atrio-help-toggle").performClick()
+        compose.onNodeWithTag("atrio-ota-section").assertExists()
+        compose.onNodeWithText("Ferramentas avançadas de notificações").assertExists()
+        compose.onNodeWithTag("atrio-help-toggle").performClick()
+        compose.onNodeWithTag("atrio-ota-section").assertDoesNotExist()
         list.performScrollToNode(hasTestTag("atrio-profile-publications"))
         compose.onNodeWithTag("atrio-profile-publications").performClick()
         list.performScrollToNode(hasText("Criar discussão"))

@@ -112,7 +112,7 @@ internal fun DeveloperSupportPanel(db: FirebaseFirestore, uid: String, founderAd
                 Column(Modifier.weight(1f)) {
                     Text("Apoie o desenvolvedor", color = Wine, fontSize = 19.sp,
                         fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
-                    Text("Contribua com a continuidade do Átrio Católico.",
+                    Text("Contribua voluntariamente para o desenvolvimento do Átrio Católico",
                         style = MaterialTheme.typography.bodySmall, color = Muted)
                 }
                 Icon(if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
