@@ -204,6 +204,9 @@ internal fun OnlineProfileScreen(
                         Text("Seu e-mail é privado. Sua apresentação só fica pública após sua autorização.",
                             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         EmailVerificationPanel(uid)
+                        Text("Personalização opcional", color = Wine,
+                            style = MaterialTheme.typography.titleMedium)
+                        RegistrationOptionalPreferences(db = db, uid = uid, firstAccess = false)
                         OutlinedButton(onClick = onSignOut,
                             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                                 .testTag("atrio-profile-signout")) {
