@@ -21,8 +21,8 @@ class DeveloperSupportDataTest {
             bankName = "Banco teste", agency = "0001", account = "1234-5").valid)
     }
 
-    @Test fun bankAccountMustBeCompleteEvenIfUnpublished() {
-        assertFalse(DeveloperSupportData(enabled = false, bankName = "Banco teste").valid)
+    @Test fun incompleteBankDataCannotBePublished() {
+        assertTrue(DeveloperSupportData(enabled = false, bankName = "Banco teste").valid)
         assertFalse(DeveloperSupportData(enabled = true,
             pixKey = "teste-pix", bankName = "Banco teste").valid)
     }
