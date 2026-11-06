@@ -97,6 +97,8 @@ run_suite ProfileLayoutUiTest
 run_suite ProfilePhotoUiTest
 run_suite EngagementUiTest
 run_suite ReactionEmojiUiTest
+# Regressões da discussão V2: compositor, ordenação, menus e densidade visual.
+run_suite DiscussionDetailV2UiTest
 mkdir -p qa-android-suite-results/reaction-preview
 if ! adb pull /data/local/tmp/atrio-reaction-preview/. qa-android-suite-results/reaction-preview/; then
   qa_failed=1
