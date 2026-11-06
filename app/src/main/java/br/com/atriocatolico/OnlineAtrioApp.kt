@@ -200,6 +200,9 @@ private fun OnlineAuthScreen(
     var password by remember { mutableStateOf("") }
     var confirmation by remember { mutableStateOf("") }
     var acceptedRules by remember { mutableStateOf(false) }
+    var acceptedTerms by remember { mutableStateOf(false) }
+    var acknowledgedPrivacy by remember { mutableStateOf(false) }
+    var legalDocument by remember { mutableStateOf("") }
     var showRules by remember { mutableStateOf(false) }
     var showPassword by remember { mutableStateOf(false) }
     var showConfirmation by remember { mutableStateOf(false) }
@@ -221,7 +224,8 @@ private fun OnlineAuthScreen(
     val confirmationIssue = if (registering && confirmation.isNotEmpty())
         RegistrationPolicy.confirmProblem(password, confirmation) else null
     val ready = if (registering) {
-        RegistrationPolicy.ready(displayName, email, password, confirmation, acceptedRules)
+        RegistrationPolicy.ready(displayName, email, password, confirmation,
+            acceptedRules && (isIsolatedQa || (acceptedTerms && acknowledgedPrivacy)))
     } else emailValid && password.length >= 6 // Não bloquear senhas antigas no login.
 
     Column(
@@ -308,9 +312,32 @@ private fun OnlineAuthScreen(
                         modifier = Modifier.testTag("atrio-auth-read-rules")) {
                         Text("Ler as Regras da Comunidade")
                     }
-                    Text("O cadastro utiliza Firebase Authentication. Antes da publicação na Google Play, " +
-                        "serão disponibilizados Termos de Uso, Política de Privacidade e solicitação de exclusão de conta. " +
-                        "O aceite acima refere-se somente às Regras da Comunidade.",
+                    // Documentos legais devem ser aprovados antes do Release.
+                    // A prévia serve ao teste do fluxo, não é declaração de
+                    // conformidade LGPD nem substitui parecer jurídico.
+                    TextButton(
+                        onClick = { legalDocument = "terms" },
+                        modifier = Modifier.fillMaxWidth().testTag("atrio-auth-read-terms")
+                    ) { Text("Ler condições de uso (prévia)") }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = acceptedTerms,
+                            onCheckedChange = { acceptedTerms = it },
+                            enabled = !busy, modifier = Modifier.testTag("atrio-auth-terms"))
+                        Text("Li e concordo com as condições de uso apresentadas.",
+                            fontSize = 13.sp)
+                    }
+                    TextButton(
+                        onClick = { legalDocument = "privacy" },
+                        modifier = Modifier.fillMaxWidth().testTag("atrio-auth-read-privacy")
+                    ) { Text("Ler informações de privacidade (prévia)") }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = acknowledgedPrivacy,
+                            onCheckedChange = { acknowledgedPrivacy = it },
+                            enabled = !busy, modifier = Modifier.testTag("atrio-auth-privacy"))
+                        Text("Li as informações de privacidade.", fontSize = 13.sp)
+                    }
+                    Text("As políticas completas, retenção de dados e bases legais ainda requerem " +
+                        "revisão antes do lançamento oficial. Preferências religiosas serão opcionais.",
                         fontSize = 11.sp, color = Muted, lineHeight = 15.sp)
                 }
                 if (error.isNotBlank()) {
@@ -396,6 +423,9 @@ private fun OnlineAuthScreen(
                     password = ""
                     confirmation = ""
                     acceptedRules = false
+                    acceptedTerms = false
+                    acknowledgedPrivacy = false
+                    legalDocument = ""
                     error = ""
                     resetInfo = ""
                     showPassword = false
@@ -424,6 +454,41 @@ private fun OnlineAuthScreen(
                     modifier = Modifier.fillMaxWidth())
             }
         }
+    }
+    if (legalDocument.isNotEmpty()) {
+        AlertDialog(
+            onDismissRequest = { legalDocument = "" },
+            title = {
+                Text(if (legalDocument == "terms") "Condições de uso — prévia"
+                    else "Privacidade — prévia")
+            },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    Text(
+                        if (legalDocument == "terms")
+                            "O Átrio Católico é uma comunidade de diálogo respeitoso. " +
+                                "Não publique conteúdo ilegal, dados privados de terceiros, " +
+                                "fraudes, ameaças ou material discriminatório. " +
+                                "Conteúdo e participantes podem ser denunciados e revisados " +
+                                "pela moderação. O uso não concede cargo religioso ou administrativo. " +
+                                "Este resumo necessita de revisão jurídica antes de um Release oficial."
+                        else
+                            "O cadastro utiliza Firebase Authentication e Firestore para " +
+                                "manter e proteger a conta. Nome de exibição e e-mail são necessários; " +
+                                "interesses, identificação religiosa, paróquia e cidade são opcionais " +
+                                "e privados por padrão. A pessoa pode corrigir ou apagar essas " +
+                                "preferências no perfil. Há um canal interno de solicitação de " +
+                                "exclusão de conta, atendida pela administração. Os períodos de " +
+                                "retenção, bases legais e a política completa devem ser revisados " +
+                                "antes de publicar o aplicativo.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { legalDocument = "" }) { Text("Fechar") }
+            }
+        )
     }
     if (showRules) {
         AlertDialog(
