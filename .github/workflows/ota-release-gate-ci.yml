@@ -9,6 +9,7 @@ on:
       - '.github/workflows/ota-release-gate-ci.yml'
       - 'scripts/test_ota_release_gate.py'
       - 'scripts/test_ota_release_readiness.py'
+      - 'scripts/test_release_human_moderation.py'
       - 'scripts/test_ota_official_entrypoints.py'
       - 'scripts/ota_official_https_probe.py'
       - 'scripts/test_ota_official_https_probe.py'
@@ -38,6 +39,7 @@ on:
       - '.github/workflows/ota-release-gate-ci.yml'
       - 'scripts/test_ota_release_gate.py'
       - 'scripts/test_ota_release_readiness.py'
+      - 'scripts/test_release_human_moderation.py'
       - 'scripts/test_ota_official_entrypoints.py'
       - 'scripts/ota_official_https_probe.py'
       - 'scripts/test_ota_official_https_probe.py'
@@ -78,6 +80,7 @@ jobs:
         run: |
           python3 -m unittest discover -s scripts -p 'test_ota_release_gate.py' -v
           python3 -m unittest discover -s scripts -p 'test_ota_release_readiness.py' -v
+          python3 -m unittest discover -s scripts -p 'test_release_human_moderation.py' -v
           python3 -m unittest discover -s scripts -p 'test_ota_official_entrypoints.py' -v
           python3 -m unittest discover -s scripts -p 'test_ota_official_https_probe.py' -v
           python3 -m unittest discover -s scripts -p 'test_ota_release_cert.py' -v

@@ -105,6 +105,7 @@ jobs:
           ATRIO_AVATAR_WORKER_URL: ${{ vars.ATRIO_AVATAR_WORKER_URL || '' }}
           ATRIO_GUARDIAN_V2_WORKER_URL: ${{ vars.ATRIO_GUARDIAN_V2_WORKER_URL || 'https://atrio-guardian-v2.atrio-catolico.workers.dev' }}
           ATRIO_GUARDIAN_V2_RELEASE_APPROVED: ${{ vars.ATRIO_GUARDIAN_V2_RELEASE_APPROVED || 'false' }}
+          ATRIO_RELEASE_MODERATION_MODE: ${{ vars.ATRIO_RELEASE_MODERATION_MODE || 'guardian_v2' }}
           ATRIO_EMAIL_VERIFICATION_RELEASE_APPROVED: ${{ vars.ATRIO_EMAIL_VERIFICATION_RELEASE_APPROVED || 'false' }}
           ATRIO_OTA_E2E_TESTED: ${{ vars.ATRIO_OTA_E2E_TESTED || 'false' }}
           ATRIO_OTA_RELEASE_APPROVED: ${{ vars.ATRIO_OTA_RELEASE_APPROVED || 'false' }}
@@ -132,17 +133,28 @@ jobs:
             echo "::error::Release bloqueado: confirmacao obrigatoria de e-mail nao homologada (ATRIO_EMAIL_VERIFICATION_RELEASE_APPROVED)."
             exit 1
           fi
-          # Nao assinar o release V2 sem servidor produtivo distinto do laboratorio.
-          # Um URL valido nao comprova que o servidor esta homologado: exige aceite
-          # separado da configuracao de release do repositorio.
-          if [[ "$ATRIO_GUARDIAN_V2_RELEASE_APPROVED" != "true" ]]; then
-            echo "::error::Release V2 bloqueado: falta aprovacao de integracao do backend (ATRIO_GUARDIAN_V2_RELEASE_APPROVED)."
-            exit 1
-          fi
-          if [[ "$ATRIO_GUARDIAN_V2_WORKER_URL" != "https://atrio-guardian-v2.atrio-catolico.workers.dev" ]]; then
-            echo "::error::Release V2 bloqueado: URL deve apontar para o gateway oficial do Guardião."
-            exit 1
-          fi
+          # Dois modos de moderacao explicitos. Nunca declarar V2 aprovado
+          # no modo humano: o APK desliga a conexao V2, mantendo denuncias
+          # e revisao humana via Firestore/ModerationScreen.
+          case "$ATRIO_RELEASE_MODERATION_MODE" in
+            guardian_v2)
+              if [[ "$ATRIO_GUARDIAN_V2_RELEASE_APPROVED" != "true" ]]; then
+                echo "::error::Release V2 bloqueado: falta aprovacao de integracao do backend (ATRIO_GUARDIAN_V2_RELEASE_APPROVED)."
+                exit 1
+              fi
+              if [[ "$ATRIO_GUARDIAN_V2_WORKER_URL" != "https://atrio-guardian-v2.atrio-catolico.workers.dev" ]]; then
+                echo "::error::Release V2 bloqueado: URL deve apontar para o gateway oficial do Guardião."
+                exit 1
+              fi
+              ;;
+            human)
+              echo "Release em modo de revisao humana; cliente Guardiao V2 desligado no APK."
+              ;;
+            *)
+              echo "::error::Modo de moderacao desconhecido: so human ou guardian_v2."
+              exit 1
+              ;;
+          esac
           # Garante que o APK oficial nao sera inferior ao B do piloto real.
           # A versao atual defaultConfig 0.20.1/code36 deve falhar ate
           # uma revisao/novo versionamento explicito, sem modificar o piloto.
@@ -172,12 +184,17 @@ jobs:
           # do Atrio. Rejeitar assinatura diferente da referencia oficial 0.20.0.
           python3 -m scripts.ota_release_cert \
             --apk "$RELEASE_APK" --android-sdk "$ANDROID_HOME"
+          # Atestado fica junto do APK assinado para que a etapa de publicacao
+          # confira exatamente o modo autorizado; nao inclui segredo algum.
+          printf '%s\n' "$ATRIO_RELEASE_MODERATION_MODE" > "app/build/outputs/apk/release/release-moderation-mode.txt"
       - name: Disponibilizar APK com assinatura permanente
         if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@v4
         with:
           name: atrio-catolico-release-assinado
-          path: app/build/outputs/apk/release/app-release.apk
+          path: |
+            app/build/outputs/apk/release/app-release.apk
+            app/build/outputs/apk/release/release-moderation-mode.txt
           if-no-files-found: error
           retention-days: 7
       - name: Disponibilizar APK
