@@ -106,6 +106,24 @@ internal fun OnlineAtrioApp(activity: androidx.activity.ComponentActivity) {
                 var verifiedThisSession by remember(user.uid) {
                     mutableStateOf(user.isEmailVerified)
                 }
+                // Ao entrar em outro aparelho, recuperar a pendência de uma
+                // conta V2 já provisionada. Contas antigas sem documento
+                // continuam seguindo a política de migração existente.
+                var remoteSignupPending by remember(user.uid) { mutableStateOf(false) }
+                DisposableEffect(db, user.uid, verifiedThisSession) {
+                    var active = true
+                    if (!verifiedThisSession) {
+                        db.document("users/${user.uid}/private/account")
+                            .get(com.google.firebase.firestore.Source.SERVER)
+                            .addOnCompleteListener { task ->
+                                if (active && task.isSuccessful) {
+                                    remoteSignupPending =
+                                        task.result?.getString("onboardingStatus") == "pending_email"
+                                }
+                            }
+                    } else remoteSignupPending = false
+                    onDispose { active = false }
+                }
                 DisposableEffect(db, user.uid, policyRetry) {
                     verificationPolicy = EmailVerificationPolicyAccess.CHECKING
                     val policy = db.document("app_config/email_verification")
@@ -136,7 +154,8 @@ internal fun OnlineAtrioApp(activity: androidx.activity.ComponentActivity) {
                 // A suíte legada do Firebase Emulator testa os bots sem exigir
                 // link de e-mail real. O fluxo novo é validado separadamente.
                 val justRegistered = !isolatedQa &&
-                    (registrationStarted || pendingRegistrationUid == user.uid)
+                    (registrationStarted || pendingRegistrationUid == user.uid ||
+                        remoteSignupPending)
                 // Uma conta recém-criada nunca salta a verificação por um
                 // switch administrativo ainda em fase de migração.
                 if (justRegistered && verifiedThisSession) {
