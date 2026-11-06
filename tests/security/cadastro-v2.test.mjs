@@ -66,7 +66,8 @@ try {
   await check('preferências de Padre/Diácono não criam selo',async()=>{
     const p=await assertSucceeds(getDoc(doc(verified,prefsPath)));
     assert.equal(p.data().participation,'Padre/Diácono');
-    await assertFails(getDoc(doc(verified,'admins/alice')));
+    const adminGrant=await assertSucceeds(getDoc(doc(verified,'admins/alice')));
+    assert.equal(adminGrant.exists(),false);
   });
   await check('terceiro não altera preferências',()=>
     assertFails(updateDoc(doc(stranger,prefsPath),{city:'Outro lugar'})));
