@@ -1,5 +1,10 @@
 package br.com.atriocatolico
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -9,6 +14,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
@@ -24,6 +30,20 @@ class DesignV2UiTest {
         compose.onNodeWithTag("atrio-forum-2").performClick()
         compose.runOnIdle { assertEquals("Vida espiritual", chosen) }
         compose.onNodeWithText("Vida Cristã").assertDoesNotExist()
+    }
+
+    @Test fun forumGridShowsTwoColumnsOnStandard360dpScreen() {
+        compose.setContent {
+            AtrioTheme {
+                Box(Modifier.width(360.dp).height(700.dp)) {
+                    CommunityScreen(emptyList()) {}
+                }
+            }
+        }
+        val first = compose.onNodeWithTag("atrio-forum-0").fetchSemanticsNode().boundsInRoot
+        val second = compose.onNodeWithTag("atrio-forum-1").fetchSemanticsNode().boundsInRoot
+        assertEquals("Fóruns devem ocupar a mesma linha", first.top, second.top, 1f)
+        assertTrue("Segunda coluna deve ficar à direita", second.left > first.left)
     }
 
     @Test fun searchingWithoutResultsShowsEmptySearchRatherThanNetworkError() {
