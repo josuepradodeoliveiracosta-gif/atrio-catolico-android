@@ -1,0 +1,44 @@
+name: OTA oficial HTTPS — auditoria de leitura, sem Release
+
+# Só executar manualmente. Não assina nem publica.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atrio-ota-official-https-readonly
+  cancel-in-progress: false
+
+jobs:
+  github-https-readonly:
+    if: >-
+      github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android' &&
+      github.ref == 'refs/heads/main' &&
+      github.actor == 'josuepradodeoliveiracosta-gif' &&
+      github.event_name == 'workflow_dispatch' &&
+      github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verificar contrato offline do canal HTTPS sem instalar nada
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts -p 'test_ota_official_https_probe.py' -v
+      - name: Consultar endpoint oficial público sem token e sem download
+        run: |
+          set -euo pipefail
+          python3 -m scripts.ota_official_https_probe --check-empty | tee "$GITHUB_STEP_SUMMARY"
+      - name: Explicitar alcance do teste
+        if: always()
+        run: |
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Limites da homologação" >> "$GITHUB_STEP_SUMMARY"
+          echo "Somente HTTPS/TLS da API pública, ausência de Release e contrato de metadados simulados." >> "$GITHUB_STEP_SUMMARY"
+          echo "Nenhum APK, manifesto de Release real ou redirect do CDN foi baixado." >> "$GITHUB_STEP_SUMMARY"
+          echo "Nenhuma assinatura, instalação, tag, upload ou publicação foi realizada." >> "$GITHUB_STEP_SUMMARY"
+          echo "O piloto de loopback em aparelho real não prova a distribuição por GitHub Releases." >> "$GITHUB_STEP_SUMMARY"
