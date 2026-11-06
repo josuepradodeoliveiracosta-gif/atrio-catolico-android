@@ -124,7 +124,7 @@ class ReleasePairPreflightTests(unittest.TestCase):
     def test_missing_file_is_refused(self):
         self.candidate.unlink()
         with self.assertRaisesRegex(PreflightError, "devem existir"):
-            self.verify()
+            self.verify(new_sha="a" * 64)
 
     def test_changed_during_android_inspection_is_refused(self):
         def changing_sdk(apk, _sdk):
