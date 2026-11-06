@@ -43,6 +43,7 @@ private fun DocumentSnapshot.toClergyRequest(): ClergyRequest? {
 internal fun ClergyBadgeReviewScreen(
     db: FirebaseFirestore, reviewerUid: String, onBack: () -> Unit
 ) {
+    val founderMode = LocalFounderUid.current == reviewerUid && reviewerUid.isNotBlank()
     var requests by remember(reviewerUid) { mutableStateOf<List<ClergyRequest>>(emptyList()) }
     var limit by remember(reviewerUid) { mutableStateOf(30) }
     var retry by remember(reviewerUid) { mutableStateOf(0) }
@@ -108,6 +109,7 @@ internal fun ClergyBadgeReviewScreen(
                     }, label = { Text("Aprovados") })
                 }
             }
+            if (founderMode) item { FounderModeratorBadgePanel(db, reviewerUid) }
             if (failed) item {
                 Text("Não foi possível consultar a fila. Confira sua permissão de administrador, " +
                     "a conexão e as regras publicadas no Firebase.", color = MaterialTheme.colorScheme.error)
