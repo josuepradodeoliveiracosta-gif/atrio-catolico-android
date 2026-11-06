@@ -68,6 +68,15 @@ internal fun OnlineAtrioApp(activity: androidx.activity.ComponentActivity) {
     val auth = remember { FirebaseAuth.getInstance() }
     val db = remember { FirebaseFirestore.getInstance() }
     var signedUser by remember { mutableStateOf(auth.currentUser) }
+    // Escopo local: somente contas NOVAS criadas neste fluxo de cadastro V2.
+    // Nunca impor onboarding retroativamente aos UIDs existentes.
+    val registrationPrefs = remember(activity) {
+        activity.getSharedPreferences("atrio-registration-v2", android.content.Context.MODE_PRIVATE)
+    }
+    var registrationStarted by rememberSaveable { mutableStateOf(false) }
+    var pendingRegistrationUid by remember {
+        mutableStateOf(registrationPrefs.getString("pendingUid", null))
+    }
 
     DisposableEffect(auth) {
         val listener = FirebaseAuth.AuthStateListener { signedUser = it.currentUser }
@@ -78,7 +87,13 @@ internal fun OnlineAtrioApp(activity: androidx.activity.ComponentActivity) {
     AtrioTheme {
         val user = signedUser
         if (user == null) {
-            OnlineAuthScreen(auth = auth, db = db)
+            OnlineAuthScreen(auth = auth, db = db,
+                onRegistrationStarted = { registrationStarted = true },
+                onRegistrationCreated = { uid ->
+                    pendingRegistrationUid = uid
+                    registrationPrefs.edit().putString("pendingUid", uid).apply()
+                },
+                onRegistrationFailed = { registrationStarted = false })
         } else {
             key(user.uid) {
                 // Seguranca de entrada: o cliente deve conhecer a politica do
@@ -90,6 +105,24 @@ internal fun OnlineAtrioApp(activity: androidx.activity.ComponentActivity) {
                 var policyRetry by remember(user.uid) { mutableIntStateOf(0) }
                 var verifiedThisSession by remember(user.uid) {
                     mutableStateOf(user.isEmailVerified)
+                }
+                // Ao entrar em outro aparelho, recuperar a pendência de uma
+                // conta V2 já provisionada. Contas antigas sem documento
+                // continuam seguindo a política de migração existente.
+                var remoteSignupPending by remember(user.uid) { mutableStateOf(false) }
+                DisposableEffect(db, user.uid, verifiedThisSession) {
+                    var active = true
+                    if (!verifiedThisSession) {
+                        db.document("users/${user.uid}/private/account")
+                            .get(com.google.firebase.firestore.Source.SERVER)
+                            .addOnCompleteListener { task ->
+                                if (active && task.isSuccessful) {
+                                    remoteSignupPending =
+                                        task.result?.getString("onboardingStatus") == "pending_email"
+                                }
+                            }
+                    } else remoteSignupPending = false
+                    onDispose { active = false }
                 }
                 DisposableEffect(db, user.uid, policyRetry) {
                     verificationPolicy = EmailVerificationPolicyAccess.CHECKING
@@ -111,11 +144,38 @@ internal fun OnlineAtrioApp(activity: androidx.activity.ComponentActivity) {
                     onDispose { policy.remove() }
                 }
                 val onGateSignOut: () -> Unit = {
+                    registrationStarted = false
                     BackgroundNoticeScheduler.disable(activity, user.uid)
                     PushRegistry.deactivate(activity, user.uid, db)
                     auth.signOut()
                 }
-                if (canEnterAtrioCommunity(verifiedThisSession, verificationPolicy)) {
+                val isolatedQa = BuildConfig.DEBUG &&
+                    com.google.firebase.FirebaseApp.getInstance().options.projectId == "demo-atrio-v11"
+                // A suíte legada do Firebase Emulator testa os bots sem exigir
+                // link de e-mail real. O fluxo novo é validado separadamente.
+                val justRegistered = !isolatedQa &&
+                    (registrationStarted || pendingRegistrationUid == user.uid ||
+                        remoteSignupPending)
+                // Uma conta recém-criada nunca salta a verificação por um
+                // switch administrativo ainda em fase de migração.
+                if (justRegistered && verifiedThisSession) {
+                    RegistrationOnboardingScreen(db, user.uid, onFinish = {
+                        db.document("users/${user.uid}/private/account")
+                            .update(mapOf(
+                                "onboardingStatus" to "complete",
+                                "updatedAt" to FieldValue.serverTimestamp()
+                            ))
+                        registrationStarted = false
+                        pendingRegistrationUid = null
+                        registrationPrefs.edit().remove("pendingUid").apply()
+                    })
+                } else if (justRegistered && !verifiedThisSession) {
+                    MandatoryEmailVerificationGate(
+                        uid = user.uid,
+                        onVerified = { verifiedThisSession = true },
+                        onSignOut = onGateSignOut
+                    )
+                } else if (canEnterAtrioCommunity(verifiedThisSession, verificationPolicy)) {
                     OnlineUserScreen(auth = auth, db = db, user = user)
                 } else if (verificationPolicy == EmailVerificationPolicyAccess.REQUIRED) {
                     MandatoryEmailVerificationGate(
@@ -144,19 +204,42 @@ internal fun OnlineAtrioApp(activity: androidx.activity.ComponentActivity) {
 }
 
 @Composable
-private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
+private fun OnlineAuthScreen(
+    auth: FirebaseAuth, db: FirebaseFirestore,
+    onRegistrationStarted: () -> Unit = {},
+    onRegistrationCreated: (String) -> Unit = {},
+    onRegistrationFailed: () -> Unit = {}
+) {
+    val isIsolatedQa = BuildConfig.DEBUG &&
+        com.google.firebase.FirebaseApp.getInstance().options.projectId == "demo-atrio-v11"
+    var entranceChosen by rememberSaveable { mutableStateOf(isIsolatedQa) }
     var registering by remember { mutableStateOf(false) }
     var displayName by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var confirmation by remember { mutableStateOf("") }
     var acceptedRules by remember { mutableStateOf(false) }
+    var acceptedTerms by remember { mutableStateOf(false) }
+    var acknowledgedPrivacy by remember { mutableStateOf(false) }
+    var legalDocument by remember { mutableStateOf("") }
     var showRules by remember { mutableStateOf(false) }
     var showPassword by remember { mutableStateOf(false) }
     var showConfirmation by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
     var resetInfo by remember { mutableStateOf("") }
+    BackHandler(enabled = entranceChosen && !isIsolatedQa && !busy) {
+        entranceChosen = false
+        error = ""
+    }
+
+    if (!entranceChosen) {
+        RegistrationWelcomeScreen(
+            onCreate = { registering = true; entranceChosen = true },
+            onLogin = { registering = false; entranceChosen = true }
+        )
+        return
+    }
 
     val emailValid = RegistrationPolicy.validEmail(email)
     val passwordIssue = if (registering && password.isNotEmpty())
@@ -164,7 +247,8 @@ private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
     val confirmationIssue = if (registering && confirmation.isNotEmpty())
         RegistrationPolicy.confirmProblem(password, confirmation) else null
     val ready = if (registering) {
-        RegistrationPolicy.ready(displayName, email, password, confirmation, acceptedRules)
+        RegistrationPolicy.ready(displayName, email, password, confirmation,
+            acceptedRules && (isIsolatedQa || (acceptedTerms && acknowledgedPrivacy)))
     } else emailValid && password.length >= 6 // Não bloquear senhas antigas no login.
 
     Column(
@@ -180,8 +264,12 @@ private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
         Spacer(Modifier.height(26.dp))
         Card(colors = CardDefaults.cardColors(containerColor = Paper), shape = RoundedCornerShape(20.dp)) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(if (registering) "Criar conta" else "Entrar na comunidade",
+                Text(if (registering) "Criar sua conta" else "Entrar na comunidade",
                     fontSize = 22.sp, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
+                if (registering) Text(
+                    "Passo 1 de 3 · Depois você confirmará seu e-mail. A personalização é opcional.",
+                    fontSize = 12.sp, color = Muted
+                )
                 if (registering) {
                     OutlinedTextField(displayName, { displayName = it.take(35) },
                         modifier = Modifier.fillMaxWidth().testTag("atrio-auth-name"),
@@ -247,9 +335,32 @@ private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
                         modifier = Modifier.testTag("atrio-auth-read-rules")) {
                         Text("Ler as Regras da Comunidade")
                     }
-                    Text("O cadastro utiliza Firebase Authentication. Antes da publicação na Google Play, " +
-                        "serão disponibilizados Termos de Uso, Política de Privacidade e solicitação de exclusão de conta. " +
-                        "O aceite acima refere-se somente às Regras da Comunidade.",
+                    // Documentos legais devem ser aprovados antes do Release.
+                    // A prévia serve ao teste do fluxo, não é declaração de
+                    // conformidade LGPD nem substitui parecer jurídico.
+                    TextButton(
+                        onClick = { legalDocument = "terms" },
+                        modifier = Modifier.fillMaxWidth().testTag("atrio-auth-read-terms")
+                    ) { Text("Ler condições de uso (prévia)") }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = acceptedTerms,
+                            onCheckedChange = { acceptedTerms = it },
+                            enabled = !busy, modifier = Modifier.testTag("atrio-auth-terms"))
+                        Text("Li e concordo com as condições de uso apresentadas.",
+                            fontSize = 13.sp)
+                    }
+                    TextButton(
+                        onClick = { legalDocument = "privacy" },
+                        modifier = Modifier.fillMaxWidth().testTag("atrio-auth-read-privacy")
+                    ) { Text("Ler informações de privacidade (prévia)") }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = acknowledgedPrivacy,
+                            onCheckedChange = { acknowledgedPrivacy = it },
+                            enabled = !busy, modifier = Modifier.testTag("atrio-auth-privacy"))
+                        Text("Li as informações de privacidade.", fontSize = 13.sp)
+                    }
+                    Text("As políticas completas, retenção de dados e bases legais ainda requerem " +
+                        "revisão antes do lançamento oficial. Preferências religiosas serão opcionais.",
                         fontSize = 11.sp, color = Muted, lineHeight = 15.sp)
                 }
                 if (error.isNotBlank()) {
@@ -266,13 +377,26 @@ private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
                         resetInfo = ""
                         if (registering) {
                             val publicName = displayName.trim()
+                            onRegistrationStarted()
                             auth.createUserWithEmailAndPassword(email.trim(), password)
                                 .addOnSuccessListener { result ->
                                     val created = result.user
                                     if (created == null) {
+                                        onRegistrationFailed()
                                         busy = false
                                         error = "Não foi possível concluir o cadastro. Tente novamente."
                                     } else {
+                                        onRegistrationCreated(created.uid)
+                                        // Registro mínimo no esquema V2; as Rules novas
+                                        // precisam de deploy separado antes de produção.
+                                        db.document("users/${created.uid}/private/account")
+                                            .set(mapOf(
+                                                "onboardingStatus" to "pending_email",
+                                                "profileVersion" to 2,
+                                                "noticesOptIn" to false,
+                                                "communityUpdates" to false,
+                                                "updatedAt" to FieldValue.serverTimestamp()
+                                            ))
                                         // E-mail enviado após a criação. O backend deve ser configurado
                                         // para impedir UGC não verificado antes de ativar exigência global.
                                         created.sendEmailVerification().addOnFailureListener {
@@ -302,6 +426,7 @@ private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
                                         }
                                     }
                                 }.addOnFailureListener { failure ->
+                                    onRegistrationFailed()
                                     busy = false
                                     error = registrationErrorMessage(failure)
                                 }
@@ -321,6 +446,9 @@ private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
                     password = ""
                     confirmation = ""
                     acceptedRules = false
+                    acceptedTerms = false
+                    acknowledgedPrivacy = false
+                    legalDocument = ""
                     error = ""
                     resetInfo = ""
                     showPassword = false
@@ -349,6 +477,41 @@ private fun OnlineAuthScreen(auth: FirebaseAuth, db: FirebaseFirestore) {
                     modifier = Modifier.fillMaxWidth())
             }
         }
+    }
+    if (legalDocument.isNotEmpty()) {
+        AlertDialog(
+            onDismissRequest = { legalDocument = "" },
+            title = {
+                Text(if (legalDocument == "terms") "Condições de uso — prévia"
+                    else "Privacidade — prévia")
+            },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    Text(
+                        if (legalDocument == "terms")
+                            "O Átrio Católico é uma comunidade de diálogo respeitoso. " +
+                                "Não publique conteúdo ilegal, dados privados de terceiros, " +
+                                "fraudes, ameaças ou material discriminatório. " +
+                                "Conteúdo e participantes podem ser denunciados e revisados " +
+                                "pela moderação. O uso não concede cargo religioso ou administrativo. " +
+                                "Este resumo necessita de revisão jurídica antes de um Release oficial."
+                        else
+                            "O cadastro utiliza Firebase Authentication e Firestore para " +
+                                "manter e proteger a conta. Nome de exibição e e-mail são necessários; " +
+                                "interesses, identificação religiosa, paróquia e cidade são opcionais " +
+                                "e privados por padrão. A pessoa pode corrigir ou apagar essas " +
+                                "preferências no perfil. Há um canal interno de solicitação de " +
+                                "exclusão de conta, atendida pela administração. Os períodos de " +
+                                "retenção, bases legais e a política completa devem ser revisados " +
+                                "antes de publicar o aplicativo.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { legalDocument = "" }) { Text("Fechar") }
+            }
+        )
     }
     if (showRules) {
         AlertDialog(

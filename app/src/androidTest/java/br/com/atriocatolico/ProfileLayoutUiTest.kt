@@ -69,8 +69,8 @@ class ProfileLayoutUiTest {
         compose.onNodeWithTag("atrio-ota-section").assertDoesNotExist()
         list.performScrollToNode(hasTestTag("atrio-profile-publications"))
         compose.onNodeWithTag("atrio-profile-publications").performClick()
-        list.performScrollToNode(hasText("Criar discussão"))
-        compose.onNodeWithText("Criar discussão").performClick()
+        list.performScrollToNode(hasTestTag("atrio-profile-create-discussion"))
+        compose.onNodeWithTag("atrio-profile-create-discussion").performClick()
         compose.runOnIdle { assertEquals("create", destination) }
     }
 
@@ -149,6 +149,47 @@ class ProfileLayoutUiTest {
         compose.onNodeWithText("Cancelar").performClick()
         compose.onNodeWithText("Descartar").performClick()
         compose.onNodeWithTag("atrio-profile-edit").assertExists()
+    }
+
+    @Test fun registrationWelcomeKeepsBothDestinationsAvailable() {
+        var selected = ""
+        compose.setContent {
+            AtrioTheme {
+                RegistrationWelcomeScreen(
+                    onCreate = { selected = "create" },
+                    onLogin = { selected = "login" }
+                )
+            }
+        }
+        compose.onNodeWithTag("atrio-welcome-create").assertExists().performClick()
+        compose.runOnIdle { assertEquals("create", selected) }
+        compose.onNodeWithTag("atrio-welcome-login").assertExists().performClick()
+        compose.runOnIdle { assertEquals("login", selected) }
+    }
+
+    @Test fun optionalOnboardingCanBeSkippedWithoutChoosingReligion() {
+        check(FirebaseApp.getInstance().options.projectId == "demo-atrio-v11")
+        compose.setContent {
+            AtrioTheme {
+                RegistrationOnboardingScreen(FirebaseFirestore.getInstance(),
+                    uid = "qa-onboarding-skippable", onFinish = {})
+            }
+        }
+        compose.onNodeWithTag("atrio-onboarding-save").assertIsNotEnabled()
+        // O formulário comprido deixa Pular abaixo da área visível no
+        // emulador pequeno. Um performClick sem rolagem toca fora da tela.
+        // Exercitar o toque real: rolar, verificar visibilidade e clicar.
+        compose.onNodeWithTag("atrio-onboarding-skip")
+            .performScrollTo().assertIsDisplayed().assertIsEnabled().performClick()
+        // Esperar a composição da próxima etapa, não assumir que a árvore
+        // semântica mudou no mesmo instante do clique.
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithTag("atrio-onboarding-enter")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("atrio-onboarding-enter").assertIsEnabled()
+        compose.onNodeWithTag("atrio-onboarding-skip").assertDoesNotExist()
+        compose.onNodeWithTag("atrio-onboarding-save").assertDoesNotExist()
     }
 
     private fun screenshot(name: String) {

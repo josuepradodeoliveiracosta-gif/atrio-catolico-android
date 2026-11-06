@@ -169,9 +169,15 @@ internal fun OnlineProfileScreen(
                         color = Muted, style = MaterialTheme.typography.bodyMedium)
                 }
                 if (mine.isEmpty()) item {
-                    Text("Nenhuma publicação sua nesta lista. Busque mais discussões ou inicie uma conversa.",
-                        color = Muted, style = MaterialTheme.typography.bodyMedium)
-                    OutlinedButton(onClick = onCreate) { Text("Criar discussão") }
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Nenhuma publicação sua nesta lista. Busque mais discussões ou inicie uma conversa.",
+                            color = Muted, style = MaterialTheme.typography.bodyMedium)
+                        OutlinedButton(onClick = onCreate,
+                            modifier = Modifier.heightIn(min = 48.dp)
+                                .testTag("atrio-profile-create-discussion")) {
+                            Text("Criar discussão")
+                        }
+                    }
                 }
                 items(mine, key = { "profile-post-${it.id}" }) { DiscussionCard(it, onOpen, onLike, onSave) }
                 item { publicationsFooter() }
@@ -204,6 +210,9 @@ internal fun OnlineProfileScreen(
                         Text("Seu e-mail é privado. Sua apresentação só fica pública após sua autorização.",
                             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         EmailVerificationPanel(uid)
+                        Text("Personalização opcional", color = Wine,
+                            style = MaterialTheme.typography.titleMedium)
+                        RegistrationOptionalPreferences(db = db, uid = uid, firstAccess = false)
                         OutlinedButton(onClick = onSignOut,
                             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                                 .testTag("atrio-profile-signout")) {
