@@ -281,9 +281,16 @@ internal fun RegistrationOnboardingScreen(
     LaunchedEffect(db, uid) {
         db.collection("profiles").document(uid).get(Source.SERVER)
             .addOnCompleteListener { result ->
-                val validNameLength = result.result?.getString("displayName")
-                    ?.trim()?.length ?: 0
-                profileSaved = result.isSuccessful && validNameLength in 2..35
+                // Task.result lança RuntimeExecutionException se a leitura falhar.
+                // Em uma sessão nova ou sem acesso ao servidor, o onboarding
+                // deve seguir oferecendo "Continuar", sem derrubar o app.
+                if (!result.isSuccessful) {
+                    profileSaved = false
+                } else {
+                    val validNameLength = result.result?.getString("displayName")
+                        ?.trim()?.length ?: 0
+                    profileSaved = validNameLength in 2..35
+                }
             }
     }
     Column(
