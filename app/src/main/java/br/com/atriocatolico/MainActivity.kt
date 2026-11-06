@@ -336,7 +336,7 @@ private fun WelcomeScreen(onEnter: (String) -> Unit) {
                 Text("✝", fontSize = 40.sp, color = Gold, fontFamily = FontFamily.Serif)
             }
             Spacer(Modifier.height(36.dp))
-            Text("BEM-VINDO AO ÁTRIO CATÓLICO", color = Gold, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+            Text("BEM-VINDO AO ÁTRIO CATÓLICO", color = Gold, fontSize = AtrioType.compact, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
             Spacer(Modifier.height(14.dp))
             Text("Uma comunidade.\nUma só fé.", color = Color.White, fontSize = 39.sp, lineHeight = 45.sp, fontFamily = FontFamily.Serif)
             Spacer(Modifier.height(20.dp))
@@ -349,7 +349,7 @@ private fun WelcomeScreen(onEnter: (String) -> Unit) {
             Column(Modifier.padding(20.dp)) {
                 Text("Vamos começar?", fontFamily = FontFamily.Serif, fontSize = 23.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(7.dp))
-                Text("Escolha um nome para a demonstração. Não é necessário criar conta.", fontSize = 12.sp, color = Muted, lineHeight = 19.sp)
+                Text("Escolha um nome para a demonstração. Não é necessário criar conta.", fontSize = AtrioType.secondary, color = Muted, lineHeight = AtrioType.secondaryLine)
                 Spacer(Modifier.height(10.dp))
                 OutlinedTextField(nickname, { if (it.length <= 35) nickname = it },
                     modifier = Modifier.fillMaxWidth().testTag("atrio-welcome-name"),
@@ -440,7 +440,7 @@ internal fun AtrioBottomBar(selected: Tab, onSelect: (Tab) -> Unit) {
             NavigationBarItem(
                 selected = selected == tab, onClick = { onSelect(tab) },
                 modifier = Modifier.testTag("atrio-tab-${tab.name.lowercase()}"),
-                icon = { Icon(icon, contentDescription = null, modifier = Modifier.graphicsLayer { alpha = opacity }) }, label = { Text(tab.label, fontSize = 11.sp) },
+                icon = { Icon(icon, contentDescription = null, modifier = Modifier.graphicsLayer { alpha = opacity }) }, label = { Text(tab.label, fontSize = AtrioType.compact) },
                 colors = NavigationBarItemDefaults.colors(
                     selectedIconColor = if (tab == Tab.PROFILE) Color.White else Wine,
                     selectedTextColor = Wine,
@@ -487,30 +487,30 @@ internal fun DiscussionCard(post: Post, onOpen: (String) -> Unit, onLike: (Strin
                 MemberAvatar(post.author, post.ownerUid)
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(post.author, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Text(post.author, fontSize = AtrioType.author, fontWeight = FontWeight.Bold)
                     MemberBadgeRow(post.ownerUid)
-                    Text("${post.category} · ${post.age}", fontSize = 11.sp, color = Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("${post.category} · ${post.age}", fontSize = AtrioType.compact, color = Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
             Spacer(Modifier.height(14.dp))
-            Text(post.title, fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.Bold)
+            Text(post.title, fontSize = 18.sp, lineHeight = 25.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(7.dp))
-            Text(post.body, color = Color(0xFF68625E), fontSize = 13.sp, lineHeight = 20.sp, maxLines = if (fullText) Int.MAX_VALUE else 5, overflow = TextOverflow.Ellipsis)
+            Text(post.body, color = Color(0xFF68625E), fontSize = AtrioType.reading, lineHeight = AtrioType.readingLine, maxLines = if (fullText) Int.MAX_VALUE else 5, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(10.dp))
-            Surface(color = WineSoft, shape = RoundedCornerShape(7.dp)) { Text(post.category, color = Wine, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) }
+            Surface(color = WineSoft, shape = RoundedCornerShape(7.dp)) { Text(post.category, color = Wine, fontSize = AtrioType.compact, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) }
             Spacer(Modifier.height(13.dp))
             HorizontalDivider(color = Line)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = { onLike(post.id) }, modifier = Modifier.testTag("atrio-like-${post.id}")) {
                     Icon(if (post.liked) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder, "Curtir", tint = if (post.liked) Wine else Muted, modifier = Modifier.size(20.dp))
                 }
-                Text(if (post.remote) "Curtir" else post.likes.toString(), color = if (post.liked) Wine else Muted, fontSize = 12.sp)
+                Text(if (post.remote) "Curtir" else post.likes.toString(), color = if (post.liked) Wine else Muted, fontSize = AtrioType.secondary)
                 if (!fullText) {
                     IconButton(onClick = { onOpen(post.id) }) {
                         Icon(Icons.Outlined.ChatBubbleOutline, "Respostas", tint = Muted, modifier = Modifier.size(20.dp))
                     }
                     Text(if (post.remote) "Ver respostas" else "${post.replies.size} respostas",
-                        color = Muted, fontSize = 12.sp)
+                        color = Muted, fontSize = AtrioType.secondary)
                 }
                 Spacer(Modifier.weight(1f))
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -536,7 +536,7 @@ internal fun DiscussionCard(post: Post, onOpen: (String) -> Unit, onLike: (Strin
                             else -> "Salvar"
                         },
                         color = if (post.saved) Wine else Muted,
-                        fontSize = 11.sp,
+                        fontSize = AtrioType.compact,
                         modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
                     )
                 }
@@ -560,11 +560,11 @@ internal fun HomeScreen(name: String, posts: List<Post>, filter: String, search:
         item {
             Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Brush.horizontalGradient(listOf(Wine, Color(0xFF824657)))).padding(24.dp)) {
                 Column {
-                    Text("COMUNIDADE CATÓLICA", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.5.sp)
+                    Text("COMUNIDADE CATÓLICA", color = Color.White, fontWeight = FontWeight.Bold, fontSize = AtrioType.compact, letterSpacing = 1.5.sp)
                     Spacer(Modifier.height(9.dp))
                     Text("Paz e bem, ${name.substringBefore(' ')}!", color = Color.White, fontFamily = FontFamily.Serif, fontSize = 27.sp)
                     Spacer(Modifier.height(7.dp))
-                    Text("Um lugar para ouvir, aprender e crescer juntos na fé.", color = Color(0xFFF4DCE4), fontSize = 13.sp, lineHeight = 19.sp)
+                    Text("Um lugar para ouvir, aprender e crescer juntos na fé.", color = Color(0xFFF4DCE4), fontSize = AtrioType.secondary, lineHeight = AtrioType.secondaryLine)
                 }
             }
         }
@@ -572,7 +572,7 @@ internal fun HomeScreen(name: String, posts: List<Post>, filter: String, search:
             Surface(onClick = onCreate, color = Color.White, shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, Line)) {
                 Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                     Avatar(name); Spacer(Modifier.width(12.dp))
-                    Text("O que você gostaria de compartilhar?", color = Muted, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                    Text("O que você gostaria de compartilhar?", color = Muted, fontSize = AtrioType.secondary, modifier = Modifier.weight(1f))
                     Icon(Icons.Outlined.Add, null, tint = Wine)
                 }
             }
@@ -580,7 +580,7 @@ internal fun HomeScreen(name: String, posts: List<Post>, filter: String, search:
         item {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 SectionTitle("Em conversa", Modifier.weight(1f))
-                TextButton(onClick = onForums) { Text("Ver fóruns →", color = Wine, fontSize = 12.sp) }
+                TextButton(onClick = onForums) { Text("Ver fóruns →", color = Wine, fontSize = AtrioType.secondary) }
             }
         }
         item {
@@ -679,7 +679,7 @@ internal fun CommunityScreen(posts: List<Post>, onChoose: (String) -> Unit) {
                         val count = posts.count { it.category == cat }
                         Text(
                             "$count " + if (count == 1) "discussão" else "discussões",
-                            color = Muted, fontSize = 11.sp, textAlign = TextAlign.Center
+                            color = Muted, fontSize = AtrioType.compact, textAlign = TextAlign.Center
                         )
                     }
                 }
@@ -696,17 +696,17 @@ internal fun PublishScreen(publishing: Boolean = false, onPublish: (String, Stri
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(17.dp)) {
         SectionTitle("Nova discussão")
         Spacer(Modifier.height(7.dp))
-        Text("Uma boa pergunta pode abrir uma grande conversa.", fontSize = 13.sp, color = Muted)
+        Text("Uma boa pergunta pode abrir uma grande conversa.", fontSize = AtrioType.secondary, color = Muted)
         Spacer(Modifier.height(16.dp))
         OutlinedTextField(value = title, onValueChange = { if (it.length <= 120) title = it },
             modifier = Modifier.fillMaxWidth().testTag("atrio-publish-title"), label = { Text("Título da publicação") }, placeholder = { Text("Sobre o que deseja conversar?") })
         Spacer(Modifier.height(16.dp))
-        Text("Escolha um assunto", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Text("Escolha um assunto", fontSize = AtrioType.secondary, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(6.dp))
         categories.chunked(2).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 row.forEach { (cat, _) ->
-                    FilterChip(selected = category == cat, onClick = { category = cat }, label = { Text(cat, fontSize = 11.sp) })
+                    FilterChip(selected = category == cat, onClick = { category = cat }, label = { Text(cat, fontSize = AtrioType.compact) })
                 }
             }
         }
@@ -715,9 +715,9 @@ internal fun PublishScreen(publishing: Boolean = false, onPublish: (String, Stri
             modifier = Modifier.fillMaxWidth().heightIn(min = 180.dp).testTag("atrio-publish-body"),
             label = { Text("Sua reflexão ou pergunta") },
             placeholder = { Text("Compartilhe sua dúvida ou experiência com respeito...") }, minLines = 5)
-        Text("${body.length}/1200", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.End, color = Muted, fontSize = 11.sp)
+        Text("${body.length}/1200", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.End, color = Muted, fontSize = AtrioType.compact)
         Spacer(Modifier.height(13.dp))
-        Text("🕊️ Seja cordial, evite dados pessoais sensíveis e respeite as regras da comunidade.", color = Muted, fontSize = 12.sp, lineHeight = 19.sp)
+        Text("🕊️ Seja cordial, evite dados pessoais sensíveis e respeite as regras da comunidade.", color = Muted, fontSize = AtrioType.secondary, lineHeight = AtrioType.secondaryLine)
         Spacer(Modifier.height(18.dp))
         // A confirmação pode ser adiada pelo Guardião ou falhar na rede.
         // O envio bem-sucedido sai desta tela e descarta o rascunho.
@@ -760,7 +760,7 @@ private fun ProfileScreen(name: String, posts: List<Post>, onRename: () -> Unit,
                 Avatar(name, Modifier.size(78.dp))
                 Spacer(Modifier.height(9.dp))
                 Text(name, fontFamily = FontFamily.Serif, fontSize = 23.sp, fontWeight = FontWeight.Bold)
-                Text("Membro da comunidade Átrio", fontSize = 12.sp, color = Muted)
+                Text("Membro da comunidade Átrio", fontSize = AtrioType.secondary, color = Muted)
                 Spacer(Modifier.height(8.dp))
                 OutlinedButton(onClick = onRename, modifier = Modifier.testTag("atrio-profile-rename")) { Text("Editar nome") }
             }
@@ -778,7 +778,7 @@ private fun ProfileScreen(name: String, posts: List<Post>, onRename: () -> Unit,
         if (mine.isEmpty()) item { EmptyState("✍️", "Sua voz faz diferença", "Compartilhe uma dúvida ou reflexão com a comunidade.", "Escrever agora", onCreate) }
         items(mine, key = { it.id }) { p -> DiscussionCard(p, onOpen, onLike, onSave) }
         item {
-            Text("🔐 Esta versão é uma demonstração. Os dados ficam somente neste dispositivo; não existem contas reais nem servidor.", fontSize = 12.sp, color = Muted, lineHeight = 19.sp)
+            Text("🔐 Esta versão é uma demonstração. Os dados ficam somente neste dispositivo; não existem contas reais nem servidor.", fontSize = AtrioType.secondary, color = Muted, lineHeight = AtrioType.secondaryLine)
             TextButton(onClick = { confirmReset = true }) { Text("Reiniciar demonstração") }
         }
     }
@@ -792,7 +792,7 @@ private fun ProfileScreen(name: String, posts: List<Post>, onRename: () -> Unit,
 private fun Statistic(value: String, label: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(value, fontSize = 19.sp, color = Wine, fontWeight = FontWeight.Bold)
-        Text(label, fontSize = 11.sp, color = Muted)
+        Text(label, fontSize = AtrioType.compact, color = Muted)
     }
 }
 
@@ -804,7 +804,7 @@ internal fun EmptyState(emoji: String, title: String, description: String, butto
         Spacer(Modifier.height(8.dp))
         Text(title, fontSize = 21.sp, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, color = Wine)
         Spacer(Modifier.height(7.dp))
-        Text(description, fontSize = 13.sp, color = Muted, textAlign = TextAlign.Center, lineHeight = 19.sp)
+        Text(description, fontSize = AtrioType.secondary, color = Muted, textAlign = TextAlign.Center, lineHeight = AtrioType.secondaryLine)
         Spacer(Modifier.height(16.dp))
         OutlinedButton(onClick = action) { Text(button) }
     }
