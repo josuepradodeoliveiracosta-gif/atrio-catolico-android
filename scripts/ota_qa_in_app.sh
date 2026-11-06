@@ -240,12 +240,28 @@ case "${1:-}" in
       echo "::error::Dados gravados no app nao foram preservados pelo upgrade" >&2
       exit 1
     }
-    installed=$(adb shell dumpsys package "$PACKAGE" | grep -m 1 'versionCode=' || :)
-    echo "$installed" | grep -Eq 'versionCode=35([[:space:]]|$)' || {
-      echo "::error::Android nao confirmou QA versionCode=35" >&2
+    # O gerador de fixtures grava o versionCode real após validar a assinatura
+    # e a progressão. Nunca aceitar um número fixo que fique obsoleto a cada Debug.
+    [[ -s "$OUT/old-code.txt" && -s "$OUT/new-code.txt" ]] || {
+      echo "::error::VersionCodes validados das fixtures ausentes" >&2
       exit 1
     }
-    echo "PASSOU: OTA no app, rejeicao de hash/certificado/downgrade/offline/truncado/cancelado/sem-espaco/adulteracao-pos-download e retentativa segura, cache parcial limpo no reinicio, consulta 503 recuperada, redirects externos/circulares bloqueados e dados da UI preservados em code 34 -> 35."
+    old_code=$(cat "$OUT/old-code.txt")
+    expected_code=$(cat "$OUT/new-code.txt")
+    [[ "$old_code" =~ ^[0-9]+$ && "$expected_code" =~ ^[0-9]+$ ]] || {
+      echo "::error::VersionCodes inválidos nas fixtures de QA" >&2
+      exit 1
+    }
+    (( expected_code == old_code + 1 )) || {
+      echo "::error::VersionCode de destino não é sucessor do anterior" >&2
+      exit 1
+    }
+    installed=$(adb shell dumpsys package "$PACKAGE" | grep -m 1 'versionCode=' || :)
+    echo "$installed" | grep -Eq "versionCode=${expected_code}([[:space:]]|$)" || {
+      echo "::error::Android não confirmou QA versionCode=$expected_code" >&2
+      exit 1
+    }
+    echo "PASSOU: OTA no app, rejeição de hash/certificado/downgrade/offline/truncado/cancelado/sem-espaço/adulteração pós-download e retentativa segura; cache parcial limpo, consulta 503 recuperada, redirects externos/circulares bloqueados e dados da UI preservados em code $old_code -> $expected_code."
     ;;
   *)
     echo "Uso: bash scripts/ota_qa_in_app.sh prepare|emulator" >&2
