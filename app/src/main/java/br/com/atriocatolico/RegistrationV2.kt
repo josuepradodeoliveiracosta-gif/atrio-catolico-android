@@ -277,6 +277,14 @@ internal fun RegistrationOnboardingScreen(
     db: FirebaseFirestore, uid: String, onFinish: () -> Unit
 ) {
     var confirmed by rememberSaveable(uid) { mutableStateOf(false) }
+    var profileSaved by remember(uid) { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(db, uid) {
+        db.collection("profiles").document(uid).get(Source.SERVER)
+            .addOnCompleteListener { result ->
+                profileSaved = result.isSuccessful &&
+                    result.result?.getString("displayName")?.trim()?.length in 2..35
+            }
+    }
     Column(
         Modifier.fillMaxSize().background(Paper).verticalScroll(rememberScrollState())
             .padding(horizontal = 24.dp, vertical = 24.dp)
@@ -293,18 +301,26 @@ internal fun RegistrationOnboardingScreen(
                 onContinue = { confirmed = true }
             )
         } else {
-            Text("Cadastro concluído!", color = Wine,
-                fontSize = 26.sp, fontWeight = FontWeight.Bold)
-            Text("Seu e-mail foi confirmado. Bem-vindo(a) à comunidade! " +
-                "Você pode atualizar seus interesses ou sua apresentação mais tarde.",
-                color = Ink, style = MaterialTheme.typography.bodyLarge)
+            if (profileSaved == true) {
+                Text("Cadastro concluído!", color = Wine,
+                    fontSize = 26.sp, fontWeight = FontWeight.Bold)
+                Text("Seu e-mail foi confirmado e seu nome público está salvo. " +
+                    "Bem-vindo(a) à comunidade! Você poderá editar seus interesses depois.",
+                    color = Ink, style = MaterialTheme.typography.bodyLarge)
+            } else {
+                Text("E-mail confirmado", color = Wine,
+                    fontSize = 26.sp, fontWeight = FontWeight.Bold)
+                Text("Não foi possível confirmar seu nome público no servidor. " +
+                    "Você poderá concluí-lo na próxima tela, sem perder a conta.",
+                    color = Ink, style = MaterialTheme.typography.bodyLarge)
+            }
             Button(
                 onClick = onFinish,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                     .testTag("atrio-onboarding-enter"),
                 colors = ButtonDefaults.buttonColors(containerColor = Wine),
                 shape = RoundedCornerShape(14.dp)
-            ) { Text("Entrar no Átrio") }
+            ) { Text(if (profileSaved == true) "Entrar no Átrio" else "Continuar") }
         }
     }
 }
