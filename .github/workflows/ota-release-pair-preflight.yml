@@ -103,6 +103,7 @@ jobs:
         run: sdkmanager 'build-tools;35.0.0'
       - name: Comparar os dois APKs com certificado oficial imutavel
         run: |
+          set -euo pipefail
           python3 - <<'PY' | tee "$GITHUB_STEP_SUMMARY"
           import os, subprocess, sys
           from pathlib import Path
