@@ -127,6 +127,7 @@ android {
             matchingFallbacks += listOf("release")
             buildConfigField("boolean", "OTA_QA_LOOPBACK", "false")
             buildConfigField("boolean", "OTA_RELEASE_PILOT_LOOPBACK", "true")
+            buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"$atrioPilotName\"")
             signingConfigs.findByName("atrioRelease")?.let { signingConfig = it }
         }
     }
