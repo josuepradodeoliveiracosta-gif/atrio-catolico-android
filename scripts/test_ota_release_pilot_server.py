@@ -31,7 +31,7 @@ class PrivateReleasePilotTests(unittest.TestCase):
     def sha(self):
         return hashlib.sha256(self.apk.read_bytes()).hexdigest()
 
-    def prepare(self, *, metadata=None, sha=None, base_code=36, minimum=b"26"):
+    def prepare(self, *, metadata=None, sha=None, base_code=36, minimum="26"):
         with patch.object(pilot, "inspect_apk", return_value=metadata or self.metadata), \
              patch.object(pilot.subprocess, "check_output", return_value=minimum):
             return pilot.prepare_offer(
@@ -77,9 +77,9 @@ class PrivateReleasePilotTests(unittest.TestCase):
 
     def test_rejects_old_android_sdk(self):
         with self.assertRaisesRegex(PreflightError, "minSdk"):
-            self.prepare(minimum=b"23")
+            self.prepare(minimum="23")
         with self.assertRaisesRegex(PreflightError, "minSdk"):
-            self.prepare(minimum=b"invalid")
+            self.prepare(minimum="invalid")
 
     def test_server_only_serves_immutable_fixed_paths(self):
         release, manifest = self.prepare()
