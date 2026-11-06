@@ -20,10 +20,14 @@ O workflow manual `ota-apk-preflight.yml` executa essa proteção adicional quan
 
 ## Homologação ainda necessária
 
-1. Preparar candidato de teste **autorizado** com mesmo pacote e certificado permanente e `versionCode >35`, sem contornar por CI os gates existentes. A autorização de homologação não ativa as flags de distribuição.
-2. Verificar no aparelho Android físico versão antiga e candidato, certificados e SHA-256, e realizar todo o fluxo **dentro do Átrio**: procurar atualização, baixar, validar, abrir o instalador, permitir esta origem quando necessário, confirmar e instalar por cima. **Não desinstalar**.
-3. Confirmar após reabrir o app a preservação de login, preferências e dados locais não sensíveis. Testar rede indisponível, cancelamento, erro de hash, assinatura distinta, downgrade, permissão recusada e espaço insuficiente real.
-4. Registrar evidências sanitizadas (versões, aparelho, Android API, resultado, sem credenciais). Conferir manifesto de `update.json` e APK exatamente iguais ao candidato testado, antes de divulgar qualquer canal externo.
-5. Solicitar aprovação **separada** de publicação após provas aprovadas; só então revisar `ATRIO_OTA_E2E_TESTED`, `ATRIO_OTA_RELEASE_APPROVED` e os bloqueios independentes de Guardião V2/e-mail.
+1. **O 0.20.0 é exclusivamente a referência histórica de assinatura**: o commit `fcf063e835c37ca1e3f9363a56a4232d30cb8ea0` que gerou esse APK ainda não contém `OtaReleaseClient.kt` ou `OtaUpdatesSection.kt`. Portanto, é impossível homologar uma atualização **iniciada dentro do 0.20.0**.
+2. Preparar, sob procedimento específico autorizado e auditável, **duas versões posteriores** com OTA incorporado, mesmo pacote `br.com.atriocatolico`, mesmo certificado permanente, e `versionCode` crescente (por exemplo, versão-base A = `0.20.1/code36`, atualização B = versão posterior `code37`). Nenhum gate de assinatura/distribuição será contornado automaticamente. A autorização de homologação não ativa as flags de publicação.
+3. Verificar os dois APKs com `apksigner` e `apkanalyzer`. Instalar a versão A uma única vez pelo procedimento convencional, **sem desinstalar o Átrio oficial existente**, e verificar sessão e dados. Então realizar A → B **dentro do Átrio**: procurar atualização, baixar, validar, abrir o instalador, permitir esta origem quando necessário, confirmar e instalar por cima. Depois de A instalada, **não desinstalar**.
+4. Confirmar após reabrir o app a preservação de login, preferências e dados locais não sensíveis. Testar rede indisponível, cancelamento, erro de hash, assinatura distinta, downgrade, permissão recusada e espaço insuficiente real.
+5. Registrar evidências sanitizadas (versões, aparelho, Android API, resultado, sem credenciais). Conferir manifesto de `update.json` e APK exatamente iguais ao candidato testado, antes de divulgar qualquer canal externo.
+6. Solicitar aprovação **separada** de publicação após provas aprovadas; só então revisar `ATRIO_OTA_E2E_TESTED`, `ATRIO_OTA_RELEASE_APPROVED` e os bloqueios independentes de Guardião V2/e-mail.
+
+
+**Importante sobre o canal:** o código OTA oficial atual consulta exclusivamente GitHub Releases público/estável; rascunhos ou pré-releases não são oferecidos. A prova A → B em ambiente controlado precisa de um canal técnico isolado e confiável que **não antecipe uma publicação pública**, além de política de assinatura compatível. A inexistência desse canal é um bloqueio de engenharia, não uma autorização para enfraquecer HTTPS, assinatura ou gates.
 
 **Estado:** referência histórica auditada; ausência de candidato mais novo e de prova física oficial impede concluir homologação. Nenhum release assinado, GitHub Release, keystore, backup, Firebase ou Cloudflare de produção é alterado por esta etapa.
