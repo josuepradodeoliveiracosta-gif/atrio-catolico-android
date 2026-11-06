@@ -32,6 +32,17 @@ class DesignV2UiTest {
         compose.onNodeWithText("Vida Cristã").assertDoesNotExist()
     }
 
+    @Test fun forumCategoryRetainsItsDiscussionCount() {
+        val post = Post(
+            "count-check", "Maria", "Vida espiritual", "hoje",
+            "Uma pergunta sobre a oração", "Vamos conversar sobre oração."
+        )
+        compose.setContent {
+            AtrioTheme { CommunityScreen(listOf(post)) {} }
+        }
+        compose.onNodeWithText("1 discussão").assertExists()
+    }
+
     @Test fun forumGridShowsTwoColumnsOnStandard360dpScreen() {
         compose.setContent {
             AtrioTheme {
