@@ -5,6 +5,8 @@ consolidado de 05/11/2026. A **especificação escrita prevalece** sobre as
 ilustrações e textos fictícios. Este registro descreve somente a branch
 `design/atrio-v2-compose-20261106`, não um APK já publicado.
 
+Protótipo editável complementar no Figma: [Átrio Católico — Design v2](https://www.figma.com/design/NFAFLpop668Ms2od7l0Wzg). Inclui Início, Fóruns, Perfil e storyboard das quatro interações. As telas e transições são conceituais; aprovação técnica depende do APK Android.
+
 ## Proteção da versão oficial
 
 - Base: `main` em `41d6a219a458bdd5ba43d0d5be7f304368a4a7bd`,
