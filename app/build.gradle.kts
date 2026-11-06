@@ -117,6 +117,12 @@ android {
         getByName("release") {
             buildConfigField("boolean", "OTA_QA_LOOPBACK", "false")
             buildConfigField("boolean", "OTA_RELEASE_PILOT_LOOPBACK", "false")
+            // Modo publico com moderacao humana: nao conectar o APK ao
+            // gateway Guardiao V2 nao homologado. Denuncias e painel de
+            // moderacao humana no Firestore permanecem disponiveis.
+            if (System.getenv("ATRIO_RELEASE_MODERATION_MODE") == "human") {
+                buildConfigField("String", "GUARDIAN_V2_WORKER_URL", "\"\"")
+            }
             signingConfigs.findByName("atrioRelease")?.let { signingConfig = it }
         }
         create("otaPilot") {
