@@ -250,7 +250,10 @@
           && request.resource.data.status == 'pending'
           && request.resource.data.createdAt == request.time
           && request.resource.data.updatedAt == request.time
-          && chatNoBlock(request.auth.uid, inviteeUid)
+          // O destinatário nunca recebe convite de quem bloqueou.
+          // O bloqueio inverso é revalidado no ACEITE, para economizar
+          // leituras de regras na simples criação de convite.
+          && !exists(/databases/$(database)/documents/users/$(inviteeUid)/blockedMembers/$(request.auth.uid))
           && atrioGroupAcceptedContact(request.auth.uid, inviteeUid);
         allow update: if atrioGroupsEnabled()
           && atrioGroupEligible(request.auth.uid)
@@ -274,7 +277,7 @@
             (atrioGroupAdmin(groupId) && resource.data.status in ['declined','accepted']
               && !(inviteeUid in get(atrioGroupPath(groupId)).data.memberUids)
               && request.resource.data.status == 'pending'
-              && chatNoBlock(request.auth.uid, inviteeUid)
+              && !exists(/databases/$(database)/documents/users/$(inviteeUid)/blockedMembers/$(request.auth.uid))
               && atrioGroupAcceptedContact(request.auth.uid,inviteeUid))
           );
         allow delete: if false;
