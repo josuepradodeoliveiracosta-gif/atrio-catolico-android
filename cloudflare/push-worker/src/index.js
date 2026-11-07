@@ -243,7 +243,7 @@ export async function resolveEvent(event, actor, token) {
     const chat = await firestoreGet(token,'chats/'+enc(event.chatId));
     const msg = await firestoreGet(token,'chats/'+enc(event.chatId)+'/messages/'+enc(event.messageId));
     if (!chat || !msg || stringField(msg,'uid') !== actor ||
-        stringField(msg,'kind') !== 'text' ||
+        !['text','post'].includes(stringField(msg,'kind')) ||
         !recent(timeField(msg,'createdAt'))) return null;
     const requester = stringField(chat,'requesterUid');
     const recipient = stringField(chat,'recipientUid');
