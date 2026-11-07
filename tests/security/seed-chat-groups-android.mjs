@@ -22,8 +22,8 @@ if(!rulesBase.includes(marker) || !fragmentDm.includes('function chatEnabled()')
 for(const base of [authBase,firestoreBase]){
   const url=new URL(base);
   if(url.hostname!=='127.0.0.1') throw Error('Seed remoto proibido.');
-  const res=await fetch(base,{signal:AbortSignal.timeout(3000)});
-  if(!res.ok) throw Error('Emulador local indisponível: '+base);
+  await fetch(base,{signal:AbortSignal.timeout(3000)});
+  // O endpoint raiz dos emuladores pode devolver 404 e ainda estar ativo.
 }
 
 const password='GrupoQa2026!Emulador';
