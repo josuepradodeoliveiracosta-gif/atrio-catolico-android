@@ -760,6 +760,18 @@ private fun OnlineCommunity(
     var publicProfileTarget by remember(uid) { mutableStateOf<PublicMemberTarget?>(null) }
     var conversationsOpen by remember(uid) { mutableStateOf(false) }
     var conversationTarget by remember(uid) { mutableStateOf<PublicMemberTarget?>(null) }
+    var notificationChatId by remember(uid) { mutableStateOf<String?>(null) }
+    val incomingChat = AtrioChatNavigation.requested
+    LaunchedEffect(uid, incomingChat) {
+        if (incomingChat != null) {
+            if (incomingChat.uid == uid) {
+                notificationChatId = incomingChat.chatId
+                conversationTarget = null
+                conversationsOpen = true
+            }
+            AtrioChatNavigation.consume()
+        }
+    }
     var profilePostOpen by remember(uid) { mutableStateOf(false) }
     var previousDetailId by remember(uid) { mutableStateOf<String?>(null) }
     var detailReplies by remember(uid, detailId) { mutableStateOf<List<Reply>>(emptyList()) }
@@ -983,7 +995,7 @@ private fun OnlineCommunity(
             android.util.Log.d("AtrioQaNavigation", "request_${destination.name}_from_${tab.name}")
         }
         tab = destination; detailId = null; noticesOpen = false
-        conversationsOpen = false; conversationTarget = null
+        conversationsOpen = false; conversationTarget = null; notificationChatId = null
         publicProfileTarget = null; profilePostOpen = false; previousDetailId = null
         guardiaoAppealsOpen = false
         noticeBadgesOpen = false; returnToNotices = false
@@ -1266,6 +1278,7 @@ private fun OnlineCommunity(
         if (conversationsOpen) {
             conversationsOpen = false
             conversationTarget = null
+            notificationChatId = null
         } else if (profilePostOpen && publicProfileTarget != null) {
             profilePostOpen = false
             detailId = previousDetailId
@@ -1306,7 +1319,7 @@ private fun OnlineCommunity(
             onNotification = {
                 publicProfileTarget = null; profilePostOpen = false; previousDetailId = null
                 detailId = null; noticeBadgesOpen = false; returnToNotices = false
-                conversationsOpen = false; conversationTarget = null
+                conversationsOpen = false; conversationTarget = null; notificationChatId = null
                 noticesOpen = !noticesOpen; searchOpen = false
             }
         )
@@ -1318,13 +1331,22 @@ private fun OnlineCommunity(
                     savePending = detailId in pendingSaveIds)
             if (conversationsOpen) {
                 AtrioConversationsScreen(db, uid,
-                    onBack = { conversationsOpen = false; conversationTarget = null },
-                    initialPeer = conversationTarget)
+                    onBack = {
+                        conversationsOpen = false
+                        conversationTarget = null
+                        notificationChatId = null
+                    },
+                    initialPeer = conversationTarget,
+                    initialChatId = notificationChatId)
             } else if (publicProfileTarget != null && !profilePostOpen) {
                 PublicMemberProfileScreen(
                     db = db, target = publicProfileTarget!!, viewerUid = uid,
                     onBack = ::closeNoticeDestination,
-                    onConverse = { conversationTarget = publicProfileTarget; conversationsOpen = true },
+                    onConverse = {
+                        conversationTarget = publicProfileTarget
+                        notificationChatId = null
+                        conversationsOpen = true
+                    }
                     onOpenDiscussion = { postId -> profilePostOpen = true; detailId = postId }
                 )
             } else if (guardiaoAppealsOpen) {
@@ -1492,7 +1514,11 @@ private fun OnlineCommunity(
                     onCancelUpdateDownload = { ota.cancelDownload() },
                     onInstallUpdate = { otaScope.launch { ota.install() } },
                     onNotifications = { noticesOpen = true; returnToNotices = false },
-                    onConversations = { conversationTarget = null; conversationsOpen = true },
+                    onConversations = {
+                        conversationTarget = null
+                        notificationChatId = null
+                        conversationsOpen = true
+                    }
                     onReviews = { guardiaoAppealsOpen = true },
                     onCreate = { navigate(Tab.PUBLISH) }, onOpen = { detailId = it },
                     onLike = { id -> posts.firstOrNull { it.id == id }?.let { toggle("likedPosts", id, it.liked) } },
