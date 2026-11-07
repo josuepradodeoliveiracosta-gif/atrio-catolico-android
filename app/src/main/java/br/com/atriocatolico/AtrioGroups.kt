@@ -261,10 +261,16 @@ internal fun AtrioGroupsScreen(
                     OutlinedTextField(title,{ if(it.length<=80) title=it },
                         label={Text("Nome do grupo")},singleLine=true,
                         modifier=Modifier.fillMaxWidth().testTag("atrio-group-title"))
-                    Row(horizontalArrangement=Arrangement.spacedBy(5.dp)) {
+                    Column(verticalArrangement=Arrangement.spacedBy(2.dp)) {
+                        Text("Finalidade do grupo",fontWeight=FontWeight.SemiBold,
+                            fontSize=14.sp,color=Wine)
                         listOf("study","prayer","community").forEach { option ->
-                            FilterChip(category==option,onClick={category=option},
-                                label={Text(AtrioGroupPolicy.categoryName(option))})
+                            Row(verticalAlignment=Alignment.CenterVertically) {
+                                RadioButton(selected=category==option,
+                                    onClick={category=option})
+                                Text(AtrioGroupPolicy.categoryName(option),
+                                    fontSize=14.sp)
+                            }
                         }
                     }
                     Text("Grupo fechado: apenas convidados podem entrar. " +
@@ -291,7 +297,9 @@ internal fun AtrioGroupsScreen(
                         Column(Modifier.padding(14.dp),
                             verticalArrangement=Arrangement.spacedBy(7.dp)) {
                             Text(invite.name,fontWeight=FontWeight.SemiBold)
-                            Text("Convite de membro administrador. Aceitar é opcional.",
+                            val inviterName=groupPeerName(db,invite.inviter)
+                            Text("Convite enviado por " + inviterName +
+                                ". Aceitar é opcional.",
                                 color=Muted,fontSize=12.sp)
                             Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                                 Button(onClick={respond(invite,true)},enabled=!busy) {
@@ -549,6 +557,11 @@ private fun AtrioGroupThread(
         LazyColumn(Modifier.weight(1f).fillMaxWidth(),
             contentPadding=PaddingValues(12.dp),
             verticalArrangement=Arrangement.spacedBy(9.dp)) {
+            if(messages.isEmpty()) item {
+                Text("Este grupo não substitui atendimento de emergência " +
+                    "nem confissão sacramental.",
+                    color=Muted,fontSize=12.sp)
+            }
             if(messages.size>=limit) item {
                 TextButton(onClick={limit+=40}) {
                     Text("Carregar mensagens anteriores")
