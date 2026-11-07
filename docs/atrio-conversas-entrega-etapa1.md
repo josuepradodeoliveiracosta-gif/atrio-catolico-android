@@ -1,4 +1,4 @@
-# Átrio Conversas — etapa 1 + avanços isolados da etapa 2
+# Átrio Conversas — etapas 1 e 2 em homologação isolada
 
 Base de desenvolvimento: `main` em `626e70d7b544e549947aad5f58ae4bde8eb9a1d9`.
 Origem: *Átrio Conversas — Plano Completo* (06/11/2026), páginas 3–11 e 14.
@@ -32,19 +32,41 @@ Origem: *Átrio Conversas — Plano Completo* (06/11/2026), páginas 3–11 e 14
   documento original, sem baixar imagens ou anexos do chat.
 - Ao compartilhar, é necessário escolher uma conversa previamente aceita.
   Não é possível usar cartões para contornar o aceite do primeiro contato.
+- **Antispam de primeiro contato:** transação entre novo chat, primeira mensagem
+  e documento `users/{uid}/chatLimits/requests` de cota global por remetente.
+  Regra de homologação provisória: cinco novos contatos a cada janela
+  de 24 horas, com reset validado por relógio do servidor. O cliente não consegue
+  zerar ou falsificar o contador, tampouco criar solicitações sem ele.
+  O limite numérico deverá ser aprovado antes da implantação.
+- **Ocultar apenas para mim:** documento pessoal para cada mensagem, com
+  restauração própria, sem apagar a mensagem, denúncias ou histórico do outro.
+  Os controles ficam no menu compacto de mensagens para telas menores.
+- **Edição de mensagem própria** (somente texto): guarda o texto original no
+  documento e apresenta a marca de editada. Se for a última mensagem,
+  atualiza a prévia no mesmo commit, sem gerar um falso aviso de novo envio.
+- **Remoção para os participantes** (somente texto): substitui o corpo pelo
+  marcador `[Mensagem removida]`, elimina eventual campo de edição e
+  sincroniza a prévia da última mensagem. Denúncias anteriores e backups
+  podem conservar cópias do texto; não prometer eliminação absoluta.
+- **As duas operações de alteração/remoção dependem exclusivamente de
+  permissão administrativa** no documento `app_config/conversations`,
+  que o APK não pode modificar. Sem essas permissões, ficam fechadas.
 
 ## O que **não** está pronto
 
-Até 07/11/2026, a PR de homologação teve compilação Android aprovada,
-testes isolados do Firestore aprovados e 38 verificações específicas
-de segurança do chat aprovadas. Isso confirma somente os testes de CI, não
-os resultados em dispositivos de usuários reais, nem a publicação
-das novas regras no Firebase de produção.
+A revisão anterior da PR teve compilação Android aprovada, além de testes
+de segurança do Firestore. A revisão posterior acrescentou testes de
+limite global, ocultação reversível, edição e remoção. A situação de
+cada nova execução deve ser conferida no GitHub Actions da PR; a
+presença dos testes no repositório **não garante a aprovação da
+última revisão**. Nenhum resultado automatizado substitui os testes
+em dois aparelhos com contas distintas.
 
 **Continuam não disponíveis ao usuário final:** a própria área de chat
 (ainda bloqueada no servidor), confirmações genuínas de leitura/entrega,
-edição e exclusão de mensagens, política de proteção de menores, contenção
-global de disparos em massa, grupos e mensagens temporárias.
+edição e remoção de mensagens (gates administrativos fechados por padrão),
+política de proteção de menores, limitação mais avançada de mensagens
+repetidas entre chats aceitos, grupos e mensagens temporárias.
 
 A etapa 2 teve três recursos preparados em código; nenhuma das suas
 funcionalidades foi autorizada para uso em produção.
@@ -91,11 +113,18 @@ Cada destinatário também deve optar por `requests: "all"` em
 - O plano exige política especial para menores, prazos de retenção e limites
   de taxa. Ainda não há decisão final aprovada; manter o chat desligado em
   produção.
-- Há uma única solicitação inicial por par de contas; ainda falta o limitador
-  **global** do Guardião para solicitações em massa e mensagens repetitivas.
-- Edição e exclusão não estão presentes; o usuário não verá botões falsos.
-  O plano mantém em aberto as regras de prazo, retenção e exclusão;
-  esses comportamentos precisam de definição formal antes da implementação.
+- Uma única solicitação por par de contas, com contador transacional
+  de novos contatos para o usuário; a contenção avançada de repetição e
+  disparos entre conversas já aceitas ainda precisa de revisão.
+- Edição e remoção para todos estão desenvolvidas com **gates de servidor
+  desativados por padrão**, e exigem configurar explicitamente:
+  `editEnabled: true` e `editWindowMinutes` (inteiro de 1 a 1440);
+  `deleteEnabled: true` e `deleteWindowMinutes` (inteiro de 1 a 1440).
+  O documento não decide os prazos reais; definir política da comunidade
+  ANTES de autorizar qualquer gate. Não configurar tais valores em produção
+  agora. Reações não autorizam edição ou remoção de outro usuário.
+- A remoção pública não equivale a exclusão de backups, dados de denúncias
+  nem arquivos administrativos; informar esse limite claramente.
 - Compartilhar uma discussão não publica conteúdo no Firestore por outra via:
   o cartão guarda somente a referência e o título verificado no instante do envio.
   Se o post for removido, o aplicativo deve apresentar indisponibilidade ao abrir.
@@ -130,8 +159,9 @@ Cada destinatário também deve optar por `requests: "all"` em
    bloqueada e acesso negado caso a permissão tenha mudado.
 6. Validar os recursos da etapa 2 (citações, reações e cartões textuais)
    com duas contas antes de considerar a fase concluída.
-7. Definir formalmente prazos e retenção para edição e exclusão; adotar
-   política de proteção de menores e critérios de moderação proporcionais.
+7. Definir formalmente prazos e retenção para edição e remoção, sem
+   habilitar automaticamente as duas flags; adotar política de proteção
+   de menores e critérios de moderação proporcionais.
 8. Só depois da aprovação humana: projetar grupos de texto com convites,
    administradores, remoção e regras próprias.
 
