@@ -74,6 +74,7 @@ try {
       requesterUid:accounts[0].uid,recipientUid:accounts[1].uid,
       status:'accepted',initialId:'emulator-fixture',
       lastMessageId:'emulator-fixture',lastPreview:'Olá!',
+      lastSenderUid:accounts[0].uid,
       createdAt:serverTimestamp(),updatedAt:serverTimestamp(),
       unreadRequester:0,unreadRecipient:0
     });
