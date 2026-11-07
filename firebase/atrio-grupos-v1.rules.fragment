@@ -146,7 +146,10 @@
         && atrioGroupBasicChange()
         && (
           // A pessoa aceita convite e adiciona somente a própria conta.
-          (signedIn() && !(request.auth.uid in resource.data.memberUids)
+          (signedIn()
+            && !request.resource.data.diff(resource.data).affectedKeys()
+              .hasAny(['adminUids'])
+            && !(request.auth.uid in resource.data.memberUids)
             && resource.data.memberUids.size() < 8
             && request.resource.data.diff(resource.data).affectedKeys()
               .hasOnly(['memberUids','updatedAt'])
@@ -161,6 +164,8 @@
           // A própria pessoa sai, ou um administrador remove alguém,
           // sem tocar nas funções do fundador/admin restante.
           (signedIn()
+            && !request.resource.data.diff(resource.data).affectedKeys()
+              .hasAny(['adminUids'])
             && request.resource.data.diff(resource.data).affectedKeys()
               .hasOnly(['memberUids','lastRemovedUid','updatedAt'])
             && request.resource.data.keys().hasAny(['lastRemovedUid'])
