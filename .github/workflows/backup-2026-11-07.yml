@@ -1,0 +1,46 @@
+name: Backup integral do codigo Atrio - 2026-11-07
+
+on:
+  push:
+    branches:
+      - 'backup/gerar-pacote-2026-11-07'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  exportar:
+    name: Exportar snapshots e historico Git
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout com historico e branches
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Conferir commits fixados e gerar pacote
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p backup
+          MAIN=626e70d7b544e549947aad5f58ae4bde8eb9a1d9
+          CONVERSAS=760b5984268170181f7172360a61fcd2dcbb9ac2
+          git cat-file -e "$MAIN^{commit}"
+          git cat-file -e "$CONVERSAS^{commit}"
+          git archive --format=zip --prefix=atrio-main/ --output=backup/Atrio_Catolico_Main_0.20.4_2026-11-07.zip "$MAIN"
+          git archive --format=zip --prefix=atrio-conversas/ --output=backup/Atrio_Conversas_Homologacao_2026-11-07.zip "$CONVERSAS"
+          git bundle create backup/Historico_Completo_Repositorio_Git.bundle --all
+          git bundle verify backup/Historico_Completo_Repositorio_Git.bundle
+          printf '%s\n' 'BACKUP DO ATRIO CATOLICO — 07/11/2026'             'Snapshot principal: main, versionName 0.20.4'             "Commit principal: $MAIN"             'Snapshot de conversas: PR #193, NAO INTEGRADO / NAO PUBLICADO'             "Commit de conversas: $CONVERSAS"             'Inclui fontes versionadas, regras versionadas e historico Git disponivel.'             'Nao inclui chaves JKS, senhas, secrets do CI, dados do Firestore em producao ou configuracoes privadas externas.'             'O backup historico protegido v0.12.0 deve permanecer inalterado.'             'Para conferir integridade, use sha256sum -c SHA256SUMS.txt apos extrair o ZIP principal.'             > backup/LEIA-ME.txt
+          (cd backup && sha256sum Atrio_Catolico_Main_0.20.4_2026-11-07.zip Atrio_Conversas_Homologacao_2026-11-07.zip Historico_Completo_Repositorio_Git.bundle > SHA256SUMS.txt)
+          (cd backup && zip -q -9 Backup_Completo_Atrio_Catolico_2026-11-07.zip Atrio_Catolico_Main_0.20.4_2026-11-07.zip Atrio_Conversas_Homologacao_2026-11-07.zip Historico_Completo_Repositorio_Git.bundle LEIA-ME.txt SHA256SUMS.txt)
+          unzip -t backup/Backup_Completo_Atrio_Catolico_2026-11-07.zip
+      - name: Guardar ZIP do backup como artefato
+        uses: actions/upload-artifact@v4
+        with:
+          name: atrio-backup-completo-2026-11-07
+          path: backup/Backup_Completo_Atrio_Catolico_2026-11-07.zip
+          if-no-files-found: error
+          retention-days: 90
