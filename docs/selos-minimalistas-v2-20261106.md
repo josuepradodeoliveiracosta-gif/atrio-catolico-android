@@ -5,7 +5,7 @@
 ## O que mudou
 
 - Ícones compactos (Compose vetorial) nas cores oficiais vinho/dourado, cruz dourada do Padre, fundo azul-petróleo do Diácono, marrom para Religioso(a) e neutro para Leigo(a).
-- Uma identidade principal (Fundador > religioso verificado > leigo) + selo de Moderador adicional. As artes antigas em `res/raw` permanecem preservadas, sem remoção de dados.
+- Uma identidade principal (Fundador > religioso verificado > leigo) + selo de Moderador adicional. Na implementação inicial, as artes antigas permaneceram em `res/raw`. Em 07/11/2026, a limpeza removeu somente cinco recursos e quatro componentes sem consumidores; as artes continuam no histórico Git. A medalha do Fundador, ainda usada no perfil, foi mantida. Nenhum dado de usuário foi removido.
 - `/badges/{uid}.clergy` continua compatível com `padre` e `diacono`; acrescenta `religioso` e `religiosa`, sem migração destrutiva.
 - `/badge_requests/{uid}` aceita quatro tipos, com estados `pending`, `approved`, `rejected`, `revoked` e `dismissed` legado.
 - Aprovação e revogação exigem **batch atômico** entre solicitação e selo; revisor ativo não aprova/revoga o próprio pedido.

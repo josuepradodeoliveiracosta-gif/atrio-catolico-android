@@ -27,7 +27,7 @@ Esta branch é uma proposta de interface; não é uma versão oficial publicada.
 - `ProfileScreen.kt`: perfil conectado, biografia privada, formulário, publicações e acesso administrativo.
 - `OnlineAtrioApp.kt`: login/cadastro, listener privado do perfil, listener de administradores e Fundador, navegação, paginação, logout e troca de usuário.
 - `MainActivity.kt`: `AtrioTheme`, cartões de discussão, navegação e perfil **de demonstração** separado; não é duplicação acidental do perfil conectado.
-- `BadgeUi.kt` e `FounderBadgeArt.kt`, `PriestBadgeArt.kt`, `DeaconBadgeArt.kt`, `LayBadgeArt.kt`, `ModeratorBadgeArt.kt`: selos visuais. A condição de moderador visual não concede administração.
+- `BadgeUi.kt` e `MinimalBadgeIcon.kt`: selos visuais atuais. `FounderBadgeArt.kt` mantém a medalha do Fundador usada em `ProfileScreen.kt`; os quatro componentes antigos sem consumidores foram removidos em 07/11/2026. A condição de moderador visual não concede administração.
 - `ClergyBadgeReviewScreen.kt`, `ModerationScreen.kt`, `AdminBroadcastPanel.kt`: destinos administrativos existentes. Mantidas as verificações atuais de acesso.
 - `PushSettings.kt`: controles por aparelho/UID, permissão Android, consulta de token e diagnóstico.
 - `AtrioPushService.kt`/`PushRegistry`, `PushRegistrationDiagnostic.kt`: cadastro, recebimento e apresentação de push.
