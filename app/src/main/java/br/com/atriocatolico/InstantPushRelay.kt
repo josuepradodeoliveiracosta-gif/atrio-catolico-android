@@ -49,6 +49,10 @@ internal object InstantPushRelay {
     fun chatMessage(chatId: String, messageId: String) =
         post("chat_message", mapOf("chatId" to chatId, "messageId" to messageId))
 
+    // Sem texto ou lista de destinatários: ambos verificados pelo Worker.
+    fun groupMessage(groupId: String, messageId: String) =
+        post("group_message", mapOf("groupId" to groupId, "messageId" to messageId))
+
     // Triagem gratuita no servidor. Conteúdo não é enviado pelo APK:
     // Worker lê e valida a publicação recém-gravada no Firestore.
     fun moderatePost(postId: String) =

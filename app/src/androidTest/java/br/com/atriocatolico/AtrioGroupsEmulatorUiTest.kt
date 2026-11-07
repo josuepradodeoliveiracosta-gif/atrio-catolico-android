@@ -84,6 +84,14 @@ class AtrioGroupsEmulatorUiTest {
 
     @Test fun criarConvidarAceitarEnviarESairPelaInterfaceReal() {
         initializeDemo()
+        val navigation=android.content.Intent().apply {
+            putExtra("atrio_group_uid","group-uid")
+            putExtra("atrio_group_id","grp-study-01")
+        }
+        AtrioGroupNavigation.accept(navigation)
+        assertEquals(AtrioGroupDestination("group-uid","grp-study-01"),
+            AtrioGroupNavigation.requested)
+        AtrioGroupNavigation.consume()
         // Cadastro, chats aceitos e segurança são preparados previamente
         // APENAS no emulador pelo script seed-chat-groups-android.mjs.
         val bob=login("group.bob@qa.invalid")

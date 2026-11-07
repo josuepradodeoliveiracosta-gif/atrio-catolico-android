@@ -186,6 +186,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         AtrioChatNavigation.accept(intent)
+        AtrioGroupNavigation.accept(intent)
         val prefs = getSharedPreferences("atrio-demo", Context.MODE_PRIVATE)
         setContent {
             if (OtaQaChannel.active) {
@@ -205,10 +206,12 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         AtrioChatForeground.foreground(true)
+        AtrioGroupForeground.foreground(true)
     }
 
     override fun onStop() {
         AtrioChatForeground.foreground(false)
+        AtrioGroupForeground.foreground(false)
         super.onStop()
     }
 
@@ -216,6 +219,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         AtrioChatNavigation.accept(intent)
+        AtrioGroupNavigation.accept(intent)
     }
 }
 

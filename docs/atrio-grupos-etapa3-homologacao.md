@@ -22,7 +22,9 @@ limites numéricos, política para menores ou regras finais de permanência.
 - Recusa, saída voluntária de integrante não administrador, remoção por
   administrador e reconvite após a saída ou recusa.
 - Mensagens somente em texto, enviadas atomicamente com atualização
-  da prévia e da última mensagem. Há denúncia individual de mensagem:
+  da prévia e da última mensagem. O envio confirmado prepara evento
+  de push genérico (sem conteúdo) quando o relay estiver habilitado.
+  Há denúncia individual de mensagem:
   somente o trecho denunciado e o motivo são disponibilizados à moderação
   central autorizada, sem liberar o histórico integral do grupo.
   Denúncias repetidas pela mesma conta e mensagem são recusadas.
@@ -127,9 +129,21 @@ projeto `demo-atrio-v11`, para testar os fluxos de permissões.
   em caso de resposta perdida, porém exige teste de rede intermitente.
 - Verificar acessibilidade, telas pequenas, fonte ampliada, teclado,
   rotação, troca de conta, Android em segundo plano e estado offline.
-- **Não foram integradas notificações push de grupos**. Mensagens podem
-  ser consultadas com o grupo aberto, mas a entrega por FCM demanda
-  validação de destinatários, silenciamento e prevenção de duplicação.
+- **Push de grupos preparado somente em código, sem implantação:** o Worker
+  confere o evento no Firestore, autor, data recente, grupo ativo, configuração
+  do chat, elegibilidade individual, participantes atuais (até 8), bloqueios
+  recíprocos e silêncio por grupo. O APK nunca envia corpo, nome de grupo
+  ou lista de destinatários. O FCM recebe apenas IDs, tipo e UID de destino,
+  e o aplicativo apresenta aviso genérico com acesso revalidado pelo Firestore.
+- O servidor registra deduplicação por mensagem/destinatário no D1 existente.
+  Até sete destinatários por mensagem, sem criação de tópico FCM de grupo.
+  Estão previstos testes de payload vazio, saída, suspensão e bloqueio.
+  **Não se pode prometer entrega efetiva** por apenas obter aceite do FCM.
+- Preferência `users/{uid}/chatGroupBox/{groupId}` guarda apenas
+  `muted` e `updatedAt`. O celular também retém a preferência de
+  silêncio da própria conta para descartar avisos atrasados.
+- Antes de habilitar, testar com dispositivos reais, troca de conta,
+  reconexão, permissão Android e duplicação; medir cotas Worker/D1/FCM.
 - Sem E2EE; não anunciar criptografia ponta a ponta.
 
 A PR segue como rascunho até essas decisões, homologação e aprovação

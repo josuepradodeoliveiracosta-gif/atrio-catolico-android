@@ -279,6 +279,42 @@ internal object PushRegistry {
         manager.notify(item.hashCode(), notice)
     }
 
+    fun showGroupMessage(context: Context, uid: String,
+                         groupId: String, messageId: String) {
+        if(!enabled(context,uid) || FirebaseAuth.getInstance().currentUser?.uid!=uid
+            || !groupId.matches(Regex("[A-Za-z0-9_-]{1,128}"))
+            || !messageId.matches(Regex("[A-Za-z0-9_-]{1,128}"))
+            || AtrioGroupForeground.contains(uid,groupId)) return
+        if(context.getSharedPreferences("atrio_group_muted_"+uid,Context.MODE_PRIVATE)
+                .getBoolean(groupId,false)) return
+        if(Build.VERSION.SDK_INT >= 33 &&
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=
+                PackageManager.PERMISSION_GRANTED) return
+        val item=groupId+":"+messageId
+        val prefs=context.getSharedPreferences("atrio_group_seen",Context.MODE_PRIVATE)
+        synchronized(this) {
+            val before=prefs.getStringSet("seen_"+uid,emptySet()).orEmpty()
+            if(item in before) return
+            prefs.edit().putStringSet("seen_"+uid,
+                (before.toList().takeLast(999)+item).toSet()).apply()
+        }
+        createChannel(context)
+        val intent=PendingIntent.getActivity(context,item.hashCode(),
+            Intent(context,MainActivity::class.java).apply {
+                flags=Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                putExtra("atrio_group_uid",uid)
+                putExtra("atrio_group_id",groupId)
+            },PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val notice=Notification.Builder(context,CHANNEL)
+            .setSmallIcon(R.drawable.ic_atrio)
+            .setContentTitle("Nova mensagem em um grupo")
+            .setContentText("Abra o Átrio para ler a conversa do grupo.")
+            .setAutoCancel(true)
+            .setContentIntent(intent).build()
+        (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
+            .notify(item.hashCode(),notice)
+    }
+
     fun show(context: Context, uid: String, kind: String) {
         if (!enabled(context, uid)
             || FirebaseAuth.getInstance().currentUser?.uid != uid) return
@@ -334,6 +370,11 @@ class AtrioPushService : FirebaseMessagingService() {
             return
         }
         if (message.data["uid"] != uid) return
+        if (message.data["kind"] == "group_message") {
+            PushRegistry.showGroupMessage(applicationContext,uid,
+                message.data["groupId"].orEmpty(),message.data["messageId"].orEmpty())
+            return
+        }
         if (message.data["kind"] == "chat_message") {
             PushRegistry.showChatMessage(applicationContext, uid,
                 message.data["chatId"].orEmpty(), message.data["messageId"].orEmpty())

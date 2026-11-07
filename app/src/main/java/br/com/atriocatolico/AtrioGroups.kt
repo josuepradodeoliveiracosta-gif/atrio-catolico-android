@@ -11,6 +11,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -86,7 +87,8 @@ internal fun AtrioGroupsScreen(
     db: FirebaseFirestore,
     uid: String,
     knownPeers: List<String>,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    initialGroupId: String? = null
 ) {
     var configLoaded by remember(uid) { mutableStateOf(false) }
     var enabled by remember(uid) { mutableStateOf(false) }
@@ -94,7 +96,7 @@ internal fun AtrioGroupsScreen(
     var accessApproved by remember(uid) { mutableStateOf(false) }
     var rooms by remember(uid) { mutableStateOf<List<AtrioGroup>>(emptyList()) }
     var invitations by remember(uid) { mutableStateOf<List<AtrioGroupInvite>>(emptyList()) }
-    var selectedId by remember(uid) { mutableStateOf<String?>(null) }
+    var selectedId by remember(uid,initialGroupId) { mutableStateOf(initialGroupId) }
     var createOpen by remember(uid) { mutableStateOf(false) }
     var title by remember(uid) { mutableStateOf("") }
     var category by remember(uid) { mutableStateOf("study") }
@@ -389,6 +391,25 @@ private fun AtrioGroupThread(
     knownPeers: List<String>,onBack: () -> Unit
 ) {
     val roomRef=remember(db,room.id) { db.collection("chat_groups").document(room.id) }
+    val context=LocalContext.current
+    var muted by remember(uid,room.id) { mutableStateOf(false) }
+    DisposableEffect(uid,room.id) {
+        AtrioGroupForeground.open(uid,room.id)
+        onDispose { AtrioGroupForeground.close(uid,room.id) }
+    }
+    DisposableEffect(db,uid,room.id) {
+        val listener=db.collection("users").document(uid)
+            .collection("chatGroupBox").document(room.id)
+            .addSnapshotListener { snapshot,failure ->
+                if(failure==null) {
+                    muted=snapshot?.getBoolean("muted")==true
+                    context.getSharedPreferences("atrio_group_muted_"+uid,
+                        android.content.Context.MODE_PRIVATE)
+                        .edit().putBoolean(room.id,muted).apply()
+                }
+            }
+        onDispose { listener.remove() }
+    }
     var draft by remember(uid,room.id) { mutableStateOf("") }
     var pendingId by remember(uid,room.id) { mutableStateOf("") }
     var pendingText by remember(uid,room.id) { mutableStateOf("") }
@@ -537,6 +558,11 @@ private fun AtrioGroupThread(
                 pendingId=""
                 pendingText=""
                 error=""
+                if(result.result==true &&
+                    !(BuildConfig.DEBUG &&
+                        com.google.firebase.FirebaseApp.getInstance().options.projectId==
+                            "demo-atrio-v11"))
+                    InstantPushRelay.groupMessage(room.id,messageRef.id)
             } else error="Envio não confirmado. Confira a conexão e respeite " +
                 "o intervalo de mensagens do Guardião."
         }
@@ -550,6 +576,15 @@ private fun AtrioGroupThread(
                     maxLines=1,overflow=TextOverflow.Ellipsis,color=Wine)
                 Text(AtrioGroupPolicy.categoryName(room.category),
                     color=Muted,fontSize=12.sp)
+            }
+            TextButton(onClick={
+                db.collection("users").document(uid).collection("chatGroupBox")
+                    .document(room.id).set(mapOf(
+                        "muted" to !muted,
+                        "updatedAt" to FieldValue.serverTimestamp()))
+                    .addOnFailureListener { error="Não foi possível alterar os avisos." }
+            },modifier=Modifier.testTag("atrio-group-mute")) {
+                Text(if(muted) "Ativar avisos" else "Silenciar")
             }
             TextButton(onClick={showMembers=!showMembers},
                 modifier=Modifier.testTag("atrio-group-members")) {

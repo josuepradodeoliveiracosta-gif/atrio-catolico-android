@@ -82,6 +82,7 @@ internal fun AtrioConversationsScreen(
     db: FirebaseFirestore, uid: String, onBack: () -> Unit,
     initialPeer: PublicMemberTarget? = null,
     initialChatId: String? = null,
+    initialGroupId: String? = null,
     initialSharePost: Pair<String, String>? = null,
     onOpenDiscussion: (String) -> Unit = {}
 ) {
@@ -98,7 +99,9 @@ internal fun AtrioConversationsScreen(
     var error by remember(uid) { mutableStateOf("") }
     var search by remember(uid) { mutableStateOf("") }
     var requestsTab by remember(uid) { mutableStateOf(false) }
-    var groupsOpen by remember(uid) { mutableStateOf(false) }
+    var groupsOpen by remember(uid,initialGroupId) {
+        mutableStateOf(initialGroupId!=null)
+    }
     var sharePost by remember(uid, initialSharePost) { mutableStateOf(initialSharePost) }
     var archivesTab by remember(uid) { mutableStateOf(false) }
     var selected by remember(uid, initialPeer?.uid, initialChatId) {
@@ -176,7 +179,8 @@ internal fun AtrioConversationsScreen(
             AtrioGroupsScreen(db,uid,
                 knownPeers = rooms.filter { it.status == "accepted" }
                     .map { it.peer(uid) }.distinct(),
-                onBack = { groupsOpen = false })
+                onBack = { groupsOpen = false },
+                initialGroupId = initialGroupId)
         } else if (selected != null) {
             AtrioChatThread(db, uid, selected!!, chosen,
                 initialPeer?.takeIf { AtrioChatPolicy.id(uid, it.uid) == selected },

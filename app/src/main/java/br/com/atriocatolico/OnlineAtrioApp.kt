@@ -761,6 +761,7 @@ private fun OnlineCommunity(
     var conversationsOpen by remember(uid) { mutableStateOf(false) }
     var conversationTarget by remember(uid) { mutableStateOf<PublicMemberTarget?>(null) }
     var notificationChatId by remember(uid) { mutableStateOf<String?>(null) }
+    var notificationGroupId by remember(uid) { mutableStateOf<String?>(null) }
     var shareDiscussion by remember(uid) { mutableStateOf<Pair<String, String>?>(null) }
     val incomingChat = AtrioChatNavigation.requested
     LaunchedEffect(uid, incomingChat) {
@@ -771,6 +772,18 @@ private fun OnlineCommunity(
                 conversationsOpen = true
             }
             AtrioChatNavigation.consume()
+        }
+    }
+    val incomingGroup=AtrioGroupNavigation.requested
+    LaunchedEffect(uid,incomingGroup) {
+        if(incomingGroup!=null) {
+            if(incomingGroup.uid==uid) {
+                notificationGroupId=incomingGroup.groupId
+                notificationChatId=null
+                conversationTarget=null
+                conversationsOpen=true
+            }
+            AtrioGroupNavigation.consume()
         }
     }
     var profilePostOpen by remember(uid) { mutableStateOf(false) }
@@ -1339,10 +1352,12 @@ private fun OnlineCommunity(
                         conversationsOpen = false
                         conversationTarget = null
                         notificationChatId = null
+                        notificationGroupId = null
                         shareDiscussion = null
                     },
                     initialPeer = conversationTarget,
                     initialChatId = notificationChatId,
+                    initialGroupId = notificationGroupId,
                     initialSharePost = shareDiscussion,
                     onOpenDiscussion = { postId ->
                         shareDiscussion = null
@@ -1360,6 +1375,7 @@ private fun OnlineCommunity(
                     onConverse = {
                         conversationTarget = publicProfileTarget
                         notificationChatId = null
+                        notificationGroupId = null
                         shareDiscussion = null
                         conversationsOpen = true
                     },
@@ -1539,6 +1555,7 @@ private fun OnlineCommunity(
                     onConversations = {
                         conversationTarget = null
                         notificationChatId = null
+                        notificationGroupId = null
                         shareDiscussion = null
                         conversationsOpen = true
                     },
