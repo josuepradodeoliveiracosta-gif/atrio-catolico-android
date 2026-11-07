@@ -110,7 +110,10 @@
         && request.resource.data.keys().hasAll(['hidden','createdAt'])
         && request.resource.data.hidden == true
         && request.resource.data.createdAt == request.time;
-      allow update, delete: if false;
+      allow update: if false;
+      allow delete: if chatEnabled() && me(uid)
+        && exists(/databases/$(database)/documents/chats/$(chatId))
+        && uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
     }
     match /users/{uid}/chatBox/{chatId} {
       allow get, list: if chatEnabled() && me(uid);
