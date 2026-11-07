@@ -34,7 +34,8 @@ internal object AtrioChatPolicy {
         !Regex("https?://|www\\.", RegexOption.IGNORE_CASE).containsMatchIn(text)
 }
 private data class ChatRoom(val id: String, val requester: String, val recipient: String,
-    val status: String, val preview: String, val lastAt: Long, val unreadA: Int, val unreadB: Int) {
+    val status: String, val preview: String, val lastMessageId: String,
+    val lastAt: Long, val unreadA: Int, val unreadB: Int) {
     fun peer(uid: String) = if (uid == requester) recipient else requester
     fun unread(uid: String) = if (uid == requester) unreadA else unreadB
     fun incomingRequest(uid: String) = status == "pending" && recipient == uid
@@ -48,7 +49,7 @@ private fun DocumentSnapshot.chatRoom(): ChatRoom? {
     val a = getString("requesterUid") ?: return null
     val b = getString("recipientUid") ?: return null
     return ChatRoom(id, a, b, getString("status").orEmpty(),
-        getString("lastPreview").orEmpty(),
+        getString("lastPreview").orEmpty(), getString("lastMessageId").orEmpty(),
         getTimestamp("updatedAt")?.toDate()?.time ?: 0L,
         (getLong("unreadRequester") ?: 0).toInt(),
         (getLong("unreadRecipient") ?: 0).toInt())
@@ -248,6 +249,8 @@ private fun AtrioChatThread(
     var limit by remember(uid, chatId) { mutableIntStateOf(40) }
     var messages by remember(uid, chatId) { mutableStateOf<List<ChatItem>>(emptyList()) }
     var draft by remember(uid, chatId) { mutableStateOf("") }
+    var pendingAttemptId by remember(uid, chatId) { mutableStateOf("") }
+    var pendingAttemptText by remember(uid, chatId) { mutableStateOf("") }
     var saving by remember(uid, chatId) { mutableStateOf(false) }
     var info by remember(uid, chatId) { mutableStateOf("") }
     var report by remember(uid, chatId) { mutableStateOf<ChatItem?>(null) }
@@ -291,6 +294,16 @@ private fun AtrioChatThread(
         }
     }
 
+    // Reconcilia resposta de rede perdida com a mensagem confirmada no servidor.
+    LaunchedEffect(chat?.lastMessageId, pendingAttemptId) {
+        if (pendingAttemptId.isNotBlank() && chat?.lastMessageId == pendingAttemptId &&
+            chat?.preview == pendingAttemptText) {
+            if (draft.trim() == pendingAttemptText) draft = ""
+            pendingAttemptId = ""
+            pendingAttemptText = ""
+        }
+    }
+
     fun send() {
         val body = draft.trim()
         if (saving || FirebaseAuth.getInstance().currentUser?.uid != uid ||
@@ -308,7 +321,12 @@ private fun AtrioChatThread(
         }
         saving = true
         info = "Aguardando confirmação do servidor..."
-        val messageRef = ref.collection("messages").document()
+        val messageRef = if (pendingAttemptText == body && pendingAttemptId.isNotBlank())
+            ref.collection("messages").document(pendingAttemptId)
+        else ref.collection("messages").document().also { doc ->
+            pendingAttemptId = doc.id
+            pendingAttemptText = body
+        }
         val bodyData = mapOf("uid" to uid, "text" to body,
             "kind" to "text", "createdAt" to FieldValue.serverTimestamp())
         if (chat == null) {
@@ -327,6 +345,7 @@ private fun AtrioChatThread(
                 saving = false
                 if (response.isSuccessful) {
                     draft = ""; info = "Solicitação enviada."
+                    pendingAttemptId = ""; pendingAttemptText = ""
                     if (!(BuildConfig.DEBUG && com.google.firebase.FirebaseApp.getInstance().options.projectId == "demo-atrio-v11"))
                         InstantPushRelay.chatMessage(chatId, messageRef.id)
                 }
@@ -338,19 +357,28 @@ private fun AtrioChatThread(
                 check(current.getString("status") == "accepted") { "Conversa não aceita." }
                 val requester = current.getString("requesterUid")
                 check(requester == uid || current.getString("recipientUid") == uid)
-                val counter = if (requester == uid) "unreadRecipient" else "unreadRequester"
-                val number = current.getLong(counter) ?: 0L
-                tx.set(messageRef, bodyData)
-                tx.update(ref, mapOf(
-                    "lastMessageId" to messageRef.id, "lastPreview" to body,
-                    "updatedAt" to FieldValue.serverTimestamp(),
-                    counter to (number + 1).coerceAtMost(99L)))
-                null
+                val previous = tx.get(messageRef)
+                if (previous.exists()) {
+                    check(previous.getString("uid") == uid && previous.getString("text") == body)
+                    false // Reenvio identificado: sem nova escrita ou notificação.
+                } else {
+                    val counter = if (requester == uid) "unreadRecipient" else "unreadRequester"
+                    val number = current.getLong(counter) ?: 0L
+                    tx.set(messageRef, bodyData)
+                    tx.update(ref, mapOf(
+                        "lastMessageId" to messageRef.id, "lastPreview" to body,
+                        "updatedAt" to FieldValue.serverTimestamp(),
+                        counter to (number + 1).coerceAtMost(99L)))
+                    true
+                }
             }.addOnCompleteListener { response ->
                 saving = false
                 if (response.isSuccessful) {
-                    draft = ""; info = ""
-                    if (!(BuildConfig.DEBUG && com.google.firebase.FirebaseApp.getInstance().options.projectId == "demo-atrio-v11"))
+                    if (draft.trim() == body) draft = ""
+                    info = ""
+                    pendingAttemptId = ""; pendingAttemptText = ""
+                    if (response.result == true &&
+                        !(BuildConfig.DEBUG && com.google.firebase.FirebaseApp.getInstance().options.projectId == "demo-atrio-v11"))
                         InstantPushRelay.chatMessage(chatId, messageRef.id)
                 }
                 else info = "Envio não confirmado. Confira a conexão."
@@ -417,6 +445,7 @@ private fun AtrioChatThread(
             if (info.isNotBlank()) Text(info, Modifier.padding(12.dp), color = Muted, fontSize = 13.sp)
             if (chat == null || chat?.status == "accepted") {
                 OutlinedTextField(draft, { if (it.length <= AtrioChatPolicy.MAX_TEXT) draft = it },
+                    enabled = !saving,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)
                         .testTag("atrio-chat-composer"),
                     label = { Text(if (chat == null) "Primeira mensagem" else "Mensagem") },
