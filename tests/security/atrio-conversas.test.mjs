@@ -14,7 +14,7 @@ import {
 // testar uma funcionalidade ainda não homologada. Mesclar apenas em memória.
 const protectedRules=readFileSync('firestore.rules','utf8');
 const extension=readFileSync('../../firebase/atrio-conversas-v1.rules.fragment','utf8');
-const marker="    match /{document=**} {\\n      allow read, write: if false;\\n    }";
+const marker="    match /{document=**} {\n      allow read, write: if false;\n    }";
 if (!protectedRules.includes(marker) || !extension.includes('match /chats/{chatId}'))
   throw Error('Regras protegidas/fragmento de homologação indisponíveis');
 const candidateRules=protectedRules.replace(marker,extension+marker);
