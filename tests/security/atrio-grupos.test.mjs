@@ -381,6 +381,32 @@ try {
   await check('grupo lotado impede aceite de novo convite',()=>
     assertFails(accept(b,groupId,'group-b')));
   await env.withSecurityRulesDisabled(async ctx=>{
+    await updateDoc(doc(ctx.firestore(),group),{
+      memberUids:['group-a','group-b'],
+      adminUids:['group-a','group-b']
+    });
+  });
+  await check('coadministrador não deixa função privilegiada órfã ao sair',()=>
+    assertFails(updateDoc(doc(b,group),{
+      memberUids:arrayRemove('group-b'),
+      lastRemovedUid:'group-b',updatedAt:serverTimestamp()
+    })));
+  await check('coadministrador pode sair ao remover função e participação juntas',()=>
+    assertSucceeds(updateDoc(doc(b,group),{
+      memberUids:arrayRemove('group-b'),
+      adminUids:arrayRemove('group-b'),
+      lastRemovedUid:'group-b',updatedAt:serverTimestamp()
+    })));
+  await check('após saída, ex-administrador não pode ler nem recuperar o cargo',async()=>{
+    await assertFails(getDoc(doc(b,group+'/messages/msg1')));
+    await assertFails(updateDoc(doc(b,group),{
+      adminUids:arrayUnion('group-b'),
+      lastRoleUid:'group-b',updatedAt:serverTimestamp()
+    }));
+    const groupData=(await assertSucceeds(getDoc(doc(a,group)))).data();
+    assert.deepEqual(groupData.adminUids,['group-a']);
+  });
+  await env.withSecurityRulesDisabled(async ctx=>{
     await updateDoc(doc(ctx.firestore(),'app_config/conversations'),{
       enabled:false
     });
