@@ -28,9 +28,12 @@ internal object AtrioChatNavigation {
 /** Estado só em memória: fechar o processo nunca deixa "chat aberto" persistido. */
 internal object AtrioChatForeground {
     @Volatile private var active: AtrioChatDestination? = null
+    @Volatile private var appForeground: Boolean = false
+    fun foreground(isVisible: Boolean) { appForeground = isVisible }
     fun open(uid: String, chatId: String) { active = AtrioChatDestination(uid, chatId) }
     fun close(uid: String, chatId: String) {
         if (active == AtrioChatDestination(uid, chatId)) active = null
     }
-    fun contains(uid: String, chatId: String) = active == AtrioChatDestination(uid, chatId)
+    fun contains(uid: String, chatId: String) = appForeground &&
+        active == AtrioChatDestination(uid, chatId)
 }
