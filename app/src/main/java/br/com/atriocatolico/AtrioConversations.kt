@@ -277,6 +277,8 @@ private fun AtrioChatThread(
     var limit by remember(uid, chatId) { mutableIntStateOf(40) }
     var messages by remember(uid, chatId) { mutableStateOf<List<ChatItem>>(emptyList()) }
     var hiddenMessageIds by remember(uid, chatId) { mutableStateOf<Set<String>>(emptySet()) }
+    var showHiddenMessages by remember(uid, chatId) { mutableStateOf(false) }
+    var messageMenuId by remember(uid, chatId) { mutableStateOf<String?>(null) }
     DisposableEffect(db, uid, chatId) {
         val listener = db.collection("users").document(uid)
             .collection("chatHidden").document(chatId).collection("messages")
@@ -506,12 +508,25 @@ private fun AtrioChatThread(
             } else if (chat?.status == "declined") {
                 Text("Solicitação recusada.", Modifier.padding(12.dp), color = Muted)
             }
+            if (hiddenMessageIds.isNotEmpty()) {
+                TextButton(onClick = { showHiddenMessages = !showHiddenMessages },
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                        .testTag("atrio-chat-hidden-toggle")) {
+                    Text(if (showHiddenMessages) "Esconder mensagens ocultadas"
+                        else "Ver mensagens ocultadas (" + hiddenMessageIds.size + ")")
+                }
+            }
             LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (messages.size >= limit) item {
                     TextButton(onClick = { limit += 40 }) { Text("Carregar anteriores") }
                 }
-                items(messages.filterNot { it.id in hiddenMessageIds }, key = { it.id }) { msg ->
+                items(
+                    if (showHiddenMessages) messages
+                    else messages.filterNot { it.id in hiddenMessageIds },
+                    key = { it.id }
+                ) { msg ->
+                    val isHidden = msg.id in hiddenMessageIds
                     Column(Modifier.fillMaxWidth(),
                         horizontalAlignment = if (msg.uid == uid) Alignment.End else Alignment.Start) {
                         Surface(shape = RoundedCornerShape(14.dp),
@@ -519,14 +534,20 @@ private fun AtrioChatThread(
                             border = BorderStroke(1.dp, Line)) {
                             Column(Modifier.widthIn(max = 320.dp).padding(12.dp)) {
                                 if (msg.replyToId != null) {
-                                    val quoted = messages.firstOrNull { it.id == msg.replyToId }
+                                    val quoted = messages.firstOrNull {
+                                        it.id == msg.replyToId &&
+                                            it.id !in hiddenMessageIds
+                                    }
                                     Text("↪ " + (quoted?.text?.take(100)
                                         ?: "Mensagem anterior"), fontSize = 13.sp,
                                         color = Muted, maxLines = 2,
                                         overflow = TextOverflow.Ellipsis)
                                     Spacer(Modifier.height(5.dp))
                                 }
-                                if (msg.postId != null && msg.postTitle != null) {
+                                if (isHidden) {
+                                    Text("Esta mensagem está ocultada apenas para você.",
+                                        fontSize = 14.sp, color = Muted)
+                                } else if (msg.postId != null && msg.postTitle != null) {
                                     Text("Discussão compartilhada", fontSize = 13.sp,
                                         fontWeight = FontWeight.SemiBold, color = Wine)
                                     Text(msg.postTitle, fontSize = 16.sp, lineHeight = 22.sp,
@@ -537,7 +558,7 @@ private fun AtrioChatThread(
                                     }
                                 } else Text(msg.text, fontSize = 16.sp,
                                     lineHeight = 22.sp, color = Ink)
-                                if (msg.reactions.isNotEmpty()) {
+                                if (!isHidden && msg.reactions.isNotEmpty()) {
                                     val summary = msg.reactions.values.groupingBy { it }
                                         .eachCount().entries.joinToString("  ") {
                                             it.key + " " + it.value
@@ -549,47 +570,58 @@ private fun AtrioChatThread(
                                     fontSize = 12.sp, color = Muted)
                             }
                         }
-                        if (chat?.status == "accepted") {
-                            Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                                TextButton(onClick = { replyingTo = msg }) {
-                                    Text("Responder", fontSize = 12.sp)
-                                }
-                                TextButton(onClick = { reactingTo = msg }) {
-                                    Text(if (msg.reactions.containsKey(uid))
-                                        "Reagiu " + msg.reactions[uid] else "Reagir",
-                                        fontSize = 12.sp)
-                                }
-                                TextButton(onClick = { report = msg }) {
-                                    Text("Denunciar", fontSize = 12.sp)
-                                }
-                                TextButton(onClick = {
-                                    db.collection("users").document(uid)
-                                        .collection("chatHidden").document(chatId)
-                                        .collection("messages").document(msg.id)
-                                        .set(mapOf(
-                                            "hidden" to true,
-                                            "createdAt" to FieldValue.serverTimestamp()))
-                                        .addOnFailureListener {
-                                            info = "Não foi possível ocultar a mensagem."
-                                        }
-                                }) { Text("Ocultar para mim", fontSize = 12.sp) }
+                        if (isHidden) {
+                            TextButton(onClick = {
+                                db.collection("users").document(uid)
+                                    .collection("chatHidden").document(chatId)
+                                    .collection("messages").document(msg.id).delete()
+                                    .addOnFailureListener {
+                                        info = "Não foi possível restaurar a mensagem."
+                                    }
+                            }, modifier = Modifier.testTag("atrio-chat-unhide-message")) {
+                                Text("Restaurar para mim", fontSize = 13.sp)
                             }
                         } else {
                             Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                                TextButton(onClick = { report = msg }) {
-                                    Text("Denunciar", fontSize = 12.sp)
+                                if (chat?.status == "accepted") {
+                                    TextButton(onClick = { replyingTo = msg }) {
+                                        Text("Responder", fontSize = 13.sp)
+                                    }
+                                    TextButton(onClick = { reactingTo = msg }) {
+                                        Text(if (msg.reactions.containsKey(uid))
+                                            "Reagiu " + msg.reactions[uid] else "Reagir",
+                                            fontSize = 13.sp)
+                                    }
                                 }
-                                TextButton(onClick = {
-                                    db.collection("users").document(uid)
-                                        .collection("chatHidden").document(chatId)
-                                        .collection("messages").document(msg.id)
-                                        .set(mapOf(
-                                            "hidden" to true,
-                                            "createdAt" to FieldValue.serverTimestamp()))
-                                        .addOnFailureListener {
-                                            info = "Não foi possível ocultar a mensagem."
-                                        }
-                                }) { Text("Ocultar para mim", fontSize = 12.sp) }
+                                Box {
+                                    TextButton(onClick = { messageMenuId = msg.id },
+                                        modifier = Modifier.testTag("atrio-chat-more-message")) {
+                                        Text("Mais", fontSize = 13.sp)
+                                    }
+                                    DropdownMenu(
+                                        expanded = messageMenuId == msg.id,
+                                        onDismissRequest = { messageMenuId = null }) {
+                                        DropdownMenuItem(text = { Text("Denunciar mensagem") },
+                                            onClick = {
+                                                messageMenuId = null
+                                                report = msg
+                                            })
+                                        DropdownMenuItem(text = {
+                                            Text("Ocultar apenas para mim")
+                                        }, onClick = {
+                                            messageMenuId = null
+                                            db.collection("users").document(uid)
+                                                .collection("chatHidden").document(chatId)
+                                                .collection("messages").document(msg.id)
+                                                .set(mapOf(
+                                                    "hidden" to true,
+                                                    "createdAt" to FieldValue.serverTimestamp()))
+                                                .addOnFailureListener {
+                                                    info = "Não foi possível ocultar a mensagem."
+                                                }
+                                        })
+                                    }
+                                }
                             }
                         }
                     }
