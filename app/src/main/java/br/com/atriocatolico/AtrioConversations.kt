@@ -87,6 +87,7 @@ internal fun AtrioConversationsScreen(
     var error by remember(uid) { mutableStateOf("") }
     var search by remember(uid) { mutableStateOf("") }
     var requestsTab by remember(uid) { mutableStateOf(false) }
+    var archivesTab by remember(uid) { mutableStateOf(false) }
     var selected by remember(uid, initialPeer?.uid, initialChatId) {
         mutableStateOf(initialChatId ?: initialPeer?.uid?.let { AtrioChatPolicy.id(uid, it) })
     }
@@ -160,12 +161,20 @@ internal fun AtrioConversationsScreen(
                     .testTag("atrio-chats-search"),
                 singleLine = true, label = { Text("Buscar conversa") })
             Row(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(!requestsTab, onClick = { requestsTab = false }, label = { Text("Mensagens") })
-                FilterChip(requestsTab, onClick = { requestsTab = true }, label = { Text("Solicitações") })
+                FilterChip(!requestsTab && !archivesTab,
+                    onClick = { requestsTab = false; archivesTab = false },
+                    label = { Text("Mensagens") })
+                FilterChip(requestsTab,
+                    onClick = { requestsTab = true; archivesTab = false },
+                    label = { Text("Solicitações") })
+                FilterChip(archivesTab,
+                    onClick = { requestsTab = false; archivesTab = true },
+                    label = { Text("Arquivadas") })
             }
             val matches = rooms.filter { room ->
-                (if (requestsTab) room.incomingRequest(uid) else !room.incomingRequest(uid)) &&
-                (requestsTab || prefs[room.id]?.archived != true) &&
+                (if (requestsTab) room.incomingRequest(uid)
+                 else if (archivesTab) prefs[room.id]?.archived == true
+                 else !room.incomingRequest(uid) && prefs[room.id]?.archived != true) &&
                 (search.isBlank() || room.preview.contains(search, true))
             }.sortedWith(compareByDescending<ChatRoom> { prefs[it.id]?.pinned == true }
                 .thenByDescending { it.lastAt })
@@ -173,6 +182,7 @@ internal fun AtrioConversationsScreen(
             if (error.isNotBlank()) Text(error, Modifier.padding(12.dp), color = MaterialTheme.colorScheme.error)
             if (loaded && matches.isEmpty()) Text(
                 if (requestsTab) "Nenhuma solicitação recebida."
+                else if (archivesTab) "Nenhuma conversa arquivada."
                 else "Nenhuma conversa nesta caixa de entrada.",
                 Modifier.padding(20.dp), color = Muted)
             LazyColumn(Modifier.weight(1f).testTag("atrio-chats-list"),
