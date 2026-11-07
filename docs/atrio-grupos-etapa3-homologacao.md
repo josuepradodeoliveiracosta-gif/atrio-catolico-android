@@ -12,12 +12,17 @@ limites numéricos, política para menores ou regras finais de permanência.
   a administrador e revogação pelo criador. O criador não pode ser removido.
 - Convites pessoais somente por administrador para contatos com conversa
   individual **previamente aceita**, com revalidação dos bloqueios.
+  O servidor recusa convites para UIDs aleatórios e contatos bloqueados.
 - Convite recebido não concede acesso ao grupo. A entrada é efetivada
   com **aceite explícito e atualização atômica** de convite e participantes.
 - Recusa, saída voluntária de integrante não administrador, remoção por
   administrador e reconvite após a saída ou recusa.
 - Mensagens somente em texto, enviadas atomicamente com atualização
-  da prévia e da última mensagem. Sem upload, áudio, foto, vídeo, GIF,
+  da prévia e da última mensagem. Há denúncia individual de mensagem:
+  somente o trecho denunciado e o motivo são disponibilizados à moderação
+  central autorizada, sem liberar o histórico integral do grupo.
+  Denúncias repetidas pela mesma conta e mensagem são recusadas.
+  Sem upload, áudio, foto, vídeo, GIF,
   documento, chamadas, mensagens temporárias ou criptografia ponta a ponta.
 - Leitura de mensagens apenas por participantes ativos. Removidos perdem
   o direito de novas leituras e envios **no servidor**.
@@ -82,7 +87,8 @@ projeto `demo-atrio-v11`, para testar os fluxos de permissões.
 - Nenhuma credencial privada, nova assinatura, novo bucket, backup ou
   configuração externa é necessária para executar os testes locais.
 - Não conceder acesso à moderação ou ao fundador a mensagens de grupos
-  dos quais não participam.
+  dos quais não participam. A exceção é o conteúdo **específico**
+  encaminhado numa denúncia por um participante autorizado.
 
 ## Validações pendentes antes de qualquer rollout
 
@@ -90,8 +96,10 @@ projeto `demo-atrio-v11`, para testar os fluxos de permissões.
   comportamento de bloqueios dentro de um mesmo grupo.
 - Definir a responsabilidade e a sucessão do criador em caso de
   exclusão de conta ou necessidade de encerrar o grupo.
-- Definir limites numéricos finais, governança de denúncia **por mensagem**
-  em grupos, tratamento de spam em muitos grupos e retenção/exclusão.
+- Revisar o fluxo de denúncias seletivas já implementado, inclusive
+  responsabilização e tempo de retenção das denúncias.
+- Definir limites numéricos finais, tratamento de spam em muitos grupos,
+  retenção e exclusão.
 - Avaliar custos e índices das consultas `collectionGroup` no Firestore
   real; não presumir que índices do emulador equivalem a produção.
 - Tratar falhas de rede, reconvite, concorrência de vários convites e
