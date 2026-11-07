@@ -38,6 +38,13 @@ Origem: *Átrio Conversas — Plano Completo* (06/11/2026), páginas 3–11 e 14
   de 24 horas, com reset validado por relógio do servidor. O cliente não consegue
   zerar ou falsificar o contador, tampouco criar solicitações sem ele.
   O limite numérico deverá ser aprovado antes da implantação.
+- **Antirrajada em conversa aceita:** a última identidade de envio é
+  validada nas regras do Firestore, e o mesmo autor não pode enviar outra
+  mensagem por três segundos consecutivos no mesmo chat. O bloqueio não
+  depende apenas da interface e não aumenta as leituras de documentos
+  necessárias para verificar quem enviou a última mensagem. Valor provisório
+  sujeito a revisão. Respostas do outro participante não ficam bloqueadas.
+  A contenção de spam global entre conversas diferentes ainda está pendente.
 - **Ocultar apenas para mim:** documento pessoal para cada mensagem, com
   restauração própria, sem apagar a mensagem, denúncias ou histórico do outro.
   Os controles ficam no menu compacto de mensagens para telas menores.
@@ -71,8 +78,8 @@ em dois aparelhos com contas distintas.
 **Continuam não disponíveis ao usuário final:** a própria área de chat
 (ainda bloqueada no servidor), confirmações genuínas de leitura/entrega,
 edição e remoção de mensagens (gates administrativos fechados por padrão),
-política de proteção de menores, limitação mais avançada de mensagens
-repetidas entre chats aceitos, grupos **ainda desativados** e mensagens
+política de proteção de menores, limitação global de mensagens
+repetidas entre diferentes chats aceitos, grupos **ainda desativados** e mensagens
 temporárias.
 
 A etapa 2 teve três recursos preparados em código; nenhuma das suas
