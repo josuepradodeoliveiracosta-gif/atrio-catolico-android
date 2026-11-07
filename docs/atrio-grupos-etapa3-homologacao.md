@@ -131,7 +131,8 @@ projeto `demo-atrio-v11`, para testar os fluxos de permissões.
   rotação, troca de conta, Android em segundo plano e estado offline.
 - **Push de grupos preparado somente em código, sem implantação:** o Worker
   confere o evento no Firestore, autor, data recente, grupo ativo, configuração
-  do chat, elegibilidade individual, participantes atuais (até 8), bloqueios
+  do chat, elegibilidade do autor e de cada destinatário, participantes
+  atuais (até 8), bloqueios
   recíprocos e silêncio por grupo. O APK nunca envia corpo, nome de grupo
   ou lista de destinatários. O FCM recebe apenas IDs, tipo e UID de destino,
   e o aplicativo apresenta aviso genérico com acesso revalidado pelo Firestore.

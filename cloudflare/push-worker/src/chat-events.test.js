@@ -94,6 +94,8 @@ const groupFixture={
   'app_config/chat_groups':doc({enabled:true,minorPolicyApproved:true,version:'2026-11-groups-v1'}),
   'chat_groups/grp-qa':doc({status:'active',memberUids:['chat-alice','chat-bob','chat-charlie']}),
   'chat_groups/grp-qa/messages/m3':doc({uid:'chat-alice',kind:'text',text:'Mensagem privada',createdAt:now()}),
+  'users/chat-alice/chatGroupAccess/eligibility':
+    doc({status:'approved',policyVersion:'2026-11-group-safety-v1'}),
   'users/chat-bob/chatGroupAccess/eligibility':
     doc({status:'approved',policyVersion:'2026-11-group-safety-v1'}),
   'users/chat-charlie/chatGroupAccess/eligibility':
@@ -172,4 +174,12 @@ test('Grupo: membros duplicados, acima do limite ou dados inválidos não recebe
     mocked({...groupFixture,'chat_groups/grp-qa':doc({status:'active',memberUids:members})});
     assert.equal(await resolveEvent(groupEvent,'chat-alice','fake'),null);
   }
+});
+
+test('Grupo: não notifica quando o próprio autor foi suspenso depois do envio',async()=>{
+  mocked({...groupFixture,
+    'users/chat-alice/chatGroupAccess/eligibility':
+      doc({status:'suspended',policyVersion:'2026-11-group-safety-v1'})
+  });
+  assert.equal(await resolveEvent(groupEvent,'chat-alice','fake'),null);
 });

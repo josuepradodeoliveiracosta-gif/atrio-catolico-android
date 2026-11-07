@@ -294,6 +294,11 @@ export async function resolveEvent(event, actor, token) {
     if(members.some(v=>!uidPart(v)) ||
        new Set(members).size!==members.length ||
        !members.includes(actor)) return null;
+    const actorAccess=await firestoreGet(token,
+      'users/'+enc(actor)+'/chatGroupAccess/eligibility');
+    if(!actorAccess || stringField(actorAccess,'status')!=='approved' ||
+       stringField(actorAccess,'policyVersion')!=='2026-11-group-safety-v1')
+      return null;
     const recipients=[];
     for(const peer of members) {
       if(peer===actor) continue;
