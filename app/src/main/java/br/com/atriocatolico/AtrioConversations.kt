@@ -343,6 +343,20 @@ private fun AtrioChatThread(
     var reason by remember(uid, chatId) { mutableStateOf("") }
     val peerUid = chat?.peer(uid) ?: initialPeer?.uid.orEmpty()
     val peerName = chatPeerName(db, peerUid, initialPeer?.nameFromPublication ?: "Participante")
+    // Apenas o próprio titular pode ler sua lista de bloqueados. Não tentar
+    // descobrir se o outro participante bloqueou esta conta.
+    var blockedByMe by remember(uid, peerUid) { mutableStateOf<Boolean?>(null) }
+    DisposableEffect(db, uid, peerUid) {
+        if (peerUid.isBlank()) onDispose {}
+        else {
+            val listener = db.collection("users").document(uid)
+                .collection("blockedMembers").document(peerUid)
+                .addSnapshotListener { snapshot, failure ->
+                    blockedByMe = if (failure == null) snapshot?.exists() == true else null
+                }
+            onDispose { listener.remove() }
+        }
+    }
     DisposableEffect(uid, chatId) {
         AtrioChatForeground.open(uid, chatId)
         onDispose { AtrioChatForeground.close(uid, chatId) }
@@ -401,6 +415,10 @@ private fun AtrioChatThread(
     }
 
     fun send(shared: Pair<String, String>? = null) {
+        if (blockedByMe != false) {
+            info = "Aguarde a verificação de bloqueio ou desbloqueie este participante."
+            return
+        }
         val body = if (shared == null) draft.trim() else "Discussão: " + shared.second
         if (saving || FirebaseAuth.getInstance().currentUser?.uid != uid ||
             !AtrioChatPolicy.validText(body)) {
@@ -704,6 +722,12 @@ private fun AtrioChatThread(
                 }
             }
             if (info.isNotBlank()) Text(info, Modifier.padding(12.dp), color = Muted, fontSize = 13.sp)
+            if (blockedByMe == true) Text(
+                "Você bloqueou este participante. Desbloqueie para enviar mensagens.",
+                Modifier.padding(horizontal = 12.dp, vertical = 6.dp), color = Wine)
+            if (peerUid.isNotBlank() && blockedByMe == null) Text(
+                "Verificando bloqueios...", Modifier.padding(horizontal = 12.dp),
+                color = Muted, fontSize = 13.sp)
             if (chat?.status == "accepted" && sharePost != null) {
                 Surface(shape = RoundedCornerShape(14.dp),
                     border = BorderStroke(1.dp, Gold),
@@ -714,7 +738,7 @@ private fun AtrioChatThread(
                             color = Wine)
                         Text(sharePost.second, maxLines = 2,
                             overflow = TextOverflow.Ellipsis)
-                        Button(onClick = { send(sharePost) }, enabled = !saving,
+                        Button(onClick = { send(sharePost) }, enabled = !saving && blockedByMe == false,
                             modifier = Modifier.testTag("atrio-chat-share-post")) {
                             Text("Enviar cartão textual")
                         }
@@ -733,26 +757,35 @@ private fun AtrioChatThread(
                     }
                 }
                 OutlinedTextField(draft, { if (it.length <= AtrioChatPolicy.MAX_TEXT) draft = it },
-                    enabled = !saving,
+                    enabled = !saving && blockedByMe == false,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)
                         .testTag("atrio-chat-composer"),
                     label = { Text(if (chat == null) "Primeira mensagem" else "Mensagem") },
                     maxLines = 5,
                     supportingText = { Text(draft.length.toString() + "/1500 • somente texto") })
-                Button(onClick = { send() }, enabled = !saving && draft.isNotBlank(),
+                Button(onClick = { send() }, enabled = !saving && blockedByMe == false && draft.isNotBlank(),
                     modifier = Modifier.fillMaxWidth().padding(12.dp)
                         .heightIn(min = 48.dp).testTag("atrio-chat-send")) {
                     Text(if (chat == null) "Solicitar conversa" else "Enviar")
                 }
             }
-            if (chat != null && peerUid.isNotBlank()) {
+            if (chat != null && peerUid.isNotBlank() && blockedByMe != null) {
                 OutlinedButton(onClick = {
-                    db.collection("users").document(uid).collection("blockedMembers")
-                        .document(peerUid).set(mapOf("createdAt" to FieldValue.serverTimestamp()))
-                        .addOnSuccessListener { onBack() }
-                        .addOnFailureListener { info = "Bloqueio não confirmado." }
-                }, modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
-                    Text("Bloquear participante")
+                    val ref = db.collection("users").document(uid)
+                        .collection("blockedMembers").document(peerUid)
+                    if (blockedByMe == true) {
+                        ref.delete().addOnFailureListener {
+                            info = "Desbloqueio não confirmado."
+                        }
+                    } else {
+                        ref.set(mapOf("createdAt" to FieldValue.serverTimestamp()))
+                            .addOnSuccessListener { onBack() }
+                            .addOnFailureListener { info = "Bloqueio não confirmado." }
+                    }
+                }, modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)
+                    .testTag("atrio-chat-block-toggle")) {
+                    Text(if (blockedByMe == true) "Desbloquear participante"
+                         else "Bloquear participante")
                 }
             }
         }

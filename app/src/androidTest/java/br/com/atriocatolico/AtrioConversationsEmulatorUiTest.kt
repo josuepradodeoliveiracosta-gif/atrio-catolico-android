@@ -5,6 +5,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
@@ -80,6 +81,16 @@ class AtrioConversationsEmulatorUiTest {
         }
     }
 
+    private fun waitForComposerReady() {
+        waitForTag("atrio-chat-composer")
+        compose.waitUntil(35_000) {
+            runCatching {
+                compose.onNodeWithTag("atrio-chat-composer").assertIsEnabled()
+                true
+            }.getOrDefault(false)
+        }
+    }
+
     private fun waitForText(text: String, timeoutMs: Long = 35_000) {
         compose.waitUntil(timeoutMs) {
             compose.onAllNodesWithText(text, useUnmergedTree = true)
@@ -107,7 +118,7 @@ class AtrioConversationsEmulatorUiTest {
         }
         waitForTag("atrio-chat-$chatId")
         compose.onNodeWithTag("atrio-chat-$chatId").performClick()
-        waitForTag("atrio-chat-composer")
+        waitForComposerReady()
 
         val aliceText = "Paz e bem! Mensagem privada de homologação."
         compose.onNodeWithTag("atrio-chat-composer").performTextInput(aliceText)
@@ -134,7 +145,7 @@ class AtrioConversationsEmulatorUiTest {
         compose.runOnIdle { screenUid = bob }
         waitForTag("atrio-chat-$chatId")
         compose.onNodeWithTag("atrio-chat-$chatId").performClick()
-        waitForTag("atrio-chat-composer")
+        waitForComposerReady()
         waitForText(aliceText)
         compose.onNodeWithText(aliceText).assertIsDisplayed()
 
@@ -166,7 +177,7 @@ class AtrioConversationsEmulatorUiTest {
         compose.runOnIdle { screenUid = alice }
         waitForTag("atrio-chat-$chatId")
         compose.onNodeWithTag("atrio-chat-$chatId").performClick()
-        waitForTag("atrio-chat-composer")
+        waitForComposerReady()
 
         val rejected = "Tentativa proibida após bloqueio."
         compose.onNodeWithTag("atrio-chat-composer").performTextInput(rejected)
@@ -181,5 +192,38 @@ class AtrioConversationsEmulatorUiTest {
             messages.documents.any { it.getString("text") == aliceText })
         assertTrue("Resposta original não pode desaparecer",
             messages.documents.any { it.getString("text") == bobText })
+
+        // Reabilitação voluntária pelo próprio titular do bloqueio.
+        auth.signOut()
+        assertEquals(bob, login("group.bob@qa.invalid"))
+        compose.runOnIdle { screenUid = bob }
+        waitForTag("atrio-chat-$chatId")
+        compose.onNodeWithTag("atrio-chat-$chatId").performClick()
+        waitForTag("atrio-chat-block-toggle")
+        compose.onNodeWithText("Desbloquear participante").performClick()
+        compose.waitUntil(30_000) {
+            runCatching {
+                !Tasks.await(db.collection("users").document(bob)
+                    .collection("blockedMembers").document(alice)
+                    .get(Source.SERVER), 5, TimeUnit.SECONDS).exists()
+            }.getOrDefault(false)
+        }
+
+        auth.signOut()
+        assertEquals(alice, login("group.alice@qa.invalid"))
+        compose.runOnIdle { screenUid = alice }
+        waitForTag("atrio-chat-$chatId")
+        compose.onNodeWithTag("atrio-chat-$chatId").performClick()
+        waitForComposerReady()
+        val resumed = "Mensagem retomada após desbloqueio."
+        compose.onNodeWithTag("atrio-chat-composer").performTextInput(resumed)
+        compose.onNodeWithTag("atrio-chat-send").performClick()
+        compose.waitUntil(35_000) {
+            runCatching {
+                Tasks.await(db.collection("chats").document(chatId)
+                    .get(Source.SERVER), 5, TimeUnit.SECONDS)
+                    .getString("lastPreview") == resumed
+            }.getOrDefault(false)
+        }
     }
 }

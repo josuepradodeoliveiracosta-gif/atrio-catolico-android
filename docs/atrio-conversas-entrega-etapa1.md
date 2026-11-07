@@ -12,8 +12,11 @@ Origem: *Átrio Conversas — Plano Completo* (06/11/2026), páginas 3–11 e 14
   explícito** do destinatário. Visualizar não aceita.
 - Após aceite, mensagens de texto via transação Firestore, estados de envio e
   confirmação, carregamento incremental do histórico.
-- Bloquear participante e denunciar uma mensagem selecionada, sem expor
-  a conversa inteira ao painel de moderação.
+- Bloquear e desbloquear participante pela conversa, refletindo o
+  bloqueio próprio em tempo real (o estado alheio permanece privado). Enquanto
+  a própria situação de bloqueio não é conhecida, o compositor fica desativado;
+  as regras no Firestore são a autoridade final. Denunciar uma mensagem
+  selecionada não expõe a conversa inteira à moderação.
 - Controle de quem pode solicitar contato: de todos ou de ninguém.
 - Validação no Firestore: somente dois participantes autorizados leem;
   mídia, GIF, documento, áudio e outros tipos não são gravados;
@@ -170,8 +173,8 @@ Cada destinatário também deve optar por `requests: "all"` em
 A suíte `AtrioConversationsEmulatorUiTest`, incluída no fluxo
 `scripts/run-qa-android-emulator.sh`, exercita a interface Compose
 com dois logins Firebase Auth **do emulador local**: Alice envia,
-Bob vê e responde, Bob bloqueia, e Alice recebe recusa do servidor
-ao tentar escrever novamente. Asserções verificam também a autoria
+Bob vê e responde, Bob bloqueia, Alice recebe recusa do servidor
+ao tentar escrever novamente e Bob desbloqueia, permitindo a retomada. Asserções verificam também a autoria
 e a prévia da última mensagem. A inicialização recusa configuração
 de produção e usa somente o projeto `demo-atrio-v11` e as portas
 locais 9099/8089. O teste não usa push FCM real.
