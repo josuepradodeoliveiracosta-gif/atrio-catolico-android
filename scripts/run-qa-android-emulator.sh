@@ -118,5 +118,13 @@ run_suite ThreeBotsAndroidUiTest
 run_suite ThreeBotsAuthenticatedAndroidUiTest
 run_suite ThreeBotsOnlineEmulatorTest
 run_suite EmailVerificationAndroidUiTest
+# Etapas 1–3: regras individuais e de grupos são injetadas somente no
+# Firestore Emulator da VM; duas contas reais do Auth emulado via Compose.
+# Nenhum campo de elegibilidade é criado no Firebase de produção.
+(
+  cd tests/security
+  node seed-chat-groups-android.mjs
+)
+run_suite AtrioGroupsEmulatorUiTest
 echo "QA Android: suítes concluídas em processos separados; status=$qa_failed"
 exit "$qa_failed"
