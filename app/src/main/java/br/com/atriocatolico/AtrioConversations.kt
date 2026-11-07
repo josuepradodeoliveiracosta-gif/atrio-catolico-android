@@ -43,7 +43,8 @@ private data class ChatRoom(val id: String, val requester: String, val recipient
 }
 private data class ChatItem(val id: String, val uid: String, val text: String, val whenSent: Long,
     val pending: Boolean, val replyToId: String? = null,
-    val reactions: Map<String, String> = emptyMap())
+    val reactions: Map<String, String> = emptyMap(),
+    val postId: String? = null, val postTitle: String? = null)
 private data class ChatPrefs(val muted: Boolean = false, val pinned: Boolean = false,
     val archived: Boolean = false)
 
@@ -78,7 +79,9 @@ private fun chatPeerName(db: FirebaseFirestore, uid: String, fallback: String = 
 internal fun AtrioConversationsScreen(
     db: FirebaseFirestore, uid: String, onBack: () -> Unit,
     initialPeer: PublicMemberTarget? = null,
-    initialChatId: String? = null
+    initialChatId: String? = null,
+    initialSharePost: Pair<String, String>? = null,
+    onOpenDiscussion: (String) -> Unit = {}
 ) {
     var enabled by remember(uid) { mutableStateOf(false) }
     var loadedConfig by remember(uid) { mutableStateOf(false) }
@@ -89,6 +92,7 @@ internal fun AtrioConversationsScreen(
     var error by remember(uid) { mutableStateOf("") }
     var search by remember(uid) { mutableStateOf("") }
     var requestsTab by remember(uid) { mutableStateOf(false) }
+    var sharePost by remember(uid, initialSharePost) { mutableStateOf(initialSharePost) }
     var archivesTab by remember(uid) { mutableStateOf(false) }
     var selected by remember(uid, initialPeer?.uid, initialChatId) {
         mutableStateOf(initialChatId ?: initialPeer?.uid?.let { AtrioChatPolicy.id(uid, it) })
@@ -156,7 +160,10 @@ internal fun AtrioConversationsScreen(
         } else if (selected != null) {
             AtrioChatThread(db, uid, selected!!, chosen,
                 initialPeer?.takeIf { AtrioChatPolicy.id(uid, it.uid) == selected },
-                onBack = { selected = null })
+                onBack = { selected = null },
+                sharePost = sharePost,
+                onShareSent = { sharePost = null },
+                onOpenDiscussion = onOpenDiscussion)
         } else {
             OutlinedTextField(search, { search = it.take(80) },
                 modifier = Modifier.fillMaxWidth().padding(12.dp)
@@ -253,7 +260,10 @@ internal fun AtrioConversationsScreen(
 @Composable
 private fun AtrioChatThread(
     db: FirebaseFirestore, uid: String, chatId: String, preview: ChatRoom?,
-    initialPeer: PublicMemberTarget?, onBack: () -> Unit
+    initialPeer: PublicMemberTarget?, onBack: () -> Unit,
+    sharePost: Pair<String, String>?,
+    onShareSent: () -> Unit,
+    onOpenDiscussion: (String) -> Unit
 ) {
     val ref = remember(db, chatId) { db.collection("chats").document(chatId) }
     var chat by remember(uid, chatId) { mutableStateOf(preview) }
@@ -300,7 +310,8 @@ private fun AtrioChatThread(
                         ChatItem(doc.id, sender, body,
                             doc.getTimestamp("createdAt")?.toDate()?.time ?: 0,
                             doc.metadata.hasPendingWrites(),
-                            doc.getString("replyToId"), reactions)
+                            doc.getString("replyToId"), reactions,
+                            doc.getString("postId"), doc.getString("postTitle"))
                     }.reversed() else info = "Não foi possível carregar as mensagens."
                 }
             onDispose { listener.remove() }
@@ -323,11 +334,15 @@ private fun AtrioChatThread(
         }
     }
 
-    fun send() {
-        val body = draft.trim()
+    fun send(shared: Pair<String, String>? = null) {
+        val body = if (shared == null) draft.trim() else "Discussão: " + shared.second
         if (saving || FirebaseAuth.getInstance().currentUser?.uid != uid ||
             !AtrioChatPolicy.validText(body)) {
             info = "Escreva uma mensagem válida de até 1.500 caracteres."
+            return
+        }
+        if (chat == null && shared != null) {
+            info = "Compartilhamentos exigem uma conversa aceita."
             return
         }
         if (chat == null && !AtrioChatPolicy.validRequest(body)) {
@@ -348,8 +363,13 @@ private fun AtrioChatThread(
         }
         val bodyData = mutableMapOf<String, Any>(
             "uid" to uid, "text" to body,
-            "kind" to "text", "createdAt" to FieldValue.serverTimestamp())
-        if (chat?.status == "accepted") replyingTo?.id?.let { bodyData["replyToId"] = it }
+            "kind" to if (shared == null) "text" else "post",
+            "createdAt" to FieldValue.serverTimestamp())
+        if (shared != null) {
+            bodyData["postId"] = shared.first
+            bodyData["postTitle"] = shared.second
+        } else if (chat?.status == "accepted")
+            replyingTo?.id?.let { bodyData["replyToId"] = it }
         if (chat == null) {
             val batch = db.batch()
             batch.set(ref, mapOf(
@@ -398,6 +418,7 @@ private fun AtrioChatThread(
                 if (response.isSuccessful) {
                     if (draft.trim() == body) draft = ""
                     replyingTo = null
+                    if (shared != null) onShareSent()
                     info = ""
                     pendingAttemptId = ""; pendingAttemptText = ""
                     if (response.result == true &&
@@ -464,7 +485,17 @@ private fun AtrioChatThread(
                                         overflow = TextOverflow.Ellipsis)
                                     Spacer(Modifier.height(5.dp))
                                 }
-                                Text(msg.text, fontSize = 16.sp, lineHeight = 22.sp, color = Ink)
+                                if (msg.postId != null && msg.postTitle != null) {
+                                    Text("Discussão compartilhada", fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold, color = Wine)
+                                    Text(msg.postTitle, fontSize = 16.sp, lineHeight = 22.sp,
+                                        color = Ink)
+                                    TextButton(onClick = { onOpenDiscussion(msg.postId) },
+                                        modifier = Modifier.testTag("atrio-chat-open-post")) {
+                                        Text("Abrir discussão original")
+                                    }
+                                } else Text(msg.text, fontSize = 16.sp,
+                                    lineHeight = 22.sp, color = Ink)
                                 if (msg.reactions.isNotEmpty()) {
                                     val summary = msg.reactions.values.groupingBy { it }
                                         .eachCount().entries.joinToString("  ") {
@@ -498,6 +529,23 @@ private fun AtrioChatThread(
                 }
             }
             if (info.isNotBlank()) Text(info, Modifier.padding(12.dp), color = Muted, fontSize = 13.sp)
+            if (chat?.status == "accepted" && sharePost != null) {
+                Surface(shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, Gold),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
+                    Column(Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Compartilhar discussão", fontWeight = FontWeight.SemiBold,
+                            color = Wine)
+                        Text(sharePost.second, maxLines = 2,
+                            overflow = TextOverflow.Ellipsis)
+                        Button(onClick = { send(sharePost) }, enabled = !saving,
+                            modifier = Modifier.testTag("atrio-chat-share-post")) {
+                            Text("Enviar cartão textual")
+                        }
+                    }
+                }
+            }
             if (chat == null || chat?.status == "accepted") {
                 if (replyingTo != null) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp),
@@ -516,7 +564,7 @@ private fun AtrioChatThread(
                     label = { Text(if (chat == null) "Primeira mensagem" else "Mensagem") },
                     maxLines = 5,
                     supportingText = { Text(draft.length.toString() + "/1500 • somente texto") })
-                Button(onClick = ::send, enabled = !saving && draft.isNotBlank(),
+                Button(onClick = { send() }, enabled = !saving && draft.isNotBlank(),
                     modifier = Modifier.fillMaxWidth().padding(12.dp)
                         .heightIn(min = 48.dp).testTag("atrio-chat-send")) {
                     Text(if (chat == null) "Solicitar conversa" else "Enviar")
