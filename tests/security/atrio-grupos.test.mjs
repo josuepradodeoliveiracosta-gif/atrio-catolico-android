@@ -118,6 +118,14 @@ try {
     })));
   await check('não membro não consegue enviar convite',()=>
     assertFails(invitation(stranger,groupId,'group-b',{inviterUid:'group-stranger'})));
+  await check('administrador não convida UID desconhecido sem contato aceito',()=>
+    assertFails(invitation(a,groupId,'group-c')));
+  await env.withSecurityRulesDisabled(async ctx=>
+    setDoc(doc(ctx.firestore(),'chats/group-a__group-b'),{
+      participants:['group-a','group-b'],
+      requesterUid:'group-a',recipientUid:'group-b',status:'accepted',
+      createdAt:serverTimestamp(),updatedAt:serverTimestamp()
+    }));
   await check('administrador envia convite privado',()=>
     assertSucceeds(invitation(a,groupId,'group-b')));
   await check('convidado vê o convite mas não o conteúdo do grupo',async()=>{
