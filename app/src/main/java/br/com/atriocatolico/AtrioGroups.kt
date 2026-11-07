@@ -582,9 +582,13 @@ private fun AtrioGroupThread(
                 }
                 if(!isOwner) {
                     OutlinedButton(onClick={
-                        updateGroup(mapOf(
-                            "memberUids" to FieldValue.arrayRemove(uid),
-                            "lastRemovedUid" to uid),
+                        updateGroup(
+                            mapOf(
+                                "memberUids" to FieldValue.arrayRemove(uid),
+                                "lastRemovedUid" to uid
+                            ) + if(isAdmin) mapOf(
+                                "adminUids" to FieldValue.arrayRemove(uid)
+                            ) else emptyMap(),
                             "Você saiu do grupo.")
                     },enabled=!busy) { Text("Sair do grupo") }
                 }
