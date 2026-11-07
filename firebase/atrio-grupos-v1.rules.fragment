@@ -11,6 +11,16 @@
     function atrioGroupPath(groupId) {
       return /databases/$(database)/documents/chat_groups/$(groupId);
     }
+    // Proteção anti-spam: convites apenas a contatos com conversa individual
+    // previamente aceita. Não basta conhecer o UID por fora do aplicativo.
+    function atrioGroupAcceptedContact(a,b) {
+      let ab = /databases/$(database)/documents/chats/$(a + '__' + b);
+      let ba = /databases/$(database)/documents/chats/$(b + '__' + a);
+      return (exists(ab) && get(ab).data.status == 'accepted'
+          && get(ab).data.participants.hasAll([a,b]))
+        || (exists(ba) && get(ba).data.status == 'accepted'
+          && get(ba).data.participants.hasAll([a,b]));
+    }
     function atrioGroupInvitation(groupId,uid) {
       return /databases/$(database)/documents/chat_groups/$(groupId)/atrioGroupInvites/$(uid);
     }
@@ -199,7 +209,8 @@
           && request.resource.data.status == 'pending'
           && request.resource.data.createdAt == request.time
           && request.resource.data.updatedAt == request.time
-          && chatNoBlock(request.auth.uid, inviteeUid);
+          && chatNoBlock(request.auth.uid, inviteeUid)
+          && atrioGroupAcceptedContact(request.auth.uid, inviteeUid);
         allow update: if atrioGroupsEnabled()
           && request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly(['status','updatedAt'])
@@ -220,7 +231,8 @@
             (atrioGroupAdmin(groupId) && resource.data.status in ['declined','accepted']
               && !(inviteeUid in get(atrioGroupPath(groupId)).data.memberUids)
               && request.resource.data.status == 'pending'
-              && chatNoBlock(request.auth.uid, inviteeUid))
+              && chatNoBlock(request.auth.uid, inviteeUid)
+              && atrioGroupAcceptedContact(request.auth.uid,inviteeUid))
           );
         allow delete: if false;
       }
