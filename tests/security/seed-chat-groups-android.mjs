@@ -6,7 +6,7 @@
  */
 import {readFileSync} from 'node:fs';
 import {initializeTestEnvironment} from '@firebase/rules-unit-testing';
-import {doc,setDoc,serverTimestamp,Timestamp} from 'firebase/firestore';
+import {doc,deleteDoc,setDoc,serverTimestamp,Timestamp} from 'firebase/firestore';
 
 const project='demo-atrio-v11';
 const authBase='http://127.0.0.1:9099';
@@ -31,17 +31,25 @@ const accounts=[
   {email:'group.alice@qa.invalid',name:'Clara QA'},
   {email:'group.bob@qa.invalid',name:'Miguel QA'}
 ];
-for(const account of accounts) {
+// A UI de chats e a de grupos são suítes independentes: o segundo seed
+// restaura apenas fixtures locais, sem cadastrar contas duplicadas.
+async function emulatorAuth(action,account) {
   const response=await fetch(authBase+
-    '/identitytoolkit.googleapis.com/v1/accounts:signUp?key=local-emulator-test',{
+    '/identitytoolkit.googleapis.com/v1/accounts:'+action+'?key=local-emulator-test',{
     method:'POST',headers:{'content-type':'application/json'},
     body:JSON.stringify({email:account.email,password,returnSecureToken:true}),
     signal:AbortSignal.timeout(10000)
   });
-  const data=await response.json();
-  if(!response.ok || !data.localId)
-    throw Error('Falha no cadastro local '+account.email+': '+JSON.stringify(data));
-  account.uid=data.localId;
+  return {response,data:await response.json()};
+}
+for(const account of accounts) {
+  let result=await emulatorAuth('signUp',account);
+  if(!result.response.ok && result.data?.error?.message==='EMAIL_EXISTS') {
+    result=await emulatorAuth('signInWithPassword',account);
+  }
+  if(!result.response.ok || !result.data.localId)
+    throw Error('Falha no login local '+account.email+': '+JSON.stringify(result.data));
+  account.uid=result.data.localId;
 }
 const chatId=[accounts[0].uid,accounts[1].uid].sort().join('__');
 const enabledRules=rulesBase.replace(marker,fragmentDm+fragmentGroups+marker);
@@ -69,6 +77,12 @@ try {
         uid:user.uid,displayName:user.name,createdAt:serverTimestamp()
       });
     }
+    // Somente os dois UIDs do Auth emulado. Remove estados transitórios
+    // de bloqueio deixados por QA individual, nunca dados de produção.
+    await deleteDoc(doc(db,'users/'+accounts[0].uid+
+      '/blockedMembers/'+accounts[1].uid));
+    await deleteDoc(doc(db,'users/'+accounts[1].uid+
+      '/blockedMembers/'+accounts[0].uid));
     await setDoc(doc(db,'chats/'+chatId),{
       participants:[accounts[0].uid,accounts[1].uid],
       requesterUid:accounts[0].uid,recipientUid:accounts[1].uid,
