@@ -276,6 +276,16 @@ private fun AtrioChatThread(
     var loaded by remember(uid, chatId) { mutableStateOf(false) }
     var limit by remember(uid, chatId) { mutableIntStateOf(40) }
     var messages by remember(uid, chatId) { mutableStateOf<List<ChatItem>>(emptyList()) }
+    var hiddenMessageIds by remember(uid, chatId) { mutableStateOf<Set<String>>(emptySet()) }
+    DisposableEffect(db, uid, chatId) {
+        val listener = db.collection("users").document(uid)
+            .collection("chatHidden").document(chatId).collection("messages")
+            .limit(500).addSnapshotListener { snapshot, failure ->
+                if (failure == null) hiddenMessageIds = snapshot?.documents
+                    ?.map { it.id }?.toSet().orEmpty()
+            }
+        onDispose { listener.remove() }
+    }
     var draft by remember(uid, chatId) { mutableStateOf("") }
     var pendingAttemptId by remember(uid, chatId) { mutableStateOf("") }
     var pendingAttemptText by remember(uid, chatId) { mutableStateOf("") }
@@ -377,27 +387,61 @@ private fun AtrioChatThread(
         } else if (chat?.status == "accepted")
             replyingTo?.id?.let { bodyData["replyToId"] = it }
         if (chat == null) {
-            val batch = db.batch()
-            batch.set(ref, mapOf(
-                "participants" to listOf(uid, initialPeer!!.uid),
-                "requesterUid" to uid, "recipientUid" to initialPeer.uid,
-                "status" to "pending", "initialId" to messageRef.id,
-                "lastMessageId" to messageRef.id, "lastPreview" to body,
-                "createdAt" to FieldValue.serverTimestamp(),
-                "updatedAt" to FieldValue.serverTimestamp(),
-                "unreadRequester" to 0, "unreadRecipient" to 1
-            ))
-            batch.set(messageRef, bodyData)
-            batch.commit().addOnCompleteListener { response ->
+            val peer = initialPeer!!.uid
+            val quotaRef = db.collection("users").document(uid)
+                .collection("chatLimits").document("requests")
+            db.runTransaction { tx ->
+                // Leituras primeiro: o Firestore reconcilia disputas entre
+                // dois pedidos concorrentes da mesma conta.
+                val currentRoom = tx.get(ref)
+                val currentQuota = tx.get(quotaRef)
+                val currentMessage = tx.get(messageRef)
+                if (currentRoom.exists()) {
+                    check(currentRoom.getString("requesterUid") == uid &&
+                        currentRoom.getString("initialId") == messageRef.id &&
+                        currentMessage.getString("text") == body)
+                    false // Repetição de envio já persistido; sem novo push.
+                } else {
+                    check(!currentMessage.exists())
+                    val now = System.currentTimeMillis()
+                    val windowStart = currentQuota.getTimestamp("windowStart")
+                    val newWindow = windowStart == null ||
+                        now - windowStart.toDate().time >= 86_400_000L
+                    val number = if (newWindow) 1L else
+                        (currentQuota.getLong("count") ?: 0L) + 1L
+                    check(number <= 5L) { "Limite provisório de pedidos atingido." }
+                    tx.set(quotaRef, mapOf(
+                        "count" to number,
+                        "windowStart" to if (newWindow)
+                            FieldValue.serverTimestamp() else windowStart!!,
+                        "updatedAt" to FieldValue.serverTimestamp(),
+                        "lastChatId" to chatId))
+                    tx.set(ref, mapOf(
+                        "participants" to listOf(uid, peer),
+                        "requesterUid" to uid, "recipientUid" to peer,
+                        "status" to "pending", "initialId" to messageRef.id,
+                        "lastMessageId" to messageRef.id, "lastPreview" to body,
+                        "createdAt" to FieldValue.serverTimestamp(),
+                        "updatedAt" to FieldValue.serverTimestamp(),
+                        "unreadRequester" to 0, "unreadRecipient" to 1))
+                    tx.set(messageRef, bodyData)
+                    true
+                }
+            }.addOnCompleteListener { response ->
                 saving = false
                 if (response.isSuccessful) {
-                    draft = ""; info = "Solicitação enviada."
+                    if (draft.trim() == body) draft = ""
+                    info = "Solicitação enviada."
                     replyingTo = null
                     pendingAttemptId = ""; pendingAttemptText = ""
-                    if (!(BuildConfig.DEBUG && com.google.firebase.FirebaseApp.getInstance().options.projectId == "demo-atrio-v11"))
+                    if (response.result == true &&
+                        !(BuildConfig.DEBUG &&
+                            com.google.firebase.FirebaseApp.getInstance().options.projectId == "demo-atrio-v11"))
                         InstantPushRelay.chatMessage(chatId, messageRef.id)
+                } else {
+                    info = "Pedido não confirmado. O destinatário pode não aceitar " +
+                        "solicitações ou você atingiu o limite de novos contatos."
                 }
-                else info = "Não foi possível solicitar contato. Verifique se a pessoa aceita solicitações."
             }
         } else if (chat?.status == "accepted") {
             db.runTransaction { tx ->
@@ -476,7 +520,7 @@ private fun AtrioChatThread(
                 if (messages.size >= limit) item {
                     TextButton(onClick = { limit += 40 }) { Text("Carregar anteriores") }
                 }
-                items(messages, key = { it.id }) { msg ->
+                items(messages.filterNot { it.id in hiddenMessageIds }, key = { it.id }) { msg ->
                     Column(Modifier.fillMaxWidth(),
                         horizontalAlignment = if (msg.uid == uid) Alignment.End else Alignment.Start) {
                         Surface(shape = RoundedCornerShape(14.dp),
@@ -527,9 +571,35 @@ private fun AtrioChatThread(
                                 TextButton(onClick = { report = msg }) {
                                     Text("Denunciar", fontSize = 12.sp)
                                 }
+                                TextButton(onClick = {
+                                    db.collection("users").document(uid)
+                                        .collection("chatHidden").document(chatId)
+                                        .collection("messages").document(msg.id)
+                                        .set(mapOf(
+                                            "hidden" to true,
+                                            "createdAt" to FieldValue.serverTimestamp()))
+                                        .addOnFailureListener {
+                                            info = "Não foi possível ocultar a mensagem."
+                                        }
+                                }) { Text("Ocultar para mim", fontSize = 12.sp) }
                             }
-                        } else TextButton(onClick = { report = msg }) {
-                            Text("Denunciar", fontSize = 12.sp)
+                        } else {
+                            Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                                TextButton(onClick = { report = msg }) {
+                                    Text("Denunciar", fontSize = 12.sp)
+                                }
+                                TextButton(onClick = {
+                                    db.collection("users").document(uid)
+                                        .collection("chatHidden").document(chatId)
+                                        .collection("messages").document(msg.id)
+                                        .set(mapOf(
+                                            "hidden" to true,
+                                            "createdAt" to FieldValue.serverTimestamp()))
+                                        .addOnFailureListener {
+                                            info = "Não foi possível ocultar a mensagem."
+                                        }
+                                }) { Text("Ocultar para mim", fontSize = 12.sp) }
+                            }
                         }
                     }
                 }
