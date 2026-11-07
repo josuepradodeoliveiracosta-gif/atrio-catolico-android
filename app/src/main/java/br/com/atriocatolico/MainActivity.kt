@@ -202,6 +202,16 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        AtrioChatForeground.foreground(true)
+    }
+
+    override fun onStop() {
+        AtrioChatForeground.foreground(false)
+        super.onStop()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
