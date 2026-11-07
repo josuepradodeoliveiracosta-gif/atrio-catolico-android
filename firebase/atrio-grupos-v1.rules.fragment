@@ -1,23 +1,28 @@
 
     // Etapa 3 experimental — grupos PRIVADOS somente texto.
     // Fragmento isolado do deploy oficial; ativação administrativa fechada.
+    // Compartilhar os campos do MESMO documento por parâmetro elimina
+    // leituras repetidas e respeita as cotas do Firestore Security Rules.
+    function atrioGroupConfigValid(config) {
+      return config.get('enabled',false) == true
+        && config.get('minorPolicyApproved',false) == true
+        && config.get('version','') == '2026-11-groups-v1';
+    }
     function atrioGroupsEnabled() {
-      let cfg = /databases/$(database)/documents/app_config/chat_groups;
-      return chatEnabled() && signedIn() && exists(cfg)
-        && get(cfg).data.get('enabled',false) == true
-        && get(cfg).data.get('minorPolicyApproved',false) == true
-        && get(cfg).data.get('version','') == '2026-11-groups-v1';
+      return chatEnabled() && signedIn()
+        && atrioGroupConfigValid(get(/databases/$(database)/documents/app_config/chat_groups).data);
     }
     // O operador só pode provisionar elegibilidade via Console/Admin SDK.
     // Este registro é CONTROLE DE HOMOLOGAÇÃO, não comprovação de idade.
     function atrioGroupEligibilityPath(uid) {
       return /databases/$(database)/documents/users/$(uid)/chatGroupAccess/eligibility;
     }
+    function atrioGroupEligibleData(eligibility) {
+      return eligibility.get('status','') == 'approved'
+        && eligibility.get('policyVersion','') == '2026-11-group-safety-v1';
+    }
     function atrioGroupEligible(uid) {
-      return exists(atrioGroupEligibilityPath(uid))
-        && get(atrioGroupEligibilityPath(uid)).data.get('status','') == 'approved'
-        && get(atrioGroupEligibilityPath(uid)).data.get('policyVersion','')
-          == '2026-11-group-safety-v1';
+      return atrioGroupEligibleData(get(atrioGroupEligibilityPath(uid)).data);
     }
     function atrioGroupPath(groupId) {
       return /databases/$(database)/documents/chat_groups/$(groupId);
@@ -39,14 +44,17 @@
     function atrioGroupCreationQuota(uid) {
       return /databases/$(database)/documents/users/$(uid)/chatGroupLimits/creation;
     }
+    function atrioGroupHasRole(group, needsAdmin) {
+      return request.auth.uid in group.memberUids
+        && (!needsAdmin || request.auth.uid in group.adminUids);
+    }
     function atrioGroupMember(groupId) {
       return signedIn() && atrioGroupEligible(request.auth.uid)
-        && exists(atrioGroupPath(groupId))
-        && request.auth.uid in get(atrioGroupPath(groupId)).data.memberUids;
+        && atrioGroupHasRole(get(atrioGroupPath(groupId)).data,false);
     }
     function atrioGroupAdmin(groupId) {
-      return atrioGroupMember(groupId)
-        && request.auth.uid in get(atrioGroupPath(groupId)).data.adminUids;
+      return signedIn() && atrioGroupEligible(request.auth.uid)
+        && atrioGroupHasRole(get(atrioGroupPath(groupId)).data,true);
     }
     function atrioGroupBasicChange() {
       return request.resource.data.updatedAt == request.time;
