@@ -278,11 +278,12 @@ export async function resolveEvent(event, actor, token) {
   // O Worker usa credencial de serviço, então valida TODAS as permissões.
   if (type==='group_message') {
     if (!uidPart(event.groupId) || !uidPart(event.messageId)) return null;
-    const [chatCfg,groupCfg,group,msg] = await Promise.all([
+    // Verificar as chaves desligadas ANTES de consultar documentos de
+    // grupo/mensagem. Economiza leituras REST/Firestore quando o push está
+    // desativado (padrão da homologação) ou a política está suspensa.
+    const [chatCfg,groupCfg] = await Promise.all([
       firestoreGet(token,'app_config/conversations'),
-      firestoreGet(token,'app_config/chat_groups'),
-      firestoreGet(token,'chat_groups/'+enc(event.groupId)),
-      firestoreGet(token,'chat_groups/'+enc(event.groupId)+'/messages/'+enc(event.messageId))
+      firestoreGet(token,'app_config/chat_groups')
     ]);
     if (!chatCfg || !boolField(chatCfg,'enabled') ||
         !boolField(chatCfg,'minorPolicyApproved') ||
@@ -291,8 +292,12 @@ export async function resolveEvent(event, actor, token) {
         !groupCfg || !boolField(groupCfg,'enabled') ||
         !boolField(groupCfg,'pushEnabled') ||
         !boolField(groupCfg,'minorPolicyApproved') ||
-        stringField(groupCfg,'version')!=='2026-11-groups-v1' ||
-        !group || stringField(group,'status')!=='active' ||
+        stringField(groupCfg,'version')!=='2026-11-groups-v1') return null;
+    const [group,msg] = await Promise.all([
+      firestoreGet(token,'chat_groups/'+enc(event.groupId)),
+      firestoreGet(token,'chat_groups/'+enc(event.groupId)+'/messages/'+enc(event.messageId))
+    ]);
+    if(!group || stringField(group,'status')!=='active' ||
         !msg || stringField(msg,'uid')!==actor ||
         stringField(msg,'kind')!=='text' ||
         !recent(timeField(msg,'createdAt'))) return null;

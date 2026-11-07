@@ -158,6 +158,11 @@ projeto `demo-atrio-v11`, para testar os fluxos de permissões.
   em caso de resposta perdida, porém exige teste de rede intermitente.
 - Verificar acessibilidade, telas pequenas, fonte ampliada, teclado,
   rotação, troca de conta, Android em segundo plano e estado offline.
+- **Economia quando desligado:** com `pushEnabled` ausente ou falso o
+  Android não chama o relay ao enviar texto; mesmo se um cliente antigo
+  chamar o endpoint, o Worker confere as flags antes de consultar o
+  documento do grupo e a mensagem privada. O backend continua a validar
+  todas as permissões quando o recurso estiver ligado.
 - **Push de grupos preparado somente em código, sem implantação:** o Worker
   confere o evento no Firestore, autor, data recente, grupo ativo, configuração
   do chat, elegibilidade do autor e de cada destinatário, participantes

@@ -94,6 +94,7 @@ internal fun AtrioGroupsScreen(
 ) {
     var configLoaded by remember(uid) { mutableStateOf(false) }
     var enabled by remember(uid) { mutableStateOf(false) }
+    var pushEnabled by remember(uid) { mutableStateOf(false) }
     var accessLoaded by remember(uid) { mutableStateOf(false) }
     var accessApproved by remember(uid) { mutableStateOf(false) }
     var accessValidUntil by remember(uid) { mutableLongStateOf(0L) }
@@ -113,6 +114,7 @@ internal fun AtrioGroupsScreen(
                 enabled=error==null && data?.getBoolean("enabled")==true &&
                     data.getBoolean("minorPolicyApproved")==true &&
                     data.getString("version")==AtrioGroupPolicy.VERSION
+                pushEnabled=enabled && data?.getBoolean("pushEnabled")==true
             }
         onDispose { listener.remove() }
     }
@@ -296,6 +298,7 @@ internal fun AtrioGroupsScreen(
             }
         } else if(selectedId!=null && selected!=null) {
             AtrioGroupThread(db,uid,selected,knownPeers,
+                pushEnabled=pushEnabled,
                 onBack={ selectedId=null })
         } else if(selectedId!=null) {
             Column(Modifier.padding(20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
@@ -413,7 +416,7 @@ internal fun AtrioGroupsScreen(
 @Composable
 private fun AtrioGroupThread(
     db: FirebaseFirestore,uid: String,room: AtrioGroup,
-    knownPeers: List<String>,onBack: () -> Unit
+    knownPeers: List<String>,pushEnabled: Boolean,onBack: () -> Unit
 ) {
     val roomRef=remember(db,room.id) { db.collection("chat_groups").document(room.id) }
     val context=LocalContext.current
@@ -585,7 +588,7 @@ private fun AtrioGroupThread(
                 pendingId=""
                 pendingText=""
                 error=""
-                if(result.result==true &&
+                if(result.result==true && pushEnabled &&
                     !(BuildConfig.DEBUG &&
                         com.google.firebase.FirebaseApp.getInstance().options.projectId==
                             "demo-atrio-v11"))

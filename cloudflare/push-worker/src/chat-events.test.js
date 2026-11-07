@@ -207,6 +207,39 @@ test('Grupo: não notifica quando o próprio autor foi suspenso depois do envio'
   assert.equal(await resolveEvent(groupEvent,'chat-alice','fake'),null);
 });
 
+test('Grupo: com push desativado não se consultam mensagens privadas',async()=>{
+  const setup={...groupFixture,
+    'app_config/chat_groups':doc({
+      enabled:true,pushEnabled:false,minorPolicyApproved:true,version:'2026-11-groups-v1'
+    })};
+  mocked(setup);
+  const beforeFetch=globalThis.fetch;
+  const hits=[];
+  globalThis.fetch=async input=>{
+    hits.push(decodeURIComponent(new URL(input).pathname));
+    return beforeFetch(input);
+  };
+  assert.equal(await resolveEvent(groupEvent,'chat-alice','fake'),null);
+  assert.equal(hits.some(path=>path.includes('/documents/chat_groups/grp-qa')),false);
+  assert.equal(hits.some(path=>path.includes('messages/m3')),false);
+});
+test('Grupo: chat principal bloqueado não consulta grupo nem mensagem',async()=>{
+  mocked({...groupFixture,
+    'app_config/conversations':doc({
+      enabled:false,version:'2026-11-v1',
+      minorPolicyApproved:true,safetyReviewVersion:'2026-11-safety-v1'
+    })
+  });
+  const original=globalThis.fetch;
+  let privateReads=0;
+  globalThis.fetch=async input=>{
+    if(decodeURIComponent(new URL(input).pathname).includes('/documents/chat_groups/'))
+      privateReads++;
+    return original(input);
+  };
+  assert.equal(await resolveEvent(groupEvent,'chat-alice','fake'),null);
+  assert.equal(privateReads,0);
+});
 test('Grupo: push exige ativação explícita, separada da criação dos grupos',async()=>{
   mocked({...groupFixture,
     'app_config/chat_groups':doc({
