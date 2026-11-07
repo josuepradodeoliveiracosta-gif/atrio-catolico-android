@@ -24,6 +24,44 @@ como substituto improvisado de aferição de idade. O registro operacional
 de autorização usa apenas status, versão e vencimento; eventual
 integração futura terá avaliação de finalidade e minimização de dados.
 
+## Diretrizes atuais para escolher a aferição de idade
+
+Referência adicional da ANPD (28/10/2026): Guia Orientativo sobre
+escopo e obrigações gerais do ECA Digital:
+https://www.gov.br/anpd/pt-br/assuntos/noticias/anpd-publica-guia-que-esclarece-quem-deve-cumprir-e-quais-sao-as-responsabilidades-das-plataformas-na-protecao-de-criancas-e-adolescentes
+
+A aplicação das obrigações deve ser analisada conforme o público,
+a natureza do serviço, suas funcionalidades e riscos. Como o Átrio
+permite mensagens privadas, convites e grupos, a avaliação precisa
+cobrir interação entre usuários, contato não solicitado, aliciamento,
+denúncias, exclusão de conta e eventual supervisão de responsáveis.
+Aferição de idade, supervisão, moderação e privacidade são
+medidas diferentes; nenhuma pode ser substituída apenas por
+`minorPolicyApproved=true` ou `reviewExpiresAt` futuro.
+
+**Condições para aprovar a integração futura (não implementada):**
+1. Documentar público-alvo, faixas etárias permitidas e a política
+   de uso para crianças, adolescentes e responsáveis.
+2. Escolher método confiável e proporcional de aferição de idade,
+   sob avaliação jurídica e de privacidade. Não confiar em campo
+   autodeclarado de aniversário como prova.
+3. Definir como o servidor receberá uma *resposta mínima* de
+   elegibilidade de fonte confiável, sem repassar documentos ou
+   dados biométricos ao chat/Firestore de mensagens.
+4. Implementar expiração, revogação, revisão humana, contestação
+   e registro limitado da decisão, sem persistir identificadores
+   do fornecedor no aplicativo público.
+5. Exigir testes com acesso não autorizado, resposta antiga,
+   conta trocada, token falsificado e provedor fora do ar.
+   Todo estado indeterminado deve impedir a abertura do chat.
+6. Somente após auditoria técnica, aprovação legal e validação
+   operacional, analisar ativação controlada no Firebase.
+
+A escolha do fornecedor, de seu custo, dos prazos de autorização
+e do mecanismo de supervisão ainda depende de decisão expressa
+do responsável pelo projeto. Nenhuma nova dependência paga foi
+adicionada.
+
 ## Inventário pendente de política específica
 
 - `chats/{id}/messages`: textos privados, edições e mensagens removidas.

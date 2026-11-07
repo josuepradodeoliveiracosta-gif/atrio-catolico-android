@@ -142,6 +142,10 @@ projeto `demo-atrio-v11`, para testar os fluxos de permissões.
   desativação inesperada do proprietário.
 - Definir duração da retenção de grupos encerrados e eventual descarte
   supervisionado após um prazo; não presumir exclusão imediata.
+- A auditoria preliminar exige `legalHold === false` e
+  `openReports === false` explícitos: sem comprovação de ausência
+  de impedimentos, o grupo não entra nem na contagem de candidatos.
+  Não há rotina de exclusão nem consulta automatizada a dados reais.
 - Revisar o fluxo de denúncias seletivas já implementado, inclusive
   responsabilização e tempo de retenção das denúncias.
 - Definir limites numéricos finais, tratamento de spam em muitos grupos,

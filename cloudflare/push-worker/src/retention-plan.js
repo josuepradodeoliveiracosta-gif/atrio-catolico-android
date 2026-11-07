@@ -16,8 +16,19 @@ export function planRetention(policy,groups,now=Date.now()) {
   let eligibleCount=0,heldCount=0,unknownCount=0;
   for(const group of groups) {
     if(!group || group.status!=='closed') { unknownCount++; continue; }
-    if(group.legalHold===true || group.openReports===true) { heldCount++; continue; }
-    const closedAt=Date.parse(group.closedAt);
+    // Um sinal positivo de denúncia ou retenção legal bloqueia a revisão.
+    if(group.legalHold===true || group.openReports===true) {
+      heldCount++;
+      continue;
+    }
+    // "Não informado" NÃO significa "falso": sem conferência explícita
+    // de ambos os impedimentos, nem uma contagem indicativa é segura.
+    if(group.legalHold!==false || group.openReports!==false) {
+      unknownCount++;
+      continue;
+    }
+    const closedAt=typeof group.closedAt==='string'
+      ? Date.parse(group.closedAt) : NaN;
     if(!Number.isFinite(closedAt) || closedAt>now) { unknownCount++; continue; }
     if(closedAt<=cutoff) eligibleCount++;
   }

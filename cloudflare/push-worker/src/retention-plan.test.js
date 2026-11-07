@@ -4,7 +4,8 @@ import {planRetention} from './retention-plan.js';
 const now=Date.parse('2026-11-07T12:00:00Z');
 const group=(days,extra={})=>({
   status:'closed',
-  closedAt:new Date(now-days*86_400_000).toISOString(),...extra
+  closedAt:new Date(now-days*86_400_000).toISOString(),
+  legalHold:false,openReports:false,...extra
 });
 const policy={approved:true,approvedBy:'qa',days:30};
 test('sem política aprovada não há candidatos',()=>{
@@ -40,4 +41,32 @@ test('a saída não revela nomes nem mensagens e nunca apaga',()=>{
 test('parâmetros inválidos são recusados',()=>{
   assert.throws(()=>planRetention(policy,{},now),TypeError);
   assert.throws(()=>planRetention(policy,[],NaN),TypeError);
+});
+
+test('ausência de informação sobre denúncias não vira liberação implícita',()=>{
+  const out=planRetention(policy,[group(80,{openReports:undefined}),
+    group(90,{openReports:null}),group(100,{openReports:0})],now);
+  assert.equal(out.eligibleCount,0);
+  assert.equal(out.unknownCount,3);
+  assert.equal(out.deletedCount,0);
+});
+test('ausência de informação sobre impedimento legal impede pré-seleção',()=>{
+  const out=planRetention(policy,[group(80,{legalHold:undefined}),
+    group(90,{legalHold:null}),group(100,{legalHold:'false'})],now);
+  assert.equal(out.eligibleCount,0);
+  assert.equal(out.unknownCount,3);
+});
+test('um bloqueio confirmado prevalece sobre outro indicador desconhecido',()=>{
+  const out=planRetention(policy,[
+    group(50,{legalHold:true,openReports:undefined}),
+    group(70,{legalHold:null,openReports:true})
+  ],now);
+  assert.equal(out.heldCount,2);
+  assert.equal(out.eligibleCount,0);
+});
+test('data de encerramento em formato numérico não é aceita como evidência',()=>{
+  const out=planRetention(policy,[group(60,{closedAt:0}),
+    group(90,{closedAt:null})],now);
+  assert.equal(out.unknownCount,2);
+  assert.equal(out.deletedCount,0);
 });
