@@ -5,6 +5,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
@@ -201,5 +203,28 @@ class AtrioGroupsEmulatorUiTest {
             8,TimeUnit.SECONDS)
         assertTrue("Criador mantém histórico após saída do convidado",
             remaining.documents.any { it.getString("text")==message })
+
+        // O criador encerra o grupo na interface; o histórico continua
+        // disponível, mas novas mensagens e convites deixam de ser possíveis.
+        compose.runOnIdle { screenUid=alice }
+        waitFor("atrio-group-"+groupId,35_000)
+        compose.onNodeWithTag("atrio-group-"+groupId).performClick()
+        waitFor("atrio-group-close-open",35_000)
+        compose.onNodeWithTag("atrio-group-close-open").performClick()
+        waitFor("atrio-group-close-confirm")
+        compose.onNodeWithTag("atrio-group-close-confirm").performClick()
+        compose.waitUntil(30_000) {
+            runCatching {
+                Tasks.await(db.collection("chat_groups").document(groupId)
+                    .get(Source.SERVER),5,TimeUnit.SECONDS)
+                    .getString("status")=="closed"
+            }.getOrDefault(false)
+        }
+        compose.onNodeWithTag("atrio-group-send").assertIsNotEnabled()
+        compose.onNodeWithTag("atrio-group-invite-open").assertDoesNotExist()
+        val kept=Tasks.await(db.collection("chat_groups").document(groupId)
+            .collection("messages").get(Source.SERVER),8,TimeUnit.SECONDS)
+        assertTrue("Grupo encerrado mantém mensagem já criada",
+            kept.documents.any { it.getString("text")==message })
     }
 }
