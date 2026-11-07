@@ -96,6 +96,31 @@ try {
       enabled:true,version:'2026-11-groups-v1',minorPolicyApproved:true
     });
   });
+  await check('grupos dependem do chat individual ativado',()=>
+    assertFails(createFirst(a)));
+  await env.withSecurityRulesDisabled(async ctx=>{
+    await setDoc(doc(ctx.firestore(),'app_config/conversations'),{
+      enabled:true,version:'2026-11-v1'
+    });
+  });
+  await check('grupo não abre sem elegibilidade individual do criador',()=>
+    assertFails(createFirst(a)));
+  await check('membro não pode conceder elegibilidade a si próprio',()=>
+    assertFails(setDoc(doc(a,'users/group-a/chatGroupAccess/eligibility'),{
+      status:'approved',policyVersion:'2026-11-group-safety-v1'
+    })));
+  await env.withSecurityRulesDisabled(async ctx=>{
+    for(const uid of ['group-a','group-b','group-c']) {
+      await setDoc(doc(ctx.firestore(),'users/'+uid+'/chatGroupAccess/eligibility'),{
+        status:'approved',policyVersion:'2026-11-group-safety-v1'
+      });
+    }
+  });
+  await check('elegibilidade própria pode ser consultada, alheia não',async()=>{
+    const state=await assertSucceeds(getDoc(doc(a,'users/group-a/chatGroupAccess/eligibility')));
+    assert.equal(state.data().status,'approved');
+    await assertFails(getDoc(doc(a,'users/group-b/chatGroupAccess/eligibility')));
+  });
   await check('criador abre grupo privado com quota no mesmo batch',()=>
     assertSucceeds(createFirst(a)));
   await check('criador consegue ler próprio grupo',async()=>{
@@ -162,6 +187,26 @@ try {
     })));
   await check('convidado aceita explicitamente com atualização atômica',()=>
     assertSucceeds(accept(b,groupId,'group-b')));
+  await env.withSecurityRulesDisabled(async ctx=>{
+    await updateDoc(doc(ctx.firestore(),
+      'users/group-b/chatGroupAccess/eligibility'),{
+      status:'suspended'
+    });
+  });
+  await check('suspensão individual revoga imediatamente leitura e envio',async()=>{
+    await assertFails(getDoc(doc(b,group)));
+    await assertFails(getDocs(collection(b,group+'/messages')));
+    await assertFails(message(b,groupId,'group-b','suspended-msg','Acesso suspenso'));
+    await assertFails(updateDoc(doc(b,'users/group-b/chatGroupAccess/eligibility'),{
+      status:'approved'
+    }));
+  });
+  await env.withSecurityRulesDisabled(async ctx=>{
+    await updateDoc(doc(ctx.firestore(),
+      'users/group-b/chatGroupAccess/eligibility'),{
+      status:'approved'
+    });
+  });
   await check('aceito consegue ver o histórico e a lista do grupo',async()=>{
     const d=await assertSucceeds(getDoc(doc(b,group)));
     assert.ok(d.data().memberUids.includes('group-b'));
@@ -329,6 +374,16 @@ try {
   }));
   await check('grupo lotado impede aceite de novo convite',()=>
     assertFails(accept(b,groupId,'group-b')));
+  await env.withSecurityRulesDisabled(async ctx=>{
+    await updateDoc(doc(ctx.firestore(),'app_config/conversations'),{
+      enabled:false
+    });
+  });
+  await check('desligar o chat individual também fecha todos os grupos',async()=>{
+    await assertFails(getDoc(doc(a,group)));
+    await assertFails(getDoc(doc(b,group+'/atrioGroupInvites/group-b')));
+    await assertFails(getDoc(doc(a,group+'/messages/msg1')));
+  });
   console.log('GROUP SECURITY TESTS:',passed,'OK');
 } finally {
   await env.cleanup();
