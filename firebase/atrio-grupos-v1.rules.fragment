@@ -159,6 +159,17 @@
         && resource.data.status == 'active'
         && atrioGroupBasicChange()
         && (
+          // O criador encerra definitivamente sem apagar dados/reportes.
+          // Só permite o triplo status/closedByUid/closedAt em um commit.
+          (signedIn() && request.auth.uid == resource.data.ownerUid
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['status','closedByUid','closedAt','updatedAt'])
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasAll(['status','closedByUid','closedAt'])
+            && request.resource.data.status == 'closed'
+            && request.resource.data.closedByUid == request.auth.uid
+            && request.resource.data.closedAt == request.time)
+          ||
           // A pessoa aceita convite e adiciona somente a própria conta.
           (signedIn()
             && !request.resource.data.diff(resource.data).affectedKeys()

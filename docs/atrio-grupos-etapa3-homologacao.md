@@ -21,6 +21,10 @@ limites numéricos, política para menores ou regras finais de permanência.
   Um bloqueio criado após o envio do convite também impede o aceite.
 - Recusa, saída voluntária de integrante não administrador, remoção por
   administrador e reconvite após a saída ou recusa.
+- O criador pode **encerrar definitivamente** seu grupo. O servidor exige
+  carimbo de data, autor e mudança de estado para `closed`, preservando
+  o histórico aos participantes, sem permitir novos convites/mensagens.
+  Não há reabertura, exclusão automática ou transferência de propriedade.
 - Mensagens somente em texto, enviadas atomicamente com atualização
   da prévia e da última mensagem. O envio confirmado prepara evento
   de push genérico (sem conteúdo) quando o relay estiver habilitado.
@@ -115,8 +119,11 @@ projeto `demo-atrio-v11`, para testar os fluxos de permissões.
 
 - Decidir e implementar elegibilidade/segurança de menores e revisar
   comportamento de bloqueios dentro de um mesmo grupo.
-- Definir a responsabilidade e a sucessão do criador em caso de
-  exclusão de conta ou necessidade de encerrar o grupo.
+- Definir a sucessão do criador em caso de exclusão de conta: o botão
+  de encerramento voluntário está implementado, mas ainda não resolve
+  desativação inesperada do proprietário.
+- Definir duração da retenção de grupos encerrados e eventual descarte
+  supervisionado após um prazo; não presumir exclusão imediata.
 - Revisar o fluxo de denúncias seletivas já implementado, inclusive
   responsabilização e tempo de retenção das denúncias.
 - Definir limites numéricos finais, tratamento de spam em muitos grupos,

@@ -440,6 +440,38 @@ try {
     const groupData=(await assertSucceeds(getDoc(doc(a,group)))).data();
     assert.deepEqual(groupData.adminUids,['group-a']);
   });
+  await check('não criador não encerra o grupo',()=>
+    assertFails(updateDoc(doc(b,group),{
+      status:'closed',closedByUid:'group-b',
+      closedAt:serverTimestamp(),updatedAt:serverTimestamp()
+    })));
+  await check('criador não encerra grupo sem registrar auditoria completa',()=>
+    assertFails(updateDoc(doc(a,group),{
+      status:'closed',updatedAt:serverTimestamp()
+    })));
+  await check('criador encerra seu grupo preservando o histórico',async()=>{
+    await assertSucceeds(updateDoc(doc(a,group),{
+      status:'closed',closedByUid:'group-a',
+      closedAt:serverTimestamp(),updatedAt:serverTimestamp()
+    }));
+    const read=await assertSucceeds(getDoc(doc(a,group)));
+    assert.equal(read.data().status,'closed');
+    assert.equal(read.data().lastPreview,'Paz e bem!');
+    await assertSucceeds(getDoc(doc(a,group+'/messages/msg1')));
+  });
+  await check('grupo encerrado recusa novos textos e convites',async()=>{
+    await assertFails(message(a,groupId,'group-a','after-close','Grupo foi encerrado'));
+    await assertFails(invitation(a,groupId,'group-c'));
+  });
+  await check('ninguém pode reabrir ou encerrar grupo duas vezes',async()=>{
+    await assertFails(updateDoc(doc(a,group),{
+      status:'active',updatedAt:serverTimestamp()
+    }));
+    await assertFails(updateDoc(doc(a,group),{
+      status:'closed',closedByUid:'group-a',
+      closedAt:serverTimestamp(),updatedAt:serverTimestamp()
+    }));
+  });
   await env.withSecurityRulesDisabled(async ctx=>{
     await updateDoc(doc(ctx.firestore(),'app_config/conversations'),{
       enabled:false

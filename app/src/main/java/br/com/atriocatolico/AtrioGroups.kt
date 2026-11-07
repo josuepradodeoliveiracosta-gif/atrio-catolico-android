@@ -45,7 +45,8 @@ private data class AtrioGroup(
     val memberUids: List<String>,
     val adminUids: List<String>,
     val preview: String,
-    val lastMessageId: String
+    val lastMessageId: String,
+    val status: String
 )
 private data class AtrioGroupInvite(
     val id: String,
@@ -65,7 +66,8 @@ private fun DocumentSnapshot.asAtrioGroup(): AtrioGroup? {
     val admins=(get("adminUids") as? List<*>)?.filterIsInstance<String>().orEmpty()
     return AtrioGroup(id,getString("name").orEmpty(),
         getString("category").orEmpty(),owner,members,admins,
-        getString("lastPreview").orEmpty(),getString("lastMessageId").orEmpty())
+        getString("lastPreview").orEmpty(),getString("lastMessageId").orEmpty(),
+        getString("status").orEmpty())
 }
 
 @Composable
@@ -375,8 +377,12 @@ internal fun AtrioGroupsScreen(
                                 " • " + room.memberUids.size + "/" +
                                 AtrioGroupPolicy.MAX_MEMBERS + " participantes",
                                 fontSize=13.sp,color=Muted)
-                            Text(room.preview.ifBlank { "Nenhuma mensagem ainda." },
-                                maxLines=2,overflow=TextOverflow.Ellipsis,color=Muted)
+                            if(room.status=="closed")
+                                Text("Encerrado • histórico somente leitura",
+                                    fontSize=13.sp,color=Muted)
+                            else
+                                Text(room.preview.ifBlank { "Nenhuma mensagem ainda." },
+                                    maxLines=2,overflow=TextOverflow.Ellipsis,color=Muted)
                         }
                     }
                 }
@@ -431,6 +437,8 @@ private fun AtrioGroupThread(
     var reportReason by remember(uid,room.id) { mutableStateOf("") }
     val isAdmin=uid in room.adminUids
     val isOwner=uid==room.owner
+    val isClosed=room.status=="closed"
+    var confirmClose by remember(uid,room.id) { mutableStateOf(false) }
     // Uma assinatura para cada participante, não uma por bolha de mensagem.
     // Evita dezenas de listeners duplicados e leituras Firebase desnecessárias.
     var memberNames by remember(uid,room.id) { mutableStateOf<Map<String,String>>(emptyMap()) }
@@ -590,6 +598,18 @@ private fun AtrioGroupThread(
                 modifier=Modifier.testTag("atrio-group-members")) {
                 Text("Pessoas")
             }
+            if(isOwner && !isClosed) {
+                TextButton(onClick={confirmClose=true},
+                    modifier=Modifier.testTag("atrio-group-close-open")) {
+                    Text("Encerrar")
+                }
+            }
+        }
+        if(isClosed) {
+            Text("Grupo encerrado. O histórico continua disponível, " +
+                "mas não é possível enviar mensagens nem convidar pessoas.",
+                modifier=Modifier.padding(horizontal=14.dp,vertical=8.dp),
+                fontSize=13.sp,color=Muted)
         }
         HorizontalDivider(color=Line)
         if(error.isNotBlank()) Text(error,Modifier.padding(12.dp),
@@ -604,7 +624,7 @@ private fun AtrioGroupThread(
                     Row(verticalAlignment=Alignment.CenterVertically) {
                         Text(name + if(member in room.adminUids) " • administrador" else "",
                             fontSize=13.sp,modifier=Modifier.weight(1f))
-                        if(isOwner && member!=room.owner) {
+                        if(!isClosed && isOwner && member!=room.owner) {
                             TextButton(onClick={
                                 updateGroup(mapOf(
                                     "adminUids" to if(member in room.adminUids)
@@ -614,7 +634,8 @@ private fun AtrioGroupThread(
                                     "Função atualizada.")
                             }) { Text(if(member in room.adminUids) "Rebaixar" else "Promover") }
                         }
-                        if(isAdmin && member!=room.owner && member !in room.adminUids) {
+                        if(!isClosed && isAdmin && member!=room.owner &&
+                            member !in room.adminUids) {
                             TextButton(onClick={
                                 updateGroup(mapOf(
                                     "memberUids" to FieldValue.arrayRemove(member),
@@ -624,7 +645,8 @@ private fun AtrioGroupThread(
                         }
                     }
                 }
-                if(isAdmin && room.memberUids.size<AtrioGroupPolicy.MAX_MEMBERS) {
+                if(!isClosed && isAdmin &&
+                    room.memberUids.size<AtrioGroupPolicy.MAX_MEMBERS) {
                     TextButton(onClick={inviting=!inviting},
                         modifier=Modifier.testTag("atrio-group-invite-open")) {
                         Text("Convidar participante")
@@ -645,7 +667,7 @@ private fun AtrioGroupThread(
                         }
                     }
                 }
-                if(!isOwner && !isAdmin) {
+                if(!isClosed && !isOwner && !isAdmin) {
                     OutlinedButton(onClick={
                         updateGroup(mapOf(
                             "memberUids" to FieldValue.arrayRemove(uid),
@@ -655,7 +677,7 @@ private fun AtrioGroupThread(
                         modifier=Modifier.testTag("atrio-group-leave")) {
                         Text("Sair do grupo")
                     }
-                } else if(!isOwner && isAdmin) {
+                } else if(!isClosed && !isOwner && isAdmin) {
                     Text("Para sair, solicite ao criador que retire primeiro " +
                         "sua função de administrador.",
                         fontSize=13.sp,color=Muted)
@@ -704,14 +726,47 @@ private fun AtrioGroupThread(
         OutlinedTextField(draft,{if(it.length<=AtrioChatPolicy.MAX_TEXT) draft=it},
             modifier=Modifier.fillMaxWidth().padding(horizontal=12.dp)
                 .testTag("atrio-group-composer"),
-            enabled=!busy,label={Text("Mensagem ao grupo")},
+            enabled=!busy && !isClosed,label={Text("Mensagem ao grupo")},
             supportingText={Text(draft.length.toString()+"/1500 • somente texto")},
             maxLines=5)
-        Button(onClick={send()},enabled=!busy && draft.isNotBlank(),
+        Button(onClick={send()},enabled=!busy && !isClosed && draft.isNotBlank(),
             modifier=Modifier.fillMaxWidth().padding(12.dp)
                 .heightIn(min=48.dp).testTag("atrio-group-send")) {
             Text("Enviar ao grupo")
         }
+    }
+    if(confirmClose) {
+        AlertDialog(
+            onDismissRequest={if(!busy) confirmClose=false},
+            title={Text("Encerrar este grupo?")},
+            text={Text("Não será possível reabrir o grupo nem enviar " +
+                "novas mensagens ou convites. O histórico existente será " +
+                "mantido até a definição de uma política de retenção.")},
+            confirmButton={
+                TextButton(enabled=!busy,onClick={
+                    busy=true
+                    roomRef.update(mapOf(
+                        "status" to "closed",
+                        "closedByUid" to uid,
+                        "closedAt" to FieldValue.serverTimestamp(),
+                        "updatedAt" to FieldValue.serverTimestamp()))
+                        .addOnCompleteListener { result ->
+                            busy=false
+                            confirmClose=false
+                            error=if(result.isSuccessful)
+                                "Grupo encerrado. Histórico preservado."
+                            else "Não foi possível encerrar este grupo."
+                        }
+                },modifier=Modifier.testTag("atrio-group-close-confirm")) {
+                    Text("Encerrar definitivamente")
+                }
+            },
+            dismissButton={
+                TextButton(onClick={if(!busy) confirmClose=false}) {
+                    Text("Cancelar")
+                }
+            }
+        )
     }
     if(reporting!=null) {
         val selected=reporting!!
