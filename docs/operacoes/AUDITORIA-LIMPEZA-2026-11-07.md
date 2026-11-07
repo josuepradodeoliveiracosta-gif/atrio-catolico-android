@@ -10,6 +10,7 @@ Foram examinados inventário, consumidores dos candidatos à remoção, recursos
 
 | Prioridade | Evidência na base | Consequência e encaminhamento |
 | --- | --- | --- |
+| Alta | `npm audit` em `tests/security`: 27 pacotes afetados, incluindo `tar` classificado como crítico | Tratar dependências da cadeia de testes/CLI em atualização validada; não confundir com dependências Android nem executar correção forçada. |
 | Média | `cloudflare/push-worker/src/qa-real-auth.test.js:154` contém uma aspa excedente após `requestId` | A suíte não chega a executar por erro de sintaxe. Corrigir e executar em mudança de testes separada. |
 | Média | `cloudflare/push-worker/src/qa-manual.test.js:9` usa expressão regular com escape duplicado | O teste rejeita o nome válido `Clara (BOT DE TESTE)`. Corrigir a expressão sem mudar a identidade dos bots. |
 | Média | `scripts/termux-email-policy-rollout.mjs` e `scripts/termux-firestore-rules-guarded-deploy.mjs` fixam hashes de regras anteriores | 19 testes dos procedimentos antigos falham ao carregar as regras atuais. Os procedimentos recusam a operação antes de escrever, como proteção. Não atualizar hashes automaticamente; reauditar o procedimento e desacoplar fixtures históricas das regras atuais. |
@@ -17,7 +18,7 @@ Foram examinados inventário, consumidores dos candidatos à remoção, recursos
 | Baixa | Quatro componentes de medalhas sem chamadas após adoção de `MinimalBadgeIcon` | Nove arquivos desnecessários removidos nesta limpeza, conforme inventário abaixo. |
 | Baixa | `.gitignore` não abrangia AAB, cache Kotlin e estado Wrangler | Acrescentados `*.aab`, `.kotlin/` e `.wrangler/` para impedir inclusão acidental de saídas locais. |
 
-As falhas de testes acima foram reproduzidas **antes** da limpeza. Não foram eliminadas removendo testes ou alterando proteções operacionais. Não há conclusão sobre vulnerabilidades de dependências: não foi consultada base de CVEs nem executado audit remoto de pacotes.
+As falhas de testes acima foram reproduzidas **antes** da limpeza. Não foram eliminadas removendo testes ou alterando proteções operacionais. A consulta `npm audit --package-lock-only --json`, executada em `tests/security`, reportou 27 pacotes afetados: 1 crítico (`tar`, transitivo de ferramentas), 10 altos e 16 moderados. São dependências Node do ambiente de testes/CLI; este resultado não demonstra vulnerabilidade no APK Android. Os totais incluem dependências transitivas e não equivalem a 27 falhas distintas exploráveis. Priorizar a atualização compatível de `firebase-tools`, Firebase e ferramentas de teste com emulador e CI; não aplicar `npm audit fix --force`, que propõe mudanças de versão principal e até regressões de versão. Lockfile preservado nesta limpeza.
 
 ## Limpeza executada
 
