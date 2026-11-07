@@ -90,6 +90,8 @@ internal fun AtrioGroupsScreen(
 ) {
     var configLoaded by remember(uid) { mutableStateOf(false) }
     var enabled by remember(uid) { mutableStateOf(false) }
+    var accessLoaded by remember(uid) { mutableStateOf(false) }
+    var accessApproved by remember(uid) { mutableStateOf(false) }
     var rooms by remember(uid) { mutableStateOf<List<AtrioGroup>>(emptyList()) }
     var invitations by remember(uid) { mutableStateOf<List<AtrioGroupInvite>>(emptyList()) }
     var selectedId by remember(uid) { mutableStateOf<String?>(null) }
@@ -110,7 +112,30 @@ internal fun AtrioGroupsScreen(
         onDispose { listener.remove() }
     }
     DisposableEffect(db,uid,enabled) {
-        if (!enabled) {
+        if(!enabled) {
+            accessLoaded=false
+            accessApproved=false
+            onDispose {}
+        } else {
+            accessLoaded=false
+            val watcher=db.collection("users").document(uid)
+                .collection("chatGroupAccess").document("eligibility")
+                .addSnapshotListener { snapshot,failure ->
+                    accessLoaded=true
+                    accessApproved=failure==null &&
+                        snapshot?.getString("status")=="approved" &&
+                        snapshot.getString("policyVersion")=="2026-11-group-safety-v1"
+                    if(!accessApproved) {
+                        rooms=emptyList()
+                        invitations=emptyList()
+                        selectedId=null
+                    }
+                }
+            onDispose { watcher.remove() }
+        }
+    }
+    DisposableEffect(db,uid,enabled,accessApproved) {
+        if (!enabled || !accessApproved) {
             rooms=emptyList()
             onDispose {}
         } else {
@@ -124,8 +149,8 @@ internal fun AtrioGroupsScreen(
             onDispose { listener.remove() }
         }
     }
-    DisposableEffect(db,uid,enabled) {
-        if (!enabled) {
+    DisposableEffect(db,uid,enabled,accessApproved) {
+        if (!enabled || !accessApproved) {
             invitations=emptyList()
             onDispose {}
         } else {
@@ -232,6 +257,18 @@ internal fun AtrioGroupsScreen(
                     style=MaterialTheme.typography.headlineSmall)
                 Text("Grupos privados de estudo, oração e comunidade estão em preparação. " +
                     "A abertura depende da política de proteção de menores e da homologação.")
+                OutlinedButton(onClick=onBack) { Text("Voltar às conversas") }
+            }
+        } else if(!accessLoaded) {
+            CircularProgressIndicator(Modifier.padding(24.dp))
+        } else if(!accessApproved) {
+            Column(Modifier.padding(22.dp),
+                verticalArrangement=Arrangement.spacedBy(12.dp)) {
+                Text("Acesso aos grupos indisponível para esta conta",
+                    color=Wine,style=MaterialTheme.typography.titleMedium)
+                Text("A participação exige aprovação individual pela administração " +
+                    "e regras de proteção previamente homologadas. " +
+                    "Este estado não informa idade nem dados privados de ninguém.")
                 OutlinedButton(onClick=onBack) { Text("Voltar às conversas") }
             }
         } else if(selectedId!=null && selected!=null) {
