@@ -408,6 +408,22 @@ private fun AtrioGroupThread(
     var reportReason by remember(uid,room.id) { mutableStateOf("") }
     val isAdmin=uid in room.adminUids
     val isOwner=uid==room.owner
+    // Uma assinatura para cada participante, não uma por bolha de mensagem.
+    // Evita dezenas de listeners duplicados e leituras Firebase desnecessárias.
+    var memberNames by remember(uid,room.id) { mutableStateOf<Map<String,String>>(emptyMap()) }
+    DisposableEffect(db,room.id,room.memberUids) {
+        val watchers=room.memberUids.distinct().map { memberId ->
+            db.collection("public_profiles").document(memberId)
+                .addSnapshotListener { snapshot,failure ->
+                    if(failure==null) {
+                        val label=snapshot?.getString("displayName")
+                            ?.takeIf { it.isNotBlank() } ?: "Participante"
+                        memberNames=memberNames+(memberId to label)
+                    }
+                }
+        }
+        onDispose { watchers.forEach { it.remove() } }
+    }
 
     DisposableEffect(db,room.id,limit) {
         val listener=roomRef.collection("messages")
@@ -537,7 +553,7 @@ private fun AtrioGroupThread(
                 Text("Participantes • " + room.memberUids.size,
                     fontWeight=FontWeight.Bold,color=Wine)
                 room.memberUids.forEach { member ->
-                    val name=groupPeerName(db,member)
+                    val name=memberNames[member] ?: "Participante"
                     Row(verticalAlignment=Alignment.CenterVertically) {
                         Text(name + if(member in room.adminUids) " • administrador" else "",
                             fontSize=13.sp,modifier=Modifier.weight(1f))
@@ -610,7 +626,7 @@ private fun AtrioGroupThread(
             }
             items(messages,key={it.id}) { item ->
                 val mine=item.sender==uid
-                val name=groupPeerName(db,item.sender)
+                val name=memberNames[item.sender] ?: "Membro anterior"
                 Surface(shape=RoundedCornerShape(14.dp),
                     color=if(mine) WineSoft else MaterialTheme.colorScheme.surface,
                     border=BorderStroke(1.dp,Line),
