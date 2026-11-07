@@ -440,6 +440,11 @@ try {
     const groupData=(await assertSucceeds(getDoc(doc(a,group)))).data();
     assert.deepEqual(groupData.adminUids,['group-a']);
   });
+  await env.withSecurityRulesDisabled(async ctx=>
+    updateDoc(doc(ctx.firestore(),group),{
+      memberUids:['group-a','group-b'],
+      adminUids:['group-a','group-b']
+    }));
   await check('não criador não encerra o grupo',()=>
     assertFails(updateDoc(doc(b,group),{
       status:'closed',closedByUid:'group-b',
@@ -462,6 +467,25 @@ try {
   await check('grupo encerrado recusa novos textos e convites',async()=>{
     await assertFails(message(a,groupId,'group-a','after-close','Grupo foi encerrado'));
     await assertFails(invitation(a,groupId,'group-c'));
+  });
+  await check('coadministrador consegue sair de grupo encerrado',async()=>{
+    await assertSucceeds(updateDoc(doc(b,group),{
+      memberUids:arrayRemove('group-b'),
+      adminUids:arrayRemove('group-b'),
+      lastRemovedUid:'group-b',updatedAt:serverTimestamp()
+    }));
+    await assertFails(getDoc(doc(b,group)));
+    await assertFails(getDoc(doc(b,group+'/messages/msg1')));
+    const state=(await assertSucceeds(getDoc(doc(a,group)))).data();
+    assert.deepEqual(state.memberUids,['group-a']);
+    assert.deepEqual(state.adminUids,['group-a']);
+  });
+  await check('criador não abandona grupo encerrado nem apaga histórico',async()=>{
+    await assertFails(updateDoc(doc(a,group),{
+      memberUids:arrayRemove('group-a'),lastRemovedUid:'group-a',
+      updatedAt:serverTimestamp()
+    }));
+    await assertSucceeds(getDoc(doc(a,group+'/messages/msg1')));
   });
   await check('ninguém pode reabrir ou encerrar grupo duas vezes',async()=>{
     await assertFails(updateDoc(doc(a,group),{

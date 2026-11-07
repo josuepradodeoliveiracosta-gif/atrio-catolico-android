@@ -667,7 +667,7 @@ private fun AtrioGroupThread(
                         }
                     }
                 }
-                if(!isClosed && !isOwner && !isAdmin) {
+                if(!isOwner && !isAdmin) {
                     OutlinedButton(onClick={
                         updateGroup(mapOf(
                             "memberUids" to FieldValue.arrayRemove(uid),
@@ -676,6 +676,17 @@ private fun AtrioGroupThread(
                     },enabled=!busy,
                         modifier=Modifier.testTag("atrio-group-leave")) {
                         Text("Sair do grupo")
+                    }
+                } else if(isClosed && !isOwner && isAdmin) {
+                    OutlinedButton(onClick={
+                        updateGroup(mapOf(
+                            "memberUids" to FieldValue.arrayRemove(uid),
+                            "adminUids" to FieldValue.arrayRemove(uid),
+                            "lastRemovedUid" to uid),
+                            "Você saiu do grupo.")
+                    },enabled=!busy,
+                        modifier=Modifier.testTag("atrio-group-leave")) {
+                        Text("Sair do grupo encerrado")
                     }
                 } else if(!isClosed && !isOwner && isAdmin) {
                     Text("Para sair, solicite ao criador que retire primeiro " +

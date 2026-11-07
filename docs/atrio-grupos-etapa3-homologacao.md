@@ -25,6 +25,8 @@ limites numéricos, política para menores ou regras finais de permanência.
   carimbo de data, autor e mudança de estado para `closed`, preservando
   o histórico aos participantes, sem permitir novos convites/mensagens.
   Não há reabertura, exclusão automática ou transferência de propriedade.
+  Quem não é criador pode sair também de um grupo já encerrado, inclusive
+  coadministrador, perdendo acesso às mensagens sem apagar o histórico alheio.
 - Mensagens somente em texto, enviadas atomicamente com atualização
   da prévia e da última mensagem. O envio confirmado prepara evento
   de push genérico (sem conteúdo) quando o relay estiver habilitado.
