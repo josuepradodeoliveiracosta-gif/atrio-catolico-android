@@ -230,8 +230,11 @@
         allow list: if atrioGroupsEnabled() && signedIn()
           && atrioGroupEligible(request.auth.uid)
           && (resource.data.inviteeUid == request.auth.uid || atrioGroupAdmin(groupId));
-        allow create: if atrioGroupsEnabled() && validId(inviteeUid)
-          && atrioGroupEligible(inviteeUid) && atrioGroupAdmin(groupId)
+        // O convite não concede acesso. A elegibilidade individual do
+      // destinatário é obrigatória para LER o convite e para ACEITÁ-LO.
+      // Evita uma leitura extra por operação na quota de acesso das Rules.
+      allow create: if atrioGroupsEnabled() && validId(inviteeUid)
+          && atrioGroupAdmin(groupId)
           && get(atrioGroupPath(groupId)).data.status == 'active'
           && request.resource.data.keys().hasOnly([
             'inviteeUid','inviterUid','groupName','status','createdAt','updatedAt'
