@@ -110,11 +110,30 @@ class AtrioConversationsEmulatorUiTest {
         val alice = login("group.alice@qa.invalid")
         val chatId = listOf(alice, bob).sorted().joinToString("__")
 
-        var screenUid by mutableStateOf(alice)
+        // A aplicação real encerra a UI autenticada ao sair da conta.
+        // Não manter listeners privados da sessão anterior durante login
+        // da próxima conta no mesmo FirebaseAuth do emulador.
+        var screenUid by mutableStateOf<String?>(alice)
         compose.setContent {
             AtrioTheme {
-                AtrioConversationsScreen(db = db, uid = screenUid, onBack = {})
+                screenUid?.let { currentUid ->
+                    AtrioConversationsScreen(db = db, uid = currentUid, onBack = {})
+                }
             }
+        }
+        fun switchTo(email: String, expectedUid: String) {
+            compose.runOnIdle { screenUid = null }
+            compose.waitForIdle() // Dispose listeners e estado da conta anterior.
+            auth.signOut()
+            assertEquals(expectedUid, login(email))
+            // Aguarde a nova identidade estar pronta no servidor antes de
+            // remontar listeners Firestore da tela autenticada.
+            val verified = Tasks.await(
+                db.collection("app_config").document("conversations").get(Source.SERVER),
+                10, TimeUnit.SECONDS)
+            assertTrue("Política de chat do emulador deve estar ativa", 
+                verified.getBoolean("enabled") == true)
+            compose.runOnIdle { screenUid = expectedUid }
         }
         waitForTag("atrio-chat-$chatId")
         compose.onNodeWithTag("atrio-chat-$chatId").performClick()
@@ -140,9 +159,7 @@ class AtrioConversationsEmulatorUiTest {
         assertEquals(aliceText, firstRoom.getString("lastPreview"))
 
         // Troca efetiva de sessão Firebase + recomposição de toda a inbox.
-        auth.signOut()
-        assertEquals(bob, login("group.bob@qa.invalid"))
-        compose.runOnIdle { screenUid = bob }
+        switchTo("group.bob@qa.invalid", bob)
         waitForTag("atrio-chat-$chatId")
         compose.onNodeWithTag("atrio-chat-$chatId").performClick()
         waitForComposerReady()
@@ -172,9 +189,7 @@ class AtrioConversationsEmulatorUiTest {
             }.getOrDefault(false)
         }
 
-        auth.signOut()
-        assertEquals(alice, login("group.alice@qa.invalid"))
-        compose.runOnIdle { screenUid = alice }
+        switchTo("group.alice@qa.invalid", alice)
         waitForTag("atrio-chat-$chatId")
         compose.onNodeWithTag("atrio-chat-$chatId").performClick()
         waitForComposerReady()
@@ -194,9 +209,7 @@ class AtrioConversationsEmulatorUiTest {
             messages.documents.any { it.getString("text") == bobText })
 
         // Reabilitação voluntária pelo próprio titular do bloqueio.
-        auth.signOut()
-        assertEquals(bob, login("group.bob@qa.invalid"))
-        compose.runOnIdle { screenUid = bob }
+        switchTo("group.bob@qa.invalid", bob)
         waitForTag("atrio-chat-$chatId")
         compose.onNodeWithTag("atrio-chat-$chatId").performClick()
         waitForTag("atrio-chat-block-toggle")
@@ -209,9 +222,7 @@ class AtrioConversationsEmulatorUiTest {
             }.getOrDefault(false)
         }
 
-        auth.signOut()
-        assertEquals(alice, login("group.alice@qa.invalid"))
-        compose.runOnIdle { screenUid = alice }
+        switchTo("group.alice@qa.invalid", alice)
         waitForTag("atrio-chat-$chatId")
         compose.onNodeWithTag("atrio-chat-$chatId").performClick()
         waitForComposerReady()
