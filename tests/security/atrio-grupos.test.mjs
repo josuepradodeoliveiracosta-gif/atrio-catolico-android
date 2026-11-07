@@ -397,12 +397,22 @@ try {
       memberUids:arrayRemove('group-b'),
       lastRemovedUid:'group-b',updatedAt:serverTimestamp()
     })));
-  await check('coadministrador pode sair ao remover função e participação juntas',()=>
-    assertSucceeds(updateDoc(doc(b,group),{
+  await check('coadministrador não pode remover sua própria função sem o criador',()=>
+    assertFails(updateDoc(doc(b,group),{
       memberUids:arrayRemove('group-b'),
       adminUids:arrayRemove('group-b'),
       lastRemovedUid:'group-b',updatedAt:serverTimestamp()
     })));
+  await check('criador rebaixa antes de o coadministrador sair',async()=>{
+    await assertSucceeds(updateDoc(doc(a,group),{
+      adminUids:arrayRemove('group-b'),
+      lastRoleUid:'group-b',updatedAt:serverTimestamp()
+    }));
+    await assertSucceeds(updateDoc(doc(b,group),{
+      memberUids:arrayRemove('group-b'),
+      lastRemovedUid:'group-b',updatedAt:serverTimestamp()
+    }));
+  });
   await check('após saída, ex-administrador não pode ler nem recuperar o cargo',async()=>{
     await assertFails(getDoc(doc(b,group+'/messages/msg1')));
     await assertFails(updateDoc(doc(b,group),{
