@@ -146,7 +146,15 @@
       allow delete: if chatEnabled() && me(uid);
     }
     match /chats/{chatId} {
-      allow get, list: if chatEnabled() && chatMember(resource.data);
+      // Documentos individuais mantêm a validação de tipo e participação.
+      // A listagem exige a consulta com array-contains do próprio UID.
+      // Uma checagem adicional "is list" na expressão de list não é
+      // demonstrável pelo analisador de consultas do Firestore e bloqueava
+      // a caixa de entrada, apesar de os documentos terem dados corretos.
+      allow get: if chatEnabled() && chatMember(resource.data);
+      allow list: if chatEnabled() && signedIn()
+        && request.query.limit != null && request.query.limit <= 100
+        && request.auth.uid in resource.data.participants;
       allow create: if chatEnabled()
         && request.auth.uid == request.resource.data.requesterUid
         && validId(request.resource.data.requesterUid)

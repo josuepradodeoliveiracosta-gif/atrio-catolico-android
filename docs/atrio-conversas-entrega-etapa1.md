@@ -168,6 +168,22 @@ Cada destinatário também deve optar por `requests: "all"` em
   contas reais e não altera certificado, backups protegidos, versão Release
   nem dados dos usuários.
 
+## Correção de acesso à caixa de entrada (homologação)
+
+A suíte instrumentada apontou `PERMISSION_DENIED` ao consultar
+`chats.whereArrayContains("participants", uid).limit(100)`.
+A autorização de leitura de um documento continua checando estrutura
+e participação; a regra de **listagem** agora exige a filtragem por UID
+e limite máximo de 100 itens, sem o teste de tipo adicional que o
+verificador estático de consultas não conseguia deduzir. A regra
+geral de negação permanece ativa.
+
+Incluímos cenários de segurança para permitir a listagem do próprio
+participante e recusar consulta sem filtro, em nome de terceiro,
+desautenticada ou com limite excessivo. O QA Android valida o fluxo
+da interface e complementa o teste de regras: ambos precisam passar
+no mesmo commit antes de afirmar que a correção está homologada.
+
 ## QA de interface individual com duas contas emuladas
 
 A suíte `AtrioConversationsEmulatorUiTest`, incluída no fluxo

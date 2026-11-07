@@ -6,8 +6,8 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {initializeTestEnvironment, assertFails, assertSucceeds} from '@firebase/rules-unit-testing';
 import {
-  collection, deleteDoc, deleteField, doc, getDoc, getDocs, setDoc, updateDoc, writeBatch,
-  serverTimestamp, Timestamp
+  collection, deleteDoc, deleteField, doc, getDoc, getDocs, limit, query, setDoc,
+  updateDoc, where, writeBatch, serverTimestamp, Timestamp
 } from 'firebase/firestore';
 
 // O arquivo raiz está sob fingerprint de produção: jamais alterá-lo para
@@ -164,6 +164,26 @@ try {
     await assertFails(getDoc(doc(stranger,room)));
     await assertFails(getDoc(doc(stranger,initial)));
     await assertFails(getDocs(collection(stranger,room+'/messages')));
+  });
+  await check('inbox lê somente conversas filtradas pela própria participação',async()=>{
+    const own = query(collection(alice,'chats'),
+      where('participants','array-contains','chat-alice'),limit(100));
+    const results = await assertSucceeds(getDocs(own));
+    assert.ok(results.docs.some(d => d.id === chatId));
+    assert.equal(results.docs.length,5);
+    const ownBob = query(collection(bob,'chats'),
+      where('participants','array-contains','chat-bob'),limit(100));
+    const bobResults = await assertSucceeds(getDocs(ownBob));
+    assert.ok(bobResults.docs.some(d => d.id === chatId));
+  });
+  await check('consultas genéricas ou em nome de outro usuário nunca listam chats',async()=>{
+    await assertFails(getDocs(query(collection(alice,'chats'),limit(100))));
+    await assertFails(getDocs(query(collection(alice,'chats'),
+      where('participants','array-contains','chat-bob'),limit(100))));
+    await assertFails(getDocs(query(collection(stranger,'chats'),
+      where('participants','array-contains','chat-alice'),limit(100))));
+    await assertFails(getDocs(query(collection(alice,'chats'),
+      where('participants','array-contains','chat-alice'),limit(101))));
   });
   await check('participantes conseguem consultar a mensagem inicial',async()=>{
     assert.equal((await assertSucceeds(getDoc(doc(bob,initial)))).data().text,'Paz e bem!');
