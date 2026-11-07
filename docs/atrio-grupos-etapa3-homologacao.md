@@ -10,8 +10,9 @@ limites numéricos, política para menores ou regras finais de permanência.
 - Grupos **privados** com três categorias: estudo, oração e comunidade.
 - Criador administrador inicial. Controle de funções: promoção de membros
   a administrador e revogação pelo criador. O criador não pode ser removido.
-  Um coadministrador pode sair, mas perde a participação **e** a função
-  administrativa no mesmo commit; não deixa privilégios antigos ativos.
+  Para um coadministrador sair, o criador deve revogar primeiro sua
+  função. A interface não exibe um botão de saída que o servidor negaria;
+  a saída direta de administrador continua proibida.
 - Convites pessoais somente por administrador para contatos com conversa
   individual **previamente aceita**, com revalidação dos bloqueios.
   O servidor recusa convites para UIDs aleatórios e contatos bloqueados.
