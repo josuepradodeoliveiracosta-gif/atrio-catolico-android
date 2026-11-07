@@ -225,5 +225,13 @@ class AtrioGroupsEmulatorUiTest {
             .collection("messages").get(Source.SERVER),8,TimeUnit.SECONDS)
         assertTrue("Grupo encerrado mantém mensagem já criada",
             kept.documents.any { it.getString("text")==message })
+
+        // O logout deve encerrar a interface sem reutilizar listeners
+        // privados ou convites da sessão anterior.
+        auth.signOut()
+        waitFor("atrio-groups-screen")
+        compose.onNodeWithText("Sua sessão mudou. Entre novamente.")
+            .assertIsDisplayed()
+        compose.onNodeWithTag("atrio-group-$groupId").assertDoesNotExist()
     }
 }

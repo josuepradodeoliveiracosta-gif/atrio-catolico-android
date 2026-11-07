@@ -107,7 +107,33 @@ internal fun AtrioGroupsScreen(
     var busy by remember(uid) { mutableStateOf(false) }
     var info by remember(uid) { mutableStateOf("") }
 
-    DisposableEffect(db,uid) {
+    // Sair de uma conta cancela consultas de grupos, convites e elegibilidade
+    // antes que a Activity seja obrigatoriamente destruída.
+    val authentication = remember { FirebaseAuth.getInstance() }
+    var activeAuthUid by remember(uid) {
+        mutableStateOf(authentication.currentUser?.uid)
+    }
+    DisposableEffect(authentication, uid) {
+        val observer = FirebaseAuth.AuthStateListener { instance ->
+            activeAuthUid = instance.currentUser?.uid
+        }
+        authentication.addAuthStateListener(observer)
+        onDispose { authentication.removeAuthStateListener(observer) }
+    }
+    val ownSession = activeAuthUid == uid &&
+        authentication.currentUser?.uid == uid
+
+    DisposableEffect(db, uid, ownSession) {
+        if (!ownSession) {
+            configLoaded = false
+            enabled = false
+            pushEnabled = false
+            accessLoaded = false
+            accessApproved = false
+            rooms = emptyList()
+            invitations = emptyList()
+            onDispose {}
+        } else {
         val listener=db.document("app_config/chat_groups")
             .addSnapshotListener { data,error ->
                 configLoaded=true
@@ -117,9 +143,10 @@ internal fun AtrioGroupsScreen(
                 pushEnabled=enabled && data?.getBoolean("pushEnabled")==true
             }
         onDispose { listener.remove() }
+        }
     }
-    DisposableEffect(db,uid,enabled) {
-        if(!enabled) {
+    DisposableEffect(db,uid,enabled,ownSession) {
+        if(!enabled || !ownSession) {
             accessLoaded=false
             accessApproved=false
             accessValidUntil=0L
@@ -159,8 +186,8 @@ internal fun AtrioGroupsScreen(
             }
         }
     }
-    DisposableEffect(db,uid,enabled,accessApproved) {
-        if (!enabled || !accessApproved) {
+    DisposableEffect(db,uid,enabled,accessApproved,ownSession) {
+        if (!enabled || !accessApproved || !ownSession) {
             rooms=emptyList()
             onDispose {}
         } else {
@@ -174,8 +201,8 @@ internal fun AtrioGroupsScreen(
             onDispose { listener.remove() }
         }
     }
-    DisposableEffect(db,uid,enabled,accessApproved) {
-        if (!enabled || !accessApproved) {
+    DisposableEffect(db,uid,enabled,accessApproved,ownSession) {
+        if (!enabled || !accessApproved || !ownSession) {
             invitations=emptyList()
             onDispose {}
         } else {
@@ -272,7 +299,7 @@ internal fun AtrioGroupsScreen(
     BackHandler { if(selectedId!=null) selectedId=null else onBack() }
     val selected=rooms.firstOrNull { it.id==selectedId }
     Column(Modifier.fillMaxSize().background(Paper).testTag("atrio-groups-screen")) {
-        if (FirebaseAuth.getInstance().currentUser?.uid!=uid) {
+        if (!ownSession) {
             Text("Sua sessão mudou. Entre novamente.",Modifier.padding(20.dp))
         } else if (!configLoaded) {
             CircularProgressIndicator(Modifier.padding(24.dp))
