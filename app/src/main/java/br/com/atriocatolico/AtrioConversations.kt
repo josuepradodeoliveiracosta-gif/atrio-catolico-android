@@ -734,6 +734,106 @@ private fun AtrioChatThread(
             }
         }
     }
+    if (editingMessage != null && editingEnabled && chat?.status == "accepted") {
+        val selectedMessage = editingMessage!!
+        val proposed = editDraft.trim()
+        AlertDialog(
+            onDismissRequest = { if (!saving) editingMessage = null },
+            title = { Text("Editar mensagem") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("A mensagem ficará identificada como editada. " +
+                        "O texto anterior pode permanecer em denúncias já registradas.",
+                        fontSize = 13.sp, color = Muted)
+                    OutlinedTextField(editDraft, {
+                        if (it.length <= AtrioChatPolicy.MAX_TEXT) editDraft = it
+                    }, label = { Text("Texto atualizado") },
+                        maxLines = 5,
+                        modifier = Modifier.fillMaxWidth().testTag("atrio-chat-edit-field"))
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !saving && AtrioChatPolicy.validText(proposed) &&
+                        proposed != selectedMessage.text,
+                    onClick = {
+                        saving = true
+                        val messageRef = ref.collection("messages")
+                            .document(selectedMessage.id)
+                        db.runTransaction { tx ->
+                            val latestRoom = tx.get(ref)
+                            val latestMessage = tx.get(messageRef)
+                            check(latestRoom.getString("status") == "accepted")
+                            check(latestMessage.getString("uid") == uid)
+                            check(latestMessage.getString("kind") == "text")
+                            check(latestMessage.getBoolean("deletedForAll") != true)
+                            tx.update(messageRef, mapOf(
+                                "editedText" to proposed,
+                                "editedAt" to FieldValue.serverTimestamp()))
+                            if (latestRoom.getString("lastMessageId") == selectedMessage.id)
+                                tx.update(ref, "lastPreview", proposed)
+                            true
+                        }.addOnCompleteListener { result ->
+                            saving = false
+                            info = if (result.isSuccessful) "Mensagem editada."
+                                else "Edição não autorizada ou prazo encerrado."
+                            if (result.isSuccessful) editingMessage = null
+                        }
+                    }) { Text("Salvar edição") }
+            },
+            dismissButton = {
+                TextButton(onClick = { if (!saving) editingMessage = null }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
+    if (deletingMessage != null && deletingEnabled && chat?.status == "accepted") {
+        val selectedMessage = deletingMessage!!
+        AlertDialog(
+            onDismissRequest = { if (!saving) deletingMessage = null },
+            title = { Text("Remover mensagem para todos?") },
+            text = {
+                Text("O texto será substituído por 'Mensagem removida' na conversa " +
+                    "dos participantes. Denúncias já registradas e eventuais cópias " +
+                    "administrativas podem permanecer armazenadas.")
+            },
+            confirmButton = {
+                TextButton(enabled = !saving,
+                    onClick = {
+                        saving = true
+                        val messageRef = ref.collection("messages")
+                            .document(selectedMessage.id)
+                        db.runTransaction { tx ->
+                            val latestRoom = tx.get(ref)
+                            val latestMessage = tx.get(messageRef)
+                            check(latestRoom.getString("status") == "accepted")
+                            check(latestMessage.getString("uid") == uid)
+                            check(latestMessage.getString("kind") == "text")
+                            check(latestMessage.getBoolean("deletedForAll") != true)
+                            tx.update(messageRef, mapOf(
+                                "text" to "[Mensagem removida]",
+                                "editedText" to FieldValue.delete(),
+                                "deletedForAll" to true,
+                                "deletedAt" to FieldValue.serverTimestamp()))
+                            if (latestRoom.getString("lastMessageId") == selectedMessage.id)
+                                tx.update(ref, "lastPreview", "[Mensagem removida]")
+                            true
+                        }.addOnCompleteListener { result ->
+                            saving = false
+                            info = if (result.isSuccessful) "Mensagem retirada da conversa."
+                                else "Remoção não autorizada ou prazo encerrado."
+                            if (result.isSuccessful) deletingMessage = null
+                        }
+                    }) { Text("Remover para todos") }
+            },
+            dismissButton = {
+                TextButton(onClick = { if (!saving) deletingMessage = null }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
     if (reactingTo != null && chat?.status == "accepted") {
         val selected = reactingTo!!
         AlertDialog(onDismissRequest = { reactingTo = null },
