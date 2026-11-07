@@ -585,7 +585,7 @@ private fun AtrioChatThread(
                                     }
                                 } else Text(msg.text, fontSize = 16.sp,
                                     lineHeight = 22.sp, color = Ink)
-                                if (!isHidden && msg.reactions.isNotEmpty()) {
+                                if (!isHidden && !msg.deletedForAll && msg.reactions.isNotEmpty()) {
                                     val summary = msg.reactions.values.groupingBy { it }
                                         .eachCount().entries.joinToString("  ") {
                                             it.key + " " + it.value
@@ -814,6 +814,7 @@ private fun AtrioChatThread(
                             tx.update(messageRef, mapOf(
                                 "text" to "[Mensagem removida]",
                                 "editedText" to FieldValue.delete(),
+                                "reactions" to FieldValue.delete(),
                                 "deletedForAll" to true,
                                 "deletedAt" to FieldValue.serverTimestamp()))
                             if (latestRoom.getString("lastMessageId") == selectedMessage.id)
@@ -879,7 +880,9 @@ private fun AtrioChatThread(
             confirmButton = {
                 TextButton(enabled = !saving && reason.trim().length >= 5, onClick = {
                     saving = true
-                    db.collection("chat_reports").add(mapOf(
+                    db.collection("chat_reports")
+                        .document(uid + "__" + chatId + "__" + selectedMessage.id)
+                        .set(mapOf(
                         "chatId" to chatId, "messageId" to selectedMessage.id,
                         "reporterUid" to uid, "reason" to reason.trim(),
                         "reportedText" to selectedMessage.text,
