@@ -354,14 +354,20 @@ private fun AtrioChatThread(
     var hiddenMessageIds by remember(uid, chatId) { mutableStateOf<Set<String>>(emptySet()) }
     var showHiddenMessages by remember(uid, chatId) { mutableStateOf(false) }
     var messageMenuId by remember(uid, chatId) { mutableStateOf<String?>(null) }
-    DisposableEffect(db, uid, chatId) {
-        val listener = db.collection("users").document(uid)
-            .collection("chatHidden").document(chatId).collection("messages")
-            .limit(500).addSnapshotListener { snapshot, failure ->
-                if (failure == null) hiddenMessageIds = snapshot?.documents
-                    ?.map { it.id }?.toSet().orEmpty()
-            }
-        onDispose { listener.remove() }
+    // Uma conversa ainda inexistente não autoriza a leitura de sua
+    // subcoleção privada. Aguarde o chat ser confirmado antes de ouvir
+    // mensagens ocultadas, evitando listeners encerrados por PERMISSION_DENIED.
+    DisposableEffect(db, uid, chatId, chat?.id) {
+        if (chat == null) onDispose {}
+        else {
+            val listener = db.collection("users").document(uid)
+                .collection("chatHidden").document(chatId).collection("messages")
+                .limit(500).addSnapshotListener { snapshot, failure ->
+                    if (failure == null) hiddenMessageIds = snapshot?.documents
+                        ?.map { it.id }?.toSet().orEmpty()
+                }
+            onDispose { listener.remove() }
+        }
     }
     var draft by remember(uid, chatId) { mutableStateOf("") }
     var pendingAttemptId by remember(uid, chatId) { mutableStateOf("") }
@@ -396,13 +402,30 @@ private fun AtrioChatThread(
         onDispose { AtrioChatForeground.close(uid, chatId) }
     }
 
-    DisposableEffect(db, uid, chatId) {
-        val listener = ref.addSnapshotListener { snapshot, error ->
+    // A inbox já usa a query autorizada por participação. Quando o
+    // destinatário vem do perfil, o chat ainda NÃO existe: uma escuta de
+    // documento inexistente é negada pelas regras Firestore e encerra
+    // definitivamente esse listener. Assim, o pedido criado em seguida
+    // ficava gravado, mas a tela continuava em "primeira mensagem".
+    // Aguardar a inbox confirmar o novo documento ANTES de iniciar a escuta.
+    LaunchedEffect(preview) {
+        if (preview != null) {
+            chat = preview
             loaded = true
-            if (error == null) chat = snapshot?.takeIf { it.exists() }?.chatRoom()
-            else info = "Não foi possível sincronizar a conversa."
         }
-        onDispose { listener.remove() }
+    }
+    DisposableEffect(db, uid, chatId, preview?.id, initialPeer?.uid) {
+        if (preview == null && initialPeer != null) {
+            loaded = true // Primeira mensagem permitida, sem leitura negada.
+            onDispose {}
+        } else {
+            val listener = ref.addSnapshotListener { snapshot, error ->
+                loaded = true
+                if (error == null) chat = snapshot?.takeIf { it.exists() }?.chatRoom()
+                else info = "Não foi possível sincronizar a conversa."
+            }
+            onDispose { listener.remove() }
+        }
     }
     DisposableEffect(db, chatId, limit, chat?.id) {
         if (chat == null) onDispose {}
