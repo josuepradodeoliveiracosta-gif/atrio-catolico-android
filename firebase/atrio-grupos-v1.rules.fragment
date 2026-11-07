@@ -254,3 +254,31 @@
         allow update, delete: if false;
       }
     }
+    // A moderação central recebe somente mensagens denunciadas; não tem
+    // autorização genérica para ler os grupos privados.
+    match /chat_group_reports/{reportId} {
+      allow get: if isAdmin()
+        || (signedIn() && resource.data.reporterUid == request.auth.uid);
+      allow list: if isAdmin();
+      allow create: if atrioGroupsEnabled() && signedIn()
+        && request.resource.data.keys().hasOnly([
+          'groupId','messageId','reporterUid','reason','reportedText','createdAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'groupId','messageId','reporterUid','reason','reportedText','createdAt'
+        ])
+        && validId(request.resource.data.groupId)
+        && validId(request.resource.data.messageId)
+        && request.resource.data.reporterUid == request.auth.uid
+        && reportId == request.auth.uid + '__' + request.resource.data.groupId
+          + '__' + request.resource.data.messageId
+        && validText(request.resource.data.reason,5,300)
+        && validText(request.resource.data.reportedText,1,1500)
+        && request.resource.data.createdAt == request.time
+        && exists(atrioGroupPath(request.resource.data.groupId))
+        && request.auth.uid in get(atrioGroupPath(request.resource.data.groupId)).data.memberUids
+        && exists(/databases/$(database)/documents/chat_groups/$(request.resource.data.groupId)/messages/$(request.resource.data.messageId))
+        && request.resource.data.reportedText ==
+          get(/databases/$(database)/documents/chat_groups/$(request.resource.data.groupId)/messages/$(request.resource.data.messageId)).data.text;
+      allow update, delete: if false;
+    }
