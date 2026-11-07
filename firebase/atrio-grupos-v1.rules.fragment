@@ -24,13 +24,14 @@
     }
     // Proteção anti-spam: convites apenas a contatos com conversa individual
     // previamente aceita. Não basta conhecer o UID por fora do aplicativo.
-    function atrioGroupAcceptedContact(a,b) {
-      let ab = /databases/$(database)/documents/chats/$(a + '__' + b);
-      let ba = /databases/$(database)/documents/chats/$(b + '__' + a);
-      return (exists(ab) && get(ab).data.status == 'accepted'
-          && get(ab).data.participants.hasAll([a,b]))
-        || (exists(ba) && get(ba).data.status == 'accepted'
-          && get(ba).data.participants.hasAll([a,b]));
+    // ID de conversa é validado contra os DOIS UIDs; nenhuma busca em
+    // duas orientações e nenhuma leitura repetida do mesmo documento.
+    function atrioGroupAcceptedContact(a,b,contactChatId) {
+      return validId(contactChatId)
+        && (contactChatId == a + '__' + b
+          || contactChatId == b + '__' + a)
+        && get(/databases/$(database)/documents/chats/$(contactChatId))
+          .data.status == 'accepted';
     }
     function atrioGroupInvitation(groupId,uid) {
       return /databases/$(database)/documents/chat_groups/$(groupId)/atrioGroupInvites/$(uid);
@@ -237,10 +238,10 @@
           && atrioGroupAdmin(groupId)
           && get(atrioGroupPath(groupId)).data.status == 'active'
           && request.resource.data.keys().hasOnly([
-            'inviteeUid','inviterUid','groupName','status','createdAt','updatedAt'
+            'inviteeUid','inviterUid','groupName','contactChatId','status','createdAt','updatedAt'
           ])
           && request.resource.data.keys().hasAll([
-            'inviteeUid','inviterUid','groupName','status','createdAt','updatedAt'
+            'inviteeUid','inviterUid','groupName','contactChatId','status','createdAt','updatedAt'
           ])
           && request.resource.data.inviteeUid == inviteeUid
           && inviteeUid != request.auth.uid
@@ -254,7 +255,8 @@
           // O bloqueio inverso é revalidado no ACEITE, para economizar
           // leituras de regras na simples criação de convite.
           && !exists(/databases/$(database)/documents/users/$(inviteeUid)/blockedMembers/$(request.auth.uid))
-          && atrioGroupAcceptedContact(request.auth.uid, inviteeUid);
+          && atrioGroupAcceptedContact(
+            request.auth.uid,inviteeUid,request.resource.data.contactChatId);
         allow update: if atrioGroupsEnabled()
           && atrioGroupEligible(request.auth.uid)
           && request.resource.data.diff(resource.data).affectedKeys()
@@ -278,7 +280,9 @@
               && !(inviteeUid in get(atrioGroupPath(groupId)).data.memberUids)
               && request.resource.data.status == 'pending'
               && !exists(/databases/$(database)/documents/users/$(inviteeUid)/blockedMembers/$(request.auth.uid))
-              && atrioGroupAcceptedContact(request.auth.uid,inviteeUid))
+              && resource.data.inviterUid == request.auth.uid
+              && atrioGroupAcceptedContact(
+                request.auth.uid,inviteeUid,resource.data.contactChatId))
           );
         allow delete: if false;
       }
