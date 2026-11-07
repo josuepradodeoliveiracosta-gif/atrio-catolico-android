@@ -1,0 +1,56 @@
+name: Seguranca do repositorio - exclusoes em massa
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+    branches: [main]
+
+# O workflow e o script sao carregados da BASE confiavel, nunca da PR.
+# Nao baixar artefatos nem executar checkout/build/teste do codigo proposto.
+permissions:
+  contents: read
+
+concurrency:
+  group: protecao-exclusoes-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  bloquear-exclusoes:
+    name: Bloquear exclusoes em massa (Atrio)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Obter somente codigo da base confiavel
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Executar testes da politica da base
+        run: python3 -m unittest discover -s scripts -p 'test_guard_exclusoes.py' -v
+
+      - name: Verificar SHAs e exclusoes sem executar codigo da PR
+        shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REPOSITORY" == "josuepradodeoliveiracosta-gif/atrio-catolico-android" ]]
+          [[ "$PR_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PR_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]{0,9}$ ]]
+          [[ "$(git rev-parse --is-shallow-repository)" == "false" ]]
+          [[ "$(git rev-parse HEAD)" == "$PR_BASE_SHA" ]]
+
+          # Apenas obter objetos Git; jamais usar checkout do head da PR.
+          git fetch --no-tags --force origin "refs/pull/${PR_NUMBER}/head"
+          [[ "$(git rev-parse FETCH_HEAD)" == "$PR_HEAD_SHA" ]]
+          BASE_COMUM="$(git merge-base "$PR_BASE_SHA" "$PR_HEAD_SHA")"
+          [[ "$BASE_COMUM" =~ ^[0-9a-f]{40}$ ]]
+
+          python3 scripts/guard_exclusoes.py \
+            --base "$BASE_COMUM" \
+            --head "$PR_HEAD_SHA"
