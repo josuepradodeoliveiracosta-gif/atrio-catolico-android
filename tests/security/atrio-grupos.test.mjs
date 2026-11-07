@@ -173,6 +173,8 @@ try {
     })));
   await check('mensagem de texto válida usa batch com prévia coerente',()=>
     assertSucceeds(message(b,groupId,'group-b','msg1','Paz e bem!')));
+  await check('reenvio da mesma mensagem não duplica documento no servidor',()=>
+    assertFails(message(b,groupId,'group-b','msg1','Paz e bem!')));
   await check('o mesmo remetente não dispara mensagens em sequência imediata',()=>
     assertFails(message(b,groupId,'group-b','flood1','Spam repetitivo')));
   await check('participante denuncia uma mensagem específica',async()=>{
