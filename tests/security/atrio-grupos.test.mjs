@@ -53,7 +53,7 @@ function createFirst(db,id=groupId) {
   return batch.commit();
 }
 function invitation(db,id,invitee,extra={}) {
-  return setDoc(doc(db,'chat_groups/'+id+'/invites/'+invitee),{
+  return setDoc(doc(db,'chat_groups/'+id+'/atrioGroupInvites/'+invitee),{
     inviteeUid:invitee,inviterUid:'group-a',
     groupName:'Estudo do Evangelho',status:'pending',
     createdAt:serverTimestamp(),updatedAt:serverTimestamp(),...extra
@@ -61,7 +61,7 @@ function invitation(db,id,invitee,extra={}) {
 }
 function accept(db,id,uid) {
   const batch=writeBatch(db);
-  batch.update(doc(db,'chat_groups/'+id+'/invites/'+uid),{
+  batch.update(doc(db,'chat_groups/'+id+'/atrioGroupInvites/'+uid),{
     status:'accepted',updatedAt:serverTimestamp()
   });
   batch.update(doc(db,'chat_groups/'+id),{
@@ -121,20 +121,20 @@ try {
   await check('administrador envia convite privado',()=>
     assertSucceeds(invitation(a,groupId,'group-b')));
   await check('convidado vê o convite mas não o conteúdo do grupo',async()=>{
-    const inv=await assertSucceeds(getDoc(doc(b,group+'/invites/group-b')));
+    const inv=await assertSucceeds(getDoc(doc(b,group+'/atrioGroupInvites/group-b')));
     assert.equal(inv.data().status,'pending');
     await assertFails(getDoc(doc(b,group)));
     await assertFails(getDocs(collection(b,group+'/messages')));
   });
   await check('terceiro não lê convite particular',()=>
-    assertFails(getDoc(doc(stranger,group+'/invites/group-b'))));
+    assertFails(getDoc(doc(stranger,group+'/atrioGroupInvites/group-b'))));
   await check('convites recebidos aparecem só ao destinatário',async()=>{
     const rows=await assertSucceeds(getDocs(query(
-      collectionGroup(b,'invites'),where('inviteeUid','==','group-b'))));
-    assert.ok(rows.docs.some(x=>x.ref.path===group+'/invites/group-b'));
+      collectionGroup(b,'atrioGroupInvites'),where('inviteeUid','==','group-b'))));
+    assert.ok(rows.docs.some(x=>x.ref.path===group+'/atrioGroupInvites/group-b'));
   });
   await check('um convite não aceita status sem ingresso no mesmo batch',()=>
-    assertFails(updateDoc(doc(b,group+'/invites/group-b'),{
+    assertFails(updateDoc(doc(b,group+'/atrioGroupInvites/group-b'),{
       status:'accepted',updatedAt:serverTimestamp()
     })));
   await check('um usuário sem convite não ingressa por arrayUnion',()=>
@@ -206,7 +206,7 @@ try {
     await assertFails(getDoc(doc(b,group+'/messages/msg1')));
   });
   await check('admin pode reconvidar participante que saiu',()=>
-    assertSucceeds(updateDoc(doc(a,group+'/invites/group-b'),{
+    assertSucceeds(updateDoc(doc(a,group+'/atrioGroupInvites/group-b'),{
       status:'pending',updatedAt:serverTimestamp()
     })));
   await check('reenviando convite ainda exige novo aceite',async()=>{
