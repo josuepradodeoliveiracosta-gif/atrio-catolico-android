@@ -1,4 +1,4 @@
-# Átrio Conversas — etapas 1 e 2 em homologação isolada
+# Átrio Conversas — etapas 1, 2 e grupos experimentais isolados
 
 Base de desenvolvimento: `main` em `626e70d7b544e549947aad5f58ae4bde8eb9a1d9`.
 Origem: *Átrio Conversas — Plano Completo* (06/11/2026), páginas 3–11 e 14.
@@ -51,6 +51,12 @@ Origem: *Átrio Conversas — Plano Completo* (06/11/2026), páginas 3–11 e 14
 - **As duas operações de alteração/remoção dependem exclusivamente de
   permissão administrativa** no documento `app_config/conversations`,
   que o APK não pode modificar. Sem essas permissões, ficam fechadas.
+- **Etapa 3 (grupos, experimental):** criação privada, convite com aceite,
+  administrador e promoção/revogação de função, saída/remoção, mensagens
+  somente texto, quotas, denúncias específicas e acesso restrito. Código,
+  regras e limites provisórios estão detalhados em
+  `docs/atrio-grupos-etapa3-homologacao.md`. Não há push de grupos
+  nem implantação de produção.
 
 ## O que **não** está pronto
 
@@ -66,7 +72,8 @@ em dois aparelhos com contas distintas.
 (ainda bloqueada no servidor), confirmações genuínas de leitura/entrega,
 edição e remoção de mensagens (gates administrativos fechados por padrão),
 política de proteção de menores, limitação mais avançada de mensagens
-repetidas entre chats aceitos, grupos e mensagens temporárias.
+repetidas entre chats aceitos, grupos **ainda desativados** e mensagens
+temporárias.
 
 A etapa 2 teve três recursos preparados em código; nenhuma das suas
 funcionalidades foi autorizada para uso em produção.
@@ -83,10 +90,12 @@ criptográfico fixado da última política aprovada. Não alteramos os fingerpri
 a ferramenta protegida nem o script de deploy antigo.
 
 As regras novas do chat estão em
-`firebase/atrio-conversas-v1.rules.fragment`. O teste
-`tests/security/atrio-conversas.test.mjs` combina o fragmento com a
-política oficial **apenas em memória**, dentro do emulador. Esse fragmento
-não é publicado automaticamente pelo `firebase.json`.
+`firebase/atrio-conversas-v1.rules.fragment`, e os grupos em
+`firebase/atrio-grupos-v1.rules.fragment`. Os testes
+`tests/security/atrio-conversas.test.mjs` e
+`tests/security/atrio-grupos.test.mjs` combinam os fragmentos com a
+política oficial **apenas em memória**, dentro do emulador. Esses fragmentos
+não são publicados automaticamente pelo `firebase.json`.
 
 Antes de ativar chat real, a política combinada precisa de **nova auditoria,
 aprovação explícita e procedimento de deploy independente**. Nunca atualizar
@@ -162,7 +171,9 @@ Cada destinatário também deve optar por `requests: "all"` em
 7. Definir formalmente prazos e retenção para edição e remoção, sem
    habilitar automaticamente as duas flags; adotar política de proteção
    de menores e critérios de moderação proporcionais.
-8. Só depois da aprovação humana: projetar grupos de texto com convites,
-   administradores, remoção e regras próprias.
+8. Auditar o módulo de grupos já preparado em código (convites, integrantes,
+   administradores, remoção e denúncias), definir regras de menores,
+   retenção, custos e testes entre contas, mantendo o recurso desativado
+   até a aprovação expressa.
 
 Revisar os resultados de CI no PR antes de qualquer merge para `main`.
