@@ -477,6 +477,22 @@ try {
       unreadRecipient:1
     }));
   });
+  await check('quem bloqueou pode desfazer o bloqueio sem permitir forja por terceiros',async()=>{
+    await assertFails(deleteDoc(doc(stranger,'users/chat-bob/blockedMembers/chat-alice')));
+    await assertSucceeds(deleteDoc(doc(bob,'users/chat-bob/blockedMembers/chat-alice')));
+    assert.equal((await getDoc(doc(bob,'users/chat-bob/blockedMembers/chat-alice'))).exists(),false);
+  });
+  await check('conversa aceita volta a permitir mensagens após desbloqueio',async()=>{
+    // Bob é diferente do último remetente, portanto não sofre o
+    // intervalo de três segundos reservado ao mesmo autor.
+    const data=(await assertSucceeds(getDoc(doc(bob,room)))).data();
+    const unread=(data.unreadRequester||0)+1;
+    await assertSucceeds(sendNext(bob,'chat-bob','m-after-unblock',
+      'Mensagem retomada após desbloqueio',{unreadRequester:unread}));
+    const latest=(await assertSucceeds(getDoc(doc(alice,room+'/messages/m-after-unblock')))).data();
+    assert.equal(latest.uid,'chat-bob');
+    assert.equal(latest.text,'Mensagem retomada após desbloqueio');
+  });
   await check('participantes não podem remover conversa de modo unilateral',()=>
     assertFails(updateDoc(doc(alice,room),{recipientUid:'chat-stranger'})));
   await env.withSecurityRulesDisabled(async ctx=>
