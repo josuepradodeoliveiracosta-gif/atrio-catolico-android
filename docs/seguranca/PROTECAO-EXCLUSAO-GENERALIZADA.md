@@ -56,3 +56,12 @@ python3 scripts/guard_exclusoes.py --base "$(git merge-base origin/main HEAD)" -
 Esta entrega nao altera arquivos do app, Firebase, Cloudflare, chaves de assinatura, APK de producao ou branches de backup. Nao publicar ate que CI e rulesets estejam comprovados.
 
 Fontes: https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets e https://docs.github.com/en/actions/reference/security/securely-using-pull_request_target
+
+## Auditoria das regras que ja existem (07/11/2026)
+
+A consulta de leitura aos rulesets revelou duas regras **ativas** antes de integrar esta PR:
+
+- `Protecao-Main-Atrio-Catolico` (ruleset ID 26067893), abrangendo a branch padrao: ja impede exclusao/force push, exige PR (sem aprovacao de outro revisor) e exige os checks de segredos, versao, regras Firestore e compilacao Android. **Nao alterar nem remover estes checks**. Apos a integracao desta PR, **acrescentar** o check `Bloquear exclusoes em massa (Atrio)` ao conjunto exigido, somente quando sua primeira execucao aparecer no GitHub.
+- `Protecao-Backup-Atrio-Catolico` (ruleset ID 26070795): impede delete, reescrita e atualizacao, mas o seletor atual inclui **somente** `refs/heads/backup/v0.12.0-2026-10-25`. Ampliar o seletor (ou criar outro ruleset ativo) para as demais branches `backup/**`, conferindo as correspondencias reais antes de salvar. A protecao atual deve ser mantida ate a nova estar eficaz.
+
+Verificar os detalhes em `Settings > Rules > Rulesets`: [ruleset main](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/rules/26067893) e [ruleset backup](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/rules/26070795). A conexao Github disponivel permite ler esses rulesets, mas nao altera configuracoes administrativas. **Nao afirmar que o novo check e obrigatorio ou que todas as branches de backup estao protegidas sem ler novamente os rulesets.**
