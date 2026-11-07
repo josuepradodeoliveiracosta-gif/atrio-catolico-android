@@ -58,7 +58,25 @@ jobs:
           ATRIO_OTA_PILOT_COMPILE_ONLY: '1'
           ATRIO_OTA_PILOT_VERSION_CODE: '36'
           ATRIO_OTA_PILOT_VERSION_NAME: '0.20.1'
-        run: gradle :app:compileOtaPilotKotlin :app:testOtaPilotUnitTest --no-daemon
+        shell: bash
+        run: |
+          # Falhas ocasionais de resolução do JUnit em Maven Central não
+          # significam regressão do APK. Repetir SOMENTE esta falha e apenas
+          # uma vez, preservando falhas de código e testes como bloqueadoras.
+          set -o pipefail
+          log="${RUNNER_TEMP}/atrio-ota-pilot-gradle.log"
+          if gradle :app:compileOtaPilotKotlin :app:testOtaPilotUnitTest --no-daemon \
+            2>&1 | tee "$log"; then
+            exit 0
+          fi
+          if grep -Eq 'Could not find junit:junit:4\\.13\\.2\\.' "$log"; then
+            echo "::warning::Repositorio de dependencias indisponivel: tentando resolver JUnit uma ultima vez"
+            gradle :app:compileOtaPilotKotlin :app:testOtaPilotUnitTest \
+              --refresh-dependencies --no-daemon
+          else
+            echo "Falha real de compilacao ou teste: sem repeticao automatica"
+            exit 1
+          fi
       - name: Gerar dois APKs Debug do laboratorio com mesma chave no runner
         run: bash scripts/ota_qa_upgrade.sh build-fixtures
       - name: Testar politica OTA do laboratorio
