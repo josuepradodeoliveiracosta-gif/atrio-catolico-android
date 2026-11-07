@@ -605,17 +605,17 @@ private fun AtrioGroupThread(
                         }
                     }
                 }
-                if(!isOwner) {
+                if(!isOwner && !isAdmin) {
                     OutlinedButton(onClick={
-                        updateGroup(
-                            mapOf(
-                                "memberUids" to FieldValue.arrayRemove(uid),
-                                "lastRemovedUid" to uid
-                            ) + if(isAdmin) mapOf(
-                                "adminUids" to FieldValue.arrayRemove(uid)
-                            ) else emptyMap(),
+                        updateGroup(mapOf(
+                            "memberUids" to FieldValue.arrayRemove(uid),
+                            "lastRemovedUid" to uid),
                             "Você saiu do grupo.")
                     },enabled=!busy) { Text("Sair do grupo") }
+                } else if(!isOwner && isAdmin) {
+                    Text("Para sair, solicite ao criador que retire primeiro " +
+                        "sua função de administrador.",
+                        fontSize=13.sp,color=Muted)
                 }
             }
             HorizontalDivider(color=Line)
