@@ -49,9 +49,9 @@ const sendInitial=(db,text,options={})=>{
   b.set(doc(db,initial),message('chat-alice',text));
   return b.commit();
 };
-const sendNext=(db,sender,id,text,updateOverrides={},kind='text')=>{
+const sendNext=(db,sender,id,text,updateOverrides={},kind='text',extra={})=>{
   const b=writeBatch(db);
-  b.set(doc(db,room+'/messages/'+id),message(sender,text,kind));
+  b.set(doc(db,room+'/messages/'+id),{...message(sender,text,kind),...extra});
   const base={lastMessageId:id,lastPreview:text,updatedAt:serverTimestamp(),
     ...updateOverrides};
   b.update(doc(db,room),base);
@@ -112,6 +112,46 @@ try {
   await check('Alice envia texto aprovado e contador avança',()=>
     assertSucceeds(sendNext(alice,'chat-alice','m2','Como está sua comunidade?',{
       unreadRecipient:2
+    })));
+  await check('resposta cita apenas mensagem existente na mesma conversa',()=>
+    assertSucceeds(sendNext(bob,'chat-bob','m6','Amém, muito bem!',{
+      unreadRequester:1
+    },'text',{replyToId:'m2'})));
+  await check('referência inexistente na resposta é recusada',()=>
+    assertFails(sendNext(alice,'chat-alice','m7','Referência falsa',{
+      unreadRecipient:3
+    },'text',{replyToId:'mensagem-inexistente'})));
+  await check('remetente registra sua própria reação de oração',()=>
+    assertSucceeds(updateDoc(doc(alice,room+'/messages/m2'),{
+      'reactions.chat-alice':'🙏'
+    })));
+  await check('destinatário vê a reação sem listener separado',async()=>{
+    const d=await assertSucceeds(getDoc(doc(bob,room+'/messages/m2')));
+    assert.equal(d.data().reactions['chat-alice'],'🙏');
+  });
+  await check('outro participante escolhe sua própria reação',()=>
+    assertSucceeds(updateDoc(doc(bob,room+'/messages/m2'),{
+      'reactions.chat-bob':'❤️'
+    })));
+  await check('emoji não aprovado é negado',()=>
+    assertFails(updateDoc(doc(alice,room+'/messages/m2'),{
+      'reactions.chat-alice':'💣'
+    })));
+  await check('ninguém pode reagir em nome do outro',()=>
+    assertFails(updateDoc(doc(alice,room+'/messages/m2'),{
+      'reactions.chat-bob':'👍'
+    })));
+  await check('reações não permitem editar a mensagem original',()=>
+    assertFails(updateDoc(doc(alice,room+'/messages/m2'),{
+      text:'Texto adulterado', 'reactions.chat-alice':'👍'
+    })));
+  await check('um terceiro não consegue reagir em mensagem alheia',()=>
+    assertFails(updateDoc(doc(stranger,room+'/messages/m2'),{
+      'reactions.chat-stranger':'🙏'
+    })));
+  await check('titular pode remover apenas sua própria reação',()=>
+    assertSucceeds(updateDoc(doc(bob,room+'/messages/m2'),{
+      'reactions.chat-bob':'👍'
     })));
   await check('envio de tipo mídia é rejeitado no backend',()=>
     assertFails(sendNext(alice,'chat-alice','m3','arquivo', {
