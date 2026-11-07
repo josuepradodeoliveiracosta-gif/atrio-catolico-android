@@ -126,6 +126,17 @@ try {
       requesterUid:'group-a',recipientUid:'group-b',status:'accepted',
       createdAt:serverTimestamp(),updatedAt:serverTimestamp()
     }));
+  await env.withSecurityRulesDisabled(async ctx=>
+    setDoc(doc(ctx.firestore(),'chats/group-a__group-c'),{
+      participants:['group-a','group-c'],
+      requesterUid:'group-a',recipientUid:'group-c',status:'accepted',
+      createdAt:serverTimestamp(),updatedAt:serverTimestamp()
+    }));
+  await assertSucceeds(setDoc(doc(c,'users/group-c/blockedMembers/group-a'),{
+    createdAt:serverTimestamp()
+  }));
+  await check('contato aceito que bloqueou administrador não recebe convite',()=>
+    assertFails(invitation(a,groupId,'group-c')));
   await check('administrador envia convite privado',()=>
     assertSucceeds(invitation(a,groupId,'group-b')));
   await check('convidado vê o convite mas não o conteúdo do grupo',async()=>{
@@ -162,6 +173,46 @@ try {
     })));
   await check('mensagem de texto válida usa batch com prévia coerente',()=>
     assertSucceeds(message(b,groupId,'group-b','msg1','Paz e bem!')));
+  await check('o mesmo remetente não dispara mensagens em sequência imediata',()=>
+    assertFails(message(b,groupId,'group-b','flood1','Spam repetitivo')));
+  await check('participante denuncia uma mensagem específica',async()=>{
+    await assertSucceeds(setDoc(doc(a,
+      'chat_group_reports/group-a__'+groupId+'__msg1'),{
+      groupId,messageId:'msg1',reporterUid:'group-a',
+      reason:'Conteúdo para avaliação',
+      reportedText:'Paz e bem!',createdAt:serverTimestamp()
+    }));
+    const d=await assertSucceeds(getDoc(doc(a,
+      'chat_group_reports/group-a__'+groupId+'__msg1')));
+    assert.equal(d.data().messageId,'msg1');
+  });
+  await check('terceiros não podem ler denúncias de grupos',async()=>{
+    await assertFails(getDoc(doc(stranger,
+      'chat_group_reports/group-a__'+groupId+'__msg1')));
+    await assertFails(getDoc(doc(b,
+      'chat_group_reports/group-a__'+groupId+'__msg1')));
+  });
+  await check('denúncia de grupo não pode ser duplicada',()=>
+    assertFails(setDoc(doc(a,
+      'chat_group_reports/group-a__'+groupId+'__msg1'),{
+      groupId,messageId:'msg1',reporterUid:'group-a',
+      reason:'Outra denúncia',reportedText:'Paz e bem!',
+      createdAt:serverTimestamp()
+    })));
+  await check('denúncia com mensagem adulterada é rejeitada',()=>
+    assertFails(setDoc(doc(b,
+      'chat_group_reports/group-b__'+groupId+'__msg1'),{
+      groupId,messageId:'msg1',reporterUid:'group-b',
+      reason:'Motivo válido',reportedText:'Texto forjado',
+      createdAt:serverTimestamp()
+    })));
+  await check('não membro não denuncia grupo de terceiros',()=>
+    assertFails(setDoc(doc(stranger,
+      'chat_group_reports/group-stranger__'+groupId+'__msg1'),{
+      groupId,messageId:'msg1',reporterUid:'group-stranger',
+      reason:'Motivo válido',reportedText:'Paz e bem!',
+      createdAt:serverTimestamp()
+    })));
   await check('não membro não lê mensagens nem as publica',async()=>{
     await assertFails(getDoc(doc(stranger,group+'/messages/msg1')));
     await assertFails(message(stranger,groupId,'group-stranger','msg2','Intrusão'));
@@ -228,6 +279,54 @@ try {
     })));
   await check('usuário removido não envia mais mensagens',()=>
     assertFails(message(b,groupId,'group-b','after-remove','Não deveria chegar')));
+  await check('nenhum grupo é criado ignorando a quota do criador',()=>
+    assertFails(setDoc(doc(a,'chat_groups/grp-without-quota'),
+      baseRoom('grp-without-quota'))));
+  const quotaState=(await getDoc(doc(a,quota))).data();
+  await check('segundo grupo privado consome quota transacional',async()=>{
+    const nextGroup='grp-prayer-02';
+    const batch=writeBatch(a);
+    batch.set(doc(a,'chat_groups/'+nextGroup),{
+      ...baseRoom(nextGroup),name:'Grupo de oração',category:'prayer'
+    });
+    batch.set(doc(a,quota),{
+      count:2,windowStart:quotaState.windowStart,
+      lastGroupId:nextGroup,updatedAt:serverTimestamp()
+    });
+    await assertSucceeds(batch.commit());
+  });
+  await check('terceiro grupo no mesmo período é negado',async()=>{
+    const batch=writeBatch(a);
+    batch.set(doc(a,'chat_groups/grp-community-03'),{
+      ...baseRoom('grp-community-03'),
+      name:'Grupo de comunidade',category:'community'
+    });
+    batch.set(doc(a,quota),{
+      count:3,windowStart:quotaState.windowStart,
+      lastGroupId:'grp-community-03',updatedAt:serverTimestamp()
+    });
+    await assertFails(batch.commit());
+  });
+  await check('cliente não reinicia a janela de quota arbitrariamente',async()=>{
+    const batch=writeBatch(a);
+    batch.set(doc(a,'chat_groups/grp-early-reset'),{
+      ...baseRoom('grp-early-reset'),name:'Grupo sem limite'
+    });
+    batch.set(doc(a,quota),{
+      count:1,windowStart:serverTimestamp(),
+      lastGroupId:'grp-early-reset',updatedAt:serverTimestamp()
+    });
+    await assertFails(batch.commit());
+  });
+  await env.withSecurityRulesDisabled(async ctx=>
+    updateDoc(doc(ctx.firestore(),group),{
+      memberUids:['group-a','f1','f2','f3','f4','f5','f6','f7']
+    }));
+  await assertSucceeds(updateDoc(doc(a,group+'/atrioGroupInvites/group-b'),{
+    status:'pending',updatedAt:serverTimestamp()
+  }));
+  await check('grupo lotado impede aceite de novo convite',()=>
+    assertFails(accept(b,groupId,'group-b')));
   console.log('GROUP SECURITY TESTS:',passed,'OK');
 } finally {
   await env.cleanup();
