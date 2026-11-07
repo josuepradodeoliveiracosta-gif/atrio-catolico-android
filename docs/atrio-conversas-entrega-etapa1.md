@@ -231,6 +231,29 @@ A segunda execução do E2E deve confirmar especificamente se a ausência
 de cascata de writes e a reposição das fixtures resolvem o problema;
 não inferir sucesso apenas de uma compilação ou dos testes de regras.
 
+## Isolamento de sessão e autorização da interface (revisão de 07/11)
+
+Nas telas de conversas individuais e de grupos, um observador de
+`FirebaseAuth.AuthStateListener` agora fecha os listeners de configuração,
+caixa de entrada, convites, elegibilidade e preferências quando ocorre
+`signOut` ou troca de conta. Mesmo que a Activity ainda esteja visível,
+os dados privados da conta anterior não devem permanecer na interface.
+A autorização de verdade continua nas regras Firestore, nunca apenas
+na tela Compose. Há testes instrumentados específicos para o logout
+nas duas áreas.
+
+O teste de troca de conta da conversa individual agora desmonta o
+Composable antigo **antes** de sair da conta e espera a nova sessão
+autenticada responder ao Firestore local antes de remontar a tela.
+Isso reproduz uma navegação de logout/login sem manter listeners
+privados concorrentes dos dois UIDs. O teste ainda valida envio,
+resposta, bloqueio, recusa do envio bloqueado, desbloqueio e retomada.
+
+**Comprovação pendente:** confirmar a execução de QA Android no commit
+exato e examinar o relatório da instrumentação caso haja nova falha.
+As políticas de menores e testes em celulares físicos permanecem
+bloqueadores, independentemente dos resultados em emulador.
+
 ## Verificações necessárias para homologação
 
 1. Regras no emulador: nenhuma leitura externa, solicitação, aceite,
