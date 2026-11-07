@@ -348,6 +348,8 @@ private fun AtrioGroupThread(
     var inviting by remember(uid,room.id) { mutableStateOf(false) }
     var busy by remember(uid,room.id) { mutableStateOf(false) }
     var error by remember(uid,room.id) { mutableStateOf("") }
+    var reporting by remember(uid,room.id) { mutableStateOf<AtrioGroupMessage?>(null) }
+    var reportReason by remember(uid,room.id) { mutableStateOf("") }
     val isAdmin=uid in room.adminUids
     val isOwner=uid==room.owner
 
@@ -539,6 +541,10 @@ private fun AtrioGroupThread(
                             fontSize=12.sp,color=Muted)
                     }
                 }
+                TextButton(onClick={reporting=item;reportReason=""},
+                    modifier=Modifier.testTag("atrio-group-report-message")) {
+                    Text("Denunciar mensagem",fontSize=12.sp)
+                }
             }
         }
         OutlinedTextField(draft,{if(it.length<=AtrioChatPolicy.MAX_TEXT) draft=it},
@@ -552,5 +558,47 @@ private fun AtrioGroupThread(
                 .heightIn(min=48.dp).testTag("atrio-group-send")) {
             Text("Enviar ao grupo")
         }
+    }
+    if(reporting!=null) {
+        val selected=reporting!!
+        AlertDialog(
+            onDismissRequest={if(!busy) reporting=null},
+            title={Text("Denunciar mensagem do grupo")},
+            text={
+                Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                    Text("A moderação recebe somente a mensagem selecionada e o motivo, " +
+                        "não o histórico completo do grupo.",
+                        color=Muted,fontSize=13.sp)
+                    Text(selected.text,maxLines=3,overflow=TextOverflow.Ellipsis)
+                    OutlinedTextField(reportReason,{reportReason=it.take(300)},
+                        label={Text("Motivo da denúncia")},maxLines=4,
+                        modifier=Modifier.fillMaxWidth())
+                }
+            },
+            confirmButton={
+                TextButton(enabled=!busy && reportReason.trim().length>=5,onClick={
+                    busy=true
+                    db.collection("chat_group_reports")
+                        .document(uid+"__"+room.id+"__"+selected.id)
+                        .set(mapOf(
+                            "groupId" to room.id,
+                            "messageId" to selected.id,
+                            "reporterUid" to uid,
+                            "reportedText" to selected.text,
+                            "reason" to reportReason.trim(),
+                            "createdAt" to FieldValue.serverTimestamp()))
+                        .addOnCompleteListener { result ->
+                            busy=false
+                            if(result.isSuccessful) {
+                                reporting=null
+                                error="Denúncia registrada para análise."
+                            } else error="Denúncia não confirmada ou já registrada."
+                        }
+                }) {Text("Enviar denúncia")}
+            },
+            dismissButton={
+                TextButton(onClick={if(!busy) reporting=null}) {Text("Cancelar")}
+            }
+        )
     }
 }
