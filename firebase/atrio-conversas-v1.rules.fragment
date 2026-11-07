@@ -160,10 +160,25 @@
           && chatNoBlock(
             getAfter(/databases/$(database)/documents/chats/$(chatId)).data.requesterUid,
             getAfter(/databases/$(database)/documents/chats/$(chatId)).data.recipientUid)
-          && request.resource.data.keys().hasOnly(['uid','text','kind','createdAt','replyToId'])
+          && request.resource.data.keys().hasOnly(['uid','text','kind','createdAt','replyToId','postId','postTitle'])
           && request.resource.data.keys().hasAll(['uid','text','kind','createdAt'])
           && request.resource.data.uid == request.auth.uid
-          && request.resource.data.kind == 'text'
+          && (
+            // Texto livre (citação opcional), sem URLs no pedido inicial.
+            (request.resource.data.kind == 'text'
+              && !request.resource.data.keys().hasAny(['postId','postTitle']))
+            ||
+            // Cartão puramente textual com título validado no post original.
+            (request.resource.data.kind == 'post'
+              && getAfter(/databases/$(database)/documents/chats/$(chatId)).data.status == 'accepted'
+              && !request.resource.data.keys().hasAny(['replyToId'])
+              && emailVerificationAllowsCommunityAccess()
+              && validId(request.resource.data.postId)
+              && validText(request.resource.data.postTitle, 5, 120)
+              && request.resource.data.text == 'Discussão: ' + request.resource.data.postTitle
+              && exists(/databases/$(database)/documents/posts/$(request.resource.data.postId))
+              && get(/databases/$(database)/documents/posts/$(request.resource.data.postId)).data.title
+                == request.resource.data.postTitle))
           && (!request.resource.data.keys().hasAny(['replyToId'])
             || (getAfter(/databases/$(database)/documents/chats/$(chatId)).data.status == 'accepted'
               && validId(request.resource.data.replyToId)
