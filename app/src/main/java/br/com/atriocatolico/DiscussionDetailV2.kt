@@ -53,6 +53,7 @@ internal fun DetailScreen(
     reactionsEnabled: Boolean = false,
     reactionContent: @Composable (Reply, Boolean, () -> Unit) -> Unit = { _, _, _ -> },
     onEdit: (() -> Unit)? = null, onDelete: (() -> Unit)? = null,
+    onShareAsMessage: (() -> Unit)? = null,
     onDeleteReply: ((String) -> Unit)? = null,
     onReportReply: ((Reply) -> Unit)? = null,
     onOpenProfile: (String, String) -> Unit = { _, _ -> },
@@ -114,7 +115,8 @@ internal fun DetailScreen(
                             Text(if (followIsSynced) "Sem novos avisos" else "Só neste aparelho",
                                 color = Muted, fontSize = AtrioType.compact, modifier = Modifier.weight(1f))
                         } else Spacer(Modifier.weight(1f))
-                        if (onReport != null || onEdit != null || onDelete != null) {
+                        if (onReport != null || onEdit != null || onDelete != null ||
+                            onShareAsMessage != null) {
                             Box {
                                 IconButton(onClick = { postMenuOpen = true },
                                     modifier = Modifier.testTag("atrio-discussion-options")) {
@@ -127,6 +129,12 @@ internal fun DetailScreen(
                                     if (onDelete != null) DropdownMenuItem(
                                         text = { Text("Excluir discussão", color = MaterialTheme.colorScheme.error) },
                                         onClick = { postMenuOpen = false; onDelete() })
+                                    if (onShareAsMessage != null) DropdownMenuItem(
+                                        text = { Text("Compartilhar nas Conversas (somente texto)") },
+                                        onClick = {
+                                            postMenuOpen = false
+                                            onShareAsMessage()
+                                        })
                                     if (onReport != null) DropdownMenuItem(
                                         text = { Text("Denunciar discussão") },
                                         onClick = { postMenuOpen = false; onReport() })
