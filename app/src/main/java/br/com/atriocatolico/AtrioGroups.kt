@@ -1,0 +1,556 @@
+package br.com.atriocatolico
+
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.DocumentSnapshot
+import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.Query
+import java.text.DateFormat
+
+/** Grupos privados. Nunca usar a interface como única barreira de acesso. */
+internal object AtrioGroupPolicy {
+    const val VERSION = "2026-11-groups-v1"
+    const val MAX_MEMBERS = 8 // Provisório, exige aprovação antes do rollout.
+    fun eligibleTitle(title: String): Boolean = title == title.trim() &&
+        title.length in 5..80 && title.none { it.isISOControl() }
+    fun categoryName(category: String): String = when (category) {
+        "study" -> "Estudo"
+        "prayer" -> "Oração"
+        else -> "Comunidade"
+    }
+}
+
+private data class AtrioGroup(
+    val id: String,
+    val name: String,
+    val category: String,
+    val owner: String,
+    val memberUids: List<String>,
+    val adminUids: List<String>,
+    val preview: String
+)
+private data class AtrioGroupInvite(
+    val id: String,
+    val groupId: String,
+    val name: String,
+    val inviter: String,
+    val status: String
+)
+private data class AtrioGroupMessage(
+    val id: String, val sender: String, val text: String, val sentAt: Long,
+    val pending: Boolean
+)
+
+private fun DocumentSnapshot.asAtrioGroup(): AtrioGroup? {
+    val owner=getString("ownerUid") ?: return null
+    val members=(get("memberUids") as? List<*>)?.filterIsInstance<String>().orEmpty()
+    val admins=(get("adminUids") as? List<*>)?.filterIsInstance<String>().orEmpty()
+    return AtrioGroup(id,getString("name").orEmpty(),
+        getString("category").orEmpty(),owner,members,admins,
+        getString("lastPreview").orEmpty())
+}
+
+@Composable
+private fun groupPeerName(db: FirebaseFirestore, uid: String): String {
+    var name by remember(uid) { mutableStateOf("Participante") }
+    DisposableEffect(db,uid) {
+        val listener=db.collection("public_profiles").document(uid)
+            .addSnapshotListener { snapshot, error ->
+                if (error == null) name=snapshot?.getString("displayName")
+                    ?.takeIf { it.isNotBlank() } ?: "Participante"
+            }
+        onDispose { listener.remove() }
+    }
+    return name
+}
+
+@Composable
+internal fun AtrioGroupsScreen(
+    db: FirebaseFirestore,
+    uid: String,
+    knownPeers: List<String>,
+    onBack: () -> Unit
+) {
+    var configLoaded by remember(uid) { mutableStateOf(false) }
+    var enabled by remember(uid) { mutableStateOf(false) }
+    var rooms by remember(uid) { mutableStateOf<List<AtrioGroup>>(emptyList()) }
+    var invitations by remember(uid) { mutableStateOf<List<AtrioGroupInvite>>(emptyList()) }
+    var selectedId by remember(uid) { mutableStateOf<String?>(null) }
+    var createOpen by remember(uid) { mutableStateOf(false) }
+    var title by remember(uid) { mutableStateOf("") }
+    var category by remember(uid) { mutableStateOf("study") }
+    var busy by remember(uid) { mutableStateOf(false) }
+    var info by remember(uid) { mutableStateOf("") }
+
+    DisposableEffect(db,uid) {
+        val listener=db.document("app_config/chat_groups")
+            .addSnapshotListener { data,error ->
+                configLoaded=true
+                enabled=error==null && data?.getBoolean("enabled")==true &&
+                    data.getBoolean("minorPolicyApproved")==true &&
+                    data.getString("version")==AtrioGroupPolicy.VERSION
+            }
+        onDispose { listener.remove() }
+    }
+    DisposableEffect(db,uid,enabled) {
+        if (!enabled) {
+            rooms=emptyList()
+            onDispose {}
+        } else {
+            val listener=db.collection("chat_groups")
+                .whereArrayContains("memberUids",uid).limit(50)
+                .addSnapshotListener { data,error ->
+                    if (error==null) rooms=data?.documents
+                        ?.mapNotNull { it.asAtrioGroup() }.orEmpty()
+                    else info="Falha ao consultar os grupos privados."
+                }
+            onDispose { listener.remove() }
+        }
+    }
+    DisposableEffect(db,uid,enabled) {
+        if (!enabled) {
+            invitations=emptyList()
+            onDispose {}
+        } else {
+            val listener=db.collectionGroup("invites")
+                .whereEqualTo("inviteeUid",uid).limit(100)
+                .addSnapshotListener { data,error ->
+                    if (error==null) invitations=data?.documents.orEmpty()
+                        .mapNotNull { snap ->
+                            val groupId=snap.reference.parent.parent?.id ?: return@mapNotNull null
+                            AtrioGroupInvite(snap.id,groupId,
+                                snap.getString("groupName").orEmpty(),
+                                snap.getString("inviterUid").orEmpty(),
+                                snap.getString("status").orEmpty())
+                        }
+                    else info="Convites não disponíveis. Verifique a conexão ou os índices."
+                }
+            onDispose { listener.remove() }
+        }
+    }
+
+    fun createGroup() {
+        val proposed=title.trim()
+        if (busy || FirebaseAuth.getInstance().currentUser?.uid!=uid ||
+            !AtrioGroupPolicy.eligibleTitle(proposed)) {
+            info="Informe um nome de 5 a 80 caracteres."
+            return
+        }
+        busy=true
+        val ref=db.collection("chat_groups").document()
+        val quotaRef=db.collection("users").document(uid)
+            .collection("chatGroupLimits").document("creation")
+        db.runTransaction { tx ->
+            val previous=tx.get(quotaRef)
+            val start=previous.getTimestamp("windowStart")
+            val reset=start==null ||
+                System.currentTimeMillis()-start.toDate().time>=86_400_000L
+            val count=if (reset) 1L else (previous.getLong("count") ?: 0L)+1L
+            check(count<=2L) { "Limite provisório de grupos atingido" }
+            tx.set(quotaRef,mapOf(
+                "count" to count,
+                "windowStart" to if (reset) FieldValue.serverTimestamp() else start!!,
+                "updatedAt" to FieldValue.serverTimestamp(),
+                "lastGroupId" to ref.id))
+            tx.set(ref,mapOf(
+                "name" to proposed,"category" to category,
+                "ownerUid" to uid,
+                "memberUids" to listOf(uid),"adminUids" to listOf(uid),
+                "status" to "active",
+                "createdAt" to FieldValue.serverTimestamp(),
+                "updatedAt" to FieldValue.serverTimestamp(),
+                "lastMessageId" to "","lastPreview" to "","lastSenderUid" to ""))
+            true
+        }.addOnCompleteListener { result ->
+            busy=false
+            if(result.isSuccessful) {
+                createOpen=false
+                title=""
+                info="Grupo privado criado."
+                selectedId=ref.id
+            } else info="Não foi possível criar o grupo. Confira sua quota e suas permissões."
+        }
+    }
+
+    fun respond(invite: AtrioGroupInvite,accept: Boolean) {
+        if (busy || !enabled) return
+        busy=true
+        val inviteRef=db.collection("chat_groups").document(invite.groupId)
+            .collection("invites").document(uid)
+        if (!accept) {
+            inviteRef.update("status","declined",
+                "updatedAt",FieldValue.serverTimestamp())
+                .addOnCompleteListener { result ->
+                    busy=false
+                    info=if(result.isSuccessful) "Convite recusado."
+                        else "Não foi possível recusar o convite."
+                }
+        } else {
+            val groupRef=db.collection("chat_groups").document(invite.groupId)
+            val batch=db.batch()
+            batch.update(inviteRef,"status","accepted",
+                "updatedAt",FieldValue.serverTimestamp())
+            batch.update(groupRef,"memberUids",FieldValue.arrayUnion(uid),
+                "updatedAt",FieldValue.serverTimestamp())
+            batch.commit().addOnCompleteListener { result ->
+                busy=false
+                if(result.isSuccessful) {
+                    info="Convite aceito."
+                    selectedId=invite.groupId
+                } else info="Entrada não autorizada ou grupo completo."
+            }
+        }
+    }
+
+    BackHandler { if(selectedId!=null) selectedId=null else onBack() }
+    val selected=rooms.firstOrNull { it.id==selectedId }
+    Column(Modifier.fillMaxSize().background(Paper).testTag("atrio-groups-screen")) {
+        if (FirebaseAuth.getInstance().currentUser?.uid!=uid) {
+            Text("Sua sessão mudou. Entre novamente.",Modifier.padding(20.dp))
+        } else if (!configLoaded) {
+            CircularProgressIndicator(Modifier.padding(24.dp))
+        } else if (!enabled) {
+            Column(Modifier.padding(22.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+                Text("Grupos do Átrio",color=Wine,
+                    style=MaterialTheme.typography.headlineSmall)
+                Text("Grupos privados de estudo, oração e comunidade estão em preparação. " +
+                    "A abertura depende da política de proteção de menores e da homologação.")
+                OutlinedButton(onClick=onBack) { Text("Voltar às conversas") }
+            }
+        } else if(selectedId!=null && selected!=null) {
+            AtrioGroupThread(db,uid,selected,knownPeers,
+                onBack={ selectedId=null })
+        } else if(selectedId!=null) {
+            Column(Modifier.padding(20.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+                Text("Este grupo não está disponível para esta conta.")
+                OutlinedButton(onClick={ selectedId=null }) { Text("Voltar") }
+            }
+        } else {
+            Row(Modifier.fillMaxWidth().padding(12.dp),
+                verticalAlignment=Alignment.CenterVertically) {
+                TextButton(onClick=onBack) { Text("Voltar") }
+                Text("Grupos do Átrio",color=Wine,
+                    fontSize=20.sp,fontWeight=FontWeight.Bold,
+                    modifier=Modifier.weight(1f))
+                TextButton(onClick={createOpen=!createOpen}) {
+                    Text(if(createOpen) "Cancelar" else "Criar")
+                }
+            }
+            if(info.isNotBlank()) Text(info,Modifier.padding(horizontal=16.dp),
+                color=Muted,fontSize=13.sp)
+            if(createOpen) {
+                Column(Modifier.fillMaxWidth().padding(12.dp),
+                    verticalArrangement=Arrangement.spacedBy(7.dp)) {
+                    OutlinedTextField(title,{ if(it.length<=80) title=it },
+                        label={Text("Nome do grupo")},singleLine=true,
+                        modifier=Modifier.fillMaxWidth().testTag("atrio-group-title"))
+                    Row(horizontalArrangement=Arrangement.spacedBy(5.dp)) {
+                        listOf("study","prayer","community").forEach { option ->
+                            FilterChip(category==option,onClick={category=option},
+                                label={Text(AtrioGroupPolicy.categoryName(option))})
+                        }
+                    }
+                    Text("Grupo fechado: apenas convidados podem entrar. " +
+                        "Limites provisórios de 8 membros e 2 grupos por dia.",
+                        color=Muted,fontSize=12.sp)
+                    Button(onClick={createGroup()},enabled=!busy && title.trim().length in 5..80,
+                        modifier=Modifier.fillMaxWidth().testTag("atrio-group-create")) {
+                        Text("Criar grupo privado")
+                    }
+                }
+            }
+            LazyColumn(Modifier.weight(1f).fillMaxWidth(),
+                contentPadding=PaddingValues(12.dp),
+                verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                val pending=invitations.filter { it.status=="pending" }
+                if(pending.isNotEmpty()) item {
+                    Text("Convites recebidos",color=Wine,
+                        fontSize=17.sp,fontWeight=FontWeight.SemiBold)
+                }
+                items(pending,key={it.groupId}) { invite ->
+                    Card(colors=CardDefaults.cardColors(
+                        containerColor=MaterialTheme.colorScheme.surface),
+                        border=BorderStroke(1.dp,Line)) {
+                        Column(Modifier.padding(14.dp),
+                            verticalArrangement=Arrangement.spacedBy(7.dp)) {
+                            Text(invite.name,fontWeight=FontWeight.SemiBold)
+                            Text("Convite de membro administrador. Aceitar é opcional.",
+                                color=Muted,fontSize=12.sp)
+                            Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                                Button(onClick={respond(invite,true)},enabled=!busy) {
+                                    Text("Aceitar")
+                                }
+                                OutlinedButton(onClick={respond(invite,false)},enabled=!busy) {
+                                    Text("Recusar")
+                                }
+                            }
+                        }
+                    }
+                }
+                item {
+                    Text("Meus grupos",color=Wine,
+                        fontSize=17.sp,fontWeight=FontWeight.SemiBold)
+                }
+                if(rooms.isEmpty()) item {
+                    Text("Você ainda não participa de grupos.",
+                        color=Muted,modifier=Modifier.padding(8.dp))
+                }
+                items(rooms,key={it.id}) { room ->
+                    Card(onClick={selectedId=room.id},
+                        modifier=Modifier.fillMaxWidth().testTag("atrio-group-"+room.id),
+                        colors=CardDefaults.cardColors(
+                            containerColor=MaterialTheme.colorScheme.surface),
+                        border=BorderStroke(1.dp,Line),
+                        shape=RoundedCornerShape(16.dp)) {
+                        Column(Modifier.padding(15.dp),
+                            verticalArrangement=Arrangement.spacedBy(6.dp)) {
+                            Text(room.name,fontWeight=FontWeight.Bold)
+                            Text(AtrioGroupPolicy.categoryName(room.category) +
+                                " • " + room.memberUids.size + "/" +
+                                AtrioGroupPolicy.MAX_MEMBERS + " participantes",
+                                fontSize=13.sp,color=Muted)
+                            Text(room.preview.ifBlank { "Nenhuma mensagem ainda." },
+                                maxLines=2,overflow=TextOverflow.Ellipsis,color=Muted)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AtrioGroupThread(
+    db: FirebaseFirestore,uid: String,room: AtrioGroup,
+    knownPeers: List<String>,onBack: () -> Unit
+) {
+    val roomRef=remember(db,room.id) { db.collection("chat_groups").document(room.id) }
+    var draft by remember(uid,room.id) { mutableStateOf("") }
+    var messages by remember(uid,room.id) { mutableStateOf<List<AtrioGroupMessage>>(emptyList()) }
+    var limit by remember(uid,room.id) { mutableIntStateOf(40) }
+    var showMembers by remember(uid,room.id) { mutableStateOf(false) }
+    var inviting by remember(uid,room.id) { mutableStateOf(false) }
+    var busy by remember(uid,room.id) { mutableStateOf(false) }
+    var error by remember(uid,room.id) { mutableStateOf("") }
+    val isAdmin=uid in room.adminUids
+    val isOwner=uid==room.owner
+
+    DisposableEffect(db,room.id,limit) {
+        val listener=roomRef.collection("messages")
+            .orderBy("createdAt",Query.Direction.DESCENDING).limit(limit.toLong())
+            .addSnapshotListener { result,failure ->
+                if(failure==null) messages=result?.documents.orEmpty()
+                    .mapNotNull { doc ->
+                        val sender=doc.getString("uid") ?: return@mapNotNull null
+                        val text=doc.getString("text") ?: return@mapNotNull null
+                        AtrioGroupMessage(doc.id,sender,text,
+                            doc.getTimestamp("createdAt")?.toDate()?.time ?: 0,
+                            doc.metadata.hasPendingWrites())
+                    }.reversed()
+                else error="Não foi possível carregar as mensagens do grupo."
+            }
+        onDispose { listener.remove() }
+    }
+
+    fun updateGroup(change: Map<String,Any>,success: String) {
+        if(busy) return
+        busy=true
+        roomRef.update(change+("updatedAt" to FieldValue.serverTimestamp()))
+            .addOnCompleteListener { response ->
+                busy=false
+                error=if(response.isSuccessful) success
+                    else "Operação não permitida. As funções são validadas no servidor."
+                if(response.isSuccessful && success=="Você saiu do grupo.") onBack()
+            }
+    }
+    fun invite(peer: String) {
+        if(busy || peer in room.memberUids || !isAdmin) return
+        busy=true
+        val inv=roomRef.collection("invites").document(peer)
+        inv.get().addOnCompleteListener { response ->
+            if(!response.isSuccessful) {
+                busy=false
+                error="Não foi possível conferir o convite."
+                return@addOnCompleteListener
+            }
+            val existing=response.result
+            val operation=if(existing?.exists()==true) {
+                inv.update("status","pending",
+                    "updatedAt",FieldValue.serverTimestamp())
+            } else {
+                inv.set(mapOf(
+                    "inviteeUid" to peer,"inviterUid" to uid,
+                    "groupName" to room.name,"status" to "pending",
+                    "createdAt" to FieldValue.serverTimestamp(),
+                    "updatedAt" to FieldValue.serverTimestamp()))
+            }
+            operation.addOnCompleteListener { saved ->
+                busy=false
+                error=if(saved.isSuccessful) "Convite enviado. A entrada exige aceite."
+                    else "Convite recusado pelo servidor (contato bloqueado ou já participante)."
+                if(saved.isSuccessful) inviting=false
+            }
+        }
+    }
+    fun send() {
+        val text=draft.trim()
+        if(busy || !AtrioChatPolicy.validText(text) ||
+            FirebaseAuth.getInstance().currentUser?.uid!=uid) {
+            error="Escreva somente texto com até 1.500 caracteres."
+            return
+        }
+        busy=true
+        val m=roomRef.collection("messages").document()
+        val batch=db.batch()
+        batch.set(m,mapOf(
+            "uid" to uid,"text" to text,"kind" to "text",
+            "createdAt" to FieldValue.serverTimestamp()))
+        batch.update(roomRef,mapOf(
+            "lastMessageId" to m.id,
+            "lastPreview" to text,
+            "lastSenderUid" to uid,
+            "updatedAt" to FieldValue.serverTimestamp()))
+        batch.commit().addOnCompleteListener { result ->
+            busy=false
+            if(result.isSuccessful) {
+                if(draft.trim()==text) draft=""
+                error=""
+            } else error="Envio não confirmado. Confira a conexão e respeite " +
+                "o intervalo de mensagens do Guardião."
+        }
+    }
+    Column(Modifier.fillMaxSize().testTag("atrio-group-thread")) {
+        Row(Modifier.fillMaxWidth().padding(12.dp),
+            verticalAlignment=Alignment.CenterVertically) {
+            TextButton(onClick=onBack) { Text("Voltar") }
+            Column(Modifier.weight(1f)) {
+                Text(room.name,fontWeight=FontWeight.Bold,
+                    maxLines=1,overflow=TextOverflow.Ellipsis,color=Wine)
+                Text(AtrioGroupPolicy.categoryName(room.category),
+                    color=Muted,fontSize=12.sp)
+            }
+            TextButton(onClick={showMembers=!showMembers}) {
+                Text("Pessoas")
+            }
+        }
+        HorizontalDivider(color=Line)
+        if(error.isNotBlank()) Text(error,Modifier.padding(12.dp),
+            color=Muted,fontSize=13.sp)
+        if(showMembers) {
+            Column(Modifier.fillMaxWidth().padding(12.dp),
+                verticalArrangement=Arrangement.spacedBy(4.dp)) {
+                Text("Participantes • " + room.memberUids.size,
+                    fontWeight=FontWeight.Bold,color=Wine)
+                room.memberUids.forEach { member ->
+                    val name=groupPeerName(db,member)
+                    Row(verticalAlignment=Alignment.CenterVertically) {
+                        Text(name + if(member in room.adminUids) " • administrador" else "",
+                            fontSize=13.sp,modifier=Modifier.weight(1f))
+                        if(isOwner && member!=room.owner) {
+                            TextButton(onClick={
+                                updateGroup(mapOf(
+                                    "adminUids" to if(member in room.adminUids)
+                                        FieldValue.arrayRemove(member)
+                                        else FieldValue.arrayUnion(member),
+                                    "lastRoleUid" to member),
+                                    "Função atualizada.")
+                            }) { Text(if(member in room.adminUids) "Rebaixar" else "Promover") }
+                        }
+                        if(isAdmin && member!=room.owner && member !in room.adminUids) {
+                            TextButton(onClick={
+                                updateGroup(mapOf(
+                                    "memberUids" to FieldValue.arrayRemove(member),
+                                    "lastRemovedUid" to member),
+                                    "Participante removido.")
+                            }) { Text("Remover") }
+                        }
+                    }
+                }
+                if(isAdmin && room.memberUids.size<AtrioGroupPolicy.MAX_MEMBERS) {
+                    TextButton(onClick={inviting=!inviting}) {
+                        Text("Convidar participante")
+                    }
+                    if(inviting) {
+                        Text("Escolha alguém com quem já possui conversa aceita.",
+                            color=Muted,fontSize=12.sp)
+                        val choices=knownPeers.filter {
+                            it!=uid && it !in room.memberUids
+                        }.distinct().take(12)
+                        if(choices.isEmpty()) Text("Nenhum contato elegível listado.",color=Muted)
+                        choices.forEach { candidate ->
+                            val name=groupPeerName(db,candidate)
+                            TextButton(onClick={invite(candidate)},enabled=!busy) {
+                                Text("Convidar " + name)
+                            }
+                        }
+                    }
+                }
+                if(!isOwner) {
+                    OutlinedButton(onClick={
+                        updateGroup(mapOf(
+                            "memberUids" to FieldValue.arrayRemove(uid),
+                            "lastRemovedUid" to uid),
+                            "Você saiu do grupo.")
+                    },enabled=!busy) { Text("Sair do grupo") }
+                }
+            }
+            HorizontalDivider(color=Line)
+        }
+        LazyColumn(Modifier.weight(1f).fillMaxWidth(),
+            contentPadding=PaddingValues(12.dp),
+            verticalArrangement=Arrangement.spacedBy(9.dp)) {
+            if(messages.size>=limit) item {
+                TextButton(onClick={limit+=40}) {
+                    Text("Carregar mensagens anteriores")
+                }
+            }
+            items(messages,key={it.id}) { item ->
+                val mine=item.sender==uid
+                val name=groupPeerName(db,item.sender)
+                Surface(shape=RoundedCornerShape(14.dp),
+                    color=if(mine) WineSoft else MaterialTheme.colorScheme.surface,
+                    border=BorderStroke(1.dp,Line),
+                    modifier=Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(13.dp),
+                        verticalArrangement=Arrangement.spacedBy(4.dp)) {
+                        Text(name,fontSize=12.sp,fontWeight=FontWeight.SemiBold,
+                            color=Wine)
+                        Text(item.text,fontSize=16.sp,lineHeight=22.sp,color=Ink)
+                        Text(if(item.pending) "Enviando..."
+                            else if(item.sentAt<=0L) "" else
+                            DateFormat.getDateTimeInstance(DateFormat.SHORT,DateFormat.SHORT)
+                                .format(java.util.Date(item.sentAt)),
+                            fontSize=12.sp,color=Muted)
+                    }
+                }
+            }
+        }
+        OutlinedTextField(draft,{if(it.length<=AtrioChatPolicy.MAX_TEXT) draft=it},
+            modifier=Modifier.fillMaxWidth().padding(horizontal=12.dp)
+                .testTag("atrio-group-composer"),
+            enabled=!busy,label={Text("Mensagem ao grupo")},
+            supportingText={Text(draft.length.toString()+"/1500 • somente texto")},
+            maxLines=5)
+        Button(onClick={send()},enabled=!busy && draft.isNotBlank(),
+            modifier=Modifier.fillMaxWidth().padding(12.dp)
+                .heightIn(min=48.dp).testTag("atrio-group-send")) {
+            Text("Enviar ao grupo")
+        }
+    }
+}
