@@ -12,7 +12,7 @@
       return /databases/$(database)/documents/chat_groups/$(groupId);
     }
     function atrioGroupInvitation(groupId,uid) {
-      return /databases/$(database)/documents/chat_groups/$(groupId)/invites/$(uid);
+      return /databases/$(database)/documents/chat_groups/$(groupId)/atrioGroupInvites/$(uid);
     }
     function atrioGroupCreationQuota(uid) {
       return /databases/$(database)/documents/users/$(uid)/chatGroupLimits/creation;
@@ -27,6 +27,13 @@
     }
     function atrioGroupBasicChange() {
       return request.resource.data.updatedAt == request.time;
+    }
+    // Firestore exige um match recursivo explícito para collectionGroup.
+    // O nome da coleção é exclusivo do Átrio; nunca concede leitura de
+    // convites pertencentes a outra conta.
+    match /{path=**}/atrioGroupInvites/{inviteId} {
+      allow list: if atrioGroupsEnabled() && signedIn()
+        && resource.data.inviteeUid == request.auth.uid;
     }
     match /app_config/chat_groups {
       allow get: if signedIn();
@@ -170,7 +177,7 @@
               || request.time >= resource.data.updatedAt + duration.value(3,'s')))
         );
       allow delete: if false;
-      match /invites/{inviteeUid} {
+      match /atrioGroupInvites/{inviteeUid} {
         allow get: if atrioGroupsEnabled() && signedIn()
           && (request.auth.uid == inviteeUid || atrioGroupAdmin(groupId));
         allow list: if atrioGroupsEnabled() && signedIn()
