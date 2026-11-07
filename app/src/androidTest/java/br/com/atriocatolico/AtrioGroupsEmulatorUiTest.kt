@@ -99,15 +99,30 @@ class AtrioGroupsEmulatorUiTest {
         auth.signOut()
         val alice=login("group.alice@qa.invalid")
 
-        var screenUid by mutableStateOf(alice)
+        // Ao mudar o FirebaseAuth, destruir os listeners e a UI privada
+        // ANTES de sair da conta, como ocorre na navegação de logout.
+        var screenUid by mutableStateOf<String?>(alice)
         compose.setContent {
             AtrioTheme {
-                AtrioGroupsScreen(
-                    db=db,uid=screenUid,
-                    knownPeers=if(screenUid==alice) listOf(bob) else listOf(alice),
-                    onBack={}
-                )
+                screenUid?.let { current ->
+                    AtrioGroupsScreen(
+                        db=db,uid=current,
+                        knownPeers=if(current==alice) listOf(bob) else listOf(alice),
+                        onBack={}
+                    )
+                }
             }
+        }
+        fun switchTo(email:String,expectedUid:String) {
+            compose.runOnIdle { screenUid=null }
+            compose.waitForIdle()
+            auth.signOut()
+            assertEquals(expectedUid,login(email))
+            val flags=Tasks.await(db.document("app_config/chat_groups")
+                .get(Source.SERVER),10,TimeUnit.SECONDS)
+            assertTrue("Política local de grupos deve continuar habilitada",
+                flags.getBoolean("enabled")==true)
+            compose.runOnIdle { screenUid=expectedUid }
         }
         waitFor("atrio-group-create-open")
         compose.onNodeWithTag("atrio-group-create-open").performClick()
@@ -144,9 +159,7 @@ class AtrioGroupsEmulatorUiTest {
             }.getOrDefault(false)
         }
 
-        auth.signOut()
-        assertEquals(bob,login("group.bob@qa.invalid"))
-        compose.runOnIdle { screenUid=bob }
+        switchTo("group.bob@qa.invalid",bob)
         waitFor("atrio-group-accept-"+groupId,35_000)
         compose.onNodeWithTag("atrio-group-accept-"+groupId).performClick()
         compose.waitUntil(35_000) {
@@ -194,8 +207,7 @@ class AtrioGroupsEmulatorUiTest {
         }.isSuccess
         assertTrue("Ex-membro não pode ler grupo no servidor",!canRead)
 
-        auth.signOut()
-        assertEquals(alice,login("group.alice@qa.invalid"))
+        switchTo("group.alice@qa.invalid",alice)
         val remaining=Tasks.await(
             db.collection("chat_groups").document(groupId)
                 .collection("messages").get(Source.SERVER),
@@ -205,7 +217,6 @@ class AtrioGroupsEmulatorUiTest {
 
         // O criador encerra o grupo na interface; o histórico continua
         // disponível, mas novas mensagens e convites deixam de ser possíveis.
-        compose.runOnIdle { screenUid=alice }
         waitFor("atrio-group-"+groupId,35_000)
         compose.onNodeWithTag("atrio-group-"+groupId).performClick()
         waitFor("atrio-group-close-open",35_000)
