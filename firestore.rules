@@ -932,6 +932,207 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
+
+    // Átrio Conversas v1: ativação administrativa explícita, desativado por padrão.
+    function chatEnabled() {
+      let config = /databases/$(database)/documents/app_config/conversations;
+      return signedIn() && exists(config)
+        && get(config).data.get('enabled', false) == true
+        && get(config).data.get('version', '') == '2026-11-v1';
+    }
+    function chatNoBlock(a, b) {
+      return !exists(/databases/$(database)/documents/users/$(a)/blockedMembers/$(b))
+        && !exists(/databases/$(database)/documents/users/$(b)/blockedMembers/$(a));
+    }
+    function chatAllowsRequests(uid) {
+      let config = /databases/$(database)/documents/users/$(uid)/chatSettings/privacy;
+      return exists(config) && get(config).data.get('requests', 'none') == 'all';
+    }
+    function chatMember(data) {
+      return signedIn() && data.participants is list
+        && request.auth.uid in data.participants;
+    }
+    function chatMessagePath(chatId, messageId) {
+      return /databases/$(database)/documents/chats/$(chatId)/messages/$(messageId);
+    }
+    match /app_config/conversations {
+      allow get: if signedIn();
+      allow list, create, update, delete: if false;
+    }
+    match /users/{uid}/chatSettings/privacy {
+      allow get: if me(uid);
+      allow list, delete: if false;
+      allow create, update: if chatEnabled() && me(uid)
+        && request.resource.data.keys().hasOnly([
+          'requests','readReceipts','showPushPreview','updatedAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'requests','readReceipts','showPushPreview','updatedAt'
+        ])
+        && request.resource.data.requests in ['all','none']
+        && request.resource.data.readReceipts is bool
+        && request.resource.data.showPushPreview is bool
+        && request.resource.data.updatedAt == request.time;
+    }
+    match /users/{uid}/chatBox/{chatId} {
+      allow get, list: if chatEnabled() && me(uid);
+      allow create, update: if chatEnabled() && me(uid)
+        && exists(/databases/$(database)/documents/chats/$(chatId))
+        && uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants
+        && request.resource.data.keys().hasOnly(['muted','pinned','archived','updatedAt'])
+        && request.resource.data.keys().hasAll(['muted','pinned','archived','updatedAt'])
+        && request.resource.data.muted is bool
+        && request.resource.data.pinned is bool
+        && request.resource.data.archived is bool
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if chatEnabled() && me(uid);
+    }
+    match /chats/{chatId} {
+      allow get, list: if chatEnabled() && chatMember(resource.data);
+      allow create: if chatEnabled()
+        && request.auth.uid == request.resource.data.requesterUid
+        && validId(request.resource.data.requesterUid)
+        && validId(request.resource.data.recipientUid)
+        && request.resource.data.requesterUid != request.resource.data.recipientUid
+        && (chatId == request.resource.data.requesterUid + '__' + request.resource.data.recipientUid
+          || chatId == request.resource.data.recipientUid + '__' + request.resource.data.requesterUid)
+        && request.resource.data.keys().hasOnly([
+          'participants','requesterUid','recipientUid','status','initialId',
+          'lastMessageId','lastPreview','createdAt','updatedAt',
+          'unreadRequester','unreadRecipient'
+        ])
+        && request.resource.data.keys().hasAll([
+          'participants','requesterUid','recipientUid','status','initialId',
+          'lastMessageId','lastPreview','createdAt','updatedAt',
+          'unreadRequester','unreadRecipient'
+        ])
+        && request.resource.data.participants ==
+          [request.resource.data.requesterUid, request.resource.data.recipientUid]
+        && request.resource.data.status == 'pending'
+        && validId(request.resource.data.initialId)
+        && request.resource.data.lastMessageId == request.resource.data.initialId
+        && validText(request.resource.data.lastPreview, 1, 1500)
+        && request.resource.data.unreadRequester == 0
+        && request.resource.data.unreadRecipient == 1
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && chatAllowsRequests(request.resource.data.recipientUid)
+        && chatNoBlock(request.resource.data.requesterUid, request.resource.data.recipientUid)
+        && existsAfter(chatMessagePath(chatId, request.resource.data.initialId))
+        && getAfter(chatMessagePath(chatId, request.resource.data.initialId)).data.uid
+            == request.auth.uid
+        && getAfter(chatMessagePath(chatId, request.resource.data.initialId)).data.text
+            == request.resource.data.lastPreview;
+      allow update: if chatEnabled() && chatMember(resource.data)
+        && chatNoBlock(resource.data.requesterUid, resource.data.recipientUid)
+        && (
+          // Somente o destinatário aceita ou recusa explicitamente o contato.
+          (resource.data.status == 'pending'
+            && request.auth.uid == resource.data.recipientUid
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['status','updatedAt'])
+            && request.resource.data.status in ['accepted','declined']
+            && request.resource.data.updatedAt == request.time)
+          ||
+          // Um envio aceito exige mensagem nova e atualização atômica dos contadores.
+          (resource.data.status == 'accepted'
+            && request.resource.data.status == 'accepted'
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['lastMessageId','lastPreview','updatedAt',
+                'unreadRequester','unreadRecipient'])
+            && validId(request.resource.data.lastMessageId)
+            && request.resource.data.lastMessageId != resource.data.lastMessageId
+            && request.resource.data.updatedAt == request.time
+            && existsAfter(chatMessagePath(chatId,request.resource.data.lastMessageId))
+            && getAfter(chatMessagePath(chatId,request.resource.data.lastMessageId)).data.uid
+              == request.auth.uid
+            && getAfter(chatMessagePath(chatId,request.resource.data.lastMessageId)).data.text
+              == request.resource.data.lastPreview
+            && getAfter(chatMessagePath(chatId,request.resource.data.lastMessageId)).data.createdAt
+              == request.time
+            && (
+              (request.auth.uid == resource.data.requesterUid
+                && request.resource.data.unreadRequester == resource.data.unreadRequester
+                && request.resource.data.unreadRecipient ==
+                  (resource.data.unreadRecipient < 99 ? resource.data.unreadRecipient + 1 : 99))
+              || (request.auth.uid == resource.data.recipientUid
+                && request.resource.data.unreadRecipient == resource.data.unreadRecipient
+                && request.resource.data.unreadRequester ==
+                  (resource.data.unreadRequester < 99 ? resource.data.unreadRequester + 1 : 99))
+            ))
+          ||
+          // Marcar lidas: só o destinatário do respectivo contador pode zerá-lo.
+          (resource.data.status == 'accepted'
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['unreadRequester'])
+            && request.auth.uid == resource.data.requesterUid
+            && request.resource.data.unreadRequester == 0)
+          ||
+          (resource.data.status in ['pending','accepted']
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['unreadRecipient'])
+            && request.auth.uid == resource.data.recipientUid
+            && request.resource.data.unreadRecipient == 0)
+        );
+      allow delete: if false;
+      match /messages/{messageId} {
+        allow get, list: if chatEnabled()
+          && exists(/databases/$(database)/documents/chats/$(chatId))
+          && chatMember(get(/databases/$(database)/documents/chats/$(chatId)).data);
+        allow create: if chatEnabled() && validId(messageId)
+          && existsAfter(/databases/$(database)/documents/chats/$(chatId))
+          && chatMember(getAfter(/databases/$(database)/documents/chats/$(chatId)).data)
+          && chatNoBlock(
+            getAfter(/databases/$(database)/documents/chats/$(chatId)).data.requesterUid,
+            getAfter(/databases/$(database)/documents/chats/$(chatId)).data.recipientUid)
+          && request.resource.data.keys().hasOnly(['uid','text','kind','createdAt'])
+          && request.resource.data.keys().hasAll(['uid','text','kind','createdAt'])
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.kind == 'text'
+          && validText(request.resource.data.text, 1, 1500)
+          && !request.resource.data.text.matches('.*(https?://|www\\.).*')
+            == (getAfter(/databases/$(database)/documents/chats/$(chatId)).data.status == 'pending')
+          && request.resource.data.createdAt == request.time
+          && getAfter(/databases/$(database)/documents/chats/$(chatId)).data.lastMessageId == messageId
+          && getAfter(/databases/$(database)/documents/chats/$(chatId)).data.lastPreview
+            == request.resource.data.text
+          && getAfter(/databases/$(database)/documents/chats/$(chatId)).data.updatedAt
+            == request.time
+          && (
+            (getAfter(/databases/$(database)/documents/chats/$(chatId)).data.status == 'pending'
+              && getAfter(/databases/$(database)/documents/chats/$(chatId)).data.initialId == messageId
+              && getAfter(/databases/$(database)/documents/chats/$(chatId)).data.requesterUid
+                == request.auth.uid
+              && getAfter(/databases/$(database)/documents/chats/$(chatId)).data.createdAt
+                == request.time)
+            || getAfter(/databases/$(database)/documents/chats/$(chatId)).data.status == 'accepted'
+          );
+        allow update, delete: if false;
+      }
+    }
+    match /chat_reports/{reportId} {
+      allow get: if isAdmin() || (signedIn() && resource.data.reporterUid == request.auth.uid);
+      allow list: if isAdmin();
+      allow create: if chatEnabled()
+        && request.resource.data.keys().hasOnly([
+          'chatId','messageId','reporterUid','reason','reportedText','createdAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'chatId','messageId','reporterUid','reason','reportedText','createdAt'
+        ])
+        && request.resource.data.reporterUid == request.auth.uid
+        && validId(request.resource.data.chatId)
+        && validId(request.resource.data.messageId)
+        && validText(request.resource.data.reason, 5, 300)
+        && request.resource.data.createdAt == request.time
+        && exists(/databases/$(database)/documents/chats/$(request.resource.data.chatId))
+        && chatMember(get(/databases/$(database)/documents/chats/$(request.resource.data.chatId)).data)
+        && exists(chatMessagePath(request.resource.data.chatId,request.resource.data.messageId))
+        && request.resource.data.reportedText ==
+          get(chatMessagePath(request.resource.data.chatId,request.resource.data.messageId)).data.text;
+      allow update, delete: if false;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }
