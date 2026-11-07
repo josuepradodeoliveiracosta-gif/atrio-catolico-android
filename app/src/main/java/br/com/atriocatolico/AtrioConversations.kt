@@ -397,10 +397,28 @@ private fun AtrioChatThread(
             onDispose { listener.remove() }
         }
     }
-    LaunchedEffect(chat?.id, chat?.unread(uid), chat?.status) {
-        if (chat != null && chat!!.unread(uid) > 0 &&
-            chat!!.status in listOf("pending", "accepted")) {
-            ref.update(if (uid == chat!!.requester) "unreadRequester" else "unreadRecipient", 0)
+    // Evitar cascatas de writes quando o servidor recusa a alteração
+    // (p.ex. bloqueio entre participantes ou troca de conta). O mesmo
+    // snapshot não deve gerar milhares de tentativas de "marcar lida".
+    // Um evento de mensagem novo ou reabrir a tela permite uma nova tentativa.
+    var lastReadAttemptKey by remember(uid, chatId) { mutableStateOf<String?>(null) }
+    LaunchedEffect(uid, chatId, chat?.lastMessageId, chat?.unread(uid), chat?.status) {
+        val currentRoom = chat
+        if (FirebaseAuth.getInstance().currentUser?.uid == uid &&
+            currentRoom != null &&
+            currentRoom.unread(uid) > 0 &&
+            currentRoom.status in listOf("pending", "accepted")) {
+            val attemptKey = currentRoom.lastMessageId + ":" +
+                currentRoom.unread(uid).toString() + ":" + currentRoom.status
+            if (lastReadAttemptKey != attemptKey) {
+                lastReadAttemptKey = attemptKey
+                // Se a regra negar o update, não transformar o erro em loop.
+                // O contador é local ao chat, NÃO representa confirmação
+                // genuína de leitura no aparelho do destinatário.
+                ref.update(
+                    if (uid == currentRoom.requester) "unreadRequester" else "unreadRecipient", 0
+                )
+            }
         }
     }
 
