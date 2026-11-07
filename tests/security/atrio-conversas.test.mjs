@@ -153,6 +153,33 @@ try {
     assertSucceeds(updateDoc(doc(bob,room+'/messages/m2'),{
       'reactions.chat-bob':'👍'
     })));
+  await env.withSecurityRulesDisabled(async ctx =>
+    setDoc(doc(ctx.firestore(),'posts/post-example'),{
+      uid:'chat-alice',title:'Oração e comunhão na comunidade',
+      body:'Testes em ambiente isolado',category:'Oração'
+    }));
+  await check('cartão de discussão usa título original e apenas texto',()=>
+    assertSucceeds(sendNext(alice,'chat-alice','m8',
+      'Discussão: Oração e comunhão na comunidade',{
+        unreadRecipient:3
+      },'post',{
+        postId:'post-example',postTitle:'Oração e comunhão na comunidade'
+      })));
+  await check('cartão não aceita título falsificado',()=>
+    assertFails(sendNext(alice,'chat-alice','m9','Discussão: Título falso',{
+      unreadRecipient:4
+    },'post',{postId:'post-example',postTitle:'Título falso'})));
+  await check('cartão não aceita publicação que não existe',()=>
+    assertFails(sendNext(alice,'chat-alice','m10','Discussão: Postagem removida',{
+      unreadRecipient:4
+    },'post',{postId:'post-apagado',postTitle:'Postagem removida'})));
+  await check('mensagem disfarçada de arquivo não passa como cartão textual',()=>
+    assertFails(sendNext(alice,'chat-alice','m11','Discussão: Oração e comunhão na comunidade',{
+      unreadRecipient:4
+    },'post',{
+      postId:'post-example',postTitle:'Oração e comunhão na comunidade',
+      attachmentUrl:'https://example.test/foto.jpg'
+    })));
   await check('envio de tipo mídia é rejeitado no backend',()=>
     assertFails(sendNext(alice,'chat-alice','m3','arquivo', {
       unreadRecipient:3
