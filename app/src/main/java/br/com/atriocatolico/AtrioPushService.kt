@@ -242,6 +242,43 @@ internal object PushRegistry {
         manager.notify(id.hashCode(), notice)
     }
 
+
+    fun showChatMessage(context: Context, uid: String, chatId: String, messageId: String) {
+        if (!enabled(context, uid) ||
+            FirebaseAuth.getInstance().currentUser?.uid != uid ||
+            !chatId.matches(Regex("[A-Za-z0-9_-]{1,260}")) ||
+            !messageId.matches(Regex("[A-Za-z0-9_-]{1,128}")) ||
+            AtrioChatForeground.contains(uid, chatId)) return
+        if (Build.VERSION.SDK_INT >= 33 &&
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
+                PackageManager.PERMISSION_GRANTED) return
+        val preferences = context.getSharedPreferences("atrio_chat_seen", Context.MODE_PRIVATE)
+        val key = "seen_" + uid
+        val item = chatId + ":" + messageId
+        synchronized(this) {
+            val previous = preferences.getStringSet(key, emptySet()).orEmpty()
+            if (item in previous) return
+            preferences.edit().putStringSet(key,
+                (previous.toList().takeLast(999) + item).toSet()).apply()
+        }
+        createChannel(context)
+        val destination = PendingIntent.getActivity(context, item.hashCode(),
+            Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                putExtra("atrio_chat_uid", uid)
+                putExtra("atrio_chat_id", chatId)
+            }, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val notice = Notification.Builder(context, CHANNEL)
+            .setSmallIcon(R.drawable.ic_atrio)
+            .setContentTitle("Nova mensagem no Átrio")
+            .setContentText("Abra o aplicativo para ler sua conversa privada.")
+            .setAutoCancel(true)
+            .setContentIntent(destination)
+            .build()
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.notify(item.hashCode(), notice)
+    }
+
     fun show(context: Context, uid: String, kind: String) {
         if (!enabled(context, uid)
             || FirebaseAuth.getInstance().currentUser?.uid != uid) return
@@ -297,6 +334,11 @@ class AtrioPushService : FirebaseMessagingService() {
             return
         }
         if (message.data["uid"] != uid) return
+        if (message.data["kind"] == "chat_message") {
+            PushRegistry.showChatMessage(applicationContext, uid,
+                message.data["chatId"].orEmpty(), message.data["messageId"].orEmpty())
+            return
+        }
         if (message.data["kind"] == "reply" &&
             message.data["replyId"].orEmpty().isNotBlank()) {
             PushRegistry.showDiscussionReply(applicationContext, uid,

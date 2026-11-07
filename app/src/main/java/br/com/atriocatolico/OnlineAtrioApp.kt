@@ -758,6 +758,20 @@ private fun OnlineCommunity(
     val homeListState = rememberLazyListState()
     var detailId by remember { mutableStateOf<String?>(null) }
     var publicProfileTarget by remember(uid) { mutableStateOf<PublicMemberTarget?>(null) }
+    var conversationsOpen by remember(uid) { mutableStateOf(false) }
+    var conversationTarget by remember(uid) { mutableStateOf<PublicMemberTarget?>(null) }
+    var notificationChatId by remember(uid) { mutableStateOf<String?>(null) }
+    val incomingChat = AtrioChatNavigation.requested
+    LaunchedEffect(uid, incomingChat) {
+        if (incomingChat != null) {
+            if (incomingChat.uid == uid) {
+                notificationChatId = incomingChat.chatId
+                conversationTarget = null
+                conversationsOpen = true
+            }
+            AtrioChatNavigation.consume()
+        }
+    }
     var profilePostOpen by remember(uid) { mutableStateOf(false) }
     var previousDetailId by remember(uid) { mutableStateOf<String?>(null) }
     var detailReplies by remember(uid, detailId) { mutableStateOf<List<Reply>>(emptyList()) }
@@ -981,6 +995,7 @@ private fun OnlineCommunity(
             android.util.Log.d("AtrioQaNavigation", "request_${destination.name}_from_${tab.name}")
         }
         tab = destination; detailId = null; noticesOpen = false
+        conversationsOpen = false; conversationTarget = null; notificationChatId = null
         publicProfileTarget = null; profilePostOpen = false; previousDetailId = null
         guardiaoAppealsOpen = false
         noticeBadgesOpen = false; returnToNotices = false
@@ -1260,7 +1275,11 @@ private fun OnlineCommunity(
             }
     }
     fun closeNoticeDestination() {
-        if (profilePostOpen && publicProfileTarget != null) {
+        if (conversationsOpen) {
+            conversationsOpen = false
+            conversationTarget = null
+            notificationChatId = null
+        } else if (profilePostOpen && publicProfileTarget != null) {
             profilePostOpen = false
             detailId = previousDetailId
         } else if (publicProfileTarget != null) {
@@ -1284,12 +1303,13 @@ private fun OnlineCommunity(
             publishSuccessVisible = false
         }
     }
-    BackHandler(enabled = publicProfileTarget != null || detailId != null || noticesOpen || noticeBadgesOpen || guardiaoAppealsOpen) { closeNoticeDestination() }
+    BackHandler(enabled = conversationsOpen || publicProfileTarget != null || detailId != null || noticesOpen || noticeBadgesOpen || guardiaoAppealsOpen) { closeNoticeDestination() }
 
     Scaffold(containerColor = Paper, snackbarHost = { SnackbarHost(otaSnackbar) }, topBar = {
         AtrioTopBar(
-            details = publicProfileTarget != null || detailId != null || noticesOpen || noticeBadgesOpen || guardiaoAppealsOpen,
-            detailsTitle = if (publicProfileTarget != null && !profilePostOpen) "Perfil público"
+            details = conversationsOpen || publicProfileTarget != null || detailId != null || noticesOpen || noticeBadgesOpen || guardiaoAppealsOpen,
+            detailsTitle = if (conversationsOpen) "Conversas"
+                else if (publicProfileTarget != null && !profilePostOpen) "Perfil público"
                 else if (guardiaoAppealsOpen) "Minhas revisões" else if (noticeBadgesOpen) "Meus selos"
                 else if (noticesOpen) "Notificações" else "Discussão",
             unreadCount = inbox.groups(notificationAdmin).count { it.unread },
@@ -1299,19 +1319,34 @@ private fun OnlineCommunity(
             onNotification = {
                 publicProfileTarget = null; profilePostOpen = false; previousDetailId = null
                 detailId = null; noticeBadgesOpen = false; returnToNotices = false
+                conversationsOpen = false; conversationTarget = null; notificationChatId = null
                 noticesOpen = !noticesOpen; searchOpen = false
             }
         )
-    }, bottomBar = { AtrioBottomBar(selected = tab, onSelect = ::navigate) }) { inset ->
+    }, bottomBar = { if (!conversationsOpen) AtrioBottomBar(selected = tab, onSelect = ::navigate) }) { inset ->
         Box(Modifier.padding(inset)) {
             val detail = openedPost?.takeUnless { it.ownerUid in blockedMembers }
                 ?.copy(liked = detailId in likedIds,
                     saved = saveOverrides[detailId] ?: (detailId in savedIds),
                     savePending = detailId in pendingSaveIds)
-            if (publicProfileTarget != null && !profilePostOpen) {
+            if (conversationsOpen) {
+                AtrioConversationsScreen(db, uid,
+                    onBack = {
+                        conversationsOpen = false
+                        conversationTarget = null
+                        notificationChatId = null
+                    },
+                    initialPeer = conversationTarget,
+                    initialChatId = notificationChatId)
+            } else if (publicProfileTarget != null && !profilePostOpen) {
                 PublicMemberProfileScreen(
                     db = db, target = publicProfileTarget!!, viewerUid = uid,
                     onBack = ::closeNoticeDestination,
+                    onConverse = {
+                        conversationTarget = publicProfileTarget
+                        notificationChatId = null
+                        conversationsOpen = true
+                    },
                     onOpenDiscussion = { postId -> profilePostOpen = true; detailId = postId }
                 )
             } else if (guardiaoAppealsOpen) {
@@ -1479,6 +1514,11 @@ private fun OnlineCommunity(
                     onCancelUpdateDownload = { ota.cancelDownload() },
                     onInstallUpdate = { otaScope.launch { ota.install() } },
                     onNotifications = { noticesOpen = true; returnToNotices = false },
+                    onConversations = {
+                        conversationTarget = null
+                        notificationChatId = null
+                        conversationsOpen = true
+                    },
                     onReviews = { guardiaoAppealsOpen = true },
                     onCreate = { navigate(Tab.PUBLISH) }, onOpen = { detailId = it },
                     onLike = { id -> posts.firstOrNull { it.id == id }?.let { toggle("likedPosts", id, it.liked) } },

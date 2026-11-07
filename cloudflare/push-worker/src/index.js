@@ -231,6 +231,43 @@ export async function resolveEvent(event, actor, token) {
         actorName:stringField(reply,'authorName').slice(0,35),
         createdAt:reply.fields.createdAt.timestampValue}};
   }
+  // Não confiar em destinatário ou texto do cliente. Buscar a mensagem persistida,
+  // conferir remetente, aceite, bloqueios e silenciamento antes de emitir FCM.
+  if (type==='chat_message') {
+    if (typeof event.chatId !== 'string' ||
+        !/^[A-Za-z0-9_-]{1,260}$/.test(event.chatId) ||
+        !uidPart(event.messageId)) return null;
+    const config = await firestoreGet(token,'app_config/conversations');
+    if (!config || !boolField(config,'enabled') ||
+        stringField(config,'version') !== '2026-11-v1') return null;
+    const chat = await firestoreGet(token,'chats/'+enc(event.chatId));
+    const msg = await firestoreGet(token,'chats/'+enc(event.chatId)+'/messages/'+enc(event.messageId));
+    if (!chat || !msg || stringField(msg,'uid') !== actor ||
+        stringField(msg,'kind') !== 'text' ||
+        !recent(timeField(msg,'createdAt'))) return null;
+    const requester = stringField(chat,'requesterUid');
+    const recipient = stringField(chat,'recipientUid');
+    if (!uidPart(requester) || !uidPart(recipient) || requester === recipient ||
+        (actor !== requester && actor !== recipient)) return null;
+    const status = stringField(chat,'status');
+    if (status !== 'accepted' &&
+        !(status === 'pending' && actor === requester &&
+          stringField(chat,'initialId') === event.messageId)) return null;
+    const peer = actor === requester ? recipient : requester;
+    const [blockA,blockB,mute,setting] = await Promise.all([
+      firestoreGet(token,'users/'+enc(actor)+'/blockedMembers/'+enc(peer)),
+      firestoreGet(token,'users/'+enc(peer)+'/blockedMembers/'+enc(actor)),
+      firestoreGet(token,'users/'+enc(peer)+'/chatBox/'+enc(event.chatId)),
+      status === 'pending'
+        ? firestoreGet(token,'users/'+enc(peer)+'/chatSettings/privacy')
+        : Promise.resolve(null),
+    ]);
+    if (blockA || blockB || boolField(mute,'muted') ||
+        (status === 'pending' && stringField(setting,'requests') !== 'all')) return null;
+    return {key:'chat:'+event.chatId+':'+event.messageId,
+      kind:'chat_message',recipients:[peer],
+      chatId:event.chatId,messageId:event.messageId};
+  }
   if (type==='badge_request') {
     const request=await firestoreGet(token,'badge_requests/'+enc(actor));
     if (!request||stringField(request,'status')!=='pending'
@@ -279,12 +316,12 @@ async function devices(token,uid) {
       &&x.time>Date.now()-60*86400_000&&x.time<=Date.now()+60_000);
 }
 
-async function send(token,device,uid,kind) {
+async function send(token,device,uid,kind,extras={}) {
   return fetch('https://fcm.googleapis.com/v1/projects/'+PROJECT+'/messages:send',{
     method:'POST',
     headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
     body:JSON.stringify({message:{
-      token:device, data:{uid,kind},
+      token:device, data:{uid,kind,...extras},
       android:{priority:'HIGH',ttl:'3600s'},
     }}),
   });
@@ -768,7 +805,7 @@ export default {
       catch (error) { return response(error instanceof RangeError ? 413 : 400,
         error instanceof RangeError ? 'too_large' : 'invalid_json'); }
       if (!data || typeof data !== 'object' || Array.isArray(data)
-        || !['reply','badge_request','badge_result','report'].includes(data.type))
+        || !['reply','badge_request','badge_result','report','chat_message'].includes(data.type))
         return response(400,'invalid_event');
       const uid=await verifyIdentity(request,env);
       if(!uid) return response(401,'unauthorized');
@@ -841,7 +878,8 @@ export default {
                   android:{priority:'HIGH',ttl:'3600s'},
                 }}),
               })
-            : await send(token,target.token,recipient,event.kind);
+            : await send(token,target.token,recipient,event.kind,
+                event.kind==='chat_message' ? {chatId:event.chatId,messageId:event.messageId} : {});
           attempted++;
           if(result.ok) accepted++;
           else {
