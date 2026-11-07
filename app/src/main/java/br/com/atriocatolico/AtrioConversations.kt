@@ -165,6 +165,12 @@ internal fun AtrioConversationsScreen(
                 onShareSent = { sharePost = null },
                 onOpenDiscussion = onOpenDiscussion)
         } else {
+            if (sharePost != null) {
+                Text("Escolha uma conversa já aceita para enviar o cartão textual da discussão. " +
+                    "Para falar com alguém novo, abra primeiro o perfil dessa pessoa.",
+                    Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp),
+                    color = Wine, fontSize = 14.sp)
+            }
             OutlinedTextField(search, { search = it.take(80) },
                 modifier = Modifier.fillMaxWidth().padding(12.dp)
                     .testTag("atrio-chats-search"),
