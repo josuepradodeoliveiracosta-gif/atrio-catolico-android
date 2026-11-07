@@ -6,8 +6,8 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {initializeTestEnvironment, assertFails, assertSucceeds} from '@firebase/rules-unit-testing';
 import {
-  collection, deleteDoc, doc, getDoc, getDocs, setDoc, updateDoc, writeBatch,
-  serverTimestamp
+  collection, deleteDoc, deleteField, doc, getDoc, getDocs, setDoc, updateDoc, writeBatch,
+  serverTimestamp, Timestamp
 } from 'firebase/firestore';
 
 // O arquivo raiz está sob fingerprint de produção: jamais alterá-lo para
@@ -307,6 +307,108 @@ try {
     })));
   await check('participante não consegue ler denúncias de outro',()=>
     assertFails(getDoc(doc(alice,'chat_reports/report2'))));
+  await check('edição sem política administrativa permanece negada',()=>
+    assertFails(updateDoc(doc(alice,room+'/messages/m2'),{
+      editedText:'Texto novo',editedAt:serverTimestamp()
+    })));
+  await check('retirada pública sem política administrativa permanece negada',()=>
+    assertFails(updateDoc(doc(alice,room+'/messages/m2'),{
+      text:'[Mensagem removida]',deletedForAll:true,deletedAt:serverTimestamp()
+    })));
+  await env.withSecurityRulesDisabled(async ctx=>
+    setDoc(doc(ctx.firestore(),'app_config/conversations'),{
+      enabled:true,version:'2026-11-v1',
+      editEnabled:true,editWindowMinutes:60,
+      deleteEnabled:true,deleteWindowMinutes:60
+    }));
+  await check('edição exige o autor da mensagem',()=>
+    assertFails(updateDoc(doc(bob,room+'/messages/m2'),{
+      editedText:'Impersonando autor',editedAt:serverTimestamp()
+    })));
+  await check('autor pode editar texto dentro da janela autorizada',()=>
+    assertSucceeds(updateDoc(doc(alice,room+'/messages/m2'),{
+      editedText:'Como está a sua comunidade hoje?',editedAt:serverTimestamp()
+    })));
+  await check('editar preserva texto original para auditoria',async()=>{
+    const d=(await getDoc(doc(alice,room+'/messages/m2'))).data();
+    assert.equal(d.text,'Como está sua comunidade?');
+    assert.equal(d.editedText,'Como está a sua comunidade hoje?');
+  });
+  await check('denunciar uma edição exige corresponder ao texto real',()=>
+    assertSucceeds(setDoc(doc(bob,'chat_reports/report-edited'),{
+      chatId,messageId:'m2',reporterUid:'chat-bob',reason:'Conteúdo inadequado',
+      reportedText:'Como está a sua comunidade hoje?',createdAt:serverTimestamp()
+    })));
+  await check('não é permitido editar outras propriedades da mensagem',()=>
+    assertFails(updateDoc(doc(alice,room+'/messages/m2'),{
+      uid:'chat-bob',editedText:'Adulteração',editedAt:serverTimestamp()
+    })));
+  await check('não é permitido editar cartão de discussão',()=>
+    assertFails(updateDoc(doc(alice,room+'/messages/m8'),{
+      editedText:'Adulteração',editedAt:serverTimestamp()
+    })));
+  await check('envio de nova última mensagem para editar',()=>
+    assertSucceeds(sendNext(alice,'chat-alice','m12','Mensagem mais recente',{
+      unreadRecipient:1
+    })));
+  await check('edição da última mensagem atualiza prévia atomicamente',async()=>{
+    const batch=writeBatch(alice);
+    batch.update(doc(alice,room+'/messages/m12'),{
+      editedText:'Mensagem atualizada',editedAt:serverTimestamp()
+    });
+    batch.update(doc(alice,room),{lastPreview:'Mensagem atualizada'});
+    await assertSucceeds(batch.commit());
+    const d=await getDoc(doc(bob,room));
+    assert.equal(d.data().lastPreview,'Mensagem atualizada');
+  });
+  await check('edição da última mensagem sem atualizar prévia falha',()=>
+    assertFails(updateDoc(doc(alice,room+'/messages/m12'),{
+      editedText:'Prévia incoerente',editedAt:serverTimestamp()
+    })));
+  await check('remover última mensagem atualiza prévia sem revelar texto',async()=>{
+    const batch=writeBatch(alice);
+    batch.update(doc(alice,room+'/messages/m12'),{
+      text:'[Mensagem removida]',editedText:deleteField(),
+      deletedForAll:true,deletedAt:serverTimestamp()
+    });
+    batch.update(doc(alice,room),{lastPreview:'[Mensagem removida]'});
+    await assertSucceeds(batch.commit());
+    const d=(await getDoc(doc(bob,room+'/messages/m12'))).data();
+    assert.equal(d.text,'[Mensagem removida]');
+    assert.equal(d.editedText,undefined);
+    const parent=(await getDoc(doc(bob,room))).data();
+    assert.equal(parent.lastPreview,'[Mensagem removida]');
+  });
+  await check('remoção pública não permite repetir nem reagir depois',async()=>{
+    await assertFails(updateDoc(doc(alice,room+'/messages/m12'),{
+      deletedAt:serverTimestamp()
+    }));
+    await assertFails(updateDoc(doc(bob,room+'/messages/m12'),{
+      'reactions.chat-bob':'🙏'
+    }));
+  });
+  await check('autor remove uma mensagem editada sem preservar edição',async()=>{
+    await assertSucceeds(updateDoc(doc(alice,room+'/messages/m2'),{
+      text:'[Mensagem removida]',editedText:deleteField(),
+      deletedForAll:true,deletedAt:serverTimestamp()
+    }));
+    const msg=(await getDoc(doc(bob,room+'/messages/m2'))).data();
+    assert.equal(msg.text,'[Mensagem removida]');
+    assert.equal(msg.editedText,undefined);
+  });
+  await env.withSecurityRulesDisabled(async ctx=>
+    setDoc(doc(ctx.firestore(),room+'/messages/very-old'),{
+      uid:'chat-alice',kind:'text',text:'Texto de ontem',
+      createdAt:Timestamp.fromMillis(Date.now()-86_400_000)
+    }));
+  await check('janela de edição não permite editar mensagem antiga',()=>
+    assertFails(updateDoc(doc(alice,room+'/messages/very-old'),{
+      editedText:'Tarde demais',editedAt:serverTimestamp()
+    })));
+  await check('janela de retirada não permite apagar mensagem antiga',()=>
+    assertFails(updateDoc(doc(alice,room+'/messages/very-old'),{
+      text:'[Mensagem removida]',deletedForAll:true,deletedAt:serverTimestamp()
+    })));
   await check('bloqueio impede novas mensagens mesmo entre participantes',async()=>{
     await assertSucceeds(setDoc(doc(bob,'users/chat-bob/blockedMembers/chat-alice'),{
       createdAt:serverTimestamp()
