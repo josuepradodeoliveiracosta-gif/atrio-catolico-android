@@ -359,13 +359,13 @@
               && chatMessageMutationAllowed(
                 'deleteEnabled', 'deleteWindowMinutes', resource.data.createdAt)
               && request.resource.data.diff(resource.data).affectedKeys()
-                .hasOnly(['text','deletedForAll','deletedAt','editedText'])
+                .hasOnly(['text','deletedForAll','deletedAt','editedText','reactions'])
               && request.resource.data.diff(resource.data).affectedKeys()
                 .hasAll(['text','deletedForAll','deletedAt'])
               && request.resource.data.text == '[Mensagem removida]'
               && request.resource.data.deletedForAll == true
               && request.resource.data.deletedAt == request.time
-              && !request.resource.data.keys().hasAny(['editedText'])
+              && !request.resource.data.keys().hasAny(['editedText','reactions'])
               && (
                 get(/databases/$(database)/documents/chats/$(chatId)).data.lastMessageId != messageId
                 || getAfter(/databases/$(database)/documents/chats/$(chatId)).data.lastPreview
@@ -385,6 +385,8 @@
           'chatId','messageId','reporterUid','reason','reportedText','createdAt'
         ])
         && request.resource.data.reporterUid == request.auth.uid
+        && reportId == request.resource.data.reporterUid + '__' +
+          request.resource.data.chatId + '__' + request.resource.data.messageId
         && request.resource.data.chatId is string
         && request.resource.data.chatId.size() <= 260
         && request.resource.data.chatId.matches('[A-Za-z0-9_-]+')
