@@ -37,6 +37,23 @@ Mídia e chamadas permanecem excluídas de TODAS as etapas. Este chat não possu
 criptografia ponta a ponta: o Firestore tem controles de acesso por regras,
 o que é diferente de E2EE. Não anunciar criptografia ponta a ponta.
 
+## Compatibilidade com o selo de integridade de Selos V2
+
+O arquivo original `firestore.rules` foi **preservado byte a byte** porque
+`scripts/selos-v2-production-guarded-deploy.mjs` mantém um fingerprint
+criptográfico fixado da última política aprovada. Não alteramos os fingerprints,
+a ferramenta protegida nem o script de deploy antigo.
+
+As regras novas do chat estão em
+`firebase/atrio-conversas-v1.rules.fragment`. O teste
+`tests/security/atrio-conversas.test.mjs` combina o fragmento com a
+política oficial **apenas em memória**, dentro do emulador. Esse fragmento
+não é publicado automaticamente pelo `firebase.json`.
+
+Antes de ativar chat real, a política combinada precisa de **nova auditoria,
+aprovação explícita e procedimento de deploy independente**. Nunca atualizar
+o hash fixado de Selos V2 só para silenciar o CI.
+
 ## Ativação em segurança (fail-closed)
 
 **NÃO** ativar o chat em produção somente por merge de código.
