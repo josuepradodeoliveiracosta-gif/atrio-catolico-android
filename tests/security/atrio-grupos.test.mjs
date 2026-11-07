@@ -103,7 +103,8 @@ try {
     assertFails(createFirst(a)));
   await env.withSecurityRulesDisabled(async ctx=>{
     await setDoc(doc(ctx.firestore(),'app_config/conversations'),{
-      enabled:true,version:'2026-11-v1'
+      enabled:true,version:'2026-11-v1',
+      minorPolicyApproved:true,safetyReviewVersion:'2026-11-safety-v1'
     });
   });
   await check('grupo não abre sem elegibilidade individual do criador',()=>

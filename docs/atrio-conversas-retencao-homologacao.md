@@ -50,6 +50,10 @@ um documento pai no Firestore não exclui automaticamente suas
 subcoleções. Não criar jobs de exclusão antes de aprovação
 expressa, auditoria e homologação.
 
-**Permanecem bloqueados:** a abertura de grupos sem política de
-menores aprovada, os avisos sem `pushEnabled=true` e qualquer
-exclusão automática ou mudança nas regras Firebase de produção.
+**Permanecem bloqueados:** tanto chat individual como grupos exigem
+a configuração `minorPolicyApproved=true` e a versão de revisão
+`safetyReviewVersion=2026-11-safety-v1` no chat individual. São
+travas técnicas de homologação, não prova real de idade. Continuam
+pendentes o procedimento de aferição etária, os avisos sem
+`pushEnabled=true`, qualquer exclusão automática e qualquer
+mudança nas regras Firebase de produção.

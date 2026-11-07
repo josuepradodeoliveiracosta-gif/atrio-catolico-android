@@ -94,6 +94,24 @@ try {
     setDoc(doc(ctx.firestore(),'app_config/conversations'),{
       enabled:true,version:'2026-11-v1'
     }));
+  await check('chat não abre somente com enabled=true sem política aprovada',()=>
+    assertFails(setDoc(doc(bob,'users/chat-bob/chatSettings/privacy'),{
+      requests:'all',readReceipts:false,showPushPreview:false,
+      updatedAt:serverTimestamp()
+    })));
+  await env.withSecurityRulesDisabled(async ctx=>
+    updateDoc(doc(ctx.firestore(),'app_config/conversations'),{
+      minorPolicyApproved:true
+    }));
+  await check('chat exige versão explícita de revisão da política',()=>
+    assertFails(setDoc(doc(bob,'users/chat-bob/chatSettings/privacy'),{
+      requests:'all',readReceipts:false,showPushPreview:false,
+      updatedAt:serverTimestamp()
+    })));
+  await env.withSecurityRulesDisabled(async ctx=>
+    updateDoc(doc(ctx.firestore(),'app_config/conversations'),{
+      safetyReviewVersion:'2026-11-safety-v1'
+    }));
   await check('ninguém vê conteúdo de terceiros ou anônimos',async()=>{
     await assertFails(getDoc(doc(stranger,room)));
     await assertFails(getDoc(doc(unauth,room)));
@@ -324,6 +342,7 @@ try {
   await env.withSecurityRulesDisabled(async ctx=>
     setDoc(doc(ctx.firestore(),'app_config/conversations'),{
       enabled:true,version:'2026-11-v1',
+      minorPolicyApproved:true,safetyReviewVersion:'2026-11-safety-v1',
       editEnabled:true,editWindowMinutes:60,
       deleteEnabled:true,deleteWindowMinutes:60
     }));
@@ -426,5 +445,19 @@ try {
   });
   await check('participantes não podem remover conversa de modo unilateral',()=>
     assertFails(updateDoc(doc(alice,room),{recipientUid:'chat-stranger'})));
+  await env.withSecurityRulesDisabled(async ctx=>
+    updateDoc(doc(ctx.firestore(),'app_config/conversations'),{
+      minorPolicyApproved:false
+    }));
+  await check('suspensão da política fecha a leitura de chats existentes',async()=>{
+    await assertFails(getDoc(doc(alice,room)));
+    await assertFails(getDoc(doc(bob,room+'/messages/m2')));
+  });
+  await env.withSecurityRulesDisabled(async ctx=>
+    updateDoc(doc(ctx.firestore(),'app_config/conversations'),{
+      minorPolicyApproved:true,safetyReviewVersion:'policy-unknown'
+    }));
+  await check('versão não homologada nunca reabre chat',()=>
+    assertFails(getDoc(doc(alice,room))));
   console.log('CHAT SECURITY TESTS:',passed,'OK');
 } finally {await env.cleanup();}

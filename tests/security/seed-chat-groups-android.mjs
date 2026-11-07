@@ -53,7 +53,9 @@ try {
   await env.withSecurityRulesDisabled(async context=>{
     const db=context.firestore();
     await setDoc(doc(db,'app_config/conversations'),{
-      enabled:true,version:'2026-11-v1',editEnabled:false,deleteEnabled:false
+      enabled:true,version:'2026-11-v1',
+      minorPolicyApproved:true,safetyReviewVersion:'2026-11-safety-v1',
+      editEnabled:false,deleteEnabled:false
     });
     await setDoc(doc(db,'app_config/chat_groups'),{
       enabled:true,version:'2026-11-groups-v1',minorPolicyApproved:true

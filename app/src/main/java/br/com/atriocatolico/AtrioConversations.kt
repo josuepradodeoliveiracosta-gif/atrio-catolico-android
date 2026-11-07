@@ -113,6 +113,8 @@ internal fun AtrioConversationsScreen(
         val config = db.document("app_config/conversations").addSnapshotListener { doc, failure ->
             loadedConfig = true
             enabled = failure == null && doc?.getBoolean("enabled") == true &&
+                doc.getBoolean("minorPolicyApproved") == true &&
+                doc.getString("safetyReviewVersion") == "2026-11-safety-v1" &&
                 doc.getString("version") == AtrioChatPolicy.VERSION
             editWindowMinutes = (doc?.getLong("editWindowMinutes") ?: 0L)
                 .coerceIn(0L, 1440L).toInt()

@@ -109,10 +109,14 @@ por operador de serviço no Console/Admin SDK. Ausente/desativada mantém
 **todos** os writes e reads novos do chat fechados. No ambiente de homologação,
 após implantar e testar as regras, criar:
 ```json
-{"enabled": true, "version": "2026-11-v1"}
+{"enabled": true, "version": "2026-11-v1", "minorPolicyApproved": true, "safetyReviewVersion": "2026-11-safety-v1"}
 ```
-O valor é exclusivamente para homologação **após** revisar política de menores,
-privacidade e abusos. Não compartilhar credenciais ou API de serviço no app.
+**Esses valores não devem ser configurados em produção enquanto não houver
+política de proteção de menores aprovada e um procedimento efetivo de
+elegibilidade/idade.** A chave e a versão são somente barreiras de ativação,
+não comprovação de idade. Um `enabled=true` sozinho jamais abre conversas.
+No laboratório, essas flags são inseridas apenas no emulador, sem acessar
+contas reais. Não compartilhar credenciais ou API de serviço no app.
 
 Cada destinatário também deve optar por `requests: "all"` em
 `users/{uid}/chatSettings/privacy`. Padrão é `none`.

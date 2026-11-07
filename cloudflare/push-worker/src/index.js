@@ -242,6 +242,8 @@ export async function resolveEvent(event, actor, token) {
         !uidPart(event.messageId)) return null;
     const config = await firestoreGet(token,'app_config/conversations');
     if (!config || !boolField(config,'enabled') ||
+        !boolField(config,'minorPolicyApproved') ||
+        stringField(config,'safetyReviewVersion') !== '2026-11-safety-v1' ||
         stringField(config,'version') !== '2026-11-v1') return null;
     const chat = await firestoreGet(token,'chats/'+enc(event.chatId));
     const msg = await firestoreGet(token,'chats/'+enc(event.chatId)+'/messages/'+enc(event.messageId));
@@ -283,6 +285,8 @@ export async function resolveEvent(event, actor, token) {
       firestoreGet(token,'chat_groups/'+enc(event.groupId)+'/messages/'+enc(event.messageId))
     ]);
     if (!chatCfg || !boolField(chatCfg,'enabled') ||
+        !boolField(chatCfg,'minorPolicyApproved') ||
+        stringField(chatCfg,'safetyReviewVersion')!=='2026-11-safety-v1' ||
         stringField(chatCfg,'version')!=='2026-11-v1' ||
         !groupCfg || !boolField(groupCfg,'enabled') ||
         !boolField(groupCfg,'pushEnabled') ||

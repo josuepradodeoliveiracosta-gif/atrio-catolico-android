@@ -16,7 +16,10 @@ const originalFetch=globalThis.fetch;
 afterEach(()=>{globalThis.fetch=originalFetch;});
 function mocked(extra={}) {
   const entries={
-    'app_config/conversations':doc({enabled:true,version:'2026-11-v1'}),
+    'app_config/conversations':doc({
+      enabled:true,version:'2026-11-v1',
+      minorPolicyApproved:true,safetyReviewVersion:'2026-11-safety-v1'
+    }),
     'chats/chat-alice__chat-bob':doc({
       requesterUid:'chat-alice',recipientUid:'chat-bob',status:'accepted',initialId:'m1'
     }),
@@ -90,6 +93,22 @@ test('Chat: serviço desligado não notifica ninguém',async()=>{
   },'chat-alice','fake'),null);
 });
 
+test('Chat: ativação sem aprovação etária não envia push',async()=>{
+  mocked({'app_config/conversations':doc({
+    enabled:true,version:'2026-11-v1',safetyReviewVersion:'2026-11-safety-v1'
+  })});
+  assert.equal(await resolveEvent({
+    type:'chat_message',chatId:'chat-alice__chat-bob',messageId:'m2'
+  },'chat-alice','fake'),null);
+});
+test('Chat: aprovação sem versão de revisão não envia push',async()=>{
+  mocked({'app_config/conversations':doc({
+    enabled:true,version:'2026-11-v1',minorPolicyApproved:true
+  })});
+  assert.equal(await resolveEvent({
+    type:'chat_message',chatId:'chat-alice__chat-bob',messageId:'m2'
+  },'chat-alice','fake'),null);
+});
 const groupEvent = {type:'group_message',groupId:'grp-qa',messageId:'m3'};
 const groupFixture={
   'app_config/chat_groups':doc({enabled:true,pushEnabled:true,minorPolicyApproved:true,version:'2026-11-groups-v1'}),

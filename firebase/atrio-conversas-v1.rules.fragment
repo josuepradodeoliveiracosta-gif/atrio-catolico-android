@@ -3,6 +3,10 @@
       let config = /databases/$(database)/documents/app_config/conversations;
       return signedIn() && exists(config)
         && get(config).data.get('enabled', false) == true
+        // Porta separada de proteção dos menores, fail-closed.
+        // Não presume que o campo seja prova de idade individual.
+        && get(config).data.get('minorPolicyApproved', false) == true
+        && get(config).data.get('safetyReviewVersion', '') == '2026-11-safety-v1'
         && get(config).data.get('version', '') == '2026-11-v1';
     }
     function chatNoBlock(a, b) {
