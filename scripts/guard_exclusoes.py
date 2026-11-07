@@ -144,3 +144,5 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+# TESTE TEMPORARIO: esta mudanca na propria trava deve ser BLOQUEADA pelo CI.
