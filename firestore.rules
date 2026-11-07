@@ -1090,8 +1090,8 @@ service cloud.firestore {
           && request.resource.data.uid == request.auth.uid
           && request.resource.data.kind == 'text'
           && validText(request.resource.data.text, 1, 1500)
-          && !request.resource.data.text.matches('.*(https?://|www\\.).*')
-            == (getAfter(/databases/$(database)/documents/chats/$(chatId)).data.status == 'pending')
+          && (getAfter(/databases/$(database)/documents/chats/$(chatId)).data.status == 'accepted'
+            || !request.resource.data.text.matches('(?i).*(https?://|www\\\\.).*'))
           && request.resource.data.createdAt == request.time
           && getAfter(/databases/$(database)/documents/chats/$(chatId)).data.lastMessageId == messageId
           && getAfter(/databases/$(database)/documents/chats/$(chatId)).data.lastPreview
@@ -1121,7 +1121,9 @@ service cloud.firestore {
           'chatId','messageId','reporterUid','reason','reportedText','createdAt'
         ])
         && request.resource.data.reporterUid == request.auth.uid
-        && validId(request.resource.data.chatId)
+        && request.resource.data.chatId is string
+        && request.resource.data.chatId.size() <= 260
+        && request.resource.data.chatId.matches('[A-Za-z0-9_-]+')
         && validId(request.resource.data.messageId)
         && validText(request.resource.data.reason, 5, 300)
         && request.resource.data.createdAt == request.time
