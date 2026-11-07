@@ -1,0 +1,226 @@
+/**
+ * Átrio Grupos V1 — integração em emulador isolado, NUNCA produção.
+ * Políticas dos grupos são adicionadas em memória ao Firestore protegido.
+ */
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {initializeTestEnvironment,assertFails,assertSucceeds} from '@firebase/rules-unit-testing';
+import {
+  arrayRemove,arrayUnion,collection,collectionGroup,doc,getDoc,getDocs,
+  query,serverTimestamp,setDoc,updateDoc,where,writeBatch
+} from 'firebase/firestore';
+
+const marker="    match /{document=**} {\n      allow read, write: if false;\n    }";
+const core=readFileSync('firestore.rules','utf8');
+const individual=readFileSync('../../firebase/atrio-conversas-v1.rules.fragment','utf8');
+const groups=readFileSync('../../firebase/atrio-grupos-v1.rules.fragment','utf8');
+if (!core.includes(marker) || !groups.includes('match /chat_groups/{groupId}'))
+  throw Error('Fragmentos ou marca de integridade ausentes');
+const rules=core.replace(marker,individual+groups+marker);
+const env=await initializeTestEnvironment({
+  projectId:'demo-atrio-v11',
+  firestore:{host:'127.0.0.1',port:8089,rules}
+});
+const a=env.authenticatedContext('group-a').firestore();
+const b=env.authenticatedContext('group-b').firestore();
+const c=env.authenticatedContext('group-c').firestore();
+const stranger=env.authenticatedContext('group-stranger').firestore();
+const anonymous=env.unauthenticatedContext().firestore();
+const groupId='grp-study-01';
+const group='chat_groups/'+groupId;
+const quota='users/group-a/chatGroupLimits/creation';
+let passed=0;
+async function check(name,fn) {
+  await fn();
+  passed++;
+  console.log('PASS GROUP',name);
+}
+function baseRoom(id,creator='group-a') {
+  return {
+    name:'Estudo do Evangelho',category:'study',
+    ownerUid:creator,memberUids:[creator],adminUids:[creator],
+    status:'active',createdAt:serverTimestamp(),updatedAt:serverTimestamp(),
+    lastMessageId:'',lastPreview:'',lastSenderUid:''
+  };
+}
+function createFirst(db,id=groupId) {
+  const batch=writeBatch(db);
+  batch.set(doc(db,'chat_groups/'+id),baseRoom(id));
+  batch.set(doc(db,quota),{
+    count:1,windowStart:serverTimestamp(),
+    lastGroupId:id,updatedAt:serverTimestamp()
+  });
+  return batch.commit();
+}
+function invitation(db,id,invitee,extra={}) {
+  return setDoc(doc(db,'chat_groups/'+id+'/invites/'+invitee),{
+    inviteeUid:invitee,inviterUid:'group-a',
+    groupName:'Estudo do Evangelho',status:'pending',
+    createdAt:serverTimestamp(),updatedAt:serverTimestamp(),...extra
+  });
+}
+function accept(db,id,uid) {
+  const batch=writeBatch(db);
+  batch.update(doc(db,'chat_groups/'+id+'/invites/'+uid),{
+    status:'accepted',updatedAt:serverTimestamp()
+  });
+  batch.update(doc(db,'chat_groups/'+id),{
+    memberUids:arrayUnion(uid),updatedAt:serverTimestamp()
+  });
+  return batch.commit();
+}
+function message(db,id,sender,msgId,text,kind='text',extra={}) {
+  const batch=writeBatch(db);
+  batch.set(doc(db,'chat_groups/'+id+'/messages/'+msgId),{
+    uid:sender,text,kind,createdAt:serverTimestamp(),...extra
+  });
+  batch.update(doc(db,'chat_groups/'+id),{
+    lastMessageId:msgId,lastPreview:text,lastSenderUid:sender,
+    updatedAt:serverTimestamp()
+  });
+  return batch.commit();
+}
+try {
+  await env.clearFirestore();
+  await check('grupos começam fechados e ninguém cria',()=>
+    assertFails(createFirst(a)));
+  await env.withSecurityRulesDisabled(async ctx=>{
+    await setDoc(doc(ctx.firestore(),'app_config/chat_groups'),{
+      enabled:true,version:'2026-11-groups-v1',minorPolicyApproved:false
+    });
+  });
+  await check('ativação sem política de menores não autoriza grupos',()=>
+    assertFails(createFirst(a)));
+  await env.withSecurityRulesDisabled(async ctx=>{
+    await setDoc(doc(ctx.firestore(),'app_config/chat_groups'),{
+      enabled:true,version:'2026-11-groups-v1',minorPolicyApproved:true
+    });
+  });
+  await check('criador abre grupo privado com quota no mesmo batch',()=>
+    assertSucceeds(createFirst(a)));
+  await check('criador consegue ler próprio grupo',async()=>{
+    assert.equal((await assertSucceeds(getDoc(doc(a,group)))).data().ownerUid,'group-a');
+    const rows=await assertSucceeds(getDocs(query(
+      collection(a,'chat_groups'),where('memberUids','array-contains','group-a')
+    )));
+    assert.equal(rows.size,1);
+  });
+  await check('não participantes e anônimos não leem grupos',async()=>{
+    await assertFails(getDoc(doc(stranger,group)));
+    await assertFails(getDoc(doc(b,group)));
+    await assertFails(getDoc(doc(anonymous,group)));
+  });
+  await check('ninguém altera quota sem criar novo grupo',()=>
+    assertFails(updateDoc(doc(a,quota),{count:0})));
+  await check('usuário não recebe administrador por autoedição',()=>
+    assertFails(updateDoc(doc(b,group),{
+      memberUids:arrayUnion('group-b'),updatedAt:serverTimestamp()
+    })));
+  await check('não membro não consegue enviar convite',()=>
+    assertFails(invitation(stranger,groupId,'group-b',{inviterUid:'group-stranger'})));
+  await check('administrador envia convite privado',()=>
+    assertSucceeds(invitation(a,groupId,'group-b')));
+  await check('convidado vê o convite mas não o conteúdo do grupo',async()=>{
+    const inv=await assertSucceeds(getDoc(doc(b,group+'/invites/group-b')));
+    assert.equal(inv.data().status,'pending');
+    await assertFails(getDoc(doc(b,group)));
+    await assertFails(getDocs(collection(b,group+'/messages')));
+  });
+  await check('terceiro não lê convite particular',()=>
+    assertFails(getDoc(doc(stranger,group+'/invites/group-b'))));
+  await check('convites recebidos aparecem só ao destinatário',async()=>{
+    const rows=await assertSucceeds(getDocs(query(
+      collectionGroup(b,'invites'),where('inviteeUid','==','group-b'))));
+    assert.ok(rows.docs.some(x=>x.ref.path===group+'/invites/group-b'));
+  });
+  await check('um convite não aceita status sem ingresso no mesmo batch',()=>
+    assertFails(updateDoc(doc(b,group+'/invites/group-b'),{
+      status:'accepted',updatedAt:serverTimestamp()
+    })));
+  await check('um usuário sem convite não ingressa por arrayUnion',()=>
+    assertFails(updateDoc(doc(stranger,group),{
+      memberUids:arrayUnion('group-stranger'),updatedAt:serverTimestamp()
+    })));
+  await check('convidado aceita explicitamente com atualização atômica',()=>
+    assertSucceeds(accept(b,groupId,'group-b')));
+  await check('aceito consegue ver o histórico e a lista do grupo',async()=>{
+    const d=await assertSucceeds(getDoc(doc(b,group)));
+    assert.ok(d.data().memberUids.includes('group-b'));
+    await assertSucceeds(getDocs(collection(b,group+'/messages')));
+  });
+  await check('destinatário não aceita duas vezes nem acrescenta outra conta',()=>
+    assertFails(updateDoc(doc(b,group),{
+      memberUids:arrayUnion('group-c'),updatedAt:serverTimestamp()
+    })));
+  await check('mensagem de texto válida usa batch com prévia coerente',()=>
+    assertSucceeds(message(b,groupId,'group-b','msg1','Paz e bem!')));
+  await check('não membro não lê mensagens nem as publica',async()=>{
+    await assertFails(getDoc(doc(stranger,group+'/messages/msg1')));
+    await assertFails(message(stranger,groupId,'group-stranger','msg2','Intrusão'));
+  });
+  await check('grupo rejeita mensagem com foto disfarçada',()=>
+    assertFails(message(b,groupId,'group-b','foto','Foto','image')));
+  await check('grupo rejeita campos de anexos',()=>
+    assertFails(message(b,groupId,'group-b','file','Arquivo','text',{
+      fileUrl:'https://example.invalid/anexo.png'
+    })));
+  await check('grupo rejeita falsificação de autoria',()=>
+    assertFails(message(a,groupId,'group-b','fake','Eu sou outra pessoa')));
+  await check('criador não pode ser removido',()=>
+    assertFails(updateDoc(doc(b,group),{
+      memberUids:arrayRemove('group-a'),
+      lastRemovedUid:'group-a',updatedAt:serverTimestamp()
+    })));
+  await check('não administrador não pode remover colega',()=>
+    assertFails(updateDoc(doc(b,group),{
+      memberUids:arrayRemove('group-a'),
+      lastRemovedUid:'group-a',updatedAt:serverTimestamp()
+    })));
+  await check('administrador promove participante existente',()=>
+    assertSucceeds(updateDoc(doc(a,group),{
+      adminUids:arrayUnion('group-b'),
+      lastRoleUid:'group-b',updatedAt:serverTimestamp()
+    })));
+  await check('promovido aparece como administrador sem mudar dono',async()=>{
+    const d=(await assertSucceeds(getDoc(doc(b,group)))).data();
+    assert.ok(d.adminUids.includes('group-b'));
+    assert.equal(d.ownerUid,'group-a');
+  });
+  await check('promovido não pode retirar dono da administração',()=>
+    assertFails(updateDoc(doc(b,group),{
+      adminUids:arrayRemove('group-a'),lastRoleUid:'group-a',
+      updatedAt:serverTimestamp()
+    })));
+  await check('criador pode revogar administrador que não é dono',()=>
+    assertSucceeds(updateDoc(doc(a,group),{
+      adminUids:arrayRemove('group-b'),
+      lastRoleUid:'group-b',updatedAt:serverTimestamp()
+    })));
+  await check('pessoa comum sai do grupo por escolha própria',()=>
+    assertSucceeds(updateDoc(doc(b,group),{
+      memberUids:arrayRemove('group-b'),
+      lastRemovedUid:'group-b',updatedAt:serverTimestamp()
+    })));
+  await check('quem saiu perde leitura inclusive do histórico',async()=>{
+    await assertFails(getDoc(doc(b,group)));
+    await assertFails(getDoc(doc(b,group+'/messages/msg1')));
+  });
+  await check('admin pode reconvidar participante que saiu',()=>
+    assertSucceeds(updateDoc(doc(a,group+'/invites/group-b'),{
+      status:'pending',updatedAt:serverTimestamp()
+    })));
+  await check('reenviando convite ainda exige novo aceite',async()=>{
+    await assertFails(getDoc(doc(b,group)));
+    await assertSucceeds(accept(b,groupId,'group-b'));
+  });
+  await check('administrador remove participante não administrador',()=>
+    assertSucceeds(updateDoc(doc(a,group),{
+      memberUids:arrayRemove('group-b'),
+      lastRemovedUid:'group-b',updatedAt:serverTimestamp()
+    })));
+  await check('usuário removido não envia mais mensagens',()=>
+    assertFails(message(b,groupId,'group-b','after-remove','Não deveria chegar')));
+  console.log('GROUP SECURITY TESTS:',passed,'OK');
+} finally {
+  await env.cleanup();
+}
