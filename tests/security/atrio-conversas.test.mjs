@@ -1,0 +1,149 @@
+/**
+ * Átrio Conversas: testes isolados no emulador de Firestore.
+ * Não usam Firebase, Cloudflare ou contas de produção.
+ */
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {initializeTestEnvironment, assertFails, assertSucceeds} from '@firebase/rules-unit-testing';
+import {
+  collection, doc, getDoc, getDocs, setDoc, updateDoc, writeBatch,
+  serverTimestamp
+} from 'firebase/firestore';
+
+const env = await initializeTestEnvironment({
+  projectId:'demo-atrio-v11',
+  firestore:{host:'127.0.0.1',port:8089,rules:readFileSync('firestore.rules','utf8')}
+});
+const alice=env.authenticatedContext('chat-alice').firestore();
+const bob=env.authenticatedContext('chat-bob').firestore();
+const stranger=env.authenticatedContext('chat-stranger').firestore();
+const unauth=env.unauthenticatedContext().firestore();
+const chatId='chat-alice__chat-bob';
+const room='chats/'+chatId;
+const initial=room+'/messages/m1';
+let passed=0;
+async function check(label,run) {
+  await run(); passed++;
+  console.log('PASS CHAT',label);
+}
+const message=(sender,text,kind='text')=>({
+  uid:sender,text,kind,createdAt:serverTimestamp()
+});
+const request=(text,extra={})=>({
+  participants:['chat-alice','chat-bob'],requesterUid:'chat-alice',
+  recipientUid:'chat-bob',status:'pending',initialId:'m1',
+  lastMessageId:'m1',lastPreview:text,createdAt:serverTimestamp(),
+  updatedAt:serverTimestamp(),unreadRequester:0,unreadRecipient:1,...extra
+});
+const sendInitial=(db,text,options={})=>{
+  const b=writeBatch(db);
+  b.set(doc(db,room),request(text,options));
+  b.set(doc(db,initial),message('chat-alice',text));
+  return b.commit();
+};
+const sendNext=(db,sender,id,text,updateOverrides={},kind='text')=>{
+  const b=writeBatch(db);
+  b.set(doc(db,room+'/messages/'+id),message(sender,text,kind));
+  const base={lastMessageId:id,lastPreview:text,updatedAt:serverTimestamp(),
+    ...updateOverrides};
+  b.update(doc(db,room),base);
+  return b.commit();
+};
+
+try {
+  await env.clearFirestore();
+  await check('desativado por padrão: não existe acesso a chats',()=>
+    assertFails(getDoc(doc(alice,room))));
+  await env.withSecurityRulesDisabled(async ctx=>
+    setDoc(doc(ctx.firestore(),'app_config/conversations'),{
+      enabled:true,version:'2026-11-v1'
+    }));
+  await check('ninguém vê conteúdo de terceiros ou anônimos',async()=>{
+    await assertFails(getDoc(doc(stranger,room)));
+    await assertFails(getDoc(doc(unauth,room)));
+  });
+  await check('recusar primeira mensagem sem permissão do destinatário',()=>
+    assertFails(sendInitial(alice,'Paz e bem!')));
+  await check('terceiro não ativa as preferências de Bob',()=>
+    assertFails(setDoc(doc(stranger,'users/chat-bob/chatSettings/privacy'),{
+      requests:'all',readReceipts:false,showPushPreview:false,
+      updatedAt:serverTimestamp()
+    })));
+  await check('Bob autoriza solicitações conscientemente',()=>
+    assertSucceeds(setDoc(doc(bob,'users/chat-bob/chatSettings/privacy'),{
+      requests:'all',readReceipts:false,showPushPreview:false,
+      updatedAt:serverTimestamp()
+    })));
+  await check('solicitação com mídia/atributos extras é rejeitada',()=>
+    assertFails(sendInitial(alice,'Paz e bem!',{attachment:'https://exemplo.invalid'})));
+  await check('solicitação que inclui link é rejeitada',()=>
+    assertFails(sendInitial(alice,'Visite https://example.com')));
+  await check('solicitação válida e mensagem inicial são atômicas',()=>
+    assertSucceeds(sendInitial(alice,'Paz e bem!')));
+  await check('terceiro não lê conversa, mensagens nem lista de terceiros',async()=>{
+    await assertFails(getDoc(doc(stranger,room)));
+    await assertFails(getDoc(doc(stranger,initial)));
+    await assertFails(getDocs(collection(stranger,room+'/messages')));
+  });
+  await check('participantes conseguem consultar a mensagem inicial',async()=>{
+    assert.equal((await assertSucceeds(getDoc(doc(bob,initial)))).data().text,'Paz e bem!');
+    await assertSucceeds(getDoc(doc(alice,room)));
+  });
+  await check('abrir a solicitação não a aceita automaticamente',async()=>{
+    assert.equal((await assertSucceeds(getDoc(doc(bob,room)))).data().status,'pending');
+    await assertFails(sendNext(alice,'chat-alice','m2','Envia antes do aceite',{
+      unreadRecipient:2
+    }));
+  });
+  await check('remetente não pode se autoautorizar',()=>
+    assertFails(updateDoc(doc(alice,room),{status:'accepted',updatedAt:serverTimestamp()})));
+  await check('estranho não pode aceitar solicitação',()=>
+    assertFails(updateDoc(doc(stranger,room),{status:'accepted',updatedAt:serverTimestamp()})));
+  await check('somente Bob aceita',()=>
+    assertSucceeds(updateDoc(doc(bob,room),{status:'accepted',updatedAt:serverTimestamp()})));
+  await check('Alice envia texto aprovado e contador avança',()=>
+    assertSucceeds(sendNext(alice,'chat-alice','m2','Como está sua comunidade?',{
+      unreadRecipient:2
+    })));
+  await check('envio de tipo mídia é rejeitado no backend',()=>
+    assertFails(sendNext(alice,'chat-alice','m3','arquivo', {
+      unreadRecipient:3
+    },'image')));
+  await check('terceiro não falsifica autoria',()=>
+    assertFails(sendNext(stranger,'chat-alice','m4','Intrusão!',{
+      unreadRecipient:3
+    })));
+  await check('Bob pode zerar apenas o próprio contador',async()=>{
+    await assertSucceeds(updateDoc(doc(bob,room),{unreadRecipient:0}));
+    await assertFails(updateDoc(doc(bob,room),{unreadRequester:0}));
+  });
+  await check('denúncia de terceiros é proibida',async()=>{
+    await assertFails(setDoc(doc(stranger,'chat_reports/report1'),{
+      chatId,messageId:'m2',reporterUid:'chat-stranger',reason:'Conteúdo inadequado',
+      reportedText:'Como está sua comunidade?',createdAt:serverTimestamp()
+    }));
+  });
+  await check('denúncia de texto selecionado é aceita',()=>
+    assertSucceeds(setDoc(doc(bob,'chat_reports/report2'),{
+      chatId,messageId:'m2',reporterUid:'chat-bob',reason:'Conteúdo inadequado',
+      reportedText:'Como está sua comunidade?',createdAt:serverTimestamp()
+    })));
+  await check('ninguém denuncia texto adulterado',()=>
+    assertFails(setDoc(doc(bob,'chat_reports/report3'),{
+      chatId,messageId:'m2',reporterUid:'chat-bob',reason:'Conteúdo inadequado',
+      reportedText:'texto diferente',createdAt:serverTimestamp()
+    })));
+  await check('participante não consegue ler denúncias de outro',()=>
+    assertFails(getDoc(doc(alice,'chat_reports/report2'))));
+  await check('bloqueio impede novas mensagens mesmo entre participantes',async()=>{
+    await assertSucceeds(setDoc(doc(bob,'users/chat-bob/blockedMembers/chat-alice'),{
+      createdAt:serverTimestamp()
+    }));
+    await assertFails(sendNext(alice,'chat-alice','m5','Bloqueio ignorado?',{
+      unreadRecipient:1
+    }));
+  });
+  await check('participantes não podem remover conversa de modo unilateral',()=>
+    assertFails(updateDoc(doc(alice,room),{recipientUid:'chat-stranger'})));
+  console.log('CHAT SECURITY TESTS:',passed,'OK');
+} finally {await env.cleanup();}
