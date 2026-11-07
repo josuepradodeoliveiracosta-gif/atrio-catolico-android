@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.sp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.FieldPath
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import java.text.DateFormat
@@ -41,7 +42,8 @@ private data class ChatRoom(val id: String, val requester: String, val recipient
     fun incomingRequest(uid: String) = status == "pending" && recipient == uid
 }
 private data class ChatItem(val id: String, val uid: String, val text: String, val whenSent: Long,
-    val pending: Boolean)
+    val pending: Boolean, val replyToId: String? = null,
+    val reactions: Map<String, String> = emptyMap())
 private data class ChatPrefs(val muted: Boolean = false, val pinned: Boolean = false,
     val archived: Boolean = false)
 
@@ -263,6 +265,8 @@ private fun AtrioChatThread(
     var pendingAttemptText by remember(uid, chatId) { mutableStateOf("") }
     var saving by remember(uid, chatId) { mutableStateOf(false) }
     var info by remember(uid, chatId) { mutableStateOf("") }
+    var replyingTo by remember(uid, chatId) { mutableStateOf<ChatItem?>(null) }
+    var reactingTo by remember(uid, chatId) { mutableStateOf<ChatItem?>(null) }
     var report by remember(uid, chatId) { mutableStateOf<ChatItem?>(null) }
     var reason by remember(uid, chatId) { mutableStateOf("") }
     val peerUid = chat?.peer(uid) ?: initialPeer?.uid.orEmpty()
@@ -289,9 +293,14 @@ private fun AtrioChatThread(
                     if (error == null) messages = data?.documents.orEmpty().mapNotNull { doc ->
                         val sender = doc.getString("uid") ?: return@mapNotNull null
                         val body = doc.getString("text") ?: return@mapNotNull null
+                        val reactions = (doc.get("reactions") as? Map<*, *>)
+                            ?.mapNotNull { (userId, emoji) ->
+                                if (userId is String && emoji is String) userId to emoji else null
+                            }?.toMap().orEmpty()
                         ChatItem(doc.id, sender, body,
                             doc.getTimestamp("createdAt")?.toDate()?.time ?: 0,
-                            doc.metadata.hasPendingWrites())
+                            doc.metadata.hasPendingWrites(),
+                            doc.getString("replyToId"), reactions)
                     }.reversed() else info = "Não foi possível carregar as mensagens."
                 }
             onDispose { listener.remove() }
@@ -337,8 +346,10 @@ private fun AtrioChatThread(
             pendingAttemptId = doc.id
             pendingAttemptText = body
         }
-        val bodyData = mapOf("uid" to uid, "text" to body,
+        val bodyData = mutableMapOf<String, Any>(
+            "uid" to uid, "text" to body,
             "kind" to "text", "createdAt" to FieldValue.serverTimestamp())
+        if (chat?.status == "accepted") replyingTo?.id?.let { bodyData["replyToId"] = it }
         if (chat == null) {
             val batch = db.batch()
             batch.set(ref, mapOf(
@@ -355,6 +366,7 @@ private fun AtrioChatThread(
                 saving = false
                 if (response.isSuccessful) {
                     draft = ""; info = "Solicitação enviada."
+                    replyingTo = null
                     pendingAttemptId = ""; pendingAttemptText = ""
                     if (!(BuildConfig.DEBUG && com.google.firebase.FirebaseApp.getInstance().options.projectId == "demo-atrio-v11"))
                         InstantPushRelay.chatMessage(chatId, messageRef.id)
@@ -385,6 +397,7 @@ private fun AtrioChatThread(
                 saving = false
                 if (response.isSuccessful) {
                     if (draft.trim() == body) draft = ""
+                    replyingTo = null
                     info = ""
                     pendingAttemptId = ""; pendingAttemptText = ""
                     if (response.result == true &&
@@ -443,17 +456,59 @@ private fun AtrioChatThread(
                             color = if (msg.uid == uid) WineSoft else MaterialTheme.colorScheme.surface,
                             border = BorderStroke(1.dp, Line)) {
                             Column(Modifier.widthIn(max = 320.dp).padding(12.dp)) {
+                                if (msg.replyToId != null) {
+                                    val quoted = messages.firstOrNull { it.id == msg.replyToId }
+                                    Text("↪ " + (quoted?.text?.take(100)
+                                        ?: "Mensagem anterior"), fontSize = 13.sp,
+                                        color = Muted, maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis)
+                                    Spacer(Modifier.height(5.dp))
+                                }
                                 Text(msg.text, fontSize = 16.sp, lineHeight = 22.sp, color = Ink)
+                                if (msg.reactions.isNotEmpty()) {
+                                    val summary = msg.reactions.values.groupingBy { it }
+                                        .eachCount().entries.joinToString("  ") {
+                                            it.key + " " + it.value
+                                        }
+                                    Text(summary, fontSize = 13.sp, color = Wine,
+                                        modifier = Modifier.testTag("atrio-chat-reactions"))
+                                }
                                 Text(if (msg.pending) "Aguardando servidor" else chatTime(msg.whenSent),
                                     fontSize = 12.sp, color = Muted)
                             }
                         }
-                        TextButton(onClick = { report = msg }) { Text("Denunciar", fontSize = 12.sp) }
+                        if (chat?.status == "accepted") {
+                            Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                                TextButton(onClick = { replyingTo = msg }) {
+                                    Text("Responder", fontSize = 12.sp)
+                                }
+                                TextButton(onClick = { reactingTo = msg }) {
+                                    Text(if (msg.reactions.containsKey(uid))
+                                        "Reagiu " + msg.reactions[uid] else "Reagir",
+                                        fontSize = 12.sp)
+                                }
+                                TextButton(onClick = { report = msg }) {
+                                    Text("Denunciar", fontSize = 12.sp)
+                                }
+                            }
+                        } else TextButton(onClick = { report = msg }) {
+                            Text("Denunciar", fontSize = 12.sp)
+                        }
                     }
                 }
             }
             if (info.isNotBlank()) Text(info, Modifier.padding(12.dp), color = Muted, fontSize = 13.sp)
             if (chat == null || chat?.status == "accepted") {
+                if (replyingTo != null) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Text("↪ " + replyingTo!!.text.take(100),
+                            modifier = Modifier.weight(1f), fontSize = 13.sp,
+                            color = Wine, maxLines = 2,
+                            overflow = TextOverflow.Ellipsis)
+                        TextButton(onClick = { replyingTo = null }) { Text("Cancelar resposta") }
+                    }
+                }
                 OutlinedTextField(draft, { if (it.length <= AtrioChatPolicy.MAX_TEXT) draft = it },
                     enabled = !saving,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)
@@ -478,6 +533,36 @@ private fun AtrioChatThread(
                 }
             }
         }
+    }
+    if (reactingTo != null && chat?.status == "accepted") {
+        val selected = reactingTo!!
+        AlertDialog(onDismissRequest = { reactingTo = null },
+            title = { Text("Reagir à mensagem") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    listOf("🙏", "❤️", "👍", "🙌", "🕊️").forEach { emoji ->
+                        TextButton(onClick = {
+                            ref.collection("messages").document(selected.id)
+                                .update(FieldPath.of("reactions", uid), emoji)
+                                .addOnFailureListener { info = "Reação não autorizada." }
+                            reactingTo = null
+                        }, modifier = Modifier.fillMaxWidth()) {
+                            Text(emoji, fontSize = 24.sp)
+                        }
+                    }
+                    if (selected.reactions[uid] != null) {
+                        TextButton(onClick = {
+                            ref.collection("messages").document(selected.id)
+                                .update(FieldPath.of("reactions", uid), FieldValue.delete())
+                                .addOnFailureListener { info = "Não foi possível remover a reação." }
+                            reactingTo = null
+                        }) { Text("Remover minha reação") }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { reactingTo = null }) { Text("Fechar") }
+            })
     }
     if (report != null && chat != null) {
         val selectedMessage = report!!
