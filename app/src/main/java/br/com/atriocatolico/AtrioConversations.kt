@@ -327,7 +327,8 @@ private fun AtrioChatThread(
                 saving = false
                 if (response.isSuccessful) {
                     draft = ""; info = "Solicitação enviada."
-                    if (!BuildConfig.DEBUG) InstantPushRelay.chatMessage(chatId, messageRef.id)
+                    if (!(BuildConfig.DEBUG && com.google.firebase.FirebaseApp.getInstance().options.projectId == "demo-atrio-v11"))
+                        InstantPushRelay.chatMessage(chatId, messageRef.id)
                 }
                 else info = "Não foi possível solicitar contato. Verifique se a pessoa aceita solicitações."
             }
@@ -349,7 +350,8 @@ private fun AtrioChatThread(
                 saving = false
                 if (response.isSuccessful) {
                     draft = ""; info = ""
-                    if (!BuildConfig.DEBUG) InstantPushRelay.chatMessage(chatId, messageRef.id)
+                    if (!(BuildConfig.DEBUG && com.google.firebase.FirebaseApp.getInstance().options.projectId == "demo-atrio-v11"))
+                        InstantPushRelay.chatMessage(chatId, messageRef.id)
                 }
                 else info = "Envio não confirmado. Confira a conexão."
             }
