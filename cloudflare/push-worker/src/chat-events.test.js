@@ -5,6 +5,7 @@ import {resolveEvent} from './index.js';
 const now = () => new Date(Date.now()-1500).toISOString();
 const field = (name,value) => {
   if (typeof value === 'boolean') return {booleanValue:value};
+  if (Array.isArray(value)) return {arrayValue:{values:value.map(v=>({stringValue:v}))}};
   if (name.endsWith('At')) return {timestampValue:value};
   return {stringValue:value};
 };
@@ -86,4 +87,89 @@ test('Chat: serviço desligado não notifica ninguém',async()=>{
   assert.equal(await resolveEvent({
     type:'chat_message',chatId:'chat-alice__chat-bob',messageId:'m2'
   },'chat-alice','fake'),null);
+});
+
+const groupEvent = {type:'group_message',groupId:'grp-qa',messageId:'m3'};
+const groupFixture={
+  'app_config/chat_groups':doc({enabled:true,minorPolicyApproved:true,version:'2026-11-groups-v1'}),
+  'chat_groups/grp-qa':doc({status:'active',memberUids:['chat-alice','chat-bob','chat-charlie']}),
+  'chat_groups/grp-qa/messages/m3':doc({uid:'chat-alice',kind:'text',text:'Mensagem privada',createdAt:now()}),
+  'users/chat-bob/chatGroupAccess/eligibility':
+    doc({status:'approved',policyVersion:'2026-11-group-safety-v1'}),
+  'users/chat-charlie/chatGroupAccess/eligibility':
+    doc({status:'approved',policyVersion:'2026-11-group-safety-v1'})
+};
+test('Grupo: destinatários participantes autorizados, nunca corpo da mensagem',async()=>{
+  mocked(groupFixture);
+  const event=await resolveEvent(groupEvent,'chat-alice','fake');
+  assert.deepEqual(event.recipients,['chat-bob','chat-charlie']);
+  assert.equal(event.kind,'group_message');
+  assert.equal(event.groupId,'grp-qa');
+  assert.equal(event.messageId,'m3');
+  assert.equal(event.text,undefined);
+});
+test('Grupo: terceiros não disparam aviso nem recebem mensagens',async()=>{
+  mocked(groupFixture);
+  assert.equal(await resolveEvent(groupEvent,'chat-stranger','fake'),null);
+});
+test('Grupo: filtro de silêncio e suspensão individual',async()=>{
+  mocked({...groupFixture,
+    'users/chat-bob/chatGroupBox/grp-qa':doc({muted:true}),
+    'users/chat-charlie/chatGroupAccess/eligibility':
+      doc({status:'suspended',policyVersion:'2026-11-group-safety-v1'})
+  });
+  assert.deepEqual((await resolveEvent(groupEvent,'chat-alice','fake')).recipients,[]);
+});
+test('Grupo: bloqueio de qualquer lado remove o destinatário',async()=>{
+  mocked({...groupFixture,
+    'users/chat-bob/blockedMembers/chat-alice':doc({createdAt:now()}),
+    'users/chat-alice/blockedMembers/chat-charlie':doc({createdAt:now()})
+  });
+  assert.deepEqual((await resolveEvent(groupEvent,'chat-alice','fake')).recipients,[]);
+});
+test('Grupo: controle global desativado impede envio',async()=>{
+  mocked({...groupFixture,
+    'app_config/chat_groups':doc({enabled:false,minorPolicyApproved:true,version:'2026-11-groups-v1'})
+  });
+  assert.equal(await resolveEvent(groupEvent,'chat-alice','fake'),null);
+});
+test('Grupo: política para menores não aprovada impede envio',async()=>{
+  mocked({...groupFixture,
+    'app_config/chat_groups':doc({enabled:true,minorPolicyApproved:false,version:'2026-11-groups-v1'})
+  });
+  assert.equal(await resolveEvent(groupEvent,'chat-alice','fake'),null);
+});
+test('Grupo: sem chat individual habilitado, nenhum grupo notifica',async()=>{
+  mocked({...groupFixture,
+    'app_config/conversations':doc({enabled:false,version:'2026-11-v1'})
+  });
+  assert.equal(await resolveEvent(groupEvent,'chat-alice','fake'),null);
+});
+test('Grupo: membro já removido não recebe notificação antiga',async()=>{
+  mocked({...groupFixture,
+    'chat_groups/grp-qa':doc({status:'active',memberUids:['chat-alice','chat-bob']})
+  });
+  assert.deepEqual((await resolveEvent(groupEvent,'chat-alice','fake')).recipients,['chat-bob']);
+});
+test('Grupo: autor/espécie/frescor inválidos são recusados',async()=>{
+  mocked({...groupFixture,
+    'chat_groups/grp-qa/messages/m3':
+      doc({uid:'chat-stranger',kind:'image',text:'Oculto',createdAt:now()})
+  });
+  assert.equal(await resolveEvent(groupEvent,'chat-alice','fake'),null);
+  mocked({...groupFixture,
+    'chat_groups/grp-qa/messages/m3':
+      doc({uid:'chat-alice',kind:'text',createdAt:new Date(Date.now()-7*60_000).toISOString()})
+  });
+  assert.equal(await resolveEvent(groupEvent,'chat-alice','fake'),null);
+});
+test('Grupo: membros duplicados, acima do limite ou dados inválidos não recebem push',async()=>{
+  for(const members of [
+    ['chat-alice','chat-bob','chat-bob'],
+    ['chat-alice','chat-bob','a','b','c','d','e','f','g'],
+    ['chat-alice','unsafe uid']
+  ]) {
+    mocked({...groupFixture,'chat_groups/grp-qa':doc({status:'active',memberUids:members})});
+    assert.equal(await resolveEvent(groupEvent,'chat-alice','fake'),null);
+  }
 });

@@ -224,6 +224,24 @@ try {
     assert.ok(d.data().memberUids.includes('group-b'));
     await assertSucceeds(getDocs(collection(b,group+'/messages')));
   });
+  await check('participante pode silenciar notificações somente do próprio grupo',()=>
+    assertSucceeds(setDoc(doc(b,'users/group-b/chatGroupBox/'+groupId),{
+      muted:true,updatedAt:serverTimestamp()
+    })));
+  await check('silenciamento pessoal não pode ser lido por terceiros',()=>
+    assertFails(getDoc(doc(stranger,'users/group-b/chatGroupBox/'+groupId))));
+  await check('terceiro não pode silenciar em nome de participante',()=>
+    assertFails(setDoc(doc(stranger,'users/group-b/chatGroupBox/'+groupId),{
+      muted:true,updatedAt:serverTimestamp()
+    })));
+  await check('silenciamento rejeita campos extras e tipo adulterado',()=>
+    assertFails(setDoc(doc(b,'users/group-b/chatGroupBox/'+groupId),{
+      muted:'sim',updatedAt:serverTimestamp()
+    })));
+  await check('participante pode reativar avisos do grupo',()=>
+    assertSucceeds(updateDoc(doc(b,'users/group-b/chatGroupBox/'+groupId),{
+      muted:false,updatedAt:serverTimestamp()
+    })));
   await check('destinatário não aceita duas vezes nem acrescenta outra conta',()=>
     assertFails(updateDoc(doc(b,group),{
       memberUids:arrayUnion('group-c'),updatedAt:serverTimestamp()

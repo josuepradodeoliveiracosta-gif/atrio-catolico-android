@@ -268,6 +268,49 @@ export async function resolveEvent(event, actor, token) {
       kind:'chat_message',recipients:[peer],
       chatId:event.chatId,messageId:event.messageId};
   }
+
+  // Grupos: sem dados do corpo do texto no Push e sem acesso via nome do grupo.
+  // O Worker usa credencial de serviço, então valida TODAS as permissões.
+  if (type==='group_message') {
+    if (!uidPart(event.groupId) || !uidPart(event.messageId)) return null;
+    const [chatCfg,groupCfg,group,msg] = await Promise.all([
+      firestoreGet(token,'app_config/conversations'),
+      firestoreGet(token,'app_config/chat_groups'),
+      firestoreGet(token,'chat_groups/'+enc(event.groupId)),
+      firestoreGet(token,'chat_groups/'+enc(event.groupId)+'/messages/'+enc(event.messageId))
+    ]);
+    if (!chatCfg || !boolField(chatCfg,'enabled') ||
+        stringField(chatCfg,'version')!=='2026-11-v1' ||
+        !groupCfg || !boolField(groupCfg,'enabled') ||
+        !boolField(groupCfg,'minorPolicyApproved') ||
+        stringField(groupCfg,'version')!=='2026-11-groups-v1' ||
+        !group || stringField(group,'status')!=='active' ||
+        !msg || stringField(msg,'uid')!==actor ||
+        stringField(msg,'kind')!=='text' ||
+        !recent(timeField(msg,'createdAt'))) return null;
+    const values=group?.fields?.memberUids?.arrayValue?.values;
+    if(!Array.isArray(values) || values.length<2 || values.length>8) return null;
+    const members=values.map(v=>v?.stringValue);
+    if(members.some(v=>!uidPart(v)) ||
+       new Set(members).size!==members.length ||
+       !members.includes(actor)) return null;
+    const recipients=[];
+    for(const peer of members) {
+      if(peer===actor) continue;
+      const [access,blockedA,blockedB,muted]=await Promise.all([
+        firestoreGet(token,'users/'+enc(peer)+'/chatGroupAccess/eligibility'),
+        firestoreGet(token,'users/'+enc(peer)+'/blockedMembers/'+enc(actor)),
+        firestoreGet(token,'users/'+enc(actor)+'/blockedMembers/'+enc(peer)),
+        firestoreGet(token,'users/'+enc(peer)+'/chatGroupBox/'+enc(event.groupId))
+      ]);
+      if(!access || stringField(access,'status')!=='approved' ||
+         stringField(access,'policyVersion')!=='2026-11-group-safety-v1' ||
+         blockedA || blockedB || boolField(muted,'muted')) continue;
+      recipients.push(peer);
+    }
+    return {key:'group:'+event.groupId+':'+event.messageId,
+      kind:'group_message',recipients,groupId:event.groupId,messageId:event.messageId};
+  }
   if (type==='badge_request') {
     const request=await firestoreGet(token,'badge_requests/'+enc(actor));
     if (!request||stringField(request,'status')!=='pending'
@@ -805,7 +848,7 @@ export default {
       catch (error) { return response(error instanceof RangeError ? 413 : 400,
         error instanceof RangeError ? 'too_large' : 'invalid_json'); }
       if (!data || typeof data !== 'object' || Array.isArray(data)
-        || !['reply','badge_request','badge_result','report','chat_message'].includes(data.type))
+        || !['reply','badge_request','badge_result','report','chat_message','group_message'].includes(data.type))
         return response(400,'invalid_event');
       const uid=await verifyIdentity(request,env);
       if(!uid) return response(401,'unauthorized');
@@ -879,7 +922,9 @@ export default {
                 }}),
               })
             : await send(token,target.token,recipient,event.kind,
-                event.kind==='chat_message' ? {chatId:event.chatId,messageId:event.messageId} : {});
+                event.kind==='chat_message' ? {chatId:event.chatId,messageId:event.messageId}
+                  : event.kind==='group_message' ?
+                    {groupId:event.groupId,messageId:event.messageId} : {});
           attempted++;
           if(result.ok) accepted++;
           else {

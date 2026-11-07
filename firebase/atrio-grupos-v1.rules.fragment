@@ -75,6 +75,20 @@
       allow get: if atrioGroupsEnabled() && me(uid);
       allow list, create, update, delete: if false;
     }
+
+    // Preferência privada de aviso de grupo. O Worker confere silêncio e
+    // elegibilidade novamente antes de cada envio.
+    match /users/{uid}/chatGroupBox/{groupId} {
+      allow get, list: if atrioGroupsEnabled() && me(uid)
+        && atrioGroupMember(groupId);
+      allow create, update: if atrioGroupsEnabled() && me(uid)
+        && atrioGroupMember(groupId)
+        && request.resource.data.keys().hasOnly(['muted','updatedAt'])
+        && request.resource.data.keys().hasAll(['muted','updatedAt'])
+        && request.resource.data.muted is bool
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if false;
+    }
     match /users/{uid}/chatGroupLimits/creation {
       allow get: if atrioGroupsEnabled() && me(uid);
       allow list, delete: if false;
