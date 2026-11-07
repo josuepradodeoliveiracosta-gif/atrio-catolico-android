@@ -53,8 +53,10 @@ function createFirst(db,id=groupId) {
   return batch.commit();
 }
 function invitation(db,id,invitee,extra={}) {
+  const inviter=extra.inviterUid || 'group-a';
   return setDoc(doc(db,'chat_groups/'+id+'/atrioGroupInvites/'+invitee),{
     inviteeUid:invitee,inviterUid:'group-a',
+    contactChatId:[inviter,invitee].sort().join('__'),
     groupName:'Estudo do Evangelho',status:'pending',
     createdAt:serverTimestamp(),updatedAt:serverTimestamp(),...extra
   });
@@ -162,6 +164,10 @@ try {
   }));
   await check('contato aceito que bloqueou administrador não recebe convite',()=>
     assertFails(invitation(a,groupId,'group-c')));
+  await check('convite não permite falsificar ID de conversa de terceiros',()=>
+    assertFails(invitation(a,groupId,'group-b',{
+      contactChatId:'group-a__group-c'
+    })));
   await check('administrador envia convite privado',()=>
     assertSucceeds(invitation(a,groupId,'group-b')));
   await check('convidado vê o convite mas não o conteúdo do grupo',async()=>{
