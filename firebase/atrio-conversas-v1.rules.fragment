@@ -20,6 +20,10 @@
     function chatMessagePath(chatId, messageId) {
       return /databases/$(database)/documents/chats/$(chatId)/messages/$(messageId);
     }
+    // Etapa 2 experimental: reações curtas sem anexos, uma por participante.
+    function chatValidReaction(value) {
+      return value in ['🙏', '❤️', '👍', '🙌', '🕊️'];
+    }
     match /app_config/conversations {
       allow get: if signedIn();
       allow list, create, update, delete: if false;
@@ -156,10 +160,15 @@
           && chatNoBlock(
             getAfter(/databases/$(database)/documents/chats/$(chatId)).data.requesterUid,
             getAfter(/databases/$(database)/documents/chats/$(chatId)).data.recipientUid)
-          && request.resource.data.keys().hasOnly(['uid','text','kind','createdAt'])
+          && request.resource.data.keys().hasOnly(['uid','text','kind','createdAt','replyToId'])
           && request.resource.data.keys().hasAll(['uid','text','kind','createdAt'])
           && request.resource.data.uid == request.auth.uid
           && request.resource.data.kind == 'text'
+          && (!request.resource.data.keys().hasAny(['replyToId'])
+            || (getAfter(/databases/$(database)/documents/chats/$(chatId)).data.status == 'accepted'
+              && validId(request.resource.data.replyToId)
+              && request.resource.data.replyToId != messageId
+              && exists(chatMessagePath(chatId,request.resource.data.replyToId))))
           && validText(request.resource.data.text, 1, 1500)
           && (getAfter(/databases/$(database)/documents/chats/$(chatId)).data.status == 'accepted'
             || !request.resource.data.text.matches('(?i).*(https?://|www\\\\.).*'))
@@ -178,7 +187,27 @@
                 == request.time)
             || getAfter(/databases/$(database)/documents/chats/$(chatId)).data.status == 'accepted'
           );
-        allow update, delete: if false;
+        // Uma reação só altera o emoji do próprio usuário; jamais texto/autoria.
+        allow update: if chatEnabled()
+          && exists(/databases/$(database)/documents/chats/$(chatId))
+          && chatMember(get(/databases/$(database)/documents/chats/$(chatId)).data)
+          && get(/databases/$(database)/documents/chats/$(chatId)).data.status == 'accepted'
+          && chatNoBlock(
+            get(/databases/$(database)/documents/chats/$(chatId)).data.requesterUid,
+            get(/databases/$(database)/documents/chats/$(chatId)).data.recipientUid)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasAll(['reactions'])
+          && request.resource.data.reactions is map
+          && request.resource.data.reactions.keys().hasOnly([
+            get(/databases/$(database)/documents/chats/$(chatId)).data.requesterUid,
+            get(/databases/$(database)/documents/chats/$(chatId)).data.recipientUid])
+          && request.resource.data.reactions.diff(resource.data.get('reactions', {}))
+            .affectedKeys().hasOnly([request.auth.uid])
+          && request.resource.data.reactions.diff(resource.data.get('reactions', {}))
+            .affectedKeys().hasAll([request.auth.uid])
+          && (!request.resource.data.reactions.keys().hasAny([request.auth.uid])
+            || chatValidReaction(request.resource.data.reactions[request.auth.uid]));
+        allow delete: if false;
       }
     }
     match /chat_reports/{reportId} {
