@@ -74,7 +74,8 @@ private fun chatPeerName(db: FirebaseFirestore, uid: String, fallback: String = 
 @Composable
 internal fun AtrioConversationsScreen(
     db: FirebaseFirestore, uid: String, onBack: () -> Unit,
-    initialPeer: PublicMemberTarget? = null
+    initialPeer: PublicMemberTarget? = null,
+    initialChatId: String? = null
 ) {
     var enabled by remember(uid) { mutableStateOf(false) }
     var loadedConfig by remember(uid) { mutableStateOf(false) }
@@ -85,8 +86,8 @@ internal fun AtrioConversationsScreen(
     var error by remember(uid) { mutableStateOf("") }
     var search by remember(uid) { mutableStateOf("") }
     var requestsTab by remember(uid) { mutableStateOf(false) }
-    var selected by remember(uid, initialPeer?.uid) {
-        mutableStateOf(initialPeer?.uid?.let { AtrioChatPolicy.id(uid, it) })
+    var selected by remember(uid, initialPeer?.uid, initialChatId) {
+        mutableStateOf(initialChatId ?: initialPeer?.uid?.let { AtrioChatPolicy.id(uid, it) })
     }
     val chosen = rooms.firstOrNull { it.id == selected }
 
@@ -253,6 +254,10 @@ private fun AtrioChatThread(
     var reason by remember(uid, chatId) { mutableStateOf("") }
     val peerUid = chat?.peer(uid) ?: initialPeer?.uid.orEmpty()
     val peerName = chatPeerName(db, peerUid, initialPeer?.nameFromPublication ?: "Participante")
+    DisposableEffect(uid, chatId) {
+        AtrioChatForeground.open(uid, chatId)
+        onDispose { AtrioChatForeground.close(uid, chatId) }
+    }
 
     DisposableEffect(db, uid, chatId) {
         val listener = ref.addSnapshotListener { snapshot, error ->
@@ -320,7 +325,10 @@ private fun AtrioChatThread(
             batch.set(messageRef, bodyData)
             batch.commit().addOnCompleteListener { response ->
                 saving = false
-                if (response.isSuccessful) { draft = ""; info = "Solicitação enviada." }
+                if (response.isSuccessful) {
+                    draft = ""; info = "Solicitação enviada."
+                    if (!BuildConfig.DEBUG) InstantPushRelay.chatMessage(chatId, messageRef.id)
+                }
                 else info = "Não foi possível solicitar contato. Verifique se a pessoa aceita solicitações."
             }
         } else if (chat?.status == "accepted") {
@@ -339,7 +347,10 @@ private fun AtrioChatThread(
                 null
             }.addOnCompleteListener { response ->
                 saving = false
-                if (response.isSuccessful) { draft = ""; info = "" }
+                if (response.isSuccessful) {
+                    draft = ""; info = ""
+                    if (!BuildConfig.DEBUG) InstantPushRelay.chatMessage(chatId, messageRef.id)
+                }
                 else info = "Envio não confirmado. Confira a conexão."
             }
         } else {
