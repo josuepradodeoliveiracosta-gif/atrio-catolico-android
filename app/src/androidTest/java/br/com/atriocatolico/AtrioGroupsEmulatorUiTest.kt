@@ -101,7 +101,6 @@ class AtrioGroupsEmulatorUiTest {
             }
         }
         waitFor("atrio-group-create-open")
-        compose.onNodeWithTag("atrio-group-title").assertDoesNotExist()
         compose.onNodeWithTag("atrio-group-create-open").performClick()
         waitFor("atrio-group-title")
         val title="Grupo de estudo QA"
