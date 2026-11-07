@@ -339,7 +339,8 @@ internal fun AtrioGroupsScreen(
                                 ". Aceitar é opcional.",
                                 color=Muted,fontSize=12.sp)
                             Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                                Button(onClick={respond(invite,true)},enabled=!busy) {
+                                Button(onClick={respond(invite,true)},enabled=!busy,
+                                    modifier=Modifier.testTag("atrio-group-accept-"+invite.groupId)) {
                                     Text("Aceitar")
                                 }
                                 OutlinedButton(onClick={respond(invite,false)},enabled=!busy) {
@@ -549,7 +550,8 @@ private fun AtrioGroupThread(
                 Text(AtrioGroupPolicy.categoryName(room.category),
                     color=Muted,fontSize=12.sp)
             }
-            TextButton(onClick={showMembers=!showMembers}) {
+            TextButton(onClick={showMembers=!showMembers},
+                modifier=Modifier.testTag("atrio-group-members")) {
                 Text("Pessoas")
             }
         }
@@ -587,7 +589,8 @@ private fun AtrioGroupThread(
                     }
                 }
                 if(isAdmin && room.memberUids.size<AtrioGroupPolicy.MAX_MEMBERS) {
-                    TextButton(onClick={inviting=!inviting}) {
+                    TextButton(onClick={inviting=!inviting},
+                        modifier=Modifier.testTag("atrio-group-invite-open")) {
                         Text("Convidar participante")
                     }
                     if(inviting) {
@@ -599,7 +602,8 @@ private fun AtrioGroupThread(
                         if(choices.isEmpty()) Text("Nenhum contato elegível listado.",color=Muted)
                         choices.forEach { candidate ->
                             val name=groupPeerName(db,candidate)
-                            TextButton(onClick={invite(candidate)},enabled=!busy) {
+                            TextButton(onClick={invite(candidate)},enabled=!busy,
+                                modifier=Modifier.testTag("atrio-group-invite-"+candidate)) {
                                 Text("Convidar " + name)
                             }
                         }
@@ -611,7 +615,10 @@ private fun AtrioGroupThread(
                             "memberUids" to FieldValue.arrayRemove(uid),
                             "lastRemovedUid" to uid),
                             "Você saiu do grupo.")
-                    },enabled=!busy) { Text("Sair do grupo") }
+                    },enabled=!busy,
+                        modifier=Modifier.testTag("atrio-group-leave")) {
+                        Text("Sair do grupo")
+                    }
                 } else if(!isOwner && isAdmin) {
                     Text("Para sair, solicite ao criador que retire primeiro " +
                         "sua função de administrador.",
