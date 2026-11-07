@@ -1,5 +1,7 @@
 # Átrio Católico 0.13.2 — Medalha Padre
 
+> Referência histórica: os componentes e recursos destas medalhas foram retirados em 07/11/2026 por não terem consumidores. A interface atual usa `MinimalBadgeIcon.kt`. As artes permanecem recuperáveis no [commit anterior à limpeza](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/tree/626e70d7b544e549947aad5f58ae4bde8eb9a1d9).
+
 ## Arte
 A medalha aprovada para **Padre** é circular, com **cruz dourada ornamentada** sobre **vinho profundo**, raios luminosos e aro dourado. A imagem compacta foi preparada em WEBP 256×256 com transparência e incorporada em `app/src/main/res/raw/selo_padre_base64.txt`; a leitura é feita por `PriestBadgeArt.kt`.
 

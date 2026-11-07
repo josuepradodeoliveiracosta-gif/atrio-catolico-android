@@ -56,3 +56,8 @@ key.properties
 # por desenho do SDK Android. A chave de API deve estar restringida por
 # aplicativo (pacote/certificado) e por APIs no Google Cloud.
 # Nunca coloque JSON de conta de serviço Firebase Admin neste local.
+
+# Saídas locais adicionais de Android, Kotlin e Wrangler
+*.aab
+.kotlin/
+.wrangler/

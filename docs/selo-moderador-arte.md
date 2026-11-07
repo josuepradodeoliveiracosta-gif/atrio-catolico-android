@@ -1,5 +1,7 @@
 # Átrio Católico 0.13.4 — Medalha do Moderador
 
+> Referência histórica: os componentes e recursos destas medalhas foram retirados em 07/11/2026 por não terem consumidores. A interface atual usa `MinimalBadgeIcon.kt`. As artes permanecem recuperáveis no [commit anterior à limpeza](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/tree/626e70d7b544e549947aad5f58ae4bde8eb9a1d9).
+
 ## Identidade visual aprovada
 - Medalhão circular, fundo azul-safira profundo.
 - Escudo prateado em alto-relevo, com cruz dourada central.
