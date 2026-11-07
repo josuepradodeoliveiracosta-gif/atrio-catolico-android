@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {initializeTestEnvironment, assertFails, assertSucceeds} from '@firebase/rules-unit-testing';
 import {
-  collection, doc, getDoc, getDocs, setDoc, updateDoc, writeBatch,
+  collection, deleteDoc, doc, getDoc, getDocs, setDoc, updateDoc, writeBatch,
   serverTimestamp
 } from 'firebase/firestore';
 
@@ -276,6 +276,25 @@ try {
       'users/chat-bob/chatHidden/'+chatId+'/messages/m3'),{
       hidden:true,createdAt:serverTimestamp()
     })));
+  await check('terceiros não podem visualizar listas privadas de ocultação',()=>
+    assertFails(getDocs(collection(stranger,
+      'users/chat-bob/chatHidden/'+chatId+'/messages'))));
+  await check('participante pode restaurar somente a própria ocultação',async()=>{
+    await assertSucceeds(deleteDoc(doc(bob,
+      'users/chat-bob/chatHidden/'+chatId+'/messages/m2')));
+    const original=await assertSucceeds(getDoc(doc(bob,room+'/messages/m2')));
+    assert.equal(original.data().text,'Como está sua comunidade?');
+  });
+  await check('terceiro não pode restaurar ocultação de outro',async()=>{
+    await assertSucceeds(setDoc(doc(bob,
+      'users/chat-bob/chatHidden/'+chatId+'/messages/m2'),{
+      hidden:true,createdAt:serverTimestamp()
+    }));
+    await assertFails(deleteDoc(doc(stranger,
+      'users/chat-bob/chatHidden/'+chatId+'/messages/m2')));
+  });
+  await check('ninguém lê o contador de novos contatos de outra pessoa',()=>
+    assertFails(getDoc(doc(stranger,quotaRef))));
   await check('ocultação não aceita campos extras nem mudança no texto',()=>
     assertFails(setDoc(doc(alice,
       'users/chat-alice/chatHidden/'+chatId+'/messages/m2'),{
