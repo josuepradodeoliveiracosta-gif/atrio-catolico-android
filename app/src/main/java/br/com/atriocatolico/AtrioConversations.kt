@@ -44,7 +44,9 @@ private data class ChatRoom(val id: String, val requester: String, val recipient
 private data class ChatItem(val id: String, val uid: String, val text: String, val whenSent: Long,
     val pending: Boolean, val replyToId: String? = null,
     val reactions: Map<String, String> = emptyMap(),
-    val postId: String? = null, val postTitle: String? = null)
+    val postId: String? = null, val postTitle: String? = null,
+    val kind: String = "text", val edited: Boolean = false,
+    val deletedForAll: Boolean = false)
 private data class ChatPrefs(val muted: Boolean = false, val pinned: Boolean = false,
     val archived: Boolean = false)
 
@@ -85,6 +87,10 @@ internal fun AtrioConversationsScreen(
 ) {
     var enabled by remember(uid) { mutableStateOf(false) }
     var loadedConfig by remember(uid) { mutableStateOf(false) }
+    var editingEnabled by remember(uid) { mutableStateOf(false) }
+    var deletingEnabled by remember(uid) { mutableStateOf(false) }
+    var editWindowMinutes by remember(uid) { mutableIntStateOf(0) }
+    var deleteWindowMinutes by remember(uid) { mutableIntStateOf(0) }
     var requestPolicy by remember(uid) { mutableStateOf("none") }
     var rooms by remember(uid) { mutableStateOf<List<ChatRoom>>(emptyList()) }
     var prefs by remember(uid) { mutableStateOf<Map<String, ChatPrefs>>(emptyMap()) }
@@ -104,6 +110,14 @@ internal fun AtrioConversationsScreen(
             loadedConfig = true
             enabled = failure == null && doc?.getBoolean("enabled") == true &&
                 doc.getString("version") == AtrioChatPolicy.VERSION
+            editWindowMinutes = (doc?.getLong("editWindowMinutes") ?: 0L)
+                .coerceIn(0L, 1440L).toInt()
+            deleteWindowMinutes = (doc?.getLong("deleteWindowMinutes") ?: 0L)
+                .coerceIn(0L, 1440L).toInt()
+            editingEnabled = enabled && doc?.getBoolean("editEnabled") == true &&
+                editWindowMinutes > 0
+            deletingEnabled = enabled && doc?.getBoolean("deleteEnabled") == true &&
+                deleteWindowMinutes > 0
         }
         val privacy = db.collection("users").document(uid).collection("chatSettings")
             .document("privacy").addSnapshotListener { doc, failure ->
@@ -163,7 +177,11 @@ internal fun AtrioConversationsScreen(
                 onBack = { selected = null },
                 sharePost = sharePost,
                 onShareSent = { sharePost = null },
-                onOpenDiscussion = onOpenDiscussion)
+                onOpenDiscussion = onOpenDiscussion,
+                editingEnabled = editingEnabled,
+                deletingEnabled = deletingEnabled,
+                editWindowMinutes = editWindowMinutes,
+                deleteWindowMinutes = deleteWindowMinutes)
         } else {
             if (sharePost != null) {
                 Text("Escolha uma conversa já aceita para enviar o cartão textual da discussão. " +
@@ -269,7 +287,9 @@ private fun AtrioChatThread(
     initialPeer: PublicMemberTarget?, onBack: () -> Unit,
     sharePost: Pair<String, String>?,
     onShareSent: () -> Unit,
-    onOpenDiscussion: (String) -> Unit
+    onOpenDiscussion: (String) -> Unit,
+    editingEnabled: Boolean, deletingEnabled: Boolean,
+    editWindowMinutes: Int, deleteWindowMinutes: Int
 ) {
     val ref = remember(db, chatId) { db.collection("chats").document(chatId) }
     var chat by remember(uid, chatId) { mutableStateOf(preview) }
@@ -295,6 +315,9 @@ private fun AtrioChatThread(
     var info by remember(uid, chatId) { mutableStateOf("") }
     var replyingTo by remember(uid, chatId) { mutableStateOf<ChatItem?>(null) }
     var reactingTo by remember(uid, chatId) { mutableStateOf<ChatItem?>(null) }
+    var editingMessage by remember(uid, chatId) { mutableStateOf<ChatItem?>(null) }
+    var editDraft by remember(uid, chatId) { mutableStateOf("") }
+    var deletingMessage by remember(uid, chatId) { mutableStateOf<ChatItem?>(null) }
     var report by remember(uid, chatId) { mutableStateOf<ChatItem?>(null) }
     var reason by remember(uid, chatId) { mutableStateOf("") }
     val peerUid = chat?.peer(uid) ?: initialPeer?.uid.orEmpty()
@@ -321,15 +344,19 @@ private fun AtrioChatThread(
                     if (error == null) messages = data?.documents.orEmpty().mapNotNull { doc ->
                         val sender = doc.getString("uid") ?: return@mapNotNull null
                         val body = doc.getString("text") ?: return@mapNotNull null
+                        val edited = doc.getString("editedText")
+                        val removed = doc.getBoolean("deletedForAll") == true
                         val reactions = (doc.get("reactions") as? Map<*, *>)
                             ?.mapNotNull { (userId, emoji) ->
                                 if (userId is String && emoji is String) userId to emoji else null
                             }?.toMap().orEmpty()
-                        ChatItem(doc.id, sender, body,
+                        ChatItem(doc.id, sender,
+                            if (removed) "[Mensagem removida]" else edited ?: body,
                             doc.getTimestamp("createdAt")?.toDate()?.time ?: 0,
                             doc.metadata.hasPendingWrites(),
                             doc.getString("replyToId"), reactions,
-                            doc.getString("postId"), doc.getString("postTitle"))
+                            doc.getString("postId"), doc.getString("postTitle"),
+                            doc.getString("kind") ?: "text", edited != null, removed)
                     }.reversed() else info = "Não foi possível carregar as mensagens."
                 }
             onDispose { listener.remove() }
@@ -566,7 +593,10 @@ private fun AtrioChatThread(
                                     Text(summary, fontSize = 13.sp, color = Wine,
                                         modifier = Modifier.testTag("atrio-chat-reactions"))
                                 }
-                                Text(if (msg.pending) "Aguardando servidor" else chatTime(msg.whenSent),
+                                Text(
+                                    (if (msg.pending) "Aguardando servidor"
+                                    else chatTime(msg.whenSent)) +
+                                    (if (msg.edited && !msg.deletedForAll) " • editada" else ""),
                                     fontSize = 12.sp, color = Muted)
                             }
                         }
@@ -583,7 +613,7 @@ private fun AtrioChatThread(
                             }
                         } else {
                             Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                                if (chat?.status == "accepted") {
+                                if (chat?.status == "accepted" && !msg.deletedForAll) {
                                     TextButton(onClick = { replyingTo = msg }) {
                                         Text("Responder", fontSize = 13.sp)
                                     }
@@ -601,6 +631,29 @@ private fun AtrioChatThread(
                                     DropdownMenu(
                                         expanded = messageMenuId == msg.id,
                                         onDismissRequest = { messageMenuId = null }) {
+                                        if (msg.uid == uid &&
+                                            msg.kind == "text" && !msg.deletedForAll &&
+                                            msg.whenSent > 0L) {
+                                            val elapsed = System.currentTimeMillis() - msg.whenSent
+                                            if (editingEnabled && elapsed >= 0 &&
+                                                elapsed <= editWindowMinutes * 60_000L) {
+                                                DropdownMenuItem(text = { Text("Editar mensagem") },
+                                                    onClick = {
+                                                        messageMenuId = null
+                                                        editingMessage = msg
+                                                        editDraft = msg.text
+                                                    })
+                                            }
+                                            if (deletingEnabled && elapsed >= 0 &&
+                                                elapsed <= deleteWindowMinutes * 60_000L) {
+                                                DropdownMenuItem(text = {
+                                                    Text("Remover para todos")
+                                                }, onClick = {
+                                                    messageMenuId = null
+                                                    deletingMessage = msg
+                                                })
+                                            }
+                                        }
                                         DropdownMenuItem(text = { Text("Denunciar mensagem") },
                                             onClick = {
                                                 messageMenuId = null
