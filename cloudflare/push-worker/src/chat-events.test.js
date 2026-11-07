@@ -91,7 +91,7 @@ test('Chat: serviço desligado não notifica ninguém',async()=>{
 
 const groupEvent = {type:'group_message',groupId:'grp-qa',messageId:'m3'};
 const groupFixture={
-  'app_config/chat_groups':doc({enabled:true,minorPolicyApproved:true,version:'2026-11-groups-v1'}),
+  'app_config/chat_groups':doc({enabled:true,pushEnabled:true,minorPolicyApproved:true,version:'2026-11-groups-v1'}),
   'chat_groups/grp-qa':doc({status:'active',memberUids:['chat-alice','chat-bob','chat-charlie']}),
   'chat_groups/grp-qa/messages/m3':doc({uid:'chat-alice',kind:'text',text:'Mensagem privada',createdAt:now()}),
   'users/chat-alice/chatGroupAccess/eligibility':
@@ -180,6 +180,21 @@ test('Grupo: não notifica quando o próprio autor foi suspenso depois do envio'
   mocked({...groupFixture,
     'users/chat-alice/chatGroupAccess/eligibility':
       doc({status:'suspended',policyVersion:'2026-11-group-safety-v1'})
+  });
+  assert.equal(await resolveEvent(groupEvent,'chat-alice','fake'),null);
+});
+
+test('Grupo: push exige ativação explícita, separada da criação dos grupos',async()=>{
+  mocked({...groupFixture,
+    'app_config/chat_groups':doc({
+      enabled:true,pushEnabled:false,minorPolicyApproved:true,version:'2026-11-groups-v1'
+    })
+  });
+  assert.equal(await resolveEvent(groupEvent,'chat-alice','fake'),null);
+  mocked({...groupFixture,
+    'app_config/chat_groups':doc({
+      enabled:true,minorPolicyApproved:true,version:'2026-11-groups-v1'
+    })
   });
   assert.equal(await resolveEvent(groupEvent,'chat-alice','fake'),null);
 });

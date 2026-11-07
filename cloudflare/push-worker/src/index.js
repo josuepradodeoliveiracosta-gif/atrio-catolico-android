@@ -282,6 +282,7 @@ export async function resolveEvent(event, actor, token) {
     if (!chatCfg || !boolField(chatCfg,'enabled') ||
         stringField(chatCfg,'version')!=='2026-11-v1' ||
         !groupCfg || !boolField(groupCfg,'enabled') ||
+        !boolField(groupCfg,'pushEnabled') ||
         !boolField(groupCfg,'minorPolicyApproved') ||
         stringField(groupCfg,'version')!=='2026-11-groups-v1' ||
         !group || stringField(group,'status')!=='active' ||

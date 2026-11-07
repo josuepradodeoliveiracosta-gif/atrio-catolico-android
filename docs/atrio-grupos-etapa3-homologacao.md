@@ -84,6 +84,7 @@ de produção nem acionar estas configurações em contas reais.
 {
   "enabled": true,
   "minorPolicyApproved": true,
+  "pushEnabled": false,
   "version": "2026-11-groups-v1"
 }
 ```
@@ -100,6 +101,13 @@ verificação de idade ou política real de proteção de menores. São travas
 administrativas adicionais, inicialmente fechadas. A forma de verificar
 elegibilidade e proteger menores **continua pendente** de definição e
 homologação; não criar esses registros em produção como atalho.
+
+A chave `pushEnabled` é uma **terceira trava independente**: mesmo com
+grupos e conversas ativos, avisos de grupo continuam desligados se ela
+não existir ou estiver em `false`. Só testar `true` num laboratório
+isolado ou aprovar explicitamente após validar entrega, silêncio, troca de
+conta e bloqueios em aparelhos reais. Não enviar dados de mensagens no
+FCM.
 
 O teste do emulador configura essa flag artificialmente, **somente** em
 projeto `demo-atrio-v11`, para testar os fluxos de permissões.
