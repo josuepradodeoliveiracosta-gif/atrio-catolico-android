@@ -1,8 +1,9 @@
 /**
  * Only the local Firebase Emulator Suite. This file MUST NOT be run against
  * production: the fixed loopback hosts and demo project are hardcoded.
- * It provisions two actual Auth-emulator users and a mutually accepted DM,
- * then adds sandbox-only safety gates for end-to-end Android group QA.
+ * It provisions two mutual Auth-emulator contacts for group UI plus a
+ * third isolated recipient for the first-contact request/accept UI test.
+ * All safety gates are sandbox-only, never applied to real users.
  */
 import {readFileSync} from 'node:fs';
 import {initializeTestEnvironment} from '@firebase/rules-unit-testing';
@@ -29,7 +30,8 @@ for(const base of [authBase,firestoreBase]){
 const password='GrupoQa2026!Emulador';
 const accounts=[
   {email:'group.alice@qa.invalid',name:'Clara QA'},
-  {email:'group.bob@qa.invalid',name:'Miguel QA'}
+  {email:'group.bob@qa.invalid',name:'Miguel QA'},
+  {email:'group.carla@qa.invalid',name:'Carla QA',allowRequests:true}
 ];
 // A UI de chats e a de grupos são suítes independentes: o segundo seed
 // restaura apenas fixtures locais, sem cadastrar contas duplicadas.
@@ -76,6 +78,13 @@ try {
       await setDoc(doc(db,'public_profiles/'+user.uid),{
         uid:user.uid,displayName:user.name,createdAt:serverTimestamp()
       });
+      if(user.allowRequests) {
+        // Perfil opt-in somente para a caixa de entrada do Auth emulado.
+        await setDoc(doc(db,'users/'+user.uid+'/chatSettings/privacy'),{
+          requests:'all',readReceipts:false,showPushPreview:false,
+          updatedAt:serverTimestamp()
+        });
+      }
     }
     // Somente os dois UIDs do Auth emulado. Remove estados transitórios
     // de bloqueio deixados por QA individual, nunca dados de produção.
@@ -96,7 +105,7 @@ try {
       uid:accounts[0].uid,kind:'text',text:'Olá!',createdAt:serverTimestamp()
     });
   });
-  console.log('OK: 2 usuários Auth emulados, conversa aceita e portões de grupos no laboratório.');
+  console.log('OK: 3 usuários Auth emulados, 2 contatos aceitos de QA e destinatária opt-in de primeiro contato.');
   console.log('Todos os dados são do projeto '+project+', host 127.0.0.1.');
 } finally {
   await env.cleanup();
