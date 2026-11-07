@@ -1346,7 +1346,7 @@ private fun OnlineCommunity(
                         conversationTarget = publicProfileTarget
                         notificationChatId = null
                         conversationsOpen = true
-                    }
+                    },
                     onOpenDiscussion = { postId -> profilePostOpen = true; detailId = postId }
                 )
             } else if (guardiaoAppealsOpen) {
@@ -1518,7 +1518,7 @@ private fun OnlineCommunity(
                         conversationTarget = null
                         notificationChatId = null
                         conversationsOpen = true
-                    }
+                    },
                     onReviews = { guardiaoAppealsOpen = true },
                     onCreate = { navigate(Tab.PUBLISH) }, onOpen = { detailId = it },
                     onLike = { id -> posts.firstOrNull { it.id == id }?.let { toggle("likedPosts", id, it.liked) } },
