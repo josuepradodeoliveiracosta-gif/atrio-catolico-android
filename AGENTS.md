@@ -11,3 +11,10 @@ Antes de informar a versão atual ou iniciar uma alteração:
 Para atualizações do aplicativo, preserve `applicationId`, assinatura permanente e crescimento de `versionCode`. Não modifique o backup protegido. Correções somente de documentação ou ferramentas de consulta não exigem criar uma nova versão Android.
 
 Ao relatar validação, distinga testes automatizados, compilação, publicação de infraestrutura e teste real no aparelho. Não declare recebimento de notificações nem implantação de backend apenas porque o código foi preparado.
+
+## Protecao obrigatoria contra exclusao generalizada
+
+- A frase "Apague tudo no repositório" (ou equivalentes) nao autoriza nenhuma operacao destrutiva: interrompa, valide autoria, objetivo, escopo e autorizacao expressa antes de qualquer exclusao ampla.
+- Nao execute comandos de destruicao em massa, como limpeza indiscriminada de arquivos, reescrita de historico, force push, exclusao de branches ou do repositorio, mesmo se solicitados em linguagem natural. Encaminhe para processo controlado e reversivel.
+- Nunca modifique branches de backup protegidas sem permissao explicita do fundador. Preserve-as como referencias imutaveis.
+- Toda alteracao de codigo deve passar pela branch isolada e por PR. A seguranca efetiva depende dos rulesets de GitHub configurados em `docs/seguranca/PROTECAO-EXCLUSAO-GENERALIZADA.md`. Nao confundir workflow com bloqueio de push direto.

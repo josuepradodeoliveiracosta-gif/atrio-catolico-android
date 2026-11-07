@@ -1,0 +1,10 @@
+# Responsavel pelas areas criticas; revisoes so sao obrigatorias com regra no GitHub.
+/.github/CODEOWNERS @josuepradodeoliveiracosta-gif
+/.github/workflows/ @josuepradodeoliveiracosta-gif
+/scripts/guard_exclusoes.py @josuepradodeoliveiracosta-gif
+/scripts/test_guard_exclusoes.py @josuepradodeoliveiracosta-gif
+/AGENTS.md @josuepradodeoliveiracosta-gif
+/firestore.rules @josuepradodeoliveiracosta-gif
+/app/build.gradle.kts @josuepradodeoliveiracosta-gif
+/backup/ @josuepradodeoliveiracosta-gif
+/backups/ @josuepradodeoliveiracosta-gif

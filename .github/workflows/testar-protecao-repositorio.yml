@@ -1,0 +1,26 @@
+name: Testes da trava contra exclusoes
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/guard_exclusoes.py'
+      - 'scripts/test_guard_exclusoes.py'
+      - '.github/workflows/proteger-repositorio.yml'
+      - '.github/workflows/testar-protecao-repositorio.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  testar-trava-exclusoes:
+    name: Testar trava de exclusoes (somente PR)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Baixar codigo da PR com token somente de leitura
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Executar somente testes Python isolados
+        run: python3 -m unittest discover -s scripts -p 'test_guard_exclusoes.py' -v
