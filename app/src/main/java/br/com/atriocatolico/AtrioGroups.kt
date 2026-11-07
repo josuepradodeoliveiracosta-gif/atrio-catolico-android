@@ -464,12 +464,21 @@ private fun AtrioGroupThread(
                 return@addOnCompleteListener
             }
             val existing=response.result
+            // Não atualizar convites feitos por outro administrador:
+            // o ID da conversa associada precisa continuar verificável.
+            if(existing?.exists()==true &&
+                existing.getString("inviterUid")!=uid) {
+                busy=false
+                error="O convite anterior foi feito por outro administrador."
+                return@addOnCompleteListener
+            }
             val operation=if(existing?.exists()==true) {
                 inv.update("status","pending",
                     "updatedAt",FieldValue.serverTimestamp())
             } else {
                 inv.set(mapOf(
                     "inviteeUid" to peer,"inviterUid" to uid,
+                    "contactChatId" to AtrioChatPolicy.id(uid,peer),
                     "groupName" to room.name,"status" to "pending",
                     "createdAt" to FieldValue.serverTimestamp(),
                     "updatedAt" to FieldValue.serverTimestamp()))
