@@ -157,18 +157,19 @@
         && request.resource.data.keys().hasOnly([
           'participants','requesterUid','recipientUid','status','initialId',
           'lastMessageId','lastPreview','createdAt','updatedAt',
-          'unreadRequester','unreadRecipient'
+          'unreadRequester','unreadRecipient','lastSenderUid'
         ])
         && request.resource.data.keys().hasAll([
           'participants','requesterUid','recipientUid','status','initialId',
           'lastMessageId','lastPreview','createdAt','updatedAt',
-          'unreadRequester','unreadRecipient'
+          'unreadRequester','unreadRecipient','lastSenderUid'
         ])
         && request.resource.data.participants ==
           [request.resource.data.requesterUid, request.resource.data.recipientUid]
         && request.resource.data.status == 'pending'
         && validId(request.resource.data.initialId)
         && request.resource.data.lastMessageId == request.resource.data.initialId
+        && request.resource.data.lastSenderUid == request.auth.uid
         && validText(request.resource.data.lastPreview, 1, 1500)
         && request.resource.data.unreadRequester == 0
         && request.resource.data.unreadRecipient == 1
@@ -197,10 +198,15 @@
           (resource.data.status == 'accepted'
             && request.resource.data.status == 'accepted'
             && request.resource.data.diff(resource.data).affectedKeys()
-              .hasOnly(['lastMessageId','lastPreview','updatedAt',
+              .hasOnly(['lastMessageId','lastPreview','lastSenderUid','updatedAt',
                 'unreadRequester','unreadRecipient'])
             && validId(request.resource.data.lastMessageId)
             && request.resource.data.lastMessageId != resource.data.lastMessageId
+            && request.resource.data.lastSenderUid == request.auth.uid
+            // Janela técnica de homologação: limita rajadas do mesmo autor
+            // sem leituras adicionais de documentos no Firestore.
+            && (resource.data.lastSenderUid != request.auth.uid
+              || request.time >= resource.data.updatedAt + duration.value(3, 's'))
             && request.resource.data.updatedAt == request.time
             && existsAfter(chatMessagePath(chatId,request.resource.data.lastMessageId))
             && getAfter(chatMessagePath(chatId,request.resource.data.lastMessageId)).data.uid
