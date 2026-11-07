@@ -394,8 +394,12 @@
         && exists(/databases/$(database)/documents/chats/$(request.resource.data.chatId))
         && chatMember(get(/databases/$(database)/documents/chats/$(request.resource.data.chatId)).data)
         && exists(chatMessagePath(request.resource.data.chatId,request.resource.data.messageId))
-        && request.resource.data.reportedText ==
-          get(chatMessagePath(request.resource.data.chatId,request.resource.data.messageId)).data.text;
+        && request.resource.data.reportedText in [
+          get(chatMessagePath(request.resource.data.chatId,request.resource.data.messageId)).data.text,
+          get(chatMessagePath(request.resource.data.chatId,request.resource.data.messageId))
+            .data.get('editedText',
+              get(chatMessagePath(request.resource.data.chatId,request.resource.data.messageId)).data.text)
+        ];
       allow update, delete: if false;
     }
 
