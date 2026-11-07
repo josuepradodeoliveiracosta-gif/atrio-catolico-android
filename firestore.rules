@@ -1063,14 +1063,20 @@ service cloud.firestore {
           ||
           // Marcar lidas: só o destinatário do respectivo contador pode zerá-lo.
           (resource.data.status == 'accepted'
+            && resource.data.unreadRequester > 0
             && request.resource.data.diff(resource.data).affectedKeys()
               .hasOnly(['unreadRequester'])
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasAll(['unreadRequester'])
             && request.auth.uid == resource.data.requesterUid
             && request.resource.data.unreadRequester == 0)
           ||
           (resource.data.status in ['pending','accepted']
+            && resource.data.unreadRecipient > 0
             && request.resource.data.diff(resource.data).affectedKeys()
               .hasOnly(['unreadRecipient'])
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasAll(['unreadRecipient'])
             && request.auth.uid == resource.data.recipientUid
             && request.resource.data.unreadRecipient == 0)
         );
