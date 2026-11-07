@@ -71,10 +71,14 @@ try {
       enabled:true,version:'2026-11-groups-v1',minorPolicyApproved:true
     });
     for(const user of accounts){
-      await setDoc(doc(db,'users/'+user.uid+'/chatGroupAccess/eligibility'),{
-        status:'approved',policyVersion:'2026-11-group-safety-v1',
-        reviewExpiresAt:Timestamp.fromDate(new Date(Date.now()+86_400_000))
-      });
+      if (!user.allowRequests) {
+        // A terceira conta pode receber pedidos, mas NÃO é elegível para
+        // grupos; os dois titulares de grupos são os únicos aprovados.
+        await setDoc(doc(db,'users/'+user.uid+'/chatGroupAccess/eligibility'),{
+          status:'approved',policyVersion:'2026-11-group-safety-v1',
+          reviewExpiresAt:Timestamp.fromDate(new Date(Date.now()+86_400_000))
+        });
+      }
       await setDoc(doc(db,'public_profiles/'+user.uid),{
         uid:user.uid,displayName:user.name,createdAt:serverTimestamp()
       });

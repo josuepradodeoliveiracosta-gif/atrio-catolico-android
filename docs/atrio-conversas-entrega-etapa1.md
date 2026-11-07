@@ -266,6 +266,22 @@ privado. Há um cenário de UI no Firebase Auth/Firestore emulados que
 verifica a abertura de chat inexistente sem crash nem compositor de texto.
 A confirmação de sucesso desse teste depende do CI da revisão atual.
 
+## Primeiro contato com aceite (UI do emulador)
+
+Uma terceira conta exclusiva do Auth Emulator, `group.carla@qa.invalid`,
+é preparada com consentimento **sintético** para receber pedidos de chat,
+sem elegibilidade para grupos. O teste `primeiroContatoPedeAceiteAntesDeConversar`
+percorre a interface real: Alice abre a conversa pelo perfil público, envia
+a primeira mensagem, confirma o estado `pending`, encerra a sessão,
+Carla lê o pedido e toca em **Aceitar**, e Alice volta a enviar somente após
+a confirmação `accepted` no servidor. Todos os UIDs, mensagens e regras
+ficam isolados em `demo-atrio-v11`; nenhum perfil ou aceite real foi criado.
+
+O teste complementar de regras do Firestore já proíbe envio antes do
+aceite e que outro usuário aceite pelo destinatário. A aprovação do novo
+cenário depende do resultado de CI no commit exato; não significa
+consentimento de uma pessoa real nem validação de idade.
+
 ## Verificações necessárias para homologação
 
 1. Regras no emulador: nenhuma leitura externa, solicitação, aceite,

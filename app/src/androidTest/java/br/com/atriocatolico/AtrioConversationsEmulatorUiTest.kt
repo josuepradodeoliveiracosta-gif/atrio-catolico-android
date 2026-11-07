@@ -120,6 +120,79 @@ class AtrioConversationsEmulatorUiTest {
                 .fetchSemanticsNodes().isEmpty())
     }
 
+    @Test fun primeiroContatoPedeAceiteAntesDeConversar() {
+        initializeDemo()
+        val carla = login("group.carla@qa.invalid")
+        auth.signOut()
+        val alice = login("group.alice@qa.invalid")
+        val chatId = listOf(alice, carla).sorted().joinToString("__")
+        var screenUid by mutableStateOf<String?>(alice)
+        compose.setContent {
+            AtrioTheme {
+                screenUid?.let { current ->
+                    AtrioConversationsScreen(
+                        db = db, uid = current, onBack = {},
+                        initialPeer = if (current == alice)
+                            PublicMemberTarget(carla, "Carla QA") else null,
+                        initialChatId = if (current == carla) chatId else null
+                    )
+                }
+            }
+        }
+        // A primeira mensagem cria um pedido, NÃO uma conversa aceita.
+        waitForComposerReady()
+        val first = "Paz e bem! Podemos conversar sobre a comunidade?"
+        compose.onNodeWithTag("atrio-chat-composer").performTextInput(first)
+        compose.onNodeWithTag("atrio-chat-send").performClick()
+        compose.waitUntil(35_000) {
+            runCatching {
+                val room = Tasks.await(db.collection("chats").document(chatId)
+                    .get(Source.SERVER), 5, TimeUnit.SECONDS)
+                room.getString("status") == "pending" &&
+                    room.getString("lastPreview") == first &&
+                    room.getString("requesterUid") == alice
+            }.getOrDefault(false)
+        }
+        waitForText("Aguardando aceite do destinatário.")
+
+        // Mudança de sessão como no aplicativo: encerrar primeiro a UI.
+        compose.runOnIdle { screenUid = null }
+        compose.waitForIdle()
+        auth.signOut()
+        assertEquals(carla, login("group.carla@qa.invalid"))
+        compose.runOnIdle { screenUid = carla }
+        waitForText("Aceitar")
+        waitForText(first)
+        compose.onNodeWithText("Aceitar").performClick()
+        compose.waitUntil(35_000) {
+            runCatching {
+                Tasks.await(db.collection("chats").document(chatId)
+                    .get(Source.SERVER), 5, TimeUnit.SECONDS)
+                    .getString("status") == "accepted"
+            }.getOrDefault(false)
+        }
+
+        // Só depois do aceite o remetente pode enviar outra mensagem.
+        compose.runOnIdle { screenUid = null }
+        compose.waitForIdle()
+        auth.signOut()
+        assertEquals(alice, login("group.alice@qa.invalid"))
+        compose.runOnIdle { screenUid = alice }
+        waitForComposerReady()
+        val reply = "Obrigado pelo aceite! Agora a conversa está aberta."
+        compose.onNodeWithTag("atrio-chat-composer").performTextInput(reply)
+        compose.onNodeWithTag("atrio-chat-send").performClick()
+        compose.waitUntil(35_000) {
+            runCatching {
+                val doc = Tasks.await(db.collection("chats").document(chatId)
+                    .get(Source.SERVER), 5, TimeUnit.SECONDS)
+                doc.getString("status") == "accepted" &&
+                    doc.getString("lastPreview") == reply &&
+                    doc.getString("lastSenderUid") == alice
+            }.getOrDefault(false)
+        }
+    }
+
     @Test fun logoutFechaTelaDeChatAntesDeOutraSessao() {
         initializeDemo()
         val uid = login("group.alice@qa.invalid")
