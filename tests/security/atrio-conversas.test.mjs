@@ -43,10 +43,38 @@ const request=(text,extra={})=>({
   lastMessageId:'m1',lastPreview:text,createdAt:serverTimestamp(),
   updatedAt:serverTimestamp(),unreadRequester:0,unreadRecipient:1,...extra
 });
+const quotaRef='users/chat-alice/chatLimits/requests';
 const sendInitial=(db,text,options={})=>{
   const b=writeBatch(db);
   b.set(doc(db,room),request(text,options));
   b.set(doc(db,initial),message('chat-alice',text));
+  b.set(doc(db,quotaRef),{
+    count:1,windowStart:serverTimestamp(),updatedAt:serverTimestamp(),
+    lastChatId:chatId
+  });
+  return b.commit();
+};
+const sendNewContact=async(peer,override={})=>{
+  const other=env.authenticatedContext(peer).firestore();
+  await setDoc(doc(other,'users/'+peer+'/chatSettings/privacy'),{
+    requests:'all',readReceipts:false,showPushPreview:false,
+    updatedAt:serverTimestamp()
+  });
+  const quota=(await getDoc(doc(alice,quotaRef))).data();
+  const id=['chat-alice',peer].sort().join('__');
+  const path='chats/'+id;
+  const b=writeBatch(alice);
+  b.set(doc(alice,path),{
+    participants:['chat-alice',peer],requesterUid:'chat-alice',
+    recipientUid:peer,status:'pending',initialId:'first',
+    lastMessageId:'first',lastPreview:'Paz e bem!',createdAt:serverTimestamp(),
+    updatedAt:serverTimestamp(),unreadRequester:0,unreadRecipient:1
+  });
+  b.set(doc(alice,path+'/messages/first'),message('chat-alice','Paz e bem!'));
+  b.set(doc(alice,quotaRef),{
+    count:quota.count+1,windowStart:quota.windowStart,
+    lastChatId:id,updatedAt:serverTimestamp(),...override
+  });
   return b.commit();
 };
 const sendNext=(db,sender,id,text,updateOverrides={},kind='text',extra={})=>{
@@ -88,6 +116,29 @@ try {
     assertFails(sendInitial(alice,'Visite https://example.com')));
   await check('solicitação válida e mensagem inicial são atômicas',()=>
     assertSucceeds(sendInitial(alice,'Paz e bem!')));
+  await check('limite exige atualização atômica do contador em cada pedido',()=>
+    assertFails(writeBatch(alice).set(doc(alice,'chats/chat-alice__chat-victim'),{
+      participants:['chat-alice','chat-victim'],
+      requesterUid:'chat-alice',recipientUid:'chat-victim',
+      status:'pending',initialId:'first',lastMessageId:'first',
+      lastPreview:'Paz e bem!',createdAt:serverTimestamp(),
+      updatedAt:serverTimestamp(),unreadRequester:0,unreadRecipient:1
+    }).set(doc(alice,'chats/chat-alice__chat-victim/messages/first'),
+      message('chat-alice','Paz e bem!')).commit()));
+  await check('não permite adulterar o próprio limite sem novo contato',()=>
+    assertFails(updateDoc(doc(alice,quotaRef),{count:0})));
+  await check('novas solicitações válidas incrementam o contador',async()=>{
+    for (const peer of ['chat-c1','chat-c2','chat-c3','chat-c4'])
+      await assertSucceeds(sendNewContact(peer));
+    const now=(await getDoc(doc(alice,quotaRef))).data();
+    assert.equal(now.count,5);
+  });
+  await check('sexta solicitação na mesma janela de 24 horas é recusada',()=>
+    assertFails(sendNewContact('chat-c5')));
+  await check('não é possível redefinir a janela antes de 24 horas',()=>
+    assertFails(sendNewContact('chat-c6',{
+      count:1,windowStart:serverTimestamp()
+    })));
   await check('terceiro não lê conversa, mensagens nem lista de terceiros',async()=>{
     await assertFails(getDoc(doc(stranger,room)));
     await assertFails(getDoc(doc(stranger,initial)));
@@ -207,6 +258,33 @@ try {
     assertFails(setDoc(doc(bob,'chat_reports/report3'),{
       chatId,messageId:'m2',reporterUid:'chat-bob',reason:'Conteúdo inadequado',
       reportedText:'texto diferente',createdAt:serverTimestamp()
+    })));
+  await check('participante pode ocultar mensagem apenas na própria caixa',()=>
+    assertSucceeds(setDoc(doc(bob,
+      'users/chat-bob/chatHidden/'+chatId+'/messages/m2'),{
+      hidden:true,createdAt:serverTimestamp()
+    })));
+  await check('ocultação pessoal não apaga o texto nem altera a conversa',async()=>{
+    const original=await getDoc(doc(alice,room+'/messages/m2'));
+    assert.equal(original.data().text,'Como está sua comunidade?');
+    const hidden=await getDoc(doc(bob,
+      'users/chat-bob/chatHidden/'+chatId+'/messages/m2'));
+    assert.equal(hidden.data().hidden,true);
+  });
+  await check('um terceiro não pode ocultar mensagem para outra pessoa',()=>
+    assertFails(setDoc(doc(stranger,
+      'users/chat-bob/chatHidden/'+chatId+'/messages/m3'),{
+      hidden:true,createdAt:serverTimestamp()
+    })));
+  await check('ocultação não aceita campos extras nem mudança no texto',()=>
+    assertFails(setDoc(doc(alice,
+      'users/chat-alice/chatHidden/'+chatId+'/messages/m2'),{
+      hidden:true,text:'adulterado',createdAt:serverTimestamp()
+    })));
+  await check('ocultação só pode referenciar mensagem existente',()=>
+    assertFails(setDoc(doc(alice,
+      'users/chat-alice/chatHidden/'+chatId+'/messages/fake'),{
+      hidden:true,createdAt:serverTimestamp()
     })));
   await check('participante não consegue ler denúncias de outro',()=>
     assertFails(getDoc(doc(alice,'chat_reports/report2'))));
