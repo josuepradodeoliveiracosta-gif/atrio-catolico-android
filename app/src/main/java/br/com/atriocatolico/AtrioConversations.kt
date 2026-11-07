@@ -463,6 +463,7 @@ private fun AtrioChatThread(
                     "requesterUid" to uid, "recipientUid" to peer,
                     "status" to "pending", "initialId" to messageRef.id,
                     "lastMessageId" to messageRef.id, "lastPreview" to body,
+                    "lastSenderUid" to uid,
                     "createdAt" to FieldValue.serverTimestamp(),
                     "updatedAt" to FieldValue.serverTimestamp(),
                     "unreadRequester" to 0, "unreadRecipient" to 1))
@@ -500,6 +501,7 @@ private fun AtrioChatThread(
                     tx.set(messageRef, bodyData)
                     tx.update(ref, mapOf(
                         "lastMessageId" to messageRef.id, "lastPreview" to body,
+                    "lastSenderUid" to uid,
                         "updatedAt" to FieldValue.serverTimestamp(),
                         counter to (number + 1).coerceAtMost(99L)))
                     true
