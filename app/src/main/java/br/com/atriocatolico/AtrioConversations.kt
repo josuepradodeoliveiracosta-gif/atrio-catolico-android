@@ -98,6 +98,7 @@ internal fun AtrioConversationsScreen(
     var error by remember(uid) { mutableStateOf("") }
     var search by remember(uid) { mutableStateOf("") }
     var requestsTab by remember(uid) { mutableStateOf(false) }
+    var groupsOpen by remember(uid) { mutableStateOf(false) }
     var sharePost by remember(uid, initialSharePost) { mutableStateOf(initialSharePost) }
     var archivesTab by remember(uid) { mutableStateOf(false) }
     var selected by remember(uid, initialPeer?.uid, initialChatId) {
@@ -158,7 +159,7 @@ internal fun AtrioConversationsScreen(
                 "archived" to updated.archived, "updatedAt" to FieldValue.serverTimestamp()))
             .addOnFailureListener { error = "Não foi possível atualizar as preferências." }
     }
-    BackHandler(enabled = selected != null) { selected = null }
+    BackHandler(enabled = selected != null && !groupsOpen) { selected = null }
     Column(Modifier.fillMaxSize().background(Paper).testTag("atrio-chats-screen")) {
         if (FirebaseAuth.getInstance().currentUser?.uid != uid) {
             Text("Sessão alterada. Entre novamente.", Modifier.padding(20.dp))
@@ -171,6 +172,11 @@ internal fun AtrioConversationsScreen(
                     "A implantação exige aprovação das regras e política de proteção de menores.")
                 OutlinedButton(onClick = onBack) { Text("Voltar") }
             }
+        } else if (groupsOpen) {
+            AtrioGroupsScreen(db,uid,
+                knownPeers = rooms.filter { it.status == "accepted" }
+                    .map { it.peer(uid) }.distinct(),
+                onBack = { groupsOpen = false })
         } else if (selected != null) {
             AtrioChatThread(db, uid, selected!!, chosen,
                 initialPeer?.takeIf { AtrioChatPolicy.id(uid, it.uid) == selected },
@@ -183,6 +189,15 @@ internal fun AtrioConversationsScreen(
                 editWindowMinutes = editWindowMinutes,
                 deleteWindowMinutes = deleteWindowMinutes)
         } else {
+            Row(Modifier.fillMaxWidth().padding(horizontal=12.dp),
+                verticalAlignment=Alignment.CenterVertically) {
+                Text("Átrio Conversas",fontWeight=FontWeight.SemiBold,
+                    color=Wine,modifier=Modifier.weight(1f))
+                TextButton(onClick={groupsOpen=true},
+                    modifier=Modifier.testTag("atrio-open-groups")) {
+                    Text("Grupos")
+                }
+            }
             if (sharePost != null) {
                 Text("Escolha uma conversa já aceita para enviar o cartão textual da discussão. " +
                     "Para falar com alguém novo, abra primeiro o perfil dessa pessoa.",
