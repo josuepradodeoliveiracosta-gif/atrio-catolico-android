@@ -3,10 +3,21 @@
     // Fragmento isolado do deploy oficial; ativação administrativa fechada.
     function atrioGroupsEnabled() {
       let cfg = /databases/$(database)/documents/app_config/chat_groups;
-      return signedIn() && exists(cfg)
+      return chatEnabled() && signedIn() && exists(cfg)
         && get(cfg).data.get('enabled',false) == true
         && get(cfg).data.get('minorPolicyApproved',false) == true
         && get(cfg).data.get('version','') == '2026-11-groups-v1';
+    }
+    // O operador só pode provisionar elegibilidade via Console/Admin SDK.
+    // Este registro é CONTROLE DE HOMOLOGAÇÃO, não comprovação de idade.
+    function atrioGroupEligibilityPath(uid) {
+      return /databases/$(database)/documents/users/$(uid)/chatGroupAccess/eligibility;
+    }
+    function atrioGroupEligible(uid) {
+      return exists(atrioGroupEligibilityPath(uid))
+        && get(atrioGroupEligibilityPath(uid)).data.get('status','') == 'approved'
+        && get(atrioGroupEligibilityPath(uid)).data.get('policyVersion','')
+          == '2026-11-group-safety-v1';
     }
     function atrioGroupPath(groupId) {
       return /databases/$(database)/documents/chat_groups/$(groupId);
@@ -28,7 +39,8 @@
       return /databases/$(database)/documents/users/$(uid)/chatGroupLimits/creation;
     }
     function atrioGroupMember(groupId) {
-      return signedIn() && exists(atrioGroupPath(groupId))
+      return signedIn() && atrioGroupEligible(request.auth.uid)
+        && exists(atrioGroupPath(groupId))
         && request.auth.uid in get(atrioGroupPath(groupId)).data.memberUids;
     }
     function atrioGroupAdmin(groupId) {
@@ -43,10 +55,15 @@
     // convites pertencentes a outra conta.
     match /{path=**}/atrioGroupInvites/{inviteId} {
       allow list: if atrioGroupsEnabled() && signedIn()
+        && atrioGroupEligible(request.auth.uid)
         && resource.data.inviteeUid == request.auth.uid;
     }
     match /app_config/chat_groups {
       allow get: if signedIn();
+      allow list, create, update, delete: if false;
+    }
+    match /users/{uid}/chatGroupAccess/eligibility {
+      allow get: if atrioGroupsEnabled() && me(uid);
       allow list, create, update, delete: if false;
     }
     match /users/{uid}/chatGroupLimits/creation {
@@ -87,8 +104,10 @@
     }
     match /chat_groups/{groupId} {
       allow get, list: if atrioGroupsEnabled()
+        && atrioGroupEligible(request.auth.uid)
         && signedIn() && request.auth.uid in resource.data.memberUids;
       allow create: if atrioGroupsEnabled() && validId(groupId)
+        && atrioGroupEligible(request.auth.uid)
         && request.auth.uid == request.resource.data.ownerUid
         && request.resource.data.keys().hasOnly([
           'name','category','ownerUid','memberUids','adminUids','status',
@@ -113,6 +132,7 @@
         && getAfter(atrioGroupCreationQuota(request.auth.uid)).data.updatedAt == request.time
         && getAfter(atrioGroupCreationQuota(request.auth.uid)).data.count <= 2;
       allow update: if atrioGroupsEnabled()
+        && atrioGroupEligible(request.auth.uid)
         && resource.data.status == 'active'
         && atrioGroupBasicChange()
         && (
@@ -189,11 +209,13 @@
       allow delete: if false;
       match /atrioGroupInvites/{inviteeUid} {
         allow get: if atrioGroupsEnabled() && signedIn()
+          && atrioGroupEligible(request.auth.uid)
           && (request.auth.uid == inviteeUid || atrioGroupAdmin(groupId));
         allow list: if atrioGroupsEnabled() && signedIn()
+          && atrioGroupEligible(request.auth.uid)
           && (resource.data.inviteeUid == request.auth.uid || atrioGroupAdmin(groupId));
         allow create: if atrioGroupsEnabled() && validId(inviteeUid)
-          && atrioGroupAdmin(groupId)
+          && atrioGroupEligible(inviteeUid) && atrioGroupAdmin(groupId)
           && get(atrioGroupPath(groupId)).data.status == 'active'
           && request.resource.data.keys().hasOnly([
             'inviteeUid','inviterUid','groupName','status','createdAt','updatedAt'
@@ -212,12 +234,14 @@
           && chatNoBlock(request.auth.uid, inviteeUid)
           && atrioGroupAcceptedContact(request.auth.uid, inviteeUid);
         allow update: if atrioGroupsEnabled()
+          && atrioGroupEligible(request.auth.uid)
           && request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly(['status','updatedAt'])
           && request.resource.data.updatedAt == request.time
           && (
             // Destinatário aceita somente se entrar no grupo no mesmo batch.
             (me(inviteeUid) && resource.data.status == 'pending'
+              && chatNoBlock(resource.data.inviterUid, inviteeUid)
               && request.resource.data.status == 'accepted'
               && !(inviteeUid in get(atrioGroupPath(groupId)).data.memberUids)
               && inviteeUid in getAfter(atrioGroupPath(groupId)).data.memberUids
@@ -261,6 +285,7 @@
         || (signedIn() && resource.data.reporterUid == request.auth.uid);
       allow list: if isAdmin();
       allow create: if atrioGroupsEnabled() && signedIn()
+        && atrioGroupEligible(request.auth.uid)
         && request.resource.data.keys().hasOnly([
           'groupId','messageId','reporterUid','reason','reportedText','createdAt'
         ])
