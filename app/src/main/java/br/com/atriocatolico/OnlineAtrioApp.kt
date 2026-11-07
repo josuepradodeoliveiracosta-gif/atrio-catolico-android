@@ -761,6 +761,7 @@ private fun OnlineCommunity(
     var conversationsOpen by remember(uid) { mutableStateOf(false) }
     var conversationTarget by remember(uid) { mutableStateOf<PublicMemberTarget?>(null) }
     var notificationChatId by remember(uid) { mutableStateOf<String?>(null) }
+    var shareDiscussion by remember(uid) { mutableStateOf<Pair<String, String>?>(null) }
     val incomingChat = AtrioChatNavigation.requested
     LaunchedEffect(uid, incomingChat) {
         if (incomingChat != null) {
@@ -996,6 +997,7 @@ private fun OnlineCommunity(
         }
         tab = destination; detailId = null; noticesOpen = false
         conversationsOpen = false; conversationTarget = null; notificationChatId = null
+        shareDiscussion = null
         publicProfileTarget = null; profilePostOpen = false; previousDetailId = null
         guardiaoAppealsOpen = false
         noticeBadgesOpen = false; returnToNotices = false
@@ -1279,6 +1281,7 @@ private fun OnlineCommunity(
             conversationsOpen = false
             conversationTarget = null
             notificationChatId = null
+            shareDiscussion = null
         } else if (profilePostOpen && publicProfileTarget != null) {
             profilePostOpen = false
             detailId = previousDetailId
@@ -1320,6 +1323,7 @@ private fun OnlineCommunity(
                 publicProfileTarget = null; profilePostOpen = false; previousDetailId = null
                 detailId = null; noticeBadgesOpen = false; returnToNotices = false
                 conversationsOpen = false; conversationTarget = null; notificationChatId = null
+        shareDiscussion = null
                 noticesOpen = !noticesOpen; searchOpen = false
             }
         )
@@ -1335,9 +1339,20 @@ private fun OnlineCommunity(
                         conversationsOpen = false
                         conversationTarget = null
                         notificationChatId = null
+                        shareDiscussion = null
                     },
                     initialPeer = conversationTarget,
-                    initialChatId = notificationChatId)
+                    initialChatId = notificationChatId,
+                    initialSharePost = shareDiscussion,
+                    onOpenDiscussion = { postId ->
+                        shareDiscussion = null
+                        conversationsOpen = false
+                        conversationTarget = null
+                        notificationChatId = null
+                        publicProfileTarget = null
+                        profilePostOpen = false
+                        detailId = postId
+                    })
             } else if (publicProfileTarget != null && !profilePostOpen) {
                 PublicMemberProfileScreen(
                     db = db, target = publicProfileTarget!!, viewerUid = uid,
@@ -1345,6 +1360,7 @@ private fun OnlineCommunity(
                     onConverse = {
                         conversationTarget = publicProfileTarget
                         notificationChatId = null
+                        shareDiscussion = null
                         conversationsOpen = true
                     },
                     onOpenDiscussion = { postId -> profilePostOpen = true; detailId = postId }
@@ -1427,6 +1443,12 @@ private fun OnlineCommunity(
                         }
                     },
                     onReport = { reportPost = detail.id },
+                    onShareAsMessage = {
+                        shareDiscussion = detail.id to detail.title
+                        conversationTarget = null
+                        notificationChatId = null
+                        conversationsOpen = true
+                    },
                     onEdit = if (detail.mine) ({ editingPostId = detail.id }) else null,
                     onDelete = if (detail.mine) ({ deletingPostId = detail.id }) else null,
                     onDeleteReply = { deletingReplyId = it },
@@ -1517,6 +1539,7 @@ private fun OnlineCommunity(
                     onConversations = {
                         conversationTarget = null
                         notificationChatId = null
+                        shareDiscussion = null
                         conversationsOpen = true
                     },
                     onReviews = { guardiaoAppealsOpen = true },
