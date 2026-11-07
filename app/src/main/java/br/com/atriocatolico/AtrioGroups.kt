@@ -286,7 +286,8 @@ internal fun AtrioGroupsScreen(
                 Text("Grupos do Átrio",color=Wine,
                     fontSize=20.sp,fontWeight=FontWeight.Bold,
                     modifier=Modifier.weight(1f))
-                TextButton(onClick={createOpen=!createOpen}) {
+                TextButton(onClick={createOpen=!createOpen},
+                    modifier=Modifier.testTag("atrio-group-create-open")) {
                     Text(if(createOpen) "Cancelar" else "Criar")
                 }
             }
