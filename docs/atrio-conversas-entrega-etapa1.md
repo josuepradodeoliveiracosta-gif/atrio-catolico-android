@@ -207,6 +207,30 @@ exata do código; adicionar um teste não demonstra que ele passou.
 manual e proteção individual de menores. Não habilitar o recurso em
 produção apenas porque o teste de emulador terminou sem falhas.
 
+## Estabilização da instrumentação Android (revisão adicional)
+
+No Android emulado, a transição após um bloqueio podia gerar tentativas
+repetidas de atualizar o contador não lido, embora o Firestore recusasse
+a operação. O cliente agora memoriza a tentativa associada ao último ID de
+mensagem, contador e situação do chat: **não reenvia automaticamente o
+mesmo update rejeitado**. O servidor continua aplicando os bloqueios, sem
+exceção para o criador ou o destinatário. Uma mensagem nova ou reabertura
+da conversa permite nova tentativa de sincronização.
+
+A suíte de regras inclui ainda teste de que apenas o titular pode remover
+seu bloqueio e de que o servidor volta a aceitar mensagens depois da
+remoção. O último teste Android completo apontou também falhas na suíte
+dos bots e nos convites de grupos; **não há homologação final** dessas
+rotas. A suíte de grupos agora recebe um novo seed isolado após a suíte
+privada: o seed reutiliza somente as contas QA do Auth local e restaura
+a conversa aceita, a elegibilidade sintética e os bloqueios de teste.
+Nenhum registro real é atingido, e o teste de segurança não muda as
+regras de produção.
+
+A segunda execução do E2E deve confirmar especificamente se a ausência
+de cascata de writes e a reposição das fixtures resolvem o problema;
+não inferir sucesso apenas de uma compilação ou dos testes de regras.
+
 ## Verificações necessárias para homologação
 
 1. Regras no emulador: nenhuma leitura externa, solicitação, aceite,
