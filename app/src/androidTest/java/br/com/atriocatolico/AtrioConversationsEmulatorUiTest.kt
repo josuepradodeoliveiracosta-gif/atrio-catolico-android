@@ -102,6 +102,27 @@ class AtrioConversationsEmulatorUiTest {
         if (::auth.isInitialized) auth.signOut()
     }
 
+    @Test fun logoutFechaTelaDeChatAntesDeOutraSessao() {
+        initializeDemo()
+        val uid = login("group.alice@qa.invalid")
+        compose.setContent {
+            AtrioTheme {
+                AtrioConversationsScreen(db = db, uid = uid, onBack = {})
+            }
+        }
+        waitForTag("atrio-chats-screen")
+        auth.signOut()
+        waitForText("Sessão alterada. Entre novamente.")
+        assertTrue("Sessão anterior não deve expor a lista de conversas",
+            compose.onAllNodesWithTag("atrio-chats-list", useUnmergedTree = true)
+                .fetchSemanticsNodes().isEmpty())
+        login("group.bob@qa.invalid")
+        waitForText("Sessão alterada. Entre novamente.")
+        assertTrue("Nova identidade não pode reabrir o chat da conta antiga",
+            compose.onAllNodesWithTag("atrio-chats-list", useUnmergedTree = true)
+                .fetchSemanticsNodes().isEmpty())
+    }
+
     @Test fun enviarResponderTrocarContaEBloquearPeloAndroid() {
         initializeDemo()
         // Auth real do EMULADOR; o seed cria apenas as duas contas de teste.

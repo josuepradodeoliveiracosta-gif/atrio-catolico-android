@@ -109,7 +109,32 @@ internal fun AtrioConversationsScreen(
     }
     val chosen = rooms.firstOrNull { it.id == selected }
 
-    DisposableEffect(db, uid) {
+    // O logout encerra listeners privados imediatamente, mesmo que a
+    // Activity ainda esteja exibindo a antiga tela Compose. Não confiar
+    // apenas em checar a sessão durante a renderização.
+    val authentication = remember { FirebaseAuth.getInstance() }
+    var activeAuthUid by remember(uid) {
+        mutableStateOf(authentication.currentUser?.uid)
+    }
+    DisposableEffect(authentication, uid) {
+        val observer = FirebaseAuth.AuthStateListener { instance ->
+            activeAuthUid = instance.currentUser?.uid
+        }
+        authentication.addAuthStateListener(observer)
+        onDispose { authentication.removeAuthStateListener(observer) }
+    }
+    val ownSession = activeAuthUid == uid &&
+        authentication.currentUser?.uid == uid
+
+    DisposableEffect(db, uid, ownSession) {
+        if (!ownSession) {
+            enabled = false
+            loadedConfig = false
+            rooms = emptyList()
+            prefs = emptyMap()
+            requestPolicy = "none"
+            onDispose {}
+        } else {
         val config = db.document("app_config/conversations").addSnapshotListener { doc, failure ->
             loadedConfig = true
             enabled = failure == null && doc?.getBoolean("enabled") == true &&
@@ -130,9 +155,10 @@ internal fun AtrioConversationsScreen(
                 if (failure == null) requestPolicy = doc?.getString("requests") ?: "none"
             }
         onDispose { config.remove(); privacy.remove() }
+        }
     }
-    DisposableEffect(db, uid, enabled) {
-        if (!enabled) { rooms = emptyList(); loaded = true; onDispose {} }
+    DisposableEffect(db, uid, enabled, ownSession) {
+        if (!enabled || !ownSession) { rooms = emptyList(); loaded = true; onDispose {} }
         else {
             loaded = false
             val listener = db.collection("chats").whereArrayContains("participants", uid)
@@ -145,8 +171,8 @@ internal fun AtrioConversationsScreen(
             onDispose { listener.remove() }
         }
     }
-    DisposableEffect(db, uid, enabled) {
-        if (!enabled) onDispose {}
+    DisposableEffect(db, uid, enabled, ownSession) {
+        if (!enabled || !ownSession) onDispose {}
         else {
             val listener = db.collection("users").document(uid).collection("chatBox")
                 .limit(100).addSnapshotListener { snapshot, failure ->
@@ -166,7 +192,7 @@ internal fun AtrioConversationsScreen(
     }
     BackHandler(enabled = selected != null && !groupsOpen) { selected = null }
     Column(Modifier.fillMaxSize().background(Paper).testTag("atrio-chats-screen")) {
-        if (FirebaseAuth.getInstance().currentUser?.uid != uid) {
+        if (!ownSession) {
             Text("Sessão alterada. Entre novamente.", Modifier.padding(20.dp))
         } else if (!loadedConfig) {
             CircularProgressIndicator(Modifier.padding(24.dp))
