@@ -205,7 +205,10 @@
             && request.resource.data.lastSenderUid == request.auth.uid
             // Janela técnica de homologação: limita rajadas do mesmo autor
             // sem leituras adicionais de documentos no Firestore.
-            && (resource.data.lastSenderUid != request.auth.uid
+            && (resource.data.lastMessageId == resource.data.initialId
+              // Aceitar um pedido atualiza updatedAt, mas não envia texto.
+              // O primeiro envio depois do aceite não deve ser barrado.
+              || resource.data.lastSenderUid != request.auth.uid
               || request.time >= resource.data.updatedAt + duration.value(3, 's'))
             && request.resource.data.updatedAt == request.time
             && existsAfter(chatMessagePath(chatId,request.resource.data.lastMessageId))
