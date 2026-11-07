@@ -391,42 +391,33 @@ private fun AtrioChatThread(
             val quotaRef = db.collection("users").document(uid)
                 .collection("chatLimits").document("requests")
             db.runTransaction { tx ->
-                // Leituras primeiro: o Firestore reconcilia disputas entre
-                // dois pedidos concorrentes da mesma conta.
-                val currentRoom = tx.get(ref)
+                // A leitura do contador é autorizada ao próprio usuário.
+                // Não consultar um chat inexistente: uma leitura desse caminho
+                // seria corretamente negada pelas regras de privacidade.
                 val currentQuota = tx.get(quotaRef)
-                val currentMessage = tx.get(messageRef)
-                if (currentRoom.exists()) {
-                    check(currentRoom.getString("requesterUid") == uid &&
-                        currentRoom.getString("initialId") == messageRef.id &&
-                        currentMessage.getString("text") == body)
-                    false // Repetição de envio já persistido; sem novo push.
-                } else {
-                    check(!currentMessage.exists())
-                    val now = System.currentTimeMillis()
-                    val windowStart = currentQuota.getTimestamp("windowStart")
-                    val newWindow = windowStart == null ||
-                        now - windowStart.toDate().time >= 86_400_000L
-                    val number = if (newWindow) 1L else
-                        (currentQuota.getLong("count") ?: 0L) + 1L
-                    check(number <= 5L) { "Limite provisório de pedidos atingido." }
-                    tx.set(quotaRef, mapOf(
-                        "count" to number,
-                        "windowStart" to if (newWindow)
-                            FieldValue.serverTimestamp() else windowStart!!,
-                        "updatedAt" to FieldValue.serverTimestamp(),
-                        "lastChatId" to chatId))
-                    tx.set(ref, mapOf(
-                        "participants" to listOf(uid, peer),
-                        "requesterUid" to uid, "recipientUid" to peer,
-                        "status" to "pending", "initialId" to messageRef.id,
-                        "lastMessageId" to messageRef.id, "lastPreview" to body,
-                        "createdAt" to FieldValue.serverTimestamp(),
-                        "updatedAt" to FieldValue.serverTimestamp(),
-                        "unreadRequester" to 0, "unreadRecipient" to 1))
-                    tx.set(messageRef, bodyData)
-                    true
-                }
+                val now = System.currentTimeMillis()
+                val windowStart = currentQuota.getTimestamp("windowStart")
+                val newWindow = windowStart == null ||
+                    now - windowStart.toDate().time >= 86_400_000L
+                val number = if (newWindow) 1L else
+                    (currentQuota.getLong("count") ?: 0L) + 1L
+                check(number <= 5L) { "Limite provisório de pedidos atingido." }
+                tx.set(quotaRef, mapOf(
+                    "count" to number,
+                    "windowStart" to if (newWindow)
+                        FieldValue.serverTimestamp() else windowStart!!,
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                    "lastChatId" to chatId))
+                tx.set(ref, mapOf(
+                    "participants" to listOf(uid, peer),
+                    "requesterUid" to uid, "recipientUid" to peer,
+                    "status" to "pending", "initialId" to messageRef.id,
+                    "lastMessageId" to messageRef.id, "lastPreview" to body,
+                    "createdAt" to FieldValue.serverTimestamp(),
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                    "unreadRequester" to 0, "unreadRecipient" to 1))
+                tx.set(messageRef, bodyData)
+                true
             }.addOnCompleteListener { response ->
                 saving = false
                 if (response.isSuccessful) {
