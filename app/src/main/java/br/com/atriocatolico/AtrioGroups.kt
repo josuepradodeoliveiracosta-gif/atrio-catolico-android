@@ -96,6 +96,7 @@ internal fun AtrioGroupsScreen(
     var enabled by remember(uid) { mutableStateOf(false) }
     var accessLoaded by remember(uid) { mutableStateOf(false) }
     var accessApproved by remember(uid) { mutableStateOf(false) }
+    var accessValidUntil by remember(uid) { mutableLongStateOf(0L) }
     var rooms by remember(uid) { mutableStateOf<List<AtrioGroup>>(emptyList()) }
     var invitations by remember(uid) { mutableStateOf<List<AtrioGroupInvite>>(emptyList()) }
     var selectedId by remember(uid,initialGroupId) { mutableStateOf(initialGroupId) }
@@ -119,6 +120,7 @@ internal fun AtrioGroupsScreen(
         if(!enabled) {
             accessLoaded=false
             accessApproved=false
+            accessValidUntil=0L
             onDispose {}
         } else {
             accessLoaded=false
@@ -126,9 +128,13 @@ internal fun AtrioGroupsScreen(
                 .collection("chatGroupAccess").document("eligibility")
                 .addSnapshotListener { snapshot,failure ->
                     accessLoaded=true
+                    accessValidUntil=if(failure==null)
+                        snapshot?.getTimestamp("reviewExpiresAt")?.toDate()?.time ?: 0L
+                        else 0L
                     accessApproved=failure==null &&
                         snapshot?.getString("status")=="approved" &&
-                        snapshot.getString("policyVersion")=="2026-11-group-safety-v1"
+                        snapshot.getString("policyVersion")=="2026-11-group-safety-v1" &&
+                        accessValidUntil>System.currentTimeMillis()
                     if(!accessApproved) {
                         rooms=emptyList()
                         invitations=emptyList()
@@ -136,6 +142,19 @@ internal fun AtrioGroupsScreen(
                     }
                 }
             onDispose { watcher.remove() }
+        }
+    }
+    // Interface fecha ao expirar; Firestore não confia no relógio do aparelho.
+    LaunchedEffect(uid,accessValidUntil) {
+        if(accessValidUntil>0L) {
+            kotlinx.coroutines.delay((accessValidUntil-System.currentTimeMillis())
+                .coerceAtLeast(0L))
+            if(System.currentTimeMillis()>=accessValidUntil) {
+                accessApproved=false
+                rooms=emptyList()
+                invitations=emptyList()
+                selectedId=null
+            }
         }
     }
     DisposableEffect(db,uid,enabled,accessApproved) {

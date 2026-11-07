@@ -96,6 +96,12 @@ Console/Admin SDK autorizado, com status `approved` e
 `policyVersion: "2026-11-group-safety-v1"`. A conta não consegue escrever
 ou autorizar a si própria, nem visualizar os registros de outros usuários.
 
+Toda revisão administrativa exige também `reviewExpiresAt` (timestamp
+futuro), fornecido pelo serviço autorizado. Sem essa data ou depois
+do vencimento, Firestore e Worker bloqueiam acesso; o Android fecha
+a interface quando a aprovação expira. Isso não comprova idade e
+o período é definido explicitamente, sem prazo padrão inventado.
+
 **Atenção:** nem esse documento nem a configuração global constituem
 verificação de idade ou política real de proteção de menores. São travas
 administrativas adicionais, inicialmente fechadas. A forma de verificar
@@ -127,6 +133,8 @@ projeto `demo-atrio-v11`, para testar os fluxos de permissões.
 
 ## Validações pendentes antes de qualquer rollout
 
+- A validade de uma revisão administrativa não substitui aferição de idade:
+  é obrigatório definir procedimento confiável antes de liberação.
 - Decidir e implementar elegibilidade/segurança de menores e revisar
   comportamento de bloqueios dentro de um mesmo grupo.
 - Definir a sucessão do criador em caso de exclusão de conta: o botão

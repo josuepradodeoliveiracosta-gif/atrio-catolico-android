@@ -7,7 +7,7 @@ import {readFileSync} from 'node:fs';
 import {initializeTestEnvironment,assertFails,assertSucceeds} from '@firebase/rules-unit-testing';
 import {
   arrayRemove,arrayUnion,collection,collectionGroup,deleteDoc,doc,getDoc,getDocs,
-  query,serverTimestamp,setDoc,updateDoc,where,writeBatch
+  query,serverTimestamp,setDoc,Timestamp,updateDoc,where,writeBatch
 } from 'firebase/firestore';
 
 const marker="    match /{document=**} {\n      allow read, write: if false;\n    }";
@@ -29,6 +29,7 @@ const anonymous=env.unauthenticatedContext().firestore();
 const groupId='grp-study-01';
 const group='chat_groups/'+groupId;
 const quota='users/group-a/chatGroupLimits/creation';
+const validReview=()=>Timestamp.fromDate(new Date(Date.now()+86_400_000));
 let passed=0;
 async function check(name,fn) {
   await fn();
@@ -114,10 +115,15 @@ try {
   await env.withSecurityRulesDisabled(async ctx=>{
     for(const uid of ['group-a','group-b','group-c']) {
       await setDoc(doc(ctx.firestore(),'users/'+uid+'/chatGroupAccess/eligibility'),{
-        status:'approved',policyVersion:'2026-11-group-safety-v1'
+        status:'approved',policyVersion:'2026-11-group-safety-v1',
+        reviewExpiresAt:validReview()
       });
     }
   });
+  await check('conta não prorroga sua própria revisão',()=>
+    assertFails(updateDoc(doc(a,'users/group-a/chatGroupAccess/eligibility'),{
+      reviewExpiresAt:validReview()
+    })));
   await check('elegibilidade própria pode ser consultada, alheia não',async()=>{
     const state=await assertSucceeds(getDoc(doc(a,'users/group-a/chatGroupAccess/eligibility')));
     assert.equal(state.data().status,'approved');
@@ -219,6 +225,24 @@ try {
       status:'approved'
     });
   });
+  await env.withSecurityRulesDisabled(async ctx=>{
+    await updateDoc(doc(ctx.firestore(),'users/group-b/chatGroupAccess/eligibility'),{
+      reviewExpiresAt:Timestamp.fromDate(new Date(Date.now()-60_000))
+    });
+  });
+  await check('revisão vencida revoga leitura de grupos e mensagens',async()=>{
+    await assertFails(getDoc(doc(b,group)));
+    await assertFails(getDocs(collection(b,group+'/messages')));
+  });
+  await check('revisão vencida revoga envio de texto',()=>
+    assertFails(message(b,groupId,'group-b','expired-msg','Sem autorização')));
+  await env.withSecurityRulesDisabled(async ctx=>{
+    await updateDoc(doc(ctx.firestore(),'users/group-b/chatGroupAccess/eligibility'),{
+      reviewExpiresAt:validReview()
+    });
+  });
+  await check('renovação administrativa revalida acesso no laboratório',()=>
+    assertSucceeds(getDoc(doc(b,group))));
   await check('aceito consegue ver o histórico e a lista do grupo',async()=>{
     const d=await assertSucceeds(getDoc(doc(b,group)));
     assert.ok(d.data().memberUids.includes('group-b'));

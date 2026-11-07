@@ -19,7 +19,9 @@
     }
     function atrioGroupEligibleData(eligibility) {
       return eligibility.get('status','') == 'approved'
-        && eligibility.get('policyVersion','') == '2026-11-group-safety-v1';
+        && eligibility.get('policyVersion','') == '2026-11-group-safety-v1'
+        && eligibility.get('reviewExpiresAt',request.time) is timestamp
+        && eligibility.get('reviewExpiresAt',request.time) > request.time;
     }
     function atrioGroupEligible(uid) {
       return atrioGroupEligibleData(get(atrioGroupEligibilityPath(uid)).data);

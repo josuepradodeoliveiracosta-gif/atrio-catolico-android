@@ -20,6 +20,9 @@ const THREAD_MAX_RECIPIENTS = 250;
 const stringField = (doc, key) => doc?.fields?.[key]?.stringValue ?? '';
 const boolField = (doc, key) => doc?.fields?.[key]?.booleanValue === true;
 const timeField = (doc, key) => Date.parse(doc?.fields?.[key]?.timestampValue || '') || 0;
+const groupReviewValid = doc => stringField(doc,'status')==='approved'
+  && stringField(doc,'policyVersion')==='2026-11-group-safety-v1'
+  && timeField(doc,'reviewExpiresAt')>Date.now();
 const uidPart = value => typeof value === 'string' && value.length > 0
   && value.length <= MAX_SUBJECT && /^[A-Za-z0-9_-]+$/.test(value);
 const recent = time => time > Date.now() - MAX_AGE_MS && time < Date.now() + 60_000;
@@ -297,9 +300,7 @@ export async function resolveEvent(event, actor, token) {
        !members.includes(actor)) return null;
     const actorAccess=await firestoreGet(token,
       'users/'+enc(actor)+'/chatGroupAccess/eligibility');
-    if(!actorAccess || stringField(actorAccess,'status')!=='approved' ||
-       stringField(actorAccess,'policyVersion')!=='2026-11-group-safety-v1')
-      return null;
+    if(!groupReviewValid(actorAccess)) return null;
     const recipients=[];
     for(const peer of members) {
       if(peer===actor) continue;
@@ -309,8 +310,7 @@ export async function resolveEvent(event, actor, token) {
         firestoreGet(token,'users/'+enc(actor)+'/blockedMembers/'+enc(peer)),
         firestoreGet(token,'users/'+enc(peer)+'/chatGroupBox/'+enc(event.groupId))
       ]);
-      if(!access || stringField(access,'status')!=='approved' ||
-         stringField(access,'policyVersion')!=='2026-11-group-safety-v1' ||
+      if(!groupReviewValid(access) ||
          blockedA || blockedB || boolField(muted,'muted')) continue;
       recipients.push(peer);
     }

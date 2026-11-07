@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {resolveEvent} from './index.js';
 
 const now = () => new Date(Date.now()-1500).toISOString();
+const validReview = () => new Date(Date.now()+86_400_000).toISOString();
 const field = (name,value) => {
   if (typeof value === 'boolean') return {booleanValue:value};
   if (Array.isArray(value)) return {arrayValue:{values:value.map(v=>({stringValue:v}))}};
@@ -95,11 +96,14 @@ const groupFixture={
   'chat_groups/grp-qa':doc({status:'active',memberUids:['chat-alice','chat-bob','chat-charlie']}),
   'chat_groups/grp-qa/messages/m3':doc({uid:'chat-alice',kind:'text',text:'Mensagem privada',createdAt:now()}),
   'users/chat-alice/chatGroupAccess/eligibility':
-    doc({status:'approved',policyVersion:'2026-11-group-safety-v1'}),
+    doc({status:'approved',policyVersion:'2026-11-group-safety-v1',
+      reviewExpiresAt:validReview()}),
   'users/chat-bob/chatGroupAccess/eligibility':
-    doc({status:'approved',policyVersion:'2026-11-group-safety-v1'}),
+    doc({status:'approved',policyVersion:'2026-11-group-safety-v1',
+      reviewExpiresAt:validReview()}),
   'users/chat-charlie/chatGroupAccess/eligibility':
-    doc({status:'approved',policyVersion:'2026-11-group-safety-v1'})
+    doc({status:'approved',policyVersion:'2026-11-group-safety-v1',
+      reviewExpiresAt:validReview()})
 };
 test('Grupo: destinatários participantes autorizados, nunca corpo da mensagem',async()=>{
   mocked(groupFixture);
@@ -197,4 +201,32 @@ test('Grupo: push exige ativação explícita, separada da criação dos grupos'
     })
   });
   assert.equal(await resolveEvent(groupEvent,'chat-alice','fake'),null);
+});
+
+test('Grupo: revisão vencida do destinatário suspende avisos',async()=>{
+  mocked({...groupFixture,
+    'users/chat-bob/chatGroupAccess/eligibility':doc({
+      status:'approved',policyVersion:'2026-11-group-safety-v1',
+      reviewExpiresAt:new Date(Date.now()-60_000).toISOString()
+    })
+  });
+  assert.deepEqual((await resolveEvent(groupEvent,'chat-alice','fake')).recipients,
+    ['chat-charlie']);
+});
+test('Grupo: revisão vencida do remetente cancela todo evento',async()=>{
+  mocked({...groupFixture,
+    'users/chat-alice/chatGroupAccess/eligibility':doc({
+      status:'approved',policyVersion:'2026-11-group-safety-v1',
+      reviewExpiresAt:new Date(Date.now()-60_000).toISOString()
+    })
+  });
+  assert.equal(await resolveEvent(groupEvent,'chat-alice','fake'),null);
+});
+test('Grupo: ausência de revisão válida não autoriza aviso',async()=>{
+  mocked({...groupFixture,
+    'users/chat-bob/chatGroupAccess/eligibility':
+      doc({status:'approved',policyVersion:'2026-11-group-safety-v1'})
+  });
+  assert.deepEqual((await resolveEvent(groupEvent,'chat-alice','fake')).recipients,
+    ['chat-charlie']);
 });

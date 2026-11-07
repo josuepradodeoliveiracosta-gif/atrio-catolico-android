@@ -6,7 +6,7 @@
  */
 import {readFileSync} from 'node:fs';
 import {initializeTestEnvironment} from '@firebase/rules-unit-testing';
-import {doc,setDoc,serverTimestamp} from 'firebase/firestore';
+import {doc,setDoc,serverTimestamp,Timestamp} from 'firebase/firestore';
 
 const project='demo-atrio-v11';
 const authBase='http://127.0.0.1:9099';
@@ -60,7 +60,8 @@ try {
     });
     for(const user of accounts){
       await setDoc(doc(db,'users/'+user.uid+'/chatGroupAccess/eligibility'),{
-        status:'approved',policyVersion:'2026-11-group-safety-v1'
+        status:'approved',policyVersion:'2026-11-group-safety-v1',
+        reviewExpiresAt:Timestamp.fromDate(new Date(Date.now()+86_400_000))
       });
       await setDoc(doc(db,'public_profiles/'+user.uid),{
         uid:user.uid,displayName:user.name,createdAt:serverTimestamp()
