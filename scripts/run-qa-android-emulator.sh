@@ -88,6 +88,14 @@ if [[ "${ATRIO_QA_SUITE:-}" == "GuardianV2UiTest" ]]; then
   echo "QA Android: apenas GuardianV2UiTest; status=$qa_failed"
   exit "$qa_failed"
 fi
+# Regressão individual de conversas: duas contas e mensagens apenas no
+# emulador; executa uma única suíte, sem consumir o custo do QA completo.
+if [[ "${ATRIO_QA_SUITE:-}" == "AtrioConversationsEmulatorUiTest" ]]; then
+  (cd tests/security && node seed-chat-groups-android.mjs)
+  run_suite AtrioConversationsEmulatorUiTest
+  echo "QA Android: apenas AtrioConversationsEmulatorUiTest; status=$qa_failed"
+  exit "$qa_failed"
+fi
 if [[ -n "${ATRIO_QA_SUITE:-}" ]]; then
   echo "Suite seletiva desconhecida; negando execucao" >&2
   exit 2
@@ -125,6 +133,7 @@ run_suite EmailVerificationAndroidUiTest
   cd tests/security
   node seed-chat-groups-android.mjs
 )
+run_suite AtrioConversationsEmulatorUiTest
 run_suite AtrioGroupsEmulatorUiTest
 echo "QA Android: suítes concluídas em processos separados; status=$qa_failed"
 exit "$qa_failed"

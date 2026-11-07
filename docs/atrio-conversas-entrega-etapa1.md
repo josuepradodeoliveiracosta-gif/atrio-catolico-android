@@ -165,6 +165,29 @@ Cada destinatário também deve optar por `requests: "all"` em
   contas reais e não altera certificado, backups protegidos, versão Release
   nem dados dos usuários.
 
+## QA de interface individual com duas contas emuladas
+
+A suíte `AtrioConversationsEmulatorUiTest`, incluída no fluxo
+`scripts/run-qa-android-emulator.sh`, exercita a interface Compose
+com dois logins Firebase Auth **do emulador local**: Alice envia,
+Bob vê e responde, Bob bloqueia, e Alice recebe recusa do servidor
+ao tentar escrever novamente. Asserções verificam também a autoria
+e a prévia da última mensagem. A inicialização recusa configuração
+de produção e usa somente o projeto `demo-atrio-v11` e as portas
+locais 9099/8089. O teste não usa push FCM real.
+
+Na CI completa, o seed de duas contas emuladas é compartilhado com
+a suíte de grupos, mas os processos de instrumentação são separados.
+Para executar somente a nova suíte no ambiente de QA:
+`ATRIO_QA_SUITE=AtrioConversationsEmulatorUiTest`
+com `scripts/run-qa-android-emulator.sh` no runner Android isolado.
+A aprovação só deve ser declarada após verificar o check na revisão
+exata do código; adicionar um teste não demonstra que ele passou.
+
+**Faltam** testes em aparelhos físicos, rede instável, acessibilidade
+manual e proteção individual de menores. Não habilitar o recurso em
+produção apenas porque o teste de emulador terminou sem falhas.
+
 ## Verificações necessárias para homologação
 
 1. Regras no emulador: nenhuma leitura externa, solicitação, aceite,
