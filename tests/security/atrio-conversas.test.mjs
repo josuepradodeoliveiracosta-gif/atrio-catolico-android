@@ -40,7 +40,8 @@ const message=(sender,text,kind='text')=>({
 const request=(text,extra={})=>({
   participants:['chat-alice','chat-bob'],requesterUid:'chat-alice',
   recipientUid:'chat-bob',status:'pending',initialId:'m1',
-  lastMessageId:'m1',lastPreview:text,createdAt:serverTimestamp(),
+  lastMessageId:'m1',lastPreview:text,lastSenderUid:'chat-alice',
+  createdAt:serverTimestamp(),
   updatedAt:serverTimestamp(),unreadRequester:0,unreadRecipient:1,...extra
 });
 const quotaRef='users/chat-alice/chatLimits/requests';
@@ -67,7 +68,8 @@ const sendNewContact=async(peer,override={})=>{
   b.set(doc(alice,path),{
     participants:['chat-alice',peer],requesterUid:'chat-alice',
     recipientUid:peer,status:'pending',initialId:'first',
-    lastMessageId:'first',lastPreview:'Paz e bem!',createdAt:serverTimestamp(),
+    lastMessageId:'first',lastPreview:'Paz e bem!',lastSenderUid:'chat-alice',
+    createdAt:serverTimestamp(),
     updatedAt:serverTimestamp(),unreadRequester:0,unreadRecipient:1
   });
   b.set(doc(alice,path+'/messages/first'),message('chat-alice','Paz e bem!'));
@@ -80,7 +82,8 @@ const sendNewContact=async(peer,override={})=>{
 const sendNext=(db,sender,id,text,updateOverrides={},kind='text',extra={})=>{
   const b=writeBatch(db);
   b.set(doc(db,room+'/messages/'+id),{...message(sender,text,kind),...extra});
-  const base={lastMessageId:id,lastPreview:text,updatedAt:serverTimestamp(),
+  const base={lastMessageId:id,lastPreview:text,lastSenderUid:sender,
+    updatedAt:serverTimestamp(),
     ...updateOverrides};
   b.update(doc(db,room),base);
   return b.commit();
@@ -182,10 +185,18 @@ try {
     assertSucceeds(sendNext(alice,'chat-alice','m2','Como está sua comunidade?',{
       unreadRecipient:2
     })));
+  await check('mesmo autor não envia rajada imediata de texto em chat aceito',()=>
+    assertFails(sendNext(alice,'chat-alice','m-rapid','Segunda mensagem imediata',{
+      unreadRecipient:3
+    })));
   await check('resposta cita apenas mensagem existente na mesma conversa',()=>
     assertSucceeds(sendNext(bob,'chat-bob','m6','Amém, muito bem!',{
       unreadRequester:1
     },'text',{replyToId:'m2'})));
+  await check('autor não falsifica identidade do último remetente no chat',()=>
+    assertFails(sendNext(alice,'chat-alice','m-spoof','Tentativa de contorno',{
+      unreadRecipient:3,lastSenderUid:'chat-bob'
+    })));
   await check('referência inexistente na resposta é recusada',()=>
     assertFails(sendNext(alice,'chat-alice','m7','Referência falsa',{
       unreadRecipient:3
@@ -372,6 +383,9 @@ try {
     assertFails(updateDoc(doc(alice,room+'/messages/m8'),{
       editedText:'Adulteração',editedAt:serverTimestamp()
     })));
+  // A etapa seguinte escreve pela mesma autora de m8; aguardar o intervalo
+  // real do servidor para não depender da velocidade variável do CI.
+  await new Promise(resolve=>setTimeout(resolve,3200));
   await check('envio de nova última mensagem para editar',()=>
     assertSucceeds(sendNext(alice,'chat-alice','m12','Mensagem mais recente',{
       unreadRecipient:1
