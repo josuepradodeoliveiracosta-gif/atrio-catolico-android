@@ -96,6 +96,12 @@ if [[ "${ATRIO_QA_SUITE:-}" == "AtrioConversationsEmulatorUiTest" ]]; then
   echo "QA Android: apenas AtrioConversationsEmulatorUiTest; status=$qa_failed"
   exit "$qa_failed"
 fi
+if [[ "${ATRIO_QA_SUITE:-}" == "AtrioGroupsEmulatorUiTest" ]]; then
+  (cd tests/security && node seed-chat-groups-android.mjs)
+  run_suite AtrioGroupsEmulatorUiTest
+  echo "QA Android: apenas AtrioGroupsEmulatorUiTest; status=$qa_failed"
+  exit "$qa_failed"
+fi
 if [[ -n "${ATRIO_QA_SUITE:-}" ]]; then
   echo "Suite seletiva desconhecida; negando execucao" >&2
   exit 2
@@ -134,6 +140,10 @@ run_suite EmailVerificationAndroidUiTest
   node seed-chat-groups-android.mjs
 )
 run_suite AtrioConversationsEmulatorUiTest
+# Reseta APENAS os dois usuários QA e sua conversa de fixture, removendo
+# bloqueios intencionais do teste anterior para evitar acoplamento entre
+# suítes de chat individual e grupo.
+(cd tests/security && node seed-chat-groups-android.mjs)
 run_suite AtrioGroupsEmulatorUiTest
 echo "QA Android: suítes concluídas em processos separados; status=$qa_failed"
 exit "$qa_failed"
