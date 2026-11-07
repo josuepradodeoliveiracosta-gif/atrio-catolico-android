@@ -128,7 +128,7 @@ internal fun AtrioGroupsScreen(
             invitations=emptyList()
             onDispose {}
         } else {
-            val listener=db.collectionGroup("invites")
+            val listener=db.collectionGroup("atrioGroupInvites")
                 .whereEqualTo("inviteeUid",uid).limit(100)
                 .addSnapshotListener { data,error ->
                     if (error==null) invitations=data?.documents.orEmpty()
@@ -192,7 +192,7 @@ internal fun AtrioGroupsScreen(
         if (busy || !enabled) return
         busy=true
         val inviteRef=db.collection("chat_groups").document(invite.groupId)
-            .collection("invites").document(uid)
+            .collection("atrioGroupInvites").document(uid)
         if (!accept) {
             inviteRef.update("status","declined",
                 "updatedAt",FieldValue.serverTimestamp())
@@ -382,7 +382,7 @@ private fun AtrioGroupThread(
     fun invite(peer: String) {
         if(busy || peer in room.memberUids || !isAdmin) return
         busy=true
-        val inv=roomRef.collection("invites").document(peer)
+        val inv=roomRef.collection("atrioGroupInvites").document(peer)
         inv.get().addOnCompleteListener { response ->
             if(!response.isSuccessful) {
                 busy=false
