@@ -39,7 +39,8 @@ internal fun PublicMemberProfileScreen(
     target: PublicMemberTarget,
     onBack: () -> Unit,
     onOpenDiscussion: (String) -> Unit,
-    viewerUid: String = ""
+    viewerUid: String = "",
+    onConverse: () -> Unit = {}
 ) {
     val uid = target.uid
     var info by remember(uid) { mutableStateOf<PublicMemberInfo?>(null) }
@@ -147,6 +148,11 @@ internal fun PublicMemberProfileScreen(
         }
         if (viewerUid.isNotBlank() && uid != viewerUid) item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (!blocked) Button(onClick = onConverse,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        .testTag("atrio-public-profile-converse")) {
+                    Text("Conversar")
+                }
                 OutlinedButton(
                     enabled = !actionBusy,
                     onClick = {
