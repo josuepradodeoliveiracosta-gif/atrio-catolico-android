@@ -20,6 +20,34 @@
     function chatMessagePath(chatId, messageId) {
       return /databases/$(database)/documents/chats/$(chatId)/messages/$(messageId);
     }
+    function chatQuotaPath(uid) {
+      return /databases/$(database)/documents/users/$(uid)/chatLimits/requests;
+    }
+    // Limite preliminar para homologação; nenhuma escrita passa sem este
+    // contador transacional. O número exato exige revisão antes de publicar.
+    function chatQuotaMatches(uid, chatId) {
+      return existsAfter(chatQuotaPath(uid))
+        && getAfter(chatQuotaPath(uid)).data.lastChatId == chatId
+        && getAfter(chatQuotaPath(uid)).data.updatedAt == request.time
+        && getAfter(chatQuotaPath(uid)).data.count >= 1
+        && getAfter(chatQuotaPath(uid)).data.count <= 5;
+    }
+    function chatQuotaFields(data) {
+      return data.keys().hasOnly(['count','windowStart','lastChatId','updatedAt'])
+        && data.keys().hasAll(['count','windowStart','lastChatId','updatedAt'])
+        && data.count is int
+        && data.windowStart is timestamp
+        && data.updatedAt == request.time
+        && data.lastChatId is string
+        && data.lastChatId.size() <= 260
+        && data.lastChatId.matches('[A-Za-z0-9_-]+');
+    }
+    function chatQuotaNewRequest(uid, chatId) {
+      let target = /databases/$(database)/documents/chats/$(chatId);
+      return !exists(target) && existsAfter(target)
+        && getAfter(target).data.requesterUid == uid
+        && getAfter(target).data.createdAt == request.time;
+    }
     // Etapa 2 experimental: reações curtas sem anexos, uma por participante.
     function chatValidReaction(value) {
       return value in ['🙏', '❤️', '👍', '🙌', '🕊️'];
@@ -42,6 +70,47 @@
         && request.resource.data.readReceipts is bool
         && request.resource.data.showPushPreview is bool
         && request.resource.data.updatedAt == request.time;
+    }
+    match /users/{uid}/chatLimits/requests {
+      allow get: if chatEnabled() && me(uid);
+      allow list, delete: if false;
+      allow create: if chatEnabled() && me(uid)
+        && chatQuotaFields(request.resource.data)
+        && request.resource.data.count == 1
+        && request.resource.data.windowStart == request.time
+        && chatQuotaNewRequest(uid, request.resource.data.lastChatId);
+      allow update: if chatEnabled() && me(uid)
+        && chatQuotaFields(request.resource.data)
+        && chatQuotaNewRequest(uid, request.resource.data.lastChatId)
+        && request.resource.data.lastChatId != resource.data.lastChatId
+        && resource.data.windowStart is timestamp
+        && resource.data.count is int
+        && (
+          (request.time < resource.data.windowStart + duration.value(24, 'h')
+            && resource.data.count < 5
+            && request.resource.data.windowStart == resource.data.windowStart
+            && request.resource.data.count == resource.data.count + 1)
+          ||
+          (request.time >= resource.data.windowStart + duration.value(24, 'h')
+            && request.resource.data.windowStart == request.time
+            && request.resource.data.count == 1)
+        );
+    }
+    // "Ocultar para mim" não modifica o histórico do outro participante,
+    // nem remove evidências de denúncias.
+    match /users/{uid}/chatHidden/{chatId}/messages/{messageId} {
+      allow get, list: if chatEnabled() && me(uid)
+        && exists(/databases/$(database)/documents/chats/$(chatId))
+        && uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+      allow create: if chatEnabled() && me(uid) && validId(messageId)
+        && exists(/databases/$(database)/documents/chats/$(chatId))
+        && uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants
+        && exists(chatMessagePath(chatId, messageId))
+        && request.resource.data.keys().hasOnly(['hidden','createdAt'])
+        && request.resource.data.keys().hasAll(['hidden','createdAt'])
+        && request.resource.data.hidden == true
+        && request.resource.data.createdAt == request.time;
+      allow update, delete: if false;
     }
     match /users/{uid}/chatBox/{chatId} {
       allow get, list: if chatEnabled() && me(uid);
@@ -87,6 +156,7 @@
         && request.resource.data.updatedAt == request.time
         && chatAllowsRequests(request.resource.data.recipientUid)
         && chatNoBlock(request.resource.data.requesterUid, request.resource.data.recipientUid)
+        && chatQuotaMatches(request.resource.data.requesterUid, chatId)
         && existsAfter(chatMessagePath(chatId, request.resource.data.initialId))
         && getAfter(chatMessagePath(chatId, request.resource.data.initialId)).data.uid
             == request.auth.uid
