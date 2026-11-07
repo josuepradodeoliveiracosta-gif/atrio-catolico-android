@@ -244,19 +244,25 @@ try {
     await assertFails(updateDoc(doc(bob,room),{unreadRequester:0}));
   });
   await check('denúncia de terceiros é proibida',async()=>{
-    await assertFails(setDoc(doc(stranger,'chat_reports/report1'),{
+    await assertFails(setDoc(doc(stranger,'chat_reports/chat-stranger__'+chatId+'__m2'),{
       chatId,messageId:'m2',reporterUid:'chat-stranger',reason:'Conteúdo inadequado',
       reportedText:'Como está sua comunidade?',createdAt:serverTimestamp()
     }));
   });
   await check('denúncia de texto selecionado é aceita',()=>
-    assertSucceeds(setDoc(doc(bob,'chat_reports/report2'),{
+    assertSucceeds(setDoc(doc(bob,'chat_reports/chat-bob__'+chatId+'__m2'),{
       chatId,messageId:'m2',reporterUid:'chat-bob',reason:'Conteúdo inadequado',
       reportedText:'Como está sua comunidade?',createdAt:serverTimestamp()
     })));
+  await check('uma denúncia do mesmo usuário e mensagem não se duplica',()=>
+    assertFails(setDoc(doc(bob,'chat_reports/chat-bob__'+chatId+'__m2'),{
+      chatId,messageId:'m2',reporterUid:'chat-bob',
+      reason:'Tentativa repetida',reportedText:'Como está sua comunidade?',
+      createdAt:serverTimestamp()
+    })));
   await check('ninguém denuncia texto adulterado',()=>
-    assertFails(setDoc(doc(bob,'chat_reports/report3'),{
-      chatId,messageId:'m2',reporterUid:'chat-bob',reason:'Conteúdo inadequado',
+    assertFails(setDoc(doc(alice,'chat_reports/chat-alice__'+chatId+'__m2'),{
+      chatId,messageId:'m2',reporterUid:'chat-alice',reason:'Conteúdo inadequado',
       reportedText:'texto diferente',createdAt:serverTimestamp()
     })));
   await check('participante pode ocultar mensagem apenas na própria caixa',()=>
@@ -306,7 +312,7 @@ try {
       hidden:true,createdAt:serverTimestamp()
     })));
   await check('participante não consegue ler denúncias de outro',()=>
-    assertFails(getDoc(doc(alice,'chat_reports/report2'))));
+    assertFails(getDoc(doc(alice,'chat_reports/chat-bob__'+chatId+'__m2'))));
   await check('edição sem política administrativa permanece negada',()=>
     assertFails(updateDoc(doc(alice,room+'/messages/m2'),{
       editedText:'Texto novo',editedAt:serverTimestamp()
@@ -335,8 +341,8 @@ try {
     assert.equal(d.editedText,'Como está a sua comunidade hoje?');
   });
   await check('denunciar uma edição exige corresponder ao texto real',()=>
-    assertSucceeds(setDoc(doc(bob,'chat_reports/report-edited'),{
-      chatId,messageId:'m2',reporterUid:'chat-bob',reason:'Conteúdo inadequado',
+    assertSucceeds(setDoc(doc(alice,'chat_reports/chat-alice__'+chatId+'__m2'),{
+      chatId,messageId:'m2',reporterUid:'chat-alice',reason:'Conteúdo inadequado',
       reportedText:'Como está a sua comunidade hoje?',createdAt:serverTimestamp()
     })));
   await check('não é permitido editar outras propriedades da mensagem',()=>
@@ -369,7 +375,7 @@ try {
     const batch=writeBatch(alice);
     batch.update(doc(alice,room+'/messages/m12'),{
       text:'[Mensagem removida]',editedText:deleteField(),
-      deletedForAll:true,deletedAt:serverTimestamp()
+      reactions:deleteField(),deletedForAll:true,deletedAt:serverTimestamp()
     });
     batch.update(doc(alice,room),{lastPreview:'[Mensagem removida]'});
     await assertSucceeds(batch.commit());
@@ -390,11 +396,12 @@ try {
   await check('autor remove uma mensagem editada sem preservar edição',async()=>{
     await assertSucceeds(updateDoc(doc(alice,room+'/messages/m2'),{
       text:'[Mensagem removida]',editedText:deleteField(),
-      deletedForAll:true,deletedAt:serverTimestamp()
+      reactions:deleteField(),deletedForAll:true,deletedAt:serverTimestamp()
     }));
     const msg=(await getDoc(doc(bob,room+'/messages/m2'))).data();
     assert.equal(msg.text,'[Mensagem removida]');
     assert.equal(msg.editedText,undefined);
+    assert.equal(msg.reactions,undefined);
   });
   await env.withSecurityRulesDisabled(async ctx=>
     setDoc(doc(ctx.firestore(),room+'/messages/very-old'),{
