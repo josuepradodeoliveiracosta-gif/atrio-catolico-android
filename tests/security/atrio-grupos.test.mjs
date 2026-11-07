@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {initializeTestEnvironment,assertFails,assertSucceeds} from '@firebase/rules-unit-testing';
 import {
-  arrayRemove,arrayUnion,collection,collectionGroup,doc,getDoc,getDocs,
+  arrayRemove,arrayUnion,collection,collectionGroup,deleteDoc,doc,getDoc,getDocs,
   query,serverTimestamp,setDoc,updateDoc,where,writeBatch
 } from 'firebase/firestore';
 
@@ -185,6 +185,12 @@ try {
     assertFails(updateDoc(doc(stranger,group),{
       memberUids:arrayUnion('group-stranger'),updatedAt:serverTimestamp()
     })));
+  await assertSucceeds(setDoc(doc(b,'users/group-b/blockedMembers/group-a'),{
+    createdAt:serverTimestamp()
+  }));
+  await check('convite antigo não pode ser aceito após bloquear o remetente',()=>
+    assertFails(accept(b,groupId,'group-b')));
+  await assertSucceeds(deleteDoc(doc(b,'users/group-b/blockedMembers/group-a')));
   await check('convidado aceita explicitamente com atualização atômica',()=>
     assertSucceeds(accept(b,groupId,'group-b')));
   await env.withSecurityRulesDisabled(async ctx=>{
