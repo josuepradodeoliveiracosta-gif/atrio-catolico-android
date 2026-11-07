@@ -69,7 +69,7 @@ jobs:
             2>&1 | tee "$log"; then
             exit 0
           fi
-          if grep -Eq 'Could not find junit:junit:4\\.13\\.2\\.' "$log"; then
+          if grep -Fq 'Could not find junit:junit:4.13.2.' "$log"; then
             echo "::warning::Repositorio de dependencias indisponivel: tentando resolver JUnit uma ultima vez"
             gradle :app:compileOtaPilotKotlin :app:testOtaPilotUnitTest \
               --refresh-dependencies --no-daemon
