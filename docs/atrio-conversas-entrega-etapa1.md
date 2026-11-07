@@ -1,4 +1,4 @@
-# Átrio Conversas — implementação isolada da etapa 1
+# Átrio Conversas — etapa 1 + avanços isolados da etapa 2
 
 Base de desenvolvimento: `main` em `626e70d7b544e549947aad5f58ae4bde8eb9a1d9`.
 Origem: *Átrio Conversas — Plano Completo* (06/11/2026), páginas 3–11 e 14.
@@ -24,14 +24,30 @@ Origem: *Átrio Conversas — Plano Completo* (06/11/2026), páginas 3–11 e 14
   avisa FCM sem expor conteúdo. Android só exibe uma prévia genérica e
   revalida Firestore ao abrir a conversa.
 - Fonte grande, botões de toque adequados, cores vinho/dourado existentes.
+- **Etapa 2, parcialmente no código:** respostas citadas a uma mensagem já
+  existente na mesma conversa; reações com 🙏, ❤️, 👍, 🙌 e 🕊️, uma por pessoa,
+  com validação de autoria no Firestore; e compartilhamento de discussões em
+  cartão exclusivamente textual (ID e título autenticado da publicação original).
+  Ao abrir o cartão, o acesso à discussão é conferido novamente na consulta ao
+  documento original, sem baixar imagens ou anexos do chat.
+- Ao compartilhar, é necessário escolher uma conversa previamente aceita.
+  Não é possível usar cartões para contornar o aceite do primeiro contato.
 
 ## O que **não** está pronto
 
-A etapa 1 ainda requer compilação em CI, emulador Firebase, testes reais com
-duas contas e a implantação controlada. A presença dos arquivos não é prova
-de que os testes passaram. Os recursos seguintes **não foram liberados**:
-confirmações completas de leitura/entrega, respostas citadas, reações, edição,
-exclusão, envio de discussões por cartão, grupos e mensagens temporárias.
+Até 07/11/2026, a PR de homologação teve compilação Android aprovada,
+testes isolados do Firestore aprovados e 38 verificações específicas
+de segurança do chat aprovadas. Isso confirma somente os testes de CI, não
+os resultados em dispositivos de usuários reais, nem a publicação
+das novas regras no Firebase de produção.
+
+**Continuam não disponíveis ao usuário final:** a própria área de chat
+(ainda bloqueada no servidor), confirmações genuínas de leitura/entrega,
+edição e exclusão de mensagens, política de proteção de menores, contenção
+global de disparos em massa, grupos e mensagens temporárias.
+
+A etapa 2 teve três recursos preparados em código; nenhuma das suas
+funcionalidades foi autorizada para uso em produção.
 
 Mídia e chamadas permanecem excluídas de TODAS as etapas. Este chat não possui
 criptografia ponta a ponta: o Firestore tem controles de acesso por regras,
@@ -78,6 +94,13 @@ Cada destinatário também deve optar por `requests: "all"` em
 - Há uma única solicitação inicial por par de contas; ainda falta o limitador
   **global** do Guardião para solicitações em massa e mensagens repetitivas.
 - Edição e exclusão não estão presentes; o usuário não verá botões falsos.
+  O plano mantém em aberto as regras de prazo, retenção e exclusão;
+  esses comportamentos precisam de definição formal antes da implementação.
+- Compartilhar uma discussão não publica conteúdo no Firestore por outra via:
+  o cartão guarda somente a referência e o título verificado no instante do envio.
+  Se o post for removido, o aplicativo deve apresentar indisponibilidade ao abrir.
+- Emoji/reação é gravado no próprio documento da mensagem para evitar um
+  listener separado por reação; somente o autor da reação pode alterá-la.
 - Um push pode atrasar ou não chegar; FCM aceitar o evento não prova recebimento.
 - Silenciar e arquivar são preferências individuais, não equivalem a bloquear.
 - Chamadas e anexos não serão acrescentados por "atalho" de compartilhamento.
@@ -105,7 +128,11 @@ Cada destinatário também deve optar por `requests: "all"` em
    bloqueio durante envio, logout e re-login no mesmo aparelho.
 5. Push: aplicativo aberto, fechado e segundo plano, privacidade na tela
    bloqueada e acesso negado caso a permissão tenha mudado.
-6. Só depois da aprovação humana: planejar fase 2 de texto enriquecido e
-   fase 3 de grupos de texto.
+6. Validar os recursos da etapa 2 (citações, reações e cartões textuais)
+   com duas contas antes de considerar a fase concluída.
+7. Definir formalmente prazos e retenção para edição e exclusão; adotar
+   política de proteção de menores e critérios de moderação proporcionais.
+8. Só depois da aprovação humana: projetar grupos de texto com convites,
+   administradores, remoção e regras próprias.
 
 Revisar os resultados de CI no PR antes de qualquer merge para `main`.
