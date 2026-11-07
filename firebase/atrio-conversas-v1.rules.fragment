@@ -20,6 +20,19 @@
     function chatMessagePath(chatId, messageId) {
       return /databases/$(database)/documents/chats/$(chatId)/messages/$(messageId);
     }
+    // Edição e retirada pública são opt-in administrativo; sem janela
+    // definida ficam DESATIVADAS. Nunca assumir prazo não aprovado.
+    function chatMessageMutationAllowed(flagName, minutesField, sentAt) {
+      let config = /databases/$(database)/documents/app_config/conversations;
+      return exists(config)
+        && get(config).data.get(flagName, false) == true
+        && get(config).data.get(minutesField, 0) is int
+        && get(config).data.get(minutesField, 0) >= 1
+        && get(config).data.get(minutesField, 0) <= 1440
+        && sentAt is timestamp
+        && request.time <= sentAt + duration.value(
+          get(config).data.get(minutesField, 0), 'm');
+    }
     function chatQuotaPath(uid) {
       return /databases/$(database)/documents/users/$(uid)/chatLimits/requests;
     }
@@ -203,6 +216,27 @@
                   (resource.data.unreadRequester < 99 ? resource.data.unreadRequester + 1 : 99))
             ))
           ||
+          // Edição/remoção da última mensagem exige mutação da própria
+          // mensagem no mesmo commit. Não avança relógio nem contadores.
+          (resource.data.status == 'accepted'
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['lastPreview'])
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasAll(['lastPreview'])
+            && request.resource.data.lastPreview != resource.data.lastPreview
+            && existsAfter(chatMessagePath(chatId, resource.data.lastMessageId))
+            && getAfter(chatMessagePath(chatId, resource.data.lastMessageId)).data.uid
+              == request.auth.uid
+            && (
+              (getAfter(chatMessagePath(chatId, resource.data.lastMessageId)).data
+                .get('editedAt', null) == request.time
+                && request.resource.data.lastPreview ==
+                  getAfter(chatMessagePath(chatId, resource.data.lastMessageId)).data.editedText)
+              || (getAfter(chatMessagePath(chatId, resource.data.lastMessageId)).data
+                .get('deletedAt', null) == request.time
+                && request.resource.data.lastPreview == '[Mensagem removida]')
+            ))
+          ||
           // Marcar lidas: só o destinatário do respectivo contador pode zerá-lo.
           (resource.data.status == 'accepted'
             && resource.data.unreadRequester > 0
@@ -275,7 +309,8 @@
                 == request.time)
             || getAfter(/databases/$(database)/documents/chats/$(chatId)).data.status == 'accepted'
           );
-        // Uma reação só altera o emoji do próprio usuário; jamais texto/autoria.
+        // Todas as alterações são verificadas no servidor; somente o próprio
+        // usuário reage, somente o autor modifica texto ou retira para todos.
         allow update: if chatEnabled()
           && exists(/databases/$(database)/documents/chats/$(chatId))
           && chatMember(get(/databases/$(database)/documents/chats/$(chatId)).data)
@@ -283,18 +318,59 @@
           && chatNoBlock(
             get(/databases/$(database)/documents/chats/$(chatId)).data.requesterUid,
             get(/databases/$(database)/documents/chats/$(chatId)).data.recipientUid)
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions'])
-          && request.resource.data.diff(resource.data).affectedKeys().hasAll(['reactions'])
-          && request.resource.data.reactions is map
-          && request.resource.data.reactions.keys().hasOnly([
-            get(/databases/$(database)/documents/chats/$(chatId)).data.requesterUid,
-            get(/databases/$(database)/documents/chats/$(chatId)).data.recipientUid])
-          && request.resource.data.reactions.diff(resource.data.get('reactions', {}))
-            .affectedKeys().hasOnly([request.auth.uid])
-          && request.resource.data.reactions.diff(resource.data.get('reactions', {}))
-            .affectedKeys().hasAll([request.auth.uid])
-          && (!request.resource.data.reactions.keys().hasAny([request.auth.uid])
-            || chatValidReaction(request.resource.data.reactions[request.auth.uid]));
+          && resource.data.get('deletedForAll', false) == false
+          && (
+            // Reações não mudam texto, autoria, horário, ou reações do outro.
+            (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions'])
+              && request.resource.data.diff(resource.data).affectedKeys().hasAll(['reactions'])
+              && request.resource.data.reactions is map
+              && request.resource.data.reactions.keys().hasOnly([
+                get(/databases/$(database)/documents/chats/$(chatId)).data.requesterUid,
+                get(/databases/$(database)/documents/chats/$(chatId)).data.recipientUid])
+              && request.resource.data.reactions.diff(resource.data.get('reactions', {}))
+                .affectedKeys().hasOnly([request.auth.uid])
+              && request.resource.data.reactions.diff(resource.data.get('reactions', {}))
+                .affectedKeys().hasAll([request.auth.uid])
+              && (!request.resource.data.reactions.keys().hasAny([request.auth.uid])
+                || chatValidReaction(request.resource.data.reactions[request.auth.uid])))
+            ||
+            // Mantém o texto original imutável para fins de contexto e denúncia.
+            (resource.data.kind == 'text'
+              && resource.data.uid == request.auth.uid
+              && chatMessageMutationAllowed(
+                'editEnabled', 'editWindowMinutes', resource.data.createdAt)
+              && request.resource.data.diff(resource.data).affectedKeys()
+                .hasOnly(['editedText','editedAt'])
+              && request.resource.data.diff(resource.data).affectedKeys()
+                .hasAll(['editedText','editedAt'])
+              && validText(request.resource.data.editedText, 1, 1500)
+              && request.resource.data.editedText !=
+                resource.data.get('editedText', resource.data.text)
+              && request.resource.data.editedAt == request.time
+              && (
+                get(/databases/$(database)/documents/chats/$(chatId)).data.lastMessageId != messageId
+                || getAfter(/databases/$(database)/documents/chats/$(chatId)).data.lastPreview
+                  == request.resource.data.editedText))
+            ||
+            // "Remover para todos" só após política aprovada. Substitui o
+            // texto atual pelo marcador e apaga a edição anterior, se houver.
+            (resource.data.kind == 'text'
+              && resource.data.uid == request.auth.uid
+              && chatMessageMutationAllowed(
+                'deleteEnabled', 'deleteWindowMinutes', resource.data.createdAt)
+              && request.resource.data.diff(resource.data).affectedKeys()
+                .hasOnly(['text','deletedForAll','deletedAt','editedText'])
+              && request.resource.data.diff(resource.data).affectedKeys()
+                .hasAll(['text','deletedForAll','deletedAt'])
+              && request.resource.data.text == '[Mensagem removida]'
+              && request.resource.data.deletedForAll == true
+              && request.resource.data.deletedAt == request.time
+              && !request.resource.data.keys().hasAny(['editedText'])
+              && (
+                get(/databases/$(database)/documents/chats/$(chatId)).data.lastMessageId != messageId
+                || getAfter(/databases/$(database)/documents/chats/$(chatId)).data.lastPreview
+                  == '[Mensagem removida]'))
+          );
         allow delete: if false;
       }
     }
