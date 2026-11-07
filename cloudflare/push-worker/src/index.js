@@ -234,7 +234,9 @@ export async function resolveEvent(event, actor, token) {
   // Não confiar em destinatário ou texto do cliente. Buscar a mensagem persistida,
   // conferir remetente, aceite, bloqueios e silenciamento antes de emitir FCM.
   if (type==='chat_message') {
-    if (!uidPart(event.chatId) || !uidPart(event.messageId)) return null;
+    if (typeof event.chatId !== 'string' ||
+        !/^[A-Za-z0-9_-]{1,260}$/.test(event.chatId) ||
+        !uidPart(event.messageId)) return null;
     const config = await firestoreGet(token,'app_config/conversations');
     if (!config || !boolField(config,'enabled') ||
         stringField(config,'version') !== '2026-11-v1') return null;
