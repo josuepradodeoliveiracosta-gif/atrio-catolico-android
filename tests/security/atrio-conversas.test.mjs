@@ -10,9 +10,17 @@ import {
   serverTimestamp
 } from 'firebase/firestore';
 
+// O arquivo raiz está sob fingerprint de produção: jamais alterá-lo para
+// testar uma funcionalidade ainda não homologada. Mesclar apenas em memória.
+const protectedRules=readFileSync('firestore.rules','utf8');
+const extension=readFileSync('../../firebase/atrio-conversas-v1.rules.fragment','utf8');
+const marker="    match /{document=**} {\\n      allow read, write: if false;\\n    }";
+if (!protectedRules.includes(marker) || !extension.includes('match /chats/{chatId}'))
+  throw Error('Regras protegidas/fragmento de homologação indisponíveis');
+const candidateRules=protectedRules.replace(marker,extension+marker);
 const env = await initializeTestEnvironment({
   projectId:'demo-atrio-v11',
-  firestore:{host:'127.0.0.1',port:8089,rules:readFileSync('firestore.rules','utf8')}
+  firestore:{host:'127.0.0.1',port:8089,rules:candidateRules}
 });
 const alice=env.authenticatedContext('chat-alice').firestore();
 const bob=env.authenticatedContext('chat-bob').firestore();
