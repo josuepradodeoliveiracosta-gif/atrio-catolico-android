@@ -254,6 +254,18 @@ exato e examinar o relatório da instrumentação caso haja nova falha.
 As políticas de menores e testes em celulares físicos permanecem
 bloqueadores, independentemente dos resultados em emulador.
 
+## Abertura por notificação sem destinatário
+
+A navegação pode receber um ID válido de conversa antes de conseguir
+identificar o outro participante, ou receber um ID sem acesso autorizado.
+A consulta do nome público agora é omitida enquanto não existir um UID
+de destinatário; isto impede uma exceção Android ao tentar abrir
+`public_profiles/""`. Não concede acesso à conversa e mantém a mensagem
+genérica de indisponibilidade, sem revelar a existência de um chat
+privado. Há um cenário de UI no Firebase Auth/Firestore emulados que
+verifica a abertura de chat inexistente sem crash nem compositor de texto.
+A confirmação de sucesso desse teste depende do CI da revisão atual.
+
 ## Verificações necessárias para homologação
 
 1. Regras no emulador: nenhuma leitura externa, solicitação, aceite,

@@ -102,6 +102,24 @@ class AtrioConversationsEmulatorUiTest {
         if (::auth.isInitialized) auth.signOut()
     }
 
+    @Test fun notificacaoParaChatInexistenteNaoCausaCrash() {
+        initializeDemo()
+        val user = login("group.alice@qa.invalid")
+        compose.setContent {
+            AtrioTheme {
+                AtrioConversationsScreen(db = db, uid = user,
+                    initialChatId = "qa-chat-inexistente", onBack = {})
+            }
+        }
+        waitForTag("atrio-chat-thread")
+        // Não consultar public_profiles com ID vazio nem mostrar mensagens
+        // de uma conversa que não foi autorizada pelo Firestore.
+        waitForText("Conversa não encontrada ou acesso negado.")
+        assertTrue("Chat inexistente não tem caixa de mensagens", 
+            compose.onAllNodesWithTag("atrio-chat-composer", useUnmergedTree = true)
+                .fetchSemanticsNodes().isEmpty())
+    }
+
     @Test fun logoutFechaTelaDeChatAntesDeOutraSessao() {
         initializeDemo()
         val uid = login("group.alice@qa.invalid")

@@ -66,13 +66,21 @@ private fun chatTime(value: Long): String =
 @Composable
 private fun chatPeerName(db: FirebaseFirestore, uid: String, fallback: String = "Participante"): String {
     var label by remember(uid) { mutableStateOf(fallback) }
-    DisposableEffect(db, uid) {
-        val listener = db.collection("public_profiles").document(uid)
-            .addSnapshotListener { doc, error ->
-                if (error == null) label = doc?.getString("displayName")
-                    ?.takeIf { it.isNotBlank() } ?: fallback
-            }
-        onDispose { listener.remove() }
+    DisposableEffect(db, uid, fallback) {
+        // Uma notificação pode apontar para conversa removida ou não
+        // autorizada. Antes de carregar o chat, não há UID do outro membro.
+        // Firestore.document("") lançaria IllegalArgumentException na UI.
+        if (uid.isBlank()) {
+            label = fallback
+            onDispose {}
+        } else {
+            val listener = db.collection("public_profiles").document(uid)
+                .addSnapshotListener { doc, error ->
+                    if (error == null) label = doc?.getString("displayName")
+                        ?.takeIf { it.isNotBlank() } ?: fallback
+                }
+            onDispose { listener.remove() }
+        }
     }
     return label
 }
