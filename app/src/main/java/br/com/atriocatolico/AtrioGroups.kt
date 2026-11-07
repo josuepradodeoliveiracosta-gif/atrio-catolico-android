@@ -43,7 +43,8 @@ private data class AtrioGroup(
     val owner: String,
     val memberUids: List<String>,
     val adminUids: List<String>,
-    val preview: String
+    val preview: String,
+    val lastMessageId: String
 )
 private data class AtrioGroupInvite(
     val id: String,
@@ -63,7 +64,7 @@ private fun DocumentSnapshot.asAtrioGroup(): AtrioGroup? {
     val admins=(get("adminUids") as? List<*>)?.filterIsInstance<String>().orEmpty()
     return AtrioGroup(id,getString("name").orEmpty(),
         getString("category").orEmpty(),owner,members,admins,
-        getString("lastPreview").orEmpty())
+        getString("lastPreview").orEmpty(),getString("lastMessageId").orEmpty())
 }
 
 @Composable
@@ -342,6 +343,16 @@ private fun AtrioGroupThread(
 ) {
     val roomRef=remember(db,room.id) { db.collection("chat_groups").document(room.id) }
     var draft by remember(uid,room.id) { mutableStateOf("") }
+    var pendingId by remember(uid,room.id) { mutableStateOf("") }
+    var pendingText by remember(uid,room.id) { mutableStateOf("") }
+    LaunchedEffect(room.lastMessageId,pendingId) {
+        if(pendingId.isNotBlank() && room.lastMessageId==pendingId &&
+            room.preview==pendingText) {
+            if(draft.trim()==pendingText) draft=""
+            pendingId=""
+            pendingText=""
+        }
+    }
     var messages by remember(uid,room.id) { mutableStateOf<List<AtrioGroupMessage>>(emptyList()) }
     var limit by remember(uid,room.id) { mutableIntStateOf(40) }
     var showMembers by remember(uid,room.id) { mutableStateOf(false) }
@@ -418,20 +429,41 @@ private fun AtrioGroupThread(
             return
         }
         busy=true
-        val m=roomRef.collection("messages").document()
-        val batch=db.batch()
-        batch.set(m,mapOf(
-            "uid" to uid,"text" to text,"kind" to "text",
-            "createdAt" to FieldValue.serverTimestamp()))
-        batch.update(roomRef,mapOf(
-            "lastMessageId" to m.id,
-            "lastPreview" to text,
-            "lastSenderUid" to uid,
-            "updatedAt" to FieldValue.serverTimestamp()))
-        batch.commit().addOnCompleteListener { result ->
+        // O mesmo ID acompanha a tentativa em caso de perda de resposta
+        // da rede. O servidor recusa atualizações da mensagem já criada.
+        val messageRef=if(pendingText==text && pendingId.isNotBlank())
+            roomRef.collection("messages").document(pendingId)
+        else roomRef.collection("messages").document().also {
+            pendingId=it.id
+            pendingText=text
+        }
+        db.runTransaction { tx ->
+            // Firestore exige que todas as leituras venham antes das escritas.
+            val current=tx.get(roomRef)
+            val existing=tx.get(messageRef)
+            check(current.getString("status")=="active" &&
+                (current.get("memberUids") as? List<*>)?.contains(uid)==true)
+            if(existing.exists()) {
+                check(existing.getString("uid")==uid &&
+                    existing.getString("text")==text)
+                false // Envio anterior confirmado: nunca repetir ou notificar.
+            } else {
+                tx.set(messageRef,mapOf(
+                    "uid" to uid,"text" to text,"kind" to "text",
+                    "createdAt" to FieldValue.serverTimestamp()))
+                tx.update(roomRef,mapOf(
+                    "lastMessageId" to messageRef.id,
+                    "lastPreview" to text,
+                    "lastSenderUid" to uid,
+                    "updatedAt" to FieldValue.serverTimestamp()))
+                true
+            }
+        }.addOnCompleteListener { result ->
             busy=false
             if(result.isSuccessful) {
                 if(draft.trim()==text) draft=""
+                pendingId=""
+                pendingText=""
                 error=""
             } else error="Envio não confirmado. Confira a conexão e respeite " +
                 "o intervalo de mensagens do Guardião."
