@@ -1,0 +1,32 @@
+name: Átrio Conversas — preflight offline da identidade do APK QA
+
+# Executa somente testes sintéticos. Não baixa, instala, assina ou publica APKs.
+# Não utiliza credenciais, Firebase, Cloudflare ou dados reais.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/chat_qa_apk_identity.py'
+      - 'scripts/test_chat_qa_apk_identity.py'
+      - '.github/workflows/chat-qa-apk-identity.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  unit-qa-apk-identity:
+    name: Verificar identidade de APK QA com fixtures sintéticas
+    if: >-
+      github.event.pull_request.number == 193 &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Obter código da PR sem manter credenciais
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verificar sintaxe Python
+        run: python3 -m py_compile scripts/chat_qa_apk_identity.py scripts/test_chat_qa_apk_identity.py
+      - name: Executar casos positivos e negativos sem APK nem rede
+        run: python3 -m unittest scripts.test_chat_qa_apk_identity -v
