@@ -28,6 +28,10 @@ conferidas do código-fonte original. O Worker produzido:
 - recusa e-mail não verificado; não importa a política externa oficial;
 - não executa a fila de bots da comunidade oficial;
 - valida marcador QA, projeto e domínio da conta de serviço em tempo de execução;
+- rejeita JWT do Firebase cuja audiência (`aud`) ou emissor (`iss`) não sejam
+  do projeto QA, antes de chamar Identity Toolkit. A autenticação verdadeira
+  **continua obrigatoriamente** no `accounts:lookup` remoto; a checagem de
+  claims locais só bloqueia origens incompatíveis e não valida assinaturas;
 - começa com PUSH_ENABLED=false, broadcast e Guardião desligados;
 - exige D1 com UUID distinto **e marcador SQL de projeto**. O Worker verifica
   `chat_qa_identity` no D1 vinculado antes mesmo de responder ao `/health`

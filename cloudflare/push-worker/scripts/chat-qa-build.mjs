@@ -35,6 +35,24 @@ export function renderQaWorker(original, project) {
     "const emailAllowsCommunity = async (_token, verified) => verified === true;");
   code = exactlyOnce(code, "const PROJECT = 'atrio-catolico';",
     "const PROJECT = '" + project + "';");
+  // A web API key pode, por engano, pertencer à produção. O lookup remoto
+  // valida o token, mas a origem assinada também deve ser o Firebase QA.
+  // A checagem local apenas rejeita; não autentica JWT por si só.
+  code = exactlyOnce(code, '  if (!match) return null;\n  const validated =',
+    `  if (!match) return null;
+  try {
+    const parts = match[1].split('.');
+    if (parts.length !== 3 || parts[1].length > 4000) return null;
+    const b64 = parts[1].replaceAll('-', '+').replaceAll('_', '/');
+    const padded = b64 + '='.repeat((4 - b64.length % 4) % 4);
+    const bytes = Uint8Array.from(atob(padded), char => char.charCodeAt(0));
+    const claims = JSON.parse(new TextDecoder('utf-8', {fatal:true}).decode(bytes));
+    if (!claims || typeof claims !== 'object' || Array.isArray(claims) ||
+        claims.aud !== PROJECT ||
+        claims.iss !== 'https://securetoken.google.com/' + PROJECT)
+      return null;
+  } catch { return null; }
+  const validated =`);
   code = exactlyOnce(code,
     'if (service.project_id !== PROJECT || !service.client_email || !service.private_key)',
     "if (service.project_id !== PROJECT ||\n" +

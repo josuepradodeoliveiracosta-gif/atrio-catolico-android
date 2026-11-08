@@ -135,3 +135,59 @@ test('D1 QA correto libera apenas health desativado; não autoriza envio sem seg
   assert.equal((await event.json()).status,'disabled');
   assert.equal(lookups,2);
 });
+
+test('Worker QA rejeita JWT de outro projeto antes de acessar Firebase',async()=>{
+  const worker=(await import('data:text/javascript;charset=utf-8,'+
+    encodeURIComponent(generated))).default;
+  const {verifyIdentity}=await import('data:text/javascript;charset=utf-8,'+
+    encodeURIComponent(generated));
+  const previousFetch=globalThis.fetch;
+  let remoteCalls=0;
+  globalThis.fetch=async()=>{remoteCalls++;throw Error('rede não autorizada')};
+  const fakeJwt=(aud,iss)=>{
+    const b64=s=>Buffer.from(JSON.stringify(s)).toString('base64url');
+    return b64({alg:'RS256',typ:'JWT'})+'.'+b64({
+      aud,iss,sub:'qa_user',iat:1762621200,exp:1762624800
+    })+'.'+'a'.repeat(120);
+  };
+  const req=jwt=>new Request('https://qa.example/event',
+    {headers:{Authorization:'Bearer '+jwt}});
+  try {
+    const qaIssuer='https://securetoken.google.com/'+qaProject;
+    for(const token of [
+      fakeJwt('atrio-catolico','https://securetoken.google.com/atrio-catolico'),
+      fakeJwt(qaProject,'https://securetoken.google.com/atrio-catolico'),
+      fakeJwt('atrio-catolico',qaIssuer),
+      'z'.repeat(160),
+      'a'.repeat(160)+'.x.y'
+    ]) {
+      assert.equal(await verifyIdentity(req(token),{FIREBASE_WEB_API_KEY:'fake-qa-key'}),null);
+    }
+    assert.equal(remoteCalls,0);
+    assert.equal(typeof worker.fetch,'function');
+  } finally {globalThis.fetch=previousFetch;}
+});
+test('token do projeto QA continua exigindo confirmação do Firebase Auth',async()=>{
+  const {verifyIdentity}=await import('data:text/javascript;charset=utf-8,'+
+    encodeURIComponent(generated));
+  const b64=s=>Buffer.from(JSON.stringify(s)).toString('base64url');
+  const token=b64({alg:'RS256',typ:'JWT'})+'.'+b64({
+    aud:qaProject,iss:'https://securetoken.google.com/'+qaProject,
+    sub:'qa_user',iat:1762621200,exp:1762624800
+  })+'.'+'a'.repeat(120);
+  const savedFetch=globalThis.fetch;
+  let lookupCalls=0;
+  globalThis.fetch=async(url,options)=>{
+    assert.match(String(url),/^https:\/\/identitytoolkit.googleapis.com\/v1\/accounts:lookup\?key=/);
+    assert.match(options.body,/"idToken"/);
+    lookupCalls++;
+    return new Response(JSON.stringify({users:[{localId:'qa_user',emailVerified:true}]}),
+      {status:200,headers:{'Content-Type':'application/json'}});
+  };
+  try {
+    const result=await verifyIdentity(new Request('https://qa.example/event',
+      {headers:{Authorization:'Bearer '+token}}),{FIREBASE_WEB_API_KEY:'fake-qa-key'});
+    assert.equal(result,'qa_user');
+    assert.equal(lookupCalls,1);
+  } finally {globalThis.fetch=savedFetch;}
+});
