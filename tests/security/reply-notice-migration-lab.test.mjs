@@ -17,9 +17,9 @@ const helpers=[
 '        }',
 '        function labNoticeFor(postId,replyId,recipient) {',
 '          let n=/databases/$(database)/documents/users/$(recipient)/notifications/$(replyId);',
-'          // Reutilizar validacao integral do allow create de notifications.',
-'          // Exigir apenas que o aviso nao existisse antes e exista no batch.',
-'          return !exists(n) && existsAfter(n);',
+'          // O allow create existente comprova autoria, post e mesmo batch.',
+'          // Um unico existsAfter reduz chamadas em lotes com varios avisos.',
+'          return existsAfter(n);',
 '        }',
 '        function labOwnerNotice(postId,replyId) {',
 '          let post=/databases/$(database)/documents/posts/$(postId);',
@@ -28,20 +28,14 @@ const helpers=[
 '        }',
 '        function labDirectNotice(postId,replyId) {',
 "          let recipient=request.resource.data.get('replyToUid','');",
-'          let post=/databases/$(database)/documents/posts/$(postId);',
-'          let owner=get(post).data.uid;',
-'          let n=/databases/$(database)/documents/users/$(recipient)/notifications/$(replyId);',
 "          return !request.resource.data.keys().hasAny(['replyToId'])",
-'            || recipient == request.auth.uid || recipient == owner',
+'            || recipient == request.auth.uid',
 '            || labNoticeFor(postId,replyId,recipient);',
 '        }',
 '        function labMentionNotice(postId,replyId) {',
 "          let recipient=request.resource.data.get('mentionUid','');",
-'          let post=/databases/$(database)/documents/posts/$(postId);',
-'          let owner=get(post).data.uid;',
-'          let n=/databases/$(database)/documents/users/$(recipient)/notifications/$(replyId);',
 "          return !request.resource.data.keys().hasAny(['mentionUid'])",
-'            || recipient == request.auth.uid || recipient == owner',
+'            || recipient == request.auth.uid',
 '            || labNoticeFor(postId,replyId,recipient);',
 '        }',''
 ].join('\n');
@@ -130,6 +124,10 @@ try {
     await assertFails(b.commit());
   });
   await check('resposta direta com aviso ao autor e destinatario passa',async()=>{
+    // Confirmar que o alvo foi persistido antes da operacao de tres escritas.
+    const source=await assertSucceeds(
+      getDoc(doc(lucia,'posts',postId,'replies','lucia_seed')));
+    assert.equal(source.data()?.uid,lu);
     const id='direct_both',b=writeBatch(miguel);
     b.set(replyRef(id),{...reply(id),replyToId:'lucia_seed',replyToUid:lu});
     b.set(noticeRef(id),notice(id));
