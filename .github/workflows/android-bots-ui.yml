@@ -14,6 +14,15 @@ on:
   push:
     branches: [feature/push-gratuito-cloudflare-v0190]
   workflow_dispatch:
+    inputs:
+      qa_suite:
+        description: "Escopo do QA Android (execucao manual; PR sempre roda tudo)"
+        required: true
+        type: choice
+        default: all
+        options:
+          - all
+          - ThreeBotsOnlineEmulatorTest
 
 concurrency:
   group: qa-android-emulator-${{ github.event.pull_request.number || github.ref }}
@@ -69,6 +78,8 @@ jobs:
           ls -l /dev/kvm
           test -r /dev/kvm && test -w /dev/kvm || { echo "Acesso negado ao /dev/kvm"; exit 1; }
       - name: Rodar interface no emulador Android virtual
+        env:
+          ATRIO_QA_SUITE: ${{ github.event_name == 'workflow_dispatch' && inputs.qa_suite != 'all' && inputs.qa_suite || '' }}
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35

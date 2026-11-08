@@ -102,6 +102,13 @@ if [[ "${ATRIO_QA_SUITE:-}" == "AtrioGroupsEmulatorUiTest" ]]; then
   echo "QA Android: apenas AtrioGroupsEmulatorUiTest; status=$qa_failed"
   exit "$qa_failed"
 fi
+# Reproducao focada: tres bots, Auth/Firestore emulados e verificacao
+# atomica de resposta + aviso; evita repetir todas as demais telas.
+if [[ "${ATRIO_QA_SUITE:-}" == "ThreeBotsOnlineEmulatorTest" ]]; then
+  run_suite ThreeBotsOnlineEmulatorTest
+  echo "QA Android: apenas ThreeBotsOnlineEmulatorTest; status=$qa_failed"
+  exit "$qa_failed"
+fi
 if [[ -n "${ATRIO_QA_SUITE:-}" ]]; then
   echo "Suite seletiva desconhecida; negando execucao" >&2
   exit 2
