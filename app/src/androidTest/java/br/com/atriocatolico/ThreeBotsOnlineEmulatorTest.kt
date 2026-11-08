@@ -204,10 +204,13 @@ class ThreeBotsOnlineEmulatorTest {
         val query = db.collection("posts").whereEqualTo("title", title)
         compose.waitUntil(45000) {
             val snapshot = Tasks.await(query.get(Source.SERVER), 5, TimeUnit.SECONDS)
-            snapshot.size() == 1
+            snapshot.size() == 1 &&
+                !snapshot.documents.single().metadata.hasPendingWrites()
         }
         val docs = Tasks.await(query.get(Source.SERVER), 10, TimeUnit.SECONDS)
         assertEquals("A publicação não foi persistida pelo Firebase",1,docs.size())
+        assertTrue("A publicação ainda possui gravação local pendente",
+            !docs.documents.single().metadata.hasPendingWrites())
         val postId = docs.documents.single().id
         assertEquals("A discussão deve pertencer à conta Clara",claraId,
             docs.documents.single().getString("uid"))
@@ -235,18 +238,46 @@ class ThreeBotsOnlineEmulatorTest {
             .performClick()
         // A escrita deve ser confirmada no servidor, não apenas no cache
         // local da tela. A resposta também precisa pertencer a Miguel.
+        val miguelId = requireNotNull(auth.currentUser?.uid)
         var persistedReplyId = ""
-        compose.waitUntil(30000) {
-            val replies=Tasks.await(db.collection("posts").document(postId)
-                .collection("replies").get(Source.SERVER),20,TimeUnit.SECONDS)
-            persistedReplyId=replies.documents.firstOrNull {
-                it.getString("body")=="Resposta de Miguel pelo app Android conectado." &&
-                    it.getString("uid")==auth.currentUser?.uid
-            }?.id.orEmpty()
-            persistedReplyId.isNotBlank()
+        var sawUncommittedReply = false
+        // Source.SERVER ainda pode mesclar gravações locais pendentes. Não
+        // trocar de conta antes de confirmar a aceitação pelo servidor.
+        // Caso contrário, a troca de Auth poderá interromper o batch e
+        // aparentar uma resposta salva sem o aviso atômico correspondente.
+        try {
+            compose.waitUntil(45000) {
+                val replies = Tasks.await(db.collection("posts").document(postId)
+                    .collection("replies").get(Source.SERVER), 20, TimeUnit.SECONDS)
+                val matchingReply = replies.documents.firstOrNull {
+                    it.getString("body") == "Resposta de Miguel pelo app Android conectado." &&
+                        it.getString("uid") == miguelId
+                }
+                sawUncommittedReply = sawUncommittedReply ||
+                    (matchingReply?.metadata?.hasPendingWrites() == true)
+                persistedReplyId = matchingReply?.takeIf {
+                    !it.metadata.hasPendingWrites()
+                }?.id.orEmpty()
+                persistedReplyId.isNotBlank()
+            }
+        } catch (timeout: androidx.compose.ui.test.ComposeTimeoutException) {
+            throw AssertionError(
+                "Resposta não confirmada pelo backend antes da troca de sessão; " +
+                    "escrita local pendente observada=$sawUncommittedReply", timeout
+            )
         }
+        // Exigir ACK de todas as escritas pendentes nesta sessão QA.
+        Tasks.await(db.waitForPendingWrites(), 20, TimeUnit.SECONDS)
+        val committedReply = Tasks.await(db.collection("posts").document(postId)
+            .collection("replies").document(persistedReplyId).get(Source.SERVER),
+            15, TimeUnit.SECONDS)
+        assertTrue("Resposta não existe no servidor após ACK", committedReply.exists())
+        assertTrue("Resposta ainda não confirmada no servidor após ACK",
+            !committedReply.metadata.hasPendingWrites())
+        assertEquals("Resposta gravada com autor diferente do autenticado",
+            miguelId, committedReply.getString("uid"))
         assertTrue("A resposta foi publicada fora da conta de Miguel",
-            auth.currentUser?.uid!=claraId)
+            miguelId != claraId)
         // Miguel não pode ler as notificações privadas de Clara. A leitura
         // será feita após reautenticar como destinatária, no final da sessão.
         leave()
