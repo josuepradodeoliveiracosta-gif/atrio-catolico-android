@@ -45,7 +45,7 @@ publicadas contêm o mesmo OnlineAtrioApp.reply() que escreve batch de
 resposta e avisos, mas sem congelar a identidade da sessão antes da leitura
 assíncrona do autor do post.
 
-Próximos testes incrementais (a validar em CI): payload de resposta direta
+Próximos testes incrementais (20/20 aprovados no workflow GitHub Actions #42494784528): payload de resposta direta
 a comentário do próprio autor da resposta, rejeição atômica de target e
 mention simultâneos (ambos podem ser recebidos pelo método legado apesar de
 o servidor proibir a combinação), e rejeição de operação que usa UID/nome
@@ -79,3 +79,24 @@ Na pasta tests/security, com Java 17 e Node 20:
 
 O workflow específico não recebe credenciais produtivas, não faz
 deploy, não muda backup e não modifica o APK.
+
+## Proteção experimental contra reutilização de avisos — nova regressão
+
+O laboratório de 20 testes não cobria este caso: Miguel pode criar uma resposta
+e um aviso canônico, apagar apenas a resposta e tentar recriar outra com o
+mesmo ID. O aviso original continua existente. Uma regra que aceita apenas
+`existsAfter(aviso)` pode ser enganada, pois a função também retorna verdadeiro
+para o aviso **antigo**, sem exigir nova notificação no lote atual.
+
+A proposta foi reforçada, **somente na cópia de regras carregada pelo Firebase
+Emulator**, para exigir `getAfter(aviso).data.createdAt == request.time`.
+Isso aproveita a verificação completa do `allow create` já existente para
+o aviso novo e evita aceitar timestamp de operações passadas. Um novo teste
+cria resposta+aviso, apaga a resposta, tenta reutilizar o aviso e exige
+rejeição sem nova resposta persistida. O resultado dessa regressão será
+validado no CI específico; não está implícito nos 20 testes anteriores.
+
+**Limite:** regras não reconhecem a intenção de uma pessoa quando o cliente
+antigo alterna de conta e monta uma publicação aparentemente válida como o
+novo usuário; por isso a proteção do lado do cliente na PR continua necessária.
+Nenhuma versão mínima, rollout ou mudança em `firestore.rules` foi autorizada.

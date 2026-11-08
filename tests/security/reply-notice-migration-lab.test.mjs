@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {initializeTestEnvironment,assertFails,assertSucceeds} from '@firebase/rules-unit-testing';
-import {doc,setDoc,getDoc,writeBatch,serverTimestamp} from 'firebase/firestore';
+import {doc,setDoc,getDoc,deleteDoc,writeBatch,serverTimestamp} from 'firebase/firestore';
 
 const original=readFileSync('firestore.rules','utf8');
 const from='      match /replies/{replyId} {\n';
@@ -17,9 +17,9 @@ const helpers=[
 '        }',
 '        function labNoticeFor(postId,replyId,recipient) {',
 '          let n=/databases/$(database)/documents/users/$(recipient)/notifications/$(replyId);',
-'          // O allow create existente comprova autoria, post e mesmo batch.',
-'          // Um unico existsAfter reduz chamadas em lotes com varios avisos.',
-'          return existsAfter(n);',
+'          // O allow create do aviso valida UID, post, nome e timestamp.',
+'          // Nao admitir aviso antigo de resposta excluida/recriada com mesmo ID.',
+'          return getAfter(n).data.createdAt == request.time;',
 '        }',
 '        function labOwnerNotice(postId,replyId) {',
 '          let post=/databases/$(database)/documents/posts/$(postId);',
@@ -240,6 +240,22 @@ try {
       getDoc(doc(clara,'posts',postId,'replies',id)))).exists(),false);
     assert.equal((await assertSucceeds(
       getDoc(doc(clara,'users',ca,'notifications',id)))).exists(),false);
+  });
+  await check('recriar resposta apagada nao reutiliza notificacao antiga',async()=>{
+    const id='reused_notice_after_delete',first=writeBatch(miguel);
+    first.set(replyRef(id),reply(id));
+    first.set(noticeRef(id),notice(id));
+    await assertSucceeds(first.commit());
+    await assertSucceeds(deleteDoc(replyRef(id)));
+    const priorNotice=await assertSucceeds(
+      getDoc(doc(clara,'users',ca,'notifications',id)));
+    assert.equal(priorNotice.exists(),true);
+    // existsAfter sozinho permitiria reutilizar aviso criado em lote anterior.
+    await assertFails(setDoc(replyRef(id),reply(id)));
+    const attempted=await assertSucceeds(
+      getDoc(doc(clara,'posts',postId,'replies',id)));
+    assert.equal(attempted.exists(),false,
+      'Nao permitir nova resposta sem uma nova notificacao da mesma operacao');
   });
   await check('rollback restaura compatibilidade',async()=>{
     await flag(false);
