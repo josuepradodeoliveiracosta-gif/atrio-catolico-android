@@ -276,6 +276,22 @@ class ThreeBotsOnlineEmulatorTest {
             !committedReply.metadata.hasPendingWrites())
         assertEquals("Resposta gravada com autor diferente do autenticado",
             miguelId, committedReply.getString("uid"))
+        // Correlacionar o replyId da leitura confirmada com o operation
+        // registrado pelo próprio app em AtrioReplyQA (somente QA emulado).
+        // Também detectar duplicação de envio, não aceitar "primeiro match".
+        val confirmedReplies = Tasks.await(db.collection("posts").document(postId)
+            .collection("replies").get(Source.SERVER), 15, TimeUnit.SECONDS)
+        val matchingReplies = confirmedReplies.documents.filter {
+            it.getString("body") == "Resposta de Miguel pelo app Android conectado." &&
+                it.getString("uid") == miguelId
+        }
+        assertEquals("O envio deve produzir uma única resposta canônica",
+            1, matchingReplies.size)
+        assertEquals("A resposta observada difere da resposta confirmada",
+            persistedReplyId, matchingReplies.single().id)
+        android.util.Log.i("AtrioThreeBotsQA",
+            "verifiedReplyId=$persistedReplyId pendingWrites=" +
+                matchingReplies.single().metadata.hasPendingWrites())
         assertTrue("A resposta foi publicada fora da conta de Miguel",
             miguelId != claraId)
         // Miguel não pode ler as notificações privadas de Clara. A leitura
@@ -293,8 +309,14 @@ class ThreeBotsOnlineEmulatorTest {
             .collection("notifications").document(persistedReplyId)
         val immediateNotice = Tasks.await(immediateNoticeRef.get(Source.SERVER),
             15,TimeUnit.SECONDS)
+        android.util.Log.i("AtrioThreeBotsQA",
+            "verifiedNoticeReplyId=$persistedReplyId exists=" +
+                immediateNotice.exists() + " pendingWrites=" +
+                immediateNotice.metadata.hasPendingWrites())
         assertTrue("Aviso ausente imediatamente após a resposta persistida",
             immediateNotice.exists())
+        assertTrue("Aviso ainda possui gravação local pendente",
+            !immediateNotice.metadata.hasPendingWrites())
         assertEquals("Aviso inicial vinculado a outra discussão",
             postId, immediateNotice.getString("postId"))
         assertEquals("Aviso inicial vinculado a outra resposta",
