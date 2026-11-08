@@ -14,6 +14,34 @@ val atrioOtaQaLoopback = System.getenv("ATRIO_OTA_QA_LOOPBACK") == "1"
 val atrioOtaReleasePilot = System.getenv("ATRIO_OTA_RELEASE_PILOT") == "1"
 val atrioOtaPilotCompileOnly = System.getenv("ATRIO_OTA_PILOT_COMPILE_ONLY") == "1"
 val atrioOtaPilotEnabled = atrioOtaReleasePilot || atrioOtaPilotCompileOnly
+// O chat QA possui pacote e Firebase próprios; nunca habilitar por padrão.
+val atrioChatQaBuild = System.getenv("ATRIO_CHAT_QA_BUILD") == "1"
+if (atrioChatQaBuild) {
+    require(!atrioDesignPreview && !atrioOtaQaLoopback && !atrioOtaPilotEnabled) {
+        "Chat QA nao pode usar o preview, OTA ou piloto."
+    }
+    require(gradle.startParameter.taskNames.isNotEmpty() &&
+        gradle.startParameter.taskNames.all {
+            it.substringAfterLast(':') == "assembleChatQa"
+        }) { "Chat QA: exclusivamente assembleChatQa." }
+    require(listOf(
+        "ATRIO_PUSH_WORKER_URL", "ATRIO_AVATAR_WORKER_URL",
+        "ATRIO_GUARDIAN_V2_WORKER_URL", "ATRIO_SIGNING_STORE_FILE",
+        "ATRIO_SIGNING_STORE_PASSWORD", "ATRIO_SIGNING_KEY_ALIAS",
+        "ATRIO_SIGNING_KEY_PASSWORD"
+    ).all { System.getenv(it).isNullOrBlank() }) {
+        "Chat QA exige ambiente sem URLs gerais ou chaves de assinatura."
+    }
+    require(file("src/chatQa/google-services.json").isFile) {
+        "Chat QA exige um google-services.json de QA separado."
+    }
+    val preflight = ProcessBuilder(
+        "python3", rootProject.file("scripts/chat_qa_build_gate.py").absolutePath
+    ).directory(rootProject.projectDir).inheritIO().start()
+    require(preflight.waitFor() == 0) {
+        "Chat QA bloqueado pelo preflight offline."
+    }
+}
 require(!(atrioOtaQaLoopback && atrioOtaPilotEnabled)) {
     "Laboratorio Debug e piloto Release nao podem ser ativos juntos."
 }
@@ -61,7 +89,7 @@ if (atrioOtaQaLoopback && gradle.startParameter.taskNames.any { task ->
 }
 // Com app/google-services.json presente, o Google Services gera os recursos Firebase.
 // Sem o arquivo, este projeto ainda pode ser compilado em modo demonstração.
-if (file("google-services.json").exists() && !atrioOtaQaLoopback && !atrioDesignPreview) {
+if ((file("google-services.json").exists() || atrioChatQaBuild) && !atrioOtaQaLoopback && !atrioDesignPreview) {
     apply(plugin = "com.google.gms.google-services")
 }
 
@@ -154,6 +182,19 @@ android {
             }
             signingConfigs.findByName("atrioRelease")?.let { signingConfig = it }
         }
+        create("chatQa") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".chatqa"
+            matchingFallbacks += listOf("debug")
+            isDebuggable = true
+            buildConfigField("boolean", "OTA_QA_LOOPBACK", "false")
+            buildConfigField("boolean", "OTA_RELEASE_PILOT_LOOPBACK", "false")
+            buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"Chat QA isolado\"")
+            buildConfigField("String", "PUSH_RELAY_URL",
+                "\"" + System.getenv("ATRIO_CHAT_QA_WORKER_URL").orEmpty() + "\"")
+            buildConfigField("String", "GUARDIAN_V2_WORKER_URL", "\"\"")
+            buildConfigField("String", "AVATAR_WORKER_URL", "\"\"")
+        }
         create("otaPilot") {
             initWith(getByName("release"))
             // Mesmo applicationId oficial: preserva dados e sessao durante A -> B.
@@ -174,6 +215,19 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+}
+
+// O chat de homologacao nunca participa de builds normais.
+androidComponents {
+    beforeVariants(selector().withBuildType("chatQa")) { variant ->
+        variant.enable = atrioChatQaBuild
+    }
+    onVariants(selector().withBuildType("chatQa")) { variant ->
+        variant.outputs.forEach { output ->
+            output.versionName.set(atrioDebugVersionName)
+            output.versionCode.set(atrioDebugVersionCode)
+        }
+    }
 }
 
 // Esta variante nao participa de builds comuns nem de Releases oficiais.

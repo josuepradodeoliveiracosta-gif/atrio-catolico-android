@@ -8,6 +8,8 @@ on:
     paths:
       - 'scripts/chat_qa_apk_identity.py'
       - 'scripts/test_chat_qa_apk_identity.py'
+      - 'scripts/chat_qa_build_gate.py'
+      - 'scripts/test_chat_qa_build_gate.py'
       - '.github/workflows/chat-qa-apk-identity.yml'
 
 permissions:
@@ -27,6 +29,6 @@ jobs:
         with:
           persist-credentials: false
       - name: Verificar sintaxe Python
-        run: python3 -m py_compile scripts/chat_qa_apk_identity.py scripts/test_chat_qa_apk_identity.py
+        run: python3 -m py_compile scripts/chat_qa_apk_identity.py scripts/test_chat_qa_apk_identity.py scripts/chat_qa_build_gate.py scripts/test_chat_qa_build_gate.py
       - name: Executar casos positivos e negativos sem APK nem rede
-        run: python3 -m unittest scripts.test_chat_qa_apk_identity -v
+        run: python3 -m unittest scripts.test_chat_qa_apk_identity scripts.test_chat_qa_build_gate -v

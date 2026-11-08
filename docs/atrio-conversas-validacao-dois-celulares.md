@@ -13,6 +13,32 @@
 - [ ] Dois aparelhos Android físicos disponíveis, preferencialmente versões de Android ou fabricantes distintos.
 - [ ] Registros de teste sem textos sensíveis, sem tokens FCM ou dados de autenticação em capturas ou logs.
 
+## Preparação da variante Android Chat QA (sem produção)
+
+A branch de homologação agora possui buildType `chatQa`, **desativado por padrão**, com pacote
+`br.com.atriocatolico.chatqa`, assinatura Debug e sem acesso à assinatura Release. O
+APK Debug normal produzido pelo CI não equivale a esse pacote isolado.
+
+Para compilar localmente com aprovação explícita do ambiente de testes, o operador deve
+providenciar um **Firebase separado**, um `app/src/chatQa/google-services.json` local
+(ignorado pelo Git), e os valores aprovados de `ATRIO_CHAT_QA_PROJECT`,
+`ATRIO_CHAT_QA_APP_ID`, `ATRIO_CHAT_QA_WORKER_URL` (Worker identificado como QA)
+e `ATRIO_CHAT_QA_CONFIG_SHA256` (hash SHA-256 do JSON aprovado).
+Não copiar a configuração oficial, nem salvar credenciais de servidor na pasta.
+
+Com essas variáveis definidas e os endpoints gerais/credenciais oficiais ausentes,
+o único comando de compilação permitido é:
+
+```sh
+ATRIO_CHAT_QA_BUILD=1 gradle :app:assembleChatQa --no-daemon
+```
+
+O gate offline exige igualdade do projeto, App ID, FCM sender, hash e pacote .chatqa,
+e recusa Workers oficiais ou sem marcador QA. Isso **não prova** que o endpoint QA
+seja independente em execução, nem que o APK final usou a configuração correta.
+Antes de instalar, executar a auditoria do **APK real** abaixo e os testes FCM físicos
+já previstos. Nenhum Firebase, Worker, Release ou backup é alterado por esse preparo.
+
 ## Verificação offline de identidade do APK de homologação
 
 Antes de repetir qualquer teste físico, conferir o APK **já existente** com `scripts/chat_qa_apk_identity.py`. Não usar o APK oficial ou uma configuração Firebase real. É necessário conhecer previamente os valores públicos e aprovados de pacote, projeto de QA, **Firebase Android App ID do projeto de QA** (obtido de uma referência independente do APK), certificado público de QA e SHA-256 do APK.
