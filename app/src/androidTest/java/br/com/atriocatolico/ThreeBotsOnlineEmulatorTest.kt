@@ -217,13 +217,15 @@ class ThreeBotsOnlineEmulatorTest {
             .performClick()
         // A escrita deve ser confirmada no servidor, não apenas no cache
         // local da tela. A resposta também precisa pertencer a Miguel.
+        var persistedReplyId = ""
         compose.waitUntil(30000) {
             val replies=Tasks.await(db.collection("posts").document(postId)
                 .collection("replies").get(Source.SERVER),20,TimeUnit.SECONDS)
-            replies.documents.any {
+            persistedReplyId=replies.documents.firstOrNull {
                 it.getString("body")=="Resposta de Miguel pelo app Android conectado." &&
                     it.getString("uid")==auth.currentUser?.uid
-            }
+            }?.id.orEmpty()
+            persistedReplyId.isNotBlank()
         }
         assertTrue("A resposta foi publicada fora da conta de Miguel",
             auth.currentUser?.uid!=claraId)
@@ -269,15 +271,44 @@ class ThreeBotsOnlineEmulatorTest {
         // Não considerar um snapshot inicial vazio como prova de falha.
         // Se permanecer vazio, informar também o dono e o autor canônicos,
         // sem expor credenciais nem qualquer conteúdo de usuários reais.
-        compose.waitUntil(30000) {
-            val result=Tasks.await(db.collection("users").document(claraId)
-                .collection("notifications").get(Source.SERVER),20,TimeUnit.SECONDS)
-            result.documents.any { it.getString("postId")==postId }
-        }
-        val notice=Tasks.await(db.collection("users").document(claraId)
-            .collection("notifications").get(Source.SERVER),25,TimeUnit.SECONDS)
-        assertEquals(
-            "Miguel publicou a resposta, mas a notificação de Clara não foi persistida.",
-            1,notice.documents.count { it.getString("postId")==postId })
+        // O batch da resposta usa replyRef.id como ID CANÔNICO do aviso.
+        // Primeiro verificar o documento exato no servidor, depois a lista
+        // que a UI consulta. Isso distingue ausência real de recusa de list.
+        // Também impede um falso positivo por aviso de resposta anterior.
+        Tasks.await(auth.currentUser!!.getIdToken(false),15,TimeUnit.SECONDS)
+        val noticeRef=db.collection("users").document(claraId)
+            .collection("notifications").document(persistedReplyId)
+        val notices=db.collection("users").document(claraId)
+            .collection("notifications")
+        var noticeDiagnostic="nenhuma consulta concluída"
+        val notificationConfirmed=runCatching {
+            compose.waitUntil(30000) {
+                runCatching {
+                    val exact=Tasks.await(noticeRef.get(Source.SERVER),
+                        5,TimeUnit.SECONDS)
+                    val list=Tasks.await(notices.get(Source.SERVER),
+                        5,TimeUnit.SECONDS)
+                    noticeDiagnostic="documento=${exact.exists()}, " +
+                        "postId=${exact.getString("postId")==postId}, " +
+                        "lista=${list.size()}"
+                    exact.exists() && exact.getString("postId")==postId &&
+                        exact.getString("replyId")==persistedReplyId &&
+                        exact.getString("actorUid")!=claraId &&
+                        list.documents.count {
+                            it.getString("postId")==postId
+                        }==1
+                }.getOrElse { exception ->
+                    noticeDiagnostic="falha servidor: " +
+                        exception.javaClass.simpleName+": " +
+                        (exception.message ?: "sem mensagem").take(180)
+                    false
+                }
+            }
+            true
+        }.getOrDefault(false)
+        assertTrue(
+            "A resposta foi salva, mas o aviso privado não foi confirmado: " +
+                noticeDiagnostic,
+            notificationConfirmed)
     }
 }
