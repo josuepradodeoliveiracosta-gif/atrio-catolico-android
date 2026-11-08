@@ -33,7 +33,9 @@ o único comando de compilação permitido é:
 ATRIO_CHAT_QA_BUILD=1 gradle :app:assembleChatQa --no-daemon
 ```
 
-O gate offline exige igualdade do projeto, App ID, FCM sender, hash e pacote .chatqa,
+O gate offline exige que o ID do projeto tenha o segmento explícito `qa` (por exemplo,
+`qa-atrio-conversas-2026`), além da igualdade do projeto, App ID, FCM sender,
+hash e pacote exato `br.com.atriocatolico.chatqa`,
 e recusa Workers oficiais ou sem marcador QA. Isso **não prova** que o endpoint QA
 seja independente em execução, nem que o APK final usou a configuração correta.
 Antes de instalar, executar a auditoria do **APK real** abaixo e os testes FCM físicos
@@ -43,7 +45,8 @@ já previstos. Nenhum Firebase, Worker, Release ou backup é alterado por esse p
 
 Antes de repetir qualquer teste físico, conferir o APK **já existente** com `scripts/chat_qa_apk_identity.py`. Não usar o APK oficial ou uma configuração Firebase real. É necessário conhecer previamente os valores públicos e aprovados de pacote, projeto de QA, **Firebase Android App ID do projeto de QA** (obtido de uma referência independente do APK), certificado público de QA e SHA-256 do APK.
 
-O script não instala nem modifica o arquivo, não acessa Firebase/Cloudflare, não assina e não registra API keys, tokens, IDs de contas ou conteúdos privados. Ele exige que pacote, projeto Firebase e assinatura de QA sejam distintos dos oficiais, e confirma a configuração Firebase compilada e o hash real por meio do Android SDK.
+O script não instala nem modifica o arquivo, não acessa Firebase/Cloudflare, não assina e não registra API keys, tokens, IDs de contas ou conteúdos privados. Ele exige o pacote exato `br.com.atriocatolico.chatqa`, um projeto Firebase
+com segmento `qa` no ID e assinatura de QA distinta da oficial, e confirma a configuração Firebase compilada e o hash real por meio do Android SDK.
 
 ```sh
 python3 scripts/chat_qa_apk_identity.py \

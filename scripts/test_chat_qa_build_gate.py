@@ -50,6 +50,12 @@ class ChatQaBuildGateTests(unittest.TestCase):
     def test_synthetic_qa_config_passes(self):
         self.assertTrue(validate(self.path, **self.kw))
 
+    def test_unmarked_nonproduction_project_fails(self):
+        self.denied(project="other-atrio-project")
+
+    def test_qa_as_substring_does_not_count(self):
+        self.denied(project="squad-atrio-test")
+
     def test_prod_project_fails(self):
         self.denied(project="atrio-catolico")
 

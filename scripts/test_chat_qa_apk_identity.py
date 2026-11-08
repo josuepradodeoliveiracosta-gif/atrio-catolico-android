@@ -62,6 +62,15 @@ class ChatQaApkIdentityTests(unittest.TestCase):
         self.assertFalse(result["physical_chat_tests_verified"])
         self.assertNotIn(self.project, str(result))
 
+    def test_non_qa_project_is_rejected_even_if_not_production(self):
+        self.check_denied(expected_project="other-atrio-project")
+
+    def test_qa_substring_is_not_an_explicit_marker(self):
+        self.check_denied(expected_project="squad-atrio-test")
+
+    def test_unapproved_alternate_package_is_rejected(self):
+        self.check_denied(expected_package="br.com.atriocatolico.chatqa2")
+
     def test_production_project_is_rejected(self):
         self.check_denied(expected_project="atrio-catolico")
 

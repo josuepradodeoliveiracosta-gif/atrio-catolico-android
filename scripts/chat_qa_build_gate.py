@@ -19,7 +19,7 @@ class QaBuildGateError(ValueError):
 
 def validate(path, *, project, app_id, worker_url, sha256):
     if (not re.fullmatch(r"[a-z][a-z0-9-]{4,40}", project or "") or
-            project == PROD_PROJECT):
+            project == PROD_PROJECT or "qa" not in project.split("-")):
         raise QaBuildGateError("qa_project_not_approved")
     if not re.fullmatch(r"1:[0-9]+:android:[0-9a-fA-F]+", app_id or ""):
         raise QaBuildGateError("qa_app_id_not_approved")
