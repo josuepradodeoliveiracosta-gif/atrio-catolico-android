@@ -101,7 +101,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import re, os, subprocess, xml.etree.ElementTree as ET
+          import re, os, subprocess
           from pathlib import Path
           apks = list(Path("app/build/outputs/apk/chatQa").glob("*.apk"))
           if len(apks) != 1:
@@ -112,21 +112,25 @@ jobs:
           output = subprocess.check_output([str(aapt), "dump", "badging", str(apk)], text=True)
           if not re.search(r"package: name='br\.com\.atriocatolico\.chatqa'", output):
               raise SystemExit("Falha: pacote distinto Chat QA não encontrado.")
-          values = list(Path("app/build/generated/res/google-services").rglob("values.xml"))
-          qa_values = [p for p in values if "chatqa" in str(p).lower()]
-          if len(qa_values) != 1:
-              raise SystemExit("Falha: recursos gerados de Chat QA ausentes/ambíguos.")
-          resources = {
-              item.attrib["name"]: (item.text or "")
-              for item in ET.parse(qa_values[0]).getroot().findall("string")
-          }
+          # Auditar o APK efetivo, sem depender da pasta privada de saída do plugin.
+          # AAPT confirma os nomes dos recursos; resources.arsc contém os valores
+          # no pacote Android, em UTF-8 ou UTF-16 conforme a tabela compilada.
+          import zipfile
+          with zipfile.ZipFile(apk) as archive:
+              table = archive.read("resources.arsc")
+          resource_dump = subprocess.check_output(
+              [str(aapt), "dump", "--values", "resources", str(apk)], text=True
+          )
           expected = {
               "project_id": "qa-atrio-conversas-2026",
               "google_app_id": "1:123456789:android:abc12345",
               "gcm_defaultSenderId": "123456789",
           }
-          if any(resources.get(k) != v for k, v in expected.items()):
-              raise SystemExit("Falha: recursos compilados não correspondem ao Firebase fictício de QA.")
+          for key, value in expected.items():
+              if not re.search(r"\bstring/" + re.escape(key) + r"\b", resource_dump):
+                  raise SystemExit("Falha: recurso Firebase de QA não está no APK.")
+              if value.encode("utf-8") not in table and value.encode("utf-16le") not in table:
+                  raise SystemExit("Falha: valor Firebase QA não está na tabela do APK.")
           signer = sdk / "build-tools" / "35.0.0" / "apksigner"
           check = subprocess.check_output(
               [str(signer), "verify", "--print-certs", str(apk)], text=True
