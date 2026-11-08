@@ -1,7 +1,7 @@
 name: Átrio Conversas — preflight offline da identidade do APK QA
 
-# Executa somente testes sintéticos. Não baixa, instala, assina ou publica APKs.
-# Não utiliza credenciais, Firebase, Cloudflare ou dados reais.
+# Testes sintéticos e compilação local de APK não distribuído com Firebase fictício.
+# Não instala, publica, usa credenciais reais ou acessa Firebase/Cloudflare.
 on:
   pull_request:
     branches: [main]
@@ -32,3 +32,112 @@ jobs:
         run: python3 -m py_compile scripts/chat_qa_apk_identity.py scripts/test_chat_qa_apk_identity.py scripts/chat_qa_build_gate.py scripts/test_chat_qa_build_gate.py
       - name: Executar casos positivos e negativos sem APK nem rede
         run: python3 -m unittest scripts.test_chat_qa_apk_identity scripts.test_chat_qa_build_gate -v
+
+  build-synthetic-chat-qa:
+    name: Compilar Chat QA somente com Firebase fictício
+    if: >-
+      github.event.pull_request.number == 193 &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      ATRIO_CHAT_QA_BUILD: '1'
+      ATRIO_CHAT_QA_PROJECT: qa-atrio-conversas-2026
+      ATRIO_CHAT_QA_APP_ID: '1:123456789:android:abc12345'
+      ATRIO_CHAT_QA_WORKER_URL: https://atrio-chat-qa.demo-account.workers.dev
+    steps:
+      - name: Checkout sem credenciais persistentes
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Android SDK
+        uses: android-actions/setup-android@v4
+      - name: Gradle 8.13
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - name: Instalar Android 36 e build-tools 35
+        run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+      - name: Criar configuração sintética sem Firebase real
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          path = Path("app/src/chatQa/google-services.json")
+          path.parent.mkdir(parents=True, exist_ok=True)
+          config = {
+              "project_info": {
+                  "project_id": "qa-atrio-conversas-2026",
+                  "project_number": "123456789"
+              },
+              "client": [{
+                  "client_info": {
+                      "mobilesdk_app_id": "1:123456789:android:abc12345",
+                      "android_client_info": {
+                          "package_name": "br.com.atriocatolico.chatqa"
+                      }
+                  },
+                  "api_key": [{"current_key": "synthetic-not-a-google-key"}]
+              }],
+              "configuration_version": "1"
+          }
+          path.write_text(json.dumps(config, sort_keys=True), encoding="utf-8")
+          digest = hashlib.sha256(path.read_bytes()).hexdigest()
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
+              env.write("ATRIO_CHAT_QA_CONFIG_SHA256=" + digest + "\n")
+          print("JSON fictício de QA criado sem credenciais oficiais.")
+          PY
+      - name: Compilar SOMENTE a variante Chat QA no runner
+        run: gradle :app:assembleChatQa --no-daemon --stacktrace
+      - name: Auditar pacote e recursos Firebase gerados
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import re, os, subprocess, xml.etree.ElementTree as ET
+          from pathlib import Path
+          apks = list(Path("app/build/outputs/apk/chatQa").glob("*.apk"))
+          if len(apks) != 1:
+              raise SystemExit("Falha fechada: APK Chat QA único não localizado.")
+          apk = apks[0]
+          sdk = Path(os.environ["ANDROID_HOME"])
+          aapt = sdk / "build-tools" / "35.0.0" / "aapt"
+          output = subprocess.check_output([str(aapt), "dump", "badging", str(apk)], text=True)
+          if not re.search(r"package: name='br\.com\.atriocatolico\.chatqa'", output):
+              raise SystemExit("Falha: pacote distinto Chat QA não encontrado.")
+          values = list(Path("app/build/generated/res/google-services").rglob("values.xml"))
+          qa_values = [p for p in values if "chatqa" in str(p).lower()]
+          if len(qa_values) != 1:
+              raise SystemExit("Falha: recursos gerados de Chat QA ausentes/ambíguos.")
+          resources = {
+              item.attrib["name"]: (item.text or "")
+              for item in ET.parse(qa_values[0]).getroot().findall("string")
+          }
+          expected = {
+              "project_id": "qa-atrio-conversas-2026",
+              "google_app_id": "1:123456789:android:abc12345",
+              "gcm_defaultSenderId": "123456789",
+          }
+          if any(resources.get(k) != v for k, v in expected.items()):
+              raise SystemExit("Falha: recursos compilados não correspondem ao Firebase fictício de QA.")
+          signer = sdk / "build-tools" / "35.0.0" / "apksigner"
+          check = subprocess.check_output(
+              [str(signer), "verify", "--print-certs", str(apk)], text=True
+          )
+          prod_cert = "ba2e86eacf32e2785718040d704609d3c95c3b88363c08dd3d7c5abe299902b0"
+          matches = re.findall(r"Signer #\d+ certificate SHA-256 digest: ([0-9a-fA-F:]+)", check)
+          if len(matches) != 1 or matches[0].replace(":", "").lower() == prod_cert:
+              raise SystemExit("Falha: APK sem signer QA único ou assinado como Release oficial.")
+          print("OK: APK compilado localmente, pacote distinto, Firebase QA fictício e assinatura Debug.")
+          print("Não demonstra isolamento em execução nem entrega FCM; nenhum APK foi distribuído.")
+          PY
+      - name: Apagar configuração sintética do runner
+        if: always()
+        run: rm -f app/src/chatQa/google-services.json
