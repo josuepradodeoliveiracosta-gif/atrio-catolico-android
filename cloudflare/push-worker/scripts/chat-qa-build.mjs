@@ -70,7 +70,17 @@ export function renderQaWorker(original, project) {
     "            !meta.client_email?.endsWith('@' + PROJECT + '.iam.gserviceaccount.com'))",
     "          return response(503,'qa_service_identity_denied');",
     '      } catch { return response(503,\'qa_service_identity_denied\'); }',
-    '    }'
+    '    }',
+    '    // D1 não fornece UUID no binding em execução: conferir marcador persistente.',
+    '    if (!env.PUSH_DB || typeof env.PUSH_DB.prepare !== "function")',
+    "      return response(503,'qa_d1_identity_denied');",
+    '    try {',
+    '      const identity = await env.PUSH_DB.prepare(',
+    '        "SELECT project_id FROM chat_qa_identity WHERE name = ? LIMIT 1"',
+    '      ).bind("atrio-chat-qa").first();',
+    '      if (identity?.project_id !== PROJECT)',
+    "        return response(503,'qa_d1_identity_denied');",
+    "    } catch { return response(503,'qa_d1_identity_denied'); }"
   ].join('\n');
   code = exactlyOnce(code, fetchStart, gate);
   code = exactlyOnce(code,
@@ -112,17 +122,54 @@ export function renderQaWrangler(project, d1) {
     ''
   ].join('\n');
 }
+/**
+ * A tabela abaixo fica SOMENTE no D1 de homologação. Se faltar ou apontar
+ * para outro projeto, o Worker QA recusa até GET /health e POST /event.
+ * A geração não executa SQL nem cria bancos de dados.
+ */
+export function renderQaSchema(project, d1) {
+  validateQaIdentity(project, d1);
+  return [
+    '-- GERADO: aplicar somente no D1 QA aprovado, nunca em produção.',
+    'CREATE TABLE IF NOT EXISTS chat_qa_identity (',
+    '  name TEXT PRIMARY KEY NOT NULL,',
+    '  project_id TEXT NOT NULL',
+    ');',
+    'INSERT OR IGNORE INTO chat_qa_identity (name, project_id)',
+    "  VALUES ('atrio-chat-qa', '" + project + "');",
+    'CREATE TABLE IF NOT EXISTS delivered (',
+    '  event_key TEXT PRIMARY KEY NOT NULL,',
+    '  created_at INTEGER NOT NULL',
+    ');',
+    'CREATE INDEX IF NOT EXISTS delivered_created_at ON delivered(created_at);',
+    'CREATE TABLE IF NOT EXISTS push_delivery_stats (',
+    '  hour_bucket INTEGER NOT NULL,',
+    '  kind TEXT NOT NULL,',
+    '  outcome TEXT NOT NULL,',
+    '  fcm_http_status INTEGER NOT NULL DEFAULT 0,',
+    '  events INTEGER NOT NULL DEFAULT 1,',
+    '  attempted INTEGER NOT NULL DEFAULT 0,',
+    '  accepted INTEGER NOT NULL DEFAULT 0,',
+    '  PRIMARY KEY (hour_bucket, kind, outcome, fcm_http_status)',
+    ');',
+    'CREATE INDEX IF NOT EXISTS push_delivery_stats_hour ON push_delivery_stats(hour_bucket);',
+    ''
+  ].join('\n');
+}
 export function generate(project, d1, dir = ROOT) {
   validateQaIdentity(project,d1);
   const original = fs.readFileSync(path.join(dir,'src/index.js'),'utf8');
   const src = renderQaWorker(original,project);
   const toml = renderQaWrangler(project,d1);
+  const schema = renderQaSchema(project,d1);
   const output = path.join(dir,'src/index.chat-qa.generated.js');
   const config = path.join(dir,'wrangler.chat-qa.generated.toml');
+  const sql = path.join(dir,'schema.chat-qa.generated.sql');
   // Gerar somente arquivos ignorados pelo Git; nunca tocar src/index.js.
   fs.writeFileSync(output,src,{flag:'w',mode:0o600});
   fs.writeFileSync(config,toml,{flag:'w',mode:0o600});
-  return {output,config};
+  fs.writeFileSync(sql,schema,{flag:'w',mode:0o600});
+  return {output,config,sql};
 }
 if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) {
   try {

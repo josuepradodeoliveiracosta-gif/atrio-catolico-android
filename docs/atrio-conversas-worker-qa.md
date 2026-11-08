@@ -16,6 +16,8 @@ o tráfego. **Nunca reutilizar o Worker ou os segredos oficiais para QA.**
 O script cloudflare/push-worker/scripts/chat-qa-build.mjs gera exclusivamente:
 - cloudflare/push-worker/src/index.chat-qa.generated.js
 - cloudflare/push-worker/wrangler.chat-qa.generated.toml
+- cloudflare/push-worker/schema.chat-qa.generated.sql (somente instruções para
+  provisionamento futuro do D1 QA; **não executadas** pelo gerador)
 
 Ambos são ignorados pelo Git. O script exige projeto Firebase identificado
 como QA, UUID de D1 distinto do banco oficial e reescreve somente âncoras
@@ -27,7 +29,12 @@ conferidas do código-fonte original. O Worker produzido:
 - não executa a fila de bots da comunidade oficial;
 - valida marcador QA, projeto e domínio da conta de serviço em tempo de execução;
 - começa com PUSH_ENABLED=false, broadcast e Guardião desligados;
-- exige D1 com identidade diferente, mas não comprova a criação/isolamento real desse banco.
+- exige D1 com UUID distinto **e marcador SQL de projeto**. O Worker verifica
+  `chat_qa_identity` no D1 vinculado antes mesmo de responder ao `/health`
+  ou processar `/event`. Ausência da tabela, marcador divergente e falhas
+  de leitura levam a HTTP 503, sem consultar Firebase ou emitir FCM;
+- não comprova a criação/isolamento real do banco: o marcador é defesa
+  adicional contra vínculo incorreto, não substitui a auditoria do UUID/D1.
 
 Com valores de QA obtidos e aprovados *independentemente*, o operador pode
 preparar arquivos locais (sem implantar):
@@ -42,6 +49,9 @@ FIREBASE_SERVICE_ACCOUNT_JSON fornecidos como **secrets do próprio Worker QA**
 após revisão de identidade, permissões e restrições de rede. A conta de
 serviço deve pertencer ao mesmo projeto QA do APK e do Worker. O banco D1
 deve ser realmente separado e verificado antes de qualquer ativação de Push.
+A tabela e o marcador contidos no arquivo SQL gerado **somente poderão ser
+aplicados ao D1 QA após autorização e conferência do ID na Cloudflare**.
+Nunca aplicar essas instruções ao banco `atrio-push-delivery` de produção.
 
 ## Testes permitidos antes de um ambiente QA real
 

@@ -78,6 +78,24 @@ jobs:
         run: node cloudflare/push-worker/scripts/chat-qa-build.mjs
       - name: Sintaxe da fonte QA gerada
         run: node --check cloudflare/push-worker/src/index.chat-qa.generated.js
+      - name: Validar schema QA somente em memória, sem Cloudflare
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import sqlite3
+          sql=Path("cloudflare/push-worker/schema.chat-qa.generated.sql").read_text()
+          con=sqlite3.connect(":memory:")
+          con.executescript(sql)
+          identity=con.execute("SELECT project_id FROM chat_qa_identity WHERE name = ?",
+                               ("atrio-chat-qa",)).fetchone()
+          if identity != ("qa-atrio-conversas-2026",):
+              raise SystemExit("Marcador D1 de QA incorreto")
+          expected={"chat_qa_identity","delivered","push_delivery_stats"}
+          found={row[0] for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+          if not expected.issubset(found):
+              raise SystemExit("Schema D1 QA incompleto")
+          print("Schema SQL validado em memória, sem gravação em D1 real.")
+          PY
       - name: Empacotar com Wrangler sem credenciais nem deploy
         run: |
           npx --yes wrangler@4 deploy \
@@ -109,3 +127,4 @@ jobs:
         run: |
           rm -f cloudflare/push-worker/src/index.chat-qa.generated.js
           rm -f cloudflare/push-worker/wrangler.chat-qa.generated.toml
+          rm -f cloudflare/push-worker/schema.chat-qa.generated.sql

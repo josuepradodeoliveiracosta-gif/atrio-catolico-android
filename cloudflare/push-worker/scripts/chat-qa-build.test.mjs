@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {renderQaWorker,renderQaWrangler,validateQaIdentity} from './chat-qa-build.mjs';
+import {renderQaWorker,renderQaWrangler,renderQaSchema,validateQaIdentity} from './chat-qa-build.mjs';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const original=fs.readFileSync(path.join(root,'src/index.js'),'utf8');
@@ -79,4 +79,59 @@ test('worker QA bloqueia por padrão, antes de acessar banco ou Firebase',async(
     const result=await worker.fetch(new Request(url,{method,body:'{}'}),env);
     assert.equal(result.status,code);
   }
+});
+
+test('schema QA inclui marcador persistente e tabelas mínimas de entrega',()=>{
+  const sql=renderQaSchema(qaProject,qaD1);
+  assert.match(sql,/CREATE TABLE IF NOT EXISTS chat_qa_identity/);
+  assert.match(sql,/VALUES \('atrio-chat-qa', 'qa-atrio-conversas-2026'\)/);
+  assert.match(sql,/CREATE TABLE IF NOT EXISTS delivered/);
+  assert.match(sql,/CREATE TABLE IF NOT EXISTS push_delivery_stats/);
+  assert.doesNotMatch(sql,/atrio-catolico|guardiao_ai_budget/);
+});
+test('schema QA recusa D1 oficial antes de gerar comandos SQL',()=>{
+  assert.throws(()=>renderQaSchema(qaProject,
+    '6b04fad3-619a-4cc5-a4b3-d31c3a18e911'),/chat_qa_/);
+});
+test('Worker QA recusa D1 incorreto, ausente ou sem tabela antes de Auth e Firestore',async()=>{
+  const workerModule=await import('data:text/javascript;charset=utf-8,'+
+    encodeURIComponent(generated));
+  const worker=workerModule.default;
+  const base={ATRIO_CHAT_QA_MODE:'true',ATRIO_CHAT_QA_PROJECT:qaProject,
+    PUSH_ENABLED:'false'};
+  for(const db of [
+    undefined, {},
+    {prepare:()=>({bind:()=>({first:async()=>null})})},
+    {prepare:()=>({bind:()=>({first:async()=>({project_id:'atrio-catolico'})})})},
+    {prepare:()=>({bind:()=>({first:async()=>{throw Error('no_table')}})})}
+  ]) {
+    const result=await worker.fetch(new Request('https://qa.example/health'),
+      {...base,PUSH_DB:db});
+    assert.equal(result.status,503);
+    assert.equal((await result.json()).status,'qa_d1_identity_denied');
+  }
+});
+test('D1 QA correto libera apenas health desativado; não autoriza envio sem segredos',async()=>{
+  let lookups=0;
+  const db={prepare:(query)=>{
+    assert.match(query,/chat_qa_identity/);
+    lookups++;
+    return {bind:(name)=>{
+      assert.equal(name,'atrio-chat-qa');
+      return {first:async()=>({project_id:qaProject})};
+    }};
+  }};
+  const worker=(await import('data:text/javascript;charset=utf-8,'+
+    encodeURIComponent(generated))).default;
+  const env={ATRIO_CHAT_QA_MODE:'true',ATRIO_CHAT_QA_PROJECT:qaProject,
+    PUSH_ENABLED:'false',PUSH_DB:db};
+  const health=await worker.fetch(new Request('https://qa.example/health'),env);
+  assert.equal(health.status,200);
+  assert.equal((await health.json()).status,'disabled');
+  const event=await worker.fetch(new Request('https://qa.example/event',{
+    method:'POST',body:JSON.stringify({type:'chat_message',chatId:'c1',messageId:'m1'})
+  }),env);
+  assert.equal(event.status,503);
+  assert.equal((await event.json()).status,'disabled');
+  assert.equal(lookups,2);
 });
