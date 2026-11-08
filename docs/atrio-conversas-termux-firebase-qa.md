@@ -111,7 +111,21 @@ python3 scripts/chat_qa_build_gate.py
 ```
 
 O gate deve **falhar** se os valores ainda forem placeholders. Não desativar
-o gate para fazer o build passar. Para uma compilação futura exclusivamente
+o gate para fazer o build passar.
+
+Quando a configuração QA real estiver aprovada, produzir **apenas um resumo
+sanitizado** para auditoria, sem anexar o JSON original:
+
+```sh
+python3 scripts/chat_qa_build_gate.py --receipt > chat-qa-preflight.json
+```
+
+O arquivo `chat-qa-preflight.json` contém somente projeto, pacote, App ID,
+Sender ID, URL de Worker QA e SHA-256 da configuração — nunca API key,
+credencial privada, token ou texto de mensagens. Ele registra explicitamente
+que o APK, os serviços na nuvem e a entrega FCM **ainda não foram verificados**.
+Confira o arquivo antes de compartilhá-lo. Se o gate falhar, não use o
+comprovante e não prossiga para publicação ou testes conectados. Para uma compilação futura exclusivamente
 QA, usar `ATRIO_CHAT_QA_BUILD=1` e `:app:assembleChatQa`, após conferir
 que variáveis gerais de Worker e assinatura de produção estão vazias.
 

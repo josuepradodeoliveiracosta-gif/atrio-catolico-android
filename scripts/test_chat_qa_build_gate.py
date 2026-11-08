@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from scripts.chat_qa_build_gate import QaBuildGateError, validate
+from scripts.chat_qa_build_gate import QaBuildGateError, validate, sanitized_receipt
 
 
 class ChatQaBuildGateTests(unittest.TestCase):
@@ -119,6 +119,49 @@ class ChatQaBuildGateTests(unittest.TestCase):
         self.path.write_text("{", encoding="utf-8")
         self.kw["sha256"] = hashlib.sha256(self.path.read_bytes()).hexdigest()
         self.denied()
+
+
+    def test_extra_production_storage_reference_fails_even_with_qa_project_id(self):
+        self.config["project_info"]["storage_bucket"] = "atrio-catolico.appspot.com"
+        self.changed()
+
+    def test_extra_production_oauth_reference_fails_even_with_qa_project_id(self):
+        self.config["client"][0]["oauth_client"] = [
+            {"client_id": "atrio-catolico.apps.googleusercontent.com"}
+        ]
+        self.changed()
+
+    def test_multiple_api_keys_fail_closed(self):
+        self.config["client"][0]["api_key"].append(
+            {"current_key": "synthetic-foreign-key"}
+        )
+        self.changed()
+
+    def test_non_string_api_key_fails_closed(self):
+        self.config["client"][0]["api_key"] = [{"current_key": True}]
+        self.changed()
+
+    def test_receipt_contains_no_sensitive_config_or_false_end_to_end_claims(self):
+        config = self.path.read_text(encoding="utf-8")
+        receipt = sanitized_receipt(self.path, **self.kw)
+        serialized = json.dumps(receipt, ensure_ascii=False)
+        self.assertEqual(receipt["status"], "local_config_passed_only")
+        self.assertEqual(receipt["firebase_project_id"], self.kw["project"])
+        self.assertEqual(receipt["android_package"], "br.com.atriocatolico.chatqa")
+        self.assertEqual(receipt["fcm_sender_id"], "123456789")
+        self.assertIn("fcm_delivery_on_physical_devices", receipt["not_verified"])
+        self.assertIn("cloudflare_d1_binding", receipt["not_verified"])
+        self.assertNotIn(self.config["client"][0]["api_key"][0]["current_key"],
+                         serialized)
+        self.assertNotIn("api_key", serialized)
+        self.assertNotIn("private_key", serialized)
+        self.assertNotIn("access_token", serialized)
+        self.assertNotIn("FIREBASE_SERVICE_ACCOUNT_JSON", serialized)
+        self.assertNotIn(config, serialized)
+
+    def test_receipt_is_rejected_if_sha_changes(self):
+        with self.assertRaises(QaBuildGateError):
+            sanitized_receipt(self.path, **{**self.kw, "sha256": "0" * 64})
 
 
 if __name__ == "__main__":

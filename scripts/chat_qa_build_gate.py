@@ -36,6 +36,10 @@ def validate(path, *, project, app_id, worker_url, sha256):
     if not 0 < config.stat().st_size <= 65536:
         raise QaBuildGateError("qa_config_size_invalid")
     data_bytes = config.read_bytes()
+    # Mesmo com project_id correto, impedir referencias de producao em campos
+    # adicionais, como storage_bucket e oauth_client. Sem imprimir o JSON.
+    if PROD_PROJECT.encode("utf-8") in data_bytes:
+        raise QaBuildGateError("production_reference_in_qa_config")
     if hashlib.sha256(data_bytes).hexdigest() != sha256.lower():
         raise QaBuildGateError("qa_config_hash_mismatch")
     try:
@@ -50,7 +54,9 @@ def validate(path, *, project, app_id, worker_url, sha256):
         actual_app = client["client_info"]["mobilesdk_app_id"]
         actual_package = client["client_info"]["android_client_info"]["package_name"]
         keys = client["api_key"]
-        if not isinstance(keys, list) or not keys or not keys[0]["current_key"]:
+        if (not isinstance(keys, list) or len(keys) != 1
+                or not isinstance(keys[0]["current_key"], str)
+                or not keys[0]["current_key"]):
             raise QaBuildGateError("qa_config_incomplete")
     except (ValueError, KeyError, IndexError, TypeError):
         raise QaBuildGateError("qa_config_incomplete") from None
@@ -65,9 +71,38 @@ def validate(path, *, project, app_id, worker_url, sha256):
     return True  # Ainda exige auditoria do APK e de FCM.
 
 
-def main():
+def sanitized_receipt(path, *, project, app_id, worker_url, sha256):
+    """Somente evidencias locais verificadas; nunca copiar a API key."""
+    validate(path, project=project, app_id=app_id,
+             worker_url=worker_url, sha256=sha256)
+    return {
+        "schema": "atrio-chat-qa-preflight-v1",
+        "status": "local_config_passed_only",
+        "firebase_project_id": project,
+        "firebase_android_app_id": app_id,
+        "fcm_sender_id": app_id.split(":")[1],
+        "android_package": QA_PACKAGE,
+        "worker_qa_origin": worker_url,
+        "google_services_sha256": sha256.lower(),
+        "not_verified": [
+            "firebase_cloud_ownership",
+            "firebase_rules_and_auth",
+            "cloudflare_worker_deployed",
+            "cloudflare_d1_binding",
+            "apk_real_contents_and_signer",
+            "fcm_delivery_on_physical_devices",
+            "minor_policy_and_data_retention",
+        ],
+    }
+
+
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    if argv not in ([], ["--receipt"]):
+        print("CHAT QA REPROVADO: invalid_arguments", file=sys.stderr)
+        return 1
     try:
-        validate(
+        info = sanitized_receipt(
             "app/src/chatQa/google-services.json",
             project=os.getenv("ATRIO_CHAT_QA_PROJECT", ""),
             app_id=os.getenv("ATRIO_CHAT_QA_APP_ID", ""),
@@ -77,7 +112,10 @@ def main():
     except (QaBuildGateError, OSError) as exc:
         print("CHAT QA REPROVADO: " + str(exc), file=sys.stderr)
         return 1
-    print("CHAT QA: configuracao verificada offline. APK e rede nao auditados.")
+    if argv == ["--receipt"]:
+        print(json.dumps(info, ensure_ascii=False, sort_keys=True))
+    else:
+        print("CHAT QA: configuracao verificada offline. APK e rede nao auditados.")
     return 0
 
 
