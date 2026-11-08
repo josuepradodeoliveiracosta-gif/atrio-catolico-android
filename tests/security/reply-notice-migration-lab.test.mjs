@@ -195,6 +195,52 @@ try {
     b.set(noticeRef(id),{...notice(id),mentionUid:ca});
     await assertSucceeds(b.commit());
   });
+
+  // Contrato reconstruido do OnlineAtrioApp.reply() nas tags v0.20.3 e
+  // v0.20.4 (mesmo blob de codigo). NAO executa APKs de producao.
+  await check('payload legado resposta ao proprio comentario avisa so autora do post',async()=>{
+    const id='legacy_self_target',b=writeBatch(miguel);
+    b.set(replyRef(id),{...reply(id),replyToId:'old_disabled',replyToUid:mi});
+    b.set(noticeRef(id),notice(id));
+    await assertSucceeds(b.commit());
+    const r=await assertSucceeds(getDoc(doc(clara,'posts',postId,'replies',id)));
+    const n=await assertSucceeds(getDoc(doc(clara,'users',ca,'notifications',id)));
+    assert.equal(r.data()?.replyToUid,mi);
+    assert.equal(n.data()?.actorUid,mi);
+    const selfNotice=await assertSucceeds(
+      getDoc(doc(miguel,'users',mi,'notifications',id)));
+    assert.equal(selfNotice.exists(),false);
+  });
+  await check('payload legado duas marcacoes simultaneas rejeitado sem escrita parcial',async()=>{
+    // O antigo metodo reply() admite target e mention, mas a regra do
+    // servidor exige que replyTo e mention sejam mutuamente exclusivos.
+    const id='legacy_direct_plus_mention',b=writeBatch(miguel);
+    b.set(replyRef(id),{
+      ...reply(id),replyToId:'lucia_seed',replyToUid:lu,mentionUid:ca,
+    });
+    b.set(noticeRef(id),{...notice(id),mentionUid:ca});
+    b.set(doc(miguel,'users',lu,'notifications',id),
+      {...notice(id),replyToId:'lucia_seed'});
+    await assertFails(b.commit());
+    assert.equal((await assertSucceeds(
+      getDoc(doc(clara,'posts',postId,'replies',id)))).exists(),false);
+    assert.equal((await assertSucceeds(
+      getDoc(doc(clara,'users',ca,'notifications',id)))).exists(),false);
+    assert.equal((await assertSucceeds(
+      getDoc(doc(lucia,'users',lu,'notifications',id)))).exists(),false);
+  });
+  await check('auth trocada recusa payload legado sem resposta nem avisos parciais',async()=>{
+    // Simula app antigo montando reply uid/nome de Miguel apos Auth
+    // ter mudado para Lucia; o servidor deve rejeitar como Lucia.
+    const id='legacy_auth_changed',b=writeBatch(lucia);
+    b.set(doc(lucia,'posts',postId,'replies',id),reply(id));
+    b.set(doc(lucia,'users',ca,'notifications',id),notice(id));
+    await assertFails(b.commit());
+    assert.equal((await assertSucceeds(
+      getDoc(doc(clara,'posts',postId,'replies',id)))).exists(),false);
+    assert.equal((await assertSucceeds(
+      getDoc(doc(clara,'users',ca,'notifications',id)))).exists(),false);
+  });
   await check('rollback restaura compatibilidade',async()=>{
     await flag(false);
     await assertSucceeds(setDoc(replyRef('rollback'),reply('rollback')));

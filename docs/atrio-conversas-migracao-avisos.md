@@ -32,13 +32,29 @@ app_config/reply_notification_policy, com enabled true/false.
 - Resposta do autor ao próprio post não requer autoaviso.
 - Desativar a flag faz rollback, mas reabre o risco de aviso ausente.
 
-O laboratório expandido também propõe exigir avisos para destinatários de
-respostas diretas e membros mencionados, inclusive quando são diferentes do
-autor da discussão, quando o próprio autor responde e quando o destinatário
-coincide com o autor. Esses casos ainda dependem da execução do CI no novo
-commit. A política proposta precisa de auditoria de deduplicação, limites e
-custo de chamadas getAfter nas Rules, falhas de conexão e clientes não
-conformes antes de qualquer implantação.
+O laboratório expandido demonstrou 17/17 testes aprovados no commit
+fde7081: avisos para destinatários de respostas diretas e participantes
+mencionados, incluindo deduplicação com o autor do post e bloqueio de escritas
+sem aviso. Isso é prova em Firestore Emulator, não deploy. O laboratório
+também exige avaliação contínua dos limites e custos de leitura das Rules.
+
+Em 08/11/2026 a auditoria read-only dos APKs reais v0.20.3/code38 e
+v0.20.4/code39 passou no GitHub Actions #42493289737: SHA-256 calculado,
+manifestos, certificado oficial, applicationId e versão. As duas tags
+publicadas contêm o mesmo OnlineAtrioApp.reply() que escreve batch de
+resposta e avisos, mas sem congelar a identidade da sessão antes da leitura
+assíncrona do autor do post.
+
+Próximos testes incrementais (a validar em CI): payload de resposta direta
+a comentário do próprio autor da resposta, rejeição atômica de target e
+mention simultâneos (ambos podem ser recebidos pelo método legado apesar de
+o servidor proibir a combinação), e rejeição de operação que usa UID/nome
+de uma sessão anterior após troca de Auth. Um caso de recusa correta não
+significa que a interface antiga mostre um erro específico ou impeça o usuário
+de tentar a ação. Não são testes físicos com os APKs de produção.
+
+Nenhuma versão mínima foi fixada. Falhas de rede, UX de atualização, proteção
+de menores e moderação da Issue #200 continuam impedindo o rollout.
 
 ## Etapas ainda dependentes de autorização
 1. Inventariar APKs antigos, assinaturas, canais e versionCode reais.
