@@ -56,10 +56,13 @@ const helpers=[
 let block=original.slice(i,j);
 assert.equal(block.split('          && validTime()').length,2);
 block=block.replace(from,from+helpers).replace('          && validTime()',
-  '          && validTime()\n          && (!labNoticeFlag()
-              || (labOwnerNotice(postId,replyId)
-                  && labDirectNotice(postId,replyId)
-                  && labMentionNotice(postId,replyId)))');
+  [
+    '          && validTime()',
+    '          && (!labNoticeFlag()',
+    '              || (labOwnerNotice(postId,replyId)',
+    '                  && labDirectNotice(postId,replyId)',
+    '                  && labMentionNotice(postId,replyId)))'
+  ].join('\n'));
 const candidate=original.slice(0,i)+block+original.slice(j);
 const env=await initializeTestEnvironment({projectId:'demo-atrio-v11',
   firestore:{host:'127.0.0.1',port:8089,rules:candidate}});
