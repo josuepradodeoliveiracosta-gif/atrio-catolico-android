@@ -15,7 +15,7 @@
 
 ## Verificação offline de identidade do APK de homologação
 
-Antes de repetir qualquer teste físico, conferir o APK **já existente** com `scripts/chat_qa_apk_identity.py`. Não usar o APK oficial ou uma configuração Firebase real. É necessário conhecer previamente os valores públicos e aprovados de pacote, projeto de QA, certificado público de QA e SHA-256 do APK.
+Antes de repetir qualquer teste físico, conferir o APK **já existente** com `scripts/chat_qa_apk_identity.py`. Não usar o APK oficial ou uma configuração Firebase real. É necessário conhecer previamente os valores públicos e aprovados de pacote, projeto de QA, **Firebase Android App ID do projeto de QA** (obtido de uma referência independente do APK), certificado público de QA e SHA-256 do APK.
 
 O script não instala nem modifica o arquivo, não acessa Firebase/Cloudflare, não assina e não registra API keys, tokens, IDs de contas ou conteúdos privados. Ele exige que pacote, projeto Firebase e assinatura de QA sejam distintos dos oficiais, e confirma a configuração Firebase compilada e o hash real por meio do Android SDK.
 
@@ -24,12 +24,13 @@ python3 scripts/chat_qa_apk_identity.py \
   --apk /caminho/apk-ja-testado.apk \
   --android-sdk "$ANDROID_HOME" \
   --expected-project PROJETO_DE_QA \
+  --expected-firebase-app-id ID_ANDROID_FIREBASE_QA_APROVADO \
   --expected-package PACOTE_DISTINTO_DE_QA \
   --expected-cert SHA256_CERTIFICADO_PUBLICO_QA \
   --expected-sha256 SHA256_DO_APK_DE_QA
 ```
 
-Usar Python 3, Android Build Tools 35.0.0 e `apkanalyzer`. A ausência de qualquer valor confiável ou recurso compilado **reprova** o preflight. Os testes offline da ferramenta são `python3 -m unittest scripts.test_chat_qa_apk_identity -v`, usando apenas fixtures sintéticas.
+Usar Python 3, Android Build Tools 35.0.0 e `apkanalyzer`. A ausência de qualquer valor confiável ou recurso compilado **reprova** o preflight. A ferramenta confronta o `google_app_id` do APK com o App ID de QA previamente aprovado e exige que `gcm_defaultSenderId` corresponda ao número do projeto embutido nesse App ID. Não inventar nem derivar o App ID esperado do próprio APK, pois isso inutilizaria a comparação. Os testes offline da ferramenta são `python3 -m unittest scripts.test_chat_qa_apk_identity -v`, usando apenas fixtures sintéticas.
 
 **Limite:** identidade isolada do APK não verifica URLs Cloudflare, roteamento FCM, instalação em celulares nem isolamento de rede em execução. Registrar essas etapas como **NÃO DOCUMENTADAS** até haver evidência específica; não proclamar segurança completa por esta ferramenta.
 
