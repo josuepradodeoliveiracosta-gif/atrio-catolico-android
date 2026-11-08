@@ -45,7 +45,7 @@ def file_sha256(path):
 
 
 def qa_apk_preflight(apk, *, sdk, expected_project, expected_package,
-                     expected_cert, expected_hash, runner=command):
+                     expected_cert, expected_hash, expected_firebase_app_id, runner=command):
     if (not isinstance(expected_project, str)
             or not re.fullmatch(r"[a-z][a-z0-9-]{4,40}", expected_project)
             or expected_project == PROJECT_PROD):
@@ -54,6 +54,9 @@ def qa_apk_preflight(apk, *, sdk, expected_project, expected_package,
             or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+", expected_package)
             or expected_package == PACKAGE_PROD):
         raise QaPreflightError("separate_qa_package_required")
+    if (not isinstance(expected_firebase_app_id, str)
+            or not re.fullmatch(r"1:[0-9]+:android:[0-9a-fA-F]+", expected_firebase_app_id)):
+        raise QaPreflightError("approved_qa_firebase_app_id_required")
     cert = valid_digest(expected_cert)
     sha = valid_digest(expected_hash)
     if cert == CERT_PROD_SHA256:
@@ -93,10 +96,13 @@ def qa_apk_preflight(apk, *, sdk, expected_project, expected_package,
         return value.strip().strip('"')
     project = resource("project_id")
     firebase_app_id = resource("google_app_id")
+    sender_id = resource("gcm_defaultSenderId")
     if project != expected_project or project == PROJECT_PROD:
         raise QaPreflightError("qa_firebase_project_mismatch")
-    if not firebase_app_id.startswith("1:"):
-        raise QaPreflightError("qa_firebase_app_id_invalid")
+    if firebase_app_id != expected_firebase_app_id:
+        raise QaPreflightError("qa_firebase_app_id_mismatch")
+    if sender_id != expected_firebase_app_id.split(":")[1]:
+        raise QaPreflightError("qa_firebase_sender_mismatch")
     if file_sha256(path) != sha:
         raise QaPreflightError("qa_apk_changed_during_audit")
     return {
@@ -106,6 +112,8 @@ def qa_apk_preflight(apk, *, sdk, expected_project, expected_package,
         "version_name": version_name,
         "package_matches_qa": True,
         "firebase_project_matches_qa": True,
+        "firebase_app_id_matches_qa": True,
+        "firebase_sender_matches_qa": True,
         "qa_signer_matches": True,
         "distinct_from_production_app": True,
         "worker_endpoints_audited": False,
@@ -120,6 +128,7 @@ def main():
     parser.add_argument("--apk", required=True)
     parser.add_argument("--android-sdk", default=os.getenv("ANDROID_HOME"))
     parser.add_argument("--expected-project", required=True)
+    parser.add_argument("--expected-firebase-app-id", required=True)
     parser.add_argument("--expected-package", required=True)
     parser.add_argument("--expected-cert", required=True)
     parser.add_argument("--expected-sha256", required=True)
@@ -132,6 +141,7 @@ def main():
             expected_project=args.expected_project,
             expected_package=args.expected_package,
             expected_cert=args.expected_cert, expected_hash=args.expected_sha256,
+            expected_firebase_app_id=args.expected_firebase_app_id,
         )
     except (QaPreflightError, OSError, TypeError) as exc:
         print("QA APK REPROVADO: " + str(exc), file=sys.stderr)
