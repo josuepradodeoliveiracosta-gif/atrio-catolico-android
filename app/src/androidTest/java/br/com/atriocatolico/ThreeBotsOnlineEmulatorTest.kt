@@ -102,7 +102,25 @@ class ThreeBotsOnlineEmulatorTest {
         compose.onNodeWithTag("atrio-auth-password")
             .performTextInput("QaEmulator2026!")
         compose.onNodeWithText("Entrar").performClick()
-        awaitScreen("Paz e bem, ${expectedName.substringBefore(' ')}!")
+        val greeting = "Paz e bem, ${expectedName.substringBefore(' ')}!"
+        // Distinguir um erro de Auth Emulator de uma falha de notificação:
+        // o texto de erro é mostrado somente após o callback de login falhar.
+        // Não considerar a autenticação bem-sucedida nem mascarar o erro.
+        compose.waitUntil(30000) {
+            compose.onAllNodesWithText(greeting, substring = true)
+                .fetchSemanticsNodes().isNotEmpty() ||
+                compose.onAllNodesWithTag("atrio-auth-error")
+                    .fetchSemanticsNodes().isNotEmpty()
+        }
+        val authUiFailed = compose.onAllNodesWithTag("atrio-auth-error")
+            .fetchSemanticsNodes().isNotEmpty()
+        assertTrue(
+            "Login de bot de QA falhou antes de testar respostas; " +
+                "Auth Emulator/UI devem ser diagnosticados separadamente. " +
+                "Sessão autenticada=${auth.currentUser != null}",
+            !authUiFailed
+        )
+        awaitScreen(greeting)
     }
 
     private fun scrollToPost(postId: String) {
