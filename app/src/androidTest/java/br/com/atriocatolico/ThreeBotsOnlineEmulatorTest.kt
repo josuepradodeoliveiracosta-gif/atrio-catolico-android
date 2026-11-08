@@ -233,6 +233,27 @@ class ThreeBotsOnlineEmulatorTest {
         // será feita após reautenticar como destinatária, no final da sessão.
         leave()
 
+        // Verificar o aviso imediatamente após a resposta, antes das ações
+        // de Lúcia. A consulta ocorre como Clara (destinatária legítima),
+        // sem credenciais administrativas nem acesso a dados de produção.
+        enter(claraEmail,"Clara")
+        assertEquals("A autora da discussão deve estar autenticada",
+            claraId, auth.currentUser?.uid)
+        Tasks.await(auth.currentUser!!.getIdToken(false),15,TimeUnit.SECONDS)
+        val immediateNoticeRef = db.collection("users").document(claraId)
+            .collection("notifications").document(persistedReplyId)
+        val immediateNotice = Tasks.await(immediateNoticeRef.get(Source.SERVER),
+            15,TimeUnit.SECONDS)
+        assertTrue("Aviso ausente imediatamente após a resposta persistida",
+            immediateNotice.exists())
+        assertEquals("Aviso inicial vinculado a outra discussão",
+            postId, immediateNotice.getString("postId"))
+        assertEquals("Aviso inicial vinculado a outra resposta",
+            persistedReplyId, immediateNotice.getString("replyId"))
+        assertTrue("O aviso inicial não pode ser emitido pela autora",
+            immediateNotice.getString("actorUid") != claraId)
+        leave()
+
         // Lúcia autentica sua própria conta, curte e salva a discussão.
         enter(luciaEmail,"Lúcia")
         scrollToPost(postId)
