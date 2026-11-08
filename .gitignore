@@ -64,3 +64,7 @@ key.properties
 *.aab
 .kotlin/
 .wrangler/
+
+# Worker Chat QA: builds e configurações locais nunca versionados.
+/cloudflare/push-worker/src/index.chat-qa.generated.js
+/cloudflare/push-worker/wrangler.chat-qa.generated.toml
