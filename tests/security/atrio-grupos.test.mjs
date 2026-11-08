@@ -25,6 +25,8 @@ const a=env.authenticatedContext('group-a').firestore();
 const b=env.authenticatedContext('group-b').firestore();
 const c=env.authenticatedContext('group-c').firestore();
 const stranger=env.authenticatedContext('group-stranger').firestore();
+// Moderador sintético provisionado exclusivamente no Firestore Emulator.
+const reviewer=env.authenticatedContext('group-qa-reviewer').firestore();
 const anonymous=env.unauthenticatedContext().firestore();
 const groupId='grp-study-01';
 const group='chat_groups/'+groupId;
@@ -315,6 +317,31 @@ try {
       reason:'Motivo válido',reportedText:'Paz e bem!',
       createdAt:serverTimestamp()
     })));
+  await check('denunciante lê só o protocolo próprio, não lista denúncias',async()=>{
+    const report='chat_group_reports/group-a__'+groupId+'__msg1';
+    const own=await assertSucceeds(getDoc(doc(a,report)));
+    assert.equal(own.data().reporterUid,'group-a');
+    await assertFails(getDocs(collection(a,'chat_group_reports')));
+    await assertFails(getDocs(collection(stranger,'chat_group_reports')));
+  });
+  await check('conta comum não adquire cargo de moderação nem apaga denúncia',async()=>{
+    await assertFails(setDoc(doc(a,'admins/group-a'),{enabled:true}));
+    await assertFails(updateDoc(doc(a,
+      'chat_group_reports/group-a__'+groupId+'__msg1'),{reason:'Mudança'}));
+    await assertFails(deleteDoc(doc(a,
+      'chat_group_reports/group-a__'+groupId+'__msg1')));
+  });
+  await env.withSecurityRulesDisabled(async ctx=>
+    setDoc(doc(ctx.firestore(),'admins/group-qa-reviewer'),{enabled:true}));
+  await check('revisor vê a denúncia, nunca o histórico privado do grupo',async()=>{
+    const reports=await assertSucceeds(getDocs(collection(reviewer,'chat_group_reports')));
+    assert.equal(reports.docs.length,1);
+    assert.equal(reports.docs[0].data().messageId,'msg1');
+    await assertFails(getDoc(doc(reviewer,group)));
+    await assertFails(getDoc(doc(reviewer,group+'/messages/msg1')));
+    await assertFails(deleteDoc(doc(reviewer,
+      'chat_group_reports/group-a__'+groupId+'__msg1')));
+  });
   await check('não membro não lê mensagens nem as publica',async()=>{
     await assertFails(getDoc(doc(stranger,group+'/messages/msg1')));
     await assertFails(message(stranger,groupId,'group-stranger','msg2','Intrusão'));
@@ -530,6 +557,12 @@ try {
     await assertFails(getDoc(doc(a,group)));
     await assertFails(getDoc(doc(b,group+'/atrioGroupInvites/group-b')));
     await assertFails(getDoc(doc(a,group+'/messages/msg1')));
+  });
+  await check('suspensão de grupos preserva protocolo e auditoria de denúncia',async()=>{
+    const report='chat_group_reports/group-a__'+groupId+'__msg1';
+    await assertSucceeds(getDoc(doc(a,report)));
+    await assertSucceeds(getDoc(doc(reviewer,report)));
+    await assertFails(getDoc(doc(stranger,report)));
   });
   console.log('GROUP SECURITY TESTS:',passed,'OK');
 } finally {

@@ -95,3 +95,50 @@ travas técnicas de homologação, não prova real de idade. Continuam
 pendentes o procedimento de aferição etária, os avisos sem
 `pushEnabled=true`, qualquer exclusão automática e qualquer
 mudança nas regras Firebase de produção.
+
+
+## Moderação de mensagens privadas — processo proposto, sem aprovação de lançamento
+
+A administração acessa **somente protocolos de denúncia** em
+`chat_reports` e `chat_group_reports`, cada qual contendo
+o ID da mensagem apontada, motivo, trecho reportado e criação.
+A função `isAdmin()` exige registro `admins/{uid}` **habilitado
+por Console/Admin SDK**, nunca por autodeclaração.
+As regras não permitem ao moderador abrir `chats/{id}/messages` nem
+`chat_groups/{id}/messages` apenas por ser administrador. A conta
+que denunciou consegue consultar seu protocolo, mas não listar
+protocolos de terceiros. Documentos de denúncia são imutáveis
+pela API cliente, inclusive para administradores.
+
+**Regra de contenção de incidente:** ao desativar o chat globalmente,
+o histórico privado deixa de ser acessível, mas os protocolos já
+registrados continuam legíveis pelo denunciante e pela moderação
+credenciada. Não existe rotina automática de apagar provas.
+Esses limites estão cobertos por testes de regras no emulador.
+
+### Fluxo de análise que ainda depende de aprovação operacional
+
+1. Receber o protocolo privado, sem navegar livremente pelo histórico.
+2. Triar gravidade, risco a menores, ameaças e spam; definir responsáveis
+   e prazos por uma política específica ainda não aprovada.
+3. Preservar evidências relevantes de forma mínima, auditável e com
+   restrição de acesso, respeitando impedimentos legais e privacidade.
+4. Revisão humana com decisão registrada em recurso administrativo
+   **fora das permissões de escrita do APK**; estabelecer contestação e
+   proteção contra denúncia abusiva.
+5. Quando houver suspeita de risco imediato, aplicar processo de
+   escalonamento apropriado definido por responsáveis competentes.
+   Não pressupor poderes de investigação nem leitura geral de DMs.
+6. Não apagar mensagens, subcoleções, protocolos ou backups por
+   cronômetro improvisado. Os prazos, categorias e fundamento jurídico
+   exigem decisão expressa e validação profissional.
+
+**Decisões pendentes:** público-alvo e aferição de idade, canal e
+responsáveis pela moderação, tratamento de denúncias de ex-membros de
+grupos, retenção de cada coleção, solicitação de eliminação e
+preservação legal. Até defini-las, manter os gates de chats/grupos
+fechados na produção.
+
+**Atenção:** os testes abaixo não implementam painel administrativo,
+tratamento jurídico nem triagem automática; apenas comprovam que
+o cliente não ganha acesso aos dados privados por ser moderador.

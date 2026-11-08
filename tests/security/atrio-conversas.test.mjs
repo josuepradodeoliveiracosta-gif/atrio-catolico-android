@@ -25,6 +25,8 @@ const env = await initializeTestEnvironment({
 const alice=env.authenticatedContext('chat-alice').firestore();
 const bob=env.authenticatedContext('chat-bob').firestore();
 const stranger=env.authenticatedContext('chat-stranger').firestore();
+// Admin fictício somente no emulador; nenhuma conta real é elevada.
+const reviewer=env.authenticatedContext('chat-qa-reviewer').firestore();
 const unauth=env.unauthenticatedContext().firestore();
 const chatId='chat-alice__chat-bob';
 const room='chats/'+chatId;
@@ -362,6 +364,31 @@ try {
     })));
   await check('participante não consegue ler denúncias de outro',()=>
     assertFails(getDoc(doc(alice,'chat_reports/chat-bob__'+chatId+'__m2'))));
+  await check('denunciante vê seu protocolo, mas não lista denúncias privadas',async()=>{
+    const report='chat_reports/chat-bob__'+chatId+'__m2';
+    const own=await assertSucceeds(getDoc(doc(bob,report)));
+    assert.equal(own.data().reporterUid,'chat-bob');
+    await assertFails(getDocs(collection(bob,'chat_reports')));
+    await assertFails(getDocs(collection(stranger,'chat_reports')));
+  });
+  await check('cliente não pode se nomear moderador ou adulterar protocolo',async()=>{
+    await assertFails(setDoc(doc(alice,'admins/chat-alice'),{enabled:true}));
+    await assertFails(updateDoc(doc(bob,
+      'chat_reports/chat-bob__'+chatId+'__m2'),{reason:'Alterado'}));
+    await assertFails(deleteDoc(doc(bob,
+      'chat_reports/chat-bob__'+chatId+'__m2')));
+  });
+  await env.withSecurityRulesDisabled(async ctx=>
+    setDoc(doc(ctx.firestore(),'admins/chat-qa-reviewer'),{enabled:true}));
+  await check('moderador vê denúncia, não o histórico privado de chats',async()=>{
+    const reports=await assertSucceeds(getDocs(collection(reviewer,'chat_reports')));
+    assert.equal(reports.docs.length,1);
+    assert.equal(reports.docs[0].data().messageId,'m2');
+    await assertFails(getDoc(doc(reviewer,room)));
+    await assertFails(getDoc(doc(reviewer,room+'/messages/m2')));
+    await assertFails(deleteDoc(doc(reviewer,
+      'chat_reports/chat-bob__'+chatId+'__m2')));
+  });
   await check('edição sem política administrativa permanece negada',()=>
     assertFails(updateDoc(doc(alice,room+'/messages/m2'),{
       editedText:'Texto novo',editedAt:serverTimestamp()
@@ -502,6 +529,12 @@ try {
   await check('suspensão da política fecha a leitura de chats existentes',async()=>{
     await assertFails(getDoc(doc(alice,room)));
     await assertFails(getDoc(doc(bob,room+'/messages/m2')));
+  });
+  await check('suspender chats preserva denúncias para titular e revisor',async()=>{
+    const report='chat_reports/chat-bob__'+chatId+'__m2';
+    await assertSucceeds(getDoc(doc(bob,report)));
+    await assertSucceeds(getDoc(doc(reviewer,report)));
+    await assertFails(getDoc(doc(stranger,report)));
   });
   await env.withSecurityRulesDisabled(async ctx=>
     updateDoc(doc(ctx.firestore(),'app_config/conversations'),{
