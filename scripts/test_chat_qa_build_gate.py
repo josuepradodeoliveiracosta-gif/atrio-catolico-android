@@ -85,6 +85,14 @@ class ChatQaBuildGateTests(unittest.TestCase):
         self.config["project_info"]["project_id"] = "other-qa-project"
         self.changed()
 
+    def test_official_firebase_project_in_config_fails(self):
+        self.config["project_info"]["project_id"] = "atrio-catolico"
+        self.changed()
+
+    def test_missing_sender_in_config_fails(self):
+        self.config["project_info"].pop("project_number")
+        self.changed()
+
     def test_wrong_sender_fails(self):
         self.config["project_info"]["project_number"] = "987654321"
         self.changed()
