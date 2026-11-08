@@ -1173,6 +1173,12 @@ private fun OnlineCommunity(
             done(false)
             return
         }
+        val replyActorUid = uid
+        val replyActorName = name
+        if (replyActorUid.isBlank() || FirebaseAuth.getInstance().currentUser?.uid != replyActorUid) {
+            done(false)
+            return
+        }
         if (openedPost?.id != id) {
             message = "Discussão indisponível. Atualize o fórum e tente novamente."
             done(false)
@@ -1183,6 +1189,11 @@ private fun OnlineCommunity(
         // Não publicar silenciosamente uma resposta sem o aviso obrigatório.
         db.collection("posts").document(id).get(com.google.firebase.firestore.Source.SERVER)
             .addOnCompleteListener { parentResult ->
+                if (uid != replyActorUid || FirebaseAuth.getInstance().currentUser?.uid != replyActorUid) {
+                    message = "A sessão mudou. Reabra a discussão e tente novamente."
+                    done(false)
+                    return@addOnCompleteListener
+                }
                 val parent = if (parentResult.isSuccessful) parentResult.result else null
                 val ownerUid = if (parent?.exists() == true)
                     parent.getString("uid").orEmpty() else ""
@@ -1195,7 +1206,7 @@ private fun OnlineCommunity(
                     .collection("replies").document()
                 val batch = db.batch()
                 val replyData = mutableMapOf<String, Any>(
-                    "uid" to uid, "authorName" to name, "body" to body,
+                    "uid" to replyActorUid, "authorName" to replyActorName, "body" to body,
                     "createdAt" to FieldValue.serverTimestamp()
                 )
                 if (target != null && advancedEngagement &&
@@ -1203,21 +1214,21 @@ private fun OnlineCommunity(
                     replyData["replyToId"] = target.id
                     replyData["replyToUid"] = target.ownerUid
                 }
-                if (mention != null && advancedEngagement && mention.uid != uid) {
+                if (mention != null && advancedEngagement && mention.uid != replyActorUid) {
                     replyData["mentionUid"] = mention.uid
                     if (mention.sourceReplyId.isNotBlank()) {
                         replyData["mentionReplyId"] = mention.sourceReplyId
                     }
                 }
                 batch.set(replyRef, replyData)
-                if (ownerUid != uid) {
+                if (ownerUid != replyActorUid) {
                     val noticeRef = db.collection("users").document(ownerUid)
                         .collection("notifications").document(replyRef.id)
                     val notice = mutableMapOf<String, Any>(
                         "postId" to id,
                         "replyId" to replyRef.id,
-                        "actorUid" to uid,
-                        "actorName" to name,
+                        "actorUid" to replyActorUid,
+                        "actorName" to replyActorName,
                         "read" to false,
                         "createdAt" to FieldValue.serverTimestamp()
                     )
@@ -1239,12 +1250,12 @@ private fun OnlineCommunity(
                 // da discussão. Backend valida o alvo real e a escrita atômica.
                 if (advancedEngagement && target != null &&
                     target.id.isNotBlank() && target.ownerUid.isNotBlank() &&
-                    target.ownerUid != uid && target.ownerUid != ownerUid) {
+                    target.ownerUid != replyActorUid && target.ownerUid != ownerUid) {
                     val noticeRef = db.collection("users").document(target.ownerUid)
                         .collection("notifications").document(replyRef.id)
                     batch.set(noticeRef, mapOf(
                         "postId" to id, "replyId" to replyRef.id,
-                        "actorUid" to uid, "actorName" to name,
+                        "actorUid" to replyActorUid, "actorName" to replyActorName,
                         "replyToId" to target.id,
                         "read" to false,
                         "createdAt" to FieldValue.serverTimestamp()
@@ -1253,13 +1264,13 @@ private fun OnlineCommunity(
                 // Uma menção explícita no tópico pode enviar um aviso privado
                 // ao participante, com UID verificado pelas regras do Firestore.
                 if (advancedEngagement && mention != null &&
-                    mention.uid != uid && mention.uid != ownerUid &&
+                    mention.uid != replyActorUid && mention.uid != ownerUid &&
                     mention.uid != target?.ownerUid) {
                     val noticeRef = db.collection("users").document(mention.uid)
                         .collection("notifications").document(replyRef.id)
                     val mentionNotice = mutableMapOf<String, Any>(
                         "postId" to id, "replyId" to replyRef.id,
-                        "actorUid" to uid, "actorName" to name,
+                        "actorUid" to replyActorUid, "actorName" to replyActorName,
                         "mentionUid" to mention.uid, "read" to false,
                         "createdAt" to FieldValue.serverTimestamp()
                     )
@@ -1282,7 +1293,7 @@ private fun OnlineCommunity(
                     val qaLab = BuildConfig.DEBUG &&
                         com.google.firebase.FirebaseApp.getInstance().options.projectId == "demo-atrio-v11"
                     if (result.isSuccessful && !qaLab) {
-                        ThreadPushSubscriptions.track(context, uid, id)
+                        ThreadPushSubscriptions.track(context, replyActorUid, id)
                         InstantPushRelay.reply(id, replyRef.id)
                         InstantPushRelay.moderateReply(id, replyRef.id)
                     }
