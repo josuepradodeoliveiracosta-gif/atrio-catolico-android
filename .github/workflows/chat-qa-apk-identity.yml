@@ -118,6 +118,21 @@ jobs:
           import zipfile
           with zipfile.ZipFile(apk) as archive:
               table = archive.read("resources.arsc")
+              dex_names = [name for name in archive.namelist()
+                           if re.fullmatch(r"classes[0-9]*\\.dex", name)]
+              dex_contents = [archive.read(name) for name in dex_names]
+          if not dex_contents:
+              raise SystemExit("Falha: APK QA não contém bytecode Android.")
+          qa_origin = os.environ["ATRIO_CHAT_QA_WORKER_URL"].encode("utf-8")
+          if not any(qa_origin in dex for dex in dex_contents):
+              raise SystemExit("Falha: Worker de QA não está incorporado ao APK.")
+          forbidden_origins = (
+              b"https://atrio-push.atrio-catolico.workers.dev",
+              b"https://atrio-guardian-v2.atrio-catolico.workers.dev",
+              b"https://atrio-avatares.atrio-catolico.workers.dev",
+          )
+          if any(origin in dex for origin in forbidden_origins for dex in dex_contents):
+              raise SystemExit("Falha: URL de Worker oficial incorporada ao APK QA.")
           resource_dump = subprocess.check_output(
               [str(aapt), "dump", "--values", "resources", str(apk)], text=True
           )
@@ -139,7 +154,7 @@ jobs:
           matches = re.findall(r"Signer #\d+ certificate SHA-256 digest: ([0-9a-fA-F:]+)", check)
           if len(matches) != 1 or matches[0].replace(":", "").lower() == prod_cert:
               raise SystemExit("Falha: APK sem signer QA único ou assinado como Release oficial.")
-          print("OK: APK compilado localmente, pacote distinto, Firebase QA fictício e assinatura Debug.")
+          print("OK: APK QA sintético com Firebase QA, assinatura Debug e Worker QA no bytecode.")
           print("Não demonstra isolamento em execução nem entrega FCM; nenhum APK foi distribuído.")
           PY
       - name: Apagar configuração sintética do runner
