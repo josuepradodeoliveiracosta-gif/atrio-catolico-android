@@ -119,7 +119,7 @@ jobs:
           with zipfile.ZipFile(apk) as archive:
               table = archive.read("resources.arsc")
               dex_names = [name for name in archive.namelist()
-                           if re.fullmatch(r"classes[0-9]*\\.dex", name)]
+                           if re.fullmatch(r"classes[0-9]*\.dex", name)]
               dex_contents = [archive.read(name) for name in dex_names]
           if not dex_contents:
               raise SystemExit("Falha: APK QA não contém bytecode Android.")
