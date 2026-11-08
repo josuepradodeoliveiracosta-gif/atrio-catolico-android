@@ -37,6 +37,17 @@ internal object AtrioGroupPolicy {
     }
 }
 
+
+/**
+ * Os snapshots de convites e membros chegam por listeners independentes.
+ * Durante o aceite, o mesmo groupId pode existir nas duas seções por instantes.
+ * Compose exige chaves únicas em toda a LazyColumn, não apenas em cada seção.
+ */
+internal object AtrioGroupListKeys {
+    fun invitation(groupId: String): String = "invite:$groupId"
+    fun membership(groupId: String): String = "room:$groupId"
+}
+
 private data class AtrioGroup(
     val id: String,
     val name: String,
@@ -381,7 +392,7 @@ internal fun AtrioGroupsScreen(
                     Text("Convites recebidos",color=Wine,
                         fontSize=17.sp,fontWeight=FontWeight.SemiBold)
                 }
-                items(pending,key={it.groupId}) { invite ->
+                items(pending,key={AtrioGroupListKeys.invitation(it.groupId)}) { invite ->
                     Card(colors=CardDefaults.cardColors(
                         containerColor=MaterialTheme.colorScheme.surface),
                         border=BorderStroke(1.dp,Line)) {
@@ -412,7 +423,7 @@ internal fun AtrioGroupsScreen(
                     Text("Você ainda não participa de grupos.",
                         color=Muted,modifier=Modifier.padding(8.dp))
                 }
-                items(rooms,key={it.id}) { room ->
+                items(rooms,key={AtrioGroupListKeys.membership(it.id)}) { room ->
                     Card(onClick={selectedId=room.id},
                         modifier=Modifier.fillMaxWidth().testTag("atrio-group-"+room.id),
                         colors=CardDefaults.cardColors(

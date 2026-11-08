@@ -22,4 +22,18 @@ class AtrioGroupPolicyTest {
         assertEquals("Comunidade", AtrioGroupPolicy.categoryName("community"))
         assertEquals(8, AtrioGroupPolicy.MAX_MEMBERS)
     }
+
+    @Test fun chaveUnicaQuandoConviteEGrupoCoexistemDuranteAceite() {
+        // O Firestore pode atualizar a associação antes do snapshot de convites.
+        val sameGroup = "GtGSbg0srVcyefUtl7io"
+        val invitation = AtrioGroupListKeys.invitation(sameGroup)
+        val membership = AtrioGroupListKeys.membership(sameGroup)
+        assertEquals("invite:$sameGroup", invitation)
+        assertEquals("room:$sameGroup", membership)
+        assertTrue(invitation != membership)
+        assertEquals(invitation, AtrioGroupListKeys.invitation(sameGroup))
+        assertEquals(membership, AtrioGroupListKeys.membership(sameGroup))
+        assertTrue(AtrioGroupListKeys.invitation("other") != invitation)
+        assertTrue(AtrioGroupListKeys.membership("other") != membership)
+    }
 }
