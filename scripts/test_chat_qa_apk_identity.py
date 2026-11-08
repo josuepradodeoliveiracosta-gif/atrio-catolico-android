@@ -17,6 +17,8 @@ class ChatQaApkIdentityTests(unittest.TestCase):
         self.project = "qa-atrio-conversas-2026"
         self.package = "br.com.atriocatolico.chatqa"
         self.cert = "c" * 64
+        self.firebase_app_id = "1:123456789:android:abcdef123456"
+        self.sender_id = "123456789"
         self.sdk = t.name
 
     def sdk_runner(self, args):
@@ -32,13 +34,15 @@ class ChatQaApkIdentityTests(unittest.TestCase):
         if args[1] == "resources":
             name = args[args.index("--name") + 1]
             return {"project_id": '"' + self.project + '"',
-                    "google_app_id": '"1:123456:android:qa"'}[name]
+                    "google_app_id": '"' + self.firebase_app_id + '"',
+                    "gcm_defaultSenderId": '"' + self.sender_id + '"'}[name]
         raise AssertionError("unexpected command")
 
     def run_preflight(self, **overrides):
         data = {"sdk": self.sdk, "expected_project": "qa-atrio-conversas-2026",
                 "expected_package": "br.com.atriocatolico.chatqa",
                 "expected_cert": "c" * 64, "expected_hash": self.sha,
+                "expected_firebase_app_id": "1:123456789:android:abcdef123456",
                 "runner": self.sdk_runner}
         data.update(overrides)
         return qa_apk_preflight(self.apk, **data)
@@ -51,6 +55,8 @@ class ChatQaApkIdentityTests(unittest.TestCase):
         result = self.run_preflight()
         self.assertEqual(result["result"], "qa_apk_identity_only")
         self.assertTrue(result["qa_signer_matches"])
+        self.assertTrue(result["firebase_app_id_matches_qa"])
+        self.assertTrue(result["firebase_sender_matches_qa"])
         self.assertFalse(result["runtime_network_isolation_verified"])
         self.assertFalse(result["worker_endpoints_audited"])
         self.assertFalse(result["physical_chat_tests_verified"])
@@ -94,6 +100,28 @@ class ChatQaApkIdentityTests(unittest.TestCase):
                 return ""
             return original(args)
         self.check_denied(runner=modified)
+
+    def test_firebase_app_id_from_another_project_is_rejected(self):
+        self.firebase_app_id = "1:999999999:android:abcdef123456"
+        self.check_denied()
+
+    def test_wrong_approved_firebase_app_id_is_rejected(self):
+        self.check_denied(expected_firebase_app_id="1:999999999:android:abcdef123456")
+
+    def test_web_firebase_app_id_is_rejected(self):
+        self.check_denied(expected_firebase_app_id="1:123456789:web:abcdef123456")
+
+    def test_missing_firebase_app_id_is_rejected(self):
+        self.firebase_app_id = ""
+        self.check_denied()
+
+    def test_wrong_fcm_sender_is_rejected(self):
+        self.sender_id = "999999999"
+        self.check_denied()
+
+    def test_missing_fcm_sender_is_rejected(self):
+        self.sender_id = ""
+        self.check_denied()
 
     def test_altered_apk_is_rejected(self):
         self.apk.write_bytes(b"changed")
