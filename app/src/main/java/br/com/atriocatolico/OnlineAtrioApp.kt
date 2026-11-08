@@ -1221,7 +1221,8 @@ private fun OnlineCommunity(
                     }
                 }
                 batch.set(replyRef, replyData)
-                if (ownerUid != replyActorUid) {
+                val ownerNoticeQueued = ownerUid != replyActorUid
+                if (ownerNoticeQueued) {
                     val noticeRef = db.collection("users").document(ownerUid)
                         .collection("notifications").document(replyRef.id)
                     val notice = mutableMapOf<String, Any>(
@@ -1279,8 +1280,19 @@ private fun OnlineCommunity(
                     }
                     batch.set(noticeRef, mentionNotice)
                 }
+                // Diagnóstico estritamente local: somente Firebase Emulator + Debug.
+                // Nunca registrar UID, nome, corpo ou notificações privadas.
+                val qaLab = BuildConfig.DEBUG &&
+                    com.google.firebase.FirebaseApp.getInstance().options.projectId == "demo-atrio-v11"
+                if (qaLab) android.util.Log.i("AtrioReplyQA",
+                    "operation=${replyRef.id} ownerNoticeQueued=$ownerNoticeQueued " +
+                        "authUnchanged=${FirebaseAuth.getInstance().currentUser?.uid == replyActorUid}")
                 // Resposta e notificações continuam atômicas.
                 batch.commit().addOnCompleteListener { result ->
+                    if (qaLab) android.util.Log.i("AtrioReplyQA",
+                        "operation=${replyRef.id} batchSucceeded=${result.isSuccessful} " +
+                            "ownerNoticeQueued=$ownerNoticeQueued " +
+                            "authUnchanged=${FirebaseAuth.getInstance().currentUser?.uid == replyActorUid}")
                     // Confirmar imediatamente o resultado para a interface.
                     // Inscrições FCM e relay não devem bloquear o botão Responder.
                     if (!result.isSuccessful) {
@@ -1290,8 +1302,6 @@ private fun OnlineCommunity(
                             else "Não foi possível responder. Confira a conexão e as regras."
                     }
                     done(result.isSuccessful)
-                    val qaLab = BuildConfig.DEBUG &&
-                        com.google.firebase.FirebaseApp.getInstance().options.projectId == "demo-atrio-v11"
                     if (result.isSuccessful && !qaLab) {
                         ThreadPushSubscriptions.track(context, replyActorUid, id)
                         InstantPushRelay.reply(id, replyRef.id)
