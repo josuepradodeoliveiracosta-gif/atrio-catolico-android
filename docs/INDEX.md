@@ -4,6 +4,7 @@ O índice é a **porta de entrada única** para conhecer os módulos, entender o
 
 | Necessidade | Abrir |
 | --- | --- |
+| Consultar auditoria e limpeza de arquivos sem uso | [Auditoria de 07/11/2026](operacoes/AUDITORIA-LIMPEZA-2026-11-07.md) |
 | Localizar os diretórios, sistemas e dependências | [Mapa técnico do repositório](arquitetura/MAPA-REPOSITORIO.md) |
 | Saber o que está integrado ou em homologação | [Estado das funcionalidades](funcionalidades/STATUS.md) |
 | Registrar uma tarefa, proposta ou bloqueio | [Gestão de demandas](organizacao/FLUXO-DE-TRABALHO.md) |

@@ -59,3 +59,8 @@ key.properties
 
 # Configuracao Firebase do chat QA: somente no ambiente local de testes.
 /app/src/chatQa/google-services.json
+
+# Saidas locais adicionais de Android, Kotlin e Wrangler
+*.aab
+.kotlin/
+.wrangler/
