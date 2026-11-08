@@ -32,10 +32,13 @@ app_config/reply_notification_policy, com enabled true/false.
 - Resposta do autor ao próprio post não requer autoaviso.
 - Desativar a flag faz rollback, mas reabre o risco de aviso ausente.
 
-Esta prova só garante aviso ao autor do post. Antes de implantar qualquer
-mudança, a política também precisará abranger resposta direta e menção,
-deduplicação de destinatários, limites e custo de chamadas getAfter nas
-Rules, falhas de conexão e ações de clientes não conformes.
+O laboratório expandido também propõe exigir avisos para destinatários de
+respostas diretas e membros mencionados, inclusive quando são diferentes do
+autor da discussão, quando o próprio autor responde e quando o destinatário
+coincide com o autor. Esses casos ainda dependem da execução do CI no novo
+commit. A política proposta precisa de auditoria de deduplicação, limites e
+custo de chamadas getAfter nas Rules, falhas de conexão e clientes não
+conformes antes de qualquer implantação.
 
 ## Etapas ainda dependentes de autorização
 1. Inventariar APKs antigos, assinaturas, canais e versionCode reais.
