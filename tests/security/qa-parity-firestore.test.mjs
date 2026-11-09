@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {initializeTestEnvironment,assertFails,assertSucceeds}
   from '@firebase/rules-unit-testing';
-import {doc,getDoc,getDocs,collection,setDoc,Timestamp}
+import {doc,getDoc,getDocs,collection,setDoc,updateDoc,deleteDoc,Timestamp}
   from 'firebase/firestore';
 
 const rules=readFileSync('qa-parity.generated.rules','utf8');
@@ -107,6 +107,62 @@ try {
   await assertSucceeds(getDocs(collection(moderator,'chat_reports')));
   await assertSucceeds(getDocs(collection(moderator,'chat_group_reports')));
 
+  // Portoes administrativos nao podem ser reabertos por clientes, mesmo
+  // quando o fragmento QA e a base legada coexistem na mesma Rules.
+  const eligibility='users/qa-alice/chatGroupAccess/eligibility';
+  const validEligibility={
+    status:'approved',policyVersion:'2026-11-group-safety-v1',
+    reviewExpiresAt:future
+  };
+  await assertFails(setDoc(doc(bob,'users/qa-bob/chatGroupAccess/eligibility'),
+    validEligibility));
+  await assertFails(setDoc(doc(moderator,
+    'users/qa-bob/chatGroupAccess/eligibility'),validEligibility));
+  await assertFails(updateDoc(doc(alice,eligibility),{
+    status:'approved',reviewExpiresAt:future
+  }));
+  await assertFails(setDoc(doc(alice,'app_config/chat_groups'),{
+    enabled:true,version:'2026-11-groups-v1',minorPolicyApproved:true
+  }));
+  await assertFails(updateDoc(doc(moderator,'app_config/chat_groups'),{
+    enabled:false
+  }));
+  await assertFails(updateDoc(doc(moderator,chatReport),{
+    reason:'Tentativa de alteracao QA'
+  }));
+  await assertFails(deleteDoc(doc(moderator,groupReport)));
+  await assertFails(deleteDoc(doc(alice,chatReport)));
+
+  // Revogar elegibilidade no servidor encerra imediatamente o acesso
+  // a um grupo existente, sem afetar o chat individual ainda autorizado.
+  await env.withSecurityRulesDisabled(async ctx=>{
+    await setDoc(doc(ctx.firestore(),eligibility),{
+      ...validEligibility,status:'revoked'
+    });
+  });
+  await assertFails(getDoc(doc(alice,group)));
+  await assertFails(getDoc(doc(alice,groupMessage)));
+  await assertSucceeds(getDoc(doc(alice,chat)));
+
+  // A restauracao sintetica demonstra que a negacao foi pelo gate,
+  // e nao pela ausencia do documento ou falha geral de conectividade.
+  await env.withSecurityRulesDisabled(async ctx=>{
+    await setDoc(doc(ctx.firestore(),eligibility),validEligibility);
+  });
+  await assertSucceeds(getDoc(doc(alice,groupMessage)));
+
+  // Remocao da lista de membros bloqueia historico, mesmo mantendo
+  // elegibilidade administrativa. Nenhuma mudanca no Firebase real.
+  await env.withSecurityRulesDisabled(async ctx=>{
+    await updateDoc(doc(ctx.firestore(),group),{memberUids:[]});
+  });
+  await assertFails(getDoc(doc(alice,group)));
+  await assertFails(getDoc(doc(alice,groupMessage)));
+  await env.withSecurityRulesDisabled(async ctx=>{
+    await updateDoc(doc(ctx.firestore(),group),{memberUids:['qa-alice']});
+  });
+  await assertSucceeds(getDoc(doc(alice,groupMessage)));
+
   // Um único gate desligado precisa negar mesmo o histórico existente.
   await env.withSecurityRulesDisabled(async ctx=>{
     await setDoc(doc(ctx.firestore(),'app_config/conversations'),{
@@ -125,7 +181,7 @@ try {
   await assertSucceeds(getDoc(doc(moderator,groupReport)));
   // A rota pública legada continua legível: não é um falso negativo global.
   await assertSucceeds(getDoc(doc(guest,'app_config/opening_video')));
-  console.log('Paridade QA: legado, gates, mensagens e protocolos privados OK (EMULATOR).');
+  console.log('Paridade QA: legado, revogacao, privilegios e protocolos privados OK (EMULATOR).');
 }finally {
   await env.cleanup();
 }
