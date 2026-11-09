@@ -59,7 +59,13 @@ export function render(chat,group) {
  if([chat,group].some(s=>/allow\s+read\s*,\s*write\s*:\s*if\s+true\s*;/.test(s)||
      s.includes('rules_version')))
    throw Error('qa_source_grant_unexpected');
- return base+'\n'+chat+'\n'+group+'\n'+ending+'\n';
+ // QA exige email validado em TODAS as rotas de chat/grupo.
+ // O fragmento oficial permanece intocado; substituir apenas a ancora auditada.
+ const originalGate='return signedIn() && exists(config)';
+ if(chat.split(originalGate).length!==2)throw Error('qa_chat_gate_changed');
+ const stricterChat=chat.replace(originalGate,
+   'return emailVerificationAllowsCommunityAccess() && exists(config)');
+ return base+'\n'+stricterChat+'\n'+group+'\n'+ending+'\n';
 }
 export function generate(){
  const chat=fs.readFileSync(path.join(ROOT,'firebase/atrio-conversas-v1.rules.fragment'),'utf8');

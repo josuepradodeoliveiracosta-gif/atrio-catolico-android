@@ -24,3 +24,17 @@ NAO fazer deploy agora. A revisao de menores, retencao, moderacao,
 regras QA e identidade APK/Worker ainda e necessaria antes de autorizar
 ativacao de chats, grupos ou notificacoes FCM. Nao importar dados reais,
 usuarios oficiais nem copiar firestore.rules da producao.
+
+**Revisão de segurança QA (08/11):** o gerador altera apenas a âncora
+`chatEnabled()` na cópia **em memória** do fragmento de conversas, para
+exigir e-mail verificado inclusive em preferências, solicitações e grupos.
+Se essa âncora mudar ou desaparecer, o gerador aborta. O fragmento original
+e as regras de produção não são modificados. A suíte valida a recusa de uma
+conta fictícia com e-mail não verificado.
+
+**Auditoria remota opcional, SOMENTE leitura:** no clone Termux atualizado,
+`node scripts/termux-firestore-qa-readonly.mjs` consulta duas vezes a API
+de regras do projeto fixo `atrio-catolico-qa-geral` (uma release e um
+ruleset) e informa apenas SHA-256 e se ainda está em deny-all. Falha de
+permissão ou diferença nas regras não autoriza deploy. Nenhum segredo é
+publicado. O Worker QA continua bootstrap bloqueado.

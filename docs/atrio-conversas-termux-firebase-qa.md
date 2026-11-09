@@ -1,9 +1,13 @@
 # Firebase QA pelo Termux — roteiro seguro e sem produção
 
-**Status (08/11/2026):** roteiro de preparação, **não executado**. A criação de
-projeto, o login Google, o download de `google-services.json`, as ativações
-Auth/Firestore e qualquer implantação exigem intervenção e autorização do
-responsável. **Não usar o projeto oficial `atrio-catolico`.**
+**Status verificado em capturas do responsável (08/11/2026):** o Firebase
+`atrio-catolico-qa-geral` foi criado; aplicativo Android `chatQa` registrado,
+configuração local copiada e verificada por SHA-256, Authentication por
+e-mail/senha ativado e Firestore `(default)` em São Paulo criado com
+regras de negação total implantadas. O Worker/D1 QA geral foram criados,
+mas `atrio-qa-geral` está em modo bootstrap, com workers.dev e previews
+desativados; a integração FCM e o APK real ainda não foram homologados.
+**Não usar o projeto oficial `atrio-catolico`.**
 
 O projeto QA-alvo é `atrio-catolico-qa-geral`, com Worker geral planejado
 `atrio-qa-geral` e D1 `atrio-qa-geral-db`. O APK `chatQa` mantém
@@ -42,7 +46,7 @@ um novo projeto usando o Console Firebase ou, de forma interativa:
 
 ```sh
 # SUBSTITUIR pelo ID QA escolhido e conferir antes de executar.
-firebase projects:create atrio-catolico-qa-geral --display-name "Atrio Catolico - Homologacao Geral"
+firebase projects:create atrio-catolico-qa-geral --display-name "Atrio Catolico QA Geral"
 ```
 
 O comando acima **altera a nuvem** e está aqui apenas como instrução futura:
@@ -148,3 +152,15 @@ que variáveis gerais de Worker e assinatura de produção estão vazias.
 
 **Escopo:** este roteiro não altera `main`, APK Release, Firebase oficial,
 Workers/D1 oficiais ou backups.
+
+## 6. Auditoria das regras reais — somente leitura
+
+Depois de atualizar o clone de QA com `git pull --ff-only`, execute
+`node scripts/termux-firestore-qa-readonly.mjs` para conferir por
+**duas consultas GET exclusivas ao projeto `atrio-catolico-qa-geral`**
+que as regras publicadas continuam em negação total.
+Não publique regras candidatas enquanto o plano de menores, moderação
+e retenção da issue #200 estiver sem aprovação; o resultado
+`firestoreRulesCurrentlyDenyAll: true` **não autoriza chat**.
+Se o Firebase CLI mudar seus módulos privados de autenticação, o
+script falhará de modo seguro, sem ler arquivos de tokens manualmente.

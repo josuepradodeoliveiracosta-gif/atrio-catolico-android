@@ -16,6 +16,7 @@ const alice=env.authenticatedContext('qa-alice',{email_verified:true}).firestore
 const bob=env.authenticatedContext('qa-bob',{email_verified:true}).firestore();
 const outsider=env.authenticatedContext('qa-outsider',{email_verified:true}).firestore();
 const guest=env.unauthenticatedContext().firestore();
+const unverified=env.authenticatedContext('qa-unverified',{email_verified:false}).firestore();
 const room='chats/qa-alice__qa-bob';
 try {
  await env.clearFirestore();
@@ -33,6 +34,11 @@ try {
      enabled:true,version:'2026-11-groups-v1',minorPolicyApproved:false
    });
  });
+ // Conta nao verificada nunca atravessa o gate, mesmo com flags sinteticas ativas.
+ await assertFails(setDoc(doc(unverified,'users/qa-unverified/chatSettings/privacy'),{
+   requests:'all',readReceipts:false,showPushPreview:false,
+   updatedAt:serverTimestamp()
+ }));
  await assertSucceeds(setDoc(doc(bob,'users/qa-bob/chatSettings/privacy'),{
    requests:'all',readReceipts:false,showPushPreview:false,
    updatedAt:serverTimestamp()

@@ -33,10 +33,13 @@ o único comando de compilação permitido é:
 ATRIO_CHAT_QA_BUILD=1 gradle :app:assembleChatQa --no-daemon
 ```
 
-O gate offline exige que o ID do projeto tenha o segmento explícito `qa` (por exemplo,
-`qa-atrio-conversas-2026`), além da igualdade do projeto, App ID, FCM sender,
+O gate offline exige o ID exato `atrio-catolico-qa-geral`,
+além da igualdade do projeto, App ID, FCM sender,
 hash e pacote exato `br.com.atriocatolico.chatqa`,
-e recusa Workers oficiais ou sem marcador QA. Isso **não prova** que o endpoint QA
+e recusa Workers oficiais ou sem marcador QA. O Worker QA atualmente
+não oferece URL `workers.dev`: não inventar endereço para passar pelo
+gate nem habilitar acesso público antes da revisão e autorização.
+Isso **não prova** que o endpoint QA
 seja independente em execução, nem que o APK final usou a configuração correta.
 Antes de instalar, executar a auditoria do **APK real** abaixo e os testes FCM físicos
 já previstos. Nenhum Firebase, Worker, Release ou backup é alterado por esse preparo.
