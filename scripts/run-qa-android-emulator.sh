@@ -80,6 +80,22 @@ run_suite() {
     cp -a app/build/outputs/androidTest-results/connected/debug/. \
       "qa-android-suite-results/$suite/"
   fi
+  # Somente a suite de cadastro Auth/Firestore emulados: salvar no artefato
+  # APENAS marcadores permitidos. Nunca anexar logcat bruto (pode conter PII).
+  # O arquivo é coletado mesmo quando a suite falha, sem ocultar a falha.
+  if [[ "$suite" == "ThreeBotsAuthenticatedAndroidUiTest" ]]; then
+    local markers="qa-android-suite-results/$suite/profile-write-markers.txt"
+    mkdir -p "qa-android-suite-results/$suite"
+    if adb logcat -d -v raw -s AtrioQaProfile:I '*:S' 2>/dev/null \
+      | grep -Eo 'auth_signup_callback_received|profile_write_requested|profile_write_acknowledged|profile_write_rejected:[A-Za-z_]+' \
+      | tail -n 100 > "$markers"; then
+      echo "QA Android: marcadores de persistencia sanitizados coletados: $(wc -l < "$markers")"
+    else
+      # Ausência de marcadores não equivale a sucesso de persistência.
+      printf '%s\n' 'qa_profile_markers_unavailable' > "$markers"
+      echo "QA Android: marcadores de perfil indisponiveis; ver relatorio de teste"
+    fi
+  fi
 }
 # Suite-only QA V2: reuse the existing isolated emulator/auth startup,
 # but never repeat the nine older Android UI suites for this new check.
