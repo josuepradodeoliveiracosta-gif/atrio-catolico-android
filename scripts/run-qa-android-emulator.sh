@@ -69,7 +69,7 @@ run_suite() {
   echo "QA Android: iniciando $suite (isolado)"
   if gradle :app:connectedDebugAndroidTest \
     "-Pandroid.testInstrumentationRunnerArguments.class=$full" \
-    --no-daemon --stacktrace; then
+    --daemon --stacktrace; then
     echo "QA Android: $suite aprovada"
   else
     qa_failed=1
