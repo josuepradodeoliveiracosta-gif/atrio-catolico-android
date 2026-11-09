@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {initializeTestEnvironment,assertFails,assertSucceeds} from '@firebase/rules-unit-testing';
-import {doc,getDoc,setDoc,deleteDoc,writeBatch,serverTimestamp,updateDoc,Timestamp} from 'firebase/firestore';
+import {doc,getDoc,getDocs,collection,setDoc,deleteDoc,writeBatch,serverTimestamp,updateDoc,Timestamp} from 'firebase/firestore';
 
 const contents=readFileSync('qa-general.generated.rules','utf8');
 if(!contents.includes('match /{document=**}') ||
@@ -212,6 +212,47 @@ try {
  await assertFails(getDoc(doc(outsider,groupMessage)));
  await assertFails(getDoc(doc(guest,groupMessage)));
  await assertFails(getDoc(doc(unverified,groupMessage)));
+ // Ex-integrante: o gate individual continua aprovado, mas a retirada da
+ // lista de membros precisa revogar grupo, mensagens e preferencias privadas.
+ // Todas as gravacoes administrativas abaixo existem SOMENTE no emulador.
+ const bobEligibility='users/qa-bob/chatGroupAccess/eligibility';
+ const bobGroupBox='users/qa-bob/chatGroupBox/qa-existing-group';
+ await env.withSecurityRulesDisabled(async ctx=>{
+   await setDoc(doc(ctx.firestore(),bobEligibility),approvedEligibility);
+   await updateDoc(doc(ctx.firestore(),group),{
+     memberUids:['qa-alice','qa-bob']
+   });
+   await setDoc(doc(ctx.firestore(),bobGroupBox),{
+     muted:true,updatedAt:past
+   });
+ });
+ // Controle positivo: Bob era integrante normal, sem papel administrativo.
+ await assertSucceeds(getDoc(doc(bob,group)));
+ await assertSucceeds(getDoc(doc(bob,groupMessage)));
+ await assertSucceeds(getDocs(collection(bob,group+'/messages')));
+ await assertSucceeds(getDoc(doc(bob,bobGroupBox)));
+ // O administrador ficticio remove SOMENTE Bob, sem desativar o grupo.
+ await env.withSecurityRulesDisabled(async ctx=>{
+   await updateDoc(doc(ctx.firestore(),group),{
+     memberUids:['qa-alice']
+   });
+ });
+ await assertFails(getDoc(doc(bob,group)));
+ await assertFails(getDoc(doc(bob,groupMessage)));
+ await assertFails(getDocs(collection(bob,group+'/messages')));
+ await assertFails(getDoc(doc(bob,bobGroupBox)));
+ // Controle positivo apos a retirada: o grupo e seu historico permanecem
+ // acessiveis ao integrante que continua autorizado.
+ await assertSucceeds(getDoc(doc(alice,group)));
+ await assertSucceeds(getDoc(doc(alice,groupMessage)));
+ // Restaurar Bob apenas neste cenario sintético prova que o bloqueio foi
+ // exclusivamente por membresia, nao por uma falha permanente do fixture.
+ await env.withSecurityRulesDisabled(async ctx=>{
+   await updateDoc(doc(ctx.firestore(),group),{
+     memberUids:['qa-alice','qa-bob']
+   });
+ });
+ await assertSucceeds(getDoc(doc(bob,groupMessage)));
  const revokedEligibility=[
    {...approvedEligibility,status:'revoked'},
    {...approvedEligibility,policyVersion:'unreviewed'},
