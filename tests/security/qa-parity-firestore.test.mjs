@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {initializeTestEnvironment,assertFails,assertSucceeds}
   from '@firebase/rules-unit-testing';
-import {doc,getDoc,getDocs,collection,setDoc,updateDoc,deleteDoc,Timestamp}
+import {doc,getDoc,getDocs,collection,setDoc,updateDoc,deleteDoc,serverTimestamp,Timestamp}
   from 'firebase/firestore';
 
 const rules=readFileSync('qa-parity.generated.rules','utf8');
@@ -151,6 +151,27 @@ try {
   });
   await assertSucceeds(getDoc(doc(alice,groupMessage)));
 
+  // Controle positivo: membro autorizado consegue registrar protocolo
+  // sintetico sobre mensagem existente. Em seguida, a fixture e removida
+  // via privilegio administrativo SOMENTE no emulador.
+  const secondGroupMessage=group+'/messages/qa-denounce-only';
+  const newGroupReport='chat_group_reports/qa-alice__qa-private-group__qa-denounce-only';
+  const reportPayload={
+    groupId:'qa-private-group',messageId:'qa-denounce-only',
+    reporterUid:'qa-alice',reason:'Teste de denuncia sintetica QA',
+    reportedText:'Outra mensagem ficticia QA',createdAt:serverTimestamp()
+  };
+  await env.withSecurityRulesDisabled(async ctx=>{
+    await setDoc(doc(ctx.firestore(),secondGroupMessage),{
+      uid:'qa-alice',kind:'text',
+      text:'Outra mensagem ficticia QA',createdAt
+    });
+  });
+  await assertSucceeds(setDoc(doc(alice,newGroupReport),reportPayload));
+  await env.withSecurityRulesDisabled(async ctx=>{
+    await deleteDoc(doc(ctx.firestore(),newGroupReport));
+  });
+
   // Remocao da lista de membros bloqueia historico, mesmo mantendo
   // elegibilidade administrativa. Nenhuma mudanca no Firebase real.
   await env.withSecurityRulesDisabled(async ctx=>{
@@ -158,10 +179,19 @@ try {
   });
   await assertFails(getDoc(doc(alice,group)));
   await assertFails(getDoc(doc(alice,groupMessage)));
+  await assertFails(getDoc(doc(alice,secondGroupMessage)));
+  // Um ex-integrante ainda consulta seu proprio protocolo existente.
+  // O mesmo ex-integrante NAO pode criar outro protocolo apos a retirada,
+  // embora a mensagem denunciada permaneça no banco ficticio.
+  await assertSucceeds(getDoc(doc(alice,groupReport)));
+  await assertSucceeds(getDoc(doc(moderator,groupReport)));
+  await assertFails(getDoc(doc(bob,groupReport)));
+  await assertFails(setDoc(doc(alice,newGroupReport),reportPayload));
   await env.withSecurityRulesDisabled(async ctx=>{
     await updateDoc(doc(ctx.firestore(),group),{memberUids:['qa-alice']});
   });
   await assertSucceeds(getDoc(doc(alice,groupMessage)));
+  await assertSucceeds(setDoc(doc(alice,newGroupReport),reportPayload));
 
   // Um único gate desligado precisa negar mesmo o histórico existente.
   await env.withSecurityRulesDisabled(async ctx=>{
@@ -181,7 +211,7 @@ try {
   await assertSucceeds(getDoc(doc(moderator,groupReport)));
   // A rota pública legada continua legível: não é um falso negativo global.
   await assertSucceeds(getDoc(doc(guest,'app_config/opening_video')));
-  console.log('Paridade QA: legado, revogacao, privilegios e protocolos privados OK (EMULATOR).');
+  console.log('Paridade QA: legado, revogacao, ex-membros e protocolos privados OK (EMULATOR).');
 }finally {
   await env.cleanup();
 }
