@@ -77,3 +77,6 @@ key.properties
 
 # Firestore QA compilado localmente para emulador, nunca publicar.
 /tests/security/qa-general.generated.rules
+
+# Paridade de regras para testes locais exclusivamente (sem deploy).
+/tests/security/qa-parity.generated.rules

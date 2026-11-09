@@ -38,3 +38,48 @@ de regras do projeto fixo `atrio-catolico-qa-geral` (uma release e um
 ruleset) e informa apenas SHA-256 e se ainda está em deny-all. Falha de
 permissão ou diferença nas regras não autoriza deploy. Nenhum segredo é
 publicado. O Worker QA continua bootstrap bloqueado.
+
+## Experimento paralelo de paridade com a base versionada — somente offline
+
+**NÃO é configuração do Firebase QA publicado.** O gerador
+`compose-parity-rules.mjs` combina, exclusivamente em memória, o
+`firestore.rules` versionado e revisado no GitHub com os fragmentos de
+conversas e grupos da PR #193. Ele mantém o arquivo original intacto e
+acrescenta as rotas experimentais **antes** do `deny-all` final, sem
+retirá-lo. O portão de e-mail confirmado é obrigatório no novo chat.
+
+- A versão de referência é fixada pelo SHA do **Git blob** do
+  `firestore.rules` de `main` em 09/11/2026:
+  `526b8a1e7ff09aca79a4a539ee1681a6c0a76f77`.
+  Qualquer mudança exige revisão manual; a geração falha fechada.
+- O gerador rejeita mudanças na estrutura-base, funções duplicadas,
+  conflitos das rotas críticas, abertura literal de permissão nos
+  fragmentos e ausência de portões administrativos.
+- `compose-parity-rules.test.mjs` confirma que **todo o texto da base
+  permanece idêntico fora da inserção**. A suíte separada
+  `qa-parity-firestore.test.mjs` roda no projeto **`demo-atrio-v11`**
+  do Firebase Emulator e comprova acessos legados e negações de chat.
+- Artefato local ignorado no Git:
+  `tests/security/qa-parity.generated.rules`. Não usar com
+  `firebase deploy`. O gerador **não** faz chamada de rede.
+- **Atenção:** regras de caminhos sobrepostos no Firestore permitem
+  acesso quando **qualquer** `allow` coincide. Logo a composição
+  não é aprovada apenas por ser aditiva. Revisão humana + matriz
+  de negativas em todas as coleções ainda são exigidas.
+
+**Etapa obrigatória antes de QUALQUER publicação no Firebase QA:**
+verificar por consulta read-only a release realmente implantada no
+Firebase de produção (`atrio-catolico`) e compará-la ao blob
+versionado. O utilitário
+`scripts/termux-firestore-rules-diff-readonly.mjs` existe na
+`main`, mas **não foi executado nesta etapa** e o mesmo hash no
+GitHub **não comprova identidade com a nuvem**. Se divergir,
+não implantar nem tentar corrigir automaticamente: investigar,
+registrar nova base, rever regras sobrepostas e repetir os testes.
+
+A homologação com QA real depende de autorização explícita, revisão
+da política etária/moderação/retenção na issue #200, critérios de
+LGPD, auditoria e rollback. **Não importar dados reais, credenciais
+nem usuários de produção; não publicar regras, habilitar FCM ou
+alterar backups.** Este experimento não substitui o laboratório
+restritivo atual, que continua sendo o padrão seguro.

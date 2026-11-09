@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - 'firebase/qa-general/**'
+      - 'firestore.rules'
+      - 'tests/security/qa-parity-firestore.test.mjs'
       - 'firebase/atrio-conversas-v1.rules.fragment'
       - 'firebase/atrio-grupos-v1.rules.fragment'
       - 'tests/security/qa-general-firestore.test.mjs'
@@ -47,6 +49,13 @@ jobs:
         run: npm ci --prefix tests/security
       - name: Auditar APIs QA read-only com testes sintéticos
         run: node --test scripts/termux-firestore-qa-readonly.test.mjs scripts/termux-firebase-qa-identity-readonly.test.mjs
+      - name: Validar invariantes de paridade sem rede
+        run: node --test firebase/qa-general/compose-parity-rules.test.mjs
+      - name: Gerar candidato de paridade offline e fixado por blob
+        run: node firebase/qa-general/compose-parity-rules.mjs
+      - name: Emular paridade com direitos legados e portoes isolados
+        working-directory: tests/security
+        run: ./node_modules/.bin/firebase emulators:exec --only firestore --config qa-general.firebase.json --project demo-atrio-v11 "node qa-parity-firestore.test.mjs"
       - name: Gerar regras QA sem Firebase externo
         run: node firebase/qa-general/compose-rules.mjs
       - name: Conferir escopo demo local
@@ -59,4 +68,4 @@ jobs:
         run: ./node_modules/.bin/firebase emulators:exec --only firestore --config qa-general.firebase.json --project demo-atrio-v11 "node qa-general-firestore.test.mjs"
       - name: Limpar saida local
         if: always()
-        run: rm -f tests/security/qa-general.generated.rules
+        run: rm -f tests/security/qa-general.generated.rules tests/security/qa-parity.generated.rules
