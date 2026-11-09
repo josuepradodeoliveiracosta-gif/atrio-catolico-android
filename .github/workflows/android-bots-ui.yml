@@ -9,22 +9,15 @@ on:
       - 'app/src/main/**'
       - 'app/src/androidTest/**'
       - 'app/build.gradle.kts'
-      - 'scripts/run-qa-android-emulator.sh'
       - '.github/workflows/android-bots-ui.yml'
+      - 'scripts/run-qa-android-emulator.sh'
+      - 'scripts/test_qa_android_groups.py'
+      - 'scripts/qa-android-prebuild.sh'
+      - 'scripts/test_qa_android_prebuild.py'
   # Executa os testes reais da interface em emulador somente neste ramo de QA.
   push:
     branches: [feature/push-gratuito-cloudflare-v0190]
   workflow_dispatch:
-    inputs:
-      qa_suite:
-        description: "Escopo do QA Android (execucao manual; PR sempre roda tudo)"
-        required: true
-        type: choice
-        default: all
-        options:
-          - all
-          - ThreeBotsOnlineEmulatorTest
-          - ThreeBotsAuthenticatedAndroidUiTest
 
 concurrency:
   group: qa-android-emulator-${{ github.event.pull_request.number || github.ref }}
@@ -37,8 +30,15 @@ permissions:
 
 jobs:
   android-ui:
-    name: Testar telas do Átrio em Android virtual
+    name: Testar telas do Átrio — ${{ matrix.suite_group }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        suite_group: [profiles, interaction, bots]
+    env:
+      ATRIO_QA_SUITE_GROUP: ${{ matrix.suite_group }}
     timeout-minutes: 35
     steps:
       - name: Obter código
@@ -54,10 +54,32 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
+      # A compilacao pesada comeca antes do boot e do npm ci.
+      # A VM e efemera; segredos e google-services.json nao entram no APK.
+      - name: Isolar Firebase antes de iniciar a compilacao
+        shell: bash
+        run: |
+          for key in ATRIO_PUSH_WORKER_URL ATRIO_GUARDIAN_V2_WORKER_URL ATRIO_AVATAR_WORKER_URL GOOGLE_APPLICATION_CREDENTIALS ATRIO_SIGNING_STORE_FILE ATRIO_SIGNING_STORE_PASSWORD ATRIO_SIGNING_KEY_ALIAS ATRIO_SIGNING_KEY_PASSWORD; do
+            if [[ -n "${!key:-}" ]]; then
+              echo "QA offline: variavel de producao proibida: $key" >&2
+              exit 2
+            fi
+          done
+          if [[ -e app/google-services.json ]]; then
+            echo "Removendo google-services.json somente no checkout efemero do CI"
+            rm -- app/google-services.json
+          fi
+          test ! -e app/google-services.json
+      - name: Iniciar compilacao Android enquanto o emulador inicializa
+        run: bash scripts/qa-android-prebuild.sh start
       - name: Preparar Node.js para Firebase Emulator Suite
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: npm
+          cache-dependency-path: tests/security/package-lock.json
+      - name: Validar plano de grupos offline
+        run: python3 -m unittest discover -s scripts -p 'test_qa_android_*.py' -v
       - name: Instalar Firebase CLI de testes
         working-directory: tests/security
         run: npm ci
@@ -80,8 +102,6 @@ jobs:
           ls -l /dev/kvm
           test -r /dev/kvm && test -w /dev/kvm || { echo "Acesso negado ao /dev/kvm"; exit 1; }
       - name: Rodar interface no emulador Android virtual
-        env:
-          ATRIO_QA_SUITE: ${{ github.event_name == 'workflow_dispatch' && inputs.qa_suite != 'all' && inputs.qa_suite || '' }}
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
@@ -99,11 +119,13 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: qa-bots-android-ui-reports
+          name: qa-bots-android-ui-reports-${{ matrix.suite_group }}
           path: |
             app/build/reports/androidTests
             app/build/outputs/androidTest-results
             qa-android-suite-results
             qa-firebase-emulators.log
+            qa-android-prebuild.log
+            qa-android-prebuild.status
           retention-days: 7
           if-no-files-found: warn

@@ -2,6 +2,14 @@
 # Executa dentro do Android Emulator Runner; NUNCA usa ambiente de produção.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+qa_group="${ATRIO_QA_SUITE_GROUP:-all}"
+case "$qa_group" in
+  all|profiles|interaction|bots) ;;
+  *) echo "Grupo QA desconhecido: $qa_group" >&2; exit 2 ;;
+esac
+if [[ -n "${ATRIO_QA_SUITE:-}" && "$qa_group" != all ]]; then
+  echo "Suite focal e grupo paralelo nao podem ser combinados" >&2; exit 2
+fi
 if [[ -n "${GOOGLE_APPLICATION_CREDENTIALS:-}" ||
       -n "${ATRIO_PUSH_WORKER_URL:-}" ]]; then
   echo "ERRO: variáveis de produção não podem estar presentes no QA Android" >&2
@@ -56,6 +64,9 @@ adb reverse tcp:8089 tcp:8089
 echo "Firebase QA: portas 9099/8089 encaminhadas via ADB reverse (localhost)"
 adb reverse --list
 echo "Iniciando toques e login reais pelo Compose em emulador Android"
+# Espera o build iniciado antes do boot; sem PID (Guardiao V2 focal), segue legado.
+# Nunca executar o Gradle de instrumentacao em paralelo com a precompilacao.
+bash scripts/qa-android-prebuild.sh await
 
 # A suíte de login Android precisa de um processo Firebase/Auth limpo entre
 # cenários. Não reutilizar listeners e credenciais em testes E2E separados:
@@ -65,11 +76,24 @@ mkdir -p qa-android-suite-results
 qa_failed=0
 run_suite() {
   local suite="$1"
+  # Modo all preserva as 15 suites; cada grupo executa somente suas suites.
+  if [[ "$qa_group" != "all" ]]; then
+    case "$qa_group:$suite" in
+      profiles:GuardianSessionUiTest|profiles:ProfileLayoutUiTest|profiles:ProfilePhotoUiTest|\
+      profiles:ProfileEditorUiTest|profiles:DesignV2UiTest|profiles:EmailVerificationAndroidUiTest|\
+      interaction:EngagementUiTest|interaction:ReactionEmojiUiTest|\
+      interaction:DiscussionDetailV2UiTest|interaction:AtrioTypographyAccessibilityUiTest|\
+      bots:ThreeBotsAndroidUiTest|bots:ThreeBotsAuthenticatedAndroidUiTest|\
+      bots:ThreeBotsOnlineEmulatorTest|bots:AtrioConversationsEmulatorUiTest|\
+      bots:AtrioGroupsEmulatorUiTest) ;;
+      *) echo "QA Android: $suite executada por outro grupo"; return 0 ;;
+    esac
+  fi
   local full="br.com.atriocatolico.$suite"
   echo "QA Android: iniciando $suite (isolado)"
   if gradle :app:connectedDebugAndroidTest \
     "-Pandroid.testInstrumentationRunnerArguments.class=$full" \
-    --no-daemon --stacktrace; then
+    --daemon --stacktrace; then
     echo "QA Android: $suite aprovada"
   else
     qa_failed=1
@@ -80,20 +104,18 @@ run_suite() {
     cp -a app/build/outputs/androidTest-results/connected/debug/. \
       "qa-android-suite-results/$suite/"
   fi
-  # Somente a suite de cadastro Auth/Firestore emulados: salvar no artefato
-  # APENAS marcadores permitidos. Nunca anexar logcat bruto (pode conter PII).
-  # O arquivo é coletado mesmo quando a suite falha, sem ocultar a falha.
+  # Extrair somente marcadores permitidos da instrumentacao Auth/Firestore
+  # dos bots: jamais anexar logcat bruto que pode conter dados sensiveis.
   if [[ "$suite" == "ThreeBotsAuthenticatedAndroidUiTest" ]]; then
     local markers="qa-android-suite-results/$suite/profile-write-markers.txt"
     mkdir -p "qa-android-suite-results/$suite"
     if adb logcat -d -v raw -s AtrioQaProfile:I '*:S' 2>/dev/null \
       | grep -Eo 'auth_signup_callback_received|profile_write_requested|profile_write_acknowledged|profile_write_rejected:[A-Za-z_]+' \
       | tail -n 100 > "$markers"; then
-      echo "QA Android: marcadores de persistencia sanitizados coletados: $(wc -l < "$markers")"
+      echo "QA Android: marcadores sanitizados coletados: $(wc -l < "$markers")"
     else
-      # Ausência de marcadores não equivale a sucesso de persistência.
       printf '%s\n' 'qa_profile_markers_unavailable' > "$markers"
-      echo "QA Android: marcadores de perfil indisponiveis; ver relatorio de teste"
+      echo "QA Android: marcadores indisponiveis (nao comprova persistencia)"
     fi
   fi
 }
@@ -104,37 +126,18 @@ if [[ "${ATRIO_QA_SUITE:-}" == "GuardianV2UiTest" ]]; then
   echo "QA Android: apenas GuardianV2UiTest; status=$qa_failed"
   exit "$qa_failed"
 fi
-# Regressão individual de conversas: duas contas e mensagens apenas no
-# emulador; executa uma única suíte, sem consumir o custo do QA completo.
-if [[ "${ATRIO_QA_SUITE:-}" == "AtrioConversationsEmulatorUiTest" ]]; then
-  (cd tests/security && node seed-chat-groups-android.mjs)
-  run_suite AtrioConversationsEmulatorUiTest
-  echo "QA Android: apenas AtrioConversationsEmulatorUiTest; status=$qa_failed"
-  exit "$qa_failed"
-fi
-if [[ "${ATRIO_QA_SUITE:-}" == "AtrioGroupsEmulatorUiTest" ]]; then
-  (cd tests/security && node seed-chat-groups-android.mjs)
-  run_suite AtrioGroupsEmulatorUiTest
-  echo "QA Android: apenas AtrioGroupsEmulatorUiTest; status=$qa_failed"
-  exit "$qa_failed"
-fi
-# Reproducao focada: tres bots, Auth/Firestore emulados e verificacao
-# atomica de resposta + aviso; evita repetir todas as demais telas.
-if [[ "${ATRIO_QA_SUITE:-}" == "ThreeBotsOnlineEmulatorTest" ]]; then
-  run_suite ThreeBotsOnlineEmulatorTest
-  echo "QA Android: apenas ThreeBotsOnlineEmulatorTest; status=$qa_failed"
-  exit "$qa_failed"
-fi
-# Diagnostico de cadastro/perfil dos bots somente no Firebase Emulator;
-# permite repetir o teste completo autenticado sem outras suites custosas.
-if [[ "${ATRIO_QA_SUITE:-}" == "ThreeBotsAuthenticatedAndroidUiTest" ]]; then
-  run_suite ThreeBotsAuthenticatedAndroidUiTest
-  echo "QA Android: apenas ThreeBotsAuthenticatedAndroidUiTest; status=$qa_failed"
-  exit "$qa_failed"
-fi
+# Execucao opcional dirigida do emulador, jamais combinada com matrix paralelo.
+# A workflow normal de PR segue executando os tres grupos completos.
 if [[ -n "${ATRIO_QA_SUITE:-}" ]]; then
-  echo "Suite seletiva desconhecida; negando execucao" >&2
-  exit 2
+  case "$ATRIO_QA_SUITE" in
+    ThreeBotsOnlineEmulatorTest|ThreeBotsAuthenticatedAndroidUiTest) ;;
+    AtrioConversationsEmulatorUiTest|AtrioGroupsEmulatorUiTest)
+      (cd tests/security && node seed-chat-groups-android.mjs) ;;
+    *) echo "Suite seletiva desconhecida; negando execucao" >&2; exit 2 ;;
+  esac
+  run_suite "$ATRIO_QA_SUITE"
+  echo "QA Android: apenas $ATRIO_QA_SUITE; status=$qa_failed"
+  exit "$qa_failed"
 fi
 run_suite GuardianSessionUiTest
 run_suite ProfileLayoutUiTest
@@ -145,15 +148,20 @@ run_suite ReactionEmojiUiTest
 run_suite DiscussionDetailV2UiTest
 # Fonte ampliada sem dados de produção: compositor 200%, navegação 160%.
 run_suite AtrioTypographyAccessibilityUiTest
-mkdir -p qa-android-suite-results/reaction-preview
-if ! adb pull /data/local/tmp/atrio-reaction-preview/. qa-android-suite-results/reaction-preview/; then
-  qa_failed=1
-  echo "Falha ao coletar capturas de reações; as outras suítes continuarão"
+# Capturas vinculadas ao grupo que produziu cada evidencia.
+if [[ "$qa_group" == "all" || "$qa_group" == "interaction" ]]; then
+  mkdir -p qa-android-suite-results/reaction-preview
+  if ! adb pull /data/local/tmp/atrio-reaction-preview/. qa-android-suite-results/reaction-preview/; then
+    qa_failed=1
+    echo "Falha ao coletar capturas de reações; as outras suítes continuarão"
+  fi
 fi
-mkdir -p qa-android-suite-results/profile-preview
-if ! adb pull /data/local/tmp/atrio-profile-preview/. qa-android-suite-results/profile-preview/; then
-  qa_failed=1
-  echo "Falha ao coletar capturas; as outras suítes continuarão"
+if [[ "$qa_group" == "all" || "$qa_group" == "profiles" ]]; then
+  mkdir -p qa-android-suite-results/profile-preview
+  if ! adb pull /data/local/tmp/atrio-profile-preview/. qa-android-suite-results/profile-preview/; then
+    qa_failed=1
+    echo "Falha ao coletar capturas; as outras suítes continuarão"
+  fi
 fi
 run_suite ProfileEditorUiTest
 # Guia visual v2: casos de categorias, busca, falha e feedback de salvamento.
@@ -162,18 +170,15 @@ run_suite ThreeBotsAndroidUiTest
 run_suite ThreeBotsAuthenticatedAndroidUiTest
 run_suite ThreeBotsOnlineEmulatorTest
 run_suite EmailVerificationAndroidUiTest
-# Etapas 1–3: regras individuais e de grupos são injetadas somente no
-# Firestore Emulator da VM; duas contas reais do Auth emulado via Compose.
-# Nenhum campo de elegibilidade é criado no Firebase de produção.
-(
-  cd tests/security
-  node seed-chat-groups-android.mjs
-)
+# Conversas e grupos so pertencem ao grupo bots, com dados exclusivamente
+# sinteticos e resets independentes das fixtures entre as duas suites.
+if [[ "$qa_group" == "all" || "$qa_group" == "bots" ]]; then
+  (cd tests/security && node seed-chat-groups-android.mjs)
+fi
 run_suite AtrioConversationsEmulatorUiTest
-# Reseta APENAS os dois usuários QA e sua conversa de fixture, removendo
-# bloqueios intencionais do teste anterior para evitar acoplamento entre
-# suítes de chat individual e grupo.
-(cd tests/security && node seed-chat-groups-android.mjs)
+if [[ "$qa_group" == "all" || "$qa_group" == "bots" ]]; then
+  (cd tests/security && node seed-chat-groups-android.mjs)
+fi
 run_suite AtrioGroupsEmulatorUiTest
 echo "QA Android: suítes concluídas em processos separados; status=$qa_failed"
 exit "$qa_failed"
