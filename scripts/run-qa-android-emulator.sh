@@ -64,6 +64,9 @@ adb reverse tcp:8089 tcp:8089
 echo "Firebase QA: portas 9099/8089 encaminhadas via ADB reverse (localhost)"
 adb reverse --list
 echo "Iniciando toques e login reais pelo Compose em emulador Android"
+# Espera o build iniciado antes do boot; sem PID (Guardiao V2 focal), segue legado.
+# Nunca executar o Gradle de instrumentacao em paralelo com a precompilacao.
+bash scripts/qa-android-prebuild.sh await
 
 # A suíte de login Android precisa de um processo Firebase/Auth limpo entre
 # cenários. Não reutilizar listeners e credenciais em testes E2E separados:
