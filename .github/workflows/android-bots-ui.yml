@@ -12,6 +12,8 @@ on:
       - '.github/workflows/android-bots-ui.yml'
       - 'scripts/run-qa-android-emulator.sh'
       - 'scripts/test_qa_android_groups.py'
+      - 'scripts/qa-android-prebuild.sh'
+      - 'scripts/test_qa_android_prebuild.py'
   # Executa os testes reais da interface em emulador somente neste ramo de QA.
   push:
     branches: [feature/push-gratuito-cloudflare-v0190]
@@ -52,6 +54,24 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
+      # A compilacao pesada comeca antes do boot e do npm ci.
+      # A VM e efemera; segredos e google-services.json nao entram no APK.
+      - name: Isolar Firebase antes de iniciar a compilacao
+        shell: bash
+        run: |
+          for key in ATRIO_PUSH_WORKER_URL ATRIO_GUARDIAN_V2_WORKER_URL ATRIO_AVATAR_WORKER_URL GOOGLE_APPLICATION_CREDENTIALS ATRIO_SIGNING_STORE_FILE ATRIO_SIGNING_STORE_PASSWORD ATRIO_SIGNING_KEY_ALIAS ATRIO_SIGNING_KEY_PASSWORD; do
+            if [[ -n "${!key:-}" ]]; then
+              echo "QA offline: variavel de producao proibida: $key" >&2
+              exit 2
+            fi
+          done
+          if [[ -e app/google-services.json ]]; then
+            echo "Removendo google-services.json somente no checkout efemero do CI"
+            rm -- app/google-services.json
+          fi
+          test ! -e app/google-services.json
+      - name: Iniciar compilacao Android enquanto o emulador inicializa
+        run: bash scripts/qa-android-prebuild.sh start
       - name: Preparar Node.js para Firebase Emulator Suite
         uses: actions/setup-node@v4
         with:
@@ -59,7 +79,7 @@ jobs:
           cache: npm
           cache-dependency-path: tests/security/package-lock.json
       - name: Validar plano de grupos offline
-        run: python3 -m unittest discover -s scripts -p 'test_qa_android_groups.py' -v
+        run: python3 -m unittest discover -s scripts -p 'test_qa_android_*.py' -v
       - name: Instalar Firebase CLI de testes
         working-directory: tests/security
         run: npm ci
@@ -105,5 +125,7 @@ jobs:
             app/build/outputs/androidTest-results
             qa-android-suite-results
             qa-firebase-emulators.log
+            qa-android-prebuild.log
+            qa-android-prebuild.status
           retention-days: 7
           if-no-files-found: warn
