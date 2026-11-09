@@ -14,6 +14,8 @@ const env=await initializeTestEnvironment({
 });
 const alice=env.authenticatedContext('qa-alice',{email_verified:true}).firestore();
 const bob=env.authenticatedContext('qa-bob',{email_verified:true}).firestore();
+// Mesmo UID da conta válida, com claim de verificação revogada.
+const bobEmailUnverified=env.authenticatedContext('qa-bob',{email_verified:false}).firestore();
 const outsider=env.authenticatedContext('qa-outsider',{email_verified:true}).firestore();
 const guest=env.unauthenticatedContext().firestore();
 const unverified=env.authenticatedContext('qa-unverified',{email_verified:false}).firestore();
@@ -71,7 +73,16 @@ try {
  });
  await assertSucceeds(b.commit());
  await assertSucceeds(getDoc(doc(bob,room)));
+ await assertSucceeds(getDoc(doc(bob,room+'/messages/first')));
  await assertFails(getDoc(doc(outsider,room)));
+ // O token da MESMA conta perde email_verified: não pode consultar
+ // mensagens já salvas, mesmo permanecendo participante da conversa.
+ // Isto é simulação no Firebase Emulator, não uma revogação no Auth real.
+ await assertFails(getDoc(doc(bobEmailUnverified,room)));
+ await assertFails(getDoc(doc(bobEmailUnverified,room+'/messages/first')));
+ await assertFails(updateDoc(doc(bobEmailUnverified,room),{
+   status:'accepted',updatedAt:serverTimestamp()
+ }));
  await assertSucceeds(updateDoc(doc(bob,room),{status:'accepted',updatedAt:serverTimestamp()}));
  await assertFails(updateDoc(doc(alice,room),{status:'declined'}));
 
@@ -191,6 +202,12 @@ try {
  // todos os gates ficticios ligados, evitando testes negativos triviais.
  await assertSucceeds(getDoc(doc(alice,group)));
  await assertSucceeds(getDoc(doc(alice,groupMessage)));
+ // Mesmo UID e membro do grupo, mas claim email_verified=false.
+ const aliceEmailUnverified=env.authenticatedContext('qa-alice',{
+   email_verified:false
+ }).firestore();
+ await assertFails(getDoc(doc(aliceEmailUnverified,group)));
+ await assertFails(getDoc(doc(aliceEmailUnverified,groupMessage)));
  await assertFails(getDoc(doc(bob,group)));
  await assertFails(getDoc(doc(outsider,groupMessage)));
  await assertFails(getDoc(doc(guest,groupMessage)));
