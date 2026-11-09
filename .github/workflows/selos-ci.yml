@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   documentation_scope:
-    name: Classificar PR documental antes do APK adicional
+    name: Classificar PR documental antes dos testes custosos
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 4
@@ -60,7 +60,7 @@ jobs:
           result="$(python3 scripts/ci_documentation_scope.py --raw-diff-z "$RUNNER_TEMP/atrio-pr-diff.raw" --event pull_request --comparison-verified)" || exit 0
           if [[ "$result" == 'heavy=false' ]]; then
             heavy=false
-            echo 'PR apenas documental e diff confiavel: compilacao APK redundante dispensada.'
+            echo 'PR apenas documental e diff confiavel: testes pesados deste workflow dispensados.'
           fi
   firestore-rules:
     needs: documentation_scope
