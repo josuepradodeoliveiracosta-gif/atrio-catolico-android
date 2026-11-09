@@ -6,6 +6,7 @@ on:
     paths:
       - 'cloudflare/avatar-worker/**'
       - 'cloudflare/push-worker/**'
+      - 'cloudflare/qa-general-worker/**'
       - 'cloudflare/email-verification-policy*.mjs'
       - 'cloudflare/worker-email-gate.test.mjs'
       - '.github/workflows/worker-bundle-dry-run-ci.yml'
@@ -54,6 +55,32 @@ jobs:
           test -d "$RUNNER_TEMP/atrio-push-bundle"
           test "$(find "$RUNNER_TEMP/atrio-avatar-bundle" -type f | wc -l)" -gt 0
           test "$(find "$RUNNER_TEMP/atrio-push-bundle" -type f | wc -l)" -gt 0
+
+  general-qa-bootstrap-offline:
+    name: Bootstrap QA geral sem rede nem eventos
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout sem credenciais
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Testar bootstrap fail-closed sem dados externos
+        run: node --test cloudflare/qa-general-worker/bootstrap.test.mjs
+      - name: Empacotar bootstrap com Worker/D1 segregados, sem deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ''
+        run: |
+          npx --yes wrangler@4 deploy \
+            --config cloudflare/qa-general-worker/wrangler.toml \
+            --dry-run \
+            --outdir "$RUNNER_TEMP/atrio-qa-general-bootstrap"
+      - name: Garantir bundle offline
+        run: test "$(find "$RUNNER_TEMP/atrio-qa-general-bootstrap" -type f | wc -l)" -gt 0
 
   chat-qa-bundle-only:
     name: Empacotar Worker do chat QA com Firebase fictício, sem deploy

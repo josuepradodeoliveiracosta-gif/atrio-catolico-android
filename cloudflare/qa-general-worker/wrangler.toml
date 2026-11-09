@@ -1,0 +1,21 @@
+# Homologação geral: código bootstrap sem Auth, FCM ou dados pessoais.
+# NENHUM comando de deploy é executado por este arquivo.
+name = "atrio-qa-geral"
+main = "src/index.mjs"
+compatibility_date = "2026-10-26"
+workers_dev = false
+preview_urls = false
+
+[vars]
+ATRIO_GENERAL_QA_MODE = "true"
+ATRIO_GENERAL_QA_PROJECT = "atrio-catolico-qa-geral"
+ATRIO_QA_BOOTSTRAP_ONLY = "true"
+PUSH_ENABLED = "false"
+BROADCAST_ENABLED = "false"
+GUARDIAO_ENABLED = "false"
+QA_MANUAL_ENABLED = "false"
+
+[[d1_databases]]
+binding = "PUSH_DB"
+database_name = "atrio-qa-geral-db"
+database_id = "cbca3131-5604-4103-a894-7c978143b731"
