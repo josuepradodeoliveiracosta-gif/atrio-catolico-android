@@ -128,6 +128,25 @@ class ChatQaBuildGateTests(unittest.TestCase):
         self.config["client"][0]["client_info"]["android_client_info"]["package_name"] = "br.com.atriocatolico"
         self.changed()
 
+    def test_duplicate_project_id_rejected_even_if_last_value_is_qa(self):
+        raw = json.dumps(self.config)
+        unique = '"project_id": "atrio-catolico-qa-geral"'
+        self.assertEqual(raw.count(unique), 1)
+        raw = raw.replace(unique, '"project_id": "atrio-catolico", ' + unique)
+        self.path.write_text(raw, encoding="utf-8")
+        self.kw["sha256"] = hashlib.sha256(self.path.read_bytes()).hexdigest()
+        self.denied()
+
+    def test_duplicate_nested_client_fields_rejected(self):
+        raw = json.dumps(self.config)
+        unique = '"package_name": "br.com.atriocatolico.chatqa"'
+        self.assertEqual(raw.count(unique), 1)
+        raw = raw.replace(unique,
+            '"package_name": "br.com.atriocatolico", ' + unique)
+        self.path.write_text(raw, encoding="utf-8")
+        self.kw["sha256"] = hashlib.sha256(self.path.read_bytes()).hexdigest()
+        self.denied()
+
     def test_multiple_clients_fail(self):
         self.config["client"].append(self.config["client"][0])
         self.changed()
@@ -145,6 +164,18 @@ class ChatQaBuildGateTests(unittest.TestCase):
     def test_extra_production_storage_reference_fails_even_with_qa_project_id(self):
         self.config["project_info"]["storage_bucket"] = "atrio-catolico.appspot.com"
         self.changed()
+
+    def test_uppercase_production_storage_reference_fails(self):
+        self.config["project_info"]["storage_bucket"] = "ATRIO-CATOLICO.APP.SPOT.COM"
+        self.changed()
+
+    def test_uppercase_qa_storage_domain_is_not_false_positive(self):
+        self.config["project_info"]["storage_bucket"] = (
+            "ATRIO-CATOLICO-QA-GERAL.FIREBASESTORAGE.APP"
+        )
+        self.save()
+        self.kw["sha256"] = self.digest
+        self.assertTrue(validate(self.path, **self.kw))
 
     def test_extra_production_oauth_reference_fails_even_with_qa_project_id(self):
         self.config["client"][0]["oauth_client"] = [

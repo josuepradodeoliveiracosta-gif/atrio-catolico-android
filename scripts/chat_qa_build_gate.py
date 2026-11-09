@@ -47,8 +47,17 @@ def validate(path, *, project, app_id, worker_url, sha256, offline_only=False):
     # adicionais, como storage_bucket e oauth_client. Sem imprimir o JSON.
     if hashlib.sha256(data_bytes).hexdigest() != sha256.lower():
         raise QaBuildGateError("qa_config_hash_mismatch")
+    def unique_json_keys(pairs):
+        # Um JSON ambiguo pode ser interpretado de formas diferentes pelo
+        # validador local e pelo plugin Google Services durante o build.
+        obj = {}
+        for key, value in pairs:
+            if key in obj:
+                raise QaBuildGateError("qa_config_duplicate_key")
+            obj[key] = value
+        return obj
     try:
-        data = json.loads(data_bytes)
+        data = json.loads(data_bytes, object_pairs_hook=unique_json_keys)
         info = data["project_info"]
         clients = data["client"]
         if not isinstance(clients, list) or len(clients) != 1:
@@ -63,11 +72,16 @@ def validate(path, *, project, app_id, worker_url, sha256, offline_only=False):
                 or not isinstance(keys[0]["current_key"], str)
                 or not keys[0]["current_key"]):
             raise QaBuildGateError("qa_config_incomplete")
+    except QaBuildGateError:
+        raise
     except (ValueError, KeyError, IndexError, TypeError):
         raise QaBuildGateError("qa_config_incomplete") from None
     def production_reference(obj):
         if isinstance(obj, str):
-            return PROD_PROJECT in obj.replace(project, "")
+            # Nomes DNS nao distinguem maiusculas/minusculas. Remover somente
+            # a referencia legitima ao projeto QA antes de verificar producao.
+            without_qa = re.sub(re.escape(project), "", obj, flags=re.IGNORECASE)
+            return PROD_PROJECT in without_qa.casefold()
         if isinstance(obj, list):
             return any(production_reference(v) for v in obj)
         if isinstance(obj, dict):
