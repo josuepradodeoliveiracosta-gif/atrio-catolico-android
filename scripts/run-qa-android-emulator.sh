@@ -2,6 +2,14 @@
 # Executa dentro do Android Emulator Runner; NUNCA usa ambiente de produção.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+qa_group="${ATRIO_QA_SUITE_GROUP:-all}"
+case "$qa_group" in
+  all|profiles|interaction|bots) ;;
+  *) echo "Grupo QA desconhecido: $qa_group" >&2; exit 2 ;;
+esac
+if [[ -n "${ATRIO_QA_SUITE:-}" && "$qa_group" != all ]]; then
+  echo "Suite focal e grupo paralelo nao podem ser combinados" >&2; exit 2
+fi
 if [[ -n "${GOOGLE_APPLICATION_CREDENTIALS:-}" ||
       -n "${ATRIO_PUSH_WORKER_URL:-}" ]]; then
   echo "ERRO: variáveis de produção não podem estar presentes no QA Android" >&2
@@ -65,6 +73,18 @@ mkdir -p qa-android-suite-results
 qa_failed=0
 run_suite() {
   local suite="$1"
+  # Modo all preserva as 13 suites e sua ordem; cada grupo so roda as suas.
+  if [[ "$qa_group" != "all" ]]; then
+    case "$qa_group:$suite" in
+      profiles:GuardianSessionUiTest|profiles:ProfileLayoutUiTest|profiles:ProfilePhotoUiTest|\
+      profiles:ProfileEditorUiTest|profiles:DesignV2UiTest|profiles:EmailVerificationAndroidUiTest|\
+      interaction:EngagementUiTest|interaction:ReactionEmojiUiTest|\
+      interaction:DiscussionDetailV2UiTest|interaction:AtrioTypographyAccessibilityUiTest|\
+      bots:ThreeBotsAndroidUiTest|bots:ThreeBotsAuthenticatedAndroidUiTest|\
+      bots:ThreeBotsOnlineEmulatorTest) ;;
+      *) echo "QA Android: $suite executada por outro grupo"; return 0 ;;
+    esac
+  fi
   local full="br.com.atriocatolico.$suite"
   echo "QA Android: iniciando $suite (isolado)"
   if gradle :app:connectedDebugAndroidTest \
@@ -101,15 +121,20 @@ run_suite ReactionEmojiUiTest
 run_suite DiscussionDetailV2UiTest
 # Fonte ampliada sem dados de produção: compositor 200%, navegação 160%.
 run_suite AtrioTypographyAccessibilityUiTest
-mkdir -p qa-android-suite-results/reaction-preview
-if ! adb pull /data/local/tmp/atrio-reaction-preview/. qa-android-suite-results/reaction-preview/; then
-  qa_failed=1
-  echo "Falha ao coletar capturas de reações; as outras suítes continuarão"
+# Capturas vinculadas ao grupo que produziu cada evidencia.
+if [[ "$qa_group" == "all" || "$qa_group" == "interaction" ]]; then
+  mkdir -p qa-android-suite-results/reaction-preview
+  if ! adb pull /data/local/tmp/atrio-reaction-preview/. qa-android-suite-results/reaction-preview/; then
+    qa_failed=1
+    echo "Falha ao coletar capturas de reações; as outras suítes continuarão"
+  fi
 fi
-mkdir -p qa-android-suite-results/profile-preview
-if ! adb pull /data/local/tmp/atrio-profile-preview/. qa-android-suite-results/profile-preview/; then
-  qa_failed=1
-  echo "Falha ao coletar capturas; as outras suítes continuarão"
+if [[ "$qa_group" == "all" || "$qa_group" == "profiles" ]]; then
+  mkdir -p qa-android-suite-results/profile-preview
+  if ! adb pull /data/local/tmp/atrio-profile-preview/. qa-android-suite-results/profile-preview/; then
+    qa_failed=1
+    echo "Falha ao coletar capturas; as outras suítes continuarão"
+  fi
 fi
 run_suite ProfileEditorUiTest
 # Guia visual v2: casos de categorias, busca, falha e feedback de salvamento.
