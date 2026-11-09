@@ -3,6 +3,7 @@ import hashlib
 from pathlib import Path
 import tempfile
 import unittest
+import zipfile
 
 from scripts.chat_qa_apk_identity import CERT_PROD_SHA256, QaPreflightError, qa_apk_preflight
 
@@ -12,7 +13,7 @@ class ChatQaApkIdentityTests(unittest.TestCase):
         t = tempfile.TemporaryDirectory()
         self.addCleanup(t.cleanup)
         self.apk = Path(t.name, "fixture.apk")
-        self.apk.write_bytes(b"synthetic QA fixture, not a real Android APK")
+        self.write_apk()
         self.sha = hashlib.sha256(self.apk.read_bytes()).hexdigest()
         self.project = "atrio-catolico-qa-geral"
         self.package = "br.com.atriocatolico.chatqa"
@@ -20,6 +21,13 @@ class ChatQaApkIdentityTests(unittest.TestCase):
         self.firebase_app_id = "1:123456789:android:abcdef123456"
         self.sender_id = "123456789"
         self.sdk = t.name
+
+    def write_apk(self, dex=b"synthetic bytecode", resources=b"synthetic resources", include_dex=True):
+        with zipfile.ZipFile(self.apk, "w") as archive:
+            if include_dex:
+                archive.writestr("classes.dex", dex)
+            archive.writestr("resources.arsc", resources)
+        self.sha = hashlib.sha256(self.apk.read_bytes()).hexdigest()
 
     def sdk_runner(self, args):
         if args[1] == "verify":
@@ -59,6 +67,7 @@ class ChatQaApkIdentityTests(unittest.TestCase):
         self.assertTrue(result["firebase_sender_matches_qa"])
         self.assertFalse(result["runtime_network_isolation_verified"])
         self.assertFalse(result["worker_endpoints_audited"])
+        self.assertTrue(result["known_production_workers_absent_in_apk"])
         self.assertFalse(result["physical_chat_tests_verified"])
         self.assertNotIn(self.project, str(result))
 
@@ -133,6 +142,29 @@ class ChatQaApkIdentityTests(unittest.TestCase):
 
     def test_missing_fcm_sender_is_rejected(self):
         self.sender_id = ""
+        self.check_denied()
+
+
+    def test_rejeita_worker_oficial_em_dex(self):
+        self.write_apk(dex=b"prefix atrio-push.atrio-catolico.workers.dev suffix")
+        self.check_denied()
+
+    def test_rejeita_worker_oficial_utf16_em_resources(self):
+        self.write_apk(resources=("atrio-avatares.atrio-catolico.workers.dev").encode("utf-16le"))
+        self.check_denied()
+
+    def test_rejeita_worker_oficial_dividido_entre_blocos(self):
+        marker = b"atrio-guardian-v2.atrio-catolico.workers.dev"
+        self.write_apk(dex=b"x" * (1024 * 1024 - 5) + marker)
+        self.check_denied()
+
+    def test_rejeita_apk_corrompido_com_hash_correspondente(self):
+        self.apk.write_bytes(b"nao e um zip")
+        self.sha = hashlib.sha256(self.apk.read_bytes()).hexdigest()
+        self.check_denied()
+
+    def test_rejeita_apk_sem_dex(self):
+        self.write_apk(include_dex=False)
         self.check_denied()
 
     def test_altered_apk_is_rejected(self):

@@ -12,11 +12,18 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import zipfile
 
 PACKAGE_PROD = "br.com.atriocatolico"
 PROJECT_PROD = "atrio-catolico"
 CERT_PROD_SHA256 = "ba2e86eacf32e2785718040d704609d3c95c3b88363c08dd3d7c5abe299902b0"
 MAX_APK_BYTES = 262_144_000
+# Auditoria adicional de referencias conhecidas; nao prova isolamento da rede.
+KNOWN_PRODUCTION_WORKERS = (
+    "atrio-push.atrio-catolico.workers.dev",
+    "atrio-guardian-v2.atrio-catolico.workers.dev",
+    "atrio-avatares.atrio-catolico.workers.dev",
+)
 
 
 class QaPreflightError(ValueError):
@@ -44,6 +51,44 @@ def file_sha256(path):
     return digest.hexdigest()
 
 
+
+def reject_embedded_production_workers(path):
+    """Inspeciona DEX e resources.arsc, sem executar o APK ou abrir conexoes.
+
+    Procura hospedeiros de producao em UTF-8 e UTF-16LE. Esta lista nao
+    identifica todos os destinos de rede; a auditoria de runtime segue pendente.
+    """
+    needles = tuple(
+        needle for host in KNOWN_PRODUCTION_WORKERS
+        for needle in (host.encode("ascii"), host.encode("utf-16le"))
+    )
+    overlap = max(map(len, needles)) - 1
+    has_dex = False
+    try:
+        with zipfile.ZipFile(path) as archive:
+            for entry in archive.infolist():
+                dex = re.fullmatch(r"classes[0-9]*\\.dex", entry.filename) is not None
+                if not dex and entry.filename != "resources.arsc":
+                    continue
+                if entry.file_size > MAX_APK_BYTES:
+                    raise QaPreflightError("qa_apk_entry_too_large")
+                has_dex = has_dex or dex
+                with archive.open(entry) as stream:
+                    tail = b""
+                    while True:
+                        chunk = stream.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        window = tail + chunk
+                        if any(needle in window for needle in needles):
+                            raise QaPreflightError("production_worker_reference_in_qa_apk")
+                        tail = window[-overlap:]
+    except (zipfile.BadZipFile, EOFError, RuntimeError, OSError):
+        raise QaPreflightError("qa_apk_archive_invalid") from None
+    if not has_dex:
+        raise QaPreflightError("qa_apk_classes_missing")
+
+
 def qa_apk_preflight(apk, *, sdk, expected_project, expected_package,
                      expected_cert, expected_hash, expected_firebase_app_id, runner=command):
     if (not isinstance(expected_project, str)
@@ -66,6 +111,7 @@ def qa_apk_preflight(apk, *, sdk, expected_project, expected_package,
         raise QaPreflightError("existing_qa_apk_missing")
     if file_sha256(path) != sha:
         raise QaPreflightError("qa_apk_sha256_mismatch")
+    reject_embedded_production_workers(path)
     sdk = Path(sdk)
     apksigner = str(sdk / "build-tools" / "35.0.0" / "apksigner")
     analyzer = str(sdk / "cmdline-tools" / "latest" / "bin" / "apkanalyzer")
@@ -116,6 +162,7 @@ def qa_apk_preflight(apk, *, sdk, expected_project, expected_package,
         "firebase_sender_matches_qa": True,
         "qa_signer_matches": True,
         "distinct_from_production_app": True,
+        "known_production_workers_absent_in_apk": True,
         "worker_endpoints_audited": False,
         "runtime_network_isolation_verified": False,
         "physical_chat_tests_verified": False,
