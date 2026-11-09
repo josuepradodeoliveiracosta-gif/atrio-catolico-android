@@ -190,3 +190,40 @@ A eventual compilacao de laboratorio, quando houver Android SDK e Gradle,
 deve usar exclusivamente `gradle :app:assembleChatQa`. A compilacao offline
 usa `PUSH_RELAY_URL=""` e nunca URL ficticia, oficial ou de Cloudflare.
 Nao autoriza chat, grupos, FCM ou distribuicao do APK.
+
+## 8. Verificação independente da identidade Firebase real (somente leitura)
+
+Uma auditoria adicional foi preparada para ser executada no Termux, com o login
+Firebase CLI já existente. A API oficial Firebase Management permite ler
+metadados do projeto e do aplicativo Android **sem baixar chaves ou publicar
+configurações**. A verificação realiza **somente dois GETs**: projeto QA
+`projects/atrio-catolico-qa-geral` e aplicativo Android desse projeto.
+
+Após atualizar a branch QA e concluir o gate local da seção 7, mantenha a
+variável `ATRIO_CHAT_QA_APP_ID` com o valor obtido do
+`app/src/chatQa/google-services.json` já validado. Execute:
+
+```sh
+node scripts/termux-firebase-qa-identity-readonly.mjs
+node scripts/termux-firestore-qa-readonly.mjs
+```
+
+O primeiro comando verifica que o **projeto e aplicativo registrados no
+Firebase real** estão ativos, que o número do projeto corresponde ao Sender ID
+da configuração e que o pacote Android é exatamente
+`br.com.atriocatolico.chatqa`. O segundo verifica somente as Rules
+atualmente publicadas no Firestore QA, que devem continuar em negação total
+até aprovação específica. Ambos falham fechados em caso de identidade errada,
+permissão insuficiente ou mudança incompatível no Firebase CLI.
+
+**Evidência sanitizada:** somente os relatórios JSON resumidos podem ser
+compartilhados após revisão; nunca compartilhar token OAuth, API key,
+`google-services.json` integral, JSON de conta de serviço, mensagens ou
+tokens FCM. Passar nestas duas leituras **não comprova Auth funcionando,
+Firestore gravando, entrega FCM nem isolamento de rede do APK em execução**.
+Nada disso autoriza substituir o bootstrap Cloudflare, abrir endpoint,
+implantar Rules, fazer merge ou publicar APK Release.
+
+A suíte automatizada testa ambas as auditorias **com respostas simuladas
+e sem nenhuma consulta real ao Google**. A checagem na nuvem só é considerada
+concluída após relatório obtido da conta QA real pelo operador autorizado.

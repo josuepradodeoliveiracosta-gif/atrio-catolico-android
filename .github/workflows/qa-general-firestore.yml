@@ -9,6 +9,8 @@ on:
       - 'firebase/atrio-grupos-v1.rules.fragment'
       - 'tests/security/qa-general-firestore.test.mjs'
       - 'tests/security/qa-general.firebase.json'
+      - 'scripts/termux-firebase-qa-identity-readonly.mjs'
+      - 'scripts/termux-firebase-qa-identity-readonly.test.mjs'
       - '.github/workflows/qa-general-firestore.yml'
 
 permissions:
@@ -41,8 +43,8 @@ jobs:
           java-version: '21'
       - name: Instalar ferramentas existentes da suite
         run: npm ci --prefix tests/security
-      - name: Auditar API QA read-only com testes sintéticos
-        run: node --test scripts/termux-firestore-qa-readonly.test.mjs
+      - name: Auditar APIs QA read-only com testes sintéticos
+        run: node --test scripts/termux-firestore-qa-readonly.test.mjs scripts/termux-firebase-qa-identity-readonly.test.mjs
       - name: Gerar regras QA sem Firebase externo
         run: node firebase/qa-general/compose-rules.mjs
       - name: Conferir escopo demo local
