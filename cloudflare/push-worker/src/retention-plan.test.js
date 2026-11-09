@@ -70,3 +70,46 @@ test('data de encerramento em formato numérico não é aceita como evidência',
   assert.equal(out.unknownCount,2);
   assert.equal(out.deletedCount,0);
 });
+
+test('política sem aprovação integral nunca autoriza sequer pré-seleção',()=>{
+  const invalid=[
+    undefined,{},null,
+    {approved:false,approvedBy:'qa',days:30},
+    {approved:true,days:30},
+    {approved:true,approvedBy:'   ',days:30},
+    {approved:true,approvedBy:'qa',days:0},
+    {approved:true,approvedBy:'qa',days:-1},
+    {approved:true,approvedBy:'qa',days:3651},
+    {approved:true,approvedBy:'qa',days:30.5},
+    {approved:true,approvedBy:'qa',days:'30'}
+  ];
+  for(const candidate of invalid){
+    const out=planRetention(candidate,[group(400,{id:'private-group'})],now);
+    assert.equal(out.ready,false);
+    assert.equal(out.reason,'policy_not_approved');
+    assert.equal(out.eligibleCount,0);
+    assert.equal(out.action,'none');
+    assert.equal(out.deletedCount,0);
+    assert.equal(JSON.stringify(out).includes('private-group'),false);
+  }
+});
+
+test('limite temporal e impedimentos exigem dados explícitos',()=>{
+  const out=planRetention(policy,[
+    group(30),                           // exatamente no limite
+    group(29),                           // ainda não elegível
+    group(100,{status:'active'}),       // grupo ainda aberto
+    group(100,{openReports:'false'}),   // string não é ausência de denúncia
+    group(100,{legalHold:0}),          // número não é liberação jurídica
+    group(100,{openReports:true}),     // denúncia aberta
+    group(100,{legalHold:true})        // impedimento legal
+  ],now);
+  assert.equal(out.ready,true);        // APENAS simulação
+  assert.equal(out.reason,'human_review_required');
+  assert.equal(out.eligibleCount,1);
+  assert.equal(out.heldCount,2);
+  assert.equal(out.unknownCount,3);
+  assert.equal(out.action,'dry_run_only');
+  assert.equal(out.deletedCount,0);
+  assert.equal(Object.isFrozen(out),true);
+});
