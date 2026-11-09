@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {initializeTestEnvironment,assertFails,assertSucceeds} from '@firebase/rules-unit-testing';
-import {doc,getDoc,setDoc,writeBatch,serverTimestamp,updateDoc,Timestamp} from 'firebase/firestore';
+import {doc,getDoc,setDoc,deleteDoc,writeBatch,serverTimestamp,updateDoc,Timestamp} from 'firebase/firestore';
 
 const contents=readFileSync('qa-general.generated.rules','utf8');
 if(!contents.includes('match /{document=**}') ||
@@ -102,6 +102,22 @@ try {
      updatedAt:serverTimestamp()
    }));
  }
+ // O documento de liberacao sequer existe no QA recem-criado: negar
+ // leitura do historico e escrita sem confundir com valores false.
+ await env.withSecurityRulesDisabled(async ctx=>{
+   await deleteDoc(doc(ctx.firestore(),'app_config/conversations'));
+ });
+ await assertFails(getDoc(doc(bob,room)));
+ await assertFails(setDoc(doc(bob,'users/qa-bob/chatSettings/privacy'),{
+   requests:'all',readReceipts:false,showPushPreview:false,
+   updatedAt:serverTimestamp()
+ }));
+ // Um documento parcial sem revisao de seguranca tambem permanece fechado.
+ await env.withSecurityRulesDisabled(async ctx=>{
+   const {safetyReviewVersion:unused, ...incomplete}=approvedChat;
+   await setDoc(doc(ctx.firestore(),'app_config/conversations'),incomplete);
+ });
+ await assertFails(getDoc(doc(bob,room)));
  await env.withSecurityRulesDisabled(async ctx=>{
    await setDoc(doc(ctx.firestore(),'app_config/conversations'),approvedChat);
    // Elegibilidade ficticia no emulador: valida apenas o gate.
@@ -130,6 +146,12 @@ try {
    });
    await assertFails(getDoc(doc(alice,eligibility)));
  }
+ // QA novo sem documento de ativacao de grupos: a elegibilidade
+ // administrativa nao libera leitura se o portao de grupo nao existe.
+ await env.withSecurityRulesDisabled(async ctx=>{
+   await deleteDoc(doc(ctx.firestore(),'app_config/chat_groups'));
+ });
+ await assertFails(getDoc(doc(alice,eligibility)));
  // Mesmo com o grupo habilitado, desligar o chat pai bloqueia grupos.
  await env.withSecurityRulesDisabled(async ctx=>{
    await setDoc(doc(ctx.firestore(),'app_config/chat_groups'),{
@@ -186,6 +208,12 @@ try {
    await assertFails(getDoc(doc(alice,group)));
    await assertFails(getDoc(doc(alice,groupMessage)));
  }
+ // Ausencia integral da autorizacao individual jamais permite reentrada.
+ await env.withSecurityRulesDisabled(async ctx=>{
+   await deleteDoc(doc(ctx.firestore(),eligibility));
+ });
+ await assertFails(getDoc(doc(alice,group)));
+ await assertFails(getDoc(doc(alice,groupMessage)));
  // Restaurar somente fixture sintética e testar gate global independente.
  await env.withSecurityRulesDisabled(async ctx=>{
    await setDoc(doc(ctx.firestore(),eligibility),approvedEligibility);
