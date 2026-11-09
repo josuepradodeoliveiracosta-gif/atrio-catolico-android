@@ -11,6 +11,12 @@ on:
 permissions:
   contents: read
 
+# Interrompe apenas auditorias de PR ja substituidas por novo commit.
+# Push na main e execucao manual continuam independentes.
+concurrency:
+  group: atrio-public-secret-scan-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   scan-public-code:
     name: Detectar segredos em arquivos e histórico Git
