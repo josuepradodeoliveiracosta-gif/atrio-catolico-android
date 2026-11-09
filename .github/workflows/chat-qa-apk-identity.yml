@@ -9,6 +9,8 @@ on:
       - 'scripts/chat_qa_apk_identity.py'
       - 'scripts/test_chat_qa_apk_identity.py'
       - 'scripts/chat_qa_build_gate.py'
+      - 'app/build.gradle.kts'
+      - 'app/src/chatQa/AndroidManifest.xml'
       - 'scripts/test_chat_qa_build_gate.py'
       - '.github/workflows/chat-qa-apk-identity.yml'
 
@@ -44,7 +46,8 @@ jobs:
       ATRIO_CHAT_QA_BUILD: '1'
       ATRIO_CHAT_QA_PROJECT: atrio-catolico-qa-geral
       ATRIO_CHAT_QA_APP_ID: '1:123456789:android:abc12345'
-      ATRIO_CHAT_QA_WORKER_URL: https://atrio-qa-geral.demo-account.workers.dev
+      ATRIO_CHAT_QA_OFFLINE_ONLY: '1'
+      ATRIO_CHAT_QA_WORKER_URL: ''
     steps:
       - name: Checkout sem credenciais persistentes
         uses: actions/checkout@v4
@@ -123,9 +126,10 @@ jobs:
               dex_contents = [archive.read(name) for name in dex_names]
           if not dex_contents:
               raise SystemExit("Falha: APK QA não contém bytecode Android.")
-          qa_origin = os.environ["ATRIO_CHAT_QA_WORKER_URL"].encode("utf-8")
-          if not any(qa_origin in dex for dex in dex_contents):
-              raise SystemExit("Falha: Worker de QA não está incorporado ao APK.")
+          if os.environ.get("ATRIO_CHAT_QA_OFFLINE_ONLY") != "1" or os.environ.get("ATRIO_CHAT_QA_WORKER_URL"):
+              raise SystemExit("Falha: runner nao esta offline.")
+          if any(b"https://atrio-qa-geral." in dex for dex in dex_contents):
+              raise SystemExit("Falha: APK offline aponta para Worker publico.")
           forbidden_origins = (
               b"https://atrio-push.atrio-catolico.workers.dev",
               b"https://atrio-guardian-v2.atrio-catolico.workers.dev",
@@ -154,7 +158,7 @@ jobs:
           matches = re.findall(r"Signer #\d+ certificate SHA-256 digest: ([0-9a-fA-F:]+)", check)
           if len(matches) != 1 or matches[0].replace(":", "").lower() == prod_cert:
               raise SystemExit("Falha: APK sem signer QA único ou assinado como Release oficial.")
-          print("OK: APK QA sintético com Firebase QA, assinatura Debug e Worker QA no bytecode.")
+          print("OK: APK QA sintético com Firebase QA, assinatura Debug e sem Worker.")
           print("Não demonstra isolamento em execução nem entrega FCM; nenhum APK foi distribuído.")
           PY
       - name: Apagar configuração sintética do runner

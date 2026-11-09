@@ -17,17 +17,24 @@ class QaBuildGateError(ValueError):
     pass
 
 
-def validate(path, *, project, app_id, worker_url, sha256):
+def validate(path, *, project, app_id, worker_url, sha256, offline_only=False):
     if (not re.fullmatch(r"[a-z][a-z0-9-]{4,40}", project or "") or
             project != "atrio-catolico-qa-geral"):
         raise QaBuildGateError("qa_project_not_approved")
     if not re.fullmatch(r"1:[0-9]+:android:[0-9a-fA-F]+", app_id or ""):
         raise QaBuildGateError("qa_app_id_not_approved")
-    m = re.fullmatch(r"https://([a-z0-9-]+)\.([a-z0-9-]+)\.workers\.dev",
-                     worker_url or "")
-    if (not m or "qa" not in m.group(1).split("-") or
-            worker_url.removeprefix("https://") in PROD_HOSTS):
-        raise QaBuildGateError("separate_qa_worker_required")
+    if type(offline_only) is not bool:
+        raise QaBuildGateError("qa_offline_mode_invalid")
+    if offline_only:
+        if worker_url != "":
+            raise QaBuildGateError("qa_offline_worker_url_must_be_empty")
+    else:
+        m = re.fullmatch(r"https://([a-z0-9-]+)\\.([a-z0-9-]+)\\.workers\\.dev",
+                         worker_url or "")
+        if (not m or m.group(1) != "atrio-qa-geral"
+                or m.group(2) in ("demo-account", "conta", "example", "example-account")
+                or worker_url.removeprefix("https://") in PROD_HOSTS):
+            raise QaBuildGateError("approved_qa_worker_url_required")
     if not re.fullmatch(r"[0-9a-fA-F]{64}", sha256 or ""):
         raise QaBuildGateError("approved_config_hash_required")
     config = Path(path)
@@ -80,10 +87,10 @@ def validate(path, *, project, app_id, worker_url, sha256):
     return True  # Ainda exige auditoria do APK e de FCM.
 
 
-def sanitized_receipt(path, *, project, app_id, worker_url, sha256):
+def sanitized_receipt(path, *, project, app_id, worker_url, sha256, offline_only=False):
     """Somente evidencias locais verificadas; nunca copiar a API key."""
     validate(path, project=project, app_id=app_id,
-             worker_url=worker_url, sha256=sha256)
+             worker_url=worker_url, sha256=sha256, offline_only=offline_only)
     return {
         "schema": "atrio-chat-qa-preflight-v1",
         "status": "local_config_passed_only",
@@ -91,7 +98,8 @@ def sanitized_receipt(path, *, project, app_id, worker_url, sha256):
         "firebase_android_app_id": app_id,
         "fcm_sender_id": app_id.split(":")[1],
         "android_package": QA_PACKAGE,
-        "worker_qa_origin": worker_url,
+        "worker_qa_origin": worker_url if not offline_only else None,
+        "offline_build_no_worker": offline_only,
         "google_services_sha256": sha256.lower(),
         "not_verified": [
             "firebase_cloud_ownership",
@@ -111,12 +119,16 @@ def main(argv=None):
         print("CHAT QA REPROVADO: invalid_arguments", file=sys.stderr)
         return 1
     try:
+        offline_env = os.getenv("ATRIO_CHAT_QA_OFFLINE_ONLY", "")
+        if offline_env not in ("", "1"):
+            raise QaBuildGateError("qa_offline_mode_invalid")
         info = sanitized_receipt(
             "app/src/chatQa/google-services.json",
             project=os.getenv("ATRIO_CHAT_QA_PROJECT", ""),
             app_id=os.getenv("ATRIO_CHAT_QA_APP_ID", ""),
             worker_url=os.getenv("ATRIO_CHAT_QA_WORKER_URL", ""),
             sha256=os.getenv("ATRIO_CHAT_QA_CONFIG_SHA256", ""),
+            offline_only=(offline_env == "1"),
         )
     except (QaBuildGateError, OSError) as exc:
         print("CHAT QA REPROVADO: " + str(exc), file=sys.stderr)

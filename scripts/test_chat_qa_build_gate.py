@@ -28,7 +28,7 @@ class ChatQaBuildGateTests(unittest.TestCase):
         self.kw = {
             "project": "atrio-catolico-qa-geral",
             "app_id": "1:123456789:android:abc12345",
-            "worker_url": "https://atrio-qa-geral.demo-account.workers.dev",
+            "worker_url": "https://atrio-qa-geral.valid-account.workers.dev",
             "sha256": self.digest,
         }
 
@@ -46,6 +46,27 @@ class ChatQaBuildGateTests(unittest.TestCase):
         self.save()
         self.kw["sha256"] = self.digest
         self.denied()
+
+    def test_compilar_offline_apenas_sem_worker(self):
+        self.assertTrue(validate(self.path, **{**self.kw,
+            "worker_url": "", "offline_only": True}))
+        self.denied(worker_url="", offline_only=False)
+        self.denied(worker_url=self.kw["worker_url"], offline_only=True)
+        self.denied(worker_url="https://atrio-push.atrio-catolico.workers.dev",
+                    offline_only=True)
+        self.denied(worker_url="", offline_only="1")
+
+    def test_comprovante_offline_sem_alegacao_de_servidor(self):
+        receipt = sanitized_receipt(self.path, **{**self.kw,
+            "worker_url": "", "offline_only": True})
+        self.assertTrue(receipt["offline_build_no_worker"])
+        self.assertIsNone(receipt["worker_qa_origin"])
+        self.assertIn("fcm_delivery_on_physical_devices", receipt["not_verified"])
+
+    def test_rejeita_placeholder_worker(self):
+        self.denied(worker_url="https://atrio-qa-geral.demo-account.workers.dev")
+        self.denied(worker_url="https://atrio-qa-geral.conta.workers.dev")
+        self.denied(worker_url="https://atrio-chat-qa.account.workers.dev")
 
     def test_synthetic_qa_config_passes(self):
         self.assertTrue(validate(self.path, **self.kw))

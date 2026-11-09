@@ -14,7 +14,7 @@ class ChatQaApkIdentityTests(unittest.TestCase):
         self.apk = Path(t.name, "fixture.apk")
         self.apk.write_bytes(b"synthetic QA fixture, not a real Android APK")
         self.sha = hashlib.sha256(self.apk.read_bytes()).hexdigest()
-        self.project = "qa-atrio-conversas-2026"
+        self.project = "atrio-catolico-qa-geral"
         self.package = "br.com.atriocatolico.chatqa"
         self.cert = "c" * 64
         self.firebase_app_id = "1:123456789:android:abcdef123456"
@@ -39,7 +39,7 @@ class ChatQaApkIdentityTests(unittest.TestCase):
         raise AssertionError("unexpected command")
 
     def run_preflight(self, **overrides):
-        data = {"sdk": self.sdk, "expected_project": "qa-atrio-conversas-2026",
+        data = {"sdk": self.sdk, "expected_project": "atrio-catolico-qa-geral",
                 "expected_package": "br.com.atriocatolico.chatqa",
                 "expected_cert": "c" * 64, "expected_hash": self.sha,
                 "expected_firebase_app_id": "1:123456789:android:abcdef123456",
@@ -61,6 +61,9 @@ class ChatQaApkIdentityTests(unittest.TestCase):
         self.assertFalse(result["worker_endpoints_audited"])
         self.assertFalse(result["physical_chat_tests_verified"])
         self.assertNotIn(self.project, str(result))
+
+    def test_outro_projeto_qa_rejeitado(self):
+        self.check_denied(expected_project="atrio-catolico-qa-v2")
 
     def test_non_qa_project_is_rejected_even_if_not_production(self):
         self.check_denied(expected_project="other-atrio-project")

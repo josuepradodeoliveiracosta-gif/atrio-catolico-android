@@ -48,8 +48,7 @@ def qa_apk_preflight(apk, *, sdk, expected_project, expected_package,
                      expected_cert, expected_hash, expected_firebase_app_id, runner=command):
     if (not isinstance(expected_project, str)
             or not re.fullmatch(r"[a-z][a-z0-9-]{4,40}", expected_project)
-            or expected_project == PROJECT_PROD
-            or "qa" not in expected_project.split("-")):
+            or expected_project != "atrio-catolico-qa-geral"):
         raise QaPreflightError("separate_qa_project_required")
     if (not isinstance(expected_package, str)
             or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+", expected_package)

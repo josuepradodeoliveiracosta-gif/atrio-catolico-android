@@ -164,3 +164,29 @@ e retenção da issue #200 estiver sem aprovação; o resultado
 `firestoreRulesCurrentlyDenyAll: true` **não autoriza chat**.
 Se o Firebase CLI mudar seus módulos privados de autenticação, o
 script falhará de modo seguro, sem ler arquivos de tokens manualmente.
+
+## 7. Preflight offline do APK QA sem URL de Cloudflare
+
+Enquanto o Worker `atrio-qa-geral` nao tiver URL aprovada, somente a
+compilacao da variante `chatQa` em laboratorio pode ocorrer com relay
+vazio e flag offline explicita. O Firebase continua sendo o QA geral,
+mas suas regras continuam deny-all, portanto conversas permanecem fechadas.
+
+No clone Termux apos atualizar a branch, definir:
+
+```sh
+cd "$HOME/atrio-qa-app"
+export ATRIO_CHAT_QA_BUILD=1
+export ATRIO_CHAT_QA_OFFLINE_ONLY=1
+export ATRIO_CHAT_QA_WORKER_URL=""
+export ATRIO_CHAT_QA_PROJECT="atrio-catolico-qa-geral"
+export ATRIO_CHAT_QA_CONFIG_SHA256="$(sha256sum app/src/chatQa/google-services.json | cut -d' ' -f1)"
+export ATRIO_CHAT_QA_APP_ID="$(python3 -c 'import json; print(json.load(open("app/src/chatQa/google-services.json"))["client"][0]["client_info"]["mobilesdk_app_id"])')"
+python3 scripts/chat_qa_build_gate.py
+```
+
+Esse comando NAO compila, instala ou publica APK; somente valida localmente.
+A eventual compilacao de laboratorio, quando houver Android SDK e Gradle,
+deve usar exclusivamente `gradle :app:assembleChatQa`. A compilacao offline
+usa `PUSH_RELAY_URL=""` e nunca URL ficticia, oficial ou de Cloudflare.
+Nao autoriza chat, grupos, FCM ou distribuicao do APK.

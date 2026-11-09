@@ -16,7 +16,17 @@ val atrioOtaPilotCompileOnly = System.getenv("ATRIO_OTA_PILOT_COMPILE_ONLY") == 
 val atrioOtaPilotEnabled = atrioOtaReleasePilot || atrioOtaPilotCompileOnly
 // O chat QA possui pacote e Firebase próprios; nunca habilitar por padrão.
 val atrioChatQaBuild = System.getenv("ATRIO_CHAT_QA_BUILD") == "1"
+// O Worker QA nao oferece acesso publico. Sem relay, apenas build isolado.
+val atrioChatQaOffline = System.getenv("ATRIO_CHAT_QA_OFFLINE_ONLY") == "1"
 if (atrioChatQaBuild) {
+    require(System.getenv("ATRIO_CHAT_QA_OFFLINE_ONLY").orEmpty() in setOf("", "1")) {
+        "Chat QA: modo offline invalido."
+    }
+    if (atrioChatQaOffline) {
+        require(System.getenv("ATRIO_CHAT_QA_WORKER_URL").isNullOrBlank()) {
+            "Chat QA offline nunca incorpora URL de Worker."
+        }
+    }
     require(!atrioDesignPreview && !atrioOtaQaLoopback && !atrioOtaPilotEnabled) {
         "Chat QA nao pode usar o preview, OTA ou piloto."
     }
