@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {initializeTestEnvironment,assertFails,assertSucceeds} from '@firebase/rules-unit-testing';
-import {doc,getDoc,setDoc,writeBatch,serverTimestamp,updateDoc} from 'firebase/firestore';
+import {doc,getDoc,setDoc,writeBatch,serverTimestamp,updateDoc,Timestamp} from 'firebase/firestore';
 
 const contents=readFileSync('qa-general.generated.rules','utf8');
 if(!contents.includes('match /{document=**}') ||
@@ -140,5 +140,70 @@ try {
    });
  });
  await assertFails(getDoc(doc(alice,eligibility)));
- console.log('QA geral: portoes de menores e versoes falham fechados no emulador, sem deploy.');
+
+ // Mensagens e historicos de GRUPOS JA EXISTENTES nao podem escapar apos
+ // revogacao de elegibilidade, vencimento de revisao ou bloqueio global.
+ // A data futura e o usuario sao sinteticos no Firebase Emulator.
+ const group='chat_groups/qa-existing-group';
+ const groupMessage=group+'/messages/qa-first';
+ const future=Timestamp.fromDate(new Date('2035-01-01T00:00:00.000Z'));
+ const past=Timestamp.fromDate(new Date('2000-01-01T00:00:00.000Z'));
+ const approvedEligibility={
+   status:'approved',
+   policyVersion:'2026-11-group-safety-v1',
+   reviewExpiresAt:future
+ };
+ await env.withSecurityRulesDisabled(async ctx=>{
+   await setDoc(doc(ctx.firestore(),'app_config/conversations'),approvedChat);
+   await setDoc(doc(ctx.firestore(),'users/qa-alice/chatGroupAccess/eligibility'),
+     approvedEligibility);
+   await setDoc(doc(ctx.firestore(),group),{
+     ownerUid:'qa-alice',memberUids:['qa-alice'],adminUids:['qa-alice'],
+     status:'active'
+   });
+   await setDoc(doc(ctx.firestore(),groupMessage),{
+     uid:'qa-alice',kind:'text',text:'Mensagem ficticia QA',createdAt:past
+   });
+ });
+ // Controle positivo obrigatorio: prova que a leitura seria possivel com
+ // todos os gates ficticios ligados, evitando testes negativos triviais.
+ await assertSucceeds(getDoc(doc(alice,group)));
+ await assertSucceeds(getDoc(doc(alice,groupMessage)));
+ await assertFails(getDoc(doc(bob,group)));
+ await assertFails(getDoc(doc(outsider,groupMessage)));
+ await assertFails(getDoc(doc(guest,groupMessage)));
+ await assertFails(getDoc(doc(unverified,groupMessage)));
+ const revokedEligibility=[
+   {...approvedEligibility,status:'revoked'},
+   {...approvedEligibility,policyVersion:'unreviewed'},
+   {...approvedEligibility,reviewExpiresAt:past},
+   {status:'approved',policyVersion:'2026-11-group-safety-v1'}
+ ];
+ for(const denied of revokedEligibility){
+   await env.withSecurityRulesDisabled(async ctx=>{
+     await setDoc(doc(ctx.firestore(),eligibility),denied);
+   });
+   await assertFails(getDoc(doc(alice,group)));
+   await assertFails(getDoc(doc(alice,groupMessage)));
+ }
+ // Restaurar somente fixture sintética e testar gate global independente.
+ await env.withSecurityRulesDisabled(async ctx=>{
+   await setDoc(doc(ctx.firestore(),eligibility),approvedEligibility);
+   await setDoc(doc(ctx.firestore(),'app_config/chat_groups'),{
+     enabled:true,version:'2026-11-groups-v1',minorPolicyApproved:false
+   });
+ });
+ await assertFails(getDoc(doc(alice,group)));
+ await assertFails(getDoc(doc(alice,groupMessage)));
+ await env.withSecurityRulesDisabled(async ctx=>{
+   await setDoc(doc(ctx.firestore(),'app_config/chat_groups'),{
+     enabled:true,version:'2026-11-groups-v1',minorPolicyApproved:true
+   });
+   await setDoc(doc(ctx.firestore(),'app_config/conversations'),{
+     ...approvedChat,minorPolicyApproved:false
+   });
+ });
+ await assertFails(getDoc(doc(alice,group)));
+ await assertFails(getDoc(doc(alice,groupMessage)));
+ console.log('QA geral: revogacao/expiracao impede leitura de historicos de grupo existentes.');
 }finally{await env.cleanup();}
