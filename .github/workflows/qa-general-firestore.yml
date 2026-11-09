@@ -11,6 +11,8 @@ on:
       - 'tests/security/qa-general.firebase.json'
       - 'scripts/termux-firebase-qa-identity-readonly.mjs'
       - 'scripts/termux-firebase-qa-identity-readonly.test.mjs'
+      - 'scripts/termux-firestore-qa-readonly.mjs'
+      - 'scripts/termux-firestore-qa-readonly.test.mjs'
       - '.github/workflows/qa-general-firestore.yml'
 
 permissions:
