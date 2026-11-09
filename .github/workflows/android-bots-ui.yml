@@ -10,6 +10,8 @@ on:
       - 'app/src/androidTest/**'
       - 'app/build.gradle.kts'
       - '.github/workflows/android-bots-ui.yml'
+      - 'scripts/run-qa-android-emulator.sh'
+      - 'scripts/test_qa_android_groups.py'
   # Executa os testes reais da interface em emulador somente neste ramo de QA.
   push:
     branches: [feature/push-gratuito-cloudflare-v0190]
@@ -26,8 +28,15 @@ permissions:
 
 jobs:
   android-ui:
-    name: Testar telas do Átrio em Android virtual
+    name: Testar telas do Átrio — ${{ matrix.suite_group }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        suite_group: [profiles, interaction, bots]
+    env:
+      ATRIO_QA_SUITE_GROUP: ${{ matrix.suite_group }}
     timeout-minutes: 35
     steps:
       - name: Obter código
@@ -49,6 +58,8 @@ jobs:
           node-version: '20'
           cache: npm
           cache-dependency-path: tests/security/package-lock.json
+      - name: Validar plano de grupos offline
+        run: python3 -m unittest discover -s scripts -p 'test_qa_android_groups.py' -v
       - name: Instalar Firebase CLI de testes
         working-directory: tests/security
         run: npm ci
@@ -88,7 +99,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: qa-bots-android-ui-reports
+          name: qa-bots-android-ui-reports-${{ matrix.suite_group }}
           path: |
             app/build/reports/androidTests
             app/build/outputs/androidTest-results
