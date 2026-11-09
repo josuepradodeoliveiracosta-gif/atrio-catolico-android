@@ -386,6 +386,11 @@ private fun OnlineAuthScreen(
                                         busy = false
                                         error = "Não foi possível concluir o cadastro. Tente novamente."
                                     } else {
+                                        // Diagnóstico exclusivo do Firebase Emulator: não
+                                        // registrar UID, e-mail, nome, token ou senha.
+                                        if (isIsolatedQa) android.util.Log.i(
+                                            "AtrioQaProfile", "auth_signup_callback_received"
+                                        )
                                         onRegistrationCreated(created.uid)
                                         // Registro mínimo no esquema V2; as Rules novas
                                         // precisam de deploy separado antes de produção.
@@ -411,15 +416,31 @@ private fun OnlineAuthScreen(
                                             )).addOnFailureListener {
                                                 android.util.Log.w("AtrioAuth", "community_consent_write_failed")
                                             }
+                                        if (isIsolatedQa) android.util.Log.i(
+                                            "AtrioQaProfile", "profile_write_requested"
+                                        )
                                         db.collection("profiles").document(created.uid).set(mapOf(
                                             "displayName" to publicName,
                                             "createdAt" to FieldValue.serverTimestamp()
                                         )).addOnSuccessListener {
+                                            // Task.set concluída: resposta do servidor
+                                            // emulado, não apenas snapshot do cache.
+                                            if (isIsolatedQa) android.util.Log.i(
+                                                "AtrioQaProfile", "profile_write_acknowledged"
+                                            )
                                             val update = UserProfileChangeRequest.Builder()
                                                 .setDisplayName(publicName).build()
                                             created.updateProfile(update)
                                             busy = false
-                                        }.addOnFailureListener {
+                                        }.addOnFailureListener { failure ->
+                                            if (isIsolatedQa) {
+                                                val code = (failure as?
+                                                    com.google.firebase.firestore.FirebaseFirestoreException)
+                                                    ?.code?.name ?: failure.javaClass.simpleName
+                                                android.util.Log.w(
+                                                    "AtrioQaProfile", "profile_write_rejected:$code"
+                                                )
+                                            }
                                             busy = false
                                             error = "Sua conta foi criada, mas o perfil ainda não foi salvo. " +
                                                 "Conclua o perfil após entrar novamente."
