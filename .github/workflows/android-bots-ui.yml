@@ -23,6 +23,7 @@ on:
         options:
           - all
           - ThreeBotsOnlineEmulatorTest
+          - ThreeBotsAuthenticatedAndroidUiTest
 
 concurrency:
   group: qa-android-emulator-${{ github.event.pull_request.number || github.ref }}

@@ -109,6 +109,13 @@ if [[ "${ATRIO_QA_SUITE:-}" == "ThreeBotsOnlineEmulatorTest" ]]; then
   echo "QA Android: apenas ThreeBotsOnlineEmulatorTest; status=$qa_failed"
   exit "$qa_failed"
 fi
+# Diagnostico de cadastro/perfil dos bots somente no Firebase Emulator;
+# permite repetir o teste completo autenticado sem outras suites custosas.
+if [[ "${ATRIO_QA_SUITE:-}" == "ThreeBotsAuthenticatedAndroidUiTest" ]]; then
+  run_suite ThreeBotsAuthenticatedAndroidUiTest
+  echo "QA Android: apenas ThreeBotsAuthenticatedAndroidUiTest; status=$qa_failed"
+  exit "$qa_failed"
+fi
 if [[ -n "${ATRIO_QA_SUITE:-}" ]]; then
   echo "Suite seletiva desconhecida; negando execucao" >&2
   exit 2
