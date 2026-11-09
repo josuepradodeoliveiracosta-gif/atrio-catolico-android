@@ -18,7 +18,53 @@ permissions:
   contents: read
 
 jobs:
+  documentation_scope:
+    name: Classificar PR documental antes do APK adicional
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    outputs:
+      heavy: ${{ steps.classify.outputs.heavy }}
+    steps:
+      - name: Obter classificador confiavel da base da PR
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Testar classificacao fail-closed offline
+        run: python3 -m unittest discover -s scripts -p 'test_ci_documentation_scope.py' -v
+      - name: Conferir SHAs e classificar diff sem executar codigo da PR
+        id: classify
+        shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          heavy=true
+          trap 'printf "heavy=%s\n" "$heavy" >> "$GITHUB_OUTPUT"' EXIT
+          [[ "$GITHUB_EVENT_NAME" == 'pull_request' ]] || exit 0
+          [[ "$GITHUB_REPOSITORY" == 'josuepradodeoliveiracosta-gif/atrio-catolico-android' ]] || exit 0
+          [[ "$PR_BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 0
+          [[ "$PR_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 0
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]{0,9}$ ]] || exit 0
+          [[ "$(git rev-parse --is-shallow-repository)" == 'false' ]] || exit 0
+          [[ "$(git rev-parse HEAD)" == "$PR_BASE_SHA" ]] || exit 0
+          git fetch --no-tags --force origin "refs/pull/${PR_NUMBER}/head" || exit 0
+          [[ "$(git rev-parse FETCH_HEAD)" == "$PR_HEAD_SHA" ]] || exit 0
+          base="$(git merge-base --all "$PR_BASE_SHA" "$PR_HEAD_SHA")" || exit 0
+          [[ "$base" =~ ^[0-9a-f]{40}$ ]] || exit 0
+          git diff --raw -z --no-ext-diff "$base" "$PR_HEAD_SHA" > "$RUNNER_TEMP/atrio-pr-diff.raw" || exit 0
+          result="$(python3 scripts/ci_documentation_scope.py --raw-diff-z "$RUNNER_TEMP/atrio-pr-diff.raw" --event pull_request --comparison-verified)" || exit 0
+          if [[ "$result" == 'heavy=false' ]]; then
+            heavy=false
+            echo 'PR apenas documental e diff confiavel: compilacao APK redundante dispensada.'
+          fi
   firestore-rules:
+    needs: documentation_scope
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.documentation_scope.outputs.heavy != 'false') }}
     name: Regras de seguranca Firestore
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -29,6 +75,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: npm
+          cache-dependency-path: tests/security/package-lock.json
       - name: Preparar Java para emulador
         uses: actions/setup-java@v4
         with:
@@ -51,6 +99,8 @@ jobs:
         run: node --test scripts/termux-founder-access-guard.test.mjs
 
   android:
+    needs: documentation_scope
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.documentation_scope.outputs.heavy != 'false') }}
     name: Compilar Android de testes
     runs-on: ubuntu-latest
     timeout-minutes: 25
