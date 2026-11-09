@@ -9,6 +9,7 @@ on:
       - 'app/src/main/**'
       - 'app/src/androidTest/**'
       - 'app/build.gradle.kts'
+      - 'scripts/run-qa-android-emulator.sh'
       - '.github/workflows/android-bots-ui.yml'
   # Executa os testes reais da interface em emulador somente neste ramo de QA.
   push:
