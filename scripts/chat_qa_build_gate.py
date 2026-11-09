@@ -29,7 +29,7 @@ def validate(path, *, project, app_id, worker_url, sha256, offline_only=False):
         if worker_url != "":
             raise QaBuildGateError("qa_offline_worker_url_must_be_empty")
     else:
-        m = re.fullmatch(r"https://([a-z0-9-]+)\\.([a-z0-9-]+)\\.workers\\.dev",
+        m = re.fullmatch(r"https://([a-z0-9-]+)\.([a-z0-9-]+)\.workers\.dev",
                          worker_url or "")
         if (not m or m.group(1) != "atrio-qa-geral"
                 or m.group(2) in ("demo-account", "conta", "example", "example-account")
