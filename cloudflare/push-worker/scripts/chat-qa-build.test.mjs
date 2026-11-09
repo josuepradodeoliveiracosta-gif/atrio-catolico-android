@@ -56,6 +56,9 @@ test('configuração de QA não reutiliza nome, projeto, D1 ou switches de produ
   const config=renderQaWrangler(qaProject,qaD1);
   assert.match(config,/name = "atrio-qa-geral"/);
   assert.match(config,/PUSH_ENABLED = "false"/);
+  assert.match(config,/workers_dev = false/);
+  assert.match(config,/preview_urls = false/);
+  assert.doesNotMatch(config,/workers_dev = true|preview_urls = true/);
   assert.match(config,/QA_MANUAL_ENABLED = "false"/);
   assert.match(config,/database_id = "11111111-2222-4333-8444-555555555555"/);
   assert.doesNotMatch(config,/name = "atrio-push"|database_name = "atrio-push-delivery"|6b04fad3-619a-4cc5-a4b3-d31c3a18e911/);

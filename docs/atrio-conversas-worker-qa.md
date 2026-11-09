@@ -56,6 +56,12 @@ conferidas do código-fonte original. O Worker produzido:
   **continua obrigatoriamente** no `accounts:lookup` remoto; a checagem de
   claims locais só bloqueia origens incompatíveis e não valida assinaturas;
 - começa com PUSH_ENABLED=false, broadcast e Guardião desligados;
+- configura **workers_dev=false e preview_urls=false** também no Worker
+  **gerado como candidato**. Antes desta revisão, o gerador criava
+  workers_dev=true, divergente do bootstrap fechado implantado. Agora
+  ambas as versões permanecem sem endpoint público; qualquer abertura
+  posterior requer revisão e autorização próprias e auditoria do Worker
+  real, não bastando editar o TOML gerado;
 - exige D1 com UUID distinto **e marcador SQL de projeto**. O Worker verifica
   `atrio_qa_identity` no D1 vinculado antes mesmo de responder ao `/health`
   ou processar `/event`. Ausência da tabela, marcador divergente e falhas

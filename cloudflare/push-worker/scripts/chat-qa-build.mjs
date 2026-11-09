@@ -119,7 +119,10 @@ export function renderQaWrangler(project, d1) {
     'name = "atrio-qa-geral"',
     'main = "src/index.general-qa.generated.js"',
     'compatibility_date = "2026-10-26"',
-    'workers_dev = true',
+    // Produzir candidato inacessível por padrão; ativação externa exige
+    // revisão e aprovação manual separada, mesmo que o Worker QA já exista.
+    'workers_dev = false',
+    'preview_urls = false',
     '',
     '[vars]',
     'ATRIO_GENERAL_QA_MODE = "true"',
