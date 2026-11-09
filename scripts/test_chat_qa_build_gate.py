@@ -14,7 +14,7 @@ class ChatQaBuildGateTests(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         self.path = Path(tmp.name, "google-services.json")
         self.config = {
-            "project_info": {"project_id": "qa-atrio-conversas-2026",
+            "project_info": {"project_id": "atrio-catolico-qa-geral",
                              "project_number": "123456789"},
             "client": [{
                 "client_info": {
@@ -26,9 +26,9 @@ class ChatQaBuildGateTests(unittest.TestCase):
         }
         self.save()
         self.kw = {
-            "project": "qa-atrio-conversas-2026",
+            "project": "atrio-catolico-qa-geral",
             "app_id": "1:123456789:android:abc12345",
-            "worker_url": "https://atrio-chat-qa.demo-account.workers.dev",
+            "worker_url": "https://atrio-qa-geral.demo-account.workers.dev",
             "sha256": self.digest,
         }
 
@@ -129,6 +129,20 @@ class ChatQaBuildGateTests(unittest.TestCase):
         self.config["client"][0]["oauth_client"] = [
             {"client_id": "atrio-catolico.apps.googleusercontent.com"}
         ]
+        self.changed()
+
+    def test_qa_storage_bucket_valido(self):
+        self.config["project_info"]["storage_bucket"] = (
+            "atrio-catolico-qa-geral.firebasestorage.app"
+        )
+        self.save()
+        self.kw["sha256"] = self.digest
+        self.assertTrue(validate(self.path, **self.kw))
+
+    def test_qa_storage_bucket_com_producao_invalido(self):
+        self.config["project_info"]["storage_bucket"] = (
+            "atrio-catolico-qa-geral/atrio-catolico.appspot.com"
+        )
         self.changed()
 
     def test_multiple_api_keys_fail_closed(self):

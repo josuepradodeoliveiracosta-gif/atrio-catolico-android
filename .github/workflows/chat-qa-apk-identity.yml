@@ -42,9 +42,9 @@ jobs:
     timeout-minutes: 25
     env:
       ATRIO_CHAT_QA_BUILD: '1'
-      ATRIO_CHAT_QA_PROJECT: qa-atrio-conversas-2026
+      ATRIO_CHAT_QA_PROJECT: atrio-catolico-qa-geral
       ATRIO_CHAT_QA_APP_ID: '1:123456789:android:abc12345'
-      ATRIO_CHAT_QA_WORKER_URL: https://atrio-chat-qa.demo-account.workers.dev
+      ATRIO_CHAT_QA_WORKER_URL: https://atrio-qa-geral.demo-account.workers.dev
     steps:
       - name: Checkout sem credenciais persistentes
         uses: actions/checkout@v4
@@ -74,7 +74,7 @@ jobs:
           path.parent.mkdir(parents=True, exist_ok=True)
           config = {
               "project_info": {
-                  "project_id": "qa-atrio-conversas-2026",
+                  "project_id": "atrio-catolico-qa-geral",
                   "project_number": "123456789"
               },
               "client": [{
@@ -137,7 +137,7 @@ jobs:
               [str(aapt), "dump", "--values", "resources", str(apk)], text=True
           )
           expected = {
-              "project_id": "qa-atrio-conversas-2026",
+              "project_id": "atrio-catolico-qa-geral",
               "google_app_id": "1:123456789:android:abc12345",
               "gcm_defaultSenderId": "123456789",
           }

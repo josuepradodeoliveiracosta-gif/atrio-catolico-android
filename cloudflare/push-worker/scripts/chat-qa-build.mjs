@@ -16,7 +16,7 @@ function exactlyOnce(input, anchor, replacement) {
 export function validateQaIdentity(project, d1) {
   if (typeof project !== 'string' ||
       !/^[a-z][a-z0-9-]{4,40}$/.test(project) ||
-      !/(^qa-|[-]qa(?:-|$))/.test(project) || project === PROD_PROJECT)
+      project !== 'atrio-catolico-qa-geral')
     fail('separate_firebase_project_required');
   if (typeof d1 !== 'string' ||
       !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(d1) ||
@@ -70,8 +70,8 @@ export function renderQaWorker(original, project) {
     "  },\n" + fetchStart + blocks[1].split(fetchStart)[1];
   const gate = [
     '  async fetch(request, env) {',
-    "    if (env.ATRIO_CHAT_QA_MODE !== 'true' ||",
-    '        env.ATRIO_CHAT_QA_PROJECT !== PROJECT ||',
+    "    if (env.ATRIO_GENERAL_QA_MODE !== 'true' ||",
+    '        env.ATRIO_GENERAL_QA_PROJECT !== PROJECT ||',
     "        env.QA_MANUAL_ENABLED === 'true' ||",
     "        env.GUARDIAO_ENABLED === 'true' ||",
     "        env.GUARDIAO_AI_ENABLED === 'true' ||",
@@ -94,8 +94,8 @@ export function renderQaWorker(original, project) {
     "      return response(503,'qa_d1_identity_denied');",
     '    try {',
     '      const identity = await env.PUSH_DB.prepare(',
-    '        "SELECT project_id FROM chat_qa_identity WHERE name = ? LIMIT 1"',
-    '      ).bind("atrio-chat-qa").first();',
+    '        "SELECT project_id FROM atrio_qa_identity WHERE name = ? LIMIT 1"',
+    '      ).bind("atrio-qa-geral").first();',
     '      if (identity?.project_id !== PROJECT)',
     "        return response(503,'qa_d1_identity_denied');",
     "    } catch { return response(503,'qa_d1_identity_denied'); }"
@@ -104,7 +104,9 @@ export function renderQaWorker(original, project) {
   code = exactlyOnce(code,
     "!['reply','badge_request','badge_result','report','chat_message','group_message'].includes(data.type)",
     "!['chat_message','group_message'].includes(data.type)");
-  if (code.includes(PROD_PROJECT) || code.includes("qa-manual.js") ||
+  if (code.includes("const PROJECT = 'atrio-catolico';") ||
+      code.includes("atrio-push.atrio-catolico.workers.dev") ||
+      code.includes("qa-manual.js") ||
       code.includes("email-verification-policy.mjs") ||
       code.includes("qa-real-auth.js"))
     fail('production_reference_remained');
@@ -114,14 +116,14 @@ export function renderQaWrangler(project, d1) {
   validateQaIdentity(project, d1);
   return [
     '# GERADO. Somente homologação aprovada; NÃO executar deploy automaticamente.',
-    'name = "atrio-chat-qa"',
-    'main = "src/index.chat-qa.generated.js"',
+    'name = "atrio-qa-geral"',
+    'main = "src/index.general-qa.generated.js"',
     'compatibility_date = "2026-10-26"',
     'workers_dev = true',
     '',
     '[vars]',
-    'ATRIO_CHAT_QA_MODE = "true"',
-    'ATRIO_CHAT_QA_PROJECT = "' + project + '"',
+    'ATRIO_GENERAL_QA_MODE = "true"',
+    'ATRIO_GENERAL_QA_PROJECT = "' + project + '"',
     'PUSH_ENABLED = "false"',
     'BROADCAST_ENABLED = "false"',
     'GUARDIAO_ENABLED = "false"',
@@ -131,7 +133,7 @@ export function renderQaWrangler(project, d1) {
     '',
     '[[d1_databases]]',
     'binding = "PUSH_DB"',
-    'database_name = "atrio-chat-qa-delivery"',
+    'database_name = "atrio-qa-geral-db"',
     'database_id = "' + d1 + '"',
     '',
     '# Secrets de QA somente no Worker QA:',
@@ -149,12 +151,12 @@ export function renderQaSchema(project, d1) {
   validateQaIdentity(project, d1);
   return [
     '-- GERADO: aplicar somente no D1 QA aprovado, nunca em produção.',
-    'CREATE TABLE IF NOT EXISTS chat_qa_identity (',
+    'CREATE TABLE IF NOT EXISTS atrio_qa_identity (',
     '  name TEXT PRIMARY KEY NOT NULL,',
     '  project_id TEXT NOT NULL',
     ');',
-    'INSERT OR IGNORE INTO chat_qa_identity (name, project_id)',
-    "  VALUES ('atrio-chat-qa', '" + project + "');",
+    'INSERT OR IGNORE INTO atrio_qa_identity (name, project_id)',
+    "  VALUES ('atrio-qa-geral', '" + project + "');",
     'CREATE TABLE IF NOT EXISTS delivered (',
     '  event_key TEXT PRIMARY KEY NOT NULL,',
     '  created_at INTEGER NOT NULL',
@@ -180,9 +182,9 @@ export function generate(project, d1, dir = ROOT) {
   const src = renderQaWorker(original,project);
   const toml = renderQaWrangler(project,d1);
   const schema = renderQaSchema(project,d1);
-  const output = path.join(dir,'src/index.chat-qa.generated.js');
-  const config = path.join(dir,'wrangler.chat-qa.generated.toml');
-  const sql = path.join(dir,'schema.chat-qa.generated.sql');
+  const output = path.join(dir,'src/index.general-qa.generated.js');
+  const config = path.join(dir,'wrangler.general-qa.generated.toml');
+  const sql = path.join(dir,'schema.general-qa.generated.sql');
   // Gerar somente arquivos ignorados pelo Git; nunca tocar src/index.js.
   fs.writeFileSync(output,src,{flag:'w',mode:0o600});
   fs.writeFileSync(config,toml,{flag:'w',mode:0o600});
@@ -191,8 +193,8 @@ export function generate(project, d1, dir = ROOT) {
 }
 if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) {
   try {
-    const project=process.env.ATRIO_CHAT_QA_PROJECT;
-    const d1=process.env.ATRIO_CHAT_QA_D1_ID;
+    const project=process.env.ATRIO_GENERAL_QA_PROJECT;
+    const d1=process.env.ATRIO_GENERAL_QA_D1_ID;
     generate(project,d1);
     console.log('Chat QA: fontes/configuração segregadas geradas localmente; nenhum deploy.');
   } catch (error) {

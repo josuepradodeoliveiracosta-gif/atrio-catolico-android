@@ -19,7 +19,7 @@ class QaBuildGateError(ValueError):
 
 def validate(path, *, project, app_id, worker_url, sha256):
     if (not re.fullmatch(r"[a-z][a-z0-9-]{4,40}", project or "") or
-            project == PROD_PROJECT or "qa" not in project.split("-")):
+            project != "atrio-catolico-qa-geral"):
         raise QaBuildGateError("qa_project_not_approved")
     if not re.fullmatch(r"1:[0-9]+:android:[0-9a-fA-F]+", app_id or ""):
         raise QaBuildGateError("qa_app_id_not_approved")
@@ -38,8 +38,6 @@ def validate(path, *, project, app_id, worker_url, sha256):
     data_bytes = config.read_bytes()
     # Mesmo com project_id correto, impedir referencias de producao em campos
     # adicionais, como storage_bucket e oauth_client. Sem imprimir o JSON.
-    if PROD_PROJECT.encode("utf-8") in data_bytes:
-        raise QaBuildGateError("production_reference_in_qa_config")
     if hashlib.sha256(data_bytes).hexdigest() != sha256.lower():
         raise QaBuildGateError("qa_config_hash_mismatch")
     try:
@@ -60,6 +58,17 @@ def validate(path, *, project, app_id, worker_url, sha256):
             raise QaBuildGateError("qa_config_incomplete")
     except (ValueError, KeyError, IndexError, TypeError):
         raise QaBuildGateError("qa_config_incomplete") from None
+    def production_reference(obj):
+        if isinstance(obj, str):
+            return PROD_PROJECT in obj.replace(project, "")
+        if isinstance(obj, list):
+            return any(production_reference(v) for v in obj)
+        if isinstance(obj, dict):
+            return any(production_reference(k) or production_reference(v)
+                       for k, v in obj.items())
+        return False
+    if production_reference(data):
+        raise QaBuildGateError("production_reference_in_qa_config")
     if actual_project != project or actual_project == PROD_PROJECT:
         raise QaBuildGateError("qa_project_mismatch")
     if actual_app != app_id or sender != app_id.split(":")[1]:

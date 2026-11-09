@@ -7,15 +7,15 @@ import {renderQaWorker,renderQaWrangler,renderQaSchema,validateQaIdentity} from 
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const original=fs.readFileSync(path.join(root,'src/index.js'),'utf8');
-const qaProject='qa-atrio-conversas-2026';
+const qaProject='atrio-catolico-qa-geral';
 const qaD1='11111111-2222-4333-8444-555555555555';
 const generated=renderQaWorker(original,qaProject);
 
 test('bundle QA contém o projeto segregado sem literal do Firebase oficial',()=>{
-  assert.match(generated,/const PROJECT = 'qa-atrio-conversas-2026'/);
-  assert.doesNotMatch(generated,/atrio-catolico/);
-  assert.match(generated,/ATRIO_CHAT_QA_MODE/);
-  assert.match(generated,/ATRIO_CHAT_QA_PROJECT/);
+  assert.match(generated,/const PROJECT = 'atrio-catolico-qa-geral'/);
+  assert.doesNotMatch(generated,/const PROJECT = 'atrio-catolico';/);
+  assert.match(generated,/ATRIO_GENERAL_QA_MODE/);
+  assert.match(generated,/ATRIO_GENERAL_QA_PROJECT/);
 });
 test('QA desativa bots, política externa oficial e fila de usuários',()=>{
   assert.doesNotMatch(generated,/from '.\/qa-manual\.js'/);
@@ -37,7 +37,7 @@ test('produção permanece imutável: fonte de entrada ainda usa projeto oficial
   assert.match(original,/from '.\/qa-manual.js';/);
 });
 test('identidade QA rejeita projeto oficial, suspeito ou vazia',()=>{
-  for (const p of ['atrio-catolico','', 'prod-atrio','qa/x','abc_qa']) {
+  for (const p of ['atrio-catolico','', 'prod-atrio','qa/x','abc_qa','qa-atrio-conversas-2026','atrio-catolico-qa-v2']) {
     assert.throws(()=>validateQaIdentity(p,qaD1),/chat_qa_/);
   }
 });
@@ -54,11 +54,11 @@ test('falha fechada diante de mudanças nas âncoras do código original',()=>{
 });
 test('configuração de QA não reutiliza nome, projeto, D1 ou switches de produção',()=>{
   const config=renderQaWrangler(qaProject,qaD1);
-  assert.match(config,/name = "atrio-chat-qa"/);
+  assert.match(config,/name = "atrio-qa-geral"/);
   assert.match(config,/PUSH_ENABLED = "false"/);
   assert.match(config,/QA_MANUAL_ENABLED = "false"/);
   assert.match(config,/database_id = "11111111-2222-4333-8444-555555555555"/);
-  assert.doesNotMatch(config,/atrio-catolico|6b04fad3-619a-4cc5-a4b3-d31c3a18e911/);
+  assert.doesNotMatch(config,/name = "atrio-push"|database_name = "atrio-push-delivery"|6b04fad3-619a-4cc5-a4b3-d31c3a18e911/);
 });
 test('worker QA bloqueia por padrão, antes de acessar banco ou Firebase',async()=>{
   const workerModule=await import('data:text/javascript;charset=utf-8,' +
@@ -67,14 +67,14 @@ test('worker QA bloqueia por padrão, antes de acessar banco ou Firebase',async(
   for(const [url,method,env,code] of [
     ['https://qa.example/event','POST',{},503],
     ['https://qa.example/event','POST',
-      {ATRIO_CHAT_QA_MODE:'true',ATRIO_CHAT_QA_PROJECT:'atrio-catolico'},503],
+      {ATRIO_GENERAL_QA_MODE:'true',ATRIO_GENERAL_QA_PROJECT:'atrio-catolico'},503],
     ['https://qa.example/moderation/event','POST',
-      {ATRIO_CHAT_QA_MODE:'true',ATRIO_CHAT_QA_PROJECT:qaProject},404],
+      {ATRIO_GENERAL_QA_MODE:'true',ATRIO_GENERAL_QA_PROJECT:qaProject},404],
     ['https://qa.example/event','POST',
-      {ATRIO_CHAT_QA_MODE:'true',ATRIO_CHAT_QA_PROJECT:qaProject,
+      {ATRIO_GENERAL_QA_MODE:'true',ATRIO_GENERAL_QA_PROJECT:qaProject,
         FIREBASE_SERVICE_ACCOUNT_JSON:JSON.stringify({project_id:'atrio-catolico'})},503],
     ['https://qa.example/event','POST',
-      {ATRIO_CHAT_QA_MODE:'true',ATRIO_CHAT_QA_PROJECT:qaProject,PUSH_ENABLED:'false'},503]
+      {ATRIO_GENERAL_QA_MODE:'true',ATRIO_GENERAL_QA_PROJECT:qaProject,PUSH_ENABLED:'false'},503]
   ]) {
     const result=await worker.fetch(new Request(url,{method,body:'{}'}),env);
     assert.equal(result.status,code);
@@ -83,8 +83,8 @@ test('worker QA bloqueia por padrão, antes de acessar banco ou Firebase',async(
 
 test('schema QA inclui marcador persistente e tabelas mínimas de entrega',()=>{
   const sql=renderQaSchema(qaProject,qaD1);
-  assert.match(sql,/CREATE TABLE IF NOT EXISTS chat_qa_identity/);
-  assert.match(sql,/VALUES \('atrio-chat-qa', 'qa-atrio-conversas-2026'\)/);
+  assert.match(sql,/CREATE TABLE IF NOT EXISTS atrio_qa_identity/);
+  assert.match(sql,/VALUES \('atrio-qa-geral', 'atrio-catolico-qa-geral'\)/);
   assert.match(sql,/CREATE TABLE IF NOT EXISTS delivered/);
   assert.match(sql,/CREATE TABLE IF NOT EXISTS push_delivery_stats/);
   assert.doesNotMatch(sql,/atrio-catolico|guardiao_ai_budget/);
@@ -97,7 +97,7 @@ test('Worker QA recusa D1 incorreto, ausente ou sem tabela antes de Auth e Fires
   const workerModule=await import('data:text/javascript;charset=utf-8,'+
     encodeURIComponent(generated));
   const worker=workerModule.default;
-  const base={ATRIO_CHAT_QA_MODE:'true',ATRIO_CHAT_QA_PROJECT:qaProject,
+  const base={ATRIO_GENERAL_QA_MODE:'true',ATRIO_GENERAL_QA_PROJECT:qaProject,
     PUSH_ENABLED:'false'};
   for(const db of [
     undefined, {},
@@ -114,16 +114,16 @@ test('Worker QA recusa D1 incorreto, ausente ou sem tabela antes de Auth e Fires
 test('D1 QA correto libera apenas health desativado; não autoriza envio sem segredos',async()=>{
   let lookups=0;
   const db={prepare:(query)=>{
-    assert.match(query,/chat_qa_identity/);
+    assert.match(query,/atrio_qa_identity/);
     lookups++;
     return {bind:(name)=>{
-      assert.equal(name,'atrio-chat-qa');
+      assert.equal(name,'atrio-qa-geral');
       return {first:async()=>({project_id:qaProject})};
     }};
   }};
   const worker=(await import('data:text/javascript;charset=utf-8,'+
     encodeURIComponent(generated))).default;
-  const env={ATRIO_CHAT_QA_MODE:'true',ATRIO_CHAT_QA_PROJECT:qaProject,
+  const env={ATRIO_GENERAL_QA_MODE:'true',ATRIO_GENERAL_QA_PROJECT:qaProject,
     PUSH_ENABLED:'false',PUSH_DB:db};
   const health=await worker.fetch(new Request('https://qa.example/health'),env);
   assert.equal(health.status,200);
@@ -190,4 +190,11 @@ test('token do projeto QA continua exigindo confirmação do Firebase Auth',asyn
     assert.equal(result,'qa_user');
     assert.equal(lookupCalls,1);
   } finally {globalThis.fetch=savedFetch;}
+});
+
+test('QA geral mantem outros modulos bloqueados',()=>{
+  const cfg=renderQaWrangler(qaProject,qaD1);
+  assert.match(cfg,/name = "atrio-qa-geral"/);
+  assert.match(cfg,/database_name = "atrio-qa-geral-db"/);
+  assert.ok(generated.includes("!['chat_message','group_message'].includes(data.type)"));
 });

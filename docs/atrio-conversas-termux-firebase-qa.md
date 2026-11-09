@@ -5,6 +5,10 @@ projeto, o login Google, o download de `google-services.json`, as ativações
 Auth/Firestore e qualquer implantação exigem intervenção e autorização do
 responsável. **Não usar o projeto oficial `atrio-catolico`.**
 
+O projeto QA-alvo é `atrio-catolico-qa-geral`, com Worker geral planejado
+`atrio-qa-geral` e D1 `atrio-qa-geral-db`. O APK `chatQa` mantém
+pacote próprio; `CONTA` é apenas um marcador até provisionar a URL real.
+
 ## 1. Preparar Termux (Android)
 
 Em uma sessão nova do Termux, sem colar senhas nem tokens neste chat:
@@ -30,7 +34,7 @@ firebase projects:list
 ```
 
 Confira se já existe um projeto **exclusivo QA**, com ID contendo o segmento
-`qa` (por exemplo, `atrio-qa-conversas-2026`; exemplo **não reservado**).
+`qa` (por exemplo, `atrio-catolico-qa-geral`; exemplo **não reservado**).
 Não selecionar `atrio-catolico` nem presumir que o projeto QA existe.
 
 Caso ainda não exista, **somente após decisão explícita do responsável**, criar
@@ -38,7 +42,7 @@ um novo projeto usando o Console Firebase ou, de forma interativa:
 
 ```sh
 # SUBSTITUIR pelo ID QA escolhido e conferir antes de executar.
-firebase projects:create ID_EXCLUSIVO_QA --display-name "Atrio Catolico QA"
+firebase projects:create atrio-catolico-qa-geral --display-name "Atrio Catolico - Homologacao Geral"
 ```
 
 O comando acima **altera a nuvem** e está aqui apenas como instrução futura:
@@ -77,7 +81,7 @@ client=clients[0]["client_info"]
 project=info["project_id"]
 package=client["android_client_info"]["package_name"]
 app_id=client["mobilesdk_app_id"]
-if project=="atrio-catolico" or "qa" not in project.split("-"):
+if project!="atrio-catolico-qa-geral":
     raise SystemExit("FALHA: projeto nao identificado como QA")
 if package!="br.com.atriocatolico.chatqa":
     raise SystemExit("FALHA: pacote Android nao e chatqa")
@@ -103,9 +107,9 @@ as variáveis abaixo **somente no terminal local**, usando os valores
 conferidos do JSON QA e seu SHA-256. Não usar a URL de Worker oficial.
 
 ```sh
-export ATRIO_CHAT_QA_PROJECT="ID_EXCLUSIVO_QA"
+export ATRIO_CHAT_QA_PROJECT="atrio-catolico-qa-geral"
 export ATRIO_CHAT_QA_APP_ID="1:NUMERO:android:HEX"
-export ATRIO_CHAT_QA_WORKER_URL="https://NOME-QA.CONTA.workers.dev"
+export ATRIO_CHAT_QA_WORKER_URL="https://atrio-qa-geral.CONTA.workers.dev"
 export ATRIO_CHAT_QA_CONFIG_SHA256="SHA256_DE_64_CARACTERES"
 python3 scripts/chat_qa_build_gate.py
 ```

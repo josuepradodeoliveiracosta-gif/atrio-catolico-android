@@ -1,7 +1,16 @@
-# Worker de notificações — isolamento do Átrio Conversas em QA
+# Worker geral de homologação do Átrio Católico (iniciando pelo chat)
 
 **Status:** somente preparação de código na PR #193. Nenhum Worker QA,
 credencial, projeto Firebase ou banco D1 foi criado nem publicado aqui.
+
+## Identidade planejada da homologação geral
+
+Firebase `atrio-catolico-qa-geral`, Worker `atrio-qa-geral`, D1 `atrio-qa-geral-db`.
+A infraestrutura será compartilhável entre módulos, mas **somente eventos
+do chat e de grupos estão atualmente permitidos**. Discussões, perfis,
+Guardião, avatares e outros módulos precisam de implementação e aprovação
+próprias antes da ativação. O APK `chatQa` continua isolado e específico
+para o chat. Estes nomes não provam a existência de recursos na nuvem.
 
 ## Por que é necessário
 
@@ -14,9 +23,9 @@ o tráfego. **Nunca reutilizar o Worker ou os segredos oficiais para QA.**
 ## Preparação offline, sem conexão externa
 
 O script cloudflare/push-worker/scripts/chat-qa-build.mjs gera exclusivamente:
-- cloudflare/push-worker/src/index.chat-qa.generated.js
-- cloudflare/push-worker/wrangler.chat-qa.generated.toml
-- cloudflare/push-worker/schema.chat-qa.generated.sql (somente instruções para
+- cloudflare/push-worker/src/index.general-qa.generated.js
+- cloudflare/push-worker/wrangler.general-qa.generated.toml
+- cloudflare/push-worker/schema.general-qa.generated.sql (somente instruções para
   provisionamento futuro do D1 QA; **não executadas** pelo gerador)
 
 Ambos são ignorados pelo Git. O script exige projeto Firebase identificado
@@ -43,8 +52,8 @@ conferidas do código-fonte original. O Worker produzido:
 Com valores de QA obtidos e aprovados *independentemente*, o operador pode
 preparar arquivos locais (sem implantar):
 
-    export ATRIO_CHAT_QA_PROJECT=SEU_PROJETO_FIREBASE_QA
-    export ATRIO_CHAT_QA_D1_ID=UUID_DO_BANCO_D1_EXCLUSIVO_QA
+    export ATRIO_GENERAL_QA_PROJECT=SEU_PROJETO_FIREBASE_QA
+    export ATRIO_GENERAL_QA_D1_ID=UUID_DO_BANCO_D1_EXCLUSIVO_QA
     node cloudflare/push-worker/scripts/chat-qa-build.mjs
 
 Não salvar credenciais de servidor em Git, variáveis de build público ou APK.

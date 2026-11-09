@@ -69,3 +69,8 @@ key.properties
 /cloudflare/push-worker/src/index.chat-qa.generated.js
 /cloudflare/push-worker/wrangler.chat-qa.generated.toml
 /cloudflare/push-worker/schema.chat-qa.generated.sql
+
+# Worker de homologacao geral: gerados apenas localmente.
+/cloudflare/push-worker/src/index.general-qa.generated.js
+/cloudflare/push-worker/wrangler.general-qa.generated.toml
+/cloudflare/push-worker/schema.general-qa.generated.sql
