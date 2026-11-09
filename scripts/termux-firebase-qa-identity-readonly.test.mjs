@@ -48,12 +48,17 @@ test('confirma identidades com somente dois GETs de metadados QA',async()=>{
 });
 
 test('rejeita appId inválido e login indisponível sem qualquer GET',async()=>{
-  for(const id of [undefined,'','1:123:web:badbeef',
+  for(const id of ['','1:123:web:badbeef',
                    '1:123:android:bad/../../projects/atrio-catolico']){
     const f=fixture();
     await assert.rejects(run(f,id),/qa_firebase_identity_expected_app_id_required/);
     assert.equal(f.calls.length,0);
   }
+  const absent=fixture();
+  await assert.rejects(inspectFirebaseQaIdentity({
+    tokenProvider:async()=>token,fetcher:absent.fetcher
+  }),/qa_firebase_identity_expected_app_id_required/);
+  assert.equal(absent.calls.length,0);
   const f=fixture();
   await assert.rejects(inspectFirebaseQaIdentity({
     expectedAppId:appId,tokenProvider:async()=>{throw Error('secret-data');},
