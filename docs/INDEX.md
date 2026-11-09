@@ -7,6 +7,7 @@ O índice é a **porta de entrada única** para conhecer os módulos, entender o
 | Consultar autoria, direitos e evidências jurídicas | [Auditoria preliminar de 09/11/2026](juridico/AUDITORIA-AUTORIA-TITULARIDADE-2026-11-09.md) |
 | Conferir licenças de bibliotecas, mídias e dados | [Inventário de terceiros de 09/11/2026](juridico/INVENTARIO-LICENCAS-TERCEIROS-2026-11-09.md) |
 | Verificar origem do vídeo, áudio e identidade visual | [Auditoria de mídias de 09/11/2026](juridico/AUDITORIA-PROVENIENCIA-MIDIAS-2026-11-09.md) |
+| Acompanhar minutas legais e pendências LGPD (não vigentes) | [Termos de Uso](juridico/MINUTA-TERMOS-USO-2026-11-09.md) · [Privacidade](juridico/MINUTA-POLITICA-PRIVACIDADE-2026-11-09.md) · [Plano de adequação](juridico/PLANO-ADEQUACAO-TERMOS-PRIVACIDADE-2026-11-09.md) |
 | Consultar auditoria e limpeza de arquivos sem uso | [Auditoria de 07/11/2026](operacoes/AUDITORIA-LIMPEZA-2026-11-07.md) |
 | Localizar os diretórios, sistemas e dependências | [Mapa técnico do repositório](arquitetura/MAPA-REPOSITORIO.md) |
 | Saber o que está integrado ou em homologação | [Estado das funcionalidades](funcionalidades/STATUS.md) |
@@ -26,7 +27,7 @@ O índice é a **porta de entrada única** para conhecer os módulos, entender o
 - **Guardião:** [`cloudflare/guardian-worker/`](../cloudflare/guardian-worker/) · [Guia](atrio-guardiao.md).
 - **Push e notificações:** [`cloudflare/push-worker/`](../cloudflare/push-worker/) · [FCM](push-fcm-v0170.md).
 - **Avatares e mídias:** [`cloudflare/avatar-worker/`](../cloudflare/avatar-worker/) · [Cloudinary](cloudinary-fotos-0197.md).
-- **Privacidade e exclusão de contas:** [PR #71, em homologação isolada](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/pull/71).
+- **Privacidade e exclusão de contas:** [PR #98 consolidada, ainda em rascunho e QA isolado](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/pull/98). A [PR #71](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/pull/71) trata da preparação de AAB/Google Play.
 - **Distribuição:** [Checklist de segurança](checklist-seguranca-publicacao.md).
 
 ## Interpretação obrigatória de status
