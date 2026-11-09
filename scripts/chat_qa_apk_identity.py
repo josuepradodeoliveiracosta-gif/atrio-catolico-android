@@ -67,7 +67,7 @@ def reject_embedded_production_workers(path):
     try:
         with zipfile.ZipFile(path) as archive:
             for entry in archive.infolist():
-                dex = re.fullmatch(r"classes[0-9]*\\.dex", entry.filename) is not None
+                dex = re.fullmatch(r"classes[0-9]*\.dex", entry.filename) is not None
                 if not dex and entry.filename != "resources.arsc":
                     continue
                 if entry.file_size > MAX_APK_BYTES:
