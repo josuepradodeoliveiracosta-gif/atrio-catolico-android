@@ -13,6 +13,13 @@ OUT="${RUNNER_TEMP:-/tmp}/atrio-ota-upgrade-qa"
 OLD="$OUT/atrio-old-debug.apk"
 NEW="$OUT/atrio-new-debug.apk"
 INSTRUMENTATION='app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk'
+# No workflow_dispatch permite isolar somente o teste suspeito.
+# PRs e execucoes comuns continuam com a suite completa.
+TEST_SCOPE="${ATRIO_OTA_QA_TEST_SCOPE:-all}"
+[[ "$TEST_SCOPE" == "all" || "$TEST_SCOPE" == "tampered-only" ]] || {
+  echo "::error::Escopo OTA QA desconhecido" >&2
+  exit 2
+}
 OUTPUT="$OUT/ota-in-app-instrumentation.txt"
 
 case "${1:-}" in
@@ -89,16 +96,38 @@ case "${1:-}" in
       # Cada chamada abre a interface OTA em estado limpo, sem Firebase real.
       # O prefixo do teste limita qual cenário será executado nesse servidor.
       adb shell am force-stop "$PACKAGE" || :
+      # Captura apenas excecoes Android da execucao corrente, sem logs
+      # de Firebase nem mensagens dos usuarios.
+      adb logcat -c >/dev/null 2>&1 || :
       local result="$OUT/ota-in-app-$fixture_mode.txt"
+      local instrument_status=0
       adb shell am instrument -w -r \
         -e class "br.com.atriocatolico.OtaQaLoopbackUiTest#$test_method" \
-        "$PACKAGE.test/br.com.atriocatolico.QaAndroidTestRunner" | tee "$result"
-      grep -q 'OK (1 test)' "$result" || {
+        "$PACKAGE.test/br.com.atriocatolico.QaAndroidTestRunner" \
+        | tee "$result" || instrument_status=$?
+      if [[ "$instrument_status" != "0" ]] || ! grep -q 'OK (1 test)' "$result"; then
         echo "::error::Teste OTA do app falhou: $fixture_mode / $test_method" >&2
+        echo "::group::Excecoes AndroidRuntime do emulador QA" >&2
+        adb logcat -d -v brief -s AndroidRuntime:E 2>/dev/null | tail -n 70 || :
+        echo "::endgroup::" >&2
         exit 1
-      }
+      fi
       cleanup
     }
+
+    # Diagnostico pontual: um caso de integridade em ambiente inteiramente
+    # isolado. Nao substitui a matriz OTA completa nem libera Release.
+    if [[ "$TEST_SCOPE" == "tampered-only" ]]; then
+      run_ui_test rejectsTamperedDownloadedApkBeforeInstall valid
+      for filename in atrio-catolico-ota.part.apk atrio-catolico-ota.apk; do
+        if adb shell run-as "$PACKAGE" ls "cache/ota/$filename" >/dev/null 2>&1; then
+          echo "::error::APK residual apos rejeicao do arquivo adulterado: $filename" >&2
+          exit 1
+        fi
+      done
+      echo "PASSOU: teste OTA isolado de APK adulterado; nao representa a suite completa."
+      exit 0
+    fi
 
     # O teste positivo faz o download autenticado pelo contrato OTA, valida
     # tamanho, SHA-256, versão, assinatura e oferece botão Instalar.

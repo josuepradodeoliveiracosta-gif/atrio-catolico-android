@@ -18,6 +18,15 @@ on:
       - 'app/src/otaPilot/**'
       - '.github/workflows/ota-in-app-qa.yml'
   workflow_dispatch:
+    inputs:
+      test_scope:
+        description: 'Escopo do teste OTA isolado (sem Release)'
+        type: choice
+        required: true
+        default: all
+        options:
+          - all
+          - tampered-only
 
 permissions:
   contents: read
@@ -34,6 +43,7 @@ jobs:
     timeout-minutes: 35
     env:
       ATRIO_OTA_QA_LOOPBACK: '1'
+      ATRIO_OTA_QA_TEST_SCOPE: ${{ github.event_name == 'workflow_dispatch' && inputs.test_scope || 'all' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -48,6 +58,8 @@ jobs:
           gradle-version: '8.13'
       - name: Instalar SDK Android
         run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+      - name: Validar sintaxe do runner OTA
+        run: bash -n scripts/ota_qa_in_app.sh
       - name: Validar identidade Firebase sem conexao de producao
         run: python3 scripts/validar_firebase.py
       - name: Testar origem local e manifestos sem iniciar Android
@@ -114,6 +126,10 @@ jobs:
         if: always()
         run: |
           echo "## Laboratorio OTA local: nenhum APK Release ou GitHub Release publicado" >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$ATRIO_OTA_QA_TEST_SCOPE" == "tampered-only" ]]; then
+            echo "Executado somente o cenario de APK adulterado; NAO declarar a matriz completa aprovada neste run." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           echo "Prova automatizada abrange consulta, download e validação OTA na UI; cenários inválidos de certificado/hash/downgrade, servidor desligado, recuperação de HTTP 503 por nova consulta na mesma tela, recusa de redirects externos e circulares (limite de seis) de manifesto e APK, APK truncado, retentativa segura após a primeira transferência interrompida, limpeza de parcial após reinício sem apagar APK pronto, download cancelado, falta de espaço simulada e APK adulterado depois do download (sem artefatos residuais), mais atualização por ADB com dados do app preservados." >> "$GITHUB_STEP_SUMMARY"
           echo "**Nao equivale a atualizacao pelo instalador Android em aparelho real.** Essa validação presencial continua obrigatoria antes de desbloquear o Release." >> "$GITHUB_STEP_SUMMARY"
           echo "Pacote OTA isolado br.com.atriocatolico.otalab. Sem Firebase produtivo, sem chave oficial, sem backup alterado." >> "$GITHUB_STEP_SUMMARY"
