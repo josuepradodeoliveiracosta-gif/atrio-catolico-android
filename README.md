@@ -89,6 +89,14 @@ credenciais administrativas no GitHub, no APK ou nas conversas. Alterações
 de regras e infraestrutura Firebase em produção exigem autorização separada.
 O branch de backup protegido deve permanecer intocado.
 
+## Licença e direitos autorais
+
+**Átrio Católico — software proprietário, com todos os direitos reservados.**
+A publicação do repositório para consulta não concede permissão geral para
+copiar, modificar, redistribuir ou comercializar o código original.
+Consulte o [aviso de licença proprietária](LICENSE) para os limites de uso,
+os direitos de terceiros e a forma de solicitar autorização.
+
 ## Manutenção
 
 Consulte o [guia de manutenção](docs/manutencao.md) para configuração administrativa,
