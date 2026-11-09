@@ -41,6 +41,8 @@ jobs:
           java-version: '21'
       - name: Instalar ferramentas existentes da suite
         run: npm ci --prefix tests/security
+      - name: Auditar API QA read-only com testes sintéticos
+        run: node --test scripts/termux-firestore-qa-readonly.test.mjs
       - name: Gerar regras QA sem Firebase externo
         run: node firebase/qa-general/compose-rules.mjs
       - name: Conferir escopo demo local
