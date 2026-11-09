@@ -87,7 +87,7 @@ test('schema QA inclui marcador persistente e tabelas mínimas de entrega',()=>{
   assert.match(sql,/VALUES \('atrio-qa-geral', 'atrio-catolico-qa-geral'\)/);
   assert.match(sql,/CREATE TABLE IF NOT EXISTS delivered/);
   assert.match(sql,/CREATE TABLE IF NOT EXISTS push_delivery_stats/);
-  assert.doesNotMatch(sql,/atrio-catolico|guardiao_ai_budget/);
+  assert.doesNotMatch(sql,/guardiao_ai_budget|atrio-push-delivery|6b04fad3-619a-4cc5-a4b3-d31c3a18e911/);
 });
 test('schema QA recusa D1 oficial antes de gerar comandos SQL',()=>{
   assert.throws(()=>renderQaSchema(qaProject,
