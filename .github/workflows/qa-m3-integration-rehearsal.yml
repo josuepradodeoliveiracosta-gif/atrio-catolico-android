@@ -80,10 +80,10 @@ jobs:
           node firebase/qa-general/compose-parity-rules.mjs
       - name: Auditoria conjunta nas Rules QA fechadas
         working-directory: tests/security
-        run: ./node_modules/.bin/firebase emulators:exec --only firestore --config qa-general.firebase.json --project demo-atrio-v11 "node qa-invites-authorization-matrix.mjs standalone && node qa-moderation-evidence-matrix.mjs standalone"
+        run: ./node_modules/.bin/firebase emulators:exec --only firestore --config qa-general.firebase.json --project demo-atrio-v11 "node qa-general-firestore.test.mjs && node qa-age18-admission-firestore.test.mjs && node qa-invites-authorization-matrix.mjs standalone && node qa-moderation-evidence-matrix.mjs standalone"
       - name: Auditoria conjunta em Rules de paridade versionada
         working-directory: tests/security
-        run: ./node_modules/.bin/firebase emulators:exec --only firestore --config qa-general.firebase.json --project demo-atrio-v11 "node qa-invites-authorization-matrix.mjs parity && node qa-moderation-evidence-matrix.mjs parity"
+        run: ./node_modules/.bin/firebase emulators:exec --only firestore --config qa-general.firebase.json --project demo-atrio-v11 "node qa-parity-firestore.test.mjs && node qa-invites-authorization-matrix.mjs parity && node qa-moderation-evidence-matrix.mjs parity"
       - name: Limpar apenas arquivos gerados durante a execução
         if: always()
         run: rm -f tests/security/qa-general.generated.rules tests/security/qa-parity.generated.rules
