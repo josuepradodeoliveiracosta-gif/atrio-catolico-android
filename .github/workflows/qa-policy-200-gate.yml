@@ -1,0 +1,52 @@
+name: QA Politica 200 - validar registro pendente sem aprovar implantacao
+
+on:
+  pull_request:
+    branches:
+      - feat/atrio-conversas-etapa1-20261106
+    paths:
+      - 'docs/qa-homologacao/ISSUE-200-REGISTRO-PENDENTE.json'
+      - 'docs/qa-homologacao/ISSUE-200-DECISOES-OPERACIONAIS.md'
+      - 'scripts/qa_issue200_decision_gate.mjs'
+      - 'scripts/qa_issue200_decision_gate.test.mjs'
+      - '.github/workflows/qa-policy-200-gate.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qa-policy-200-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  pending-register:
+    name: Validar checklist NO-GO - politica nao aprovada
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      FIREBASE_TOKEN: ''
+      GOOGLE_APPLICATION_CREDENTIALS: ''
+      CLOUDFLARE_API_TOKEN: ''
+    steps:
+      - name: Checkout sem credenciais persistidas
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Preparar Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Testes de falsificacao de aprovacao e prazos
+        run: node --test scripts/qa_issue200_decision_gate.test.mjs
+      - name: Gerar apenas relatorio estrutural de pendencias
+        run: |
+          node scripts/qa_issue200_decision_gate.mjs > "$RUNNER_TEMP/qa-policy-200-NO-GO.json"
+          node scripts/qa_issue200_decision_gate.mjs --markdown >> "$GITHUB_STEP_SUMMARY"
+          node -e 'const r=require(process.env.RUNNER_TEMP+"/qa-policy-200-NO-GO.json"); if(!r.draftValid || r.status!=="NO_GO" || r.qaDeploymentAuthorized || r.productionDeploymentAuthorized || r.deletionAuthorized || r.verifiedApprovals!==0) process.exit(1)'
+      - name: Artefato sem decisores, PII ou evidencias privadas
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-policy-200-no-go-${{ github.run_id }}
+          path: ${{ runner.temp }}/qa-policy-200-NO-GO.json
+          retention-days: 14
+          if-no-files-found: error
