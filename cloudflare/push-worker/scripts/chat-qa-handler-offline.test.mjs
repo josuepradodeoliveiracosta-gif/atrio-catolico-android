@@ -140,6 +140,10 @@ function makeScenario(type,change) {
       if(sawDevices){
         if(currentChange==='remove_message' && relative===messagePath)
           return okJson({},404);
+        // Marcador da operacao 'remover para todos' preserva o documento.
+        if(currentChange==='soft_delete_message' && relative===messagePath)
+          return okJson(makeDoc({uid,kind:'text',createdAt:recent(),
+            text:'[Mensagem removida]',deletedForAll:true,deletedAt:recent()}));
         if(currentChange==='revoke_age' &&
             relative==='users/'+recipient+'/chatAgeEligibility/current')
           return okJson({},404);
@@ -181,10 +185,12 @@ test('rota Worker QA completa: revogacao apos busca de dispositivos impede D1 e 
   try{
     for(const [type,change] of [
       ['dm','remove_message'],
+      ['dm','soft_delete_message'],
       ['dm','revoke_age'],
       ['dm','block_contact'],
       ['dm','disable_chat'],
       ['group','remove_message'],
+      ['group','soft_delete_message'],
       ['group','remove_membership'],
       ['group','disable_group_push'],
       ['group','revoke_age']

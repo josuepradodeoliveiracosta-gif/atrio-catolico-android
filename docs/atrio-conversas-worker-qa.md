@@ -287,3 +287,20 @@ falhas de rede/FCM. É uma limitação do candidato, **não uma entrega
 garantida**; a política de retry e observabilidade precisará de
 aprovação e testes antes da ativação real. Nenhum token real,
 D1 remoto, FCM ou Worker publicado participa desses testes.
+
+### Bloqueio do push para mensagens removidas (QA offline, 10/11/2026)
+
+A última reconsulta da mensagem no candidato QA passa a negar também
+`deletedForAll=true`, além de documento ausente, autoria/tipo inválidos
+e expiração. As regras candidatas de chat preservam o documento após
+"Remover para todos", substituindo o texto por
+`[Mensagem removida]`; portanto testar somente a existência do documento
+não era suficiente. O Worker QA não reserva marcador D1 nem chama FCM
+para esse estado, tanto em DM quanto em um cenário conservador de grupo.
+Os casos positivos sem exclusão continuam aprovados.
+
+A alteração é exclusiva do gerador do Worker QA e de testes sintéticos.
+O workflow existente de empacotamento offline também aceita PRs focadas
+contra a branch de homologação, sem segredo nem deploy. Isto **não** ativa
+o Worker real, não modifica a fonte do Worker de produção, não garante
+entrega de FCM, e não altera o bloqueio `NO_GO` da issue #200.

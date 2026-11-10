@@ -2,7 +2,7 @@ name: Empacotar Workers Cloudflare sem publicar
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, feat/atrio-conversas-etapa1-20261106]
     paths:
       - 'cloudflare/avatar-worker/**'
       - 'cloudflare/push-worker/**'
