@@ -84,3 +84,9 @@ continuam fechados. Sem novos serviços, custos, mudanças em `main`,
 produção, Worker, Firebase, APK ou backups.
 
 **Progresso geral: 2/7 marcos (29%). Marco 3 em preparação / NO-GO.**
+
+## Caderno para deliberação humana (10/11/2026)
+
+A análise de fechamento consolidada está em [ISSUE-200-CADERNO-DELIBERACAO.md](ISSUE-200-CADERNO-DELIBERACAO.md). São **propostas não aprovadas**, separadas do registro JSON estritamente pendente; contêm todas as onze decisões e treze classes, avaliação de acesso provável por menores segundo a ANPD de 28/10/2026, leitura cautelosa do art. 15 do Marco Civil e lista de evidências que faltam para fechar a issue.
+
+**O checklist continua NO-GO, nenhuma aprovação ou prazo foi preenchido.**

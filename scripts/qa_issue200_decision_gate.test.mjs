@@ -114,3 +114,20 @@ test('a auditoria não modifica o registro nem concede exclusão',()=>{
  assert.ok(formatIssue200Summary(result).includes('NO-GO'));
  assert.equal(JSON.stringify(result).includes('chat_reports/'),false);
 });
+
+test('caderno humano cobre 11 decisões, 13 classes, fontes e NO-GO',()=>{
+ const document=readFileSync(new URL(
+  '../docs/qa-homologacao/ISSUE-200-CADERNO-DELIBERACAO.md',
+  import.meta.url),'utf8');
+ for(const key of DECISIONS)
+   assert.ok(document.includes('| `'+key+'` |'),'Decisão faltante no caderno');
+ for(const key of DATA_CLASSES)
+   assert.ok(document.includes('| `'+key+'` |'),'Classe faltante no caderno');
+ assert.equal((document.match(/\\| `trustedAgeProof` \\|/g)||[]).length,1);
+ assert.match(document,/NÃO APROVADA \\/ NO-GO/);
+ assert.match(document,/Art\. 15 do Marco Civil/);
+ assert.match(document,/28\\/10\\/2026/);
+ assert.match(document,/Somente então revisar o fechamento #200/);
+ assert.equal(check(copy()).draftValid,true);
+ blocked(check(copy()));
+});
