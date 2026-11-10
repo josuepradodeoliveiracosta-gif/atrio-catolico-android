@@ -1,0 +1,63 @@
+name: QA Firestore - preflight NO-GO do marco 3 (read only)
+
+on:
+  pull_request:
+    branches:
+      - feat/atrio-conversas-etapa1-20261106
+    paths:
+      - 'scripts/qa_firestore_m3_preflight.py'
+      - 'scripts/test_qa_firestore_m3_preflight.py'
+      - '.github/workflows/qa-firestore-m3-preflight.yml'
+      - 'docs/qa-homologacao/PREFLIGHT-FIRESTORE-QA-M3.md'
+      - 'firebase/qa-general/**'
+      - 'firestore.rules'
+
+permissions:
+  contents: read
+  issues: read
+
+jobs:
+  audit:
+    name: QA marco 3 - gerar relatorio com bloqueios sem deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout sem credenciais persistentes
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Preparar Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Gerar Rules candidatas exclusivamente locais
+        run: |
+          node firebase/qa-general/compose-rules.mjs
+          node firebase/qa-general/compose-parity-rules.mjs
+      - name: Executar sete regressões sem Firebase ou Cloudflare
+        run: python3 -m unittest scripts.test_qa_firestore_m3_preflight -v
+      - name: Criar relatorio e ler estado de Issue 200 via GET
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/qa_firestore_m3_preflight.py \
+            --base firestore.rules \
+            --standalone tests/security/qa-general.generated.rules \
+            --parity tests/security/qa-parity.generated.rules \
+            --check-issue \
+            --json-out qa-m3-no-go.json \
+            --md-out qa-m3-no-go.md
+          cat qa-m3-no-go.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Preservar somente resumo sanitizado
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-m3-no-go-${{ github.run_id }}
+          path: |
+            qa-m3-no-go.json
+            qa-m3-no-go.md
+          retention-days: 14
+          if-no-files-found: warn
+      - name: Limpar regras locais geradas
+        if: always()
+        run: rm -f tests/security/qa-general.generated.rules tests/security/qa-parity.generated.rules
