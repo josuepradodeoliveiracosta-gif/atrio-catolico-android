@@ -21,9 +21,9 @@ on:
 
 concurrency:
   group: qa-android-emulator-${{ github.event.pull_request.number || github.ref }}
-  # Uma atualização não pode interromper um teste já iniciado.
-  # O GitHub poderá substituir somente uma execução ainda pendente.
-  cancel-in-progress: false
+  # Apenas novo commit da mesma PR cancela execucao obsoleta.
+  # Preservar eventos main/push e workflow_dispatch.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read

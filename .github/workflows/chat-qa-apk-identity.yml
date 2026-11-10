@@ -21,6 +21,11 @@ on:
 permissions:
   contents: read
 
+# Economizar runners: so cancelar execucoes antigas da mesma PR.
+concurrency:
+  group: atrio-chatqa-identity-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   unit-qa-apk-identity:
     name: Verificar identidade de APK QA com fixtures sintéticas

@@ -20,7 +20,8 @@ permissions:
 
 concurrency:
   group: guardian-v2-ui-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: false
+  # Cancela apenas execucoes antigas de PR; preserva disparos manuais.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   guardian-v2-ui:

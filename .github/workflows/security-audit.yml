@@ -11,6 +11,11 @@ on:
 permissions:
   contents: read
 
+# Economizar runners: so cancelar execucoes antigas da mesma PR.
+concurrency:
+  group: atrio-public-security-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   scan-public-code:
     name: Detectar segredos em arquivos e histórico Git

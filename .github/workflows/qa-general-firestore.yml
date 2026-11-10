@@ -21,6 +21,11 @@ on:
 permissions:
   contents: read
 
+# Economizar runners: so cancelar execucoes antigas da mesma PR.
+concurrency:
+  group: atrio-qa-firestore-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   firestore-qa-general:
     if: >-
