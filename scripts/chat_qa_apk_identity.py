@@ -53,7 +53,7 @@ def file_sha256(path):
 
 
 def reject_embedded_production_workers(path):
-    """Inspeciona DEX e resources.arsc, sem executar o APK ou abrir conexoes.
+    """Inspeciona todas as entradas do APK, sem executar codigo ou abrir rede.
 
     Procura hospedeiros de producao em UTF-8 e UTF-16LE. Esta lista nao
     identifica todos os destinos de rede; a auditoria de runtime segue pendente.
@@ -64,14 +64,24 @@ def reject_embedded_production_workers(path):
     )
     overlap = max(map(len, needles)) - 1
     has_dex = False
+    seen_entries = set()
+    uncompressed_bytes = 0
     try:
         with zipfile.ZipFile(path) as archive:
             for entry in archive.infolist():
-                dex = re.fullmatch(r"classes[0-9]*\.dex", entry.filename) is not None
-                if not dex and entry.filename != "resources.arsc":
+                if entry.is_dir():
                     continue
+                if entry.filename in seen_entries:
+                    raise QaPreflightError("qa_apk_duplicate_entry")
+                seen_entries.add(entry.filename)
+                # Examinar tambem assets, res/raw, manifestos e bibliotecas.
+                # Limitar descompressao total impede ZIP-bombs no preflight.
                 if entry.file_size > MAX_APK_BYTES:
                     raise QaPreflightError("qa_apk_entry_too_large")
+                uncompressed_bytes += entry.file_size
+                if uncompressed_bytes > MAX_APK_BYTES * 2:
+                    raise QaPreflightError("qa_apk_uncompressed_size_exceeded")
+                dex = re.fullmatch(r"classes[0-9]*\.dex", entry.filename) is not None
                 has_dex = has_dex or dex
                 with archive.open(entry) as stream:
                     tail = b""
