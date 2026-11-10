@@ -43,7 +43,7 @@ function parseTomlSubset(text){
  for(const raw of text.split(/\r?\n/)){
    const line=raw.replace(/\s+#.*$/,'').trim();
    if(!line||line.startsWith('#'))continue;
-   if(/^\[\[[a-z_]+\]\]$/.test(line)){
+   if(/^\[\[[a-z0-9_]+\]\]$/.test(line)){
      name=line.slice(2,-2);
      if(sections.has(name))throw TypeError('qa_duplicate_section');
      current={};sections.set(name,current);continue;
