@@ -175,6 +175,13 @@ jobs:
           ATRIO_CHAT_QA_WORKER_URL: ''
         run: |
           set -euo pipefail
+          # O checkout do repositório pode conter app/google-services.json.
+          # Apagar SÓ A CÓPIA EFÊMERA no runner, como na CI Android de QA;
+          # nunca editar o arquivo rastreado no GitHub ou usar serviço real.
+          test "${GITHUB_ACTIONS:-}" = "true"
+          if [[ -e app/google-services.json ]]; then
+            rm -- app/google-services.json
+          fi
           test ! -e app/google-services.json
           for key in ATRIO_CHAT_QA_BUILD ATRIO_CHAT_QA_PROJECT ATRIO_CHAT_QA_APP_ID ATRIO_CHAT_QA_OFFLINE_ONLY ATRIO_CHAT_QA_WORKER_URL ATRIO_PUSH_WORKER_URL ATRIO_AVATAR_WORKER_URL ATRIO_GUARDIAN_V2_WORKER_URL ATRIO_SIGNING_STORE_FILE ATRIO_SIGNING_STORE_PASSWORD ATRIO_SIGNING_KEY_ALIAS ATRIO_SIGNING_KEY_PASSWORD GOOGLE_APPLICATION_CREDENTIALS; do
             if [[ -n "${!key:-}" ]]; then
