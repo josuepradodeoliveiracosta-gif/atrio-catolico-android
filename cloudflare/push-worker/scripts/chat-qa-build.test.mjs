@@ -34,7 +34,7 @@ test('QA exige e-mail do domínio da service account do projeto aprovado',()=>{
 });
 test('gerador de push QA exige gate 18+ por remetente e destinatario',()=>{
   assert.match(generated,/qaChatAge18ValidForPush/);
-  assert.match(generated,/chatAgeEligibility\\/current/);
+  assert.ok(generated.includes('chatAgeEligibility/current'));
   assert.doesNotMatch(original,/qaChatAge18ValidForPush/);
 });
 test('produção permanece imutável: fonte de entrada ainda usa projeto oficial',()=>{
