@@ -80,7 +80,9 @@ def reject_embedded_production_workers(path):
                         if not chunk:
                             break
                         window = tail + chunk
-                        if any(needle in window for needle in needles):
+                        # DNS ignora maiusculas, tambem em strings UTF-16LE.
+                        normalized = window.lower()
+                        if any(needle in normalized for needle in needles):
                             raise QaPreflightError("production_worker_reference_in_qa_apk")
                         tail = window[-overlap:]
     except (zipfile.BadZipFile, EOFError, RuntimeError, OSError):
