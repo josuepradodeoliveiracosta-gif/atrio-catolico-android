@@ -186,3 +186,21 @@ grupo** no ponto pré-envio; custos e cotas precisam de revisão antes de
 qualquer habilitação. A condição pode mudar após a leitura e antes do
 FCM, já que os serviços não formam uma transação única. As políticas
 da Issue #200 e os critérios para publicação continuam pendentes.
+
+### Bloqueios e silenciamento alterados após a seleção (QA offline)
+
+O Worker QA também reconsulta, antes de reservar o marcador D1,
+os bloqueios nos dois sentidos entre remetente e destinatário.
+Para mensagens de grupo, confere novamente o silenciamento específico
+do grupo pelo destinatário. O documento de bloqueio existente em
+qualquer sentido ou a opção `muted=true` impedem o push.
+Em caso de indisponibilidade do Firestore o resultado é negação.
+
+Os novos testes, executados com documentos Firestore fictícios,
+simulam criação de bloqueio depois de `resolveEvent`, silenciamento
+de grupo, reversão dos bloqueios e `muted=false`. Não enviam FCM,
+não acessam backend real e não alteram o Worker oficial.
+Essa segunda etapa acrescenta **duas leituras por destinatário**
+para o bloqueio bilateral e **mais uma em grupos** para o silenciamento,
+além das leituras já documentadas. Permanecem janelas de corrida até
+o FCM, pendências de política #200 e avaliação de custo/cotas.

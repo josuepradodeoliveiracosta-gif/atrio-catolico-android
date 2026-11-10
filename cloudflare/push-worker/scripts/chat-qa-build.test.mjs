@@ -394,3 +394,82 @@ test('QA bloqueia aviso de grupo apos saida, revogacao e encerramento antes do F
     assert.equal(await allowed(),false);
   } finally {globalThis.fetch=saved;}
 });
+
+test('QA revalida bloqueio bilateral apos selecao de aviso privado',async()=>{
+  const {resolveEvent,qaChatPushPreSendAllowed}=await import(
+    'data:text/javascript;charset=utf-8,'+encodeURIComponent(generated));
+  const age=()=>qaDoc({status:'eligible',minimumAge:18,
+    policyVersion:'2026-11-18plus-qa-v1',reviewExpiresAt:qaFuture()});
+  const base={
+    'app_config/conversations':qaDoc({enabled:true,minorPolicyApproved:true,
+      safetyReviewVersion:'2026-11-safety-v1',version:'2026-11-v1'}),
+    'chats/chat-alice__chat-bob':qaDoc({
+      requesterUid:'chat-alice',recipientUid:'chat-bob',status:'accepted',initialId:'m1'}),
+    'chats/chat-alice__chat-bob/messages/m2':qaDoc({
+      uid:'chat-alice',kind:'text',createdAt:new Date(Date.now()-1000).toISOString()}),
+    'users/chat-alice/chatAgeEligibility/current':age(),
+    'users/chat-bob/chatAgeEligibility/current':age()
+  };
+  const event={type:'chat_message',chatId:'chat-alice__chat-bob',messageId:'m2'};
+  const saved=globalThis.fetch;
+  try {
+    qaMockFirestore(base);
+    assert.deepEqual((await resolveEvent(event,'chat-alice','fake')).recipients,['chat-bob']);
+    assert.equal(await qaChatPushPreSendAllowed('fake','chat-alice','chat-bob'),true);
+    for(const path of [
+      'users/chat-alice/blockedMembers/chat-bob',
+      'users/chat-bob/blockedMembers/chat-alice'
+    ]) {
+      qaMockFirestore({...base,[path]:qaDoc({createdAt:qaFuture()})});
+      assert.equal(await qaChatPushPreSendAllowed('fake','chat-alice','chat-bob'),false,
+        'Bloqueio novo deve impedir push: '+path);
+    }
+    qaMockFirestore(base);
+    assert.equal(await qaChatPushPreSendAllowed('fake','chat-alice','chat-bob'),true);
+  } finally {globalThis.fetch=saved;}
+});
+
+test('QA revalida bloqueios e silenciamento de grupo antes de reservar D1',async()=>{
+  const {resolveEvent,qaChatPushPreSendAllowed}=await import(
+    'data:text/javascript;charset=utf-8,'+encodeURIComponent(generated));
+  assert.ok(generated.includes('qaChatPushPreSendAllowed(token,uid,recipient,event.groupId)'));
+  const age=()=>qaDoc({status:'eligible',minimumAge:18,
+    policyVersion:'2026-11-18plus-qa-v1',reviewExpiresAt:qaFuture()});
+  const access=()=>qaDoc({status:'approved',
+    policyVersion:'2026-11-group-safety-v1',reviewExpiresAt:qaFuture()});
+  const base={
+    'app_config/conversations':qaDoc({enabled:true,minorPolicyApproved:true,
+      safetyReviewVersion:'2026-11-safety-v1',version:'2026-11-v1'}),
+    'app_config/chat_groups':qaDoc({enabled:true,pushEnabled:true,
+      minorPolicyApproved:true,version:'2026-11-groups-v1'}),
+    'chat_groups/grp-qa':qaDoc({status:'active',
+      memberUids:['chat-alice','chat-bob']}),
+    'chat_groups/grp-qa/messages/m2':qaDoc({uid:'chat-alice',kind:'text',
+      createdAt:new Date(Date.now()-1000).toISOString()}),
+    'users/chat-alice/chatGroupAccess/eligibility':access(),
+    'users/chat-bob/chatGroupAccess/eligibility':access(),
+    'users/chat-alice/chatAgeEligibility/current':age(),
+    'users/chat-bob/chatAgeEligibility/current':age()
+  };
+  const event={type:'group_message',groupId:'grp-qa',messageId:'m2'};
+  const allowed=()=>qaChatPushPreSendAllowed('fake','chat-alice','chat-bob','grp-qa');
+  const saved=globalThis.fetch;
+  try {
+    qaMockFirestore(base);
+    assert.deepEqual((await resolveEvent(event,'chat-alice','fake')).recipients,['chat-bob']);
+    assert.equal(await allowed(),true);
+    const denied=[
+      {'users/chat-alice/blockedMembers/chat-bob':qaDoc({active:true})},
+      {'users/chat-bob/blockedMembers/chat-alice':qaDoc({active:true})},
+      {'users/chat-bob/chatGroupBox/grp-qa':qaDoc({muted:true})}
+    ];
+    for(const change of denied){
+      qaMockFirestore({...base,...change});
+      assert.equal(await allowed(),false,'Revogacao tardia '+Object.keys(change)[0]);
+    }
+    qaMockFirestore({...base,'users/chat-bob/chatGroupBox/grp-qa':qaDoc({muted:false})});
+    assert.equal(await allowed(),true);
+    qaMockFirestore(base);
+    assert.equal(await allowed(),true);
+  } finally {globalThis.fetch=saved;}
+});
