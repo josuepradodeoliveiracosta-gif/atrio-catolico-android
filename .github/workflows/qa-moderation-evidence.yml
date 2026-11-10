@@ -1,0 +1,62 @@
+name: QA Moderacao - protecao de denuncias e revogacao de papeis (offline)
+
+on:
+  pull_request:
+    branches:
+      - feat/atrio-conversas-etapa1-20261106
+    paths:
+      - 'tests/security/qa-moderation-evidence-matrix.mjs'
+      - '.github/workflows/qa-moderation-evidence.yml'
+      - 'docs/qa-homologacao/MATRIZ-DENUNCIAS-MODERACAO.md'
+      - 'firebase/qa-general/**'
+      - 'firebase/atrio-conversas-v1.rules.fragment'
+      - 'firebase/atrio-grupos-v1.rules.fragment'
+      - 'firestore.rules'
+
+permissions:
+  contents: read
+
+jobs:
+  evidence:
+    name: Moderacao QA - protocolos privados sem acesso geral ao historico
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      GOOGLE_CLOUD_PROJECT: demo-atrio-v11
+      GOOGLE_APPLICATION_CREDENTIALS: ''
+      FIREBASE_TOKEN: ''
+      CLOUDFLARE_API_TOKEN: ''
+    steps:
+      - name: Checkout sem credenciais persistentes
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Java 21 para Firebase Emulator
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Dependencias existentes com lockfile
+        run: npm ci --prefix tests/security
+      - name: Gerar Rules QA isoladas localmente
+        run: node firebase/qa-general/compose-rules.mjs
+      - name: Testar denuncias em rules QA isoladas
+        working-directory: tests/security
+        run: ./node_modules/.bin/firebase emulators:exec --only firestore --config qa-general.firebase.json --project demo-atrio-v11 "node qa-moderation-evidence-matrix.mjs standalone"
+      - name: Gerar Rules de paridade da base fixada
+        run: node firebase/qa-general/compose-parity-rules.mjs
+      - name: Testar denuncias na paridade com main versionada
+        working-directory: tests/security
+        run: ./node_modules/.bin/firebase emulators:exec --only firestore --config qa-general.firebase.json --project demo-atrio-v11 "node qa-moderation-evidence-matrix.mjs parity"
+      - name: Limpar apenas Rules temporarias locais
+        if: always()
+        run: rm -f tests/security/qa-general.generated.rules tests/security/qa-parity.generated.rules
+      - name: Registrar limites do teste na propria execucao
+        if: always()
+        run: |
+          echo '## Moderacao e denuncias QA - somente Firebase Emulator' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Permissoes de protocolos, revogacao de administrador, antifraude e preservacao. Nao implementa atendimento humano, SLA, escalonamento, retencao ou liberacao de QA.' >> "$GITHUB_STEP_SUMMARY"
