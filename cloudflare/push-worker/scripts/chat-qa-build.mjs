@@ -117,7 +117,7 @@ export function renderQaWorker(original, project) {
   // desconhecido: registrar contagem anonima e retornar HTTP 503,
   // SEM repetir nem apagar marcador.
   code = exactlyOnce(code, "      let failedHttp=0;\n      let cleaned=0;",
-    "      let failedHttp=0;\\n      let cleaned=0;\\n      let transportFailure=false;");
+    "      let failedHttp=0;\n      let cleaned=0;\n      let transportFailure=false;");
   code = exactlyOnce(code, "        for(const target of list) {\n          const result=event.topic",
     "        for(const target of list) {\n          let result;\n          try {\n            result=event.topic");
   code = exactlyOnce(code, "                    {groupId:event.groupId,messageId:event.messageId} : {});\n          attempted++;",
