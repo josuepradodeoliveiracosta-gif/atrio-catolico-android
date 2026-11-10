@@ -1,0 +1,50 @@
+name: QA Retencao - inventario de evidencias sem exclusao
+
+on:
+  pull_request:
+    branches:
+      - feat/atrio-conversas-etapa1-20261106
+    paths:
+      - 'scripts/qa_retention_evidence_inventory.mjs'
+      - 'scripts/qa_retention_evidence_inventory.test.mjs'
+      - '.github/workflows/qa-retention-evidence.yml'
+      - 'docs/qa-homologacao/RETENCAO-SEM-EXCLUSAO.md'
+      - 'cloudflare/push-worker/src/retention-plan.js'
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    name: Retencao QA - holds, denuncias e subcolecoes sem apagar
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    env:
+      GOOGLE_APPLICATION_CREDENTIALS: ''
+      FIREBASE_TOKEN: ''
+      CLOUDFLARE_API_TOKEN: ''
+    steps:
+      - name: Checkout isolado sem credenciais persistidas
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Testar contrato de retencao e simulador existente sem rede
+        run: node --test scripts/qa_retention_evidence_inventory.test.mjs
+      - name: Gerar apenas relatorio sintetico agregado
+        run: node scripts/qa_retention_evidence_inventory.mjs > "$RUNNER_TEMP/qa-retention-NO-GO.json"
+      - name: Conferir que relatorio impede exclusao
+        run: |
+          node -e 'const r=require(process.env.RUNNER_TEMP+"/qa-retention-NO-GO.json");if(r.status!=="NO_GO"||r.deletedCount!==0||r.deletionAuthorized!==false||r.deletionCandidateCount!==0)process.exit(1)'
+          echo '## Retencao e evidencias — QA offline' >> "$GITHUB_STEP_SUMMARY"
+          echo 'NO-GO. Inventario apenas sintético/agregado; preserva denuncias, holds, recursos e riscos de subcolecoes. Nenhuma política ou exclusao aprovada.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Guardar somente resumo do laboratorio, sem dados reais
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-retention-no-go-${{ github.run_id }}
+          path: ${{ runner.temp }}/qa-retention-NO-GO.json
+          retention-days: 14
+          if-no-files-found: error
