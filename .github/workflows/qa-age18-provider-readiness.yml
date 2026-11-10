@@ -1,0 +1,44 @@
+name: QA Idade18 - requisitos para avaliacao de fornecedor
+
+on:
+  pull_request:
+    branches:
+      - feat/atrio-conversas-etapa1-20261106
+    paths:
+      - 'scripts/qa_age18_provider_readiness.mjs'
+      - 'scripts/qa_age18_provider_readiness.test.mjs'
+      - 'docs/qa-homologacao/IDADE18-FORNECEDOR-NAO-SELECIONADO.json'
+      - 'docs/qa-homologacao/IDADE18-SELECAO-FORNECEDOR.md'
+      - '.github/workflows/qa-age18-provider-readiness.yml'
+
+permissions:
+  contents: read
+concurrency:
+  group: qa-age18-provider-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  evidence:
+    name: Preparar avaliacao 18+ sem provedor nem deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Testar matriz de requisitos, fraudes e gate NO-GO
+        run: node --test scripts/qa_age18_provider_readiness.test.mjs
+      - name: Verificar e publicar somente resumo de criterios
+        run: |
+          node scripts/qa_age18_provider_readiness.mjs --markdown >> "$GITHUB_STEP_SUMMARY"
+          node scripts/qa_age18_provider_readiness.mjs > "$RUNNER_TEMP/qa-age18-provider-no-go.json"
+          node -e 'const r=require(process.env.RUNNER_TEMP+"/qa-age18-provider-no-go.json");if(r.status!=="NO_GO"||!r.draftValid||r.qaDeploymentAuthorized||r.ageVerifiedUsers!==0)process.exit(1)'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qa-age18-vendor-evidence-no-go-${{ github.run_id }}
+          path: ${{ runner.temp }}/qa-age18-provider-no-go.json
+          retention-days: 14
+          if-no-files-found: error
