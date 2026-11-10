@@ -49,6 +49,8 @@ jobs:
         run: npm ci --prefix tests/security
       - name: Auditar APIs QA read-only com testes sintéticos
         run: node --test scripts/termux-firestore-qa-readonly.test.mjs scripts/termux-firebase-qa-identity-readonly.test.mjs
+      - name: Testar contrato de atestado etario 18+ sintético (Ed25519)
+        run: node --test firebase/qa-general/age18-attestation-contract.test.mjs
       - name: Validar invariantes de paridade sem rede
         run: node --test firebase/qa-general/compose-parity-rules.test.mjs
       - name: Gerar candidato de paridade offline e fixado por blob

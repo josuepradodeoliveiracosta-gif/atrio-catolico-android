@@ -65,6 +65,25 @@ acesso indevido, moderação e retenção. **Não usar a data informada
 como autenticação nem inserir prova sintética em nuvem.** Issue #200
 permanece bloqueadora e QA geral continua 2/7 marcos (29%).
 
+### Contrato de atestado criptográfico — apenas teste offline (10/11/2026)
+
+Foi criado um contrato mínimo sintético `firebase/qa-general/age18-attestation-contract.mjs`
+para a interface entre cadastro e **futuro** verificador confiável de
+maioridade. Usa atestações Ed25519 fictícias, com emissor e chave
+pública de confiança fornecidos pelo servidor de testes, UID vinculado
+à sessão autenticada, desafio imprevisível, versão da política 18+,
+`iat`, `exp` e identificador `jti` contra reuso. **Não** envia datas de
+nascimento, CPF ou documentos; campos inesperados são recusados.
+
+O contrato só valida dados sintéticos e retorna uma indicação interna.
+**Não** salva `chatAgeEligibility/current`, não é produto, não comprova
+idade real e não escolhe um fornecedor. A coleção `Set` usada nos
+testes para detectar replay **não** atende servidores distribuídos:
+será preciso persistência/consumo atômico, controle de desafios,
+chaves confiáveis e auditoria minimizada. A eventual emissão de
+elegibilidade deverá ser no backend, após aprovação humana específica
+da Issue #200; o cliente jamais poderá outorgar a própria idade.
+
 ## Condições atuais verificadas
 
 - A suíte Firestore Emulator testa bloqueio por `minorPolicyApproved`,

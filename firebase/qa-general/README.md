@@ -133,3 +133,28 @@ revogada e passam quando a fixture válida é restaurada. A cobertura
 estática confere a injeção dos requisitos de convites em ambos os
 candidatos. Isso **não** é prova de idade, não implementa política de prevenção de
 contato com menores, nem homologa fluxos reais de grupos.
+
+## Futuro serviço de comprovação — contrato sintético assinado (sem deploy)
+
+`age18-attestation-contract.mjs` **não integra nenhum fornecedor** nem
+cria `chatAgeEligibility/current`. É um contrato offline para testes de
+atestações Ed25519 geradas na própria suíte, sem chaves privadas reais.
+Não deve ser importado por Cloudflare Workers, clientes Android,
+Cloud Functions nem implantado em qualquer ambiente.
+
+O contrato demonstra recusas a assinatura inválida, emissor/chave
+desconhecidos, versão 16+ revogada, `ageAtLeast18=false`, UID da
+conta diferente, desafio (`nonce`) trocado, expiração, extensão indevida
+de validade, repetição de identificador e inclusão de dados pessoais
+inesperados (CPF, nascimento). A resposta positiva se limita ao
+identificador de conta e à aceitação da fixture, **não cria permissão**.
+
+No backend real, o emissor confiável deve ser registrado pelo servidor,
+a assinatura/chaves devem ser verificadas de maneira homologada, e o
+desafio deve ser criado para a sessão Firebase autenticada. O uso
+único (`jti`) deve ser marcado **atomicamente e persistentemente**
+entre instâncias; `Set` no teste é apenas simulação. A autenticação
+do emissor e a emissão posterior do registro privado de elegibilidade
+precisam ocorrer somente no backend após as aprovações da Issue #200.
+Chaves/nonce vindos do cliente não podem definir quem é confiável;
+nunca aceitar a pré-triagem local como prova.
