@@ -16,9 +16,10 @@ on:
 permissions:
   contents: read
 
+# Testes de PR independentes: preservar os resultados de cada run_id.
 concurrency:
-  group: guardian-v2-flow-emulator-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: guardian-v2-flow-emulator-${{ github.event_name == 'pull_request' && github.run_id || github.ref }}
+  cancel-in-progress: false
 
 jobs:
   firestore-v2-flow:

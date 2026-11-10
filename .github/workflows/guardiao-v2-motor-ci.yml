@@ -12,8 +12,9 @@ on:
 permissions:
   contents: read
 
+# Testes de PR independentes: preservar os resultados de cada run_id.
 concurrency:
-  group: guardian-v2-offline-${{ github.event.pull_request.number || github.ref }}
+  group: guardian-v2-offline-${{ github.event_name == 'pull_request' && github.run_id || github.ref }}
   cancel-in-progress: false
 
 jobs:

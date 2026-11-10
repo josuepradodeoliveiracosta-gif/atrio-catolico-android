@@ -14,9 +14,10 @@ on:
 permissions:
   contents: read
 
+# Testes de PR independentes: preservar os resultados de cada run_id.
 concurrency:
-  group: atrio-v2-preview-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  group: atrio-v2-preview-${{ github.run_id }}
+  cancel-in-progress: false
 
 jobs:
   preview:

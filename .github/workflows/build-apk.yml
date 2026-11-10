@@ -7,11 +7,12 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# PR antiga nao deve continuar consumindo runner quando ha commit novo.
-# Nao interromper execucao manual de producao nem push na main.
+# Cada PR guarda seus resultados de build por SHA; testes de PR nao se cancelam.
+# Execucoes manuais e push na main conservam exclusao por ref.
+# Testes de PR independentes: preservar os resultados de cada run_id.
 concurrency:
-  group: apk-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: apk-${{ github.event_name == 'pull_request' && github.run_id || github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read

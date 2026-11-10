@@ -11,10 +11,11 @@ on:
 permissions:
   contents: read
 
-# Economizar runners: so cancelar execucoes antigas da mesma PR.
+# Preservar cada execucao de teste por SHA, sem interrupcao automatica.
+# Testes de PR por run_id: nao cancelar evidencias de outros SHAs.
 concurrency:
-  group: atrio-public-apks-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: atrio-public-apks-${{ github.event_name == 'pull_request' && github.run_id || github.ref }}
+  cancel-in-progress: false
 
 jobs:
   verify-existing-release-assets:

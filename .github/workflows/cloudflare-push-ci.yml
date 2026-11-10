@@ -10,8 +10,9 @@ on:
       - ".github/workflows/cloudflare-push-ci.yml"
   workflow_dispatch:
 
+# Testes de PR independentes: preservar os resultados de cada run_id.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.run_id || github.ref }}
   # Uma atualização não pode interromper um teste já iniciado.
   # O GitHub poderá substituir somente uma execução ainda pendente.
   cancel-in-progress: false

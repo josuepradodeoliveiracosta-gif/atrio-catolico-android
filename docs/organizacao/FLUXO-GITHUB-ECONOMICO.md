@@ -1,78 +1,87 @@
-# Fluxo econômico e seguro — GitHub do Átrio Católico
+# Fluxo GitHub — qualidade, rastreabilidade e segurança
 
-**Status:** mudança proposta na PR draft #193. Não autoriza merge,
-deploy, release, alteração de regras de produção ou backup.
+**Estado:** proposta na PR draft #193, sem merge ou implantação.
+**Nome de arquivo legado:** `FLUXO-GITHUB-ECONOMICO.md` permanece para não
+quebrar referências existentes; o objetivo atual **não é poupar minutos**.
 
-## Diagnóstico verificado em 10/11/2026
+## Constatações auditadas em 10/11/2026
 
-- Na auditoria, a PR #193 tinha **247 commits e 81 arquivos modificados**.
-- Filtros `pull_request.paths` consideram o *diff acumulado* da PR. Por
-  isso, diversos workflows são disparados mesmo quando o último commit
-  alterou apenas um teste. Não é seguro adicionar simplesmente filtros
-  mais estreitos nos checks obrigatórios.
-- A ruleset ativa da `main` exige os cinco checks:
+- O repositório é público. GitHub Actions com **runners padrão hospedados
+  pelo GitHub** é gratuito e tem minutos ilimitados em repositórios públicos.
+  Runners maiores, armazenamento e outras cotas são assuntos separados.
+- A PR #193 já havia acumulado 248 commits e 88 arquivos modificados na
+  auditoria. Filtros `pull_request.paths` comparam o conjunto de alterações
+  da PR, não apenas o último commit.
+- A ruleset de `main` exige cinco verificações:
   `Detectar segredos em arquivos e histórico Git`,
   `Evitar regressão de versionCode e versionName`,
-  `Regras de seguranca Firestore`, `Compilar Android de testes` e
+  `Regras de seguranca Firestore`,
+  `Compilar Android de testes`,
   `Bloquear exclusoes em massa (Atrio)`.
-  Esses checks permanecem **obrigatórios**.
+  **Todos os cinco checks e seus nomes são preservados.**
 
-## Procedimento de trabalho recomendado
+## Procedimento de desenvolvimento
 
-1. Definir objetivo verificável e arquivos afetados, riscos e testes.
-2. Ler SHA de `main` e da branch; não sobrescrever alterações concorrentes.
-3. Agrupar alteração + testes + documentação numa unidade coerente;
-   validar sintaxe e testes offline quando possível no Termux ou ambiente
-   isolado, sem simular que testes não executados foram aprovados.
-4. Publicar um commit/push por unidade testável, em vez de um push a
-   cada edição de linha. Corrigir falhas demonstradas pela CI de modo
-   focal, sem mascará-las.
-5. A CI da PR deve substituir execuções **obsoletas do mesmo workflow
-   e da mesma PR**; execuções manuais e na `main` não são canceladas.
-   Nunca usar `[skip ci]` para burlar verificação obrigatória.
-6. Avaliar o SHA exato e separar estados: `success`, `failure`,
-   `cancelled`, `skipped`, testes sintéticos, APK e integração real.
-   Não confundir CI verde com deploy ou homologação em aparelhos.
-7. Projetos/etapas novas merecem branches e PRs **pequenas e focadas**.
-   Não reescrever os 247 commits da PR #193, não desmembrá-la agora,
-   não alterar backups e jamais fazer merge sem autorização.
+1. Definir uma unidade funcional verificável: objetivo, código, testes,
+   casos negativos, revisão de segurança e evidência esperada.
+2. Fixar os SHA de `main` e branch; não sobrescrever trabalhos paralelos.
+3. Preparar mudanças correlatas com testes e documentação no mesmo
+   conjunto. Rodar verificações locais/Termux quando viável, sem alegar
+   testes não executados.
+4. Realizar um push/commit por conjunto coerente, mantendo correções de
+   falhas comprovadas em commits próprios quando necessário. Evitar
+   longas cadeias de microalterações na PR.
+5. Executar **testes completos e independentes em paralelo**. Para
+   workflows de CI sem efeitos persistentes, cada execução de PR tem
+   um grupo de concorrência exclusivo pelo `github.run_id`, sem
+   cancelamento automático. Isso preserva a auditoria por SHA.
+6. Conferir resultados por commit: `success`, `failure`, `pending`,
+   `cancelled` e `skipped` não são equivalentes. CI offline não é
+   implantação, FCM real ou homologação física.
+7. Adotar branches e PRs **pequenas e focadas** para novas tarefas.
+   Não reescrever os commits ou dividir a PR #193 sem autorização.
+   Integrar à `main` somente após verificação e aprovação específicas.
 
-## Política implementada nesta proposta
+## Política de concorrência revisada
 
-Oito workflows recebem ou ajustam controle de concorrência:
-Selos (incluindo checks obrigatórios Firestore e compilação),
-Versão oficial, Bots Android, Guardião Android, QA Firestore offline,
-Identidade de APK Chat QA, Segurança de repositório e Auditoria
-read-only dos APKs publicados.
+O cancelamento automático implantado em 8 workflows de QA no commit
+`2cd67d5` foi reavaliado: a economia de minutos não é um objetivo
+válido para os runners padrão deste repositório público, enquanto
+a interrupção de suites Android e Firestore dificulta diagnósticos.
 
-Para workflows de PR, a condição é:
+Para **CI independente e sem deploy**, a configuração aceita é:
 
 ```yaml
 concurrency:
-  group: grupo-especifico-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: nome-do-workflow-${{ github.event_name == 'pull_request' && github.run_id || github.ref }}
+  cancel-in-progress: false
 ```
 
-Cada workflow usa um grupo **distinto**, evitando cancelar outros
-workflows; cada PR usa seu próprio número. `workflow_dispatch` e
-`push` nunca recebem a política de cancelamento. O resultado
-esperado é economizar *execuções sobrepostas*, não reduzir ou
-silenciar as verificações de segurança.
+Isso evita que um novo commit de PR interrompa outro teste ou substitua
+uma execução ainda pendente. Outras PRs continuam isoladas. O grupo
+tradicional por `github.ref` pode permanecer em eventos de `push`
+e `workflow_dispatch`, conforme a segurança de cada workflow.
 
-### Limitações e validação
+**Exceções intencionais:** Workflows de assinatura, Release, deploy,
+Guardião com acesso a sistemas reais e proteção de exclusões mantêm
+seus controles de serialização e aprovação. Não remover travas de
+produção em nome do paralelismo.
 
-- O GitHub adverte: workflow obrigatório ignorado por filtro de
-  arquivos pode permanecer `Pending`; por isso os cinco checks
-  necessários não receberam filtros que possam ocultá-los.
-- Uma execução já encerrada não economiza minutos retroativamente;
-  os benefícios só poderão ser medidos após atualizações sobrepostas.
-- O GitHub Actions em uma PR grande continua rodando muitas suites.
-  A verdadeira redução de custo a médio prazo é criar PRs menores
-  nas próximas funcionalidades.
-- Confirmar que os cinco checks exigidos passam no novo SHA e
-  que produção/assinaturas/backup continuam intactos.
+## Segurança e limites
 
-**Documentação oficial consultada:**
-- https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#concurrency
-- https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow
-- https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks
+- Não alterar exigências ou nomes de required checks, criar bypass por
+  `[skip ci]` nem tornar automáticas ações de publicação/produção.
+- A PR #193 contém testes de laboratório e evidências acumuladas; a
+  política do chat 18+, moderação e retenção ainda bloqueia rollout.
+- Uma melhora de concorrência não garante que todos os workflows
+  disparem para todos os arquivos. Os filtros e gates são preservados.
+- Revisar `pull_request_target` e políticas de execução do GitHub em
+  auditoria própria, sem trocar a fonte confiável do verificador de
+  exclusões sem prova de equivalência.
+- Os minutos gratuitos não dispensam atenção a limites de concorrência,
+  cotas de armazenamento e possíveis custos de runners maiores.
+
+**Fontes oficiais:**
+https://docs.github.com/en/actions/concepts/billing-and-usage
+https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#concurrency
+https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks

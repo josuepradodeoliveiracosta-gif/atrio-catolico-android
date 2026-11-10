@@ -8,11 +8,11 @@ on:
     branches: [feature/push-gratuito-cloudflare-v0190]
   workflow_dispatch:
 
+# Testes de PR por run_id: nao cancelar evidencias de outros SHAs.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  # Apenas novo commit da mesma PR cancela execucao obsoleta.
-  # Preservar eventos main/push e workflow_dispatch.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.run_id || github.ref }}
+  # PRs testadas em paralelo; manual/main mantem grupo por ref.
+  cancel-in-progress: false
 
 permissions:
   contents: read

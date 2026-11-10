@@ -31,9 +31,10 @@ on:
 permissions:
   contents: read
 
+# Testes de PR independentes: preservar os resultados de cada run_id.
 concurrency:
-  group: ota-in-app-qa-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ota-in-app-qa-${{ github.event_name == 'pull_request' && github.run_id || github.ref }}
+  cancel-in-progress: false
 
 jobs:
   qa-loopback:

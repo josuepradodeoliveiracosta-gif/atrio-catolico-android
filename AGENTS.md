@@ -19,13 +19,16 @@ Ao relatar validação, distinga testes automatizados, compilação, publicaçã
 - Nunca modifique branches de backup protegidas sem permissao explicita do fundador. Preserve-as como referencias imutaveis.
 - Toda alteracao de codigo deve passar pela branch isolada e por PR. A seguranca efetiva depende dos rulesets de GitHub configurados em `docs/seguranca/PROTECAO-EXCLUSAO-GENERALIZADA.md`. Nao confundir workflow com bloqueio de push direto.
 
-## GitHub Actions — otimização conservadora
+## GitHub Actions — qualidade, segurança e rastreabilidade
 
-- Consulte `docs/organizacao/FLUXO-GITHUB-ECONOMICO.md` para o procedimento
-  de desenvolvimento, testes e envio agrupado. Um push por unidade testável,
-  com revisão local quando disponível; não produzir commits para cada retoque.
-- Preserve os cinco checks obrigatórios da `main`; CI cancelada ou ignorada
-  não é teste aprovado. As execuções obsoletas são canceladas **somente
-  em pull_request**, nunca em `main` ou execução manual.
-- Para tarefas novas, prefira PRs pequenas e focadas. A PR #193 é extensa;
-  não reescreva seu histórico nem divida a branch sem autorização.
+- Consulte `docs/organizacao/FLUXO-GITHUB-ECONOMICO.md` (nome de
+  arquivo legado) antes de alterar testes, CI, branches ou PRs.
+- No repositório público, runners padrão não exigem economizar minutos;
+  priorizar cobertura, testes completos por commit, paralelismo e diagnóstico.
+- Em CI sem deploy, novas execuções de PR **não cancelam** outras
+  execuções em andamento ou pendentes. Não interpretar `skipped`
+  ou `cancelled` como teste aprovado.
+- Preservar os cinco checks obrigatórios de `main`, os gates de
+  produção e assinatura, as branches de backup e o isolamento do QA.
+- Preparar uma unidade testável por push quando viável; novas tarefas
+  devem preferir PRs focadas, sem reescrever a PR #193 existente.
