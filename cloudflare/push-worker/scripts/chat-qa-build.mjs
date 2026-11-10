@@ -108,6 +108,10 @@ export function renderQaWorker(original, project) {
     "if (service.project_id !== PROJECT ||\n" +
     "      !service.client_email?.endsWith('@' + PROJECT + '.iam.gserviceaccount.com') ||\n" +
     "      !service.private_key)");
+  // QA-only: if FCM accepts one device and rejects another, never report
+  // the whole event as accepted. This does NOT retry or alter D1 semantics.
+  code = exactlyOnce(code, "      const outcome=attempted && !accepted ? 'delivery_failed'\n        : accepted ? 'accepted_by_fcm' : 'no_devices_or_duplicate';", "      const outcome=attempted && !accepted ? 'delivery_failed'\n        : accepted && failedHttp ? 'partial_delivery_failed'\n        : accepted ? 'accepted_by_fcm' : 'no_devices_or_duplicate';");
+  code = exactlyOnce(code, "      return response(outcome==='delivery_failed'||!fanoutOk ? 503 : 202,", "      return response(outcome==='delivery_failed'||\n        outcome==='partial_delivery_failed'||!fanoutOk ? 503 : 202,");
   const queueStart = '  async queue(batch,env) {';
   const fetchStart = '  async fetch(request, env) {';
   const blocks = code.split(queueStart);

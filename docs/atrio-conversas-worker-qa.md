@@ -305,3 +305,27 @@ O workflow existente de empacotamento offline também aceita PRs focadas
 contra a branch de homologação, sem segredo nem deploy. Isto **não** ativa
 o Worker real, não modifica a fonte do Worker de produção, não garante
 entrega de FCM, e não altera o bloqueio `NO_GO` da issue #200.
+
+### Diagnóstico fiel de falhas parciais FCM (QA offline, 10/11/2026)
+
+Com dois dispositivos associados ao mesmo destinatário, o FCM pode
+retornar HTTP 200 para um e 503 ou 429 para outro. O Worker QA gerado
+passa a classificar esse resultado como `partial_delivery_failed` e
+responder HTTP 503, registrando somente contagens agregadas
+(`attempted`, `accepted` e status HTTP), sem conteúdo de mensagens,
+IDs ou tokens nos indicadores. Um aceite HTTP 200 significa apenas aceite
+pelo FCM, **não** entrega no aparelho.
+
+Testes sintéticos cobrem DM e grupo, HTTP 503 e 429 depois de um
+primeiro aceite, e exceção de transporte após reservar o marcador D1.
+Não há novas tentativas automáticas: a reserva por destinatário continua
+`at-most-once`, e uma requisição repetida após falha pode deixar
+dispositivos sem aviso. O erro de transporte continua retornando
+`unavailable`; não o apresentar como resolvido. Uma política futura de
+recuperação exigirá decisão explícita, controle de duplicações, limite de
+retries, provas de autorização e avaliação de custos antes de uso real.
+
+O ajuste ocorre exclusivamente no código **gerado para QA**. A fonte
+`src/index.js` oficial, deploy Cloudflare/Firebase, D1 remoto e FCM
+real permanecem inalterados. Issue #201 aberta; política #200 e
+marco 3 impedem qualquer ativação.

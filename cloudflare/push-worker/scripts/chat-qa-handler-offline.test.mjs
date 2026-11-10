@@ -50,7 +50,8 @@ const okJson=(value,status=200)=>new Response(JSON.stringify(value),
   {status,headers:{'Content-Type':'application/json'}});
 const messageDoc=()=>makeDoc({uid,kind:'text',createdAt:recent()});
 
-function makeScenario(type,change) {
+function makeScenario(type,change,deviceCount=1) {
+  assert.ok(Number.isInteger(deviceCount) && deviceCount>=1 && deviceCount<=3);
   const group=type==='group';
   const chatId='chat-alice__chat-bob';
   const groupId='grp-qa';
@@ -75,11 +76,13 @@ function makeScenario(type,change) {
     :{type:'chat_message',chatId,messageId};
   let sawDevices=false,markerWrites=0,fcmCalls=0,firestoreReads=0,authCalls=0;
   let currentChange=change;
+  const auditOutcomes=[];
   const insertedMarkers=new Set(); // D1 sintetico retido entre chamadas
   const stat={get sawDevices(){return sawDevices;},
     get markerWrites(){return markerWrites;},get fcmCalls(){return fcmCalls;},
     get uniqueMarkers(){return insertedMarkers.size;},
-    get firestoreReads(){return firestoreReads;},get authCalls(){return authCalls;}};
+    get firestoreReads(){return firestoreReads;},get authCalls(){return authCalls;},
+    get auditOutcomes(){return auditOutcomes.map(item=>({...item}));}};
   const db={prepare(sql){
     if(sql.includes('atrio_qa_identity'))
       return {bind(name){
@@ -97,7 +100,10 @@ function makeScenario(type,change) {
         return {meta:{changes:1}};
       }}}};
     if(sql.startsWith('INSERT INTO push_delivery_stats'))
-      return {bind(){return {run:async()=>({meta:{changes:1}})}}};
+      return {bind(_hour,kind,outcome,http,attempted,accepted){
+        auditOutcomes.push({kind,outcome,http,attempted,accepted});
+        return {run:async()=>({meta:{changes:1}})};
+      }};
     throw Error('Unexpected QA D1 SQL: '+sql.slice(0,75));
   }};
   const mockFetch=async(input,options={})=>{
@@ -118,23 +124,28 @@ function makeScenario(type,change) {
       fcmCalls++;
       assert.equal(url.pathname,'/v1/projects/'+project+'/messages:send');
       assert.equal(JSON.parse(options.body).message.data.kind,event.type);
-      return currentChange==='fcm_failure'
-        ?okJson({error:{status:'UNAVAILABLE'}},503)
-        :okJson({name:'offline-synthetic-only'});
+      if(currentChange==='fcm_transport_error')
+        throw Error('synthetic_network_exception_no_provider_receipt');
+      if(currentChange==='fcm_failure' ||
+          (currentChange==='fcm_second_failure' && fcmCalls===2))
+        return okJson({error:{status:'UNAVAILABLE'}},503);
+      if(currentChange==='fcm_second_rate_limited' && fcmCalls===2)
+        return okJson({error:{status:'RESOURCE_EXHAUSTED'}},429);
+      return okJson({name:'offline-synthetic-only'});
     }
     if(target.startsWith(documentRoot)){
       const relative=decodeURIComponent(url.pathname.split('/documents/')[1]||'');
       if(relative==='users/'+recipient+'/pushDevices'){
         sawDevices=true;
-        return okJson({documents:[{
+        return okJson({documents:Array.from({length:deviceCount},(_,i)=>({
           name:'projects/'+project+'/databases/(default)/documents/users/'+
-            recipient+'/pushDevices/offline-phone',
+            recipient+'/pushDevices/offline-phone-'+i,
           fields:{
-            token:{stringValue:'synthetic_fcm_token_1234567890'},
+            token:{stringValue:'synthetic_fcm_token_1234567890_'+i},
             updatedAt:{timestampValue:recent()}
           },
           updateTime:recent()
-        }]});
+        }))});
       }
       firestoreReads++;
       if(sawDevices){
@@ -303,5 +314,76 @@ test('rota QA: falha FCM apos reserva segue at-most-once, sem retry implicito',a
     assert.equal(scenario.stat.uniqueMarkers,1);
     assert.equal(scenario.stat.fcmCalls,1,
       'Garantia de nao duplicar pode perder notificacao com HTTP 503');
+  }finally{globalThis.fetch=oldFetch;}
+});
+
+test('QA: FCM parcialmente aceito nao pode retornar sucesso global (DM e grupo)',async()=>{
+  const worker=(await import('data:text/javascript;charset=utf-8,'+
+    encodeURIComponent(generated))).default;
+  const oldFetch=globalThis.fetch;
+  try{
+    for(const type of ['dm','group']){
+      const scenario=makeScenario(type,'fcm_second_failure',2);
+      globalThis.fetch=scenario.mockFetch;
+      const first=await worker.fetch(scenario.request(),scenario.env);
+      assert.equal(first.status,503,type);
+      assert.equal((await first.json()).status,'partial_delivery_failed',type);
+      assert.equal(scenario.stat.markerWrites,1,type);
+      assert.equal(scenario.stat.uniqueMarkers,1,type);
+      assert.equal(scenario.stat.fcmCalls,2,type);
+      const outcomes=scenario.stat.auditOutcomes;
+      assert.deepEqual(outcomes.at(-1),{
+        kind:type==='dm'?'chat_message':'group_message',
+        outcome:'partial_delivery_failed',http:503,attempted:2,accepted:1
+      },type);
+      // Nao alterar politica at-most-once: novo POST do mesmo evento
+      // nao deve reenviar sequer aos dispositivos que falharam.
+      scenario.setChange('none');
+      const repeat=await worker.fetch(scenario.request(),scenario.env);
+      assert.equal(repeat.status,202,type);
+      assert.equal((await repeat.json()).status,'no_devices_or_duplicate',type);
+      assert.equal(scenario.stat.uniqueMarkers,1,type);
+      assert.equal(scenario.stat.fcmCalls,2,type);
+    }
+  }finally{globalThis.fetch=oldFetch;}
+});
+
+test('QA: retorno 429 apos um aceite e falha parcial, nao um GO',async()=>{
+  const worker=(await import('data:text/javascript;charset=utf-8,'+
+    encodeURIComponent(generated))).default;
+  const oldFetch=globalThis.fetch;
+  try{
+    const scenario=makeScenario('dm','fcm_second_rate_limited',2);
+    globalThis.fetch=scenario.mockFetch;
+    const result=await worker.fetch(scenario.request(),scenario.env);
+    assert.equal(result.status,503);
+    assert.equal((await result.json()).status,'partial_delivery_failed');
+    assert.deepEqual(scenario.stat.auditOutcomes.at(-1),{
+      kind:'chat_message',outcome:'partial_delivery_failed',
+      http:429,attempted:2,accepted:1
+    });
+    assert.equal(scenario.stat.fcmCalls,2);
+  }finally{globalThis.fetch=oldFetch;}
+});
+
+test('QA: excecao de transporte apos reservar D1 permanece sem retry inseguro',async()=>{
+  const worker=(await import('data:text/javascript;charset=utf-8,'+
+    encodeURIComponent(generated))).default;
+  const oldFetch=globalThis.fetch;
+  try{
+    for(const type of ['dm','group']){
+      const scenario=makeScenario(type,'fcm_transport_error');
+      globalThis.fetch=scenario.mockFetch;
+      const first=await worker.fetch(scenario.request(),scenario.env);
+      assert.equal(first.status,503,type);
+      assert.equal((await first.json()).status,'unavailable',type);
+      assert.equal(scenario.stat.uniqueMarkers,1,type);
+      assert.equal(scenario.stat.fcmCalls,1,type);
+      scenario.setChange('none');
+      const repeated=await worker.fetch(scenario.request(),scenario.env);
+      assert.equal(repeated.status,202,type);
+      assert.equal((await repeated.json()).status,'no_devices_or_duplicate',type);
+      assert.equal(scenario.stat.fcmCalls,1,type);
+    }
   }finally{globalThis.fetch=oldFetch;}
 });
