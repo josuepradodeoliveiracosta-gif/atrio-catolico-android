@@ -45,7 +45,10 @@ class DependencyReviewContract(unittest.TestCase):
         self.assertNotIn("wrangler deploy", self.review)
         self.assertNotIn("release create", self.review)
         self.assertNotIn("cancel-in-progress: true", self.review)
-        self.assertEqual(self.review.count("persist-credentials: false"), 2)
+        self.assertIn("vars.ATRIO_DEPENDENCY_GRAPH_READY == 'true'", self.review)
+        self.assertIn("scripts/npm_audit_diff.py", self.review)
+        self.assertIn("npm audit --json --package-lock-only", self.review)
+        self.assertEqual(self.review.count("persist-credentials: false"), 3)
 
 
 if __name__ == "__main__":

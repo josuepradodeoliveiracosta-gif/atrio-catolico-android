@@ -29,3 +29,9 @@ PRs, releases, Firebase, Cloudflare, produção, `main` ou backups.
 
 Documentação:
 https://docs.github.com/en/code-security/how-tos/secure-your-supply-chain/manage-your-dependency-security/configure-dependency-review-action
+
+## Bloqueio verificado na primeira execução e fallback ativo
+
+Na PR #217, a ação nativa retornou `Dependency review is not supported on this repository`. Portanto ela fica **condicionada** à variável de repositório `ATRIO_DEPENDENCY_GRAPH_READY=true`, que somente deve ser configurada quando o proprietário confirmar a ativação de Dependency Graph. Um job ignorado **não** significa aprovação da revisão nativa.
+
+Como fallback real, o workflow compara dois resultados `npm audit --json --package-lock-only` obtidos na mesma execução, para o lockfile de `tests/security` na base e na PR. Introdução de advisory npm alto/crítico reprova o job; riscos preexistentes são exibidos, mas não erroneamente imputados à PR. Um erro de registry ou JSON inválido reprova a verificação, não vira sucesso silencioso. Nenhum pacote é atualizado automaticamente. A Dependency Review nativa continua pendente, assim como a comparação de vulnerabilidades de Gradle/Actions por API.
