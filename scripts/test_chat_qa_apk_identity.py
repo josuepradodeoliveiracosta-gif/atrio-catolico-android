@@ -153,6 +153,18 @@ class ChatQaApkIdentityTests(unittest.TestCase):
         self.write_apk(resources=("atrio-avatares.atrio-catolico.workers.dev").encode("utf-16le"))
         self.check_denied()
 
+    def test_rejeita_worker_oficial_maiusculo_em_dex(self):
+        self.write_apk(dex=b"HTTPS://ATRIO-PUSH.ATRIO-CATOLICO.WORKERS.DEV")
+        self.check_denied()
+
+    def test_rejeita_worker_oficial_misto_em_utf16(self):
+        self.write_apk(resources=("Atrio-Avatares.Atrio-Catolico.Workers.Dev").encode("utf-16le"))
+        self.check_denied()
+
+    def test_nao_confunde_worker_qa_com_oficial(self):
+        self.write_apk(dex=b"https://ATRIO-QA-GERAL.SYNTHETIC.WORKERS.DEV")
+        self.assertTrue(self.run_preflight()["known_production_workers_absent_in_apk"])
+
     def test_rejeita_worker_oficial_dividido_entre_blocos(self):
         marker = b"atrio-guardian-v2.atrio-catolico.workers.dev"
         self.write_apk(dex=b"x" * (1024 * 1024 - 5) + marker)
