@@ -1,0 +1,38 @@
+name: Revisão de dependências vulneráveis em Pull Requests
+
+# Depende da GitHub Dependency Graph; sem deploy ou acesso a segredos.
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: Verificar politica de dependencias e revisao
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout somente leitura
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Confirmar Dependabot existente e contrato do review
+        run: python3 -m unittest scripts/test_dependency_review_contract.py -v
+
+  dependency-review:
+    name: Recusar novas dependencias com vulnerabilidade alta ou critica
+    needs: contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout somente leitura
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: GitHub Dependency Review
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          fail-on-scopes: runtime, development, unknown
