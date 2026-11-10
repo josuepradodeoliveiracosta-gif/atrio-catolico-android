@@ -1,0 +1,44 @@
+name: QA Cloudflare - guard de bootstrap e evidencia somente leitura
+
+on:
+  pull_request:
+    branches:
+      - feat/atrio-conversas-etapa1-20261106
+    paths:
+      - 'cloudflare/qa-general-worker/wrangler.toml'
+      - 'scripts/qa_cloudflare_bootstrap_preflight.mjs'
+      - 'scripts/qa_cloudflare_bootstrap_preflight.test.mjs'
+      - 'docs/qa-homologacao/CLOUDFLARE-QA-CAPTURA-20261110.json'
+      - 'docs/qa-homologacao/CLOUDFLARE-QA-BOOTSTRAP-PRONTIDAO.md'
+      - '.github/workflows/qa-cloudflare-bootstrap-preflight.yml'
+
+permissions:
+  contents: read
+concurrency:
+  group: qa-cloudflare-bootstrap-${{ github.run_id }}
+  cancel-in-progress: false
+jobs:
+  audit:
+    name: Verificar flags D1 e Worker bloqueados sem deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Conferir config QA e falsificações de permissão
+        run: node --test scripts/qa_cloudflare_bootstrap_preflight.test.mjs
+      - name: Registrar resultado sem cloud/API
+        run: |
+          node scripts/qa_cloudflare_bootstrap_preflight.mjs --markdown >> "$GITHUB_STEP_SUMMARY"
+          node scripts/qa_cloudflare_bootstrap_preflight.mjs > "$RUNNER_TEMP/qa-cloudflare-bootstrap-NO-GO.json"
+          node -e 'const r=require(process.env.RUNNER_TEMP+"/qa-cloudflare-bootstrap-NO-GO.json");if(r.status!=="NO_GO"||!r.sourceMatchesSnapshot||r.eventProcessingAuthorized||r.snapshotIsLiveNow)process.exit(1)'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qa-cloudflare-bootstrap-no-go-${{ github.run_id }}
+          path: ${{ runner.temp }}/qa-cloudflare-bootstrap-NO-GO.json
+          retention-days: 14
+          if-no-files-found: error

@@ -1,0 +1,23 @@
+{
+  "schema": "atrio-cloudflare-qa-readonly-evidence-v1",
+  "observedDate": "2026-11-10",
+  "source": "Cloudflare API GET (manual inspection via connected account)",
+  "worker": "atrio-qa-geral",
+  "workerExists": true,
+  "firebaseProject": "atrio-catolico-qa-geral",
+  "bootstrapOnly": true,
+  "pushEnabled": false,
+  "broadcastEnabled": false,
+  "guardiaoEnabled": false,
+  "qaManualEnabled": false,
+  "workersDevEnabled": false,
+  "previewUrlsEnabled": false,
+  "schedulesCount": 0,
+  "d1BindingName": "PUSH_DB",
+  "d1DatabaseName": "atrio-qa-geral-db",
+  "d1DatabaseId": "cbca3131-5604-4103-a894-7c978143b731",
+  "verifiedWorkerCode": false,
+  "verifiedD1Contents": false,
+  "firebaseQaRulesAuditedInThisStep": false,
+  "qaDeploymentAuthorized": false
+}
