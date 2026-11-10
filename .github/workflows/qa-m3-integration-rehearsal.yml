@@ -1,0 +1,114 @@
+name: QA Marco 3 - ensaio conjunto das nove PRs isoladas
+
+on:
+  pull_request:
+    branches:
+      - feat/atrio-conversas-etapa1-20261106
+    paths:
+      - 'scripts/**'
+      - 'tests/security/**'
+      - 'firebase/qa-general/**'
+      - '.github/workflows/qa-m3-integration-rehearsal.yml'
+      - 'docs/qa-homologacao/QA-M3-INTEGRACAO-MANIFESTO.json'
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+  issues: read
+
+concurrency:
+  group: qa-m3-rehearsal-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  contract-suite:
+    name: Contratos QA combinados - Node e Python (sem rede)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Conferir origem de 35 blobs versionados
+        run: |
+          python3 -m unittest scripts.test_qa_m3_integration_manifest_check -v
+          python3 scripts/qa_m3_integration_manifest_check.py
+      - name: Compor candidatos exclusivamente no workspace local
+        run: |
+          node firebase/qa-general/compose-rules.mjs
+          node firebase/qa-general/compose-parity-rules.mjs
+      - name: Contratos de maioridade sintética, preflight e integridade de evidências
+        run: python3 -m unittest scripts.test_qa_age18_single_use scripts.test_qa_firestore_m3_preflight scripts.test_qa_m3_evidence_readiness -v
+      - name: Políticas pendentes, retenção, incidentes e direitos (unit tests)
+        run: |
+          node --test scripts/qa_retention_evidence_inventory.test.mjs scripts/qa_issue200_decision_gate.test.mjs scripts/qa_incident_tabletop.test.mjs scripts/qa_rights_holds_review.test.mjs
+      - name: Atestar limites, sem publicar ou conceder idade
+        if: always()
+        run: |
+          echo '## Ensaio combinado QA - apenas offline' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Todos os testes desta job são contratuais ou sintéticos. Nem CI verde nem merge conferem aprovação etária ou deploy. Issue 200 pendente.' >> "$GITHUB_STEP_SUMMARY"
+
+  firestore-emulator:
+    name: Firestore Emulator - invítēs e denúncias nas duas composições
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GOOGLE_CLOUD_PROJECT: demo-atrio-v11
+      GOOGLE_APPLICATION_CREDENTIALS: ''
+      FIREBASE_TOKEN: ''
+      CLOUDFLARE_API_TOKEN: ''
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Instalar dependências exatas do emulador
+        run: npm ci --prefix tests/security
+      - name: Gerar regras candidatas QA e paridade somente locais
+        run: |
+          node firebase/qa-general/compose-rules.mjs
+          node firebase/qa-general/compose-parity-rules.mjs
+      - name: Auditoria conjunta nas Rules QA fechadas
+        working-directory: tests/security
+        run: ./node_modules/.bin/firebase emulators:exec --only firestore --config qa-general.firebase.json --project demo-atrio-v11 "node qa-invites-authorization-matrix.mjs standalone && node qa-moderation-evidence-matrix.mjs standalone"
+      - name: Auditoria conjunta em Rules de paridade versionada
+        working-directory: tests/security
+        run: ./node_modules/.bin/firebase emulators:exec --only firestore --config qa-general.firebase.json --project demo-atrio-v11 "node qa-invites-authorization-matrix.mjs parity && node qa-moderation-evidence-matrix.mjs parity"
+      - name: Limpar apenas arquivos gerados durante a execução
+        if: always()
+        run: rm -f tests/security/qa-general.generated.rules tests/security/qa-parity.generated.rules
+
+  github-evidence:
+    name: Metadados de 8 PRs + 8 Actions (read-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Conferir runs, heads e issue 200 via GET fixos
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/qa_m3_evidence_readiness.py
+          cat "$RUNNER_TEMP/qa-m3-evidence-no-go.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Guardar apenas o relatório sanitizado
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-m3-integration-evidence-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/qa-m3-evidence-no-go.json
+            ${{ runner.temp }}/qa-m3-evidence-no-go.md
+          retention-days: 14
+          if-no-files-found: warn

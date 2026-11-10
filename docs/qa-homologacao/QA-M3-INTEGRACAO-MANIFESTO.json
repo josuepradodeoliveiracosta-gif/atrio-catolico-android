@@ -1,0 +1,198 @@
+{
+  "version": 1,
+  "goal": "qa-milestone3-integration-rehearsal",
+  "sourceParentPr": 193,
+  "sourceParentSha": "530395026d0dc37ac424b788c3f5a22f79bb8fed",
+  "issue": 200,
+  "status": "NO_GO",
+  "requiredApproval": "human-policy-and-separate-QA-deploy",
+  "allowedChanges": "only additive QA test, documentation and CI files",
+  "sources": [
+    {
+      "pr": 218,
+      "files": [
+        {
+          "path": ".github/workflows/qa-age18-single-use.yml",
+          "sha": "3cb359f22a684a2206be886055c0cfa7a6dffd7a"
+        },
+        {
+          "path": "docs/qa-homologacao/AGE18-PERSISTENCIA-LAB.md",
+          "sha": "049c1459d0f0397c09c56aa080bc8937b352781a"
+        },
+        {
+          "path": "scripts/qa_age18_single_use.py",
+          "sha": "86997dc236d0333040b3823c9085e12eab55bf57"
+        },
+        {
+          "path": "scripts/test_qa_age18_single_use.py",
+          "sha": "56f2c18b14761479025e34391cb0efed5a6a2cfd"
+        }
+      ]
+    },
+    {
+      "pr": 219,
+      "files": [
+        {
+          "path": ".github/workflows/qa-invite-isolation.yml",
+          "sha": "5628a339f2f939375a956c873ee3b0a72c3209e7"
+        },
+        {
+          "path": "docs/qa-homologacao/AUDITORIA-CONVITES-COLLECTIONGROUP.md",
+          "sha": "f2adf576bb2117e2dc91b25351bdc8ee7a1ec71e"
+        },
+        {
+          "path": "tests/security/qa-invites-authorization-matrix.mjs",
+          "sha": "d6f858fc044d3ec5dd598fb13d094e959768069c"
+        }
+      ]
+    },
+    {
+      "pr": 220,
+      "files": [
+        {
+          "path": ".github/workflows/qa-firestore-m3-preflight.yml",
+          "sha": "46be1e2d1ea74389b6919f6bdd687ef7deb2f18a"
+        },
+        {
+          "path": "docs/qa-homologacao/PREFLIGHT-FIRESTORE-QA-M3.md",
+          "sha": "463b1de758dd9a5331f8eecef11307ac65109cb6"
+        },
+        {
+          "path": "scripts/qa_firestore_m3_preflight.py",
+          "sha": "beaa0bc703dbc3ba538b68f92333f915b5bd03c6"
+        },
+        {
+          "path": "scripts/test_qa_firestore_m3_preflight.py",
+          "sha": "1b4c742293355183f6cc6a968b644d2e7aef27ed"
+        }
+      ]
+    },
+    {
+      "pr": 221,
+      "files": [
+        {
+          "path": ".github/workflows/qa-moderation-evidence.yml",
+          "sha": "7ad27eeb4dc32df586d5752cd30e1ffe106e4681"
+        },
+        {
+          "path": "docs/qa-homologacao/MATRIZ-DENUNCIAS-MODERACAO.md",
+          "sha": "5d3433fd23277d433a95ed8d3d3ecfbceaa443b7"
+        },
+        {
+          "path": "tests/security/qa-moderation-evidence-matrix.mjs",
+          "sha": "c11cf41ca9f9b15d05e7df7dde87fc6ee350391c"
+        }
+      ]
+    },
+    {
+      "pr": 222,
+      "files": [
+        {
+          "path": ".github/workflows/qa-retention-evidence.yml",
+          "sha": "6ea5fe115ba957667a2175938f12a0fe7860a421"
+        },
+        {
+          "path": "docs/qa-homologacao/RETENCAO-SEM-EXCLUSAO.md",
+          "sha": "07723b73af61872efddf43ec7628de95909183f7"
+        },
+        {
+          "path": "scripts/qa_retention_evidence_inventory.mjs",
+          "sha": "ce8da2ebef35c863a80dbe5bc2fd0b6b02ca1ca7"
+        },
+        {
+          "path": "scripts/qa_retention_evidence_inventory.test.mjs",
+          "sha": "f6102724fdd82f5ad1a6020dddc383d9d9e57282"
+        }
+      ]
+    },
+    {
+      "pr": 223,
+      "files": [
+        {
+          "path": ".github/workflows/qa-policy-200-gate.yml",
+          "sha": "bc8b682562114c1c4ac17a1a73ed7e7591c40734"
+        },
+        {
+          "path": "docs/qa-homologacao/ISSUE-200-DECISOES-OPERACIONAIS.md",
+          "sha": "e8cba02bb872ac75752c5b7d2b6e12b211706dd2"
+        },
+        {
+          "path": "docs/qa-homologacao/ISSUE-200-REGISTRO-PENDENTE.json",
+          "sha": "0399c3dc2c07b74e0a37215d0e5a8e39c6d0ec4f"
+        },
+        {
+          "path": "scripts/qa_issue200_decision_gate.mjs",
+          "sha": "c684fbc83096b03ea894fb488778aef1a9dbf985"
+        },
+        {
+          "path": "scripts/qa_issue200_decision_gate.test.mjs",
+          "sha": "c8be143576c6d4389b3edd1ca8f85b541345acc9"
+        }
+      ]
+    },
+    {
+      "pr": 224,
+      "files": [
+        {
+          "path": ".github/workflows/qa-incident-tabletop.yml",
+          "sha": "6f649b6f452102cdbc0428fb46dd05ace9204e0a"
+        },
+        {
+          "path": "docs/qa-homologacao/INCIDENTES-TRIAGEM-SEM-ATIVACAO.md",
+          "sha": "f9b4255d006efeb20083c93a6e8c692c969b5490"
+        },
+        {
+          "path": "scripts/qa_incident_tabletop.mjs",
+          "sha": "625a4f734e027e237a13b202b70f0034ffd41b91"
+        },
+        {
+          "path": "scripts/qa_incident_tabletop.test.mjs",
+          "sha": "3aac718f720f01c306904bc5a14c47e814085725"
+        }
+      ]
+    },
+    {
+      "pr": 225,
+      "files": [
+        {
+          "path": ".github/workflows/qa-rights-holds-review.yml",
+          "sha": "cc80d6c60a7df37a11ddb8adb136f84732550d37"
+        },
+        {
+          "path": "docs/qa-homologacao/DIREITOS-TITULAR-HOLDS.md",
+          "sha": "b5db8ddb9a6c8819dd36750e778287e9268448ab"
+        },
+        {
+          "path": "scripts/qa_rights_holds_review.mjs",
+          "sha": "2066ef620c98850d2f9928f1831e080e0abe5d3f"
+        },
+        {
+          "path": "scripts/qa_rights_holds_review.test.mjs",
+          "sha": "6b33ad435b20ed1dfc973439f6614d0c1d4a69e3"
+        }
+      ]
+    },
+    {
+      "pr": 226,
+      "files": [
+        {
+          "path": ".github/workflows/qa-m3-evidence-readiness.yml",
+          "sha": "cc26c0662d0610d19cb66c96d94d7188cb14b557"
+        },
+        {
+          "path": "docs/qa-homologacao/CONSOLIDACAO-EVIDENCIAS-M3.md",
+          "sha": "3c6c5a870ffc7fb894c4789acfa7de03292134dc"
+        },
+        {
+          "path": "scripts/qa_m3_evidence_readiness.py",
+          "sha": "eb27410a3b32e611f2afbc7754c664b5f0d5a391"
+        },
+        {
+          "path": "scripts/test_qa_m3_evidence_readiness.py",
+          "sha": "e7c521b71c01401e48480ea2e76d3ec93ac79778"
+        }
+      ]
+    }
+  ],
+  "expectedFiles": 35
+}

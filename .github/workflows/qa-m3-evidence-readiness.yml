@@ -1,0 +1,50 @@
+name: QA Marco 3 - validar evidencias das PRs sem deploy
+
+on:
+  pull_request:
+    branches:
+      - feat/atrio-conversas-etapa1-20261106
+    paths:
+      - 'scripts/qa_m3_evidence_readiness.py'
+      - 'scripts/test_qa_m3_evidence_readiness.py'
+      - 'docs/qa-homologacao/CONSOLIDACAO-EVIDENCIAS-M3.md'
+      - '.github/workflows/qa-m3-evidence-readiness.yml'
+
+permissions:
+  contents: read
+  pull-requests: read
+  actions: read
+  issues: read
+
+concurrency:
+  group: qa-m3-evidence-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  evidence-readonly:
+    name: Conferir estado das PRs e runs por SHA sem aprovar QA
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout sem credenciais persistidas
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validar testes sintéticos sem rede
+        run: python3 -m unittest scripts.test_qa_m3_evidence_readiness -v
+      - name: Comparar exclusivamente metadados oficiais via GET
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/qa_m3_evidence_readiness.py
+          cat "$RUNNER_TEMP/qa-m3-evidence-no-go.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Arquivar apenas o resumo sem conteúdo das PRs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-m3-evidence-no-go-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/qa-m3-evidence-no-go.json
+            ${{ runner.temp }}/qa-m3-evidence-no-go.md
+          retention-days: 14
+          if-no-files-found: warn
