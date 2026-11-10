@@ -19,7 +19,9 @@ jobs:
         with:
           persist-credentials: false
       - name: Confirmar Dependabot existente e contrato do review
-        run: python3 -m unittest scripts/test_dependency_review_contract.py -v
+        run: |
+          python3 -m unittest scripts/test_dependency_review_contract.py -v
+          python3 -m unittest scripts/test_npm_audit_diff.py -v
 
   dependency-review:
     # A API nativa depende de Dependency Graph habilitado nas Settings.
