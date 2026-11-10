@@ -167,3 +167,22 @@ distribuídos.
 **Fora o bootstrap QA descrito acima, nenhum deploy adicional, migração de dados,
 alteração de Firestore oficial, merge na main, atualização Release, alteração
 de Workers de produção ou backup foi executado ou está autorizado nesta etapa.**
+
+### Revogação de participação em grupos antes do FCM (somente candidato QA)
+
+A segunda checagem do candidato de laboratório agora diferencia DM de grupo.
+Para cada destinatário de `group_message`, além de conferir a prova
+de maioridade 18+ de remetente e destinatário, reconsulta o documento
+do grupo e as duas autorizações de grupo. Grupo encerrado, participação
+removida, documento ausente, elegibilidade revogada/vencida ou falha de
+consulta impedem o envio; o marcador D1 também não é reservado nesse caso.
+As mensagens individuais mantêm o caminho pré-envio já existente.
+
+Teste offline cobre revogação ou ausência de acesso, saída de qualquer
+participante, lista de integrantes inválida, fechamento do grupo e falha
+de rede. Não houve FCM real, implantação, alteração de Rules ou do Worker
+oficial. São **três leituras Firestore adicionais por destinatário de
+grupo** no ponto pré-envio; custos e cotas precisam de revisão antes de
+qualquer habilitação. A condição pode mudar após a leitura e antes do
+FCM, já que os serviços não formam uma transação única. As políticas
+da Issue #200 e os critérios para publicação continuam pendentes.

@@ -345,3 +345,52 @@ test('QA revalida idade apos selecao de destinatarios e antes do despacho',async
     assert.equal(await qaChatPushPreSendAllowed('fake','chat-alice','chat-bob'),false);
   } finally { globalThis.fetch=saved; }
 });
+
+test('QA bloqueia aviso de grupo apos saida, revogacao e encerramento antes do FCM',async()=>{
+  assert.ok(generated.includes('qaChatPushPreSendAllowed(token,uid,recipient,event.groupId)'));
+  const {qaChatPushPreSendAllowed}=await import(
+    'data:text/javascript;charset=utf-8,'+encodeURIComponent(generated));
+  const age=()=>qaDoc({status:'eligible',minimumAge:18,
+    policyVersion:'2026-11-18plus-qa-v1',reviewExpiresAt:qaFuture()});
+  const access=()=>qaDoc({status:'approved',
+    policyVersion:'2026-11-group-safety-v1',reviewExpiresAt:qaFuture()});
+  const group=()=>qaDoc({status:'active',memberUids:['chat-alice','chat-bob']});
+  const base={
+    'users/chat-alice/chatAgeEligibility/current':age(),
+    'users/chat-bob/chatAgeEligibility/current':age(),
+    'users/chat-alice/chatGroupAccess/eligibility':access(),
+    'users/chat-bob/chatGroupAccess/eligibility':access(),
+    'chat_groups/grp-qa':group()
+  };
+  const allowed=()=>qaChatPushPreSendAllowed('fake','chat-alice','chat-bob','grp-qa');
+  const saved=globalThis.fetch;
+  try {
+    qaMockFirestore(base);
+    assert.equal(await allowed(),true);
+    // O envio privado continua usando apenas a prova etaria.
+    assert.equal(await qaChatPushPreSendAllowed('fake','chat-alice','chat-bob'),true);
+    const denied=[
+      {'chat_groups/grp-qa':null},
+      {'chat_groups/grp-qa':qaDoc({status:'closed',memberUids:['chat-alice','chat-bob']})},
+      {'chat_groups/grp-qa':qaDoc({status:'active',memberUids:['chat-alice','chat-charlie']})},
+      {'chat_groups/grp-qa':qaDoc({status:'active',memberUids:['chat-bob','chat-charlie']})},
+      {'chat_groups/grp-qa':qaDoc({status:'active',memberUids:['chat-alice','chat-bob','chat-bob']})},
+      {'users/chat-bob/chatGroupAccess/eligibility':null},
+      {'users/chat-alice/chatGroupAccess/eligibility':null},
+      {'users/chat-bob/chatGroupAccess/eligibility':qaDoc({status:'revoked',
+        policyVersion:'2026-11-group-safety-v1',reviewExpiresAt:qaFuture()})},
+      {'users/chat-alice/chatGroupAccess/eligibility':qaDoc({status:'approved',
+        policyVersion:'2026-11-group-safety-v1',
+        reviewExpiresAt:new Date(Date.now()-60_000).toISOString()})},
+      {'users/chat-bob/chatAgeEligibility/current':null}
+    ];
+    for(const change of denied){
+      qaMockFirestore({...base,...change});
+      assert.equal(await allowed(),false,JSON.stringify(Object.keys(change)));
+    }
+    qaMockFirestore(base);
+    assert.equal(await qaChatPushPreSendAllowed('fake','chat-alice','chat-bob','../bad'),false);
+    globalThis.fetch=async()=>{throw Error('QA Firestore offline');};
+    assert.equal(await allowed(),false);
+  } finally {globalThis.fetch=saved;}
+});
