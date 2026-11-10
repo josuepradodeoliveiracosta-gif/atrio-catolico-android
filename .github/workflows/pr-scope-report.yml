@@ -1,0 +1,33 @@
+name: Resumo de escopo da Pull Request (somente leitura)
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  report-scope:
+    name: Relatar areas e tamanho da PR
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Checkout sem credenciais persistentes
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Testar classificador offline
+        run: python3 -m unittest scripts/test_pr_scope_report.py -v
+      - name: Gerar relatorio no GitHub Step Summary
+        shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          python3 scripts/pr_scope_report.py \
+            --base "$PR_BASE_SHA" \
+            --head "$PR_HEAD_SHA" >> "$GITHUB_STEP_SUMMARY"
