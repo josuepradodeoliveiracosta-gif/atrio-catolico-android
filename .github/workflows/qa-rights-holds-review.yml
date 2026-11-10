@@ -1,0 +1,50 @@
+name: QA Direitos - solicitacoes e impedimentos sem exclusao
+
+on:
+  pull_request:
+    branches:
+      - feat/atrio-conversas-etapa1-20261106
+    paths:
+      - 'scripts/qa_rights_holds_review.mjs'
+      - 'scripts/qa_rights_holds_review.test.mjs'
+      - 'docs/qa-homologacao/DIREITOS-TITULAR-HOLDS.md'
+      - '.github/workflows/qa-rights-holds-review.yml'
+
+permissions:
+  contents: read
+concurrency:
+  group: qa-rights-${{ github.run_id }}
+  cancel-in-progress: false
+jobs:
+  review:
+    name: Direitos do titular - preservar evidencia sem exportar ou apagar
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GOOGLE_APPLICATION_CREDENTIALS: ''
+      FIREBASE_TOKEN: ''
+      CLOUDFLARE_API_TOKEN: ''
+    steps:
+      - name: Checkout sem credenciais
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Testar solicitações e preservações adversariais
+        run: node --test scripts/qa_rights_holds_review.test.mjs
+      - name: Relatorio sanitizado sem usuarios reais
+        run: |
+          node scripts/qa_rights_holds_review.mjs > "$RUNNER_TEMP/qa-rights-NO-GO.json"
+          node -e 'const r=require(process.env.RUNNER_TEMP+"/qa-rights-NO-GO.json");if(r.status!=="NO_GO"||r.erasuresPerformed!==0||r.accessExportsProduced!==0||r.deletionAuthorized!==false)process.exit(1)'
+          echo '## Direitos do titular e retenção: somente casos sintéticos' >> "$GITHUB_STEP_SUMMARY"
+          echo 'NO-GO: nenhuma identidade real verificada, nenhum dado exportado, nenhuma correção ou exclusão feita. Política #200 permanece pendente.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Preservar somente agregados sintéticos
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-rights-no-go-${{ github.run_id }}
+          path: ${{ runner.temp }}/qa-rights-NO-GO.json
+          retention-days: 14
+          if-no-files-found: error
