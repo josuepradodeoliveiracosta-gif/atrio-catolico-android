@@ -84,33 +84,35 @@ nem usuários de produção; não publicar regras, habilitar FCM ou
 alterar backups.** Este experimento não substitui o laboratório
 restritivo atual, que continua sendo o padrão seguro.
 
-## Idade minima 16 anos — protocolo sintético exclusivamente offline
+## Idade mínima 18 anos — protocolo sintético exclusivamente offline
 
-O fundador definiu **16 anos completos ou mais** como idade mínima para
-participar do chat. Ambos os geradores offline de Rules exigem o portão
-`qaChatAge16Eligible(request.auth.uid)` e o registro próprio
+O fundador alterou a idade mínima para o chat para **18 anos completos**
+em 10/11/2026. A decisão anterior, de 16 anos, não está mais vigente.
+Os dois geradores de Rules offline exigem a função
+`qaChatAge18Eligible(request.auth.uid)` e o documento
 `users/{uid}/chatAgeEligibility/current`.
 
-Nos testes, o registro contém **somente** `status=eligible`,
-`minimumAge=16`, `policyVersion=2026-11-16plus-qa-v1`
-e `reviewExpiresAt` futuro. O próprio cliente não pode criar, atualizar
-ou excluir este registro. **Essa fixture administrativamente simulada
-não comprova a idade real, nem estabelece o fornecedor de aferição.**
-O mínimo 16 é um limiar afirmado por um verificador futuro; não significa
-que todo usuário tenha exatamente 16 anos.
+Os testes usam apenas `status=eligible`, `minimumAge=18`,
+`policyVersion=2026-11-18plus-qa-v1` e `reviewExpiresAt` futuro.
+O usuário não pode criar, alterar, renovar ou excluir o documento.
+A versão sintética anterior (limiar 16) não concede acesso ao chat.
 
-Valores desconhecidos, inferiores a 16, expirados, adulterados ou
-revogados devem negar histórico existente e novas operações. Os testes
-positivos mostram que uma fixture válida permite o chat somente quando
-os outros gates também são atendidos. As denúncias existentes preservam
-as permissões independentes de leitura, sem autorizar acesso aos DMs.
+A fixture é um **atestado administrativo fictício** no Firebase Emulator,
+não uma comprovação de idade. O campo `minimumAge=18` representa a
+afirmação de que o participante alcançou o limiar, **não a idade exata**.
+Não coletamos CPF, documentos nem fotos da identidade.
 
-**NUNCA publicar as Rules geradas** ou criar documentos sintéticos de
-idade em Firebase real. Antes de conectar usuários, faltam provedor
-confiável, privacidade e minimização, controles de proteção para
-adolescentes de 16 e 17 anos, supervisão quando aplicável,
-moderação/retencao e aprovação humana expressa na issue #200.
-O Firebase QA remoto continua deny-all e o Worker QA em bootstrap.
+Os testes recusam idades-limiar 16 e 17, versão errada, revogação,
+expiração e prova ausente, e validam um caso 18+ de controle positivo.
+A restrição também protege histórico, mensagens e convites por meio dos
+demais gates. Protocolos anteriores de denúncia conservam as regras
+próprias de privacidade sem reabrir mensagens.
+
+**NUNCA fazer deploy das regras candidatas ou criar provas sintéticas no
+Firebase real.** Faltam método de aferição confiável, revisão legal,
+moderação, retenção, privacidade e autorização de QA pela issue #200.
+Na última auditoria, Firebase QA real ainda estava deny-all e Worker QA
+em bootstrap fechado.
 
 ## Bloqueio de contato com destinatários inelegíveis — candidato offline
 
@@ -125,5 +127,5 @@ O Firebase Emulator testa a mesma solicitação de conversa e o mesmo
 envio atômico: falham com a elegibilidade do destinatário ausente ou
 revogada e passam quando a fixture válida é restaurada. A cobertura
 estática confere a injeção dos requisitos de convites em ambos os
-candidatos. Isso **não** é prova de idade, não implementa política de
-contato entre adolescentes, nem homologa fluxos reais de grupos.
+candidatos. Isso **não** é prova de idade, não implementa política de prevenção de
+contato com menores, nem homologa fluxos reais de grupos.

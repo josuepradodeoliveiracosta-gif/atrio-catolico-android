@@ -1,17 +1,17 @@
 /**
  * GATE DE IDADE EXCLUSIVO DO CANDIDATO QA OFFLINE; NAO IMPLANTAR.
- * 16 anos = idade minima para chat decidida pelo fundador.
+ * 18 anos = idade minima para chat atualizada em 10/11/2026.
  * Fixture criada via contexto administrativo do emulador: nao comprova idade real.
- * Fluxo de afericao, tratamento 16-17 e politica #200 seguem pendentes.
+ * Fluxo de afericao, restricao para menores de 18 e politica #200 seguem pendentes.
  */
-export const QA_AGE16_GATE=`
-    function qaChatAge16Eligible(uid) {
+export const QA_AGE18_GATE=`
+    function qaChatAge18Eligible(uid) {
       // Uma unica leitura evita esgotar o limite de acessos das Rules
       // durante convites de grupo. Prova ausente gera negacao (fail-closed).
       let proof = get(/databases/$(database)/documents/users/$(uid)/chatAgeEligibility/current).data;
       return proof.get('status','') == 'eligible'
-        && proof.get('minimumAge',0) == 16
-        && proof.get('policyVersion','') == '2026-11-16plus-qa-v1'
+        && proof.get('minimumAge',0) == 18
+        && proof.get('policyVersion','') == '2026-11-18plus-qa-v1'
         && proof.get('reviewExpiresAt',request.time) is timestamp
         && proof.get('reviewExpiresAt',request.time) > request.time;
     }
@@ -24,25 +24,25 @@ export const QA_AGE16_GATE=`
 /** Transforma APENAS fragmentos em memoria. Falha fechado se a fonte mudar. */
 function insertChecked(source,before,after,scope) {
   if(typeof source!=='string' || source.split(before).length!==2)
-    throw Error('qa_age16_'+scope+'_anchor_changed');
+    throw Error('qa_age18_'+scope+'_anchor_changed');
   return source.replace(before,after);
 }
-export function strengthenAge16Contacts(chat,group) {
+export function strengthenAge18Contacts(chat,group) {
   let c=insertChecked(chat,
     '        && validId(request.resource.data.recipientUid)\n        && request.resource.data.requesterUid != request.resource.data.recipientUid',
-    '        && validId(request.resource.data.recipientUid)\n        && qaChatAge16Eligible(request.resource.data.recipientUid)\n        && request.resource.data.requesterUid != request.resource.data.recipientUid',
+    '        && validId(request.resource.data.recipientUid)\n        && qaChatAge18Eligible(request.resource.data.recipientUid)\n        && request.resource.data.requesterUid != request.resource.data.recipientUid',
     'dm_recipient');
   c=insertChecked(c,
     '          && chatMember(getAfter(/databases/$(database)/documents/chats/$(chatId)).data)\n          && chatNoBlock(',
-    '          && chatMember(getAfter(/databases/$(database)/documents/chats/$(chatId)).data)\n          && qaChatAge16Eligible(getAfter(/databases/$(database)/documents/chats/$(chatId)).data.requesterUid)\n          && qaChatAge16Eligible(getAfter(/databases/$(database)/documents/chats/$(chatId)).data.recipientUid)\n          && chatNoBlock(',
+    '          && chatMember(getAfter(/databases/$(database)/documents/chats/$(chatId)).data)\n          && qaChatAge18Eligible(getAfter(/databases/$(database)/documents/chats/$(chatId)).data.requesterUid)\n          && qaChatAge18Eligible(getAfter(/databases/$(database)/documents/chats/$(chatId)).data.recipientUid)\n          && chatNoBlock(',
     'dm_message');
   let g=insertChecked(group,
     '      allow create: if atrioGroupsEnabled() && validId(inviteeUid)',
-    '      allow create: if atrioGroupsEnabled() && validId(inviteeUid)\n          && qaChatAge16Eligible(inviteeUid)',
+    '      allow create: if atrioGroupsEnabled() && validId(inviteeUid)\n          && qaChatAge18Eligible(inviteeUid)',
     'invite_create');
   g=insertChecked(g,
     '        allow update: if atrioGroupsEnabled()\n          && atrioGroupEligible(request.auth.uid)\n          && request.resource.data.diff(resource.data).affectedKeys()',
-    '        allow update: if atrioGroupsEnabled()\n          && atrioGroupEligible(request.auth.uid)\n          && qaChatAge16Eligible(inviteeUid)\n          && request.resource.data.diff(resource.data).affectedKeys()',
+    '        allow update: if atrioGroupsEnabled()\n          && atrioGroupEligible(request.auth.uid)\n          && qaChatAge18Eligible(inviteeUid)\n          && request.resource.data.diff(resource.data).affectedKeys()',
     'invite_update');
   return {chat:c,group:g};
 }

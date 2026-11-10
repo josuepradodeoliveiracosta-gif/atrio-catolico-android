@@ -20,8 +20,8 @@ const outsider=env.authenticatedContext('qa-outsider',{email_verified:true}).fir
 const guest=env.unauthenticatedContext().firestore();
 const unverified=env.authenticatedContext('qa-unverified',{email_verified:false}).firestore();
 const room='chats/qa-alice__qa-bob';
-const qaAge16Proof={
-  status:'eligible',minimumAge:16,policyVersion:'2026-11-16plus-qa-v1',
+const qaAge18Proof={
+  status:'eligible',minimumAge:18,policyVersion:'2026-11-18plus-qa-v1',
   reviewExpiresAt:Timestamp.fromDate(new Date('2035-01-01T00:00:00.000Z'))
 };
 const aliceAge='users/qa-alice/chatAgeEligibility/current';
@@ -48,12 +48,12 @@ try {
    updatedAt:serverTimestamp()
  }));
  // Prova sintética é escrita somente no contexto administrativo do emulador.
- await assertFails(setDoc(doc(bob,bobAge),qaAge16Proof));
- await assertFails(setDoc(doc(alice,aliceAge),qaAge16Proof));
+ await assertFails(setDoc(doc(bob,bobAge),qaAge18Proof));
+ await assertFails(setDoc(doc(alice,aliceAge),qaAge18Proof));
  await env.withSecurityRulesDisabled(async ctx=>{
    const db=ctx.firestore();
-   await setDoc(doc(db,aliceAge),qaAge16Proof);
-   await setDoc(doc(db,bobAge),qaAge16Proof);
+   await setDoc(doc(db,aliceAge),qaAge18Proof);
+   await setDoc(doc(db,bobAge),qaAge18Proof);
  });
  // Conta nao verificada nunca atravessa o gate, mesmo com flags sinteticas ativas.
  await assertFails(setDoc(doc(unverified,'users/qa-unverified/chatSettings/privacy'),{
@@ -99,7 +99,7 @@ try {
  });
  await assertFails(createInitialChat().commit());
  await env.withSecurityRulesDisabled(async ctx=>{
-   await setDoc(doc(ctx.firestore(),bobAge),qaAge16Proof);
+   await setDoc(doc(ctx.firestore(),bobAge),qaAge18Proof);
  });
  await assertSucceeds(createInitialChat().commit());
  await assertSucceeds(getDoc(doc(bob,room)));
@@ -131,21 +131,22 @@ try {
    return b;
  };
  await env.withSecurityRulesDisabled(async ctx=>{
-   await setDoc(doc(ctx.firestore(),bobAge),{...qaAge16Proof,status:'revoked'});
+   await setDoc(doc(ctx.firestore(),bobAge),{...qaAge18Proof,status:'revoked'});
  });
  await assertFails(sendSecondMessage().commit());
  await env.withSecurityRulesDisabled(async ctx=>{
-   await setDoc(doc(ctx.firestore(),bobAge),qaAge16Proof);
+   await setDoc(doc(ctx.firestore(),bobAge),qaAge18Proof);
  });
  await assertSucceeds(sendSecondMessage().commit());
  await assertSucceeds(getDoc(doc(bob,room+'/messages/qa-second')));
  // Idade desconhecida, revogacao, limite inadequado, politica errada
  // ou validade encerrada sempre retiram acesso AO HISTORICO existente.
  for(const invalid of [
-   {...qaAge16Proof,status:'revoked'},
-   {...qaAge16Proof,minimumAge:15},
-   {...qaAge16Proof,policyVersion:'unreviewed'},
-   {...qaAge16Proof,reviewExpiresAt:Timestamp.fromDate(new Date('2000-01-01T00:00:00Z'))}
+   {...qaAge18Proof,status:'revoked'},
+   {...qaAge18Proof,minimumAge:16},
+   {...qaAge18Proof,minimumAge:17},
+   {...qaAge18Proof,policyVersion:'unreviewed'},
+   {...qaAge18Proof,reviewExpiresAt:Timestamp.fromDate(new Date('2000-01-01T00:00:00Z'))}
  ]) {
    await env.withSecurityRulesDisabled(async ctx=>{
      await setDoc(doc(ctx.firestore(),bobAge),invalid);
@@ -158,7 +159,7 @@ try {
  });
  await assertFails(getDoc(doc(bob,room)));
  await env.withSecurityRulesDisabled(async ctx=>{
-   await setDoc(doc(ctx.firestore(),bobAge),qaAge16Proof);
+   await setDoc(doc(ctx.firestore(),bobAge),qaAge18Proof);
  });
  await assertSucceeds(getDoc(doc(bob,room)));
  await assertSucceeds(getDoc(doc(bob,room+'/messages/first')));
@@ -397,14 +398,14 @@ try {
  await assertSucceeds(getDoc(doc(alice,room)));
  await assertFails(newInvite());
  await env.withSecurityRulesDisabled(async ctx=>{
-   await setDoc(doc(ctx.firestore(),bobAge),qaAge16Proof);
+   await setDoc(doc(ctx.firestore(),bobAge),qaAge18Proof);
  });
  await assertSucceeds(newInvite());
  await assertSucceeds(getDoc(doc(bob,inviteRef)));
  // Uma prova revogada impede leitura do convite e sua aceitacao/recusa.
  await env.withSecurityRulesDisabled(async ctx=>{
    await setDoc(doc(ctx.firestore(),bobAge),{
-     ...qaAge16Proof,status:'revoked'
+     ...qaAge18Proof,status:'revoked'
    });
  });
  await assertFails(getDoc(doc(bob,inviteRef)));
@@ -412,7 +413,7 @@ try {
    status:'declined',updatedAt:serverTimestamp()
  }));
  await env.withSecurityRulesDisabled(async ctx=>{
-   await setDoc(doc(ctx.firestore(),bobAge),qaAge16Proof);
+   await setDoc(doc(ctx.firestore(),bobAge),qaAge18Proof);
  });
  await assertSucceeds(getDoc(doc(bob,inviteRef)));
  await assertSucceeds(updateDoc(doc(bob,inviteRef),{
@@ -421,14 +422,14 @@ try {
  // Reconvite pelo administrador tambem exige prova valida do destinatario.
  await env.withSecurityRulesDisabled(async ctx=>{
    await setDoc(doc(ctx.firestore(),bobAge),{
-     ...qaAge16Proof,reviewExpiresAt:past
+     ...qaAge18Proof,reviewExpiresAt:past
    });
  });
  await assertFails(updateDoc(doc(alice,inviteRef),{
    status:'pending',updatedAt:serverTimestamp()
  }));
  await env.withSecurityRulesDisabled(async ctx=>{
-   await setDoc(doc(ctx.firestore(),bobAge),qaAge16Proof);
+   await setDoc(doc(ctx.firestore(),bobAge),qaAge18Proof);
  });
  await assertSucceeds(updateDoc(doc(alice,inviteRef),{
    status:'pending',updatedAt:serverTimestamp()

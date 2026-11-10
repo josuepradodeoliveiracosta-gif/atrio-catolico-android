@@ -53,27 +53,27 @@ test('rejeita permissões abertas e declarações perigosas nos fragmentos',()=>
     /qa_parity_function_collision/);
 });
 
-test('ambos candidatos offline exigem 16+ sem escrita de cliente',()=>{
+test('ambos candidatos offline exigem 18+ sem escrita de cliente',()=>{
   for(const candidate of [renderParity(base,chat,group),renderStandalone(chat,group)]){
-    assert.equal(candidate.includes('function qaChatAge16Eligible(uid)'),true);
-    assert.equal(candidate.includes('qaChatAge16Eligible(request.auth.uid)'),true);
-    assert.equal(candidate.includes("proof.get('minimumAge',0) == 16"),true);
-    assert.equal(candidate.includes("proof.get('policyVersion','') == '2026-11-16plus-qa-v1'"),true);
+    assert.equal(candidate.includes('function qaChatAge18Eligible(uid)'),true);
+    assert.equal(candidate.includes('qaChatAge18Eligible(request.auth.uid)'),true);
+    assert.equal(candidate.includes("proof.get('minimumAge',0) == 18"),true);
+    assert.equal(candidate.includes("proof.get('policyVersion','') == '2026-11-18plus-qa-v1'"),true);
     assert.equal(candidate.includes("allow list, create, update, delete: if false;"),true);
-    assert.equal(candidate.split('function qaChatAge16Eligible(uid)').length,2);
+    assert.equal(candidate.split('function qaChatAge18Eligible(uid)').length,2);
   }
 });
 
 test('somente o QA exige elegibilidade do destinatario e do convidado',()=>{
   for(const candidate of [renderParity(base,chat,group),renderStandalone(chat,group)]){
-    assert.equal(candidate.includes('qaChatAge16Eligible(request.resource.data.recipientUid)'),true);
-    assert.equal(candidate.includes('qaChatAge16Eligible(getAfter(/databases/$(database)/documents/chats/$(chatId)).data.requesterUid)'),true);
-    assert.equal(candidate.includes('qaChatAge16Eligible(getAfter(/databases/$(database)/documents/chats/$(chatId)).data.recipientUid)'),true);
-    assert.equal(candidate.includes('qaChatAge16Eligible(inviteeUid)'),true);
-    assert.equal(candidate.split('qaChatAge16Eligible(inviteeUid)').length,3);
+    assert.equal(candidate.includes('qaChatAge18Eligible(request.resource.data.recipientUid)'),true);
+    assert.equal(candidate.includes('qaChatAge18Eligible(getAfter(/databases/$(database)/documents/chats/$(chatId)).data.requesterUid)'),true);
+    assert.equal(candidate.includes('qaChatAge18Eligible(getAfter(/databases/$(database)/documents/chats/$(chatId)).data.recipientUid)'),true);
+    assert.equal(candidate.includes('qaChatAge18Eligible(inviteeUid)'),true);
+    assert.equal(candidate.split('qaChatAge18Eligible(inviteeUid)').length,3);
   }
   assert.throws(()=>renderParity(base,chat.replace(
     'validId(request.resource.data.recipientUid)',
     'validId(request.resource.data.recipientUid) /* fonte mudou */'),group),
-    /qa_age16_dm_recipient_anchor_changed/);
+    /qa_age18_dm_recipient_anchor_changed/);
 });
