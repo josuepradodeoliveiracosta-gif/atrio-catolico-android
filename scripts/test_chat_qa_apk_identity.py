@@ -22,11 +22,14 @@ class ChatQaApkIdentityTests(unittest.TestCase):
         self.sender_id = "123456789"
         self.sdk = t.name
 
-    def write_apk(self, dex=b"synthetic bytecode", resources=b"synthetic resources", include_dex=True):
+    def write_apk(self, dex=b"synthetic bytecode", resources=b"synthetic resources",
+                  include_dex=True, extras=None):
         with zipfile.ZipFile(self.apk, "w") as archive:
             if include_dex:
                 archive.writestr("classes.dex", dex)
             archive.writestr("resources.arsc", resources)
+            for name, payload in (extras or {}).items():
+                archive.writestr(name, payload)
         self.sha = hashlib.sha256(self.apk.read_bytes()).hexdigest()
 
     def sdk_runner(self, args):
@@ -153,10 +156,46 @@ class ChatQaApkIdentityTests(unittest.TestCase):
         self.write_apk(resources=("atrio-avatares.atrio-catolico.workers.dev").encode("utf-16le"))
         self.check_denied()
 
+    def test_rejeita_worker_oficial_maiusculo_em_dex(self):
+        self.write_apk(dex=b"HTTPS://ATRIO-PUSH.ATRIO-CATOLICO.WORKERS.DEV")
+        self.check_denied()
+
+    def test_rejeita_worker_oficial_misto_em_utf16(self):
+        self.write_apk(resources=("Atrio-Avatares.Atrio-Catolico.Workers.Dev").encode("utf-16le"))
+        self.check_denied()
+
+    def test_nao_confunde_worker_qa_com_oficial(self):
+        self.write_apk(dex=b"https://ATRIO-QA-GERAL.SYNTHETIC.WORKERS.DEV")
+        self.assertTrue(self.run_preflight()["known_production_workers_absent_in_apk"])
+
     def test_rejeita_worker_oficial_dividido_entre_blocos(self):
         marker = b"atrio-guardian-v2.atrio-catolico.workers.dev"
         self.write_apk(dex=b"x" * (1024 * 1024 - 5) + marker)
         self.check_denied()
+
+    def test_rejeita_worker_oficial_em_asset_json(self):
+        self.write_apk(extras={
+            "assets/config.json": b'{"url":"https://ATRIO-PUSH.ATRIO-CATOLICO.WORKERS.DEV"}'
+        })
+        self.check_denied()
+
+    def test_rejeita_worker_oficial_em_manifesto_utf16(self):
+        self.write_apk(extras={
+            "AndroidManifest.xml": "atrio-avatares.atrio-catolico.workers.dev".encode("utf-16le")
+        })
+        self.check_denied()
+
+    def test_rejeita_worker_oficial_em_biblioteca_nativa(self):
+        self.write_apk(extras={
+            "lib/arm64-v8a/libqa.so": b"atrio-guardian-v2.atrio-catolico.workers.dev"
+        })
+        self.check_denied()
+
+    def test_asset_qa_legitimo_nao_e_bloqueado(self):
+        self.write_apk(extras={
+            "assets/config.json": b'{"url":"https://atrio-qa-geral.synthetic.workers.dev"}'
+        })
+        self.assertTrue(self.run_preflight()["known_production_workers_absent_in_apk"])
 
     def test_rejeita_apk_corrompido_com_hash_correspondente(self):
         self.apk.write_bytes(b"nao e um zip")
