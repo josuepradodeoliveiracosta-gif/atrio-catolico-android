@@ -74,8 +74,11 @@ function makeScenario(type,change) {
     ?{type:'group_message',groupId,messageId}
     :{type:'chat_message',chatId,messageId};
   let sawDevices=false,markerWrites=0,fcmCalls=0,firestoreReads=0,authCalls=0;
+  let currentChange=change;
+  const insertedMarkers=new Set(); // D1 sintetico retido entre chamadas
   const stat={get sawDevices(){return sawDevices;},
     get markerWrites(){return markerWrites;},get fcmCalls(){return fcmCalls;},
+    get uniqueMarkers(){return insertedMarkers.size;},
     get firestoreReads(){return firestoreReads;},get authCalls(){return authCalls;}};
   const db={prepare(sql){
     if(sql.includes('atrio_qa_identity'))
@@ -86,8 +89,11 @@ function makeScenario(type,change) {
     if(sql.startsWith('DELETE FROM delivered'))
       return {bind(){return {run:async()=>({meta:{changes:0}})}}};
     if(sql.startsWith('INSERT OR IGNORE INTO delivered'))
-      return {bind(){return {run:async()=>{
+      return {bind(marker){return {run:async()=>{
+        assert.ok(typeof marker==='string' && marker.endsWith(':'+recipient));
         markerWrites++;
+        if(insertedMarkers.has(marker)) return {meta:{changes:0}};
+        insertedMarkers.add(marker);
         return {meta:{changes:1}};
       }}}};
     if(sql.startsWith('INSERT INTO push_delivery_stats'))
@@ -112,7 +118,9 @@ function makeScenario(type,change) {
       fcmCalls++;
       assert.equal(url.pathname,'/v1/projects/'+project+'/messages:send');
       assert.equal(JSON.parse(options.body).message.data.kind,event.type);
-      return okJson({name:'offline-synthetic-only'});
+      return currentChange==='fcm_failure'
+        ?okJson({error:{status:'UNAVAILABLE'}},503)
+        :okJson({name:'offline-synthetic-only'});
     }
     if(target.startsWith(documentRoot)){
       const relative=decodeURIComponent(url.pathname.split('/documents/')[1]||'');
@@ -130,20 +138,20 @@ function makeScenario(type,change) {
       }
       firestoreReads++;
       if(sawDevices){
-        if(change==='remove_message' && relative===messagePath)
+        if(currentChange==='remove_message' && relative===messagePath)
           return okJson({},404);
-        if(change==='revoke_age' &&
+        if(currentChange==='revoke_age' &&
             relative==='users/'+recipient+'/chatAgeEligibility/current')
           return okJson({},404);
-        if(change==='block_contact' &&
+        if(currentChange==='block_contact' &&
             relative==='users/'+recipient+'/blockedMembers/'+uid)
           return okJson(makeDoc({createdAt:recent()}));
-        if(change==='disable_chat' && relative==='app_config/conversations')
+        if(currentChange==='disable_chat' && relative==='app_config/conversations')
           return okJson(makeDoc({enabled:false,minorPolicyApproved:true,
             safetyReviewVersion:'2026-11-safety-v1',version:'2026-11-v1'}));
-        if(change==='remove_membership' && relative==='chat_groups/'+groupId)
+        if(currentChange==='remove_membership' && relative==='chat_groups/'+groupId)
           return okJson(makeDoc({status:'active',memberUids:[uid,'chat-charlie']}));
-        if(change==='disable_group_push' && relative==='app_config/chat_groups')
+        if(currentChange==='disable_group_push' && relative==='app_config/chat_groups')
           return okJson(makeDoc({enabled:true,pushEnabled:false,
             minorPolicyApproved:true,version:'2026-11-groups-v1'}));
       }
@@ -163,7 +171,7 @@ function makeScenario(type,change) {
     headers:{Authorization:'Bearer '+fakeToken,'Content-Type':'application/json'},
     body:JSON.stringify(event)
   });
-  return {stat,mockFetch,env,request};
+  return {stat,mockFetch,env,request,setChange(value){currentChange=value;}};
 }
 
 test('rota Worker QA completa: revogacao apos busca de dispositivos impede D1 e FCM',async()=>{
@@ -212,4 +220,71 @@ test('rota Worker QA completa: controle positivo sintético usa somente projeto 
       assert.equal(scenario.stat.fcmCalls,1);
     }
   }finally{globalThis.fetch=originalFetch;}
+});
+
+
+test('rota QA: o mesmo evento nao pode reservar D1 ou enviar FCM duas vezes',async()=>{
+  const worker=(await import('data:text/javascript;charset=utf-8,'+
+    encodeURIComponent(generated))).default;
+  const oldFetch=globalThis.fetch;
+  try{
+    for(const type of ['dm','group']){
+      const scenario=makeScenario(type,'none');
+      globalThis.fetch=scenario.mockFetch;
+      const first=await worker.fetch(scenario.request(),scenario.env);
+      assert.equal(first.status,202,type);
+      assert.equal((await first.json()).status,'accepted_by_fcm');
+      const duplicate=await worker.fetch(scenario.request(),scenario.env);
+      assert.equal(duplicate.status,202,type);
+      assert.equal((await duplicate.json()).status,'no_devices_or_duplicate',type);
+      assert.equal(scenario.stat.markerWrites,2,'D1 testou duas reservas');
+      assert.equal(scenario.stat.uniqueMarkers,1,'D1 aceitou um identificador');
+      assert.equal(scenario.stat.fcmCalls,1,'FCM ficticio recebeu um envio');
+    }
+  }finally{globalThis.fetch=oldFetch;}
+});
+
+test('rota QA: recusa nao consome deduplicacao; restauracao permite envio unico',async()=>{
+  const worker=(await import('data:text/javascript;charset=utf-8,'+
+    encodeURIComponent(generated))).default;
+  const oldFetch=globalThis.fetch;
+  try{
+    for(const [type,revoke] of [['dm','revoke_age'],['group','remove_membership']]){
+      const scenario=makeScenario(type,revoke);
+      globalThis.fetch=scenario.mockFetch;
+      const blocked=await worker.fetch(scenario.request(),scenario.env);
+      assert.equal((await blocked.json()).status,'no_devices_or_duplicate',type);
+      assert.equal(scenario.stat.markerWrites,0,'Evento negado nao reserva D1');
+      assert.equal(scenario.stat.fcmCalls,0,'Evento negado nao envia FCM');
+      scenario.setChange('none'); // documento QA ficticio restaurado pelo mock
+      const permitted=await worker.fetch(scenario.request(),scenario.env);
+      assert.equal((await permitted.json()).status,'accepted_by_fcm',type);
+      assert.equal(scenario.stat.uniqueMarkers,1);
+      const again=await worker.fetch(scenario.request(),scenario.env);
+      assert.equal((await again.json()).status,'no_devices_or_duplicate',type);
+      assert.equal(scenario.stat.fcmCalls,1,'Nao repetir apos restauracao');
+    }
+  }finally{globalThis.fetch=oldFetch;}
+});
+
+test('rota QA: falha FCM apos reserva segue at-most-once, sem retry implicito',async()=>{
+  const worker=(await import('data:text/javascript;charset=utf-8,'+
+    encodeURIComponent(generated))).default;
+  const oldFetch=globalThis.fetch;
+  try{
+    const scenario=makeScenario('dm','fcm_failure');
+    globalThis.fetch=scenario.mockFetch;
+    const first=await worker.fetch(scenario.request(),scenario.env);
+    assert.equal(first.status,503);
+    assert.equal((await first.json()).status,'delivery_failed');
+    assert.equal(scenario.stat.uniqueMarkers,1);
+    assert.equal(scenario.stat.fcmCalls,1);
+    scenario.setChange('none');
+    const second=await worker.fetch(scenario.request(),scenario.env);
+    assert.equal(second.status,202);
+    assert.equal((await second.json()).status,'no_devices_or_duplicate');
+    assert.equal(scenario.stat.uniqueMarkers,1);
+    assert.equal(scenario.stat.fcmCalls,1,
+      'Garantia de nao duplicar pode perder notificacao com HTTP 503');
+  }finally{globalThis.fetch=oldFetch;}
 });

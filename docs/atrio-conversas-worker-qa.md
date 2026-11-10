@@ -269,3 +269,21 @@ o identificador do projeto QA em suas URLs.
 criptográfica remota de token ou deploy. A simulação não encerra
 os marcos 3–7, não elimina a janela de corrida pós-verificação e
 não substitui o teste em dois aparelhos físicos.
+
+### Deduplicação D1, retomada e falhas de entrega — simulação offline
+
+O mock D1 da suíte completa `/event` agora mantém um conjunto de
+marcadores entre requisições e simula `INSERT OR IGNORE` como no SQL
+real: a primeira reserva é aceita, e a segunda para o mesmo evento
+não altera linhas. A suíte cobre DM e grupo repetidos, negativa após
+revogação (sem reservar marcador), restauração da permissão fictícia
+e um único envio subsequente.
+
+Um cenário adicional simula **HTTP 503 do FCM após reservar D1**:
+o Worker retorna `delivery_failed`, mas uma repetição não tenta
+enviar de novo. Isso comprova a escolha atual de **no máximo uma
+tentativa**, evitando duplicação ao custo de perder avisos em algumas
+falhas de rede/FCM. É uma limitação do candidato, **não uma entrega
+garantida**; a política de retry e observabilidade precisará de
+aprovação e testes antes da ativação real. Nenhum token real,
+D1 remoto, FCM ou Worker publicado participa desses testes.
