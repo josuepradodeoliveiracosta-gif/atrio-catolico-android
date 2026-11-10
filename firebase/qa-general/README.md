@@ -195,3 +195,25 @@ não sobrevivem a reinícios nem são compartilhadas entre processos.
 No backend futuro, validar expiração/revogação real de sessões e rotação
 de chaves, fixar âncoras de confiança no servidor e consumir desafios
 e `jti` com transações atômicas persistentes antes de qualquer emissão.
+
+## Ponte offline entre atestado e Rules de chat 18+
+
+`tests/security/qa-age18-admission-firestore.test.mjs` exercita uma
+sequência **totalmente sintética** no Firebase Emulator
+(`demo-atrio-v11`): cliente autenticado não pode se conceder
+elegibilidade; declaração `ageAtLeast18=false` não passa no contrato
+assinado; atestado válido isolado **não** libera o chat; somente
+`withSecurityRulesDisabled` (representação do futuro backend
+administrativo **somente no emulador**) cria um registro privado mínimo.
+As regras então permitem a operação positiva sob portões fictícios,
+mas novamente bloqueiam após revogação, e-mail não verificado ou
+versão obsoleta da política 16+.
+
+**Nunca copiar o bypass `withSecurityRulesDisabled` para serviço
+real ou projeto de nuvem.** Este teste não autentica Firebase Auth
+externo, não confirma idade, não possui provedor real, não cria
+mecanismo de assinatura/consulta de identidades, não implementa
+retentativa atômica distribuída e não autoriza uso público do chat.
+Antes de qualquer implantação, a Issue #200 exige homologação
+formal de método, LGPD, moderação, retenção, revisão das Rules
+e autorização explícita separada.

@@ -111,6 +111,18 @@ de chaves, verificação e revogação efetiva de sessão, armazenamento
 atômico e persistente de desafios e `jti`, aprovação da Issue #200,
 bem como revisão jurídica e de privacidade antes do QA remoto.
 
+### Integração controlada da futura prova 18+ às Rules — simulação offline
+
+O roteiro de laboratório executa, em ordem, a prova de cliente
+sem acesso ao chat, um atestado Ed25519 sintético de não elegibilidade,
+um atestado sintético válido e o registro **somente por bypass
+administrativo do Firebase Emulator**. Verifica que o atestado válido
+isolado nunca concede acesso: é a Rules que exige o documento
+privado `chatAgeEligibility/current`, e a escrita do próprio usuário
+é proibida. Depois, simula revogação e versão antiga, bloqueando
+novamente o acesso. A demonstração **não aprova** um serviço emissor,
+não autentica Firebase real nem autoriza implantá-lo.
+
 ## Condições atuais verificadas
 
 - A suíte Firestore Emulator testa bloqueio por `minorPolicyApproved`,

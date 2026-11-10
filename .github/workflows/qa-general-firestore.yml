@@ -10,6 +10,7 @@ on:
       - 'firebase/atrio-conversas-v1.rules.fragment'
       - 'firebase/atrio-grupos-v1.rules.fragment'
       - 'tests/security/qa-general-firestore.test.mjs'
+      - 'tests/security/qa-age18-admission-firestore.test.mjs'
       - 'tests/security/qa-general.firebase.json'
       - 'scripts/termux-firebase-qa-identity-readonly.mjs'
       - 'scripts/termux-firebase-qa-identity-readonly.test.mjs'
@@ -69,7 +70,7 @@ jobs:
           ! grep -q 'allow read, write: if true;' tests/security/qa-general.generated.rules
       - name: Emular regras e cenarios de seguranca
         working-directory: tests/security
-        run: ./node_modules/.bin/firebase emulators:exec --only firestore --config qa-general.firebase.json --project demo-atrio-v11 "node qa-general-firestore.test.mjs"
+        run: ./node_modules/.bin/firebase emulators:exec --only firestore --config qa-general.firebase.json --project demo-atrio-v11 "node qa-general-firestore.test.mjs && node qa-age18-admission-firestore.test.mjs"
       - name: Limpar saida local
         if: always()
         run: rm -f tests/security/qa-general.generated.rules tests/security/qa-parity.generated.rules
