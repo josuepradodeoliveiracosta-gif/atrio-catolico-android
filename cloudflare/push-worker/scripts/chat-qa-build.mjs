@@ -110,18 +110,18 @@ export function renderQaWorker(original, project) {
     "      !service.private_key)");
   // QA-only: if FCM accepts one device and rejects another, never report
   // the whole event as accepted. This does NOT retry or alter D1 semantics.
-  code = exactlyOnce(code, "      const outcome=attempted && !accepted ? 'delivery_failed'\n        : accepted ? 'accepted_by_fcm' : 'no_devices_or_duplicate';", "      const outcome=transportFailure\n        ? (accepted ? 'partial_delivery_unknown' : 'delivery_transport_unknown')\n        : attempted && !accepted ? 'delivery_failed'\n        : accepted && failedHttp ? 'partial_delivery_failed'\n        : accepted ? 'accepted_by_fcm' : 'no_devices_or_duplicate';");
-  code = exactlyOnce(code, "      return response(outcome==='delivery_failed'||!fanoutOk ? 503 : 202,", "      return response(['delivery_failed','partial_delivery_failed',\n        'delivery_transport_unknown','partial_delivery_unknown'].includes(outcome)\n          || !fanoutOk ? 503 : 202,");
+  code = exactlyOnce(code, "      const outcome=attempted && !accepted ? 'delivery_failed'\n        : accepted ? 'accepted_by_fcm' : 'no_devices_or_duplicate';", "      const outcome=policyInterrupted ? 'authorization_interrupted'\n        : transportFailure\n          ? (accepted ? 'partial_delivery_unknown' : 'delivery_transport_unknown')\n        : attempted && !accepted ? 'delivery_failed'\n        : accepted && failedHttp ? 'partial_delivery_failed'\n        : accepted ? 'accepted_by_fcm' : 'no_devices_or_duplicate';");
+  code = exactlyOnce(code, "      return response(outcome==='delivery_failed'||!fanoutOk ? 503 : 202,", "      return response(['delivery_failed','partial_delivery_failed',\n        'delivery_transport_unknown','partial_delivery_unknown',\n        'authorization_interrupted'].includes(outcome)\n          || !fanoutOk ? 503 : 202,");
 
   // Apos D1 at-most-once, erro de transporte significa resultado FCM
   // desconhecido: registrar contagem anonima e retornar HTTP 503,
   // SEM repetir nem apagar marcador.
   code = exactlyOnce(code, "      let failedHttp=0;\n      let cleaned=0;",
-    "      let failedHttp=0;\n      let cleaned=0;\n      let transportFailure=false;");
+    "      let failedHttp=0;\n      let cleaned=0;\n      let transportFailure=false;\n      let policyInterrupted=false;");
   code = exactlyOnce(code, "        for(const target of list) {\n          const result=event.topic",
-    "        for(const target of list) {\n          let result;\n          try {\n            result=event.topic");
+    "        let attemptedForRecipient=0;\n        for(const target of list) {\n          // A primeira revalidacao antecede a reserva D1; nos dispositivos\n          // seguintes, conferir novamente bloqueios, status, grupo e mensagem.\n          if (attemptedForRecipient>0 &&\n              (event.kind==='chat_message' || event.kind==='group_message')) {\n            let stillAllowed=false;\n            try {\n              stillAllowed=await qaChatPushPreSendAllowed(token,uid,recipient,\n                event.kind==='group_message' ? event.groupId : null) &&\n                await qaChatPolicyPreSendAllowed(token,uid,recipient,event) &&\n                await qaChatMessagePreSendAllowed(token,uid,event);\n            } catch { stillAllowed=false; }\n            if (!stillAllowed) {\n              policyInterrupted=true;\n              break;\n            }\n          }\n          let result;\n          try {\n            result=event.topic");
   code = exactlyOnce(code, "                    {groupId:event.groupId,messageId:event.messageId} : {});\n          attempted++;",
-    "                    {groupId:event.groupId,messageId:event.messageId} : {});\n          } catch {\n            transportFailure=true;\n            attempted++;\n            break;\n          }\n          attempted++;");
+    "                    {groupId:event.groupId,messageId:event.messageId} : {});\n          } catch {\n            transportFailure=true;\n            attempted++;\n            break;\n          }\n          attempted++;\n          attemptedForRecipient++;");
   code = exactlyOnce(code, "      await auditDelivery(env,event.kind,outcome,attempted,accepted,failedHttp);",
     "      await auditDelivery(env,event.kind,outcome,attempted,accepted,transportFailure ? 0 : failedHttp);");
   const queueStart = '  async queue(batch,env) {';

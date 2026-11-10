@@ -149,6 +149,32 @@ function makeScenario(type,change,deviceCount=1) {
         }))});
       }
       firestoreReads++;
+      if(fcmCalls>0 && sawDevices){
+        if(currentChange==='after_first_revoke_age' &&
+            relative==='users/'+recipient+'/chatAgeEligibility/current')
+          return okJson({},404);
+        if(currentChange==='after_first_block' &&
+            relative==='users/'+recipient+'/blockedMembers/'+uid)
+          return okJson(makeDoc({createdAt:recent()}));
+        if(currentChange==='after_first_disable_chat' &&
+            relative==='app_config/conversations')
+          return okJson(makeDoc({enabled:false,minorPolicyApproved:true,
+            safetyReviewVersion:'2026-11-safety-v1',version:'2026-11-v1'}));
+        if(currentChange==='after_first_soft_delete' && relative===messagePath)
+          return okJson(makeDoc({uid,kind:'text',createdAt:recent(),
+            deletedForAll:true,deletedAt:recent(),text:'[Mensagem removida]'}));
+        if(currentChange==='after_first_remove_membership' &&
+            relative==='chat_groups/'+groupId)
+          return okJson(makeDoc({status:'active',memberUids:[uid,'chat-charlie']}));
+        if(currentChange==='after_first_disable_group_push' &&
+            relative==='app_config/chat_groups')
+          return okJson(makeDoc({enabled:true,pushEnabled:false,
+            minorPolicyApproved:true,version:'2026-11-groups-v1'}));
+        if(currentChange==='after_first_mute' &&
+            (relative==='users/'+recipient+'/chatBox/'+chatId ||
+             relative==='users/'+recipient+'/chatGroupBox/'+groupId))
+          return okJson(makeDoc({muted:true}));
+      }
       if(sawDevices){
         if(currentChange==='remove_message' && relative===messagePath)
           return okJson({},404);
@@ -415,6 +441,87 @@ test('QA: excecao no segundo aparelho gera parcial desconhecido sem retry',async
       assert.equal(repeated.status,202,type);
       assert.equal((await repeated.json()).status,'no_devices_or_duplicate',type);
       assert.equal(scenario.stat.fcmCalls,2,type);
+    }
+  } finally { globalThis.fetch=oldFetch; }
+});
+
+test('QA: revalidar apos primeiro FCM bloqueia os demais aparelhos',async()=>{
+  const worker=(await import('data:text/javascript;charset=utf-8,'+
+    encodeURIComponent(generated))).default;
+  const oldFetch=globalThis.fetch;
+  const changes=[
+    ['dm','after_first_revoke_age'],['dm','after_first_block'],
+    ['dm','after_first_disable_chat'],['dm','after_first_soft_delete'],
+    ['dm','after_first_mute'],
+    ['group','after_first_revoke_age'],['group','after_first_block'],
+    ['group','after_first_disable_chat'],['group','after_first_soft_delete'],
+    ['group','after_first_remove_membership'],
+    ['group','after_first_disable_group_push'],['group','after_first_mute']
+  ];
+  try{
+    for(const [type,change] of changes){
+      const scenario=makeScenario(type,change,3);
+      globalThis.fetch=scenario.mockFetch;
+      const first=await worker.fetch(scenario.request(),scenario.env);
+      assert.equal(first.status,503,type+'/'+change);
+      assert.equal((await first.json()).status,'authorization_interrupted',
+        type+'/'+change);
+      assert.equal(scenario.stat.fcmCalls,1,type+'/'+change);
+      assert.equal(scenario.stat.uniqueMarkers,1,type+'/'+change);
+      assert.deepEqual(scenario.stat.auditOutcomes.at(-1),{
+        kind:type==='dm'?'chat_message':'group_message',
+        outcome:'authorization_interrupted',http:0,attempted:1,accepted:1
+      },type+'/'+change);
+      const again=await worker.fetch(scenario.request(),scenario.env);
+      assert.equal(again.status,202,type+'/'+change);
+      assert.equal((await again.json()).status,'no_devices_or_duplicate',
+        type+'/'+change);
+      assert.equal(scenario.stat.fcmCalls,1,'Sem replay de dispositivo revogado');
+    }
+  } finally { globalThis.fetch=oldFetch; }
+});
+
+test('QA: tres aparelhos elegiveis aceitos; replay nao duplica',async()=>{
+  const worker=(await import('data:text/javascript;charset=utf-8,'+
+    encodeURIComponent(generated))).default;
+  const oldFetch=globalThis.fetch;
+  try{
+    for(const type of ['dm','group']){
+      const scenario=makeScenario(type,'none',3);
+      globalThis.fetch=scenario.mockFetch;
+      const first=await worker.fetch(scenario.request(),scenario.env);
+      assert.equal(first.status,202,type);
+      assert.equal((await first.json()).status,'accepted_by_fcm',type);
+      assert.equal(scenario.stat.fcmCalls,3,type);
+      assert.equal(scenario.stat.uniqueMarkers,1,type);
+      assert.deepEqual(scenario.stat.auditOutcomes.at(-1),{
+        kind:type==='dm'?'chat_message':'group_message',
+        outcome:'accepted_by_fcm',http:0,attempted:3,accepted:3
+      },type);
+      const again=await worker.fetch(scenario.request(),scenario.env);
+      assert.equal((await again.json()).status,'no_devices_or_duplicate',type);
+      assert.equal(scenario.stat.fcmCalls,3,type);
+    }
+  } finally { globalThis.fetch=oldFetch; }
+});
+
+test('QA: duas chamadas simultaneas compartilham uma reserva D1',async()=>{
+  const worker=(await import('data:text/javascript;charset=utf-8,'+
+    encodeURIComponent(generated))).default;
+  const oldFetch=globalThis.fetch;
+  try{
+    for(const type of ['dm','group']){
+      const scenario=makeScenario(type,'none');
+      globalThis.fetch=scenario.mockFetch;
+      const results=await Promise.all(
+        Array.from({length:6},()=>worker.fetch(scenario.request(),scenario.env))
+      );
+      const statuses=await Promise.all(results.map(async x=>(await x.json()).status));
+      assert.equal(statuses.filter(x=>x==='accepted_by_fcm').length,1,type);
+      assert.equal(statuses.filter(x=>x==='no_devices_or_duplicate').length,5,type);
+      assert.equal(scenario.stat.markerWrites,6,type);
+      assert.equal(scenario.stat.uniqueMarkers,1,type);
+      assert.equal(scenario.stat.fcmCalls,1,type);
     }
   } finally { globalThis.fetch=oldFetch; }
 });

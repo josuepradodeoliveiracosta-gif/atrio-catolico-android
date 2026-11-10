@@ -334,3 +334,31 @@ O ajuste ocorre exclusivamente no código **gerado para QA**. A fonte
 `src/index.js` oficial, deploy Cloudflare/Firebase, D1 remoto e FCM
 real permanecem inalterados. Issue #201 aberta; política #200 e
 marco 3 impedem qualquer ativação.
+
+### Revalidação entre aparelhos (QA offline, 10/11/2026)
+
+A checagem de autorização existente antes da reserva D1 protegia o
+primeiro aparelho, porém uma revogação podia ocorrer entre o envio
+ao primeiro e ao segundo/terceiro aparelho. O candidato QA agora
+**revalida as políticas, a elegibilidade 18+, os bloqueios bilateralmente,
+o estado do chat/grupo, o silenciamento e a existência da mensagem antes
+de cada aparelho adicional do mesmo destinatário**. Se houver negação
+ou erro de consulta, encerra o envio restante, retorna HTTP 503 com
+`authorization_interrupted` e mantém a deduplicação `at-most-once`.
+A primeira tentativa pode já ter sido aceita pelo FCM; isso não equivale
+a uma garantia de revogação instantânea.
+
+Testes de rota com Firestore/FCM/D1 inteiramente sintéticos cobrem
+12 cenários de alteração depois da primeira aceitação (DM e grupo),
+controles positivos com três aparelhos, e colisão de seis chamadas
+concorrentes sobre o mesmo marcador D1. Nenhuma chave, dado pessoal,
+token real ou notificação real é usado.
+
+**Custo adicional potencial:** por destinatário com 2 ou 3 aparelhos,
+a cada tentativa além da primeira há outra sequência de leituras
+Firestore de elegibilidade, bloqueios, estado/política e mensagem. A
+contagem e o custo efetivo por cenário precisam ser aprovados antes
+de qualquer ativação de FCM no Worker QA. O candidato permanece
+bloqueado, sem mudança na produção ou nos backups. A decisão sobre
+retry/migração por dispositivo segue aberta (#201) e o gate humano
+da #200 continua vigente.
