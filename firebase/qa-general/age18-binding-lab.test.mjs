@@ -181,3 +181,41 @@ test('horario regressivo e estouro de TTL falham fechados',()=>{
   assert.notEqual(finish(lab,tokenA,c.challengeNonce,
     attest(c.challengeNonce),time+11),null);
 });
+
+test('reemissao com nonce invalido revoga o desafio anterior sem impedir recuperacao',()=>{
+  const one=Buffer.alloc(24,0x70).toString('base64url');
+  const next=Buffer.alloc(24,0x71).toString('base64url');
+  const values=[one,'nonce-curto',next];
+  const lab=createAge18OfflineBindingLab({
+    resolveSession:token=>sessionDb.get(token),
+    trustedIssuer:issuer,trustedPublicKeys:{qa:publicKey},
+    makeNonce:()=>values.shift()
+  });
+  const first=lab.begin({authenticatedSessionToken:tokenA,nowSeconds:time});
+  assert.equal(first.challengeNonce,one);
+  assert.equal(lab.begin({authenticatedSessionToken:tokenA,nowSeconds:time+1}),null);
+  assert.equal(finish(lab,tokenA,first.challengeNonce,attest(one),time+2),null);
+  const recovered=lab.begin({authenticatedSessionToken:tokenA,nowSeconds:time+3});
+  assert.equal(recovered.challengeNonce,next);
+  assert.notEqual(finish(lab,tokenA,next,attest(next),time+4),null);
+});
+
+test('colisao e excecao na fonte de nonce nunca preservam desafio antigo',()=>{
+  const fixed=Buffer.alloc(24,0x72).toString('base64url');
+  for(const mode of ['colisao','excecao']){
+    let calls=0;
+    const lab=createAge18OfflineBindingLab({
+      resolveSession:token=>sessionDb.get(token),
+      trustedIssuer:issuer,trustedPublicKeys:{qa:publicKey},
+      makeNonce:()=>{
+        calls++;
+        if(mode==='excecao' && calls===2)throw Error('qa-entropy-unavailable');
+        return fixed;
+      }
+    });
+    const first=lab.begin({authenticatedSessionToken:tokenA,nowSeconds:time});
+    assert.equal(first.challengeNonce,fixed);
+    assert.equal(lab.begin({authenticatedSessionToken:tokenA,nowSeconds:time+1}),null);
+    assert.equal(finish(lab,tokenA,fixed,attest(fixed),time+2),null);
+  }
+});

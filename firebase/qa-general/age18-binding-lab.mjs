@@ -51,12 +51,18 @@ export function createAge18OfflineBindingLab({
     const s=readSession(authenticatedSessionToken);
     if(!s || !isValidTime(nowSeconds) ||
        !Number.isSafeInteger(nowSeconds+CHALLENGE_TTL_SECONDS))return null;
+    // A tentativa de reemissao invalida o desafio antigo antes de
+    // consultar a entropia: falha, excecao ou nonce repetido devem
+    // deixar esta sessao sem desafio ativo (fail-closed).
+    const key=scope(s),previous=bySession.get(key);
+    if(previous) {
+      challenges.delete(previous);
+      bySession.delete(key);
+    }
     let nonce;
     try{nonce=makeNonce();}catch{return null;}
     if(typeof nonce!=='string' || !noncePattern.test(nonce) ||
        issuedNonces.has(nonce))return null;
-    const key=scope(s),previous=bySession.get(key);
-    if(previous)challenges.delete(previous);
     bySession.set(key,nonce);
     issuedNonces.add(nonce);
     challenges.set(nonce,{
