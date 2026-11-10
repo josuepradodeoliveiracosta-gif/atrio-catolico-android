@@ -37,6 +37,34 @@ fotografias de identidade nas conversas.
 método de verificação, o procedimento operacional e qualquer implantação
 ou ativação QA/produção continuam **NÃO AUTORIZADOS**. Issue #200 aberta.
 
+### Fluxo de pré-triagem no cadastro — decisão de arquitetura em 10/11/2026
+
+O fundador aprovou **iniciar a aferição de idade no cadastro** e
+**condicionar o chat à verificação confiável no servidor**.
+Implementação de protótipo QA (`br.com.atriocatolico.chatqa`):
+- formulário de criação de conta oferece uma data de nascimento
+  **opcional e exclusivamente local**, usada para indicar se a idade
+  informada alcança o mínimo 18+;
+- a data não é armazenada pelo Android após o descarte da tela, não é
+  enviada nem escrita no Firebase; a pré-triagem não cria prova etária,
+  não preenche `chatAgeEligibility/current` e não altera o cadastro
+  de usuários antigos, login, release ou aplicativo oficial;
+- idades informadas menores de 18, ausentes ou inválidas **não
+  impedem cadastro para outras áreas permitidas**, mas **não liberam chat**;
+- maiores declarados de 18 anos também ficam **sem chat** até que
+  método externo confiável produza prova minimizada, autenticada,
+  com validade, revogação e conferência no servidor;
+- testes unitários cobrem limites de idade, datas inválidas,
+  bissextos e formatação. Compilação Chat QA com JSON **sintético**
+  valida a integração da UI sem acesso ao Firebase real.
+
+**Ainda não implementado:** fornecedor, procedimento e registro de
+prova confiável 18+ no servidor, comunicação de resultados após
+cadastro/login, revisão jurídica/LGPD, controles contra fraude e
+acesso indevido, moderação e retenção. **Não usar a data informada
+como autenticação nem inserir prova sintética em nuvem.** Issue #200
+permanece bloqueadora e QA geral continua 2/7 marcos (29%).
+
 ## Condições atuais verificadas
 
 - A suíte Firestore Emulator testa bloqueio por `minorPolicyApproved`,

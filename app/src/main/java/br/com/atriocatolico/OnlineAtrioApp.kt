@@ -278,6 +278,14 @@ private fun OnlineAuthScreen(
                         supportingText = { Text("De 2 a 35 caracteres. Será exibido nas publicações.") },
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next))
                 }
+                // Somente o APK Chat QA exibe pré-triagem local de idade.
+                // Não salvar nem enviar a data de nascimento no cadastro.
+                // O backend Firestore continua exigindo prova confiável;
+                // esta seleção nunca altera chatAgeEligibility/current.
+                if (registering &&
+                    BuildConfig.APPLICATION_ID == "br.com.atriocatolico.chatqa") {
+                    ChatAgeRegistrationPrecheckPanel()
+                }
                 OutlinedTextField(email, { email = it.take(150) },
                     modifier = Modifier.fillMaxWidth().testTag("atrio-auth-email")
                         .semantics { contentType = ContentType.EmailAddress },
