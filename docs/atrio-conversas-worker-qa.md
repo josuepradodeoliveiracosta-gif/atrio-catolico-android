@@ -290,8 +290,9 @@ D1 remoto, FCM ou Worker publicado participa desses testes.
 
 ### Bloqueio do push para mensagens removidas (QA offline, 10/11/2026)
 
-A última reconsulta da mensagem no candidato QA passa a negar também
-`deletedForAll=true`, além de documento ausente, autoria/tipo inválidos
+A última reconsulta da mensagem no candidato QA passa a negar a
+**presença** do campo `deletedForAll` (inclusive falso ou malformado),
+além de documento ausente, autoria/tipo inválidos
 e expiração. As regras candidatas de chat preservam o documento após
 "Remover para todos", substituindo o texto por
 `[Mensagem removida]`; portanto testar somente a existência do documento

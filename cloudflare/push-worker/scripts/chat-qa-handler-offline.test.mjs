@@ -144,6 +144,13 @@ function makeScenario(type,change) {
         if(currentChange==='soft_delete_message' && relative===messagePath)
           return okJson(makeDoc({uid,kind:'text',createdAt:recent(),
             text:'[Mensagem removida]',deletedForAll:true,deletedAt:recent()}));
+        // Campo injetado e mal tipado deve falhar fechado, nunca virar false.
+        if(currentChange==='invalid_delete_flag' && relative===messagePath)
+          return okJson(makeDoc({uid,kind:'text',createdAt:recent(),
+            text:'[Mensagem removida]',deletedForAll:'true'}));
+        if(currentChange==='false_delete_flag' && relative===messagePath)
+          return okJson(makeDoc({uid,kind:'text',createdAt:recent(),
+            text:'[Mensagem removida]',deletedForAll:false}));
         if(currentChange==='revoke_age' &&
             relative==='users/'+recipient+'/chatAgeEligibility/current')
           return okJson({},404);
@@ -186,11 +193,15 @@ test('rota Worker QA completa: revogacao apos busca de dispositivos impede D1 e 
     for(const [type,change] of [
       ['dm','remove_message'],
       ['dm','soft_delete_message'],
+      ['dm','invalid_delete_flag'],
+      ['dm','false_delete_flag'],
       ['dm','revoke_age'],
       ['dm','block_contact'],
       ['dm','disable_chat'],
       ['group','remove_message'],
       ['group','soft_delete_message'],
+      ['group','invalid_delete_flag'],
+      ['group','false_delete_flag'],
       ['group','remove_membership'],
       ['group','disable_group_push'],
       ['group','revoke_age']
