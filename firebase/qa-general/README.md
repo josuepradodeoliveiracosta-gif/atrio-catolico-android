@@ -111,3 +111,19 @@ confiável, privacidade e minimização, controles de proteção para
 adolescentes de 16 e 17 anos, supervisão quando aplicável,
 moderação/retencao e aprovação humana expressa na issue #200.
 O Firebase QA remoto continua deny-all e o Worker QA em bootstrap.
+
+## Bloqueio de contato com destinatários inelegíveis — candidato offline
+
+Além de exigir elegibilidade para quem opera o chat, os geradores QA
+agora exigem a prova sintética do **destinatário** para criar uma conversa,
+de **ambos os participantes** para gravar uma mensagem e de quem recebe
+o convite para criar ou atualizar convites de grupos. A origem oficial
+dos fragmentos é preservada; mudanças nas âncoras auditadas interrompem
+a geração, sem tentar corrigir silenciosamente.
+
+O Firebase Emulator testa a mesma solicitação de conversa e o mesmo
+envio atômico: falham com a elegibilidade do destinatário ausente ou
+revogada e passam quando a fixture válida é restaurada. A cobertura
+estática confere a injeção dos requisitos de convites em ambos os
+candidatos. Isso **não** é prova de idade, não implementa política de
+contato entre adolescentes, nem homologa fluxos reais de grupos.

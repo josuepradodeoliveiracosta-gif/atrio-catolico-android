@@ -75,6 +75,7 @@ try {
    createdAt:serverTimestamp()
  }));
  await assertFails(setDoc(doc(alice,'chat_groups/g1'),{ownerUid:'qa-alice'}));
+ const createInitialChat=()=>{
  const b=writeBatch(alice);
  b.set(doc(alice,room),{
    participants:['qa-alice','qa-bob'],requesterUid:'qa-alice',
@@ -90,7 +91,17 @@ try {
    count:1,windowStart:serverTimestamp(),lastChatId:'qa-alice__qa-bob',
    updatedAt:serverTimestamp()
  });
- await assertSucceeds(b.commit());
+ return b;
+ };
+ // O mesmo batch valido deve falhar sem a elegibilidade do destinatario.
+ await env.withSecurityRulesDisabled(async ctx=>{
+   await deleteDoc(doc(ctx.firestore(),bobAge));
+ });
+ await assertFails(createInitialChat().commit());
+ await env.withSecurityRulesDisabled(async ctx=>{
+   await setDoc(doc(ctx.firestore(),bobAge),qaAge16Proof);
+ });
+ await assertSucceeds(createInitialChat().commit());
  await assertSucceeds(getDoc(doc(bob,room)));
  await assertSucceeds(getDoc(doc(bob,room+'/messages/first')));
  await assertFails(getDoc(doc(outsider,room)));
@@ -103,6 +114,31 @@ try {
    status:'accepted',updatedAt:serverTimestamp()
  }));
  await assertSucceeds(updateDoc(doc(bob,room),{status:'accepted',updatedAt:serverTimestamp()}));
+ // Mesmo apos aceite, uma conta elegivel NAO pode enviar nova mensagem
+ // a um destinatario cuja prova foi revogada. Controle positivo usa
+ // o mesmo batch com metadados e mensagem ligados atomicamente.
+ const sendSecondMessage=()=>{
+   const b=writeBatch(alice);
+   b.set(doc(alice,room+'/messages/qa-second'),{
+     uid:'qa-alice',kind:'text',
+     text:'Mensagem adicional ficticia QA',createdAt:serverTimestamp()
+   });
+   b.update(doc(alice,room),{
+     lastMessageId:'qa-second',lastPreview:'Mensagem adicional ficticia QA',
+     lastSenderUid:'qa-alice',updatedAt:serverTimestamp(),
+     unreadRequester:0,unreadRecipient:2
+   });
+   return b;
+ };
+ await env.withSecurityRulesDisabled(async ctx=>{
+   await setDoc(doc(ctx.firestore(),bobAge),{...qaAge16Proof,status:'revoked'});
+ });
+ await assertFails(sendSecondMessage().commit());
+ await env.withSecurityRulesDisabled(async ctx=>{
+   await setDoc(doc(ctx.firestore(),bobAge),qaAge16Proof);
+ });
+ await assertSucceeds(sendSecondMessage().commit());
+ await assertSucceeds(getDoc(doc(bob,room+'/messages/qa-second')));
  // Idade desconhecida, revogacao, limite inadequado, politica errada
  // ou validade encerrada sempre retiram acesso AO HISTORICO existente.
  for(const invalid of [

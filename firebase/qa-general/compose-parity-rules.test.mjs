@@ -63,3 +63,17 @@ test('ambos candidatos offline exigem 16+ sem escrita de cliente',()=>{
     assert.equal(candidate.split('function qaChatAge16Eligible(uid)').length,2);
   }
 });
+
+test('somente o QA exige elegibilidade do destinatario e do convidado',()=>{
+  for(const candidate of [renderParity(base,chat,group),renderStandalone(chat,group)]){
+    assert.equal(candidate.includes('qaChatAge16Eligible(request.resource.data.recipientUid)'),true);
+    assert.equal(candidate.includes('qaChatAge16Eligible(getAfter(/databases/$(database)/documents/chats/$(chatId)).data.requesterUid)'),true);
+    assert.equal(candidate.includes('qaChatAge16Eligible(getAfter(/databases/$(database)/documents/chats/$(chatId)).data.recipientUid)'),true);
+    assert.equal(candidate.includes('qaChatAge16Eligible(inviteeUid)'),true);
+    assert.equal(candidate.split('qaChatAge16Eligible(inviteeUid)').length,3);
+  }
+  assert.throws(()=>renderParity(base,chat.replace(
+    'validId(request.resource.data.recipientUid)',
+    'validId(request.resource.data.recipientUid) /* fonte mudou */'),group),
+    /qa_age16_dm_recipient_anchor_changed/);
+});

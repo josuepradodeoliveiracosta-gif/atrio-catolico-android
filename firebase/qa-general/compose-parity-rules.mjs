@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
-import {QA_AGE16_GATE} from './age16-gate.mjs';
+import {QA_AGE16_GATE,strengthenAge16Contacts} from './age16-gate.mjs';
 
 const ROOT=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 const BASE_BLOB_SHA='526b8a1e7ff09aca79a4a539ee1681a6c0a76f77';
@@ -55,14 +55,15 @@ export function renderParity(base,chat,group) {
 
   const anchor='return signedIn() && exists(config)';
   if(chat.split(anchor).length!==2)refuse('chat_gate_changed');
-  const strictChat=chat.replace(anchor,
+  const {chat:chatWithContactGate,group:groupWithContactGate}=strengthenAge16Contacts(chat,group);
+  const strictChat=chatWithContactGate.replace(anchor,
     "return signedIn() && request.auth.token.get('email_verified',false) == true && qaChatAge16Eligible(request.auth.uid) && exists(config)");
 
   const existingFns=new Set(fnNames(base));
   if(existingFns.has('qaChatAge16Eligible') ||
      matchPaths(base).includes('/users/{uid}/chatAgeEligibility/current'))
     refuse('age16_collision');
-  const fragmentFns=[...fnNames(strictChat),...fnNames(group)];
+  const fragmentFns=[...fnNames(strictChat),...fnNames(groupWithContactGate)];
   if(fragmentFns.some(name=>existingFns.has(name)) ||
      new Set(fragmentFns).size!==fragmentFns.length)
     refuse('function_collision');
@@ -76,12 +77,12 @@ export function renderParity(base,chat,group) {
     '/chat_reports/{reportId}','/chat_group_reports/{reportId}'
   ];
   if(critical.some(p=>existingPaths.has(p)) ||
-     critical.some(p=>![...matchPaths(strictChat),...matchPaths(group)].includes(p)))
+     critical.some(p=>![...matchPaths(strictChat),...matchPaths(groupWithContactGate)].includes(p)))
     refuse('match_collision_or_missing');
 
   const added=[
     '    // BEGIN QA PARITY ADDITIVE: SOMENTE FIREBASE EMULATOR, SEM DEPLOY',
-    QA_AGE16_GATE.trimEnd(),strictChat.trimEnd(),group.trimEnd(),
+    QA_AGE16_GATE.trimEnd(),strictChat.trimEnd(),groupWithContactGate.trimEnd(),
     '    // END QA PARITY ADDITIVE: politicas ainda pendentes (#200)',
     ''
   ].join('\n');
