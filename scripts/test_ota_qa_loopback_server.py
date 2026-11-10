@@ -291,5 +291,102 @@ class OtaQaLoopbackTests(unittest.TestCase):
             thread.join(timeout=5)
 
 
+    def test_concurrent_api_failures_are_exactly_once_and_recover(self):
+        # A rota /releases/latest usa lock no servidor REAL de QA.
+        # Cinco clientes simultaneos devem observar so um erro transitorio.
+        from concurrent.futures import ThreadPoolExecutor
+
+        release, manifest = ota.build_fixture(self.metadata)
+        handler = ota.make_handler(
+            self.apk, release, manifest, fixture_mode="api-unavailable-once"
+        )
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        thread = Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        base = f"http://127.0.0.1:{server.server_port}"
+        latest = base + "/releases/latest"
+
+        def fetch_latest(_):
+            try:
+                with urlopen(latest, timeout=5) as response:
+                    return response.status, json.load(response)
+            except HTTPError as error:
+                return error.code, None
+
+        try:
+            with ThreadPoolExecutor(max_workers=5) as pool:
+                results = list(pool.map(fetch_latest, range(5)))
+            self.assertEqual([status for status, _ in results].count(503), 1)
+            self.assertEqual([status for status, _ in results].count(200), 4)
+            for status, payload in results:
+                if status == 200:
+                    self.assertEqual(payload, release)
+            for _ in range(2):
+                with urlopen(latest, timeout=5) as response:
+                    self.assertEqual(json.load(response), release)
+            with urlopen(
+                base + "/releases/download/v0.19.8/update.json", timeout=5
+            ) as response:
+                self.assertEqual(json.load(response), manifest)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+    def test_concurrent_download_retries_preserve_exact_apk_bytes(self):
+        # Sob 5 downloads concorrentes, somente UM fluxo e truncado.
+        # Todos os demais recebem bytes identicos e a retry recupera.
+        from concurrent.futures import ThreadPoolExecutor
+        from hashlib import sha256
+
+        data = b"CONCORRENCIA OTA ISOLADA " * 4096
+        self.apk.write_bytes(data)
+        self.metadata["apkSizeBytes"] = len(data)
+        self.metadata["apkSha256"] = sha256(data).hexdigest()
+        release, manifest = ota.build_fixture(self.metadata)
+        handler = ota.make_handler(
+            self.apk, release, manifest, fixture_mode="truncated-once"
+        )
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        thread = Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        base = f"http://127.0.0.1:{server.server_port}"
+        url = base + "/releases/download/v0.19.8/atrio-catolico.apk"
+
+        def download(_):
+            try:
+                with urlopen(url, timeout=5) as response:
+                    self.assertEqual(int(response.headers["Content-Length"]), len(data))
+                    return "complete", response.read()
+            except IncompleteRead as error:
+                return "truncated", error.partial
+
+        try:
+            with ThreadPoolExecutor(max_workers=5) as pool:
+                attempts = list(pool.map(download, range(5)))
+            self.assertEqual(
+                sum(kind == "truncated" for kind, _ in attempts), 1
+            )
+            self.assertEqual(
+                sum(kind == "complete" for kind, _ in attempts), 4
+            )
+            for kind, body in attempts:
+                if kind == "complete":
+                    self.assertEqual(sha256(body).hexdigest(), manifest["apkSha256"])
+                    self.assertEqual(body, data)
+                else:
+                    self.assertGreater(len(body), 0)
+                    self.assertLess(len(body), len(data))
+            with urlopen(url, timeout=5) as response:
+                self.assertEqual(response.read(), data)
+            with urlopen(
+                base + "/releases/download/v0.19.8/update.json", timeout=5
+            ) as response:
+                self.assertEqual(json.load(response), manifest)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
 if __name__ == "__main__":
     unittest.main()
