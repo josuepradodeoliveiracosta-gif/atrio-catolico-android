@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {QA_AGE16_GATE} from './age16-gate.mjs';
 const ROOT=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 const base=[
  "rules_version = '2';",
@@ -64,8 +65,8 @@ export function render(chat,group) {
  const originalGate='return signedIn() && exists(config)';
  if(chat.split(originalGate).length!==2)throw Error('qa_chat_gate_changed');
  const stricterChat=chat.replace(originalGate,
-   'return emailVerificationAllowsCommunityAccess() && exists(config)');
- return base+'\n'+stricterChat+'\n'+group+'\n'+ending+'\n';
+   'return emailVerificationAllowsCommunityAccess() && qaChatAge16Eligible(request.auth.uid) && exists(config)');
+ return base+'\n'+QA_AGE16_GATE+'\n'+stricterChat+'\n'+group+'\n'+ending+'\n';
 }
 export function generate(){
  const chat=fs.readFileSync(path.join(ROOT,'firebase/atrio-conversas-v1.rules.fragment'),'utf8');

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {renderParity} from './compose-parity-rules.mjs';
+import {render as renderStandalone} from './compose-rules.mjs';
 
 const base=readFileSync('firestore.rules','utf8');
 const chat=readFileSync('firebase/atrio-conversas-v1.rules.fragment','utf8');
@@ -50,4 +51,15 @@ test('rejeita permissões abertas e declarações perigosas nos fragmentos',()=>
     /qa_parity_fragment_unexpected_grant/);
   assert.throws(()=>renderParity(base,chat+'\nfunction signedIn() { return true; }',group),
     /qa_parity_function_collision/);
+});
+
+test('ambos candidatos offline exigem 16+ sem escrita de cliente',()=>{
+  for(const candidate of [renderParity(base,chat,group),renderStandalone(chat,group)]){
+    assert.equal(candidate.includes('function qaChatAge16Eligible(uid)'),true);
+    assert.equal(candidate.includes('qaChatAge16Eligible(request.auth.uid)'),true);
+    assert.equal(candidate.includes("data.get('minimumAge',0) == 16"),true);
+    assert.equal(candidate.includes("data.get('policyVersion','') == '2026-11-16plus-qa-v1'"),true);
+    assert.equal(candidate.includes("allow list, create, update, delete: if false;"),true);
+    assert.equal(candidate.split('function qaChatAge16Eligible(uid)').length,2);
+  }
 });

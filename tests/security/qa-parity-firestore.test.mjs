@@ -40,8 +40,16 @@ try {
   await assertFails(getDoc(doc(alice,group)));
   const future=Timestamp.fromDate(new Date('2035-01-01T00:00:00Z'));
   const createdAt=Timestamp.fromDate(new Date('2026-11-01T00:00:00Z'));
+  const age16Proof={
+    status:'eligible',minimumAge:16,
+    policyVersion:'2026-11-16plus-qa-v1',reviewExpiresAt:future
+  };
+  const aliceAge='users/qa-alice/chatAgeEligibility/current';
+  const bobAge='users/qa-bob/chatAgeEligibility/current';
   await env.withSecurityRulesDisabled(async ctx=>{
     const db=ctx.firestore();
+    await setDoc(doc(db,aliceAge),age16Proof);
+    await setDoc(doc(db,bobAge),age16Proof);
     await setDoc(doc(db,'app_config/conversations'),{
       enabled:true,version:'2026-11-v1',minorPolicyApproved:true,
       safetyReviewVersion:'2026-11-safety-v1'
@@ -80,6 +88,32 @@ try {
   });
   // Controle positivo: regras experimentais funcionam APENAS em fixtures.
   await assertSucceeds(getDoc(doc(alice,chat)));
+  await assertSucceeds(getDoc(doc(bob,chat)));
+  await assertFails(setDoc(doc(bob,bobAge),age16Proof));
+  await assertFails(updateDoc(doc(alice,aliceAge),{status:'eligible'}));
+  await assertFails(deleteDoc(doc(alice,aliceAge)));
+  // Suspender a afirmacao administrativa nao pode expor mensagens
+  // privadas preexistentes, mesmo que a pessoa continue participante.
+  for(const invalid of [
+    {...age16Proof,status:'revoked'},
+    {...age16Proof,minimumAge:15},
+    {...age16Proof,policyVersion:'unreviewed'},
+    {...age16Proof,reviewExpiresAt:Timestamp.fromDate(new Date('2000-01-01T00:00:00Z'))}
+  ]) {
+    await env.withSecurityRulesDisabled(async ctx=>{
+      await setDoc(doc(ctx.firestore(),bobAge),invalid);
+    });
+    await assertFails(getDoc(doc(bob,chat)));
+    await assertFails(getDoc(doc(bob,chatMessage)));
+  }
+  await env.withSecurityRulesDisabled(async ctx=>{
+    await deleteDoc(doc(ctx.firestore(),bobAge));
+  });
+  await assertFails(getDoc(doc(bob,chat)));
+  await env.withSecurityRulesDisabled(async ctx=>{
+    await setDoc(doc(ctx.firestore(),bobAge),age16Proof);
+  });
+  await assertSucceeds(getDoc(doc(bob,chatMessage)));
   await assertSucceeds(getDoc(doc(alice,group)));
   await assertFails(getDoc(doc(aliceUnverified,chat)));
   await assertFails(getDoc(doc(aliceUnverified,group)));

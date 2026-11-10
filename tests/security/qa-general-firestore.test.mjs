@@ -20,6 +20,12 @@ const outsider=env.authenticatedContext('qa-outsider',{email_verified:true}).fir
 const guest=env.unauthenticatedContext().firestore();
 const unverified=env.authenticatedContext('qa-unverified',{email_verified:false}).firestore();
 const room='chats/qa-alice__qa-bob';
+const qaAge16Proof={
+  status:'eligible',minimumAge:16,policyVersion:'2026-11-16plus-qa-v1',
+  reviewExpiresAt:Timestamp.fromDate(new Date('2035-01-01T00:00:00.000Z'))
+};
+const aliceAge='users/qa-alice/chatAgeEligibility/current';
+const bobAge='users/qa-bob/chatAgeEligibility/current';
 try {
  await env.clearFirestore();
  await assertFails(getDoc(doc(alice,room)));
@@ -35,6 +41,19 @@ try {
    await setDoc(doc(ctx.firestore(),'app_config/chat_groups'),{
      enabled:true,version:'2026-11-groups-v1',minorPolicyApproved:false
    });
+ });
+ // No QA novo a configuracao global, por si so, NAO libera o chat.
+ await assertFails(setDoc(doc(bob,'users/qa-bob/chatSettings/privacy'),{
+   requests:'all',readReceipts:false,showPushPreview:false,
+   updatedAt:serverTimestamp()
+ }));
+ // Prova sintética é escrita somente no contexto administrativo do emulador.
+ await assertFails(setDoc(doc(bob,bobAge),qaAge16Proof));
+ await assertFails(setDoc(doc(alice,aliceAge),qaAge16Proof));
+ await env.withSecurityRulesDisabled(async ctx=>{
+   const db=ctx.firestore();
+   await setDoc(doc(db,aliceAge),qaAge16Proof);
+   await setDoc(doc(db,bobAge),qaAge16Proof);
  });
  // Conta nao verificada nunca atravessa o gate, mesmo com flags sinteticas ativas.
  await assertFails(setDoc(doc(unverified,'users/qa-unverified/chatSettings/privacy'),{
@@ -84,6 +103,29 @@ try {
    status:'accepted',updatedAt:serverTimestamp()
  }));
  await assertSucceeds(updateDoc(doc(bob,room),{status:'accepted',updatedAt:serverTimestamp()}));
+ // Idade desconhecida, revogacao, limite inadequado, politica errada
+ // ou validade encerrada sempre retiram acesso AO HISTORICO existente.
+ for(const invalid of [
+   {...qaAge16Proof,status:'revoked'},
+   {...qaAge16Proof,minimumAge:15},
+   {...qaAge16Proof,policyVersion:'unreviewed'},
+   {...qaAge16Proof,reviewExpiresAt:Timestamp.fromDate(new Date('2000-01-01T00:00:00Z'))}
+ ]) {
+   await env.withSecurityRulesDisabled(async ctx=>{
+     await setDoc(doc(ctx.firestore(),bobAge),invalid);
+   });
+   await assertFails(getDoc(doc(bob,room)));
+   await assertFails(getDoc(doc(bob,room+'/messages/first')));
+ }
+ await env.withSecurityRulesDisabled(async ctx=>{
+   await deleteDoc(doc(ctx.firestore(),bobAge));
+ });
+ await assertFails(getDoc(doc(bob,room)));
+ await env.withSecurityRulesDisabled(async ctx=>{
+   await setDoc(doc(ctx.firestore(),bobAge),qaAge16Proof);
+ });
+ await assertSucceeds(getDoc(doc(bob,room)));
+ await assertSucceeds(getDoc(doc(bob,room+'/messages/first')));
  await assertFails(updateDoc(doc(alice,room),{status:'declined'}));
 
  // Regressao fail-closed: nem mesmo um chat ja existente pode ser lido

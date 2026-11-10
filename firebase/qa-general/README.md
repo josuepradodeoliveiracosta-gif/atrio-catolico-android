@@ -83,3 +83,31 @@ LGPD, auditoria e rollback. **Não importar dados reais, credenciais
 nem usuários de produção; não publicar regras, habilitar FCM ou
 alterar backups.** Este experimento não substitui o laboratório
 restritivo atual, que continua sendo o padrão seguro.
+
+## Idade minima 16 anos — protocolo sintético exclusivamente offline
+
+O fundador definiu **16 anos completos ou mais** como idade mínima para
+participar do chat. Ambos os geradores offline de Rules exigem o portão
+`qaChatAge16Eligible(request.auth.uid)` e o registro próprio
+`users/{uid}/chatAgeEligibility/current`.
+
+Nos testes, o registro contém **somente** `status=eligible`,
+`minimumAge=16`, `policyVersion=2026-11-16plus-qa-v1`
+e `reviewExpiresAt` futuro. O próprio cliente não pode criar, atualizar
+ou excluir este registro. **Essa fixture administrativamente simulada
+não comprova a idade real, nem estabelece o fornecedor de aferição.**
+O mínimo 16 é um limiar afirmado por um verificador futuro; não significa
+que todo usuário tenha exatamente 16 anos.
+
+Valores desconhecidos, inferiores a 16, expirados, adulterados ou
+revogados devem negar histórico existente e novas operações. Os testes
+positivos mostram que uma fixture válida permite o chat somente quando
+os outros gates também são atendidos. As denúncias existentes preservam
+as permissões independentes de leitura, sem autorizar acesso aos DMs.
+
+**NUNCA publicar as Rules geradas** ou criar documentos sintéticos de
+idade em Firebase real. Antes de conectar usuários, faltam provedor
+confiável, privacidade e minimização, controles de proteção para
+adolescentes de 16 e 17 anos, supervisão quando aplicável,
+moderação/retencao e aprovação humana expressa na issue #200.
+O Firebase QA remoto continua deny-all e o Worker QA em bootstrap.
