@@ -1,0 +1,25 @@
+name: Validar lógica do emissor de notificações
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "scripts/push-worker/**"
+      - ".github/workflows/push-logic-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  node-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Obter código
+        uses: actions/checkout@v4
+      - name: Configurar Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Testar lógica pura sem Firebase real ou credenciais
+        run: node --test scripts/push-worker/events.test.mjs
