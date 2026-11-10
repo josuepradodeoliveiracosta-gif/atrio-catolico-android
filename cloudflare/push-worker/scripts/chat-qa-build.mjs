@@ -39,10 +39,10 @@ export function renderQaWorker(original, project) {
   // cuja prova etária individual foi revogada ou expirou.
   code = exactlyOnce(code,
     'const recent = time => time > Date.now() - MAX_AGE_MS && time < Date.now() + 60_000;',
-    'const recent = time => time > Date.now() - MAX_AGE_MS && time < Date.now() + 60_000;\\n' +
-      "// QA somente: conferência independente de maioridade ANTES do FCM.\n// Credencial de serviço contorna as Security Rules, por isso revalidamos\n// tanto remetente quanto cada destinatário sem confiar no cliente.\nconst qaChatAge18ValidForPush = record => {\n  const fields = record?.fields;\n  if (!fields || typeof fields !== 'object' ||\n      Object.keys(fields).sort().join('|') !==\n        'minimumAge|policyVersion|reviewExpiresAt|status') return false;\n  const expiry = fields.reviewExpiresAt?.timestampValue;\n  return fields.status?.stringValue === 'eligible'\n    && fields.minimumAge?.integerValue === '18'\n    && fields.policyVersion?.stringValue === '2026-11-18plus-qa-v1'\n    && typeof expiry === 'string' && Date.parse(expiry) > Date.now();\n};".replaceAll('\\n', '\\n'));
+    'const recent = time => time > Date.now() - MAX_AGE_MS && time < Date.now() + 60_000;\n' +
+      "// QA somente: conferência independente de maioridade ANTES do FCM.\n// Credencial de serviço contorna as Security Rules, por isso revalidamos\n// tanto remetente quanto cada destinatário sem confiar no cliente.\nconst qaChatAge18ValidForPush = record => {\n  const fields = record?.fields;\n  if (!fields || typeof fields !== 'object' ||\n      Object.keys(fields).sort().join('|') !==\n        'minimumAge|policyVersion|reviewExpiresAt|status') return false;\n  const expiry = fields.reviewExpiresAt?.timestampValue;\n  return fields.status?.stringValue === 'eligible'\n    && fields.minimumAge?.integerValue === '18'\n    && fields.policyVersion?.stringValue === '2026-11-18plus-qa-v1'\n    && typeof expiry === 'string' && Date.parse(expiry) > Date.now();\n};");
   code = exactlyOnce(code,
-    '    const peer = actor === requester ? recipient : requester;\\n    const [blockA,blockB,mute,setting]',
+    '    const peer = actor === requester ? recipient : requester;\n    const [blockA,blockB,mute,setting]',
     `    const peer = actor === requester ? recipient : requester;
     const [senderAge,receiverAge] = await Promise.all([
       firestoreGet(token,'users/'+enc(actor)+'/chatAgeEligibility/current'),
@@ -52,7 +52,7 @@ export function renderQaWorker(original, project) {
         !qaChatAge18ValidForPush(receiverAge)) return null;
     const [blockA,blockB,mute,setting]`);
   code = exactlyOnce(code,
-    "    const actorAccess=await firestoreGet(token,\\n      'users/'+enc(actor)+'/chatGroupAccess/eligibility');\\n    if(!groupReviewValid(actorAccess)) return null;",
+    "    const actorAccess=await firestoreGet(token,\n      'users/'+enc(actor)+'/chatGroupAccess/eligibility');\n    if(!groupReviewValid(actorAccess)) return null;",
     `    const [actorAccess,actorAge] = await Promise.all([
       firestoreGet(token,'users/'+enc(actor)+'/chatGroupAccess/eligibility'),
       firestoreGet(token,'users/'+enc(actor)+'/chatAgeEligibility/current')
@@ -63,12 +63,12 @@ export function renderQaWorker(original, project) {
     '      const [access,blockedA,blockedB,muted]=await Promise.all([',
     '      const [access,blockedA,blockedB,muted,peerAge]=await Promise.all([');
   code = exactlyOnce(code,
-    "        firestoreGet(token,'users/'+enc(peer)+'/chatGroupBox/'+enc(event.groupId))\\n      ]);",
+    "        firestoreGet(token,'users/'+enc(peer)+'/chatGroupBox/'+enc(event.groupId))\n      ]);",
     `        firestoreGet(token,'users/'+enc(peer)+'/chatGroupBox/'+enc(event.groupId)),
         firestoreGet(token,'users/'+enc(peer)+'/chatAgeEligibility/current')
       ]);`);
   code = exactlyOnce(code,
-    '      if(!groupReviewValid(access) ||\\n         blockedA || blockedB || boolField(muted,\'muted\')) continue;',
+    '      if(!groupReviewValid(access) ||\n         blockedA || blockedB || boolField(muted,\'muted\')) continue;',
     `      if(!groupReviewValid(access) || !qaChatAge18ValidForPush(peerAge) ||
          blockedA || blockedB || boolField(muted,'muted')) continue;`);
   // A web API key pode, por engano, pertencer à produção. O lookup remoto
