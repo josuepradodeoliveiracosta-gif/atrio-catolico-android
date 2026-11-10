@@ -64,8 +64,13 @@ class OfflineChallengeLedger:
         self._db.close()
 
     def _rollback(self) -> None:
-        if self._db.in_transaction:
-            self._db.rollback()
+        # Ate consultar in_transaction pode falhar em uma conexao fechada.
+        # Nenhuma excecao de tratamento de erro pode virar sucesso.
+        try:
+            if self._db.in_transaction:
+                self._db.rollback()
+        except sqlite3.Error:
+            pass
 
     def issue_fixture(
         self, *, uid: str, session_id: str, nonce: str, now: int
