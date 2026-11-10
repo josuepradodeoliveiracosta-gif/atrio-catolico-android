@@ -134,7 +134,13 @@ class QAEvidenceReadinessTests(unittest.TestCase):
 
     def test_empty_or_invalid_external_data_never_implies_go(self):
         for value in (None, [], {}, "false"):
-            report = self.safe(value)
+            # Chamar o validador diretamente: o helper safe() usa None
+            # como atalho para uma fixture valida, o que mascarava o teste.
+            report = summarize(value)
+            self.assertEqual(report["status"], "NO_GO")
+            self.assertFalse(report["qaDeployAuthorized"])
+            self.assertFalse(report["prodDeployAuthorized"])
+            self.assertFalse(report["mergeAuthorized"])
             self.assertEqual(report["evidenceState"], "EVIDENCE_INCOMPLETE")
             self.assertEqual(report["validatedDraftPRs"], 0)
 
