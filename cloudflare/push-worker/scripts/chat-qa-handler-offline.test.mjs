@@ -61,14 +61,14 @@ function makeScenario(type,change) {
   const docs={
     'app_config/conversations':chatConfig(),
     'app_config/chat_groups':groupConfig(),
-    'chats/'+chatId:makeDoc({requesterUid:uid,recipientUid:recipient,
+    ['chats/'+chatId]:makeDoc({requesterUid:uid,recipientUid:recipient,
       status:'accepted',initialId:'m1'}),
-    'chat_groups/'+groupId:makeDoc({status:'active',memberUids:[uid,recipient]}),
+    ['chat_groups/'+groupId]:makeDoc({status:'active',memberUids:[uid,recipient]}),
     [messagePath]:messageDoc(),
-    'users/'+uid+'/chatAgeEligibility/current':age(),
-    'users/'+recipient+'/chatAgeEligibility/current':age(),
-    'users/'+uid+'/chatGroupAccess/eligibility':groupPermission(),
-    'users/'+recipient+'/chatGroupAccess/eligibility':groupPermission()
+    ['users/'+uid+'/chatAgeEligibility/current']:age(),
+    ['users/'+recipient+'/chatAgeEligibility/current']:age(),
+    ['users/'+uid+'/chatGroupAccess/eligibility']:groupPermission(),
+    ['users/'+recipient+'/chatGroupAccess/eligibility']:groupPermission()
   };
   const event=group
     ?{type:'group_message',groupId,messageId}
