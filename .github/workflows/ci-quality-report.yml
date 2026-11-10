@@ -1,0 +1,55 @@
+name: Relatório consolidado de CI por commit (somente leitura)
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_run:
+    workflows:
+      - Gerar APK do Atrio Catolico
+      - Validar selos (Android e Firestore)
+      - Empacotar Workers Cloudflare sem publicar
+      - Revisão automática - CodeQL (Kotlin, JS, Python e Actions)
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  checks: read
+  actions: read
+
+jobs:
+  snapshot:
+    name: Consolidar checks do SHA sem modificar a PR
+    if: >-
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout sem credenciais persistentes
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Testar relator em memória
+        run: python3 -m unittest scripts/test_ci_quality_report.py -v
+      - name: Buscar checks apenas do SHA associado
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CI_TARGET_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci_quality_report.py \
+            --sha "$CI_TARGET_SHA" \
+            --json ci-report.json \
+            --markdown ci-report.md
+          cat ci-report.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Preservar relatorio por execucao
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ci-readonly-${{ github.run_id }}
+          path: |
+            ci-report.json
+            ci-report.md
+          retention-days: 14
+          if-no-files-found: warn
