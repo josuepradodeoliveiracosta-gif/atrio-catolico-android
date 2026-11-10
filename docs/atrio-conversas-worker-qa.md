@@ -320,8 +320,13 @@ Testes sintéticos cobrem DM e grupo, HTTP 503 e 429 depois de um
 primeiro aceite, e exceção de transporte após reservar o marcador D1.
 Não há novas tentativas automáticas: a reserva por destinatário continua
 `at-most-once`, e uma requisição repetida após falha pode deixar
-dispositivos sem aviso. O erro de transporte continua retornando
-`unavailable`; não o apresentar como resolvido. Uma política futura de
+dispositivos sem aviso. A exceção de transporte após a reserva D1 agora é registrada como
+`delivery_transport_unknown` (ou `partial_delivery_unknown` quando
+outro dispositivo já teve aceite HTTP), com contagens agregadas e
+`fcm_http_status=0` para não atribuir ao provedor um status inexistente.
+Os dois casos respondem HTTP 503, e a segunda requisição do mesmo
+evento não provoca envio novo. **Resultado desconhecido não é entrega
+confirmada nem prova de falha definitiva.** Uma política futura de
 recuperação exigirá decisão explícita, controle de duplicações, limite de
 retries, provas de autorização e avaliação de custos antes de uso real.
 

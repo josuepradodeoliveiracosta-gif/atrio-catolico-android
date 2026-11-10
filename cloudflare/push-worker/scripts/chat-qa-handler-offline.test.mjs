@@ -124,7 +124,8 @@ function makeScenario(type,change,deviceCount=1) {
       fcmCalls++;
       assert.equal(url.pathname,'/v1/projects/'+project+'/messages:send');
       assert.equal(JSON.parse(options.body).message.data.kind,event.type);
-      if(currentChange==='fcm_transport_error')
+      if(currentChange==='fcm_transport_error' ||
+          (currentChange==='fcm_second_transport_error' && fcmCalls===2))
         throw Error('synthetic_network_exception_no_provider_receipt');
       if(currentChange==='fcm_failure' ||
           (currentChange==='fcm_second_failure' && fcmCalls===2))
@@ -376,7 +377,11 @@ test('QA: excecao de transporte apos reservar D1 permanece sem retry inseguro',a
       globalThis.fetch=scenario.mockFetch;
       const first=await worker.fetch(scenario.request(),scenario.env);
       assert.equal(first.status,503,type);
-      assert.equal((await first.json()).status,'unavailable',type);
+      assert.equal((await first.json()).status,'delivery_transport_unknown',type);
+      assert.deepEqual(scenario.stat.auditOutcomes.at(-1),{
+        kind:type==='dm'?'chat_message':'group_message',
+        outcome:'delivery_transport_unknown',http:0,attempted:1,accepted:0
+      },type);
       assert.equal(scenario.stat.uniqueMarkers,1,type);
       assert.equal(scenario.stat.fcmCalls,1,type);
       scenario.setChange('none');
@@ -386,4 +391,30 @@ test('QA: excecao de transporte apos reservar D1 permanece sem retry inseguro',a
       assert.equal(scenario.stat.fcmCalls,1,type);
     }
   }finally{globalThis.fetch=oldFetch;}
+});
+
+test('QA: excecao no segundo aparelho gera parcial desconhecido sem retry',async()=>{
+  const worker=(await import('data:text/javascript;charset=utf-8,'+
+    encodeURIComponent(generated))).default;
+  const oldFetch=globalThis.fetch;
+  try {
+    for(const type of ['dm','group']){
+      const scenario=makeScenario(type,'fcm_second_transport_error',2);
+      globalThis.fetch=scenario.mockFetch;
+      const first=await worker.fetch(scenario.request(),scenario.env);
+      assert.equal(first.status,503,type);
+      assert.equal((await first.json()).status,'partial_delivery_unknown',type);
+      assert.deepEqual(scenario.stat.auditOutcomes.at(-1),{
+        kind:type==='dm'?'chat_message':'group_message',
+        outcome:'partial_delivery_unknown',http:0,attempted:2,accepted:1
+      },type);
+      assert.equal(scenario.stat.fcmCalls,2,type);
+      assert.equal(scenario.stat.uniqueMarkers,1,type);
+      scenario.setChange('none');
+      const repeated=await worker.fetch(scenario.request(),scenario.env);
+      assert.equal(repeated.status,202,type);
+      assert.equal((await repeated.json()).status,'no_devices_or_duplicate',type);
+      assert.equal(scenario.stat.fcmCalls,2,type);
+    }
+  } finally { globalThis.fetch=oldFetch; }
 });
