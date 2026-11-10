@@ -474,8 +474,10 @@ test('QA: revalidar apos primeiro FCM bloqueia os demais aparelhos',async()=>{
       },type+'/'+change);
       const again=await worker.fetch(scenario.request(),scenario.env);
       assert.equal(again.status,202,type+'/'+change);
-      assert.equal((await again.json()).status,'no_devices_or_duplicate',
-        type+'/'+change);
+      // A nova resolucao pode recusar o evento antes do D1 ('ignored');
+      // sem mudança persistida, a reserva anterior impede o replay.
+      assert.ok(['ignored','no_devices_or_duplicate'].includes(
+        (await again.json()).status),type+'/'+change);
       assert.equal(scenario.stat.fcmCalls,1,'Sem replay de dispositivo revogado');
     }
   } finally { globalThis.fetch=oldFetch; }
