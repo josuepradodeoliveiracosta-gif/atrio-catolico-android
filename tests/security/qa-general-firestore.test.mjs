@@ -369,5 +369,71 @@ try {
  });
  await assertFails(getDoc(doc(alice,group)));
  await assertFails(getDoc(doc(alice,groupMessage)));
+ // Regressao QA: o destinatario deve ser elegivel ANTES de receber
+ // convite, e deve continuar elegivel para ler, recusar ou ser reconvidado.
+ // Somente dados sintéticos em uma instância do Firebase Emulator.
+ const inviteGroup='chat_groups/qa-age-invite';
+ const inviteRef=inviteGroup+'/atrioGroupInvites/qa-bob';
+ const newInvite=()=>setDoc(doc(alice,inviteRef),{
+   inviteeUid:'qa-bob',inviterUid:'qa-alice',
+   groupName:'Grupo sintético QA',contactChatId:'qa-alice__qa-bob',
+   status:'pending',createdAt:serverTimestamp(),updatedAt:serverTimestamp()
+ });
+ await env.withSecurityRulesDisabled(async ctx=>{
+   await setDoc(doc(ctx.firestore(),'app_config/conversations'),approvedChat);
+   await setDoc(doc(ctx.firestore(),'app_config/chat_groups'),{
+     enabled:true,version:'2026-11-groups-v1',minorPolicyApproved:true
+   });
+   await setDoc(doc(ctx.firestore(),eligibility),approvedEligibility);
+   await setDoc(doc(ctx.firestore(),bobEligibility),approvedEligibility);
+   await setDoc(doc(ctx.firestore(),inviteGroup),{
+     name:'Grupo sintético QA',ownerUid:'qa-alice',
+     memberUids:['qa-alice'],adminUids:['qa-alice'],status:'active'
+   });
+   await deleteDoc(doc(ctx.firestore(),bobAge));
+ });
+ await assertSucceeds(getDoc(doc(alice,inviteGroup)));
+ // Contato individual aceito nao deve substituir prova de idade ausente.
+ await assertSucceeds(getDoc(doc(alice,room)));
+ await assertFails(newInvite());
+ await env.withSecurityRulesDisabled(async ctx=>{
+   await setDoc(doc(ctx.firestore(),bobAge),qaAge16Proof);
+ });
+ await assertSucceeds(newInvite());
+ await assertSucceeds(getDoc(doc(bob,inviteRef)));
+ // Uma prova revogada impede leitura do convite e sua aceitacao/recusa.
+ await env.withSecurityRulesDisabled(async ctx=>{
+   await setDoc(doc(ctx.firestore(),bobAge),{
+     ...qaAge16Proof,status:'revoked'
+   });
+ });
+ await assertFails(getDoc(doc(bob,inviteRef)));
+ await assertFails(updateDoc(doc(bob,inviteRef),{
+   status:'declined',updatedAt:serverTimestamp()
+ }));
+ await env.withSecurityRulesDisabled(async ctx=>{
+   await setDoc(doc(ctx.firestore(),bobAge),qaAge16Proof);
+ });
+ await assertSucceeds(getDoc(doc(bob,inviteRef)));
+ await assertSucceeds(updateDoc(doc(bob,inviteRef),{
+   status:'declined',updatedAt:serverTimestamp()
+ }));
+ // Reconvite pelo administrador tambem exige prova valida do destinatario.
+ await env.withSecurityRulesDisabled(async ctx=>{
+   await setDoc(doc(ctx.firestore(),bobAge),{
+     ...qaAge16Proof,reviewExpiresAt:past
+   });
+ });
+ await assertFails(updateDoc(doc(alice,inviteRef),{
+   status:'pending',updatedAt:serverTimestamp()
+ }));
+ await env.withSecurityRulesDisabled(async ctx=>{
+   await setDoc(doc(ctx.firestore(),bobAge),qaAge16Proof);
+ });
+ await assertSucceeds(updateDoc(doc(alice,inviteRef),{
+   status:'pending',updatedAt:serverTimestamp()
+ }));
+ await assertSucceeds(getDoc(doc(bob,inviteRef)));
+ console.log('QA geral: convidado inelegivel bloqueado na criacao, leitura e reconvite (EMULATOR).');
  console.log('QA geral: revogacao/expiracao impede leitura de historicos de grupo existentes.');
 }finally{await env.cleanup();}
