@@ -7,6 +7,36 @@ Escopo: Átrio Conversas, mensagens diretas e grupos, na PR draft #193.
 Consolida os portões abertos da issue #200 e do roteiro de retenção existente,
 sem decidir pelo fundador ou pela revisão de privacidade/jurídica.
 
+## Decisão expressa do fundador: idade mínima para chat (09/11/2026)
+
+**DEFINIDO APENAS O LIMITE ETÁRIO DO CHAT:** participação permitida a
+usuários com **16 anos completos ou mais**; **menores de 16 anos não
+participam do chat**. Adolescentes de 16 e 17 anos permanecem sujeitos
+às proteções aplicáveis, sem equipará-los a adultos. A decisão foi
+registrada na issue #200; **não** constitui aprovação de método de aferição,
+supervisão, moderação, retenção, regras, acesso real ou implantação.
+
+**Ainda depende de definição e revisão:** alcance operacional em mensagens
+de grupo e demais recursos da comunidade; critério confiável e minimizado
+de aferição de idade e elegibilidade individual; tratamento de
+idade desconhecida, verificação expirada, conta trocada ou prova forjada;
+eventuais exigências de vinculação/supervisão por responsáveis, especialmente
+para a faixa de 16 anos (ver avaliação do art. 24 da Lei 15.211/2025);
+proteções de privacidade por padrão e prevenção de assédio/aliciamento.
+Revisão jurídica e de privacidade deve confirmar o enquadramento.
+
+**Lacuna técnica:** `minorPolicyApproved` e `reviewExpiresAt` são
+portões de homologação, **não atestam** que um usuário tenha ao menos
+16 anos. Não criar campo autodeclarado de data de nascimento como prova,
+não coletar CPF ou documentos nas conversas, nem autorizar acesso real
+antes de um fluxo individual testado e aprovado. A ausência de prova
+válida de elegibilidade precisa impedir acesso ao chat (fail-closed).
+
+Referências: Lei 15.211/2025, art. 24
+(https://www.planalto.gov.br/ccivil_03/_ato2023-2026/2025/lei/l15211.htm)
+e Guia ANPD sobre escopo e obrigações gerais do ECA Digital
+(https://www.gov.br/anpd/pt-br/assuntos/noticias/anpd-publica-guia-que-esclarece-quem-deve-cumprir-e-quais-sao-as-responsabilidades-das-plataformas-na-protecao-de-criancas-e-adolescentes).
+
 ## Condições atuais verificadas
 
 - A suíte Firestore Emulator testa bloqueio por `minorPolicyApproved`,
@@ -22,7 +52,7 @@ sem decidir pelo fundador ou pela revisão de privacidade/jurídica.
 
 | Tema | Decisão a registrar pelo responsável | Evidência mínima antes da ativação | Estado |
 | --- | --- | --- | --- |
-| Público e menores | Faixas permitidas, estratégia de aferição de idade, supervisão quando aplicável e revogação | Avaliação de risco e conformidade, fornecedor/método avaliado, testes de falsificação, expiração e indisponibilidade | **PENDENTE** |
+| Público e menores | **Idade mínima do chat: 16 anos (decidida pelo fundador)**; definir alcance em grupos, aferição individual confiável, supervisão quando aplicável e revogação | Avaliação de risco e conformidade, fornecedor/método avaliado, testes de falsificação, expiração e indisponibilidade | **LIMITE DEFINIDO; IMPLEMENTAÇÃO E REVISÃO PENDENTES** |
 | Solicitações e bloqueios | Consentimento e prevenção de contato não solicitado, assédio, spam e aliciamento; limites e sanções | Testes de bloqueio bilateral, abuso, troca de conta, limites e recursos | **PENDENTE** |
 | Denúncias | Canal de entrada, equipe credenciada, acesso mínimo, prioridade, triagem, recurso e emergência | Roteiro de incidentes e testes de privacidade; nenhuma leitura geral de DMs por moderador | **PENDENTE** |
 | Evidências e ex-integrantes | Preservação, proteção e apresentação de denúncias por ex-membros sem ampliar acesso privado | Testes de desligamento, remoção, não repúdio, abuso de protocolos e controle humano | **PENDENTE** |
