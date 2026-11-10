@@ -229,3 +229,21 @@ e uma de `chatBox` (mais uma de privacidade quando `pending`).
 O custo é adicional às checagens já descritas e precisa ser auditado antes
 de ligar FCM; Firestore e FCM não são atômicos, portanto não existe garantia
 de revogação instantânea após a última leitura.
+
+### Revalidação da existência da mensagem (somente QA offline)
+
+O último controle antes do marcador D1/FCM lê novamente a mensagem que
+originou o evento, depois da seleção dos destinatários. A mensagem deve
+existir, ser do remetente autenticado, manter tipo permitido (DM:
+`text`/`post`; grupo: `text`) e ter `createdAt` recente. Exclusão,
+mudança de autoria/tipo, data antiga ou falha REST negam o push.
+
+Novos testes simulam a seleção válida seguida da remoção/alteração da
+mensagem, com controle positivo e falha de rede. A checagem vale apenas
+para o candidato do Worker QA, gera **uma leitura Firestore adicional por
+destinatário** e não impede alterações após essa última consulta. Nada
+é enviado ao FCM real, e o Worker oficial não foi modificado.
+
+**Atenção:** isso não implementa retenção, exclusão legal, moderação ou
+garantia de revogação instantânea. Esses procedimentos continuam
+dependentes da aprovação documentada da Issue #200.

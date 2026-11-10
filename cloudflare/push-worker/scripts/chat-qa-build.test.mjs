@@ -592,3 +592,100 @@ test('QA reconsulta desligamento administrativo de grupos antes de D1 e FCM',asy
       {...resolved,groupId:'../out'}),false);
   } finally {globalThis.fetch=saved;}
 });
+
+test('QA recusa notificar mensagem direta removida ou adulterada apos selecao',async()=>{
+  const {resolveEvent,qaChatMessagePreSendAllowed}=await import(
+    'data:text/javascript;charset=utf-8,'+encodeURIComponent(generated));
+  assert.ok(generated.includes('qaChatMessagePreSendAllowed(token,uid,event)'));
+  const age=()=>qaDoc({status:'eligible',minimumAge:18,
+    policyVersion:'2026-11-18plus-qa-v1',reviewExpiresAt:qaFuture()});
+  const message=()=>qaDoc({uid:'chat-alice',kind:'text',
+    createdAt:new Date(Date.now()-1000).toISOString()});
+  const path='chats/chat-alice__chat-bob/messages/m2';
+  const base={
+    'app_config/conversations':qaDoc({enabled:true,minorPolicyApproved:true,
+      safetyReviewVersion:'2026-11-safety-v1',version:'2026-11-v1'}),
+    'chats/chat-alice__chat-bob':qaDoc({requesterUid:'chat-alice',
+      recipientUid:'chat-bob',status:'accepted',initialId:'m1'}),
+    [path]:message(),
+    'users/chat-alice/chatAgeEligibility/current':age(),
+    'users/chat-bob/chatAgeEligibility/current':age()
+  };
+  const saved=globalThis.fetch;
+  try {
+    qaMockFirestore(base);
+    const event=await resolveEvent({type:'chat_message',
+      chatId:'chat-alice__chat-bob',messageId:'m2'},'chat-alice','fake');
+    assert.deepEqual(event.recipients,['chat-bob']);
+    const allowed=()=>qaChatMessagePreSendAllowed('fake','chat-alice',event);
+    assert.equal(await allowed(),true);
+    const failures=[
+      null,
+      qaDoc({uid:'chat-bob',kind:'text',createdAt:new Date().toISOString()}),
+      qaDoc({uid:'chat-alice',kind:'file',createdAt:new Date().toISOString()}),
+      qaDoc({uid:'chat-alice',kind:'text',createdAt:new Date(Date.now()-3600_000).toISOString()}),
+      qaDoc({uid:'chat-alice',kind:'text'}),
+    ];
+    for(const altered of failures){
+      qaMockFirestore({...base,[path]:altered});
+      assert.equal(await allowed(),false,'Remocao ou adulteracao deve negar');
+    }
+    qaMockFirestore({...base,[path]:qaDoc({uid:'chat-alice',kind:'post',
+      createdAt:new Date(Date.now()-1000).toISOString()})});
+    assert.equal(await allowed(),true,'Mensagens post permitidas na DM');
+    qaMockFirestore(base);
+    for(const invalid of [null,{}, {...event,chatId:'../outside'},
+       {...event,messageId:'m/2'},{...event,kind:'report'}]) {
+      assert.equal(await qaChatMessagePreSendAllowed('fake','chat-alice',invalid),false);
+    }
+    globalThis.fetch=async()=>{throw Error('offline_firestore_error')};
+    assert.equal(await allowed(),false);
+  } finally {globalThis.fetch=saved;}
+});
+
+test('QA recusa aviso de grupo quando mensagem foi removida ou nao e texto',async()=>{
+  const {resolveEvent,qaChatMessagePreSendAllowed}=await import(
+    'data:text/javascript;charset=utf-8,'+encodeURIComponent(generated));
+  const age=()=>qaDoc({status:'eligible',minimumAge:18,
+    policyVersion:'2026-11-18plus-qa-v1',reviewExpiresAt:qaFuture()});
+  const access=()=>qaDoc({status:'approved',
+    policyVersion:'2026-11-group-safety-v1',reviewExpiresAt:qaFuture()});
+  const path='chat_groups/grp-qa/messages/m2';
+  const message=()=>qaDoc({uid:'chat-alice',kind:'text',
+    createdAt:new Date(Date.now()-1000).toISOString()});
+  const base={
+    'app_config/conversations':qaDoc({enabled:true,minorPolicyApproved:true,
+      safetyReviewVersion:'2026-11-safety-v1',version:'2026-11-v1'}),
+    'app_config/chat_groups':qaDoc({enabled:true,pushEnabled:true,
+      minorPolicyApproved:true,version:'2026-11-groups-v1'}),
+    'chat_groups/grp-qa':qaDoc({status:'active',
+      memberUids:['chat-alice','chat-bob']}),
+    [path]:message(),
+    'users/chat-alice/chatGroupAccess/eligibility':access(),
+    'users/chat-bob/chatGroupAccess/eligibility':access(),
+    'users/chat-alice/chatAgeEligibility/current':age(),
+    'users/chat-bob/chatAgeEligibility/current':age()
+  };
+  const saved=globalThis.fetch;
+  try {
+    qaMockFirestore(base);
+    const event=await resolveEvent({type:'group_message',groupId:'grp-qa',
+      messageId:'m2'},'chat-alice','fake');
+    assert.deepEqual(event.recipients,['chat-bob']);
+    const allowed=()=>qaChatMessagePreSendAllowed('fake','chat-alice',event);
+    assert.equal(await allowed(),true);
+    for(const changed of [
+      null,qaDoc({uid:'chat-bob',kind:'text',createdAt:new Date().toISOString()}),
+      qaDoc({uid:'chat-alice',kind:'post',createdAt:new Date().toISOString()}),
+      qaDoc({uid:'chat-alice',kind:'text',
+        createdAt:new Date(Date.now()-3600_000).toISOString()})
+    ]){
+      qaMockFirestore({...base,[path]:changed});
+      assert.equal(await allowed(),false);
+    }
+    qaMockFirestore(base);
+    assert.equal(await allowed(),true);
+    assert.equal(await qaChatMessagePreSendAllowed('fake','chat-alice',
+      {...event,groupId:'../outside'}),false);
+  } finally {globalThis.fetch=saved;}
+});
