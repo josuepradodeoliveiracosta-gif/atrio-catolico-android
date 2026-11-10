@@ -103,6 +103,26 @@ identidade do D1 correta e sempre retorna `disabled`. `POST /event` sempre
 retorna 503, sem chamar Firebase. O código-fonte correspondente e testes
 ficam em `cloudflare/qa-general-worker/`.
 
+## Elegibilidade individual 18+ antes do Push — candidato QA sem deploy
+
+O gerador de `src/index.general-qa.generated.js` reforça exclusivamente a
+versão QA do Worker: para aviso de conversa privada, consulta o registro
+mínimo `users/{uid}/chatAgeEligibility/current` do remetente **e** do
+destinatário; para grupos, exige o registro do autor e filtra cada
+participante antes do FCM. Provas ausentes, revogadas, vencidas, de
+política antiga ou com campos extras não autorizam o aviso. O verificador
+aceita apenas `status=eligible`, `minimumAge=18` como inteiro REST,
+`policyVersion=2026-11-18plus-qa-v1` e `reviewExpiresAt` futuro.
+
+Os testes sintéticos executam `resolveEvent` na fonte QA gerada,
+com Firestore REST inteiramente simulado, verificando controles positivos,
+revogação, falta de prova e filtragem por destinatário. **Não utilizam
+Firebase externo nem transmitem notificações**. As Rules do Firestore
+continuam sendo o controle do acesso às mensagens: a revalidação do
+Worker protege apenas a emissão de avisos por uma credencial privilegiada.
+Aumenta leituras por evento e exige avaliação de custos/cotas antes de
+habilitar FCM real. O código de produção `src/index.js` não foi alterado.
+
 ## Testes permitidos antes de um ambiente QA real
 
     node --test cloudflare/push-worker/scripts/chat-qa-build.test.mjs

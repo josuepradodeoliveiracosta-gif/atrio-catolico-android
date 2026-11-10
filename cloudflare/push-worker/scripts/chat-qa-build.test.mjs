@@ -32,6 +32,11 @@ test('QA só aceita rotas/eventos de chat, grupos e health',()=>{
 test('QA exige e-mail do domínio da service account do projeto aprovado',()=>{
   assert.match(generated,/client_email\?\.endsWith\('@' \+ PROJECT \+ '\.iam\.gserviceaccount\.com'\)/);
 });
+test('gerador de push QA exige gate 18+ por remetente e destinatario',()=>{
+  assert.match(generated,/qaChatAge18ValidForPush/);
+  assert.match(generated,/chatAgeEligibility\\/current/);
+  assert.doesNotMatch(original,/qaChatAge18ValidForPush/);
+});
 test('produção permanece imutável: fonte de entrada ainda usa projeto oficial',()=>{
   assert.match(original,/const PROJECT = 'atrio-catolico';/);
   assert.match(original,/from '.\/qa-manual.js';/);
@@ -200,4 +205,98 @@ test('QA geral mantem outros modulos bloqueados',()=>{
   assert.match(cfg,/name = "atrio-qa-geral"/);
   assert.match(cfg,/database_name = "atrio-qa-geral-db"/);
   assert.ok(generated.includes("!['chat_message','group_message'].includes(data.type)"));
+});
+
+
+const qaFuture=()=>new Date(Date.now()+86_400_000).toISOString();
+function qaDoc(fields) {
+  const entries=Object.entries(fields).map(([key,value])=>{
+    if(typeof value==='boolean')return [key,{booleanValue:value}];
+    if(key==='minimumAge')return [key,{integerValue:String(value)}];
+    if(key.endsWith('At'))return [key,{timestampValue:value}];
+    if(Array.isArray(value))return [key,{arrayValue:{values:value.map(v=>({stringValue:v}))}}];
+    return [key,{stringValue:value}];
+  });
+  return {fields:Object.fromEntries(entries)};
+}
+function qaMockFirestore(docs) {
+  globalThis.fetch=async input=>{
+    const path=decodeURIComponent(new URL(input).pathname.split('/documents/').slice(1).join('/documents/'));
+    return docs[path]
+      ?new Response(JSON.stringify(docs[path]),{status:200})
+      :new Response('{}',{status:404});
+  };
+}
+
+test('Worker QA exige prova 18+ individual antes de push privado, inclusive apos revogacao',async()=>{
+  const {resolveEvent}=await import('data:text/javascript;charset=utf-8,'+
+    encodeURIComponent(generated));
+  const goodAge=()=>qaDoc({status:'eligible',minimumAge:18,
+    policyVersion:'2026-11-18plus-qa-v1',reviewExpiresAt:qaFuture()});
+  const standard={
+    'app_config/conversations':qaDoc({enabled:true,minorPolicyApproved:true,
+      safetyReviewVersion:'2026-11-safety-v1',version:'2026-11-v1'}),
+    'chats/chat-alice__chat-bob':qaDoc({requesterUid:'chat-alice',
+      recipientUid:'chat-bob',status:'accepted',initialId:'m1'}),
+    'chats/chat-alice__chat-bob/messages/m2':qaDoc({uid:'chat-alice',
+      kind:'text',createdAt:new Date(Date.now()-1000).toISOString()}),
+    'users/chat-alice/chatAgeEligibility/current':goodAge(),
+    'users/chat-bob/chatAgeEligibility/current':goodAge()
+  };
+  const event={type:'chat_message',chatId:'chat-alice__chat-bob',messageId:'m2'};
+  const saved=globalThis.fetch;
+  try {
+    qaMockFirestore(standard);
+    assert.deepEqual((await resolveEvent(event,'chat-alice','fake')).recipients,['chat-bob']);
+    for(const invalid of [
+      null,
+      qaDoc({status:'revoked',minimumAge:18,policyVersion:'2026-11-18plus-qa-v1',reviewExpiresAt:qaFuture()}),
+      qaDoc({status:'eligible',minimumAge:18,policyVersion:'2026-11-16plus-qa-v1',reviewExpiresAt:qaFuture()}),
+      qaDoc({status:'eligible',minimumAge:18,policyVersion:'2026-11-18plus-qa-v1',reviewExpiresAt:new Date(Date.now()-60000).toISOString()}),
+      {fields:{...goodAge().fields,cpf:{stringValue:'00000000000'}}},
+      {fields:{...goodAge().fields,minimumAge:{stringValue:'18'}}}
+    ]) {
+      qaMockFirestore({...standard,'users/chat-bob/chatAgeEligibility/current':invalid});
+      assert.equal(await resolveEvent(event,'chat-alice','fake'),null);
+    }
+    qaMockFirestore({...standard,'users/chat-alice/chatAgeEligibility/current':null});
+    assert.equal(await resolveEvent(event,'chat-alice','fake'),null);
+  } finally {globalThis.fetch=saved;}
+});
+
+test('Worker QA filtra push de grupo para destinatarios sem prova 18+ e autor inelegivel',async()=>{
+  const {resolveEvent}=await import('data:text/javascript;charset=utf-8,'+
+    encodeURIComponent(generated));
+  const goodAge=()=>qaDoc({status:'eligible',minimumAge:18,
+    policyVersion:'2026-11-18plus-qa-v1',reviewExpiresAt:qaFuture()});
+  const groupAccess=()=>qaDoc({status:'approved',policyVersion:'2026-11-group-safety-v1',
+    reviewExpiresAt:qaFuture()});
+  const docs={
+    'app_config/conversations':qaDoc({enabled:true,minorPolicyApproved:true,
+      safetyReviewVersion:'2026-11-safety-v1',version:'2026-11-v1'}),
+    'app_config/chat_groups':qaDoc({enabled:true,pushEnabled:true,
+      minorPolicyApproved:true,version:'2026-11-groups-v1'}),
+    'chat_groups/grp-qa':qaDoc({status:'active',
+      memberUids:['chat-alice','chat-bob','chat-charlie']}),
+    'chat_groups/grp-qa/messages/m3':qaDoc({uid:'chat-alice',kind:'text',
+      createdAt:new Date(Date.now()-1000).toISOString()}),
+    'users/chat-alice/chatGroupAccess/eligibility':groupAccess(),
+    'users/chat-bob/chatGroupAccess/eligibility':groupAccess(),
+    'users/chat-charlie/chatGroupAccess/eligibility':groupAccess(),
+    'users/chat-alice/chatAgeEligibility/current':goodAge(),
+    'users/chat-bob/chatAgeEligibility/current':goodAge(),
+    'users/chat-charlie/chatAgeEligibility/current':goodAge()
+  };
+  const event={type:'group_message',groupId:'grp-qa',messageId:'m3'};
+  const saved=globalThis.fetch;
+  try {
+    qaMockFirestore(docs);
+    assert.deepEqual((await resolveEvent(event,'chat-alice','fake')).recipients,
+      ['chat-bob','chat-charlie']);
+    qaMockFirestore({...docs,'users/chat-bob/chatAgeEligibility/current':null});
+    assert.deepEqual((await resolveEvent(event,'chat-alice','fake')).recipients,
+      ['chat-charlie']);
+    qaMockFirestore({...docs,'users/chat-alice/chatAgeEligibility/current':null});
+    assert.equal(await resolveEvent(event,'chat-alice','fake'),null);
+  } finally {globalThis.fetch=saved;}
 });
