@@ -204,3 +204,28 @@ Essa segunda etapa acrescenta **duas leituras por destinatário**
 para o bloqueio bilateral e **mais uma em grupos** para o silenciamento,
 além das leituras já documentadas. Permanecem janelas de corrida até
 o FCM, pendências de política #200 e avaliação de custo/cotas.
+
+### Fechamento administrativo e estado da conversa antes de despachar (QA offline)
+
+Após escolher destinatários e consultar dispositivos, o candidato agora
+verifica mais uma vez os **gates administrativos** antes de reservar o
+marcador D1 ou chamar FCM: para DMs e grupos, `app_config/conversations`
+deve continuar habilitado, aprovado e com as versões esperadas; para grupos,
+`app_config/chat_groups` precisa manter `enabled`, `pushEnabled`,
+`minorPolicyApproved` e versão válidos. Para DMs, também reconfirma o
+documento da conversa, quem participa, status `accepted` ou a solicitação
+inicial `pending` legítima e a opção `muted` do destinatário. Solicitações
+pendentes exigem a política de privacidade `requests=all`.
+
+Cobertura com Firestore REST inteiramente fictício simula suspensão
+administrativa entre a seleção e o envio, remoção/bloqueio do chat,
+alteração de participantes, silenciamento, privacidade do primeiro contato,
+versões de política inválidas e indisponibilidade do backend. Não há FCM
+real, deploy ou alteração do Worker de produção.
+
+**Custo estimado adicional por destinatário:** uma leitura do gate de chat,
+mais uma de `chat_groups` em grupos, ou em DM uma do documento do chat
+e uma de `chatBox` (mais uma de privacidade quando `pending`).
+O custo é adicional às checagens já descritas e precisa ser auditado antes
+de ligar FCM; Firestore e FCM não são atômicos, portanto não existe garantia
+de revogação instantânea após a última leitura.
