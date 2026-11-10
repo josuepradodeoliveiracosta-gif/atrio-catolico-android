@@ -1,0 +1,38 @@
+name: QA chat 18+ - durabilidade e concorrencia (laboratorio isolado)
+
+on:
+  pull_request:
+    branches:
+      - main
+      - feat/atrio-conversas-etapa1-20261106
+    paths:
+      - 'scripts/qa_age18_single_use.py'
+      - 'scripts/test_qa_age18_single_use.py'
+      - 'docs/qa-homologacao/AGE18-PERSISTENCIA-LAB.md'
+      - '.github/workflows/qa-age18-single-use.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  age18-single-use-lab:
+    name: QA 18+ - nonce e JTI persistentes no SQLite local
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout sem credenciais persistidas
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Executar oito cenarios reais de transacao local
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ''
+          FIREBASE_TOKEN: ''
+          CLOUDFLARE_API_TOKEN: ''
+        run: python3 -m unittest scripts.test_qa_age18_single_use -v
+      - name: Limite da evidência de laboratorio
+        if: always()
+        run: |
+          echo '## Prova offline de atomicidade, nao afericao real de idade' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Nao verifica JWT Firebase, identidade real, fornecedor 18+, Firestore, D1 remoto ou usuarios. Nao concede elegibilidade nem faz deploy.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Marco 3 do QA continua BLOQUEADO pela política #200 e aprovacao QA especifica. Nao usar este CI para liberar chat.' >> "$GITHUB_STEP_SUMMARY"

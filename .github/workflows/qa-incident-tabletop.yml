@@ -1,0 +1,50 @@
+name: QA Incidentes - triagem e recursos somente simulados
+
+on:
+  pull_request:
+    branches:
+      - feat/atrio-conversas-etapa1-20261106
+    paths:
+      - 'scripts/qa_incident_tabletop.mjs'
+      - 'scripts/qa_incident_tabletop.test.mjs'
+      - 'docs/qa-homologacao/INCIDENTES-TRIAGEM-SEM-ATIVACAO.md'
+      - '.github/workflows/qa-incident-tabletop.yml'
+
+permissions:
+  contents: read
+concurrency:
+  group: qa-incidents-${{ github.run_id }}
+  cancel-in-progress: false
+jobs:
+  tabletop:
+    name: Simular casos de incidentes sem acionar moderacao real
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GOOGLE_APPLICATION_CREDENTIALS: ''
+      FIREBASE_TOKEN: ''
+      CLOUDFLARE_API_TOKEN: ''
+    steps:
+      - name: Checkout sem credenciais persistidas
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Testes adversariais de triagem e recursos
+        run: node --test scripts/qa_incident_tabletop.test.mjs
+      - name: Gerar relatorio sintetico NO-GO
+        run: |
+          node scripts/qa_incident_tabletop.mjs > "$RUNNER_TEMP/qa-incident-NO-GO.json"
+          node -e 'const r=require(process.env.RUNNER_TEMP+"/qa-incident-NO-GO.json");if(r.status!=="NO_GO"||r.realEscalationsSent!==0||r.realCasesClosed!==0||r.deploymentAuthorized!==false)process.exit(1)'
+          echo '## Simulação de incidentes e recursos — NO-GO' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Nenhuma política de moderação aprovada, ninguém notificado, nenhuma sanção ou exclusão executada. Testes usam somente casos sintéticos.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Anexar apenas contagens de ficção sem conteúdo privado
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-incident-no-go-${{ github.run_id }}
+          path: ${{ runner.temp }}/qa-incident-NO-GO.json
+          retention-days: 14
+          if-no-files-found: error

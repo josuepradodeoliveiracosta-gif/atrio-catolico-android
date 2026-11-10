@@ -1,0 +1,191 @@
+{
+  "schema": "atrio-issue200-qa-decisions-v1",
+  "issueNumber": 200,
+  "scope": "atrio-conversas-dm-grupos",
+  "minimumChatAge": 18,
+  "agePrecheck": "local-only-not-proof",
+  "qaDeploymentAuthorized": false,
+  "productionDeploymentAuthorized": false,
+  "decisions": {
+    "trustedAgeProof": {
+      "status": "pending",
+      "proposal": null,
+      "evidenceRefs": [],
+      "reviewedBy": null
+    },
+    "contactConsentAndAbusePrevention": {
+      "status": "pending",
+      "proposal": null,
+      "evidenceRefs": [],
+      "reviewedBy": null
+    },
+    "reportIntakeAndTriage": {
+      "status": "pending",
+      "proposal": null,
+      "evidenceRefs": [],
+      "reviewedBy": null
+    },
+    "moderatorAssignmentsAndAccess": {
+      "status": "pending",
+      "proposal": null,
+      "evidenceRefs": [],
+      "reviewedBy": null
+    },
+    "appealsAndEmergencyEscalation": {
+      "status": "pending",
+      "proposal": null,
+      "evidenceRefs": [],
+      "reviewedBy": null
+    },
+    "formerMemberEvidence": {
+      "status": "pending",
+      "proposal": null,
+      "evidenceRefs": [],
+      "reviewedBy": null
+    },
+    "subjectRightsAndDeletion": {
+      "status": "pending",
+      "proposal": null,
+      "evidenceRefs": [],
+      "reviewedBy": null
+    },
+    "retentionPolicyAndHolds": {
+      "status": "pending",
+      "proposal": null,
+      "evidenceRefs": [],
+      "reviewedBy": null
+    },
+    "privacyLegalReview": {
+      "status": "pending",
+      "proposal": null,
+      "evidenceRefs": [],
+      "reviewedBy": null
+    },
+    "qaRolloutAuthorization": {
+      "status": "pending",
+      "proposal": null,
+      "evidenceRefs": [],
+      "reviewedBy": null
+    },
+    "productionRolloutAuthorization": {
+      "status": "pending",
+      "proposal": null,
+      "evidenceRefs": [],
+      "reviewedBy": null
+    }
+  },
+  "retention": {
+    "directMessages": {
+      "status": "pending",
+      "periodDays": null,
+      "legalBasis": null,
+      "preservationRule": null,
+      "deletionProcess": null,
+      "reviewedBy": null
+    },
+    "groupMessages": {
+      "status": "pending",
+      "periodDays": null,
+      "legalBasis": null,
+      "preservationRule": null,
+      "deletionProcess": null,
+      "reviewedBy": null
+    },
+    "directReports": {
+      "status": "pending",
+      "periodDays": null,
+      "legalBasis": null,
+      "preservationRule": null,
+      "deletionProcess": null,
+      "reviewedBy": null
+    },
+    "groupReports": {
+      "status": "pending",
+      "periodDays": null,
+      "legalBasis": null,
+      "preservationRule": null,
+      "deletionProcess": null,
+      "reviewedBy": null
+    },
+    "groupInvites": {
+      "status": "pending",
+      "periodDays": null,
+      "legalBasis": null,
+      "preservationRule": null,
+      "deletionProcess": null,
+      "reviewedBy": null
+    },
+    "hiddenMessages": {
+      "status": "pending",
+      "periodDays": null,
+      "legalBasis": null,
+      "preservationRule": null,
+      "deletionProcess": null,
+      "reviewedBy": null
+    },
+    "directMetadata": {
+      "status": "pending",
+      "periodDays": null,
+      "legalBasis": null,
+      "preservationRule": null,
+      "deletionProcess": null,
+      "reviewedBy": null
+    },
+    "groupMetadata": {
+      "status": "pending",
+      "periodDays": null,
+      "legalBasis": null,
+      "preservationRule": null,
+      "deletionProcess": null,
+      "reviewedBy": null
+    },
+    "chatAgeEligibility": {
+      "status": "pending",
+      "periodDays": null,
+      "legalBasis": null,
+      "preservationRule": null,
+      "deletionProcess": null,
+      "reviewedBy": null
+    },
+    "groupEligibility": {
+      "status": "pending",
+      "periodDays": null,
+      "legalBasis": null,
+      "preservationRule": null,
+      "deletionProcess": null,
+      "reviewedBy": null
+    },
+    "chatPreferences": {
+      "status": "pending",
+      "periodDays": null,
+      "legalBasis": null,
+      "preservationRule": null,
+      "deletionProcess": null,
+      "reviewedBy": null
+    },
+    "auditTrails": {
+      "status": "pending",
+      "periodDays": null,
+      "legalBasis": null,
+      "preservationRule": null,
+      "deletionProcess": null,
+      "reviewedBy": null
+    },
+    "backups": {
+      "status": "pending",
+      "periodDays": null,
+      "legalBasis": null,
+      "preservationRule": null,
+      "deletionProcess": null,
+      "reviewedBy": null
+    }
+  },
+  "governance": {
+    "policyOwner": null,
+    "moderationLead": null,
+    "legalPrivacyReviewer": null,
+    "qaApprover": null,
+    "productionApprover": null,
+    "decisionDate": null
+  }
+}
