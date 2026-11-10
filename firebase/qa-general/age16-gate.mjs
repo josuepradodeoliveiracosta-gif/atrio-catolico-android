@@ -6,13 +6,14 @@
  */
 export const QA_AGE16_GATE=`
     function qaChatAge16Eligible(uid) {
-      let proof = /databases/$(database)/documents/users/$(uid)/chatAgeEligibility/current;
-      return exists(proof)
-        && get(proof).data.get('status','') == 'eligible'
-        && get(proof).data.get('minimumAge',0) == 16
-        && get(proof).data.get('policyVersion','') == '2026-11-16plus-qa-v1'
-        && get(proof).data.get('reviewExpiresAt',request.time) is timestamp
-        && get(proof).data.get('reviewExpiresAt',request.time) > request.time;
+      // Uma unica leitura evita esgotar o limite de acessos das Rules
+      // durante convites de grupo. Prova ausente gera negacao (fail-closed).
+      let proof = get(/databases/$(database)/documents/users/$(uid)/chatAgeEligibility/current).data;
+      return proof.get('status','') == 'eligible'
+        && proof.get('minimumAge',0) == 16
+        && proof.get('policyVersion','') == '2026-11-16plus-qa-v1'
+        && proof.get('reviewExpiresAt',request.time) is timestamp
+        && proof.get('reviewExpiresAt',request.time) > request.time;
     }
     match /users/{uid}/chatAgeEligibility/current {
       allow get: if me(uid);
