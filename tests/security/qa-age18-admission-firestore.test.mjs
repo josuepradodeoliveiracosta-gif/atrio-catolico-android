@@ -6,7 +6,7 @@ import {generateKeyPairSync,sign} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import {initializeTestEnvironment,assertFails,assertSucceeds}
   from '@firebase/rules-unit-testing';
-import {doc,getDoc,setDoc,serverTimestamp,Timestamp}
+import {doc,collection,getDoc,getDocs,setDoc,serverTimestamp,Timestamp}
   from 'firebase/firestore';
 import {createAge18OfflineBindingLab}
   from '../../firebase/qa-general/age18-binding-lab.mjs';
@@ -32,6 +32,8 @@ const privacyPath='users/'+uid+'/chatSettings/privacy';
 const limitsPath='users/'+uid+'/chatLimits/requests';
 const signedIn=env.authenticatedContext(uid,{email_verified:true}).firestore();
 const signedOutEmail=env.authenticatedContext(uid,{email_verified:false}).firestore();
+const unrelatedAccount=env.authenticatedContext('qa-unrelated',{email_verified:true}).firestore();
+const visitor=env.unauthenticatedContext().firestore();
 const {publicKey,privateKey}=generateKeyPairSync('ed25519');
 const fixture={
   status:'eligible',minimumAge:18,
@@ -105,6 +107,14 @@ try {
       reviewExpiresAt:fixture.reviewExpiresAt
     });
   });
+  // Sigilo do atestado: o titular só consulta o seu documento;
+  // nenhum cliente pode listar registros ou ler o de outra conta.
+  await assertSucceeds(getDoc(doc(signedIn,agePath)));
+  await assertFails(getDoc(doc(unrelatedAccount,agePath)));
+  await assertFails(getDoc(doc(visitor,agePath)));
+  await assertFails(getDocs(collection(signedIn,'users/'+uid+'/chatAgeEligibility')));
+  await assertFails(getDocs(collection(unrelatedAccount,'users/'+uid+'/chatAgeEligibility')));
+  await assertFails(setDoc(doc(unrelatedAccount,agePath),fixture));
   await assertSucceeds(getDoc(doc(signedIn,limitsPath)));
   await assertSucceeds(setDoc(doc(signedIn,privacyPath),privateSettings));
   await assertFails(getDoc(doc(signedOutEmail,limitsPath)));
