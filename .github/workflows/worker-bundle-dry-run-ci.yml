@@ -100,7 +100,7 @@ jobs:
         with:
           node-version: '22'
       - name: Testar política isolada de geração
-        run: node --test cloudflare/push-worker/scripts/chat-qa-build.test.mjs
+        run: node --test cloudflare/push-worker/scripts/chat-qa-build.test.mjs cloudflare/push-worker/scripts/chat-qa-handler-offline.test.mjs
       - name: Gerar arquivos QA exclusivamente fictícios
         run: node cloudflare/push-worker/scripts/chat-qa-build.mjs
       - name: Sintaxe da fonte QA gerada

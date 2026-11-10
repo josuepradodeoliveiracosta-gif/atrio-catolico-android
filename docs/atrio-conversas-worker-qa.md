@@ -247,3 +247,25 @@ destinatário** e não impede alterações após essa última consulta. Nada
 **Atenção:** isso não implementa retenção, exclusão legal, moderação ou
 garantia de revogação instantânea. Esses procedimentos continuam
 dependentes da aprovação documentada da Issue #200.
+
+### Teste da rota `/event` completa (somente simulação offline)
+
+Além dos testes das funções internas, uma suíte agora executa o
+`worker.fetch` real do código **QA gerado**, com Auth, OAuth, Firestore
+REST, D1 e FCM **substituídos por objetos/fetch locais**. A chave RSA de
+serviço é gerada durante o teste, não é de nenhum projeto real; o token
+Firebase é um artefato falso aceito apenas pelo mock de Auth.
+
+A seleção inicial é permitida e um documento é revogado **quando o
+Worker consulta os dispositivos**. O teste confirma que exclusão de
+mensagem, prova 18+ ausente, bloqueio bilateral, suspensão administrativa,
+saída do grupo ou `pushEnabled=false` impedem **a reserva do marcador
+D1 e a chamada simulada ao FCM**. Um controle positivo para DM e grupo
+valida que o mesmo fluxo completo chega ao FCM fictício quando permitido.
+O teste recusa qualquer destino HTTP imprevisto e exige explicitamente
+o identificador do projeto QA em suas URLs.
+
+**Limites:** não existe Firestore/FCM/Cloudflare real, verificação
+criptográfica remota de token ou deploy. A simulação não encerra
+os marcos 3–7, não elimina a janela de corrida pós-verificação e
+não substitui o teste em dois aparelhos físicos.
