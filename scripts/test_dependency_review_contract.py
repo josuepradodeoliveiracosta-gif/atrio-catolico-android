@@ -45,7 +45,9 @@ class DependencyReviewContract(unittest.TestCase):
         self.assertNotIn("wrangler deploy", self.review)
         self.assertNotIn("release create", self.review)
         self.assertNotIn("cancel-in-progress: true", self.review)
-        self.assertIn("vars.ATRIO_DEPENDENCY_GRAPH_READY == 'true'", self.review)
+        # No skip switch: ativacao confirmada; em caso de API falhar, o job falha.
+        self.assertNotIn("ATRIO_DEPENDENCY_GRAPH_READY", self.review)
+        self.assertNotIn("    if: vars.", self.review)
         self.assertIn("scripts/npm_audit_diff.py", self.review)
         self.assertIn("npm audit --json --package-lock-only", self.review)
         self.assertEqual(self.review.count("persist-credentials: false"), 3)

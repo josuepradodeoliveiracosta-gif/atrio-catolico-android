@@ -24,9 +24,8 @@ jobs:
           python3 -m unittest scripts/test_npm_audit_diff.py -v
 
   dependency-review:
-    # A API nativa depende de Dependency Graph habilitado nas Settings.
-    # A auditoria npm diferencial continua ativa mesmo sem esse recurso.
-    if: vars.ATRIO_DEPENDENCY_GRAPH_READY == 'true'
+    # Dependency Graph ativado pelo proprietário: executar analise nativa em cada PR.
+    # Se API indisponivel ou houver risco alto/critico, falhar explicitamente.
     name: Recusar novas dependencias com vulnerabilidade alta ou critica
     needs: contract
     runs-on: ubuntu-latest
@@ -105,7 +104,3 @@ jobs:
             npm-audit-diff.md
           if-no-files-found: warn
           retention-days: 14
-      - name: Registrar dependência de configuração para revisão nativa
-        if: vars.ATRIO_DEPENDENCY_GRAPH_READY != 'true'
-        run: |
-          echo "Nota: auditoria npm diferencial foi executada. A revisão nativa de Gradle/Actions ainda exige ativar Dependency Graph nas configurações do GitHub. Não considerar o job nativo ignorado como aprovação." >> "$GITHUB_STEP_SUMMARY"

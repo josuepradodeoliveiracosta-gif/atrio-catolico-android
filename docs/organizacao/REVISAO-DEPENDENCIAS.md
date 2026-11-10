@@ -35,3 +35,16 @@ https://docs.github.com/en/code-security/how-tos/secure-your-supply-chain/manage
 Na PR #217, a ação nativa retornou `Dependency review is not supported on this repository`. Portanto ela fica **condicionada** à variável de repositório `ATRIO_DEPENDENCY_GRAPH_READY=true`, que somente deve ser configurada quando o proprietário confirmar a ativação de Dependency Graph. Um job ignorado **não** significa aprovação da revisão nativa.
 
 Como fallback real, o workflow compara dois resultados `npm audit --json --package-lock-only` obtidos na mesma execução, para o lockfile de `tests/security` na base e na PR. Introdução de advisory npm alto/crítico reprova o job; riscos preexistentes são exibidos, mas não erroneamente imputados à PR. Um erro de registry ou JSON inválido reprova a verificação, não vira sucesso silencioso. Nenhum pacote é atualizado automaticamente. A Dependency Review nativa continua pendente, assim como a comparação de vulnerabilidades de Gradle/Actions por API.
+
+## Retomada da verificacao nativa em 10/11/2026
+
+O proprietario confirmou a ativacao do Dependency Graph. A condicao
+`ATRIO_DEPENDENCY_GRAPH_READY` foi retirada: o job de Dependency Review
+volta a executar **em todas as PRs**. A falha da API ou um advisory
+alto/critico introduzido pela PR deve resultar em falha, jamais em
+`skipped` ou sucesso sintetico. O fallback npm segue ativo e independente.
+
+A ativacao foi informada pelo proprietario; a integracao disponivel
+nao permite ler diretamente a configuracao administrativa. A
+**execucao efetiva** do Dependency Review no Actions e a verificacao
+do SHA correto determinarao a conclusao desta etapa.
