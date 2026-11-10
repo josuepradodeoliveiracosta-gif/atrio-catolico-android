@@ -123,11 +123,11 @@ test('caderno humano cobre 11 decisões, 13 classes, fontes e NO-GO',()=>{
    assert.ok(document.includes('| `'+key+'` |'),'Decisão faltante no caderno');
  for(const key of DATA_CLASSES)
    assert.ok(document.includes('| `'+key+'` |'),'Classe faltante no caderno');
- assert.equal((document.match(/\\| `trustedAgeProof` \\|/g)||[]).length,1);
- assert.match(document,/NÃO APROVADA \\/ NO-GO/);
- assert.match(document,/Art\. 15 do Marco Civil/);
- assert.match(document,/28\\/10\\/2026/);
- assert.match(document,/Somente então revisar o fechamento #200/);
+ assert.equal(document.split('| `trustedAgeProof` |').length-1,1);
+ assert.ok(document.includes('NÃO APROVADA / NO-GO'));
+ assert.ok(document.includes('art. 15 do Marco Civil'));
+ assert.ok(document.includes('28/10/2026'));
+ assert.ok(document.includes('Somente então revisar o fechamento #200'));
  assert.equal(check(copy()).draftValid,true);
  blocked(check(copy()));
 });
