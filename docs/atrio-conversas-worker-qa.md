@@ -287,3 +287,78 @@ falhas de rede/FCM. É uma limitação do candidato, **não uma entrega
 garantida**; a política de retry e observabilidade precisará de
 aprovação e testes antes da ativação real. Nenhum token real,
 D1 remoto, FCM ou Worker publicado participa desses testes.
+
+### Bloqueio do push para mensagens removidas (QA offline, 10/11/2026)
+
+A última reconsulta da mensagem no candidato QA passa a negar a
+**presença** do campo `deletedForAll` (inclusive falso ou malformado),
+além de documento ausente, autoria/tipo inválidos
+e expiração. As regras candidatas de chat preservam o documento após
+"Remover para todos", substituindo o texto por
+`[Mensagem removida]`; portanto testar somente a existência do documento
+não era suficiente. O Worker QA não reserva marcador D1 nem chama FCM
+para esse estado, tanto em DM quanto em um cenário conservador de grupo.
+Os casos positivos sem exclusão continuam aprovados.
+
+A alteração é exclusiva do gerador do Worker QA e de testes sintéticos.
+O workflow existente de empacotamento offline também aceita PRs focadas
+contra a branch de homologação, sem segredo nem deploy. Isto **não** ativa
+o Worker real, não modifica a fonte do Worker de produção, não garante
+entrega de FCM, e não altera o bloqueio `NO_GO` da issue #200.
+
+### Diagnóstico fiel de falhas parciais FCM (QA offline, 10/11/2026)
+
+Com dois dispositivos associados ao mesmo destinatário, o FCM pode
+retornar HTTP 200 para um e 503 ou 429 para outro. O Worker QA gerado
+passa a classificar esse resultado como `partial_delivery_failed` e
+responder HTTP 503, registrando somente contagens agregadas
+(`attempted`, `accepted` e status HTTP), sem conteúdo de mensagens,
+IDs ou tokens nos indicadores. Um aceite HTTP 200 significa apenas aceite
+pelo FCM, **não** entrega no aparelho.
+
+Testes sintéticos cobrem DM e grupo, HTTP 503 e 429 depois de um
+primeiro aceite, e exceção de transporte após reservar o marcador D1.
+Não há novas tentativas automáticas: a reserva por destinatário continua
+`at-most-once`, e uma requisição repetida após falha pode deixar
+dispositivos sem aviso. A exceção de transporte após a reserva D1 agora é registrada como
+`delivery_transport_unknown` (ou `partial_delivery_unknown` quando
+outro dispositivo já teve aceite HTTP), com contagens agregadas e
+`fcm_http_status=0` para não atribuir ao provedor um status inexistente.
+Os dois casos respondem HTTP 503, e a segunda requisição do mesmo
+evento não provoca envio novo. **Resultado desconhecido não é entrega
+confirmada nem prova de falha definitiva.** Uma política futura de
+recuperação exigirá decisão explícita, controle de duplicações, limite de
+retries, provas de autorização e avaliação de custos antes de uso real.
+
+O ajuste ocorre exclusivamente no código **gerado para QA**. A fonte
+`src/index.js` oficial, deploy Cloudflare/Firebase, D1 remoto e FCM
+real permanecem inalterados. Issue #201 aberta; política #200 e
+marco 3 impedem qualquer ativação.
+
+### Revalidação entre aparelhos (QA offline, 10/11/2026)
+
+A checagem de autorização existente antes da reserva D1 protegia o
+primeiro aparelho, porém uma revogação podia ocorrer entre o envio
+ao primeiro e ao segundo/terceiro aparelho. O candidato QA agora
+**revalida as políticas, a elegibilidade 18+, os bloqueios bilateralmente,
+o estado do chat/grupo, o silenciamento e a existência da mensagem antes
+de cada aparelho adicional do mesmo destinatário**. Se houver negação
+ou erro de consulta, encerra o envio restante, retorna HTTP 503 com
+`authorization_interrupted` e mantém a deduplicação `at-most-once`.
+A primeira tentativa pode já ter sido aceita pelo FCM; isso não equivale
+a uma garantia de revogação instantânea.
+
+Testes de rota com Firestore/FCM/D1 inteiramente sintéticos cobrem
+12 cenários de alteração depois da primeira aceitação (DM e grupo),
+controles positivos com três aparelhos, e colisão de seis chamadas
+concorrentes sobre o mesmo marcador D1. Nenhuma chave, dado pessoal,
+token real ou notificação real é usado.
+
+**Custo adicional potencial:** por destinatário com 2 ou 3 aparelhos,
+a cada tentativa além da primeira há outra sequência de leituras
+Firestore de elegibilidade, bloqueios, estado/política e mensagem. A
+contagem e o custo efetivo por cenário precisam ser aprovados antes
+de qualquer ativação de FCM no Worker QA. O candidato permanece
+bloqueado, sem mudança na produção ou nos backups. A decisão sobre
+retry/migração por dispositivo segue aberta (#201) e o gate humano
+da #200 continua vigente.

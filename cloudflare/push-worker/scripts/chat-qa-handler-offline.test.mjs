@@ -50,7 +50,8 @@ const okJson=(value,status=200)=>new Response(JSON.stringify(value),
   {status,headers:{'Content-Type':'application/json'}});
 const messageDoc=()=>makeDoc({uid,kind:'text',createdAt:recent()});
 
-function makeScenario(type,change) {
+function makeScenario(type,change,deviceCount=1) {
+  assert.ok(Number.isInteger(deviceCount) && deviceCount>=1 && deviceCount<=3);
   const group=type==='group';
   const chatId='chat-alice__chat-bob';
   const groupId='grp-qa';
@@ -75,11 +76,13 @@ function makeScenario(type,change) {
     :{type:'chat_message',chatId,messageId};
   let sawDevices=false,markerWrites=0,fcmCalls=0,firestoreReads=0,authCalls=0;
   let currentChange=change;
+  const auditOutcomes=[];
   const insertedMarkers=new Set(); // D1 sintetico retido entre chamadas
   const stat={get sawDevices(){return sawDevices;},
     get markerWrites(){return markerWrites;},get fcmCalls(){return fcmCalls;},
     get uniqueMarkers(){return insertedMarkers.size;},
-    get firestoreReads(){return firestoreReads;},get authCalls(){return authCalls;}};
+    get firestoreReads(){return firestoreReads;},get authCalls(){return authCalls;},
+    get auditOutcomes(){return auditOutcomes.map(item=>({...item}));}};
   const db={prepare(sql){
     if(sql.includes('atrio_qa_identity'))
       return {bind(name){
@@ -97,7 +100,10 @@ function makeScenario(type,change) {
         return {meta:{changes:1}};
       }}}};
     if(sql.startsWith('INSERT INTO push_delivery_stats'))
-      return {bind(){return {run:async()=>({meta:{changes:1}})}}};
+      return {bind(_hour,kind,outcome,http,attempted,accepted){
+        auditOutcomes.push({kind,outcome,http,attempted,accepted});
+        return {run:async()=>({meta:{changes:1}})};
+      }};
     throw Error('Unexpected QA D1 SQL: '+sql.slice(0,75));
   }};
   const mockFetch=async(input,options={})=>{
@@ -118,28 +124,71 @@ function makeScenario(type,change) {
       fcmCalls++;
       assert.equal(url.pathname,'/v1/projects/'+project+'/messages:send');
       assert.equal(JSON.parse(options.body).message.data.kind,event.type);
-      return currentChange==='fcm_failure'
-        ?okJson({error:{status:'UNAVAILABLE'}},503)
-        :okJson({name:'offline-synthetic-only'});
+      if(currentChange==='fcm_transport_error' ||
+          (currentChange==='fcm_second_transport_error' && fcmCalls===2))
+        throw Error('synthetic_network_exception_no_provider_receipt');
+      if(currentChange==='fcm_failure' ||
+          (currentChange==='fcm_second_failure' && fcmCalls===2))
+        return okJson({error:{status:'UNAVAILABLE'}},503);
+      if(currentChange==='fcm_second_rate_limited' && fcmCalls===2)
+        return okJson({error:{status:'RESOURCE_EXHAUSTED'}},429);
+      return okJson({name:'offline-synthetic-only'});
     }
     if(target.startsWith(documentRoot)){
       const relative=decodeURIComponent(url.pathname.split('/documents/')[1]||'');
       if(relative==='users/'+recipient+'/pushDevices'){
         sawDevices=true;
-        return okJson({documents:[{
+        return okJson({documents:Array.from({length:deviceCount},(_,i)=>({
           name:'projects/'+project+'/databases/(default)/documents/users/'+
-            recipient+'/pushDevices/offline-phone',
+            recipient+'/pushDevices/offline-phone-'+i,
           fields:{
-            token:{stringValue:'synthetic_fcm_token_1234567890'},
+            token:{stringValue:'synthetic_fcm_token_1234567890_'+i},
             updatedAt:{timestampValue:recent()}
           },
           updateTime:recent()
-        }]});
+        }))});
       }
       firestoreReads++;
+      if(fcmCalls>0 && sawDevices){
+        if(currentChange==='after_first_revoke_age' &&
+            relative==='users/'+recipient+'/chatAgeEligibility/current')
+          return okJson({},404);
+        if(currentChange==='after_first_block' &&
+            relative==='users/'+recipient+'/blockedMembers/'+uid)
+          return okJson(makeDoc({createdAt:recent()}));
+        if(currentChange==='after_first_disable_chat' &&
+            relative==='app_config/conversations')
+          return okJson(makeDoc({enabled:false,minorPolicyApproved:true,
+            safetyReviewVersion:'2026-11-safety-v1',version:'2026-11-v1'}));
+        if(currentChange==='after_first_soft_delete' && relative===messagePath)
+          return okJson(makeDoc({uid,kind:'text',createdAt:recent(),
+            deletedForAll:true,deletedAt:recent(),text:'[Mensagem removida]'}));
+        if(currentChange==='after_first_remove_membership' &&
+            relative==='chat_groups/'+groupId)
+          return okJson(makeDoc({status:'active',memberUids:[uid,'chat-charlie']}));
+        if(currentChange==='after_first_disable_group_push' &&
+            relative==='app_config/chat_groups')
+          return okJson(makeDoc({enabled:true,pushEnabled:false,
+            minorPolicyApproved:true,version:'2026-11-groups-v1'}));
+        if(currentChange==='after_first_mute' &&
+            (relative==='users/'+recipient+'/chatBox/'+chatId ||
+             relative==='users/'+recipient+'/chatGroupBox/'+groupId))
+          return okJson(makeDoc({muted:true}));
+      }
       if(sawDevices){
         if(currentChange==='remove_message' && relative===messagePath)
           return okJson({},404);
+        // Marcador da operacao 'remover para todos' preserva o documento.
+        if(currentChange==='soft_delete_message' && relative===messagePath)
+          return okJson(makeDoc({uid,kind:'text',createdAt:recent(),
+            text:'[Mensagem removida]',deletedForAll:true,deletedAt:recent()}));
+        // Campo injetado e mal tipado deve falhar fechado, nunca virar false.
+        if(currentChange==='invalid_delete_flag' && relative===messagePath)
+          return okJson(makeDoc({uid,kind:'text',createdAt:recent(),
+            text:'[Mensagem removida]',deletedForAll:'true'}));
+        if(currentChange==='false_delete_flag' && relative===messagePath)
+          return okJson(makeDoc({uid,kind:'text',createdAt:recent(),
+            text:'[Mensagem removida]',deletedForAll:false}));
         if(currentChange==='revoke_age' &&
             relative==='users/'+recipient+'/chatAgeEligibility/current')
           return okJson({},404);
@@ -181,10 +230,16 @@ test('rota Worker QA completa: revogacao apos busca de dispositivos impede D1 e 
   try{
     for(const [type,change] of [
       ['dm','remove_message'],
+      ['dm','soft_delete_message'],
+      ['dm','invalid_delete_flag'],
+      ['dm','false_delete_flag'],
       ['dm','revoke_age'],
       ['dm','block_contact'],
       ['dm','disable_chat'],
       ['group','remove_message'],
+      ['group','soft_delete_message'],
+      ['group','invalid_delete_flag'],
+      ['group','false_delete_flag'],
       ['group','remove_membership'],
       ['group','disable_group_push'],
       ['group','revoke_age']
@@ -287,4 +342,188 @@ test('rota QA: falha FCM apos reserva segue at-most-once, sem retry implicito',a
     assert.equal(scenario.stat.fcmCalls,1,
       'Garantia de nao duplicar pode perder notificacao com HTTP 503');
   }finally{globalThis.fetch=oldFetch;}
+});
+
+test('QA: FCM parcialmente aceito nao pode retornar sucesso global (DM e grupo)',async()=>{
+  const worker=(await import('data:text/javascript;charset=utf-8,'+
+    encodeURIComponent(generated))).default;
+  const oldFetch=globalThis.fetch;
+  try{
+    for(const type of ['dm','group']){
+      const scenario=makeScenario(type,'fcm_second_failure',2);
+      globalThis.fetch=scenario.mockFetch;
+      const first=await worker.fetch(scenario.request(),scenario.env);
+      assert.equal(first.status,503,type);
+      assert.equal((await first.json()).status,'partial_delivery_failed',type);
+      assert.equal(scenario.stat.markerWrites,1,type);
+      assert.equal(scenario.stat.uniqueMarkers,1,type);
+      assert.equal(scenario.stat.fcmCalls,2,type);
+      const outcomes=scenario.stat.auditOutcomes;
+      assert.deepEqual(outcomes.at(-1),{
+        kind:type==='dm'?'chat_message':'group_message',
+        outcome:'partial_delivery_failed',http:503,attempted:2,accepted:1
+      },type);
+      // Nao alterar politica at-most-once: novo POST do mesmo evento
+      // nao deve reenviar sequer aos dispositivos que falharam.
+      scenario.setChange('none');
+      const repeat=await worker.fetch(scenario.request(),scenario.env);
+      assert.equal(repeat.status,202,type);
+      assert.equal((await repeat.json()).status,'no_devices_or_duplicate',type);
+      assert.equal(scenario.stat.uniqueMarkers,1,type);
+      assert.equal(scenario.stat.fcmCalls,2,type);
+    }
+  }finally{globalThis.fetch=oldFetch;}
+});
+
+test('QA: retorno 429 apos um aceite e falha parcial, nao um GO',async()=>{
+  const worker=(await import('data:text/javascript;charset=utf-8,'+
+    encodeURIComponent(generated))).default;
+  const oldFetch=globalThis.fetch;
+  try{
+    const scenario=makeScenario('dm','fcm_second_rate_limited',2);
+    globalThis.fetch=scenario.mockFetch;
+    const result=await worker.fetch(scenario.request(),scenario.env);
+    assert.equal(result.status,503);
+    assert.equal((await result.json()).status,'partial_delivery_failed');
+    assert.deepEqual(scenario.stat.auditOutcomes.at(-1),{
+      kind:'chat_message',outcome:'partial_delivery_failed',
+      http:429,attempted:2,accepted:1
+    });
+    assert.equal(scenario.stat.fcmCalls,2);
+  }finally{globalThis.fetch=oldFetch;}
+});
+
+test('QA: excecao de transporte apos reservar D1 permanece sem retry inseguro',async()=>{
+  const worker=(await import('data:text/javascript;charset=utf-8,'+
+    encodeURIComponent(generated))).default;
+  const oldFetch=globalThis.fetch;
+  try{
+    for(const type of ['dm','group']){
+      const scenario=makeScenario(type,'fcm_transport_error');
+      globalThis.fetch=scenario.mockFetch;
+      const first=await worker.fetch(scenario.request(),scenario.env);
+      assert.equal(first.status,503,type);
+      assert.equal((await first.json()).status,'delivery_transport_unknown',type);
+      assert.deepEqual(scenario.stat.auditOutcomes.at(-1),{
+        kind:type==='dm'?'chat_message':'group_message',
+        outcome:'delivery_transport_unknown',http:0,attempted:1,accepted:0
+      },type);
+      assert.equal(scenario.stat.uniqueMarkers,1,type);
+      assert.equal(scenario.stat.fcmCalls,1,type);
+      scenario.setChange('none');
+      const repeated=await worker.fetch(scenario.request(),scenario.env);
+      assert.equal(repeated.status,202,type);
+      assert.equal((await repeated.json()).status,'no_devices_or_duplicate',type);
+      assert.equal(scenario.stat.fcmCalls,1,type);
+    }
+  }finally{globalThis.fetch=oldFetch;}
+});
+
+test('QA: excecao no segundo aparelho gera parcial desconhecido sem retry',async()=>{
+  const worker=(await import('data:text/javascript;charset=utf-8,'+
+    encodeURIComponent(generated))).default;
+  const oldFetch=globalThis.fetch;
+  try {
+    for(const type of ['dm','group']){
+      const scenario=makeScenario(type,'fcm_second_transport_error',2);
+      globalThis.fetch=scenario.mockFetch;
+      const first=await worker.fetch(scenario.request(),scenario.env);
+      assert.equal(first.status,503,type);
+      assert.equal((await first.json()).status,'partial_delivery_unknown',type);
+      assert.deepEqual(scenario.stat.auditOutcomes.at(-1),{
+        kind:type==='dm'?'chat_message':'group_message',
+        outcome:'partial_delivery_unknown',http:0,attempted:2,accepted:1
+      },type);
+      assert.equal(scenario.stat.fcmCalls,2,type);
+      assert.equal(scenario.stat.uniqueMarkers,1,type);
+      scenario.setChange('none');
+      const repeated=await worker.fetch(scenario.request(),scenario.env);
+      assert.equal(repeated.status,202,type);
+      assert.equal((await repeated.json()).status,'no_devices_or_duplicate',type);
+      assert.equal(scenario.stat.fcmCalls,2,type);
+    }
+  } finally { globalThis.fetch=oldFetch; }
+});
+
+test('QA: revalidar apos primeiro FCM bloqueia os demais aparelhos',async()=>{
+  const worker=(await import('data:text/javascript;charset=utf-8,'+
+    encodeURIComponent(generated))).default;
+  const oldFetch=globalThis.fetch;
+  const changes=[
+    ['dm','after_first_revoke_age'],['dm','after_first_block'],
+    ['dm','after_first_disable_chat'],['dm','after_first_soft_delete'],
+    ['dm','after_first_mute'],
+    ['group','after_first_revoke_age'],['group','after_first_block'],
+    ['group','after_first_disable_chat'],['group','after_first_soft_delete'],
+    ['group','after_first_remove_membership'],
+    ['group','after_first_disable_group_push'],['group','after_first_mute']
+  ];
+  try{
+    for(const [type,change] of changes){
+      const scenario=makeScenario(type,change,3);
+      globalThis.fetch=scenario.mockFetch;
+      const first=await worker.fetch(scenario.request(),scenario.env);
+      assert.equal(first.status,503,type+'/'+change);
+      assert.equal((await first.json()).status,'authorization_interrupted',
+        type+'/'+change);
+      assert.equal(scenario.stat.fcmCalls,1,type+'/'+change);
+      assert.equal(scenario.stat.uniqueMarkers,1,type+'/'+change);
+      assert.deepEqual(scenario.stat.auditOutcomes.at(-1),{
+        kind:type==='dm'?'chat_message':'group_message',
+        outcome:'authorization_interrupted',http:0,attempted:1,accepted:1
+      },type+'/'+change);
+      const again=await worker.fetch(scenario.request(),scenario.env);
+      assert.equal(again.status,202,type+'/'+change);
+      // A nova resolucao pode recusar o evento antes do D1 ('ignored');
+      // sem mudança persistida, a reserva anterior impede o replay.
+      assert.ok(['ignored','no_devices_or_duplicate'].includes(
+        (await again.json()).status),type+'/'+change);
+      assert.equal(scenario.stat.fcmCalls,1,'Sem replay de dispositivo revogado');
+    }
+  } finally { globalThis.fetch=oldFetch; }
+});
+
+test('QA: tres aparelhos elegiveis aceitos; replay nao duplica',async()=>{
+  const worker=(await import('data:text/javascript;charset=utf-8,'+
+    encodeURIComponent(generated))).default;
+  const oldFetch=globalThis.fetch;
+  try{
+    for(const type of ['dm','group']){
+      const scenario=makeScenario(type,'none',3);
+      globalThis.fetch=scenario.mockFetch;
+      const first=await worker.fetch(scenario.request(),scenario.env);
+      assert.equal(first.status,202,type);
+      assert.equal((await first.json()).status,'accepted_by_fcm',type);
+      assert.equal(scenario.stat.fcmCalls,3,type);
+      assert.equal(scenario.stat.uniqueMarkers,1,type);
+      assert.deepEqual(scenario.stat.auditOutcomes.at(-1),{
+        kind:type==='dm'?'chat_message':'group_message',
+        outcome:'accepted_by_fcm',http:0,attempted:3,accepted:3
+      },type);
+      const again=await worker.fetch(scenario.request(),scenario.env);
+      assert.equal((await again.json()).status,'no_devices_or_duplicate',type);
+      assert.equal(scenario.stat.fcmCalls,3,type);
+    }
+  } finally { globalThis.fetch=oldFetch; }
+});
+
+test('QA: duas chamadas simultaneas compartilham uma reserva D1',async()=>{
+  const worker=(await import('data:text/javascript;charset=utf-8,'+
+    encodeURIComponent(generated))).default;
+  const oldFetch=globalThis.fetch;
+  try{
+    for(const type of ['dm','group']){
+      const scenario=makeScenario(type,'none');
+      globalThis.fetch=scenario.mockFetch;
+      const results=await Promise.all(
+        Array.from({length:6},()=>worker.fetch(scenario.request(),scenario.env))
+      );
+      const statuses=await Promise.all(results.map(async x=>(await x.json()).status));
+      assert.equal(statuses.filter(x=>x==='accepted_by_fcm').length,1,type);
+      assert.equal(statuses.filter(x=>x==='no_devices_or_duplicate').length,5,type);
+      assert.equal(scenario.stat.markerWrites,6,type);
+      assert.equal(scenario.stat.uniqueMarkers,1,type);
+      assert.equal(scenario.stat.fcmCalls,1,type);
+    }
+  } finally { globalThis.fetch=oldFetch; }
 });
