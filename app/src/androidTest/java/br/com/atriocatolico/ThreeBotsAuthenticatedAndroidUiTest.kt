@@ -127,6 +127,7 @@ class ThreeBotsAuthenticatedAndroidUiTest {
         // token ao Firestore. Confirmar a sessão atual antes de verificar a
         // persistência no SERVIDOR; jamais aceitar um snapshot só do cache.
         Tasks.await(currentUser.getIdToken(false), 12, TimeUnit.SECONDS)
+        val profileRef = db.collection("profiles").document(uid)
         var lastServerResult = "sem leitura"
         try {
             compose.waitUntil(45_000) {
@@ -136,7 +137,7 @@ class ThreeBotsAuthenticatedAndroidUiTest {
                 }
                 try {
                     val profile = Tasks.await(
-                        db.collection("profiles").document(uid).get(Source.SERVER),
+                        profileRef.get(Source.SERVER),
                         5, TimeUnit.SECONDS)
                     val correctName = profile.getString("displayName") == name
                     lastServerResult = "existe=${profile.exists()}, nome_correto=$correctName"
@@ -151,9 +152,20 @@ class ThreeBotsAuthenticatedAndroidUiTest {
                 }
             }
         } catch (timeout: androidx.compose.ui.test.ComposeTimeoutException) {
+            // Diagnóstico somente no Firebase Emulator, sem registrar UID,
+            // endereço, nome, senha, conteúdo privado nem token no CI.
+            // Cache local com pendingWrites NÃO comprova gravação no servidor.
+            val cached = runCatching {
+                Tasks.await(profileRef.get(Source.CACHE), 3, TimeUnit.SECONDS)
+            }.getOrNull()
+            val cachedExists = cached?.exists()
+            val cachedPendingWrites = cached?.metadata?.hasPendingWrites()
+            val authNameCommitted = auth.currentUser?.displayName?.trim() == name
             throw AssertionError(
                 "Cadastro autenticado sem confirmação do perfil no Firestore emulado; " +
-                    "diagnóstico: $lastServerResult; sessão_atual=${auth.currentUser?.uid == uid}",
+                    "diagnóstico: $lastServerResult; sessão_atual=${auth.currentUser?.uid == uid}; " +
+                    "cache_existe=$cachedExists; cache_pendente=$cachedPendingWrites; " +
+                    "nome_auth_confirmado=$authNameCommitted",
                 timeout)
         }
         assertEquals("Sessão do bot mudou durante o cadastro",uid,auth.currentUser?.uid)

@@ -1,0 +1,143 @@
+name: Auditoria read-only de APKs publicos 0.20.3 e 0.20.4
+
+# Nao assina, instala, publica, altera Rules, tokens ou backup.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/atrio-public-apks-readonly.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Preservar cada execucao de teste por SHA, sem interrupcao automatica.
+# Testes de PR por run_id: nao cancelar evidencias de outros SHAs.
+concurrency:
+  group: atrio-public-apks-${{ github.event_name == 'pull_request' && github.run_id || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify-existing-release-assets:
+    if: >-
+      github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android' &&
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.number == 193 &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - name: Checkout somente leitura
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Java 17 para inspecionar manifest Android
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Preparar SDK Android
+        uses: android-actions/setup-android@v4
+      - name: Instalar somente ferramentas verificadoras
+        run: sdkmanager 'build-tools;35.0.0'
+      - name: Baixar apenas assets publicos das duas tags fixas
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test -z "${GOOGLE_APPLICATION_CREDENTIALS:-}"
+          test -z "${ATRIO_SIGNING_STORE_FILE:-}"
+          test -z "${ATRIO_SIGNING_STORE_PASSWORD:-}"
+          for tag in v0.20.3 v0.20.4; do
+            mkdir -p "audit/$tag"
+            gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" > "audit/$tag/release.json"
+            gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
+              --pattern 'atrio-catolico.apk' --pattern 'update.json' \
+              --pattern 'SHA256SUMS.txt' --dir "audit/$tag"
+          done
+      - name: Conferir hash REAL, contrato do manifesto e assinatura oficial
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          from scripts.ota_apk_preflight import PreflightError, verify
+          from scripts.ota_release_cert import PINNED_OFFICIAL_CERT_SHA256
+
+          expected = {
+              "v0.20.3": (38, "8cc7e28d9731882f434f24b5e410236524272612eaaa8e44515be38072e42800", 21300359),
+              "v0.20.4": (39, "44079c58af7f24301bcf77a427b9baf739ab4b8bf429ba3b79566282a32333d1", 21300363),
+          }
+          base = Path("audit/v0.20.3/atrio-catolico.apk")
+          results = []
+          for tag, (version_code, expected_sha, expected_size) in expected.items():
+              folder = Path("audit") / tag
+              apk = folder / "atrio-catolico.apk"
+              manifest_path = folder / "update.json"
+              sums_path = folder / "SHA256SUMS.txt"
+              release_path = folder / "release.json"
+              files = [apk, manifest_path, sums_path, release_path]
+              if not all(p.is_file() and p.stat().st_size > 0 for p in files):
+                  raise SystemExit("Assets obrigatorios ausentes: " + tag)
+              release = json.loads(release_path.read_text(encoding="utf-8"))
+              if (release.get("tag_name") != tag or release.get("draft") or
+                  release.get("prerelease")):
+                  raise SystemExit("Release publico nao corresponde a tag fixa: " + tag)
+              asset = [a for a in release["assets"] if a["name"] == "atrio-catolico.apk"]
+              if len(asset) != 1 or asset[0].get("size") != expected_size:
+                  raise SystemExit("Tamanho API incorreto: " + tag)
+              if asset[0].get("digest") != "sha256:" + expected_sha:
+                  raise SystemExit("Digest API mudou desde inventario auditado: " + tag)
+              if apk.stat().st_size != expected_size:
+                  raise SystemExit("Tamanho do APK baixado incorreto: " + tag)
+              actual_sha = hashlib.file_digest(apk.open("rb"), "sha256").hexdigest()
+              if actual_sha != expected_sha:
+                  raise SystemExit("Hash do APK nao confere: " + tag)
+              manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+              if not (manifest.get("versionCode") == version_code and
+                      manifest.get("versionName") == tag[1:] and
+                      manifest.get("applicationId") == "br.com.atriocatolico" and
+                      manifest.get("apkSha256") == expected_sha and
+                      manifest.get("apkSizeBytes") == expected_size and
+                      manifest.get("certificateSha256") == PINNED_OFFICIAL_CERT_SHA256 and
+                      manifest.get("mandatory") is False):
+                  raise SystemExit("Manifesto update.json inconsistente: " + tag)
+              sums = {}
+              for line in sums_path.read_text(encoding="utf-8").splitlines():
+                  parts = line.split()
+                  if len(parts) != 2 or parts[1] in sums:
+                      raise SystemExit("Formato SHA256SUMS invalido: " + tag)
+                  sums[parts[1]] = parts[0]
+              if set(sums) != {"atrio-catolico.apk", "update.json"}:
+                  raise SystemExit("Nomes do SHA256SUMS invalidos: " + tag)
+              update_hash = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+              if sums["atrio-catolico.apk"] != expected_sha or sums["update.json"] != update_hash:
+                  raise SystemExit("Hash do manifesto ou APK no SHA256SUMS incorreto: " + tag)
+              info = verify(
+                  apk, sdk=Path(os.environ["ANDROID_HOME"]),
+                  expected_cert=PINNED_OFFICIAL_CERT_SHA256,
+                  expected_code=version_code, expected_name=tag[1:],
+                  expected_apk_sha256=expected_sha,
+                  previous_apk=base if tag == "v0.20.4" else None,
+              )
+              results.append({"tag": tag, "package": info["package"],
+                              "versionCode": info["versionCode"],
+                              "versionName": info["versionName"],
+                              "certificate_match": True, "file_sha256": actual_sha})
+          print(json.dumps({
+              "result": "independent_readonly_apk_verification",
+              "assets": results, "apk_signed_by_official_cert": True,
+              "firebase_writes": 0, "production_deployed": False,
+              "device_installation_tested": False, "chat_e2e_tested_with_apks": False,
+              "release_approval": False,
+          }, ensure_ascii=False, indent=2))
+          PY
+      - name: Registrar limites da evidencia
+        if: always()
+        run: |
+          echo "### Auditoria publica de APKs (somente leitura)" >> "$GITHUB_STEP_SUMMARY"
+          echo "Este workflow nao assina, instala, distribui ou publica APKs." >> "$GITHUB_STEP_SUMMARY"
+          echo "Nao muda Firebase, Cloudflare, Rules, backups, main ou variaveis de release." >> "$GITHUB_STEP_SUMMARY"
+          echo "Integridade e certificado nao comprovam instalacao fisica, sessoes ou notificacoes FCM." >> "$GITHUB_STEP_SUMMARY"

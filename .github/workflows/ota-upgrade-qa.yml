@@ -11,10 +11,11 @@ on:
 permissions:
   contents: read
 
+# Testes de PR independentes: preservar os resultados de cada run_id.
 concurrency:
-  group: ota-qa-upgrade-${{ github.event.pull_request.number || github.ref }}
-  # Descarta ensaio antigo da mesma PR quando uma correcao mais nova chega.
-  cancel-in-progress: true
+  group: ota-qa-upgrade-${{ github.event_name == 'pull_request' && github.run_id || github.ref }}
+  # Preserva cada ensaio offline de QA; outros eventos usam grupo por ref.
+  cancel-in-progress: false
 
 jobs:
   upgrade-emulator:

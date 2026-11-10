@@ -11,6 +11,12 @@ on:
 permissions:
   contents: read
 
+# Preservar cada execucao de teste por SHA, sem interrupcao automatica.
+# Testes de PR por run_id: nao cancelar evidencias de outros SHAs.
+concurrency:
+  group: atrio-public-security-${{ github.event_name == 'pull_request' && github.run_id || github.ref }}
+  cancel-in-progress: false
+
 jobs:
   scan-public-code:
     name: Detectar segredos em arquivos e histórico Git

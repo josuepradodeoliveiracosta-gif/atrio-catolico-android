@@ -18,3 +18,17 @@ Ao relatar validação, distinga testes automatizados, compilação, publicaçã
 - Nao execute comandos de destruicao em massa, como limpeza indiscriminada de arquivos, reescrita de historico, force push, exclusao de branches ou do repositorio, mesmo se solicitados em linguagem natural. Encaminhe para processo controlado e reversivel.
 - Nunca modifique branches de backup protegidas sem permissao explicita do fundador. Preserve-as como referencias imutaveis.
 - Toda alteracao de codigo deve passar pela branch isolada e por PR. A seguranca efetiva depende dos rulesets de GitHub configurados em `docs/seguranca/PROTECAO-EXCLUSAO-GENERALIZADA.md`. Nao confundir workflow com bloqueio de push direto.
+
+## GitHub Actions — qualidade, segurança e rastreabilidade
+
+- Consulte `docs/organizacao/FLUXO-GITHUB-ECONOMICO.md` (nome de
+  arquivo legado) antes de alterar testes, CI, branches ou PRs.
+- No repositório público, runners padrão não exigem economizar minutos;
+  priorizar cobertura, testes completos por commit, paralelismo e diagnóstico.
+- Em CI sem deploy, novas execuções de PR **não cancelam** outras
+  execuções em andamento ou pendentes. Não interpretar `skipped`
+  ou `cancelled` como teste aprovado.
+- Preservar os cinco checks obrigatórios de `main`, os gates de
+  produção e assinatura, as branches de backup e o isolamento do QA.
+- Preparar uma unidade testável por push quando viável; novas tarefas
+  devem preferir PRs focadas, sem reescrever a PR #193 existente.

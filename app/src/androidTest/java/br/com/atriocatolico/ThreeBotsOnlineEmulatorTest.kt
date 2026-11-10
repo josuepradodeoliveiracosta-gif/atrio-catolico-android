@@ -102,7 +102,25 @@ class ThreeBotsOnlineEmulatorTest {
         compose.onNodeWithTag("atrio-auth-password")
             .performTextInput("QaEmulator2026!")
         compose.onNodeWithText("Entrar").performClick()
-        awaitScreen("Paz e bem, ${expectedName.substringBefore(' ')}!")
+        val greeting = "Paz e bem, ${expectedName.substringBefore(' ')}!"
+        // Distinguir um erro de Auth Emulator de uma falha de notificação:
+        // o texto de erro é mostrado somente após o callback de login falhar.
+        // Não considerar a autenticação bem-sucedida nem mascarar o erro.
+        compose.waitUntil(30000) {
+            compose.onAllNodesWithText(greeting, substring = true)
+                .fetchSemanticsNodes().isNotEmpty() ||
+                compose.onAllNodesWithTag("atrio-auth-error")
+                    .fetchSemanticsNodes().isNotEmpty()
+        }
+        val authUiFailed = compose.onAllNodesWithTag("atrio-auth-error")
+            .fetchSemanticsNodes().isNotEmpty()
+        assertTrue(
+            "Login de bot de QA falhou antes de testar respostas; " +
+                "Auth Emulator/UI devem ser diagnosticados separadamente. " +
+                "Sessão autenticada=${auth.currentUser != null}",
+            !authUiFailed
+        )
+        awaitScreen(greeting)
     }
 
     private fun scrollToPost(postId: String) {
@@ -186,10 +204,13 @@ class ThreeBotsOnlineEmulatorTest {
         val query = db.collection("posts").whereEqualTo("title", title)
         compose.waitUntil(45000) {
             val snapshot = Tasks.await(query.get(Source.SERVER), 5, TimeUnit.SECONDS)
-            snapshot.size() == 1
+            snapshot.size() == 1 &&
+                !snapshot.documents.single().metadata.hasPendingWrites()
         }
         val docs = Tasks.await(query.get(Source.SERVER), 10, TimeUnit.SECONDS)
         assertEquals("A publicação não foi persistida pelo Firebase",1,docs.size())
+        assertTrue("A publicação ainda possui gravação local pendente",
+            !docs.documents.single().metadata.hasPendingWrites())
         val postId = docs.documents.single().id
         assertEquals("A discussão deve pertencer à conta Clara",claraId,
             docs.documents.single().getString("uid"))
@@ -217,18 +238,91 @@ class ThreeBotsOnlineEmulatorTest {
             .performClick()
         // A escrita deve ser confirmada no servidor, não apenas no cache
         // local da tela. A resposta também precisa pertencer a Miguel.
-        compose.waitUntil(30000) {
-            val replies=Tasks.await(db.collection("posts").document(postId)
-                .collection("replies").get(Source.SERVER),20,TimeUnit.SECONDS)
-            replies.documents.any {
-                it.getString("body")=="Resposta de Miguel pelo app Android conectado." &&
-                    it.getString("uid")==auth.currentUser?.uid
+        val miguelId = requireNotNull(auth.currentUser?.uid)
+        var persistedReplyId = ""
+        var sawUncommittedReply = false
+        // Source.SERVER ainda pode mesclar gravações locais pendentes. Não
+        // trocar de conta antes de confirmar a aceitação pelo servidor.
+        // Caso contrário, a troca de Auth poderá interromper o batch e
+        // aparentar uma resposta salva sem o aviso atômico correspondente.
+        try {
+            compose.waitUntil(45000) {
+                val replies = Tasks.await(db.collection("posts").document(postId)
+                    .collection("replies").get(Source.SERVER), 20, TimeUnit.SECONDS)
+                val matchingReply = replies.documents.firstOrNull {
+                    it.getString("body") == "Resposta de Miguel pelo app Android conectado." &&
+                        it.getString("uid") == miguelId
+                }
+                sawUncommittedReply = sawUncommittedReply ||
+                    (matchingReply?.metadata?.hasPendingWrites() == true)
+                persistedReplyId = matchingReply?.takeIf {
+                    !it.metadata.hasPendingWrites()
+                }?.id.orEmpty()
+                persistedReplyId.isNotBlank()
             }
+        } catch (timeout: androidx.compose.ui.test.ComposeTimeoutException) {
+            throw AssertionError(
+                "Resposta não confirmada pelo backend antes da troca de sessão; " +
+                    "escrita local pendente observada=$sawUncommittedReply", timeout
+            )
         }
+        // Exigir ACK de todas as escritas pendentes nesta sessão QA.
+        Tasks.await(db.waitForPendingWrites(), 20, TimeUnit.SECONDS)
+        val committedReply = Tasks.await(db.collection("posts").document(postId)
+            .collection("replies").document(persistedReplyId).get(Source.SERVER),
+            15, TimeUnit.SECONDS)
+        assertTrue("Resposta não existe no servidor após ACK", committedReply.exists())
+        assertTrue("Resposta ainda não confirmada no servidor após ACK",
+            !committedReply.metadata.hasPendingWrites())
+        assertEquals("Resposta gravada com autor diferente do autenticado",
+            miguelId, committedReply.getString("uid"))
+        // Correlacionar o replyId da leitura confirmada com o operation
+        // registrado pelo próprio app em AtrioReplyQA (somente QA emulado).
+        // Também detectar duplicação de envio, não aceitar "primeiro match".
+        val confirmedReplies = Tasks.await(db.collection("posts").document(postId)
+            .collection("replies").get(Source.SERVER), 15, TimeUnit.SECONDS)
+        val matchingReplies = confirmedReplies.documents.filter {
+            it.getString("body") == "Resposta de Miguel pelo app Android conectado." &&
+                it.getString("uid") == miguelId
+        }
+        assertEquals("O envio deve produzir uma única resposta canônica",
+            1, matchingReplies.size)
+        assertEquals("A resposta observada difere da resposta confirmada",
+            persistedReplyId, matchingReplies.single().id)
+        android.util.Log.i("AtrioThreeBotsQA",
+            "verifiedReplyId=$persistedReplyId pendingWrites=" +
+                matchingReplies.single().metadata.hasPendingWrites())
         assertTrue("A resposta foi publicada fora da conta de Miguel",
-            auth.currentUser?.uid!=claraId)
+            miguelId != claraId)
         // Miguel não pode ler as notificações privadas de Clara. A leitura
         // será feita após reautenticar como destinatária, no final da sessão.
+        leave()
+
+        // Verificar o aviso imediatamente após a resposta, antes das ações
+        // de Lúcia. A consulta ocorre como Clara (destinatária legítima),
+        // sem credenciais administrativas nem acesso a dados de produção.
+        enter(claraEmail,"Clara")
+        assertEquals("A autora da discussão deve estar autenticada",
+            claraId, auth.currentUser?.uid)
+        Tasks.await(auth.currentUser!!.getIdToken(false),15,TimeUnit.SECONDS)
+        val immediateNoticeRef = db.collection("users").document(claraId)
+            .collection("notifications").document(persistedReplyId)
+        val immediateNotice = Tasks.await(immediateNoticeRef.get(Source.SERVER),
+            15,TimeUnit.SECONDS)
+        android.util.Log.i("AtrioThreeBotsQA",
+            "verifiedNoticeReplyId=$persistedReplyId exists=" +
+                immediateNotice.exists() + " pendingWrites=" +
+                immediateNotice.metadata.hasPendingWrites())
+        assertTrue("Aviso ausente imediatamente após a resposta persistida",
+            immediateNotice.exists())
+        assertTrue("Aviso ainda possui gravação local pendente",
+            !immediateNotice.metadata.hasPendingWrites())
+        assertEquals("Aviso inicial vinculado a outra discussão",
+            postId, immediateNotice.getString("postId"))
+        assertEquals("Aviso inicial vinculado a outra resposta",
+            persistedReplyId, immediateNotice.getString("replyId"))
+        assertTrue("O aviso inicial não pode ser emitido pela autora",
+            immediateNotice.getString("actorUid") != claraId)
         leave()
 
         // Lúcia autentica sua própria conta, curte e salva a discussão.
@@ -269,15 +363,44 @@ class ThreeBotsOnlineEmulatorTest {
         // Não considerar um snapshot inicial vazio como prova de falha.
         // Se permanecer vazio, informar também o dono e o autor canônicos,
         // sem expor credenciais nem qualquer conteúdo de usuários reais.
-        compose.waitUntil(30000) {
-            val result=Tasks.await(db.collection("users").document(claraId)
-                .collection("notifications").get(Source.SERVER),20,TimeUnit.SECONDS)
-            result.documents.any { it.getString("postId")==postId }
-        }
-        val notice=Tasks.await(db.collection("users").document(claraId)
-            .collection("notifications").get(Source.SERVER),25,TimeUnit.SECONDS)
-        assertEquals(
-            "Miguel publicou a resposta, mas a notificação de Clara não foi persistida.",
-            1,notice.documents.count { it.getString("postId")==postId })
+        // O batch da resposta usa replyRef.id como ID CANÔNICO do aviso.
+        // Primeiro verificar o documento exato no servidor, depois a lista
+        // que a UI consulta. Isso distingue ausência real de recusa de list.
+        // Também impede um falso positivo por aviso de resposta anterior.
+        Tasks.await(auth.currentUser!!.getIdToken(false),15,TimeUnit.SECONDS)
+        val noticeRef=db.collection("users").document(claraId)
+            .collection("notifications").document(persistedReplyId)
+        val notices=db.collection("users").document(claraId)
+            .collection("notifications")
+        var noticeDiagnostic="nenhuma consulta concluída"
+        val notificationConfirmed=runCatching {
+            compose.waitUntil(30000) {
+                runCatching {
+                    val exact=Tasks.await(noticeRef.get(Source.SERVER),
+                        5,TimeUnit.SECONDS)
+                    val list=Tasks.await(notices.get(Source.SERVER),
+                        5,TimeUnit.SECONDS)
+                    noticeDiagnostic="documento=${exact.exists()}, " +
+                        "postId=${exact.getString("postId")==postId}, " +
+                        "lista=${list.size()}"
+                    exact.exists() && exact.getString("postId")==postId &&
+                        exact.getString("replyId")==persistedReplyId &&
+                        exact.getString("actorUid")!=claraId &&
+                        list.documents.count {
+                            it.getString("postId")==postId
+                        }==1
+                }.getOrElse { exception ->
+                    noticeDiagnostic="falha servidor: " +
+                        exception.javaClass.simpleName+": " +
+                        (exception.message ?: "sem mensagem").take(180)
+                    false
+                }
+            }
+            true
+        }.getOrDefault(false)
+        assertTrue(
+            "A resposta foi salva, mas o aviso privado não foi confirmado: " +
+                noticeDiagnostic,
+            notificationConfirmed)
     }
 }

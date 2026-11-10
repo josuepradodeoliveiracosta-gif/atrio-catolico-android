@@ -1,0 +1,36 @@
+name: Laboratorio de notificacao atomica (sem deploy)
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tests/security/reply-notice-migration-lab.test.mjs'
+      - '.github/workflows/reply-notice-migration-lab.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  isolated-rules:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    defaults:
+      run:
+        working-directory: tests/security
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm ci --ignore-scripts
+      - name: Regras candidatas somente no Firestore Emulator
+        run: |
+          set -euo pipefail
+          node prepare.mjs
+          ./node_modules/.bin/firebase emulators:exec --only firestore \
+            --project demo-atrio-v11 \
+            "node reply-notice-migration-lab.test.mjs"

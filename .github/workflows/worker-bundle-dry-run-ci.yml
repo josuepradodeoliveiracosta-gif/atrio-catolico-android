@@ -6,6 +6,7 @@ on:
     paths:
       - 'cloudflare/avatar-worker/**'
       - 'cloudflare/push-worker/**'
+      - 'cloudflare/qa-general-worker/**'
       - 'cloudflare/email-verification-policy*.mjs'
       - 'cloudflare/worker-email-gate.test.mjs'
       - '.github/workflows/worker-bundle-dry-run-ci.yml'
@@ -14,9 +15,10 @@ on:
 permissions:
   contents: read
 
+# Testes de PR independentes: preservar os resultados de cada run_id.
 concurrency:
-  group: atrio-worker-dry-run-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: atrio-worker-dry-run-${{ github.event_name == 'pull_request' && github.run_id || github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build-only:
@@ -54,3 +56,104 @@ jobs:
           test -d "$RUNNER_TEMP/atrio-push-bundle"
           test "$(find "$RUNNER_TEMP/atrio-avatar-bundle" -type f | wc -l)" -gt 0
           test "$(find "$RUNNER_TEMP/atrio-push-bundle" -type f | wc -l)" -gt 0
+
+  general-qa-bootstrap-offline:
+    name: Bootstrap QA geral sem rede nem eventos
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout sem credenciais
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Testar bootstrap fail-closed sem dados externos
+        run: node --test cloudflare/qa-general-worker/bootstrap.test.mjs
+      - name: Empacotar bootstrap com Worker/D1 segregados, sem deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ''
+        run: |
+          npx --yes wrangler@4 deploy \
+            --config cloudflare/qa-general-worker/wrangler.toml \
+            --dry-run \
+            --outdir "$RUNNER_TEMP/atrio-qa-general-bootstrap"
+      - name: Garantir bundle offline
+        run: test "$(find "$RUNNER_TEMP/atrio-qa-general-bootstrap" -type f | wc -l)" -gt 0
+
+  chat-qa-bundle-only:
+    name: Empacotar Worker do chat QA com Firebase fictício, sem deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      ATRIO_GENERAL_QA_PROJECT: atrio-catolico-qa-geral
+      ATRIO_GENERAL_QA_D1_ID: 11111111-2222-4333-8444-555555555555
+      CLOUDFLARE_API_TOKEN: ''
+    steps:
+      - name: Checkout sem credenciais persistentes
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Testar política isolada de geração
+        run: node --test cloudflare/push-worker/scripts/chat-qa-build.test.mjs cloudflare/push-worker/scripts/chat-qa-handler-offline.test.mjs
+      - name: Gerar arquivos QA exclusivamente fictícios
+        run: node cloudflare/push-worker/scripts/chat-qa-build.mjs
+      - name: Sintaxe da fonte QA gerada
+        run: node --check cloudflare/push-worker/src/index.general-qa.generated.js
+      - name: Validar schema QA somente em memória, sem Cloudflare
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import sqlite3
+          sql=Path("cloudflare/push-worker/schema.general-qa.generated.sql").read_text()
+          con=sqlite3.connect(":memory:")
+          con.executescript(sql)
+          identity=con.execute("SELECT project_id FROM atrio_qa_identity WHERE name = ?",
+                               ("atrio-qa-geral",)).fetchone()
+          if identity != ("atrio-catolico-qa-geral",):
+              raise SystemExit("Marcador D1 de QA incorreto")
+          expected={"atrio_qa_identity","delivered","push_delivery_stats"}
+          found={row[0] for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+          if not expected.issubset(found):
+              raise SystemExit("Schema D1 QA incompleto")
+          print("Schema SQL validado em memória, sem gravação em D1 real.")
+          PY
+      - name: Empacotar com Wrangler sem credenciais nem deploy
+        run: |
+          npx --yes wrangler@4 deploy \
+            --config cloudflare/push-worker/wrangler.general-qa.generated.toml \
+            --dry-run \
+            --outdir "$RUNNER_TEMP/atrio-qa-geral-bundle"
+      - name: Auditar o bundle QA efetivo
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+          base=Path(os.environ["RUNNER_TEMP"])/"atrio-qa-geral-bundle"
+          bundles=[p for p in base.rglob("*.js") if p.is_file()]
+          if not bundles:
+              raise SystemExit("Bundle QA ausente")
+          content="\n".join(p.read_text(errors="replace") for p in bundles)
+          if "atrio-catolico-qa-geral" not in content:
+              raise SystemExit("Bundle não contém Firebase QA")
+          for forbidden in ("const PROJECT = 'atrio-catolico';","atrio-push.atrio-catolico.workers.dev",
+                            "6b04fad3-619a-4cc5-a4b3-d31c3a18e911",
+                            "qa-manual.js","qa-real-auth.js"):
+              if forbidden in content:
+                  raise SystemExit("Bundle QA contém referência oficial")
+          print("Bundle QA sintético segregado; nenhum deploy ou FCM.")
+          PY
+      - name: Apagar arquivos QA temporários
+        if: always()
+        run: |
+          rm -f cloudflare/push-worker/src/index.general-qa.generated.js
+          rm -f cloudflare/push-worker/wrangler.general-qa.generated.toml
+          rm -f cloudflare/push-worker/schema.general-qa.generated.sql

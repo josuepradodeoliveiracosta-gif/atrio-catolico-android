@@ -278,6 +278,14 @@ private fun OnlineAuthScreen(
                         supportingText = { Text("De 2 a 35 caracteres. Será exibido nas publicações.") },
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next))
                 }
+                // Somente o APK Chat QA exibe pré-triagem local de idade.
+                // Não salvar nem enviar a data de nascimento no cadastro.
+                // O backend Firestore continua exigindo prova confiável;
+                // esta seleção nunca altera chatAgeEligibility/current.
+                if (registering &&
+                    BuildConfig.APPLICATION_ID == "br.com.atriocatolico.chatqa") {
+                    ChatAgeRegistrationPrecheckPanel()
+                }
                 OutlinedTextField(email, { email = it.take(150) },
                     modifier = Modifier.fillMaxWidth().testTag("atrio-auth-email")
                         .semantics { contentType = ContentType.EmailAddress },
@@ -386,6 +394,11 @@ private fun OnlineAuthScreen(
                                         busy = false
                                         error = "Não foi possível concluir o cadastro. Tente novamente."
                                     } else {
+                                        // Diagnóstico exclusivo do Firebase Emulator: não
+                                        // registrar UID, e-mail, nome, token ou senha.
+                                        if (isIsolatedQa) android.util.Log.i(
+                                            "AtrioQaProfile", "auth_signup_callback_received"
+                                        )
                                         onRegistrationCreated(created.uid)
                                         // Registro mínimo no esquema V2; as Rules novas
                                         // precisam de deploy separado antes de produção.
@@ -411,15 +424,31 @@ private fun OnlineAuthScreen(
                                             )).addOnFailureListener {
                                                 android.util.Log.w("AtrioAuth", "community_consent_write_failed")
                                             }
+                                        if (isIsolatedQa) android.util.Log.i(
+                                            "AtrioQaProfile", "profile_write_requested"
+                                        )
                                         db.collection("profiles").document(created.uid).set(mapOf(
                                             "displayName" to publicName,
                                             "createdAt" to FieldValue.serverTimestamp()
                                         )).addOnSuccessListener {
+                                            // Task.set concluída: resposta do servidor
+                                            // emulado, não apenas snapshot do cache.
+                                            if (isIsolatedQa) android.util.Log.i(
+                                                "AtrioQaProfile", "profile_write_acknowledged"
+                                            )
                                             val update = UserProfileChangeRequest.Builder()
                                                 .setDisplayName(publicName).build()
                                             created.updateProfile(update)
                                             busy = false
-                                        }.addOnFailureListener {
+                                        }.addOnFailureListener { failure ->
+                                            if (isIsolatedQa) {
+                                                val code = (failure as?
+                                                    com.google.firebase.firestore.FirebaseFirestoreException)
+                                                    ?.code?.name ?: failure.javaClass.simpleName
+                                                android.util.Log.w(
+                                                    "AtrioQaProfile", "profile_write_rejected:$code"
+                                                )
+                                            }
                                             busy = false
                                             error = "Sua conta foi criada, mas o perfil ainda não foi salvo. " +
                                                 "Conclua o perfil após entrar novamente."
@@ -758,6 +787,34 @@ private fun OnlineCommunity(
     val homeListState = rememberLazyListState()
     var detailId by remember { mutableStateOf<String?>(null) }
     var publicProfileTarget by remember(uid) { mutableStateOf<PublicMemberTarget?>(null) }
+    var conversationsOpen by remember(uid) { mutableStateOf(false) }
+    var conversationTarget by remember(uid) { mutableStateOf<PublicMemberTarget?>(null) }
+    var notificationChatId by remember(uid) { mutableStateOf<String?>(null) }
+    var notificationGroupId by remember(uid) { mutableStateOf<String?>(null) }
+    var shareDiscussion by remember(uid) { mutableStateOf<Pair<String, String>?>(null) }
+    val incomingChat = AtrioChatNavigation.requested
+    LaunchedEffect(uid, incomingChat) {
+        if (incomingChat != null) {
+            if (incomingChat.uid == uid) {
+                notificationChatId = incomingChat.chatId
+                conversationTarget = null
+                conversationsOpen = true
+            }
+            AtrioChatNavigation.consume()
+        }
+    }
+    val incomingGroup=AtrioGroupNavigation.requested
+    LaunchedEffect(uid,incomingGroup) {
+        if(incomingGroup!=null) {
+            if(incomingGroup.uid==uid) {
+                notificationGroupId=incomingGroup.groupId
+                notificationChatId=null
+                conversationTarget=null
+                conversationsOpen=true
+            }
+            AtrioGroupNavigation.consume()
+        }
+    }
     var profilePostOpen by remember(uid) { mutableStateOf(false) }
     var previousDetailId by remember(uid) { mutableStateOf<String?>(null) }
     var detailReplies by remember(uid, detailId) { mutableStateOf<List<Reply>>(emptyList()) }
@@ -981,6 +1038,8 @@ private fun OnlineCommunity(
             android.util.Log.d("AtrioQaNavigation", "request_${destination.name}_from_${tab.name}")
         }
         tab = destination; detailId = null; noticesOpen = false
+        conversationsOpen = false; conversationTarget = null; notificationChatId = null
+        shareDiscussion = null
         publicProfileTarget = null; profilePostOpen = false; previousDetailId = null
         guardiaoAppealsOpen = false
         noticeBadgesOpen = false; returnToNotices = false
@@ -1143,6 +1202,12 @@ private fun OnlineCommunity(
             done(false)
             return
         }
+        val replyActorUid = uid
+        val replyActorName = name
+        if (replyActorUid.isBlank() || FirebaseAuth.getInstance().currentUser?.uid != replyActorUid) {
+            done(false)
+            return
+        }
         if (openedPost?.id != id) {
             message = "Discussão indisponível. Atualize o fórum e tente novamente."
             done(false)
@@ -1153,6 +1218,11 @@ private fun OnlineCommunity(
         // Não publicar silenciosamente uma resposta sem o aviso obrigatório.
         db.collection("posts").document(id).get(com.google.firebase.firestore.Source.SERVER)
             .addOnCompleteListener { parentResult ->
+                if (uid != replyActorUid || FirebaseAuth.getInstance().currentUser?.uid != replyActorUid) {
+                    message = "A sessão mudou. Reabra a discussão e tente novamente."
+                    done(false)
+                    return@addOnCompleteListener
+                }
                 val parent = if (parentResult.isSuccessful) parentResult.result else null
                 val ownerUid = if (parent?.exists() == true)
                     parent.getString("uid").orEmpty() else ""
@@ -1165,7 +1235,7 @@ private fun OnlineCommunity(
                     .collection("replies").document()
                 val batch = db.batch()
                 val replyData = mutableMapOf<String, Any>(
-                    "uid" to uid, "authorName" to name, "body" to body,
+                    "uid" to replyActorUid, "authorName" to replyActorName, "body" to body,
                     "createdAt" to FieldValue.serverTimestamp()
                 )
                 if (target != null && advancedEngagement &&
@@ -1173,21 +1243,22 @@ private fun OnlineCommunity(
                     replyData["replyToId"] = target.id
                     replyData["replyToUid"] = target.ownerUid
                 }
-                if (mention != null && advancedEngagement && mention.uid != uid) {
+                if (mention != null && advancedEngagement && mention.uid != replyActorUid) {
                     replyData["mentionUid"] = mention.uid
                     if (mention.sourceReplyId.isNotBlank()) {
                         replyData["mentionReplyId"] = mention.sourceReplyId
                     }
                 }
                 batch.set(replyRef, replyData)
-                if (ownerUid != uid) {
+                val ownerNoticeQueued = ownerUid != replyActorUid
+                if (ownerNoticeQueued) {
                     val noticeRef = db.collection("users").document(ownerUid)
                         .collection("notifications").document(replyRef.id)
                     val notice = mutableMapOf<String, Any>(
                         "postId" to id,
                         "replyId" to replyRef.id,
-                        "actorUid" to uid,
-                        "actorName" to name,
+                        "actorUid" to replyActorUid,
+                        "actorName" to replyActorName,
                         "read" to false,
                         "createdAt" to FieldValue.serverTimestamp()
                     )
@@ -1209,12 +1280,12 @@ private fun OnlineCommunity(
                 // da discussão. Backend valida o alvo real e a escrita atômica.
                 if (advancedEngagement && target != null &&
                     target.id.isNotBlank() && target.ownerUid.isNotBlank() &&
-                    target.ownerUid != uid && target.ownerUid != ownerUid) {
+                    target.ownerUid != replyActorUid && target.ownerUid != ownerUid) {
                     val noticeRef = db.collection("users").document(target.ownerUid)
                         .collection("notifications").document(replyRef.id)
                     batch.set(noticeRef, mapOf(
                         "postId" to id, "replyId" to replyRef.id,
-                        "actorUid" to uid, "actorName" to name,
+                        "actorUid" to replyActorUid, "actorName" to replyActorName,
                         "replyToId" to target.id,
                         "read" to false,
                         "createdAt" to FieldValue.serverTimestamp()
@@ -1223,13 +1294,13 @@ private fun OnlineCommunity(
                 // Uma menção explícita no tópico pode enviar um aviso privado
                 // ao participante, com UID verificado pelas regras do Firestore.
                 if (advancedEngagement && mention != null &&
-                    mention.uid != uid && mention.uid != ownerUid &&
+                    mention.uid != replyActorUid && mention.uid != ownerUid &&
                     mention.uid != target?.ownerUid) {
                     val noticeRef = db.collection("users").document(mention.uid)
                         .collection("notifications").document(replyRef.id)
                     val mentionNotice = mutableMapOf<String, Any>(
                         "postId" to id, "replyId" to replyRef.id,
-                        "actorUid" to uid, "actorName" to name,
+                        "actorUid" to replyActorUid, "actorName" to replyActorName,
                         "mentionUid" to mention.uid, "read" to false,
                         "createdAt" to FieldValue.serverTimestamp()
                     )
@@ -1238,8 +1309,19 @@ private fun OnlineCommunity(
                     }
                     batch.set(noticeRef, mentionNotice)
                 }
+                // Diagnóstico estritamente local: somente Firebase Emulator + Debug.
+                // Nunca registrar UID, nome, corpo ou notificações privadas.
+                val qaLab = BuildConfig.DEBUG &&
+                    com.google.firebase.FirebaseApp.getInstance().options.projectId == "demo-atrio-v11"
+                if (qaLab) android.util.Log.i("AtrioReplyQA",
+                    "operation=${replyRef.id} ownerNoticeQueued=$ownerNoticeQueued " +
+                        "authUnchanged=${FirebaseAuth.getInstance().currentUser?.uid == replyActorUid}")
                 // Resposta e notificações continuam atômicas.
                 batch.commit().addOnCompleteListener { result ->
+                    if (qaLab) android.util.Log.i("AtrioReplyQA",
+                        "operation=${replyRef.id} batchSucceeded=${result.isSuccessful} " +
+                            "ownerNoticeQueued=$ownerNoticeQueued " +
+                            "authUnchanged=${FirebaseAuth.getInstance().currentUser?.uid == replyActorUid}")
                     // Confirmar imediatamente o resultado para a interface.
                     // Inscrições FCM e relay não devem bloquear o botão Responder.
                     if (!result.isSuccessful) {
@@ -1249,10 +1331,8 @@ private fun OnlineCommunity(
                             else "Não foi possível responder. Confira a conexão e as regras."
                     }
                     done(result.isSuccessful)
-                    val qaLab = BuildConfig.DEBUG &&
-                        com.google.firebase.FirebaseApp.getInstance().options.projectId == "demo-atrio-v11"
                     if (result.isSuccessful && !qaLab) {
-                        ThreadPushSubscriptions.track(context, uid, id)
+                        ThreadPushSubscriptions.track(context, replyActorUid, id)
                         InstantPushRelay.reply(id, replyRef.id)
                         InstantPushRelay.moderateReply(id, replyRef.id)
                     }
@@ -1260,7 +1340,12 @@ private fun OnlineCommunity(
             }
     }
     fun closeNoticeDestination() {
-        if (profilePostOpen && publicProfileTarget != null) {
+        if (conversationsOpen) {
+            conversationsOpen = false
+            conversationTarget = null
+            notificationChatId = null
+            shareDiscussion = null
+        } else if (profilePostOpen && publicProfileTarget != null) {
             profilePostOpen = false
             detailId = previousDetailId
         } else if (publicProfileTarget != null) {
@@ -1284,12 +1369,13 @@ private fun OnlineCommunity(
             publishSuccessVisible = false
         }
     }
-    BackHandler(enabled = publicProfileTarget != null || detailId != null || noticesOpen || noticeBadgesOpen || guardiaoAppealsOpen) { closeNoticeDestination() }
+    BackHandler(enabled = conversationsOpen || publicProfileTarget != null || detailId != null || noticesOpen || noticeBadgesOpen || guardiaoAppealsOpen) { closeNoticeDestination() }
 
     Scaffold(containerColor = Paper, snackbarHost = { SnackbarHost(otaSnackbar) }, topBar = {
         AtrioTopBar(
-            details = publicProfileTarget != null || detailId != null || noticesOpen || noticeBadgesOpen || guardiaoAppealsOpen,
-            detailsTitle = if (publicProfileTarget != null && !profilePostOpen) "Perfil público"
+            details = conversationsOpen || publicProfileTarget != null || detailId != null || noticesOpen || noticeBadgesOpen || guardiaoAppealsOpen,
+            detailsTitle = if (conversationsOpen) "Conversas"
+                else if (publicProfileTarget != null && !profilePostOpen) "Perfil público"
                 else if (guardiaoAppealsOpen) "Minhas revisões" else if (noticeBadgesOpen) "Meus selos"
                 else if (noticesOpen) "Notificações" else "Discussão",
             unreadCount = inbox.groups(notificationAdmin).count { it.unread },
@@ -1299,19 +1385,50 @@ private fun OnlineCommunity(
             onNotification = {
                 publicProfileTarget = null; profilePostOpen = false; previousDetailId = null
                 detailId = null; noticeBadgesOpen = false; returnToNotices = false
+                conversationsOpen = false; conversationTarget = null; notificationChatId = null
+        shareDiscussion = null
                 noticesOpen = !noticesOpen; searchOpen = false
             }
         )
-    }, bottomBar = { AtrioBottomBar(selected = tab, onSelect = ::navigate) }) { inset ->
+    }, bottomBar = { if (!conversationsOpen) AtrioBottomBar(selected = tab, onSelect = ::navigate) }) { inset ->
         Box(Modifier.padding(inset)) {
             val detail = openedPost?.takeUnless { it.ownerUid in blockedMembers }
                 ?.copy(liked = detailId in likedIds,
                     saved = saveOverrides[detailId] ?: (detailId in savedIds),
                     savePending = detailId in pendingSaveIds)
-            if (publicProfileTarget != null && !profilePostOpen) {
+            if (conversationsOpen) {
+                AtrioConversationsScreen(db, uid,
+                    onBack = {
+                        conversationsOpen = false
+                        conversationTarget = null
+                        notificationChatId = null
+                        notificationGroupId = null
+                        shareDiscussion = null
+                    },
+                    initialPeer = conversationTarget,
+                    initialChatId = notificationChatId,
+                    initialGroupId = notificationGroupId,
+                    initialSharePost = shareDiscussion,
+                    onOpenDiscussion = { postId ->
+                        shareDiscussion = null
+                        conversationsOpen = false
+                        conversationTarget = null
+                        notificationChatId = null
+                        publicProfileTarget = null
+                        profilePostOpen = false
+                        detailId = postId
+                    })
+            } else if (publicProfileTarget != null && !profilePostOpen) {
                 PublicMemberProfileScreen(
                     db = db, target = publicProfileTarget!!, viewerUid = uid,
                     onBack = ::closeNoticeDestination,
+                    onConverse = {
+                        conversationTarget = publicProfileTarget
+                        notificationChatId = null
+                        notificationGroupId = null
+                        shareDiscussion = null
+                        conversationsOpen = true
+                    },
                     onOpenDiscussion = { postId -> profilePostOpen = true; detailId = postId }
                 )
             } else if (guardiaoAppealsOpen) {
@@ -1392,6 +1509,12 @@ private fun OnlineCommunity(
                         }
                     },
                     onReport = { reportPost = detail.id },
+                    onShareAsMessage = {
+                        shareDiscussion = detail.id to detail.title
+                        conversationTarget = null
+                        notificationChatId = null
+                        conversationsOpen = true
+                    },
                     onEdit = if (detail.mine) ({ editingPostId = detail.id }) else null,
                     onDelete = if (detail.mine) ({ deletingPostId = detail.id }) else null,
                     onDeleteReply = { deletingReplyId = it },
@@ -1479,6 +1602,13 @@ private fun OnlineCommunity(
                     onCancelUpdateDownload = { ota.cancelDownload() },
                     onInstallUpdate = { otaScope.launch { ota.install() } },
                     onNotifications = { noticesOpen = true; returnToNotices = false },
+                    onConversations = {
+                        conversationTarget = null
+                        notificationChatId = null
+                        notificationGroupId = null
+                        shareDiscussion = null
+                        conversationsOpen = true
+                    },
                     onReviews = { guardiaoAppealsOpen = true },
                     onCreate = { navigate(Tab.PUBLISH) }, onOpen = { detailId = it },
                     onLike = { id -> posts.firstOrNull { it.id == id }?.let { toggle("likedPosts", id, it.liked) } },

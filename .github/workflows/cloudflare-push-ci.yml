@@ -10,8 +10,9 @@ on:
       - ".github/workflows/cloudflare-push-ci.yml"
   workflow_dispatch:
 
+# Testes de PR independentes: preservar os resultados de cada run_id.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.run_id || github.ref }}
   # Uma atualização não pode interromper um teste já iniciado.
   # O GitHub poderá substituir somente uma execução ainda pendente.
   cancel-in-progress: false
@@ -28,4 +29,4 @@ jobs:
         with:
           node-version: "22"
       - name: Testes isolados sem Firebase ou Cloudflare de produção
-        run: node --test cloudflare/push-worker/src/index.test.js cloudflare/email-verification-policy.test.mjs cloudflare/worker-email-gate.test.mjs
+        run: node --test cloudflare/push-worker/src/index.test.js cloudflare/push-worker/src/chat-events.test.js cloudflare/push-worker/src/retention-plan.test.js cloudflare/email-verification-policy.test.mjs cloudflare/worker-email-gate.test.mjs

@@ -57,7 +57,26 @@ key.properties
 # aplicativo (pacote/certificado) e por APIs no Google Cloud.
 # Nunca coloque JSON de conta de serviço Firebase Admin neste local.
 
-# Saídas locais adicionais de Android, Kotlin e Wrangler
+# Configuracao Firebase do chat QA: somente no ambiente local de testes.
+/app/src/chatQa/google-services.json
+
+# Saidas locais adicionais de Android, Kotlin e Wrangler
 *.aab
 .kotlin/
 .wrangler/
+
+# Worker Chat QA: builds e configurações locais nunca versionados.
+/cloudflare/push-worker/src/index.chat-qa.generated.js
+/cloudflare/push-worker/wrangler.chat-qa.generated.toml
+/cloudflare/push-worker/schema.chat-qa.generated.sql
+
+# Worker de homologacao geral: gerados apenas localmente.
+/cloudflare/push-worker/src/index.general-qa.generated.js
+/cloudflare/push-worker/wrangler.general-qa.generated.toml
+/cloudflare/push-worker/schema.general-qa.generated.sql
+
+# Firestore QA compilado localmente para emulador, nunca publicar.
+/tests/security/qa-general.generated.rules
+
+# Paridade de regras para testes locais exclusivamente (sem deploy).
+/tests/security/qa-parity.generated.rules

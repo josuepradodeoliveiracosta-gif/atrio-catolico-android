@@ -1,0 +1,82 @@
+name: QA geral - Firestore offline
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'firebase/qa-general/**'
+      - 'firestore.rules'
+      - 'tests/security/qa-parity-firestore.test.mjs'
+      - 'firebase/atrio-conversas-v1.rules.fragment'
+      - 'firebase/atrio-grupos-v1.rules.fragment'
+      - 'tests/security/qa-general-firestore.test.mjs'
+      - 'tests/security/qa-age18-admission-firestore.test.mjs'
+      - 'tests/security/qa-general.firebase.json'
+      - 'scripts/termux-firebase-qa-identity-readonly.mjs'
+      - 'scripts/termux-firebase-qa-identity-readonly.test.mjs'
+      - 'scripts/termux-firestore-qa-readonly.mjs'
+      - 'scripts/termux-firestore-qa-readonly.test.mjs'
+      - '.github/workflows/qa-general-firestore.yml'
+
+permissions:
+  contents: read
+
+# Preservar cada execucao de teste por SHA, sem interrupcao automatica.
+# Testes de PR por run_id: nao cancelar evidencias de outros SHAs.
+concurrency:
+  group: atrio-qa-firestore-${{ github.event_name == 'pull_request' && github.run_id || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  firestore-qa-general:
+    if: >-
+      github.event.pull_request.number == 193 &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      GOOGLE_CLOUD_PROJECT: demo-atrio-v11
+      FIREBASE_TOKEN: ''
+      GOOGLE_APPLICATION_CREDENTIALS: ''
+    steps:
+      - name: Checkout sem credenciais persistentes
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Instalar Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Instalar Java 21 para emulador
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Instalar ferramentas existentes da suite
+        run: npm ci --prefix tests/security
+      - name: Auditar APIs QA read-only com testes sintéticos
+        run: node --test scripts/termux-firestore-qa-readonly.test.mjs scripts/termux-firebase-qa-identity-readonly.test.mjs
+      - name: Testar contrato de atestado etario 18+ sintético (Ed25519)
+        run: node --test firebase/qa-general/age18-attestation-contract.test.mjs
+      - name: Testar vinculo da sessao autenticada com desafio 18+ offline
+        run: node --test firebase/qa-general/age18-binding-lab.test.mjs
+      - name: Validar invariantes de paridade sem rede
+        run: node --test firebase/qa-general/compose-parity-rules.test.mjs
+      - name: Gerar candidato de paridade offline e fixado por blob
+        run: node firebase/qa-general/compose-parity-rules.mjs
+      - name: Emular paridade com direitos legados e portoes isolados
+        working-directory: tests/security
+        run: ./node_modules/.bin/firebase emulators:exec --only firestore --config qa-general.firebase.json --project demo-atrio-v11 "node qa-parity-firestore.test.mjs"
+      - name: Gerar regras QA sem Firebase externo
+        run: node firebase/qa-general/compose-rules.mjs
+      - name: Conferir escopo demo local
+        run: |
+          test "$GOOGLE_CLOUD_PROJECT" = "demo-atrio-v11"
+          test -f tests/security/qa-general.generated.rules
+          ! grep -q 'allow read, write: if true;' tests/security/qa-general.generated.rules
+      - name: Emular regras e cenarios de seguranca
+        working-directory: tests/security
+        run: ./node_modules/.bin/firebase emulators:exec --only firestore --config qa-general.firebase.json --project demo-atrio-v11 "node qa-general-firestore.test.mjs && node qa-age18-admission-firestore.test.mjs"
+      - name: Limpar saida local
+        if: always()
+        run: rm -f tests/security/qa-general.generated.rules tests/security/qa-parity.generated.rules

@@ -76,7 +76,7 @@ mkdir -p qa-android-suite-results
 qa_failed=0
 run_suite() {
   local suite="$1"
-  # Modo all preserva as 13 suites e sua ordem; cada grupo so roda as suas.
+  # Modo all preserva as 15 suites; cada grupo executa somente suas suites.
   if [[ "$qa_group" != "all" ]]; then
     case "$qa_group:$suite" in
       profiles:GuardianSessionUiTest|profiles:ProfileLayoutUiTest|profiles:ProfilePhotoUiTest|\
@@ -84,7 +84,8 @@ run_suite() {
       interaction:EngagementUiTest|interaction:ReactionEmojiUiTest|\
       interaction:DiscussionDetailV2UiTest|interaction:AtrioTypographyAccessibilityUiTest|\
       bots:ThreeBotsAndroidUiTest|bots:ThreeBotsAuthenticatedAndroidUiTest|\
-      bots:ThreeBotsOnlineEmulatorTest) ;;
+      bots:ThreeBotsOnlineEmulatorTest|bots:AtrioConversationsEmulatorUiTest|\
+      bots:AtrioGroupsEmulatorUiTest) ;;
       *) echo "QA Android: $suite executada por outro grupo"; return 0 ;;
     esac
   fi
@@ -103,6 +104,20 @@ run_suite() {
     cp -a app/build/outputs/androidTest-results/connected/debug/. \
       "qa-android-suite-results/$suite/"
   fi
+  # Extrair somente marcadores permitidos da instrumentacao Auth/Firestore
+  # dos bots: jamais anexar logcat bruto que pode conter dados sensiveis.
+  if [[ "$suite" == "ThreeBotsAuthenticatedAndroidUiTest" ]]; then
+    local markers="qa-android-suite-results/$suite/profile-write-markers.txt"
+    mkdir -p "qa-android-suite-results/$suite"
+    if adb logcat -d -v raw -s AtrioQaProfile:I '*:S' 2>/dev/null \
+      | grep -Eo 'auth_signup_callback_received|profile_write_requested|profile_write_acknowledged|profile_write_rejected:[A-Za-z_]+' \
+      | tail -n 100 > "$markers"; then
+      echo "QA Android: marcadores sanitizados coletados: $(wc -l < "$markers")"
+    else
+      printf '%s\n' 'qa_profile_markers_unavailable' > "$markers"
+      echo "QA Android: marcadores indisponiveis (nao comprova persistencia)"
+    fi
+  fi
 }
 # Suite-only QA V2: reuse the existing isolated emulator/auth startup,
 # but never repeat the nine older Android UI suites for this new check.
@@ -111,9 +126,18 @@ if [[ "${ATRIO_QA_SUITE:-}" == "GuardianV2UiTest" ]]; then
   echo "QA Android: apenas GuardianV2UiTest; status=$qa_failed"
   exit "$qa_failed"
 fi
+# Execucao opcional dirigida do emulador, jamais combinada com matrix paralelo.
+# A workflow normal de PR segue executando os tres grupos completos.
 if [[ -n "${ATRIO_QA_SUITE:-}" ]]; then
-  echo "Suite seletiva desconhecida; negando execucao" >&2
-  exit 2
+  case "$ATRIO_QA_SUITE" in
+    ThreeBotsOnlineEmulatorTest|ThreeBotsAuthenticatedAndroidUiTest) ;;
+    AtrioConversationsEmulatorUiTest|AtrioGroupsEmulatorUiTest)
+      (cd tests/security && node seed-chat-groups-android.mjs) ;;
+    *) echo "Suite seletiva desconhecida; negando execucao" >&2; exit 2 ;;
+  esac
+  run_suite "$ATRIO_QA_SUITE"
+  echo "QA Android: apenas $ATRIO_QA_SUITE; status=$qa_failed"
+  exit "$qa_failed"
 fi
 run_suite GuardianSessionUiTest
 run_suite ProfileLayoutUiTest
@@ -146,5 +170,15 @@ run_suite ThreeBotsAndroidUiTest
 run_suite ThreeBotsAuthenticatedAndroidUiTest
 run_suite ThreeBotsOnlineEmulatorTest
 run_suite EmailVerificationAndroidUiTest
+# Conversas e grupos so pertencem ao grupo bots, com dados exclusivamente
+# sinteticos e resets independentes das fixtures entre as duas suites.
+if [[ "$qa_group" == "all" || "$qa_group" == "bots" ]]; then
+  (cd tests/security && node seed-chat-groups-android.mjs)
+fi
+run_suite AtrioConversationsEmulatorUiTest
+if [[ "$qa_group" == "all" || "$qa_group" == "bots" ]]; then
+  (cd tests/security && node seed-chat-groups-android.mjs)
+fi
+run_suite AtrioGroupsEmulatorUiTest
 echo "QA Android: suítes concluídas em processos separados; status=$qa_failed"
 exit "$qa_failed"

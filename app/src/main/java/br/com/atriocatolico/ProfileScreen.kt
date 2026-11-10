@@ -49,6 +49,7 @@ internal fun OnlineProfileScreen(
     onCreate: () -> Unit, onOpen: (String) -> Unit,
     onLike: (String) -> Unit, onSave: (String) -> Unit,
     onSavedPosts: () -> Unit, onNotifications: () -> Unit, onReviews: () -> Unit,
+    onConversations: () -> Unit = {},
     followedRevision: Int = 0, savedCount: Int = 0,
     followedRemoteEnabled: Boolean = false, followedRemoteIds: Set<String> = emptySet(),
     followedRemoteLoading: Boolean = false, followedRemoteFailed: Boolean = false,
@@ -144,6 +145,9 @@ internal fun OnlineProfileScreen(
                 Card(Modifier.fillMaxWidth(), border = BorderStroke(1.dp, Line),
                     shape = RoundedCornerShape(18.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                    ProfileAction("Conversas", "Mensagens privadas, solicitações e privacidade.",
+                        Icons.Outlined.Forum, onConversations)
+                    HorizontalDivider()
                     ProfileAction("Minhas discussões", "Consulte até 50 discussões; seu histórico pode ser maior.",
                         Icons.Outlined.Forum) { discussionsOpen = true }
                     HorizontalDivider()

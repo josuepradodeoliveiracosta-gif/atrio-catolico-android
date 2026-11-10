@@ -18,8 +18,10 @@ on:
 permissions:
   contents: read
 
+# Testes de PR por run_id: nao cancelar evidencias de outros SHAs.
 concurrency:
-  group: guardian-v2-ui-${{ github.event.pull_request.number || github.ref }}
+  group: guardian-v2-ui-${{ github.event_name == 'pull_request' && github.run_id || github.ref }}
+  # PRs testadas em paralelo; manual/main mantem grupo por ref.
   cancel-in-progress: false
 
 jobs:
