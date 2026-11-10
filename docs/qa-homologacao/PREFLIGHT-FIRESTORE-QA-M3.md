@@ -25,3 +25,7 @@ retenção e LGPD), evidência de isolamento remoto, aferição etária real,
 revisão IAM/custos e plano de rollback, e autorização QA separada.
 
 **QA: 2/7 marcos (29%). Não publicar Rules nem habilitar o chat.**
+
+## Auditoria sem falsos positivos da base legada
+
+O Firestore oficial já possui rotas públicas intencionais. No candidato de paridade, a busca por `allow ... if true` é aplicada ao **delta QA marcado**, enquanto a integridade do texto da base é garantida separadamente pela pinagem do blob e prefixo imutável. Um `allow list: if true` injetado dentro do delta é rejeitado por teste negativo. Isso não substitui a avaliação de sobreposição de permissões no Firebase Emulator.

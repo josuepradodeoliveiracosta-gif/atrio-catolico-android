@@ -65,10 +65,18 @@ def inspect(base, candidates, issue="unknown", qa_report=None, prod_report=None)
     checked = {}
     prefix = base[:base.rfind("    match /{document=**} {")]
     for name, src in candidates.items():
+        # A base oficial possui permissões públicas intencionais
+        # (por exemplo, material de abertura). Na paridade, examinar
+        # novas permissões APENAS dentro do segmento QA inserido, e
+        # comprovar separadamente que a base não foi alterada.
+        delta = src
+        if name == "parity" and "BEGIN QA PARITY ADDITIVE" in src:
+            delta = (src.split("BEGIN QA PARITY ADDITIVE", 1)[1]
+                     .split("END QA PARITY ADDITIVE", 1)[0])
         checks = {
             "age18_and_private_paths": all(g in src for g in GATES),
             "deny_all_at_end": src.endswith(TAIL),
-            "no_literal_open_grants": OPEN.search(src) is None,
+            "no_literal_open_grants": OPEN.search(delta) is None,
             "no_embedded_real_qa_project": QA not in src,
         }
         if name == "parity":

@@ -39,6 +39,16 @@ class QaMilestoneThreeTests(unittest.TestCase):
         })
         self.assertIn("CANDIDATE_STANDALONE_REVIEW_REQUIRED", y["blockers"])
 
+    def test_new_open_grant_inside_parity_delta_fails(self):
+        injected = self.candidates["parity"].replace(
+            "    // END QA PARITY ADDITIVE:",
+            "    allow list: if true;\n    // END QA PARITY ADDITIVE:",
+            1,
+        )
+        x = inspect(self.base, {**self.candidates, "parity": injected})
+        self.assertFalse(x["candidates"]["parity"]["checks"]["no_literal_open_grants"])
+        self.assertIn("CANDIDATE_PARITY_REVIEW_REQUIRED", x["blockers"])
+
     def test_wrong_qa_project_does_not_count_as_cloud_evidence(self):
         fake = {"project": "atrio-catolico", "mode": "READ_ONLY_TWO_GET",
                 "firestoreRulesCurrentlyDenyAll": True, "safeToEnableChat": False,
