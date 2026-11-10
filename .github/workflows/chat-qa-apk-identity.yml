@@ -45,7 +45,7 @@ jobs:
       github.event.pull_request.number == 193 &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
     env:
       ATRIO_CHAT_QA_BUILD: '1'
       ATRIO_CHAT_QA_PROJECT: atrio-catolico-qa-geral
@@ -162,6 +162,27 @@ jobs:
           print("OK: APK QA sintético com identidade de QA, assinatura Debug e sem os Workers oficiais conhecidos.")
           print("Não demonstra isolamento em execução nem entrega FCM; nenhum APK foi distribuído.")
           PY
+      - name: Executar JUnit de pré-triagem 18+ sem credenciais
+        # O build ChatQa só permite assembleChatQa por segurança.
+        # Reconfigurar estas variáveis APENAS neste passo para executar
+        # um teste JVM local da política, nunca para implantar serviços.
+        shell: bash
+        env:
+          ATRIO_CHAT_QA_BUILD: ''
+          ATRIO_CHAT_QA_PROJECT: ''
+          ATRIO_CHAT_QA_APP_ID: ''
+          ATRIO_CHAT_QA_OFFLINE_ONLY: ''
+          ATRIO_CHAT_QA_WORKER_URL: ''
+        run: |
+          set -euo pipefail
+          test ! -e app/google-services.json
+          for key in ATRIO_CHAT_QA_BUILD ATRIO_CHAT_QA_PROJECT ATRIO_CHAT_QA_APP_ID ATRIO_CHAT_QA_OFFLINE_ONLY ATRIO_CHAT_QA_WORKER_URL ATRIO_PUSH_WORKER_URL ATRIO_AVATAR_WORKER_URL ATRIO_GUARDIAN_V2_WORKER_URL ATRIO_SIGNING_STORE_FILE ATRIO_SIGNING_STORE_PASSWORD ATRIO_SIGNING_KEY_ALIAS ATRIO_SIGNING_KEY_PASSWORD GOOGLE_APPLICATION_CREDENTIALS; do
+            if [[ -n "${!key:-}" ]]; then
+              echo "Precheck JUnit exige ambiente sem credenciais/Workers: $key" >&2
+              exit 2
+            fi
+          done
+          gradle :app:testDebugUnitTest --tests br.com.atriocatolico.ChatAgeRegistrationPrecheckTest --no-daemon --stacktrace
       - name: Apagar configuração sintética do runner
         if: always()
         run: rm -f app/src/chatQa/google-services.json
