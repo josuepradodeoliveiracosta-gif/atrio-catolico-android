@@ -6,7 +6,7 @@ import {QA_AGE18_ATTESTATION_AUDIENCE,
   QA_AGE18_ATTESTATION_POLICY} from './age18-attestation-contract.mjs';
 
 const {privateKey,publicKey}=generateKeyPairSync('ed25519');
-const {privateKey:attackerPrivate}=generateKeyPairSync('ed25519');
+const {privateKey:attackerPrivate,publicKey:attackerPublic}=generateKeyPairSync('ed25519');
 const issuer='qa-offline-simulated-issuer';
 const time=1_793_000_000;
 const tokenA='test-session-token-alice-0001';
@@ -121,4 +121,63 @@ test('mock nao oferece API de escrita, deploy ou ativacao do chat',()=>{
   assert.deepEqual(Object.keys(lab).sort(),['begin','complete']);
   assert.equal('grantChatAccess' in lab,false);
   assert.equal('writeFirestore' in lab,false);
+});
+
+test('logout revoga sessao: desafio anterior nao atravessa novo login',()=>{
+  const activeSessions=new Map(sessionDb);
+  const lab=createAge18OfflineBindingLab({
+    resolveSession:token=>activeSessions.get(token),
+    trustedIssuer:issuer,trustedPublicKeys:{qa:publicKey},
+    makeNonce:()=>Buffer.alloc(24,0x39).toString('base64url')
+  });
+  const original=lab.begin({authenticatedSessionToken:tokenA,nowSeconds:time});
+  const signed=attest(original.challengeNonce);
+  activeSessions.delete(tokenA); // logout confirmado pelo resolvedor do servidor
+  assert.equal(finish(lab,tokenA,original.challengeNonce,signed),null);
+  assert.equal(finish(lab,tokenA2,original.challengeNonce,signed),null);
+  // Mesmo UID, porém sessão de login diferente: não pode herdar desafio.
+  activeSessions.set(tokenA,{uid:uidA,sessionId:'server-auth-session-7777'});
+  assert.equal(finish(lab,tokenA,original.challengeNonce,signed),null);
+});
+
+test('mutar lista externa de chaves apos inicio nao troca emissor confiavel',()=>{
+  const serverKeys={qa:publicKey};
+  const lab=createAge18OfflineBindingLab({
+    resolveSession:token=>sessionDb.get(token),
+    trustedIssuer:issuer,trustedPublicKeys:serverKeys,
+    makeNonce:()=>Buffer.alloc(24,0x57).toString('base64url')
+  });
+  serverKeys.qa=attackerPublic; // mutacao do caller nao deve alterar pins
+  const c=lab.begin({authenticatedSessionToken:tokenA,nowSeconds:time});
+  assert.equal(finish(lab,tokenA,c.challengeNonce,
+    attest(c.challengeNonce,{privateSigningKey:attackerPrivate})),null);
+  assert.notEqual(finish(lab,tokenA,c.challengeNonce,attest(c.challengeNonce)),null);
+});
+
+test('desafio consumido nao pode ser reemitido com o mesmo nonce',()=>{
+  const fixed=Buffer.alloc(24,0x68).toString('base64url');
+  const lab=createAge18OfflineBindingLab({
+    resolveSession:token=>sessionDb.get(token),
+    trustedIssuer:issuer,trustedPublicKeys:{qa:publicKey},
+    makeNonce:()=>fixed
+  });
+  const c=lab.begin({authenticatedSessionToken:tokenA,nowSeconds:time});
+  assert.notEqual(finish(lab,tokenA,c.challengeNonce,attest(c.challengeNonce)),null);
+  // Um RNG quebrado nunca recicla um desafio antigo, mesmo consumido.
+  assert.equal(lab.begin({authenticatedSessionToken:tokenB,nowSeconds:time+1}),null);
+});
+
+test('horario regressivo e estouro de TTL falham fechados',()=>{
+  const lab=createAge18OfflineBindingLab({
+    resolveSession:token=>sessionDb.get(token),
+    trustedIssuer:issuer,trustedPublicKeys:{qa:publicKey},
+    makeNonce:()=>Buffer.alloc(24,0x69).toString('base64url')
+  });
+  assert.equal(lab.begin({authenticatedSessionToken:tokenA,
+    nowSeconds:Number.MAX_SAFE_INTEGER}),null);
+  const c=lab.begin({authenticatedSessionToken:tokenA,nowSeconds:time+10});
+  assert.equal(finish(lab,tokenA,c.challengeNonce,
+    attest(c.challengeNonce),time),null);
+  assert.notEqual(finish(lab,tokenA,c.challengeNonce,
+    attest(c.challengeNonce),time+11),null);
 });

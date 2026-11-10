@@ -99,6 +99,18 @@ Não gerar permissão automaticamente após a pré-triagem no cadastro.
 Sem aprovação da Issue #200, o backend de verificação e
 a emissão da elegibilidade continuam inexistentes.
 
+### Regressões de segurança do vínculo (10/11/2026)
+
+O modelo offline de sessão tem testes adicionais para **logout antes da
+comprovação**, novo login com o mesmo UID mas sessão diferente,
+chave confiável substituída em variável externa, reutilização de
+desafio previamente consumido, relógio regressivo e tempo fora de
+faixa. São exemplos fictícios, não integração operacional do
+Auth/Firestore. O backend real exigirá pinagem e rotação auditada
+de chaves, verificação e revogação efetiva de sessão, armazenamento
+atômico e persistente de desafios e `jti`, aprovação da Issue #200,
+bem como revisão jurídica e de privacidade antes do QA remoto.
+
 ## Condições atuais verificadas
 
 - A suíte Firestore Emulator testa bloqueio por `minorPolicyApproved`,

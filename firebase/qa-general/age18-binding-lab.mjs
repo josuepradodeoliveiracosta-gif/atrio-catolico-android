@@ -29,9 +29,13 @@ export function createAge18OfflineBindingLab({
      !trustedPublicKeys || typeof trustedPublicKeys!=='object')
     throw Error('offline_lab_requires_server_owned_dependencies');
 
+  // Congelar uma cópia da lista de confiança: mutações externas do mapa
+  // de chaves não podem passar a autorizar assinaturas durante a sessão.
+  const serverPinnedKeys=Object.freeze({...trustedPublicKeys});
   const challenges=new Map();
   const bySession=new Map();
   const usedJtis=new Set();
+  const issuedNonces=new Set(); // somente mock, não persiste reinícios
   const readSession=token=>{
     if(typeof token!=='string' || !tokenPattern.test(token))return null;
     try{
@@ -45,16 +49,19 @@ export function createAge18OfflineBindingLab({
 
   function begin({authenticatedSessionToken,nowSeconds}={}) {
     const s=readSession(authenticatedSessionToken);
-    if(!s || !isValidTime(nowSeconds))return null;
+    if(!s || !isValidTime(nowSeconds) ||
+       !Number.isSafeInteger(nowSeconds+CHALLENGE_TTL_SECONDS))return null;
     let nonce;
     try{nonce=makeNonce();}catch{return null;}
     if(typeof nonce!=='string' || !noncePattern.test(nonce) ||
-       challenges.has(nonce))return null;
+       issuedNonces.has(nonce))return null;
     const key=scope(s),previous=bySession.get(key);
     if(previous)challenges.delete(previous);
     bySession.set(key,nonce);
+    issuedNonces.add(nonce);
     challenges.set(nonce,{
-      uid:s.uid,sessionId:s.sessionId,expiresAt:nowSeconds+CHALLENGE_TTL_SECONDS
+      uid:s.uid,sessionId:s.sessionId,issuedAt:nowSeconds,
+      expiresAt:nowSeconds+CHALLENGE_TTL_SECONDS
     });
     return Object.freeze({challengeNonce:nonce,expiresAt:nowSeconds+CHALLENGE_TTL_SECONDS});
   }
@@ -68,6 +75,8 @@ export function createAge18OfflineBindingLab({
     const entry=challenges.get(challengeNonce);
     if(!entry || entry.uid!==s.uid || entry.sessionId!==s.sessionId ||
        bySession.get(scope(s))!==challengeNonce)return null;
+    // Relogio do servidor andando para trás nunca pode validar desafio.
+    if(nowSeconds<entry.issuedAt)return null;
     if(entry.expiresAt<=nowSeconds){
       challenges.delete(challengeNonce);
       bySession.delete(scope(s));
@@ -75,7 +84,8 @@ export function createAge18OfflineBindingLab({
     }
     const proof=verifyAge18AttestationOffline({
       compactJws,expectedUid:s.uid,expectedNonce:challengeNonce,
-      trustedIssuer,trustedPublicKeys,consumedJtis:usedJtis,nowSeconds
+      trustedIssuer,trustedPublicKeys:serverPinnedKeys,
+      consumedJtis:usedJtis,nowSeconds
     });
     if(!proof)return null;
     challenges.delete(challengeNonce);

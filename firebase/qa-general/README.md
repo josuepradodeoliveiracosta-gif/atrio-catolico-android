@@ -178,3 +178,20 @@ indispensáveis Firebase Admin SDK/token verificado, desafio e JTI
 persistidos/consumidos atomicamente, trilha minimizada, controle de
 revogação, fornecedor autenticado, mecanismo de expiração,
 revisão jurídica/privacidade e autorização expressa na Issue #200.
+
+### Regressões adicionais de sessão e confiança (emulador offline)
+
+A suíte de vínculo de maioridade valida que o logout remove a sessão do
+resolvedor **simulado** e invalida a conclusão do desafio anterior.
+Mesmo UID com novo identificador de sessão não herda o desafio.
+O laboratório fixa uma **cópia** da lista de chaves confiáveis
+ao criar o verificador; mutação externa do objeto não pode substituir
+silenciosamente a autoridade emissora. Reemissão de `nonce` já usado,
+inclusive após consumo, e relógio regressivo também falham fechados.
+
+Estas garantias são **apenas testes locais**: o resolvedor ainda
+não autentica tokens Firebase; a lista de `nonce` usados e as sessões
+não sobrevivem a reinícios nem são compartilhadas entre processos.
+No backend futuro, validar expiração/revogação real de sessões e rotação
+de chaves, fixar âncoras de confiança no servidor e consumir desafios
+e `jti` com transações atômicas persistentes antes de qualquer emissão.
