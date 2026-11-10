@@ -1,0 +1,106 @@
+name: Revisão de dependências vulneráveis em Pull Requests
+
+# Depende da GitHub Dependency Graph; sem deploy ou acesso a segredos.
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: Verificar politica de dependencias e revisao
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout somente leitura
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Confirmar Dependabot existente e contrato do review
+        run: |
+          python3 -m unittest scripts/test_dependency_review_contract.py -v
+          python3 -m unittest scripts/test_npm_audit_diff.py -v
+
+  dependency-review:
+    # Dependency Graph ativado pelo proprietário: executar analise nativa em cada PR.
+    # Se API indisponivel ou houver risco alto/critico, falhar explicitamente.
+    name: Recusar novas dependencias com vulnerabilidade alta ou critica
+    needs: contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout somente leitura
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: GitHub Dependency Review
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          fail-on-scopes: runtime, development, unknown
+
+  npm-audit-diff:
+    name: Bloquear novas vulnerabilidades npm altas ou criticas
+    needs: contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout completo somente leitura para comparar com main
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Node 22 e npm
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Copiar manifests de main e PR para diretorios temporarios
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$BASE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          mkdir -p "$RUNNER_TEMP/atrio-audit/base" "$RUNNER_TEMP/atrio-audit/head"
+          for name in package.json package-lock.json; do
+            git show "$BASE_SHA:tests/security/$name" \
+              > "$RUNNER_TEMP/atrio-audit/base/$name"
+            cp "tests/security/$name" "$RUNNER_TEMP/atrio-audit/head/$name"
+          done
+      - name: Consultar npm advisory na mesma janela para base e PR
+        shell: bash
+        run: |
+          set -euo pipefail
+          for target in base head; do
+            dir="$RUNNER_TEMP/atrio-audit/$target"
+            result="$RUNNER_TEMP/atrio-audit/$target.json"
+            status=0
+            (cd "$dir" && timeout 180 npm audit --json --package-lock-only > "$result") \
+              || status=$?
+            if [[ "$status" -ne 0 && "$status" -ne 1 ]]; then
+              echo "::error::npm audit indisponivel ou interrompido para $target"
+              exit 2
+            fi
+          done
+      - name: Comparar novas vulnerabilidades e registrar evidencias
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/npm_audit_diff.py \
+            --base "$RUNNER_TEMP/atrio-audit/base.json" \
+            --head "$RUNNER_TEMP/atrio-audit/head.json" \
+            --json npm-audit-diff.json \
+            --markdown npm-audit-diff.md
+          cat npm-audit-diff.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Guardar relatorio de vulnerabilidades npm
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atrio-npm-audit-${{ github.run_id }}
+          path: |
+            npm-audit-diff.json
+            npm-audit-diff.md
+          if-no-files-found: warn
+          retention-days: 14
