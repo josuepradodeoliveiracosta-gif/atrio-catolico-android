@@ -84,6 +84,21 @@ chaves confiáveis e auditoria minimizada. A eventual emissão de
 elegibilidade deverá ser no backend, após aprovação humana específica
 da Issue #200; o cliente jamais poderá outorgar a própria idade.
 
+### Vínculo de sessão e desafio — teste offline, sem emissão de elegibilidade
+
+O laboratório QA simula uma sessão de identidade **já autenticada pelo
+servidor** por meio de um resolvedor fornecido pelos testes. O servidor
+futuro deverá verificar tokens reais via Admin SDK e controlar
+`uid`/identificador de sessão e desafios imprevisíveis associados
+a eles. Troca de conta ou sessão, desafio reutilizado ou expirado,
+atestado para menor de 18 anos e prova de política antiga devem
+falhar fechados. Os testes offline demonstram somente o contrato
+esperado, sem autenticação real ou Firestore real.
+
+Não gerar permissão automaticamente após a pré-triagem no cadastro.
+Sem aprovação da Issue #200, o backend de verificação e
+a emissão da elegibilidade continuam inexistentes.
+
 ## Condições atuais verificadas
 
 - A suíte Firestore Emulator testa bloqueio por `minorPolicyApproved`,

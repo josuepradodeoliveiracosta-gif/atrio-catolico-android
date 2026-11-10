@@ -158,3 +158,23 @@ do emissor e a emissão posterior do registro privado de elegibilidade
 precisam ocorrer somente no backend após as aprovações da Issue #200.
 Chaves/nonce vindos do cliente não podem definir quem é confiável;
 nunca aceitar a pré-triagem local como prova.
+
+## Vínculo simulado da conta com o desafio de maioridade
+
+`age18-binding-lab.mjs` ilustra a sequência **cadastro → sessão
+autenticada → desafio exclusivo → atestado criptográfico → sinal mínimo**.
+O callback `resolveSession` **simula** o uso futuro de um backend com
+sessão Firebase **já verificada**, não uma autenticação implementada.
+Um desafio diferente é emitido com aleatoriedade de sistema e associado
+ao UID e ao identificador de sessão. Reemissão invalida desafios
+anteriores; troca de conta/sessão, expiração, política obsoleta e replay
+são negados por testes. Nenhuma data de nascimento é armazenada.
+
+O retorno é `{simulatedOnly:true,...}`; **NUNCA cria ou atualiza
+chatAgeEligibility/current**, não dá acesso ao chat e não aciona provedores.
+Map/Set só servem ao laboratório — não são armazenamento persistente
+nem transações atômicas distribuídas. Para futura implantação seriam
+indispensáveis Firebase Admin SDK/token verificado, desafio e JTI
+persistidos/consumidos atomicamente, trilha minimizada, controle de
+revogação, fornecedor autenticado, mecanismo de expiração,
+revisão jurídica/privacidade e autorização expressa na Issue #200.

@@ -1,0 +1,124 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {generateKeyPairSync,sign} from 'node:crypto';
+import {createAge18OfflineBindingLab} from './age18-binding-lab.mjs';
+import {QA_AGE18_ATTESTATION_AUDIENCE,
+  QA_AGE18_ATTESTATION_POLICY} from './age18-attestation-contract.mjs';
+
+const {privateKey,publicKey}=generateKeyPairSync('ed25519');
+const {privateKey:attackerPrivate}=generateKeyPairSync('ed25519');
+const issuer='qa-offline-simulated-issuer';
+const time=1_793_000_000;
+const tokenA='test-session-token-alice-0001';
+const tokenB='test-session-token-bob-00002';
+const tokenA2='test-session-token-alice-0002';
+const uidA='qa-alice';
+const sessionDb=new Map([
+  [tokenA,{uid:uidA,sessionId:'server-auth-session-0001'}],
+  [tokenA2,{uid:uidA,sessionId:'server-auth-session-0002'}],
+  [tokenB,{uid:'qa-bob',sessionId:'server-auth-session-0003'}]
+]);
+let next=1;
+const mk=()=>createAge18OfflineBindingLab({
+  resolveSession:token=>sessionDb.get(token),
+  trustedIssuer:issuer,trustedPublicKeys:{qa:publicKey},
+  makeNonce:()=>Buffer.alloc(24,next++).toString('base64url')
+});
+const encode=v=>Buffer.from(JSON.stringify(v)).toString('base64url');
+const attest=(nonce,{
+  uid=uidA,jti='unique-attestation-0001',ageAtLeast18=true,
+  policyVersion=QA_AGE18_ATTESTATION_POLICY,exp=time+90,
+  privateSigningKey=privateKey,extra={}
+}={})=>{
+  const header={alg:'EdDSA',typ:'JWT',kid:'qa'};
+  const body={iss:issuer,aud:QA_AGE18_ATTESTATION_AUDIENCE,
+    sub:uid,nonce,iat:time-2,exp,jti,policyVersion,ageAtLeast18,...extra};
+  const payload=encode(header)+'.'+encode(body);
+  return payload+'.'+sign(null,Buffer.from(payload),privateSigningKey)
+    .toString('base64url');
+};
+const finish=(lab,session,nonce,jws,clock=time)=>
+  lab.complete({authenticatedSessionToken:session,challengeNonce:nonce,
+    compactJws:jws,nowSeconds:clock});
+
+test('emissao exige sessao existente no backend sintetico, nao declaracao cliente',()=>{
+  const lab=mk();
+  assert.equal(lab.begin({authenticatedSessionToken:'invalid',nowSeconds:time}),null);
+  assert.equal(lab.begin({nowSeconds:time}),null);
+  assert.equal(lab.begin({authenticatedSessionToken:tokenA,nowSeconds:NaN}),null);
+  const c=lab.begin({authenticatedSessionToken:tokenA,nowSeconds:time});
+  assert.equal(typeof c.challengeNonce,'string');
+  assert.equal(c.expiresAt,time+120);
+  assert.equal(c.challengeNonce.length,32);
+});
+
+test('conta e sessao sao vinculadas; conta diferente e nova sessao nao herdam o desafio',()=>{
+  const lab=mk();
+  const c=lab.begin({authenticatedSessionToken:tokenA,nowSeconds:time});
+  const jws=attest(c.challengeNonce);
+  assert.equal(finish(lab,tokenB,c.challengeNonce,jws),null);
+  assert.equal(finish(lab,tokenA2,c.challengeNonce,jws),null);
+  assert.deepEqual(finish(lab,tokenA,c.challengeNonce,jws),{
+    simulatedOnly:true,subjectUid:uidA,minimumAge:18,
+    policyVersion:QA_AGE18_ATTESTATION_POLICY
+  });
+  assert.equal(finish(lab,tokenA,c.challengeNonce,jws),null);
+});
+
+test('comprovante de menor, de outra conta, de versao 16+ e fraudado falha fechado',()=>{
+  const lab=mk();
+  const c=lab.begin({authenticatedSessionToken:tokenA,nowSeconds:time});
+  for(const options of [
+    {ageAtLeast18:false},
+    {uid:'qa-bob'},
+    {policyVersion:'2026-11-16plus-qa-v1'},
+    {privateSigningKey:attackerPrivate},
+    {extra:{dateOfBirth:'2008-11-10'}}
+  ])assert.equal(finish(lab,tokenA,c.challengeNonce,
+    attest(c.challengeNonce,options)),null);
+  assert.deepEqual(finish(lab,tokenA,c.challengeNonce,
+    attest(c.challengeNonce)),{
+      simulatedOnly:true,subjectUid:uidA,minimumAge:18,
+      policyVersion:QA_AGE18_ATTESTATION_POLICY
+    });
+});
+
+test('reemitir desafio invalida anterior, e prazo impede desafio vencido',()=>{
+  const lab=mk();
+  const first=lab.begin({authenticatedSessionToken:tokenA,nowSeconds:time});
+  const second=lab.begin({authenticatedSessionToken:tokenA,nowSeconds:time+5});
+  assert.notEqual(first.challengeNonce,second.challengeNonce);
+  assert.equal(finish(lab,tokenA,first.challengeNonce,attest(first.challengeNonce)),null);
+  assert.equal(finish(lab,tokenA,second.challengeNonce,
+    attest(second.challengeNonce),time+125),null);
+  assert.equal(finish(lab,tokenA,second.challengeNonce,
+    attest(second.challengeNonce),time+6),null);
+});
+
+test('JTI duplicado recusa outro desafio mesmo quando assinado novamente',()=>{
+  const lab=mk();
+  const c1=lab.begin({authenticatedSessionToken:tokenA,nowSeconds:time});
+  assert.notEqual(finish(lab,tokenA,c1.challengeNonce,attest(c1.challengeNonce)),null);
+  const c2=lab.begin({authenticatedSessionToken:tokenA,nowSeconds:time});
+  assert.equal(finish(lab,tokenA,c2.challengeNonce,attest(c2.challengeNonce)),null);
+  assert.notEqual(finish(lab,tokenA,c2.challengeNonce,
+    attest(c2.challengeNonce,{jti:'unique-attestation-0002'})),null);
+});
+
+test('sem sessao resolvida ou emissor confiavel nao ha autorizacao',()=>{
+  const lab=createAge18OfflineBindingLab({
+    resolveSession:()=>{throw Error('provider-unavailable')},
+    trustedIssuer:issuer,trustedPublicKeys:{qa:publicKey}
+  });
+  assert.equal(lab.begin({authenticatedSessionToken:tokenA,nowSeconds:time}),null);
+  assert.equal(lab.complete({authenticatedSessionToken:tokenA,
+    challengeNonce:Buffer.alloc(24).toString('base64url'),
+    compactJws:'x.y.z',nowSeconds:time}),null);
+});
+
+test('mock nao oferece API de escrita, deploy ou ativacao do chat',()=>{
+  const lab=mk();
+  assert.deepEqual(Object.keys(lab).sort(),['begin','complete']);
+  assert.equal('grantChatAccess' in lab,false);
+  assert.equal('writeFirestore' in lab,false);
+});
