@@ -58,6 +58,10 @@ class CodeqlReviewContract(unittest.TestCase):
     def test_codeql_quality_and_no_cancel(self):
         self.assertIn("github/codeql-action/init@v4", self.source)
         self.assertIn("github/codeql-action/analyze@v4", self.source)
+        self.assertIn("android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd", self.source)
+        self.assertIn("gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a", self.source)
+        self.assertNotIn("android-actions/setup-android@v4", self.source)
+        self.assertNotIn("gradle/actions/setup-gradle@v4", self.source)
         self.assertIn("queries: security-and-quality", self.source)
         self.assertIn("category: /language:${{ matrix.language }}", self.source)
         self.assertNotIn("cancel-in-progress: true", self.source)

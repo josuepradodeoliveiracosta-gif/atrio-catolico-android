@@ -60,10 +60,10 @@ jobs:
           java-version: '17'
       - name: Android SDK somente para Kotlin
         if: matrix.language == 'java-kotlin'
-        uses: android-actions/setup-android@v4
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4
       - name: Gradle 8.13 somente para Kotlin
         if: matrix.language == 'java-kotlin'
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
         with:
           gradle-version: '8.13'
       - name: Preparar API 36 para compilação Debug

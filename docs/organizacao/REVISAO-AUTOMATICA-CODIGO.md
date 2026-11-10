@@ -35,3 +35,7 @@ Referências oficiais:
 https://docs.github.com/en/code-security/how-tos/find-and-fix-code-vulnerabilities/configure-code-scanning/configuring-advanced-setup-for-code-scanning
 https://docs.github.com/en/code-security/reference/code-scanning/workflow-configuration-options
 https://docs.github.com/en/code-security/how-tos/find-and-fix-code-vulnerabilities/manage-your-configuration/codeql-for-compiled-languages
+
+## Correcao da revisao de seguranca no preparo da integracao
+
+O GitHub Advanced Security sinalizou duas actions de terceiros sem SHA imutavel: `android-actions/setup-android` e `gradle/actions/setup-gradle`. Ambas passaram a usar commit SHA completo, respectivamente `be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd` (tag `v4`) e `ed408507eac070d1f99cc633dbcf757c94c7933a` (tag `v4.4.3`, resolvida a partir de `v4`). Esta correção atende ao achado sem enfraquecer a análise; manter as conversas abertas até que os novos checks confirmem a versão corrigida.
