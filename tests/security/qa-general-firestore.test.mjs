@@ -145,6 +145,8 @@ try {
    {...qaAge18Proof,status:'revoked'},
    {...qaAge18Proof,minimumAge:16},
    {...qaAge18Proof,minimumAge:17},
+   {...qaAge18Proof,minimumAge:16,policyVersion:'2026-11-16plus-qa-v1'},
+   {...qaAge18Proof,policyVersion:'2026-11-16plus-qa-v1'},
    {...qaAge18Proof,policyVersion:'unreviewed'},
    {...qaAge18Proof,reviewExpiresAt:Timestamp.fromDate(new Date('2000-01-01T00:00:00Z'))}
  ]) {
@@ -281,6 +283,24 @@ try {
  // todos os gates ficticios ligados, evitando testes negativos triviais.
  await assertSucceeds(getDoc(doc(alice,group)));
  await assertSucceeds(getDoc(doc(alice,groupMessage)));
+ // Provas da politica anterior bloqueiam DMs e grupo JA existentes.
+ for(const obsolete of [
+   {...qaAge18Proof,minimumAge:16,policyVersion:'2026-11-16plus-qa-v1'},
+   {...qaAge18Proof,policyVersion:'2026-11-16plus-qa-v1'}
+ ]) {
+   await env.withSecurityRulesDisabled(async ctx=>{
+     await setDoc(doc(ctx.firestore(),aliceAge),obsolete);
+   });
+   await assertFails(getDoc(doc(alice,room)));
+   await assertFails(getDoc(doc(alice,room+'/messages/first')));
+   await assertFails(getDoc(doc(alice,group)));
+   await assertFails(getDoc(doc(alice,groupMessage)));
+ }
+ await env.withSecurityRulesDisabled(async ctx=>{
+   await setDoc(doc(ctx.firestore(),aliceAge),qaAge18Proof);
+ });
+ await assertSucceeds(getDoc(doc(alice,groupMessage)));
+ await assertSucceeds(getDoc(doc(alice,room+'/messages/first')));
  // Mesmo UID e membro do grupo, mas claim email_verified=false.
  const aliceEmailUnverified=env.authenticatedContext('qa-alice',{
    email_verified:false
@@ -396,6 +416,13 @@ try {
  await assertSucceeds(getDoc(doc(alice,inviteGroup)));
  // Contato individual aceito nao deve substituir prova de idade ausente.
  await assertSucceeds(getDoc(doc(alice,room)));
+ await assertFails(newInvite());
+ // Versao obsoleta nao permite receber novo convite.
+ await env.withSecurityRulesDisabled(async ctx=>{
+   await setDoc(doc(ctx.firestore(),bobAge),{
+     ...qaAge18Proof,policyVersion:'2026-11-16plus-qa-v1'
+   });
+ });
  await assertFails(newInvite());
  await env.withSecurityRulesDisabled(async ctx=>{
    await setDoc(doc(ctx.firestore(),bobAge),qaAge18Proof);

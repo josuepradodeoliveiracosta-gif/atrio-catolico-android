@@ -96,6 +96,10 @@ Os testes usam apenas `status=eligible`, `minimumAge=18`,
 `policyVersion=2026-11-18plus-qa-v1` e `reviewExpiresAt` futuro.
 O usuário não pode criar, alterar, renovar ou excluir o documento.
 A versão sintética anterior (limiar 16) não concede acesso ao chat.
+Testes adicionais tentam apresentar (a) uma prova 16+ da política antiga
+e (b) limiar 18 com versão antiga. Ambos devem negar DMs, histórico de
+grupos e novos convites. Denúncias preexistentes permanecem acessíveis
+ao autor conforme regras próprias, sem abrir conteúdo privado.
 
 A fixture é um **atestado administrativo fictício** no Firebase Emulator,
 não uma comprovação de idade. O campo `minimumAge=18` representa a

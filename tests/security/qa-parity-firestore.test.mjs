@@ -98,6 +98,8 @@ try {
     {...age18Proof,status:'revoked'},
     {...age18Proof,minimumAge:16},
     {...age18Proof,minimumAge:17},
+    {...age18Proof,minimumAge:16,policyVersion:'2026-11-16plus-qa-v1'},
+    {...age18Proof,policyVersion:'2026-11-16plus-qa-v1'},
     {...age18Proof,policyVersion:'unreviewed'},
     {...age18Proof,reviewExpiresAt:Timestamp.fromDate(new Date('2000-01-01T00:00:00Z'))}
   ]) {
@@ -116,6 +118,25 @@ try {
   });
   await assertSucceeds(getDoc(doc(bob,chatMessage)));
   await assertSucceeds(getDoc(doc(alice,group)));
+  // A prova 16+ obsoleta bloqueia o historico mas nao a denuncia propria.
+  for(const obsolete of [
+    {...age18Proof,minimumAge:16,policyVersion:'2026-11-16plus-qa-v1'},
+    {...age18Proof,policyVersion:'2026-11-16plus-qa-v1'}
+  ]) {
+    await env.withSecurityRulesDisabled(async ctx=>{
+      await setDoc(doc(ctx.firestore(),aliceAge),obsolete);
+    });
+    await assertFails(getDoc(doc(alice,chatMessage)));
+    await assertFails(getDoc(doc(alice,group)));
+    await assertFails(getDoc(doc(alice,groupMessage)));
+    await assertSucceeds(getDoc(doc(alice,chatReport)));
+    await assertSucceeds(getDoc(doc(alice,groupReport)));
+  }
+  await env.withSecurityRulesDisabled(async ctx=>{
+    await setDoc(doc(ctx.firestore(),aliceAge),age18Proof);
+  });
+  await assertSucceeds(getDoc(doc(alice,chatMessage)));
+  await assertSucceeds(getDoc(doc(alice,groupMessage)));
   await assertFails(getDoc(doc(aliceUnverified,chat)));
   await assertFails(getDoc(doc(aliceUnverified,group)));
   await assertFails(getDoc(doc(bob,group)));
