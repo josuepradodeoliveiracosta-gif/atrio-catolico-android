@@ -53,7 +53,7 @@ class CiReportTests(unittest.TestCase):
         def opener(req, timeout):
             self.assertEqual(timeout, 20)
             urls.append(req.full_url)
-            return Response([check("x")] * (100 if "page=1" in req.full_url else 1))
+            return Response([check("x")] * (100 if req.full_url.endswith("&page=1") else 1))
         result = get_checks(SHA, "synthetic", opener=opener)
         self.assertEqual(len(result), 101)
         self.assertEqual(len(urls), 2)
