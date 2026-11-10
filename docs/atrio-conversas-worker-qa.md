@@ -123,6 +123,24 @@ Worker protege apenas a emissão de avisos por uma credencial privilegiada.
 Aumenta leituras por evento e exige avaliação de custos/cotas antes de
 habilitar FCM real. O código de produção `src/index.js` não foi alterado.
 
+### Segunda checagem antes do despacho (QA offline)
+
+A seleção inicial dos destinatários não garante que a prova continue válida
+até o envio. O candidato QA agora reconsulta a elegibilidade 18+ de remetente
+e destinatário **depois de obter dispositivos e antes de reservar o marcador
+de deduplicação no D1 e chamar o FCM**. Um registro revogado, ausente,
+inválido ou indisponível impede o despacho. O mesmo bloqueio se aplica
+aos destinatários de avisos de grupo. Há testes simulando revogação entre
+`resolveEvent` e esta segunda conferência, além de falha de rede,
+uso da mesma conta e caminho malformado.
+
+**Limite:** os testes verificam a função e sua conexão textual no Worker
+gerado; não executam envio real de FCM. A conferência adicional reduz,
+mas não elimina uma janela de corrida entre Firestore e FCM, já que não
+existe transação atômica entre esses serviços. Antes da ativação real,
+validar também regras de grupo, custos por requisição e política de
+e-mail verificado; decisões da Issue #200 continuam pendentes.
+
 ## Testes permitidos antes de um ambiente QA real
 
     node --test cloudflare/push-worker/scripts/chat-qa-build.test.mjs

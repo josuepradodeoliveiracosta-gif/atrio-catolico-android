@@ -40,7 +40,7 @@ export function renderQaWorker(original, project) {
   code = exactlyOnce(code,
     'const recent = time => time > Date.now() - MAX_AGE_MS && time < Date.now() + 60_000;',
     'const recent = time => time > Date.now() - MAX_AGE_MS && time < Date.now() + 60_000;\n' +
-      "// QA somente: conferência independente de maioridade ANTES do FCM.\n// Credencial de serviço contorna as Security Rules, por isso revalidamos\n// tanto remetente quanto cada destinatário sem confiar no cliente.\nconst qaChatAge18ValidForPush = record => {\n  const fields = record?.fields;\n  if (!fields || typeof fields !== 'object' ||\n      Object.keys(fields).sort().join('|') !==\n        'minimumAge|policyVersion|reviewExpiresAt|status') return false;\n  const expiry = fields.reviewExpiresAt?.timestampValue;\n  return fields.status?.stringValue === 'eligible'\n    && fields.minimumAge?.integerValue === '18'\n    && fields.policyVersion?.stringValue === '2026-11-18plus-qa-v1'\n    && typeof expiry === 'string' && Date.parse(expiry) > Date.now();\n};");
+      "// QA somente: conferência independente de maioridade ANTES do FCM.\n// Credencial de serviço contorna as Security Rules, por isso revalidamos\n// tanto remetente quanto cada destinatário sem confiar no cliente.\nconst qaChatAge18ValidForPush = record => {\n  const fields = record?.fields;\n  if (!fields || typeof fields !== 'object' ||\n      Object.keys(fields).sort().join('|') !==\n        'minimumAge|policyVersion|reviewExpiresAt|status') return false;\n  const expiry = fields.reviewExpiresAt?.timestampValue;\n  return fields.status?.stringValue === 'eligible'\n    && fields.minimumAge?.integerValue === '18'\n    && fields.policyVersion?.stringValue === '2026-11-18plus-qa-v1'\n    && typeof expiry === 'string' && Date.parse(expiry) > Date.now();\n};\n// Segundo bloqueio QA contra revogacao ocorrida entre selecao e despacho.\n// Sem transacao atomica entre Firestore e FCM; nao garante janela zero.\nexport async function qaChatPushPreSendAllowed(token,sender,recipient) {\n  if (!uidPart(sender) || !uidPart(recipient) || sender === recipient) return false;\n  try {\n    const [a,b] = await Promise.all([\n      firestoreGet(token,'users/'+enc(sender)+'/chatAgeEligibility/current'),\n      firestoreGet(token,'users/'+enc(recipient)+'/chatAgeEligibility/current')\n    ]);\n    return qaChatAge18ValidForPush(a) && qaChatAge18ValidForPush(b);\n  } catch { return false; }\n}");
   code = exactlyOnce(code,
     '    const peer = actor === requester ? recipient : requester;\n    const [blockA,blockB,mute,setting]',
     `    const peer = actor === requester ? recipient : requester;
@@ -71,6 +71,14 @@ export function renderQaWorker(original, project) {
     '      if(!groupReviewValid(access) ||\n         blockedA || blockedB || boolField(muted,\'muted\')) continue;',
     `      if(!groupReviewValid(access) || !qaChatAge18ValidForPush(peerAge) ||
          blockedA || blockedB || boolField(muted,'muted')) continue;`);
+  // Revalidar elegibilidade apos buscar dispositivos, mas ANTES de reservar
+  // deduplicacao D1 ou chamar FCM. Modificacao exclusiva do candidato QA.
+  code = exactlyOnce(code,
+    '        if(!list.length) continue;\n        // At most once:',
+    `        if(!list.length) continue;
+        if ((event.kind==='chat_message' || event.kind==='group_message') &&
+            !(await qaChatPushPreSendAllowed(token,uid,recipient))) continue;
+        // At most once:`);
   // A web API key pode, por engano, pertencer à produção. O lookup remoto
   // valida o token, mas a origem assinada também deve ser o Firebase QA.
   // A checagem local apenas rejeita; não autentica JWT por si só.

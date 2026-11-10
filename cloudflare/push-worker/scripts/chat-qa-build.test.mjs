@@ -300,3 +300,48 @@ test('Worker QA filtra push de grupo para destinatarios sem prova 18+ e autor in
     assert.equal(await resolveEvent(event,'chat-alice','fake'),null);
   } finally {globalThis.fetch=saved;}
 });
+
+test('QA revalida idade apos selecao de destinatarios e antes do despacho',async()=>{
+  assert.ok(generated.includes('qaChatPushPreSendAllowed(token,uid,recipient)'));
+  const {resolveEvent,qaChatPushPreSendAllowed}=await import(
+    'data:text/javascript;charset=utf-8,'+encodeURIComponent(generated));
+  const goodAge=()=>qaDoc({status:'eligible',minimumAge:18,
+    policyVersion:'2026-11-18plus-qa-v1',reviewExpiresAt:qaFuture()});
+  const base={
+    'app_config/conversations':qaDoc({enabled:true,minorPolicyApproved:true,
+      safetyReviewVersion:'2026-11-safety-v1',version:'2026-11-v1'}),
+    'chats/chat-alice__chat-bob':qaDoc({
+      requesterUid:'chat-alice',recipientUid:'chat-bob',
+      status:'accepted',initialId:'m1'
+    }),
+    'chats/chat-alice__chat-bob/messages/m2':qaDoc({
+      uid:'chat-alice',kind:'text',createdAt:new Date(Date.now()-1000).toISOString()
+    }),
+    'users/chat-alice/chatAgeEligibility/current':goodAge(),
+    'users/chat-bob/chatAgeEligibility/current':goodAge()
+  };
+  const event={type:'chat_message',chatId:'chat-alice__chat-bob',messageId:'m2'};
+  const saved=globalThis.fetch;
+  try {
+    qaMockFirestore(base);
+    const selected=await resolveEvent(event,'chat-alice','fake');
+    assert.deepEqual(selected.recipients,['chat-bob']);
+    assert.equal(await qaChatPushPreSendAllowed('fake','chat-alice','chat-bob'),true);
+    // A escolha antiga da fila nao pode superar uma revogacao posterior.
+    qaMockFirestore({...base,
+      'users/chat-bob/chatAgeEligibility/current':qaDoc({
+        status:'revoked',minimumAge:18,
+        policyVersion:'2026-11-18plus-qa-v1',reviewExpiresAt:qaFuture()
+      })
+    });
+    assert.equal(await qaChatPushPreSendAllowed('fake','chat-alice','chat-bob'),false);
+    qaMockFirestore({...base,'users/chat-alice/chatAgeEligibility/current':null});
+    assert.equal(await qaChatPushPreSendAllowed('fake','chat-alice','chat-bob'),false);
+    qaMockFirestore({...base,'users/chat-bob/chatAgeEligibility/current':null});
+    assert.equal(await qaChatPushPreSendAllowed('fake','chat-alice','chat-bob'),false);
+    assert.equal(await qaChatPushPreSendAllowed('fake','chat-alice','chat-alice'),false);
+    assert.equal(await qaChatPushPreSendAllowed('fake','../outside','chat-bob'),false);
+    globalThis.fetch=async()=>{throw Error('qa-offline-simulated-outage')};
+    assert.equal(await qaChatPushPreSendAllowed('fake','chat-alice','chat-bob'),false);
+  } finally { globalThis.fetch=saved; }
+});
