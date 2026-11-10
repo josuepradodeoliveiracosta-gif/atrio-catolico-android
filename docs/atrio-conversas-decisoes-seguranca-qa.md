@@ -99,6 +99,25 @@ Não gerar permissão automaticamente após a pré-triagem no cadastro.
 Sem aprovação da Issue #200, o backend de verificação e
 a emissão da elegibilidade continuam inexistentes.
 
+### Minimização da elegibilidade 18+ — contrato do candidato QA
+
+No laboratório isolado, a regra de acesso ao chat só admite o mapa
+`users/{uid}/chatAgeEligibility/current` com os **quatro campos necessários**:
+`status`, `minimumAge`, `policyVersion` e `reviewExpiresAt`.
+Um documento com campos extras (inclusive data de nascimento, CPF e
+identificação de fornecedor), ausentes ou de tipo incompatível **não
+habilita o chat**. A suíte Firebase Emulator comprova a negação e a
+recuperação após restaurar uma fixture mínima válida. A leitura do
+registro pelo titular não permite listagem nem consulta por terceiros.
+
+**Limite fundamental:** Firebase Admin SDK ignora as Security Rules.
+Esse gate de leitura **não impede** um backend privilegiado de armazenar
+indevidamente dados pessoais. A implementação futura precisa validar a
+lista permitida **antes de gravar**, controlar permissões e manter
+evidências/auditoria minimizadas fora do registro de elegibilidade,
+conforme política a ser aprovada. Não há fornecedor escolhido, serviço
+verificador real nem ativação em nuvem.
+
 ### Regressões de segurança do vínculo (10/11/2026)
 
 O modelo offline de sessão tem testes adicionais para **logout antes da

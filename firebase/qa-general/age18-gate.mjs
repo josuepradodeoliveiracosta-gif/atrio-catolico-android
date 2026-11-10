@@ -9,7 +9,12 @@ export const QA_AGE18_GATE=`
       // Uma unica leitura evita esgotar o limite de acessos das Rules
       // durante convites de grupo. Prova ausente gera negacao (fail-closed).
       let proof = get(/databases/$(database)/documents/users/$(uid)/chatAgeEligibility/current).data;
-      return proof.get('status','') == 'eligible'
+      // Contrato minimo do documento: nao aceitar campos de nascimento,
+      // documento ou metadados inesperados no gate de acesso ao chat.
+      // Isto NAO impede o Admin SDK de escrever; o backend deve validar.
+      return proof.keys().hasAll(['status','minimumAge','policyVersion','reviewExpiresAt'])
+        && proof.keys().hasOnly(['status','minimumAge','policyVersion','reviewExpiresAt'])
+        && proof.get('status','') == 'eligible'
         && proof.get('minimumAge',0) == 18
         && proof.get('policyVersion','') == '2026-11-18plus-qa-v1'
         && proof.get('reviewExpiresAt',request.time) is timestamp

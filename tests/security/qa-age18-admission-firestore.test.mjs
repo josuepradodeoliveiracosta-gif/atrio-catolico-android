@@ -118,6 +118,29 @@ try {
   await assertSucceeds(getDoc(doc(signedIn,limitsPath)));
   await assertSucceeds(setDoc(doc(signedIn,privacyPath),privateSettings));
   await assertFails(getDoc(doc(signedOutEmail,limitsPath)));
+  // Contrato mínimo: metadados extras ou campos ausentes fecham o chat.
+  // O bypass administrativo é APENAS do Firebase Emulator.
+  const {reviewExpiresAt:discardedExpiry, ...withoutExpiry}=fixture;
+  const malformedProofs=[
+    {...fixture,dateOfBirth:'2000-01-01'},
+    {...fixture,cpf:'000.000.000-00'},
+    {...fixture,verificationProvider:'unapproved-test-provider'},
+    withoutExpiry,
+    {...fixture,minimumAge:'18'},
+    {...fixture,reviewExpiresAt:'2035-01-01'}
+  ];
+  for(const malformed of malformedProofs){
+    await env.withSecurityRulesDisabled(async ctx=>{
+      await setDoc(doc(ctx.firestore(),agePath),malformed);
+    });
+    await assertFails(getDoc(doc(signedIn,limitsPath)));
+    await assertFails(setDoc(doc(signedIn,privacyPath),privateSettings));
+  }
+  // Mesmo cenário volta a passar quando a fixture exata é restaurada.
+  await env.withSecurityRulesDisabled(async ctx=>{
+    await setDoc(doc(ctx.firestore(),agePath),fixture);
+  });
+  await assertSucceeds(getDoc(doc(signedIn,limitsPath)));
   // Um cliente nem mesmo elegível pode renovar ou reativar sua prova.
   await assertFails(setDoc(doc(signedIn,agePath),fixture));
   await env.withSecurityRulesDisabled(async ctx=>{
