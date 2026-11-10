@@ -1,0 +1,62 @@
+name: QA Firestore - auditoria de collectionGroup e convites (offline)
+
+on:
+  pull_request:
+    branches:
+      - main
+      - feat/atrio-conversas-etapa1-20261106
+    paths:
+      - 'tests/security/qa-invites-authorization-matrix.mjs'
+      - 'firebase/qa-general/**'
+      - 'firebase/atrio-conversas-v1.rules.fragment'
+      - 'firebase/atrio-grupos-v1.rules.fragment'
+      - '.github/workflows/qa-invite-isolation.yml'
+      - 'docs/qa-homologacao/AUDITORIA-CONVITES-COLLECTIONGROUP.md'
+
+permissions:
+  contents: read
+
+jobs:
+  invite-matrix:
+    name: Convites de grupo - permissoes e negacoes no Emulator
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    env:
+      GOOGLE_CLOUD_PROJECT: demo-atrio-v11
+      GOOGLE_APPLICATION_CREDENTIALS: ''
+      FIREBASE_TOKEN: ''
+      CLOUDSDK_CORE_PROJECT: demo-atrio-v11
+    steps:
+      - name: Checkout sem reter credenciais
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Java 21 para Firebase Emulator
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Dependencias fixadas pelo lockfile
+        run: npm ci --prefix tests/security
+      - name: Gerar regras QA isoladas sem rede
+        run: node firebase/qa-general/compose-rules.mjs
+      - name: Testar leitura e consultas dos convites no QA isolado
+        working-directory: tests/security
+        run: ./node_modules/.bin/firebase emulators:exec --only firestore --config qa-general.firebase.json --project demo-atrio-v11 "node qa-invites-authorization-matrix.mjs standalone"
+      - name: Gerar candidato de paridade com base revisada
+        run: node firebase/qa-general/compose-parity-rules.mjs
+      - name: Testar mesmas consultas com as regras de paridade
+        working-directory: tests/security
+        run: ./node_modules/.bin/firebase emulators:exec --only firestore --config qa-general.firebase.json --project demo-atrio-v11 "node qa-invites-authorization-matrix.mjs parity"
+      - name: Limpar saidas apenas do runner
+        if: always()
+        run: rm -f tests/security/qa-general.generated.rules tests/security/qa-parity.generated.rules
+      - name: Registrar limite da evidencia
+        if: always()
+        run: |
+          echo '## Auditoria somente no Firebase Emulator' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Nao comprova afericao real de idade, Rules remotas, deploy ou autorizacao para abrir chats. Marco 3 continua bloqueado pela issue 200.' >> "$GITHUB_STEP_SUMMARY"
