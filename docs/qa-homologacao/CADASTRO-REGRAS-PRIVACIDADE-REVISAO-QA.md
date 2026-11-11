@@ -199,3 +199,24 @@ antes de considerar a correção validada. Mesmo com CI verde, falta
 ensaio real em aparelhos, revisão humana da issue #200 e autorização
 específica para qualquer publicação QA. **NO_GO; ativação 60% (3/5),
 QA geral 29% (2/7).**
+
+
+### Roteiro de aceitação futura do fechamento do onboarding
+
+**Executar somente após autorização específica e publicação controlada
+no Firebase QA; não executar hoje no projeto real.** Registrar o
+`applicationId=br.com.atriocatolico.chatqa`, commit, variante e
+evidência sanitizada de cada cenário:
+
+| Caso | Ação do operador no APK Chat QA | Resultado exigido |
+| --- | --- | --- |
+| E-mail ainda não verificado | Tentar encerrar cadastro | Estado remoto `pending_email`; sem liberação |
+| Falha de Rules ou escrita rejeitada | Tentar finalizar com QA ainda fechado | Permanência na tela de cadastro e mensagem de erro; `pendingUid` preservado |
+| Sem rede ou gravação ainda pendente | Finalizar e observar antes de reconectar | Botão desabilitado enquanto espera; sem mostrar a comunidade por sucesso local |
+| E-mail verificado e escrita aprovada em QA isolado | Finalizar com rede e conferir Firestore | `onboardingStatus=complete` confirmado no servidor antes da transição |
+| Conta sai durante a espera | Acionar saída sem concluir operação | Nenhuma autorização de chat/grupos produzida somente pela interface |
+
+A suíte automatizada cobre as regras de permissão e os formatos dos
+documentos com identidades sintéticas. Ela **não substitui** o ensaio
+da interface e a verificação posterior no dispositivo; não inferir
+`GO` a partir do status da CI.
