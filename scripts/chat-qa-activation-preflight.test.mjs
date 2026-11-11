@@ -56,11 +56,11 @@ test('evidencia do QA real invalida/alterada falha fechado',()=>{
 });
 test('gerador de rules falha fechado com fonte de chat adulterada',()=>{
  const chat=sample.chat.replace('match /chats/{chatId}', 'match /danger/{chatId}');
- assert.throws(()=>check({chat}),/qa_activation_plan_candidate_generation_changed/);
+ assert.throws(()=>check({chat}),/qa_activation_plan_(candidate_generation_changed|chat_fragment_changed)/);
 });
 test('grupos nao se tornam elegiveis ao modificar fragmento',()=>{
  const group=sample.group.replace('atrioGroupEligible(request.auth.uid)','true');
- assert.throws(()=>check({group}),/qa_activation_plan_candidate_(gate_changed|generation_changed)/);
+ assert.throws(()=>check({group}),/qa_activation_plan_(candidate_(gate_changed|generation_changed)|group_fragment_changed)/);
 });
 test('referencia de reversao nao e copia fiel das Rules reais',()=>{
  const result=check();

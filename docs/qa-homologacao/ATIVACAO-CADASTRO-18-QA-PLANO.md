@@ -35,3 +35,19 @@ Para testes de regressão na CI: `node --test scripts/chat-qa-activation-preflig
 - **Reversão:** referência deny-all não é cópia da release e o ID/controle IAM exigem consulta e revisão humana.
 
 **Não executar** `firebase deploy`, `wrangler deploy`, `--apply`, mesclar PRs ou copiar dados de produção nesta etapa. O progresso geral do QA permanece **29% (2/7)**, independente do avanço desta tarefa.
+
+## Proteção adicional contra deriva do código
+
+O pré-flight faz pin dos hashes **Git blob SHA-1** dos fragmentos
+`firebase/atrio-conversas-v1.rules.fragment` e
+`firebase/atrio-grupos-v1.rules.fragment` revisados nesta branch
+(`1a5a37c3e69a4a08839adf9f294e7aa0ea081113` e
+`400b09a061a98bb606e95fa68c6becee2202629b`, respectivamente).
+Um desvio interrompe a preparação, inclusive se trocar um gate por `true`.
+O hash Git é um controle de versão do código, **não** atesta segurança
+criptográfica da política ou aprovação jurídica.
+
+A validação da referência de reversão compara o conteúdo **normalizado**
+sem espaços e comentários. A primeira versão do pré-flight apresentou
+falha de comparação por compactação assimétrica; foi corrigida e deve
+ser confirmada na CI do novo SHA. Esse bug não alterou serviços remotos.

@@ -25,20 +25,29 @@ export const AUDITED_SNAPSHOT=Object.freeze({
 const hash=text=>createHash('sha256').update(text,'utf8').digest('hex');
 const compact=text=>text.replace(/\/\*[\s\S]*?\*\//g,'')
  .replace(/\/\/[^\r\n]*/g,'').replace(/\s+/g,'');
-const DENY_CANONICAL=[
+const DENY_CANONICAL=compact([
  "rules_version = '2';",
  'service cloud.firestore {',
  'match /databases/{database}/documents {',
  'match /{document=**} {',
  'allow read, write: if false;',
  '}', '}', '}'
-].join('');
+].join('\n'));
 const fail=code=>{throw Error('qa_activation_plan_'+code);};
+// Git blob SHA fixa a revisão dos fragmentos usados: alterações exigem
+// reavaliação humana e atualização explícita dos valores esperados.
+const gitBlobSha=src=>createHash('sha1')
+  .update('blob '+Buffer.byteLength(src,'utf8')+'\\0','utf8')
+  .update(src,'utf8').digest('hex');
+const EXPECTED_CHAT_BLOB='1a5a37c3e69a4a08839adf9f294e7aa0ea081113';
+const EXPECTED_GROUP_BLOB='400b09a061a98bb606e95fa68c6becee2202629b';
 
 export function evaluateOfflinePreparation({chat,group,rollback,evidence=AUDITED_SNAPSHOT}={}){
   if(typeof chat!=='string'||typeof group!=='string'||
      typeof rollback!=='string')fail('source_unavailable');
   if(compact(rollback)!==DENY_CANONICAL)fail('rollback_not_deny_all');
+  if(gitBlobSha(chat)!==EXPECTED_CHAT_BLOB)fail('chat_fragment_changed');
+  if(gitBlobSha(group)!==EXPECTED_GROUP_BLOB)fail('group_fragment_changed');
   if(!evidence||typeof evidence!=='object'||
      evidence.project!==PROJECT||evidence.android_package!==PACKAGE||
      evidence.status!=='QA_REAL_DENY_ALL_CONFIRMED'||
