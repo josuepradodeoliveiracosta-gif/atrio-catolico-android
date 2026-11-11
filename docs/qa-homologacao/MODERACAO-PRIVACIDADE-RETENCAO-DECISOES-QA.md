@@ -195,3 +195,14 @@ continua podendo ler seus protocolos. Também verifica que ex-integrante
 não lê grupo/mensagem nem cria novo protocolo nele, apesar de poder
 ler o próprio protocolo anterior. Isso não significa que um canal
 alternativo já exista ou que uma política tenha sido aprovada.
+
+## Ficha de decisões executáveis no QA offline
+
+O dossiê [PACOTE-DECISOES-OPERACIONAIS-ISSUE-200-QA.md](PACOTE-DECISOES-OPERACIONAIS-ISSUE-200-QA.md)
+reúne as propostas e campos a aprovar na issue #200, **sem inventar
+responsáveis nem prazos**. O arquivo público
+ISSUE-200-GOVERNANCA-QA.json registra oito pendências por identificador,
+com a autodeclaração 18+ já DECIDIDA como produto provisório.
+Um novo pré-flight local valida formato, projeto, pacote e decisões;
+mesmo com todas as revisões marcadas, ele **nunca autoriza deploy**.
+O teste roda na workflow QA já existente, sem job ou serviço adicional.

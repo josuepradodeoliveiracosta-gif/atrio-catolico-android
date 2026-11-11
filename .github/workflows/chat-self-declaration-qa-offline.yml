@@ -34,6 +34,10 @@ on:
       - 'app/src/main/java/br/com/atriocatolico/RegistrationV2.kt'
       - 'docs/qa-homologacao/CHAT-AUTODECLARACAO-18-QA.md'
       - 'docs/qa-homologacao/CADASTRO-REGRAS-PRIVACIDADE-REVISAO-QA.md'
+      - 'docs/qa-homologacao/PACOTE-DECISOES-OPERACIONAIS-ISSUE-200-QA.md'
+      - 'docs/qa-homologacao/ISSUE-200-GOVERNANCA-QA.json'
+      - 'scripts/chat-qa-governance-preflight.mjs'
+      - 'scripts/chat-qa-governance-preflight.test.mjs'
       - '.github/workflows/chat-self-declaration-qa-offline.yml'
   workflow_dispatch:
 permissions:
@@ -75,6 +79,11 @@ jobs:
           node --check scripts/chat-qa-activation-preflight.mjs
           node --test scripts/chat-qa-activation-preflight.test.mjs
           node scripts/chat-qa-activation-preflight.mjs
+      - name: Conferir governança QA sem simular aprovações jurídicas
+        run: |
+          node --check scripts/chat-qa-governance-preflight.mjs
+          node --test scripts/chat-qa-governance-preflight.test.mjs
+          node scripts/chat-qa-governance-preflight.mjs
       - name: Configuracao administrativa QA fechada — somente offline
         run: |
           node --check firebase/qa-general/admin-config-preflight.mjs
