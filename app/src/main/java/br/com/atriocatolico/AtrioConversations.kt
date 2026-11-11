@@ -22,6 +22,7 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FieldPath
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.Source
 import java.text.DateFormat
 
 /** Somente texto. Todas as autorizações são revalidadas nas regras Firestore. */
@@ -133,6 +134,43 @@ internal fun AtrioConversationsScreen(
     }
     val ownSession = activeAuthUid == uid &&
         authentication.currentUser?.uid == uid
+    // Só o APK Chat QA exige essa conferência adicional. Nunca confiar
+    // em cache para declarar que a conta possui acesso ao chat.
+    val qaDeclarationGate = BuildConfig.APPLICATION_ID == "br.com.atriocatolico.chatqa"
+    var qaDeclaration by remember(uid) {
+        mutableStateOf(QaChatDeclarationState.CHECKING)
+    }
+    var qaRecheck by remember(uid) { mutableIntStateOf(0) }
+    DisposableEffect(db, uid, ownSession, enabled, qaRecheck) {
+        var alive = true
+        if (!qaDeclarationGate) {
+            qaDeclaration = QaChatDeclarationState.ALLOWED
+        } else if (!ownSession || !enabled) {
+            qaDeclaration = QaChatDeclarationState.CHECKING
+        } else {
+            qaDeclaration = QaChatDeclarationState.CHECKING
+            db.document("users/${uid}/chatAgeEligibility/current")
+                .get(Source.SERVER).addOnCompleteListener { task ->
+                    if (!alive || authentication.currentUser?.uid != uid) return@addOnCompleteListener
+                    qaDeclaration = if (!task.isSuccessful || task.result == null) {
+                        QaChatDeclarationState.UNAVAILABLE
+                    } else if (!task.result!!.exists()) {
+                        QaChatDeclarationState.MISSING
+                    } else if (QaChatDeclarationPolicy.eligible(
+                            task.result!!.getString("status"),
+                            task.result!!.getLong("minimumAge"),
+                            task.result!!.getString("policyVersion"),
+                            task.result!!.getTimestamp("reviewExpiresAt")?.toDate()?.time,
+                            System.currentTimeMillis()
+                        )) {
+                        QaChatDeclarationState.ALLOWED
+                    } else {
+                        QaChatDeclarationState.INVALID
+                    }
+                }
+        }
+        onDispose { alive = false }
+    }
 
     DisposableEffect(db, uid, ownSession) {
         if (!ownSession) {
@@ -211,6 +249,11 @@ internal fun AtrioConversationsScreen(
                     "A implantação exige aprovação das regras e política de proteção de menores.")
                 OutlinedButton(onClick = onBack) { Text("Voltar") }
             }
+        } else if (qaDeclarationGate && qaDeclaration != QaChatDeclarationState.ALLOWED) {
+            ChatQaDeclarationRecoveryPanel(
+                db = db, uid = uid, state = qaDeclaration,
+                onRecheck = { qaRecheck++ }, onBack = onBack
+            )
         } else if (groupsOpen) {
             AtrioGroupsScreen(db,uid,
                 knownPeers = rooms.filter { it.status == "accepted" }

@@ -179,3 +179,32 @@ da autodeclaração, validação integrada do onboarding no Android,
 moderação e privacidade (issue #200). Grupos e Worker/FCM continuam
 bloqueados. Progresso da tarefa ainda **60%** até preencher todas
 as condições de GO e obter autorização específica.
+
+## Candidato de recuperação explícita da declaração no chat (somente QA)
+
+**Correção de UX do bloqueio após o cadastro assíncrono:** se a conta for
+criada e a escrita posterior de `chatAgeEligibility/current` falhar, ao
+abrir "Conversas" no APK Chat QA o cliente consulta esse documento com
+`Source.SERVER`. Se estiver ausente, apresenta **somente no Chat QA**
+um painel opcional para informar novamente a data DD/MM/AAAA, calcular
+idade local, marcar a confirmação expressa 18+ e tentar **uma criação
+pelo próprio UID**, sem guardar nem transmitir a data de nascimento.
+
+- **Sem registro:** solicitação voluntária de novo aceite; conta e outras
+  áreas não são bloqueadas. A cada alteração de data, o checkbox volta
+  a desmarcado. A escrita é sujeita às mesmas Rules create-only.
+- **Com registro válido:** mostra a conversa sem reabrir declaração;
+  as Rules seguem como autoridade (e-mail, política e permissões).
+- **Vencido, revogado, esquema alterado:** mantém chat bloqueado,
+  sem botão de sobrescrever ou "renovar" de forma insegura.
+- **Erro de leitura/autenticação:** não habilita chat; oferece nova consulta
+  autenticada. Após escrita, reconsulta sempre o servidor, não o cache.
+- **Escopo:** APK com `applicationId=br.com.atriocatolico.chatqa`, nenhum
+  impacto no fluxo de produção. Testes JUnit validam leitura lógica
+  conservadora de status/versão/validade. Ainda falta ensaio manual
+  integrado com dois aparelhos usando um QA real e Rules aprovadas.
+
+**Limite não resolvido:** a edição de Rules QA e o teste não significam
+que a criação de declaração tenha sido recebida pelo servidor no fluxo
+de cadastro de um aparelho real. A tela de recuperação mitiga esse caso
+de falha sem ignorar a política e não comprova identidade/idade real.
