@@ -221,6 +221,7 @@ private fun OnlineAuthScreen(
     var acceptedRules by remember { mutableStateOf(false) }
     var acceptedTerms by remember { mutableStateOf(false) }
     var acknowledgedPrivacy by remember { mutableStateOf(false) }
+    var declared18Plus by remember { mutableStateOf(false) }
     var legalDocument by remember { mutableStateOf("") }
     var showRules by remember { mutableStateOf(false) }
     var showPassword by remember { mutableStateOf(false) }
@@ -278,13 +279,14 @@ private fun OnlineAuthScreen(
                         supportingText = { Text("De 2 a 35 caracteres. Será exibido nas publicações.") },
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next))
                 }
-                // Somente o APK Chat QA exibe pré-triagem local de idade.
-                // Não salvar nem enviar a data de nascimento no cadastro.
-                // O backend Firestore continua exigindo prova confiável;
-                // esta seleção nunca altera chatAgeEligibility/current.
+                // Exclusivo do Chat QA: apenas uma autodeclaração explícita,
+                // não uma prova confiável; nunca coletar data de nascimento.
                 if (registering &&
                     BuildConfig.APPLICATION_ID == "br.com.atriocatolico.chatqa") {
-                    ChatAgeRegistrationPrecheckPanel()
+                    ChatAgeRegistrationPrecheckPanel(
+                        declared18Plus = declared18Plus,
+                        onDeclarationChange = { declared18Plus = it }
+                    )
                 }
                 OutlinedTextField(email, { email = it.take(150) },
                     modifier = Modifier.fillMaxWidth().testTag("atrio-auth-email")
@@ -400,6 +402,28 @@ private fun OnlineAuthScreen(
                                             "AtrioQaProfile", "auth_signup_callback_received"
                                         )
                                         onRegistrationCreated(created.uid)
+                                        // SOMENTE no candidato Chat QA: uma declaração 18+
+                                        // pode gerar o sinal de acesso, NÃO prova etária.
+                                        // Sem aceite explícito, nenhum registro é emitido.
+                                        // O servidor/Rules deve impedir escrita em produção.
+                                        if (BuildConfig.APPLICATION_ID == "br.com.atriocatolico.chatqa" &&
+                                            declared18Plus) {
+                                            val expiry = com.google.firebase.Timestamp(
+                                                java.util.Date(System.currentTimeMillis() +
+                                                    364L * 24L * 60L * 60L * 1000L))
+                                            db.document(
+                                                "users/${created.uid}/chatAgeEligibility/current"
+                                            ).set(mapOf(
+                                                "status" to "declared_18_plus",
+                                                "minimumAge" to 18,
+                                                "policyVersion" to "2026-11-selfdecl-qa-v1",
+                                                "reviewExpiresAt" to expiry
+                                            )).addOnFailureListener {
+                                                android.util.Log.w(
+                                                    "AtrioChatQA", "self_declaration_not_saved"
+                                                )
+                                            }
+                                        }
                                         // Registro mínimo no esquema V2; as Rules novas
                                         // precisam de deploy separado antes de produção.
                                         db.document("users/${created.uid}/private/account")
