@@ -37,3 +37,35 @@ class ChatReportReceiptPolicyTest {
         assertFalse(receipt(expectedMessageId=""))
     }
 }
+
+class ParticipantReportReceiptPolicyTest {
+    private fun receipt(
+        fromCache:Boolean=false,
+        pendingWrites:Boolean=false,
+        reporterUid:String?="reporter",
+        expectedReporterUid:String="reporter",
+        targetUid:String?="target",
+        expectedTargetUid:String="target"
+    ):Boolean = ChatReportReceiptPolicy.matchesConfirmedOwnParticipantReport(
+        fromCache,pendingWrites,reporterUid,expectedReporterUid,
+        targetUid,expectedTargetUid
+    )
+
+    @Test fun validFreshOwnParticipantReceipt() {
+        assertTrue(receipt())
+    }
+    @Test fun cachedOrUnconfirmedParticipantReportIsNotAReceipt() {
+        assertFalse(receipt(fromCache=true))
+        assertFalse(receipt(pendingWrites=true))
+    }
+    @Test fun cannotClaimReportsFromOtherOrDifferentTarget() {
+        assertFalse(receipt(reporterUid="other"))
+        assertFalse(receipt(targetUid="another"))
+        assertFalse(receipt(reporterUid=null))
+    }
+    @Test fun missingOwnOrTargetIdFailsClosed() {
+        assertFalse(receipt(expectedReporterUid=""))
+        assertFalse(receipt(expectedTargetUid=""))
+        assertFalse(receipt(targetUid=null))
+    }
+}

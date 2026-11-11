@@ -22,4 +22,18 @@ internal object ChatReportReceiptPolicy {
         reporterUid == expectedReporterUid &&
         conversationId == expectedConversationId &&
         messageId == expectedMessageId
+
+    /** Identifica somente o comprovante próprio de user_reports no servidor. */
+    fun matchesConfirmedOwnParticipantReport(
+        fromCache: Boolean,
+        pendingWrites: Boolean,
+        reporterUid: String?,
+        expectedReporterUid: String,
+        targetUid: String?,
+        expectedTargetUid: String
+    ): Boolean = !fromCache && !pendingWrites &&
+        expectedReporterUid.isNotBlank() &&
+        expectedTargetUid.isNotBlank() &&
+        reporterUid == expectedReporterUid &&
+        targetUid == expectedTargetUid
 }

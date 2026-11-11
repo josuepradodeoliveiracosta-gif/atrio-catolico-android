@@ -72,6 +72,25 @@ segue aberta e o estado QA permanece NO_GO.
   revalidar acesso aos protocolos existentes após suspensão, negar
   leitura do histórico e impedir alterações/exclusões por cliente.
 
+## Perfil público — botão existente e confirmação do protocolo (11/11/2026)
+
+A interface `PublicMemberProfile.kt` **já oferece**
+`atrio-member-report` / **“Denunciar participante”**, que grava
+em `user_reports` (não é rota nova). O protocolo é individual,
+determinístico e sujeito às Rules originais. Ao falhar a gravação,
+a interface agora tenta ler **somente o mesmo documento no servidor**
+e só declara duplicidade se UID do denunciante e UID alvo
+coincidirem sem cache nem escrita pendente. Troca de sessão não
+permite exibir resultado de conta anterior.
+
+O teste JUnit `ParticipantReportReceiptPolicyTest` cobre
+comprovante válido, cache, escrita pendente, UID diferente e
+identidade faltante; a workflow Android o executa explicitamente.
+**Isso não comprova que o perfil público continue navegável após
+sair de um grupo**, nem implementa recuperação de senha ou denúncia
+de texto antigo. O cenário de Rules no emulador cobre apenas a
+capacidade técnica do caminho `user_reports` independente do chat.
+
 ## Alternativa parcial descoberta no sistema existente — denúncia de participante
 
 **Sem canal novo:** o Firestore oficial já contém
