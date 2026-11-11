@@ -45,8 +45,16 @@ class CiOptimizationContract(unittest.TestCase):
                 "cancel-in-progress: " + "$" +
                 "{{ github.event_name == 'pull_request' }}", source,
             )
-            self.assertIn("github.event.pull_request.number || github.ref", source)
+        self.assertIn(
+            "github.event.pull_request.number || github.ref", workflow("selos-ci.yml"),
+        )
         codeql = workflow("codeql-review.yml")
+        # PRs compartilham apenas o mesmo grupo; os demais eventos usam run_id
+        # para preservar execucoes pendentes, alem das em andamento.
+        self.assertIn(
+            "group: atrio-codeql-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}",
+            codeql,
+        )
         self.assertIn("  schedule:", codeql)
         self.assertIn("  workflow_dispatch:", codeql)
         self.assertIn("max-parallel: 4", codeql)
