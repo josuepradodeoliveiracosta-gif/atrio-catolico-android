@@ -1,13 +1,10 @@
 name: Relatório consolidado de CI por commit (somente leitura)
 
+# Um snapshot por ciclo de CodeQL, normalmente a analise mais longa.
+# Resultado informativo: outros checks ainda podem estar em andamento.
 on:
-  pull_request:
-    branches: [main]
   workflow_run:
     workflows:
-      - Gerar APK do Atrio Catolico
-      - Validar selos (Android e Firestore)
-      - Empacotar Workers Cloudflare sem publicar
       - Revisão automática - CodeQL (Kotlin, JS, Python e Actions)
     types: [completed]
   workflow_dispatch:
@@ -22,7 +19,8 @@ jobs:
     name: Consolidar checks do SHA sem modificar a PR
     if: >-
       github.event_name != 'workflow_run' ||
-      github.event.workflow_run.head_repository.full_name == github.repository
+      (github.event.workflow_run.head_repository.full_name == github.repository &&
+       github.event.workflow_run.conclusion != 'cancelled')
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
@@ -35,7 +33,7 @@ jobs:
       - name: Buscar checks apenas do SHA associado
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          CI_TARGET_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          CI_TARGET_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
         run: |
           set -euo pipefail
           python3 scripts/ci_quality_report.py \

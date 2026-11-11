@@ -55,7 +55,7 @@ class CodeqlReviewContract(unittest.TestCase):
             r"wrangler deploy|gh release create)\b",
         )
 
-    def test_codeql_quality_and_no_cancel(self):
+    def test_codeql_quality_and_only_pr_cancel(self):
         self.assertIn("github/codeql-action/init@v4", self.source)
         self.assertIn("github/codeql-action/analyze@v4", self.source)
         self.assertIn("android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd", self.source)
@@ -64,6 +64,15 @@ class CodeqlReviewContract(unittest.TestCase):
         self.assertNotIn("gradle/actions/setup-gradle@v4", self.source)
         self.assertIn("queries: security-and-quality", self.source)
         self.assertIn("category: /language:${{ matrix.language }}", self.source)
+        self.assertIn(
+            "cancel-in-progress: " + "$" + "{{ github.event_name == 'pull_request' }}",
+            self.source,
+        )
+        self.assertIn(
+            "group: atrio-codeql-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}",
+            self.source,
+        )
+        self.assertNotIn("group: atrio-codeql-${{ github.ref }}", self.source)
         self.assertNotIn("cancel-in-progress: true", self.source)
 
 

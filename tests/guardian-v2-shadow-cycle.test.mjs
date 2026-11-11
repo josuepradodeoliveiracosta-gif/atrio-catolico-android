@@ -146,7 +146,8 @@ test('status inválido revela só código padrão, nunca texto/URL do Firestore'
 });
 test('workflow tem cron read-only, escopo OIDC e não contém deploy',()=>{
   const yml=readFileSync(new URL('../.github/workflows/guardiao-v2-prod-runner.yml',import.meta.url),'utf8');
-  assert.match(yml,/cron: '17 \* \* \* \*'/);
+  assert.match(yml,/cron: '17 \*\/2 \* \* \*'/);
+  assert.doesNotMatch(yml,/^  pull_request:/m);
   assert.match(yml,/actions: read/);
   assert.match(yml,/id-token: write/);
   assert.match(yml,/GUARDIAN_V2_SHADOW_ONLY: 'true'/);
