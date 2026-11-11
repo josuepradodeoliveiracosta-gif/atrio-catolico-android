@@ -228,3 +228,15 @@ A suíte automatizada cobre as regras de permissão e os formatos dos
 documentos com identidades sintéticas. Ela **não substitui** o ensaio
 da interface e a verificação posterior no dispositivo; não inferir
 `GO` a partir do status da CI.
+
+## Etapa 4 — minuta operacional de moderação, privacidade e retenção
+
+O quadro de 13 classes de dados, procedimentos de denúncia, recurso,
+minimização de acesso e bloqueios de aprovação está registrado em
+[`MODERACAO-PRIVACIDADE-RETENCAO-DECISOES-QA.md`](MODERACAO-PRIVACIDADE-RETENCAO-DECISOES-QA.md).
+A escolha provisória da autodeclaração 18+ pelo fundador permanece
+**DECIDIDA**. A minuta não fixa prazos jurídicos nem autoriza
+ativação; canal de denúncia pós-saída/desativação ainda requer
+definição, pois as Rules não permitem nova denúncia nesse estado.
+Novo teste de emulador revalida a visibilidade mínima dos protocolos
+existentes, sem acesso geral a mensagens privadas.

@@ -24,7 +24,7 @@ como substituto improvisado de aferição de idade. O registro operacional
 de autorização usa apenas status, versão e vencimento; eventual
 integração futura terá avaliação de finalidade e minimização de dados.
 
-## Diretrizes atuais para escolher a aferição de idade
+## Avaliação jurídica da autodeclaração provisória e evolução futura
 
 Referência adicional da ANPD (28/10/2026): Guia Orientativo sobre
 escopo e obrigações gerais do ECA Digital:
@@ -57,10 +57,13 @@ medidas diferentes; nenhuma pode ser substituída apenas por
 6. Somente após auditoria técnica, aprovação legal e validação
    operacional, analisar ativação controlada no Firebase.
 
-A escolha do fornecedor, de seu custo, dos prazos de autorização
-e do mecanismo de supervisão ainda depende de decisão expressa
-do responsável pelo projeto. Nenhuma nova dependência paga foi
-adicionada.
+O fundador já decidiu usar autodeclaração expressa 18+ (com data
+informada e cálculo local) como critério operacional provisório para
+DMs e grupos até haver recursos para alternativa mais robusta.
+O fornecedor pago não é pré-requisito automático do trabalho atual.
+A avaliação jurídica da adequação desse método ao serviço concreto
+e as demais salvaguardas continuam pendentes; a decisão de produto
+não transforma autodeclaração em prova independente de idade.
 
 ## Inventário pendente de política específica
 

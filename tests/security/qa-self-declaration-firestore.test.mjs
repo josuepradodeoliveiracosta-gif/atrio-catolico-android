@@ -7,7 +7,7 @@ import {STAGED_QA_DOCS,LAB_ONLY_ACTIVE_CHAT,validateStagedQaDocs}
  from '../../firebase/qa-general/admin-config-preflight.mjs';
 import {initializeTestEnvironment,assertFails,assertSucceeds}
  from '@firebase/rules-unit-testing';
-import {doc,setDoc,getDoc,deleteDoc,Timestamp,serverTimestamp} from 'firebase/firestore';
+import {doc,setDoc,getDoc,getDocs,collection,deleteDoc,Timestamp,serverTimestamp} from 'firebase/firestore';
 
 const chat=readFileSync(new URL('../../firebase/atrio-conversas-v1.rules.fragment',import.meta.url),'utf8');
 const group=readFileSync(new URL('../../firebase/atrio-grupos-v1.rules.fragment',import.meta.url),'utf8');
@@ -252,6 +252,61 @@ try{
      await setDoc(doc(ctx.firestore(),'app_config/chat_groups'),groupPolicy);
    });
    await assertSucceeds(getDoc(doc(c(alice),groupPath)));
+ });
+ await test('QA: protocolos existentes seguem legíveis com chats suspensos sem expor DMs',async()=>{
+   // Somente fixtures sintéticas: nenhuma criação de protocolo em Firebase real.
+   const reviewer='qa-moderation-reviewer';
+   const dmReport='chat_reports/qa-report-sintetico';
+   const groupReport='chat_group_reports/qa-group-report-sintetico';
+   await env.withSecurityRulesDisabled(async ctx=>{
+     const internal=ctx.firestore();
+     await setDoc(doc(internal,'admins/'+reviewer),{enabled:true});
+     await setDoc(doc(internal,'chats/qa-room-sintetico'),{
+       participants:[alice,bob],status:'accepted'
+     });
+     await setDoc(doc(internal,'chats/qa-room-sintetico/messages/qa-message'),{
+       uid:alice,kind:'text',text:'Mensagem fictícia de teste'
+     });
+     await setDoc(doc(internal,dmReport),{
+       chatId:'qa-room-sintetico',messageId:'qa-message',
+       reporterUid:alice,reason:'Teste de denúncia QA',
+       reportedText:'Mensagem fictícia de teste',createdAt:serverTimestamp()
+     });
+     await setDoc(doc(internal,groupReport),{
+       groupId:'qa-group-sintetico',messageId:'qa-message',
+       reporterUid:alice,reason:'Teste de denúncia QA',
+       reportedText:'Mensagem fictícia de teste',createdAt:serverTimestamp()
+     });
+     await setDoc(doc(internal,'app_config/conversations'),{
+       enabled:false,version:'2026-11-v1',minorPolicyApproved:false,
+       safetyReviewVersion:'2026-11-safety-v1'
+     });
+     await setDoc(doc(internal,'app_config/chat_groups'),{
+       enabled:false,version:'2026-11-groups-v1',minorPolicyApproved:false
+     });
+   });
+   const reporter=c(alice),thirdParty=c(bob),admin=c(reviewer);
+   const ownDm=await assertSucceeds(getDoc(doc(reporter,dmReport)));
+   const ownGroup=await assertSucceeds(getDoc(doc(reporter,groupReport)));
+   assert.equal(ownDm.data()?.reporterUid,alice);
+   assert.equal(ownGroup.data()?.reporterUid,alice);
+   await assertFails(getDoc(doc(thirdParty,dmReport)));
+   await assertFails(getDoc(doc(thirdParty,groupReport)));
+   await assertFails(getDocs(collection(reporter,'chat_reports')));
+   await assertFails(getDocs(collection(reporter,'chat_group_reports')));
+   await assertSucceeds(getDoc(doc(admin,dmReport)));
+   await assertSucceeds(getDoc(doc(admin,groupReport)));
+   await assertSucceeds(getDocs(collection(admin,'chat_reports')));
+   await assertSucceeds(getDocs(collection(admin,'chat_group_reports')));
+   await assertFails(getDoc(doc(admin,'chats/qa-room-sintetico/messages/qa-message')));
+   await assertFails(getDoc(doc(reporter,'chats/qa-room-sintetico/messages/qa-message')));
+   await assertFails(deleteDoc(doc(reporter,dmReport)));
+   await assertFails(deleteDoc(doc(admin,groupReport)));
+   await assertFails(setDoc(doc(reporter,'chat_reports/qa-while-disabled'),{
+     chatId:'qa-room-sintetico',messageId:'qa-message',
+     reporterUid:alice,reason:'Denúncia tardia',
+     reportedText:'Mensagem fictícia de teste',createdAt:serverTimestamp()
+   }));
  });
  await test('declaração existente não pode ser atualizada, apagada nem convertida em prova',async()=>{
    await assertFails(setDoc(doc(c(alice),pathFor(alice)),claim()));
