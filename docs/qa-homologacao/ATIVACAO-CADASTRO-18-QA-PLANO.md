@@ -300,3 +300,46 @@ https://firebase.google.com/docs/firestore/reference/rest/v1/projects.databases.
 apenas simulam respostas. A barra de ativação permanece **60% (3/5)**,
 o QA geral **29% (2/7)**; a publicação exige autorização específica,
 revisão da issue #200 e testes reais posteriores.
+
+
+## Evidência remota de app_config fornecida pelo operador (11/11/2026)
+
+O fundador executou em seu Termux autenticado a ferramenta
+`scripts/termux-firebase-qa-admin-config-readonly.mjs`, após atualizar o
+workspace `~/atrio-workspaces/qa-cadastro`, e forneceu uma **captura
+parcial da parte inferior** do resumo sanitizado. Essa é uma evidência
+de operador; o assistente **não** executou o GET remoto na própria sessão.
+
+**Campos visíveis na captura:**
+
+- `app_config/conversations`: `state=MISSING`, `present=false`,
+  `enabled=null`, `minor_policy_approved=null`,
+  `chat_or_group_safely_disabled=true`.
+- `app_config/chat_groups`: `state=MISSING`, `present=false`,
+  `enabled=null`, `minor_policy_approved=null`,
+  `chat_or_group_safely_disabled=true`.
+- `all_four_staged_fields_match=false`;
+  `chat_and_groups_observed_closed=true`;
+  `remote_rules_deny_all=true`.
+- `ready_for_activation=false`, `ready_for_deploy=false`,
+  `changes_performed=false`, `production_contacted=false`.
+- Relatório: `FOUR_QA_IDENTITY_RULES_GET_PLUS_FOUR_FIRESTORE_MASKED_GET`.
+  O relatório não atesta os campos não incluídos nas máscaras.
+
+**Limite da evidência:** a captura não mostra o cabeçalho nem os estados
+completos de `app_config/email_verification` e
+`app_config/community_rules`. O fragmento visível anterior à linha
+de conversas contém `staged_fields_match=false`, mas não permite
+atribuir com segurança o trecho a um documento específico. **Não
+declarar os quatro documentos ausentes** sem conferir as duas primeiras
+entradas. Solicitar o trecho superior ou uma saída resumida apenas de
+`path`, `state` e contagens; não solicitar JSON privados ou tokens.
+
+**Conclusão conservadora:** o projeto QA permaneceu deny-all no instante
+registrado; conversas e grupos não possuem documentos administrativos
+publicados nas duas rotas consultadas. Não foi executada qualquer
+publicação/reversão. O onboarding QA real ainda depende de verificar as
+duas políticas de e-mail e comunidade, aprovar o conteúdo aplicável,
+as decisões da issue #200 e uma futura autorização específica para
+escritas **somente QA**. O marco desta tarefa continua em **60% (3/5)**,
+o QA geral em **29% (2/7), NO_GO**.
