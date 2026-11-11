@@ -182,7 +182,7 @@ def markdown(report):
     out = [
         "# Auditoria de latência do GitHub Actions", "",
         "Medição somente leitura de workflows bem-sucedidos. Não é experimento "
-        "controlado nem estimativa de custo faturável.", "",
+        + "controlado nem estimativa de custo faturável.", "",
         "| Grupo | Amostra | Mediana total | P90 total | Mediana espera job crítico | P90 espera |",
         "| --- | ---: | ---: | ---: | ---: | ---: |",
     ]
@@ -197,10 +197,10 @@ def markdown(report):
             f"| {s['critical_wait_p90_sec']}s |"
         )
     out.extend(("", "Espera até iniciar o job crítico inclui **dependências** "
-                "e **fila**; não mede exclusivamente indisponibilidade de runners.",
+                + "e **fila**; não mede exclusivamente indisponibilidade de runners.",
                 "A soma de segundos dos jobs não corresponde necessariamente a "
-                "minutos cobrados. Comparar PRs de escopo semelhante antes de "
-                "atribuir ganhos à configuração.", "", "## Evidências por grupo", ""))
+                + "minutos cobrados. Comparar PRs de escopo semelhante antes de "
+                + "atribuir ganhos à configuração.", "", "## Evidências por grupo", ""))
     for label, group in report["groups"].items():
         out.append("### " + escape_cell(label))
         for p in group["profiles"]:
