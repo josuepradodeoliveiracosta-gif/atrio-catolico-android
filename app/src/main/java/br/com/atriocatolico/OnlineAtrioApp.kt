@@ -663,7 +663,7 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
                     qaCommunityConsentFromServer(
                         version,
                         fromCache = snapshot?.metadata?.isFromCache != false,
-                        hasPendingWrites = snapshot?.metadata?.hasPendingWrites != false,
+                        hasPendingWrites = snapshot?.metadata?.hasPendingWrites() != false,
                         hasError = failure != null
                     )
                 } else {
