@@ -325,3 +325,38 @@ A responsabilidade principal provisória permanece com o
 **Administrador/Fundador e moderadores por ele designados**;
 o Guardião V2 segue planejado, sem automação ativada.
 
+## Regressão de moderação no QA integrado — autorização e revogação (11/11/2026)
+
+A variante `closed-qa-parity.mjs` herda `user_reports` do
+`firestore.rules` versionado. Além de testar a denúncia pelo autor,
+o Firebase Emulator agora verifica que:
+
+- um usuário comum **não consegue listar** denúncias nem revisar as
+  de terceiros; uma conta autenticada com identificação administrativa
+  não autoprovisionada também não;
+- com `admins/{uid}.enabled=true` criado **somente pelo fixture
+  privilegiado do Emulator**, o administrador consegue ler a
+  denúncia e a consulta ordenada/limitada que alimenta o painel
+  `UserReportsAdminPanel.kt`;
+- somente a transição `pending -> reviewed`, com `reviewedBy` do
+  administrador e horário do servidor, é aceita; exclusão, falsificação
+  de revisor e transições arbitrárias continuam bloqueadas;
+- com `enabled=false`, a leitura, listagem e alteração pelo antigo
+  administrador são negadas; o denunciante ainda pode ler o **seu**
+  protocolo. A revogação não apaga dados.
+
+**Limites não resolvidos pelo teste:** a UI atual carrega **apenas
+as 30 denúncias mais recentes**, e não há evidência de paginação
+completa ou tratamento de todas as pendências antigas. O caminho
+herdado `user_reports` aceita criação autenticada mesmo sem claim
+`email_verified`; isso exige análise de abuso/spam antes de
+eventual liberação do candidato de paridade. Status `reviewed`
+não comprova apuração, notificação ou recurso; essas operações,
+o canal de denúncia tardia, equipe/cobertura humana e retenção
+permanecem **PENDENTES**.
+
+**Escopo estrito:** a suíte usa UIDs, protocolos e conteúdos
+inventados em `demo-atrio-v11`; NÃO cadastra moderador real,
+NÃO implementa canal externo, NÃO concede privilégios ao
+aplicativo publicado, NÃO altera Rules remotas, e NÃO é GO.
+

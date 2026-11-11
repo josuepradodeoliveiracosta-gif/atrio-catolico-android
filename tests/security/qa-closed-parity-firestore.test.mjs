@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {initializeTestEnvironment,assertFails,assertSucceeds}
  from '@firebase/rules-unit-testing';
-import {doc,setDoc,getDoc,getDocs,collection,serverTimestamp,Timestamp}
+import {doc,setDoc,getDoc,getDocs,collection,serverTimestamp,Timestamp,updateDoc,deleteDoc,query,orderBy,limit}
  from 'firebase/firestore';
 import {renderClosedQaParity}
  from '../../firebase/qa-general/closed-qa-parity.mjs';
@@ -26,6 +26,8 @@ const uid='qa-closed-parity-alice';
 const emailVerified=env.authenticatedContext(uid,{email_verified:true}).firestore();
 const emailUnverified=env.authenticatedContext(uid,{email_verified:false}).firestore();
 const other=env.authenticatedContext('qa-closed-parity-bob',{email_verified:true}).firestore();
+const modUid='qa-closed-parity-moderator';
+const moderator=env.authenticatedContext(modUid,{email_verified:true}).firestore();
 const guest=env.unauthenticatedContext().firestore();
 const own=path=>doc(emailVerified,path);
 const stage=async cb=>env.withSecurityRulesDisabled(async ctx=>cb(ctx.firestore()));
@@ -99,6 +101,54 @@ try{
   await assertFails(setDoc(doc(other,'user_reports/qa-closed-parity-bob__'+uid),{
     ...payload,reporterUid:uid,targetUid:uid
   }));
+ });
+ await test('moderação de denúncia herdada: acesso mínimo, revisão e revogação',async()=>{
+  // Usuários e documentos são fictícios, sem qualquer função no Firebase real.
+  // A mesma consulta de 30 denúncias recentes é usada no painel Android.
+  const report='user_reports/'+uid+'__qa-closed-parity-bob';
+  const reportRef=doc(moderator,report);
+  const page=query(collection(moderator,'user_reports'),
+    orderBy('createdAt','desc'),limit(30));
+  await assertFails(getDoc(reportRef)); // ainda não é administrador
+  await assertFails(getDocs(page));
+  await assertFails(updateDoc(doc(other,report),{
+    status:'reviewed',reviewedBy:'qa-closed-parity-bob',
+    reviewedAt:serverTimestamp()
+  }));
+  await assertFails(deleteDoc(doc(emailVerified,report)));
+  await assertFails(setDoc(doc(moderator,'admins/'+modUid),{enabled:true}));
+  await stage(async db=>{
+    await setDoc(doc(db,'admins/'+modUid),{enabled:true});
+  });
+  await assertSucceeds(getDoc(reportRef));
+  await assertSucceeds(getDocs(page));
+  await assertFails(getDocs(collection(other,'user_reports')));
+  await assertFails(getDoc(doc(other,report)));
+  // Um admin não pode apagar a denúncia, nem alterá-la sem decisão válida.
+  await assertFails(deleteDoc(reportRef));
+  await assertFails(updateDoc(reportRef,{
+    status:'discarded',reviewedBy:modUid,reviewedAt:serverTimestamp()
+  }));
+  await assertFails(updateDoc(reportRef,{
+    status:'reviewed',reviewedBy:'qa-closed-parity-bob',
+    reviewedAt:serverTimestamp()
+  }));
+  await assertSucceeds(updateDoc(reportRef,{
+    status:'reviewed',reviewedBy:modUid,reviewedAt:serverTimestamp()
+  }));
+  await assertFails(updateDoc(reportRef,{
+    status:'reviewed',reviewedBy:modUid,reviewedAt:serverTimestamp()
+  }));
+  await stage(async db=>{
+    await setDoc(doc(db,'admins/'+modUid),{enabled:false});
+  });
+  await assertFails(getDoc(reportRef));
+  await assertFails(getDocs(page));
+  await assertFails(updateDoc(reportRef,{
+    status:'reviewed',reviewedBy:modUid,reviewedAt:serverTimestamp()
+  }));
+  // O autor conserva leitura do próprio protocolo mesmo com revogação admin.
+  await assertSucceeds(getDoc(doc(emailVerified,report)));
  });
  await test('apenas no emulador estágio QA preserva mural e protege chat fechado',async()=>{
   await stage(async db=>{
