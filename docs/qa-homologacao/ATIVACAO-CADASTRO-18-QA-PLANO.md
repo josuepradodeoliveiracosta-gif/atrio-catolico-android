@@ -410,3 +410,27 @@ Qualquer divergência no snapshot, versão ou caminho impede o pré-flight
 de prosseguir. Isso não garante ausência atual no Firebase remoto: a
 última leitura do operador é histórica. Nenhum código de escrita,
 deploy ou atualização de RuleSet foi acrescentado à branch.
+
+## Revisão das políticas no cadastro (sem publicação)
+
+A auditoria do fluxo de cadastro identificou que as condições de uso e a
+privacidade são explicitamente **prévias**, sem versão legal completa e
+sem prazo de retenção aprovado. Na variante Chat QA, os checkboxes de
+termos e privacidade **não bloqueiam a criação da conta**, embora o
+aceite das Regras da Comunidade seja exigido. A documentação completa
+foi registrada em
+`docs/qa-homologacao/CADASTRO-REGRAS-PRIVACIDADE-REVISAO-QA.md`.
+
+**Defesa adicional Chat QA:** enquanto
+`app_config/community_rules` estiver ausente, inválido, desativado,
+carregado apenas do cache ou falhar, a UI de comunidade passa a
+**bloquear a entrada** em vez de ignorar silenciosamente o portão.
+Produção mantém o rollout original. A autorização real permanece
+sob responsabilidade das Rules Firestore. Testes Kotlin unitários
+garantem as cinco condições negativas.
+
+O texto atual das Regras da Comunidade é um rascunho funcional a ser
+revisado; a existência do texto e de testes **não aprova** prazos de
+moderação, privacidade ou retenção. Não publicar documentos estagiados
+sem revisão humana #200 e autorização específica QA. Progressos
+permanecem 60% na tarefa e 29% no QA geral.

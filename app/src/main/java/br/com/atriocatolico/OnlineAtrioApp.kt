@@ -631,16 +631,28 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
     // Rollout seguro: o novo portão só liga APÓS implantar as regras Firestore
     // e aprovar explicitamente app_config/community_rules pelo Console.
     // Sem configuração publicada (ou em erro/offline), não bloquear contas.
+    val strictQaCommunityPolicy = BuildConfig.APPLICATION_ID == "br.com.atriocatolico.chatqa"
     var rulesGateEnabled by remember(uid) { mutableStateOf(false) }
+    var rulesPolicyLoaded by remember(uid) { mutableStateOf(false) }
     var consentLoaded by remember(uid) { mutableStateOf(false) }
     var consentReadFailed by remember(uid) { mutableStateOf(false) }
     var consentAccepted by remember(uid) { mutableStateOf(false) }
     DisposableEffect(db, uid) {
         val feature = db.document("app_config/community_rules")
-            .addSnapshotListener { snapshot, failure ->
-                rulesGateEnabled = failure == null &&
-                    snapshot?.getBoolean("enabled") == true &&
-                    snapshot.getString("version") == CommunityRulesPolicy.VERSION
+            .addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, failure ->
+                val enabled = snapshot?.getBoolean("enabled")
+                val version = snapshot?.getString("version")
+                rulesGateEnabled = if (strictQaCommunityPolicy) {
+                    qaCommunityPolicyFromServer(
+                        enabled, version,
+                        fromCache = snapshot?.metadata?.isFromCache != false,
+                        hasError = failure != null
+                    ) == QaCommunityPolicyAccess.REQUIRED
+                } else {
+                    failure == null && enabled == true &&
+                        version == CommunityRulesPolicy.VERSION
+                }
+                rulesPolicyLoaded = true
             }
         val acceptance = db.collection("community_consents").document(uid)
             .addSnapshotListener { snapshot, failure ->
@@ -650,6 +662,32 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
                     snapshot?.getString("version") == CommunityRulesPolicy.VERSION
             }
         onDispose { feature.remove(); acceptance.remove() }
+    }
+    // A regra antiga de rollout (documento ausente = portao desligado) e
+    // preservada fora do Chat QA. No Chat QA, ausencia/erro/cache = BLOQUEIO.
+    if (strictQaCommunityPolicy && !rulesGateEnabled) {
+        Column(
+            modifier = Modifier.fillMaxSize().background(Paper)
+                .padding(24.dp).testTag("atrio-qa-community-policy-unavailable"),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text("Regras da comunidade no ambiente QA",
+                color = Wine, style = MaterialTheme.typography.titleLarge)
+            if (!rulesPolicyLoaded) {
+                CircularProgressIndicator()
+                Text("Consultando a configuração do servidor.", color = Muted)
+            } else {
+                Text("A política de acesso não está disponível ou não pôde ser " +
+                    "confirmada no servidor. A comunidade continuará bloqueada " +
+                    "até a homologação da configuração QA.", color = Ink)
+            }
+            OutlinedButton(
+                onClick = { auth.signOut() },
+                modifier = Modifier.testTag("atrio-qa-community-policy-signout")
+            ) { Text("Sair da conta") }
+        }
+        return
     }
     if (rulesGateEnabled && !consentAccepted) {
         CommunityRulesGate(db, uid, loaded = consentLoaded, loadError = consentReadFailed)
