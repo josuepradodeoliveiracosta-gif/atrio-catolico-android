@@ -72,11 +72,38 @@ class CodeqlReviewContract(unittest.TestCase):
             r"wrangler deploy|gh release create)\b",
         )
 
+    def test_actions_node24_pilot_preserves_matrix_and_kotlin_coverage(self):
+        source = self.source
+        self.assertEqual(source.count("uses: actions/checkout@v7"), 2)
+        self.assertNotIn("uses: actions/checkout@v4", source)
+        self.assertIn("uses: actions/setup-java@v6", source)
+        self.assertNotIn("uses: actions/setup-java@v4", source)
+        self.assertEqual(
+            source.count(
+                "uses: gradle/actions/setup-gradle@"
+                "0723195856401067f7a2779048b490ace7a47d7c"
+            ), 1,
+        )
+        self.assertNotIn("gradle/actions/setup-gradle@v6", source)
+        self.assertNotIn("cache-provider: enhanced", source)
+        self.assertNotIn("cache-disabled: true", source)
+        self.assertIn("gradle-version: '8.13'", source)
+        self.assertIn("java-version: '17'", source)
+        self.assertIn("if: matrix.language == 'java-kotlin'", source)
+        self.assertIn("build-mode: manual", source)
+        self.assertIn("gradle :app:assembleDebug --no-daemon --stacktrace", source)
+        self.assertIn("languages: " + "$" + "{{ matrix.language }}", source)
+        self.assertIn("queries: security-and-quality", source)
+        self.assertIn("max-parallel: 4", source)
+        self.assertNotIn("pull_request_target", source)
+        self.assertNotIn("id-token: write", source)
+        self.assertNotIn("assembleRelease", source)
+
     def test_codeql_quality_and_only_pr_cancel(self):
         self.assertIn("github/codeql-action/init@v4", self.source)
         self.assertIn("github/codeql-action/analyze@v4", self.source)
         self.assertIn("android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd", self.source)
-        self.assertIn("gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a", self.source)
+        self.assertIn("gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c", self.source)
         self.assertNotIn("android-actions/setup-android@v4", self.source)
         self.assertNotIn("gradle/actions/setup-gradle@v4", self.source)
         self.assertIn("queries: security-and-quality", self.source)
