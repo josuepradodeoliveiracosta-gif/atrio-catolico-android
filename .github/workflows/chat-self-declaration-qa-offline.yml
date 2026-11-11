@@ -6,6 +6,9 @@ on:
     paths:
       - 'firebase/qa-general/self-declaration-candidate.mjs'
       - 'tests/security/qa-self-declaration-firestore.test.mjs'
+      - 'scripts/termux-firebase-qa-audit-readonly.mjs'
+      - 'scripts/termux-firebase-qa-audit-readonly.test.mjs'
+      - 'docs/qa-homologacao/AUDITORIA-CADASTRO-18-QA-20261110.md'
       - 'app/src/main/java/br/com/atriocatolico/OnlineAtrioApp.kt'
       - 'app/src/main/java/br/com/atriocatolico/RegistrationV2.kt'
       - 'docs/qa-homologacao/CHAT-AUTODECLARACAO-18-QA.md'
@@ -37,6 +40,10 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+      - name: Validar auditoria remota QA com fixtures offline (sem token real)
+        run: |
+          node --check scripts/termux-firebase-qa-audit-readonly.mjs
+          node --test scripts/termux-firebase-qa-audit-readonly.test.mjs
       - name: Dependencias de teste existentes
         run: npm ci --prefix tests/security
       - name: Somente sintaxe do gerador QA

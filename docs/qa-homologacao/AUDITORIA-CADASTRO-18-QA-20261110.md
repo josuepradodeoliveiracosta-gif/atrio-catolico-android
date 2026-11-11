@@ -32,3 +32,35 @@ Escopo: [PR #232](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolic
 Considerar **auditoria de código e emulador concluída** apenas se o workflow específico da PR #232 executar no mesmo SHA com cenários negativos de configuração desligada, registros inválidos/expirados e acesso não autorizado a grupos, além de compilar Chat QA e verificar seus hosts/assinatura. Isso **não** basta para a auditoria integral do Firebase QA real, que precisa de leitura remota atual e documentação de IAM. A barra desta tarefa não deve ser promovida a 40% com base somente em CI verde.
 
 **Sem deploy, sem mudanças em `main`, sem novas credenciais, sem alteração de backups.**
+
+## Última verificação autenticada — comando único
+
+O projeto remoto QA **não pode ser lido a partir desta conversa sem uma
+conexão Firebase autenticada**. Foi preparado um verificador que usa o login
+Firebase CLI já presente no Termux e o arquivo local privado
+`app/src/chatQa/google-services.json`, sem imprimi-lo, para executar
+**exatamente 4 requisições GET** restritas ao projeto `atrio-catolico-qa-geral`.
+
+No clone local da branch QA com o Firebase CLI já autenticado, execute:
+
+```sh
+node scripts/termux-firebase-qa-audit-readonly.mjs
+```
+
+A ferramenta valida a identidade do projeto e aplicativo Android em
+`firebase.googleapis.com`, depois lê release e RuleSet ativo em
+`firebaserules.googleapis.com`. Ela exibe apenas projeto, app, horário local,
+SHA-256 do conteúdo das regras e `remote_rules_deny_all`. O token é
+obtido somente em memória, sem ser copiado para arquivos, respostas ou logs.
+Nenhum deploy ou escrita de dados é realizado.
+
+O resultado `QA_REAL_DENY_ALL_CONFIRMED` confirma que o snapshot remoto
+está fechado, **não** que seja seguro ativar o chat. O resultado
+`QA_REAL_RULES_NOT_DENY_ALL` (código de saída 2) exige investigar a
+divergência, sem qualquer alteração automática. Erros falham fechados com
+identificadores genéricos. Nunca compartilhar tokens, `google-services.json`
+ou credenciais; o resumo sanitizado é apropriado para registrar evidências.
+
+**Ainda pendente:** executar o comando com a sessão autenticada
+real, conferir o resultado e aprovar o escopo de moderação/privacidade #200.
+Testes sintéticos do próprio verificador **não substituem** essa leitura.
