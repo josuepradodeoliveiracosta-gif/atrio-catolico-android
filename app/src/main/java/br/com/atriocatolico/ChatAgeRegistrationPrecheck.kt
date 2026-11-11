@@ -8,8 +8,8 @@ import java.util.Locale
 
 /**
  * Pré-triagem LOCAL e VOLÁTIL para o cadastro Chat QA.
- * NÃO é comprovante de maioridade: nunca autoriza chat e nunca escreve
- * data de nascimento, elegibilidade ou identidade no Firebase.
+ * NÃO é comprovante de maioridade. A data não é persistida nem enviada;
+ * apenas um sinal de autodeclaração pode ser solicitado na variante QA.
  */
 internal object ChatAgeRegistrationPrecheck {
     enum class Assessment {
@@ -28,20 +28,27 @@ internal object ChatAgeRegistrationPrecheck {
         }
     }
 
-    fun assess(dateText: String, today: LocalDate): Assessment {
-        if (dateText.isBlank()) return Assessment.NOT_PROVIDED
-        if (!Regex("[0-9]{2}/[0-9]{2}/[0-9]{4}").matches(dateText)) {
-            return Assessment.INVALID_DATE
-        }
+    /** Idade calculada exclusivamente da data declarada, não verificada. */
+    fun declaredAge(dateText: String, today: LocalDate): Int? {
+        if (!Regex("[0-9]{2}/[0-9]{2}/[0-9]{4}").matches(dateText)) return null
         val birthday = try {
             LocalDate.parse(dateText, dateFormat)
         } catch (_: java.time.format.DateTimeParseException) {
-            return Assessment.INVALID_DATE
+            return null
         }
-        if (birthday.isAfter(today)) return Assessment.INVALID_DATE
-        // Cálculo conservador em 29/02; não substitui análise legal/servidor.
-        return if (Period.between(birthday, today).years >= 18) {
-            Assessment.DECLARED_18_PLUS
-        } else Assessment.DECLARED_UNDER_18
+        if (birthday.isAfter(today)) return null
+        // Regra conservadora para quem nasceu em 29/02.
+        return Period.between(birthday, today).years
     }
+
+    fun assess(dateText: String, today: LocalDate): Assessment {
+        if (dateText.isBlank()) return Assessment.NOT_PROVIDED
+        val years = declaredAge(dateText, today) ?: return Assessment.INVALID_DATE
+        return if (years >= 18) Assessment.DECLARED_18_PLUS
+            else Assessment.DECLARED_UNDER_18
+    }
+
+    /** A seleção anterior do checkbox não libera uma data alterada. */
+    fun canRequestChatAccess(dateText: String, confirmed: Boolean, today: LocalDate): Boolean =
+        confirmed && assess(dateText, today) == Assessment.DECLARED_18_PLUS
 }

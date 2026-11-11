@@ -9,6 +9,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
+import java.time.LocalDate
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -337,14 +338,19 @@ internal fun RegistrationOnboardingScreen(
 }
 
 /**
- * Exemplo exclusivo do Chat QA. A declaração é uma afirmação do usuário,
- * NÃO uma comprovação independente da idade.
+ * Exclusivo do Chat QA. Data local e volátil; não é prova de idade.
  */
 @Composable
 internal fun ChatAgeRegistrationPrecheckPanel(
+    birthDate: String,
+    onBirthDateChange: (String) -> Unit,
     declared18Plus: Boolean,
     onDeclarationChange: (Boolean) -> Unit
 ) {
+    val today = LocalDate.now()
+    val assessment = ChatAgeRegistrationPrecheck.assess(birthDate, today)
+    val years = ChatAgeRegistrationPrecheck.declaredAge(birthDate, today)
+    val canDeclare = assessment == ChatAgeRegistrationPrecheck.Assessment.DECLARED_18_PLUS
     Column(
         Modifier.fillMaxWidth().testTag("atrio-chat-age-precheck"),
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -352,10 +358,35 @@ internal fun ChatAgeRegistrationPrecheckPanel(
         Text("Chat: exclusivo para maiores de 18 anos",
             color = Wine, style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.Bold)
+        OutlinedTextField(
+            value = birthDate,
+            onValueChange = { onBirthDateChange(ChatAgeRegistrationPrecheck.formatInput(it)) },
+            label = { Text("Data de nascimento") },
+            placeholder = { Text("DD/MM/AAAA") },
+            modifier = Modifier.fillMaxWidth().testTag("atrio-chat-age-birthdate"),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            singleLine = true,
+            supportingText = { Text("Apenas cálculo local; não armazenada nem enviada.") }
+        )
+        Text(
+            when (assessment) {
+                ChatAgeRegistrationPrecheck.Assessment.NOT_PROVIDED ->
+                    "Informe a data para calcular sua idade declarada."
+                ChatAgeRegistrationPrecheck.Assessment.INVALID_DATE ->
+                    "Data inválida. Use o formato DD/MM/AAAA."
+                ChatAgeRegistrationPrecheck.Assessment.DECLARED_UNDER_18 ->
+                    "Idade informada: ${years ?: 0} anos. Chat não permitido."
+                ChatAgeRegistrationPrecheck.Assessment.DECLARED_18_PLUS ->
+                    "Idade informada: ${years ?: 0} anos. Confirme a declaração abaixo."
+            },
+            color = Ink, style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.testTag("atrio-chat-age-result")
+        )
         Row(verticalAlignment = Alignment.CenterVertically) {
             Checkbox(
-                checked = declared18Plus,
-                onCheckedChange = onDeclarationChange,
+                checked = canDeclare && declared18Plus,
+                onCheckedChange = { onDeclarationChange(it && canDeclare) },
+                enabled = canDeclare,
                 modifier = Modifier.testTag("atrio-chat-declare-18")
             )
             Text(
@@ -364,17 +395,15 @@ internal fun ChatAgeRegistrationPrecheckPanel(
             )
         }
         Text(
-            if (declared18Plus)
-                "Declaração selecionada. No candidato QA, será registrado um sinal de autodeclaração ao criar a conta."
+            if (canDeclare && declared18Plus)
+                "Declaração confirmada. O candidato QA solicitará elegibilidade ao criar a conta."
             else
-                "Sem declaração de maioridade, a conta poderá ser criada, mas o chat não será habilitado.",
-            color = Ink, style = MaterialTheme.typography.bodySmall,
-            modifier = Modifier.testTag("atrio-chat-age-result")
+                "Sem declaração válida, a conta poderá ser criada, mas o chat ficará bloqueado.",
+            color = Muted, style = MaterialTheme.typography.bodySmall
         )
         Text(
-            "A autodeclaração não comprova a idade. " +
-                "Outras restrições de segurança, incluindo e-mail confirmado, " +
-                "bloqueios e autorização administrativa do ambiente QA, continuam valendo.",
+            "A data e a declaração não comprovam a idade. " +
+                "E-mail confirmado e controles administrativos de QA continuam obrigatórios.",
             color = Muted, style = MaterialTheme.typography.bodySmall
         )
     }

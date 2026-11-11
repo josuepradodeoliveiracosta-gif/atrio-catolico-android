@@ -221,6 +221,7 @@ private fun OnlineAuthScreen(
     var acceptedRules by remember { mutableStateOf(false) }
     var acceptedTerms by remember { mutableStateOf(false) }
     var acknowledgedPrivacy by remember { mutableStateOf(false) }
+    var birthDateText by remember { mutableStateOf("") } // não usar rememberSaveable
     var declared18Plus by remember { mutableStateOf(false) }
     var legalDocument by remember { mutableStateOf("") }
     var showRules by remember { mutableStateOf(false) }
@@ -279,13 +280,21 @@ private fun OnlineAuthScreen(
                         supportingText = { Text("De 2 a 35 caracteres. Será exibido nas publicações.") },
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next))
                 }
-                // Exclusivo do Chat QA: apenas uma autodeclaração explícita,
-                // não uma prova confiável; nunca coletar data de nascimento.
+                // Exclusivo Chat QA: data de nascimento usada só em memória.
                 if (registering &&
                     BuildConfig.APPLICATION_ID == "br.com.atriocatolico.chatqa") {
                     ChatAgeRegistrationPrecheckPanel(
+                        birthDate = birthDateText,
+                        onBirthDateChange = { value ->
+                            birthDateText = value
+                            declared18Plus = false // toda edição exige novo aceite
+                        },
                         declared18Plus = declared18Plus,
-                        onDeclarationChange = { declared18Plus = it }
+                        onDeclarationChange = { checked ->
+                            declared18Plus = ChatAgeRegistrationPrecheck.canRequestChatAccess(
+                                birthDateText, checked, java.time.LocalDate.now()
+                            )
+                        }
                     )
                 }
                 OutlinedTextField(email, { email = it.take(150) },
@@ -387,6 +396,12 @@ private fun OnlineAuthScreen(
                         resetInfo = ""
                         if (registering) {
                             val publicName = displayName.trim()
+                            // Condição congelada antes da chamada Firebase assíncrona.
+                            val adultDeclarationForThisSignup =
+                                BuildConfig.APPLICATION_ID == "br.com.atriocatolico.chatqa" &&
+                                ChatAgeRegistrationPrecheck.canRequestChatAccess(
+                                    birthDateText, declared18Plus, java.time.LocalDate.now()
+                                )
                             onRegistrationStarted()
                             auth.createUserWithEmailAndPassword(email.trim(), password)
                                 .addOnSuccessListener { result ->
@@ -406,8 +421,7 @@ private fun OnlineAuthScreen(
                                         // pode gerar o sinal de acesso, NÃO prova etária.
                                         // Sem aceite explícito, nenhum registro é emitido.
                                         // O servidor/Rules deve impedir escrita em produção.
-                                        if (BuildConfig.APPLICATION_ID == "br.com.atriocatolico.chatqa" &&
-                                            declared18Plus) {
+                                        if (adultDeclarationForThisSignup) {
                                             val expiry = com.google.firebase.Timestamp(
                                                 java.util.Date(System.currentTimeMillis() +
                                                     364L * 24L * 60L * 60L * 1000L))
