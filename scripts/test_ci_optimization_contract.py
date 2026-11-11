@@ -222,7 +222,7 @@ class CiOptimizationContract(unittest.TestCase):
         self.assertIn("uses: actions/setup-java@v6", android)
         self.assertIn("persist-credentials: false", android)
         self.assertIn("java-version: '17'", android)
-        self.assertIn("gradle/actions/setup-gradle@v5", android)
+        self.assertIn("gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c", android)
         self.assertIn("gradle-version: '8.13'", android)
         self.assertNotIn("cache-provider:", android)
         self.assertIn("uses: actions/upload-artifact@v7", android)
