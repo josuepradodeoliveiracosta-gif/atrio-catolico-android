@@ -11,6 +11,8 @@ import {fileURLToPath} from 'node:url';
 import {renderSelfDeclarationRules} from '../firebase/qa-general/self-declaration-candidate.mjs';
 import {STAGED_QA_DOCS,validateStagedQaDocs}
  from '../firebase/qa-general/admin-config-preflight.mjs';
+import {OPERATOR_OBSERVATION,prepareQaAdminCreatePlan}
+ from './chat-qa-admin-initial-create-plan.mjs';
 
 const PROJECT='atrio-catolico-qa-geral';
 const PACKAGE='br.com.atriocatolico.chatqa';
@@ -44,7 +46,8 @@ const gitBlobSha=src=>createHash('sha1')
 const EXPECTED_CHAT_BLOB='1a5a37c3e69a4a08839adf9f294e7aa0ea081113';
 const EXPECTED_GROUP_BLOB='400b09a061a98bb606e95fa68c6becee2202629b';
 
-export function evaluateOfflinePreparation({chat,group,rollback,evidence=AUDITED_SNAPSHOT,stagedConfig=STAGED_QA_DOCS}={}){
+export function evaluateOfflinePreparation({chat,group,rollback,evidence=AUDITED_SNAPSHOT,
+ stagedConfig=STAGED_QA_DOCS,adminObservation=OPERATOR_OBSERVATION}={}){
   if(typeof chat!=='string'||typeof group!=='string'||
      typeof rollback!=='string')fail('source_unavailable');
   if(compact(rollback)!==DENY_CANONICAL)fail('rollback_not_deny_all');
@@ -66,6 +69,17 @@ export function evaluateOfflinePreparation({chat,group,rollback,evidence=AUDITED
   catch{fail('staged_admin_invalid');}
   if(admin.conversations_enabled!==false||admin.groups_enabled!==false||
      admin.ready_for_deploy!==false)fail('staged_admin_invalid');
+  let createManifest;
+  try{createManifest=prepareQaAdminCreatePlan({
+   observation:adminObservation,stagedDocs:stagedConfig
+  });}catch{fail('initial_create_manifest_invalid');}
+  if(createManifest.ready_for_deploy!==false ||
+     createManifest.overwrite_allowed!==false ||
+     createManifest.planned_documents!==4 ||
+     createManifest.changes_performed!==false ||
+     createManifest.chat_enabled!==false ||
+     createManifest.groups_enabled!==false)
+    fail('initial_create_manifest_invalid');
   let candidate;
   try{candidate=renderSelfDeclarationRules(chat,group);}
   catch{fail('candidate_generation_changed');}
@@ -100,6 +114,12 @@ export function evaluateOfflinePreparation({chat,group,rollback,evidence=AUDITED
     community_rules_acceptance_required:admin.community_rules_acceptance_required,
     staged_chat_enabled:false,staged_groups_enabled:false,
     admin_config_published:false,
+    four_admin_documents_missing_at_last_operator_snapshot:true,
+    admin_snapshot_is_historical:true,
+    admin_initial_create_manifest_checked:true,
+    admin_create_intents:createManifest.planned_documents,
+    admin_create_overwrite_allowed:false,
+    admin_initial_create_performed:false,
     rollback_reference_sha256:hash(rollback),
     rollback_reference_is_exact_remote_backup:false,
     rollback_reference_is_deny_all:true,
@@ -113,6 +133,8 @@ export function evaluateOfflinePreparation({chat,group,rollback,evidence=AUDITED
     ready_for_deploy:false,
     blockers:[
       'aprovar escopo privacidade/moderacao/retencao issue 200',
+      'obter autorizacao especifica para qualquer criacao de app_config QA',
+      'revalidar os quatro documentos QA imediatamente antes da criacao exclusiva',
       'auditar IAM e autorizacao para publicar no projeto QA',
       'capturar identificador exato do Ruleset QA atual e confirmar restauracao',
       'confirmar novamente baseline remoto imediatamente antes de publicar',

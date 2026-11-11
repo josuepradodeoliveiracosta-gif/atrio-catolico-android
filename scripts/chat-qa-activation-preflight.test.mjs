@@ -4,6 +4,8 @@ import {readFileSync} from 'node:fs';
 import {evaluateOfflinePreparation,prepareOfflineQaActivation,AUDITED_SNAPSHOT}
  from './chat-qa-activation-preflight.mjs';
 import {STAGED_QA_DOCS} from '../firebase/qa-general/admin-config-preflight.mjs';
+import {OPERATOR_OBSERVATION}
+ from './chat-qa-admin-initial-create-plan.mjs';
 
 const read=relative=>readFileSync(new URL(relative,import.meta.url),'utf8');
 const sample={
@@ -29,6 +31,12 @@ test('plano gera hash local, sem autorizacao de deploy, Worker ou grupo',()=>{
  assert.equal(plan.staged_chat_enabled,false);
  assert.equal(plan.staged_groups_enabled,false);
  assert.equal(plan.admin_config_published,false);
+ assert.equal(plan.four_admin_documents_missing_at_last_operator_snapshot,true);
+ assert.equal(plan.admin_snapshot_is_historical,true);
+ assert.equal(plan.admin_initial_create_manifest_checked,true);
+ assert.equal(plan.admin_create_intents,4);
+ assert.equal(plan.admin_create_overwrite_allowed,false);
+ assert.equal(plan.admin_initial_create_performed,false);
  assert.equal(plan.production_contacted,false);
  assert.equal(plan.deploy_performed,false);
  assert.ok(plan.blockers.length>=6);
@@ -86,5 +94,20 @@ test('preflight geral rejeita config administrativa estagiada que ativa chat ou 
    cfg[patch[0]][patch[1]]=patch[2];
    assert.throws(()=>check({stagedConfig:cfg}),
      /qa_activation_plan_staged_admin_invalid/);
+ }
+});
+
+test('preflight geral rejeita evidencia administrativa faltando/alterada',()=>{
+ for(const change of [
+   {existing_documents:1},
+   {missing_documents:3},
+   {remote_rules_deny_all:false},
+   {ruleset_name:'projects/atrio-catolico/rulesets/unsafe'},
+   {ready_for_deploy:true},
+   {production_contacted:true}
+ ]){
+  assert.throws(()=>check({
+   adminObservation:{...OPERATOR_OBSERVATION,...change}
+  }),/qa_activation_plan_initial_create_manifest_invalid/);
  }
 });

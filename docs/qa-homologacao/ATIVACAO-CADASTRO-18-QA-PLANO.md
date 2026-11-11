@@ -395,3 +395,18 @@ privilégios; GET remoto contemporâneo; identificação do RuleSet
 para reversão; testes em aparelhos. **Não pedir comando de escrita
 ao operador neste marco de pré-preparação.** O QA continua deny-all
 e o progresso da tarefa segue **60% (3/5)**; QA geral **29% (2/7)**.
+
+## Integração do manifesto de criação ao pré-flight geral
+
+A rotina `scripts/chat-qa-activation-preflight.mjs` passa a testar
+também o manifesto `prepareQaAdminCreatePlan`, exigindo:
+(1) a evidência histórica dos **quatro documentos ausentes**,
+(2) os quatro caminhos `app_config` esperados,
+(3) `overwrite_allowed=false`,
+(4) `chat_enabled=false` e `groups_enabled=false`,
+(5) `ready_for_deploy=false` e `changes_performed=false`.
+
+Qualquer divergência no snapshot, versão ou caminho impede o pré-flight
+de prosseguir. Isso não garante ausência atual no Firebase remoto: a
+última leitura do operador é histórica. Nenhum código de escrita,
+deploy ou atualização de RuleSet foi acrescentado à branch.
