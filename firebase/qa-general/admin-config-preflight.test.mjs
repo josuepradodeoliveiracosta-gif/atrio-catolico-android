@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
+import {renderSelfDeclarationRules} from './self-declaration-candidate.mjs';
 import {STAGED_QA_DOCS,LAB_ONLY_ACTIVE_CHAT,validateStagedQaDocs,
  validateAndroidPolicyAnchors} from './admin-config-preflight.mjs';
 const clone=o=>JSON.parse(JSON.stringify(o));
@@ -75,4 +76,25 @@ test('versions match actual Android and group gates in reviewed code',()=>{
  assert.throws(()=>validateAndroidPolicyAnchors(
   {...sources,chatSource:sources.chatSource.replace('2026-11-v1','2025-01')}
  ),/chat_qa_admin_config_version_gate_mismatch/);
+});
+
+test('cadastro padrão dos testadores é preservado, sem whitelist ou convites técnicos',()=>{
+ const app=readFileSync(new URL('../../app/src/main/java/br/com/atriocatolico/OnlineAtrioApp.kt',
+   import.meta.url),'utf8');
+ const chat=readFileSync(new URL('../atrio-conversas-v1.rules.fragment',
+   import.meta.url),'utf8');
+ const group=readFileSync(new URL('../atrio-grupos-v1.rules.fragment',
+   import.meta.url),'utf8');
+ const candidate=renderSelfDeclarationRules(chat,group);
+ // Esta verificação não certifica cadastro na nuvem; impede reintroduzir
+ // sem discussão o gate experimental de whitelist removido pelo fundador.
+ assert.match(app,/auth\.createUserWithEmailAndPassword\(email\.trim\(\), password\)/);
+ assert.match(candidate,/match \/users\/\{uid\}\/private\/account/);
+ assert.match(candidate,/match \/community_consents\/\{uid\}/);
+ assert.doesNotMatch(app,/qaClosedBetaTester|qa_closed_testers/);
+ assert.doesNotMatch(candidate,/qaClosedBetaTester|qa_closed_testers/);
+ assert.deepEqual(Object.keys(STAGED_QA_DOCS).sort(),[
+  'app_config/chat_groups','app_config/community_rules',
+  'app_config/conversations','app_config/email_verification'
+ ]);
 });

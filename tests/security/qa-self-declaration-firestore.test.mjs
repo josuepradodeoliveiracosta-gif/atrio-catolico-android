@@ -404,6 +404,26 @@ try{
      ...content(),reporterUid:bob,targetUid:'spoofed'
    }));
  });
+ await test('QA de conversas não afirma liberar o mural normal da comunidade',async()=>{
+   // As Rules alternativas de chat/cadastro não reproduzem o mural oficial.
+   // Não abrir posts/replies sem revisão própria e homologação completa.
+   assert.doesNotMatch(rules,/match\s+\/posts\/\{postId\}/);
+   const post='posts/qa-mural-sintetico';
+   await env.withSecurityRulesDisabled(async ctx=>{
+     await setDoc(doc(ctx.firestore(),post),{
+       uid:alice,title:'Publicação fictícia de homologação',
+       text:'Sem dados de usuários reais',
+       createdAt:serverTimestamp()
+     });
+   });
+   await assertFails(getDoc(doc(c(alice),post)));
+   await assertFails(getDocs(collection(c(alice),'posts')));
+   await assertFails(getDoc(doc(c(alice),post+'/replies/reply-sintetica')));
+   await assertFails(setDoc(doc(c(alice),'posts/qa-new-post'),{
+     uid:alice,text:'Tentativa sintética',createdAt:serverTimestamp()
+   }));
+   await assertFails(deleteDoc(doc(c(alice),post)));
+ });
  await test('declaração existente não pode ser atualizada, apagada nem convertida em prova',async()=>{
    await assertFails(setDoc(doc(c(alice),pathFor(alice)),claim()));
    await assertFails(deleteDoc(doc(c(alice),pathFor(alice))));

@@ -55,3 +55,38 @@ implantação/produção.
 **Documentos complementares:** `docs/organizacao/AMBIENTES-DEV-QA-PROD.md`,
 `docs/qa-homologacao/CRITERIOS.md`,
 `docs/atrio-conversas-decisoes-seguranca-qa.md`.
+
+## Limite confirmado — configuração QA não habilita o mural da comunidade (11/11/2026)
+
+**Auditoria cruzada do aplicativo e Rules candidatas:** o cadastro de
+participantes mantém o formulário normal, cujo código usa
+`FirebaseAuth.createUserWithEmailAndPassword`. Após a autenticação,
+o Android depende de `users/{uid}/private/account`, `profiles/{uid}`,
+`community_consents/{uid}` e dos dois `app_config` de e-mail e
+regras da comunidade; essas rotas fazem parte do **candidato de
+cadastro/Chat QA** e têm testes com fixtures.
+
+Entretanto, a interface `OnlineCommunity` consulta
+`posts` e `posts/{postId}/replies`. **O candidato da PR #232 não
+concede acesso a essas rotas**, que permanecem negadas pelo fallback
+`match /{document=**} { allow read, write: if false; }`.
+Isso é um limite deliberadamente restritivo: não equivale a
+homologação do mural normal nem do aplicativo inteiro nesse Firebase
+QA. O teste `QA de conversas não afirma liberar o mural normal da
+comunidade` verifica leitura, listagem e escrita **negadas** no
+Firebase Emulator. Não confundir ausência de acesso com bug de cadastro
+dos participantes no aplicativo em testes fechados.
+
+**Consequência operacional:** criar os quatro documentos
+`app_config` no futuro, mesmo com autorização expressa, **não basta**
+para ativar com segurança o aplicativo completo. É necessário decidir
+se o ensaio está restrito a cadastro e conversas ou se exigirá paridade
+das regras do mural com QA, com revisão dos caminhos sobrepostos,
+testes de negação/isolamento e autorização específica de Rules. Existe
+um candidato offline de paridade `compose-parity-rules.mjs`, mas ele
+**não deve ser implantado automaticamente**: tem contrato etário
+experimental distinto e depende de auditoria da base e aprovação.
+Não importar Rules de produção nem abrir `posts` por conveniência.
+
+**Estado:** sem escrita remota, chat/grupos/Worker/FCM fechados,
+`NO_GO`, ativação QA 60% (3/5), QA geral 29% (2/7).
