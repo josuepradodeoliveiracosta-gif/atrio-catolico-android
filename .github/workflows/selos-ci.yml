@@ -77,7 +77,8 @@ jobs:
       - name: Configurar Gradle 8.13
         # v5 usa Node 24, preservando a estrategia de cache da linha v4.
         # v6 altera licenciamento/cache e requer decisao separada.
-        uses: gradle/actions/setup-gradle@v5
+        # SHA verificado do tag oficial v5; nao usar tag movel em action externa.
+        uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5
         with:
           gradle-version: '8.13'
       - name: Instalar plataforma Android 36
