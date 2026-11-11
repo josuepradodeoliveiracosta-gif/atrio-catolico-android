@@ -222,7 +222,10 @@ class CiOptimizationContract(unittest.TestCase):
         self.assertIn("uses: actions/setup-java@v6", android)
         self.assertIn("persist-credentials: false", android)
         self.assertIn("java-version: '17'", android)
-        self.assertIn("gradle/actions/setup-gradle@v4", android)
+        self.assertIn("gradle/actions/setup-gradle@v5", android)
+        # v6 introduz cache comercial por padrao; manter cache GitHub.
+        self.assertNotIn("gradle/actions/setup-gradle@v6", android)
+        self.assertNotIn("cache-provider: enhanced", android)
         self.assertIn("gradle-version: '8.13'", android)
         self.assertIn("timeout-minutes: 25", android)
         self.assertIn(
@@ -230,6 +233,14 @@ class CiOptimizationContract(unittest.TestCase):
             android,
         )
         self.assertIn("name: Disponibilizar APK debug apenas para testes da PR", android)
+        self.assertIn("uses: actions/upload-artifact@v7", android)
+        self.assertIn("archive: true", android)
+        self.assertIn("name: atrio-catolico-v0190-debug-testes", android)
+        self.assertIn("path: app/build/outputs/apk/debug/app-debug.apk", android)
+        self.assertIn("if-no-files-found: error", android)
+        self.assertIn("retention-days: 7", android)
+        self.assertIn("if: " + "$" + "{{ github.event_name == 'pull_request' }}", android)
+        self.assertNotIn("uses: actions/upload-artifact@v4", android)
         self.assertNotIn("id-token: write", android)
         self.assertNotIn("firebase deploy", android)
         self.assertNotIn("wrangler deploy", android)
@@ -243,7 +254,7 @@ class CiOptimizationContract(unittest.TestCase):
         self.assertNotIn("node-version: '20'", selos)
         self.assertIn("cache: npm", selos)
         self.assertIn("cache-dependency-path: tests/security/package-lock.json", selos)
-        self.assertIn("gradle/actions/setup-gradle@v4", selos)
+        self.assertIn("gradle/actions/setup-gradle@v5", selos)
         self.assertIn("gradle/actions/setup-gradle@v4", workflow("build-apk.yml"))
         self.assertIn("gradle/actions/setup-gradle@", workflow("codeql-review.yml"))
 
