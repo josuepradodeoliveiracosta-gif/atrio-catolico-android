@@ -104,3 +104,66 @@ JUnit cobre ausência, versão errada, cache, erro e escrita pendente.
 
 Aceite das regras exibidas **não** equivale à aprovação de termos e
 privacidade completos; issue #200 permanece NO_GO. Nenhum deploy.
+
+## Etapa 4 — conferência do registro de aceite e preparação das decisões
+
+**Segurança QA (11/11/2026):** o aceite em
+`community_consents/{uid}` somente libera o Chat QA quando o servidor
+confirmar a versão atual **e** o campo `acceptedAt` for um timestamp,
+sem dados do cache, pendência de escrita ou erro. Documento com versão
+correta, mas timestamp ausente/de tipo incorreto, permanece bloqueado
+apenas na variante QA. O teste JUnit distingue os casos. A existência
+de `acceptedAt` é evidência técnica do registro, **não é aprovação
+jurídica do conteúdo das políticas**.
+
+### Registro de deliberação da issue #200 — ainda sem aprovações
+
+Não marcar uma decisão como aprovada sem registrar na issue #200 o
+responsável, data, justificativa, versão do documento, riscos residuais
+e a revisão apropriada. As sete decisões abaixo são independentes da
+aprovação de build e exigem verificação:
+
+1. **Regras/termos:** aprovar versão e texto final da Comunidade e das
+   condições de uso; definir separadamente o aceite jurídico e como
+   novas versões exigirão consentimento válido.
+2. **Privacidade:** finalidade/base legal por categoria, controlador e
+   canal de contato, direitos do titular, compartilhamento e tratamento
+   minimizado de dados religiosos opcionais.
+3. **Idade/menores:** avaliar acesso provável e riscos; escolher
+   aferição adequada e revogável quando necessária. A declaração
+   18+ permanece apenas simulação de QA, sem comprovação de idade.
+4. **Moderação:** responsável e substituto, denúncia, prazos,
+   revisão humana, recurso, escalonamento urgente e proteção de
+   relatos sem acesso indiscriminado a conversas privadas.
+5. **Retenção:** inventário de mensagens e edições, grupos, convites,
+   protocolos de denúncia, preferências, elegibilidade, trilhas de
+   auditoria, backups e demandas dos titulares; prazos, exceções
+   legais, subcoleções e exclusão auditável. Sem expurgo automático.
+6. **Configuração QA:** confirmar isolamento do projeto/pacote/IAM,
+   Ruleset remoto e quatro documentos `app_config` imediatamente
+   antes; planejar reversão e criação estritamente create-only,
+   `conversations.enabled=false`,
+   `chat_groups.enabled=false`,
+   `minorPolicyApproved=false`. Qualquer escrita requer
+   autorização específica e posterior.
+7. **Validação real:** somente após autorizações, testar cadastro,
+   e-mail, regras e elegibilidade em aparelhos QA, inclusive
+   erros, revogações, desconexão e versões erradas. Grupos, Worker/FCM
+   e produção são decisões separadas.
+
+| Registro obrigatório | Estado nesta revisão |
+| --- | --- |
+| Documento final, versão, responsável e revisão jurídica/privacidade | PENDENTE |
+| Fundamentação, justificativa, risco residual e data | PENDENTE |
+| Autorização específica para criar quatro documentos apenas no QA | NÃO CONCEDIDA |
+| Inspeção contemporânea de IAM, Ruleset e documentos | REVALIDAR |
+| Validação Android em dispositivos reais | NÃO REALIZADA |
+| Autorização para chat, grupos ou Worker/FCM | NÃO CONCEDIDA |
+
+Orientação de referência: ANPD, guia publicado em 28/10/2026:
+https://www.gov.br/anpd/pt-br/assuntos/noticias/anpd-publica-guia-que-esclarece-quem-deve-cumprir-e-quais-sao-as-responsabilidades-das-plataformas-na-protecao-de-criancas-e-adolescentes
+
+**Estado:** `NO_GO`. Etapa 4 permanece aberta; tarefa de ativação
+60% (3/5), QA geral 29% (2/7). Nenhum deploy, merge, modificação
+em produção, Workers/FCM, `main` ou backups é autorizado por este
+registro.
