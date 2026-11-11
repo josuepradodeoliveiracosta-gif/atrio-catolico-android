@@ -217,3 +217,41 @@ retentativa atômica distribuída e não autoriza uso público do chat.
 Antes de qualquer implantação, a Issue #200 exige homologação
 formal de método, LGPD, moderação, retenção, revisão das Rules
 e autorização explícita separada.
+
+## Contrato experimental de paridade do QA fechado — somente Emulator (11/11/2026)
+
+O candidato restrito de Chat QA da PR #232 é apropriado para testar
+cadastro/conversas, mas **não contém `posts` e `posts/*/replies`**.
+Como o formulário normal desemboca em `OnlineCommunity`, criamos uma
+**segunda alternativa exclusivamente offline**,
+`firebase/qa-general/closed-qa-parity.mjs`, que parte do gerador de
+paridade já versionado (o qual **fixa por SHA Git** a base
+`firestore.rules`) e aplica ao laboratório o contrato adotado pelo
+Fundador: autodeclaração 18+, sem whitelist ou verificador pago.
+
+O candidato integrado **nega mural sem configuração de e-mail ativa**;
+exige e-mail confirmado no Auth para ler/publicar; exige
+`app_config/community_rules` ativo e aceite da versão vigente para
+publicar; preserva o formulário, perfil e conta mínima do cadastro;
+deixa chats e grupos FECHADOS com os quatro documentos administrativos
+estagiados. O Firebase Emulator testa também tentativas de acesso
+anônimo, conta sem e-mail confirmado, consentimento ausente, autoria
+forjada e escrita indevida dos switches administrativos. Um fixture
+exclusivamente sintético testa habilitação/desabilitação do chat.
+
+A versão NÃO substitui a geração principal, NÃO se comunica com
+Firebase/Cloudflare real, NÃO provisiona contas, NÃO cria os quatro
+`app_config`, NÃO altera Rules de produção ou QA e NÃO comprova
+paridade de **todas** as funcionalidades do aplicativo. O hash da
+base versionada NÃO comprova igualdade com o ruleset publicado na
+produção. Em eventual transição ao QA conectado, comparar Rules
+remotas por leitura, avaliar colisões e rotas legadas/denúncias,
+moderação, custos por leitura, limites de Rules, LGPD e rollback exato.
+A publicação requer aprovação separada; não usar o arquivo gerado
+como comando de deploy.
+
+**O cadastro normal dos participantes continua a decisão operacional
+do Fundador.** Testes fechados com pessoas adultas conforme sua
+informação, com autodeclaração de idade sem aferição independente,
+não dispensam análise jurídica do caso concreto antes de expansão.
+**NO_GO — ativação QA 60%, QA geral 29%.**

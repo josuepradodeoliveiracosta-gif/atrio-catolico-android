@@ -5,6 +5,11 @@ on:
     branches: [feat/atrio-conversas-etapa1-20261106]
     paths:
       - 'firebase/qa-general/self-declaration-candidate.mjs'
+      - 'firebase/qa-general/closed-qa-parity.mjs'
+      - 'firebase/qa-general/closed-qa-parity.test.mjs'
+      - 'tests/security/qa-closed-parity-firestore.test.mjs'
+      - 'firebase/qa-general/compose-parity-rules.mjs'
+      - 'firestore.rules'
       - 'docs/qa-homologacao/ESCOPO-TESTES-FECHADOS-ADULTOS-QA.md'
       - 'firebase/qa-general/registration-onboarding-rules.mjs'
       - 'firebase/qa-general/admin-config-preflight.mjs'
@@ -103,6 +108,10 @@ jobs:
         run: npm ci --prefix tests/security
       - name: Somente sintaxe do gerador QA
         run: node --check firebase/qa-general/self-declaration-candidate.mjs
+      - name: Validar paridade integrada apenas em memoria e sem credenciais
+        run: |
+          node --check firebase/qa-general/closed-qa-parity.mjs
+          node --test firebase/qa-general/closed-qa-parity.test.mjs
       - name: Preparar regras alternativas locais
         run: node firebase/qa-general/self-declaration-candidate.mjs
       - name: Garantir escopo sem acesso a produção
@@ -112,7 +121,7 @@ jobs:
           test -f tests/security/qa-general.generated.rules
       - name: Testar no emulador Firebase sem credenciais reais
         working-directory: tests/security
-        run: ./node_modules/.bin/firebase emulators:exec --only firestore --config qa-general.firebase.json --project demo-atrio-v11 "node qa-self-declaration-firestore.test.mjs && node qa-rollback-denyall-firestore.test.mjs"
+        run: ./node_modules/.bin/firebase emulators:exec --only firestore --config qa-general.firebase.json --project demo-atrio-v11 "node qa-self-declaration-firestore.test.mjs && node qa-closed-parity-firestore.test.mjs && node qa-rollback-denyall-firestore.test.mjs"
       - name: Remover arquivo gerado no runner
         if: always()
         run: rm -f tests/security/qa-general.generated.rules
