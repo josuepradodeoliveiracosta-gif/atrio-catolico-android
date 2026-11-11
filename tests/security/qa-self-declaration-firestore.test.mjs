@@ -98,12 +98,16 @@ try{
    await assertFails(setDoc(doc(unverified,path),{
      ...data(),onboardingStatus:'complete'
    }));
+   const afterDenied=await assertSucceeds(getDoc(doc(unverified,path)));
+   assert.equal(afterDenied.data()?.onboardingStatus,'pending_email');
    await assertFails(setDoc(doc(c(alice),path),{
      ...data(),onboardingStatus:'complete',role:'admin'
    }));
    await assertSucceeds(setDoc(doc(c(alice),path),{
      ...data(),onboardingStatus:'complete'
    },{merge:true}));
+   const afterConfirmed=await assertSucceeds(getDoc(doc(c(alice),path)));
+   assert.equal(afterConfirmed.data()?.onboardingStatus,'complete');
    await assertFails(setDoc(doc(c(alice),path),data()));
  });
  await test('cadastro QA: perfil e aceite próprios com campos exatos e timestamps de servidor',async()=>{
@@ -121,8 +125,14 @@ try{
    await assertFails(setDoc(doc(c(bob),consent),accepted()));
    await assertFails(setDoc(doc(c(alice),consent),{...accepted(),role:'admin'}));
    await assertFails(setDoc(doc(c(alice),consent),{...accepted(),version:'fake'}));
+   await assertFails(setDoc(doc(c(alice),consent),{version:'2026-11-v1'}));
+   await assertFails(setDoc(doc(c(alice),consent),{...accepted(),acceptedAt:'fake'}));
+   await assertFails(setDoc(doc(c(alice),consent),{
+     ...accepted(),acceptedAt:Timestamp.fromDate(new Date('2020-01-01T00:00:00Z'))
+   }));
    await assertSucceeds(setDoc(doc(unverified,consent),accepted()));
-   await assertSucceeds(getDoc(doc(c(alice),consent)));
+   const serverAccepted=await assertSucceeds(getDoc(doc(c(alice),consent)));
+   assert.ok(serverAccepted.data()?.acceptedAt instanceof Timestamp);
    await assertFails(getDoc(doc(c(bob),consent)));
    await assertSucceeds(deleteDoc(doc(c(alice),consent)));
  });

@@ -278,7 +278,9 @@ internal fun RegistrationOptionalPreferences(
 /** Apenas a conta já confirmada chega aqui; sucesso só após Firebase Auth. */
 @Composable
 internal fun RegistrationOnboardingScreen(
-    db: FirebaseFirestore, uid: String, onFinish: () -> Unit
+    db: FirebaseFirestore, uid: String, onFinish: () -> Unit,
+    finishBusy: Boolean = false, finishError: Boolean = false,
+    onSignOut: (() -> Unit)? = null
 ) {
     var confirmed by rememberSaveable(uid) { mutableStateOf(false) }
     var profileSaved by remember(uid) { mutableStateOf<Boolean?>(null) }
@@ -326,13 +328,36 @@ internal fun RegistrationOnboardingScreen(
                     "Você poderá concluí-lo na próxima tela, sem perder a conta.",
                     color = Ink, style = MaterialTheme.typography.bodyLarge)
             }
+            if (finishError) {
+                Text(
+                    "Não foi possível confirmar o fim do cadastro no servidor. " +
+                        "Verifique sua conexão e tente novamente.",
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.testTag("atrio-onboarding-finish-error")
+                )
+            }
             Button(
                 onClick = onFinish,
+                enabled = !finishBusy,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                     .testTag("atrio-onboarding-enter"),
                 colors = ButtonDefaults.buttonColors(containerColor = Wine),
                 shape = RoundedCornerShape(14.dp)
-            ) { Text(if (profileSaved == true) "Entrar no Átrio" else "Continuar") }
+            ) {
+                Text(when {
+                    finishBusy -> "Confirmando no servidor..."
+                    finishError -> "Tentar novamente"
+                    profileSaved == true -> "Entrar no Átrio"
+                    else -> "Continuar"
+                })
+            }
+            if (onSignOut != null) {
+                TextButton(
+                    onClick = onSignOut,
+                    modifier = Modifier.fillMaxWidth().testTag("atrio-onboarding-signout")
+                ) { Text("Sair da conta") }
+            }
         }
     }
 }

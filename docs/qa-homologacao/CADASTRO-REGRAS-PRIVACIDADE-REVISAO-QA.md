@@ -167,3 +167,35 @@ https://www.gov.br/anpd/pt-br/assuntos/noticias/anpd-publica-guia-que-esclarece-
 60% (3/5), QA geral 29% (2/7). Nenhum deploy, merge, modificação
 em produção, Workers/FCM, `main` ou backups é autorizado por este
 registro.
+
+## Etapa 4 — confirmação do término do onboarding no servidor (Chat QA)
+
+**Evidência de código:** em `OnlineAtrioApp.kt`, a ação de concluir o
+cadastro marcava o estado local como encerrado imediatamente após solicitar
+`users/{uid}/private/account.onboardingStatus=complete`, sem aguardar o
+resultado de `update()`. Assim, falha de rede, permissão negada ou estado
+incompatível podia encerrar visualmente o onboarding, embora a transição
+não estivesse confirmada no servidor.
+
+**Correção candidata só na variante `br.com.atriocatolico.chatqa`:**
+o formulário mantém a pendência local até a confirmação assíncrona da
+atualização. Enquanto aguarda, desabilita a repetição do toque e mostra
+"Confirmando no servidor...". Em falha, mantém o usuário na etapa final,
+mostra erro não sensível, permite nova tentativa e oferece saída da conta.
+O fluxo da produção não é alterado. O estado persistente no Firestore
+continua sob a autoridade das Rules. A alteração **não libera o QA real**.
+
+**Regressão do Firebase Emulator:** após a tentativa de marcar
+`complete` com e-mail ainda não verificado, o estado permanece
+`pending_email`; a transição com e-mail verificado produz `complete`.
+Para `community_consents/{uid}`, as Rules devem rejeitar timestamp
+ausente, malformado ou literal antigo e aceitar apenas
+`FieldValue.serverTimestamp()` pelo próprio UID. Essas verificações
+complementam o gate Android que não aceita versão sem timestamp
+confirmado.
+
+**Limites:** compilar Android e executar Firebase Emulator no novo SHA
+antes de considerar a correção validada. Mesmo com CI verde, falta
+ensaio real em aparelhos, revisão humana da issue #200 e autorização
+específica para qualquer publicação QA. **NO_GO; ativação 60% (3/5),
+QA geral 29% (2/7).**

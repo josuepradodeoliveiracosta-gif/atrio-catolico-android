@@ -106,6 +106,10 @@ internal fun OnlineAtrioApp(activity: androidx.activity.ComponentActivity) {
                 var verifiedThisSession by remember(user.uid) {
                     mutableStateOf(user.isEmailVerified)
                 }
+                // Somente Chat QA: nao concluir onboarding com update ainda pendente
+                // ou rejeitado pelo Firestore. A producao conserva o fluxo legado.
+                var qaOnboardingSaving by remember(user.uid) { mutableStateOf(false) }
+                var qaOnboardingSaveFailed by remember(user.uid) { mutableStateOf(false) }
                 // Ao entrar em outro aparelho, recuperar a pendência de uma
                 // conta V2 já provisionada. Contas antigas sem documento
                 // continuam seguindo a política de migração existente.
@@ -164,16 +168,38 @@ internal fun OnlineAtrioApp(activity: androidx.activity.ComponentActivity) {
                 // Uma conta recém-criada nunca salta a verificação por um
                 // switch administrativo ainda em fase de migração.
                 if (justRegistered && verifiedThisSession) {
-                    RegistrationOnboardingScreen(db, user.uid, onFinish = {
-                        db.document("users/${user.uid}/private/account")
-                            .update(mapOf(
-                                "onboardingStatus" to "complete",
-                                "updatedAt" to FieldValue.serverTimestamp()
-                            ))
-                        registrationStarted = false
-                        pendingRegistrationUid = null
-                        registrationPrefs.edit().remove("pendingUid").apply()
-                    })
+                    val chatQa = BuildConfig.APPLICATION_ID == "br.com.atriocatolico.chatqa"
+                    RegistrationOnboardingScreen(
+                        db = db, uid = user.uid,
+                        finishBusy = chatQa && qaOnboardingSaving,
+                        finishError = chatQa && qaOnboardingSaveFailed,
+                        onSignOut = if (chatQa) onGateSignOut else null,
+                        onFinish = {
+                            if (!chatQa || !qaOnboardingSaving) {
+                                if (chatQa) {
+                                    qaOnboardingSaving = true
+                                    qaOnboardingSaveFailed = false
+                                }
+                                val accountUpdate = db.document("users/${user.uid}/private/account")
+                                    .update(mapOf(
+                                        "onboardingStatus" to "complete",
+                                        "updatedAt" to FieldValue.serverTimestamp()
+                                    ))
+                                val finishLocal: () -> Unit = {
+                                    registrationStarted = false
+                                    pendingRegistrationUid = null
+                                    registrationPrefs.edit().remove("pendingUid").apply()
+                                }
+                                if (chatQa) {
+                                    accountUpdate.addOnCompleteListener { result ->
+                                        qaOnboardingSaving = false
+                                        if (result.isSuccessful) finishLocal()
+                                        else qaOnboardingSaveFailed = true
+                                    }
+                                } else finishLocal()
+                            }
+                        }
+                    )
                 } else if (justRegistered && !verifiedThisSession) {
                     MandatoryEmailVerificationGate(
                         uid = user.uid,
