@@ -46,7 +46,10 @@ class CiOptimizationContract(unittest.TestCase):
                 "{{ github.event_name == 'pull_request' }}", source,
             )
         self.assertIn(
-            "github.event.pull_request.number || github.ref", workflow("selos-ci.yml"),
+            "group: atrio-selos-" + "$" + "{{ github.event_name == 'pull_request' && "
+            "format('pr-{0}', github.event.pull_request.number) || "
+            "format('run-{0}', github.run_id) }}",
+            workflow("selos-ci.yml"),
         )
         codeql = workflow("codeql-review.yml")
         # PRs compartilham apenas o mesmo grupo; os demais eventos usam run_id
@@ -87,6 +90,47 @@ class CiOptimizationContract(unittest.TestCase):
         self.assertIn("GUARDIAN_V2_WRITE_ENABLED: 'false'", source)
         self.assertNotIn("wrangler deploy", source)
         self.assertNotIn("firebase deploy", source)
+
+    def test_optional_worker_selection_and_safe_queues(self):
+        worker = workflow("worker-bundle-dry-run-ci.yml")
+        self.assertIn("scripts/ci_worker_scope.py", worker)
+        self.assertIn("scripts/test_ci_worker_scope.py", worker)
+        self.assertIn("fetch-depth: 0", worker)
+        self.assertIn("steps.scope.outputs.avatar == 'true'", worker)
+        self.assertIn("steps.scope.outputs.push == 'true'", worker)
+        self.assertIn("CLOUDFLARE_API_TOKEN: ''", worker)
+        self.assertIn("--dry-run", worker)
+        self.assertNotIn("secrets.", worker)
+        for filename in (
+            "worker-bundle-dry-run-ci.yml",
+            "guardiao-v2-motor-ci.yml",
+            "guardiao-v2-fluxo-emulador-ci.yml",
+        ):
+            source = workflow(filename)
+            self.assertIn("format('pr-{0}', github.event.pull_request.number)", source)
+            self.assertIn("format('run-{0}', github.run_id)", source)
+            self.assertIn(
+                "cancel-in-progress: " + "$" +
+                "{{ github.event_name == 'pull_request' }}", source,
+            )
+        apk = workflow("build-apk.yml")
+        self.assertIn("group: apk-run-" + "$" + "{{ github.run_id }}", apk)
+        self.assertIn("cancel-in-progress: false", apk)
+        self.assertIn("  workflow_dispatch:", apk)
+        scope = workflow("pr-scope-report.yml")
+        self.assertIn("group: atrio-pr-scope-" + "$" +
+                      "{{ github.event.pull_request.number }}", scope)
+        self.assertIn("cancel-in-progress: true", scope)
+
+    def test_timing_monitor_is_read_only(self):
+        report = workflow("ci-quality-report.yml")
+        self.assertIn("actions: read", report)
+        self.assertIn("checks: read", report)
+        self.assertIn("scripts/ci_quality_report.py", report)
+        self.assertNotIn("pull-requests: write", report)
+        required = workflow("selos-ci.yml")
+        self.assertIn("scripts.test_ci_quality_report", required)
+
 
     def test_existing_safe_caches_kept(self):
         selos = workflow("selos-ci.yml")
