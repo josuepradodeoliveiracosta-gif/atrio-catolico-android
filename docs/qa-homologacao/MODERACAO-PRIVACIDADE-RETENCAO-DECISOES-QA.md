@@ -360,3 +360,45 @@ inventados em `demo-atrio-v11`; NÃO cadastra moderador real,
 NÃO implementa canal externo, NÃO concede privilégios ao
 aplicativo publicado, NÃO altera Rules remotas, e NÃO é GO.
 
+## Paginação de denúncias de participantes — candidato QA (11/11/2026)
+
+A interface anterior `UserReportsAdminPanel.kt` usava uma
+assinatura única com `limit(30)`, ocultando indefinidamente
+protocolos mais antigos, inclusive pendentes. A versão QA deste
+commit implementa **paginação por cursor `DocumentSnapshot`**,
+consultada com `Source.SERVER` e 30 resultados visíveis por página
+(`limit(31)` para detectar a seguinte), sem realizar leitura global
+ou pré-carregar toda a coleção.
+
+- Botões **Anteriores**, **Mais antigas**, **Atualizar** e
+  **Tentar novamente**. A página atual pode conter registros
+  analisados; **a ausência de pendências nela não afirma que
+  outras páginas não as contenham**.
+- Consulta somente após o gate administrativo já existente e
+  validação da sessão Firebase atual. Em falha, **não apresenta cache**.
+  Os cursores são isolados por `db` e `adminUid`; retornar ao topo
+  ou atualizar descarta cursores posteriores.
+- A alteração `pending -> reviewed` preserva os campos de auditoria
+  do servidor e retira o item da lista de pendentes localmente;
+  uma atualização explícita busca novamente o estado do servidor.
+- Teste de Rules no Emulator utiliza **65 denúncias antigas
+  sintéticas**, além de um protocolo anterior, e valida três
+  páginas distintas, presença da mais antiga, negação a usuário
+  comum e perda de acesso quando o administrador é revogado.
+
+**Limitação transparente:** paginação por cursor não é uma
+foto transacional da coleção inteira; a inserção concomitante
+de denúncias novas pode alterar fronteiras entre páginas.
+O botão **Atualizar** reinicia a consulta do topo. Não se
+afirma fila de triagem global ordenada apenas por pendência,
+nem prazo de atendimento ou acesso a histórico de DMs.
+Em caso de múltiplos moderadores, as decisões permanecem
+autorizadas pelo Firestore Rules; mensagens podem ser
+atualizadas por outro operador e exigir atualização manual.
+
+Este é **somente um candidato na PR QA**, não homologação
+em celulares, implantação remota, canal tardio/externo
+ou aprovação de retenção/moderação. O Firebase QA real
+permanece `deny-all` na última consulta. Status `NO_GO`;
+ativação QA 60% (3/5), geral 29% (2/7).
+

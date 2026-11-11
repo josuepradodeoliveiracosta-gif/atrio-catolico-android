@@ -19,6 +19,7 @@ on:
       - 'app/src/main/java/br/com/atriocatolico/AtrioConversations.kt'
       - 'app/src/main/java/br/com/atriocatolico/AtrioGroups.kt'
       - 'app/src/main/java/br/com/atriocatolico/PublicMemberProfile.kt'
+      - 'app/src/main/java/br/com/atriocatolico/UserReportsAdminPanel.kt'
       - 'app/src/main/java/br/com/atriocatolico/ChatReportReceiptPolicy.kt'
       - 'app/src/test/java/br/com/atriocatolico/ChatReportReceiptPolicyTest.kt'
       - 'app/src/test/java/br/com/atriocatolico/ChatQaDeclarationPolicyTest.kt'

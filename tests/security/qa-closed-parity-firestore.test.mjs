@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {initializeTestEnvironment,assertFails,assertSucceeds}
  from '@firebase/rules-unit-testing';
-import {doc,setDoc,getDoc,getDocs,collection,serverTimestamp,Timestamp,updateDoc,deleteDoc,query,orderBy,limit}
+import {doc,setDoc,getDoc,getDocs,collection,serverTimestamp,Timestamp,updateDoc,deleteDoc,query,orderBy,limit,startAfter}
  from 'firebase/firestore';
 import {renderClosedQaParity}
  from '../../firebase/qa-general/closed-qa-parity.mjs';
@@ -149,6 +149,51 @@ try{
   }));
   // O autor conserva leitura do próprio protocolo mesmo com revogação admin.
   await assertSucceeds(getDoc(doc(emailVerified,report)));
+ });
+ await test('paginação por cursor encontra denúncias antigas sem listar a coleção inteira',async()=>{
+  const pageSize=30;
+  const baseTime=Date.parse('2026-11-11T12:00:00Z');
+  const total=65;
+  const prefix='qa-old-report-';
+  await stage(async db=>{
+    await setDoc(doc(db,'admins/'+modUid),{enabled:true});
+    // Todos fictícios. A coleção contém ainda a denúncia do caso anterior.
+    for (let i=0;i<total;i++){
+      await setDoc(doc(db,'user_reports/'+prefix+String(i).padStart(3,'0')),{
+        reporterUid:'qa-synthetic-reporter',targetUid:'qa-synthetic-target',
+        reason:'Protocolo fictício para testar cobertura histórica',
+        createdAt:Timestamp.fromMillis(baseTime - i*60000)
+      });
+    }
+  });
+  const base=query(collection(moderator,'user_reports'),
+    orderBy('createdAt','desc'));
+  const allIds=new Set();
+  let last=null,segments=0;
+  while(segments<5){
+    const q=last
+      ?query(base,startAfter(last),limit(pageSize+1))
+      :query(base,limit(pageSize+1));
+    const result=await assertSucceeds(getDocs(q));
+    const visible=result.docs.slice(0,pageSize);
+    for (const item of visible){
+      assert.equal(allIds.has(item.id),false,'sem duplicar denuncia entre paginas');
+      allIds.add(item.id);
+    }
+    segments++;
+    if(result.docs.length<=pageSize)break;
+    last=visible.at(-1);
+  }
+  assert.equal(segments,3);
+  assert.equal(allIds.size,total+1);
+  assert.ok(allIds.has(prefix+'064'),'registro antigo continua acessível');
+  await assertFails(getDocs(query(collection(other,'user_reports'),
+    orderBy('createdAt','desc'),limit(pageSize+1))));
+  await stage(async db=>{
+    await setDoc(doc(db,'admins/'+modUid),{enabled:false});
+  });
+  await assertFails(getDocs(query(collection(moderator,'user_reports'),
+    orderBy('createdAt','desc'),limit(pageSize+1))));
  });
  await test('apenas no emulador estágio QA preserva mural e protege chat fechado',async()=>{
   await stage(async db=>{
