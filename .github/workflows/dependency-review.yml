@@ -5,6 +5,12 @@ on:
   pull_request:
     branches: [main]
 
+# Apenas uma revisao por PR atual: commits anteriores nao disputam runners.
+# PRs diferentes nunca compartilham o grupo; sem cancelamento de outros eventos.
+concurrency:
+  group: atrio-dependency-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
