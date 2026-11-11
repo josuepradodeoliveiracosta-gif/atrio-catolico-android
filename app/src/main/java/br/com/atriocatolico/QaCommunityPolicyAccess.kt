@@ -23,9 +23,10 @@ internal fun qaCommunityPolicyFromServer(
 /** No Chat QA, cache ou set() pendente nunca equivalem a aceite confirmado. */
 internal fun qaCommunityConsentFromServer(
     version: String?,
+    hasAcceptedAt: Boolean,
     fromCache: Boolean,
     hasPendingWrites: Boolean,
     hasError: Boolean
 ): Boolean =
-    !hasError && !fromCache && !hasPendingWrites &&
+    !hasError && !fromCache && !hasPendingWrites && hasAcceptedAt &&
         version == CommunityRulesPolicy.VERSION
