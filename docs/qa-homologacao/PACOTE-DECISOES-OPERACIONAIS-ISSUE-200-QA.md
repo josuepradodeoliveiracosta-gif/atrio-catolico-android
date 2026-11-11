@@ -44,6 +44,21 @@ dos moderadores, canal real, procedimentos, prazos de resposta e
 retenção, revisão legal e autorizações de deploy. A issue #200
 segue aberta e o estado QA permanece NO_GO.
 
+## Alternativa parcial sem duplicar canais
+
+A coleção **já existente** `user_reports` pode receber denúncia
+de **participante identificado** após saída de grupo ou desativação
+de chat, se houver autenticação. Essa rota não apresenta histórico
+de conversas, não comprova vínculo anterior e não substitui
+`chat_reports` / `chat_group_reports` para denunciar mensagem
+específica. A disponibilidade do botão na interface quando o
+grupo deixa de ser acessível **não foi confirmada**. O cenário
+sintético será verificado no Firebase Emulator; não ativar nova
+função nem prometer atendimento tardio completo. Continuam
+pendentes canal/rota de recurso, atendimento pós-suspensão
+quando a conta não consegue autenticar, prazos e política
+de tratamento e privacidade.
+
 ## 2. Fluxo mínimo de denúncia proposto (ainda não operacional)
 
 1. **Entrada dentro de conversa/grupo:** utilizar protocolos existentes

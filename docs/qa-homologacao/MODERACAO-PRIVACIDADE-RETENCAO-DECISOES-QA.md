@@ -72,6 +72,37 @@ segue aberta e o estado QA permanece NO_GO.
   revalidar acesso aos protocolos existentes após suspensão, negar
   leitura do histórico e impedir alterações/exclusões por cliente.
 
+## Alternativa parcial descoberta no sistema existente — denúncia de participante
+
+**Sem canal novo:** o Firestore oficial já contém
+`user_reports/{reporterUid}__{targetUid}`, com criação autenticada
+independente do status do chat e do grupo. O relatório pertence
+ao próprio autor; só o autor pode obtê-lo individualmente e
+administrador ativo pode ler/listar os protocolos. Um usuário
+comum não pode forjar o UID do denunciante, duplicar a mesma
+denúncia, editar/excluir o registro ou consultar relatórios alheios.
+
+**O que isto permite em tese:** registrar denúncia sobre a
+**conduta de uma conta**, mesmo após a saída de um grupo ou
+desativação de conversas, **se o usuário ainda estiver autenticado
+e souber qual participante denunciar**. **Não é denúncia tardia
+da mensagem:** não inclui `groupId`, `chatId`, `messageId`,
+texto original nem comprova vínculo de participação. Não
+afirmar que existe botão acessível em todas as telas ou
+que a conta suspensa ainda consegue autenticar. Uma denúncia
+contra conta inexistente não está automaticamente excluída
+pela presença apenas de `validId(targetUid)`; são necessários
+limites de abuso e triagem humana antes de implantação ampliada.
+
+A suíte alternativa de Firestore Emulator
+`qa-self-declaration-firestore.test.mjs` inclui cenário
+sintético após saída e com chat/grupos desativados: valida
+criação de `user_reports` pelo titular, isolamento de
+protocolos, id determinístico e ausência de acesso a
+históricos de DM/grupo. Isso **reduz um subproblema técnico**
+da issue #200 mas não conclui canal tardio/recursos nem
+autoriza mudar permissões ou ativar serviços.
+
 ## Tratamento de denúncias tardias — desenho reversível, sem canal ativo
 
 **Situações:** um integrante deixa o grupo, a conta é suspensa ou o

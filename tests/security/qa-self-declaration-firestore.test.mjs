@@ -357,6 +357,50 @@ try{
        createdAt:serverTimestamp()
    }));
  });
+ await test('QA: denúncia de PARTICIPANTE existente após saída e chat suspenso não abre históricos',async()=>{
+   // user_reports já existe no app: alternativa parcial para reportar uma CONTA,
+   // não uma mensagem. Não criamos coleção, backend ou permissão nova.
+   const report='user_reports/'+alice+'__'+bob;
+   const content=()=>({
+     reporterUid:alice,targetUid:bob,
+     reason:'Conduta inadequada após saída de grupo QA',
+     createdAt:serverTimestamp()
+   });
+   const reviewer='qa-participant-report-reviewer';
+   await env.withSecurityRulesDisabled(async ctx=>{
+     const internal=ctx.firestore();
+     await setDoc(doc(internal,'app_config/conversations'),{
+       enabled:false,version:'2026-11-v1',minorPolicyApproved:false,
+       safetyReviewVersion:'2026-11-safety-v1'
+     });
+     await setDoc(doc(internal,'app_config/chat_groups'),{
+       enabled:false,version:'2026-11-groups-v1',minorPolicyApproved:false
+     });
+     await setDoc(doc(internal,'admins/'+reviewer),{enabled:true});
+   });
+   const from=c(alice),target=c(bob),admin=c(reviewer);
+   await assertFails(getDoc(doc(from,'chat_groups/qa-grupo-saida')));
+   await assertFails(getDoc(doc(from,'chats/qa-room-sintetico/messages/qa-message')));
+   await assertSucceeds(setDoc(doc(from,report),content()));
+   const receipt=await assertSucceeds(getDoc(doc(from,report)));
+   assert.equal(receipt.data()?.reporterUid,alice);
+   assert.equal(receipt.data()?.targetUid,bob);
+   await assertFails(getDoc(doc(target,report)));
+   await assertFails(getDocs(collection(from,'user_reports')));
+   await assertFails(getDocs(collection(target,'user_reports')));
+   await assertSucceeds(getDoc(doc(admin,report)));
+   await assertSucceeds(getDocs(collection(admin,'user_reports')));
+   await assertFails(setDoc(doc(from,report),content()));
+   await assertFails(deleteDoc(doc(from,report)));
+   await assertFails(setDoc(doc(from,'user_reports/'+alice+'__'+alice),{
+     reporterUid:alice,targetUid:alice,
+     reason:'Tentativa de auto denúncia não permitida',createdAt:serverTimestamp()
+   }));
+   await assertFails(setDoc(doc(from,'user_reports/'+alice+'__'+bob+'__forged'),content()));
+   await assertFails(setDoc(doc(from,'user_reports/'+alice+'__spoofed'),{
+     ...content(),reporterUid:bob,targetUid:'spoofed'
+   }));
+ });
  await test('declaração existente não pode ser atualizada, apagada nem convertida em prova',async()=>{
    await assertFails(setDoc(doc(c(alice),pathFor(alice)),claim()));
    await assertFails(deleteDoc(doc(c(alice),pathFor(alice))));
