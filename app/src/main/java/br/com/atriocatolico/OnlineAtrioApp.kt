@@ -662,6 +662,7 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
                 consentAccepted = if (strictQaCommunityPolicy) {
                     qaCommunityConsentFromServer(
                         version,
+                        hasAcceptedAt = snapshot?.get("acceptedAt") is com.google.firebase.Timestamp,
                         fromCache = snapshot?.metadata?.isFromCache != false,
                         hasPendingWrites = snapshot?.metadata?.hasPendingWrites() != false,
                         hasError = failure != null
