@@ -201,6 +201,29 @@ class CiOptimizationContract(unittest.TestCase):
                       "{{ github.event_name == 'pull_request' }}", src)
 
 
+    def test_node24_actions_pilot_isolated_to_firestore(self):
+        source = workflow("selos-ci.yml")
+        firestore, android = source.split("  android:\n", 1)
+        # A atualizacao das actions nao altera o Node usado pelos testes.
+        self.assertIn("uses: actions/checkout@v7", firestore)
+        self.assertIn("uses: actions/setup-node@v7", firestore)
+        self.assertIn("uses: actions/setup-java@v6", firestore)
+        self.assertIn("persist-credentials: false", firestore)
+        self.assertIn("node-version: '22'", firestore)
+        self.assertIn("java-version: '17'", firestore)
+        self.assertIn("cache: npm", firestore)
+        self.assertIn("cache-dependency-path: tests/security/package-lock.json", firestore)
+        self.assertIn("working-directory: tests/security", firestore)
+        self.assertIn("run: npm ci", firestore)
+        self.assertIn("run: npm test", firestore)
+        self.assertIn("timeout-minutes: 15", firestore)
+        self.assertIn("name: Compilar Android de testes", android)
+        self.assertIn("uses: actions/checkout@v4", android)
+        self.assertIn("uses: actions/setup-java@v4", android)
+        self.assertNotIn("id-token: write", firestore)
+        self.assertNotIn("firebase deploy", firestore)
+        self.assertNotIn("wrangler deploy", firestore)
+
     def test_existing_safe_caches_kept(self):
         selos = workflow("selos-ci.yml")
         self.assertIn("node-version: '22'", selos)
