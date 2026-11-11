@@ -136,7 +136,7 @@ class LatencyAuditTests(unittest.TestCase):
         self.assertNotIn("actions/runs/16/jobs?per_page=100", requested)
         doc = markdown(result)
         self.assertIn("Mediana total", doc)
-        self.assertIn("dependências", doc) if False else self.assertIn("dependências", doc)
+        self.assertIn("dependências", doc)
         self.assertIn("https://github.com/", doc)
 
     def test_input_bounds_and_markdown_sanitization(self):
