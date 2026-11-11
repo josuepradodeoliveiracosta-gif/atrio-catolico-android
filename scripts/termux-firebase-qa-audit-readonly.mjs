@@ -58,7 +58,7 @@ export async function auditQaRealReadOnly({
   if(rules?.project!==PROJECT||rules?.deployPerformed!==false||
     rules?.productionContacted!==false||rules?.safeToEnableChat!==false||
     !/^[0-9a-f]{64}$/.test(rules?.sha256||'')||
-    !/^projects\\/atrio-catolico-qa-geral\\/rulesets\\/[A-Za-z0-9_-]{1,120}$/.test(
+    !/^projects[/]atrio-catolico-qa-geral[/]rulesets[/][A-Za-z0-9_-]{1,120}$/.test(
       rules?.rulesetName||''))
       fail('rules_mismatch');
  }catch{fail('remote_verification_failed');}
