@@ -201,10 +201,10 @@ class CiOptimizationContract(unittest.TestCase):
                       "{{ github.event_name == 'pull_request' }}", src)
 
 
-    def test_node24_actions_pilot_isolated_to_firestore(self):
+    def test_node24_actions_in_required_firestore_and_android(self):
         source = workflow("selos-ci.yml")
         firestore, android = source.split("  android:\n", 1)
-        # A atualizacao das actions nao altera o Node usado pelos testes.
+        # Atualizacao das actions sem trocar Node 22, Java 17 ou os testes.
         self.assertIn("uses: actions/checkout@v7", firestore)
         self.assertIn("uses: actions/setup-node@v7", firestore)
         self.assertIn("uses: actions/setup-java@v6", firestore)
@@ -218,8 +218,21 @@ class CiOptimizationContract(unittest.TestCase):
         self.assertIn("run: npm test", firestore)
         self.assertIn("timeout-minutes: 15", firestore)
         self.assertIn("name: Compilar Android de testes", android)
-        self.assertIn("uses: actions/checkout@v4", android)
-        self.assertIn("uses: actions/setup-java@v4", android)
+        self.assertIn("uses: actions/checkout@v7", android)
+        self.assertIn("uses: actions/setup-java@v6", android)
+        self.assertIn("persist-credentials: false", android)
+        self.assertIn("java-version: '17'", android)
+        self.assertIn("gradle/actions/setup-gradle@v4", android)
+        self.assertIn("gradle-version: '8.13'", android)
+        self.assertIn("timeout-minutes: 25", android)
+        self.assertIn(
+            "gradle :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest",
+            android,
+        )
+        self.assertIn("name: Disponibilizar APK debug apenas para testes da PR", android)
+        self.assertNotIn("id-token: write", android)
+        self.assertNotIn("firebase deploy", android)
+        self.assertNotIn("wrangler deploy", android)
         self.assertNotIn("id-token: write", firestore)
         self.assertNotIn("firebase deploy", firestore)
         self.assertNotIn("wrangler deploy", firestore)
