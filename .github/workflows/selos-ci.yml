@@ -25,6 +25,8 @@ jobs:
     steps:
       - name: Obter codigo
         uses: actions/checkout@v4
+      - name: Verificar contrato de otimizacao CI sem reduzir protecoes
+        run: python3 -m unittest scripts.test_ci_optimization_contract -v
       - name: Preparar Node.js
         uses: actions/setup-node@v4
         with:
