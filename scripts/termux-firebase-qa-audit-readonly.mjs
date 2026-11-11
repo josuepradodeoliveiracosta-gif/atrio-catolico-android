@@ -57,7 +57,9 @@ export async function auditQaRealReadOnly({
   rules=await rulesInspector({tokenProvider:cached,fetcher});
   if(rules?.project!==PROJECT||rules?.deployPerformed!==false||
     rules?.productionContacted!==false||rules?.safeToEnableChat!==false||
-    !/^[0-9a-f]{64}$/.test(rules?.sha256||''))
+    !/^[0-9a-f]{64}$/.test(rules?.sha256||'')||
+    !/^projects\\/atrio-catolico-qa-geral\\/rulesets\\/[A-Za-z0-9_-]{1,120}$/.test(
+      rules?.rulesetName||''))
       fail('rules_mismatch');
  }catch{fail('remote_verification_failed');}
  if(typeof rules.firestoreRulesCurrentlyDenyAll!=='boolean')fail('rules_mismatch');
@@ -65,7 +67,8 @@ export async function auditQaRealReadOnly({
  return Object.freeze({
   status:closed?'QA_REAL_DENY_ALL_CONFIRMED':'QA_REAL_RULES_NOT_DENY_ALL',
   project:PROJECT,android_package:PACKAGE,firebase_android_app_id:appId,
-  rules_sha256:rules.sha256,remote_project_and_app_verified:true,
+  rules_sha256:rules.sha256,
+  remote_ruleset_name:rules.rulesetName,remote_project_and_app_verified:true,
   remote_firestore_rules_verified:true,remote_rules_deny_all:closed,
   ready_for_activation:false,method:'FOUR_QA_GET',
   audit_time_local:timestamp(),production_contacted:false,

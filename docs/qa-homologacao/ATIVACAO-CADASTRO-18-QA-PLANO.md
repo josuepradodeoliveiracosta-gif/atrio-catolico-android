@@ -51,3 +51,23 @@ A validação da referência de reversão compara o conteúdo **normalizado**
 sem espaços e comentários. A primeira versão do pré-flight apresentou
 falha de comparação por compactação assimétrica; foi corrigida e deve
 ser confirmada na CI do novo SHA. Esse bug não alterou serviços remotos.
+
+## Captura do Ruleset anterior para reversão exata (ainda pendente no QA real)
+
+O relatório `scripts/termux-firebase-qa-audit-readonly.mjs` passou a emitir
+`remote_ruleset_name`: um identificador público de versão **do QA**,
+validado por projeto e lido junto com o mesmo hash em quatro GETs estritamente
+read-only. Sem esse identificador, o hash do snapshot anterior não permite
+identificar a release que deverá ser restaurada manualmente. Não existe
+comando de deploy ou rollback automático nesta PR.
+
+Quando o operador atualizar o clone QA já configurado (`git pull --ff-only`
+dentro de `~/atrio-workspaces/qa-cadastro`) e executar novamente o comando
+read-only, conferir simultaneamente:
+`status=QA_REAL_DENY_ALL_CONFIRMED`, `remote_rules_deny_all=true`,
+`rules_sha256` do QA, e o `remote_ruleset_name` cujo prefixo **obrigatório**
+é `projects/atrio-catolico-qa-geral/rulesets/`.
+
+**Não confundir** obter o ID com autorização para restaurar/publicar: o
+procedimento de mudança continua bloqueado pela issue #200, revisão IAM e
+aprovação específica, com grupos e FCM mantidos desligados.

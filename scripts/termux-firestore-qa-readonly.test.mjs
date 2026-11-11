@@ -38,6 +38,8 @@ test('QA somente 2 GET, deny-all, sem ativacao e sem token no relatorio',async()
  assert.equal(r.productionContacted,false);
  assert.equal(JSON.stringify(r).includes(token),false);
  assert.match(r.sha256,/^[0-9a-f]{64}$/);
+ assert.equal(r.rulesetName,ruleset);
+ assert.ok(!JSON.stringify(r).includes(token));
 });
 test('qualquer permissão adicional impede aprovacao do estado fechado',async()=>{
  for(const source of [

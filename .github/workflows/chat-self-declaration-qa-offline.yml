@@ -12,6 +12,8 @@ on:
       - 'firebase/qa-general/qa-deny-all-reference.rules'
       - 'docs/qa-homologacao/ATIVACAO-CADASTRO-18-QA-PLANO.md'
       - 'scripts/termux-firebase-qa-audit-readonly.mjs'
+      - 'scripts/termux-firestore-qa-readonly.mjs'
+      - 'scripts/termux-firestore-qa-readonly.test.mjs'
       - 'scripts/termux-firebase-qa-audit-readonly.test.mjs'
       - 'docs/qa-homologacao/AUDITORIA-CADASTRO-18-QA-20261110.md'
       - 'app/src/main/java/br/com/atriocatolico/OnlineAtrioApp.kt'
@@ -48,7 +50,7 @@ jobs:
       - name: Validar auditoria remota QA com fixtures offline (sem token real)
         run: |
           node --check scripts/termux-firebase-qa-audit-readonly.mjs
-          node --test scripts/termux-firebase-qa-audit-readonly.test.mjs
+          node --test scripts/termux-firestore-qa-readonly.test.mjs scripts/termux-firebase-qa-audit-readonly.test.mjs
       - name: Preparacao offline de ativacao e referencia deny-all
         run: |
           node --check scripts/chat-qa-activation-preflight.mjs

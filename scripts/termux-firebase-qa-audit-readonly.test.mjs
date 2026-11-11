@@ -58,6 +58,7 @@ test('4 GET exatos e token apenas em memoria: resumo nao vaza nada',async()=>{
   'https://firebaserules.googleapis.com/v1/'+ruleset]);
  assert.equal(s.requested(),1);
  assert.equal(result.remote_rules_deny_all,true);
+ assert.equal(result.remote_ruleset_name,ruleset);
  assert.equal(result.ready_for_activation,false);
  assert.equal(result.changes_performed,false);
  assert.equal(result.production_contacted,false);
