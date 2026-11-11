@@ -62,3 +62,7 @@ Os snapshots de origem permanecem nos respectivos runs do GitHub. Nenhum segredo
 ## Continuação: decomposição por etapas e metadados
 
 A [análise de gargalos com evidências da PR #241 e da `main`](diagnostico-gargalos-kotlin-2026-11-11.md) acrescenta ao instrumento de auditoria a duração até o último job, o intervalo entre sua conclusão e `updated_at`, e as etapas mais longas do job crítico. O tempo de atualização de metadados **não deve ser contado como fila ou CPU**. A linha de base histórica acima é mantida intacta para comparação.
+
+## Consolidação posterior — medição após modernização dos jobs
+
+O [comparativo pré/pós com 16 runs CodeQL e 16 builds APK da `main`](comparativo-pre-pos-actions-2026-11-11.md) separa o tempo até o último job do atraso dos metadados, documenta amostras e ressalta a falta de ganho de velocidade global comprovado. **Esta linha de base histórica não foi recalculada nem substituída.**
