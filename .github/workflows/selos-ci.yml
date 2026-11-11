@@ -75,7 +75,8 @@ jobs:
       - name: Preparar Android SDK
         uses: android-actions/setup-android@v4
       - name: Configurar Gradle 8.13
-        uses: gradle/actions/setup-gradle@v4
+        # Gradle v5 utiliza Node 24 sem alterar o cache GitHub existente.
+        uses: gradle/actions/setup-gradle@v5
         with:
           gradle-version: '8.13'
       - name: Instalar plataforma Android 36
@@ -89,8 +90,10 @@ jobs:
         run: gradle :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --stacktrace
       - name: Disponibilizar APK debug apenas para testes da PR
         if: ${{ github.event_name == 'pull_request' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
+          # Preservar o ZIP nomeado: v7 tambem permite upload direto de arquivo.
+          archive: true
           name: atrio-catolico-v0190-debug-testes
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
