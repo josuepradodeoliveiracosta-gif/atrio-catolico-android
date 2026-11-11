@@ -37,7 +37,7 @@ class WorkerScopeTests(unittest.TestCase):
     def test_malformed_and_empty_fail_closed(self):
         for value in ([], None, ["docs/file.md"], ["../cloudflare/push-worker/a"],
                       ["/cloudflare/push-worker/a"], ["cloudflare//push-worker/a"],
-                      ["cloudflare/push-worker/a\\nflag=true"],
+                      ["cloudflare/push-worker/a\nflag=true"],
                       [12], ["cloudflare/push-worker/x" * 300],
                       ["cloudflare/push-worker/test"] * 5001):
             with self.subTest(value=str(value)[:40]):
@@ -48,8 +48,8 @@ class WorkerScopeTests(unittest.TestCase):
         def runner(argv, **kwargs):
             calls.append(argv)
             if argv[1] == "merge-base":
-                return SimpleNamespace(stdout=(MERGE + "\\n").encode())
-            return SimpleNamespace(stdout=b"cloudflare/push-worker/src/a.js\\0")
+                return SimpleNamespace(stdout=(MERGE + "\n").encode())
+            return SimpleNamespace(stdout=b"cloudflare/push-worker/src/a.js\0")
         result = changed_paths(BASE, HEAD, runner=runner)
         self.assertEqual(result, ["cloudflare/push-worker/src/a.js"])
         self.assertEqual(calls[0], ["git", "merge-base", "--all", BASE, HEAD])
@@ -58,7 +58,7 @@ class WorkerScopeTests(unittest.TestCase):
 
     def test_ambiguous_diff_or_invalid_sha(self):
         def runner(argv, **kwargs):
-            return SimpleNamespace(stdout=(MERGE + "\\n" + MERGE + "\\n").encode())
+            return SimpleNamespace(stdout=(MERGE + "\n" + MERGE + "\n").encode())
         with self.assertRaises(ValueError):
             changed_paths(BASE, HEAD, runner=runner)
         with self.assertRaises(ValueError):
@@ -66,7 +66,7 @@ class WorkerScopeTests(unittest.TestCase):
 
         def missing(argv, **kwargs):
             if argv[1] == "merge-base":
-                return SimpleNamespace(stdout=(MERGE + "\\n").encode())
+                return SimpleNamespace(stdout=(MERGE + "\n").encode())
             return SimpleNamespace(stdout=b"cloudflare/avatar-worker/a")
         with self.assertRaises(ValueError):
             changed_paths(BASE, HEAD, runner=missing)
