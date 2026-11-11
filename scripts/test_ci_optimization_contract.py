@@ -253,7 +253,7 @@ class CiOptimizationContract(unittest.TestCase):
         self.assertNotIn("node-version: '20'", selos)
         self.assertIn("cache: npm", selos)
         self.assertIn("cache-dependency-path: tests/security/package-lock.json", selos)
-        self.assertIn("gradle/actions/setup-gradle@v4", selos)
+        self.assertIn("gradle/actions/setup-gradle@v5", selos)
         self.assertIn("gradle/actions/setup-gradle@v4", workflow("build-apk.yml"))
         self.assertIn("gradle/actions/setup-gradle@", workflow("codeql-review.yml"))
 
