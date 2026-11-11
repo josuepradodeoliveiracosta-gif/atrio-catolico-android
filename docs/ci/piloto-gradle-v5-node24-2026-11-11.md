@@ -13,7 +13,7 @@
 
 ```yaml
 - name: Configurar Gradle 8.13
-  uses: gradle/actions/setup-gradle@v5
+  uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5
   with:
     gradle-version: '8.13'
 ```
