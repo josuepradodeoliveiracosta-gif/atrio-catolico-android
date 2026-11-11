@@ -37,7 +37,7 @@ const fail=code=>{throw Error('qa_activation_plan_'+code);};
 // Git blob SHA fixa a revisão dos fragmentos usados: alterações exigem
 // reavaliação humana e atualização explícita dos valores esperados.
 const gitBlobSha=src=>createHash('sha1')
-  .update('blob '+Buffer.byteLength(src,'utf8')+'\\0','utf8')
+  .update('blob '+Buffer.byteLength(src,'utf8')+String.fromCharCode(0),'utf8')
   .update(src,'utf8').digest('hex');
 const EXPECTED_CHAT_BLOB='1a5a37c3e69a4a08839adf9f294e7aa0ea081113';
 const EXPECTED_GROUP_BLOB='400b09a061a98bb606e95fa68c6becee2202629b';
