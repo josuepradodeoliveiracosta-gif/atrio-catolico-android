@@ -9,6 +9,8 @@ import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {renderSelfDeclarationRules} from '../firebase/qa-general/self-declaration-candidate.mjs';
+import {STAGED_QA_DOCS,validateStagedQaDocs}
+ from '../firebase/qa-general/admin-config-preflight.mjs';
 
 const PROJECT='atrio-catolico-qa-geral';
 const PACKAGE='br.com.atriocatolico.chatqa';
@@ -42,7 +44,7 @@ const gitBlobSha=src=>createHash('sha1')
 const EXPECTED_CHAT_BLOB='1a5a37c3e69a4a08839adf9f294e7aa0ea081113';
 const EXPECTED_GROUP_BLOB='400b09a061a98bb606e95fa68c6becee2202629b';
 
-export function evaluateOfflinePreparation({chat,group,rollback,evidence=AUDITED_SNAPSHOT}={}){
+export function evaluateOfflinePreparation({chat,group,rollback,evidence=AUDITED_SNAPSHOT,stagedConfig=STAGED_QA_DOCS}={}){
   if(typeof chat!=='string'||typeof group!=='string'||
      typeof rollback!=='string')fail('source_unavailable');
   if(compact(rollback)!==DENY_CANONICAL)fail('rollback_not_deny_all');
@@ -59,6 +61,11 @@ export function evaluateOfflinePreparation({chat,group,rollback,evidence=AUDITED
      evidence.ready_for_activation!==false||
      evidence.production_contacted!==false||
      evidence.changes_performed!==false)fail('snapshot_mismatch');
+  let admin;
+  try{admin=validateStagedQaDocs(stagedConfig);}
+  catch{fail('staged_admin_invalid');}
+  if(admin.conversations_enabled!==false||admin.groups_enabled!==false||
+     admin.ready_for_deploy!==false)fail('staged_admin_invalid');
   let candidate;
   try{candidate=renderSelfDeclarationRules(chat,group);}
   catch{fail('candidate_generation_changed');}
@@ -87,6 +94,12 @@ export function evaluateOfflinePreparation({chat,group,rollback,evidence=AUDITED
     audited_baseline_at:evidence.audit_time_local,
     snapshot_not_current_state:true,
     candidate_rules_sha256:hash(candidate),
+    admin_staged_config_verified:true,
+    staged_admin_documents_checked:admin.documents_checked,
+    email_verification_required:admin.email_verification_required,
+    community_rules_acceptance_required:admin.community_rules_acceptance_required,
+    staged_chat_enabled:false,staged_groups_enabled:false,
+    admin_config_published:false,
     rollback_reference_sha256:hash(rollback),
     rollback_reference_is_exact_remote_backup:false,
     rollback_reference_is_deny_all:true,
