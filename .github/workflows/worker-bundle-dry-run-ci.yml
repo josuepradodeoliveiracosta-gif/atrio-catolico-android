@@ -31,8 +31,8 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      - name: Testar classificador offline de bundles
-        run: python3 -m unittest scripts.test_ci_worker_scope -v
+      - name: Testar classificador offline e Git real isolado
+        run: python3 -m unittest scripts.test_ci_worker_scope scripts.test_ci_worker_scope_integration -v
       - name: Selecionar bundles por diff verificavel (falha segura)
         id: scope
         env:
