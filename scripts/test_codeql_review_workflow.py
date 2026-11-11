@@ -68,6 +68,11 @@ class CodeqlReviewContract(unittest.TestCase):
             "cancel-in-progress: " + "$" + "{{ github.event_name == 'pull_request' }}",
             self.source,
         )
+        self.assertIn(
+            "group: atrio-codeql-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}",
+            self.source,
+        )
+        self.assertNotIn("group: atrio-codeql-${{ github.ref }}", self.source)
         self.assertNotIn("cancel-in-progress: true", self.source)
 
 
