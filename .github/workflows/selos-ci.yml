@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: atrio-selos-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
   # Apenas commits antigos da mesma PR podem ser cancelados; push e manual permanecem.
   # O commit mais recente sempre recebe novos checks obrigatorios completos.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
