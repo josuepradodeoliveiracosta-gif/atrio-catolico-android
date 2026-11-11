@@ -203,6 +203,8 @@ class CiOptimizationContract(unittest.TestCase):
 
     def test_existing_safe_caches_kept(self):
         selos = workflow("selos-ci.yml")
+        self.assertIn("node-version: '22'", selos)
+        self.assertNotIn("node-version: '20'", selos)
         self.assertIn("cache: npm", selos)
         self.assertIn("cache-dependency-path: tests/security/package-lock.json", selos)
         self.assertIn("gradle/actions/setup-gradle@v4", selos)
