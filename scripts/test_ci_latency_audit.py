@@ -28,11 +28,53 @@ class LatencyAuditTests(unittest.TestCase):
     def test_profile_separates_wait_from_runner_seconds(self):
         x = profile(run(), [job(), job(start=START, end=NEXT, name="Firestore")])
         self.assertEqual(x["wall_sec"], 300)
+        self.assertEqual(x["to_last_job_sec"], 300)
+        self.assertEqual(x["post_jobs_metadata_sec"], 0)
+        self.assertEqual(x["critical_steps"], [])
         self.assertEqual(x["runner_seconds"], 300)
         self.assertEqual(x["critical_job_seconds"], 180)
         self.assertEqual(x["critical_job_wait_to_start_sec"], 120)
         self.assertEqual(x["critical_job"], "Android")
         self.assertIn("dependencias", x["note"])
+
+    def test_metadata_delay_and_step_breakdown_without_new_api(self):
+        delayed = run()
+        delayed["updated_at"] = "2026-11-11T10:09:00Z"
+        measured = job()
+        measured["steps"] = [
+            {"name": "Compilar | <Android>", "conclusion": "success",
+             "started_at": NEXT, "completed_at": "2026-11-11T10:04:00Z"},
+            {"name": "Analisar segurança", "conclusion": "success",
+             "started_at": "2026-11-11T10:04:00Z", "completed_at": END},
+            {"name": "Não executada", "conclusion": "skipped",
+             "started_at": NEXT, "completed_at": END},
+            {"name": "Hora inválida", "conclusion": "success",
+             "started_at": "invalida", "completed_at": END},
+            {"name": "Sem dados", "conclusion": "success", "started_at": None},
+        ]
+        result = profile(delayed, [measured])
+        self.assertEqual(result["wall_sec"], 540)
+        self.assertEqual(result["to_last_job_sec"], 300)
+        self.assertEqual(result["post_jobs_metadata_sec"], 240)
+        self.assertEqual([s["elapsed_sec"] for s in result["critical_steps"]],
+                         [120, 60])
+        stats = summarize([result])
+        self.assertEqual(stats["to_last_job_median_sec"], 300)
+        self.assertEqual(stats["post_jobs_metadata_median_sec"], 240)
+        report = {"groups": {"amostra": {"statistics": stats,
+                                          "profiles": [result]}}}
+        md = markdown(report)
+        self.assertIn("Compilar \\| &lt;Android&gt;", md)
+        self.assertIn("240s (metadados, não fila)", md)
+        self.assertIn("Mediana até último job", md)
+        self.assertNotIn("Não executada", md)
+
+    def test_metadata_timestamp_before_job_completion_remains_explicit(self):
+        unusual = run()
+        unusual["updated_at"] = NEXT
+        result = profile(unusual, [job()])
+        self.assertIsNone(result["post_jobs_metadata_sec"])
+        self.assertIsNone(summarize([result])["post_jobs_metadata_median_sec"])
 
     def test_skipped_job_does_not_consume_seconds(self):
         out = profile(run(), [
@@ -68,9 +110,11 @@ class LatencyAuditTests(unittest.TestCase):
             percentile_nearest([], 90)
         self.assertTrue(summarize([])["incomplete"])
         self.assertEqual(summarize([
-            {"wall_sec": 100, "runner_seconds": 60,
+            {"wall_sec": 100, "to_last_job_sec": 95,
+             "post_jobs_metadata_sec": 5, "runner_seconds": 60,
              "critical_job_wait_to_start_sec": 40},
-            {"wall_sec": 200, "runner_seconds": 90,
+            {"wall_sec": 200, "to_last_job_sec": 190,
+             "post_jobs_metadata_sec": 10, "runner_seconds": 90,
              "critical_job_wait_to_start_sec": 60},
         ])["wall_median_sec"], 150)
 
