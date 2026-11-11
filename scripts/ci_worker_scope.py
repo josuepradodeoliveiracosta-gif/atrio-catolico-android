@@ -6,7 +6,7 @@ import re
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
-SHA_RE = re.compile(r"[0-9a-f]{40}\\Z")
+SHA_RE = re.compile(r"[0-9a-f]{40}\Z")
 MAX_PATHS = 5000
 MAX_DIFF_BYTES = 512 * 1024
 
@@ -20,7 +20,7 @@ def choose_bundles(paths):
     avatar = push = False
     for path in paths:
         if (not isinstance(path, str) or not path or len(path) > 1024
-                or any(c in path for c in ("\\0", "\\n", "\\r", "\\t", "\\\\"))
+                or any(c in path for c in ("\0", "\n", "\r", "\t", "\\"))
                 or path.startswith("/") or "//" in path or "/../" in f"/{path}/"
                 or "/./" in f"/{path}/"):
             return BOTH
@@ -52,9 +52,9 @@ def changed_paths(base, head, runner=subprocess.run):
          "--no-textconv", "-z", merge[0], head, "--"],
         cwd=ROOT, capture_output=True, check=True, timeout=30,
     ).stdout
-    if not raw or len(raw) > MAX_DIFF_BYTES or not raw.endswith(b"\\0"):
+    if not raw or len(raw) > MAX_DIFF_BYTES or not raw.endswith(b"\0"):
         raise ValueError("diff_ausente_ou_excessivo")
-    paths = raw[:-1].split(b"\\0")
+    paths = raw[:-1].split(b"\0")
     if len(paths) > MAX_PATHS:
         raise ValueError("muitos_arquivos")
     return [p.decode("utf-8", "strict") for p in paths]
@@ -74,8 +74,8 @@ def main():
         scope = "falha_segura"
     # Apenas duas flags conhecidas. Nao escreve nem imprime nomes de arquivos.
     with Path(args.output).open("a", encoding="utf-8") as target:
-        target.write(f"avatar={str(avatar).lower()}\\n")
-        target.write(f"push={str(push).lower()}\\n")
+        target.write(f"avatar={str(avatar).lower()}\n")
+        target.write(f"push={str(push).lower()}\n")
     print("Workers dry-run:", scope, "avatar=" + str(avatar).lower(),
           "push=" + str(push).lower())
 
