@@ -135,7 +135,12 @@ internal fun OnlineAtrioApp(activity: androidx.activity.ComponentActivity) {
                                     EmailVerificationPolicyAccess.UNAVAILABLE
                                 snapshot.metadata.isFromCache ->
                                     EmailVerificationPolicyAccess.CHECKING
-                                else -> emailVerificationPolicyFromServer(
+                                else -> if (BuildConfig.APPLICATION_ID ==
+                                    "br.com.atriocatolico.chatqa"
+                                ) qaEmailVerificationPolicyFromServer(
+                                    snapshot.getBoolean("enabled"),
+                                    snapshot.getString("version")
+                                ) else emailVerificationPolicyFromServer(
                                     snapshot.getBoolean("enabled"),
                                     snapshot.getString("version")
                                 )
@@ -175,7 +180,11 @@ internal fun OnlineAtrioApp(activity: androidx.activity.ComponentActivity) {
                         onVerified = { verifiedThisSession = true },
                         onSignOut = onGateSignOut
                     )
-                } else if (canEnterAtrioCommunity(verifiedThisSession, verificationPolicy)) {
+                } else if (
+                    if (BuildConfig.APPLICATION_ID == "br.com.atriocatolico.chatqa")
+                        canEnterQaAtrioCommunity(verifiedThisSession, verificationPolicy)
+                    else canEnterAtrioCommunity(verifiedThisSession, verificationPolicy)
+                ) {
                     OnlineUserScreen(auth = auth, db = db, user = user)
                 } else if (verificationPolicy == EmailVerificationPolicyAccess.REQUIRED) {
                     MandatoryEmailVerificationGate(
@@ -185,7 +194,9 @@ internal fun OnlineAtrioApp(activity: androidx.activity.ComponentActivity) {
                     )
                 } else {
                     EmailVerificationPolicyStatusScreen(
-                        unavailable = verificationPolicy == EmailVerificationPolicyAccess.UNAVAILABLE,
+                        unavailable = verificationPolicy == EmailVerificationPolicyAccess.UNAVAILABLE ||
+                            (BuildConfig.APPLICATION_ID == "br.com.atriocatolico.chatqa" &&
+                                verificationPolicy == EmailVerificationPolicyAccess.OPTIONAL),
                         onRetry = { policyRetry++ },
                         onSignOut = onGateSignOut
                     )
