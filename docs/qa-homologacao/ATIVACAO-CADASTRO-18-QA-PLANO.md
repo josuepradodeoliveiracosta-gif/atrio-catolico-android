@@ -247,3 +247,56 @@ configuração inicial de e-mail/comunidade. Não ativar Worker/FCM.
 
 A barra da ativação continua **60% (3/5)** e o QA geral continua
 **29% (2/7)** enquanto o Firebase QA real permanecer deny-all.
+
+## Inspeção de documentos administrativos publicados no Firebase QA real
+
+**Próxima checagem read-only:** o plano e os testes de políticas estão
+aprovados **somente como modelos offline**, sem evidência de quais
+documentos `app_config` existem no projeto real. Foi criado
+`scripts/termux-firebase-qa-admin-config-readonly.mjs` para ler apenas
+as quatro configurações aprovadas, usando OAuth da sessão Firebase
+CLI do operador no Termux.
+
+O script:
+1. Revalida o projeto QA e pacote Android, o estado deny-all, o hash
+   `cd5089e4e5116dbb994013dc5fd5e7e411ec348935b8d06d13acd00173cca15b`
+   e o identificador do Ruleset remoto registrado na última auditoria,
+   com até **quatro GETs** de identidade/Rules (falha fechado ao mudar).
+2. Só então realiza até **quatro GETs Firestore** limitados aos documentos
+   `app_config/email_verification`, `app_config/community_rules`,
+   `app_config/conversations`, `app_config/chat_groups`, com
+   `mask.fieldPaths` para pedir apenas os campos do modelo estagiado.
+   Usa **OAuth Google + IAM**; não depende do acesso liberado pelas
+   regras client-side deny-all, não aciona SDK Admin para escrever.
+3. Se um documento não existir (HTTP 404), marca `MISSING`. Se existir,
+   compara **somente os campos mascarados** com o modelo estagiado e
+   imprime apenas estados, booleanos e **nomes de campos divergentes**.
+   Não exibe tokens, outros campos, nomes de pessoas, dados religiosos
+   nem respostas brutas; erros 403 e de rede **não viram MISSING**.
+4. Retorna `ready_for_activation=false` e
+   `ready_for_deploy=false` independentemente do resultado. Se
+   chat/grupo tiver sinal de habilitação inesperada, alerta e sai com
+   código 2. A inspeção não demonstra ausência de campos adicionais,
+   não cria o documento faltante, não altera políticas nem comprova
+   conformidade de conteúdo. É um retrato de leitura, não um backup.
+
+**Comando após CI aprovada, no workspace QA do Termux:**
+```sh
+cd "$HOME/atrio-workspaces/qa-cadastro" &&
+git pull --ff-only &&
+node scripts/termux-firebase-qa-admin-config-readonly.mjs
+```
+
+**Por que esta consulta é diferente:** o Firestore real continua deny-all
+para clientes, mas o OAuth do Firebase CLI pode autorizar leitura
+administrativa pelo IAM; esta consulta não usa Firebase Authentication de
+usuários. Não presume que o login tenha direito de ler documentos:
+403 deve ser reportado sem novas permissões ou credenciais. Serão
+consultados apenas quatro documentos e nenhum dado de usuários. O Google
+documenta a API REST de leitura GET e `mask.fieldPaths`:
+https://firebase.google.com/docs/firestore/reference/rest/v1/projects.databases.documents/get
+
+**Sem resultado remoto autenticado nesta revisão:** a PR e a CI
+apenas simulam respostas. A barra de ativação permanece **60% (3/5)**,
+o QA geral **29% (2/7)**; a publicação exige autorização específica,
+revisão da issue #200 e testes reais posteriores.

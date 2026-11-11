@@ -8,6 +8,8 @@ on:
       - 'firebase/qa-general/registration-onboarding-rules.mjs'
       - 'firebase/qa-general/admin-config-preflight.mjs'
       - 'firebase/qa-general/admin-config-preflight.test.mjs'
+      - 'scripts/termux-firebase-qa-admin-config-readonly.mjs'
+      - 'scripts/termux-firebase-qa-admin-config-readonly.test.mjs'
       - 'tests/security/qa-self-declaration-firestore.test.mjs'
       - 'tests/security/qa-rollback-denyall-firestore.test.mjs'
       - 'scripts/chat-qa-activation-preflight.mjs'
@@ -73,6 +75,10 @@ jobs:
           node --check firebase/qa-general/admin-config-preflight.mjs
           node --test firebase/qa-general/admin-config-preflight.test.mjs
           node firebase/qa-general/admin-config-preflight.mjs
+      - name: Verificar consultas GET mascaradas de app_config QA com fixtures
+        run: |
+          node --check scripts/termux-firebase-qa-admin-config-readonly.mjs
+          node --test scripts/termux-firebase-qa-admin-config-readonly.test.mjs
       - name: Dependencias de teste existentes
         run: npm ci --prefix tests/security
       - name: Somente sintaxe do gerador QA
