@@ -302,44 +302,52 @@ o QA geral **29% (2/7)**; a publicação exige autorização específica,
 revisão da issue #200 e testes reais posteriores.
 
 
-## Evidência remota de app_config fornecida pelo operador (11/11/2026)
+## Evidência remota COMPLETA de app_config fornecida pelo operador (11/11/2026)
 
-O fundador executou em seu Termux autenticado a ferramenta
-`scripts/termux-firebase-qa-admin-config-readonly.mjs`, após atualizar o
-workspace `~/atrio-workspaces/qa-cadastro`, e forneceu uma **captura
-parcial da parte inferior** do resumo sanitizado. Essa é uma evidência
-de operador; o assistente **não** executou o GET remoto na própria sessão.
+O fundador executou `scripts/termux-firebase-qa-admin-config-readonly.mjs`
+no Termux autenticado, no workspace segregado
+`~/atrio-workspaces/qa-cadastro`, e enviou três capturas sucessivas
+do resumo sanitizado, incluindo **cabeçalho e as quatro entradas**.
+Esta é **evidência fornecida pelo operador**; não é uma consulta
+autenticada que o assistente efetuou diretamente.
 
-**Campos visíveis na captura:**
+- `status=QA_ADMIN_CONFIG_SNAPSHOT_READ_ONLY`
+- `project=atrio-catolico-qa-geral`
+- `android_package=br.com.atriocatolico.chatqa`
+- `rules_sha256=cd5089e4e5116dbb994013dc5fd5e7e411ec348935b8d06d13acd00173cca15b`
+- `ruleset_name=projects/atrio-catolico-qa-geral/rulesets/1d6b6a71-6d95-48cc-98fe-7bd16c71b3bc`
+- `queried_documents=4`, `existing_documents=0`,
+  `missing_documents=4`.
+- `app_config/email_verification`: `MISSING`, `present=false`
+- `app_config/community_rules`: `MISSING`, `present=false`
+- `app_config/conversations`: `MISSING`, `present=false`
+- `app_config/chat_groups`: `MISSING`, `present=false`
+- `all_four_staged_fields_match=false`
+- `chat_and_groups_observed_closed=true`
+- `remote_rules_deny_all=true`
+- `ready_for_activation=false`, `ready_for_deploy=false`
+- `changes_performed=false`, `production_contacted=false`
+- `method=FOUR_QA_IDENTITY_RULES_GET_PLUS_FOUR_FIRESTORE_MASKED_GET`
+- `audited_at=2026-11-11T03:33:17.816Z`
 
-- `app_config/conversations`: `state=MISSING`, `present=false`,
-  `enabled=null`, `minor_policy_approved=null`,
-  `chat_or_group_safely_disabled=true`.
-- `app_config/chat_groups`: `state=MISSING`, `present=false`,
-  `enabled=null`, `minor_policy_approved=null`,
-  `chat_or_group_safely_disabled=true`.
-- `all_four_staged_fields_match=false`;
-  `chat_and_groups_observed_closed=true`;
-  `remote_rules_deny_all=true`.
-- `ready_for_activation=false`, `ready_for_deploy=false`,
-  `changes_performed=false`, `production_contacted=false`.
-- Relatório: `FOUR_QA_IDENTITY_RULES_GET_PLUS_FOUR_FIRESTORE_MASKED_GET`.
-  O relatório não atesta os campos não incluídos nas máscaras.
+**Interpretação:** a consulta confirmou que não há nenhum dos quatro
+documentos de configuração administrativa no Firebase QA naquele
+instante. O fato de chat e grupos estarem fechados decorre de
+**ausência da configuração e Rules deny-all**, e não de um documento
+publicado com `enabled=false`. Não equiparar `MISSING` a
+`PRESENT_STAGED_FIELDS_MATCH`.
 
-**Limite da evidência:** a captura não mostra o cabeçalho nem os estados
-completos de `app_config/email_verification` e
-`app_config/community_rules`. O fragmento visível anterior à linha
-de conversas contém `staged_fields_match=false`, mas não permite
-atribuir com segurança o trecho a um documento específico. **Não
-declarar os quatro documentos ausentes** sem conferir as duas primeiras
-entradas. Solicitar o trecho superior ou uma saída resumida apenas de
-`path`, `state` e contagens; não solicitar JSON privados ou tokens.
+**Próximas dependências:** revisar e aprovar as políticas efetivas de
+verificação de e-mail e aceitação de regras da comunidade; revisar
+privacidade, moderação, proteção de menores e retenção da issue #200.
+Preparar eventual criação controlada dos quatro documentos com
+`conversations.enabled=false`, `chat_groups.enabled=false`,
+`minorPolicyApproved=false`, sem abrir Firestore nem publicar no
+ambiente real sem uma autorização futura e específica do fundador.
+Após a autorização e publicação, comparar o estado remoto novamente e
+testar o cadastro em dispositivos. Grupo e FCM permanecem fora de escopo
+de ativação inicial.
 
-**Conclusão conservadora:** o projeto QA permaneceu deny-all no instante
-registrado; conversas e grupos não possuem documentos administrativos
-publicados nas duas rotas consultadas. Não foi executada qualquer
-publicação/reversão. O onboarding QA real ainda depende de verificar as
-duas políticas de e-mail e comunidade, aprovar o conteúdo aplicável,
-as decisões da issue #200 e uma futura autorização específica para
-escritas **somente QA**. O marco desta tarefa continua em **60% (3/5)**,
-o QA geral em **29% (2/7), NO_GO**.
+**Estado preservado:** 60% (3 de 5 etapas) da ativação específica,
+29% (2 de 7) do QA geral, NO_GO. Nenhum deploy/rollback, nenhuma
+escrita no Firestore real, em `main` ou nos backups nesta rodada.
