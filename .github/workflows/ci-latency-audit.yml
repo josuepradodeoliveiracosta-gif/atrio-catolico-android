@@ -1,0 +1,47 @@
+name: Medir latencia e espera dos workflows (somente leitura)
+
+# Manual: nao criar novos jobs em cada PR e nao disputar runners sem necessidade.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  # Preserva qualquer coleta manual pendente, mesmo durante outra.
+  group: atrio-ci-latency-run-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  metrics:
+    name: Auditar filas e duracoes sem modificar GitHub
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout sem credenciais persistentes
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Testar instrumento em memoria, sem APIs
+        run: python3 -m unittest scripts.test_ci_latency_audit -v
+      - name: Consultar jobs publicos somente por API de leitura
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci_latency_audit.py \
+            --json ci-latency.json \
+            --markdown ci-latency.md \
+            --limit 15
+          cat ci-latency.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Preservar relatorio de latencia
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-latency-readonly-${{ github.run_id }}
+          path: |
+            ci-latency.json
+            ci-latency.md
+          if-no-files-found: warn
+          retention-days: 14
