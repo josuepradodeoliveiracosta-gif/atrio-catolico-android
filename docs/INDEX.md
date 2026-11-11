@@ -16,6 +16,7 @@ O índice é a **porta de entrada única** para conhecer os módulos, entender o
 | Ver a fotografia do repositório e o plano gradual | [Inventário e migração](organizacao/INVENTARIO-E-PLANO.md) |
 | Ver o resultado e os limites da fase de organização | [Encerramento e matriz de aceite](organizacao/ENCERRAMENTO-FASE-2026-11-04.md) |
 | Organizar e economizar GitHub Actions com segurança | [Automações](operacoes/AUTOMACOES.md) · [Auditoria de 300 execuções](operacoes/RELATORIO-CI-2026-11-04.md) |
+| Consultar a meta 9,0 e o encerramento das otimizações de Actions | [Critérios, evidências e parada](ci/encerramento-meta-9-actions-2026-11-11.md) |
 | Saber os testes necessários e o que comprovam | [Homologação e evidências](qa-homologacao/CRITERIOS.md) |
 | Acompanhar preparação para Play Store | [Portões de publicação](publicacao-play-store/ESTADO-E-PORTOES.md) |
 | Trabalhar telas, animações e selos | [Biblioteca de design](../design/README.md) |
