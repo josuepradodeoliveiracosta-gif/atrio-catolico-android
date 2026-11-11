@@ -3,6 +3,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {renderSelfDeclarationRules} from '../../firebase/qa-general/self-declaration-candidate.mjs';
+import {STAGED_QA_DOCS,LAB_ONLY_ACTIVE_CHAT,validateStagedQaDocs}
+ from '../../firebase/qa-general/admin-config-preflight.mjs';
 import {initializeTestEnvironment,assertFails,assertSucceeds}
  from '@firebase/rules-unit-testing';
 import {doc,setDoc,getDoc,deleteDoc,Timestamp,serverTimestamp} from 'firebase/firestore';
@@ -39,6 +41,35 @@ try{
    await setDoc(doc(ctx.firestore(),'app_config/conversations'),{
      enabled:true,version:'2026-11-v1',minorPolicyApproved:true,
      safetyReviewVersion:'2026-11-safety-v1'
+   });
+ });
+ await test('staged config QA exige email mas nunca abre chat, grupos ou push',async()=>{
+   const report=validateStagedQaDocs(STAGED_QA_DOCS);
+   assert.equal(report.ready_for_deploy,false);
+   await env.withSecurityRulesDisabled(async ctx=>{
+     for(const [path,data] of Object.entries(STAGED_QA_DOCS)){
+       await setDoc(doc(ctx.firestore(),path),data);
+     }
+   });
+   const me=c(alice);
+   for(const key of ['app_config/email_verification','app_config/community_rules']){
+     const snapshot=await assertSucceeds(getDoc(doc(me,key)));
+     assert.equal(snapshot.data()?.enabled,true);
+     assert.equal(snapshot.data()?.version,'2026-11-v1');
+     await assertFails(setDoc(doc(me,key),{enabled:false,version:'fake'}));
+   }
+   const conversations=await assertSucceeds(getDoc(doc(me,'app_config/conversations')));
+   assert.equal(conversations.data()?.enabled,false);
+   const groups=await assertSucceeds(getDoc(doc(me,'app_config/chat_groups')));
+   assert.equal(groups.data()?.enabled,false);
+   await assertFails(getDoc(doc(me,limitFor(alice))));
+   await assertFails(getDoc(doc(me,'chat_groups/closed-qa')));
+   await assertFails(setDoc(doc(me,'app_config/conversations'),LAB_ONLY_ACTIVE_CHAT));
+   await assertFails(setDoc(doc(me,'app_config/chat_groups'),{
+     enabled:true,version:'2026-11-groups-v1',minorPolicyApproved:true
+   }));
+   await env.withSecurityRulesDisabled(async ctx=>{
+     await setDoc(doc(ctx.firestore(),'app_config/conversations'),LAB_ONLY_ACTIVE_CHAT);
    });
  });
  await test('cadastro QA: politica legivel mas config nao editavel pelo cliente',async()=>{

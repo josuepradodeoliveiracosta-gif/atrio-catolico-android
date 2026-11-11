@@ -208,3 +208,42 @@ pelo próprio UID**, sem guardar nem transmitir a data de nascimento.
 que a criação de declaração tenha sido recebida pelo servidor no fluxo
 de cadastro de um aparelho real. A tela de recuperação mitiga esse caso
 de falha sem ignorar a política e não comprova identidade/idade real.
+
+## Fase administrativa preparada OFFLINE — configuração estagiada, sem deploy
+
+A ferramenta `firebase/qa-general/admin-config-preflight.mjs` modela os
+quatro documentos **QA apenas**, compatíveis com as versões realmente
+exigidas pelo Android e pelas Rules de grupos. **Não** é leitura do
+Firestore remoto nem script para escrever documentos.
+
+| Caminho | Modelo sintético para preparação | Situação |
+| --- | --- | --- |
+| `app_config/email_verification` | `enabled=true, version=2026-11-v1` | Requer publicação separada e autorizada |
+| `app_config/community_rules` | `enabled=true, version=2026-11-v1` | Requer aprovação do texto da comunidade |
+| `app_config/conversations` | `enabled=false, minorPolicyApproved=false, safetyReviewVersion=pending-review`, edição e exclusão desligadas, janelas zero | Chat deliberadamente fechado |
+| `app_config/chat_groups` | `enabled=false, minorPolicyApproved=false, version=2026-11-groups-v1` | Grupos deliberadamente fechados |
+
+**Regra de segurança:** o pré-flight aceita **somente** o formato
+estagiado acima, rejeita qualquer tentativa de `enabled=true` em
+conversas/grupos, qualquer `minorPolicyApproved=true`, versões
+impróprias ou campos adicionais e retorna sempre
+`ready_for_deploy=false`, `changes_performed=false`.
+O único cenário com chat aberto é um **fixture sintético exclusivo do
+Firebase Emulator** usado para provar a elegibilidade quando as outras
+políticas forem autorizadas. A configuração não está publicada no QA.
+
+Comando de inspeção local sem rede:
+`node firebase/qa-general/admin-config-preflight.mjs`.
+Testes unitários confirmam versão Android/código e rejeição de adulteração.
+Testes de Firestore Emulator confirmam que as políticas podem ser lidas
+apenas por conta autenticada, que o usuário não pode alterar configurações
+e que a configuração estagiada **não permite chat nem grupos**.
+
+**Próximo GO condicionado:** aprovação da política aplicável (#200),
+confirmação documental de regras e IAM, autorização específica do
+fundador, e publicação estritamente QA com plano de reversão. A
+ativação do chat é **uma segunda mudança**, jamais combinada com a
+configuração inicial de e-mail/comunidade. Não ativar Worker/FCM.
+
+A barra da ativação continua **60% (3/5)** e o QA geral continua
+**29% (2/7)** enquanto o Firebase QA real permanecer deny-all.
