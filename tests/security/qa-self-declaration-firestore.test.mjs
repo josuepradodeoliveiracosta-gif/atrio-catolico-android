@@ -62,6 +62,86 @@ try{
    await assertFails(getDoc(doc(c(bob),pathFor(alice))));
    await assertFails(getDoc(doc(c(bob),limitFor(bob))));
  });
+ await test('política administrativa ausente ou desativada nega acesso apesar da declaração',async()=>{
+   const configPath='app_config/conversations';
+   const active={enabled:true,version:'2026-11-v1',
+     minorPolicyApproved:true,safetyReviewVersion:'2026-11-safety-v1'};
+   for(const denied of [
+     {...active,enabled:false},
+     {...active,minorPolicyApproved:false},
+     {...active,safetyReviewVersion:'unreviewed'},
+     {...active,version:'outdated'}
+   ]){
+     await env.withSecurityRulesDisabled(async ctx=>{
+       await setDoc(doc(ctx.firestore(),configPath),denied);
+     });
+     await assertFails(getDoc(doc(c(alice),limitFor(alice))));
+   }
+   await env.withSecurityRulesDisabled(async ctx=>{
+     await deleteDoc(doc(ctx.firestore(),configPath));
+   });
+   await assertFails(getDoc(doc(c(alice),limitFor(alice))));
+   await env.withSecurityRulesDisabled(async ctx=>{
+     await setDoc(doc(ctx.firestore(),configPath),active);
+   });
+   await assertSucceeds(getDoc(doc(c(alice),limitFor(alice))));
+ });
+ await test('elegibilidade expirada, revogada, adulterada ou antiga falha fechada',async()=>{
+   const bad=[
+     {...claim(),reviewExpiresAt:Timestamp.fromDate(new Date(Date.now()-60000))},
+     {...claim(),status:'revoked'},
+     {...claim(),policyVersion:'2026-11-18plus-qa-v1'},
+     {...claim(),birthDate:'2000-01-01'},
+     {...claim(),minimumAge:'18'}
+   ];
+   for(const invalid of bad){
+     await env.withSecurityRulesDisabled(async ctx=>{
+       await setDoc(doc(ctx.firestore(),pathFor(alice)),invalid);
+     });
+     await assertFails(getDoc(doc(c(alice),limitFor(alice))));
+   }
+   await env.withSecurityRulesDisabled(async ctx=>{
+     await setDoc(doc(ctx.firestore(),pathFor(alice)),claim());
+   });
+   await assertSucceeds(getDoc(doc(c(alice),limitFor(alice))));
+ });
+ await test('grupos exigem permissões administrativas e participação além da declaração',async()=>{
+   const groupId='qa-auditoria-privado';
+   const groupPath='chat_groups/'+groupId;
+   const groupPolicy={enabled:true,minorPolicyApproved:true,version:'2026-11-groups-v1'};
+   const groupAccess={status:'approved',policyVersion:'2026-11-group-safety-v1',
+     reviewExpiresAt:Timestamp.fromDate(new Date(Date.now()+30*86400000))};
+   await env.withSecurityRulesDisabled(async ctx=>{
+     const db=ctx.firestore();
+     await setDoc(doc(db,'app_config/chat_groups'),groupPolicy);
+     await setDoc(doc(db,'users/'+alice+'/chatGroupAccess/eligibility'),groupAccess);
+     await setDoc(doc(db,groupPath),{memberUids:[alice,bob],adminUids:[alice],
+       status:'active',ownerUid:alice});
+   });
+   await assertSucceeds(getDoc(doc(c(alice),groupPath)));
+   // Segundo usuário consta como membro, porém não tem declaração 18+.
+   await assertFails(getDoc(doc(c(bob),groupPath)));
+   // Declaração 18+ não concede a permissão administrativa de grupos.
+   await assertSucceeds(setDoc(doc(c(bob),pathFor(bob)),claim()));
+   await assertFails(getDoc(doc(c(bob),groupPath)));
+   // Mesmo o usuário autorizado por admin perde o acesso sem o seu registro.
+   await env.withSecurityRulesDisabled(async ctx=>{
+     await deleteDoc(doc(ctx.firestore(),
+       'users/'+alice+'/chatGroupAccess/eligibility'));
+   });
+   await assertFails(getDoc(doc(c(alice),groupPath)));
+   await env.withSecurityRulesDisabled(async ctx=>{
+     await setDoc(doc(ctx.firestore(),
+       'users/'+alice+'/chatGroupAccess/eligibility'),groupAccess);
+     await setDoc(doc(ctx.firestore(),'app_config/chat_groups'),
+       {...groupPolicy,enabled:false});
+   });
+   await assertFails(getDoc(doc(c(alice),groupPath)));
+   await env.withSecurityRulesDisabled(async ctx=>{
+     await setDoc(doc(ctx.firestore(),'app_config/chat_groups'),groupPolicy);
+   });
+   await assertSucceeds(getDoc(doc(c(alice),groupPath)));
+ });
  await test('declaração existente não pode ser atualizada, apagada nem convertida em prova',async()=>{
    await assertFails(setDoc(doc(c(alice),pathFor(alice)),claim()));
    await assertFails(deleteDoc(doc(c(alice),pathFor(alice))));

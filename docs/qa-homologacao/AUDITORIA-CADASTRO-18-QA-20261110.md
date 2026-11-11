@@ -1,0 +1,34 @@
+# Auditoria técnica do cadastro 18+ — PR #232 (QA, 10/11/2026)
+
+**Classificação: AUDITORIA ESTÁTICA/EMULADOR, NÃO É AUDITORIA DE FIREBASE QA REMOTO.**
+Escopo: [PR #232](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/pull/232), candidato `feat/qa-chat-self-declaration-candidate-20261110`, em cima da branch de QA da PR #193. Não foi efetuada implantação no Firebase, alteração em produção, mescla ou acionamento de serviços reais.
+
+## Constatações verificáveis e riscos residuais
+
+| Controle | Evidência no código e testes | Situação |
+| --- | --- | --- |
+| Nascimento e idade no app | `ChatAgeRegistrationPrecheck.kt` valida datas por calendário estrito e 18 anos; `RegistrationV2.kt` apresenta data/checkbox somente no Chat QA | Implementado no candidato; **idade apenas informada** |
+| Minimização | O campo de nascimento usa estado Compose não persistido; `OnlineAtrioApp.kt` envia somente quatro campos do sinal autodeclarado | Inspeção do fluxo específico; outras fontes devem ser auditadas antes do deploy |
+| UID e campos | `self-declaration-candidate.mjs` limita criação a `me(uid)`, mapa exato, status/versão e validade de até 366 dias; update/delete/list negados | Testes de usuário cruzado, extras e revogação administrativa |
+| Elegibilidade do próprio usuário | `qaChatAge18Eligible` verifica versão, status e vencimento; `chatEnabled()` exige `minorPolicyApproved`, `enabled`, versão e `safetyReviewVersion` | Candidato só: bloquear ao expirar, faltar prova, política desativada ou versão trocada |
+| Sessão | `emailVerificationAllowsCommunityAccess()` usa `request.auth.token.email_verified`; login e sessão não permitem leitura de outro UID | Emulador, sem autenticação do Firebase QA remoto |
+| Participação e bloqueio | Conversas exigem participantes/bloqueios nos atos de envio; grupos requerem associação e elegibilidade administrativa `chatGroupAccess/eligibility` | **Declaração 18+ não libera grupos automaticamente**; verificar requisito com fundador |
+| Privilégios | `admins/{uid}` é necessário para ler protocolos de terceiros e não há acesso irrestrito a DMs/grupos por papel de moderação | Ensaios prévios #221 (emulador); exigir revisão conjunta das Rules antes de deploy |
+| Isolamento | Workflow de teste usa `demo-atrio-v11`, credenciais de rede vazias, package Chat QA segregado e JSON Firebase fictício | CI cobre artefato sintético, NÃO prova estado remoto atual |
+| Worker / FCM | Worker QA de notificações tem contratos próprios de `eligible`/versão e gates de política | **Incompatibilidade pendente** com `declared_18_plus`; manter FCM desligado |
+| Dados pessoais e política | Autodeclaração não comprova idade; não há prazo de retenção/moderação #200 aprovado nem avaliação jurídica conclusiva | Impede ativação com usuários externos e fechamento #200 |
+
+## Riscos a mitigar antes do QA real
+
+1. **Autodeclaração falsificável:** cliente pode mentir ou escrever os quatro campos permitidos diretamente na API para o próprio UID. É **característica solicitada** do protótipo fechado, não verificação confiável nem barreira contra menores em testes abertos. Não equiparar `minorPolicyApproved=true` à comprovação.
+2. **Fluxo administrativo de grupos:** autorização do chat individual após declaração não implica elegibilidade automática de grupos, por gate independente. Regra mais restritiva deve ser mantida até decisão consciente e revisão.
+3. **Confirmação assíncrona:** Firestore `.set` da declaração não bloqueia a criação da conta, e o código registra falha em log sem mostrar resolução ao usuário. Se a escrita falhar, o chat continua indisponível. Antes do teste real, prever estado de pendência/recuperação sem reabrir conta por cache.
+4. **Expiração e revogação:** não há renovação automática; após vencimento ou revogação por admin o chat fecha. A forma segura de renovação deve ser desenhada sem permitir restauração de revogação pelo próprio cliente.
+5. **Verificação remota incompleta:** estado real Firebase QA `atrio-catolico-qa-geral` foi documentado anteriormente como deny-all, mas **não foi consultado novamente nesta auditoria**. Para a etapa de ativação, exigir GET autenticado estritamente read-only do projeto, RuleSet/release, IAM, quotas e rollback; rejeitar qualquer apontamento para produção.
+6. **Governança:** canal de denúncias/moderação, retenção por classe, direitos de usuários e eventual acesso por menores precisam de decisões da #200 e revisão de privacidade. Não há autorização para ativar Rules/Worker ou liberar testes abertos.
+
+## Critério desta etapa
+
+Considerar **auditoria de código e emulador concluída** apenas se o workflow específico da PR #232 executar no mesmo SHA com cenários negativos de configuração desligada, registros inválidos/expirados e acesso não autorizado a grupos, além de compilar Chat QA e verificar seus hosts/assinatura. Isso **não** basta para a auditoria integral do Firebase QA real, que precisa de leitura remota atual e documentação de IAM. A barra desta tarefa não deve ser promovida a 40% com base somente em CI verde.
+
+**Sem deploy, sem mudanças em `main`, sem novas credenciais, sem alteração de backups.**
