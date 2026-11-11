@@ -34,7 +34,9 @@ jobs:
 
   codeql:
     name: CodeQL - ${{ matrix.language }}
-    needs: contract
+    # Analises começam em paralelo ao contrato (sem remover o check de contrato).
+    # O contrato tambem integra o check Firestore obrigatorio no CI da PR.
+    # Falha em qualquer um dos jobs continua marcada como falha na revisao.
     runs-on: ubuntu-latest
     timeout-minutes: 75
     permissions:
