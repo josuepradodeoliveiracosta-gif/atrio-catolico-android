@@ -1,6 +1,8 @@
 package br.com.atriocatolico
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -43,7 +45,8 @@ internal fun ChatQaDeclarationRecoveryPanel(
     var busy by remember(uid) { mutableStateOf(false) }
     var error by remember(uid) { mutableStateOf("") }
     Column(
-        Modifier.fillMaxWidth().padding(24.dp).testTag("atrio-chat-qa-recovery"),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+            .padding(24.dp).testTag("atrio-chat-qa-recovery"),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("Acesso ao chat em homologação",
