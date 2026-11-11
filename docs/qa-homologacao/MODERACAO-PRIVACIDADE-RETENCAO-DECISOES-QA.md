@@ -88,14 +88,21 @@ comprovante válido, cache, escrita pendente, UID diferente e
 identidade faltante; a workflow Android o executa explicitamente.
 **Isso não comprova que o perfil público continue navegável após
 sair de um grupo**, nem implementa recuperação de senha ou denúncia
-de texto antigo. O cenário de Rules no emulador cobre apenas a
-capacidade técnica do caminho `user_reports` independente do chat.
+de texto antigo. **Correção após CI `#43107512583`:**
+o gerador de Rules candidatas do QA NÃO contém `user_reports`.
+Logo o Firebase Emulator **nega todas as operações** nessa rota,
+inclusive as de administradores. A interface `Denunciar participante`
+e a definição existente no `firestore.rules` do aplicativo
+não demonstram que a rota esteja liberada no QA.
+A suíte agora testa explicitamente esse bloqueio, sem criar regras.
 
 ## Alternativa parcial descoberta no sistema existente — denúncia de participante
 
-**Sem canal novo:** o Firestore oficial já contém
-`user_reports/{reporterUid}__{targetUid}`, com criação autenticada
-independente do status do chat e do grupo. O relatório pertence
+**Sem canal novo:** o arquivo de regras do aplicativo
+`firestore.rules` já DEFINE
+`user_reports/{reporterUid}__{targetUid}` para denúncias de contas,
+independentemente do estado do chat. **Esta regra não foi incluída
+nas Rules candidatas de QA, que negam a rota por padrão.** O relatório pertence
 ao próprio autor; só o autor pode obtê-lo individualmente e
 administrador ativo pode ler/listar os protocolos. Um usuário
 comum não pode forjar o UID do denunciante, duplicar a mesma
@@ -114,13 +121,15 @@ pela presença apenas de `validId(targetUid)`; são necessários
 limites de abuso e triagem humana antes de implantação ampliada.
 
 A suíte alternativa de Firestore Emulator
-`qa-self-declaration-firestore.test.mjs` inclui cenário
-sintético após saída e com chat/grupos desativados: valida
-criação de `user_reports` pelo titular, isolamento de
-protocolos, id determinístico e ausência de acesso a
-históricos de DM/grupo. Isso **reduz um subproblema técnico**
-da issue #200 mas não conclui canal tardio/recursos nem
-autoriza mudar permissões ou ativar serviços.
+`qa-self-declaration-firestore.test.mjs` agora comprova
+**bloqueio da criação, leitura, listagem, alteração e exclusão
+de `user_reports` no QA, inclusive por administradores**,
+com chat/grupos desligados. O teste anterior pressupôs
+autorização e falhou corretamente com `PERMISSION_DENIED`
+na CI `#43107512583` (15/16 testes). Não se devem
+abrir permissões apenas para fazer o teste passar.
+A viabilização de denúncias tardias no QA continua
+dependendo de análise e autorização própria na issue #200.
 
 ## Tratamento de denúncias tardias — desenho reversível, sem canal ativo
 

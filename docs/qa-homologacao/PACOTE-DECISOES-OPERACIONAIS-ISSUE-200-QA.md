@@ -46,18 +46,21 @@ segue aberta e o estado QA permanece NO_GO.
 
 ## Alternativa parcial sem duplicar canais
 
-A coleção **já existente** `user_reports` pode receber denúncia
-de **participante identificado** após saída de grupo ou desativação
-de chat, se houver autenticação. Essa rota não apresenta histórico
-de conversas, não comprova vínculo anterior e não substitui
-`chat_reports` / `chat_group_reports` para denunciar mensagem
-específica. A disponibilidade do botão na interface quando o
-grupo deixa de ser acessível **não foi confirmada**. O cenário
-sintético será verificado no Firebase Emulator; não ativar nova
-função nem prometer atendimento tardio completo. Continuam
-pendentes canal/rota de recurso, atendimento pós-suspensão
-quando a conta não consegue autenticar, prazos e política
-de tratamento e privacidade.
+O **código do aplicativo** já define `user_reports` e o botão
+**Denunciar participante**, permitindo conceitualmente denunciar
+uma conta sem acessar o histórico de conversas. Entretanto,
+**as Rules candidatas do QA ainda não incluem `user_reports`**:
+a tentativa foi negada corretamente com `PERMISSION_DENIED`
+na CI `#43107512583`. A suíte agora exige explicitamente o
+bloqueio de criação/leitura/listagem mesmo por administradores,
+sem abrir uma rota por conveniência.
+
+Não está comprovado que um ex-integrante consiga acessar o
+perfil depois de sair do grupo; denunciar participante não
+substitui denunciar uma mensagem específica. Permanecem
+pendentes atendimento tardio, recursos, procedimento humano,
+retenção e privacidade. Qualquer futura abertura de rota
+exigirá revisão e autorização separada.
 
 ## 2. Fluxo mínimo de denúncia proposto (ainda não operacional)
 
