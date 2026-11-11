@@ -150,6 +150,26 @@ class CiOptimizationContract(unittest.TestCase):
         self.assertIn("scripts/ci_latency_audit.py", audit)
 
 
+    def test_guardian_node24_pilot_preserves_isolation(self):
+        src = workflow("guardiao-v2-motor-ci.yml")
+        self.assertIn("uses: actions/checkout@v7", src)
+        self.assertIn("uses: actions/setup-node@v7", src)
+        self.assertIn("node-version: '22'", src)
+        self.assertIn("package-manager-cache: false", src)
+        self.assertIn("persist-credentials: false", src)
+        self.assertIn("GUARDIAN_V2_ENABLED: 'false'", src)
+        self.assertIn("GUARDIAN_V2_PRODUCTION_APPROVED: 'false'", src)
+        self.assertIn("npm run check", src)
+        self.assertIn("npm test", src)
+        self.assertIn("contents: read", src)
+        self.assertNotIn("secrets.", src)
+        self.assertNotIn("wrangler deploy", src)
+        self.assertNotIn("firebase deploy", src)
+        self.assertNotIn("id-token: write", src)
+        self.assertIn("cancel-in-progress: " + "$" +
+                      "{{ github.event_name == 'pull_request' }}", src)
+
+
     def test_existing_safe_caches_kept(self):
         selos = workflow("selos-ci.yml")
         self.assertIn("cache: npm", selos)
