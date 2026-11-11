@@ -17,8 +17,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: guardian-v2-flow-emulator-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: guardian-v2-flow-emulator-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   firestore-v2-flow:
