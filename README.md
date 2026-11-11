@@ -10,6 +10,19 @@ e Cloud Firestore. Os APKs release são assinados pelo fluxo de GitHub Actions.
 **O repositório está público no GitHub na auditoria de 30/10/2026:** nunca
 publique credenciais, arquivos de assinatura ou dados privados no código.
 
+## GitHub Actions — política de minutos do repositório público
+
+Enquanto este repositório permanecer **público** e seus jobs usarem **runners
+padrão hospedados pelo GitHub** (como `ubuntu-latest`), a execução é
+**gratuita, sem franquia mensal de minutos**. Essa condição não elimina limites
+de concorrência, filas, duração de jobs, caches e armazenamento; runners
+maiores/avançados ou a mudança do repositório para privado podem alterar custos.
+
+Por isso, as otimizações de CI devem priorizar **segurança, estabilidade,
+paralelismo e tempo de entrega**, sem remover checks para poupar minutos
+que não são cobrados nessa modalidade. Consulte a
+[política e fontes oficiais](docs/ci/politica-minutos-actions-repositorio-publico.md).
+
 ## Qual é a última versão? (fonte única, sem número congelado)
 
 **Não use um número copiado deste README, de um chat, da última PR ou do nome de
