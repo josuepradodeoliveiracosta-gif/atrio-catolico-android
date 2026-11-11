@@ -43,6 +43,48 @@ class CiReportTests(unittest.TestCase):
         _, md = report(SHA, [check("<script>x</script>|bad")])
         self.assertNotIn("<script>", md)
 
+    def test_timing_uses_only_completed_github_action_checks(self):
+        samples = [
+            {**check("Android"), "app": {"slug": "github-actions"},
+             "started_at": "2026-11-11T10:00:00Z",
+             "completed_at": "2026-11-11T10:02:20Z"},
+            {**check("<script>|CodeQL"), "app": {"slug": "github-actions"},
+             "started_at": "2026-11-11T10:00:00Z",
+             "completed_at": "2026-11-11T10:03:10Z"},
+            {**check("Dependabot"), "app": {"slug": "dependabot"},
+             "started_at": "2026-11-11T10:00:00Z",
+             "completed_at": "2026-11-11T10:10:00Z"},
+            {**check("pending", status="in_progress", conclusion=None),
+             "app": {"slug": "github-actions"},
+             "started_at": "2026-11-11T10:00:00Z",
+             "completed_at": "2026-11-11T10:05:00Z"},
+            {**check("bad"), "app": {"slug": "github-actions"},
+             "started_at": "no-date",
+             "completed_at": "2026-11-11T10:05:00Z"},
+        ]
+        output, md = report(SHA, samples)
+        self.assertEqual(output["timing"]["measured_checks"], 2)
+        self.assertEqual(output["timing"]["sum_check_seconds"], 330)
+        self.assertEqual(output["timing"]["longest_checks"][0]["seconds"], 190)
+        self.assertIn("Dados por check nao equivalem a minutos cobraveis", md)
+        self.assertNotIn("<script>", md)
+        self.assertIn("&lt;script&gt;", md)
+
+    def test_timing_rejects_missing_timezone_negative_and_excessive(self):
+        from scripts.ci_quality_report import duration_seconds
+        sample = {**check("x"), "started_at": "2026-11-11T00:00:00Z",
+                  "completed_at": "2026-11-11T00:00:30Z"}
+        self.assertEqual(duration_seconds(sample), 30)
+        for patch in (
+            {"completed_at": "2026-11-10T23:00:00Z"},
+            {"completed_at": "2026-11-13T01:00:00Z"},
+            {"started_at": "2026-11-11T00:00:00"},
+            {"completed_at": None},
+            {"status": "in_progress"},
+        ):
+            self.assertIsNone(duration_seconds({**sample, **patch}))
+
+
     def test_api_pagination_and_fixed_host(self):
         urls = []
         class Response:
