@@ -12,6 +12,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -154,16 +156,16 @@ internal fun UserReportsAdminPanel(db: FirebaseFirestore, adminUid: String) {
                         enabled = hasMore && busyId.isEmpty(),
                         onClick = { pageIndex++ }
                     ) { Text("Mais antigas") }
-                    OutlinedButton(
-                        enabled = busyId.isEmpty(),
-                        onClick = {
-                            // Recomeçar do topo para incluir denúncias novas.
-                            cursors.clear()
-                            pageIndex = 0
-                            requestVersion++
-                        }
-                    ) { Text("Atualizar") }
                 }
+                OutlinedButton(
+                    enabled = busyId.isEmpty(),
+                    onClick = {
+                        // Recomeçar do topo para incluir denúncias novas.
+                        cursors.clear()
+                        pageIndex = 0
+                        requestVersion++
+                    }
+                ) { Text("Atualizar") }
             }
             if (info.isNotBlank()) Text(info, style = MaterialTheme.typography.bodySmall)
         }
