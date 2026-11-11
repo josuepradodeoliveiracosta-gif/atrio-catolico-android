@@ -27,7 +27,7 @@ jobs:
         uses: actions/checkout@v4
       - name: Verificar contratos de CI, selecao e metricas offline
         run: |
-          python3 -m unittest scripts.test_ci_optimization_contract scripts.test_ci_worker_scope scripts.test_ci_quality_report -v
+          python3 -m unittest scripts.test_ci_optimization_contract scripts.test_ci_worker_scope scripts.test_ci_worker_scope_integration scripts.test_ci_quality_report -v
       - name: Preparar Node.js
         uses: actions/setup-node@v4
         with:
