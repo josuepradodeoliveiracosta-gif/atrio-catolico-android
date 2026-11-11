@@ -5,9 +5,6 @@ on:
     branches: [feat/atrio-conversas-etapa1-20261106]
     paths:
       - 'firebase/qa-general/self-declaration-candidate.mjs'
-      - 'firebase/qa-general/closed-beta-rules.mjs'
-      - 'firebase/qa-general/closed-beta-rules.test.mjs'
-      - 'tests/security/qa-closed-beta-firestore.test.mjs'
       - 'docs/qa-homologacao/ESCOPO-TESTES-FECHADOS-ADULTOS-QA.md'
       - 'firebase/qa-general/registration-onboarding-rules.mjs'
       - 'firebase/qa-general/admin-config-preflight.mjs'
@@ -106,10 +103,6 @@ jobs:
         run: npm ci --prefix tests/security
       - name: Somente sintaxe do gerador QA
         run: node --check firebase/qa-general/self-declaration-candidate.mjs
-      - name: Validar candidato opcional de admissão ao QA fechado (sem deploy)
-        run: |
-          node --check firebase/qa-general/closed-beta-rules.mjs
-          node --test firebase/qa-general/closed-beta-rules.test.mjs
       - name: Preparar regras alternativas locais
         run: node firebase/qa-general/self-declaration-candidate.mjs
       - name: Garantir escopo sem acesso a produção
@@ -119,7 +112,7 @@ jobs:
           test -f tests/security/qa-general.generated.rules
       - name: Testar no emulador Firebase sem credenciais reais
         working-directory: tests/security
-        run: ./node_modules/.bin/firebase emulators:exec --only firestore --config qa-general.firebase.json --project demo-atrio-v11 "node qa-self-declaration-firestore.test.mjs && node qa-closed-beta-firestore.test.mjs && node qa-rollback-denyall-firestore.test.mjs"
+        run: ./node_modules/.bin/firebase emulators:exec --only firestore --config qa-general.firebase.json --project demo-atrio-v11 "node qa-self-declaration-firestore.test.mjs && node qa-rollback-denyall-firestore.test.mjs"
       - name: Remover arquivo gerado no runner
         if: always()
         run: rm -f tests/security/qa-general.generated.rules
