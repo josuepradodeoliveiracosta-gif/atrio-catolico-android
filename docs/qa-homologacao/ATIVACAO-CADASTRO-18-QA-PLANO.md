@@ -351,3 +351,47 @@ de ativação inicial.
 **Estado preservado:** 60% (3 de 5 etapas) da ativação específica,
 29% (2 de 7) do QA geral, NO_GO. Nenhum deploy/rollback, nenhuma
 escrita no Firestore real, em `main` ou nos backups nesta rodada.
+
+## Manifesto OFFLINE de criação inicial de app_config QA (não executável)
+
+A consulta remota autenticada apresentada pelo operador às
+`2026-11-11T03:33:17.816Z` identificou os quatro documentos de
+administração como ausentes. Foi preparado
+`scripts/chat-qa-admin-initial-create-plan.mjs`, um manifesto de
+**intenções de criação exclusiva**, sem SDK, rede, token, deploy,
+restauração automática ou opção de aplicar a operação.
+
+```sh
+node scripts/chat-qa-admin-initial-create-plan.mjs
+```
+
+O manifesto só aceita a evidência histórica identificada (projeto
+`atrio-catolico-qa-geral`, pacote `br.com.atriocatolico.chatqa`,
+hash e Ruleset QA capturados, quatro entradas `MISSING`), verifica o
+contrato estrito `STAGED_QA_DOCS` e mostra os **quatro documentos
+propostos** com campos tipados na representação REST do Firestore.
+Não acrescenta outros caminhos, usuários, credenciais ou dados
+pessoais; hashes SHA-256 sinalizam o formato proposto.
+
+A **operação FUTURA**, somente se vier a ser autorizada de forma
+específica, deverá ser *create-only* para cada document ID:
+`createDocument` (se já existir, **abortar; nunca update/upsert**),
+com verificação de existência e hash/Ruleset imediatamente antes,
+seguida de releitura autorizada depois; resultados parciais devem
+parar e passar por reconciliação humana. O manifesto presente **não
+possui nenhuma função de envio, POST ou execução**. Nenhuma credencial
+deve ser incluída nos registros de auditoria.
+
+A configuração preparada mantém `email_verification.enabled=true`
+e `community_rules.enabled=true` **apenas como proposta não publicada**;
+as regras efetivas de comunidade e o texto legal/consentimento requerem
+decisão da #200. Para conversas e grupos,
+`enabled=false`, `minorPolicyApproved=false`; não há envio de
+notificações, nem abertura de chat/FCM.
+
+**Barreiras para GO:** deliberação e revisão #200; autorização
+específica para quatro criações QA; comprovação de isolamento de
+privilégios; GET remoto contemporâneo; identificação do RuleSet
+para reversão; testes em aparelhos. **Não pedir comando de escrita
+ao operador neste marco de pré-preparação.** O QA continua deny-all
+e o progresso da tarefa segue **60% (3/5)**; QA geral **29% (2/7)**.

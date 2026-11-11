@@ -8,6 +8,8 @@ on:
       - 'firebase/qa-general/registration-onboarding-rules.mjs'
       - 'firebase/qa-general/admin-config-preflight.mjs'
       - 'firebase/qa-general/admin-config-preflight.test.mjs'
+      - 'scripts/chat-qa-admin-initial-create-plan.mjs'
+      - 'scripts/chat-qa-admin-initial-create-plan.test.mjs'
       - 'scripts/termux-firebase-qa-admin-config-readonly.mjs'
       - 'scripts/termux-firebase-qa-admin-config-readonly.test.mjs'
       - 'tests/security/qa-self-declaration-firestore.test.mjs'
@@ -79,6 +81,11 @@ jobs:
         run: |
           node --check scripts/termux-firebase-qa-admin-config-readonly.mjs
           node --test scripts/termux-firebase-qa-admin-config-readonly.test.mjs
+      - name: Validar plano inicial create-only QA sem acesso a nuvem
+        run: |
+          node --check scripts/chat-qa-admin-initial-create-plan.mjs
+          node --test scripts/chat-qa-admin-initial-create-plan.test.mjs
+          node scripts/chat-qa-admin-initial-create-plan.mjs
       - name: Dependencias de teste existentes
         run: npm ci --prefix tests/security
       - name: Somente sintaxe do gerador QA
