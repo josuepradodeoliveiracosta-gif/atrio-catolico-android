@@ -14,9 +14,10 @@ permissions:
   contents: read
 
 # Novo commit na PR substitui somente analises obsoletas da propria PR.
-# Push, agendamento e execucao manual nunca sao interrompidos.
+# Push, agendamento e execucao manual recebem grupos exclusivos por run_id.
+# Assim, nem uma execucao pendente desses eventos sera substituida.
 concurrency:
-  group: atrio-codeql-${{ github.event.pull_request.number || github.ref }}
+  group: atrio-codeql-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
