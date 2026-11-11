@@ -99,3 +99,42 @@ validar IAM e eventual retenção do Ruleset histórico, rever a issue #200,
 confirmar o estado remoto imediatamente antes da publicação e obter
 autorização específica do fundador. Em caso de revisão de segurança
 não aprovada, manter o QA deny-all. QA geral continua **29% (2/7, NO_GO)**.
+
+## Etapa 4 — pré-verificação de permissões e bloqueio de onboarding (sem deploy)
+
+**Achado crítico de integração:** o app Android Chat QA precisa ler
+`app_config/email_verification` e gravar
+`users/{uid}/private/account`, `community_consents/{uid}` e
+`profiles/{uid}` no cadastro. As Rules alternativas atuais são
+restritivas e **não autorizam essas rotas**. Testes de regressão no Firebase
+Emulator comprovam essa negativa deliberada. Logo, **não basta publicar
+as Rules candidatas do chat**: a experiência em celular ainda não
+completará o onboarding/confirmará a política. Antes de publicar, é
+necessário definir e testar um esquema QA mínimo dessas rotas, com
+propriedade por UID, campos exatos, e-mail obrigatório e controle
+administrativo. Não abrir permissões globais nem usar Rules de produção.
+
+**Auditoria IAM não mutante, opcional no Termux:** após a revalidação do
+projeto, pacote, versão remota e `deny-all`, o novo comando
+`node scripts/termux-firebase-qa-iam-readonly.mjs` consulta
+**apenas** a API de teste de permissões para
+`atrio-catolico-qa-geral`. O Google exige o método HTTP
+`POST ...:testIamPermissions`, mas essa operação *não altera
+permissões*. Não confundir com `POST ...:setIamPolicy`.
+O comando testa direitos de leitura e
+`firebaserules.rulesets.create`/`firebaserules.releases.update`
+no **projeto QA**, devolvendo apenas booleanos sem token, membros
+ou papéis. Mesmo com `may_have_publish_permissions_in_qa=true`,
+devolve sempre `ready_for_activation=false`: teste IAM não autoriza
+deploy, não prova que o usuário não tenha acesso à produção, nem
+substitui a revisão da política #200.
+
+Referências oficiais:
+- https://docs.cloud.google.com/resource-manager/reference/rest/v1/projects/testIamPermissions
+- https://firebase.google.com/docs/projects/iam/permissions
+
+A consulta remota via Termux **ainda não foi executada** nesta rodada.
+A CI exercita apenas fixtures e garante que o método é restrito a QA.
+A revisão do processo segue em **NO_GO** e a barra da tarefa em
+**60% (3/5)**, até que as dependências sejam resolvidas e a
+autorização específica de ativação tenha sido concedida.

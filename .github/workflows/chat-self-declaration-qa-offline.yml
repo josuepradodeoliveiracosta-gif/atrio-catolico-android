@@ -12,6 +12,8 @@ on:
       - 'firebase/qa-general/qa-deny-all-reference.rules'
       - 'docs/qa-homologacao/ATIVACAO-CADASTRO-18-QA-PLANO.md'
       - 'scripts/termux-firebase-qa-audit-readonly.mjs'
+      - 'scripts/termux-firebase-qa-iam-readonly.mjs'
+      - 'scripts/termux-firebase-qa-iam-readonly.test.mjs'
       - 'scripts/termux-firestore-qa-readonly.mjs'
       - 'scripts/termux-firestore-qa-readonly.test.mjs'
       - 'scripts/termux-firebase-qa-audit-readonly.test.mjs'
@@ -51,6 +53,10 @@ jobs:
         run: |
           node --check scripts/termux-firebase-qa-audit-readonly.mjs
           node --test scripts/termux-firestore-qa-readonly.test.mjs scripts/termux-firebase-qa-audit-readonly.test.mjs
+      - name: Auditar chamadas IAM nao-mutantes com mocks (sem acesso a nuvem)
+        run: |
+          node --check scripts/termux-firebase-qa-iam-readonly.mjs
+          node --test scripts/termux-firebase-qa-iam-readonly.test.mjs
       - name: Preparacao offline de ativacao e referencia deny-all
         run: |
           node --check scripts/chat-qa-activation-preflight.mjs

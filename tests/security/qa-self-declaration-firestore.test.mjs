@@ -41,6 +41,23 @@ try{
      safetyReviewVersion:'2026-11-safety-v1'
    });
  });
+ await test('rotas de onboarding real ainda bloqueadas por Rules QA candidatas',async()=>{
+   // O aplicativo usa essas rotas durante cadastro e confirmação do email.
+   // Enquanto não houver política QA específica aprovada, fail-closed.
+   const db=c(alice);
+   await assertFails(getDoc(doc(db,'app_config/email_verification')));
+   await assertFails(getDoc(doc(db,'app_config/community_rules')));
+   await assertFails(setDoc(doc(db,'users/'+alice+'/private/account'),{
+     onboardingStatus:'pending_email',profileVersion:2,
+     noticesOptIn:false,communityUpdates:false
+   }));
+   await assertFails(setDoc(doc(db,'community_consents/'+alice),{
+     version:'2026-11-v1'
+   }));
+   await assertFails(setDoc(doc(db,'profiles/'+alice),{
+     displayName:'Conta QA Sintética'
+   }));
+ });
  await test('sem autodeclaração, chat não libera',async()=>{
    await assertFails(getDoc(doc(c(alice),limitFor(alice))));
    await assertFails(getDoc(doc(c(bob),limitFor(bob))));
