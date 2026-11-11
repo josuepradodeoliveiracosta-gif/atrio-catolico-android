@@ -2,6 +2,7 @@
 """Snapshot read-only dos checks associados a um SHA exato."""
 import argparse
 from collections import Counter
+from datetime import datetime
 import json
 import os
 from pathlib import Path
@@ -62,6 +63,23 @@ def safe_markdown(raw):
             .replace("\n", " ").replace("<", "&lt;").replace(">", "&gt;"))
 
 
+def duration_seconds(check):
+    """Segundos observados de check completo; nunca estimar em caso de lacuna."""
+    if check.get("status") != "completed":
+        return None
+    try:
+        start = datetime.fromisoformat(check["started_at"].replace("Z", "+00:00"))
+        end = datetime.fromisoformat(check["completed_at"].replace("Z", "+00:00"))
+        if start.tzinfo is None or end.tzinfo is None:
+            return None
+        diff = (end - start).total_seconds()
+    except (TypeError, KeyError, AttributeError, ValueError, OverflowError):
+        return None
+    if not 0 <= diff <= 86400:
+        return None
+    return round(diff)
+
+
 def report(sha, checks):
     validate_sha(sha)
     if not isinstance(checks, list):
@@ -78,6 +96,21 @@ def report(sha, checks):
             "name": check["name"], "status": status,
             "conclusion": conclusion, "details_url": check.get("html_url") or "",
         })
+    measured = sorted(
+        ((check["name"], duration_seconds(check)) for check in checks
+         if isinstance(check.get("app"), dict)
+         and check["app"].get("slug") == "github-actions"),
+        key=lambda pair: (pair[1] is None, -(pair[1] or 0), pair[0]),
+    )
+    measured = [(name, seconds) for name, seconds in measured if seconds is not None]
+    timing = {
+        "measured_checks": len(measured),
+        "sum_check_seconds": sum(seconds for _, seconds in measured),
+        "longest_checks": [
+            {"name": name, "seconds": seconds} for name, seconds in measured[:5]
+        ],
+        "measurement_note": "duracoes_observadas_nao_custo_cobravel",
+    }
     required = {
         name: state_for([x for x in checks if x["name"] == name])
         for name in REQUIRED
@@ -87,6 +120,7 @@ def report(sha, checks):
         "repository": REPO, "commit_sha": sha, "check_count": len(checks),
         "counts": dict(sorted(totals.items())), "required_checks": required,
         "all_required_success": complete, "checks": serialized,
+        "timing": timing,
         "purpose": "audit_only_never_merge_approval",
     }
     markdown = [
@@ -105,6 +139,17 @@ def report(sha, checks):
     for name, state in required.items():
         markdown.append(f"| {safe_markdown(name)} | {safe_markdown(state)} |")
     markdown.extend((
+        "", "### Duracoes observadas dos checks GitHub Actions", "",
+        f"**Checks com duracao medivel:** {timing['measured_checks']}",
+        f"**Soma de duracoes observadas:** {timing['sum_check_seconds']} segundos",
+        "", "| Check | Segundos |", "| --- | ---: |",
+    ))
+    for item in timing["longest_checks"]:
+        markdown.append(f"| {safe_markdown(item['name'])} | {item['seconds']} |")
+    if not timing["longest_checks"]:
+        markdown.append("| Sem timestamps disponiveis | — |")
+    markdown.extend((
+        "", "Dados por check nao equivalem a minutos cobraveis, nem isolam tempo de fila.",
         "",
         "Todos os cinco checks obrigatórios passaram nesta consulta."
         if complete else

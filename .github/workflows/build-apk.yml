@@ -8,7 +8,7 @@ on:
 # APKs e testes de PR ja sao compilados por selos-ci.yml (check obrigatorio).
 # Este workflow fica reservado para build na main e execucao manual; nao interromper nenhum dos dois.
 concurrency:
-  group: apk-${{ github.ref }}
+  group: apk-run-${{ github.run_id }}
   cancel-in-progress: false
 
 permissions:
