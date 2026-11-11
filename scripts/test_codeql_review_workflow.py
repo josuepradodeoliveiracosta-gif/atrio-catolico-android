@@ -61,6 +61,24 @@ class CodeqlReviewContract(unittest.TestCase):
         self.assertIn("name: Regras de seguranca Firestore", mandatory)
         self.assertIn("scripts.test_codeql_review_workflow", mandatory)
 
+    def test_node24_actions_and_cache_with_sha(self):
+        # Dois checkouts (contrato e matriz) usam Node 24 sem credenciais.
+        self.assertEqual(self.source.count("uses: actions/checkout@v7"), 2)
+        self.assertIn("uses: actions/setup-java@v6", self.source)
+        self.assertEqual(self.source.count("persist-credentials: false"), 2)
+        self.assertNotIn("uses: actions/checkout@v4", self.source)
+        self.assertNotIn("uses: actions/setup-java@v4", self.source)
+        self.assertNotIn(
+            "gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a",
+            self.source,
+        )
+        self.assertIn(
+            "uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c",
+            self.source,
+        )
+        self.assertNotIn("cache-provider: enhanced", self.source)
+        self.assertNotIn("cache-disabled: true", self.source)
+
     def test_java_kotlin_debug_only(self):
         self.assertIn("gradle :app:assembleDebug --no-daemon --stacktrace",
                       self.source)
@@ -76,7 +94,11 @@ class CodeqlReviewContract(unittest.TestCase):
         self.assertIn("github/codeql-action/init@v4", self.source)
         self.assertIn("github/codeql-action/analyze@v4", self.source)
         self.assertIn("android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd", self.source)
-        self.assertIn("gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a", self.source)
+        self.assertIn("gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c", self.source)
+        self.assertIn("gradle-version: '8.13'", self.source)
+        self.assertIn("java-version: '17'", self.source)
+        self.assertNotIn("cache-provider: enhanced", self.source)
+        self.assertNotIn("cache-disabled: true", self.source)
         self.assertNotIn("android-actions/setup-android@v4", self.source)
         self.assertNotIn("gradle/actions/setup-gradle@v4", self.source)
         self.assertIn("queries: security-and-quality", self.source)
