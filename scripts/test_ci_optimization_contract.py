@@ -230,6 +230,13 @@ class CiOptimizationContract(unittest.TestCase):
             android,
         )
         self.assertIn("name: Disponibilizar APK debug apenas para testes da PR", android)
+        self.assertIn("uses: actions/upload-artifact@v7", android)
+        self.assertIn("archive: true", android)
+        self.assertIn("name: atrio-catolico-v0190-debug-testes", android)
+        self.assertIn("path: app/build/outputs/apk/debug/app-debug.apk", android)
+        self.assertIn("if-no-files-found: error", android)
+        self.assertIn("retention-days: 7", android)
+        self.assertIn("if: " + "$" + "{{ github.event_name == 'pull_request' }}", android)
         self.assertNotIn("id-token: write", android)
         self.assertNotIn("firebase deploy", android)
         self.assertNotIn("wrangler deploy", android)
