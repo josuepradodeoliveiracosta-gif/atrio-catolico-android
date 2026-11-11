@@ -2,10 +2,8 @@ name: Guardião V2 — identidade e observação limitada (sem moderação)
 # Token temporário. Cron de observação LEITURA SOMENTE; nunca faz moderação.
 # A política Firestore controla o modo de emergência. Ainda sem escrita de casos.
 on:
-  pull_request:
-    branches: [main]
   schedule:
-    - cron: '17 * * * *'
+    - cron: '17 */2 * * *'
   workflow_dispatch:
     inputs:
       confirm_identity_test:
