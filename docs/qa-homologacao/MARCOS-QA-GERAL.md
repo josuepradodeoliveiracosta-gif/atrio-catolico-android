@@ -90,3 +90,57 @@ Não importar Rules de produção nem abrir `posts` por conveniência.
 
 **Estado:** sem escrita remota, chat/grupos/Worker/FCM fechados,
 `NO_GO`, ativação QA 60% (3/5), QA geral 29% (2/7).
+
+## Auditoria de superfície herdada e comparação remota QA somente leitura (11/11/2026)
+
+A alternativa `closed-qa-parity.mjs` reaproveita a base
+`firestore.rules` do Git, logo **manter chat/grupos fechados
+não significa que toda operação herdada esteja bloqueada**.
+Os testes do Firebase Emulator documentam separadamente a
+matriz de acessos que a política legada efetivamente permite:
+
+| Rota herdada | Componente observado na base Git | Implicação antes de GO |
+|---|---|---|
+| `app_config/opening_video` | Leitura GET pública, inclusive sem login | Não tratar paridade como `deny-all` integral |
+| `app_config/founder`, `community_rules`, `email_verification` | Leitura GET com autenticação, mesmo sem e-mail confirmado | Não incluir informações sigilosas nesses docs |
+| `badges/{uid}`, `profile_photos/{uid}`, `public_profiles/{uid}` | GET por autenticado, inclusive não verificado | Rever exposição proporcional de dados de perfil |
+| `profiles/{uid}`, `users/{uid}/private/account` | Apenas o titular lê; terceiros negados | Preservar isolamento no teste real |
+| `user_reports/{reporterUid}__{targetUid}` | Cadastro de denúncia de conta por login autenticado, mesmo com e-mail não confirmado, independentemente do chat | Rever abuso/spam e plano de moderação; NÃO confundir com `chat_reports` |
+| `posts` e respostas | Após política de e-mail válida; publicação condicionada ao aceite de regras | Cobertas pela variante offline, não pelo candidato restrito |
+| `chats`, `chat_groups` | Requerem gates administrativos e elegibilidade adicional | Permanecem fechados na configuração inicial |
+
+A rota `user_reports` é permitida pela **base Git herdada**;
+o candidato restrito `self-declaration-candidate.mjs` da PR #232
+ainda a nega. Nenhum dos dois comportamentos é prova de que
+a rota funcione hoje no Firebase QA remoto. Este contraste
+precisa ser avaliado antes de escolher qual variante, se alguma,
+será implantada. Não alterar privilégios apenas para passar na CI.
+
+Novo comando de auditoria **exclusivamente read-only no Termux
+quando autorizado a verificar o estado atual**:
+
+```bash
+node scripts/chat-qa-parity-remote-readonly.mjs
+```
+
+Usa os mesmos quatro GETs do script de identidade/Rules QA já
+aprovado; autenticação Firebase CLI **já existente**, alvo
+`atrio-catolico-qa-geral` e pacote
+`br.com.atriocatolico.chatqa`. Compara o SHA-256 das Rules
+remotas QA com o SHA-256 da variante integrada calculada localmente.
+Se o remoto continuar em `deny-all`, relata que a candidata
+**NÃO está publicada** e `ready_for_activation=false`.
+Se o remoto sair de `deny-all`, falha fechado para investigação
+— NÃO altera nem restaura o Firebase automaticamente.
+
+**Limites:** comparação remota do QA não equivale a auditar
+Rules de **produção**; hash Git de `firestore.rules` não é
+comprovação da publicação em produção. Logs não devem conter
+UIDs reais, e-mail, tokens ou conteúdo de denúncias. A CI executa
+apenas mocks; o operador não recebeu instrução de executar
+o comando imediatamente. É indispensável revisão humana,
+aprovação do rollout e plano de reversão exato antes de
+qualquer alteração remota.
+
+**Status:** NO_GO, QA ativação 60% (3/5), QA geral 29% (2/7);
+nada modificado em Firebase real, Cloudflare, produção ou backups.

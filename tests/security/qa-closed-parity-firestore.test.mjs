@@ -65,6 +65,41 @@ try{
   await assertFails(getDocs(collection(guest,'posts')));
   await assertFails(getDoc(own(quota)));
  });
+ await test('permissões herdadas de leitura sobrevivem ao chat fechado mesmo sem app_config',async()=>{
+  // Este teste cataloga acessos legados; não os interpreta como GO do QA.
+  // Um GET autorizado pode retornar document.exists() == false.
+  await assertSucceeds(getDoc(doc(guest,'app_config/opening_video')));
+  await assertFails(getDocs(collection(guest,'app_config')));
+  await assertSucceeds(getDoc(doc(emailUnverified,'app_config/founder')));
+  await assertSucceeds(getDoc(doc(emailUnverified,'app_config/community_rules')));
+  await assertSucceeds(getDoc(doc(emailUnverified,'app_config/email_verification')));
+  await assertSucceeds(getDoc(doc(emailUnverified,'badges/qa-closed-parity-bob')));
+  await assertSucceeds(getDoc(doc(emailUnverified,'profile_photos/qa-closed-parity-bob')));
+  await assertSucceeds(getDoc(doc(emailUnverified,'public_profiles/qa-closed-parity-bob')));
+  await assertFails(getDoc(doc(guest,'app_config/founder')));
+  await assertFails(getDoc(doc(guest,'badges/qa-closed-parity-bob')));
+  await assertFails(getDoc(doc(emailUnverified,'profiles/qa-closed-parity-bob')));
+  await assertFails(setDoc(doc(emailUnverified,'admins/'+uid),{enabled:true}));
+ });
+ await test('denúncia de participante é rota herdada independente do chat e do email verificado',async()=>{
+  // A antiga rota user_reports exige autenticação, NÃO token email_verified.
+  // A exposição deve ser revisada como decisão operacional antes de deploy QA.
+  const report='user_reports/'+uid+'__qa-closed-parity-bob';
+  const payload={
+    reporterUid:uid,targetUid:'qa-closed-parity-bob',
+    reason:'Relato de abuso fictício exclusivamente no emulador',
+    createdAt:serverTimestamp()
+  };
+  await assertSucceeds(setDoc(doc(emailUnverified,report),payload));
+  await assertSucceeds(getDoc(doc(emailUnverified,report)));
+  await assertFails(getDoc(doc(other,report)));
+  await assertFails(getDoc(doc(guest,report)));
+  await assertFails(getDocs(collection(emailUnverified,'user_reports')));
+  await assertFails(setDoc(doc(emailUnverified,report),payload));
+  await assertFails(setDoc(doc(other,'user_reports/qa-closed-parity-bob__'+uid),{
+    ...payload,reporterUid:uid,targetUid:uid
+  }));
+ });
  await test('apenas no emulador estágio QA preserva mural e protege chat fechado',async()=>{
   await stage(async db=>{
    for(const [path,value] of Object.entries(STAGED_QA_DOCS))
