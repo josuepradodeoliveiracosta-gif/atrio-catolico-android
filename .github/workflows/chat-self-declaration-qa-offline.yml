@@ -5,6 +5,7 @@ on:
     branches: [feat/atrio-conversas-etapa1-20261106]
     paths:
       - 'firebase/qa-general/self-declaration-candidate.mjs'
+      - 'firebase/qa-general/registration-onboarding-rules.mjs'
       - 'tests/security/qa-self-declaration-firestore.test.mjs'
       - 'tests/security/qa-rollback-denyall-firestore.test.mjs'
       - 'scripts/chat-qa-activation-preflight.mjs'

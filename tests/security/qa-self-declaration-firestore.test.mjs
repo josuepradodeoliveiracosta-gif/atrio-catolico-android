@@ -5,7 +5,7 @@ import {readFileSync} from 'node:fs';
 import {renderSelfDeclarationRules} from '../../firebase/qa-general/self-declaration-candidate.mjs';
 import {initializeTestEnvironment,assertFails,assertSucceeds}
  from '@firebase/rules-unit-testing';
-import {doc,setDoc,getDoc,deleteDoc,Timestamp} from 'firebase/firestore';
+import {doc,setDoc,getDoc,deleteDoc,Timestamp,serverTimestamp} from 'firebase/firestore';
 
 const chat=readFileSync(new URL('../../firebase/atrio-conversas-v1.rules.fragment',import.meta.url),'utf8');
 const group=readFileSync(new URL('../../firebase/atrio-grupos-v1.rules.fragment',import.meta.url),'utf8');
@@ -41,22 +41,75 @@ try{
      safetyReviewVersion:'2026-11-safety-v1'
    });
  });
- await test('rotas de onboarding real ainda bloqueadas por Rules QA candidatas',async()=>{
-   // O aplicativo usa essas rotas durante cadastro e confirmação do email.
-   // Enquanto não houver política QA específica aprovada, fail-closed.
-   const db=c(alice);
-   await assertFails(getDoc(doc(db,'app_config/email_verification')));
-   await assertFails(getDoc(doc(db,'app_config/community_rules')));
-   await assertFails(setDoc(doc(db,'users/'+alice+'/private/account'),{
-     onboardingStatus:'pending_email',profileVersion:2,
-     noticesOptIn:false,communityUpdates:false
+ await test('cadastro QA: politica legivel mas config nao editavel pelo cliente',async()=>{
+   const own=c(alice);
+   await assertSucceeds(getDoc(doc(own,'app_config/email_verification')));
+   await assertSucceeds(getDoc(doc(own,'app_config/community_rules')));
+   await assertFails(getDoc(doc(unsigned,'app_config/email_verification')));
+   await assertFails(setDoc(doc(own,'app_config/email_verification'),{
+      enabled:false,version:'outdated'
    }));
-   await assertFails(setDoc(doc(db,'community_consents/'+alice),{
-     version:'2026-11-v1'
+   await assertFails(setDoc(doc(own,'app_config/community_rules'),{
+      enabled:false,version:'outdated'
    }));
-   await assertFails(setDoc(doc(db,'profiles/'+alice),{
-     displayName:'Conta QA Sintética'
+ });
+ await test('cadastro QA: conta privada inicia antes do email e conclui apenas apos confirmar',async()=>{
+   const path='users/'+alice+'/private/account';
+   const data=()=>({onboardingStatus:'pending_email',profileVersion:2,
+     noticesOptIn:false,communityUpdates:false,updatedAt:serverTimestamp()});
+   await assertFails(setDoc(doc(c(bob),path),data()));
+   await assertFails(setDoc(doc(unsigned,path),data()));
+   await assertFails(setDoc(doc(c(alice),path),{...data(),isAdmin:true}));
+   await assertFails(setDoc(doc(c(alice),path),{...data(),onboardingStatus:'complete'}));
+   await assertSucceeds(setDoc(doc(unverified,path),data()));
+   await assertSucceeds(getDoc(doc(unverified,path)));
+   await assertFails(getDoc(doc(c(bob),path)));
+   await assertFails(setDoc(doc(unverified,path),{
+     ...data(),onboardingStatus:'complete'
    }));
+   await assertFails(setDoc(doc(c(alice),path),{
+     ...data(),onboardingStatus:'complete',role:'admin'
+   }));
+   await assertSucceeds(setDoc(doc(c(alice),path),{
+     ...data(),onboardingStatus:'complete'
+   },{merge:true}));
+   await assertFails(setDoc(doc(c(alice),path),data()));
+ });
+ await test('cadastro QA: perfil e aceite próprios com campos exatos e timestamps de servidor',async()=>{
+   const profile='profiles/'+alice,consent='community_consents/'+alice;
+   const p=()=>({displayName:'Adulto QA',createdAt:serverTimestamp()});
+   const accepted=()=>({version:'2026-11-v1',acceptedAt:serverTimestamp()});
+   await assertFails(setDoc(doc(c(bob),profile),p()));
+   await assertFails(setDoc(doc(c(alice),profile),{...p(),isModerator:true}));
+   await assertFails(setDoc(doc(c(alice),profile),{...p(),displayName:'X'}));
+   await assertSucceeds(setDoc(doc(unverified,profile),p()));
+   await assertSucceeds(getDoc(doc(c(alice),profile)));
+   await assertFails(getDoc(doc(c(bob),profile)));
+   await assertFails(setDoc(doc(unverified,profile),p()));
+   await assertSucceeds(setDoc(doc(c(alice),profile),{displayName:'Perfil Novo',createdAt:serverTimestamp()}));
+   await assertFails(setDoc(doc(c(bob),consent),accepted()));
+   await assertFails(setDoc(doc(c(alice),consent),{...accepted(),role:'admin'}));
+   await assertFails(setDoc(doc(c(alice),consent),{...accepted(),version:'fake'}));
+   await assertSucceeds(setDoc(doc(unverified,consent),accepted()));
+   await assertSucceeds(getDoc(doc(c(alice),consent)));
+   await assertFails(getDoc(doc(c(bob),consent)));
+   await assertSucceeds(deleteDoc(doc(c(alice),consent)));
+ });
+ await test('cadastro QA: preferencias de fé somente privadas, opcionais e com aceite',async()=>{
+   const path='users/'+alice+'/private/preferences';
+   const prefs=()=>({interests:['Oração','Comunidade'],participation:'Leigo(a)',
+     city:'Fortaleza',parish:'',consentVersion:'cadastro-v2-2026-11',
+     consentAt:serverTimestamp(),updatedAt:serverTimestamp()});
+   await assertFails(setDoc(doc(unverified,path),prefs()));
+   await assertFails(setDoc(doc(c(bob),path),prefs()));
+   await assertFails(setDoc(doc(c(alice),path),{...prefs(),role:'Padre'}));
+   await assertFails(setDoc(doc(c(alice),path),{...prefs(),consentVersion:'none'}));
+   await assertFails(setDoc(doc(c(alice),path),{...prefs(),interests:['other']}));
+   await assertFails(setDoc(doc(c(alice),path),{...prefs(),city:'X'.repeat(81)}));
+   await assertSucceeds(setDoc(doc(c(alice),path),prefs()));
+   await assertSucceeds(getDoc(doc(c(alice),path)));
+   await assertFails(getDoc(doc(c(bob),path)));
+   await assertSucceeds(deleteDoc(doc(c(alice),path)));
  });
  await test('sem autodeclaração, chat não libera',async()=>{
    await assertFails(getDoc(doc(c(alice),limitFor(alice))));

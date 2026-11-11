@@ -138,3 +138,44 @@ A CI exercita apenas fixtures e garante que o método é restrito a QA.
 A revisão do processo segue em **NO_GO** e a barra da tarefa em
 **60% (3/5)**, até que as dependências sejam resolvidas e a
 autorização específica de ativação tenha sido concedida.
+
+## Correção candidata das rotas de onboarding (sem deploy)
+
+Após confirmar via `testIamPermissions` as cinco permissões **no QA**
+(`may_have_publish_permissions_in_qa=true`, saída do Termux fornecida
+pelo operador, **sem prova de isolamento da produção**), o código
+candidato passou a conter **exclusivamente no gerador alternativo QA**
+as permissões mínimas do cadastro V2. A fonte nova é
+`firebase/qa-general/registration-onboarding-rules.mjs`.
+
+- `app_config/email_verification` e `app_config/community_rules`:
+  leitura (`get`) para autenticados; nenhuma escrita, listagem ou
+  exclusão permitida ao cliente. As configurações precisam ser
+  preexistentes e aprovadas administrativamente antes de um teste real.
+- `users/{uid}/private/account`: criação pelo próprio UID, com
+  `pending_email`, `profileVersion=2`, flags de notificação falsas e
+  timestamp do servidor. Transição para `complete` somente após
+  `email_verified`, sem campos inesperados.
+- `profiles/{uid}`: criação do nome público por UID com campos
+  estritos e atualização só após e-mail validado. Leitura somente
+  do próprio UID; não existe listagem/consulta de outros perfis.
+- `community_consents/{uid}`: aceite por UID com versão exata e
+  timestamp de servidor, exclusão pelo próprio UID.
+- `users/{uid}/private/preferences`: dados de fé/paróquia privados,
+  campos limitados e aceite específico; criação/edição somente com
+  e-mail verificado; o próprio UID pode apagá-los.
+
+Os cenários positivos e negativos foram acrescentados ao Firebase
+Emulator e são disparados pela CI do draft #232. **Esse novo código
+não modifica `firebase/firestore.rules` nem o Ruleset remoto QA.**
+O cadastro real ainda exige a confirmação e aprovação da configuração
+`app_config/email_verification` com `enabled=true` e
+`version='2026-11-v1'`; o candidato de regras *não cria* esse
+documento. Sem ele, o cliente pode considerar a política opcional
+para contas antigas; por isso **não há autorização para publicar**.
+
+Também segue pendente recuperação amigável da gravação assíncrona
+da autodeclaração, validação integrada do onboarding no Android,
+moderação e privacidade (issue #200). Grupos e Worker/FCM continuam
+bloqueados. Progresso da tarefa ainda **60%** até preencher todas
+as condições de GO e obter autorização específica.

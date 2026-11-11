@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {render} from './compose-rules.mjs';
+import {QA_REGISTRATION_ROUTES} from './registration-onboarding-rules.mjs';
 
 const ROOT=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 const one=(source,old,next)=>{
@@ -41,7 +42,13 @@ export function renderSelfDeclarationRules(chat,group){
   "        && request.resource.data.reviewExpiresAt <= request.time + duration.value(366,'d');",
   '    }'
  ].join('\n');
- return one(rules,before,after);
+ const ageRules=one(rules,before,after);
+ // Adicionar apenas às Rules alternativas de QA, com match exclusivo
+ // e sem tocar o firestore.rules oficial, produção ou Worker.
+ return one(ageRules,
+  '    match /users/{uid}/chatAgeEligibility/current {',
+  QA_REGISTRATION_ROUTES+'\n    match /users/{uid}/chatAgeEligibility/current {');
+
 }
 export function generate(){
  const chat=fs.readFileSync(path.join(ROOT,'firebase/atrio-conversas-v1.rules.fragment'),'utf8');
