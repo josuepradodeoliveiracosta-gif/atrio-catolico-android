@@ -58,3 +58,7 @@ Nos logs do job Kotlin de [42949257642](https://github.com/josuepradodeoliveirac
 5. **Aceite 9,5:** reduzir a mediana ou P90 dos fluxos críticos em amostras comparáveis, sem deteriorar o resto; cinco checks obrigatórios, CodeQL completo, zero regressão de release/OTA e review humano. **Nenhum percentual de ganho global comprovado nesta etapa.**
 
 Os snapshots de origem permanecem nos respectivos runs do GitHub. Nenhum segredo ou dado pessoal é necessário para a análise.
+
+## Continuação: decomposição por etapas e metadados
+
+A [análise de gargalos com evidências da PR #241 e da `main`](diagnostico-gargalos-kotlin-2026-11-11.md) acrescenta ao instrumento de auditoria a duração até o último job, o intervalo entre sua conclusão e `updated_at`, e as etapas mais longas do job crítico. O tempo de atualização de metadados **não deve ser contado como fila ou CPU**. A linha de base histórica acima é mantida intacta para comparação.
