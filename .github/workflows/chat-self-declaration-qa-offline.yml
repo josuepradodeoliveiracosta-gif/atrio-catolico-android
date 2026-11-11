@@ -1,0 +1,56 @@
+name: Chat QA - autodeclaracao 18+ somente no emulador
+
+on:
+  pull_request:
+    branches: [feat/atrio-conversas-etapa1-20261106]
+    paths:
+      - 'firebase/qa-general/self-declaration-candidate.mjs'
+      - 'tests/security/qa-self-declaration-firestore.test.mjs'
+      - 'app/src/main/java/br/com/atriocatolico/OnlineAtrioApp.kt'
+      - 'app/src/main/java/br/com/atriocatolico/RegistrationV2.kt'
+      - 'docs/qa-homologacao/CHAT-AUTODECLARACAO-18-QA.md'
+      - '.github/workflows/chat-self-declaration-qa-offline.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: atrio-selfdecl-qa-${{ github.run_id }}
+  cancel-in-progress: false
+jobs:
+  emulator-only:
+    name: Garantir fail-closed da autodeclaracao QA ficticia
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GOOGLE_CLOUD_PROJECT: demo-atrio-v11
+      FIREBASE_TOKEN: ''
+      GOOGLE_APPLICATION_CREDENTIALS: ''
+      CLOUDFLARE_API_TOKEN: ''
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Dependencias de teste existentes
+        run: npm ci --prefix tests/security
+      - name: Somente sintaxe do gerador QA
+        run: node --check firebase/qa-general/self-declaration-candidate.mjs
+      - name: Preparar regras alternativas locais
+        run: node firebase/qa-general/self-declaration-candidate.mjs
+      - name: Garantir escopo sem acesso a produção
+        run: |
+          test "$GOOGLE_CLOUD_PROJECT" = demo-atrio-v11
+          ! grep -q 'allow read, write: if true;' tests/security/qa-general.generated.rules
+          test -f tests/security/qa-general.generated.rules
+      - name: Testar no emulador Firebase sem credenciais reais
+        working-directory: tests/security
+        run: ./node_modules/.bin/firebase emulators:exec --only firestore --config qa-general.firebase.json --project demo-atrio-v11 "node qa-self-declaration-firestore.test.mjs"
+      - name: Remover arquivo gerado no runner
+        if: always()
+        run: rm -f tests/security/qa-general.generated.rules
