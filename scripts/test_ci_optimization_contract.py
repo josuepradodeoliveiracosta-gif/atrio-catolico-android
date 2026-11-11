@@ -222,7 +222,14 @@ class CiOptimizationContract(unittest.TestCase):
         self.assertIn("uses: actions/setup-java@v6", android)
         self.assertIn("persist-credentials: false", android)
         self.assertIn("java-version: '17'", android)
-        self.assertIn("gradle/actions/setup-gradle@v4", android)
+        self.assertIn(
+            "uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c",
+            android,
+        )
+        self.assertNotIn("gradle/actions/setup-gradle@v4", android)
+        self.assertNotIn("gradle/actions/setup-gradle@v6", android)
+        self.assertNotIn("cache-provider: enhanced", android)
+        self.assertNotIn("cache-disabled: true", android)
         self.assertIn("gradle-version: '8.13'", android)
         self.assertIn("timeout-minutes: 25", android)
         self.assertIn(
@@ -250,7 +257,7 @@ class CiOptimizationContract(unittest.TestCase):
         self.assertNotIn("node-version: '20'", selos)
         self.assertIn("cache: npm", selos)
         self.assertIn("cache-dependency-path: tests/security/package-lock.json", selos)
-        self.assertIn("gradle/actions/setup-gradle@v4", selos)
+        self.assertIn("gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c", selos)
         self.assertIn("gradle/actions/setup-gradle@v4", workflow("build-apk.yml"))
         self.assertIn("gradle/actions/setup-gradle@", workflow("codeql-review.yml"))
 

@@ -75,7 +75,8 @@ jobs:
       - name: Preparar Android SDK
         uses: android-actions/setup-android@v4
       - name: Configurar Gradle 8.13
-        uses: gradle/actions/setup-gradle@v4
+        # v5.0.2: Node 24, SHA imutavel, mantendo cache GitHub existente.
+        uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c
         with:
           gradle-version: '8.13'
       - name: Instalar plataforma Android 36
