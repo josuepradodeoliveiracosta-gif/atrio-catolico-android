@@ -10,6 +10,7 @@ O índice é a **porta de entrada única** para conhecer os módulos, entender o
 | Acompanhar minutas legais e pendências LGPD (não vigentes) | [Termos de Uso](juridico/MINUTA-TERMOS-USO-2026-11-09.md) · [Privacidade](juridico/MINUTA-POLITICA-PRIVACIDADE-2026-11-09.md) · [Plano de adequação](juridico/PLANO-ADEQUACAO-TERMOS-PRIVACIDADE-2026-11-09.md) |
 | Consultar auditoria e limpeza de arquivos sem uso | [Auditoria de 07/11/2026](operacoes/AUDITORIA-LIMPEZA-2026-11-07.md) |
 | Localizar os diretórios, sistemas e dependências | [Mapa técnico do repositório](arquitetura/MAPA-REPOSITORIO.md) |
+| Consultar organização local do Termux (11/11/2026) | [Inventário do Termux](organizacao/INVENTARIO-TERMUX-2026-11-11.md) |
 | Saber o que está integrado ou em homologação | [Estado das funcionalidades](funcionalidades/STATUS.md) |
 | Registrar uma tarefa, proposta ou bloqueio | [Gestão de demandas](organizacao/FLUXO-DE-TRABALHO.md) |
 | Ver a fotografia do repositório e o plano gradual | [Inventário e migração](organizacao/INVENTARIO-E-PLANO.md) |
