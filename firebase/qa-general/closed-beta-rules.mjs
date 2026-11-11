@@ -31,6 +31,12 @@ const betaFunction=[
 ].join('\n');
 
 export function renderClosedBetaSelfDeclarationRules(chat,group){
+ // Esta variante deve recusar fontes renomeadas, não apenas duplicar
+ // trechos num Ruleset possivelmente incompatível. Conferir ANTES de
+ // renderizar: preserve exatamente as funções de ativação em ambos.
+ if(typeof chat!=='string'||typeof group!=='string'||
+    chat.split('    function chatEnabled() {').length!==2 ||
+    group.split('    function atrioGroupsEnabled() {').length!==2)fail();
  let rules=renderSelfDeclarationRules(chat,group);
  rules=replaceOnce(
    rules,
