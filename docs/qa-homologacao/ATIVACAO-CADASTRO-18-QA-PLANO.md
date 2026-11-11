@@ -52,7 +52,7 @@ sem espaços e comentários. A primeira versão do pré-flight apresentou
 falha de comparação por compactação assimétrica; foi corrigida e deve
 ser confirmada na CI do novo SHA. Esse bug não alterou serviços remotos.
 
-## Captura do Ruleset anterior para reversão exata (ainda pendente no QA real)
+## Identificador de Ruleset para reversão planejada (capturado no QA real)
 
 O relatório `scripts/termux-firebase-qa-audit-readonly.mjs` passou a emitir
 `remote_ruleset_name`: um identificador público de versão **do QA**,
@@ -71,3 +71,31 @@ read-only, conferir simultaneamente:
 **Não confundir** obter o ID com autorização para restaurar/publicar: o
 procedimento de mudança continua bloqueado pela issue #200, revisão IAM e
 aprovação específica, com grupos e FCM mantidos desligados.
+
+## Evidência de Ruleset remoto fornecida pelo operador — etapa 3/5
+
+**Registrada após nova execução autenticada, exclusivamente leitura, no Termux.**
+A captura enviada pelo fundador comprova a saída apresentada pelo
+`scripts/termux-firebase-qa-audit-readonly.mjs`; o agente não executou
+consultas autenticadas ao Firebase em seu próprio ambiente.
+
+- Projeto: `atrio-catolico-qa-geral`.
+- Pacote: `br.com.atriocatolico.chatqa`.
+- `status=QA_REAL_DENY_ALL_CONFIRMED`.
+- `remote_project_and_app_verified=true`, `remote_firestore_rules_verified=true`.
+- `remote_rules_deny_all=true`, `ready_for_activation=false`.
+- `rules_sha256=cd5089e4e5116dbb994013dc5fd5e7e411ec348935b8d06d13acd00173cca15b` (igual ao snapshot anterior).
+- `remote_ruleset_name=projects/atrio-catolico-qa-geral/rulesets/1d6b6a71-6d95-48cc-98fe-7bd16c71b3bc`.
+- Data/hora UTC exibida: `2026-11-11T01:40:25.461Z`.
+- `production_contacted=false`, `changes_performed=false`.
+
+**Resultado:** concluída a preparação documental e offline da etapa 3,
+com identificação da versão do Ruleset QA ainda fechado e referência de
+retorno a `deny-all`. A barra desta tarefa passa a **60% (3/5)**.
+Isso **NÃO significa** ter executado reversão, testado permissões IAM
+para publicar, feito backup byte-a-byte, obtido autorização de deploy ou
+aberto chat/grupos/notificações. Antes de qualquer etapa de ativação,
+validar IAM e eventual retenção do Ruleset histórico, rever a issue #200,
+confirmar o estado remoto imediatamente antes da publicação e obter
+autorização específica do fundador. Em caso de revisão de segurança
+não aprovada, manter o QA deny-all. QA geral continua **29% (2/7, NO_GO)**.
