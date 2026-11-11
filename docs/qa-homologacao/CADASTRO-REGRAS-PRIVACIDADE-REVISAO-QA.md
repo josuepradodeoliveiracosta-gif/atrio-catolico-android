@@ -5,6 +5,14 @@ no código da branch draft [PR #232](https://github.com/josuepradodeoliveiracost
 sem atribuir aprovação jurídica ou operacional, sem ativação de usuários,
 sem inserir o conteúdo no Firebase e sem editar `main` ou produção.
 
+## Decisão ratificada pelo fundador: método provisório suficiente para o projeto
+
+**Escolha funcional e orçamentária FECHADA (11/11/2026):** 18+ para mensagens privadas e grupos; nesta fase, **data informada com cálculo local + autodeclaração expressa 18+** constituem o método provisório adotado e considerado suficiente **pelo responsável para o fluxo do projeto**, até haver disponibilidade financeira para algo mais robusto. **Não criar dependência automática de fornecedor pago** nem manter "escolher método" como pendência de produto. Isso não constitui verificação independente de idade nem dispensa avaliação legal da aplicabilidade das regras de proteção de menores. Não representar 'declared_18_plus' como 'verified'.
+
+**Separar bloqueios:** a escolha operacional da autodeclaração está decidida; permanecem pendentes revisão de riscos legais/menores, segurança contra contato abusivo, tratamento de denúncias, moderação, retenção, termos/privacidade completos, segregação QA e autorização específica de publicação. CI e teste manual não concedem GO de deploy.
+
+Veja docs/qa-homologacao/CHAT-AUTODECLARACAO-18-QA.md para o escopo e as limitações. A issue #200 segue aberta e não está juridicamente aprovada.
+
 ## O que o código realmente apresenta hoje
 
 1. **Regras da Comunidade** (`CommunityRulesGate.kt`,
