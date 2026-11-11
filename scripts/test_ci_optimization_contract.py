@@ -64,6 +64,37 @@ class CiOptimizationContract(unittest.TestCase):
         self.assertIn("languages: " + "$" + "{{ matrix.language }}", codeql)
         self.assertIn("gradle :app:assembleDebug", codeql)
 
+    def test_version_and_dependency_cancellation_is_pr_only(self):
+        # Nenhum push, agendamento ou workflow_dispatch pode ser cancelado
+        # por um commit de PR. Cada PR cancela apenas a propria revisao antiga.
+        for filename, prefix in (
+            ("conferir-versao.yml", "atrio-version-"),
+            ("dependency-review.yml", "atrio-dependency-"),
+        ):
+            source = workflow(filename)
+            self.assertIn(
+                "group: " + prefix + "$" +
+                "{{ github.event_name == 'pull_request' && "
+                "format('pr-{0}', github.event.pull_request.number) || "
+                "format('run-{0}', github.run_id) }}",
+                source,
+            )
+            self.assertIn(
+                "cancel-in-progress: " + "$" +
+                "{{ github.event_name == 'pull_request' }}",
+                source,
+            )
+            self.assertNotIn("cancel-in-progress: true", source)
+            self.assertNotIn("pull_request_target", source)
+        version = workflow("conferir-versao.yml")
+        self.assertIn("  push:\n    branches: [main]", version)
+        self.assertIn("  workflow_dispatch:", version)
+        self.assertIn("  pull_request:\n    branches: [main]", version)
+        dependency = workflow("dependency-review.yml")
+        self.assertIn("    needs: contract", dependency)
+        self.assertIn("fail-on-severity: high", dependency)
+        self.assertIn("npm audit --json --package-lock-only", dependency)
+
     def test_reporting_has_one_completed_source_and_no_merge_permission(self):
         source = workflow("ci-quality-report.yml")
         on_block = source.split("on:\n", 1)[1].split("\npermissions:", 1)[0]

@@ -29,6 +29,26 @@ class DependencyReviewContract(unittest.TestCase):
         self.assertNotIn("paths-ignore:", self.review)
         self.assertNotIn("pull_request_target", self.review)
 
+    def test_only_outdated_pr_runs_are_cancelled(self):
+        # Contrato protegido pelo job obrigatorio Firestore, nao somente
+        # pelo job do workflow de dependencias em revisao.
+        self.assertIn(
+            "group: atrio-dependency-" + "$" +
+            "{{ github.event_name == 'pull_request' && "
+            "format('pr-{0}', github.event.pull_request.number) || "
+            "format('run-{0}', github.run_id) }}",
+            self.review,
+        )
+        self.assertIn(
+            "cancel-in-progress: " + "$" +
+            "{{ github.event_name == 'pull_request' }}",
+            self.review,
+        )
+        self.assertIn("    needs: contract", self.review)
+        mandatory = (ROOT / ".github/workflows/selos-ci.yml").read_text(encoding="utf-8")
+        self.assertIn("name: Regras de seguranca Firestore", mandatory)
+        self.assertIn("scripts.test_dependency_review_contract", mandatory)
+
     def test_high_severity_and_all_scopes(self):
         self.assertIn("actions/dependency-review-action@v4", self.review)
         self.assertIn("fail-on-severity: high", self.review)
