@@ -25,7 +25,7 @@ test('variante opcional somente offline inclui lista fechada sem ampliar grants'
 test('sem ancora de eligibilidade o candidato falha fechado',()=>{
  assert.throws(()=>renderClosedBetaSelfDeclarationRules(
    chat.replace('function chatEnabled() {','function chatEnabledChanged() {'),
-   group),/qa_source_fragment_incompatible|qa_chat_gate_changed/);
+   group),/qa_source_fragment_incompatible|qa_chat_gate_changed|qa_closed_beta_rule_anchor_changed/);
  assert.throws(()=>renderClosedBetaSelfDeclarationRules(
    chat,group.replace('function atrioGroupsEnabled() {',
       'function groupsEnabledChanged() {')),/qa_source_fragment_incompatible|qa_age18_|qa_/);
