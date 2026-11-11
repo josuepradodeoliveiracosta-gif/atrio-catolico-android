@@ -203,7 +203,7 @@ class CiOptimizationContract(unittest.TestCase):
 
     def test_node24_actions_pilot_isolated_to_firestore(self):
         source = workflow("selos-ci.yml")
-        firestore, android = source.split("  android:\\n", 1)
+        firestore, android = source.split("  android:\n", 1)
         # A atualizacao das actions nao altera o Node usado pelos testes.
         self.assertIn("uses: actions/checkout@v7", firestore)
         self.assertIn("uses: actions/setup-node@v7", firestore)
