@@ -61,6 +61,43 @@ divergência, sem qualquer alteração automática. Erros falham fechados com
 identificadores genéricos. Nunca compartilhar tokens, `google-services.json`
 ou credenciais; o resumo sanitizado é apropriado para registrar evidências.
 
-**Ainda pendente:** executar o comando com a sessão autenticada
-real, conferir o resultado e aprovar o escopo de moderação/privacidade #200.
-Testes sintéticos do próprio verificador **não substituem** essa leitura.
+**Atualização após evidência do operador (11/11/2026):** a consulta
+**real e autenticada** agora foi executada no Termux pelo fundador, que
+forneceu a captura do resultado sanitizado nesta conversa. A identidade,
+as regras publicadas e a negação total foram confirmadas nesse instante.
+Permanece pendente aprovar o escopo da política #200 e as dependências de
+ativação. A captura do operador não comprova IAM completo, FCM, nem
+comportamento em dispositivos reais.
+
+## Resultado remoto autenticado — evidência do operador
+
+- **Origem da prova:** captura do terminal Termux do fundador, após copiar
+  uma configuração privada QA validada para a pasta
+  `~/atrio-workspaces/qa-cadastro`. Captura analisada nesta conversa,
+  não enviada ao repositório.
+- **Ferramenta:** `scripts/termux-firebase-qa-audit-readonly.mjs`,
+  commit `236210f940dbc87d52d1e51d7d3371c87e8526b2` antes
+  desta atualização; método `FOUR_QA_GET`.
+- **Horário retornado no terminal:** `2026-11-11T01:16:22.664Z`.
+- **Projeto:** `atrio-catolico-qa-geral`.
+- **Pacote Android:** `br.com.atriocatolico.chatqa`.
+- **Resultado:** `status=QA_REAL_DENY_ALL_CONFIRMED`,
+  `remote_project_and_app_verified=true`,
+  `remote_firestore_rules_verified=true`,
+  `remote_rules_deny_all=true`.
+- **Hash SHA-256 das Rules remotas:** `cd5089e4e5116dbb994013dc5fd5e7e411ec348935b8d06d13acd00173cca15b`.
+- **Sinalizadores do relatório:** `ready_for_activation=false`,
+  `production_contacted=false`, `changes_performed=false`.
+- **Limitação:** evidência do operador e verificador read-only, sem uma segunda
+  leitura independente nesta sessão ChatGPT e sem auditoria de IAM. O
+  estado é um snapshot; futuros deploys podem alterá-lo.
+
+**Conclusão da etapa 2 da tarefa específica:** auditoria do código,
+permissões Firestore candidatas, testes de negação, isolamento do app/projeto
+e leitura de Rules publicadas no Firebase QA **concluídos para o escopo de
+pré-ativação read-only**. A barra da tarefa de ativação pode avançar de
+**20% a 40% (2/5 etapas)**. Isso **não** altera o marco geral QA:
+**2/7 = 29%, NO_GO**. Antes do deploy, confirmar IAM/identidade de quem
+pode publicar Rules, plano de rollback, moderação/retenção e consentimento
+de política da issue #200; Worker/FCM e autorização de grupos continuam
+pendentes. O Firebase QA real permanece deny-all; nenhum deploy realizado.
