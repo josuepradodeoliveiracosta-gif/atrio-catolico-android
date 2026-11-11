@@ -1,5 +1,4 @@
 """Testes offline da selecao fail-closed de bundles Workers."""
-import subprocess
 import unittest
 from types import SimpleNamespace
 from scripts.ci_worker_scope import BOTH, choose_bundles, changed_paths
