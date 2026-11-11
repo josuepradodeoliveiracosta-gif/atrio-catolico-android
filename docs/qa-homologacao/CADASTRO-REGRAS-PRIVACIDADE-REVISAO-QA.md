@@ -240,3 +240,19 @@ ativação; canal de denúncia pós-saída/desativação ainda requer
 definição, pois as Rules não permitem nova denúncia nesse estado.
 Novo teste de emulador revalida a visibilidade mínima dos protocolos
 existentes, sem acesso geral a mensagens privadas.
+
+## Pacote decisório consolidado da issue #200
+
+A minuta [PACOTE-DECISOES-OPERACIONAIS-ISSUE-200-QA.md](PACOTE-DECISOES-OPERACIONAIS-ISSUE-200-QA.md)
+organiza o fluxo proposto de denúncia, revisão humana, risco urgente,
+direitos do titular e retenção. Os oito itens de governança estão em
+[ISSUE-200-GOVERNANCA-QA.json](ISSUE-200-GOVERNANCA-QA.json),
+**todos aguardando avaliação**; a escolha funcional da autodeclaração
+18+ continua **DECIDIDA** e não há contratação de verificador pago.
+
+O pré-flight `node scripts/chat-qa-governance-preflight.mjs`
+é somente local, rejeita campos inesperados e tentativas de elevar
+o marcador de revisão a "APPROVED" e sempre retorna NO_GO para
+deploy QA/produção. Ele não verifica assinaturas humanas nem substitui
+o registro formal na issue #200. O workflow QA existente testa o
+contrato sem credenciais, chamadas remotas ou serviços novos.
