@@ -61,18 +61,47 @@ def profile(run, jobs):
         end = job.get("completed_at")
         elapsed = seconds(start, end)
         wait = seconds(started, start)
+        # A API de jobs ja inclui steps: nenhuma consulta ou permissao nova.
+        # Etapas ausentes, puladas ou com timestamps invalidos nao quebram
+        # a auditoria nem sao tratadas como trabalho executado.
+        step_durations = []
+        for step in job.get("steps") or []:
+            if not isinstance(step, dict) or step.get("conclusion") != "success":
+                continue
+            if not step.get("started_at") or not step.get("completed_at"):
+                continue
+            try:
+                elapsed_step = seconds(step["started_at"], step["completed_at"])
+            except ValueError:
+                continue
+            step_durations.append({
+                "name": str(step.get("name") or "etapa")[:100],
+                "elapsed_sec": elapsed_step,
+            })
+        step_durations.sort(key=lambda item: item["elapsed_sec"], reverse=True)
         valid.append({
             "name": job.get("name") or "job",
             "elapsed_sec": elapsed,
             "wait_to_start_sec": wait,
             "ended": timestamp(end),
+            "top_steps": step_durations[:3],
         })
     if not valid:
         raise ValueError("nenhum job executado")
     critical = max(valid, key=lambda j: j["ended"])
+    # updated_at e um metadado do workflow, nao o instante exato
+    # de conclusao dos jobs. Pode ser atualizado bem depois.
+    last_job_end = critical["ended"].isoformat()
+    try:
+        metadata_tail = seconds(last_job_end, run.get("updated_at"))
+    except ValueError:
+        metadata_tail = None
     return {
         "run_id": run_id,
         "wall_sec": wall,
+        "to_last_job_sec": seconds(started, last_job_end),
+        "post_jobs_metadata_sec": metadata_tail,
+        "critical_steps": critical["top_steps"],
         "runner_seconds": sum(job["elapsed_sec"] for job in valid),
         "critical_job": str(critical["name"])[:120],
         "critical_job_seconds": critical["elapsed_sec"],
@@ -91,8 +120,15 @@ def percentile_nearest(values, percent):
 def summarize(profiles):
     if not profiles:
         return {"count": 0, "incomplete": True}
+    tails = [p["post_jobs_metadata_sec"] for p in profiles
+             if p["post_jobs_metadata_sec"] is not None]
     return {
         "count": len(profiles),
+        "to_last_job_median_sec": median(p["to_last_job_sec"] for p in profiles),
+        "to_last_job_p90_sec": percentile_nearest(
+            [p["to_last_job_sec"] for p in profiles], 90
+        ),
+        "post_jobs_metadata_median_sec": median(tails) if tails else None,
         "wall_median_sec": median(p["wall_sec"] for p in profiles),
         "wall_p90_sec": percentile_nearest([p["wall_sec"] for p in profiles], 90),
         "critical_wait_median_sec": median(
@@ -183,20 +219,24 @@ def markdown(report):
         "# Auditoria de latência do GitHub Actions", "",
         "Medição somente leitura de workflows bem-sucedidos. Não é experimento "
         + "controlado nem estimativa de custo faturável.", "",
-        "| Grupo | Amostra | Mediana total | P90 total | Mediana espera job crítico | P90 espera |",
-        "| --- | ---: | ---: | ---: | ---: | ---: |",
+        "| Grupo | Amostra | Mediana total | P90 total | Mediana até último job | P90 até último job | Mediana espera job crítico | P90 espera |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for label, group in report["groups"].items():
         s = group["statistics"]
         if s["incomplete"]:
-            out.append(f"| {escape_cell(label)} | 0 | — | — | — | — |")
+            out.append(f"| {escape_cell(label)} | 0 | — | — | — | — | — | — |")
             continue
         out.append(
             f"| {escape_cell(label)} | {s['count']} | {s['wall_median_sec']}s "
-            f"| {s['wall_p90_sec']}s | {s['critical_wait_median_sec']}s "
-            f"| {s['critical_wait_p90_sec']}s |"
+            f"| {s['wall_p90_sec']}s | {s['to_last_job_median_sec']}s "
+            f"| {s['to_last_job_p90_sec']}s | "
+            f"{s['critical_wait_median_sec']}s | {s['critical_wait_p90_sec']}s |"
         )
-    out.extend(("", "Espera até iniciar o job crítico inclui **dependências** "
+    out.extend(("", "Mediana total usa updated_at do workflow; a coluna 'até último job' "
+                + "usa completed_at do último job. Diferenças não equivalem "
+                + "necessariamente a fila, execução ou processamento cobrado.", "",
+                "Espera até iniciar o job crítico inclui **dependências** "
                 + "e **fila**; não mede exclusivamente indisponibilidade de runners.",
                 "A soma de segundos dos jobs não corresponde necessariamente a "
                 + "minutos cobrados. Comparar PRs de escopo semelhante antes de "
@@ -206,10 +246,22 @@ def markdown(report):
         for p in group["profiles"]:
             url = f"https://github.com/{REPO}/actions/runs/{p['run_id']}"
             out.append(
-                f"- [Run {p['run_id']}]({url}): {p['wall_sec']}s total, "
+                f"- [Run {p['run_id']}]({url}): {p['wall_sec']}s por metadados, "
+                f"{p['to_last_job_sec']}s até terminar todos os jobs, "
                 f"{p['critical_job_wait_to_start_sec']}s até iniciar "
                 f"o job crítico, {p['critical_job_seconds']}s no job crítico."
             )
+            if p["post_jobs_metadata_sec"] is not None:
+                out.append(
+                    f"  - Intervalo entre fim dos jobs e updated_at: "
+                    f"{p['post_jobs_metadata_sec']}s (metadados, não fila)."
+                )
+            if p["critical_steps"]:
+                top = ", ".join(
+                    f"{escape_cell(step['name'])} ({step['elapsed_sec']}s)"
+                    for step in p["critical_steps"]
+                )
+                out.append(f"  - Etapas mais longas do job crítico: {top}.")
         out.append("")
     return "\n".join(out)
 
