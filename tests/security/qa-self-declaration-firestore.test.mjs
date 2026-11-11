@@ -7,8 +7,8 @@ import {initializeTestEnvironment,assertFails,assertSucceeds}
  from '@firebase/rules-unit-testing';
 import {doc,setDoc,getDoc,deleteDoc,Timestamp} from 'firebase/firestore';
 
-const chat=readFileSync('firebase/atrio-conversas-v1.rules.fragment','utf8');
-const group=readFileSync('firebase/atrio-grupos-v1.rules.fragment','utf8');
+const chat=readFileSync(new URL('../../firebase/atrio-conversas-v1.rules.fragment',import.meta.url),'utf8');
+const group=readFileSync(new URL('../../firebase/atrio-grupos-v1.rules.fragment',import.meta.url),'utf8');
 const rules=renderSelfDeclarationRules(chat,group);
 test('regras distintas de QA não contêm permissão global nem dados de produção',()=>{
  assert.match(rules,/declared_18_plus/);
