@@ -307,6 +307,55 @@ try{
      reporterUid:alice,reason:'Denúncia tardia',
      reportedText:'Mensagem fictícia de teste',createdAt:serverTimestamp()
    }));
+   // Revogação administrativa deve encerrar acesso IMEDIATAMENTE sem
+   // prejudicar a consulta individual do protocolo pelo denunciante.
+   await env.withSecurityRulesDisabled(async ctx=>{
+     await setDoc(doc(ctx.firestore(),'admins/'+reviewer),{enabled:false});
+   });
+   await assertFails(getDoc(doc(admin,dmReport)));
+   await assertFails(getDoc(doc(admin,groupReport)));
+   await assertFails(getDocs(collection(admin,'chat_reports')));
+   await assertFails(getDocs(collection(admin,'chat_group_reports')));
+   await assertSucceeds(getDoc(doc(reporter,dmReport)));
+   await assertSucceeds(getDoc(doc(reporter,groupReport)));
+ });
+ await test('QA: ex-integrante conserva protocolo, sem acesso ao grupo e sem nova denúncia',async()=>{
+   const groupId='qa-grupo-saida';
+   const groupPath='chat_groups/'+groupId;
+   const pastReport='chat_group_reports/qa-group-report-sintetico';
+   const groupMessage=groupPath+'/messages/msg-ficticia';
+   const access={status:'approved',policyVersion:'2026-11-group-safety-v1',
+     reviewExpiresAt:Timestamp.fromDate(new Date(Date.now()+10*86400000))};
+   await env.withSecurityRulesDisabled(async ctx=>{
+     const internal=ctx.firestore();
+     await setDoc(doc(internal,'app_config/conversations'),LAB_ONLY_ACTIVE_CHAT);
+     await setDoc(doc(internal,'app_config/chat_groups'),{
+       enabled:true,minorPolicyApproved:true,version:'2026-11-groups-v1'
+     });
+     await setDoc(doc(internal,'users/'+alice+'/chatGroupAccess/eligibility'),access);
+     await setDoc(doc(internal,'users/'+bob+'/chatGroupAccess/eligibility'),access);
+     // Alice participou, registrou um protocolo e foi retirada do grupo.
+     // Não inferir a partir do protocolo permissão de ler mensagens.
+     await setDoc(doc(internal,groupPath),{
+       memberUids:[bob],adminUids:[bob],ownerUid:bob,status:'active'
+     });
+     await setDoc(doc(internal,groupMessage),{
+       uid:bob,kind:'text',text:'Conteúdo sintético restrito',
+       createdAt:serverTimestamp()
+     });
+   });
+   const former=c(alice),member=c(bob);
+   await assertSucceeds(getDoc(doc(member,groupPath)));
+   await assertFails(getDoc(doc(former,groupPath)));
+   await assertFails(getDoc(doc(former,groupMessage)));
+   const own=await assertSucceeds(getDoc(doc(former,pastReport)));
+   assert.equal(own.data()?.reporterUid,alice);
+   await assertFails(setDoc(doc(former,
+     'chat_group_reports/'+alice+'__'+groupId+'__msg-ficticia'),{
+       groupId,messageId:'msg-ficticia',reporterUid:alice,
+       reason:'Reclamação sintética',reportedText:'Conteúdo sintético restrito',
+       createdAt:serverTimestamp()
+   }));
  });
  await test('declaração existente não pode ser atualizada, apagada nem convertida em prova',async()=>{
    await assertFails(setDoc(doc(c(alice),pathFor(alice)),claim()));

@@ -48,6 +48,53 @@ A criação de conta para outras áreas não depende de autodeclaração de chat
   revalidar acesso aos protocolos existentes após suspensão, negar
   leitura do histórico e impedir alterações/exclusões por cliente.
 
+## Tratamento de denúncias tardias — desenho reversível, sem canal ativo
+
+**Situações:** um integrante deixa o grupo, a conta é suspensa ou o
+chat/grupo é desativado. A denúncia interna via criação de
+`chat_reports` ou `chat_group_reports` pode ser recusada, e isso
+não deve eliminar a opção de solicitar ajuda, contestar medida ou
+reportar risco. **A existência do botão de denúncia no app não
+comprova atendimento em casos em que o recurso está bloqueado.**
+
+**Proposta preferencial para avaliação:** um canal de suporte separado
+dos históricos de mensagens, com recebimento restrito e triagem humana
+antes de buscar evidências. A solicitação inicial teria somente
+identificador de protocolo gerado no atendimento, conta do solicitante
+após autenticação quando possível, tipo de ocorrência e relato mínimo
+que o solicitante decidir fornecer. **Não coletar automaticamente**
+corpo de mensagens, participantes completos, contatos, cópia de DMs,
+CPF, foto de documento ou categoria religiosa. O operador não
+receberia autorização para explorar mensagens privadas por ser
+moderador. O canal, o backend, as permissões e a finalidade seriam
+decididos em revisão específica; **nada foi criado em nuvem**.
+
+**Ameaças e validações necessárias antes de implementação:**
+1. Denúncia enviada por não membro ou conta suspensa não pode
+   revelar se um grupo, pessoa ou mensagem privada existe.
+2. Identificadores fornecidos pelo usuário não provam participação,
+   autoria nem direito de leitura; qualquer verificação ocorre em
+   backend autorizado, com escopo mínimo e log sanitizado.
+3. Prevenir spam, falsificação de terceiro, envio repetido, anexos
+   perigosos e exfiltração de conteúdo, com limites a aprovar.
+4. O recebimento do protocolo não equivale à verificação dos fatos,
+   julgamento da conta denunciada ou obrigação automática de apagar.
+5. Caso urgente deve ter procedimento de proteção proporcional,
+   responsáveis de plantão quando realmente disponíveis e
+   encaminhamento às autoridades competentes quando aplicável;
+   **sem promessa fictícia de atendimento 24 horas**.
+6. Evidências relevantes exigem acesso e preservação fundamentados;
+   decidir retenção e medidas de reparação, sem exclusão automática.
+7. Testar revogação do acesso administrativo e ex-membro sem acesso
+   a históricos, preservando o próprio protocolo existente.
+
+**Escolhas humanas ainda necessárias:** canal de contato oficial,
+responsável e suplente, atendimento a usuários sem login, forma de
+comprovação da solicitação, base legal, proteção contra abuso,
+metas realistas, política de dados e decisão sobre suporte após saída.
+O protótipo técnico apenas define limites; **não presumir aprovação
+do processo operacional pela descrição aqui apresentada**.
+
 ## Proposta de procedimento operacional — pendente de aprovação
 
 | Fase | Procedimento proposto | Evidência/responsável exigidos |
@@ -138,3 +185,13 @@ A barra específica de ativação permanece 60% (3/5), QA geral
 **Proibido nesta etapa:** publicação de Rules/Workers/FCM, criação de
 documentos reais, atribuição de moderador, expurgo automático,
 alteração de políticas em produção, merge em `main` ou backup.
+
+### Regressões técnicas adicionais
+
+O teste de Firestore Emulator agora cobre revogação de
+`admins/{uid}.enabled` durante a suspensão: o ex-revisor perde
+acesso a `chat_reports` e `chat_group_reports`, enquanto o autor
+continua podendo ler seus protocolos. Também verifica que ex-integrante
+não lê grupo/mensagem nem cria novo protocolo nele, apesar de poder
+ler o próprio protocolo anterior. Isso não significa que um canal
+alternativo já exista ou que uma política tenha sido aprovada.
