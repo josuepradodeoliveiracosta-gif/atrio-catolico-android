@@ -2,6 +2,28 @@
 
 **Decisão do responsável (30/10/2026):** o **Guardião V1 é uma versão antiga**. O **Guardião V2 é o único modelo de moderação autônoma previsto para o APK oficial do Átrio Católico**. A presente alteração registra a direção do projeto, **não** representa ativação, publicação ou autorização para sanções automáticas.
 
+## Ratificação da governança humana provisória (11/11/2026)
+
+Por decisão expressa do Administrador/Fundador, **toda a moderação
+do aplicativo é provisoriamente responsabilidade dele e dos
+moderadores que ele próprio definir**. Esta é a regra vigente de
+gestão: não exigir nova escolha de responsável principal a cada
+etapa. Nenhuma nomeação individual ou privilégio técnico decorre
+deste parágrafo.
+
+A intenção do fundador é **automatizar amplamente a moderação
+com o Guardião V2**. V2 continua o modelo de destino, mas não
+recebe autorização para agir ou punir apenas porque a gestão
+humana é provisória. A transição requer testes, homologação e
+autorizações específicas. Mesmo na futura automação, a
+responsabilidade de governança, auditoria, recursos,
+intervenção humana e parada emergencial permanece.
+
+Registro detalhado:
+`docs/qa-homologacao/DIRETRIZ-MODERACAO-HUMANA-TRANSICAO-GUARDIAO-V2.md`.
+O Guardião V1 continua legado. Esta ratificação é documental,
+sem mudança em produção, Workers, IAM, Firebase ou APK.
+
 ## Responsabilidades definitivas
 
 - **Guardião V2 — destino oficial:** o backend deve processar novos conteúdos e edições de modo independente de o aplicativo estar aberto. O APK oficial exibirá avisos, estado dos casos, painel administrativo e contestação/recursos compatíveis com o V2, mas não deverá carregar credenciais privilegiadas nem depender do aparelho para moderar a comunidade.

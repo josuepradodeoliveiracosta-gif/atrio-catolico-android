@@ -145,3 +145,15 @@ fechados na produção.
 **Atenção:** os testes abaixo não implementam painel administrativo,
 tratamento jurídico nem triagem automática; apenas comprovam que
 o cliente não ganha acesso aos dados privados por ser moderador.
+
+## Responsabilidade de moderação definida pelo fundador (11/11/2026)
+
+O Administrador/Fundador assume provisoriamente a responsabilidade
+por toda a moderação do aplicativo, com atuação complementar de
+moderadores designados exclusivamente por ele. O projeto pretende
+automatizar progressivamente o trabalho pelo Guardião V2 após
+homologação; o Guardião V1 permanece legado. A decisão de
+responsabilidade **não** concede acesso genérico a mensagens,
+não nomeia contas, não estabelece prazos legais e não autoriza
+sanções automatizadas. Ver
+`docs/qa-homologacao/DIRETRIZ-MODERACAO-HUMANA-TRANSICAO-GUARDIAO-V2.md`.

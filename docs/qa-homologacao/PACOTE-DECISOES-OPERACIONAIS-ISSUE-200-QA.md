@@ -20,6 +20,30 @@ A análise jurídica dos riscos de acesso provável por menores continua
 pendente, sem alterar a decisão funcional. Regras de e-mail, consentimento,
 bloqueios, grupos, denúncias e retenção são controles separados.
 
+## Diretriz do fundador — moderação humana provisória e Guardião V2
+
+**Decisão DEFINIDA em 11/11/2026 para todo o aplicativo:** o
+**Administrador/Fundador é o responsável principal provisório
+pela moderação**, podendo designar moderadores e estabelecer seu
+escopo. Apenas moderadores escolhidos por ele atuarão como
+moderadores. Isso **não** indica que contas específicas já tenham
+recebido privilégios ou que haja substituto nomeado.
+
+A estrutura humana permanece até o **Átrio Guardião V2** estar
+adequadamente testado, homologado e autorizado para automatizar
+gradualmente as tarefas. O objetivo de automatização ampla não
+remove a autoridade e supervisão do fundador, o direito a recurso,
+a necessidade de intervenção em casos sensíveis ou a possibilidade
+de interromper a automação.
+
+[Decisão completa e limites](DIRETRIZ-MODERACAO-HUMANA-TRANSICAO-GUARDIAO-V2.md).
+
+**Não tratar a definição da responsabilidade principal como uma
+pendência aberta.** Ainda faltam: nomeação individual e cobertura
+dos moderadores, canal real, procedimentos, prazos de resposta e
+retenção, revisão legal e autorizações de deploy. A issue #200
+segue aberta e o estado QA permanece NO_GO.
+
 ## 2. Fluxo mínimo de denúncia proposto (ainda não operacional)
 
 1. **Entrada dentro de conversa/grupo:** utilizar protocolos existentes
@@ -66,7 +90,7 @@ bloqueios, grupos, denúncias e retenção são controles separados.
 | Frente | Escolha recomendada para discussão | Responsável e evidência pendentes |
 | --- | --- | --- |
 | Proteção de menores | Manter autodeclaração 18+ já escolhida, avaliar acesso provável e obrigações do serviço | Revisor jurídico/privacidade e parecer específico |
-| Operação humana | Responsável principal e suplente com credenciais mínimas, sem acesso geral às conversas | Identificação, disponibilidade e aceite formal |
+| Operação humana | **Fundador responsável principal provisório (DEFINIDO)**; moderadores somente se designados por ele e com acesso mínimo | Nomeações individuais, suplência/disponibilidade e acessos ainda pendentes |
 | Canal tardio | Canal separado de relatos, com retorno autenticado quando possível, sem acesso automático a históricos | Ferramenta, acesso, custos e política de suporte |
 | Urgência | Protocolo de triagem/escalonamento realista, proteção e encaminhamento conforme risco | Plantão real, critérios e contatos institucionais |
 | Evidências | Exibir apenas trecho denunciado e fundamento de preservação, com auditoria sanitizada | Acesso, fundamento e procedimento de controle |
@@ -114,7 +138,7 @@ cumprimento da LGPD/ECA Digital.
 
 ## 6. Critérios de bloqueio / passo seguinte
 
-Enquanto faltar qualquer responsável, canal, política validada,
+Embora a responsabilidade principal já esteja definida pelo fundador, enquanto faltar designação operacional necessária, canal, política validada,
 análise dos riscos e autorização para uso de dados reais, a issue #200
 permanece aberta. O QA real não será alterado por esta minuta.
 Verificar novamente IAM, Ruleset, quatro app_config e plano de

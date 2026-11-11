@@ -16,6 +16,30 @@ Autodeclaração não é prova independente de idade nem parecer jurídico.
 A avaliação das obrigações legais aplicáveis ao serviço é separada.
 A criação de conta para outras áreas não depende de autodeclaração de chat.
 
+## Diretriz do fundador — moderação humana provisória e Guardião V2
+
+**Decisão DEFINIDA em 11/11/2026 para todo o aplicativo:** o
+**Administrador/Fundador é o responsável principal provisório
+pela moderação**, podendo designar moderadores e estabelecer seu
+escopo. Apenas moderadores escolhidos por ele atuarão como
+moderadores. Isso **não** indica que contas específicas já tenham
+recebido privilégios ou que haja substituto nomeado.
+
+A estrutura humana permanece até o **Átrio Guardião V2** estar
+adequadamente testado, homologado e autorizado para automatizar
+gradualmente as tarefas. O objetivo de automatização ampla não
+remove a autoridade e supervisão do fundador, o direito a recurso,
+a necessidade de intervenção em casos sensíveis ou a possibilidade
+de interromper a automação.
+
+[Decisão completa e limites](DIRETRIZ-MODERACAO-HUMANA-TRANSICAO-GUARDIAO-V2.md).
+
+**Não tratar a definição da responsabilidade principal como uma
+pendência aberta.** Ainda faltam: nomeação individual e cobertura
+dos moderadores, canal real, procedimentos, prazos de resposta e
+retenção, revisão legal e autorizações de deploy. A issue #200
+segue aberta e o estado QA permanece NO_GO.
+
 ## Evidências técnicas verificadas no código — não equivalem à operação
 
 - `firebase/atrio-conversas-v1.rules.fragment`: protocolos
@@ -88,8 +112,10 @@ decididos em revisão específica; **nada foi criado em nuvem**.
 7. Testar revogação do acesso administrativo e ex-membro sem acesso
    a históricos, preservando o próprio protocolo existente.
 
-**Escolhas humanas ainda necessárias:** canal de contato oficial,
-responsável e suplente, atendimento a usuários sem login, forma de
+**Escolhas humanas ainda necessárias:** o responsável principal
+já é o Administrador/Fundador; faltam nomes de moderadores delegados
+se necessários, suplência, canal de contato oficial, atendimento
+a usuários sem login, forma de
 comprovação da solicitação, base legal, proteção contra abuso,
 metas realistas, política de dados e decisão sobre suporte após saída.
 O protótipo técnico apenas define limites; **não presumir aprovação
@@ -114,8 +140,9 @@ escalonamento. Em situação de ameaça grave e imediata, a atuação deve
 seguir procedimento de proteção e autoridades competentes, sem
 prometer monitoramento 24/7 que não exista.
 
-**Quem pode decidir:** o fundador designará responsável e suplente
-para a moderação e revisor de privacidade. Uma atribuição de
+**Quem pode decidir:** o fundador já responde provisoriamente pela
+moderação e designará os moderadores e suplentes quando necessários;
+ainda deve definir separadamente o revisor de privacidade. Uma atribuição de
 `admins/{uid}` não é autorização implícita de ler mensagens
 privadas, exportar histórico ou apagar provas. Qualquer operador
 privilegiado exige auditoria separada e escopo mínimo.
@@ -157,7 +184,7 @@ eliminação de todas as subcoleções e réplicas.
 | --- | --- | --- |
 | Autodeclaração 18+ como critério de produto provisório | Decisão do fundador, sem fornecedor pago obrigatório | **DECIDIDA**; não é prova de idade |
 | Avaliação jurídica do acesso provável por menores | Revisão de riscos e medidas aplicáveis ao serviço real | PENDENTE |
-| Responsável e substituto da moderação | Identificação e aceitação explícitas, canal de atendimento | PENDENTE |
+| Responsável e substituto da moderação | Administrador/Fundador principal provisório; moderadores delegados somente por sua escolha; confirmar nomeações/cobertura e canal | **RESPONSÁVEL PRINCIPAL DEFINIDO; DESIGNAÇÕES E OPERAÇÃO PENDENTES** |
 | Procedimento de risco urgente e canal pós-saída | Protocolo, triagem, resposta e teste sem acesso geral às DMs | PENDENTE |
 | Recurso e responsabilização | Procedimento de revisão humana e registro mínimo | PENDENTE |
 | Retenção e exclusão das 13 classes | Bases/finalidades/prazos/exceções aprovados; plano para subcoleções e backups | PENDENTE |

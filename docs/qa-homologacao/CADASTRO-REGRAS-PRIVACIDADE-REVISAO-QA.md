@@ -256,3 +256,14 @@ o marcador de revisão a "APPROVED" e sempre retorna NO_GO para
 deploy QA/produção. Ele não verifica assinaturas humanas nem substitui
 o registro formal na issue #200. O workflow QA existente testa o
 contrato sem credenciais, chamadas remotas ou serviços novos.
+
+## Responsabilidade de moderação — decisão do fundador (11/11/2026)
+
+O Administrador/Fundador responde provisoriamente pela moderação
+em todo o Átrio Católico, com delegação exclusivamente a
+moderadores que ele designar. O destino futuro é o Guardião V2,
+após homologação/autorização específica e preservação da
+supervisão humana. Esta escolha está **DEFINIDA**;
+o arquivo [DIRETRIZ-MODERACAO-HUMANA-TRANSICAO-GUARDIAO-V2.md](DIRETRIZ-MODERACAO-HUMANA-TRANSICAO-GUARDIAO-V2.md)
+contém o registro integral. Nenhuma nomeação individual, canal,
+permissão ou implantação foi feita; a issue #200 segue aberta.
