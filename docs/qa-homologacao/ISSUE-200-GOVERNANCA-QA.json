@@ -19,5 +19,15 @@
     "APPEAL_AND_TITULAR_RIGHTS": "PENDING",
     "RETENTION_13_CLASSES": "PENDING",
     "PRIVACY_TERMS_FINAL_REVIEW": "PENDING"
+  },
+  "moderation_decision": {
+    "responsibility_status": "DECIDED",
+    "primary_responsible_role": "ADMIN_FOUNDER",
+    "delegate_authority": "ADMIN_FOUNDER_ONLY",
+    "designation_status": "INDIVIDUAL_ASSIGNMENTS_PENDING",
+    "operating_mode": "HUMAN_PROVISIONAL",
+    "planned_automation": "ATRIO_GUARDIAN_V2",
+    "guardian_v2_approved_for_automation": false,
+    "human_review_and_emergency_stop_required": true
   }
 }

@@ -24,7 +24,7 @@ function exactKeys(value,keys){
    && keys.every(k=>Object.hasOwn(value,k));
 }
 export function reviewGovernance(record){
- if(!exactKeys(record,['schema','project','android_package','scope','age_decision','reviews']) ||
+ if(!exactKeys(record,['schema','project','android_package','scope','age_decision','moderation_decision','reviews']) ||
     record.schema!=='QA_ISSUE_200_GOVERNANCE_V1' ||
     record.project!=='atrio-catolico-qa-geral' ||
     record.android_package!=='br.com.atriocatolico.chatqa' ||
@@ -37,6 +37,21 @@ export function reviewGovernance(record){
     age.founder_product_decision!=='DECIDED' ||
     age.independent_age_verification!==false ||
     age.paid_provider_required_now!==false)fail();
+ const moderation=record.moderation_decision;
+ if(!exactKeys(moderation,[
+    'responsibility_status','primary_responsible_role','delegate_authority',
+    'designation_status','operating_mode','planned_automation',
+    'guardian_v2_approved_for_automation',
+    'human_review_and_emergency_stop_required'
+   ]) ||
+   moderation.responsibility_status!=='DECIDED' ||
+   moderation.primary_responsible_role!=='ADMIN_FOUNDER' ||
+   moderation.delegate_authority!=='ADMIN_FOUNDER_ONLY' ||
+   moderation.designation_status!=='INDIVIDUAL_ASSIGNMENTS_PENDING' ||
+   moderation.operating_mode!=='HUMAN_PROVISIONAL' ||
+   moderation.planned_automation!=='ATRIO_GUARDIAN_V2' ||
+   moderation.guardian_v2_approved_for_automation!==false ||
+   moderation.human_review_and_emergency_stop_required!==true)fail();
  if(!exactKeys(record.reviews,REQUIRED_REVIEW_IDS))fail();
  const pending=[],recorded=[];
  for(const id of REQUIRED_REVIEW_IDS){
@@ -53,6 +68,14 @@ export function reviewGovernance(record){
   temporary_self_declaration_chosen:true,
   paid_age_provider_required_now:false,
   independent_age_verification_confirmed:false,
+  moderation_principal_role_decided:true,
+  moderation_principal_role:'ADMIN_FOUNDER',
+  moderator_delegation_exclusive_to_founder:true,
+  individually_designated_moderators_verified:false,
+  human_moderation_provisional:true,
+  guardian_v2_planned_not_active:true,
+  guardian_v2_approval_recorded:false,
+  human_review_and_emergency_stop_required:true,
   required_reviews:REQUIRED_REVIEW_IDS.length,
   review_records_marked:recorded.length,
   pending_review_ids:Object.freeze(pending),

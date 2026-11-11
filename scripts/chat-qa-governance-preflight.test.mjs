@@ -11,6 +11,14 @@ test('decisao do fundador de 18+ permanece fechada sem fornecedor pago',()=>{
  assert.equal(report.temporary_self_declaration_chosen,true);
  assert.equal(report.paid_age_provider_required_now,false);
  assert.equal(report.independent_age_verification_confirmed,false);
+ assert.equal(report.moderation_principal_role_decided,true);
+ assert.equal(report.moderation_principal_role,'ADMIN_FOUNDER');
+ assert.equal(report.moderator_delegation_exclusive_to_founder,true);
+ assert.equal(report.individually_designated_moderators_verified,false);
+ assert.equal(report.human_moderation_provisional,true);
+ assert.equal(report.guardian_v2_planned_not_active,true);
+ assert.equal(report.guardian_v2_approval_recorded,false);
+ assert.equal(report.human_review_and_emergency_stop_required,true);
  assert.equal(report.required_reviews,8);
  assert.equal(report.review_records_marked,0);
  assert.equal(report.pending_review_ids.length,8);
@@ -28,6 +36,9 @@ test('revisões marcadas em arquivo público jamais viram autorização automát
  assert.equal(report.review_records_marked,8);
  assert.equal(report.pending_review_ids.length,0);
  assert.equal(report.review_records_are_not_legal_approvals,true);
+ assert.equal(report.moderation_principal_role_decided,true);
+ assert.equal(report.individually_designated_moderators_verified,false);
+ assert.equal(report.guardian_v2_approval_recorded,false);
  assert.equal(report.responsible_people_verified,false);
  assert.equal(report.human_rollout_authorization_recorded,false);
  assert.equal(report.ready_for_qa_deploy,false);
@@ -80,4 +91,49 @@ test('rejeita omissão de qualquer uma das oito frentes de governança',()=>{
   delete draft.reviews[id];
   assert.throws(()=>reviewGovernance(draft),/qa_governance_invalid_or_untrusted_record/);
  }
+});
+
+test('responsabilidade provisória definida não designa contas nem autoriza o Guardião V2',()=>{
+ const draft=fixture();
+ assert.equal(draft.moderation_decision.responsibility_status,'DECIDED');
+ assert.equal(draft.moderation_decision.primary_responsible_role,'ADMIN_FOUNDER');
+ assert.equal(draft.moderation_decision.delegate_authority,'ADMIN_FOUNDER_ONLY');
+ const report=reviewGovernance(draft);
+ assert.equal(report.moderation_principal_role_decided,true);
+ assert.equal(report.individually_designated_moderators_verified,false);
+ assert.equal(report.guardian_v2_approval_recorded,false);
+ assert.equal(report.ready_for_qa_deploy,false);
+ assert.equal(report.ready_for_production,false);
+});
+
+test('contrato rejeita moderação delegada fora do fundador e falso V2 ativo',()=>{
+ const alternatives=[
+  {responsibility_status:'PENDING'},
+  {primary_responsible_role:'GUARDIAN_V2'},
+  {delegate_authority:'SELF_ASSIGNED'},
+  {designation_status:'ALL_MODERATORS_APPROVED'},
+  {operating_mode:'AUTOMATIC'},
+  {planned_automation:'GUARDIAN_V1'},
+  {guardian_v2_approved_for_automation:true},
+  {human_review_and_emergency_stop_required:false},
+  {privileged_moderator_uid:'uid-nao-autorizado'}
+ ];
+ for(const patch of alternatives){
+  const draft=fixture();
+  Object.assign(draft.moderation_decision,patch);
+  assert.throws(()=>reviewGovernance(draft),/qa_governance_invalid_or_untrusted_record/);
+ }
+});
+
+test('nem revisões registradas nem responsabilidade definida liberam deploy',()=>{
+ const draft=fixture();
+ for(const id of REQUIRED_REVIEW_IDS)draft.reviews[id]='REVIEW_RECORDED';
+ const report=reviewGovernance(draft);
+ assert.equal(report.moderation_principal_role_decided,true);
+ assert.equal(report.review_records_marked,8);
+ assert.equal(report.individually_designated_moderators_verified,false);
+ assert.equal(report.guardian_v2_planned_not_active,true);
+ assert.equal(report.human_rollout_authorization_recorded,false);
+ assert.equal(report.ready_for_qa_deploy,false);
+ assert.equal(report.ready_for_production,false);
 });

@@ -143,3 +143,22 @@ em falha do V2.
 IAM, Cloudflare, Firebase, permissões, dados de usuários,
 assinatura de APK, `main`, produção ou backups. Nenhum merge
 ou deploy é autorizado aqui.
+
+## 7. Rastreabilidade no pré-flight de governança QA (11/11/2026)
+
+O registro `docs/qa-homologacao/ISSUE-200-GOVERNANCA-QA.json`
+agora contém a decisão de **responsabilidade principal do
+Administrador/Fundador** e **delegação de moderação exclusivamente
+a pessoas escolhidas por ele**, distinguindo-a de designações
+individuais e de automação ativa. O pré-flight
+`scripts/chat-qa-governance-preflight.mjs` exige esses fatos como
+contrato e rejeita modificação que alegue Guardião V2 ativo,
+moderador autodesignado ou acesso privilegiado não aprovado.
+
+O item `MODERATION_OWNER_AND_BACKUP` permanece `PENDING` na
+ficha técnica porque **a responsabilidade principal está decidida,
+mas a designação de suplentes, o atendimento e a operação real não
+foram comprovados**. Marcar todos os itens como
+`REVIEW_RECORDED` continua incapaz de liberar deploy:
+`ready_for_qa_deploy=false`, `ready_for_production=false`.
+Isso evita que o status de pendência reabra a decisão do fundador.
