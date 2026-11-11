@@ -4,7 +4,7 @@ name: Átrio Conversas — preflight offline da identidade do APK QA
 # Não instala, publica, usa credenciais reais ou acessa Firebase/Cloudflare.
 on:
   pull_request:
-    branches: [main]
+    branches: [main, feat/atrio-conversas-etapa1-20261106]
     paths:
       - 'scripts/chat_qa_apk_identity.py'
       - 'scripts/test_chat_qa_apk_identity.py'
@@ -17,6 +17,8 @@ on:
       - 'app/src/chatQa/AndroidManifest.xml'
       - 'scripts/test_chat_qa_build_gate.py'
       - '.github/workflows/chat-qa-apk-identity.yml'
+      - 'firebase/qa-general/self-declaration-candidate.mjs'
+      - 'docs/qa-homologacao/CHAT-AUTODECLARACAO-18-QA.md'
 
 permissions:
   contents: read
@@ -31,7 +33,7 @@ jobs:
   unit-qa-apk-identity:
     name: Verificar identidade de APK QA com fixtures sintéticas
     if: >-
-      github.event.pull_request.number == 193 &&
+      (github.event.pull_request.number == 193 || github.event.pull_request.number == 232) &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -48,7 +50,7 @@ jobs:
   build-synthetic-chat-qa:
     name: Compilar Chat QA somente com Firebase fictício
     if: >-
-      github.event.pull_request.number == 193 &&
+      (github.event.pull_request.number == 193 || github.event.pull_request.number == 232) &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 35
