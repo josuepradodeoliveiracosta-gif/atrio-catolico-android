@@ -4,6 +4,16 @@
 
 **ATENÇÃO: AUTODECLARAÇÃO NÃO VERIFICA A IDADE.** Qualquer menor pode declarar idade falsa. Esta proposta **não** pode ser apresentada como prova de 18+ nem como solução jurídica comprovadamente compatível com o ECA Digital. Se o serviço oferecer conteúdo/produto/serviço impróprio, inadequado ou proibido para menores, o art. 9º da Lei 15.211/2025 proíbe a autodeclaração como verificação suficiente. A avaliação de acesso provável por menores, escopo e riscos do Átrio demanda revisão jurídica/privacidade.
 
+## Decisão ratificada pelo fundador: método provisório suficiente para o projeto (11/11/2026)
+
+**DECIDIDO — NÃO REABRIR COMO PENDÊNCIA DE ESCOLHA DE PRODUTO:** por determinação expressa do fundador, para a fase atual do **Átrio Conversas (mensagens privadas e grupos)**, a combinação de data de nascimento informada voluntariamente (calculada localmente, sem transmissão/armazenamento da data) e **autodeclaração expressa 18+** é o **critério operacional provisório escolhido e considerado suficiente pelo responsável para o projeto**, até haver recursos financeiros para um mecanismo mais robusto. Não exigir automaticamente serviço pago nem reiniciar a discussão sobre fornecedor a cada avanço. A idade mínima de 18 anos continua definida; o cadastro para demais áreas não é bloqueado apenas pela ausência da declaração.
+
+**Separação obrigatória de sentidos:** "suficiente" aqui representa a **decisão funcional e orçamentária do responsável**, não uma aferição independente de idade, validação de identidade ou conclusão de conformidade legal. Essa escolha não afasta a análise jurídica da aplicação do ECA Digital e da LGPD, inclusive eventuais hipóteses em que só autodeclarar não atende à obrigação legal. Não declarar essa análise aprovada por dedução.
+
+**Execução técnica:** manter o status 'declared_18_plus' e a indicação explícita de autodeclaração, nunca renomear o status para 'verified' ou 'eligible' como se houvesse prova externa. Preservar gates de e-mail, aceite de regras e segurança, revogação, bloqueios, moderação e privacidade; grupos e notificações exigem controles próprios. Um teste verde ou declaração do usuário não autoriza merge, publicação de Rules, Firebase QA real ou produção.
+
+**Pendência futura financeira:** verificação mais forte fica no planejamento de evolução **quando o fundador tiver recursos**, sem fornecedor, preço ou prazo presumido. As demais decisões da issue #200 (proteção contra abuso, denúncia, retenção, privacidade, avaliação legal e autorização de rollout) continuam abertas independentemente da escolha funcional do método.
+
 ## Escopo desta proposta
 
 - **Apenas** na variante Android `br.com.atriocatolico.chatqa`; nenhuma alteração no fluxo oficial/release.
@@ -20,7 +30,7 @@
 
 A implementação isolada deve ter regressões de Firestore Emulator para declaração verdadeira, ausência, dados falsos, outros UIDs, sem e-mail confirmado, gravação indevida e revogação. Antes de qualquer implantação QA, confirmar também compatibilidade com notificações, grupos, moderação, retenção e custos. Nenhuma aprovação é inferida de testes.
 
-**Situação de governança:** a issue #200 permanece aberta; método confiável 18+ continua sem solução porque a autodeclaração não comprova idade. O marco 3 não muda de estado; QA geral 2/7 (29%), NO-GO. Necessária avaliação jurídica do escopo do chat e autorização específica para implantação QA; produção exige autorização distinta.
+**Situação de governança:** a **escolha funcional do método provisório está decidida** pelo fundador (autodeclaração 18+ até haver recursos para evolução); não tratá-la como pendência financeira a ser resolvida antes de continuar o trabalho técnico. A **verificação independente de idade não está implementada** e a autodeclaração não comprova idade. A issue #200 permanece aberta pelas salvaguardas de abuso, moderação, privacidade, retenção, avaliação jurídica do escopo e autorizações específicas de implantação. O marco 3 não muda de estado; QA geral 2/7 (29%), NO-GO. Produção exige autorização distinta.
 
 **Referências oficiais:**
 - Lei nº 15.211/2025, art. 9º: https://www.planalto.gov.br/ccivil_03/_ato2023-2026/2025/lei/l15211.htm
