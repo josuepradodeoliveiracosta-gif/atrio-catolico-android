@@ -655,11 +655,20 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
                 rulesPolicyLoaded = true
             }
         val acceptance = db.collection("community_consents").document(uid)
-            .addSnapshotListener { snapshot, failure ->
+            .addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, failure ->
                 consentLoaded = true // Erro também libera a tela de saída, nunca spinner eterno.
                 consentReadFailed = failure != null
-                consentAccepted = failure == null &&
-                    snapshot?.getString("version") == CommunityRulesPolicy.VERSION
+                val version = snapshot?.getString("version")
+                consentAccepted = if (strictQaCommunityPolicy) {
+                    qaCommunityConsentFromServer(
+                        version,
+                        fromCache = snapshot?.metadata?.isFromCache != false,
+                        hasPendingWrites = snapshot?.metadata?.hasPendingWrites != false,
+                        hasError = failure != null
+                    )
+                } else {
+                    failure == null && version == CommunityRulesPolicy.VERSION
+                }
             }
         onDispose { feature.remove(); acceptance.remove() }
     }

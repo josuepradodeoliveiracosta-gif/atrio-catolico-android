@@ -89,3 +89,18 @@ nova leitura antes da mudança, autorização específica de escrita e
 validação pós-mudança. Até lá, `ready_for_activation=false` e
 `ready_for_deploy=false`. Barra de ativação **60% (3/5)**;
 QA geral **29% (2/7), NO_GO**.
+
+## Verificar aceite de Regras somente após confirmação do servidor
+
+Foi identificado que `community_consents/{uid}` podia ficar
+visualmente aceito pelo cache ou por `set()` pendente, ainda sem
+confirmação do servidor. **Só no APK Chat QA**, um listener com
+`MetadataChanges.INCLUDE` agora exige `version=2026-11-v1`,
+`isFromCache=false`, `hasPendingWrites=false` e ausência de erro.
+O portão de regras `app_config/community_rules` permanece igualmente
+restrito a snapshot do servidor; a produção conserva sua lógica
+de rollout e as Firestore Rules continuam sendo a autoridade.
+JUnit cobre ausência, versão errada, cache, erro e escrita pendente.
+
+Aceite das regras exibidas **não** equivale à aprovação de termos e
+privacidade completos; issue #200 permanece NO_GO. Nenhum deploy.

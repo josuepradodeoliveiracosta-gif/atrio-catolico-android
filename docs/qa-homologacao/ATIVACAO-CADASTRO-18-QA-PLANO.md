@@ -434,3 +434,13 @@ revisado; a existência do texto e de testes **não aprova** prazos de
 moderação, privacidade ou retenção. Não publicar documentos estagiados
 sem revisão humana #200 e autorização específica QA. Progressos
 permanecem 60% na tarefa e 29% no QA geral.
+
+## Aceite confirmado somente pelo servidor — QA
+
+Adicionada exigência no Chat QA de que o consentimento individual
+`community_consents/{uid}` seja confirmado no Firestore antes de
+permitir a entrada: versão válida e sem cache, escrita pendente ou
+erro. Combina-se com o gate administrativo de Regras confirmado
+no servidor. A produção permanece inalterada e o QA real segue
+em deny-all. JUnit cobre estados negativos; esta alteração não
+supre revisão jurídico-operacional da issue #200 nem autoriza deploy.

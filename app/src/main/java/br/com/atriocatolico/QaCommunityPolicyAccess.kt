@@ -19,3 +19,13 @@ internal fun qaCommunityPolicyFromServer(
         enabled == true && version == CommunityRulesPolicy.VERSION
     ) QaCommunityPolicyAccess.REQUIRED
     else QaCommunityPolicyAccess.UNAVAILABLE
+
+/** No Chat QA, cache ou set() pendente nunca equivalem a aceite confirmado. */
+internal fun qaCommunityConsentFromServer(
+    version: String?,
+    fromCache: Boolean,
+    hasPendingWrites: Boolean,
+    hasError: Boolean
+): Boolean =
+    !hasError && !fromCache && !hasPendingWrites &&
+        version == CommunityRulesPolicy.VERSION
