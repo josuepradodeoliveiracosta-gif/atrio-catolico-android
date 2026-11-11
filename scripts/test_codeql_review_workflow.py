@@ -44,6 +44,23 @@ class CodeqlReviewContract(unittest.TestCase):
         self.assertNotIn("write-all", self.source)
         self.assertEqual(self.source.count("persist-credentials: false"), 2)
 
+    def test_parallel_contract_and_required_firestore_gate(self):
+        source = self.source
+        self.assertIn("  contract:\n", source)
+        codeql_job = source.split("  codeql:\n", 1)[1]
+        self.assertNotIn("    needs: contract\n", codeql_job)
+        self.assertIn("    strategy:\n      fail-fast: false\n      max-parallel: 4", codeql_job)
+        self.assertIn("      security-events: write", codeql_job)
+        self.assertIn("scripts/test_codeql_review_workflow.py -v", source)
+
+        # A eliminacao da dependência nao pode tirar a validacao de
+        # segurança dos checks obrigatorios na PR.
+        mandatory = (
+            FILE.parent / "selos-ci.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("name: Regras de seguranca Firestore", mandatory)
+        self.assertIn("scripts.test_codeql_review_workflow", mandatory)
+
     def test_java_kotlin_debug_only(self):
         self.assertIn("gradle :app:assembleDebug --no-daemon --stacktrace",
                       self.source)

@@ -132,6 +132,24 @@ class CiOptimizationContract(unittest.TestCase):
         self.assertIn("scripts.test_ci_quality_report", required)
 
 
+    def test_manual_latency_audit_is_read_only_and_guarded(self):
+        audit = workflow("ci-latency-audit.yml")
+        triggers = audit.split("on:\n", 1)[1].split("\npermissions:", 1)[0]
+        self.assertIn("  workflow_dispatch:", triggers)
+        self.assertNotIn("  pull_request:", triggers)
+        self.assertNotIn("  schedule:", triggers)
+        self.assertIn("  actions: read", audit)
+        self.assertIn("  contents: read", audit)
+        self.assertNotIn("contents: write", audit)
+        self.assertNotIn("actions: write", audit)
+        self.assertNotIn("secrets.", audit)
+        self.assertIn("cancel-in-progress: false", audit)
+        self.assertIn("persist-credentials: false", audit)
+        self.assertIn("scripts.test_ci_latency_audit", audit)
+        self.assertIn("scripts.test_ci_latency_audit", workflow("selos-ci.yml"))
+        self.assertIn("scripts/ci_latency_audit.py", audit)
+
+
     def test_guardian_node24_pilot_preserves_isolation(self):
         src = workflow("guardiao-v2-motor-ci.yml")
         self.assertIn("uses: actions/checkout@v7", src)
