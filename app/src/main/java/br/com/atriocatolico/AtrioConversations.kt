@@ -814,9 +814,11 @@ private fun AtrioChatThread(
                                             }
                                         }
                                         DropdownMenuItem(text = { Text("Denunciar mensagem") },
+                                            enabled = !msg.pending && !msg.deletedForAll,
                                             onClick = {
                                                 messageMenuId = null
                                                 report = msg
+                                                reason = ""
                                             })
                                         DropdownMenuItem(text = {
                                             Text("Ocultar apenas para mim")
@@ -1052,22 +1054,65 @@ private fun AtrioChatThread(
                 }
             },
             confirmButton = {
-                TextButton(enabled = !saving && reason.trim().length >= 5, onClick = {
-                    saving = true
-                    db.collection("chat_reports")
-                        .document(uid + "__" + chatId + "__" + selectedMessage.id)
-                        .set(mapOf(
-                        "chatId" to chatId, "messageId" to selectedMessage.id,
-                        "reporterUid" to uid, "reason" to reason.trim(),
-                        "reportedText" to selectedMessage.text,
-                        "createdAt" to FieldValue.serverTimestamp()))
-                        .addOnCompleteListener { response ->
-                            saving = false
-                            info = if (response.isSuccessful) "Denúncia registrada."
-                                else "Não foi possível denunciar."
-                            if (response.isSuccessful) report = null
+                TextButton(
+                    enabled = !saving && !selectedMessage.pending &&
+                        !selectedMessage.deletedForAll && reason.trim().length >= 5,
+                    modifier = Modifier.testTag("atrio-chat-report-submit"),
+                    onClick = {
+                        if (FirebaseAuth.getInstance().currentUser?.uid != uid) {
+                            info = "Sessão alterada. Entre novamente para denunciar."
+                        } else {
+                            saving = true
+                            val reportRef = db.collection("chat_reports")
+                                .document(uid + "__" + chatId + "__" + selectedMessage.id)
+                            reportRef.set(mapOf(
+                                "chatId" to chatId, "messageId" to selectedMessage.id,
+                                "reporterUid" to uid, "reason" to reason.trim(),
+                                "reportedText" to selectedMessage.text,
+                                "createdAt" to FieldValue.serverTimestamp()
+                            )).addOnCompleteListener { response ->
+                                if (FirebaseAuth.getInstance().currentUser?.uid != uid) {
+                                    saving = false
+                                    report = null
+                                    info = "Sessão alterada. Reabra a conversa para confirmar."
+                                } else if (response.isSuccessful) {
+                                    saving = false
+                                    report = null
+                                    reason = ""
+                                    info = "Denúncia registrada para análise."
+                                } else {
+                                    // Não adivinhar se houve duplicidade: ler SOMENTE
+                                    // o protocolo próprio do servidor, nunca listar relatos.
+                                    reportRef.get(Source.SERVER).addOnCompleteListener { lookup ->
+                                        if (FirebaseAuth.getInstance().currentUser?.uid != uid) {
+                                            saving = false
+                                            report = null
+                                            info = "Sessão alterada. Entre novamente."
+                                        } else {
+                                            val receipt = if (lookup.isSuccessful) lookup.result else null
+                                            val existing = receipt?.takeIf { it.exists() }?.let {
+                                                ChatReportReceiptPolicy.matchesConfirmedOwnReport(
+                                                    it.metadata.isFromCache,
+                                                    it.metadata.hasPendingWrites(),
+                                                    it.getString("reporterUid"), uid,
+                                                    it.getString("chatId"), chatId,
+                                                    it.getString("messageId"), selectedMessage.id)
+                                            } == true
+                                            saving = false
+                                            info = if (existing) {
+                                                report = null
+                                                reason = ""
+                                                "Esta mensagem já possui sua denúncia registrada."
+                                            } else {
+                                                "Denúncia não confirmada. Verifique conexão e permissões."
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
-                }) { Text("Enviar denúncia") }
+                    }
+                ) { Text(if (saving) "Confirmando..." else "Enviar denúncia") }
             },
             dismissButton = {
                 TextButton(onClick = { report = null }) { Text("Cancelar") }

@@ -233,3 +233,36 @@ com a autodeclaração 18+ já DECIDIDA como produto provisório.
 Um novo pré-flight local valida formato, projeto, pacote e decisões;
 mesmo com todas as revisões marcadas, ele **nunca autoriza deploy**.
 O teste roda na workflow QA já existente, sem job ou serviço adicional.
+
+## Melhoria dos protocolos já existentes: confirmação sem duplicação (11/11/2026)
+
+**Sem canal novo, backend novo ou coleção nova.** As telas Android de
+conversas privadas (`chat_reports`) e grupos (`chat_group_reports`)
+já criam denúncias com ID determinístico por denunciante, conversa
+e mensagem. A nova apresentação diferencia:
+
+- **Sucesso confirmado** da gravação pelo Firestore;
+- **Tentativa de repetição**: em caso de falha da escrita, consulta
+  **apenas o documento exato da própria conta com `Source.SERVER`**,
+  e só informa "já registrada" se o comprovante do servidor
+  corresponder ao UID, conversa/grupo e mensagem esperados;
+- **Falha não confirmada**, incluindo offline ou acesso negado:
+  informar que não há confirmação. Não afirmar que a denúncia
+  existe nem sugerir duplicidade sem prova;
+- **Sessão alterada:** não apresentar resultado administrativo de
+  uma conta anterior. Mensagens ainda pendentes de confirmação
+  não podem ser denunciadas na interface; DMs removidas para
+  todos não geram novos relatórios sobre o marcador de remoção.
+
+A implementação compartilha uma verificação pura
+`ChatReportReceiptPolicy`, coberta por testes JUnit de identidade,
+cache, escrita pendente e campos ausentes. Firestore Rules continuam
+sendo a fonte autoritativa de acesso. Este ajuste **não habilita**
+denúncia após saída do grupo, não abre o chat quando suspenso,
+não fornece listagem geral de denúncias, não envia notificações
+e não concede permissão a moderadores.
+
+A responsabilidade principal provisória permanece com o
+**Administrador/Fundador e moderadores por ele designados**;
+o Guardião V2 segue planejado, sem automação ativada.
+

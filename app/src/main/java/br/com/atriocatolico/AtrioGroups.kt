@@ -22,6 +22,7 @@ import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.Source
 import java.text.DateFormat
 
 /** Grupos privados. Nunca usar a interface como única barreira de acesso. */
@@ -789,6 +790,7 @@ private fun AtrioGroupThread(
                     }
                 }
                 TextButton(onClick={reporting=item;reportReason=""},
+                    enabled=!item.pending,
                     modifier=Modifier.testTag("atrio-group-report-message")) {
                     Text("Denunciar mensagem",fontSize=12.sp)
                 }
@@ -856,25 +858,66 @@ private fun AtrioGroupThread(
                 }
             },
             confirmButton={
-                TextButton(enabled=!busy && reportReason.trim().length>=5,onClick={
-                    busy=true
-                    db.collection("chat_group_reports")
-                        .document(uid+"__"+room.id+"__"+selected.id)
-                        .set(mapOf(
-                            "groupId" to room.id,
-                            "messageId" to selected.id,
-                            "reporterUid" to uid,
-                            "reportedText" to selected.text,
-                            "reason" to reportReason.trim(),
-                            "createdAt" to FieldValue.serverTimestamp()))
-                        .addOnCompleteListener { result ->
-                            busy=false
-                            if(result.isSuccessful) {
-                                reporting=null
-                                error="Denúncia registrada para análise."
-                            } else error="Denúncia não confirmada ou já registrada."
+                TextButton(
+                    enabled=!busy && !selected.pending && reportReason.trim().length>=5,
+                    modifier=Modifier.testTag("atrio-group-report-submit"),
+                    onClick={
+                        if(FirebaseAuth.getInstance().currentUser?.uid!=uid) {
+                            error="Sessão alterada. Entre novamente para denunciar."
+                        } else {
+                            busy=true
+                            val reportRef=db.collection("chat_group_reports")
+                                .document(uid+"__"+room.id+"__"+selected.id)
+                            reportRef.set(mapOf(
+                                "groupId" to room.id,
+                                "messageId" to selected.id,
+                                "reporterUid" to uid,
+                                "reportedText" to selected.text,
+                                "reason" to reportReason.trim(),
+                                "createdAt" to FieldValue.serverTimestamp()))
+                                .addOnCompleteListener { result ->
+                                    if(FirebaseAuth.getInstance().currentUser?.uid!=uid) {
+                                        busy=false
+                                        reporting=null
+                                        error="Sessão alterada. Reabra o grupo para confirmar."
+                                    } else if(result.isSuccessful) {
+                                        busy=false
+                                        reporting=null
+                                        reportReason=""
+                                        error="Denúncia registrada para análise."
+                                    } else {
+                                        reportRef.get(Source.SERVER)
+                                            .addOnCompleteListener { lookup ->
+                                                if(FirebaseAuth.getInstance().currentUser?.uid!=uid) {
+                                                    busy=false
+                                                    reporting=null
+                                                    error="Sessão alterada. Entre novamente."
+                                                } else {
+                                                    val receipt=if(lookup.isSuccessful)
+                                                        lookup.result else null
+                                                    val existing=receipt?.takeIf { it.exists() }?.let {
+                                                        ChatReportReceiptPolicy.matchesConfirmedOwnReport(
+                                                            it.metadata.isFromCache,
+                                                            it.metadata.hasPendingWrites(),
+                                                            it.getString("reporterUid"),uid,
+                                                            it.getString("groupId"),room.id,
+                                                            it.getString("messageId"),selected.id)
+                                                    }==true
+                                                    busy=false
+                                                    if(existing) {
+                                                        reporting=null
+                                                        reportReason=""
+                                                        error="Esta mensagem já possui sua denúncia registrada."
+                                                    } else {
+                                                        error="Denúncia não confirmada. Verifique conexão e permissões."
+                                                    }
+                                                }
+                                            }
+                                    }
+                                }
                         }
-                }) {Text("Enviar denúncia")}
+                    }
+                ) {Text(if(busy) "Confirmando..." else "Enviar denúncia")}
             },
             dismissButton={
                 TextButton(onClick={if(!busy) reporting=null}) {Text("Cancelar")}
