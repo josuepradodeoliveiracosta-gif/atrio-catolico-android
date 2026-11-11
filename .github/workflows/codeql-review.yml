@@ -13,6 +13,12 @@ on:
 permissions:
   contents: read
 
+# Novo commit na PR substitui somente analises obsoletas da propria PR.
+# Push, agendamento e execucao manual nunca sao interrompidos.
+concurrency:
+  group: atrio-codeql-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   contract:
     name: Validar contrato seguro da revisão
