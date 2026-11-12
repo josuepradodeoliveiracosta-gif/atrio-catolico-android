@@ -47,7 +47,7 @@ test('transformação não publica nem introduz dispensa de e-mail e aceite',()=
 
 test('todas as rotas existentes na base versionada persistem na cópia QA',()=>{
  const rules=renderClosedQaParity(base,chat,group);
- const routes=source=>[...source.matchAll(/^\\s*match\\s+(.+?)\\s+\\{\\s*$/gm)]
+ const routes=source=>[...source.matchAll(/^\s*match\s+(.+?)\s+\{\s*$/gm)]
   .map(x=>x[1].trim());
  const before=routes(base),after=new Set(routes(rules));
  assert.ok(before.length>25,'base deve conter regras oficiais substanciais');
