@@ -208,7 +208,7 @@ def markdown_report(out):
     if not out["signals"]:
         rows.append("| Inconclusivo | — | — | Nenhum padrão confiável identificado |")
     rows.extend(("", "Nenhum trecho de log foi incluído no relatório. "
-                 "Conferir o log original sob controle de acesso adequado.", ""))
+                 + "Conferir o log original sob controle de acesso adequado.", ""))
     return "\n".join(rows)
 
 
