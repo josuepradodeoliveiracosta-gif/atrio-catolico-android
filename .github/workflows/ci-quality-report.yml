@@ -29,7 +29,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Testar relator e consolidacao de diagnosticos em memoria
-        run: python3 -m unittest scripts.test_ci_quality_report scripts.test_ci_diagnostic_snapshot scripts.test_ci_log_identity_verifier scripts.test_ci_log_safe_analysis scripts.test_ci_autofix_policy scripts.test_ci_autofix_sandbox scripts.test_ci_autofix_qa_review scripts.test_ci_autofix_handoff -v
+        run: python3 -m unittest scripts.test_ci_quality_report scripts.test_ci_diagnostic_snapshot scripts.test_ci_log_identity_verifier scripts.test_ci_log_safe_analysis scripts.test_ci_autofix_policy scripts.test_ci_autofix_sandbox scripts.test_ci_autofix_qa_review scripts.test_ci_autofix_handoff scripts.test_ci_autofix_pr_draft_plan -v
       - name: Buscar checks e anexar sintese sem alterar APIs remotas
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -85,6 +85,13 @@ jobs:
             --source-branch "$CI_SOURCE_BRANCH" \
             --checkout-root . \
             --json ci-autofix-handoff.json
+          # Descritor deterministico de futura PR draft:
+          # verifica HEAD atual e duplicados apenas com APIs de leitura.
+          # Nao cria branch, commit, PR, release, merge ou deploy.
+          python3 -m scripts.ci_autofix_pr_draft_plan \
+            --handoff ci-autofix-handoff.json \
+            --checkout-root . \
+            --json ci-autofix-pr-draft-plan.json
           cat ci-report.md >> "$GITHUB_STEP_SUMMARY"
       - name: Preservar relatorio por execucao
         uses: actions/upload-artifact@v4
@@ -99,6 +106,7 @@ jobs:
             ci-remediation-plan.json
             ci-autofix-preview.json
             ci-autofix-handoff.json
+            ci-autofix-pr-draft-plan.json
             ci-report.md
           retention-days: 14
           if-no-files-found: warn
