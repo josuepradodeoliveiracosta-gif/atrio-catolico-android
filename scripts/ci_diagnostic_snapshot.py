@@ -15,6 +15,11 @@ from scripts.ci_quality_report import REPO, REQUIRED, safe_markdown, validate_sh
 
 MAX_CHECKS = 600
 MAX_ROWS = 20
+MAX_LOG_JOBS = 12
+# Merely extracts job identifiers from normalized metadata, never downloads logs.
+JOB_PATH = re.compile(
+    rf"/{re.escape(REPO)}/actions/runs/([1-9][0-9]*)/job/([1-9][0-9]*)"
+)
 DETAIL_PATH = re.compile(
     rf"/{re.escape(REPO)}/(?:actions/runs/[0-9]+(?:/job/[0-9]+)?|runs/[0-9]+)"
 )
@@ -94,6 +99,51 @@ def check_state(check):
     return "unknown"
 
 
+def log_review_queue(checks):
+    """Prepare a bounded read-only queue of *unverified* failed-job identifiers.
+
+    A check's URL is not proof that the job belongs to the SHA or repository.
+    Any later log reader MUST verify the job, run, SHA, and conclusion through
+    the GitHub API before downloading content. This function never does so.
+    """
+    seen = set()
+    candidates = []
+    without_job_link = 0
+    for check in checks:
+        state = check_state(check)
+        if state not in ("failure", "timed_out"):
+            continue
+        url = safe_evidence_url(check.get("details_url"))
+        match = JOB_PATH.fullmatch(urlsplit(url).path) if url else None
+        if not match:
+            without_job_link += 1
+            continue
+        run_id, job_id = map(int, match.groups())
+        if run_id >= 10 ** 18 or job_id >= 10 ** 18:
+            without_job_link += 1
+            continue
+        identifier = (run_id, job_id)
+        if identifier in seen:
+            continue
+        seen.add(identifier)
+        candidates.append({"run_id": run_id, "job_id": job_id,
+                           "state": state, "identity_verified": False})
+    return {
+        "mode": "metadata_only_no_log_access",
+        "total_candidates": len(candidates),
+        "candidates": candidates[:MAX_LOG_JOBS],
+        "truncated": len(candidates) > MAX_LOG_JOBS,
+        "failed_checks_without_job_link": without_job_link,
+        "automatic_log_download": False,
+        "root_cause_established": False,
+        "required_before_fetch": [
+            "verify_repository_and_run", "verify_job_belongs_to_run",
+            "verify_run_head_sha", "verify_failed_job_conclusion",
+            "enforce_log_size_and_privacy_limits",
+        ],
+    }
+
+
 def digest(report, current_head_sha=None):
     if not isinstance(report, dict):
         raise ValueError("relatorio precisa ser um objeto")
@@ -153,6 +203,7 @@ def digest(report, current_head_sha=None):
         "non_success_checks": entries,
         "all_required_success": report["all_required_success"],
         "cause": "undetermined_not_inferred_from_check_state",
+        "log_review_queue": log_review_queue(checks),
         "auto_triage": {
             "failed_checks": sum(x["state"] in ("failure", "timed_out", "action_required") for x in entries),
             "pending_checks": sum(x["state"] == "pending" for x in entries),
@@ -210,6 +261,18 @@ def markdown_digest(snapshot):
                          f"{safe_label(item['safe_next_step']['guidance'])} |")
     if not snapshot["non_success_checks"] and not snapshot["required_missing"]:
         lines.append("| Nenhuma neste snapshot | — | — |")
+    queue = snapshot["log_review_queue"]
+    lines.extend((
+        "", "### Elegibilidade para futura investigacao de logs", "",
+        f"**Jobs candidatos (nao verificados):** {queue['total_candidates']}",
+        f"**Falhas sem link de job valido:** {queue['failed_checks_without_job_link']}",
+        "",
+        "A fila contem apenas IDs e estados, sem logs brutos. "
+        "A identidade do job, run, SHA e conclusao ainda precisa ser "
+        "verificada via API antes de qualquer leitura. "
+        "Nenhum download de log foi habilitado.",
+        "",
+    ))
     lines.extend(("", "A triagem e automatica, mas nao autoriza merge, release ou deploy.", ""))
     lines.extend(("", "Execuções canceladas, puladas, pendentes ou históricas não são "
                   "interpretadas como sucesso. Evidências estão restritas a URLs verificadas "
