@@ -388,9 +388,13 @@ class DraftExecutorTests(unittest.TestCase):
         self.assertEqual(calls, [])
         client.patch_file(BLOB, patched)
         client.create_pr(SHA)
-        self.assertEqual([x[0] for x in calls], ["PUT", "POST"])
+        # A known-good complete PR descriptor must also pass the low-level
+        # guard; otherwise the negative cases could all pass vacuously.
+        client._write("POST", "/pulls", valid_pr)
+        self.assertEqual([x[0] for x in calls], ["PUT", "POST", "POST"])
         self.assertEqual(calls[0][1]["branch"], BRANCH_NAME)
         self.assertTrue(calls[1][1]["draft"])
+        self.assertEqual(calls[2][1], valid_pr)
 
     def test_default_opener_disables_redirects(self):
         with patch("scripts.ci_autofix_pr_draft_executor.build_opener") as builder:
