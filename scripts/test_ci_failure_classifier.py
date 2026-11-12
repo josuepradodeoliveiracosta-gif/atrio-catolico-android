@@ -7,7 +7,8 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from scripts.ci_failure_classifier import (
-    MAX_LOG_BYTES, classify, markdown_report, positive_int, validate_sha,
+    MAX_LOG_BYTES, classify, markdown_report, matching_window,
+    positive_int, validate_sha,
 )
 
 SHA = "a" * 40
@@ -168,6 +169,26 @@ BUILD FAILED in 52s
                 result = classify_failed(log)
                 self.assertEqual(codes(result), expected)
                 self.assertEqual(result["root_cause"], "not_established")
+
+    def test_marker_window_uses_minimal_joint_interval(self):
+        # Nearest marker to first anchor can be wrong: [4, 4, 10] fits,
+        # whereas independently choosing the marker on line 14 would not.
+        lines = ["neutral"] * 15
+        lines[3] = "second-marker third-marker"
+        lines[9] = "first-marker"
+        lines[13] = "second-marker"
+        result = matching_window(lines,
+                                 ("first-marker", "second-marker", "third-marker"),
+                                 max_span=8)
+        self.assertEqual(result, [4, 10])
+
+    def test_repeated_markers_within_log_limit_complete_safely(self):
+        # Regression against quadratic scanning on densely repeated tokens.
+        dense = "Unresolved reference compile FAILED\n" * 25000
+        out = classify_failed(dense)
+        self.assertEqual(codes(out), {"kotlin_unresolved_reference"})
+        self.assertEqual(out["signals"][0]["evidence_line_numbers"], [1])
+        self.assertEqual(out["root_cause"], "not_established")
 
     def test_code_scan_output_does_not_echo_raw_input(self):
         out = classify_failed("cred: xyz123\nadb: device offline", SHA, RUN, JOB)

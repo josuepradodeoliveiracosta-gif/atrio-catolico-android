@@ -66,21 +66,46 @@ def positive_int(value):
 
 
 def matching_window(lines, markers, max_span):
-    """Return positions of nearby indicators; never join unrelated log sections."""
-    located = [tuple(i for i, line in enumerate(lines, 1) if marker in line)
-               for marker in markers]
-    if not all(located):
+    """Find a minimal interval with all markers, in bounded O(N log N).
+
+    Sliding window prevents quadratic work on noisy or adversarial logs and
+    avoids false negatives from independently selecting nearest markers.
+    """
+    if not markers or max_span < 0:
         return None
+    hits = []
+    for marker_idx, marker in enumerate(markers):
+        positions = [(line_idx, marker_idx)
+                     for line_idx, line in enumerate(lines, 1) if marker in line]
+        if not positions:
+            return None
+        hits.extend(positions)
+    hits.sort()
+    counts = [0] * len(markers)
+    most_recent = [None] * len(markers)
+    covered = 0
+    left = 0
     best = None
-    for first in located[0]:
-        candidates = [first]
-        for positions in located[1:]:
-            candidates.append(min(positions, key=lambda pos: abs(pos - first)))
-        width = max(candidates) - min(candidates)
-        if width <= max_span:
-            key = (width, min(candidates), tuple(sorted(set(candidates))))
-            if best is None or key < best:
-                best = key
+    for right, (line_no, marker_idx) in enumerate(hits):
+        if counts[marker_idx] == 0:
+            covered += 1
+        counts[marker_idx] += 1
+        most_recent[marker_idx] = line_no
+        while covered == len(markers):
+            window_start = hits[left][0]
+            width = line_no - window_start
+            if width <= max_span:
+                candidate = (width, window_start,
+                             tuple(sorted(set(most_recent))))
+                if best is None or candidate < best:
+                    best = candidate
+                    if width == 0:
+                        return list(best[2])
+            previous_marker_idx = hits[left][1]
+            counts[previous_marker_idx] -= 1
+            if counts[previous_marker_idx] == 0:
+                covered -= 1
+            left += 1
     return list(best[2]) if best else None
 
 
