@@ -1,0 +1,33 @@
+{
+  "schema": "QA_ISSUE_200_GOVERNANCE_V1",
+  "project": "atrio-catolico-qa-geral",
+  "android_package": "br.com.atriocatolico.chatqa",
+  "scope": "DRAFT_QA_ONLY_NO_DEPLOY",
+  "age_decision": {
+    "minimum_age": 18,
+    "method": "BIRTHDATE_LOCAL_PLUS_SELF_DECLARATION_18_PLUS",
+    "founder_product_decision": "DECIDED",
+    "independent_age_verification": false,
+    "paid_provider_required_now": false
+  },
+  "reviews": {
+    "MINOR_LEGAL_ASSESSMENT": "PENDING",
+    "MODERATION_OWNER_AND_BACKUP": "PENDING",
+    "LATE_REPORT_CHANNEL": "PENDING",
+    "URGENT_ESCALATION": "PENDING",
+    "EVIDENCE_ACCESS_AND_ABUSE": "PENDING",
+    "APPEAL_AND_TITULAR_RIGHTS": "PENDING",
+    "RETENTION_13_CLASSES": "PENDING",
+    "PRIVACY_TERMS_FINAL_REVIEW": "PENDING"
+  },
+  "moderation_decision": {
+    "responsibility_status": "DECIDED",
+    "primary_responsible_role": "ADMIN_FOUNDER",
+    "delegate_authority": "ADMIN_FOUNDER_ONLY",
+    "designation_status": "INDIVIDUAL_ASSIGNMENTS_PENDING",
+    "operating_mode": "HUMAN_PROVISIONAL",
+    "planned_automation": "ATRIO_GUARDIAN_V2",
+    "guardian_v2_approved_for_automation": false,
+    "human_review_and_emergency_stop_required": true
+  }
+}

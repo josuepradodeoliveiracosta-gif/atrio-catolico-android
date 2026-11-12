@@ -4,7 +4,7 @@ name: Átrio Conversas — preflight offline da identidade do APK QA
 # Não instala, publica, usa credenciais reais ou acessa Firebase/Cloudflare.
 on:
   pull_request:
-    branches: [main]
+    branches: [main, feat/atrio-conversas-etapa1-20261106]
     paths:
       - 'scripts/chat_qa_apk_identity.py'
       - 'scripts/test_chat_qa_apk_identity.py'
@@ -12,11 +12,27 @@ on:
       - 'app/build.gradle.kts'
       - 'app/src/main/java/br/com/atriocatolico/OnlineAtrioApp.kt'
       - 'app/src/main/java/br/com/atriocatolico/RegistrationV2.kt'
+      - 'app/src/main/java/br/com/atriocatolico/UnifiedExceptionalReportQa.kt'
+      - 'app/src/test/java/br/com/atriocatolico/UnifiedReportEntryQaPolicyTest.kt'
       - 'app/src/main/java/br/com/atriocatolico/ChatAgeRegistrationPrecheck.kt'
+      - 'app/src/main/java/br/com/atriocatolico/ChatQaDeclarationRecovery.kt'
+      - 'app/src/main/java/br/com/atriocatolico/QaCommunityPolicyAccess.kt'
+      - 'app/src/test/java/br/com/atriocatolico/QaCommunityPolicyAccessTest.kt'
+      - 'app/src/main/java/br/com/atriocatolico/AtrioConversations.kt'
+      - 'app/src/main/java/br/com/atriocatolico/AtrioGroups.kt'
+      - 'app/src/main/java/br/com/atriocatolico/PublicMemberProfile.kt'
+      - 'app/src/main/java/br/com/atriocatolico/UserReportsAdminPanel.kt'
+      - 'app/src/main/java/br/com/atriocatolico/UserReportsReviewPolicy.kt'
+      - 'app/src/test/java/br/com/atriocatolico/UserReportsReviewPolicyTest.kt'
+      - 'app/src/main/java/br/com/atriocatolico/ChatReportReceiptPolicy.kt'
+      - 'app/src/test/java/br/com/atriocatolico/ChatReportReceiptPolicyTest.kt'
+      - 'app/src/test/java/br/com/atriocatolico/ChatQaDeclarationPolicyTest.kt'
       - 'app/src/test/java/br/com/atriocatolico/ChatAgeRegistrationPrecheckTest.kt'
       - 'app/src/chatQa/AndroidManifest.xml'
       - 'scripts/test_chat_qa_build_gate.py'
       - '.github/workflows/chat-qa-apk-identity.yml'
+      - 'firebase/qa-general/self-declaration-candidate.mjs'
+      - 'docs/qa-homologacao/CHAT-AUTODECLARACAO-18-QA.md'
 
 permissions:
   contents: read
@@ -31,7 +47,7 @@ jobs:
   unit-qa-apk-identity:
     name: Verificar identidade de APK QA com fixtures sintéticas
     if: >-
-      github.event.pull_request.number == 193 &&
+      (github.event.pull_request.number == 193 || github.event.pull_request.number == 232) &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -48,7 +64,7 @@ jobs:
   build-synthetic-chat-qa:
     name: Compilar Chat QA somente com Firebase fictício
     if: >-
-      github.event.pull_request.number == 193 &&
+      (github.event.pull_request.number == 193 || github.event.pull_request.number == 232) &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -168,7 +184,7 @@ jobs:
           print("OK: APK QA sintético com identidade de QA, assinatura Debug e sem os Workers oficiais conhecidos.")
           print("Não demonstra isolamento em execução nem entrega FCM; nenhum APK foi distribuído.")
           PY
-      - name: Executar JUnit de pré-triagem 18+ sem credenciais
+      - name: Executar JUnit de políticas QA e comprovantes de denúncias sem credenciais
         # O build ChatQa só permite assembleChatQa por segurança.
         # Reconfigurar estas variáveis APENAS neste passo para executar
         # um teste JVM local da política, nunca para implantar serviços.
@@ -195,7 +211,14 @@ jobs:
               exit 2
             fi
           done
-          gradle :app:testDebugUnitTest --tests br.com.atriocatolico.ChatAgeRegistrationPrecheckTest --no-daemon --stacktrace
+          gradle :app:testDebugUnitTest \
+            --tests br.com.atriocatolico.ChatAgeRegistrationPrecheckTest \
+            --tests br.com.atriocatolico.ChatQaDeclarationPolicyTest \
+            --tests br.com.atriocatolico.ChatReportReceiptPolicyTest \
+            --tests br.com.atriocatolico.ParticipantReportReceiptPolicyTest \
+            --tests br.com.atriocatolico.UserReportsReviewPolicyTest \
+            --tests br.com.atriocatolico.UnifiedReportEntryQaPolicyTest \
+            --no-daemon --stacktrace
       - name: Apagar configuração sintética do runner
         if: always()
         run: rm -f app/src/chatQa/google-services.json

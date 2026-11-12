@@ -5,8 +5,9 @@ Projeto alvo: atrio-catolico-qa-geral. Nenhuma credencial e armazenada aqui.
 O banco QA real foi criado pelo operador com regras de negacao total.
 **Nao alterar essas regras reais nesta etapa.**
 
-O script compose-rules.mjs gera um arquivo de regras de teste sem ler a
-politica geral firestore.rules da producao. Reutiliza APENAS os fragmentos
+O script compose-rules.mjs gera uma **fixture restritiva de regressão**, sem ler a
+politica geral firestore.rules do repositório. O candidato principal de
+homologação usa o compositor de paridade indicado na seção de simplificação. Reutiliza APENAS os fragmentos
 de chats e grupos ja separados, mais funcoes basicas de Auth, bloqueios
 privados e leitura pontual de nomes publicos. Outros caminhos sao negados.
 A regra de verificacao de e-mail e mais estrita para a homologacao.
@@ -22,8 +23,9 @@ A CI qa-general-firestore.yml testa suas permissoes em emulador isolado.
 
 NAO fazer deploy agora. A revisao de menores, retencao, moderacao,
 regras QA e identidade APK/Worker ainda e necessaria antes de autorizar
-ativacao de chats, grupos ou notificacoes FCM. Nao importar dados reais,
-usuarios oficiais nem copiar firestore.rules da producao.
+ativacao de chats, grupos ou notificacoes FCM. Nao importar dados reais nem usuarios oficiais da producao. Reutilizar
+apenas o texto das Rules versionadas, após comparação read-only com a
+release de produção, nunca publicá-las automaticamente.
 
 **Revisão de segurança QA (08/11):** o gerador altera apenas a âncora
 `chatEnabled()` na cópia **em memória** do fragmento de conversas, para
@@ -217,3 +219,80 @@ retentativa atômica distribuída e não autoriza uso público do chat.
 Antes de qualquer implantação, a Issue #200 exige homologação
 formal de método, LGPD, moderação, retenção, revisão das Rules
 e autorização explícita separada.
+
+## Contrato experimental de paridade do QA fechado — somente Emulator (11/11/2026)
+
+O candidato restrito de Chat QA da PR #232 é apropriado para testar
+cadastro/conversas, mas **não contém `posts` e `posts/*/replies`**.
+Como o formulário normal desemboca em `OnlineCommunity`, criamos uma
+**segunda alternativa exclusivamente offline**,
+`firebase/qa-general/closed-qa-parity.mjs`, que parte do gerador de
+paridade já versionado (o qual **fixa por SHA Git** a base
+`firestore.rules`) e aplica ao laboratório o contrato adotado pelo
+Fundador: autodeclaração 18+, sem whitelist ou verificador pago.
+
+O candidato integrado **nega mural sem configuração de e-mail ativa**;
+exige e-mail confirmado no Auth para ler/publicar; exige
+`app_config/community_rules` ativo e aceite da versão vigente para
+publicar; preserva o formulário, perfil e conta mínima do cadastro;
+deixa chats e grupos FECHADOS com os quatro documentos administrativos
+estagiados. O Firebase Emulator testa também tentativas de acesso
+anônimo, conta sem e-mail confirmado, consentimento ausente, autoria
+forjada e escrita indevida dos switches administrativos. Um fixture
+exclusivamente sintético testa habilitação/desabilitação do chat.
+
+A versão NÃO substitui a geração principal, NÃO se comunica com
+Firebase/Cloudflare real, NÃO provisiona contas, NÃO cria os quatro
+`app_config`, NÃO altera Rules de produção ou QA e NÃO comprova
+paridade de **todas** as funcionalidades do aplicativo. O hash da
+base versionada NÃO comprova igualdade com o ruleset publicado na
+produção. Em eventual transição ao QA conectado, comparar Rules
+remotas por leitura, avaliar colisões e rotas legadas/denúncias,
+moderação, custos por leitura, limites de Rules, LGPD e rollback exato.
+A publicação requer aprovação separada; não usar o arquivo gerado
+como comando de deploy.
+
+**O cadastro normal dos participantes continua a decisão operacional
+do Fundador.** Testes fechados com pessoas adultas conforme sua
+informação, com autodeclaração de idade sem aferição independente,
+não dispensam análise jurídica do caso concreto antes de expansão.
+**NO_GO — ativação QA 60%, QA geral 29%.**
+
+## Simplificação adotada — aproveitar Rules oficiais versionadas (11/11/2026)
+
+**Caminho principal desta PR:** usar o arquivo já existente
+`firestore.rules` como **base versionada e fixada por SHA Git**.
+O compositor `firebase/qa-general/closed-qa-parity.mjs` chama o
+compositor já existente `compose-parity-rules.mjs` e ajusta
+**somente** os gates do QA fechado: exigência de e-mail confirmado,
+aceite de regras e declaração 18+ para chat. Conserva as regras
+de `posts`, `replies`, `profiles`, `user_reports` e demais
+rotas presentes na base, e adiciona os fragmentos de DMs/grupos
+com verificação de conflitos. **Não recria a comunidade do zero.**
+
+O **pré-flight principal** `scripts/chat-qa-activation-preflight.mjs`
+passa a usar `renderClosedQaParity(base,chat,group)` para calcular
+o hash e declarar a origem do candidato. O gerador independente
+`self-declaration-candidate.mjs` é mantido **somente como fixture
+restritiva de testes negativos**, porque a suíte antiga verifica
+ausência de acessos legados nesse cenário. **Não é o candidato
+principal de homologação e nunca deve ser publicado por engano.**
+
+**Distinção obrigatória:** `firestore.rules` é uma cópia do
+repositório, **não prova, sem consulta, que corresponde exatamente
+à release REAL atualmente publicada em produção**. Já existe o
+verificador `scripts/termux-firestore-rules-diff-readonly.mjs`,
+que consulta `atrio-catolico` exclusivamente por dois GETs
+e compara hashes. Ele deve retornar `exactMatch=true`
+antes de afirmarmos que copiamos as regras **publicadas**. Se
+`exactMatch=false` ou erro de autorização, interromper a
+preparação para publicação, investigar a divergência e revisar
+a base; não sobrepor produção nem alterar arquivos automaticamente.
+
+**Fronteiras imutáveis:** não copiar usuários ou dados da produção,
+não copiar tokens, não importar credenciais no repositório,
+não publicar Rules no Firebase QA enquanto houver `NO_GO`,
+não abrir conversas/grupos/push e não modificar backups. O
+QA remoto permaneceu `deny-all` na última captura enviada
+pelo operador. A revisão de rotas herdadas e moderação da
+issue #200 continua necessária mesmo quando os textos coincidirem.

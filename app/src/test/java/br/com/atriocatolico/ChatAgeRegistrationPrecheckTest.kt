@@ -48,4 +48,34 @@ class ChatAgeRegistrationPrecheckTest {
                 p.assess(formatted, today))
         }
     }
+
+    @Test fun ageAndDeclarationMustAgreeBeforeEligibility() {
+        val p = ChatAgeRegistrationPrecheck
+        assertEquals(18, p.declaredAge("10/11/2008", today))
+        assertEquals(17, p.declaredAge("11/11/2008", today))
+        assertEquals(null, p.declaredAge("31/02/2000", today))
+        assertEquals(null, p.declaredAge("", today))
+        assertEquals(false, p.canRequestChatAccess("10/11/2008", false, today))
+        assertEquals(true, p.canRequestChatAccess("10/11/2008", true, today))
+        assertEquals(false, p.canRequestChatAccess("11/11/2008", true, today))
+        assertEquals(false, p.canRequestChatAccess("31/02/2000", true, today))
+        assertEquals(false, p.canRequestChatAccess("", true, today))
+        assertEquals(false, p.canRequestChatAccess("11/11/2030", true, today))
+    }
+
+    @Test fun previousCheckboxIsNotValidAfterBirthDateChanges() {
+        val p = ChatAgeRegistrationPrecheck
+        assertEquals(true, p.canRequestChatAccess("10/11/2008", true, today))
+        for (changed in listOf("", "10/11/2010", "29/02/2007", "99/99/2000")) {
+            assertEquals(false, p.canRequestChatAccess(changed, true, today))
+        }
+    }
+
+    @Test fun exactlyEighteenTodayButNotYesterday() {
+        val p = ChatAgeRegistrationPrecheck
+        assertEquals(false, p.canRequestChatAccess(
+            "10/11/2008", true, LocalDate.of(2026,11,9)))
+        assertEquals(true, p.canRequestChatAccess(
+            "10/11/2008", true, LocalDate.of(2026,11,10)))
+    }
 }

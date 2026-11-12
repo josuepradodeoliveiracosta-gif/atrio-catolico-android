@@ -1,0 +1,174 @@
+name: Chat QA - autodeclaracao 18+ somente no emulador
+
+on:
+  pull_request:
+    branches: [feat/atrio-conversas-etapa1-20261106]
+    paths:
+      - 'firebase/qa-general/self-declaration-candidate.mjs'
+      - 'firebase/qa-general/closed-qa-parity.mjs'
+      - 'firebase/qa-general/closed-qa-parity.test.mjs'
+      - 'tests/security/qa-closed-parity-firestore.test.mjs'
+      - 'firebase/qa-general/compose-parity-rules.mjs'
+      - 'firestore.rules'
+      - 'docs/qa-homologacao/ESCOPO-TESTES-FECHADOS-ADULTOS-QA.md'
+      - 'firebase/qa-general/registration-onboarding-rules.mjs'
+      - 'firebase/qa-general/admin-config-preflight.mjs'
+      - 'firebase/qa-general/admin-config-preflight.test.mjs'
+      - 'scripts/chat-qa-admin-initial-create-plan.mjs'
+      - 'scripts/chat-qa-admin-initial-create-plan.test.mjs'
+      - 'scripts/termux-firebase-qa-admin-config-readonly.mjs'
+      - 'scripts/termux-firebase-qa-admin-config-readonly.test.mjs'
+      - 'scripts/chat-qa-combined-readonly.mjs'
+      - 'scripts/chat-qa-combined-readonly.test.mjs'
+      - 'tests/security/qa-self-declaration-firestore.test.mjs'
+      - 'tests/security/qa-rollback-denyall-firestore.test.mjs'
+      - 'scripts/chat-qa-activation-preflight.mjs'
+      - 'scripts/chat-qa-activation-preflight.test.mjs'
+      - 'scripts/chat-qa-rollback-reference.mjs'
+      - 'scripts/chat-qa-rollback-reference.test.mjs'
+      - 'scripts/chat-qa-rollback-live-readonly.mjs'
+      - 'scripts/chat-qa-rollback-live-readonly.test.mjs'
+      - 'firebase/qa-general/qa-deny-all-reference.rules'
+      - 'docs/qa-homologacao/ATIVACAO-CADASTRO-18-QA-PLANO.md'
+      - 'scripts/termux-firebase-qa-audit-readonly.mjs'
+      - 'scripts/chat-qa-parity-remote-readonly.mjs'
+      - 'scripts/chat-qa-parity-remote-readonly.test.mjs'
+      - 'scripts/termux-firebase-qa-iam-readonly.mjs'
+      - 'scripts/termux-firebase-qa-iam-readonly.test.mjs'
+      - 'scripts/termux-firestore-qa-readonly.mjs'
+      - 'scripts/termux-firestore-qa-readonly.test.mjs'
+      - 'scripts/termux-firebase-qa-audit-readonly.test.mjs'
+      - 'docs/qa-homologacao/AUDITORIA-CADASTRO-18-QA-20261110.md'
+      - 'app/src/main/java/br/com/atriocatolico/OnlineAtrioApp.kt'
+      - 'app/src/main/java/br/com/atriocatolico/ChatQaDeclarationRecovery.kt'
+      - 'app/src/main/java/br/com/atriocatolico/QaCommunityPolicyAccess.kt'
+      - 'app/src/test/java/br/com/atriocatolico/QaCommunityPolicyAccessTest.kt'
+      - 'app/src/main/java/br/com/atriocatolico/AtrioConversations.kt'
+      - 'app/src/test/java/br/com/atriocatolico/ChatQaDeclarationPolicyTest.kt'
+      - 'app/src/main/java/br/com/atriocatolico/RegistrationV2.kt'
+      - 'docs/qa-homologacao/CHAT-AUTODECLARACAO-18-QA.md'
+      - 'docs/qa-homologacao/CADASTRO-REGRAS-PRIVACIDADE-REVISAO-QA.md'
+      - 'docs/qa-homologacao/PACOTE-DECISOES-OPERACIONAIS-ISSUE-200-QA.md'
+      - 'docs/qa-homologacao/ISSUE-200-GOVERNANCA-QA.json'
+      - 'scripts/chat-qa-governance-preflight.mjs'
+      - 'scripts/chat-qa-governance-preflight.test.mjs'
+      - 'scripts/chat-qa-late-report-dryrun.mjs'
+      - 'scripts/chat-qa-late-report-dryrun.test.mjs'
+      - 'scripts/chat-qa-exceptional-intake-contract.mjs'
+      - 'scripts/chat-qa-exceptional-intake-contract.test.mjs'
+      - 'scripts/chat-qa-exceptional-gateway-model.mjs'
+      - 'scripts/chat-qa-exceptional-gateway-model.test.mjs'
+      - '.github/workflows/chat-self-declaration-qa-offline.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: atrio-selfdecl-qa-${{ github.run_id }}
+  cancel-in-progress: false
+jobs:
+  emulator-only:
+    name: Garantir fail-closed da autodeclaracao QA ficticia
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GOOGLE_CLOUD_PROJECT: demo-atrio-v11
+      FIREBASE_TOKEN: ''
+      GOOGLE_APPLICATION_CREDENTIALS: ''
+      CLOUDFLARE_API_TOKEN: ''
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Validar auditoria remota QA com fixtures offline (sem token real)
+        run: |
+          node --check scripts/termux-firebase-qa-audit-readonly.mjs
+          node --test scripts/termux-firestore-qa-readonly.test.mjs scripts/termux-firebase-qa-audit-readonly.test.mjs
+      - name: Comparar baseline remoto QA apenas com fixtures, sem fazer GET na CI
+        run: |
+          node --check scripts/chat-qa-parity-remote-readonly.mjs
+          node --test scripts/chat-qa-parity-remote-readonly.test.mjs
+      - name: Auditar chamadas IAM nao-mutantes com mocks (sem acesso a nuvem)
+        run: |
+          node --check scripts/termux-firebase-qa-iam-readonly.mjs
+          node --test scripts/termux-firebase-qa-iam-readonly.test.mjs
+      - name: Preparacao offline de ativacao e referencia deny-all
+        run: |
+          node --check scripts/chat-qa-activation-preflight.mjs
+          node --test scripts/chat-qa-activation-preflight.test.mjs
+          node scripts/chat-qa-activation-preflight.mjs
+      - name: Garantir que o plano de reversao historico continua NO_GO
+        run: |
+          node --check scripts/chat-qa-rollback-reference.mjs
+          node --test scripts/chat-qa-rollback-reference.test.mjs
+          node scripts/chat-qa-rollback-reference.mjs
+      - name: Conferir baseline remoto por mocks e NEGAR ativacao automatica
+        run: |
+          node --check scripts/chat-qa-rollback-live-readonly.mjs
+          node --test scripts/chat-qa-rollback-live-readonly.test.mjs
+      - name: Conferir governança QA sem simular aprovações jurídicas
+        run: |
+          node --check scripts/chat-qa-governance-preflight.mjs
+          node --test scripts/chat-qa-governance-preflight.test.mjs
+          node scripts/chat-qa-governance-preflight.mjs
+      - name: Simular denuncia tardia sem acesso a dados reais ou GO
+        run: |
+          node --check scripts/chat-qa-late-report-dryrun.mjs
+          node --test scripts/chat-qa-late-report-dryrun.test.mjs
+          node scripts/chat-qa-late-report-dryrun.mjs
+      - name: Auditar entrada excepcional simulada sem recebimento real
+        run: |
+          node --check scripts/chat-qa-exceptional-intake-contract.mjs
+          node --test scripts/chat-qa-exceptional-intake-contract.test.mjs
+          node scripts/chat-qa-exceptional-intake-contract.mjs
+      - name: Validar gateway e idempotencia ficticios SEM endpoint
+        run: |
+          node --check scripts/chat-qa-exceptional-gateway-model.mjs
+          node --test scripts/chat-qa-exceptional-gateway-model.test.mjs
+          node scripts/chat-qa-exceptional-gateway-model.mjs
+      - name: Configuracao administrativa QA fechada — somente offline
+        run: |
+          node --check firebase/qa-general/admin-config-preflight.mjs
+          node --test firebase/qa-general/admin-config-preflight.test.mjs
+          node firebase/qa-general/admin-config-preflight.mjs
+      - name: Verificar consultas GET mascaradas de app_config QA com fixtures
+        run: |
+          node --check scripts/termux-firebase-qa-admin-config-readonly.mjs
+          node --test scripts/termux-firebase-qa-admin-config-readonly.test.mjs
+      - name: Validar consolidacao QA com mocks — SEM credenciais reais
+        run: |
+          node --check scripts/chat-qa-combined-readonly.mjs
+          node --test scripts/chat-qa-combined-readonly.test.mjs
+      - name: Validar plano inicial create-only QA sem acesso a nuvem
+        run: |
+          node --check scripts/chat-qa-admin-initial-create-plan.mjs
+          node --test scripts/chat-qa-admin-initial-create-plan.test.mjs
+          node scripts/chat-qa-admin-initial-create-plan.mjs
+      - name: Dependencias de teste existentes
+        run: npm ci --prefix tests/security
+      - name: Somente sintaxe do gerador QA
+        run: node --check firebase/qa-general/self-declaration-candidate.mjs
+      - name: Validar cópia versionada das Rules e ajustes QA somente offline
+        run: |
+          node --check firebase/qa-general/closed-qa-parity.mjs
+          node --test firebase/qa-general/compose-parity-rules.test.mjs firebase/qa-general/closed-qa-parity.test.mjs
+          node --test scripts/termux-firestore-rules-diff-readonly.test.mjs
+      - name: Gerar fixture restritiva legada para testes negativos (NÃO a candidata principal)
+        run: node firebase/qa-general/self-declaration-candidate.mjs
+      - name: Garantir escopo sem acesso a produção
+        run: |
+          test "$GOOGLE_CLOUD_PROJECT" = demo-atrio-v11
+          ! grep -q 'allow read, write: if true;' tests/security/qa-general.generated.rules
+          test -f tests/security/qa-general.generated.rules
+      - name: Testar no emulador Firebase sem credenciais reais
+        working-directory: tests/security
+        run: ./node_modules/.bin/firebase emulators:exec --only firestore --config qa-general.firebase.json --project demo-atrio-v11 "node qa-self-declaration-firestore.test.mjs && node qa-closed-parity-firestore.test.mjs && node qa-rollback-denyall-firestore.test.mjs"
+      - name: Remover arquivo gerado no runner
+        if: always()
+        run: rm -f tests/security/qa-general.generated.rules

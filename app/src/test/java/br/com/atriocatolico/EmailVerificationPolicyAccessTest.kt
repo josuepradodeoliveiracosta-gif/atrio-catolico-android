@@ -50,4 +50,27 @@ class EmailVerificationPolicyAccessTest {
                 canEnterAtrioCommunity(true, state))
         }
     }
+ 
+    @Test fun chatQaFalhaFechadoSemPoliticaDeEmailAtiva() {
+        for ((enabled, version) in listOf(
+            Pair(null, null), Pair(false, "2026-11-v1"),
+            Pair(true, "outdated"), Pair(null, "2026-11-v1")
+        )) {
+            assertEquals(EmailVerificationPolicyAccess.UNAVAILABLE,
+                qaEmailVerificationPolicyFromServer(enabled, version))
+        }
+        assertEquals(EmailVerificationPolicyAccess.REQUIRED,
+            qaEmailVerificationPolicyFromServer(true, "2026-11-v1"))
+        assertFalse(canEnterQaAtrioCommunity(false, EmailVerificationPolicyAccess.REQUIRED))
+        assertTrue(canEnterQaAtrioCommunity(true, EmailVerificationPolicyAccess.REQUIRED))
+        for (state in listOf(EmailVerificationPolicyAccess.OPTIONAL,
+                EmailVerificationPolicyAccess.CHECKING,
+                EmailVerificationPolicyAccess.UNAVAILABLE)) {
+            assertFalse(canEnterQaAtrioCommunity(true, state))
+            assertFalse(canEnterQaAtrioCommunity(false, state))
+        }
+        // A variante de produção conserva a decisão pré-existente.
+        assertTrue(canEnterAtrioCommunity(true, EmailVerificationPolicyAccess.UNAVAILABLE))
+        assertTrue(canEnterAtrioCommunity(false, EmailVerificationPolicyAccess.OPTIONAL))
+    }
 }

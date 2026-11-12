@@ -59,6 +59,9 @@ export async function inspectQaRules({
  return {
    project:PROJECT,mode:'READ_ONLY_TWO_GET',
    sha256:createHash('sha256').update(rules).digest('hex'),
+   // Identificador validado da release anterior; não é token ou segredo.
+   // Registrar é necessário para planejar reversão exata.
+   rulesetName:release.rulesetName,
    firestoreRulesCurrentlyDenyAll:closed,
    safeToEnableChat:false,qaRulesNeedsReview:!closed,
    deployPerformed:false,productionContacted:false

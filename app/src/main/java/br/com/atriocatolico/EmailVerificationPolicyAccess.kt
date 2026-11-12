@@ -19,3 +19,19 @@ internal fun emailVerificationPolicyFromServer(
 internal fun canEnterAtrioCommunity(
     emailVerified: Boolean, policy: EmailVerificationPolicyAccess
 ): Boolean = emailVerified || policy == EmailVerificationPolicyAccess.OPTIONAL
+
+/**
+ * Apenas a variante Chat QA exige política 2026-11-v1 ativa e publicada.
+ * Se ausente/desativada/incompatível, a comunidade fica bloqueada na UI.
+ * A autenticação e as Rules do Firebase ainda são autoridade final.
+ */
+internal fun qaEmailVerificationPolicyFromServer(
+    enabled: Boolean?, version: String?
+): EmailVerificationPolicyAccess =
+    if (enabled == true && version == "2026-11-v1")
+        EmailVerificationPolicyAccess.REQUIRED
+    else EmailVerificationPolicyAccess.UNAVAILABLE
+
+internal fun canEnterQaAtrioCommunity(
+    emailVerified: Boolean, policy: EmailVerificationPolicyAccess
+): Boolean = emailVerified && policy == EmailVerificationPolicyAccess.REQUIRED

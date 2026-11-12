@@ -106,6 +106,10 @@ internal fun OnlineAtrioApp(activity: androidx.activity.ComponentActivity) {
                 var verifiedThisSession by remember(user.uid) {
                     mutableStateOf(user.isEmailVerified)
                 }
+                // Somente Chat QA: nao concluir onboarding com update ainda pendente
+                // ou rejeitado pelo Firestore. A producao conserva o fluxo legado.
+                var qaOnboardingSaving by remember(user.uid) { mutableStateOf(false) }
+                var qaOnboardingSaveFailed by remember(user.uid) { mutableStateOf(false) }
                 // Ao entrar em outro aparelho, recuperar a pendência de uma
                 // conta V2 já provisionada. Contas antigas sem documento
                 // continuam seguindo a política de migração existente.
@@ -135,7 +139,12 @@ internal fun OnlineAtrioApp(activity: androidx.activity.ComponentActivity) {
                                     EmailVerificationPolicyAccess.UNAVAILABLE
                                 snapshot.metadata.isFromCache ->
                                     EmailVerificationPolicyAccess.CHECKING
-                                else -> emailVerificationPolicyFromServer(
+                                else -> if (BuildConfig.APPLICATION_ID ==
+                                    "br.com.atriocatolico.chatqa"
+                                ) qaEmailVerificationPolicyFromServer(
+                                    snapshot.getBoolean("enabled"),
+                                    snapshot.getString("version")
+                                ) else emailVerificationPolicyFromServer(
                                     snapshot.getBoolean("enabled"),
                                     snapshot.getString("version")
                                 )
@@ -159,23 +168,49 @@ internal fun OnlineAtrioApp(activity: androidx.activity.ComponentActivity) {
                 // Uma conta recém-criada nunca salta a verificação por um
                 // switch administrativo ainda em fase de migração.
                 if (justRegistered && verifiedThisSession) {
-                    RegistrationOnboardingScreen(db, user.uid, onFinish = {
-                        db.document("users/${user.uid}/private/account")
-                            .update(mapOf(
-                                "onboardingStatus" to "complete",
-                                "updatedAt" to FieldValue.serverTimestamp()
-                            ))
-                        registrationStarted = false
-                        pendingRegistrationUid = null
-                        registrationPrefs.edit().remove("pendingUid").apply()
-                    })
+                    val chatQa = BuildConfig.APPLICATION_ID == "br.com.atriocatolico.chatqa"
+                    RegistrationOnboardingScreen(
+                        db = db, uid = user.uid,
+                        finishBusy = chatQa && qaOnboardingSaving,
+                        finishError = chatQa && qaOnboardingSaveFailed,
+                        onSignOut = if (chatQa) onGateSignOut else null,
+                        onFinish = {
+                            if (!chatQa || !qaOnboardingSaving) {
+                                if (chatQa) {
+                                    qaOnboardingSaving = true
+                                    qaOnboardingSaveFailed = false
+                                }
+                                val accountUpdate = db.document("users/${user.uid}/private/account")
+                                    .update(mapOf(
+                                        "onboardingStatus" to "complete",
+                                        "updatedAt" to FieldValue.serverTimestamp()
+                                    ))
+                                val finishLocal: () -> Unit = {
+                                    registrationStarted = false
+                                    pendingRegistrationUid = null
+                                    registrationPrefs.edit().remove("pendingUid").apply()
+                                }
+                                if (chatQa) {
+                                    accountUpdate.addOnCompleteListener { result ->
+                                        qaOnboardingSaving = false
+                                        if (result.isSuccessful) finishLocal()
+                                        else qaOnboardingSaveFailed = true
+                                    }
+                                } else finishLocal()
+                            }
+                        }
+                    )
                 } else if (justRegistered && !verifiedThisSession) {
                     MandatoryEmailVerificationGate(
                         uid = user.uid,
                         onVerified = { verifiedThisSession = true },
                         onSignOut = onGateSignOut
                     )
-                } else if (canEnterAtrioCommunity(verifiedThisSession, verificationPolicy)) {
+                } else if (
+                    if (BuildConfig.APPLICATION_ID == "br.com.atriocatolico.chatqa")
+                        canEnterQaAtrioCommunity(verifiedThisSession, verificationPolicy)
+                    else canEnterAtrioCommunity(verifiedThisSession, verificationPolicy)
+                ) {
                     OnlineUserScreen(auth = auth, db = db, user = user)
                 } else if (verificationPolicy == EmailVerificationPolicyAccess.REQUIRED) {
                     MandatoryEmailVerificationGate(
@@ -185,7 +220,9 @@ internal fun OnlineAtrioApp(activity: androidx.activity.ComponentActivity) {
                     )
                 } else {
                     EmailVerificationPolicyStatusScreen(
-                        unavailable = verificationPolicy == EmailVerificationPolicyAccess.UNAVAILABLE,
+                        unavailable = verificationPolicy == EmailVerificationPolicyAccess.UNAVAILABLE ||
+                            (BuildConfig.APPLICATION_ID == "br.com.atriocatolico.chatqa" &&
+                                verificationPolicy == EmailVerificationPolicyAccess.OPTIONAL),
                         onRetry = { policyRetry++ },
                         onSignOut = onGateSignOut
                     )
@@ -221,6 +258,8 @@ private fun OnlineAuthScreen(
     var acceptedRules by remember { mutableStateOf(false) }
     var acceptedTerms by remember { mutableStateOf(false) }
     var acknowledgedPrivacy by remember { mutableStateOf(false) }
+    var birthDateText by remember { mutableStateOf("") } // não usar rememberSaveable
+    var declared18Plus by remember { mutableStateOf(false) }
     var legalDocument by remember { mutableStateOf("") }
     var showRules by remember { mutableStateOf(false) }
     var showPassword by remember { mutableStateOf(false) }
@@ -278,13 +317,22 @@ private fun OnlineAuthScreen(
                         supportingText = { Text("De 2 a 35 caracteres. Será exibido nas publicações.") },
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next))
                 }
-                // Somente o APK Chat QA exibe pré-triagem local de idade.
-                // Não salvar nem enviar a data de nascimento no cadastro.
-                // O backend Firestore continua exigindo prova confiável;
-                // esta seleção nunca altera chatAgeEligibility/current.
+                // Exclusivo Chat QA: data de nascimento usada só em memória.
                 if (registering &&
                     BuildConfig.APPLICATION_ID == "br.com.atriocatolico.chatqa") {
-                    ChatAgeRegistrationPrecheckPanel()
+                    ChatAgeRegistrationPrecheckPanel(
+                        birthDate = birthDateText,
+                        onBirthDateChange = { value ->
+                            birthDateText = value
+                            declared18Plus = false // toda edição exige novo aceite
+                        },
+                        declared18Plus = declared18Plus,
+                        onDeclarationChange = { checked ->
+                            declared18Plus = ChatAgeRegistrationPrecheck.canRequestChatAccess(
+                                birthDateText, checked, java.time.LocalDate.now()
+                            )
+                        }
+                    )
                 }
                 OutlinedTextField(email, { email = it.take(150) },
                     modifier = Modifier.fillMaxWidth().testTag("atrio-auth-email")
@@ -385,6 +433,12 @@ private fun OnlineAuthScreen(
                         resetInfo = ""
                         if (registering) {
                             val publicName = displayName.trim()
+                            // Condição congelada antes da chamada Firebase assíncrona.
+                            val adultDeclarationForThisSignup =
+                                BuildConfig.APPLICATION_ID == "br.com.atriocatolico.chatqa" &&
+                                ChatAgeRegistrationPrecheck.canRequestChatAccess(
+                                    birthDateText, declared18Plus, java.time.LocalDate.now()
+                                )
                             onRegistrationStarted()
                             auth.createUserWithEmailAndPassword(email.trim(), password)
                                 .addOnSuccessListener { result ->
@@ -400,6 +454,27 @@ private fun OnlineAuthScreen(
                                             "AtrioQaProfile", "auth_signup_callback_received"
                                         )
                                         onRegistrationCreated(created.uid)
+                                        // SOMENTE no candidato Chat QA: uma declaração 18+
+                                        // pode gerar o sinal de acesso, NÃO prova etária.
+                                        // Sem aceite explícito, nenhum registro é emitido.
+                                        // O servidor/Rules deve impedir escrita em produção.
+                                        if (adultDeclarationForThisSignup) {
+                                            val expiry = com.google.firebase.Timestamp(
+                                                java.util.Date(System.currentTimeMillis() +
+                                                    364L * 24L * 60L * 60L * 1000L))
+                                            db.document(
+                                                "users/${created.uid}/chatAgeEligibility/current"
+                                            ).set(mapOf(
+                                                "status" to "declared_18_plus",
+                                                "minimumAge" to 18,
+                                                "policyVersion" to "2026-11-selfdecl-qa-v1",
+                                                "reviewExpiresAt" to expiry
+                                            )).addOnFailureListener {
+                                                android.util.Log.w(
+                                                    "AtrioChatQA", "self_declaration_not_saved"
+                                                )
+                                            }
+                                        }
                                         // Registro mínimo no esquema V2; as Rules novas
                                         // precisam de deploy separado antes de produção.
                                         db.document("users/${created.uid}/private/account")
@@ -582,25 +657,73 @@ private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: Fi
     // Rollout seguro: o novo portão só liga APÓS implantar as regras Firestore
     // e aprovar explicitamente app_config/community_rules pelo Console.
     // Sem configuração publicada (ou em erro/offline), não bloquear contas.
+    val strictQaCommunityPolicy = BuildConfig.APPLICATION_ID == "br.com.atriocatolico.chatqa"
     var rulesGateEnabled by remember(uid) { mutableStateOf(false) }
+    var rulesPolicyLoaded by remember(uid) { mutableStateOf(false) }
     var consentLoaded by remember(uid) { mutableStateOf(false) }
     var consentReadFailed by remember(uid) { mutableStateOf(false) }
     var consentAccepted by remember(uid) { mutableStateOf(false) }
     DisposableEffect(db, uid) {
         val feature = db.document("app_config/community_rules")
-            .addSnapshotListener { snapshot, failure ->
-                rulesGateEnabled = failure == null &&
-                    snapshot?.getBoolean("enabled") == true &&
-                    snapshot.getString("version") == CommunityRulesPolicy.VERSION
+            .addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, failure ->
+                val enabled = snapshot?.getBoolean("enabled")
+                val version = snapshot?.getString("version")
+                rulesGateEnabled = if (strictQaCommunityPolicy) {
+                    qaCommunityPolicyFromServer(
+                        enabled, version,
+                        fromCache = snapshot?.metadata?.isFromCache != false,
+                        hasError = failure != null
+                    ) == QaCommunityPolicyAccess.REQUIRED
+                } else {
+                    failure == null && enabled == true &&
+                        version == CommunityRulesPolicy.VERSION
+                }
+                rulesPolicyLoaded = true
             }
         val acceptance = db.collection("community_consents").document(uid)
-            .addSnapshotListener { snapshot, failure ->
+            .addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, failure ->
                 consentLoaded = true // Erro também libera a tela de saída, nunca spinner eterno.
                 consentReadFailed = failure != null
-                consentAccepted = failure == null &&
-                    snapshot?.getString("version") == CommunityRulesPolicy.VERSION
+                val version = snapshot?.getString("version")
+                consentAccepted = if (strictQaCommunityPolicy) {
+                    qaCommunityConsentFromServer(
+                        version,
+                        hasAcceptedAt = snapshot?.get("acceptedAt") is com.google.firebase.Timestamp,
+                        fromCache = snapshot?.metadata?.isFromCache != false,
+                        hasPendingWrites = snapshot?.metadata?.hasPendingWrites() != false,
+                        hasError = failure != null
+                    )
+                } else {
+                    failure == null && version == CommunityRulesPolicy.VERSION
+                }
             }
         onDispose { feature.remove(); acceptance.remove() }
+    }
+    // A regra antiga de rollout (documento ausente = portao desligado) e
+    // preservada fora do Chat QA. No Chat QA, ausencia/erro/cache = BLOQUEIO.
+    if (strictQaCommunityPolicy && !rulesGateEnabled) {
+        Column(
+            modifier = Modifier.fillMaxSize().background(Paper)
+                .padding(24.dp).testTag("atrio-qa-community-policy-unavailable"),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text("Regras da comunidade no ambiente QA",
+                color = Wine, style = MaterialTheme.typography.titleLarge)
+            if (!rulesPolicyLoaded) {
+                CircularProgressIndicator()
+                Text("Consultando a configuração do servidor.", color = Muted)
+            } else {
+                Text("A política de acesso não está disponível ou não pôde ser " +
+                    "confirmada no servidor. A comunidade continuará bloqueada " +
+                    "até a homologação da configuração QA.", color = Ink)
+            }
+            OutlinedButton(
+                onClick = { auth.signOut() },
+                modifier = Modifier.testTag("atrio-qa-community-policy-signout")
+            ) { Text("Sair da conta") }
+        }
+        return
     }
     if (rulesGateEnabled && !consentAccepted) {
         CommunityRulesGate(db, uid, loaded = consentLoaded, loadError = consentReadFailed)

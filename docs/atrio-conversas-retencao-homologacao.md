@@ -24,7 +24,7 @@ como substituto improvisado de aferição de idade. O registro operacional
 de autorização usa apenas status, versão e vencimento; eventual
 integração futura terá avaliação de finalidade e minimização de dados.
 
-## Diretrizes atuais para escolher a aferição de idade
+## Avaliação jurídica da autodeclaração provisória e evolução futura
 
 Referência adicional da ANPD (28/10/2026): Guia Orientativo sobre
 escopo e obrigações gerais do ECA Digital:
@@ -57,10 +57,13 @@ medidas diferentes; nenhuma pode ser substituída apenas por
 6. Somente após auditoria técnica, aprovação legal e validação
    operacional, analisar ativação controlada no Firebase.
 
-A escolha do fornecedor, de seu custo, dos prazos de autorização
-e do mecanismo de supervisão ainda depende de decisão expressa
-do responsável pelo projeto. Nenhuma nova dependência paga foi
-adicionada.
+O fundador já decidiu usar autodeclaração expressa 18+ (com data
+informada e cálculo local) como critério operacional provisório para
+DMs e grupos até haver recursos para alternativa mais robusta.
+O fornecedor pago não é pré-requisito automático do trabalho atual.
+A avaliação jurídica da adequação desse método ao serviço concreto
+e as demais salvaguardas continuam pendentes; a decisão de produto
+não transforma autodeclaração em prova independente de idade.
 
 ## Inventário pendente de política específica
 
@@ -142,3 +145,15 @@ fechados na produção.
 **Atenção:** os testes abaixo não implementam painel administrativo,
 tratamento jurídico nem triagem automática; apenas comprovam que
 o cliente não ganha acesso aos dados privados por ser moderador.
+
+## Responsabilidade de moderação definida pelo fundador (11/11/2026)
+
+O Administrador/Fundador assume provisoriamente a responsabilidade
+por toda a moderação do aplicativo, com atuação complementar de
+moderadores designados exclusivamente por ele. O projeto pretende
+automatizar progressivamente o trabalho pelo Guardião V2 após
+homologação; o Guardião V1 permanece legado. A decisão de
+responsabilidade **não** concede acesso genérico a mensagens,
+não nomeia contas, não estabelece prazos legais e não autoriza
+sanções automatizadas. Ver
+`docs/qa-homologacao/DIRETRIZ-MODERACAO-HUMANA-TRANSICAO-GUARDIAO-V2.md`.

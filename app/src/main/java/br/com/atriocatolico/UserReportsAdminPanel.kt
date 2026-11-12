@@ -4,14 +4,18 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -20,11 +24,18 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.DocumentSnapshot
+import com.google.firebase.firestore.Source
 
 private data class ReportedMember(
     val id: String, val targetUid: String,
     val reporterUid: String, val reason: String, val status: String
 )
+
+// Somente escopo de composicao; nunca persiste relatorios nem credenciais.
+internal class UserReportsAsyncCallbackGuard {
+    var attached: Boolean = false
+}
 
 /**
  * Fila de denúncias de usuários. Chamado SOMENTE depois do portão de admin
@@ -33,38 +44,91 @@ private data class ReportedMember(
  */
 @Composable
 internal fun UserReportsAdminPanel(db: FirebaseFirestore, adminUid: String) {
-    var reports by remember(adminUid) { mutableStateOf<List<ReportedMember>>(emptyList()) }
-    var loading by remember(adminUid) { mutableStateOf(true) }
-    var failed by remember(adminUid) { mutableStateOf(false) }
-    var busyId by remember(adminUid) { mutableStateOf("") }
-    var info by remember(adminUid) { mutableStateOf("") }
-    DisposableEffect(db, adminUid) {
+    // Uma página por vez: evitar limitar a cobertura aos 30 casos recentes
+    // ou baixar todo o histórico confidencial no dispositivo.
+    val pageSize = 30L
+    var reports by remember(db, adminUid) { mutableStateOf<List<ReportedMember>>(emptyList()) }
+    val cursors = remember(db, adminUid) { mutableStateListOf<DocumentSnapshot>() }
+    var pageIndex by remember(db, adminUid) { mutableIntStateOf(0) }
+    var requestVersion by remember(db, adminUid) { mutableIntStateOf(0) }
+    var hasMore by remember(db, adminUid) { mutableStateOf(false) }
+    var loading by remember(db, adminUid) { mutableStateOf(true) }
+    var failed by remember(db, adminUid) { mutableStateOf(false) }
+    var busyId by remember(db, adminUid) { mutableStateOf("") }
+    var info by remember(db, adminUid) { mutableStateOf("") }
+    var reviewCandidate by remember(db, adminUid) { mutableStateOf<ReportedMember?>(null) }
+    val callbackGuard = remember(db, adminUid) { UserReportsAsyncCallbackGuard() }
+    DisposableEffect(callbackGuard) {
+        callbackGuard.attached = true
+        onDispose { callbackGuard.attached = false }
+    }
+
+    DisposableEffect(db, adminUid, pageIndex, requestVersion) {
         var active = true
-        val subscription = db.collection("user_reports")
-            .orderBy("createdAt", Query.Direction.DESCENDING)
-            .limit(30).addSnapshotListener { data, failure ->
-                if (active && FirebaseAuth.getInstance().currentUser?.uid == adminUid) {
+        reviewCandidate = null // Mudança de página invalida uma confirmação antiga.
+        val cursor = if (pageIndex == 0) null else cursors.getOrNull(pageIndex - 1)
+        reports = emptyList()
+        hasMore = false
+        loading = true
+        failed = false
+        val requestingUser = FirebaseAuth.getInstance().currentUser
+        if ((pageIndex > 0 && cursor == null) || requestingUser?.uid != adminUid) {
+            loading = false
+            failed = true
+        } else {
+            val base = db.collection("user_reports")
+                .orderBy("createdAt", Query.Direction.DESCENDING)
+                .limit(pageSize + 1)
+            val query = if (cursor == null) base else base.startAfter(cursor)
+            // Fonte SERVER: não confundir cache do moderador anterior com
+            // autorização ativa, nem apresentar uma página obsoleta como atual.
+            query.get(Source.SERVER).addOnCompleteListener { task ->
+                val currentUser = FirebaseAuth.getInstance().currentUser
+                if (active && UserReportsReviewPolicy.acceptsAsyncResult(
+                        expectedUid = adminUid,
+                        activeUid = currentUser?.uid,
+                        sameAuthenticatedUser = currentUser === requestingUser,
+                        panelAttached = callbackGuard.attached,
+                        samePageGeneration = true
+                    )) {
                     loading = false
-                    failed = failure != null
-                    reports = if (failure == null) data?.documents?.map {
-                        ReportedMember(
-                            it.id, it.getString("targetUid").orEmpty(),
-                            it.getString("reporterUid").orEmpty(),
-                            it.getString("reason").orEmpty(),
-                            it.getString("status") ?: "pending"
-                        )
-                    }.orEmpty() else emptyList()
+                    failed = !task.isSuccessful
+                    if (task.isSuccessful) {
+                        val documents = task.result?.documents.orEmpty()
+                        val visible = documents.take(pageSize.toInt())
+                        hasMore = documents.size > pageSize.toInt()
+                        reports = visible.map {
+                            ReportedMember(
+                                it.id, it.getString("targetUid").orEmpty(),
+                                it.getString("reporterUid").orEmpty(),
+                                it.getString("reason").orEmpty(),
+                                it.getString("status") ?: "pending"
+                            )
+                        }
+                        // Descartar cursores de páginas seguintes em caso de
+                        // atualização e evitar reutilizar fronteiras antigas.
+                        while (cursors.size > pageIndex) cursors.removeAt(cursors.lastIndex)
+                        visible.lastOrNull()?.let { cursors.add(it) }
+                    }
                 }
             }
-        onDispose { active = false; subscription.remove() }
+        }
+        onDispose { active = false }
     }
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Denúncias de participantes", style = MaterialTheme.typography.titleMedium)
             if (loading) Text("Carregando denúncias...")
             if (failed) Text("Não foi possível carregar denúncias de usuários.")
+            if (loading) Text("Consultando página no servidor...")
+            if (failed) {
+                Text("Não foi possível consultar esta página no servidor. Nenhum registro em cache será exibido.")
+                OutlinedButton(onClick = { requestVersion++ }, enabled = busyId.isEmpty()) {
+                    Text("Tentar novamente")
+                }
+            }
             if (!loading && !failed && reports.none { it.status == "pending" })
-                Text("Nenhuma denúncia pendente entre as 30 mais recentes.")
+                Text("Nenhuma denúncia pendente nesta página. Consulte as demais páginas.")
             reports.filter { it.status == "pending" }.forEach { report ->
                 Text("Participante denunciado: " + report.targetUid.take(128),
                     style = MaterialTheme.typography.bodySmall)
@@ -73,27 +137,109 @@ internal fun UserReportsAdminPanel(db: FirebaseFirestore, adminUid: String) {
                 Text(report.reason, style = MaterialTheme.typography.bodyMedium)
                 OutlinedButton(
                     enabled = busyId.isEmpty(),
+                    onClick = { reviewCandidate = report }
+                ) { Text(if (busyId == report.id) "Salvando..." else "Marcar como analisada") }
+            }
+            if (!loading && !failed) {
+                Text("Página ${pageIndex + 1} • até 30 registros por página",
+                    style = MaterialTheme.typography.bodySmall)
+                androidx.compose.foundation.layout.Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        enabled = pageIndex > 0 && busyId.isEmpty(),
+                        onClick = { pageIndex-- }
+                    ) { Text("Anteriores") }
+                    OutlinedButton(
+                        enabled = hasMore && busyId.isEmpty(),
+                        onClick = { pageIndex++ }
+                    ) { Text("Mais antigas") }
+                }
+                OutlinedButton(
+                    enabled = busyId.isEmpty(),
                     onClick = {
-                        if (FirebaseAuth.getInstance().currentUser?.uid != adminUid) {
-                            info = "Sessão administrativa alterada."
+                        // Recomeçar do topo para incluir denúncias novas.
+                        cursors.clear()
+                        pageIndex = 0
+                        requestVersion++
+                    }
+                ) { Text("Atualizar") }
+            }
+            if (info.isNotBlank()) Text(info, style = MaterialTheme.typography.bodySmall)
+        }
+    }
+    val candidate = reviewCandidate
+    if (candidate != null) {
+        AlertDialog(
+            onDismissRequest = { if (busyId.isEmpty()) reviewCandidate = null },
+            title = { Text("Confirmar registro da análise?") },
+            text = {
+                Text(
+                    "Confirme somente após examinar o relato. O status 'analisada' " +
+                    "registra uma conferência humana; não comprova os fatos, não " +
+                    "aplica punição e não significa que um recurso foi respondido."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = busyId.isEmpty(),
+                    onClick = {
+                        reviewCandidate = null
+                        val submittingUser = FirebaseAuth.getInstance().currentUser
+                        if (!UserReportsReviewPolicy.canRegisterReview(
+                                activeUid = submittingUser?.uid,
+                                adminUid = adminUid,
+                                reportId = candidate.id,
+                                reportStatus = candidate.status,
+                                visibleAndPending = reports.any {
+                                    it.id == candidate.id && it.status == "pending"
+                                },
+                                explicitlyConfirmed = true,
+                                busy = busyId.isNotEmpty() || loading || failed
+                            )
+                        ) {
+                            info = "Sessão, protocolo ou página mudou. Atualize antes de analisar."
                         } else {
-                            busyId = report.id
-                            db.collection("user_reports").document(report.id)
+                            val submittedPageIndex = pageIndex
+                            val submittedRequestVersion = requestVersion
+                            busyId = candidate.id
+                            db.collection("user_reports").document(candidate.id)
                                 .update(mapOf(
                                     "status" to "reviewed",
                                     "reviewedBy" to adminUid,
                                     "reviewedAt" to FieldValue.serverTimestamp()
                                 )).addOnCompleteListener { result ->
-                                    busyId = ""
-                                    info = if (result.isSuccessful)
-                                        "Denúncia marcada como analisada."
-                                        else "Não foi possível registrar a análise."
+                                    val currentUser = FirebaseAuth.getInstance().currentUser
+                                    if (UserReportsReviewPolicy.acceptsAsyncResult(
+                                            expectedUid = adminUid,
+                                            activeUid = currentUser?.uid,
+                                            sameAuthenticatedUser = currentUser === submittingUser,
+                                            panelAttached = callbackGuard.attached,
+                                            samePageGeneration =
+                                                pageIndex == submittedPageIndex &&
+                                                requestVersion == submittedRequestVersion
+                                        )) {
+                                        busyId = ""
+                                        if (result.isSuccessful) {
+                                            reports = reports.map {
+                                                if (it.id == candidate.id) it.copy(status = "reviewed") else it
+                                            }
+                                        }
+                                        info = if (result.isSuccessful)
+                                            "Conferência registrada. Recursos e providências exigem processo próprio."
+                                            else "Não foi possível registrar a análise. Atualize e verifique."
+                                    }
                                 }
                         }
                     }
-                ) { Text(if (busyId == report.id) "Salvando..." else "Marcar como analisada") }
+                ) { Text("Confirmar análise") }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = busyId.isEmpty(),
+                    onClick = { reviewCandidate = null }
+                ) { Text("Cancelar") }
             }
-            if (info.isNotBlank()) Text(info, style = MaterialTheme.typography.bodySmall)
-        }
+        )
     }
 }

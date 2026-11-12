@@ -30,6 +30,13 @@ import com.google.firebase.firestore.Source
  */
 @Composable
 internal fun RegistrationWelcomeScreen(onCreate: () -> Unit, onLogin: () -> Unit) {
+    // Sem dados de usuario: a navegacao abaixo e exclusiva do APK Chat QA.
+    var exceptionalQaPreview by remember { mutableStateOf(false) }
+    if (BuildConfig.APPLICATION_ID == "br.com.atriocatolico.chatqa" &&
+        exceptionalQaPreview) {
+        UnifiedExceptionalReportQaPreview(onBack = { exceptionalQaPreview = false })
+        return
+    }
     Column(
         Modifier.fillMaxSize().background(Paper).verticalScroll(rememberScrollState())
             .padding(horizontal = 24.dp, vertical = 32.dp).testTag("atrio-signup-welcome"),
@@ -75,6 +82,12 @@ internal fun RegistrationWelcomeScreen(onCreate: () -> Unit, onLogin: () -> Unit
             border = BorderStroke(1.dp, Gold),
             shape = RoundedCornerShape(14.dp)
         ) { Text("Entrar", color = Wine) }
+        if (BuildConfig.APPLICATION_ID == "br.com.atriocatolico.chatqa") {
+            OutlinedButton(
+                onClick = { exceptionalQaPreview = true },
+                modifier = Modifier.fillMaxWidth().testTag("atrio-exceptional-qa-open")
+            ) { Text("Ajuda e denúncias (prévia QA)") }
+        }
         Text("Seus dados e sua participação são protegidos pelas regras da comunidade.",
             textAlign = TextAlign.Center, style = MaterialTheme.typography.bodySmall, color = Muted)
     }
@@ -278,7 +291,9 @@ internal fun RegistrationOptionalPreferences(
 /** Apenas a conta já confirmada chega aqui; sucesso só após Firebase Auth. */
 @Composable
 internal fun RegistrationOnboardingScreen(
-    db: FirebaseFirestore, uid: String, onFinish: () -> Unit
+    db: FirebaseFirestore, uid: String, onFinish: () -> Unit,
+    finishBusy: Boolean = false, finishError: Boolean = false,
+    onSignOut: (() -> Unit)? = null
 ) {
     var confirmed by rememberSaveable(uid) { mutableStateOf(false) }
     var profileSaved by remember(uid) { mutableStateOf<Boolean?>(null) }
@@ -326,26 +341,54 @@ internal fun RegistrationOnboardingScreen(
                     "Você poderá concluí-lo na próxima tela, sem perder a conta.",
                     color = Ink, style = MaterialTheme.typography.bodyLarge)
             }
+            if (finishError) {
+                Text(
+                    "Não foi possível confirmar o fim do cadastro no servidor. " +
+                        "Verifique sua conexão e tente novamente.",
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.testTag("atrio-onboarding-finish-error")
+                )
+            }
             Button(
                 onClick = onFinish,
+                enabled = !finishBusy,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                     .testTag("atrio-onboarding-enter"),
                 colors = ButtonDefaults.buttonColors(containerColor = Wine),
                 shape = RoundedCornerShape(14.dp)
-            ) { Text(if (profileSaved == true) "Entrar no Átrio" else "Continuar") }
+            ) {
+                Text(when {
+                    finishBusy -> "Confirmando no servidor..."
+                    finishError -> "Tentar novamente"
+                    profileSaved == true -> "Entrar no Átrio"
+                    else -> "Continuar"
+                })
+            }
+            if (onSignOut != null) {
+                TextButton(
+                    onClick = onSignOut,
+                    modifier = Modifier.fillMaxWidth().testTag("atrio-onboarding-signout")
+                ) { Text("Sair da conta") }
+            }
         }
     }
 }
 
 /**
- * Apenas na variante `br.com.atriocatolico.chatqa`. Esta tela não cria
- * nenhuma autorização, não salva a data e não chama Firebase.
- * Uma declaração 18+ NÃO equivale à comprovação da maioridade.
+ * Exclusivo do Chat QA. Data local e volátil; não é prova de idade.
  */
 @Composable
-internal fun ChatAgeRegistrationPrecheckPanel() {
-    var birthDate by remember { mutableStateOf("") } // memória volátil, não rememberSaveable
-    val assessment = ChatAgeRegistrationPrecheck.assess(birthDate, LocalDate.now())
+internal fun ChatAgeRegistrationPrecheckPanel(
+    birthDate: String,
+    onBirthDateChange: (String) -> Unit,
+    declared18Plus: Boolean,
+    onDeclarationChange: (Boolean) -> Unit
+) {
+    val today = LocalDate.now()
+    val assessment = ChatAgeRegistrationPrecheck.assess(birthDate, today)
+    val years = ChatAgeRegistrationPrecheck.declaredAge(birthDate, today)
+    val canDeclare = assessment == ChatAgeRegistrationPrecheck.Assessment.DECLARED_18_PLUS
     Column(
         Modifier.fillMaxWidth().testTag("atrio-chat-age-precheck"),
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -355,29 +398,51 @@ internal fun ChatAgeRegistrationPrecheckPanel() {
             fontWeight = FontWeight.Bold)
         OutlinedTextField(
             value = birthDate,
-            onValueChange = { birthDate = ChatAgeRegistrationPrecheck.formatInput(it) },
-            label = { Text("Data de nascimento (pré-triagem opcional)") },
+            onValueChange = { onBirthDateChange(ChatAgeRegistrationPrecheck.formatInput(it)) },
+            label = { Text("Data de nascimento") },
             placeholder = { Text("DD/MM/AAAA") },
             modifier = Modifier.fillMaxWidth().testTag("atrio-chat-age-birthdate"),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            enabled = true, singleLine = true,
-            supportingText = { Text("Avaliada só neste aparelho. Não é enviada nem armazenada.") }
+            singleLine = true,
+            supportingText = { Text("Apenas cálculo local; não armazenada nem enviada.") }
         )
-        val message = when (assessment) {
-            ChatAgeRegistrationPrecheck.Assessment.NOT_PROVIDED ->
-                "Sem informação de idade: cadastro permitido; chat bloqueado."
-            ChatAgeRegistrationPrecheck.Assessment.INVALID_DATE ->
-                "Confira a data. Use o formato DD/MM/AAAA."
-            ChatAgeRegistrationPrecheck.Assessment.DECLARED_UNDER_18 ->
-                "Idade informada inferior a 18 anos: chat não permitido."
-            ChatAgeRegistrationPrecheck.Assessment.DECLARED_18_PLUS ->
-                "Maioridade apenas declarada: comprovação independente pendente."
+        Text(
+            when (assessment) {
+                ChatAgeRegistrationPrecheck.Assessment.NOT_PROVIDED ->
+                    "Informe a data para calcular sua idade declarada."
+                ChatAgeRegistrationPrecheck.Assessment.INVALID_DATE ->
+                    "Data inválida. Use o formato DD/MM/AAAA."
+                ChatAgeRegistrationPrecheck.Assessment.DECLARED_UNDER_18 ->
+                    "Idade informada: ${years ?: 0} anos. Chat não permitido."
+                ChatAgeRegistrationPrecheck.Assessment.DECLARED_18_PLUS ->
+                    "Idade informada: ${years ?: 0} anos. Confirme a declaração abaixo."
+            },
+            color = Ink, style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.testTag("atrio-chat-age-result")
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(
+                checked = canDeclare && declared18Plus,
+                onCheckedChange = { onDeclarationChange(it && canDeclare) },
+                enabled = canDeclare,
+                modifier = Modifier.testTag("atrio-chat-declare-18")
+            )
+            Text(
+                "Declaro, sob minha responsabilidade, que tenho 18 anos completos ou mais.",
+                color = Ink, style = MaterialTheme.typography.bodyMedium
+            )
         }
-        Text(message, color = Ink, style = MaterialTheme.typography.bodySmall,
-            modifier = Modifier.testTag("atrio-chat-age-result"))
-        Text("A conta pode ser criada para as áreas permitidas. O chat continua " +
-            "fechado até a verificação confiável pelo servidor; informar a data " +
-            "não libera mensagens ou convites.",
-            color = Muted, style = MaterialTheme.typography.bodySmall)
+        Text(
+            if (canDeclare && declared18Plus)
+                "Declaração confirmada. O candidato QA solicitará elegibilidade ao criar a conta."
+            else
+                "Sem declaração válida, a conta poderá ser criada, mas o chat ficará bloqueado.",
+            color = Muted, style = MaterialTheme.typography.bodySmall
+        )
+        Text(
+            "A data e a declaração não comprovam a idade. " +
+                "E-mail confirmado e controles administrativos de QA continuam obrigatórios.",
+            color = Muted, style = MaterialTheme.typography.bodySmall
+        )
     }
 }

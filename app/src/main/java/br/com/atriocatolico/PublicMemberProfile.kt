@@ -20,6 +20,8 @@ import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.Source
+import com.google.firebase.auth.FirebaseAuth
 import java.text.DateFormat
 
 /** Apenas atributos publicados voluntariamente; nunca lê profiles/{uid} de terceiros. */
@@ -233,20 +235,59 @@ internal fun PublicMemberProfileScreen(
                 TextButton(
                     enabled = !actionBusy && reportReason.trim().length in 10..500,
                     onClick = {
-                        actionBusy = true
-                        val id = viewerUid + "__" + uid
-                        db.collection("user_reports").document(id).set(mapOf(
-                            "reporterUid" to viewerUid,
-                            "targetUid" to uid,
-                            "reason" to reportReason.trim(),
-                            "createdAt" to FieldValue.serverTimestamp()
-                        )).addOnCompleteListener { result ->
-                            actionBusy = false
+                        if (FirebaseAuth.getInstance().currentUser?.uid != viewerUid) {
                             reportOpen = false
-                            reportMessage = if (result.isSuccessful)
-                                "Denúncia registrada para análise da moderação."
-                                else "Não foi possível registrar. Caso já tenha denunciado, " +
-                                    "sua denúncia anterior permanece registrada."
+                            reportMessage = "Sessão alterada. Entre novamente para denunciar."
+                        } else {
+                            actionBusy = true
+                            val reportRef = db.collection("user_reports")
+                                .document(viewerUid + "__" + uid)
+                            reportRef.set(mapOf(
+                                "reporterUid" to viewerUid,
+                                "targetUid" to uid,
+                                "reason" to reportReason.trim(),
+                                "createdAt" to FieldValue.serverTimestamp()
+                            )).addOnCompleteListener { result ->
+                                if (FirebaseAuth.getInstance().currentUser?.uid != viewerUid) {
+                                    actionBusy = false
+                                    reportOpen = false
+                                    reportMessage = "Sessão alterada. Entre novamente."
+                                } else if (result.isSuccessful) {
+                                    actionBusy = false
+                                    reportOpen = false
+                                    reportReason = ""
+                                    reportMessage = "Denúncia registrada para análise da moderação."
+                                } else {
+                                    // Usar SOMENTE o protocolo individual e o SERVIDOR:
+                                    // falha de rede não é confirmação de duplicidade.
+                                    reportRef.get(Source.SERVER).addOnCompleteListener { lookup ->
+                                        if (FirebaseAuth.getInstance().currentUser?.uid != viewerUid) {
+                                            actionBusy = false
+                                            reportOpen = false
+                                            reportMessage = "Sessão alterada. Entre novamente."
+                                        } else {
+                                            val receipt = if (lookup.isSuccessful)
+                                                lookup.result else null
+                                            val exists = receipt?.takeIf { it.exists() }?.let {
+                                                ChatReportReceiptPolicy.matchesConfirmedOwnParticipantReport(
+                                                    it.metadata.isFromCache,
+                                                    it.metadata.hasPendingWrites(),
+                                                    it.getString("reporterUid"), viewerUid,
+                                                    it.getString("targetUid"), uid
+                                                )
+                                            } == true
+                                            actionBusy = false
+                                            reportOpen = false
+                                            if (exists) reportReason = ""
+                                            reportMessage = if (exists) {
+                                                "Sua denúncia deste participante já está registrada."
+                                            } else {
+                                                "Denúncia não confirmada. Verifique conexão e permissões."
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     },
                     modifier = Modifier.testTag("atrio-member-report-submit")
