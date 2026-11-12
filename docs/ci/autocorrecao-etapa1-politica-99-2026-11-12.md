@@ -101,3 +101,18 @@ A proxima promocao, se autorizada, exigira politica para arquivos de QA reais na
 - Criterio para proximo incremento: automacao de proposta somente quando o evento/prova de falha estiver verificado, mantendo o controle humano para writes/merges; assegurar idempotencia, dados de auditoria e testes de regressao antes de qualquer promocao.
 
 A meta 99% continua sendo objetivo de autonomia futura e permanece sem percentual real mensurado.
+
+
+## Etapa 3.3 — handoff com evidencia para futura PR draft
+
+O modulo `scripts/ci_autofix_handoff.py` **reutiliza o pipeline existente**, em vez de rodar um segundo agente. Ele correlaciona `ci-report.json`, `ci-diagnostics.json`, `ci-remediation-plan.json`, o evento `workflow_run` e o patch revisado em sandbox. O oitavo artefato sera `ci-autofix-handoff.json` se a PR #260 for integrada apos autorizacao.
+
+**Portao fechado por padrao:** so gera `draft_pr_intent_review_required` quando o evento comprovado e `push` na branch `main`, todos os SHA/repo concordam, os checks observados terminaram com sucesso, os dois checks gerais obrigatorios passaram, exatamente os tres checks PR-only estao ausentes, o relatorio nao tem outra falha, e o plano nao tem outras correcoes candidatas. Essa evidencia aponta **metadados de escopo**, nao comprova causa raiz.
+
+O handoff executa exclusivamente o `preview_real_qa_patch` existente em copia temporaria; conserva allowlist/hash, rollback e diff estatico. Saidas nao contem logs, tokens, comandos, patch gerado por IA ou direitos de escrita. O `draft_pr_intent_id` e deterministico por commit para futura deduplicacao, **mas nao significa que uma PR foi criada**. Um evento desconhecido, `pull_request`, branch que nao seja main, check falho, sinal concorrente, dado adulterado ou SHA inconsistente bloqueia a proposta.
+
+O workflow de relatorio continua com `contents/checks/actions: read`. A nova chamada produz apenas JSON informativo, nao altera repositorio e nao usa API adicional; os testes de `scripts/test_ci_autofix_handoff.py` rodam no gate de QA e no relatorio existente.
+
+**Proximos requisitos antes de qualquer PR automatica real:** vincular o plano a prova independente de HEAD atual, validar diff/testes por SHA e definir chave de deduplicacao, lista de permissoes minimas, limites por evento, rollback e revisao humana. Nao transformar esta etapa em permissao implicita de merge, deploy, publicacao ou servicos pagos.
+
+**99% continua sendo meta de automacao**, nao medicao atual. A funcionalidade de agora e uma **proposta preparada para revisao**, nao uma correcao aplicada.
