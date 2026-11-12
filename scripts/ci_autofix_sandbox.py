@@ -63,7 +63,7 @@ def _validate_plan(plan):
         "next_stage": "qa_sandbox_patch_planning_after_review",
     }
     for key, expected in required.items():
-        if type(plan.get(key)) is not type(expected) or plan[key] != expected:
+        if key not in plan or type(plan[key]) is not type(expected) or plan[key] != expected:
             raise ValueError("contrato do plano invalido")
     for key in ("automatic_repairs_executed", "automatic_reruns_executed",
                 "automatic_pull_requests_created", "automatic_merges_or_deploys"):
