@@ -50,6 +50,9 @@ def _get_api(path, token, opener, allow_not_found=False):
         with opener(req, timeout=20) as response:
             body = response.read(MAX_REMOTE_RESPONSE_BYTES + 1)
     except HTTPError as error:
+        # urllib.error.HTTPError owns the underlying response stream.
+        # Close it for both the expected 404 and fatal HTTP failures.
+        error.close()
         if allow_not_found and error.code == 404:
             return None
         raise
