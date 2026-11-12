@@ -40,6 +40,27 @@ class UserReportsReviewPolicyTest {
         assertFalse(allowed(visibleAndPending = false))
     }
 
+    @Test fun asyncCallbackCanUpdateOnlyOriginalLiveSessionAndPage() {
+        fun allowedAsync(
+            activeUid: String? = "founder",
+            sameAuthenticatedUser: Boolean = true,
+            panelAttached: Boolean = true,
+            samePageGeneration: Boolean = true,
+            expectedUid: String = "founder"
+        ) = UserReportsReviewPolicy.acceptsAsyncResult(
+            expectedUid, activeUid, sameAuthenticatedUser,
+            panelAttached, samePageGeneration
+        )
+        assertTrue(allowedAsync())
+        assertFalse(allowedAsync(activeUid = "another"))
+        assertFalse(allowedAsync(activeUid = null))
+        assertFalse(allowedAsync(sameAuthenticatedUser = false))
+        assertFalse(allowedAsync(panelAttached = false))
+        assertFalse(allowedAsync(samePageGeneration = false))
+        assertFalse(allowedAsync(expectedUid = ""))
+        assertFalse(allowedAsync(expectedUid = "", activeUid = ""))
+    }
+
     @Test fun inFlightOrFailedPageCannotSubmitReview() {
         assertFalse(allowed(busy = true))
     }

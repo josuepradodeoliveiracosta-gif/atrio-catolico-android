@@ -32,6 +32,11 @@ private data class ReportedMember(
     val reporterUid: String, val reason: String, val status: String
 )
 
+// Somente escopo de composicao; nunca persiste relatorios nem credenciais.
+internal class UserReportsAsyncCallbackGuard {
+    var attached: Boolean = false
+}
+
 /**
  * Fila de denúncias de usuários. Chamado SOMENTE depois do portão de admin
  * fresco e verificado em ModerationScreen; regras do Firestore também
@@ -52,6 +57,11 @@ internal fun UserReportsAdminPanel(db: FirebaseFirestore, adminUid: String) {
     var busyId by remember(db, adminUid) { mutableStateOf("") }
     var info by remember(db, adminUid) { mutableStateOf("") }
     var reviewCandidate by remember(db, adminUid) { mutableStateOf<ReportedMember?>(null) }
+    val callbackGuard = remember(db, adminUid) { UserReportsAsyncCallbackGuard() }
+    DisposableEffect(callbackGuard) {
+        callbackGuard.attached = true
+        onDispose { callbackGuard.attached = false }
+    }
 
     DisposableEffect(db, adminUid, pageIndex, requestVersion) {
         var active = true
@@ -61,7 +71,8 @@ internal fun UserReportsAdminPanel(db: FirebaseFirestore, adminUid: String) {
         hasMore = false
         loading = true
         failed = false
-        if (pageIndex > 0 && cursor == null) {
+        val requestingUser = FirebaseAuth.getInstance().currentUser
+        if ((pageIndex > 0 && cursor == null) || requestingUser?.uid != adminUid) {
             loading = false
             failed = true
         } else {
@@ -72,7 +83,14 @@ internal fun UserReportsAdminPanel(db: FirebaseFirestore, adminUid: String) {
             // Fonte SERVER: não confundir cache do moderador anterior com
             // autorização ativa, nem apresentar uma página obsoleta como atual.
             query.get(Source.SERVER).addOnCompleteListener { task ->
-                if (active && FirebaseAuth.getInstance().currentUser?.uid == adminUid) {
+                val currentUser = FirebaseAuth.getInstance().currentUser
+                if (active && UserReportsReviewPolicy.acceptsAsyncResult(
+                        expectedUid = adminUid,
+                        activeUid = currentUser?.uid,
+                        sameAuthenticatedUser = currentUser === requestingUser,
+                        panelAttached = callbackGuard.attached,
+                        samePageGeneration = true
+                    )) {
                     loading = false
                     failed = !task.isSuccessful
                     if (task.isSuccessful) {
@@ -167,8 +185,9 @@ internal fun UserReportsAdminPanel(db: FirebaseFirestore, adminUid: String) {
                     enabled = busyId.isEmpty(),
                     onClick = {
                         reviewCandidate = null
+                        val submittingUser = FirebaseAuth.getInstance().currentUser
                         if (!UserReportsReviewPolicy.canRegisterReview(
-                                activeUid = FirebaseAuth.getInstance().currentUser?.uid,
+                                activeUid = submittingUser?.uid,
                                 adminUid = adminUid,
                                 reportId = candidate.id,
                                 reportStatus = candidate.status,
@@ -181,6 +200,8 @@ internal fun UserReportsAdminPanel(db: FirebaseFirestore, adminUid: String) {
                         ) {
                             info = "Sessão, protocolo ou página mudou. Atualize antes de analisar."
                         } else {
+                            val submittedPageIndex = pageIndex
+                            val submittedRequestVersion = requestVersion
                             busyId = candidate.id
                             db.collection("user_reports").document(candidate.id)
                                 .update(mapOf(
@@ -188,7 +209,16 @@ internal fun UserReportsAdminPanel(db: FirebaseFirestore, adminUid: String) {
                                     "reviewedBy" to adminUid,
                                     "reviewedAt" to FieldValue.serverTimestamp()
                                 )).addOnCompleteListener { result ->
-                                    if (FirebaseAuth.getInstance().currentUser?.uid == adminUid) {
+                                    val currentUser = FirebaseAuth.getInstance().currentUser
+                                    if (UserReportsReviewPolicy.acceptsAsyncResult(
+                                            expectedUid = adminUid,
+                                            activeUid = currentUser?.uid,
+                                            sameAuthenticatedUser = currentUser === submittingUser,
+                                            panelAttached = callbackGuard.attached,
+                                            samePageGeneration =
+                                                pageIndex == submittedPageIndex &&
+                                                requestVersion == submittedRequestVersion
+                                        )) {
                                         busyId = ""
                                         if (result.isSuccessful) {
                                             reports = reports.map {

@@ -281,3 +281,36 @@ do status `reviewed`. Dados de denúncia e provas não são
 removidos pelo diálogo. Sem novo backend, coleção, permissão
 administrativa, Firebase remoto ou deploy. **NO_GO**.
 
+
+## Guardas adicionais em callbacks de denuncias (12/11/2026)
+
+Na variante de testes da PR #232, a busca paginada (somente
+`Source.SERVER`) e o retorno de gravacao
+`pending -> reviewed` de `UserReportsAdminPanel.kt`
+passam a comparar a **mesma instancia de FirebaseUser** do
+inicio da chamada, identidade `adminUid` e ciclo de vida
+da composicao. A resposta de gravacao tambem exige
+a mesma geracao da pagina (`pageIndex` e
+`requestVersion`). Em logout, troca de conta, nova
+autenticacao com o mesmo UID, saida da tela ou
+mudanca de pagina, os callbacks antigos nao
+reescrevem o estado visual atual. Consulta de
+denuncias nao e disparada se a sessao atual
+nao corresponder ao administrador recebido.
+
+`UserReportsReviewPolicyTest` valida o caso
+aceito e rejeicoes de UID trocado, logout,
+sessao reautenticada, tela desmontada, pagina
+alterada e identidade vazia. O teste ja estava
+incluido na selecao explicita de JUnit Android
+do workflow QA, portanto nao e necessario
+duplicar passos ou alterar permissoes.
+
+**Limites:** nao cancela gravações enviadas,
+nao implementa revalidacao instantanea de
+revogacao administrativa, nao presume
+operacao humana aprovada nem cria canal
+de recursos/denuncias tardias. Firestore Rules
+continua sendo a autoridade; backend real
+QA nao alterado. **NO_GO, 60% (3/5) e
+29% (2/7)**; sem merge, deploy ou backups.
