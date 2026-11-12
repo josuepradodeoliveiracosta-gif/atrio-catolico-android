@@ -162,7 +162,7 @@ def markdown_plan(plan):
         "**Modo:** propostas offline; nenhuma correcao ou PR executada.", "",
         "**SHA:** " + plan["commit_sha"], "",
         "**Meta de automacao:** 99% dos procedimentos elegiveis; "
-        "percentual real ainda nao medido.", "",
+        + "percentual real ainda nao medido.", "",
         "**Gates obrigatorios completos:** " +
         ("sim" if plan["required_checks_complete"] else "nao"), "",
         "**Propostas QA:** " + str(plan["candidate_count"]), "",
