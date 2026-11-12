@@ -21,6 +21,49 @@ Recomenda-se **credencial separada, fine-grained, selecionando somente esse repo
 
 Para homologar **o executor de escrita**, ainda são necessárias uma credencial **diferente**, minimamente privilegiada (Contents:write e Pull requests:write), avaliação humana dos escopos/ambiente e aprovação específica para qualquer nova operação. **Não incluir esta credencial de escrita em workflows de PR ou de relatório.** A criação manual da PR #261 via conector não comprovou que o executor Python funciona com esse token.
 
+## Configuração segregada de credenciais no celular (fase 1)
+
+**Primeiro criar somente a credencial de leitura**, no navegador do Android,
+na própria conta GitHub do proprietário. URL oficial com parte das opções
+pré-preenchidas (conferir tudo antes de gerar):
+
+[Gerar token fine-grained Atrio-QA-Readonly](https://github.com/settings/personal-access-tokens/new?name=Atrio-QA-Readonly&target_name=josuepradodeoliveiracosta-gif&expires_in=30&contents=read&pull_requests=read)
+
+1. Acessar `Settings > Developer settings > Personal access tokens > Fine-grained tokens`.
+2. Definir nome `Atrio-QA-Readonly` e expiração de **30 dias** (sem prazo infinito).
+3. Em **Resource owner**, selecionar `josuepradodeoliveiracosta-gif`.
+4. Em **Repository access**, escolher **Only select repositories** e
+   selecionar **somente** `atrio-catolico-android`.
+   O link de criação **não comprova essa seleção**: confirmar visualmente.
+5. Em **Repository permissions**, definir **Contents: Read-only** e
+   **Pull requests: Read-only**; deixar **Metadata: Read-only** (padrão)
+   e as demais permissões sem acesso. Em especial, **não conceder**
+   `Contents: Write`, `Pull requests: Write`, `Administration`,
+   `Actions`, `Secrets` nem `Workflows`.
+6. Antes de confirmar, revisar nome, validade, proprietário, lista de
+   repositórios e todas as permissões. Gerar e manter a credencial fora
+   do chat, da PR, de commits e de capturas de tela.
+
+**Verificação manual de escopo:** a tela de detalhes do token no GitHub deve
+mostrar o único repositório selecionado e as duas permissões de leitura.
+Essa verificação humana é diferente da auditoria GET-only executada pelo
+script: uma consulta bem-sucedida ao GitHub **não** prova que o token careça
+de escrita.
+
+**Segunda credencial, separada, só em outra etapa explicitamente autorizada:**
+para o executor *writer*, planejar `Contents: Read and write` e
+`Pull requests: Read and write` exclusivamente no mesmo repositório,
+sem administração, Actions ou acesso à produção. Não aumentar os poderes
+do token de leitura, não reutilizá-lo como escritor e não ativar o
+`GitHubDraftClient` em CI. Antes de um teste real do escritor, conferir
+as permissões na interface do GitHub, a expiração, o ambiente segregado
+e o escopo preciso da operação.
+
+**Fontes oficiais:**
+[GitHub — managing personal access tokens](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens);
+[GitHub — fine-grained token permissions](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens);
+[GitHub — create pull request permissions](https://docs.github.com/en/rest/pulls/pulls).
+
 ## Exemplo no Termux (Android)
 
 Na cópia local da **branch da PR #260**, após atualizar o checkout e verificar sua origem/HEAD:
