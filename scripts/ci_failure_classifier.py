@@ -196,7 +196,7 @@ def markdown_report(out):
         f"**SHA:** `{out['commit_sha']}`",
         f"**Run/job:** {out['run_id']} / {out['job_id']}", "",
         "**Causa raiz não comprovada.** Este documento não recomenda merge "
-        "nem aciona reexecução ou deploy.", "",
+        + "nem aciona reexecução ou deploy.", "",
         f"**Estado:** {out['classification']}", "",
         "| Categoria | Regra | Linhas de evidência | Sinal |",
         "| --- | --- | --- | --- |",
