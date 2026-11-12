@@ -12,7 +12,7 @@ import unittest
 from urllib.error import HTTPError
 
 from scripts.ci_autofix_pr_draft_executor import (
-    CONFIRMATION, GitHubDraftClient, QA_TARGET,
+    CONFIRMATION, GitHubDraftClient, GitHubDraftReader, QA_TARGET,
     draft_transaction_preview, execute_manually_approved_draft,
     validate_draft_manifest, verify_existing_qa_draft,
 )
@@ -451,6 +451,87 @@ class DraftExecutorTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             verify_existing_qa_draft(ROOT, late, SHA, COMMIT, 261)
         self.assertNotIn("create_pr", late.events)
+
+    def test_get_only_reader_has_no_write_methods(self):
+        """The verifier should never need the privileged writer class."""
+        reader = GitHubDraftReader("offline-read-only-placeholder",
+                                   lambda req, timeout: io.BytesIO(b"{}"))
+        for name in ("_write", "create_branch", "patch_file", "create_pr",
+                     "delete_branch", "merge"):
+            self.assertFalse(hasattr(reader, name), name)
+        self.assertIsInstance(
+            GitHubDraftClient("offline-writer-placeholder",
+                              lambda req, timeout: io.BytesIO(b"{}")),
+            GitHubDraftReader)
+
+    def test_real_get_only_reader_reconciles_pr_via_offline_http(self):
+        """The actual read client uses only reviewed GET paths, no writes."""
+        original = (ROOT / QA_TARGET).read_text(encoding="utf-8")
+        approved = apply_reviewed_patch(original)
+        prefix = "https://api.github.com/repos/" + REPO
+        touched = []
+
+        def opener(req, timeout):
+            self.assertEqual(timeout, 20)
+            self.assertEqual(req.get_method(), "GET")
+            self.assertIsNone(req.data)
+            self.assertTrue(req.full_url.startswith(prefix + "/"))
+            path = req.full_url[len(prefix):]
+            touched.append(path)
+            if path == "/branches/main":
+                response = {"commit": {"sha": SHA}}
+            elif path == "/pulls?state=open&per_page=100&page=1":
+                response = [{
+                    "state": "open", "number": 261,
+                    "head": {"ref": BRANCH_NAME,
+                             "repo": {"full_name": REPO}},
+                    "base": {"ref": BASE_BRANCH},
+                }]
+            elif path == "/git/ref/heads/" + BRANCH_NAME:
+                response = {"ref": "refs/heads/" + BRANCH_NAME,
+                            "object": {"sha": COMMIT}}
+            elif path == "/contents/" + QA_TARGET + "?ref=main":
+                response = {"type": "file", "path": QA_TARGET,
+                            "sha": BLOB, "encoding": "base64",
+                            "content": base64.b64encode(
+                                original.encode("utf-8")).decode("ascii")}
+            elif path == "/contents/" + QA_TARGET + "?ref=" + BRANCH_NAME:
+                response = {"type": "file", "path": QA_TARGET,
+                            "encoding": "base64",
+                            "content": base64.b64encode(
+                                approved.encode("utf-8")).decode("ascii")}
+            elif path == "/compare/" + SHA + "..." + BRANCH_NAME:
+                response = {"ahead_by": 1, "behind_by": 0,
+                            "files": [{"filename": QA_TARGET,
+                                       "status": "modified"}]}
+            elif path == "/pulls/261":
+                response = {
+                    "number": 261, "state": "open", "draft": True,
+                    "merged_at": None,
+                    "head": {"ref": BRANCH_NAME, "sha": COMMIT,
+                             "repo": {"full_name": REPO}},
+                    "base": {"ref": BASE_BRANCH, "sha": SHA,
+                             "repo": {"full_name": REPO}},
+                }
+            else:
+                self.fail("unrecognized read-only endpoint: " + path)
+            return io.BytesIO(json.dumps(response).encode("utf-8"))
+
+        reader = GitHubDraftReader("offline-token-without-write", opener)
+        before = (ROOT / QA_TARGET).read_bytes()
+        result = verify_existing_qa_draft(ROOT, reader, SHA, COMMIT, 261)
+        self.assertEqual(result["pr_number"], 261)
+        self.assertEqual(result["status"],
+                         "existing_qa_draft_verified_read_only")
+        self.assertEqual(result["remote_writes"], 0)
+        self.assertEqual((ROOT / QA_TARGET).read_bytes(), before)
+        self.assertEqual(touched.count("/branches/main"), 2)
+        self.assertEqual(
+            touched.count("/pulls?state=open&per_page=100&page=1"), 2)
+        self.assertEqual(touched.count(
+            "/git/ref/heads/" + BRANCH_NAME), 4)
+        self.assertEqual(touched.count("/pulls/261"), 1)
+        self.assertEqual(len(touched), 11)
 
     def test_existing_qa_draft_client_reads_only_numbered_pr(self):
         seen = []
