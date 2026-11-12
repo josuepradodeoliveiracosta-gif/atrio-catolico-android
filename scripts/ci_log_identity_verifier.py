@@ -8,6 +8,8 @@ A verified job is NOT a verified root cause nor proof the PR HEAD is current.
 import argparse
 import json
 import os
+import re
+from urllib.request import HTTPRedirectHandler, build_opener
 from pathlib import Path
 from urllib.request import Request, urlopen
 
@@ -19,6 +21,13 @@ API = "https://api.github.com/repos/" + REPO + "/actions"
 MAX_RESPONSE_BYTES = 65536
 ALLOWED_STATES = {"failure", "timed_out"}
 SECTION = "## Identidade de jobs do CI (somente leitura)"
+API_PATH = re.compile(r"/(?:runs|jobs)/[1-9][0-9]{0,17}")
+
+class NoRedirect(HTTPRedirectHandler):
+    """Never forward a bearer token to an unexpected redirect."""
+    def redirect_request(self, request, fp, code, msg, headers, newurl):
+        return None
+
 
 def validate_queue(snapshot):
     if not isinstance(snapshot, dict) or snapshot.get("repository") != REPO:
@@ -38,6 +47,8 @@ def validate_queue(snapshot):
     for candidate in candidates:
         if not isinstance(candidate, dict) or candidate.get("identity_verified") is not False:
             raise ValueError("candidato nao verificado invalido")
+        if type(candidate.get("run_id")) is not int or type(candidate.get("job_id")) is not int:
+            raise ValueError("identificador precisa ser inteiro")
         run_id = positive_int(candidate.get("run_id"))
         job_id = positive_int(candidate.get("job_id"))
         state = candidate.get("state")
@@ -47,10 +58,14 @@ def validate_queue(snapshot):
         clean.append({"run_id": run_id, "job_id": job_id, "state": state})
     return sha, clean
 
-def api_json(path, token, opener=urlopen):
-    """Accept only internal, literal endpoint paths; never follow user URLs."""
+def api_json(path, token, opener=None):
+    """Only GET exact metadata endpoints; never redirect with credentials."""
+    if not isinstance(path, str) or not API_PATH.fullmatch(path):
+        raise ValueError("endpoint de metadados invalido")
     if not token or not isinstance(token, str):
         raise ValueError("token de leitura indisponivel")
+    if opener is None:
+        opener = build_opener(NoRedirect).open
     request = Request(API + path, headers={
         "Authorization": "Bearer " + token,
         "Accept": "application/vnd.github+json",
