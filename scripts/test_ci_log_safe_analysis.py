@@ -132,7 +132,7 @@ class LogSafeTests(unittest.TestCase):
                         raise error
                     return Reply(b"safe simulated log")
 
-                if status == 302 and "actions.githubusercontent.com" in destination:
+                if status == 302 and approved_signed_url(destination):
                     self.assertEqual(
                         download_job_log(34, "fake-token", opener),
                         "safe simulated log")
