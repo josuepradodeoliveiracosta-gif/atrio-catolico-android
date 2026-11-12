@@ -826,3 +826,67 @@ evidencias separadas. Nao alterar as decisoes sobre idade,
 equipe humana, revisao juridica, protecao de denuncias,
 retencao, direitos do titular ou autorizacao de publicacao.
 Ativacao QA continua 60% (3/5), QA geral 29% (2/7), NO_GO.
+
+
+## Snapshot remoto QA consolidado pelo operador — 12/11/2026
+
+**Fonte:** capturas enviadas pelo fundador a partir do Termux, após
+`git fetch` / atualização `fast-forward` da branch QA e execução de
+`node scripts/chat-qa-combined-readonly.mjs` no projeto
+`atrio-catolico-qa-geral`. O script estava no commit
+`d8ebf3721d1bfde1fc31845a91075805c80aa98d`.
+Esta é evidência de **leitura remota feita pelo operador**, não
+consulta autenticada do Firebase realizada pelo conector GitHub.
+
+- Resultado: `QA_COMBINED_REMOTE_SNAPSHOT_NO_GO`.
+- Projeto `atrio-catolico-qa-geral`; pacote Android
+  `br.com.atriocatolico.chatqa`.
+- `active_ruleset_matches_historical_at_read_time=true`,
+  `remote_rules_deny_all=true`.
+- `baseline_read_time=2026-11-12T13:04:14.362Z`;
+  `admin_config_read_time=2026-11-12T13:04:15.176Z`.
+  **As leituras não são atômicas**, e passam a ser históricas imediatamente.
+- `queried_qa_identity_rules_gets=4`,
+  `queried_qa_app_config_masked_gets=4`;
+  teste IAM por `POST testIamPermissions` somente consulta, não grava.
+- Todos os **4 documentos `app_config` estão ausentes** (`MISSING`):
+  `app_config/email_verification`,
+  `app_config/community_rules`,
+  `app_config/conversations`,
+  `app_config/chat_groups`.
+  `existing_app_config_documents=0`,
+  `missing_app_config_documents=4`,
+  `staged_config_matches=false`. A ausência significa que
+  **a configuração estagiada ainda não foi implantada**; não
+  presumir que ela esteja validada/operacional.
+- `chat_and_groups_observed_closed=true`.
+- `iam_checked_permission_count=5`,
+  `iam_granted_permission_count=5`;
+  `iam_can_read_rules=true`, `iam_may_publish_rules=true`;
+  `production_permissions_and_isolation_not_verified=true`.
+  As permissões **não** constituem autorização de implantação.
+- `governance_reviews_pending=8`;
+  `governance_reviews_are_not_deploy_approvals=true`,
+  `no_new_legal_approval_recorded=true`.
+- `no_remote_write_performed=true`,
+  `no_exact_rules_backup_created=true`,
+  `ready_for_deploy=false`, `ready_for_activation=false`,
+  `deploymentApproved=false`, `releaseApproved=false`,
+  `rollbackApproved=false`, `production_contacted=false`.
+
+**Consequência operacional:** a auditoria remota atual eliminou a
+incerteza sobre a ausência dos quatro documentos no momento da leitura.
+O plano de preparação `chat-qa-admin-initial-create-plan.mjs`
+continua sendo somente um plano **create-only**, não uma autorização
+para executar a criação. Não executar create/update/upsert,
+nem modificar IAM, Rules, `main`, produção ou backups.
+**Próximo bloqueio de decisão:** revisão operacional/jurídica do
+fluxo de moderação, proteção de menores, privacidade, retenção
+e autorização específica de implantação no QA. A eventual escrita
+exigirá **nova leitura imediata**, guarda contra existência
+concorrente e reconciliação de falhas parciais.
+
+A PR #232 permanece **draft** e a issue #200, **aberta**.
+**Estado NO_GO, ativação QA 60% (3/5), homologação geral
+29% (2/7)**. Não atualizar esses percentuais só porque o
+diagnóstico concluiu com sucesso.
