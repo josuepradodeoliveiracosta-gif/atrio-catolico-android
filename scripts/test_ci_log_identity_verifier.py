@@ -74,12 +74,22 @@ class IdentityVerifierTests(unittest.TestCase):
             ({"status": "queued"}, "rejected_job_conclusion"),
             ({"conclusion": "success"}, "rejected_job_conclusion"),
             ({"run_attempt": 2}, "rejected_run_attempt"),
-            ({"run_attempt": None}, "rejected_run_attempt"),
+            ({"run_attempt": 0}, "rejected_run_attempt"),
         ]
         for alteration, expected in cases:
             with self.subTest(expected=expected, alteration=alteration):
                 self.assertEqual(verify_one(run(), {**job(), **alteration},
                                             SHA, candidate()), expected)
+
+    def test_missing_job_attempt_only_allowed_for_first_run(self):
+        no_attempt = {**job()}
+        no_attempt.pop("run_attempt")
+        self.assertEqual(verify_one(run(), no_attempt, SHA, candidate()), "verified")
+        retry = {**run(), "run_attempt": 2}
+        self.assertEqual(verify_one(retry, no_attempt, SHA, candidate()),
+                         "rejected_run_attempt")
+        self.assertEqual(verify_one(retry, {**no_attempt, "run_attempt": 2},
+                                    SHA, candidate()), "verified")
 
     def test_timeout_requires_matching_timeout_in_api(self):
         j = {**job(), "conclusion": "timed_out"}
