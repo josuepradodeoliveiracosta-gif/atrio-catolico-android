@@ -363,7 +363,7 @@ class DraftExecutorTests(unittest.TestCase):
             "head": BRANCH_NAME, "base": BASE_BRANCH,
             "draft": True, "maintainer_can_modify": False,
             "title": STATIC_TITLE,
-            "body": STATIC_BODY + "\\n\\nSHA base revisado: " + SHA,
+            "body": STATIC_BODY + "\n\nSHA base revisado: " + SHA,
         }
         bad_cases = (
             ("POST", "/git/refs", {"ref": "refs/heads/main", "sha": SHA}),
