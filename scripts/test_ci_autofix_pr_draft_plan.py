@@ -156,11 +156,80 @@ class DraftPlanTests(unittest.TestCase):
         self.assertEqual(result, {"main_sha": SHA, "duplicate_pr_numbers": [18],
                                   "target_branch_exists": False})
         self.assertEqual(len(seen), 3)
-        self.assertTrue(seen[1].endswith("/pulls?state=open&per_page=100&page=1"))
+        self.assertTrue(seen[1].endswith("/pulls?state=open&per_page=10&page=1"))
         self.assertTrue(seen[2].endswith("/git/ref/heads/" + BRANCH_NAME))
         self.assertNotIn("private_token", json.dumps(result))
         p = draft_pr_plan(good_handoff(), ROOT, result)
         self.assertEqual(p["status"], "blocked_existing_pr")
+
+    def test_paginated_prs_over_one_mb_total_find_later_draft(self):
+        """Many open PRs must fit bounded pages without skipping QA branch."""
+        from scripts.ci_autofix_pr_draft_plan import MAX_OPEN_PR_PAGE_SIZE
+        self.assertEqual(MAX_OPEN_PR_PAGE_SIZE, 10)
+        entries = [
+            {"number": 1000 + i, "state": "open",
+             "head": {"ref": "other-" + str(i),
+                      "repo": {"full_name": REPO}},
+             "base": {"ref": "main"},
+             "body": "x" * 30000}
+            for i in range(42)
+        ]
+        entries[-1]["number"] = 261
+        entries[-1]["head"]["ref"] = BRANCH_NAME
+        requested_pages = []
+
+        def opener(req, timeout):
+            self.assertEqual(timeout, 20)
+            self.assertEqual(req.get_method(), "GET")
+            if "/branches/main" in req.full_url:
+                response = {"commit": {"sha": SHA}}
+            elif "/pulls?state=open&per_page=10&page=" in req.full_url:
+                page = int(req.full_url.rsplit("page=", 1)[1])
+                requested_pages.append(page)
+                response = entries[(page-1)*10:page*10]
+            elif "/git/ref/heads/" + BRANCH_NAME in req.full_url:
+                response = {"ref": "refs/heads/" + BRANCH_NAME}
+            else:
+                self.fail("endpoint inesperado: " + req.full_url)
+            raw = json.dumps(response).encode("utf-8")
+            self.assertLess(len(raw), MAX_REMOTE_RESPONSE_BYTES)
+            return io.BytesIO(raw)
+
+        self.assertGreater(len(json.dumps(entries).encode("utf-8")),
+                           MAX_REMOTE_RESPONSE_BYTES)
+        result = fetch_live_pr_context("offline-token", opener)
+        self.assertEqual(result, {
+            "main_sha": SHA, "duplicate_pr_numbers": [261],
+            "target_branch_exists": True,
+        })
+        self.assertEqual(requested_pages, [1, 2, 3, 4, 5])
+        self.assertNotIn("xxx", json.dumps(result))
+
+    def test_pagination_fails_closed_on_hundred_or_repeated_prs(self):
+        """Do not silently accept extra pages, duplicate rows or invalid shapes."""
+        entries = [
+            {"number": i + 1, "state": "open",
+             "head": {"ref": "other", "repo": {"full_name": REPO}},
+             "base": {"ref": "main"}}
+            for i in range(100)
+        ]
+        def run_with(rows):
+            def opener(req, timeout):
+                if "/branches/main" in req.full_url:
+                    value = {"commit": {"sha": SHA}}
+                elif "/pulls?state=open&per_page=10&page=" in req.full_url:
+                    page = int(req.full_url.rsplit("page=", 1)[1])
+                    value = rows[(page-1)*10:page*10]
+                else:
+                    value = {"ref": "refs/heads/" + BRANCH_NAME}
+                return io.BytesIO(json.dumps(value).encode("utf-8"))
+            return fetch_live_pr_context("offline-token", opener)
+        with self.assertRaises(ValueError):
+            run_with(entries)
+        repeated = entries[:11]
+        repeated[-1] = dict(repeated[-1], number=repeated[0]["number"])
+        with self.assertRaises(ValueError):
+            run_with(repeated)
 
     def test_no_token_invalid_response_page_limit_and_redirect_policy(self):
         with self.assertRaises(ValueError):
