@@ -21,6 +21,9 @@ from scripts.ci_autofix_qa_review import (
 
 MAX_REMOTE_RESPONSE_BYTES = 1_000_000
 MAX_OPEN_PR_ROWS = 99
+# Use short pages: a single 100-PR GitHub response can exceed the 1 MB
+# response limit even when fewer than MAX_OPEN_PR_ROWS are open.
+MAX_OPEN_PR_PAGE_SIZE = 10
 BRANCH_NAME = "qa/autofix-ci-scope-main"
 BASE_BRANCH = "main"
 STATIC_TITLE = "fix(qa): identificar checks exclusivos de PR no relatorio CI"
@@ -76,10 +79,24 @@ def fetch_live_pr_context(token, opener=None):
     if not isinstance(branch, dict) or not isinstance(branch.get("commit"), dict):
         raise ValueError("resposta de main invalida")
     main_sha = validate_sha(branch["commit"].get("sha"))
-    items = _get_api("/pulls?state=open&per_page=100&page=1", token, opener)
-    if not isinstance(items, list) or len(items) > MAX_OPEN_PR_ROWS:
-        raise ValueError("PRs acima do limite de pagina segura")
+    # Fetch all open PRs in bounded pages. Never use only the first page:
+    # missing a later draft could cause duplicate or unsafe remote writes.
+    items = []
+    page = 1
+    while True:
+        path = ("/pulls?state=open&per_page="
+                + str(MAX_OPEN_PR_PAGE_SIZE) + "&page=" + str(page))
+        rows = _get_api(path, token, opener)
+        if (type(rows) is not list
+                or len(rows) > MAX_OPEN_PR_PAGE_SIZE
+                or len(items) + len(rows) > MAX_OPEN_PR_ROWS):
+            raise ValueError("PRs acima do limite de pagina segura")
+        items.extend(rows)
+        if len(rows) < MAX_OPEN_PR_PAGE_SIZE:
+            break
+        page += 1
     open_branches = []
+    seen_pr_numbers = set()
     for entry in items:
         if (not isinstance(entry, dict)
                 or entry.get("state") != "open"
@@ -88,6 +105,9 @@ def fetch_live_pr_context(token, opener=None):
                 or not isinstance(entry.get("head"), dict)
                 or not isinstance(entry.get("base"), dict)):
             raise ValueError("metadados de PR invalidos")
+        if entry["number"] in seen_pr_numbers:
+            raise ValueError("PR repetida entre paginas: contexto inconsistente")
+        seen_pr_numbers.add(entry["number"])
         head = entry["head"]
         if not isinstance(head.get("repo"), dict):
             raise ValueError("origem de PR nao verificavel")
