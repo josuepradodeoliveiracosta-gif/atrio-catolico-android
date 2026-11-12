@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Stage-3 sandbox repair pilot, driven by the existing verified diagnostic plan.
 
-The only patchable source is a pinned, synthetic SQLite QA fixture created in a
-private temporary directory. This is deliberately NOT a repository file repair.
-No GitHub API, token, shell, network, PR, merge, deployment or external write.
+Read exactly one hash-pinned, versioned QA fixture from the checkout, then
+prepare a patch *only in a disposable temporary directory*. No actual
+repository modifications, GitHub API, tokens, shell, deploys or external writes.
 """
 import argparse
 import ast
@@ -20,7 +20,9 @@ MAX_PATCH_BYTES = 4096
 MAX_JOBS = 3
 RECIPE = "qa_sqlite_lifecycle_review"
 SIGNAL = "sqlite_closed_database"
-FIXTURE_NAME = "qa_sqlite_lifecycle_fixture.py"
+FIXTURE_NAME = "tests/qa/autofix/sqlite_closed_connection.py"
+QA_PATH_ALLOWLIST = frozenset((FIXTURE_NAME,))
+MAX_FIXTURE_BYTES = 2048
 SECTION = "Sandbox dry-run — SQLite QA"
 
 # These strings are authored and pinned here, never constructed from logs,
@@ -41,6 +43,35 @@ BEFORE_SHA256 = hashlib.sha256(BEFORE.encode("utf-8")).hexdigest()
 
 def sha256(source):
     return hashlib.sha256(source.encode("utf-8")).hexdigest()
+
+
+def read_checkout_fixture(checkout_root, relative_path=FIXTURE_NAME):
+    """Read a SINGLE versioned QA fixture, never arbitrary checkout content.
+
+    Reject symlinked ancestors, changed bytes, missing files and paths outside
+    the static allowlist. The checkout is *never* written to by this module.
+    """
+    if not isinstance(relative_path, str) or relative_path not in QA_PATH_ALLOWLIST:
+        raise ValueError("caminho QA nao autorizado")
+    if not isinstance(checkout_root, (str, Path)):
+        raise ValueError("raiz de checkout invalida")
+    root = Path(checkout_root)
+    if root.is_symlink() or not root.is_dir():
+        raise ValueError("raiz de checkout invalida")
+    root = root.resolve(strict=True)
+    candidate = root
+    for part in Path(relative_path).parts:
+        candidate = candidate / part
+        if candidate.is_symlink():
+            raise ValueError("symlink QA nao autorizado")
+    if not candidate.is_file() or candidate.stat().st_size > MAX_FIXTURE_BYTES:
+        raise ValueError("fixture QA ausente ou fora dos limites")
+    if candidate.resolve(strict=True).relative_to(root) != Path(relative_path):
+        raise ValueError("destino QA fora da allowlist")
+    source = candidate.read_text(encoding="utf-8")
+    if sha256(source) != BEFORE_SHA256 or source != BEFORE:
+        raise ValueError("fixture QA divergente do hash revisado")
+    return source
 
 
 def _validate_plan(plan):
@@ -127,6 +158,7 @@ def preview(plan, fixture_source=BEFORE):
         "recipe_id": "none",
         "fixture": FIXTURE_NAME,
         "source_sha256": BEFORE_SHA256,
+        "checkout_fixture_verified": False,
         "fixed_sha256": None,
         "patch": None,
         "syntax_verified": False,
@@ -157,8 +189,10 @@ def preview(plan, fixture_source=BEFORE):
     with TemporaryDirectory(prefix="atrio-qa-autofix-") as directory:
         root = Path(directory).resolve(strict=True)
         target = root / FIXTURE_NAME
+        target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(fixture_source, encoding="utf-8")
-        if target.is_symlink() or target.resolve(strict=True).parent != root:
+        if (target.is_symlink()
+                or target.resolve(strict=True).relative_to(root) != Path(FIXTURE_NAME)):
             raise ValueError("destino de sandbox nao confiavel")
         if sha256(target.read_text(encoding="utf-8")) != BEFORE_SHA256:
             raise ValueError("fonte sandbox divergente")
@@ -177,16 +211,26 @@ def preview(plan, fixture_source=BEFORE):
     return result
 
 
+def preview_from_checkout(plan, checkout_root, relative_path=FIXTURE_NAME):
+    """Create an isolated diff from a pinned, tracked QA checkout file."""
+    source = read_checkout_fixture(checkout_root, relative_path)
+    result = preview(plan, fixture_source=source)
+    result["checkout_fixture_verified"] = True
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--plan", required=True)
+    parser.add_argument("--checkout-root", required=True)
     parser.add_argument("--json", required=True)
     args = parser.parse_args()
     src = Path(args.plan)
     if src.stat().st_size > MAX_PLAN_BYTES:
         parser.error("plano acima do limite")
-    result = preview(json.loads(src.read_text(encoding="utf-8")))
-    # The only diff that can be published was created from the static fixture.
+    result = preview_from_checkout(json.loads(src.read_text(encoding="utf-8")),
+                                   args.checkout_root)
+    # The only diff that can be published was created from the pinned QA fixture.
     Path(args.json).write_text(
         json.dumps(result, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8")
