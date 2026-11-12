@@ -106,6 +106,108 @@ class CiReportTests(unittest.TestCase):
                 f"commits/{SHA}/check-runs?"
             ))
 
+    def test_actions_job_details_url_survives_summary_instead_of_check_page(self):
+        from scripts.ci_diagnostic_snapshot import digest
+        job_url = ("https://github.com/"
+                   "josuepradodeoliveiracosta-gif/atrio-catolico-android/"
+                   "actions/runs/43266597809/job/131346880328")
+        generic_check_page = ("https://github.com/"
+                              "josuepradodeoliveiracosta-gif/atrio-catolico-android/"
+                              "runs/10203040")
+        checks = [check(x) for x in REQUIRED]
+        checks[0] = {**check(REQUIRED[0], conclusion="failure"),
+                     "details_url": job_url, "html_url": generic_check_page,
+                     "app": {"slug": "github-actions"}}
+        output, _ = report(SHA, checks)
+        self.assertEqual(output["checks"][0]["details_url"], job_url)
+        queue = digest(output)["log_review_queue"]
+        self.assertEqual(queue["total_candidates"], 1)
+        self.assertEqual(queue["candidates"][0]["run_id"], 43266597809)
+        self.assertEqual(queue["candidates"][0]["job_id"], 131346880328)
+        self.assertFalse(queue["automatic_log_download"])
+
+    def test_link_fallback_and_external_details_cannot_trigger_log_scan(self):
+        from scripts.ci_diagnostic_snapshot import digest
+        safe_url = ("https://github.com/"
+                    "josuepradodeoliveiracosta-gif/atrio-catolico-android/"
+                    "runs/10203040")
+        checks = [check(x) for x in REQUIRED]
+        checks[0] = {**check(REQUIRED[0], conclusion="failure"),
+                     "details_url": "https://outside.example/unsafe",
+                     "html_url": safe_url}
+        checks[1] = {**check(REQUIRED[1], conclusion="failure"),
+                     "html_url": safe_url}
+        data, _ = report(SHA, checks)
+        self.assertEqual(data["checks"][0]["details_url"], safe_url)
+        self.assertEqual(data["checks"][1]["details_url"], safe_url)
+        self.assertEqual(digest(data)["log_review_queue"]["total_candidates"], 0)
+
+    def test_external_signed_details_not_copied_to_public_artifacts(self):
+        from scripts.ci_quality_report import safe_actions_url
+        job_link = ("https://github.com/"
+                    "josuepradodeoliveiracosta-gif/atrio-catolico-android/"
+                    "actions/runs/7/job/8")
+        source = [check("secret_check", conclusion="failure") |
+                  {"details_url": job_link + "?token=private-secret",
+                   "html_url": "https://github.com/other/repo/runs/1"},
+                  check("external", conclusion="failure") |
+                  {"details_url": "https://integration.example/?token=private-secret",
+                   "html_url": "https://evil.example/"}]
+        data, _ = report(SHA, source)
+        self.assertEqual(data["checks"][0]["details_url"], job_link)
+        self.assertEqual(data["checks"][1]["details_url"], "")
+        self.assertNotIn("private-secret", json.dumps(data))
+        self.assertIsNone(safe_actions_url(
+            "https://user:password@github.com/"
+            "josuepradodeoliveiracosta-gif/atrio-catolico-android/runs/99"))
+        self.assertIsNone(safe_actions_url(job_link + "/additional"))
+        self.assertIsNone(safe_actions_url("http" + job_link[5:]))
+
+    def test_token_never_follows_http_redirects(self):
+        from unittest.mock import patch
+        from urllib.request import Request
+        from scripts.ci_quality_report import NoRedirect
+        safe = NoRedirect()
+        original = Request(
+            "https://api.github.com/repos/example/example/commits/" + SHA,
+            headers={"Authorization": "Bearer secret-test-token"},
+        )
+        redirect = safe.redirect_request(
+            original, None, 302, "Found", {},
+            "https://attacker.example/harvest")
+        self.assertIsNone(redirect)
+        # Also verify that the real get_checks production path constructs the
+        # no-redirect opener (rather than urllib.urlopen).
+        with patch("scripts.ci_quality_report.build_opener") as builder:
+            builder.return_value.open.return_value = io.BytesIO(
+                json.dumps({"check_runs": [check("ok")]}).encode("utf-8"))
+            items = get_checks(SHA, "test-token")
+            self.assertEqual(len(items), 1)
+            builder.assert_called_once_with(NoRedirect)
+            request = builder.return_value.open.call_args.args[0]
+            self.assertEqual(request.full_url,
+                             "https://api.github.com/repos/"
+                             "josuepradodeoliveiracosta-gif/atrio-catolico-android/"
+                             f"commits/{SHA}/check-runs?per_page=100&page=1")
+            self.assertEqual(request.get_header("Authorization"),
+                             "Bearer test-token")
+
+    def test_check_api_body_is_bounded_and_malformed_refused(self):
+        from scripts.ci_quality_report import MAX_CHECK_API_BYTES
+        cases = (
+            b"a" * (MAX_CHECK_API_BYTES + 1),
+            json.dumps(["not a dictionary"]).encode(),
+            json.dumps({"check_runs": {"x": "not a list"}}).encode(),
+            b"{not-json",
+        )
+        for body in cases:
+            with self.subTest(length=len(body)):
+                def fake_opener(req, timeout):
+                    self.assertEqual(timeout, 20)
+                    return io.BytesIO(body)
+                with self.assertRaises((ValueError, json.JSONDecodeError)):
+                    get_checks(SHA, "synthetic", opener=fake_opener)
+
     def test_token_required(self):
         with self.assertRaises(ValueError):
             get_checks(SHA, "")

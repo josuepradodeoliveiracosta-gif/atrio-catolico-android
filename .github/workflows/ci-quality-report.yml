@@ -28,9 +28,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Testar relator em memória
-        run: python3 -m unittest scripts/test_ci_quality_report.py -v
-      - name: Buscar checks apenas do SHA associado
+      - name: Testar relator e consolidacao de diagnosticos em memoria
+        run: python3 -m unittest scripts.test_ci_quality_report scripts.test_ci_diagnostic_snapshot scripts.test_ci_log_identity_verifier scripts.test_ci_log_safe_analysis -v
+      - name: Buscar checks e anexar sintese sem alterar APIs remotas
         env:
           GITHUB_TOKEN: ${{ github.token }}
           CI_TARGET_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
@@ -40,6 +40,24 @@ jobs:
             --sha "$CI_TARGET_SHA" \
             --json ci-report.json \
             --markdown ci-report.md
+          # Reutiliza JSON ja coletado: nenhuma chamada de API adicional.
+          python3 -m scripts.ci_diagnostic_snapshot \
+            --report-json ci-report.json \
+            --output-json ci-diagnostics.json \
+            --markdown ci-report.md
+          # Consulta apenas metadados de job/run usando as mesmas permissoes de leitura.
+          # Nao acessa logs, nao publica conteudo remoto e nunca corrige falhas.
+          python3 -m scripts.ci_log_identity_verifier \
+            --diagnostics ci-diagnostics.json \
+            --json ci-job-evidence.json \
+            --markdown ci-report.md
+          # No maximo 3 logs de jobs ja verificados, ate 2MB cada, em memoria.
+          # O relatorio publica somente IDs de regras; nunca copia linhas de log.
+          python3 -m scripts.ci_log_safe_analysis \
+            --diagnostics ci-diagnostics.json \
+            --identity ci-job-evidence.json \
+            --json ci-log-signals.json \
+            --markdown ci-report.md
           cat ci-report.md >> "$GITHUB_STEP_SUMMARY"
       - name: Preservar relatorio por execucao
         uses: actions/upload-artifact@v4
@@ -48,6 +66,9 @@ jobs:
           name: ci-readonly-${{ github.run_id }}
           path: |
             ci-report.json
+            ci-diagnostics.json
+            ci-job-evidence.json
+            ci-log-signals.json
             ci-report.md
           retention-days: 14
           if-no-files-found: warn
