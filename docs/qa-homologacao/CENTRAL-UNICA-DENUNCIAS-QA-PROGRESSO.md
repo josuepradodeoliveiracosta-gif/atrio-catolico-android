@@ -4,13 +4,13 @@
 Progresso exclusivo deste projeto, **não confundir** com ativação QA
 (60%, 3/5) ou homologação geral (29%, 2/7).
 
-**Engenharia: 1/6 concluído; segundo marco implementado, aguardando CI.**
-`[███░░░░░░░░░░░░░░░░░] 17%`
+**Engenharia: 2/6 marcos concluídos e validados no CI (33%).**
+`[███████░░░░░░░░░░░░░] 33%`
 
 | Marco | Estado | Evidência ou condição |
 | --- | --- | --- |
 | 1. Auditar canais existentes | CONCLUÍDO | `user_reports`, `chat_reports`, `chat_group_reports` e painel administrativo identificados |
-| 2. Roteamento e entrada de prévia QA | IMPLEMENTADO, CI PENDENTE | Policy Kotlin, JUnit, entrada antes do login **somente no Chat QA**; nenhum formulário/envio |
+| 2. Roteamento e entrada de prévia QA | CONCLUÍDO NO CI | Policy Kotlin e JUnit aprovados no `3b3ce35`; entrada antes do login **somente no Chat QA**; nenhum formulário/envio |
 | 3. Canal excepcional de recebimento | BLOQUEADO | Definição de autenticação alternativa, proteção contra abuso, privacidade e aprovação |
 | 4. Fila única administrativa | PENDENTE | Integração no painel atual, acesso mínimo e revisão humana |
 | 5. Evidências, recursos, retenção e urgências | PENDENTE | Procedimento e fundamento aprovados, testes de abuso |
@@ -32,3 +32,12 @@ ferramenta de recebimento, verificação de solicitante, anexos,
 retenção, recurso, LGPD/ECA Digital ou autorização de publicação.
 A issue #200 permanece aberta e a PR #232 draft. Não alterar produção,
 `main`, Firebase QA real, Workers, dados ou backups.
+
+
+## Validação automática do marco 2 (12/11/2026)
+
+- Código: `3b3ce359f63d65e8c22facad8ed16a174a2d0164`.
+- Segurança/Emulator: https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/actions/runs/43230114826 — completed/success, **132/132 testes**, zero falhas.
+- Android QA sintético/JUnit: https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/actions/runs/43230114864 — completed/success, **2/2 jobs**.
+- O APK não foi instalado em celular e nenhum serviço remoto foi alterado.
+- A ativação continua **NO_GO**; são necessários 4 marcos restantes.
