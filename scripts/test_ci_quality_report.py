@@ -106,6 +106,43 @@ class CiReportTests(unittest.TestCase):
                 f"commits/{SHA}/check-runs?"
             ))
 
+    def test_actions_job_details_url_survives_summary_instead_of_check_page(self):
+        from scripts.ci_diagnostic_snapshot import digest
+        job_url = ("https://github.com/"
+                   "josuepradodeoliveiracosta-gif/atrio-catolico-android/"
+                   "actions/runs/43266597809/job/131346880328")
+        generic_check_page = ("https://github.com/"
+                              "josuepradodeoliveiracosta-gif/atrio-catolico-android/"
+                              "runs/10203040")
+        checks = [check(x) for x in REQUIRED]
+        checks[0] = {**check(REQUIRED[0], conclusion="failure"),
+                     "details_url": job_url, "html_url": generic_check_page,
+                     "app": {"slug": "github-actions"}}
+        output, _ = report(SHA, checks)
+        self.assertEqual(output["checks"][0]["details_url"], job_url)
+        queue = digest(output)["log_review_queue"]
+        self.assertEqual(queue["total_candidates"], 1)
+        self.assertEqual(queue["candidates"][0]["run_id"], 43266597809)
+        self.assertEqual(queue["candidates"][0]["job_id"], 131346880328)
+        self.assertFalse(queue["automatic_log_download"])
+
+    def test_link_fallback_and_external_details_cannot_trigger_log_scan(self):
+        from scripts.ci_diagnostic_snapshot import digest
+        safe_url = ("https://github.com/"
+                    "josuepradodeoliveiracosta-gif/atrio-catolico-android/"
+                    "runs/10203040")
+        checks = [check(x) for x in REQUIRED]
+        checks[0] = {**check(REQUIRED[0], conclusion="failure"),
+                     "details_url": "https://outside.example/unsafe",
+                     "html_url": safe_url}
+        checks[1] = {**check(REQUIRED[1], conclusion="failure"),
+                     "html_url": safe_url}
+        data, _ = report(SHA, checks)
+        self.assertEqual(data["checks"][0]["details_url"],
+                         "https://outside.example/unsafe")
+        self.assertEqual(data["checks"][1]["details_url"], safe_url)
+        self.assertEqual(digest(data)["log_review_queue"]["total_candidates"], 0)
+
     def test_token_required(self):
         with self.assertRaises(ValueError):
             get_checks(SHA, "")
