@@ -116,3 +116,18 @@ O workflow de relatorio continua com `contents/checks/actions: read`. A nova cha
 **Proximos requisitos antes de qualquer PR automatica real:** vincular o plano a prova independente de HEAD atual, validar diff/testes por SHA e definir chave de deduplicacao, lista de permissoes minimas, limites por evento, rollback e revisao humana. Nao transformar esta etapa em permissao implicita de merge, deploy, publicacao ou servicos pagos.
 
 **99% continua sendo meta de automacao**, nao medicao atual. A funcionalidade de agora e uma **proposta preparada para revisao**, nao uma correcao aplicada.
+
+
+## Etapa 5 (piloto) — descritor de PR draft, deduplicação e HEAD atual
+
+O módulo `scripts/ci_autofix_pr_draft_plan.py` foi acrescentado **sobre o handoff existente**, não como motor separado. Sua única finalidade é preparar um descritor de PR em modo somente leitura, sem criar branch, commit ou Pull Request.
+
+- Se o handoff estiver bloqueado, retorna `blocked_by_handoff` **sem consultar APIs adicionais**. Só um `draft_pr_intent_review_required` com SHA/hash de patch e flags de não escrita verificáveis é elegível.
+- Um candidato é comprovado novamente em sandbox temporária, exigindo hash SHA-256 fixado da fonte, hash do patch e rollback.
+- O planejador consulta, exclusivamente por HTTPS `api.github.com`, o SHA atual da `main` e a primeira página de PRs abertas, com limite máximo de **99 PRs**. Se houver 100, recusa por cobertura incompleta em vez de ignorar possíveis duplicações. Usa `NoRedirect`, limite de bytes e token restrito à API oficial.
+- Se o SHA da `main` mudou, marca `blocked_stale_main_head`. Se já existe PR da mesma origem e branch `qa/autofix-ci-scope-main` para `main`, marca `blocked_existing_pr` com somente IDs numéricos. Não publica títulos, descrições ou URLs externos.
+- Sem duplicação e com HEAD igual à evidência, produz `draft_pr_descriptor_ready_for_review`, contendo branch/base, título e corpo fixos e indicação expressa de que faltam testes no futuro commit da PR. **A saída continua `eligible_for_automatic_remote_write=false`, `draft_pr_created=false` e `remote_writes=0`.**
+- Os workflows de CI existentes mantêm as mesmas permissões de leitura e executam `scripts.test_ci_autofix_pr_draft_plan`. O novo artefato `ci-autofix-pr-draft-plan.json` será o nono da cadeia quando houver integração autorizada.
+- Meta de 99% é objetivo; **percentual real não medido**. Os testes cobrem evento/sinal forjado, SHA desatualizado, duplicação, limite de paginação, ausência de token, URL fixa e ausência de alteração da produção.
+
+**Ainda pendente para criação efetiva automática de PR draft:** um executor em workflow separado de credenciais de escrita mínimas, limitado à branch/arquivo/diff permitidos, SHA compare-and-swap, proteção contra corrida entre leituras e escritas, validação completa do novo HEAD, teste de regressão na PR gerada e aprovação humana para merge. Nenhuma dessas ações foi ativada neste piloto.
