@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import re
 from urllib.request import Request, urlopen
+from urllib.parse import urlsplit
 
 REPO = "josuepradodeoliveiracosta-gif/atrio-catolico-android"
 REQUIRED = (
@@ -63,6 +64,30 @@ def safe_markdown(raw):
             .replace("\n", " ").replace("<", "&lt;").replace(">", "&gt;"))
 
 
+def safe_actions_url(raw):
+    """Keep only canonical in-repo Actions URLs without query or secrets.
+
+    GitHub check-run details_url may be an arbitrary external integration URL;
+    never copy such URLs (or their query parameters) to public CI artifacts.
+    """
+    if not isinstance(raw, str) or len(raw) > 2048:
+        return None
+    try:
+        url = urlsplit(raw)
+        port = url.port
+    except ValueError:
+        return None
+    if (url.scheme != "https" or url.hostname != "github.com"
+            or url.username or url.password or port not in (None, 443)):
+        return None
+    path = re.escape(REPO)
+    if not re.fullmatch(
+            rf"/{path}/(?:actions/runs/[0-9]+(?:/job/[0-9]+)?|runs/[0-9]+)",
+            url.path):
+        return None
+    return "https://github.com" + url.path
+
+
 def duration_seconds(check):
     """Segundos observados de check completo; nunca estimar em caso de lacuna."""
     if check.get("status") != "completed":
@@ -95,7 +120,8 @@ def report(sha, checks):
         serialized.append({
             "name": check["name"], "status": status,
             "conclusion": conclusion,
-            "details_url": check.get("details_url") or check.get("html_url") or "",
+            "details_url": (safe_actions_url(check.get("details_url"))
+                            or safe_actions_url(check.get("html_url")) or ""),
         })
     measured = sorted(
         ((check["name"], duration_seconds(check)) for check in checks
