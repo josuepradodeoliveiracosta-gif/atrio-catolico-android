@@ -105,8 +105,14 @@ def verify_one(run, job, sha, candidate):
     # A stale retry attempt must never be treated as current.
     run_attempt = run.get("run_attempt")
     job_attempt = job.get("run_attempt")
-    if (type(run_attempt) is not int or run_attempt < 1
-            or type(job_attempt) is not int or job_attempt != run_attempt):
+    if type(run_attempt) is not int or run_attempt < 1:
+        return "rejected_run_attempt"
+    # REST job metadata may omit run_attempt. Only initial attempts are then
+    # accepted; retries without explicit evidence are left unverified.
+    if job_attempt is None:
+        if run_attempt != 1:
+            return "rejected_run_attempt"
+    elif type(job_attempt) is not int or job_attempt != run_attempt:
         return "rejected_run_attempt"
     return "verified"
 
