@@ -41,7 +41,7 @@ jobs:
             --json ci-report.json \
             --markdown ci-report.md
           # Reutiliza JSON ja coletado: nenhuma chamada de API adicional.
-          python3 scripts/ci_diagnostic_snapshot.py \
+          python3 -m scripts.ci_diagnostic_snapshot \
             --report-json ci-report.json \
             --output-json ci-diagnostics.json \
             --markdown ci-report.md
