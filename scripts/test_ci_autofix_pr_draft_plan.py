@@ -219,6 +219,18 @@ class DraftPlanTests(unittest.TestCase):
             self.assertFalse(got["target_branch_exists"])
             builder.assert_called_once_with(NoRedirect)
 
+    def test_report_workflow_only_grants_read_permissions(self):
+        text = (ROOT / ".github/workflows/ci-quality-report.yml").read_text(
+            encoding="utf-8")
+        permissions = text.split("permissions:", 1)[1].split("\njobs:", 1)[0]
+        self.assertIn("contents: read", permissions)
+        self.assertIn("checks: read", permissions)
+        self.assertIn("actions: read", permissions)
+        self.assertIn("pull-requests: read", permissions)
+        self.assertNotIn(": write", permissions)
+        self.assertIn("ci-autofix-pr-draft-plan.json", text)
+        self.assertIn("scripts.ci_autofix_pr_draft_plan", text)
+
     def test_cli_blocked_handoff_does_not_need_token_or_write_repo(self):
         a, b, c = sample()
         blocked = handoff(a, b, c, "pull_request", "main", ROOT)
