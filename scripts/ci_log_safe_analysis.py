@@ -61,9 +61,13 @@ def download_job_log(job_id, token, opener=None):
             # A direct body is unexpected; do not accept alternative formats.
             raise ValueError("resposta nao possui link temporario")
     except HTTPError as err:
+        # HTTPError is file-like: close the GitHub response before following
+        # even an approved temporary URL, and also on fatal HTTP statuses.
+        signed_url = (err.headers.get("Location")
+                      if err.code == 302 and err.headers else None)
+        err.close()
         if err.code != 302:
             raise ValueError("logs indisponiveis") from None
-        signed_url = err.headers.get("Location") if err.headers else None
     if not approved_signed_url(signed_url):
         raise ValueError("destino de logs nao confiavel")
     # Explicitly omit Authorization on the temporary download request.
