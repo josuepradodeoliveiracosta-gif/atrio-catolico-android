@@ -15,7 +15,7 @@ from scripts.ci_autofix_qa_review import (
     EDITS, MAX_DIFF_BYTES, PATCH_ID, QA_TARGET, QA_TARGET_SHA256,
     apply_reviewed_patch, preview_real_qa_patch,
 )
-from scripts.ci_autofix_sandbox import read_pinned_qa_source, sha256
+from scripts.ci_autofix_sandbox import sha256
 from scripts.ci_quality_report import REQUIRED, report
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
