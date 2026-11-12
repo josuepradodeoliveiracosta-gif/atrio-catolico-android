@@ -9,6 +9,7 @@ import sys
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 import unittest
+from urllib.error import HTTPError
 
 from scripts.ci_autofix_pr_draft_executor import (
     CONFIRMATION, GitHubDraftClient, QA_TARGET,
@@ -395,6 +396,91 @@ class DraftExecutorTests(unittest.TestCase):
         self.assertEqual(calls[0][1]["branch"], BRANCH_NAME)
         self.assertTrue(calls[1][1]["draft"])
         self.assertEqual(calls[2][1], valid_pr)
+
+    def test_full_draft_transaction_uses_only_in_memory_http(self):
+        """Exercise real request serialization without using GitHub or network."""
+        original = (ROOT / QA_TARGET).read_bytes()
+        expected_patch = apply_reviewed_patch(original.decode("utf-8"))
+        state = {"main": SHA, "branch": None, "written": None, "pr": None}
+        requests = []
+        prefix = "https://api.github.com/repos/" + REPO
+
+        def opener(req, timeout):
+            self.assertEqual(timeout, 20)
+            self.assertTrue(req.full_url.startswith(prefix + "/"))
+            method, path = req.get_method(), req.full_url[len(prefix):]
+            requests.append((method, path))
+            payload = json.loads(req.data) if req.data is not None else None
+            if method == "GET" and path == "/branches/main":
+                answer = {"commit": {"sha": state["main"]}}
+            elif method == "GET" and path == "/pulls?state=open&per_page=100&page=1":
+                answer = []
+            elif method == "GET" and path == "/git/ref/heads/" + BRANCH_NAME:
+                if state["branch"] is None:
+                    raise HTTPError(req.full_url, 404, "missing branch", {}, None)
+                answer = {"ref": "refs/heads/" + BRANCH_NAME,
+                          "object": {"sha": state["branch"]}}
+            elif method == "GET" and path == "/contents/" + QA_TARGET + "?ref=main":
+                answer = {"type": "file", "path": QA_TARGET, "sha": BLOB,
+                          "encoding": "base64",
+                          "content": base64.b64encode(original).decode("ascii")}
+            elif method == "POST" and path == "/git/refs":
+                self.assertIsNone(state["branch"])
+                self.assertEqual(payload, {"ref": "refs/heads/" + BRANCH_NAME,
+                                           "sha": SHA})
+                state["branch"] = SHA
+                answer = {"ref": payload["ref"], "object": {"sha": SHA}}
+            elif method == "PUT" and path == "/contents/" + QA_TARGET:
+                self.assertEqual(state["branch"], SHA)
+                self.assertEqual(payload["branch"], BRANCH_NAME)
+                self.assertEqual(payload["sha"], BLOB)
+                state["written"] = base64.b64decode(
+                    payload["content"], validate=True).decode("utf-8")
+                self.assertEqual(state["written"], expected_patch)
+                state["branch"] = COMMIT
+                answer = {"commit": {"sha": COMMIT},
+                          "content": {"path": QA_TARGET}}
+            elif method == "GET" and path == (
+                    "/contents/" + QA_TARGET + "?ref=" + BRANCH_NAME):
+                self.assertEqual(state["branch"], COMMIT)
+                answer = {"type": "file", "path": QA_TARGET,
+                          "encoding": "base64",
+                          "content": base64.b64encode(
+                              state["written"].encode("utf-8")).decode("ascii")}
+            elif method == "GET" and path == (
+                    "/compare/" + SHA + "..." + BRANCH_NAME):
+                answer = {"ahead_by": 1, "behind_by": 0,
+                          "files": [{"filename": QA_TARGET, "status": "modified"}]}
+            elif method == "POST" and path == "/pulls":
+                self.assertEqual(state["branch"], COMMIT)
+                self.assertTrue(payload["draft"])
+                self.assertEqual(payload["head"], BRANCH_NAME)
+                self.assertEqual(payload["base"], BASE_BRANCH)
+                state["pr"] = payload
+                answer = {"number": 123, "state": "open", "draft": True,
+                          "merged_at": None,
+                          "head": {"ref": BRANCH_NAME, "sha": COMMIT,
+                                   "repo": {"full_name": REPO}},
+                          "base": {"ref": BASE_BRANCH, "sha": SHA,
+                                   "repo": {"full_name": REPO}}}
+            else:
+                self.fail("unexpected fake HTTP endpoint: " + method + " " + path)
+            return io.BytesIO(json.dumps(answer).encode("utf-8"))
+
+        client = GitHubDraftClient("offline-placeholder-not-a-secret", opener)
+        result = execute_manually_approved_draft(
+            reviewed(), ROOT, client, SHA, CONFIRMATION)
+        self.assertEqual(result["status"], "draft_pr_created_review_required")
+        self.assertEqual(result["head_sha"], COMMIT)
+        self.assertTrue(result["draft"])
+        self.assertFalse(result["automatic_merge_or_deploy"])
+        self.assertEqual(state["main"], SHA)
+        self.assertEqual(state["branch"], COMMIT)
+        self.assertEqual(state["written"], expected_patch)
+        self.assertTrue(state["pr"]["draft"])
+        self.assertEqual([path for method, path in requests if method != "GET"],
+                         ["/git/refs", "/contents/" + QA_TARGET, "/pulls"])
+        self.assertEqual((ROOT / QA_TARGET).read_bytes(), original)
 
     def test_default_opener_disables_redirects(self):
         with patch("scripts.ci_autofix_pr_draft_executor.build_opener") as builder:
