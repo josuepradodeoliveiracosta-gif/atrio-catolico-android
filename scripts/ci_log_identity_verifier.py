@@ -9,11 +9,11 @@ import argparse
 import json
 import os
 import re
-from urllib.request import HTTPRedirectHandler, build_opener
+from urllib.request import build_opener
 from pathlib import Path
 from urllib.request import Request, urlopen
 
-from scripts.ci_quality_report import REPO, validate_sha
+from scripts.ci_quality_report import REPO, NoRedirect, validate_sha
 from scripts.ci_diagnostic_snapshot import MAX_LOG_JOBS
 from scripts.ci_failure_classifier import positive_int
 
@@ -22,12 +22,6 @@ MAX_RESPONSE_BYTES = 65536
 ALLOWED_STATES = {"failure", "timed_out"}
 SECTION = "## Identidade de jobs do CI (somente leitura)"
 API_PATH = re.compile(r"/(?:runs|jobs)/[1-9][0-9]{0,17}")
-
-class NoRedirect(HTTPRedirectHandler):
-    """Never forward a bearer token to an unexpected redirect."""
-    def redirect_request(self, request, fp, code, msg, headers, newurl):
-        return None
-
 
 def validate_queue(snapshot):
     if not isinstance(snapshot, dict) or snapshot.get("repository") != REPO:
