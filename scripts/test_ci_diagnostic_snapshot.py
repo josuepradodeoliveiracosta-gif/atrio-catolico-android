@@ -177,6 +177,47 @@ class DiagnosticSnapshotTests(unittest.TestCase):
             self.assertIn("https://github.com/" + REPO, combined)
             self.assertIn("não autoriza merge", combined)
 
+    def test_automatic_triage_recommends_isolated_firestore_review(self):
+        checks = [check(n) for n in REQUIRED]
+        checks[2] = check(REQUIRED[2], conclusion="failure")
+        out = digest(sample(checks))
+        self.assertEqual(out["auto_triage"]["failed_checks"], 1)
+        self.assertFalse(out["auto_triage"]["root_cause_established"])
+        self.assertEqual(out["auto_triage"]["automatic_corrections_executed"], 0)
+        item = next(x for x in out["non_success_checks"]
+                    if x["name"] == REQUIRED[2])
+        self.assertEqual(item["safe_next_step"]["id"], "review_firestore_emulator")
+        self.assertIn("emulador", item["safe_next_step"]["guidance"])
+        self.assertIn("Orientacao automatica de triagem", markdown_digest(out))
+
+    def test_pending_check_not_claimed_as_failure(self):
+        checks = [check(n) for n in REQUIRED]
+        checks.append(check("Aguardando", status="in_progress", conclusion=None))
+        out = digest(sample(checks))
+        self.assertEqual(out["auto_triage"]["failed_checks"], 0)
+        self.assertEqual(out["auto_triage"]["pending_checks"], 1)
+        self.assertEqual(out["non_success_checks"][0]["safe_next_step"]["id"],
+                         "await_check_completion")
+
+    def test_missing_checks_get_context_review_not_false_error(self):
+        out = digest(sample([check(REQUIRED[0])]))
+        self.assertEqual(out["auto_triage"]["failed_checks"], 0)
+        self.assertEqual(len(out["required_review"]), 4)
+        self.assertTrue(all(x["safe_next_step"]["id"] == "verify_check_event_scope"
+                            for x in out["required_review"]))
+        self.assertIn("ausente", markdown_digest(out))
+
+    def test_automatic_triage_does_not_execute_or_authorize_changes(self):
+        checks = [check(n) for n in REQUIRED]
+        checks[0] = check(REQUIRED[0], conclusion="failure")
+        out = digest(sample(checks))
+        info = out["auto_triage"]
+        self.assertTrue(info["human_approval_required_for_merges_and_deploy"])
+        self.assertEqual(info["automatic_corrections_executed"], 0)
+        self.assertEqual(out["cause"], "undetermined_not_inferred_from_check_state")
+        self.assertEqual(out["non_success_checks"][0]["safe_next_step"]["id"],
+                         "review_secret_scan_privately")
+
     def test_output_table_is_capped_but_json_retains_all(self):
         data = sample([check(x) for x in REQUIRED] +
                       [check(f"extra-{i}", conclusion="failure") for i in range(23)])
