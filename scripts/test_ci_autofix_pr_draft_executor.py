@@ -18,7 +18,6 @@ from scripts.ci_autofix_pr_draft_plan import (
     BASE_BRANCH, BRANCH_NAME, STATIC_TITLE, draft_pr_plan,
 )
 from scripts.ci_autofix_qa_review import apply_reviewed_patch
-from scripts.ci_autofix_sandbox import sha256
 from scripts.test_ci_autofix_pr_draft_plan import good_handoff, live
 from scripts.ci_quality_report import NoRedirect, REPO
 
