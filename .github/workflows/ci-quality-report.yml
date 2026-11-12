@@ -66,10 +66,11 @@ jobs:
             --signals ci-log-signals.json \
             --json ci-remediation-plan.json \
             --markdown ci-report.md
-          # Piloto de reparo: altera exclusivamente fixture gerada em
-          # TemporaryDirectory descartavel, nunca arquivos da checkout.
+          # Le a fixture versionada por caminho/hash fixos (read-only).
+          # Altera APENAS a copia descartavel sob TemporaryDirectory.
           python3 -m scripts.ci_autofix_sandbox \
             --plan ci-remediation-plan.json \
+            --checkout-root . \
             --json ci-autofix-preview.json
           cat ci-report.md >> "$GITHUB_STEP_SUMMARY"
       - name: Preservar relatorio por execucao
