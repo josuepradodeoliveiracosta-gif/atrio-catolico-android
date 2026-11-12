@@ -45,14 +45,16 @@ def sha256(source):
     return hashlib.sha256(source.encode("utf-8")).hexdigest()
 
 
-def read_checkout_fixture(checkout_root, relative_path=FIXTURE_NAME):
-    """Read a SINGLE versioned QA fixture, never arbitrary checkout content.
-
-    Reject symlinked ancestors, changed bytes, missing files and paths outside
-    the static allowlist. The checkout is *never* written to by this module.
-    """
-    if not isinstance(relative_path, str) or relative_path not in QA_PATH_ALLOWLIST:
-        raise ValueError("caminho QA nao autorizado")
+def read_pinned_qa_source(checkout_root, relative_path, allowlist,
+                          expected_sha256, max_bytes):
+    """Shared fail-closed reader for reviewed QA paths; never writes checkout."""
+    if (not isinstance(relative_path, str)
+            or not isinstance(allowlist, (set, frozenset, tuple))
+            or relative_path not in allowlist
+            or not isinstance(expected_sha256, str)
+            or len(expected_sha256) != 64
+            or type(max_bytes) is not int or not 0 < max_bytes <= 20_000):
+        raise ValueError("arquivo QA fora da allowlist")
     if not isinstance(checkout_root, (str, Path)):
         raise ValueError("raiz de checkout invalida")
     root = Path(checkout_root)
@@ -64,13 +66,23 @@ def read_checkout_fixture(checkout_root, relative_path=FIXTURE_NAME):
         candidate = candidate / part
         if candidate.is_symlink():
             raise ValueError("symlink QA nao autorizado")
-    if not candidate.is_file() or candidate.stat().st_size > MAX_FIXTURE_BYTES:
-        raise ValueError("fixture QA ausente ou fora dos limites")
+    if not candidate.is_file() or candidate.stat().st_size > max_bytes:
+        raise ValueError("arquivo QA ausente ou acima do limite")
     if candidate.resolve(strict=True).relative_to(root) != Path(relative_path):
-        raise ValueError("destino QA fora da allowlist")
+        raise ValueError("arquivo QA fora do checkout")
     source = candidate.read_text(encoding="utf-8")
-    if sha256(source) != BEFORE_SHA256 or source != BEFORE:
-        raise ValueError("fixture QA divergente do hash revisado")
+    if len(source.encode("utf-8")) > max_bytes or sha256(source) != expected_sha256:
+        raise ValueError("arquivo QA divergente do hash revisado")
+    return source
+
+
+def read_checkout_fixture(checkout_root, relative_path=FIXTURE_NAME):
+    """Read the sole versioned SQLite fixture through the common QA guard."""
+    source = read_pinned_qa_source(
+        checkout_root, relative_path, QA_PATH_ALLOWLIST,
+        BEFORE_SHA256, MAX_FIXTURE_BYTES)
+    if source != BEFORE:
+        raise ValueError("fixture QA divergente do conteudo revisado")
     return source
 
 
