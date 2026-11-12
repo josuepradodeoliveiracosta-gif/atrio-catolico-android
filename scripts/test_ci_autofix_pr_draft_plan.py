@@ -13,7 +13,7 @@ import unittest
 from scripts.ci_autofix_handoff import handoff
 from scripts.ci_autofix_pr_draft_plan import (
     BASE_BRANCH, BRANCH_NAME, MAX_REMOTE_RESPONSE_BYTES, STATIC_TITLE,
-    draft_pr_plan, fetch_live_pr_context,
+    _get_api, draft_pr_plan, fetch_live_pr_context,
 )
 from scripts.test_ci_autofix_handoff import sample
 from scripts.ci_quality_report import NoRedirect, REPO
@@ -218,6 +218,39 @@ class DraftPlanTests(unittest.TestCase):
             self.assertEqual(got["main_sha"], SHA)
             self.assertFalse(got["target_branch_exists"])
             builder.assert_called_once_with(NoRedirect)
+
+    def test_http_errors_close_stream_and_only_404_is_absent_branch(self):
+        """Read-only preflight must close error bodies without masking 403."""
+        for status, allow_not_found in (
+                (404, True), (404, False), (403, True), (403, False)):
+            with self.subTest(status=status, allow_not_found=allow_not_found):
+                stream = io.BytesIO(b"error body must not leak")
+                error = HTTPError(
+                    "https://api.github.com/mock", status,
+                    "simulated HTTP error", {}, stream)
+                requests = []
+
+                def opener(req, timeout):
+                    requests.append((req.get_method(), req.full_url, timeout))
+                    raise error
+
+                path = "/git/ref/heads/" + BRANCH_NAME
+                if status == 404 and allow_not_found:
+                    self.assertIsNone(_get_api(
+                        path, "offline-token", opener,
+                        allow_not_found=allow_not_found))
+                else:
+                    with self.assertRaises(HTTPError) as caught:
+                        _get_api(
+                            path, "offline-token", opener,
+                            allow_not_found=allow_not_found)
+                    self.assertIs(caught.exception, error)
+                    self.assertEqual(caught.exception.code, status)
+                self.assertTrue(error.closed)
+                self.assertTrue(stream.closed)
+                self.assertEqual(requests, [(
+                    "GET", "https://api.github.com/repos/" + REPO + path,
+                    20)])
 
     def test_report_workflow_only_grants_read_permissions(self):
         text = (ROOT / ".github/workflows/ci-quality-report.yml").read_text(
