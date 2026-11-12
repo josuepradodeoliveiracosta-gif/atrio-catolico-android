@@ -57,7 +57,6 @@ def _validate_plan(plan):
         "measured_automation_percent": None,
         "root_cause_established": False,
         "freshness_verified_against_current_pr_head": False,
-        "required_checks_complete": True,
         "approval_required_before_any_repository_write": True,
         "production_access": False,
         "next_stage": "qa_sandbox_patch_planning_after_review",
@@ -65,6 +64,8 @@ def _validate_plan(plan):
     for key, expected in required.items():
         if key not in plan or type(plan[key]) is not type(expected) or plan[key] != expected:
             raise ValueError("contrato do plano invalido")
+    if type(plan.get("required_checks_complete")) is not bool:
+        raise ValueError("estado de gates invalido")
     for key in ("automatic_repairs_executed", "automatic_reruns_executed",
                 "automatic_pull_requests_created", "automatic_merges_or_deploys"):
         if type(plan.get(key)) is not int or plan[key] != 0:
@@ -137,7 +138,8 @@ def preview(plan, fixture_source=BEFORE):
     }
     # One candidate, one verified rule, no competing incident. Any ambiguity
     # or missing gate is deliberately excluded by the upstream plan and here.
-    if len(jobs) != 1 or plan["candidate_count"] != 1 or not _eligible(jobs[0]):
+    if (not plan["required_checks_complete"] or len(jobs) != 1
+            or plan["candidate_count"] != 1 or not _eligible(jobs[0])):
         return result
     ast.parse(BEFORE, filename=FIXTURE_NAME)
     ast.parse(AFTER, filename=FIXTURE_NAME)
