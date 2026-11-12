@@ -331,3 +331,21 @@ Isto **não implementa** canal externo, protocolo, atendimento,
 moderação real, revisor nomeado, acesso a mensagens,
 política de retenção ou aprovação legal.
 **NO_GO: QA global 60%, homologação geral 29%**, inalterados.
+
+## Central Única — contrato de ingresso excepcional (12/11/2026)
+
+O marco 3 da issue #256 recebeu preparação **offline**:
+`scripts/chat-qa-exceptional-intake-contract.mjs` e testes,
+sem nenhum endpoint, formulário de envio, Worker, token ou coleção
+nova. O código confirma oito controles ainda não aprovados:
+transporte, antispam, identidade/contato, privacidade, fila humana,
+recibo durável/idempotente, retenção/recursos e atendimento urgente.
+ACK simulado não pode gerar comprovante.
+
+**Alternativa técnica candidata (NÃO escolhida nem aprovada):**
+um ingresso confiável com validação e limites no servidor, com
+adaptador de triagem ao painel de moderação existente.
+Uma escrita Firestore pública anônima sem controle
+não é considerada solução segura. A escolha da infraestrutura,
+prazos, privacidade, rota de suporte e autorização seguem
+pendências da issue #200. **NO_GO**.
