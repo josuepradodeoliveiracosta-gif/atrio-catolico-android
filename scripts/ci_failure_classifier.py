@@ -12,6 +12,9 @@ import re
 
 MAX_LOG_BYTES = 2_000_000
 MAX_LINES = 40_000
+MAX_RULE_SPAN = 15
+MAX_GENERIC_SPAN = 250
+VALID_CONCLUSIONS = {"failure", "timed_out", "success", "cancelled", "skipped", "unknown"}
 SHA_PATTERN = re.compile(r"^[a-f0-9]{40}$")
 
 # Every indicator has a fixed, user-safe description. In particular we never
@@ -62,10 +65,31 @@ def positive_int(value):
     return n
 
 
-def classify(log_text, sha, run_id, job_id):
+def matching_window(lines, markers, max_span):
+    """Return positions of nearby indicators; never join unrelated log sections."""
+    located = [tuple(i for i, line in enumerate(lines, 1) if marker in line)
+               for marker in markers]
+    if not all(located):
+        return None
+    best = None
+    for first in located[0]:
+        candidates = [first]
+        for positions in located[1:]:
+            candidates.append(min(positions, key=lambda pos: abs(pos - first)))
+        width = max(candidates) - min(candidates)
+        if width <= max_span:
+            key = (width, min(candidates), tuple(sorted(set(candidates))))
+            if best is None or key < best:
+                best = key
+    return list(best[2]) if best else None
+
+
+def classify(log_text, sha, run_id, job_id, job_conclusion="unknown"):
     sha = validate_sha(sha)
     run_id = positive_int(run_id)
     job_id = positive_int(job_id)
+    if job_conclusion not in VALID_CONCLUSIONS:
+        raise ValueError("conclusao do job invalida")
     if not isinstance(log_text, str):
         raise ValueError("log precisa ser texto")
     if len(log_text.encode("utf-8")) > MAX_LOG_BYTES:
@@ -73,37 +97,30 @@ def classify(log_text, sha, run_id, job_id):
     lines = log_text.splitlines()
     if len(lines) > MAX_LINES:
         raise ValueError("linhas acima do limite")
-    # Never return raw log lines. Search only for fixed literal indicators.
+    # Require verified failure/timed_out state; a passing job can contain
+    # failures as *test fixture examples* and must never look like a real incident.
+    eligible = job_conclusion in ("failure", "timed_out")
     flags = []
-    for label, category, markers, description in RULES:
-        found_lines = []
-        for mark in markers:
-            candidate = next((i for i, line in enumerate(lines, 1) if mark in line), None)
-            if candidate is None:
-                break
-            found_lines.append(candidate)
-        else:
-            flags.append({
-                "rule_id": label, "category": category,
-                "signal": description,
-                "evidence_line_numbers": sorted(set(found_lines)),
-                "evidence_strength": "multiple_markers" if len(markers) > 1 else "single_marker",
-            })
-    if not flags:
-        for label, category, markers, description in WEAK_RULES:
-            positions = []
-            for mark in markers:
-                n = next((i for i, line in enumerate(lines, 1) if mark in line), None)
-                if n is None:
-                    break
-                positions.append(n)
-            else:
+    if eligible:
+        for label, category, markers, description in RULES:
+            found_lines = matching_window(lines, markers, MAX_RULE_SPAN)
+            if found_lines:
                 flags.append({
                     "rule_id": label, "category": category,
                     "signal": description,
-                    "evidence_line_numbers": sorted(set(positions)),
-                    "evidence_strength": "generic",
+                    "evidence_line_numbers": found_lines,
+                    "evidence_strength": "multiple_markers" if len(markers) > 1 else "single_marker",
                 })
+        if not flags:
+            for label, category, markers, description in WEAK_RULES:
+                found_lines = matching_window(lines, markers, MAX_GENERIC_SPAN)
+                if found_lines:
+                    flags.append({
+                        "rule_id": label, "category": category,
+                        "signal": description,
+                        "evidence_line_numbers": found_lines,
+                        "evidence_strength": "generic",
+                    })
     flags.sort(key=lambda f: f["rule_id"])
     return {
         "repository": "josuepradodeoliveiracosta-gif/atrio-catolico-android",
@@ -111,7 +128,9 @@ def classify(log_text, sha, run_id, job_id):
         "run_id": run_id,
         "job_id": job_id,
         "mode": "offline_only",
-        "classification": ("inconclusive" if not flags else
+        "job_conclusion": job_conclusion,
+        "classification": ("not_applicable_nonfailed_job" if not eligible else
+                           "inconclusive" if not flags else
                            "multiple_signals_review_needed" if len(flags) > 1 else
                            "single_signal_review_needed"),
         "root_cause": "not_established",
@@ -151,6 +170,9 @@ def main():
     parser.add_argument("--sha", required=True)
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--job-id", required=True)
+    parser.add_argument("--job-conclusion", required=True,
+                        choices=sorted(VALID_CONCLUSIONS),
+                        help="Estado conferido via GitHub Actions; unknown impede classificacao")
     parser.add_argument("--json", required=True)
     parser.add_argument("--markdown", required=True)
     args = parser.parse_args()
@@ -158,7 +180,8 @@ def main():
     if log_path.stat().st_size > MAX_LOG_BYTES:
         parser.error("log acima do limite")
     data = log_path.read_text(encoding="utf-8", errors="replace")
-    out = classify(data, args.sha, args.run_id, args.job_id)
+    out = classify(data, args.sha, args.run_id, args.job_id,
+                   job_conclusion=args.job_conclusion)
     # Validate everything before writing either output.
     js = json.dumps(out, ensure_ascii=False, indent=2) + "\n"
     md = markdown_report(out)
