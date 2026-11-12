@@ -29,6 +29,14 @@ REQUIRED = (
     "Bloquear exclusoes em massa (Atrio)",
 )
 
+# These jobs are triggered by Pull Requests and do not run on main pushes.
+# Never count an absent PR-only check as 'success' for a push.
+PR_ONLY_REQUIRED_ON_PUSH = frozenset((
+    "Regras de seguranca Firestore",
+    "Compilar Android de testes",
+    "Bloquear exclusoes em massa (Atrio)",
+))
+
 
 def validate_sha(sha):
     if not re.fullmatch(r"[0-9a-f]{40}", sha or ""):
@@ -125,8 +133,10 @@ def duration_seconds(check):
     return round(diff)
 
 
-def report(sha, checks):
+def report(sha, checks, source_event="unknown"):
     validate_sha(sha)
+    if source_event not in ("unknown", "push", "pull_request"):
+        raise ValueError("evento de CI invalido")
     if not isinstance(checks, list):
         raise ValueError("checks deve ser uma lista")
     totals = Counter()
@@ -162,6 +172,10 @@ def report(sha, checks):
         name: state_for([x for x in checks if x["name"] == name])
         for name in REQUIRED
     }
+    not_expected_on_push = sorted(
+        name for name in PR_ONLY_REQUIRED_ON_PUSH
+        if source_event == "push" and required[name] == "missing"
+    )
     complete = all(value == "success" for value in required.values())
     summary = {
         "repository": REPO, "commit_sha": sha, "check_count": len(checks),
@@ -169,6 +183,8 @@ def report(sha, checks):
         "all_required_success": complete, "checks": serialized,
         "timing": timing,
         "purpose": "audit_only_never_merge_approval",
+        "source_event": source_event,
+        "missing_pr_only_checks_on_push": not_expected_on_push,
     }
     markdown = [
         "## Relatório de CI do commit", "",
@@ -185,6 +201,11 @@ def report(sha, checks):
     ))
     for name, state in required.items():
         markdown.append(f"| {safe_markdown(name)} | {safe_markdown(state)} |")
+    if not_expected_on_push:
+        markdown.append(
+            "Escopo do evento: os checks PR-only ausentes no push nao sao esperados. "
+            "Continuam ausentes no relatorio; nao foram aprovados nem ignorados."
+        )
     markdown.extend((
         "", "### Duracoes observadas dos checks GitHub Actions", "",
         f"**Checks com duracao medivel:** {timing['measured_checks']}",
@@ -214,11 +235,14 @@ def report(sha, checks):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--sha", required=True)
+    parser.add_argument("--source-event", default="unknown",
+                        choices=("unknown", "push", "pull_request"))
     parser.add_argument("--json", required=True)
     parser.add_argument("--markdown", required=True)
     args = parser.parse_args()
     output, markdown = report(
-        args.sha, get_checks(args.sha, os.environ.get("GITHUB_TOKEN", ""))
+        args.sha, get_checks(args.sha, os.environ.get("GITHUB_TOKEN", "")),
+        source_event=args.source_event
     )
     Path(args.json).write_text(
         json.dumps(output, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
