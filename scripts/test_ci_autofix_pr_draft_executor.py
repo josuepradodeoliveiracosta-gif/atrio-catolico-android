@@ -42,6 +42,11 @@ class FakeDraftClient:
         self.branch_sha = None
         self.extra_diff = False
         self.return_draft = True
+        self.return_head_sha = COMMIT
+        self.return_base_sha = SHA
+        self.return_head_repo = REPO
+        self.return_base_repo = REPO
+        self.late_duplicate = False
         self.written_source = None
         self.corrupt_branch_file = False
         self.drift_on_second_read = False
@@ -56,6 +61,8 @@ class FakeDraftClient:
             self.main_sha = "d" * 40
         if self.drift_after_commit and self.branch_sha == COMMIT:
             self.main_sha = "d" * 40
+        if self.late_duplicate and self.branch_sha == COMMIT:
+            self.duplicate_pr_numbers = [999]
         return {
             "main_sha": self.main_sha,
             "target_branch_exists": self.branch_exists,
@@ -108,8 +115,11 @@ class FakeDraftClient:
         self.events.append("create_pr")
         self.main_sha = source_sha
         return {"number": 261, "state": "open", "draft": self.return_draft,
-                "merged_at": None, "head": {"ref": BRANCH_NAME},
-                "base": {"ref": BASE_BRANCH}}
+                "merged_at": None,
+                "head": {"ref": BRANCH_NAME, "sha": self.return_head_sha,
+                         "repo": {"full_name": self.return_head_repo}},
+                "base": {"ref": BASE_BRANCH, "sha": self.return_base_sha,
+                         "repo": {"full_name": self.return_base_repo}}}
 
 
 class DraftExecutorTests(unittest.TestCase):
@@ -255,6 +265,30 @@ class DraftExecutorTests(unittest.TestCase):
             execute_manually_approved_draft(
                 reviewed(), ROOT, api, SHA, CONFIRMATION)
         self.assertEqual(api.events.count("create_pr"), 1)
+
+    def test_late_duplicate_after_commit_blocks_new_pr(self):
+        api = FakeDraftClient()
+        api.late_duplicate = True
+        with self.assertRaises(ValueError):
+            execute_manually_approved_draft(
+                reviewed(), ROOT, api, SHA, CONFIRMATION)
+        self.assertIn("patch_file", api.events)
+        self.assertNotIn("create_pr", api.events)
+
+    def test_pr_response_must_match_reviewed_sha_and_repository(self):
+        for field, value in (
+            ("return_head_sha", "d" * 40),
+            ("return_base_sha", "d" * 40),
+            ("return_head_repo", "untrusted/other"),
+            ("return_base_repo", "untrusted/other"),
+        ):
+            with self.subTest(field=field):
+                api = FakeDraftClient()
+                setattr(api, field, value)
+                with self.assertRaises(ValueError):
+                    execute_manually_approved_draft(
+                        reviewed(), ROOT, api, SHA, CONFIRMATION)
+                self.assertEqual(api.events.count("create_pr"), 1)
 
     def test_forged_manifest_and_unsigned_patch_are_rejected(self):
         for key, value in (

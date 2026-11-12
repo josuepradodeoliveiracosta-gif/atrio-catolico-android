@@ -234,3 +234,18 @@ e monitoramento de custo. **Nenhuma autorização de merge implícita**.
 
 A meta de 99% permanece **sem medição**. Um executor simulado não equivale
 a reparo autônomo comprovado em produção.
+
+## Etapa 5.5 — proteção adicional contra PR duplicada e origem divergente
+
+- Antes da criação da PR, o executor manual verifica **novamente** o SHA da
+  `main`, a existência da branch que acabou de criar e a ausência de uma
+  PR concorrente. Se o contexto mudou, interrompe sem criar outra PR.
+- A resposta de criação de PR precisa comprovar não apenas `draft=true`,
+  mas também os SHAs exatos da base e do commit da alteração, além do
+  repositório de origem e destino. Divergências exigem revisão manual;
+  não há limpeza destrutiva automática após possível escrita parcial.
+- Testes simulados cobrem uma PR concorrente após o commit, SHA divergente
+  no head/base e repositório de origem/destino adulterado.
+- A verificação reduz riscos, mas não elimina toda concorrência posterior
+  à criação da PR. **Nenhum executor remoto foi ativado**, nem há
+  autorização de merge, deploy ou alteração de produção.

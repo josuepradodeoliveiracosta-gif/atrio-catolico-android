@@ -296,16 +296,30 @@ def execute_manually_approved_draft(plan, checkout_root, client,
     if (not isinstance(branch, dict)
             or branch.get("object", {}).get("sha") != commit_sha):
         raise ValueError("HEAD da branch nao corresponde ao commit revisado")
-    if client.live_context().get("main_sha") != source_sha:
-        raise ValueError("main mudou; nao criar PR contra base antiga")
+    # Even after writing our branch, another actor could open a competing PR
+    # or move main. Check the live state again immediately before creating PR.
+    latest = client.live_context()
+    if (not isinstance(latest, dict)
+            or latest.get("main_sha") != source_sha
+            or latest.get("target_branch_exists") is not True
+            or latest.get("duplicate_pr_numbers") != []):
+        raise ValueError("contexto remoto mudou; nao criar PR duplicada")
     pr = client.create_pr(source_sha)
     if (not isinstance(pr, dict) or pr.get("state") != "open"
             or pr.get("draft") is not True
             or type(pr.get("number")) is not int
             or not 0 < pr["number"] < 10 ** 12
             or pr.get("merged_at") is not None
-            or pr.get("head", {}).get("ref") != BRANCH_NAME
-            or pr.get("base", {}).get("ref") != BASE_BRANCH):
+            or not isinstance(pr.get("head"), dict)
+            or not isinstance(pr.get("base"), dict)
+            or not isinstance(pr["head"].get("repo"), dict)
+            or not isinstance(pr["base"].get("repo"), dict)
+            or pr["head"].get("ref") != BRANCH_NAME
+            or pr["head"].get("sha") != commit_sha
+            or pr["head"]["repo"].get("full_name") != REPO
+            or pr["base"].get("ref") != BASE_BRANCH
+            or pr["base"].get("sha") != source_sha
+            or pr["base"]["repo"].get("full_name") != REPO):
         raise ValueError("PR criada com retorno inesperado; verificar manualmente")
     return {
         "status": "draft_pr_created_review_required",
