@@ -29,7 +29,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Testar relator e consolidacao de diagnosticos em memoria
-        run: python3 -m unittest scripts.test_ci_quality_report scripts.test_ci_diagnostic_snapshot scripts.test_ci_log_identity_verifier scripts.test_ci_log_safe_analysis scripts.test_ci_autofix_policy -v
+        run: python3 -m unittest scripts.test_ci_quality_report scripts.test_ci_diagnostic_snapshot scripts.test_ci_log_identity_verifier scripts.test_ci_log_safe_analysis scripts.test_ci_autofix_policy scripts.test_ci_autofix_sandbox -v
       - name: Buscar checks e anexar sintese sem alterar APIs remotas
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -66,6 +66,11 @@ jobs:
             --signals ci-log-signals.json \
             --json ci-remediation-plan.json \
             --markdown ci-report.md
+          # Piloto de reparo: altera exclusivamente fixture gerada em
+          # TemporaryDirectory descartavel, nunca arquivos da checkout.
+          python3 -m scripts.ci_autofix_sandbox \
+            --plan ci-remediation-plan.json \
+            --json ci-autofix-preview.json
           cat ci-report.md >> "$GITHUB_STEP_SUMMARY"
       - name: Preservar relatorio por execucao
         uses: actions/upload-artifact@v4
@@ -78,6 +83,7 @@ jobs:
             ci-job-evidence.json
             ci-log-signals.json
             ci-remediation-plan.json
+            ci-autofix-preview.json
             ci-report.md
           retention-days: 14
           if-no-files-found: warn
