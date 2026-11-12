@@ -273,6 +273,13 @@ class GitHubDraftClient:
         return _get_api("/compare/" + base_sha + "..." + BRANCH_NAME,
                         self.token, self.opener)
 
+    def get_pr(self, number):
+        """Fetch only the numbered, existing PR; never create or update it."""
+        if type(number) is not int or not 0 < number < 10 ** 12:
+            raise ValueError("identificador de PR nao confiavel")
+        from scripts.ci_autofix_pr_draft_plan import _get_api
+        return _get_api("/pulls/" + str(number), self.token, self.opener)
+
     def create_pr(self, source_sha):
         return self._write("POST", "/pulls", {
             "head": BRANCH_NAME,
@@ -282,6 +289,93 @@ class GitHubDraftClient:
             "title": STATIC_TITLE,
             "body": STATIC_BODY + "\n\nSHA base revisado: " + source_sha,
         })
+
+
+def verify_existing_qa_draft(checkout_root, client, expected_base_sha,
+                             expected_head_sha, pr_number):
+    """Reconcile an existing authorized QA draft with READ-ONLY GitHub calls.
+
+    An existing branch/PR must never be treated as permission to retry a
+    remote write. Fail closed if any ref, byte, diff, origin, or status drifts.
+    This does not grant permission to merge, publish, or enable a writer.
+    """
+    base_sha = validate_sha(expected_base_sha)
+    head_sha = validate_sha(expected_head_sha)
+    if (base_sha == head_sha or type(pr_number) is not int
+            or not 0 < pr_number < 10 ** 12):
+        raise ValueError("SHAs ou identificador de PR invalidos")
+    original, patched, proof = _pinned_source(checkout_root)
+    context = client.live_context()
+    if (not isinstance(context, dict)
+            or context.get("main_sha") != base_sha
+            or context.get("target_branch_exists") is not True
+            or context.get("duplicate_pr_numbers") != [pr_number]):
+        raise ValueError("contexto remoto nao corresponde a PR draft unica")
+    remote = client.base_file()
+    if (not isinstance(remote, dict)
+            or remote.get("source") != original):
+        raise ValueError("origem QA da main divergiu")
+    branch = client.branch_ref()
+    if (not isinstance(branch, dict)
+            or branch.get("ref") != "refs/heads/" + BRANCH_NAME
+            or not isinstance(branch.get("object"), dict)
+            or branch["object"].get("sha") != head_sha):
+        raise ValueError("HEAD de QA nao corresponde ao commit esperado")
+    if client.branch_file() != patched:
+        raise ValueError("patch remoto nao corresponde aos bytes aprovados")
+    comparison = client.compare(base_sha)
+    if (not isinstance(comparison, dict)
+            or comparison.get("ahead_by") != 1
+            or comparison.get("behind_by") != 0
+            or type(comparison.get("files")) is not list
+            or len(comparison["files"]) != 1
+            or comparison["files"][0].get("filename") != QA_TARGET
+            or comparison["files"][0].get("status") != "modified"):
+        raise ValueError("diff remoto fora do unico arquivo QA autorizado")
+    pr = client.get_pr(pr_number)
+    if (not isinstance(pr, dict)
+            or pr.get("number") != pr_number
+            or type(pr.get("number")) is not int
+            or pr.get("state") != "open"
+            or pr.get("draft") is not True
+            or pr.get("merged_at") is not None
+            or not isinstance(pr.get("head"), dict)
+            or not isinstance(pr.get("base"), dict)
+            or pr["head"].get("ref") != BRANCH_NAME
+            or pr["head"].get("sha") != head_sha
+            or not isinstance(pr["head"].get("repo"), dict)
+            or pr["head"]["repo"].get("full_name") != REPO
+            or pr["base"].get("ref") != BASE_BRANCH
+            or pr["base"].get("sha") != base_sha
+            or not isinstance(pr["base"].get("repo"), dict)
+            or pr["base"]["repo"].get("full_name") != REPO):
+        raise ValueError("PR remota nao corresponde ao rascunho QA revisado")
+    # Catch intervening branch moves, duplicate PRs and main updates.
+    last = client.live_context()
+    final_branch = client.branch_ref()
+    if (not isinstance(last, dict)
+            or last.get("main_sha") != base_sha
+            or last.get("target_branch_exists") is not True
+            or last.get("duplicate_pr_numbers") != [pr_number]
+            or not isinstance(final_branch, dict)
+            or final_branch.get("ref") != "refs/heads/" + BRANCH_NAME
+            or not isinstance(final_branch.get("object"), dict)
+            or final_branch["object"].get("sha") != head_sha):
+        raise ValueError("estado remoto mudou durante verificacao; reavaliar")
+    return {
+        "status": "existing_qa_draft_verified_read_only",
+        "repository": REPO,
+        "pr_number": pr_number,
+        "base_sha": base_sha,
+        "head_sha": head_sha,
+        "branch": BRANCH_NAME,
+        "draft": True,
+        "only_file": QA_TARGET,
+        "patch_sha256": proof["patched_sha256"],
+        "remote_writes": 0,
+        "automatic_merge_or_deploy": False,
+        "human_review_required": True,
+    }
 
 
 def execute_manually_approved_draft(plan, checkout_root, client,
