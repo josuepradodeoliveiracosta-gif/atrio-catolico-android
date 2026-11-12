@@ -22,7 +22,7 @@ from scripts.ci_autofix_qa_review import (
 )
 from scripts.ci_autofix_pr_draft_plan import (
     BASE_BRANCH, BRANCH_NAME, MAX_REMOTE_RESPONSE_BYTES,
-    STATIC_BODY, STATIC_TITLE, draft_pr_plan, fetch_live_pr_context,
+    STATIC_BODY, STATIC_TITLE, fetch_live_pr_context,
 )
 from scripts.ci_autofix_sandbox import read_pinned_qa_source, sha256
 
