@@ -11,7 +11,7 @@ import os
 import re
 from urllib.request import build_opener
 from pathlib import Path
-from urllib.request import Request, urlopen
+from urllib.request import Request
 
 from scripts.ci_quality_report import REPO, NoRedirect, validate_sha
 from scripts.ci_diagnostic_snapshot import MAX_LOG_JOBS
