@@ -11,7 +11,6 @@ from pathlib import Path
 
 from scripts.ci_quality_report import REPO, validate_sha
 from scripts.ci_failure_classifier import MAX_LOG_BYTES, RULES, WEAK_RULES
-from scripts.ci_log_identity_verifier import validate_queue
 from scripts.ci_log_safe_analysis import (
     MAX_ANALYZED_JOBS, validate_identity,
 )
