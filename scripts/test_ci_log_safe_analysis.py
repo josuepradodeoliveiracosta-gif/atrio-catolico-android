@@ -343,6 +343,51 @@ class LogSafeTests(unittest.TestCase):
 
 
 
+    def test_historical_replay_synthetic_contract_keeps_required_success(self):
+        """The known failed job is optional; no fake failure of required gates."""
+        from scripts.ci_quality_report import REQUIRED, report
+        from scripts.ci_diagnostic_snapshot import digest
+        from scripts.ci_log_identity_verifier import verify
+        historical_sha = "e046f3c3609b8fee5e7b0064646ec174ab3ca2d3"
+        run_id, job_id = 42866978165, 130007825671
+        checks = [{"name": name, "status": "completed", "conclusion": "success"}
+                  for name in REQUIRED]
+        checks.append({
+            "name": "Testar telas do Átrio — profiles",
+            "status": "completed", "conclusion": "failure",
+            "details_url": f"https://github.com/{REPO}/actions/runs/{run_id}/job/{job_id}",
+        })
+        raw_report, _ = report(historical_sha, checks)
+        self.assertTrue(raw_report["all_required_success"])
+        summary = digest(raw_report)
+        self.assertEqual(summary["log_review_queue"]["total_candidates"], 1)
+        calls = []
+        def metadata(path, token):
+            calls.append(path)
+            if path == f"/runs/{run_id}":
+                return {"id": run_id, "head_sha": historical_sha,
+                        "status": "completed", "run_attempt": 1,
+                        "repository": {"full_name": REPO},
+                        "head_repository": {"full_name": REPO}}
+            if path == f"/jobs/{job_id}":
+                return {"id": job_id, "run_id": run_id,
+                        "head_sha": historical_sha,
+                        "status": "completed", "conclusion": "failure",
+                        "run_attempt": 1}
+            raise AssertionError("unexpected metadata endpoint")
+        proof = verify(summary, "dummy-token", metadata)
+        self.assertEqual(calls, [f"/runs/{run_id}", f"/jobs/{job_id}"])
+        self.assertEqual(proof["verified_jobs"], 1)
+        classified = analyze(
+            summary, proof, "dummy-token",
+            lambda _job, _token: ("adb: device offline\\n"
+                                  "ComposeTimeoutException: Condition still not satisfied\\n"))
+        self.assertEqual(classified["jobs_classified"], 1)
+        self.assertEqual(set(classified["results"][0]["signal_ids"]),
+                         {"android_adb_offline", "android_compose_timeout"})
+        self.assertFalse(classified["root_cause_established"])
+        self.assertEqual(classified["automatic_merges_or_deploys"], 0)
+
     def test_historical_replay_is_opt_in_pinned_and_read_only(self):
         workflow = (Path(__file__).resolve().parents[1] /
                     ".github/workflows/ci-quality-report.yml").read_text(encoding="utf-8")
