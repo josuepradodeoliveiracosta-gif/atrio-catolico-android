@@ -559,6 +559,33 @@ class DraftExecutorTests(unittest.TestCase):
             self.assertEqual(output.getvalue(), "")
             self.assertNotIn(secret, errors.getvalue())
 
+    def test_readonly_cli_never_echoes_unknown_secret_arguments(self):
+        """A copied command-line credential must not reach stderr."""
+        secret = "synthetic-secret-do-not-echo"
+        base = [
+            "--checkout-root", str(ROOT),
+            "--base-sha", SHA, "--head-sha", COMMIT,
+            "--pr-number", "261",
+        ]
+        for argv in (
+            base + ["--token", secret],
+            base + ["--unknown=" + secret],
+            base[:-1] + [secret],
+        ):
+            with self.subTest(argv_shape=len(argv)):
+                output, errors = io.StringIO(), io.StringIO()
+                with patch.object(readonly_audit, "verify_existing_qa_draft"
+                                  ) as verifier:
+                    code = readonly_audit.main(
+                        argv,
+                        environ={"ATRIO_QA_READ_TOKEN": "fake-read-only-token"},
+                        stdout=output, stderr=errors)
+                self.assertEqual(code, 2)
+                self.assertEqual(output.getvalue(), "")
+                self.assertNotIn(secret, errors.getvalue())
+                self.assertIn("Nenhuma escrita remota", errors.getvalue())
+                verifier.assert_not_called()
+
     def test_get_only_reader_has_no_write_methods(self):
         """The verifier should never need the privileged writer class."""
         reader = GitHubDraftReader("offline-read-only-placeholder",
