@@ -155,6 +155,25 @@ class IdentityVerifierTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             api_json("/runs/12", "fake-token", lambda request, timeout: Oversize())
 
+    def test_metadata_api_never_uses_arbitrary_or_redirected_endpoint(self):
+        forbidden = [
+            "https://evil.example/jobs/12", "/jobs/0", "/runs/12/logs",
+            "//evil.example", "/runs/12/../settings", "/jobs/12?token=x",
+            "/runs/9999999999999999999", "/jobs/12/extra",
+        ]
+        call = Mock(side_effect=AssertionError("should not reach network"))
+        for target in forbidden:
+            with self.subTest(target=target):
+                with self.assertRaises(ValueError):
+                    api_json(target, "dummy-token", call)
+        call.assert_not_called()
+
+    def test_queue_rejects_boolean_and_string_identifiers(self):
+        for value in (True, "12", 12.0):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    validate_queue(snapshot([candidate(run_id=value)]))
+
     def test_cli_generates_bounded_metadata_only_artifact(self):
         with TemporaryDirectory() as folder:
             root = Path(folder)
