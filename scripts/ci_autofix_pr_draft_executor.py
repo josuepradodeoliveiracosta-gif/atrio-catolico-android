@@ -184,6 +184,25 @@ class GitHubDraftClient:
             raise ValueError("conteudo remoto mudou desde revisao")
         return {"sha": payload["sha"], "source": body.decode("utf-8")}
 
+    def branch_file(self):
+        """Verify final QA file bytes from the new branch, not only API status."""
+        from scripts.ci_autofix_pr_draft_plan import _get_api
+        payload = _get_api("/contents/" + QA_TARGET + "?ref=" + BRANCH_NAME,
+                           self.token, self.opener)
+        if (not isinstance(payload, dict)
+                or payload.get("type") != "file"
+                or payload.get("path") != QA_TARGET
+                or payload.get("encoding") != "base64"
+                or not isinstance(payload.get("content"), str)):
+            raise ValueError("arquivo remoto na branch invalido")
+        try:
+            data = base64.b64decode(payload["content"], validate=False)
+        except (ValueError, binascii.Error) as error:
+            raise ValueError("base64 invalido do arquivo da branch") from error
+        if len(data) > MAX_SOURCE_BYTES:
+            raise ValueError("arquivo remoto QA fora do limite")
+        return data.decode("utf-8")
+
     def create_branch(self, source_sha):
         return self._write("POST", "/git/refs", {
             "ref": "refs/heads/" + BRANCH_NAME, "sha": source_sha})
@@ -236,8 +255,9 @@ def execute_manually_approved_draft(plan, checkout_root, client,
         QA_TARGET_SHA256, MAX_SOURCE_BYTES)
     if remote["source"] != original:
         raise ValueError("arquivo main remoto difere do QA revisado")
-    if not isinstance(remote.get("sha"), str) or len(remote["sha"]) != 40:
-        raise ValueError("blob SHA Git invalido")
+    if not isinstance(remote.get("sha"), str):
+        raise ValueError("blob SHA Git ausente")
+    validate_sha(remote["sha"])
     # Second preflight immediately before non-forced creation.
     _validate_live_context(client.live_context(), source_sha)
     created = client.create_branch(source_sha)
@@ -260,6 +280,8 @@ def execute_manually_approved_draft(plan, checkout_root, client,
             or update["content"].get("path") != QA_TARGET):
         raise ValueError("commit remoto inesperado; revisar manualmente")
     commit_sha = validate_sha(update["commit"].get("sha"))
+    if client.branch_file() != patched:
+        raise ValueError("conteudo da branch diverge do patch revisado; sem PR")
     comparison = client.compare(source_sha)
     if (not isinstance(comparison, dict)
             or comparison.get("ahead_by") != 1
