@@ -1,5 +1,6 @@
 """No-network tests for a manually gated, single-file QA draft PR transaction."""
 from copy import deepcopy
+import base64
 import io
 import json
 from pathlib import Path
@@ -15,7 +16,7 @@ from scripts.ci_autofix_pr_draft_executor import (
     validate_draft_manifest,
 )
 from scripts.ci_autofix_pr_draft_plan import (
-    BASE_BRANCH, BRANCH_NAME, draft_pr_plan,
+    BASE_BRANCH, BRANCH_NAME, STATIC_BODY, STATIC_TITLE, draft_pr_plan,
 )
 from scripts.ci_autofix_qa_review import apply_reviewed_patch
 from scripts.test_ci_autofix_pr_draft_plan import good_handoff, live
@@ -309,6 +310,7 @@ class DraftExecutorTests(unittest.TestCase):
             ("human_approval_required_before_merge", False),
             ("production_access", True),
             ("race_window_remains", False),
+            ("injected_extra_field", {"branch": "main"}),
         ):
             with self.subTest(key=key):
                 item = deepcopy(reviewed())
@@ -342,6 +344,53 @@ class DraftExecutorTests(unittest.TestCase):
         self.assertTrue(seen[0][1].startswith(
             "https://api.github.com/repos/" + REPO + "/"))
         self.assertEqual(seen[0][2]["sha"], SHA)
+
+    def test_raw_write_rejects_branch_main_and_unreviewed_payload(self):
+        calls = []
+        def opener(req, timeout):
+            calls.append((req.method, json.loads(req.data.decode("utf-8"))))
+            return io.BytesIO(b'{}')
+        client = GitHubDraftClient("mock-token", opener)
+        patched = apply_reviewed_patch(
+            (ROOT / QA_TARGET).read_text(encoding="utf-8"))
+        good_encoded = base64.b64encode(patched.encode("utf-8")).decode("ascii")
+        valid_put = {
+            "branch": BRANCH_NAME,
+            "message": "fix(qa): distinguir checks de PR ausentes em push",
+            "sha": BLOB, "content": good_encoded,
+        }
+        valid_pr = {
+            "head": BRANCH_NAME, "base": BASE_BRANCH,
+            "draft": True, "maintainer_can_modify": False,
+            "title": STATIC_TITLE,
+            "body": STATIC_BODY + "\\n\\nSHA base revisado: " + SHA,
+        }
+        bad_cases = (
+            ("POST", "/git/refs", {"ref": "refs/heads/main", "sha": SHA}),
+            ("POST", "/git/refs", {"ref": "refs/heads/" + BRANCH_NAME,
+                                   "sha": SHA, "force": True}),
+            ("PUT", "/contents/" + QA_TARGET,
+             {**valid_put, "branch": "main"}),
+            ("PUT", "/contents/" + QA_TARGET,
+             {**valid_put, "content":
+              base64.b64encode(b"unapproved").decode("ascii")}),
+            ("PUT", "/contents/" + QA_TARGET,
+             {**valid_put, "extra": "ignore policy"}),
+            ("POST", "/pulls", {**valid_pr, "draft": False}),
+            ("POST", "/pulls", {**valid_pr, "head": "main"}),
+            ("POST", "/pulls", {**valid_pr, "body": "arbitrary"}),
+            ("POST", "/pulls", {**valid_pr, "extra": "unsafe"}),
+        )
+        for method, path, payload in bad_cases:
+            with self.subTest(method=method, path=path, payload=payload):
+                with self.assertRaises(ValueError):
+                    client._write(method, path, payload)
+        self.assertEqual(calls, [])
+        client.patch_file(BLOB, patched)
+        client.create_pr(SHA)
+        self.assertEqual([x[0] for x in calls], ["PUT", "POST"])
+        self.assertEqual(calls[0][1]["branch"], BRANCH_NAME)
+        self.assertTrue(calls[1][1]["draft"])
 
     def test_default_opener_disables_redirects(self):
         with patch("scripts.ci_autofix_pr_draft_executor.build_opener") as builder:

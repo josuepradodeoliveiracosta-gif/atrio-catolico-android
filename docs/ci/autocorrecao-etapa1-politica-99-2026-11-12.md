@@ -249,3 +249,23 @@ a reparo autônomo comprovado em produção.
 - A verificação reduz riscos, mas não elimina toda concorrência posterior
   à criação da PR. **Nenhum executor remoto foi ativado**, nem há
   autorização de merge, deploy ou alteração de produção.
+
+## Etapa 5.6 — barreira de payload no escritor isolado (não ativado)
+
+O método interno de escrita aceitava `PUT /contents/scripts/ci_quality_report.py`
+sem verificar se o corpo pedia `branch=main`. O teste de endpoints,
+isoladamente, não bastava para impedir uma tentativa indevida de escrita
+por um chamador interno.
+
+- Agora a verificação exige chaves exatas e valores estáticos: criação da
+  branch QA permitida, conteúdo do arquivo QA somente nessa branch,
+  hash de blob válido, mensagem revisada e bytes do patch estático
+  validados por SHA-256 e pela sandbox existente.
+- A criação de PR aceita apenas `draft=true`, head/base fixos, título,
+  corpo, SHA base e `maintainer_can_modify=false` aprovados.
+- O manifesto rejeita campos desconhecidos. Testes offline simulam
+  requisições perigosas diretamente ao método HTTP e garantem bloqueio
+  antes de qualquer chamada ao `opener`.
+- Nenhuma credencial de escrita foi adicionada aos workflows; nenhum
+  executor foi habilitado, nenhum merge ou deploy foi feito. CI do SHA
+  novo deve concluir antes de marcar a etapa homologada.

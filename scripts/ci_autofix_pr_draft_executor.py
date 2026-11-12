@@ -79,6 +79,8 @@ def validate_draft_manifest(plan, checkout_root):
         "current_automation_percent_measured": None,
         "preview_source_sha256": QA_TARGET_SHA256,
     }
+    if set(plan) != set(exact) | {"source_sha", "preview_patch_sha256"}:
+        raise ValueError("manifesto com campos adicionais ou ausentes")
     for key, expected in exact.items():
         if key not in plan or type(plan[key]) is not type(expected) or plan[key] != expected:
             raise ValueError("manifesto de PR adulterado: " + key)
@@ -130,6 +132,50 @@ def _validate_live_context(context, sha):
     return current
 
 
+def _validate_write_payload(method, path, payload):
+    """Disallow arbitrary payloads even through the private HTTP writer."""
+    if type(payload) is not dict:
+        raise ValueError("payload GitHub invalido")
+    if method == "POST" and path == "/git/refs":
+        if (set(payload) != {"ref", "sha"}
+                or payload.get("ref") != "refs/heads/" + BRANCH_NAME):
+            raise ValueError("somente criacao da branch QA fixa")
+        validate_sha(payload["sha"])
+    elif method == "PUT" and path == "/contents/" + QA_TARGET:
+        if (set(payload) != {"branch", "message", "sha", "content"}
+                or payload.get("branch") != BRANCH_NAME
+                or payload.get("message") != WRITE_MESSAGE):
+            raise ValueError("arquivo/branch fora da politica QA")
+        validate_sha(payload["sha"])
+        if not isinstance(payload["content"], str):
+            raise ValueError("conteudo do patch invalido")
+        try:
+            decoded = base64.b64decode(payload["content"], validate=True)
+            source = decoded.decode("utf-8")
+        except (ValueError, binascii.Error, UnicodeDecodeError) as error:
+            raise ValueError("patch nao e base64 UTF-8 valido") from error
+        if len(decoded) > MAX_SOURCE_BYTES:
+            raise ValueError("patch ultrapassa limite QA")
+        _, approved_patch, _ = _pinned_source(Path(__file__).resolve().parents[1])
+        if source != approved_patch:
+            raise ValueError("patch difere da alteracao estatica revisada")
+    elif method == "POST" and path == "/pulls":
+        prefix = STATIC_BODY + "\n\nSHA base revisado: "
+        if (set(payload) != {"head", "base", "draft", "maintainer_can_modify",
+                             "title", "body"}
+                or payload.get("head") != BRANCH_NAME
+                or payload.get("base") != BASE_BRANCH
+                or payload.get("draft") is not True
+                or payload.get("maintainer_can_modify") is not False
+                or payload.get("title") != STATIC_TITLE
+                or not isinstance(payload.get("body"), str)
+                or not payload["body"].startswith(prefix)):
+            raise ValueError("PR fora do contrato QA")
+        validate_sha(payload["body"][len(prefix):])
+    else:
+        raise ValueError("operacao GitHub nao permitida")
+
+
 class GitHubDraftClient:
     """Exact GitHub REST endpoints only, no redirects, no user supplied URL.
 
@@ -147,6 +193,7 @@ class GitHubDraftClient:
         allowed = ALLOWED_POST_PATHS if method == "POST" else ALLOWED_PUT_PATHS
         if method not in ("POST", "PUT") or path not in allowed:
             raise ValueError("operacao remota fora da allowlist")
+        _validate_write_payload(method, path, payload)
         data = json.dumps(payload, sort_keys=True, ensure_ascii=True).encode("utf-8")
         if len(data) > MAX_BLOB_BYTES:
             raise ValueError("payload remoto acima do limite")
