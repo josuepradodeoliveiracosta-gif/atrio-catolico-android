@@ -74,3 +74,17 @@ O gate atual de testes passa a executar \`scripts.test_ci_autofix_sandbox\` junt
 - Nenhum script de reparação foi autorizado a modificar o repositório GitHub, ainda que a correção sintética tenha passado.
 - **Não confundir este piloto com autocorreção operacional**: ainda faltam patches em arquivos QA reais com allowlist, testes de regressão completos, geração de PR draft automatizada e revisão humana de promoção.
 - A meta de 99% continua sendo apenas objetivo, sem taxa medida.
+
+
+## Etapa 3.1 — fixture versionada de QA, allowlist e hash
+
+O piloto foi ampliado, sem gerar um segundo sistema e sem alterar a politica de permissoes.
+
+- O arquivo \`tests/qa/autofix/sqlite_closed_connection.py\` passou a existir **no checkout da branch de QA** como fixture de treinamento deliberadamente falha (a conexao e encerrada antes da consulta). **Nao e codigo executado pelo app**.
+- \`scripts.ci_autofix_sandbox\` recebe \`--checkout-root .\` no workflow de relatorio. Le exclusivamente esse caminho fixo, listado em \`QA_PATH_ALLOWLIST\`, e confere limite de bytes, SHA-256 e igualdade exata com a fonte aprovada. Rejeita symlink em qualquer segmento da rota, desvio de caminho, fixture ausente ou alterada.
+- O mecanismo prepara um **diff real desse arquivo de QA versionado**, mas aplica a correcao **somente em uma copia dentro de TemporaryDirectory**. O checkout original permanece intacto; nenhuma PR automatica, commit, push, merge, rerun ou deploy e executado.
+- \`ci-autofix-preview.json\` informa \`checkout_fixture_verified\` para distinguir o teste com fixture embarcada do teste com origem no repositorio. Nao inclui logs brutos nem caminhos arbitrarios.
+- Novos testes conferem hash e preservacao do arquivo versionado, alteracao de bytes, excesso de tamanho, ausencia do arquivo, symlink de arquivo/diretorio, tentativa de escapar da allowlist, planos bloqueados e chamada CLI usando o checkout.
+- A meta **99%** segue **nao medida**. Esta extensao prova leitura e planejamento de reparos para um arquivo real de QA, **nao** autocorrecao operacional de erros arbitrarios do app.
+
+A proxima promocao, se autorizada, exigira politica para arquivos de QA reais nao artificiais, aprovacao por diff e teste de regressao; jamais executar uma alteracao direta em producao.
