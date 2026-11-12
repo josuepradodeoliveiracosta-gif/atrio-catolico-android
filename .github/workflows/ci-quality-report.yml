@@ -30,7 +30,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Testar relator e consolidacao de diagnosticos em memoria
-        run: python3 -m unittest scripts.test_ci_quality_report scripts.test_ci_diagnostic_snapshot scripts.test_ci_log_identity_verifier scripts.test_ci_log_safe_analysis scripts.test_ci_autofix_policy scripts.test_ci_autofix_sandbox scripts.test_ci_autofix_qa_review scripts.test_ci_autofix_handoff scripts.test_ci_autofix_pr_draft_plan -v
+        run: python3 -m unittest scripts.test_ci_quality_report scripts.test_ci_diagnostic_snapshot scripts.test_ci_log_identity_verifier scripts.test_ci_log_safe_analysis scripts.test_ci_autofix_policy scripts.test_ci_autofix_sandbox scripts.test_ci_autofix_qa_review scripts.test_ci_autofix_handoff scripts.test_ci_autofix_pr_draft_plan scripts.test_ci_autofix_pr_draft_executor -v
       - name: Buscar checks e anexar sintese sem alterar APIs remotas
         env:
           GITHUB_TOKEN: ${{ github.token }}
