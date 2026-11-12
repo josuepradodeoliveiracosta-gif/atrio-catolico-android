@@ -237,6 +237,35 @@ Não escolher prazos arbitrários (ex.: 30/90/365 dias). Uma edição,
 ocultação ou exclusão do documento pai no Firestore **não comprova**
 eliminação de todas as subcoleções e réplicas.
 
+## Lacunas complementares do inventário (ainda sem política aprovada)
+
+As **13 classes iniciais acima não são inventário exaustivo do aplicativo**.
+A inspeção das Rules versionadas e da variante fechada do QA identificou
+também rotas cujo ciclo de vida precisa entrar na avaliação de retenção.
+A ocorrência no código **não comprova dados existentes em produção ou QA**.
+
+| Dados adicionais a inventariar | Risco, responsável e decisão pendentes |
+| --- | --- |
+| `user_reports/{reportId}` | Denúncias de participantes com autor, alvo, motivo, estado e eventual revisor; procedimento e retenção próprios, distintos de denúncias de DM/grupo |
+| `posts` e `replies` | Conteúdo e interações do mural, eventuais edições, identificadores de autoria e cópias relacionadas a denúncias |
+| `public_profiles`, `profile_photos` e `badges` | Dados visíveis de perfil, imagens, papéis e possíveis referências externas ou arquivos associados |
+| `users/{uid}/pushDevices/{deviceId}`, notificações e registros de Workers | Tokens de dispositivo, eventos e metadados de entrega; eventual duplicação em Worker/D1 e necessidade de revogação/expurgo |
+
+**Antes de aprovar prazos ou eliminação**, mapear coleção/subcoleção,
+cópias, Storage/Worker quando aplicável, controlador, finalidade, acesso,
+base legal, início da contagem, exceções de preservação, backups e prova
+de eliminação. Denúncias podem exigir proteção de evidências e avaliação
+de direitos do titular; não inventar prazo nem automatizar exclusão.
+O fato de uma Rule permitir leitura **não autoriza** exportação para
+inventário público. Não registrar UIDs, mensagens, tokens ou fotos
+reais no repositório.
+
+Esta identificação amplia a **lista de pendências a revisar**, mas não
+altera unilateralmente o contrato de oito revisões, não declara
+`RETENTION_13_CLASSES` concluído e não muda o estado `NO_GO`.
+A conferência remota do Firebase e a revisão de privacidade continuam
+dependências independentes.
+
 ## Matriz mínima de aceitação e decisão para a issue #200
 
 | Item | Resultado exigido antes de aprovação | Estado |
