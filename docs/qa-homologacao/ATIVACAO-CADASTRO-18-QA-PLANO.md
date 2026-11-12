@@ -618,3 +618,44 @@ não abrir conversas/grupos/push e não modificar backups. O
 QA remoto permaneceu `deny-all` na última captura enviada
 pelo operador. A revisão de rotas herdadas e moderação da
 issue #200 continua necessária mesmo quando os textos coincidirem.
+
+
+## Evidência de operador — Rules de produção iguais à base versionada (11/11/2026)
+
+**Fonte e momento:** captura do resultado executado pelo fundador no Termux e
+compartilhada nesta conversa em 11/11/2026. Trata-se de **evidência do
+operador**, não de uma consulta Firebase autenticada realizada pelo conector
+GitHub ou de uma prova de que a publicação permanecerá inalterada no futuro.
+O campo `publishedAt` é o horário da publicação remota, **não** o instante
+da leitura mostrada na captura.
+
+- Comando: `node scripts/termux-firestore-rules-diff-readonly.mjs`.
+- Projeto consultado: `atrio-catolico` (produção), somente 2 GETs.
+- Modo retornado: `READ_ONLY_NO_DEPLOY_NO_BACKUP`;
+  `deploymentApproved=false` e `releaseApproved=false`.
+- `publishedAt=2026-11-06T21:27:12.553922Z`.
+- `exactMatch=true`, `publishedLines=940`, `repositoryLines=940`,
+  `publishedOnlyLines=0`, `repositoryOnlyLines=0`,
+  `differentRegions=0`.
+- `publishedSha256=repositorySha256=aa04c106e69287b7e7f513addf3dd4e9fc3ad246b69a7d20b2f38c5068c9899e`.
+- Conferência independente no GitHub: `firestore.rules` da `main`
+  (HEAD observado `640c648ccd396f700b1d5f7f824cd3ea2142521d`) e da PR #232 (HEAD anterior
+  `f20448dbba4df2a13b345b15d901cd2f161b0841`) têm o **mesmo blob Git**
+  `526b8a1e7ff09aca79a4a539ee1681a6c0a76f77`; o SHA-256 calculado
+  de ambos coincide com o da captura. Assim, a cópia local comparada
+  coincide com a base versionada usada pelo compositor QA na PR.
+
+**Limites:** o resultado só demonstra equivalência **textual no instante
+observado** entre a publicação de produção e a **base** `firestore.rules`.
+Não valida a segurança global, nem os fragmentos adicionais de conversas /
+grupos, nem a release do Firestore **QA**. Não prova idade independente nem
+aprovação de políticas. A auditoria QA remota anterior observou `deny-all`;
+essa condição também exige revalidação imediatamente antes de eventual deploy.
+**Não remover o bloqueio de comparação futura** do pré-flight, pois a
+captura é histórica. A aprovação de merge, configuração administrativa,
+regras QA, Worker/FCM, moderação, privacidade, retenção e teste físico continua
+separada. **NO_GO; ativação QA 60% (3/5), QA geral 29% (2/7)**.
+
+Nenhum deploy, merge, dado real, IAM, backup ou arquivo de produção foi
+modificado por este registro; a única leitura de produção foi a consulta
+realizada no Termux pelo operador.
