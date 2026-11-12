@@ -10,6 +10,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+from urllib.error import HTTPError
 from urllib.request import Request, build_opener
 
 from scripts.ci_quality_report import NoRedirect, REPO, validate_sha
@@ -37,7 +38,7 @@ STATIC_BODY = (
 )
 
 
-def _get_api(path, token, opener):
+def _get_api(path, token, opener, allow_not_found=False):
     """Fixed-host HTTPS, no redirect, strict byte limit, no URLs from artifacts."""
     url = "https://api.github.com/repos/" + REPO + path
     req = Request(url, headers={
@@ -45,18 +46,24 @@ def _get_api(path, token, opener):
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
     })
-    with opener(req, timeout=20) as response:
-        body = response.read(MAX_REMOTE_RESPONSE_BYTES + 1)
+    try:
+        with opener(req, timeout=20) as response:
+            body = response.read(MAX_REMOTE_RESPONSE_BYTES + 1)
+    except HTTPError as error:
+        if allow_not_found and error.code == 404:
+            return None
+        raise
     if len(body) > MAX_REMOTE_RESPONSE_BYTES:
         raise ValueError("resposta de GitHub acima do limite")
     return json.loads(body)
 
 
 def fetch_live_pr_context(token, opener=None):
-    """One fixed branch request + one bounded page of OPEN PR metadata.
+    """Check main SHA, OPEN PRs and target branch with read-only API calls.
 
     If more than 99 PRs are open, refuse rather than silently missing a
     duplicate on another page. Never copy PR titles, descriptions or URLs.
+    This is only a snapshot; an eventual writer must recheck atomically.
     """
     if not isinstance(token, str) or not token:
         raise ValueError("token GitHub de leitura ausente")
@@ -85,7 +92,22 @@ def fetch_live_pr_context(token, opener=None):
                 and head.get("ref") == BRANCH_NAME
                 and entry["base"].get("ref") == BASE_BRANCH):
             open_branches.append(entry["number"])
-    return {"main_sha": main_sha, "duplicate_pr_numbers": sorted(open_branches)}
+    # A pre-existing branch without an open PR can contain valuable work.
+    # A 404 from the exact fixed ref means it is absent for this snapshot.
+    # Any other HTTP error must be fatal, never treated as branch absence.
+    target_ref = "refs/heads/" + BRANCH_NAME
+    branch_info = _get_api(
+        "/git/ref/heads/" + BRANCH_NAME, token, opener,
+        allow_not_found=True)
+    if branch_info is not None and (
+            not isinstance(branch_info, dict)
+            or branch_info.get("ref") != target_ref):
+        raise ValueError("resposta da branch de reparo nao confiavel")
+    return {
+        "main_sha": main_sha,
+        "duplicate_pr_numbers": sorted(open_branches),
+        "target_branch_exists": branch_info is not None,
+    }
 
 
 def _base_result(sha, status):
@@ -100,6 +122,7 @@ def _base_result(sha, status):
         "base_branch": BASE_BRANCH,
         "head_branch": BRANCH_NAME,
         "duplicate_pr_numbers": [],
+        "target_branch_absence_checked": False,
         "live_main_sha_checked": False,
         "candidate_patch_verified": False,
         "draft_pr_title": None,
@@ -160,11 +183,13 @@ def draft_pr_plan(handoff, checkout_root, read_context=None):
         return result
     if (not isinstance(read_context, dict)
             or not isinstance(read_context.get("duplicate_pr_numbers"), list)
+            or type(read_context.get("target_branch_exists")) is not bool
             or any(type(x) is not int or not 0 < x < 10 ** 12
                    for x in read_context["duplicate_pr_numbers"])):
         raise ValueError("contexto GitHub invalido")
     main_sha = validate_sha(read_context.get("main_sha"))
     result["live_main_sha_checked"] = True
+    result["target_branch_absence_checked"] = True
     if main_sha != sha:
         result["status"] = "blocked_stale_main_head"
         return result
@@ -172,6 +197,9 @@ def draft_pr_plan(handoff, checkout_root, read_context=None):
         result["status"] = "blocked_existing_pr"
         result["duplicate_pr_numbers"] = sorted(set(
             read_context["duplicate_pr_numbers"]))
+        return result
+    if read_context["target_branch_exists"]:
+        result["status"] = "blocked_existing_branch"
         return result
     result.update({
         "status": "draft_pr_descriptor_ready_for_review",
@@ -182,6 +210,7 @@ def draft_pr_plan(handoff, checkout_root, read_context=None):
         "premerge_ci_validation": "required_not_yet_verified",
         "draft_only": True,
         "eligible_for_automatic_remote_write": False,
+        "race_window_remains": True,
     })
     return result
 
