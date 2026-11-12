@@ -98,6 +98,15 @@ class SandboxFixTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     preview(p)
 
+    def test_missing_required_plan_fields_fail_closed(self):
+        for key in ("measured_automation_percent", "mode", "production_access",
+                    "approval_required_before_any_repository_write"):
+            with self.subTest(key=key):
+                p = deepcopy(sqlite_plan())
+                p.pop(key)
+                with self.assertRaises(ValueError):
+                    preview(p)
+
     def test_reject_altered_job_contract(self):
         changes = (
             ("recipe_id", "qa_firewall_deploy"),
