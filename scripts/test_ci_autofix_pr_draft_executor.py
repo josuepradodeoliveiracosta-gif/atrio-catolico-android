@@ -15,7 +15,7 @@ from scripts.ci_autofix_pr_draft_executor import (
     validate_draft_manifest,
 )
 from scripts.ci_autofix_pr_draft_plan import (
-    BASE_BRANCH, BRANCH_NAME, STATIC_TITLE, draft_pr_plan,
+    BASE_BRANCH, BRANCH_NAME, draft_pr_plan,
 )
 from scripts.ci_autofix_qa_review import apply_reviewed_patch
 from scripts.test_ci_autofix_pr_draft_plan import good_handoff, live
