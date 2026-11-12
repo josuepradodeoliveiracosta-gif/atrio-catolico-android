@@ -11,6 +11,8 @@ from unittest.mock import patch
 import unittest
 from urllib.error import HTTPError
 
+import scripts.ci_autofix_draft_readonly_audit as readonly_audit
+
 from scripts.ci_autofix_pr_draft_executor import (
     CONFIRMATION, GitHubDraftClient, GitHubDraftReader, QA_TARGET,
     draft_transaction_preview, execute_manually_approved_draft,
@@ -451,6 +453,91 @@ class DraftExecutorTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             verify_existing_qa_draft(ROOT, late, SHA, COMMIT, 261)
         self.assertNotIn("create_pr", late.events)
+
+    def test_manual_readonly_cli_refuses_ci_missing_or_unsafe_token(self):
+        """Never reuse GITHUB_TOKEN or any event-triggered Actions credential."""
+        argv = [
+            "--checkout-root", str(ROOT),
+            "--base-sha", SHA, "--head-sha", COMMIT,
+            "--pr-number", "261",
+        ]
+        cases = (
+            {},
+            {"GITHUB_TOKEN": "unrelated-ci-token"},
+            {"ATRIO_QA_READ_TOKEN": "test-only", "GITHUB_ACTIONS": "true"},
+            {"ATRIO_QA_READ_TOKEN": "fake\\ncredential"},
+            {"ATRIO_QA_READ_TOKEN": " "},
+        )
+        for env in cases:
+            with self.subTest(keys=sorted(env)):
+                stdout, stderr = io.StringIO(), io.StringIO()
+                with patch.object(
+                        readonly_audit, "verify_existing_qa_draft"
+                ) as verifier:
+                    code = readonly_audit.main(
+                        argv, environ=env, stdout=stdout, stderr=stderr)
+                self.assertEqual(code, 2)
+                self.assertEqual(stdout.getvalue(), "")
+                self.assertIn("Nenhuma escrita remota", stderr.getvalue())
+                self.assertNotIn("credential", stderr.getvalue())
+                verifier.assert_not_called()
+
+    def test_manual_readonly_cli_uses_get_only_reader_and_redacts_token(self):
+        """Only the explicit read-token env is used; output has no secret."""
+        argv = [
+            "--checkout-root", str(ROOT),
+            "--base-sha", SHA, "--head-sha", COMMIT,
+            "--pr-number", "261",
+        ]
+        secret = "synthetic-readonly-token-never-real"
+        def approved(root, reader, base, head, pr_number):
+            self.assertEqual(root, str(ROOT))
+            self.assertIs(type(reader), GitHubDraftReader)
+            self.assertEqual(reader.token, secret)
+            self.assertFalse(hasattr(reader, "_write"))
+            self.assertFalse(hasattr(reader, "create_pr"))
+            self.assertEqual((base, head, pr_number), (SHA, COMMIT, 261))
+            return {
+                "status": "existing_qa_draft_verified_read_only",
+                "repository": REPO, "pr_number": 261,
+                "base_sha": SHA, "head_sha": COMMIT,
+                "draft": True, "remote_writes": 0,
+                "automatic_merge_or_deploy": False,
+            }
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with patch.object(readonly_audit, "verify_existing_qa_draft",
+                          side_effect=approved) as verifier:
+            code = readonly_audit.main(
+                argv, environ={"ATRIO_QA_READ_TOKEN": secret},
+                opener=lambda req, timeout: self.fail("network not allowed"),
+                stdout=stdout, stderr=stderr)
+        self.assertEqual(code, 0)
+        self.assertEqual(verifier.call_count, 1)
+        self.assertEqual(stderr.getvalue(), "")
+        data = json.loads(stdout.getvalue())
+        self.assertEqual(data["status"], "existing_qa_draft_verified_read_only")
+        self.assertEqual(data["mode"], "manually_invoked_get_only_audit")
+        self.assertFalse(data["credential_scope_independently_verified"])
+        self.assertFalse(data["writer_executed"])
+        self.assertEqual(data["remote_writes"], 0)
+        self.assertNotIn(secret, stdout.getvalue())
+
+        for rejected in (
+            {"status": "existing_qa_draft_verified_read_only",
+             "draft": True, "remote_writes": 1,
+             "automatic_merge_or_deploy": False},
+            {"status": "unexpected", "draft": True,
+             "remote_writes": 0, "automatic_merge_or_deploy": False},
+        ):
+            output, errors = io.StringIO(), io.StringIO()
+            with patch.object(readonly_audit, "verify_existing_qa_draft",
+                              return_value=rejected):
+                code = readonly_audit.main(
+                    argv, environ={"ATRIO_QA_READ_TOKEN": secret},
+                    stdout=output, stderr=errors)
+            self.assertEqual(code, 2)
+            self.assertEqual(output.getvalue(), "")
+            self.assertNotIn(secret, errors.getvalue())
 
     def test_get_only_reader_has_no_write_methods(self):
         """The verifier should never need the privileged writer class."""
