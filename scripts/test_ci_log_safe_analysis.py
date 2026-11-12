@@ -380,8 +380,8 @@ class LogSafeTests(unittest.TestCase):
         self.assertEqual(proof["verified_jobs"], 1)
         classified = analyze(
             summary, proof, "dummy-token",
-            lambda _job, _token: ("adb: device offline\\n"
-                                  "ComposeTimeoutException: Condition still not satisfied\\n"))
+            lambda _job, _token: ("adb: device offline\n"
+                                  "ComposeTimeoutException: Condition still not satisfied\n"))
         self.assertEqual(classified["jobs_classified"], 1)
         self.assertEqual(set(classified["results"][0]["signal_ids"]),
                          {"android_adb_offline", "android_compose_timeout"})
