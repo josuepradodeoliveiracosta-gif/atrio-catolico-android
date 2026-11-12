@@ -115,23 +115,24 @@ class SandboxFixTests(unittest.TestCase):
 
     def test_reject_altered_job_contract(self):
         changes = (
-            ("recipe_id", "qa_firewall_deploy"),
-            ("decision", "automatic_merge"),
-            ("signal_ids", ["unknown_rule"]),
-            ("requires_human_approval_for_write", False),
-            ("reason_id", "automatically_authorized"),
-            ("job_id", 0),
+            ("recipe_id", "qa_firewall_deploy", False),
+            ("decision", "automatic_merge", True),
+            ("signal_ids", ["unknown_rule"], False),
+            ("requires_human_approval_for_write", False, True),
+            ("reason_id", "automatically_authorized", False),
+            ("job_id", 0, True),
         )
-        for field, value in changes:
+        for field, value, must_reject in changes:
             with self.subTest(field=field):
                 p = deepcopy(sqlite_plan())
                 p["jobs"][0][field] = value
-                result = None
-                try:
+                if must_reject:
+                    with self.assertRaises(ValueError):
+                        preview(p)
+                else:
                     result = preview(p)
-                except ValueError:
-                    pass
-                self.assertTrue(result is None or result["patch"] is None)
+                    self.assertEqual(result["status"], "blocked_not_eligible")
+                    self.assertIsNone(result["patch"])
 
     def test_multiple_jobs_prevent_ambiguous_patch(self):
         p = deepcopy(sqlite_plan())
