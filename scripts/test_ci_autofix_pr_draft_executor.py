@@ -14,7 +14,7 @@ from urllib.error import HTTPError
 from scripts.ci_autofix_pr_draft_executor import (
     CONFIRMATION, GitHubDraftClient, QA_TARGET,
     draft_transaction_preview, execute_manually_approved_draft,
-    validate_draft_manifest,
+    validate_draft_manifest, verify_existing_qa_draft,
 )
 from scripts.ci_autofix_pr_draft_plan import (
     BASE_BRANCH, BRANCH_NAME, STATIC_BODY, STATIC_TITLE, draft_pr_plan,
@@ -361,6 +361,112 @@ class DraftExecutorTests(unittest.TestCase):
                     self.assertEqual(len(requests), 1)
                     self.assertTrue(requests[0][1].startswith(
                         "https://api.github.com/repos/" + REPO + "/"))
+
+    def test_existing_qa_draft_read_only_reconciles_approved_remote_state(self):
+        """Read an already-created QA PR without invoking any write method."""
+        class ExistingDraftClient(FakeDraftClient):
+            def __init__(self):
+                super().__init__()
+                self.branch_exists = True
+                self.branch_sha = COMMIT
+                self.duplicate_pr_numbers = [261]
+                self.written_source = apply_reviewed_patch(self.remote_source)
+                self.pr_data = {
+                    "number": 261, "state": "open", "draft": True,
+                    "merged_at": None,
+                    "head": {"ref": BRANCH_NAME, "sha": COMMIT,
+                             "repo": {"full_name": REPO}},
+                    "base": {"ref": BASE_BRANCH, "sha": SHA,
+                             "repo": {"full_name": REPO}},
+                }
+            def get_pr(self, number):
+                self.events.append("get_pr")
+                self.assert_expected_number(number)
+                return deepcopy(self.pr_data)
+            @staticmethod
+            def assert_expected_number(number):
+                if number != 261:
+                    raise ValueError("unexpected PR")
+
+        api = ExistingDraftClient()
+        original = (ROOT / QA_TARGET).read_bytes()
+        result = verify_existing_qa_draft(ROOT, api, SHA, COMMIT, 261)
+        self.assertEqual(result["status"],
+                         "existing_qa_draft_verified_read_only")
+        self.assertEqual(result["remote_writes"], 0)
+        self.assertFalse(result["automatic_merge_or_deploy"])
+        self.assertEqual(result["pr_number"], 261)
+        self.assertEqual(result["head_sha"], COMMIT)
+        self.assertEqual(result["only_file"], QA_TARGET)
+        self.assertEqual(api.events, [
+            "live", "base_file", "branch_ref", "branch_file",
+            "compare", "get_pr", "live", "branch_ref"])
+        self.assertEqual((ROOT / QA_TARGET).read_bytes(), original)
+        forbidden_writes = {"create_branch", "patch_file", "create_pr",
+                            "merge", "delete_branch"}
+        self.assertFalse(forbidden_writes.intersection(api.events))
+
+        failures = (
+            ("stale_main", lambda a: setattr(a, "main_sha", "d" * 40)),
+            ("no_branch", lambda a: setattr(a, "branch_exists", False)),
+            ("duplicate", lambda a: setattr(a, "duplicate_pr_numbers",
+                                             [261, 262])),
+            ("wrong_branch_sha", lambda a: setattr(a, "branch_sha", "d" * 40)),
+            ("changed_file", lambda a: setattr(a, "written_source",
+                                                "unapproved patch")),
+            ("extra_file", lambda a: setattr(a, "extra_diff", True)),
+            ("pr_not_draft", lambda a: a.pr_data.update(draft=False)),
+            ("pr_wrong_head", lambda a: a.pr_data["head"].update(
+                sha="d" * 40)),
+            ("pr_wrong_repo", lambda a: a.pr_data["head"]["repo"].update(
+                full_name="untrusted/other")),
+            ("pr_wrong_base", lambda a: a.pr_data["base"].update(
+                sha="d" * 40)),
+            ("pr_merged", lambda a: a.pr_data.update(
+                merged_at="2026-11-12T19:00:00Z")),
+        )
+        for label, change in failures:
+            with self.subTest(case=label):
+                other = ExistingDraftClient()
+                change(other)
+                with self.assertRaises(ValueError):
+                    verify_existing_qa_draft(ROOT, other, SHA, COMMIT, 261)
+                self.assertFalse(forbidden_writes.intersection(other.events))
+        for bad_number in (True, 0, -1, "261", 10 ** 12):
+            with self.subTest(number=bad_number):
+                other = ExistingDraftClient()
+                with self.assertRaises(ValueError):
+                    verify_existing_qa_draft(
+                        ROOT, other, SHA, COMMIT, bad_number)
+                self.assertEqual(other.events, [])
+
+        late = ExistingDraftClient()
+        original_live = late.live_context
+        def late_drift():
+            value = original_live()
+            if late.events.count("live") == 2:
+                value["duplicate_pr_numbers"] = [261, 999]
+            return value
+        late.live_context = late_drift
+        with self.assertRaises(ValueError):
+            verify_existing_qa_draft(ROOT, late, SHA, COMMIT, 261)
+        self.assertNotIn("create_pr", late.events)
+
+    def test_existing_qa_draft_client_reads_only_numbered_pr(self):
+        seen = []
+        def opener(req, timeout):
+            seen.append((req.get_method(), req.full_url, timeout))
+            return io.BytesIO(b'{"number":261,"state":"open","draft":true}')
+        client = GitHubDraftClient("offline-placeholder", opener)
+        for bad in (True, 0, -1, "261", 10 ** 12):
+            with self.subTest(value=bad), self.assertRaises(ValueError):
+                client.get_pr(bad)
+        self.assertEqual(seen, [])
+        data = client.get_pr(261)
+        self.assertTrue(data["draft"])
+        self.assertEqual(seen, [
+            ("GET", "https://api.github.com/repos/" + REPO +
+             "/pulls/261", 20)])
 
     def test_forged_manifest_and_unsigned_patch_are_rejected(self):
         for key, value in (
