@@ -91,14 +91,21 @@ def main(argv=None, *, environ=None, opener=None, stdout=None, stderr=None):
     parser.add_argument("--checkout-root", required=True)
     parser.add_argument("--base-sha", required=True)
     parser.add_argument("--head-sha", required=True)
-    parser.add_argument("--pr-number", required=True, type=int)
-    args = parser.parse_args(argv)
+    # Never let argparse echo an accidental token supplied as an unknown
+    # argument or in a numeric field back to the terminal.
+    parser.add_argument("--pr-number", required=True)
     output = sys.stdout if stdout is None else stdout
     error = sys.stderr if stderr is None else stderr
     try:
+        # parse_known_args allows us to reject unknown arguments silently
+        # instead of argparse printing their (possibly secret) values.
+        args, unknown = parser.parse_known_args(argv)
+        if (unknown or not re.fullmatch(r"[1-9][0-9]{0,11}",
+                                         args.pr_number)):
+            raise ValueError("argumentos invalidos")
         result = audit_existing_draft(
             args.checkout_root, args.base_sha, args.head_sha,
-            args.pr_number, environ=environ, opener=opener)
+            int(args.pr_number), environ=environ, opener=opener)
     except (ValueError, PermissionError, OSError):
         # Keep all failure paths free of response bodies, tokens and URLs.
         print("Auditoria bloqueada: referencias ou permissao de leitura nao "
