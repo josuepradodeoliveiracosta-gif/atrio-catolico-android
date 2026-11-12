@@ -241,3 +241,32 @@ ou aprovação de retenção/moderação. O Firebase QA real
 permanece `deny-all` na última consulta. Status `NO_GO`;
 ativação QA 60% (3/5), geral 29% (2/7).
 
+## Confirmação humana antes de registrar análise — UI de QA (11/11/2026)
+
+O botão `Marcar como analisada` em
+`UserReportsAdminPanel.kt` passa a solicitar **confirmação
+explícita em diálogo**, com opção de cancelar. O texto alerta que
+`status=reviewed` registra somente conferência humana do
+protocolo; **não demonstra veracidade, sanção, conclusão de
+recurso nem notificação do denunciante**.
+
+O painel verifica novamente a sessão Firebase, a presença da
+denúncia `pending` na página atual, a confirmação explícita
+e a ausência de operação concorrente. Trocar de página ou atualizar
+invalida a confirmação antiga. Em seguida, o cliente envia apenas
+a transição já prevista `pending -> reviewed` com UID do
+administrador e horário de servidor. **Security Rules** seguem
+sendo a autoridade real: nem o diálogo nem o objeto Kotlin
+`UserReportsReviewPolicy` substituem privilégios atuais ou uma
+revisão humana genuína. Os testes JUnit exercitam confirmação
+ausente, sessão trocada, protocolo oculto/finalizado, identidades
+vazias e operação em andamento.
+
+**Ainda não implementado/aprovado:** campos de conclusão formal
+da investigação, sanção ou reversão, notificações, trilha de
+justificativa, canal de contestação, segundo revisor e prazos
+de atendimento. Não misturar isso com a simples confirmação
+do status `reviewed`. Dados de denúncia e provas não são
+removidos pelo diálogo. Sem novo backend, coleção, permissão
+administrativa, Firebase remoto ou deploy. **NO_GO**.
+

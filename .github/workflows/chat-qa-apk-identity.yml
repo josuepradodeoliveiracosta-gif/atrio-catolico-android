@@ -20,6 +20,8 @@ on:
       - 'app/src/main/java/br/com/atriocatolico/AtrioGroups.kt'
       - 'app/src/main/java/br/com/atriocatolico/PublicMemberProfile.kt'
       - 'app/src/main/java/br/com/atriocatolico/UserReportsAdminPanel.kt'
+      - 'app/src/main/java/br/com/atriocatolico/UserReportsReviewPolicy.kt'
+      - 'app/src/test/java/br/com/atriocatolico/UserReportsReviewPolicyTest.kt'
       - 'app/src/main/java/br/com/atriocatolico/ChatReportReceiptPolicy.kt'
       - 'app/src/test/java/br/com/atriocatolico/ChatReportReceiptPolicyTest.kt'
       - 'app/src/test/java/br/com/atriocatolico/ChatQaDeclarationPolicyTest.kt'
@@ -211,6 +213,7 @@ jobs:
             --tests br.com.atriocatolico.ChatAgeRegistrationPrecheckTest \
             --tests br.com.atriocatolico.ChatReportReceiptPolicyTest \
             --tests br.com.atriocatolico.ParticipantReportReceiptPolicyTest \
+            --tests br.com.atriocatolico.UserReportsReviewPolicyTest \
             --no-daemon --stacktrace
       - name: Apagar configuração sintética do runner
         if: always()

@@ -4,10 +4,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -49,9 +51,11 @@ internal fun UserReportsAdminPanel(db: FirebaseFirestore, adminUid: String) {
     var failed by remember(db, adminUid) { mutableStateOf(false) }
     var busyId by remember(db, adminUid) { mutableStateOf("") }
     var info by remember(db, adminUid) { mutableStateOf("") }
+    var reviewCandidate by remember(db, adminUid) { mutableStateOf<ReportedMember?>(null) }
 
     DisposableEffect(db, adminUid, pageIndex, requestVersion) {
         var active = true
+        reviewCandidate = null // Mudança de página invalida uma confirmação antiga.
         val cursor = if (pageIndex == 0) null else cursors.getOrNull(pageIndex - 1)
         reports = emptyList()
         hasMore = false
@@ -115,31 +119,7 @@ internal fun UserReportsAdminPanel(db: FirebaseFirestore, adminUid: String) {
                 Text(report.reason, style = MaterialTheme.typography.bodyMedium)
                 OutlinedButton(
                     enabled = busyId.isEmpty(),
-                    onClick = {
-                        if (FirebaseAuth.getInstance().currentUser?.uid != adminUid) {
-                            info = "Sessão administrativa alterada."
-                        } else {
-                            busyId = report.id
-                            db.collection("user_reports").document(report.id)
-                                .update(mapOf(
-                                    "status" to "reviewed",
-                                    "reviewedBy" to adminUid,
-                                    "reviewedAt" to FieldValue.serverTimestamp()
-                                )).addOnCompleteListener { result ->
-                                    if (FirebaseAuth.getInstance().currentUser?.uid == adminUid) {
-                                        busyId = ""
-                                        if (result.isSuccessful) {
-                                            reports = reports.map {
-                                                if (it.id == report.id) it.copy(status = "reviewed") else it
-                                            }
-                                        }
-                                        info = if (result.isSuccessful)
-                                            "Denúncia marcada como analisada."
-                                            else "Não foi possível registrar a análise."
-                                    }
-                                }
-                        }
-                    }
+                    onClick = { reviewCandidate = report }
                 ) { Text(if (busyId == report.id) "Salvando..." else "Marcar como analisada") }
             }
             if (!loading && !failed) {
@@ -169,5 +149,67 @@ internal fun UserReportsAdminPanel(db: FirebaseFirestore, adminUid: String) {
             }
             if (info.isNotBlank()) Text(info, style = MaterialTheme.typography.bodySmall)
         }
+    }
+    val candidate = reviewCandidate
+    if (candidate != null) {
+        AlertDialog(
+            onDismissRequest = { if (busyId.isEmpty()) reviewCandidate = null },
+            title = { Text("Confirmar registro da análise?") },
+            text = {
+                Text(
+                    "Confirme somente após examinar o relato. O status 'analisada' " +
+                    "registra uma conferência humana; não comprova os fatos, não " +
+                    "aplica punição e não significa que um recurso foi respondido."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = busyId.isEmpty(),
+                    onClick = {
+                        reviewCandidate = null
+                        if (!UserReportsReviewPolicy.canRegisterReview(
+                                activeUid = FirebaseAuth.getInstance().currentUser?.uid,
+                                adminUid = adminUid,
+                                reportId = candidate.id,
+                                reportStatus = candidate.status,
+                                visibleAndPending = reports.any {
+                                    it.id == candidate.id && it.status == "pending"
+                                },
+                                explicitlyConfirmed = true,
+                                busy = busyId.isNotEmpty() || loading || failed
+                            )
+                        ) {
+                            info = "Sessão, protocolo ou página mudou. Atualize antes de analisar."
+                        } else {
+                            busyId = candidate.id
+                            db.collection("user_reports").document(candidate.id)
+                                .update(mapOf(
+                                    "status" to "reviewed",
+                                    "reviewedBy" to adminUid,
+                                    "reviewedAt" to FieldValue.serverTimestamp()
+                                )).addOnCompleteListener { result ->
+                                    if (FirebaseAuth.getInstance().currentUser?.uid == adminUid) {
+                                        busyId = ""
+                                        if (result.isSuccessful) {
+                                            reports = reports.map {
+                                                if (it.id == candidate.id) it.copy(status = "reviewed") else it
+                                            }
+                                        }
+                                        info = if (result.isSuccessful)
+                                            "Conferência registrada. Recursos e providências exigem processo próprio."
+                                            else "Não foi possível registrar a análise. Atualize e verifique."
+                                    }
+                                }
+                        }
+                    }
+                ) { Text("Confirmar análise") }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = busyId.isEmpty(),
+                    onClick = { reviewCandidate = null }
+                ) { Text("Cancelar") }
+            }
+        )
     }
 }
