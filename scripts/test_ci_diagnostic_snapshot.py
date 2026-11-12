@@ -70,6 +70,13 @@ class DiagnosticSnapshotTests(unittest.TestCase):
         self.assertNotIn("https://evil.example", md)
         self.assertIn("&lt;script&gt;", md)
 
+    def test_markdown_links_in_check_names_are_not_rendered(self):
+        attack = "[urgent](https://evil.example) ![image](https://evil.example/img)"
+        snap = digest(sample([check(attack, conclusion="failure")]))
+        md = markdown_digest(snap)
+        self.assertIn(r"\[urgent\]\(https://evil.example\)", md)
+        self.assertNotIn("| [urgent](https://evil.example)", md)
+
     def test_required_blocking_is_not_merge_approval(self):
         snap = digest(sample())
         self.assertIn("não autoriza merge", markdown_digest(snap))
