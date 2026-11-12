@@ -12,6 +12,8 @@ on:
       - 'app/build.gradle.kts'
       - 'app/src/main/java/br/com/atriocatolico/OnlineAtrioApp.kt'
       - 'app/src/main/java/br/com/atriocatolico/RegistrationV2.kt'
+      - 'app/src/main/java/br/com/atriocatolico/UnifiedExceptionalReportQa.kt'
+      - 'app/src/test/java/br/com/atriocatolico/UnifiedReportEntryQaPolicyTest.kt'
       - 'app/src/main/java/br/com/atriocatolico/ChatAgeRegistrationPrecheck.kt'
       - 'app/src/main/java/br/com/atriocatolico/ChatQaDeclarationRecovery.kt'
       - 'app/src/main/java/br/com/atriocatolico/QaCommunityPolicyAccess.kt'
@@ -215,6 +217,7 @@ jobs:
             --tests br.com.atriocatolico.ChatReportReceiptPolicyTest \
             --tests br.com.atriocatolico.ParticipantReportReceiptPolicyTest \
             --tests br.com.atriocatolico.UserReportsReviewPolicyTest \
+            --tests br.com.atriocatolico.UnifiedReportEntryQaPolicyTest \
             --no-daemon --stacktrace
       - name: Apagar configuração sintética do runner
         if: always()

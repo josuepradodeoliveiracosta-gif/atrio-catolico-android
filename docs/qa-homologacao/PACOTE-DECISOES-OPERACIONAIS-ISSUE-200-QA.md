@@ -314,3 +314,20 @@ de recursos/denuncias tardias. Firestore Rules
 continua sendo a autoridade; backend real
 QA nao alterado. **NO_GO, 60% (3/5) e
 29% (2/7)**; sem merge, deploy ou backups.
+
+
+## Início da Central Única de Denúncias (12/11/2026)
+
+Plano e barra de progresso disponíveis em
+`CENTRAL-UNICA-DENUNCIAS-QA-PROGRESSO.md`.
+A primeira entrega prepara uma entrada excepcional informativa
+**somente no APK Chat QA, antes do login**, sem qualquer formulário
+ou transmissão. O roteador de políticas Kotlin reconhece os
+fluxos existentes (`user_reports`, `chat_reports` e
+`chat_group_reports`) e nega roteamento para qualquer sessão
+sem acesso. Testes unitários negativos incorporados ao CI.
+
+Isto **não implementa** canal externo, protocolo, atendimento,
+moderação real, revisor nomeado, acesso a mensagens,
+política de retenção ou aprovação legal.
+**NO_GO: QA global 60%, homologação geral 29%**, inalterados.

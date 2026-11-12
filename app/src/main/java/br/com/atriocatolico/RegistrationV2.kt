@@ -30,6 +30,13 @@ import com.google.firebase.firestore.Source
  */
 @Composable
 internal fun RegistrationWelcomeScreen(onCreate: () -> Unit, onLogin: () -> Unit) {
+    // Sem dados de usuario: a navegacao abaixo e exclusiva do APK Chat QA.
+    var exceptionalQaPreview by remember { mutableStateOf(false) }
+    if (BuildConfig.APPLICATION_ID == "br.com.atriocatolico.chatqa" &&
+        exceptionalQaPreview) {
+        UnifiedExceptionalReportQaPreview(onBack = { exceptionalQaPreview = false })
+        return
+    }
     Column(
         Modifier.fillMaxSize().background(Paper).verticalScroll(rememberScrollState())
             .padding(horizontal = 24.dp, vertical = 32.dp).testTag("atrio-signup-welcome"),
@@ -75,6 +82,12 @@ internal fun RegistrationWelcomeScreen(onCreate: () -> Unit, onLogin: () -> Unit
             border = BorderStroke(1.dp, Gold),
             shape = RoundedCornerShape(14.dp)
         ) { Text("Entrar", color = Wine) }
+        if (BuildConfig.APPLICATION_ID == "br.com.atriocatolico.chatqa") {
+            OutlinedButton(
+                onClick = { exceptionalQaPreview = true },
+                modifier = Modifier.fillMaxWidth().testTag("atrio-exceptional-qa-open")
+            ) { Text("Ajuda e denúncias (prévia QA)") }
+        }
         Text("Seus dados e sua participação são protegidos pelas regras da comunidade.",
             textAlign = TextAlign.Center, style = MaterialTheme.typography.bodySmall, color = Muted)
     }
