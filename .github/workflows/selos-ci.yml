@@ -29,7 +29,7 @@ jobs:
           persist-credentials: false
       - name: Verificar contratos de CI, selecao e metricas offline
         run: |
-          python3 -m unittest scripts.test_ci_optimization_contract scripts.test_ci_worker_scope scripts.test_ci_worker_scope_integration scripts.test_ci_quality_report scripts.test_ci_diagnostic_snapshot scripts.test_ci_failure_classifier scripts.test_ci_diagnostic_replay scripts.test_ci_latency_audit scripts.test_codeql_review_workflow scripts.test_dependency_review_contract -v
+          python3 -m unittest scripts.test_ci_optimization_contract scripts.test_ci_worker_scope scripts.test_ci_worker_scope_integration scripts.test_ci_quality_report scripts.test_ci_diagnostic_snapshot scripts.test_ci_failure_classifier scripts.test_ci_diagnostic_replay scripts.test_ci_diagnostic_evaluation scripts.test_ci_latency_audit scripts.test_codeql_review_workflow scripts.test_dependency_review_contract -v
       - name: Preparar Node.js
         uses: actions/setup-node@v7
         with:

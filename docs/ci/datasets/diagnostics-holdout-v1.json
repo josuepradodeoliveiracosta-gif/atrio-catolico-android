@@ -1,0 +1,212 @@
+{
+  "schema_version": 1,
+  "repository": "josuepradodeoliveiracosta-gif/atrio-catolico-android",
+  "selection": "holdout_for_seven_added_rules_not_blind_for_entire_classifier",
+  "cases": [
+    {
+      "id": "guardiao_qa_inconclusivo",
+      "run_id": 42918247206,
+      "job_id": 130186143641,
+      "conclusion": "failure",
+      "signal_ids": [],
+      "review": {
+        "status": "pending",
+        "accepted_signal_ids": null,
+        "review_reference": null
+      }
+    },
+    {
+      "id": "firebase_mock_sha",
+      "run_id": 42706516214,
+      "job_id": 129464624559,
+      "conclusion": "failure",
+      "signal_ids": [
+        "qa_mock_sha_assertion"
+      ],
+      "review": {
+        "status": "pending",
+        "accepted_signal_ids": null,
+        "review_reference": null
+      }
+    },
+    {
+      "id": "worker_erro_sintaxe",
+      "run_id": 42882563645,
+      "job_id": 130062372440,
+      "conclusion": "failure",
+      "signal_ids": [],
+      "review": {
+        "status": "pending",
+        "accepted_signal_ids": null,
+        "review_reference": null
+      }
+    },
+    {
+      "id": "android_bots_emulador",
+      "run_id": 42866978165,
+      "job_id": 130007825671,
+      "conclusion": "failure",
+      "signal_ids": [
+        "android_adb_offline",
+        "android_compose_timeout"
+      ],
+      "review": {
+        "status": "pending",
+        "accepted_signal_ids": null,
+        "review_reference": null
+      }
+    },
+    {
+      "id": "idade_18_qa",
+      "run_id": 42827440253,
+      "job_id": 129868338771,
+      "conclusion": "failure",
+      "signal_ids": [],
+      "review": {
+        "status": "pending",
+        "accepted_signal_ids": null,
+        "review_reference": null
+      }
+    },
+    {
+      "id": "ota_guard",
+      "run_id": 42204895698,
+      "job_id": 127848961830,
+      "conclusion": "failure",
+      "signal_ids": [],
+      "review": {
+        "status": "pending",
+        "accepted_signal_ids": null,
+        "review_reference": null
+      }
+    },
+    {
+      "id": "notificacao_emulador",
+      "run_id": 42489241763,
+      "job_id": 128757765721,
+      "conclusion": "failure",
+      "signal_ids": [],
+      "review": {
+        "status": "pending",
+        "accepted_signal_ids": null,
+        "review_reference": null
+      }
+    },
+    {
+      "id": "certificado_apk",
+      "run_id": 42114501683,
+      "job_id": 127550412542,
+      "conclusion": "failure",
+      "signal_ids": [],
+      "review": {
+        "status": "pending",
+        "accepted_signal_ids": null,
+        "review_reference": null
+      }
+    },
+    {
+      "id": "firestore_emulador",
+      "run_id": 42737119822,
+      "job_id": 129568942514,
+      "conclusion": "failure",
+      "signal_ids": [],
+      "review": {
+        "status": "pending",
+        "accepted_signal_ids": null,
+        "review_reference": null
+      }
+    },
+    {
+      "id": "certificado_fluxo",
+      "run_id": 42186167568,
+      "job_id": 127786906553,
+      "conclusion": "failure",
+      "signal_ids": [
+        "generic_test_assertion"
+      ],
+      "review": {
+        "status": "pending",
+        "accepted_signal_ids": null,
+        "review_reference": null
+      }
+    },
+    {
+      "id": "android_bots_antigo",
+      "run_id": 41688182521,
+      "job_id": 126099410350,
+      "conclusion": "failure",
+      "signal_ids": [
+        "android_adb_offline"
+      ],
+      "review": {
+        "status": "pending",
+        "accepted_signal_ids": null,
+        "review_reference": null
+      }
+    },
+    {
+      "id": "worker_cloudinary",
+      "run_id": 41701161532,
+      "job_id": 126144487168,
+      "conclusion": "failure",
+      "signal_ids": [
+        "generic_test_assertion"
+      ],
+      "review": {
+        "status": "pending",
+        "accepted_signal_ids": null,
+        "review_reference": null
+      }
+    },
+    {
+      "id": "aab_inventario",
+      "run_id": 41688182976,
+      "job_id": 126099412985,
+      "conclusion": "failure",
+      "signal_ids": [
+        "generic_test_assertion"
+      ],
+      "review": {
+        "status": "pending",
+        "accepted_signal_ids": null,
+        "review_reference": null
+      }
+    },
+    {
+      "id": "guardiao_sucesso",
+      "run_id": 43244638224,
+      "job_id": 131273900349,
+      "conclusion": "success",
+      "signal_ids": [],
+      "review": {
+        "status": "pending",
+        "accepted_signal_ids": null,
+        "review_reference": null
+      }
+    },
+    {
+      "id": "relatorio_sucesso",
+      "run_id": 43245060350,
+      "job_id": 131275380363,
+      "conclusion": "success",
+      "signal_ids": [],
+      "review": {
+        "status": "pending",
+        "accepted_signal_ids": null,
+        "review_reference": null
+      }
+    },
+    {
+      "id": "chatqa_sucesso",
+      "run_id": 43234961772,
+      "job_id": 131239751989,
+      "conclusion": "success",
+      "signal_ids": [],
+      "review": {
+        "status": "pending",
+        "accepted_signal_ids": null,
+        "review_reference": null
+      }
+    }
+  ]
+}
