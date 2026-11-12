@@ -131,3 +131,31 @@ O módulo `scripts/ci_autofix_pr_draft_plan.py` foi acrescentado **sobre o hando
 - Meta de 99% é objetivo; **percentual real não medido**. Os testes cobrem evento/sinal forjado, SHA desatualizado, duplicação, limite de paginação, ausência de token, URL fixa e ausência de alteração da produção.
 
 **Ainda pendente para criação efetiva automática de PR draft:** um executor em workflow separado de credenciais de escrita mínimas, limitado à branch/arquivo/diff permitidos, SHA compare-and-swap, proteção contra corrida entre leituras e escritas, validação completa do novo HEAD, teste de regressão na PR gerada e aprovação humana para merge. Nenhuma dessas ações foi ativada neste piloto.
+
+
+## Etapa 5.2 — guarda de branch existente (inclusive sem PR aberta)
+
+O preflight de PR draft passou a consultar, em modo **somente leitura**, tambem a ref fixa
+`refs/heads/qa/autofix-ci-scope-main`. Se a branch ja existir, mesmo sem
+uma PR aberta, a proposta e **bloqueada** com `blocked_existing_branch`.
+Esse bloqueio protege mudancas anteriores de sobrescrita e evita assumir
+que uma branch desocupada significa simplesmente "nenhuma PR aberta".
+
+A consulta usa o host oficial do GitHub, URL fixa, `NoRedirect` e os limites
+anteriores. **Somente HTTP 404** na ref fixa significa branch ausente;
+HTTP 403, respostas malformadas, falha de rede e qualquer outro erro sao
+tratados como impeditivos, jamais como permissao de escrita.
+
+O artefato informa `target_branch_absence_checked` e, quando elegivel,
+`race_window_remains=true`: a leitura **nao bloqueia concorrencia real**.
+Portanto um futuro executor devera repetir as verificacoes de SHA/ref
+**imediatamente antes da tentativa de criar a branch**, e usar
+operacoes Git condicionais sem substituir uma ref existente.
+
+Testes adicionais cobrem branch existente sem PR, branch inexistente por 404,
+erro 403, ref inesperada e ausencia de informacao de branch no contexto.
+O workflow mantem `contents/checks/actions: read`, sem ativar escritor,
+sem nova PR automatica, sem merge e sem deploy.
+
+**Regra permanente:** a meta de 99% nao substitui a autorizacao humana para
+alteracoes criticas. O percentual real continua sem medicao.
