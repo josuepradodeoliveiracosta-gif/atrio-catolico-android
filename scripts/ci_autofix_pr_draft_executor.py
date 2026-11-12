@@ -107,6 +107,7 @@ def draft_transaction_preview(plan, checkout_root):
             "verify_base_file_blob",
             "create_new_qa_branch_without_force",
             "write_one_pinned_qa_file_with_blob_sha",
+            "verify_remote_patched_file_bytes",
             "verify_single_file_diff",
             "open_draft_pr_no_merge",
         ],
