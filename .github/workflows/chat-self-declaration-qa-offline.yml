@@ -22,6 +22,8 @@ on:
       - 'tests/security/qa-rollback-denyall-firestore.test.mjs'
       - 'scripts/chat-qa-activation-preflight.mjs'
       - 'scripts/chat-qa-activation-preflight.test.mjs'
+      - 'scripts/chat-qa-rollback-reference.mjs'
+      - 'scripts/chat-qa-rollback-reference.test.mjs'
       - 'firebase/qa-general/qa-deny-all-reference.rules'
       - 'docs/qa-homologacao/ATIVACAO-CADASTRO-18-QA-PLANO.md'
       - 'scripts/termux-firebase-qa-audit-readonly.mjs'
@@ -91,6 +93,11 @@ jobs:
           node --check scripts/chat-qa-activation-preflight.mjs
           node --test scripts/chat-qa-activation-preflight.test.mjs
           node scripts/chat-qa-activation-preflight.mjs
+      - name: Garantir que o plano de reversao historico continua NO_GO
+        run: |
+          node --check scripts/chat-qa-rollback-reference.mjs
+          node --test scripts/chat-qa-rollback-reference.test.mjs
+          node scripts/chat-qa-rollback-reference.mjs
       - name: Conferir governança QA sem simular aprovações jurídicas
         run: |
           node --check scripts/chat-qa-governance-preflight.mjs

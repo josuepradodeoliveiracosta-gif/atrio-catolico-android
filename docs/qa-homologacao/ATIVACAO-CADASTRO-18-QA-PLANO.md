@@ -659,3 +659,61 @@ separada. **NO_GO; ativação QA 60% (3/5), QA geral 29% (2/7)**.
 Nenhum deploy, merge, dado real, IAM, backup ou arquivo de produção foi
 modificado por este registro; a única leitura de produção foi a consulta
 realizada no Termux pelo operador.
+
+
+## Evidencia IAM do QA e referencia de reversao (11/11/2026)
+
+**Captura do operador no Termux**, executando
+node scripts/termux-firebase-qa-iam-readonly.mjs. Trata-se de observacao
+real feita pelo fundador, nao de consulta Firebase do conector GitHub.
+
+- status = QA_IAM_PERMISSION_SNAPSHOT_ONLY
+- Projeto = atrio-catolico-qa-geral; pacote = br.com.atriocatolico.chatqa
+- 5 permissoes consultadas, 5 concedidas;
+  can_read_rules_in_qa = true; may_have_publish_permissions_in_qa = true.
+- rules_sha256 = cd5089e4e5116dbb994013dc5fd5e7e411ec348935b8d06d13acd00173cca15b
+- ruleset_name = projects/atrio-catolico-qa-geral/rulesets/1d6b6a71-6d95-48cc-98fe-7bd16c71b3bc
+- permission_check_method = POST_testIamPermissions_NO_MUTATION;
+  changes_performed = false; production_contacted = false;
+  permissions_do_not_prove_production_isolation = true;
+  ready_for_activation = false.
+
+A conta possui as permissoes IAM verificadas para leitura e eventual
+publicacao de Rules QA. Isso NAO prova isolamento de producao nem
+constitui permissao humana para implantar. O snapshot pode envelhecer.
+
+### Referencia historica de reversao — sem executar nada
+
+A API oficial do Firebase separa o Ruleset imutavel do ponteiro
+Release (cloud.firestore). Uma reversao autorizada pode atualizar
+o ponteiro de Release para um Ruleset anterior, atraves do endpoint
+projects.releases.patch, que honra somente rulesetName.
+**Este documento NAO autoriza nem executa PATCH.**
+
+1. Antes de eventual rollout, consultar novamente Release e Ruleset
+   do projeto QA, confirmar o projeto, a identidade e a integridade
+   do hash. Interromper ante qualquer divergencia ou erro.
+2. Verificar por leitura que o Ruleset historico ainda existe,
+   e registrar o identificador EXATO imediatamente anterior ao rollout.
+3. Obter autorizacao especifica e plano de reversao para o QA,
+   separadamente de aprovacao de testes e da revisao juridica.
+4. Se depois houver incidente, seguir processo humano aprovado para
+   referenciar novamente o Ruleset anterior; verificar release e hash
+   apos a alteracao, considerando atraso de propagacao.
+5. Nao presumir que a referencia local deny-all seja copia binaria
+   do Ruleset remoto; nao eliminar dados, subcolecoes ou backups.
+
+O script exclusivamente OFFLINE
+scripts/chat-qa-rollback-reference.mjs e seus testes apenas
+fixam a referencia historica e recusam modificacoes de evidencia.
+Nao consultam nuvem, nao criam backups nem demonstram rollback real.
+
+Documentacao oficial:
+https://firebase.google.com/docs/reference/rules/rest
+https://firebase.google.com/docs/reference/rules/rest/v1/projects.releases/patch
+https://firebase.google.com/docs/rules/manage-deploy
+
+Continuam bloqueadores: governanca da issue 200, protecao dos menores,
+politicas de privacidade/moderacao/retencao, revalidacao IAM e Rules QA,
+quatro documentos app_config, testes em Android real e autorizacao
+separada de publicacao. NO_GO; ativacao QA 60% (3/5), QA geral 29% (2/7).
