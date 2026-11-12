@@ -749,3 +749,45 @@ Testes offline cobrem coincidencia, hash incorreto, ID de Ruleset
 divergente, outro projeto, dados malformados, falsa autorizacao,
 falha de autenticacao e recusa de campos pessoais extras. Nao
 inventar um novo marco: NO_GO, QA ativacao 60% (3/5), geral 29% (2/7).
+
+
+## Evidência de execução real somente leitura da referência QA (12/11/2026)
+
+O fundador executou no Termux o comando
+`node scripts/chat-qa-rollback-live-readonly.mjs` após acessar a
+branch `feat/qa-chat-self-declaration-candidate-20261110`.
+A captura confirma que a consulta **terminou com sucesso** e
+retornou `QA_ROLLBACK_REFERENCE_MATCH_AT_READ_TIME_NO_GO`.
+É uma evidência apresentada pelo **operador**, não uma consulta
+autenticada realizada pelo conector GitHub ou pelos testes de CI.
+
+- Projeto: `atrio-catolico-qa-geral`, pacote `br.com.atriocatolico.chatqa`.
+- Release: `projects/atrio-catolico-qa-geral/releases/cloud.firestore`.
+- Ruleset ativo observado:
+  `projects/atrio-catolico-qa-geral/rulesets/1d6b6a71-6d95-48cc-98fe-7bd16c71b3bc`.
+- SHA-256 do texto das regras: `cd5089e4e5116dbb994013dc5fd5e7e411ec348935b8d06d13acd00173cca15b`.
+- `reference_matches_at_read_time=true`;
+  `snapshot_time=2026-11-12T12:47:48.245Z`.
+- `read_only_qa_get_requests=4`;
+  `snapshot_stale_after_read=true`.
+- `deploymentApproved=false`; `releaseApproved=false`;
+  `rollbackApproved=false`; `ready_for_activation=false`.
+- `deploy_performed=false`; `rollback_performed=false`;
+  `changes_performed=false`; `production_contacted=false`.
+
+**Conclusão restrita:** na leitura do operador, o Ruleset QA ativo
+correspondia, por identificador e hash, à referência histórica
+de reversão; o servidor QA ainda apresentava regras deny-all.
+A observação não assegura disponibilidade futura do Ruleset,
+restauração de dados, propagação imediata, isolamento de todas
+as permissões IAM nem execução de um rollback real.
+Os quatro documentos `app_config` haviam sido observados como
+ausentes em auditoria anterior; **não foram reconsultados nesta
+verificação**, portanto não afirmar seu estado atual.
+
+**Não avançar o marco 3 nem liberar implantação somente por este
+resultado.** Issue #200 permanece aberta para moderação,
+privacidade, retenção, escopo jurídico e autorizações.
+O estado continua **NO_GO**, ativação QA 60% (3/5),
+homologação geral 29% (2/7). Sem novas Rules, contas,
+credenciais, deploy, merge, mudanças de produção ou backups.
