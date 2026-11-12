@@ -210,5 +210,74 @@ class LogSafeTests(unittest.TestCase):
             self.assertIn("# Original report", md.read_text())
             self.assertIn("Sinais de logs verificados", md.read_text())
 
+    def test_end_to_end_report_to_safe_log_signal_with_mocked_metadata(self):
+        """Real pure pipeline functions; simulated GitHub and sanitized log."""
+        from scripts.ci_quality_report import REQUIRED, report
+        from scripts.ci_diagnostic_snapshot import digest
+        from scripts.ci_log_identity_verifier import verify
+        url = f"https://github.com/{REPO}/actions/runs/12/job/34"
+        checks = [{"name": n, "status": "completed", "conclusion": "success"}
+                  for n in REQUIRED]
+        checks[0] = {**checks[0], "conclusion": "failure", "details_url": url,
+                     "html_url": f"https://github.com/{REPO}/runs/99"}
+        report_json, _ = report(SHA, checks)
+        queue = digest(report_json)
+        self.assertEqual(queue["log_review_queue"]["total_candidates"], 1)
+        self.assertFalse(queue["all_required_success"])
+
+        api_calls = []
+        def fake_metadata(path, token):
+            api_calls.append(path)
+            if path == "/runs/12":
+                return {"id": 12, "head_sha": SHA, "status": "completed",
+                        "run_attempt": 1, "repository": {"full_name": REPO},
+                        "head_repository": {"full_name": REPO}}
+            if path == "/jobs/34":
+                return {"id": 34, "run_id": 12, "head_sha": SHA,
+                        "status": "completed", "conclusion": "failure"}
+            raise AssertionError("Unexpected API call")
+        proof = verify(queue, "synthetic-token", fake_metadata)
+        self.assertEqual(api_calls, ["/runs/12", "/jobs/34"])
+        self.assertEqual(proof["verified_jobs"], 1)
+        read = Mock(return_value=(
+            "private@example.test token=private_secret\n"
+            "adb: device offline\n"))
+        result = analyze(queue, proof, "synthetic-token", read)
+        self.assertEqual(read.call_count, 1)
+        self.assertEqual(result["jobs_classified"], 1)
+        self.assertEqual(result["results"][0]["signal_ids"], ["android_adb_offline"])
+        artifact = json.dumps(result) + markdown_analysis(result)
+        self.assertNotIn("private@example.test", artifact)
+        self.assertNotIn("private_secret", artifact)
+        self.assertFalse(result["root_cause_established"])
+        self.assertEqual(result["automatic_merges_or_deploys"], 0)
+
+    def test_end_to_end_sha_mismatch_fails_closed_without_log_read(self):
+        from scripts.ci_quality_report import REQUIRED, report
+        from scripts.ci_diagnostic_snapshot import digest
+        from scripts.ci_log_identity_verifier import verify
+        url = f"https://github.com/{REPO}/actions/runs/12/job/34"
+        checks = [{"name": n, "status": "completed", "conclusion": "success"}
+                  for n in REQUIRED]
+        checks[1] = {**checks[1], "conclusion": "failure", "details_url": url}
+        output, _ = report(SHA, checks)
+        queue = digest(output)
+        def metadata(path, token):
+            if path == "/runs/12":
+                return {"id": 12, "head_sha": "b" * 40, "status": "completed",
+                        "run_attempt": 1, "repository": {"full_name": REPO},
+                        "head_repository": {"full_name": REPO}}
+            return {"id": 34, "run_id": 12, "head_sha": SHA,
+                    "status": "completed", "conclusion": "failure"}
+        proof = verify(queue, "synthetic-token", metadata)
+        self.assertEqual(proof["results"][0]["verdict"], "rejected_run_sha")
+        fetch = Mock(side_effect=AssertionError("should never request log"))
+        result = analyze(queue, proof, "synthetic-token", fetch)
+        fetch.assert_not_called()
+        self.assertEqual(result["jobs_classified"], 0)
+        self.assertFalse(result["raw_log_text_in_artifacts"])
+
+
+
 if __name__ == "__main__":
     unittest.main()
