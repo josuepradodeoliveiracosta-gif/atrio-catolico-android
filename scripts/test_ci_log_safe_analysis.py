@@ -279,5 +279,68 @@ class LogSafeTests(unittest.TestCase):
 
 
 
+    def test_qa_full_cli_pipeline_generates_expected_artifacts_without_logs(self):
+        """Exercise actual sequential CLI entrypoints, without GitHub credentials.
+
+        Report collection alone is simulated; all downstream scripts run as
+        subprocesses, mirroring workflow order and artifact filenames.
+        """
+        from scripts.ci_quality_report import REQUIRED, report
+        for failed in (False, True):
+            with self.subTest(failed=failed), TemporaryDirectory() as folder:
+                root = Path(folder)
+                report_json = root / "ci-report.json"
+                digest_json = root / "ci-diagnostics.json"
+                identity_json = root / "ci-job-evidence.json"
+                signals_json = root / "ci-log-signals.json"
+                markdown = root / "ci-report.md"
+                checks = [{"name": name, "status": "completed", "conclusion": "success"}
+                          for name in REQUIRED]
+                if failed:
+                    checks[0] = {
+                        **checks[0], "conclusion": "failure",
+                        "details_url": f"https://github.com/{REPO}/actions/runs/12/job/34",
+                    }
+                original, original_md = report(SHA, checks)
+                report_json.write_text(json.dumps(original), encoding="utf-8")
+                markdown.write_text(original_md, encoding="utf-8")
+                commands = (
+                    ["scripts.ci_diagnostic_snapshot",
+                     "--report-json", str(report_json),
+                     "--output-json", str(digest_json), "--markdown", str(markdown)],
+                    ["scripts.ci_log_identity_verifier",
+                     "--diagnostics", str(digest_json),
+                     "--json", str(identity_json), "--markdown", str(markdown)],
+                    ["scripts.ci_log_safe_analysis",
+                     "--diagnostics", str(digest_json),
+                     "--identity", str(identity_json),
+                     "--json", str(signals_json), "--markdown", str(markdown)],
+                )
+                for args in commands:
+                    run = subprocess.run(
+                        [sys.executable, "-m", *args],
+                        cwd=Path(__file__).resolve().parents[1],
+                        env={**os.environ, "GITHUB_TOKEN": ""},
+                        capture_output=True, text=True, timeout=20)
+                    self.assertEqual(run.returncode, 0, run.stderr)
+                self.assertTrue(all(path.is_file() for path in (
+                    report_json, digest_json, identity_json, signals_json, markdown)))
+                digest_data = json.loads(digest_json.read_text(encoding="utf-8"))
+                identity_data = json.loads(identity_json.read_text(encoding="utf-8"))
+                signals_data = json.loads(signals_json.read_text(encoding="utf-8"))
+                self.assertEqual(digest_data["log_review_queue"]["total_candidates"],
+                                 1 if failed else 0)
+                self.assertEqual(identity_data["checked_jobs"], 1 if failed else 0)
+                self.assertEqual(identity_data["verified_jobs"], 0)
+                self.assertEqual(signals_data["jobs_classified"], 0)
+                self.assertFalse(signals_data["raw_log_text_in_artifacts"])
+                self.assertEqual(signals_data["automatic_merges_or_deploys"], 0)
+                report_md = markdown.read_text(encoding="utf-8")
+                self.assertIn("Relatório de CI do commit", report_md)
+                self.assertIn("Síntese de diagnóstico por commit", report_md)
+                self.assertIn("Identidade de jobs do CI", report_md)
+                self.assertIn("Sinais de logs verificados", report_md)
+
+
 if __name__ == "__main__":
     unittest.main()
