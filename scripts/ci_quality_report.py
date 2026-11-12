@@ -94,7 +94,8 @@ def report(sha, checks):
         totals[conclusion if status == "completed" else "in_progress"] += 1
         serialized.append({
             "name": check["name"], "status": status,
-            "conclusion": conclusion, "details_url": check.get("html_url") or "",
+            "conclusion": conclusion,
+            "details_url": check.get("details_url") or check.get("html_url") or "",
         })
     measured = sorted(
         ((check["name"], duration_seconds(check)) for check in checks
