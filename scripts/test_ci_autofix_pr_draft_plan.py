@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import sys
 from tempfile import TemporaryDirectory
+from urllib.error import HTTPError
 from unittest.mock import patch
 import unittest
 
@@ -26,8 +27,9 @@ def good_handoff():
     return handoff(a, b, c, "push", "main", ROOT)
 
 
-def live(sha=SHA, duplicates=()):
-    return {"main_sha": sha, "duplicate_pr_numbers": list(duplicates)}
+def live(sha=SHA, duplicates=(), branch_exists=False):
+    return {"main_sha": sha, "duplicate_pr_numbers": list(duplicates),
+            "target_branch_exists": branch_exists}
 
 
 class DraftPlanTests(unittest.TestCase):
@@ -40,7 +42,9 @@ class DraftPlanTests(unittest.TestCase):
         self.assertEqual(plan["draft_pr_title"], STATIC_TITLE)
         self.assertIn(SHA, plan["draft_pr_body"])
         self.assertTrue(plan["live_main_sha_checked"])
+        self.assertTrue(plan["target_branch_absence_checked"])
         self.assertTrue(plan["candidate_patch_verified"])
+        self.assertTrue(plan["race_window_remains"])
         self.assertTrue(plan["draft_only"])
         self.assertFalse(plan["draft_pr_created"])
         self.assertFalse(plan["eligible_for_automatic_remote_write"])
@@ -64,14 +68,27 @@ class DraftPlanTests(unittest.TestCase):
         self.assertEqual(result["duplicate_pr_numbers"], [10, 44])
         self.assertIsNone(result["draft_pr_body"])
 
+    def test_unreviewed_preexisting_branch_blocks_even_without_open_pr(self):
+        plan = draft_pr_plan(good_handoff(), ROOT, live(branch_exists=True))
+        self.assertEqual(plan["status"], "blocked_existing_branch")
+        self.assertTrue(plan["target_branch_absence_checked"])
+        self.assertIsNone(plan["draft_pr_body"])
+        self.assertFalse(plan["draft_pr_created"])
+
     def test_unverified_live_main_or_missing_live_context_blocks(self):
         result = draft_pr_plan(good_handoff(), ROOT)
         self.assertEqual(result["status"], "blocked_live_context_unavailable")
         self.assertFalse(result["live_main_sha_checked"])
         self.assertFalse(result["draft_pr_created"])
-        for malformed in ({}, {"main_sha": "../main", "duplicate_pr_numbers": []},
-                          {"main_sha": SHA, "duplicate_pr_numbers": [True]},
-                          {"main_sha": SHA, "duplicate_pr_numbers": None}):
+        for malformed in ({}, {"main_sha": "../main", "duplicate_pr_numbers": [],
+                               "target_branch_exists": False},
+                          {"main_sha": SHA, "duplicate_pr_numbers": [True],
+                           "target_branch_exists": False},
+                          {"main_sha": SHA, "duplicate_pr_numbers": None,
+                           "target_branch_exists": False},
+                          {"main_sha": SHA, "duplicate_pr_numbers": [],
+                           "target_branch_exists": "false"},
+                          {"main_sha": SHA, "duplicate_pr_numbers": []}):
             with self.subTest(context=malformed), self.assertRaises(ValueError):
                 draft_pr_plan(good_handoff(), ROOT, malformed)
 
@@ -130,13 +147,17 @@ class DraftPlanTests(unittest.TestCase):
             self.assertTrue(req.full_url.startswith(
                 "https://api.github.com/repos/" + REPO + "/"))
             seen.append(req.full_url)
+            if "/git/ref/heads/" in req.full_url:
+                raise HTTPError(req.full_url, 404, "Not Found", {}, None)
             payload = ({"commit": {"sha": SHA}} if "/branches/main" in req.full_url
                        else open_prs)
             return io.BytesIO(json.dumps(payload).encode("utf-8"))
         result = fetch_live_pr_context("demo-token", opener=opener)
-        self.assertEqual(result, {"main_sha": SHA, "duplicate_pr_numbers": [18]})
-        self.assertEqual(len(seen), 2)
+        self.assertEqual(result, {"main_sha": SHA, "duplicate_pr_numbers": [18],
+                                  "target_branch_exists": False})
+        self.assertEqual(len(seen), 3)
         self.assertTrue(seen[1].endswith("/pulls?state=open&per_page=100&page=1"))
+        self.assertTrue(seen[2].endswith("/git/ref/heads/" + BRANCH_NAME))
         self.assertNotIn("private_token", json.dumps(result))
         p = draft_pr_plan(good_handoff(), ROOT, result)
         self.assertEqual(p["status"], "blocked_existing_pr")
@@ -157,12 +178,45 @@ class DraftPlanTests(unittest.TestCase):
             return io.BytesIO(b"{}")
         with self.assertRaises(ValueError):
             fetch_live_pr_context("demo", no_branch)
+        def branch_exists(req, timeout):
+            if "/branches/main" in req.full_url:
+                return io.BytesIO(json.dumps({"commit": {"sha": SHA}}).encode())
+            if "/git/ref/heads/" in req.full_url:
+                return io.BytesIO(json.dumps(
+                    {"ref": "refs/heads/" + BRANCH_NAME}).encode())
+            return io.BytesIO(b"[]")
+        self.assertTrue(fetch_live_pr_context("demo", branch_exists)[
+            "target_branch_exists"])
+        self.assertEqual(
+            draft_pr_plan(good_handoff(), ROOT, live(branch_exists=True))[
+                "status"], "blocked_existing_branch")
+        def forbidden_branch(req, timeout):
+            if "/branches/main" in req.full_url:
+                return io.BytesIO(json.dumps({"commit": {"sha": SHA}}).encode())
+            if "/git/ref/heads/" in req.full_url:
+                raise HTTPError(req.full_url, 403, "Forbidden", {}, None)
+            return io.BytesIO(b"[]")
+        with self.assertRaises(HTTPError):
+            fetch_live_pr_context("demo", forbidden_branch)
+        def unknown_ref(req, timeout):
+            if "/branches/main" in req.full_url:
+                return io.BytesIO(json.dumps({"commit": {"sha": SHA}}).encode())
+            if "/git/ref/heads/" in req.full_url:
+                return io.BytesIO(b'{"ref":"refs/heads/other-branch"}')
+            return io.BytesIO(b"[]")
+        with self.assertRaises(ValueError):
+            fetch_live_pr_context("demo", unknown_ref)
         with patch("scripts.ci_autofix_pr_draft_plan.build_opener") as builder:
-            builder.return_value.open.side_effect = lambda req, timeout: (
-                io.BytesIO(json.dumps({"commit": {"sha": SHA}}).encode())
-                if "/branches/main" in req.full_url else io.BytesIO(b"[]"))
+            def no_branch(req, timeout):
+                if "/branches/main" in req.full_url:
+                    return io.BytesIO(json.dumps({"commit": {"sha": SHA}}).encode())
+                if "/git/ref/heads/" in req.full_url:
+                    raise HTTPError(req.full_url, 404, "Not Found", {}, None)
+                return io.BytesIO(b"[]")
+            builder.return_value.open.side_effect = no_branch
             got = fetch_live_pr_context("demo")
             self.assertEqual(got["main_sha"], SHA)
+            self.assertFalse(got["target_branch_exists"])
             builder.assert_called_once_with(NoRedirect)
 
     def test_cli_blocked_handoff_does_not_need_token_or_write_repo(self):
