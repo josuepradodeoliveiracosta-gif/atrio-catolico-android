@@ -88,3 +88,16 @@ O piloto foi ampliado, sem gerar um segundo sistema e sem alterar a politica de 
 - A meta **99%** segue **nao medida**. Esta extensao prova leitura e planejamento de reparos para um arquivo real de QA, **nao** autocorrecao operacional de erros arbitrarios do app.
 
 A proxima promocao, se autorizada, exigira politica para arquivos de QA reais nao artificiais, aprovacao por diff e teste de regressao; jamais executar uma alteracao direta em producao.
+
+
+## Etapa 3.2 — patch revisado em arquivo QA nao artificial (preview manual)
+
+- Problema real observado no diagnostico de push para a `main`: o relatorio lista checks que so executam em Pull Requests como `missing`. A ausencia por evento precisa ser explicitada sem convertê-la em `success`.
+- O adaptador `scripts/ci_autofix_qa_review.py` reutiliza a leitura por caminho/hash e a sandbox do modulo existente. O alvo **unico e fixo** e `scripts/ci_quality_report.py` (fonte real do CI, nao fixture artificial), com SHA-256 preaprovado. A lista de alteracoes (sete trechos) e estatica, revisavel e nao aceita log, comando, URL ou texto gerado por IA.
+- O patch proposto adiciona `source_event` (`unknown`, `push`, `pull_request`) e `missing_pr_only_checks_on_push` ao JSON/Markdown. **Nao altera** `required_checks` nem `all_required_success`, nem remove gates; torna o contexto da ausencia auditavel.
+- O codigo real e lido somente para analise. A copia e alterada e **revertida no `TemporaryDirectory`** antes de sua eliminacao; SHA-256 de rollback e verificado. Nenhum arquivo versionado e modificado pelo executor.
+- `scripts/test_ci_autofix_qa_review.py` valida os sete trechos, reproducibilidade do diff, nao alteracao do checkout, sinalizacao correta em push/PR, tratamento de falhas reais como falhas, SHA invalido, arquivo adulterado, symlink/caminho estranho e CLI manual. O gate de QA e o workflow atual de diagnostico passam a executar os testes, sem adicionar permissao de escrita.
+- **Promocao ainda NAO realizada:** a correção permanece somente no diff de uma sandbox; nao foi aplicada ao proprio `ci_quality_report.py`. O preview e **manual** e nao nasce automaticamente de um sinal validado. O workflow em producao continua informativo e nao abre PR nem reexecuta jobs.
+- Criterio para proximo incremento: automacao de proposta somente quando o evento/prova de falha estiver verificado, mantendo o controle humano para writes/merges; assegurar idempotencia, dados de auditoria e testes de regressao antes de qualquer promocao.
+
+A meta 99% continua sendo objetivo de autonomia futura e permanece sem percentual real mensurado.
