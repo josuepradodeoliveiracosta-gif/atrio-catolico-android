@@ -8,7 +8,7 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from scripts.ci_diagnostic_snapshot import (
-    digest, markdown_digest, safe_evidence_url, write_digest,
+    MAX_LOG_JOBS, digest, markdown_digest, safe_evidence_url, write_digest,
 )
 from scripts.ci_quality_report import REPO, REQUIRED, report
 from scripts import ci_quality_report
@@ -225,6 +225,60 @@ class DiagnosticSnapshotTests(unittest.TestCase):
         self.assertEqual(snap["non_success_count"], 23)
         self.assertIn("Mais 3 checks", markdown_digest(snap))
         self.assertEqual(len(snap["non_success_checks"]), 23)
+
+
+    def test_failed_job_queue_contains_only_ids_without_fetch(self):
+        checks = [check(n) for n in REQUIRED] + [
+            check("falha relevante", conclusion="failure",
+                  link=f"https://github.com/{REPO}/actions/runs/901/job/902"),
+            check("timeout", conclusion="timed_out",
+                  link=f"https://github.com/{REPO}/actions/runs/903/job/904"),
+            check("pendente", status="in_progress", conclusion=None,
+                  link=f"https://github.com/{REPO}/actions/runs/905/job/906"),
+            check("cancelado", conclusion="cancelled",
+                  link=f"https://github.com/{REPO}/actions/runs/907/job/908"),
+        ]
+        out = digest(sample(checks))["log_review_queue"]
+        self.assertEqual(out["total_candidates"], 2)
+        self.assertEqual([(c["run_id"], c["job_id"]) for c in out["candidates"]],
+                         [(901, 902), (903, 904)])
+        self.assertTrue(all(not c["identity_verified"] for c in out["candidates"]))
+        self.assertEqual(out["mode"], "metadata_only_no_log_access")
+        self.assertFalse(out["automatic_log_download"])
+        self.assertFalse(out["root_cause_established"])
+        self.assertNotIn("falha relevante", json.dumps(out))
+        self.assertIn("verify_run_head_sha", out["required_before_fetch"])
+
+    def test_log_queue_rejects_links_not_exactly_in_repo_or_job(self):
+        urls = [
+            "https://github.com/another/repo/actions/runs/9/job/10",
+            f"https://github.com/{REPO}/actions/runs/9",
+            f"https://github.com/{REPO}/actions/runs/9/job/10/more",
+            f"https://github.com/{REPO}/actions/runs/0/job/10",
+            f"https://github.com/{REPO}/actions/runs/9/job/0",
+            f"http://github.com/{REPO}/actions/runs/9/job/10",
+            f"https://github.com.evil.test/{REPO}/actions/runs/9/job/10",
+            f"https://github.com/{REPO}/actions/runs/9999999999999999999/job/10",
+        ]
+        out = digest(sample([check(f"bad-{i}", conclusion="failure", link=url)
+                             for i, url in enumerate(urls)]))["log_review_queue"]
+        self.assertEqual(out["total_candidates"], 0)
+        self.assertEqual(out["failed_checks_without_job_link"], len(urls))
+        self.assertEqual(out["candidates"], [])
+
+    def test_log_queue_deduplicates_and_caps_without_leaking_metadata(self):
+        checks = [check(f"failed-{i}", conclusion="failure",
+                        link=f"https://github.com/{REPO}/actions/runs/123/job/{1000+i}")
+                  for i in range(MAX_LOG_JOBS + 5)]
+        checks.append(check("duplicate", conclusion="failure",
+                            link=f"https://github.com/{REPO}/actions/runs/123/job/1000"))
+        out = digest(sample(checks))
+        queue = out["log_review_queue"]
+        self.assertEqual(queue["total_candidates"], MAX_LOG_JOBS + 5)
+        self.assertEqual(len(queue["candidates"]), MAX_LOG_JOBS)
+        self.assertTrue(queue["truncated"])
+        self.assertIn("Nenhum download de log foi habilitado", markdown_digest(out))
+        self.assertNotIn("duplicate", json.dumps(queue))
 
 
 if __name__ == "__main__":
