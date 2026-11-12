@@ -42,6 +42,8 @@ class FakeDraftClient:
         self.branch_sha = None
         self.extra_diff = False
         self.return_draft = True
+        self.written_source = None
+        self.corrupt_branch_file = False
         self.drift_on_second_read = False
         self.drift_after_create = False
         self.drift_after_commit = False
@@ -83,8 +85,15 @@ class FakeDraftClient:
         if blob_sha != BLOB or patched != apply_reviewed_patch(self.remote_source):
             raise ValueError("invalid patch")
         self.branch_sha = COMMIT
+        self.written_source = patched
         return {"commit": {"sha": COMMIT},
                 "content": {"path": QA_TARGET}}
+
+    def branch_file(self):
+        self.events.append("branch_file")
+        if self.corrupt_branch_file:
+            return "unexpected remote content"
+        return self.written_source
 
     def compare(self, base_sha):
         self.events.append("compare")
@@ -160,6 +169,9 @@ class DraftExecutorTests(unittest.TestCase):
         self.assertEqual(api.events.count("create_branch"), 1)
         self.assertEqual(api.events.count("patch_file"), 1)
         self.assertEqual(api.events.count("create_pr"), 1)
+        self.assertEqual(api.events.count("branch_file"), 1)
+        self.assertLess(api.events.index("branch_file"),
+                        api.events.index("create_pr"))
         self.assertEqual(api.events.index("create_branch") + 1,
                          api.events.index("branch_ref"))
         self.assertEqual((ROOT / QA_TARGET).read_bytes(), before)
@@ -206,6 +218,16 @@ class DraftExecutorTests(unittest.TestCase):
                 reviewed(), ROOT, api, SHA, CONFIRMATION)
         self.assertEqual(api.events.count("create_branch"), 1)
         self.assertNotIn("patch_file", api.events)
+        self.assertNotIn("create_pr", api.events)
+
+    def test_remote_patch_content_mismatch_blocks_pr(self):
+        api = FakeDraftClient()
+        api.corrupt_branch_file = True
+        with self.assertRaises(ValueError):
+            execute_manually_approved_draft(
+                reviewed(), ROOT, api, SHA, CONFIRMATION)
+        self.assertIn("patch_file", api.events)
+        self.assertIn("branch_file", api.events)
         self.assertNotIn("create_pr", api.events)
 
     def test_unexpected_diff_blocks_pr_but_leaves_branch_for_review(self):
