@@ -159,3 +159,23 @@ sem nova PR automatica, sem merge e sem deploy.
 
 **Regra permanente:** a meta de 99% nao substitui a autorizacao humana para
 alteracoes criticas. O percentual real continua sem medicao.
+
+
+## Etapa 5.3 — permissão mínima para consultar PRs sem escrita
+
+A consulta autenticada de PRs abertas usa o endpoint `GET /pulls`, cuja
+permissão fina de API é `pull-requests: read`. O workflow existente de
+relatórios recebeu **exclusivamente essa permissão adicional de leitura**,
+mantendo `contents: read`, `checks: read`, `actions: read`. Não há
+`contents: write`, `pull-requests: write`, nem secrets novos.
+
+Um teste de contrato verifica a declaração exata de permissões, a integração
+do descritor read-only e a ausência de `: write` no workflow. Esse
+acréscimo de leitura permite ao diagnóstico confirmar duplicidades sem
+autorizar criação de branch, commit, PR, merge ou deploy.
+
+Qualquer futura ativação de um executor com permissões de escrita exigirá
+separação de credenciais/workflow, revisão específica e autorização antes de
+modificar recursos remotos. A verificação de ausência de branch, mesmo
+autenticada, não elimina condições de corrida; o escritor futuro terá de
+realizar a checagem novamente com operação condicional.
