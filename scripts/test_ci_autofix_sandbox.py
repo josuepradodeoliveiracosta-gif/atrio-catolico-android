@@ -30,7 +30,8 @@ class SandboxFixTests(unittest.TestCase):
         self.assertEqual(result["source_sha256"], BEFORE_SHA256)
         self.assertEqual(result["fixed_sha256"], sha256(AFTER))
         self.assertTrue(result["syntax_verified"])
-        self.assertIn("-    connection.close()", result["patch"])
+        self.assertIn("-    return connection.execute", result["patch"])
+        self.assertIn("+    return rows", result["patch"])
         self.assertIn("+    rows = connection.execute", result["patch"])
         self.assertEqual(result["repository_files_changed"], 0)
         self.assertEqual(result["automatic_pull_requests_created"], 0)
@@ -89,7 +90,6 @@ class SandboxFixTests(unittest.TestCase):
             ("commit_sha", "invalid"),
             ("schema_version", 2),
             ("mode", "remote_execute"),
-            ("required_checks_complete", False),
         )
         for key, value in cases:
             with self.subTest(key=key):
@@ -106,6 +106,12 @@ class SandboxFixTests(unittest.TestCase):
                 p.pop(key)
                 with self.assertRaises(ValueError):
                     preview(p)
+
+    def test_inconsistent_gate_type_refused(self):
+        p = deepcopy(sqlite_plan())
+        p["required_checks_complete"] = "false"
+        with self.assertRaises(ValueError):
+            preview(p)
 
     def test_reject_altered_job_contract(self):
         changes = (
