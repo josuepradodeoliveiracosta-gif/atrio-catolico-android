@@ -7,10 +7,20 @@ import json
 import os
 from pathlib import Path
 import re
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 from urllib.parse import urlsplit
 
 REPO = "josuepradodeoliveiracosta-gif/atrio-catolico-android"
+MAX_CHECK_API_BYTES = 2_000_000
+
+
+class NoRedirect(HTTPRedirectHandler):
+    """Never forward a GitHub bearer token via a cross-host redirect."""
+
+    def redirect_request(self, request, fp, code, msg, headers, newurl):
+        return None
+
+
 REQUIRED = (
     "Detectar segredos em arquivos e histórico Git",
     "Evitar regressão de versionCode e versionName",
@@ -26,10 +36,14 @@ def validate_sha(sha):
     return sha
 
 
-def get_checks(sha, token, opener=urlopen):
+def get_checks(sha, token, opener=None):
     validate_sha(sha)
     if not token:
         raise ValueError("GitHub token de leitura ausente")
+    # Explicitly forbid redirects with Authorization. No auth header can reach
+    # any destination except the locally constructed api.github.com URL.
+    if opener is None:
+        opener = build_opener(NoRedirect).open
     result = []
     for page in range(1, 7):
         url = (f"https://api.github.com/repos/{REPO}/commits/"
@@ -40,7 +54,13 @@ def get_checks(sha, token, opener=urlopen):
             "X-GitHub-Api-Version": "2022-11-28",
         })
         with opener(request, timeout=20) as response:
-            batch = json.load(response).get("check_runs")
+            payload = response.read(MAX_CHECK_API_BYTES + 1)
+        if len(payload) > MAX_CHECK_API_BYTES:
+            raise ValueError("Resposta de checks acima do limite")
+        decoded = json.loads(payload)
+        if not isinstance(decoded, dict):
+            raise ValueError("Resposta de checks invalida")
+        batch = decoded.get("check_runs")
         if not isinstance(batch, list):
             raise ValueError("Resposta sem lista de checks")
         result.extend(batch)
