@@ -531,7 +531,7 @@ class DraftExecutorTests(unittest.TestCase):
         self.assertEqual(touched.count(
             "/git/ref/heads/" + BRANCH_NAME), 4)
         self.assertEqual(touched.count("/pulls/261"), 1)
-        self.assertEqual(len(touched), 11)
+        self.assertEqual(len(touched), 12)
 
     def test_existing_qa_draft_client_reads_only_numbered_pr(self):
         seen = []
