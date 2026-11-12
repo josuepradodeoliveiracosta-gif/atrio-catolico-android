@@ -342,5 +342,62 @@ class LogSafeTests(unittest.TestCase):
                 self.assertIn("Sinais de logs verificados", report_md)
 
 
+
+    def test_historical_replay_is_opt_in_pinned_and_read_only(self):
+        workflow = (Path(__file__).resolve().parents[1] /
+                    ".github/workflows/ci-quality-report.yml").read_text(encoding="utf-8")
+        self.assertIn("qa_historical_replay:", workflow)
+        self.assertIn("default: false", workflow)
+        self.assertIn("workflow_dispatch:", workflow)
+        self.assertEqual(workflow.count("      - Revisão automática - CodeQL"), 1)
+        self.assertNotIn("contents: write", workflow)
+        self.assertNotIn("pull-requests: write", workflow)
+        self.assertNotIn("secrets.", workflow)
+        self.assertIn('CI_QA_HISTORICAL_REPLAY: ${{ inputs.qa_historical_replay', workflow)
+        self.assertIn('CI_TARGET_SHA="e046f3c3609b8fee5e7b0064646ec174ab3ca2d3"',
+                      workflow)
+        self.assertIn('CI_REF_NAME" != "feat/qa-diagnostics-integration-20261112"',
+                      workflow)
+
+    def test_replay_branch_guard_executes_without_api_or_production(self):
+        """Execute exact shell guard from YAML, never the networked commands."""
+        workflow = (Path(__file__).resolve().parents[1] /
+                    ".github/workflows/ci-quality-report.yml").read_text(encoding="utf-8")
+        segment = workflow.split(
+            "        run: |\\n          set -euo pipefail\\n", 1)
+        self.assertEqual(len(segment), 2)
+        before_report = segment[1].split(
+            "          python3 scripts/ci_quality_report.py", 1)[0]
+        self.assertIn('if [[ "$CI_QA_HISTORICAL_REPLAY" == "true" ]]', before_report)
+        shell = "set -euo pipefail\\n" + "\\n".join(
+            line[10:] if line.startswith("          ") else line
+            for line in before_report.rstrip("\\n").splitlines()) + (
+                '\\nprintf "%s" "$CI_TARGET_SHA"\\n')
+        cases = (
+            ("true", "workflow_dispatch",
+             "feat/qa-diagnostics-integration-20261112", True, True),
+            ("true", "workflow_dispatch", "main", False, False),
+            ("true", "workflow_run",
+             "feat/qa-diagnostics-integration-20261112", False, False),
+            ("false", "workflow_dispatch", "main", True, False),
+            ("false", "workflow_run", "main", True, False),
+        )
+        for enabled, event, ref, success, historical in cases:
+            with self.subTest(enabled=enabled, event=event, ref=ref):
+                done = subprocess.run(
+                    ["bash", "-c", shell],
+                    env={**os.environ,
+                         "CI_QA_HISTORICAL_REPLAY": enabled,
+                         "CI_EVENT_NAME": event,
+                         "CI_REF_NAME": ref,
+                         "CI_TARGET_SHA": SHA},
+                    text=True, capture_output=True, timeout=5)
+                self.assertEqual(done.returncode == 0, success)
+                if success:
+                    expected = ("e046f3c3609b8fee5e7b0064646ec174ab3ca2d3"
+                                if historical else SHA)
+                    self.assertTrue(done.stdout.rstrip().endswith(expected))
+                self.assertNotIn("synthetic-token", done.stdout)
+
 if __name__ == "__main__":
     unittest.main()
