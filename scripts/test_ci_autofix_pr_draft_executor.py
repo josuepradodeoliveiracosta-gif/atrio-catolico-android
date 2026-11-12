@@ -465,6 +465,10 @@ class DraftExecutorTests(unittest.TestCase):
             {},
             {"GITHUB_TOKEN": "unrelated-ci-token"},
             {"ATRIO_QA_READ_TOKEN": "test-only", "GITHUB_ACTIONS": "true"},
+            {"ATRIO_QA_READ_TOKEN": "test-only", "GITHUB_ACTIONS": " 1 "},
+            {"ATRIO_QA_READ_TOKEN": "test-only", "CI": "yes"},
+            {"ATRIO_QA_READ_TOKEN": "test-only", "GITHUB_RUN_ID": "123"},
+            {"ATRIO_QA_READ_TOKEN": "test-only", "GITHUB_EVENT_NAME": "push"},
             {"ATRIO_QA_READ_TOKEN": "fake\ncredential"},
             {"ATRIO_QA_READ_TOKEN": " "},
         )
@@ -501,8 +505,10 @@ class DraftExecutorTests(unittest.TestCase):
                 "status": "existing_qa_draft_verified_read_only",
                 "repository": REPO, "pr_number": 261,
                 "base_sha": SHA, "head_sha": COMMIT,
-                "draft": True, "remote_writes": 0,
-                "automatic_merge_or_deploy": False,
+                "branch": BRANCH_NAME, "draft": True,
+                "only_file": QA_TARGET, "patch_sha256": "a" * 64,
+                "remote_writes": 0, "automatic_merge_or_deploy": False,
+                "human_review_required": True,
             }
         stdout, stderr = io.StringIO(), io.StringIO()
         with patch.object(readonly_audit, "verify_existing_qa_draft",
@@ -522,13 +528,27 @@ class DraftExecutorTests(unittest.TestCase):
         self.assertEqual(data["remote_writes"], 0)
         self.assertNotIn(secret, stdout.getvalue())
 
-        for rejected in (
-            {"status": "existing_qa_draft_verified_read_only",
-             "draft": True, "remote_writes": 1,
-             "automatic_merge_or_deploy": False},
-            {"status": "unexpected", "draft": True,
-             "remote_writes": 0, "automatic_merge_or_deploy": False},
+        approved_fields = {
+            "status": "existing_qa_draft_verified_read_only",
+            "repository": REPO, "pr_number": 261,
+            "base_sha": SHA, "head_sha": COMMIT,
+            "branch": BRANCH_NAME, "draft": True,
+            "only_file": QA_TARGET, "patch_sha256": "a" * 64,
+            "remote_writes": 0, "automatic_merge_or_deploy": False,
+            "human_review_required": True,
+        }
+        for changes in (
+            {"remote_writes": 1},
+            {"remote_writes": False},
+            {"status": "unexpected"},
+            {"repository": "attacker/other"},
+            {"pr_number": 262},
+            {"branch": "main"},
+            {"patch_sha256": "invalid"},
+            {"human_review_required": False},
+            {"extra_secret": secret},
         ):
+            rejected = {**approved_fields, **changes}
             output, errors = io.StringIO(), io.StringIO()
             with patch.object(readonly_audit, "verify_existing_qa_draft",
                               return_value=rejected):
