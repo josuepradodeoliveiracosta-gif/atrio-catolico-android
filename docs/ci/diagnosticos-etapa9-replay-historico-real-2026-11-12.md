@@ -1,34 +1,55 @@
-# Etapa 9 — Replay manual e limitado de uma falha histórica legítima (QA)
+# Etapa 9 — Homologação histórica concluída e encerrada em QA
 
-Data: 12/11/2026. Proposta na PR #259, mantida em rascunho.
+Data: 12/11/2026. Evidência preservada para auditoria na PR #259.
 
-## Problema comprovado
-O relatório do HEAD `4162eb243d988da11d1a21a53099ed10295ceab7` foi executado manualmente na branch de QA e publicou os cinco artefatos previstos. Como aquele SHA não tinha jobs falhos elegíveis, o fluxo positivo de recuperação/classificação de logs reais **não pôde ser comprovado operacionalmente**.
+## O que foi comprovado
 
-Foi confirmado via GitHub Actions o exemplo histórico existente:
-- SHA `e046f3c3609b8fee5e7b0064646ec174ab3ca2d3`;
-- execução `42866978165`, job `130007825671`, `conclusion=failure`;
-- check `Testar telas do Átrio — profiles`, `details_url` de job válido;
-- o log, inspecionado de forma read-only, contém marcadores de ADB offline e Compose timeout, sem inferência de causa raiz;
-- os cinco checks obrigatórios estão `success` naquele SHA, o que demonstra que falha opcional não autoriza reprovação fictícia dos gates.
+A execução manual [#145](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/actions/runs/43276217629), feita a partir do commit QA `c2589cb07ed4f2a3b13ee750864bb24d03137e54`, terminou com sucesso e gerou os cinco arquivos de evidência.
 
-## Implementação
-Foi acrescentado **um booleano opcional e desativado por padrão** ao gatilho `workflow_dispatch` já existente em `.github/workflows/ci-quality-report.yml`:
-`qa_historical_replay`.
+O *replay histórico* usou somente nesta prova o SHA
+`e046f3c3609b8fee5e7b0064646ec174ab3ca2d3`, cujo run
+`42866978165` tinha o job `130007825671` legitimamente falho.
+O verificador confirmou **1/1 identidades** e o analisador classificou **1/1 logs**
+em memória com os IDs estáticos `android_adb_offline` e
+`android_compose_timeout`. Classificação:
+`multiple_signals_review_needed`, **sem afirmar causa raiz**.
 
-Quando habilitado **somente no evento manual e na branch exata** `feat/qa-diagnostics-integration-20261112`, o workflow de QA consulta o **SHA fixo** acima em vez de `github.sha`. A opção não aceita run ID, token, URL nem SHA arbitrário. Qualquer tentativa de replay com a opção habilitada fora dessa branch e evento falha antes de consultar a API. O fluxo normal conserva o comportamento anterior.
+O artefato `ci-readonly-43276217629` contém:
+`ci-report.json`, `ci-diagnostics.json`, `ci-job-evidence.json`,
+`ci-log-signals.json`, `ci-report.md`. Não inclui texto bruto de logs.
+Os cinco checks obrigatórios eram `success`; o job falho era opcional.
+Nenhum merge, deploy, rerun ou reparo ocorreu.
 
-Nenhum workflow, gatilho adicional, job, permissão ou serviço pago é criado. O token continua com `contents:read`, `checks:read`, `actions:read`, sem persistência no checkout. Todos os relatórios continuam informativos, sem rerun, correção, merge, deploy, publicação ou mudança em produção. Os limites anteriores de 12 candidatos, até três jobs analisados e 2 MB de texto por job permanecem.
+Como controle, a execução [#144](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/actions/runs/43276062160)
+usou o HEAD corrente e não gerou sinal de falha: o botão especial não estava
+marcado. Essa execução não demonstra classificação positiva.
 
-## Como homologar após aprovação dos gates do HEAD
-1. Em GitHub → Actions → **Relatório consolidado de CI por commit (somente leitura)** → Run workflow.
-2. Escolher **Use workflow from: feat/qa-diagnostics-integration-20261112**.
-3. Marcar **qa_historical_replay** e disparar uma única execução. Não é necessário criar nova falha ou reiniciar jobs antigos.
-4. Confirmar que a execução manual foi criada na branch de QA e usa o HEAD corrente da PR para executar o código; o relatório resultante deverá indicar **SHA histórico `e046f3c...`**, deliberadamente distinto do HEAD da execução.
-5. Inspecionar o artefato `ci-readonly-<run_id>`: cinco arquivos esperados; `ci-job-evidence.json` deverá verificar vínculo run/job/SHA/estado/tentativa; `ci-log-signals.json` deverá registrar somente `rule_id` e IDs, sem log bruto. Se a API rejeitar conteúdo, a execução sinalizará `metadata_unavailable` ou `log_unavailable`, sem classificação falsa; corrigir somente após investigar a causa.
-6. Verificar que `main`, histórico de backups, Firebase e Cloudflare não foram modificados.
+## Decisão pré-integração da PR #259
 
-## Critérios de sucesso e limites
-- Considerar homologação operacional positiva da classificação somente com prova de que **um job histórico realmente falho foi verificado e classificado pelo workflow**.
-- Os sinais observados são apenas evidência de padrões em logs e **não medem precisão de causa raiz**. O conjunto congelado mantém avaliações humanas pendentes; a meta causal de 90% não está demonstrada.
-- A PR continua draft e a ativação automática na main, mesmo com QA positivo, depende de revisão e autorização humana expressa. Não usar 100% como sinônimo de acurácia, produção ou aprovação de merge.
+Para evitar que o workflow padrão carregue exceções e compromissos com IDs históricos
+de teste, o **input temporário `qa_historical_replay` e o SHA fixo foram removidos**
+do arquivo `.github/workflows/ci-quality-report.yml` na revisão pré-integração
+da mesma PR. A prova operacional acima está registrada e continua consultável,
+mas **não existe opção de replay no workflow candidato definitivo**.
+
+O `workflow_dispatch` normal e o evento `workflow_run` foram mantidos,
+com os mesmos scripts de leitura/triagem, permissões somente leitura e artefatos.
+A classificação positiva já foi exercitada no workflow QA no commit anterior;
+a versão candidata sem o botão temporário precisa passar pelos seus próprios
+checks no SHA atual antes de ser considerada tecnicamente validada.
+
+O teste de integração **offline** com metadados e log sintéticos permanece
+para detectar regressões futuras, sem incorporar o texto dos logs históricos
+aos arquivos do repositório. Não há motivo para fabricar erros ou promover o
+modo de replay QA à `main`.
+
+## Limites e autorização
+
+- O diagnóstico detecta sinais; não há comprovação de causa raiz.
+- Os casos do holdout continuam sem atestação humana; precisão causal de 90%
+  não está demonstrada.
+- Nenhuma análise desta PR concede autorização de merge ou deploy.
+- A `main`, o ambiente de produção e os backups não foram modificados nesta etapa.
+- A automação `workflow_run` da nova versão só poderá ser confirmada na branch
+  padrão **depois** de uma decisão expressa de integração. A prova QA é distinta
+  da prova pós-integração.
