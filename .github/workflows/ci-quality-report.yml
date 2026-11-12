@@ -29,11 +29,13 @@ jobs:
         with:
           persist-credentials: false
       - name: Testar relator e consolidacao de diagnosticos em memoria
-        run: python3 -m unittest scripts.test_ci_quality_report scripts.test_ci_diagnostic_snapshot scripts.test_ci_log_identity_verifier scripts.test_ci_log_safe_analysis scripts.test_ci_autofix_policy scripts.test_ci_autofix_sandbox scripts.test_ci_autofix_qa_review -v
+        run: python3 -m unittest scripts.test_ci_quality_report scripts.test_ci_diagnostic_snapshot scripts.test_ci_log_identity_verifier scripts.test_ci_log_safe_analysis scripts.test_ci_autofix_policy scripts.test_ci_autofix_sandbox scripts.test_ci_autofix_qa_review scripts.test_ci_autofix_handoff -v
       - name: Buscar checks e anexar sintese sem alterar APIs remotas
         env:
           GITHUB_TOKEN: ${{ github.token }}
           CI_TARGET_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          CI_SOURCE_EVENT: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.event || 'unknown' }}
+          CI_SOURCE_BRANCH: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || 'unknown' }}
         run: |
           set -euo pipefail
           python3 scripts/ci_quality_report.py \
@@ -72,6 +74,17 @@ jobs:
             --plan ci-remediation-plan.json \
             --checkout-root . \
             --json ci-autofix-preview.json
+          # Vincula o diagnostico ja verificado ao preview QA para proposta
+          # de PR em modo informativo. NAO cria PR, branch, commit ou push.
+          # Evento e branch derivam do workflow_run, nao de logs ou PR text.
+          python3 -m scripts.ci_autofix_handoff \
+            --report ci-report.json \
+            --diagnostics ci-diagnostics.json \
+            --plan ci-remediation-plan.json \
+            --source-event "$CI_SOURCE_EVENT" \
+            --source-branch "$CI_SOURCE_BRANCH" \
+            --checkout-root . \
+            --json ci-autofix-handoff.json
           cat ci-report.md >> "$GITHUB_STEP_SUMMARY"
       - name: Preservar relatorio por execucao
         uses: actions/upload-artifact@v4
@@ -85,6 +98,7 @@ jobs:
             ci-log-signals.json
             ci-remediation-plan.json
             ci-autofix-preview.json
+            ci-autofix-handoff.json
             ci-report.md
           retention-days: 14
           if-no-files-found: warn
