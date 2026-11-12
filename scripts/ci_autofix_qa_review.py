@@ -67,13 +67,13 @@ def validate_sha(sha):
         '        "missing_pr_only_checks_on_push": not_expected_on_push,\n',
     ),
     (
-        '    markdown.extend((\n        "", "### Duracoes observadas dos checks GitHub Actions",\n',
+        '    markdown.extend((\n        "", "### Duracoes observadas dos checks GitHub Actions", "",\n',
         '    if not_expected_on_push:\n'
         '        markdown.append(\n'
         '            "Escopo do evento: os checks PR-only ausentes no push nao sao esperados. "\n'
         '            "Continuam ausentes no relatorio; nao foram aprovados nem ignorados."\n'
         '        )\n'
-        '    markdown.extend((\n        "", "### Duracoes observadas dos checks GitHub Actions",\n',
+        '    markdown.extend((\n        "", "### Duracoes observadas dos checks GitHub Actions", "",\n',
     ),
     (
         '    parser.add_argument("--sha", required=True)\n',
