@@ -8,12 +8,6 @@ on:
       - Revisão automática - CodeQL (Kotlin, JS, Python e Actions)
     types: [completed]
   workflow_dispatch:
-    inputs:
-      qa_historical_replay:
-        description: 'QA somente: analisar falha historica conhecida, sem criar erros'
-        required: false
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -40,21 +34,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           CI_TARGET_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
-          CI_QA_HISTORICAL_REPLAY: ${{ inputs.qa_historical_replay && 'true' || 'false' }}
-          CI_EVENT_NAME: ${{ github.event_name }}
-          CI_REF_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          if [[ "$CI_QA_HISTORICAL_REPLAY" == "true" ]]; then
-            # Replay read-only of an already failed historical job; never trigger
-            # outside this specific QA branch. Not a PR-HEAD freshness check.
-            if [[ "$CI_EVENT_NAME" != "workflow_dispatch" || "$CI_REF_NAME" != "feat/qa-diagnostics-integration-20261112" ]]; then
-              echo "::error::Replay historico permitido somente no workflow manual da branch QA isolada."
-              exit 1
-            fi
-            CI_TARGET_SHA="e046f3c3609b8fee5e7b0064646ec174ab3ca2d3"
-            echo "QA historico read-only: consultando o SHA fixo de falha anterior (nao e HEAD atual)."
-          fi
           python3 scripts/ci_quality_report.py \
             --sha "$CI_TARGET_SHA" \
             --json ci-report.json \
