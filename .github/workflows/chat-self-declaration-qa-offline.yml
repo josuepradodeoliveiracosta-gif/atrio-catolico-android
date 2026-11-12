@@ -24,6 +24,8 @@ on:
       - 'scripts/chat-qa-activation-preflight.test.mjs'
       - 'scripts/chat-qa-rollback-reference.mjs'
       - 'scripts/chat-qa-rollback-reference.test.mjs'
+      - 'scripts/chat-qa-rollback-live-readonly.mjs'
+      - 'scripts/chat-qa-rollback-live-readonly.test.mjs'
       - 'firebase/qa-general/qa-deny-all-reference.rules'
       - 'docs/qa-homologacao/ATIVACAO-CADASTRO-18-QA-PLANO.md'
       - 'scripts/termux-firebase-qa-audit-readonly.mjs'
@@ -98,6 +100,10 @@ jobs:
           node --check scripts/chat-qa-rollback-reference.mjs
           node --test scripts/chat-qa-rollback-reference.test.mjs
           node scripts/chat-qa-rollback-reference.mjs
+      - name: Conferir baseline remoto por mocks e NEGAR ativacao automatica
+        run: |
+          node --check scripts/chat-qa-rollback-live-readonly.mjs
+          node --test scripts/chat-qa-rollback-live-readonly.test.mjs
       - name: Conferir governança QA sem simular aprovações jurídicas
         run: |
           node --check scripts/chat-qa-governance-preflight.mjs

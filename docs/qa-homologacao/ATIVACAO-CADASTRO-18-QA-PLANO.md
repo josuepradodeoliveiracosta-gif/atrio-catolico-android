@@ -717,3 +717,35 @@ Continuam bloqueadores: governanca da issue 200, protecao dos menores,
 politicas de privacidade/moderacao/retencao, revalidacao IAM e Rules QA,
 quatro documentos app_config, testes em Android real e autorizacao
 separada de publicacao. NO_GO; ativacao QA 60% (3/5), QA geral 29% (2/7).
+
+
+## Rechecagem live read-only do Ruleset historico QA (12/11/2026)
+
+Foi preparada uma conferencia NAO-MUTANTE, invocada manualmente no Termux
+quando o operador desejar revalidar o alvo; o GitHub Actions roda
+SOMENTE testes com mocks e NAO usa credenciais reais.
+
+Comando (apenas na copia QA correta com sessao Firebase CLI existente):
+
+    node scripts/chat-qa-rollback-live-readonly.mjs
+
+O script reutiliza exatamente a auditoria existente
+scripts/termux-firebase-qa-audit-readonly.mjs (quatro GETs para validar
+identidade do projeto/aplicativo, Release e Ruleset do projeto QA).
+Exige que o Ruleset atualmente apontado pela Release ainda tenha
+o MESMO identificador e SHA-256 da observacao historica, além de
+continuar deny-all. Qualquer erro, divergencia, troca de projeto,
+liberacao de chat ou flag de GO falha fechado; nenhuma operacao
+remota de escrita foi adicionada.
+
+Mesmo que retorne QA_ROLLBACK_REFERENCE_MATCH_AT_READ_TIME_NO_GO,
+isso comprova SOMENTE a leitura naquele instante: nao testa
+recuperacao de versao futura, propagacao, permissoes IAM de producao,
+nem constitui copia exata ou autorizacao. Caso a Release tenha mudado
+legitimamente, NAO restaurar nada automaticamente: registrar a
+divergencia e investigar sem tocar em producao ou backups.
+
+Testes offline cobrem coincidencia, hash incorreto, ID de Ruleset
+divergente, outro projeto, dados malformados, falsa autorizacao,
+falha de autenticacao e recusa de campos pessoais extras. Nao
+inventar um novo marco: NO_GO, QA ativacao 60% (3/5), geral 29% (2/7).
