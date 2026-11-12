@@ -68,3 +68,19 @@ nenhum caso gera recibo, sanção, consulta privada ou escalonamento
 real. A lista de oito controles de aceite permanece **toda pendente**.
 Não considerar revisões `REVIEW_RECORDED` como aprovações.
 Toda a implementação fica em `NO_GO`; QA real e produção intocados.
+
+## Arquitetura do gateway — desenho offline adicional (12/11/2026)
+
+A proposta técnica em
+`CENTRAL-UNICA-INGRESSO-ARQUITETURA-CANDIDATA-QA.md`
+documenta um ingresso **isolado** do Worker de push/QA bootstrap.
+O laboratório `scripts/chat-qa-exceptional-gateway-model.mjs`
+testa envelopes sintéticos, limites de confiança e
+a máquina de estados de recibo com timeout/replay/conflito,
+sem backend, gravação, dados pessoais ou protocolo real.
+
+**Marco 3.2:** desenho candidato preparado,
+**aprovação de infraestrutura e operação pendente**.
+**Marco 3.3:** idempotência e recuperação **simuladas**,
+sem implementação em banco ou fila.  
+**Barra da Central 33% (2/6) e NO_GO inalterados.**

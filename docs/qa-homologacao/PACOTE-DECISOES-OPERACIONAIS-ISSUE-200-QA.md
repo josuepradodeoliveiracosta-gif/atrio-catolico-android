@@ -349,3 +349,14 @@ Uma escrita Firestore pública anônima sem controle
 não é considerada solução segura. A escolha da infraestrutura,
 prazos, privacidade, rota de suporte e autorização seguem
 pendências da issue #200. **NO_GO**.
+
+## Desenho de ingresso excepcional isolado — revisão (12/11/2026)
+
+Proposta de gateway independente e persistência segregada
+no arquivo `CENTRAL-UNICA-INGRESSO-ARQUITETURA-CANDIDATA-QA.md`.
+Nenhum Worker, Firebase Rules, D1, endpoint, conta ou dado
+foi criado. Testes offline verificam o bloqueio de ingresso
+e recibos fictícios mesmo diante de replay/timeout.
+A decisão sobre canal, antispam, LGPD, retenção,
+operação humana e autorização continua pendente.
+NO_GO.

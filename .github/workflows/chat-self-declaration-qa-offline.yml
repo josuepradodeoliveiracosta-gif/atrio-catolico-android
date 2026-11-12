@@ -56,6 +56,8 @@ on:
       - 'scripts/chat-qa-late-report-dryrun.test.mjs'
       - 'scripts/chat-qa-exceptional-intake-contract.mjs'
       - 'scripts/chat-qa-exceptional-intake-contract.test.mjs'
+      - 'scripts/chat-qa-exceptional-gateway-model.mjs'
+      - 'scripts/chat-qa-exceptional-gateway-model.test.mjs'
       - '.github/workflows/chat-self-declaration-qa-offline.yml'
   workflow_dispatch:
 permissions:
@@ -125,6 +127,11 @@ jobs:
           node --check scripts/chat-qa-exceptional-intake-contract.mjs
           node --test scripts/chat-qa-exceptional-intake-contract.test.mjs
           node scripts/chat-qa-exceptional-intake-contract.mjs
+      - name: Validar gateway e idempotencia ficticios SEM endpoint
+        run: |
+          node --check scripts/chat-qa-exceptional-gateway-model.mjs
+          node --test scripts/chat-qa-exceptional-gateway-model.test.mjs
+          node scripts/chat-qa-exceptional-gateway-model.mjs
       - name: Configuracao administrativa QA fechada — somente offline
         run: |
           node --check firebase/qa-general/admin-config-preflight.mjs
