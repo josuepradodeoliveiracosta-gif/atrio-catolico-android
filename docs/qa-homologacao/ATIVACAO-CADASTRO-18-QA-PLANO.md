@@ -12,7 +12,7 @@ O arquivo `firebase/qa-general/qa-deny-all-reference.rules` é uma política *eq
 
 `node scripts/chat-qa-activation-preflight.mjs`
 
-Esse comando é **somente local**, lê fragmentos QA e a referência de negação, compõe o candidato com `renderSelfDeclarationRules`, valida as âncoras de elegibilidade, e-mail, destinatários, grupos e `deny-all` residual; emite hashes e o quadro de pendências. Ele **não lê nem modifica** Firebase real; não gera configuração de deploy, não solicita credenciais e sempre indica `ready_for_deploy=false`.
+Esse comando é **somente local**, lê `firestore.rules` versionado, os fragmentos QA e a referência de negação, compõe o candidato com `renderClosedQaParity`, valida as âncoras de elegibilidade, e-mail, destinatários, grupos e `deny-all` residual; emite hashes e o quadro de pendências. Ele **não lê nem modifica** Firebase real; não gera configuração de deploy, não solicita credenciais e sempre indica `ready_for_deploy=false`.
 
 Para testes de regressão na CI: `node --test scripts/chat-qa-activation-preflight.test.mjs`; a suíte do Firebase Emulator valida também que a referência de negação bloqueia leitura, criação, edição e exclusão.
 
@@ -579,3 +579,42 @@ qualquer alteração remota.
 
 **Status:** NO_GO, QA ativação 60% (3/5), QA geral 29% (2/7);
 nada modificado em Firebase real, Cloudflare, produção ou backups.
+
+## Simplificação adotada — aproveitar Rules oficiais versionadas (11/11/2026)
+
+**Caminho principal desta PR:** usar o arquivo já existente
+`firestore.rules` como **base versionada e fixada por SHA Git**.
+O compositor `firebase/qa-general/closed-qa-parity.mjs` chama o
+compositor já existente `compose-parity-rules.mjs` e ajusta
+**somente** os gates do QA fechado: exigência de e-mail confirmado,
+aceite de regras e declaração 18+ para chat. Conserva as regras
+de `posts`, `replies`, `profiles`, `user_reports` e demais
+rotas presentes na base, e adiciona os fragmentos de DMs/grupos
+com verificação de conflitos. **Não recria a comunidade do zero.**
+
+O **pré-flight principal** `scripts/chat-qa-activation-preflight.mjs`
+passa a usar `renderClosedQaParity(base,chat,group)` para calcular
+o hash e declarar a origem do candidato. O gerador independente
+`self-declaration-candidate.mjs` é mantido **somente como fixture
+restritiva de testes negativos**, porque a suíte antiga verifica
+ausência de acessos legados nesse cenário. **Não é o candidato
+principal de homologação e nunca deve ser publicado por engano.**
+
+**Distinção obrigatória:** `firestore.rules` é uma cópia do
+repositório, **não prova, sem consulta, que corresponde exatamente
+à release REAL atualmente publicada em produção**. Já existe o
+verificador `scripts/termux-firestore-rules-diff-readonly.mjs`,
+que consulta `atrio-catolico` exclusivamente por dois GETs
+e compara hashes. Ele deve retornar `exactMatch=true`
+antes de afirmarmos que copiamos as regras **publicadas**. Se
+`exactMatch=false` ou erro de autorização, interromper a
+preparação para publicação, investigar a divergência e revisar
+a base; não sobrepor produção nem alterar arquivos automaticamente.
+
+**Fronteiras imutáveis:** não copiar usuários ou dados da produção,
+não copiar tokens, não importar credenciais no repositório,
+não publicar Rules no Firebase QA enquanto houver `NO_GO`,
+não abrir conversas/grupos/push e não modificar backups. O
+QA remoto permaneceu `deny-all` na última captura enviada
+pelo operador. A revisão de rotas herdadas e moderação da
+issue #200 continua necessária mesmo quando os textos coincidirem.

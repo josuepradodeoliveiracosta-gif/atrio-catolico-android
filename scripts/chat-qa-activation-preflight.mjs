@@ -8,7 +8,7 @@
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
-import {renderSelfDeclarationRules} from '../firebase/qa-general/self-declaration-candidate.mjs';
+import {renderClosedQaParity} from '../firebase/qa-general/closed-qa-parity.mjs';
 import {STAGED_QA_DOCS,validateStagedQaDocs}
  from '../firebase/qa-general/admin-config-preflight.mjs';
 import {OPERATOR_OBSERVATION,prepareQaAdminCreatePlan}
@@ -46,10 +46,11 @@ const gitBlobSha=src=>createHash('sha1')
 const EXPECTED_CHAT_BLOB='1a5a37c3e69a4a08839adf9f294e7aa0ea081113';
 const EXPECTED_GROUP_BLOB='400b09a061a98bb606e95fa68c6becee2202629b';
 
-export function evaluateOfflinePreparation({chat,group,rollback,evidence=AUDITED_SNAPSHOT,
+export function evaluateOfflinePreparation({base,chat,group,rollback,evidence=AUDITED_SNAPSHOT,
  stagedConfig=STAGED_QA_DOCS,adminObservation=OPERATOR_OBSERVATION}={}){
-  if(typeof chat!=='string'||typeof group!=='string'||
-     typeof rollback!=='string')fail('source_unavailable');
+  if(typeof base!=='string'||typeof chat!=='string'||
+     typeof group!=='string'||typeof rollback!=='string')
+    fail('source_unavailable');
   if(compact(rollback)!==DENY_CANONICAL)fail('rollback_not_deny_all');
   if(gitBlobSha(chat)!==EXPECTED_CHAT_BLOB)fail('chat_fragment_changed');
   if(gitBlobSha(group)!==EXPECTED_GROUP_BLOB)fail('group_fragment_changed');
@@ -81,19 +82,28 @@ export function evaluateOfflinePreparation({chat,group,rollback,evidence=AUDITED
      createManifest.groups_enabled!==false)
     fail('initial_create_manifest_invalid');
   let candidate;
-  try{candidate=renderSelfDeclarationRules(chat,group);}
+  try{candidate=renderClosedQaParity(base,chat,group);}
   catch{fail('candidate_generation_changed');}
+  // A política QA começa na base versionada COMPLETA da comunidade.
+  // Somente os gates auditados são ajustados em memória pelo compositor.
   const required=[
     "rules_version = '2';",
     'function emailVerificationAllowsCommunityAccess()',
-    'emailVerificationAllowsCommunityAccess() && qaChatAge18Eligible(request.auth.uid)',
+    "return signedIn() && exists(policy)",
+    "return signedIn() && exists(settings)",
+    "request.auth.token.get('email_verified', false) == true",
     "proof.get('status','') == 'declared_18_plus'",
     "proof.get('policyVersion','') == '2026-11-selfdecl-qa-v1'",
     "request.resource.data.status == 'declared_18_plus'",
+    'qaChatAge18Eligible(request.auth.uid)',
     'qaChatAge18Eligible(request.resource.data.recipientUid)',
     'match /users/{uid}/chatAgeEligibility/current',
     'match /chats/{chatId}',
     'match /chat_groups/{groupId}',
+    'match /posts/{postId}',
+    'match /user_reports/{reportId}',
+    'match /community_consents/{uid}',
+    'match /profiles/{uid}',
     "eligibility.get('status','') == 'approved'",
     'minorPolicyApproved'
   ];
@@ -104,6 +114,11 @@ export function evaluateOfflinePreparation({chat,group,rollback,evidence=AUDITED
   return Object.freeze({
     project:PROJECT,android_package:PACKAGE,
     mode:'LOCAL_PLAN_ONLY_NO_DEPLOY',
+    candidate_source:'VERSIONED_REPOSITORY_FIRESTORE_RULES_PINNED',
+    repository_rules_baseline_reused:true,
+    live_production_rules_match_unverified:true,
+    remote_production_readonly_comparison_required:true,
+    legacy_standalone_candidate_is_only_an_isolation_fixture:true,
     audited_baseline_sha256:evidence.rules_sha256,
     audited_baseline_at:evidence.audit_time_local,
     snapshot_not_current_state:true,
@@ -124,6 +139,8 @@ export function evaluateOfflinePreparation({chat,group,rollback,evidence=AUDITED
     rollback_reference_is_exact_remote_backup:false,
     rollback_reference_is_deny_all:true,
     candidate_includes_group_rules:true,
+    candidate_includes_posts_and_replies:true,
+    candidate_includes_existing_user_reports:true,
     group_access_admin_gate_present:true,
     notifications_worker_compatible:false,
     push_enabled:false,
@@ -132,6 +149,7 @@ export function evaluateOfflinePreparation({chat,group,rollback,evidence=AUDITED
     deploy_performed:false,
     ready_for_deploy:false,
     blockers:[
+      'comparar firestore.rules versionado com Rules REALMENTE publicadas em atrio-catolico SOMENTE POR LEITURA; divergencia exige nova revisao',
       'aprovar escopo privacidade/moderacao/retencao issue 200',
       'obter autorizacao especifica para qualquer criacao de app_config QA',
       'revalidar os quatro documentos QA imediatamente antes da criacao exclusiva',
@@ -147,6 +165,7 @@ export function evaluateOfflinePreparation({chat,group,rollback,evidence=AUDITED
 function prepare(){
  const read=relative=>readFileSync(new URL(relative,import.meta.url),'utf8');
  return evaluateOfflinePreparation({
+   base:read('../firestore.rules'),
    chat:read('../firebase/atrio-conversas-v1.rules.fragment'),
    group:read('../firebase/atrio-grupos-v1.rules.fragment'),
    rollback:read('../firebase/qa-general/qa-deny-all-reference.rules')

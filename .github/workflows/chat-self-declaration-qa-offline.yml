@@ -114,11 +114,12 @@ jobs:
         run: npm ci --prefix tests/security
       - name: Somente sintaxe do gerador QA
         run: node --check firebase/qa-general/self-declaration-candidate.mjs
-      - name: Validar paridade integrada apenas em memoria e sem credenciais
+      - name: Validar cópia versionada das Rules e ajustes QA somente offline
         run: |
           node --check firebase/qa-general/closed-qa-parity.mjs
-          node --test firebase/qa-general/closed-qa-parity.test.mjs
-      - name: Preparar regras alternativas locais
+          node --test firebase/qa-general/compose-parity-rules.test.mjs firebase/qa-general/closed-qa-parity.test.mjs
+          node --test scripts/termux-firestore-rules-diff-readonly.test.mjs
+      - name: Gerar fixture restritiva legada para testes negativos (NÃO a candidata principal)
         run: node firebase/qa-general/self-declaration-candidate.mjs
       - name: Garantir escopo sem acesso a produção
         run: |

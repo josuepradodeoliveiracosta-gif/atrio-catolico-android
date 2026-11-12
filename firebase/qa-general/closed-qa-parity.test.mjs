@@ -44,3 +44,15 @@ test('transformação não publica nem introduz dispensa de e-mail e aceite',()=
  assert.match(rules,/allow list, update, delete: if false;/);
  assert.match(rules,/reviewExpiresAt <= request.time \+ duration.value\(366,'d'\)/);
 });
+
+test('todas as rotas existentes na base versionada persistem na cópia QA',()=>{
+ const rules=renderClosedQaParity(base,chat,group);
+ const routes=source=>[...source.matchAll(/^\\s*match\\s+(.+?)\\s+\\{\\s*$/gm)]
+  .map(x=>x[1].trim());
+ const before=routes(base),after=new Set(routes(rules));
+ assert.ok(before.length>25,'base deve conter regras oficiais substanciais');
+ for(const path of before)assert.ok(after.has(path),'rota herdada ausente: '+path);
+ assert.ok(after.has('/chats/{chatId}'));
+ assert.ok(after.has('/chat_groups/{groupId}'));
+ assert.ok(after.has('/user_reports/{reportId}'));
+});

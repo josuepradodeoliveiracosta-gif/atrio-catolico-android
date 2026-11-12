@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
+import {createHash} from 'node:crypto';
+import {renderClosedQaParity} from '../firebase/qa-general/closed-qa-parity.mjs';
 import {evaluateOfflinePreparation,prepareOfflineQaActivation,AUDITED_SNAPSHOT}
  from './chat-qa-activation-preflight.mjs';
 import {STAGED_QA_DOCS} from '../firebase/qa-general/admin-config-preflight.mjs';
@@ -9,6 +11,7 @@ import {OPERATOR_OBSERVATION}
 
 const read=relative=>readFileSync(new URL(relative,import.meta.url),'utf8');
 const sample={
+ base:read('../firestore.rules'),
  chat:read('../firebase/atrio-conversas-v1.rules.fragment'),
  group:read('../firebase/atrio-grupos-v1.rules.fragment'),
  rollback:read('../firebase/qa-general/qa-deny-all-reference.rules')
@@ -19,6 +22,13 @@ test('plano gera hash local, sem autorizacao de deploy, Worker ou grupo',()=>{
  assert.match(plan.candidate_rules_sha256,/^[a-f0-9]{64}$/);
  assert.match(plan.rollback_reference_sha256,/^[a-f0-9]{64}$/);
  assert.equal(plan.mode,'LOCAL_PLAN_ONLY_NO_DEPLOY');
+ assert.equal(plan.candidate_source,'VERSIONED_REPOSITORY_FIRESTORE_RULES_PINNED');
+ assert.equal(plan.repository_rules_baseline_reused,true);
+ assert.equal(plan.live_production_rules_match_unverified,true);
+ assert.equal(plan.remote_production_readonly_comparison_required,true);
+ assert.equal(plan.legacy_standalone_candidate_is_only_an_isolation_fixture,true);
+ assert.equal(plan.candidate_includes_posts_and_replies,true);
+ assert.equal(plan.candidate_includes_existing_user_reports,true);
  assert.equal(plan.rollback_reference_is_deny_all,true);
  assert.equal(plan.rollback_reference_is_exact_remote_backup,false);
  assert.equal(plan.snapshot_not_current_state,true);
@@ -110,4 +120,32 @@ test('preflight geral rejeita evidencia administrativa faltando/alterada',()=>{
    adminObservation:{...OPERATOR_OBSERVATION,...change}
   }),/qa_activation_plan_initial_create_manifest_invalid/);
  }
+});
+
+test('preflight principal usa a base oficial versionada, não reescreve cadastro do zero',()=>{
+ const expected=renderClosedQaParity(sample.base,sample.chat,sample.group);
+ const digest=createHash('sha256').update(expected,'utf8').digest('hex');
+ const report=check();
+ assert.equal(report.candidate_rules_sha256,digest);
+ for(const route of [
+   'match /posts/{postId}',
+   'match /user_reports/{reportId}',
+   'match /community_consents/{uid}',
+   'match /profiles/{uid}',
+   'match /chats/{chatId}',
+   'match /chat_groups/{groupId}'
+ ])assert.ok(expected.includes(route),route);
+ assert.notEqual(
+   report.candidate_rules_sha256,
+   report.audited_baseline_sha256,
+   'QA deny-all remoto não foi substituído pelo candidato'
+ );
+});
+test('base oficial versionada adulterada ou ausente interrompe o plano',()=>{
+ assert.throws(()=>check({base:sample.base+'\\n// adulterado'}),
+  /qa_activation_plan_candidate_generation_changed/);
+ assert.throws(()=>check({base:''}),
+  /qa_activation_plan_candidate_generation_changed/);
+ assert.throws(()=>check({base:undefined}),
+  /qa_activation_plan_source_unavailable/);
 });
