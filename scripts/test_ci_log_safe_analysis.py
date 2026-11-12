@@ -364,15 +364,15 @@ class LogSafeTests(unittest.TestCase):
         workflow = (Path(__file__).resolve().parents[1] /
                     ".github/workflows/ci-quality-report.yml").read_text(encoding="utf-8")
         segment = workflow.split(
-            "        run: |\\n          set -euo pipefail\\n", 1)
+            "        run: |\n          set -euo pipefail\n", 1)
         self.assertEqual(len(segment), 2)
         before_report = segment[1].split(
             "          python3 scripts/ci_quality_report.py", 1)[0]
         self.assertIn('if [[ "$CI_QA_HISTORICAL_REPLAY" == "true" ]]', before_report)
-        shell = "set -euo pipefail\\n" + "\\n".join(
+        shell = "set -euo pipefail\n" + "\n".join(
             line[10:] if line.startswith("          ") else line
-            for line in before_report.rstrip("\\n").splitlines()) + (
-                '\\nprintf "%s" "$CI_TARGET_SHA"\\n')
+            for line in before_report.rstrip("\n").splitlines()) + (
+                '\nprintf "%s" "$CI_TARGET_SHA"\n')
         cases = (
             ("true", "workflow_dispatch",
              "feat/qa-diagnostics-integration-20261112", True, True),
