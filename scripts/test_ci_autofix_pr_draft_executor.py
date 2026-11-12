@@ -292,6 +292,76 @@ class DraftExecutorTests(unittest.TestCase):
                         reviewed(), ROOT, api, SHA, CONFIRMATION)
                 self.assertEqual(api.events.count("create_pr"), 1)
 
+    def test_remote_rejections_stop_transaction_without_retry_or_cleanup(self):
+        """An HTTP refusal at any stage must never trigger retries or deletion.
+
+        The outcome of a failed remote write may be ambiguous; leave an
+        already-created branch intact for human inspection.
+        """
+        stages = (
+            ("base_file", []),
+            ("create_branch", ["create_branch"]),
+            ("branch_ref", ["create_branch"]),
+            ("patch_file", ["create_branch", "patch_file"]),
+            ("branch_file", ["create_branch", "patch_file"]),
+            ("compare", ["create_branch", "patch_file"]),
+            ("create_pr", ["create_branch", "patch_file", "create_pr"]),
+        )
+        before = (ROOT / QA_TARGET).read_bytes()
+        for stage, expected_writes in stages:
+            for status in (403, 422):
+                with self.subTest(stage=stage, status=status):
+                    api = FakeDraftClient()
+
+                    def rejected(*args, **kwargs):
+                        api.events.append(stage)
+                        raise HTTPError(
+                            "https://api.github.com/repos/" + REPO,
+                            status, "simulated refusal", {}, None)
+
+                    setattr(api, stage, rejected)
+                    with self.assertRaises(HTTPError) as caught:
+                        execute_manually_approved_draft(
+                            reviewed(), ROOT, api, SHA, CONFIRMATION)
+                    self.assertEqual(caught.exception.code, status)
+                    self.assertEqual(api.events.count(stage), 1)
+                    actual_writes = [
+                        event for event in api.events
+                        if event in ("create_branch", "patch_file", "create_pr")
+                    ]
+                    self.assertEqual(actual_writes, expected_writes)
+                    self.assertNotIn("delete_branch", api.events)
+                    self.assertNotIn("merge", api.events)
+                    self.assertEqual(
+                        (ROOT / QA_TARGET).read_bytes(), before)
+
+    def test_http_writer_does_not_retry_refused_requests(self):
+        """A low-level 403/422 cannot cause another HTTP request."""
+        for status in (403, 422):
+            for operation in ("create_branch", "patch_file", "create_pr"):
+                with self.subTest(status=status, operation=operation):
+                    requests = []
+
+                    def refused(req, timeout):
+                        requests.append((req.get_method(), req.full_url))
+                        raise HTTPError(
+                            req.full_url, status, "simulated", {}, None)
+
+                    client = GitHubDraftClient("offline-test-token", refused)
+                    with self.assertRaises(HTTPError):
+                        if operation == "create_branch":
+                            client.create_branch(SHA)
+                        elif operation == "patch_file":
+                            patched = apply_reviewed_patch(
+                                (ROOT / QA_TARGET).read_text(
+                                    encoding="utf-8"))
+                            client.patch_file(BLOB, patched)
+                        else:
+                            client.create_pr(SHA)
+                    self.assertEqual(len(requests), 1)
+                    self.assertTrue(requests[0][1].startswith(
+                        "https://api.github.com/repos/" + REPO + "/"))
+
     def test_forged_manifest_and_unsigned_patch_are_rejected(self):
         for key, value in (
             ("mode", "automatic_writer"),
