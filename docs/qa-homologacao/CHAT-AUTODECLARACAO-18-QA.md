@@ -43,3 +43,22 @@ O usuário pediu **data de nascimento + autodeclaração 18+** em sequência aos
 O aceite é mantido separado das condições de uso/privacidade e não é obrigatório para criar a conta. A decisão de solicitar elegibilidade é calculada novamente e congelada antes do `createUserWithEmailAndPassword`, evitando que a caixa marcada em data anterior libere o chat após alteração para uma data inválida/menor. Testes JVM cobrem limites, falsificação de estado visual e formatação; integração sintética QA e regras alternativas permanecem como antes.
 
 **Limitação central:** a data informada é do próprio usuário e não verifica a identidade/idade real. Pode ser falsa. Continua obrigatória a avaliação jurídica da issue #200 e autorização separada para ativação de Rules/Worker QA ou produção.
+
+
+## Proteção contra retorno assíncrono após troca de sessão (11/11/2026)
+
+A tela de recuperação da declaração Chat QA agora confere **também após**
+o retorno da gravação Firebase se o usuário autenticado continua sendo a
+mesma instância que iniciou a operação e se a tela permanece anexada à
+composição. O callback antigo é descartado após logout, troca de conta,
+nova autenticação ou saída da tela; não executa `onRecheck`, não limpa o
+formulário nem altera a mensagem de outra sessão. A nova política
+`acceptsWriteResult` possui teste JUnit de cenário normal, UID divergente,
+logout, tela desmontada, reentrada na mesma conta e UID vazio; esse teste
+foi incluído na seleção explícita do workflow Android QA.
+
+**Limitação:** isto evita atualização incorreta da interface; não cancela
+escritas Firestore já enviadas e não valida idade real. O servidor mantém
+a decisão de autorização, e um usuário pode consultar novamente seu
+registro após entrar. Não há deploy, alteração de Rules ou autorização
+para ativação do QA. A issue #200 permanece aberta e o estado é NO_GO.

@@ -23,12 +23,25 @@ internal enum class QaChatDeclarationState {
 
 internal object QaChatDeclarationPolicy {
     const val VERSION = "2026-11-selfdecl-qa-v1"
+    // Um callback antigo não deve atualizar a interface de outra sessão,
+    // nem uma tela já retirada da composição.
+    fun acceptsWriteResult(
+        expectedUid: String, activeUid: String?,
+        panelAttached: Boolean, sameAuthenticatedUser: Boolean
+    ): Boolean = expectedUid.isNotBlank() && activeUid == expectedUid &&
+        panelAttached && sameAuthenticatedUser
+
     fun eligible(
         status: String?, minimumAge: Long?, policyVersion: String?,
         expiresAtMillis: Long?, nowMillis: Long
     ): Boolean = status == "declared_18_plus" &&
         minimumAge == 18L && policyVersion == VERSION &&
         expiresAtMillis != null && expiresAtMillis > nowMillis
+}
+
+// Apenas memória de ciclo de vida da tela; não persiste nenhum dado pessoal.
+internal class QaChatDeclarationCallbackGuard {
+    var attached: Boolean = false
 }
 
 @Composable
@@ -44,6 +57,11 @@ internal fun ChatQaDeclarationRecoveryPanel(
     var adultDeclaration by remember(uid) { mutableStateOf(false) }
     var busy by remember(uid) { mutableStateOf(false) }
     var error by remember(uid) { mutableStateOf("") }
+    val callbackGuard = remember(uid) { QaChatDeclarationCallbackGuard() }
+    DisposableEffect(callbackGuard) {
+        callbackGuard.attached = true
+        onDispose { callbackGuard.attached = false }
+    }
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState())
             .padding(24.dp).testTag("atrio-chat-qa-recovery"),
@@ -98,8 +116,9 @@ internal fun ChatQaDeclarationRecoveryPanel(
                         // no estado visual anterior da checkbox.
                         if (!ChatAgeRegistrationPrecheck.canRequestChatAccess(
                                 birthDate, adultDeclaration, LocalDate.now())) return@Button
-                        if (com.google.firebase.auth.FirebaseAuth.getInstance()
-                                .currentUser?.uid != uid) {
+                        val submittingUser = com.google.firebase.auth.FirebaseAuth.getInstance()
+                            .currentUser
+                        if (submittingUser?.uid != uid) {
                             error = "Sessão alterada. Entre novamente."
                             return@Button
                         }
@@ -114,6 +133,14 @@ internal fun ChatQaDeclarationRecoveryPanel(
                                 "policyVersion" to QaChatDeclarationPolicy.VERSION,
                                 "reviewExpiresAt" to expiry
                             )).addOnCompleteListener { task ->
+                                val currentUser = com.google.firebase.auth.FirebaseAuth.getInstance()
+                                    .currentUser
+                                if (!QaChatDeclarationPolicy.acceptsWriteResult(
+                                        expectedUid = uid,
+                                        activeUid = currentUser?.uid,
+                                        panelAttached = callbackGuard.attached,
+                                        sameAuthenticatedUser = currentUser === submittingUser
+                                    )) return@addOnCompleteListener
                                 busy = false
                                 // Não presumir acesso por conclusão local: sempre
                                 // consultar o servidor outra vez, inclusive após

@@ -211,6 +211,7 @@ jobs:
           done
           gradle :app:testDebugUnitTest \
             --tests br.com.atriocatolico.ChatAgeRegistrationPrecheckTest \
+            --tests br.com.atriocatolico.ChatQaDeclarationPolicyTest \
             --tests br.com.atriocatolico.ChatReportReceiptPolicyTest \
             --tests br.com.atriocatolico.ParticipantReportReceiptPolicyTest \
             --tests br.com.atriocatolico.UserReportsReviewPolicyTest \
