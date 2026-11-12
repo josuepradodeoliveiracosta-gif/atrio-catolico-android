@@ -126,7 +126,7 @@ def classify(log_text, sha, run_id, job_id):
 def markdown_report(out):
     rows = [
         "## Triagem offline de sinais de falha", "",
-        f"**SHA:** \`{out['commit_sha']}\`",
+        f"**SHA:** `{out['commit_sha']}`",
         f"**Run/job:** {out['run_id']} / {out['job_id']}", "",
         "**Causa raiz não comprovada.** Este documento não recomenda merge "
         "nem aciona reexecução ou deploy.", "",
@@ -136,7 +136,7 @@ def markdown_report(out):
     ]
     for item in out["signals"]:
         row_lines = ", ".join(map(str, item["evidence_line_numbers"]))
-        rows.append(f"| {item['category']} | \`{item['rule_id']}\` | "
+        rows.append(f"| {item['category']} | `{item['rule_id']}` | "
                     f"{row_lines} | {item['signal']} |")
     if not out["signals"]:
         rows.append("| Inconclusivo | — | — | Nenhum padrão confiável identificado |")
