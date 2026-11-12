@@ -7,7 +7,7 @@ Data: 12/11/2026 — PR #259 (draft), sem alterações na main ou produção.
 1. O relatório já existente `ci-report.json` produz `ci-diagnostics.json` com uma fila limitada de até 12 pares run/job candidatos, somente se o check terminou em `failure` ou `timed_out`.
 2. O novo `scripts/ci_log_identity_verifier.py` valida o manifesto local e consulta apenas metadados read-only do GitHub Actions em `/actions/runs/{run_id}` e `/actions/jobs/{job_id}`.
 3. O job só recebe `identity_verified=true` quando repositório de execução e origem, SHA do commit, IDs, estado concluído, conclusão exata e número da tentativa conferem entre os endpoints e o snapshot.
-4. A saída `ci-job-evidence.json` e uma seção do `ci-report.md` apresentam exclusivamente IDs e códigos fixos de resultado. Em caso de falha, acesso indisponível ou informação divergente, **não há verificação positiva**.
+- Para `run_attempt`, o código compara as duas respostas quando o job informa esse campo; se a API do job omitir a tentativa, aceita apenas `run_attempt=1`. Reexecuções sem vínculo explícito de tentativa permanecem sem comprovação.\n4. A saída `ci-job-evidence.json` e uma seção do `ci-report.md` apresentam exclusivamente IDs e códigos fixos de resultado. Em caso de falha, acesso indisponível ou informação divergente, **não há verificação positiva**.
 5. A verificação é anexada ao workflow de relatório já existente, com as permissões `contents:read`, `checks:read` e `actions:read` que ele já tinha. Nenhum workflow, gatilho ou permissão novo.
 
 ## Limites e proteções
