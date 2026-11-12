@@ -52,6 +52,8 @@ on:
       - 'docs/qa-homologacao/ISSUE-200-GOVERNANCA-QA.json'
       - 'scripts/chat-qa-governance-preflight.mjs'
       - 'scripts/chat-qa-governance-preflight.test.mjs'
+      - 'scripts/chat-qa-late-report-dryrun.mjs'
+      - 'scripts/chat-qa-late-report-dryrun.test.mjs'
       - '.github/workflows/chat-self-declaration-qa-offline.yml'
   workflow_dispatch:
 permissions:
@@ -111,6 +113,11 @@ jobs:
           node --check scripts/chat-qa-governance-preflight.mjs
           node --test scripts/chat-qa-governance-preflight.test.mjs
           node scripts/chat-qa-governance-preflight.mjs
+      - name: Simular denuncia tardia sem acesso a dados reais ou GO
+        run: |
+          node --check scripts/chat-qa-late-report-dryrun.mjs
+          node --test scripts/chat-qa-late-report-dryrun.test.mjs
+          node scripts/chat-qa-late-report-dryrun.mjs
       - name: Configuracao administrativa QA fechada — somente offline
         run: |
           node --check firebase/qa-general/admin-config-preflight.mjs

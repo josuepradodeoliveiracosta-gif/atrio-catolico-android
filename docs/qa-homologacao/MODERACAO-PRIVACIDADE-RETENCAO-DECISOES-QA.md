@@ -471,3 +471,48 @@ do status `reviewed`. Dados de denúncia e provas não são
 removidos pelo diálogo. Sem novo backend, coleção, permissão
 administrativa, Firebase remoto ou deploy. **NO_GO**.
 
+
+## Simulação automatizada de denúncias tardias — sem canal habilitado (12/11/2026)
+
+As situações já descritas na matriz acima agora têm uma **bateria de
+testes exclusivamente offline** em
+`scripts/chat-qa-late-report-dryrun.mjs` e
+`scripts/chat-qa-late-report-dryrun.test.mjs`.
+O comando `node scripts/chat-qa-late-report-dryrun.mjs`
+gera quatro exemplos **100% sintéticos**, sem credenciais, rede,
+coleta de mensagens ou criação de protocolos.
+
+Os cenários variam situação do solicitante (integrante,
+ex-integrante, conta suspensa, sem login), chat ligado/desligado,
+denúncia de conta/mensagem, alegação de protocolo anterior e
+urgência não verificada. As 12 regressões incluem combinação
+dos estados enumerados e entradas adulteradas.
+
+**Regras demonstradas apenas na simulação:**
+- Nunca confirmar a existência de grupo ou mensagem privada
+  a quem já não tenha acesso; alegar protocolo não autoriza
+  consultar ou revelar seu conteúdo
+- Sem canal externo aprovado, não emitir recibo de denúncia,
+  não dizer que houve triagem, atendimento ou escalonamento
+- Não prometer plantão 24 horas nem aplicar sanção automática
+  mesmo diante de urgência declarada pelo cenário
+- Não capturar, exportar, preservar ou apagar prova sem
+  finalidade, competência, base e retenção aprovadas
+- Rejeitar campos adicionais de UID, e-mail, CPF, texto de mensagem,
+  links, tokens e qualquer estrutura fora do contrato enumerado
+- `REVIEW_RECORDED` no pré-flight de governança não vira
+  autorização jurídica de abertura de um canal
+
+**Limitações:** os testes não cobrem suporte real, autenticação,
+acesso a históricos, fluxo de recurso, contenção emergencial,
+criptografia, SLA, retenção, legislação ou atendimento humano.
+Não introduzem rota, UI, API, coleção, privilégio ou Worker;
+nenhuma denúncia de pessoas foi recebida. O objetivo é verificar
+que decisões técnicas futuras **não confundam o protótipo com
+um serviço efetivamente habilitado**.
+
+**Pendências iguais às da issue #200:** canal e capacidade de
+atendimento, suplência, urgência, evidências, recursos,
+retenção, revisão jurídica e autorização independente.
+Guardião V2 continua planejado e inativo.
+**NO_GO; ativação QA 60% (3/5), QA geral 29% (2/7).**
