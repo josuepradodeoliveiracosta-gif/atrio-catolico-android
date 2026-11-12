@@ -1,6 +1,8 @@
 """Offline, deterministic diagnostic snapshot tests: no GitHub or cloud access."""
 import json
 from pathlib import Path
+import subprocess
+import sys
 from tempfile import TemporaryDirectory
 import unittest
 
@@ -110,6 +112,31 @@ class DiagnosticSnapshotTests(unittest.TestCase):
             self.assertEqual(json.loads(output.read_text(encoding="utf-8"))["commit_sha"], SHA)
             with self.assertRaises(ValueError):
                 write_digest(source, output, md)
+
+    def test_real_cli_module_generates_json_and_markdown(self):
+        """Execute the workflow's actual entrypoint, not only imported helpers."""
+        with TemporaryDirectory() as d:
+            root = Path(d)
+            src = root / "report.json"
+            output = root / "ci-diagnostics.json"
+            md = root / "ci-report.md"
+            input_data = sample([check(REQUIRED[0], conclusion="failure")])
+            src.write_text(json.dumps(input_data), encoding="utf-8")
+            md.write_text("## Relatório original\n", encoding="utf-8")
+            result = subprocess.run(
+                [sys.executable, "-m", "scripts.ci_diagnostic_snapshot",
+                 "--report-json", str(src),
+                 "--output-json", str(output),
+                 "--markdown", str(md)],
+                cwd=Path(__file__).resolve().parents[1],
+                capture_output=True, text=True, timeout=20,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(output.read_text(encoding="utf-8"))[
+                "non_success_count"], 1)
+            self.assertIn("Síntese de diagnóstico por commit",
+                          md.read_text(encoding="utf-8"))
+            self.assertIn("Relatório original", md.read_text(encoding="utf-8"))
 
     def test_output_table_is_capped_but_json_retains_all(self):
         data = sample([check(x) for x in REQUIRED] +
