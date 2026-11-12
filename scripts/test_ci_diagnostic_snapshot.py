@@ -249,6 +249,22 @@ class DiagnosticSnapshotTests(unittest.TestCase):
         self.assertNotIn("falha relevante", json.dumps(out))
         self.assertIn("verify_run_head_sha", out["required_before_fetch"])
 
+    def test_required_failure_is_not_starved_by_optional_failures(self):
+        extras = [
+            check(f"optional-{i}", conclusion="failure",
+                  link=f"https://github.com/{REPO}/actions/runs/100/job/{1000+i}")
+            for i in range(MAX_LOG_JOBS + 4)
+        ]
+        mandatory = check(REQUIRED[0], conclusion="failure",
+                          link=f"https://github.com/{REPO}/actions/runs/101/job/9999")
+        out = digest(sample(extras + [mandatory]))
+        queue = out["log_review_queue"]
+        self.assertTrue(queue["truncated"])
+        self.assertEqual(queue["total_candidates"], MAX_LOG_JOBS + 5)
+        self.assertEqual(queue["candidates"][0]["job_id"], 9999)
+        self.assertEqual(len(queue["candidates"]), MAX_LOG_JOBS)
+        self.assertFalse(queue["automatic_log_download"])
+
     def test_log_queue_rejects_links_not_exactly_in_repo_or_job(self):
         urls = [
             "https://github.com/another/repo/actions/runs/9/job/10",
