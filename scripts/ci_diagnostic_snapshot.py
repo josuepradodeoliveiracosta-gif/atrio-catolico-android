@@ -37,6 +37,14 @@ def safe_evidence_url(raw):
     return f"https://github.com{url.path}"
 
 
+def safe_label(raw):
+    """Escape check names as *text*, never executable Markdown links/images."""
+    value = re.sub(r"[\x00-\x1f\x7f]", " ", str(raw))
+    for character in ("\\", "[", "]", "(", ")", "!", chr(96)):
+        value = value.replace(character, "\\" + character)
+    return safe_markdown(value)
+
+
 def check_state(check):
     status = check.get("status")
     conclusion = check.get("conclusion")
@@ -122,7 +130,7 @@ def markdown_digest(snapshot):
         "| Verificação | Estado |", "| --- | --- |",
     ]
     for item in snapshot["required_blocking"]:
-        lines.append(f"| {safe_markdown(item['name'])} | {safe_markdown(item['state'])} |")
+        lines.append(f"| {safe_label(item['name'])} | {safe_markdown(item['state'])} |")
     if not snapshot["required_blocking"]:
         lines.append("| Nenhuma nesta consulta | — |")
     lines.extend(("", "### Checks não aprovados e evidências", "",
@@ -130,7 +138,7 @@ def markdown_digest(snapshot):
     for item in snapshot["non_success_checks"][:MAX_ROWS]:
         ref = (f"[Execução no GitHub]({item['evidence_url']})"
                if item["evidence_url"] else "Link não verificado")
-        lines.append(f"| {safe_markdown(item['name'])} | {item['state']} | "
+        lines.append(f"| {safe_label(item['name'])} | {item['state']} | "
                      f"{'Sim' if item['required'] else 'Não'} | {ref} |")
     if not snapshot["non_success_checks"]:
         lines.append("| Nenhum nesta consulta | — | — | — |")
@@ -139,7 +147,7 @@ def markdown_digest(snapshot):
         lines.extend(("", f"**Mais {extra} checks não exibidos no Markdown; o JSON contém todos.**"))
     if snapshot["required_missing"]:
         lines.extend(("", "**Checks obrigatórios ausentes:** " + ", ".join(
-            safe_markdown(s) for s in snapshot["required_missing"])))
+            safe_label(s) for s in snapshot["required_missing"])))
     lines.extend(("", "Execuções canceladas, puladas, pendentes ou históricas não são "
                   "interpretadas como sucesso. Evidências estão restritas a URLs verificadas "
                   "do GitHub no próprio repositório.", ""))
