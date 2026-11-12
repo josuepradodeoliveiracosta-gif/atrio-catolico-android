@@ -109,7 +109,11 @@ def log_review_queue(checks):
     seen = set()
     candidates = []
     without_job_link = 0
-    for check in checks:
+    # Preserve input order within priority groups, but never let numerous
+    # optional failures push a mandatory failed check out of the capped queue.
+    ordered = sorted(checks, key=lambda check: (
+        check["name"] not in REQUIRED, check_state(check) != "failure"))
+    for check in ordered:
         state = check_state(check)
         if state not in ("failure", "timed_out"):
             continue
