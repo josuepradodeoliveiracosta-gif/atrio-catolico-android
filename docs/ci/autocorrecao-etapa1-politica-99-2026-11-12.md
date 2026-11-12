@@ -53,3 +53,24 @@ O workflow ci-quality-report.yml mantém os eventos workflow_run e workflow_disp
 3. Aprovação humana para mudanças críticas; homologação com falhas reais auditáveis; métricas verdadeiras de automação, segurança e falsos positivos.
 
 Não declarar a meta 99% alcançada antes dessas etapas e de medição verificável.
+
+
+## Etapa 3 — piloto de alteração efetiva e descartável na sandbox
+
+O primeiro experimento de correção **altera realmente o conteúdo de uma fixture sintética SQLite dentro de um TemporaryDirectory** e confirma o novo SHA-256 e a sintaxe Python antes de destruir o diretório. Uma conexão fechada antes de \`execute("SELECT 1")\` é substituída por uma leitura antes de \`close()\`, mantendo o resultado em variável local.
+
+**Este piloto NÃO corrige um arquivo real do aplicativo ou do repositório.** Seu propósito é provar a separação entre propor, executar isoladamente e autorizar a promoção de um patch. O sistema apenas poderá produzir o patch da fixture interna, byte a byte fixado; modificações na entrada, hashes inesperados e execuções repetidas sobre conteúdo já corrigido são recusadas.
+
+O piloto é deliberadamente elegível **apenas quando** o plano verificado tiver um único job, com um único sinal \`sqlite_closed_database\`, receita \`qa_sqlite_lifecycle_review\`, gates obrigatórios completos e indicadores explícitos de que nenhuma ação remota foi executada. Nenhuma outra classe permite execução.
+
+O workflow de relatório já existente agora chama \`scripts.ci_autofix_sandbox\` **após** o planejamento, permanecendo somente leitura perante o GitHub. Seu novo JSON \`ci-autofix-preview.json\` publica apenas o patch da fixture estática ou o estado bloqueado, sem conter texto original de logs. Nenhum fluxo, job, permissão, secret ou serviço extra foi adicionado; é o **sétimo artefato** quando a PR for autorizada para integração.
+
+O gate atual de testes passa a executar \`scripts.test_ci_autofix_sandbox\` juntamente aos contratos anteriores. Ficam bloqueados desvio de caminho, edição de arquivos reais, repetição do patch, sinais múltiplos, identidade não verificada, ausência de checks e ações remotas.
+
+### Saída esperada e limites restantes
+
+- A execução em sandbox pode produzir \`sandbox_patch_verified\` ou \`blocked_not_eligible\`.
+- \`repository_files_changed = 0\`, \`automatic_pull_requests_created = 0\`, \`automatic_merges_or_deploys = 0\`.
+- Nenhum script de reparação foi autorizado a modificar o repositório GitHub, ainda que a correção sintética tenha passado.
+- **Não confundir este piloto com autocorreção operacional**: ainda faltam patches em arquivos QA reais com allowlist, testes de regressão completos, geração de PR draft automatizada e revisão humana de promoção.
+- A meta de 99% continua sendo apenas objetivo, sem taxa medida.
