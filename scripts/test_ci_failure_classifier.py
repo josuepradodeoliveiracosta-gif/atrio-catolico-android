@@ -190,6 +190,53 @@ BUILD FAILED in 52s
         self.assertEqual(out["signals"][0]["evidence_line_numbers"], [1])
         self.assertEqual(out["root_cause"], "not_established")
 
+    def test_reviewed_specific_signals_detected_without_root_cause_inference(self):
+        cases = (
+            ("##[error]Dependency review is not supported on this repository.\n",
+             "github_dependency_review_unavailable"),
+            ("sqlite3.ProgrammingError: Cannot operate on a closed database.\n",
+             "sqlite_closed_database"),
+            ("RuntimeError: Excesso de checks; recusa relatorio incompleto\n",
+             "ci_check_pagination_guard"),
+            ("AssertionError: 'READY_FOR_HUMAN_REVIEW' != 'EVIDENCE_INCOMPLETE'\n",
+             "qa_evidence_readiness_mismatch"),
+            ("AssertionError: False is not true : {'no_literal_open_grants': False}\n",
+             "qa_firestore_open_grant_contract"),
+            ("Error: qa_case_invalid_case_id\ncode: ERR_ASSERTION\n",
+             "qa_case_id_contract"),
+            ("##[error]Teste OTA do app falhou: valid / "
+             "rejectsTamperedDownloadedApkBeforeInstall\n",
+             "qa_ota_tampered_download_test"),
+        )
+        for log, expected in cases:
+            with self.subTest(signal=expected):
+                result = classify_failed(log)
+                self.assertEqual(codes(result), {expected})
+                self.assertEqual(result["root_cause"], "not_established")
+                self.assertEqual(result["automated_actions"], "none")
+
+    def test_specific_markers_do_not_fire_on_success_cancel_or_unknown(self):
+        for state in ("success", "cancelled", "unknown"):
+            log = "sqlite3.ProgrammingError: Cannot operate on a closed database.\n"
+            result = classify(log, SHA, RUN, JOB, job_conclusion=state)
+            self.assertEqual(result["classification"], "not_applicable_nonfailed_job")
+            self.assertEqual(result["signals"], [])
+
+    def test_new_multi_marker_rules_reject_unrelated_log_sections(self):
+        excerpt = ("READY_FOR_HUMAN_REVIEW\n" + "normal step\n" * 50 +
+                   "AssertionError: 'EVIDENCE_INCOMPLETE'\n")
+        r = classify_failed(excerpt)
+        self.assertNotIn("qa_evidence_readiness_mismatch", codes(r))
+        self.assertIn("generic_test_assertion", codes(r))
+
+    def test_new_diagnostic_descriptions_do_not_echo_sensitive_input(self):
+        text = ("private-admin@example.test qa_case_invalid_case_id\n"
+                "code: ERR_ASSERTION\n")
+        r = classify_failed(text)
+        combined = json.dumps(r, ensure_ascii=False) + markdown_report(r)
+        self.assertIn("qa_case_id_contract", codes(r))
+        self.assertNotIn("private-admin@example.test", combined)
+
     def test_code_scan_output_does_not_echo_raw_input(self):
         out = classify_failed("cred: xyz123\nadb: device offline", SHA, RUN, JOB)
         self.assertEqual(out["signals"][0]["evidence_line_numbers"], [2])
