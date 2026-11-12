@@ -163,6 +163,51 @@ class CiReportTests(unittest.TestCase):
         self.assertIsNone(safe_actions_url(job_link + "/additional"))
         self.assertIsNone(safe_actions_url("http" + job_link[5:]))
 
+    def test_token_never_follows_http_redirects(self):
+        from unittest.mock import patch
+        from urllib.request import Request
+        from scripts.ci_quality_report import NoRedirect
+        safe = NoRedirect()
+        original = Request(
+            "https://api.github.com/repos/example/example/commits/" + SHA,
+            headers={"Authorization": "Bearer secret-test-token"},
+        )
+        redirect = safe.redirect_request(
+            original, None, 302, "Found", {},
+            "https://attacker.example/harvest")
+        self.assertIsNone(redirect)
+        # Also verify that the real get_checks production path constructs the
+        # no-redirect opener (rather than urllib.urlopen).
+        with patch("scripts.ci_quality_report.build_opener") as builder:
+            builder.return_value.open.return_value = io.BytesIO(
+                json.dumps({"check_runs": [check("ok")]}).encode("utf-8"))
+            items = get_checks(SHA, "test-token")
+            self.assertEqual(len(items), 1)
+            builder.assert_called_once_with(NoRedirect)
+            request = builder.return_value.open.call_args.args[0]
+            self.assertEqual(request.full_url,
+                             "https://api.github.com/repos/"
+                             "josuepradodeoliveiracosta-gif/atrio-catolico-android/"
+                             f"commits/{SHA}/check-runs?per_page=100&page=1")
+            self.assertEqual(request.get_header("Authorization"),
+                             "Bearer test-token")
+
+    def test_check_api_body_is_bounded_and_malformed_refused(self):
+        from scripts.ci_quality_report import MAX_CHECK_API_BYTES
+        cases = (
+            b"a" * (MAX_CHECK_API_BYTES + 1),
+            json.dumps(["not a dictionary"]).encode(),
+            json.dumps({"check_runs": {"x": "not a list"}}).encode(),
+            b"{not-json",
+        )
+        for body in cases:
+            with self.subTest(length=len(body)):
+                def fake_opener(req, timeout):
+                    self.assertEqual(timeout, 20)
+                    return io.BytesIO(body)
+                with self.assertRaises((ValueError, json.JSONDecodeError)):
+                    get_checks(SHA, "synthetic", opener=fake_opener)
+
     def test_token_required(self):
         with self.assertRaises(ValueError):
             get_checks(SHA, "")
