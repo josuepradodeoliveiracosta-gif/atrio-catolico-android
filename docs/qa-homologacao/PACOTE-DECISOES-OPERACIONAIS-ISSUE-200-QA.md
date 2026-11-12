@@ -8,6 +8,17 @@ monitoramento contínuo nem autoriza qualquer escrita no Firebase, Cloudflare,
 produção ou backups. Não colocar nomes, UIDs, denúncias, conversas ou e-mails
 pessoais neste repositório público; registrar evidência privada por canal adequado.
 
+**Nota de estado atual (12/11/2026, PR #232):** textos historicos
+abaixo sobre a ausencia de `user_reports` referem-se ao **gerador
+isolado de testes negativos** `self-declaration-candidate.mjs`.
+A **candidata principal** de Rules agora usa
+`closed-qa-parity.mjs` sobre `firestore.rules` e **herda**
+`user_reports`; essa rota possui cobertura Firebase Emulator
+para autor, administrador, revogacao e paginacao. Nenhuma Rules
+candidata foi publicada no Firebase QA real, e a rota nao esta
+operacional no QA remoto em `deny-all`. Permanecem pendentes
+abuso, moderação, canal tardio e revisão jurídica. **NO_GO**.
+
 ## 1. O que não será rediscutido
 
 **DECIDIDO PELO FUNDADOR:** idade mínima de 18 anos para mensagens privadas

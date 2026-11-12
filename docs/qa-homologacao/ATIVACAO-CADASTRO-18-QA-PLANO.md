@@ -791,3 +791,38 @@ privacidade, retenção, escopo jurídico e autorizações.
 O estado continua **NO_GO**, ativação QA 60% (3/5),
 homologação geral 29% (2/7). Sem novas Rules, contas,
 credenciais, deploy, merge, mudanças de produção ou backups.
+
+
+## Diagnostico consolidado QA somente leitura (12/11/2026)
+
+Para reduzir comandos repetidos no Termux, o novo script
+`scripts/chat-qa-combined-readonly.mjs` combina auditores existentes
+sem alterar a base publica. O comando manual e:
+
+    node scripts/chat-qa-combined-readonly.mjs
+
+Na mesma sessao temporaria do Firebase CLI, o script realiza uma
+auditoria QA real (4 GETs de identidade/Rules), reutiliza essa
+observacao para quatro GETs mascarados de `app_config` e consulta
+cinco permissoes IAM via **um POST do metodo testIamPermissions**,
+que e exclusivamente leitura. **Nao** chama setIamPolicy ou PATCH,
+nao publica regras, nao escreve documentos e nao consulta producao.
+As leituras nao sao atomicas e cada snapshot envelhece.
+
+A saida imprime apenas informacoes administrativas permitidas,
+a situacao (presente/ausente/divergente) dos quatro documentos,
+quantidade de permissoes e pendencias de governanca. Nenhum
+token, conteudo de mensagem, UID, e-mail ou dado pessoal deve
+constar na saida. Verificacoes de identidade/Ruleset/sha sao
+fechadas por padrao. Se admin ou IAM divergirem, o estado
+continua NO_GO. Ao detectar chat/grupos remotos abertos, o
+script retorna codigo de saida 2. Falha em credenciais/GET/IAM
+aborta sem criar nenhuma configuracao.
+
+O novo conjunto de testes usa mocks; **a CI nao acessa a nuvem**.
+Nao foi realizada consulta live deste comando nesta etapa; os
+resultados historicos apresentados pelo operador permanecem
+evidencias separadas. Nao alterar as decisoes sobre idade,
+equipe humana, revisao juridica, protecao de denuncias,
+retencao, direitos do titular ou autorizacao de publicacao.
+Ativacao QA continua 60% (3/5), QA geral 29% (2/7), NO_GO.

@@ -18,6 +18,8 @@ on:
       - 'scripts/chat-qa-admin-initial-create-plan.test.mjs'
       - 'scripts/termux-firebase-qa-admin-config-readonly.mjs'
       - 'scripts/termux-firebase-qa-admin-config-readonly.test.mjs'
+      - 'scripts/chat-qa-combined-readonly.mjs'
+      - 'scripts/chat-qa-combined-readonly.test.mjs'
       - 'tests/security/qa-self-declaration-firestore.test.mjs'
       - 'tests/security/qa-rollback-denyall-firestore.test.mjs'
       - 'scripts/chat-qa-activation-preflight.mjs'
@@ -118,6 +120,10 @@ jobs:
         run: |
           node --check scripts/termux-firebase-qa-admin-config-readonly.mjs
           node --test scripts/termux-firebase-qa-admin-config-readonly.test.mjs
+      - name: Validar consolidacao QA com mocks — SEM credenciais reais
+        run: |
+          node --check scripts/chat-qa-combined-readonly.mjs
+          node --test scripts/chat-qa-combined-readonly.test.mjs
       - name: Validar plano inicial create-only QA sem acesso a nuvem
         run: |
           node --check scripts/chat-qa-admin-initial-create-plan.mjs

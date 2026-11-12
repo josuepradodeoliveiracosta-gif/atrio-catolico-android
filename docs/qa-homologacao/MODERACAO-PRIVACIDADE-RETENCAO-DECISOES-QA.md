@@ -5,6 +5,17 @@ Sem efeito sobre regras publicadas, usuários, Firestore real, IAM, Workers/FCM,
 produções ou backups. Abrange a PR draft #232 e a issue #200; o
 documento não concede papel de moderador nem autoriza retenção ou descarte.
 
+**Nota de estado atual (12/11/2026, PR #232):** textos historicos
+abaixo sobre a ausencia de `user_reports` referem-se ao **gerador
+isolado de testes negativos** `self-declaration-candidate.mjs`.
+A **candidata principal** de Rules agora usa
+`closed-qa-parity.mjs` sobre `firestore.rules` e **herda**
+`user_reports`; essa rota possui cobertura Firebase Emulator
+para autor, administrador, revogacao e paginacao. Nenhuma Rules
+candidata foi publicada no Firebase QA real, e a rota nao esta
+operacional no QA remoto em `deny-all`. Permanecem pendentes
+abuso, moderação, canal tardio e revisão jurídica. **NO_GO**.
+
 ## Decisão já tomada e preservada
 
 O fundador definiu **18+ para conversas individuais e grupos** e
