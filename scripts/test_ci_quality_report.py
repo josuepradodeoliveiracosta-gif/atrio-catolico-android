@@ -138,10 +138,30 @@ class CiReportTests(unittest.TestCase):
         checks[1] = {**check(REQUIRED[1], conclusion="failure"),
                      "html_url": safe_url}
         data, _ = report(SHA, checks)
-        self.assertEqual(data["checks"][0]["details_url"],
-                         "https://outside.example/unsafe")
+        self.assertEqual(data["checks"][0]["details_url"], safe_url)
         self.assertEqual(data["checks"][1]["details_url"], safe_url)
         self.assertEqual(digest(data)["log_review_queue"]["total_candidates"], 0)
+
+    def test_external_signed_details_not_copied_to_public_artifacts(self):
+        from scripts.ci_quality_report import safe_actions_url
+        job_link = ("https://github.com/"
+                    "josuepradodeoliveiracosta-gif/atrio-catolico-android/"
+                    "actions/runs/7/job/8")
+        source = [check("secret_check", conclusion="failure") |
+                  {"details_url": job_link + "?token=private-secret",
+                   "html_url": "https://github.com/other/repo/runs/1"},
+                  check("external", conclusion="failure") |
+                  {"details_url": "https://integration.example/?token=private-secret",
+                   "html_url": "https://evil.example/"}]
+        data, _ = report(SHA, source)
+        self.assertEqual(data["checks"][0]["details_url"], job_link)
+        self.assertEqual(data["checks"][1]["details_url"], "")
+        self.assertNotIn("private-secret", json.dumps(data))
+        self.assertIsNone(safe_actions_url(
+            "https://user:password@github.com/"
+            "josuepradodeoliveiracosta-gif/atrio-catolico-android/runs/99"))
+        self.assertIsNone(safe_actions_url(job_link + "/additional"))
+        self.assertIsNone(safe_actions_url("http" + job_link[5:]))
 
     def test_token_required(self):
         with self.assertRaises(ValueError):
