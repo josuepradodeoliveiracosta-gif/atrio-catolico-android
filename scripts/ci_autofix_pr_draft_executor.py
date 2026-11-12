@@ -176,39 +176,19 @@ def _validate_write_payload(method, path, payload):
         raise ValueError("operacao GitHub nao permitida")
 
 
-class GitHubDraftClient:
-    """Exact GitHub REST endpoints only, no redirects, no user supplied URL.
+class GitHubDraftReader:
+    """GET-only client for independently reconciling an existing QA draft.
 
-    Instantiate only inside an independently trusted, explicitly authorized
-    manual environment with Contents:write and PullRequests:write. Never
-    instantiate this client in CI report, pull_request or workflow_run jobs.
+    This object has no write methods, even if a caller mistakenly supplies
+    a broad-privilege credential. Use a separate read-only credential in a
+    trusted manual environment. It is not proof of token scope by itself.
     """
+
     def __init__(self, token, opener=None):
         if not isinstance(token, str) or not token:
             raise ValueError("token GitHub restrito ausente")
         self.token = token
         self.opener = opener or build_opener(NoRedirect).open
-
-    def _write(self, method, path, payload):
-        allowed = ALLOWED_POST_PATHS if method == "POST" else ALLOWED_PUT_PATHS
-        if method not in ("POST", "PUT") or path not in allowed:
-            raise ValueError("operacao remota fora da allowlist")
-        _validate_write_payload(method, path, payload)
-        data = json.dumps(payload, sort_keys=True, ensure_ascii=True).encode("utf-8")
-        if len(data) > MAX_BLOB_BYTES:
-            raise ValueError("payload remoto acima do limite")
-        req = Request("https://api.github.com/repos/" + REPO + path,
-                      data=data, method=method, headers={
-                          "Authorization": "Bearer " + self.token,
-                          "Accept": "application/vnd.github+json",
-                          "Content-Type": "application/json",
-                          "X-GitHub-Api-Version": "2022-11-28",
-                      })
-        with self.opener(req, timeout=20) as response:
-            raw = response.read(MAX_REMOTE_RESPONSE_BYTES + 1)
-        if len(raw) > MAX_REMOTE_RESPONSE_BYTES:
-            raise ValueError("resposta remota grande demais")
-        return json.loads(raw)
 
     def live_context(self):
         return fetch_live_pr_context(self.token, self.opener)
@@ -251,22 +231,10 @@ class GitHubDraftClient:
             raise ValueError("arquivo remoto QA fora do limite")
         return data.decode("utf-8")
 
-    def create_branch(self, source_sha):
-        return self._write("POST", "/git/refs", {
-            "ref": "refs/heads/" + BRANCH_NAME, "sha": source_sha})
-
     def branch_ref(self):
         from scripts.ci_autofix_pr_draft_plan import _get_api
         return _get_api("/git/ref/heads/" + BRANCH_NAME,
                         self.token, self.opener)
-
-    def patch_file(self, blob_sha, patched):
-        return self._write("PUT", "/contents/" + QA_TARGET, {
-            "branch": BRANCH_NAME,
-            "message": WRITE_MESSAGE,
-            "sha": blob_sha,
-            "content": base64.b64encode(patched.encode("utf-8")).decode("ascii"),
-        })
 
     def compare(self, base_sha):
         from scripts.ci_autofix_pr_draft_plan import _get_api
@@ -279,6 +247,47 @@ class GitHubDraftClient:
             raise ValueError("identificador de PR nao confiavel")
         from scripts.ci_autofix_pr_draft_plan import _get_api
         return _get_api("/pulls/" + str(number), self.token, self.opener)
+
+
+class GitHubDraftClient(GitHubDraftReader):
+    """Manual-only writer. Never instantiate to check an existing PR.
+
+    Mutating methods remain gated by the reviewed one-file transaction,
+    explicit confirmation and the caller's segregated write credential.
+    """
+
+    def _write(self, method, path, payload):
+        allowed = ALLOWED_POST_PATHS if method == "POST" else ALLOWED_PUT_PATHS
+        if method not in ("POST", "PUT") or path not in allowed:
+            raise ValueError("operacao remota fora da allowlist")
+        _validate_write_payload(method, path, payload)
+        data = json.dumps(payload, sort_keys=True, ensure_ascii=True).encode("utf-8")
+        if len(data) > MAX_BLOB_BYTES:
+            raise ValueError("payload remoto acima do limite")
+        req = Request("https://api.github.com/repos/" + REPO + path,
+                      data=data, method=method, headers={
+                          "Authorization": "Bearer " + self.token,
+                          "Accept": "application/vnd.github+json",
+                          "Content-Type": "application/json",
+                          "X-GitHub-Api-Version": "2022-11-28",
+                      })
+        with self.opener(req, timeout=20) as response:
+            raw = response.read(MAX_REMOTE_RESPONSE_BYTES + 1)
+        if len(raw) > MAX_REMOTE_RESPONSE_BYTES:
+            raise ValueError("resposta remota grande demais")
+        return json.loads(raw)
+
+    def create_branch(self, source_sha):
+        return self._write("POST", "/git/refs", {
+            "ref": "refs/heads/" + BRANCH_NAME, "sha": source_sha})
+
+    def patch_file(self, blob_sha, patched):
+        return self._write("PUT", "/contents/" + QA_TARGET, {
+            "branch": BRANCH_NAME,
+            "message": WRITE_MESSAGE,
+            "sha": blob_sha,
+            "content": base64.b64encode(patched.encode("utf-8")).decode("ascii"),
+        })
 
     def create_pr(self, source_sha):
         return self._write("POST", "/pulls", {
