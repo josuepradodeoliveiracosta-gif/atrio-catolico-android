@@ -179,3 +179,58 @@ separação de credenciais/workflow, revisão específica e autorização antes 
 modificar recursos remotos. A verificação de ausência de branch, mesmo
 autenticada, não elimina condições de corrida; o escritor futuro terá de
 realizar a checagem novamente com operação condicional.
+
+
+## Etapa 5.4 — executor de PR draft manual, testável e NÃO habilitado
+
+O novo \`scripts/ci_autofix_pr_draft_executor.py\` acrescenta uma transação controlada,
+sobre os módulos existentes, para **uma única receita QA revisada** e um único
+arquivo operacional permitido (\`scripts/ci_quality_report.py\`). O código
+permite provar o fluxo de criação de branch e PR **em clientes simulados**,
+sem ativar permissões reais.
+
+### Controles indispensáveis
+
+- A CLI é **apenas offline**: \`--manifest --checkout-root --json\`, sem
+  \`--execute\` ou possibilidade de escrita remota pela linha de comando.
+  Os workflows atuais executam **exclusivamente testes com cliente fake**.
+- A função de execução exige separadamente a frase fixa de confirmação manual,
+  o **SHA da base aprovado pelo operador**, o manifesto validado, a receita
+  estática e um cliente com autorização independente; nenhum destes campos
+  sozinho autoriza escrita.
+- Preflight duas vezes da \`main\` e da inexistência de branch/PR; leitura do
+  arquivo-base remoto, comparado à fonte QA fixada por SHA-256. A branch
+  \`qa/autofix-ci-scope-main\` é criada **sem força**, somente a partir do
+  SHA revisado, sem sobrescrever refs existentes.
+- Depois de criar a branch, confirmar seu SHA; aplicar o patch estático
+  somente ao arquivo \`scripts/ci_quality_report.py\` na branch nova,
+  usando SHA do blob como condição de atualização; verificar que o diff
+  remoto contém **exatamente um arquivo modificado**, além do HEAD revisado.
+- Somente então, com \`main\` ainda no SHA esperado, tentar abrir uma PR
+  com \`draft=true\` (sem merge). A resposta precisa confirmar PR aberta,
+  em rascunho, base \`main\` e head de QA.
+- Erros, corrida, desvio de SHA, resposta malformada ou diff excessivo
+  interrompem imediatamente. **Não excluir branch criada em falha parcial
+  automaticamente:** qualquer limpeza requer revisão humana para evitar
+  apagar trabalho legítimo.
+- Não há uso de Firebase, Cloudflare, segredos de produção, serviços
+  pagos, publicação Android, merge ou escrita na \`main\`.
+
+### Estado real e próximos gates
+
+Esta é uma **implementação experimental do executor**, ainda não habilitada
+para criação real de PRs. A PR #260 continua draft. A função transacional não
+é chamada pelo workflow e não possui cliente GitHub com permissões de escrita
+no CI. Os testes simulam comportamento correto e falhas em cada estágio,
+inclusive branch existente, main obsoleta, conteúdo modificado, diff
+excessivo, resposta de PR que não seja draft e ausência de confirmação.
+
+Antes de habilitar execução real: revisão de segurança do código e do
+ambiente de execução, credencial mínima segregada (Contents:write,
+PullRequests:write), prova de integridade de artefatos/HEAD, checagem
+de conteúdo remoto após o commit, controle de transações parciais,
+primeira homologação explicitamente autorizada em branch não produtiva,
+e monitoramento de custo. **Nenhuma autorização de merge implícita**.
+
+A meta de 99% permanece **sem medição**. Um executor simulado não equivale
+a reparo autônomo comprovado em produção.
