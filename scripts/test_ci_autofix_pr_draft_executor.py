@@ -465,7 +465,7 @@ class DraftExecutorTests(unittest.TestCase):
             {},
             {"GITHUB_TOKEN": "unrelated-ci-token"},
             {"ATRIO_QA_READ_TOKEN": "test-only", "GITHUB_ACTIONS": "true"},
-            {"ATRIO_QA_READ_TOKEN": "fake\\ncredential"},
+            {"ATRIO_QA_READ_TOKEN": "fake\ncredential"},
             {"ATRIO_QA_READ_TOKEN": " "},
         )
         for env in cases:
