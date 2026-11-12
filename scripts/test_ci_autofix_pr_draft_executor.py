@@ -614,7 +614,7 @@ class DraftExecutorTests(unittest.TestCase):
             touched.append(path)
             if path == "/branches/main":
                 response = {"commit": {"sha": SHA}}
-            elif path == "/pulls?state=open&per_page=100&page=1":
+            elif path == "/pulls?state=open&per_page=10&page=1":
                 response = [{
                     "state": "open", "number": 261,
                     "head": {"ref": BRANCH_NAME,
@@ -661,7 +661,7 @@ class DraftExecutorTests(unittest.TestCase):
         self.assertEqual((ROOT / QA_TARGET).read_bytes(), before)
         self.assertEqual(touched.count("/branches/main"), 2)
         self.assertEqual(
-            touched.count("/pulls?state=open&per_page=100&page=1"), 2)
+            touched.count("/pulls?state=open&per_page=10&page=1"), 2)
         self.assertEqual(touched.count(
             "/git/ref/heads/" + BRANCH_NAME), 4)
         self.assertEqual(touched.count("/pulls/261"), 1)
@@ -804,7 +804,7 @@ class DraftExecutorTests(unittest.TestCase):
             payload = json.loads(req.data) if req.data is not None else None
             if method == "GET" and path == "/branches/main":
                 answer = {"commit": {"sha": state["main"]}}
-            elif method == "GET" and path == "/pulls?state=open&per_page=100&page=1":
+            elif method == "GET" and path == "/pulls?state=open&per_page=10&page=1":
                 answer = []
             elif method == "GET" and path == "/git/ref/heads/" + BRANCH_NAME:
                 if state["branch"] is None:
