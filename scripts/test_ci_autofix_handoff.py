@@ -11,7 +11,7 @@ import sys
 from tempfile import TemporaryDirectory
 import unittest
 
-from scripts.ci_quality_report import REPO, REQUIRED, report
+from scripts.ci_quality_report import REQUIRED, report
 from scripts.ci_diagnostic_snapshot import digest
 from scripts.ci_autofix_policy import build_plan
 from scripts.ci_autofix_handoff import evidence_gate, handoff, read_json_bounded
