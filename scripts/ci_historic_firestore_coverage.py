@@ -16,7 +16,7 @@ from scripts.ci_historic_firestore_differential import _run
 
 COVERAGE_MARKER = 'QA_RULECOV_'
 COVERAGE_MAX_LOG = 12 * 1024 * 1024
-MAX_ROWS = 3000
+MAX_ROWS = 6000
 MAX_TARGETS = 70
 
 JS_PROBE = r'''// QA-only rules coverage: numeric counters only; never print document values.
@@ -65,9 +65,9 @@ function qaSanitizeCoverage(document) {
     const [l2,c2] = b.split(':').map(Number);
     return l1-l2 || c1-c2;
   });
-  return {ok: keys.length > 0 && keys.length <= 3000,
-          positions: keys.length, truncated: keys.length > 3000,
-          counters: Object.fromEntries(keys.slice(0,3000).map(k => [k,data[k]]))};
+  return {ok: keys.length > 0 && keys.length <= 6000,
+          positions: keys.length, truncated: keys.length > 6000,
+          counters: Object.fromEntries(keys.slice(0,6000).map(k => [k,data[k]]))};
 }
 async function qaCoverageSnapshot(phase) {
   let snapshot;
@@ -77,9 +77,9 @@ async function qaCoverageSnapshot(phase) {
       {redirect:'error',signal:AbortSignal.timeout(6000),headers:{Accept:'application/json'}});
     if (!response.ok) throw Error('coverage_http_failure');
     const size = Number(response.headers.get('content-length') || '0');
-    if (size > 5000000) throw Error('coverage_oversized');
+    if (size > 16000000) throw Error('coverage_oversized');
     const text = await response.text();
-    if (text.length > 5000000) throw Error('coverage_oversized');
+    if (text.length > 16000000) throw Error('coverage_oversized');
     snapshot = qaSanitizeCoverage(JSON.parse(text));
   } catch (_) {
     snapshot = {ok:false,positions:0,truncated:false,counters:{}};
@@ -90,7 +90,7 @@ async function qaCoverageSnapshot(phase) {
 
 NOTICE_BEGIN = "  await check('resposta direta com aviso ao autor e destinatario passa',async()=>{"
 NOTICE_END = "    assert.equal(n.data()?.replyToId,'lucia_seed');\n  });"
-CHAT_TARGET = "  await assertSucceeds(newInvite());"
+CHAT_TARGET = " await assertSucceeds(newInvite());"
 
 
 def instrument_for_coverage(source, scenario):
@@ -154,7 +154,7 @@ def interpret_coverage(log):
     for line in log.splitlines():
         if line.startswith(COVERAGE_MARKER):
             phase, sep, raw = line[len(COVERAGE_MARKER):].partition(':')
-            if phase not in ('before', 'after') or not sep or phase in markers or len(raw) > 800000:
+            if phase not in ('before', 'after') or not sep or phase in markers or len(raw) > 2000000:
                 return {'status': 'invalid_coverage_markers', 'before_positions': 0,
                         'after_positions': 0, 'evaluated_positions_delta': 0,
                         'top_expression_deltas': []}
@@ -165,7 +165,10 @@ def interpret_coverage(log):
     before, after = markers.get('before'), markers.get('after')
     if not before or not after:
         return {'status': 'unavailable', 'before_positions': len(before or {}),
-                'after_positions': len(after or {}), 'evaluated_positions_delta': 0,
+                'after_positions': len(after or {}),
+                'before_marker_seen': 'before' in markers,
+                'after_marker_seen': 'after' in markers,
+                'evaluated_positions_delta': 0,
                 'top_expression_deltas': []}
     rows = []
     for key in after.keys() | before.keys():
