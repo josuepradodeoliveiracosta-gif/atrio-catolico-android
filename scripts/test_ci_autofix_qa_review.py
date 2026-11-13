@@ -59,6 +59,14 @@ class RealQaPatchTests(unittest.TestCase):
             spec = importlib.util.spec_from_file_location("qa_ci_report_preview", target)
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
+            # Prove the reviewed patch exposes the exact CLI option used by
+            # workflows after PR #261; --help does not access GitHub APIs.
+            help_check = subprocess.run(
+                [sys.executable, str(target), "--help"],
+                cwd=REAL_ROOT, capture_output=True, text=True, timeout=20,
+            )
+            self.assertEqual(help_check.returncode, 0, help_check.stderr)
+            self.assertIn("--source-event", help_check.stdout)
             # Real observed main-push pattern: two ordinary checks pass,
             # while three PR-only checks do not run.
             checks = [check(REQUIRED[0]), check(REQUIRED[1])]
@@ -117,6 +125,7 @@ class RealQaPatchTests(unittest.TestCase):
                 preview_real_qa_patch(d)
 
     def test_patcher_requires_seven_reviewed_unique_hunks(self):
+        self.assertEqual(qa_patch_state(REPO_ROOT), "needs_patch")
         self.assertEqual(len(EDITS), 7)
         original = (REPO_ROOT / QA_TARGET).read_text(encoding="utf-8")
         self.assertTrue(all(original.count(old) == 1 for old, _ in EDITS))

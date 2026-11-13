@@ -89,9 +89,11 @@ o segundo, caso seja gerado, não precisa ser instalado na automação.
    não a adicione a commits/PRs nem a arquivos públicos. Guarde-a
    **somente no Secret do ambiente `atrio-autofix-qa`**,
    com o nome `ATRIO_AUTOFIX_APP_PRIVATE_KEY`.
-   Em **Settings > Secrets and variables > Actions**, armazene apenas o
-   `ATRIO_AUTOFIX_APP_CLIENT_ID` público em **Variables**, com
-   o *Client ID* da App. Não coloque a chave em secrets do repositório:
+   Em **Environment variables** do próprio ambiente
+   `atrio-autofix-qa` (ou nas variáveis de Actions do repositório),
+   armazene apenas o `ATRIO_AUTOFIX_APP_CLIENT_ID` público, usando
+   o *Client ID* da App. O job `write_draft` referencia o ambiente
+   e consegue acessar essa variável pelo contexto `vars`. Não coloque a chave em secrets do repositório:
    assim apenas jobs que referenciem o ambiente aprovado podem recebê-la.
    Nunca conceda esse segredo aos workflows de PR.
 5. Revise a PR #260 e seus checks. **A integração na `main` exige
