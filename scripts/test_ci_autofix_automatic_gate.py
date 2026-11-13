@@ -156,11 +156,11 @@ class ApprovedAutofixTests(unittest.TestCase):
                              + SHA + "\n")
             # A writer cannot be invoked from Termux or with only a PAT.
             with self.assertRaises(PermissionError):
-                main([*argv[:2], "write", *argv[2:]],
+                main(["--phase", "write", *argv[2:]],
                      env={**context, "GITHUB_ACTIONS": "false",
                           "ATRIO_AUTOFIX_APP_TOKEN": "fake"})
             with self.assertRaises(PermissionError):
-                main([*argv[:2], "write", *argv[2:]], env=context)
+                main(["--phase", "write", *argv[2:]], env=context)
 
     def test_workflow_privilege_and_provenance_contract(self):
         wf = WORKFLOW.read_text(encoding="utf-8")
@@ -187,7 +187,7 @@ class ApprovedAutofixTests(unittest.TestCase):
         self.assertNotIn("contents: write", preflight)
         self.assertNotIn("secrets.", preflight)
         self.assertIn("      contents: read", writer)
-        self.assertNotIn("contents: write", writer)
+        self.assertNotIn("      contents: write", writer)
         self.assertIn("actions/create-github-app-token@v3", writer)
         self.assertIn("permission-contents: write", writer)
         self.assertIn("permission-pull-requests: write", writer)
