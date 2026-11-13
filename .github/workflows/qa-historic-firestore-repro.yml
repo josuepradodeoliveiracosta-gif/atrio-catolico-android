@@ -626,7 +626,7 @@ jobs:
         with:
           persist-credentials: false
           path: harness
-          ref: 'a82987951221b31abdb38c5df79b99adf6d16af2'
+          ref: '27200586ad44dcb1476b5c78e97c44c01dd87402'
       - name: Checkout historico QA conversas
         uses: actions/checkout@v4
         with:
@@ -647,7 +647,7 @@ jobs:
           test -z "$ATRIO_GUARDIAN_V2_WORKER_URL"
           test -z "$ATRIO_SIGNING_STORE_PASSWORD"
           test -z "$ATRIO_SIGNING_KEY_PASSWORD"
-          test "$(git -C harness rev-parse HEAD)" = 'a82987951221b31abdb38c5df79b99adf6d16af2'
+          test "$(git -C harness rev-parse HEAD)" = '27200586ad44dcb1476b5c78e97c44c01dd87402'
           test "$(git -C historical rev-parse HEAD)" = '422d00ccbd9ef3c7dce11252be045daf656b8e09'
           echo 'Firestore Emulator debug: no production or deployment'
       - name: Node fixado para o historico
