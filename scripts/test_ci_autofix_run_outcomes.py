@@ -1,6 +1,5 @@
 """Contract tests for read-only automatic QA run audit (all fixtures)."""
 from copy import deepcopy
-import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
