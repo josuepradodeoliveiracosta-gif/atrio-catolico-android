@@ -120,7 +120,7 @@ def markdown(result):
         "4. Separar sinal observado, causa confirmada, elegibilidade para reparo e reparo executado.",
         "5. Manter casos inconclusivos como inconclusivos; nao inferir acerto ou porcentagens.",
         "",
-        f"SHA-256 da fonte: \`{result['source_sha256']}\`.",
+        f"SHA-256 da fonte: `{result['source_sha256']}`.",
         "Nenhuma acao remota, reparo, token, merge ou deploy foi executado.",
         "",
     ])
