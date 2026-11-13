@@ -344,7 +344,7 @@ jobs:
         with:
           persist-credentials: false
           path: harness
-          ref: 'e400312791267f09855237176de81639a3f68f43'
+          ref: '442e770030dbe75332b43024d784f23177302174'
       - name: Checkout historico notificacoes
         if: matrix.scenario == 'reply_notice'
         uses: actions/checkout@v4
@@ -370,7 +370,7 @@ jobs:
           test -z "$ATRIO_PUSH_WORKER_URL"
           test -z "$ATRIO_AVATAR_WORKER_URL"
           test -z "$ATRIO_GUARDIAN_V2_WORKER_URL"
-          test "$(git -C harness rev-parse HEAD)" = 'e400312791267f09855237176de81639a3f68f43'
+          test "$(git -C harness rev-parse HEAD)" = '442e770030dbe75332b43024d784f23177302174'
           test "$(git -C historical rev-parse HEAD)" = '${{ matrix.historic_sha }}'
           echo 'QA synthetic local rule coverage'
       - name: Node version do laboratorio historico
