@@ -47,17 +47,26 @@ jobs:
       ATRIO_SIGNING_KEY_PASSWORD: ''
       ATRIO_SIGNING_STORE_PASSWORD: ''
     steps:
-      - name: Obter somente o runner de QA desta PR
+      - name: Obter harness auditado por SHA imutavel (nunca checkout dinamico da PR)
         uses: actions/checkout@v4
         with:
           persist-credentials: false
           path: harness
-      - name: Obter a arvore historica EXATA (nao a main)
+          ref: '7d70daa8d97ef294ee64ec78f817b015f84e8b15'
+      - name: Obter somente o checkout historico fixo de notificacoes
+        if: matrix.scenario == 'reply_notice'
         uses: actions/checkout@v4
         with:
           persist-credentials: false
           path: historical
-          ref: ${{ matrix.historic_sha }}
+          ref: '43fac1b50ee12fa0ce1b505bf74ebabd4447e001'
+      - name: Obter somente o checkout historico fixo de conversas
+        if: matrix.scenario == 'chat_general'
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: historical
+          ref: '422d00ccbd9ef3c7dce11252be045daf656b8e09'
       - name: Bloquear fonte inesperada e identidade produtiva
         shell: bash
         run: |
@@ -69,6 +78,7 @@ jobs:
           test -z "$ATRIO_PUSH_WORKER_URL"
           test -z "$ATRIO_AVATAR_WORKER_URL"
           test -z "$ATRIO_GUARDIAN_V2_WORKER_URL"
+          test "$(git -C harness rev-parse HEAD)" = "7d70daa8d97ef294ee64ec78f817b015f84e8b15"
           test "$(git -C historical rev-parse HEAD)" = "${{ matrix.historic_sha }}"
           echo "QA forense: checkout exato, sem identidade de producao"
       - name: Preparar Node para o checkout historico
