@@ -115,3 +115,14 @@ A primeira execução \`fixture-integrity\` no [run 43515048548](https://github.
 A instrumentação usava \`row = await env.withSecurityRulesDisabled(callback)\`, pressupondo indevidamente que o método do SDK de testes entregaria o valor retornado pelo callback. Corrigi a aquisição dos booleanos para atribuir \`row\` **dentro do callback**, com sentinela explícita \`probe_unavailable\` e uma regressão offline que rejeita a antiga dependência do retorno. O novo job usa o sensor corrigido em checkout pinado pelo SHA \`f7adb919baf57b5812697a4d96a1ef6e2ad12a09\`.
 
 **Reexecutar a matriz e verificar os dois JSONs sanitizados antes de afirmar qualquer resultado sobre as fixtures.** A falha da primeira instrumentação é registrada para não contaminar a amostra causal, sem excluir resultados anteriores.
+
+### Resultado de pré-condições: notificações verificadas; convite ainda exige localização da leitura
+
+O run [43515781104](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/actions/runs/43515781104), no commit \`8e3f113eac45904bf70aad08142cb440b912d779\`, executou os dois jobs \`fixture-integrity\` com o sensor corrigido.
+
+- **Notificações:** artefato \`qa-fixture-integrity-reply_notice\` ID \`14080013348\`; \`status=all_expected_fixtures_present\`, **cinco flags verdadeiras**, \`test_exit_code=1\`. Publicação, autor, resposta citada, destinatária e perfil do remetente sintético foram confirmados; **a rejeição do batch continua**. Logo, a ausência ou divergência desses cinco campos não explica por si só o erro. A causa exata do predicado Firestore ainda está pendente.
+- **Convite:** artefato \`qa-fixture-integrity-chat_general\` ID \`14080003452\`; \`status=probe_unavailable_or_unexpected_schema\`, \`booleans={}\`, \`test_exit_code=1\`. **Não inferir** que dados do grupo estejam presentes ou ausentes a partir dessa resposta.
+
+Para o segundo cenário, adicionei uma classificação **estritamente enumerada**, sem mensagens de exceção: as leituras dos nove documentos de QA passaram a ser **sequenciais** com estágio fixo (\`read_contact\`, \`read_group\`, \`read_chat_policy\`, \`read_group_policy\`, \`read_inviter_age\`, \`read_invitee_age\`, \`read_inviter_group\`, \`read_invitee_group\`, \`read_inverse_block\`, \`evaluate_flags\`). Em caso de falha, o relatório revela apenas o estágio e uma categoria de erro de lista fechada (\`FirebaseError\`, \`TypeError\`, \`RangeError\`, \`Error\`, \`other\`) — jamais caminho de recurso não esperado, valores da resposta, pilha, tokens ou log bruto. Uma regressão offline valida as enumerações e rejeita valores arbitrários.
+
+**Apenas a branch de QA foi editada.** O novo harness foi pinado por SHA \`862098908a72bc8209b78b4909183b8dfaaecd44\`; é obrigatório examinar nova execução dos dois jobs antes de alterar os rótulos causais. Atestações humanas permanecem 0/13 e metas 90%/99% não aferidas.
