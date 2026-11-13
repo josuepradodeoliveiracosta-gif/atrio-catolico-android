@@ -36,6 +36,10 @@ class ContactDebugSafeguards(unittest.TestCase):
                          .replace(HELPER_ORIGINAL, HELPER_INSTRUMENTED, 1))
         self.assertIn("debug(validId(contactChatId))", result)
         self.assertIn("debug(get(/databases/", result)
+        self.assertIn("debug(exists(/databases/", result)
+        self.assertEqual(result.count("debug(exists("), 1)
+        self.assertIn("QA_ATRIO_CONTACT_EXISTS", result)
+        self.assertIn(".data.status == 'accepted');", result)
         self.assertEqual(result.count(CANARY_CREATE_START), 1)
         self.assertIn(CANARY, result)
         self.assertEqual(result.count(DEBUG_CALL), 1)
@@ -86,6 +90,25 @@ class ContactDebugSafeguards(unittest.TestCase):
         self.assertEqual(mixed["status"], "mixed_multiple_evaluations")
         self.assertFalse(mixed["single_evaluation"])
 
+    def test_distinguishes_missing_document_from_missing_status_value(self):
+        # Synthetic local debug excerpts only. No document IDs or values exported.
+        trace = (
+            b'string_value: "QA_ATRIO_CONTACT_EXISTS"\n'
+            b'bool_value: false\n'
+        )
+        states = classify_debug_log(trace)['guard_subexpressions']
+        self.assertEqual(states['chat_exists']['value'], 'false')
+        self.assertEqual(states['chat_accepted']['value'], 'not_observed')
+        self.assertFalse(states['chat_accepted']['marker_seen'])
+
+    def test_preserves_original_contact_status_requirement(self):
+        self.assertIn(".data.status == 'accepted'", HELPER_ORIGINAL)
+        self.assertIn(".data.status == 'accepted'", HELPER_INSTRUMENTED)
+        self.assertIn("debug(exists(/databases/", HELPER_INSTRUMENTED)
+        self.assertIn("debug(get(/databases/", HELPER_INSTRUMENTED)
+        self.assertNotIn("|| true", HELPER_INSTRUMENTED)
+        self.assertNotIn("allow create: if true", HELPER_INSTRUMENTED)
+
     def test_no_log_or_ambiguous_log_is_never_a_causal_claim(self):
         self.assertEqual(classify_debug_log(None)["status"], "log_unavailable")
         self.assertEqual(classify_debug_log(b"")[ "status"],
@@ -103,12 +126,16 @@ class ContactDebugSafeguards(unittest.TestCase):
             b'bool_value: true\n'
             b'string_value: "QA_ATRIO_CONTACT_PAIR"\n'
             b'bool_value: true\n'
+            b'string_value: "QA_ATRIO_CONTACT_EXISTS"\n'
+            b'bool_value: true\n'
             b'string_value: "QA_ATRIO_CONTACT_STATUS"\n'
         )
         stage = classify_debug_log(segmented)['guard_subexpressions']
         self.assertEqual(stage['valid_id']['value'], 'true')
         self.assertEqual(stage['canonical_pair']['value'], 'true')
+        self.assertEqual(stage['chat_exists']['value'], 'true')
         self.assertEqual(stage['chat_accepted']['value'], 'not_observed')
+        self.assertTrue(stage['chat_exists']['marker_seen'])
         self.assertTrue(stage['chat_accepted']['marker_seen'])
         self.assertNotIn('SECRET', repr(stage))
         self.assertEqual(classify_debug_log("SECRET")["status"],
