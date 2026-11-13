@@ -14,9 +14,9 @@ from scripts.ci_autofix_doc_candidate import (
     TARGET, SOURCE_BLOB_SHA1, _git_blob_sha, _pinned_source,
     patch_static_source,
 )
-from scripts.ci_autofix_doc_draft_executor import BASE, BRANCH, TITLE, BODY_PREFIX
+from scripts.ci_autofix_doc_draft_executor import BASE, BRANCH
 from scripts.ci_autofix_doc_github_adapter import (
-    ROOT, MAX_REPLY, MAX_PAYLOAD, GET_BRANCH, GET_PRS,
+    ROOT, MAX_REPLY, MAX_PAYLOAD, GET_BRANCH,
     DocGitHubAppReader, read_only_preflight, draft_write_intents,
     _decode_content,
 )
