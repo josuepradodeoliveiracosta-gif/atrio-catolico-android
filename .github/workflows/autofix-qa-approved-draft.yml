@@ -1,14 +1,12 @@
 name: Autocorrecao QA - PR draft automatica
 
-# Runs only after the trusted main/push CodeQL workflow finishes.
-# This file must be reviewed and merged to main before it can execute.
+# Archived by owner decision: automatic trigger disabled (evidence collection is
+# the primary diagnostic objective). Keep historical QA recipe, guards and writer
+# unchanged for possible future reactivation after explicit review/authorization.
+# Manual dispatch is deliberately inert: both jobs require workflow_run metadata.
 # NEVER check out a pull request head or execute data from CI artifacts.
 on:
-  workflow_run:
-    workflows:
-      - Revisão automática - CodeQL (Kotlin, JS, Python e Actions)
-    types: [completed]
-    branches: [main]
+  workflow_dispatch:
 
 concurrency:
   group: atrio-autofix-approved-main
@@ -21,6 +19,7 @@ jobs:
   preflight:
     name: Analisar receita QA sem escrita
     if: >-
+      github.event_name == 'workflow_run' &&
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.head_branch == 'main' &&
@@ -85,6 +84,7 @@ jobs:
     name: Abrir PR draft apenas para receita aprovada
     needs: preflight
     if: >-
+      github.event_name == 'workflow_run' &&
       needs.preflight.result == 'success' &&
       needs.preflight.outputs.eligible == 'true' &&
       github.event.workflow_run.conclusion == 'success' &&
