@@ -79,11 +79,19 @@ def validate_sha(sha):
 
 
 def positive_int(value):
-    try:
+    """Accept canonical GitHub run/job IDs only; never coerce floats or booleans.
+
+    The CLI receives decimal strings; verified API metadata provides integers.
+    Converting a float (e.g. 12.9 -> 12) could silently associate evidence
+    with another job and must fail before any classification takes place.
+    """
+    if type(value) is int:
+        n = value
+    elif isinstance(value, str) and re.fullmatch(r"[1-9][0-9]{0,17}", value):
         n = int(value)
-    except (ValueError, TypeError) as err:
-        raise ValueError("identificador invalido") from err
-    if n < 1 or n >= 10 ** 18:
+    else:
+        raise ValueError("identificador invalido")
+    if not 0 < n < 10 ** 18:
         raise ValueError("identificador fora do limite")
     return n
 
