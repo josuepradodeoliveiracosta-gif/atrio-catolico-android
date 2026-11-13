@@ -24,10 +24,18 @@ function qaSanitizeCoverage(document) {
   const data = Object.create(null);
   const seen = new WeakSet();
   let visited = 0;
-  function countValue(x) {
+  function countValue(x, depth=0) {
+    if (depth > 6) return 'other';
     if (x === true || x === 'true') return 'true';
     if (x === false || x === 'false') return 'false';
     if (x === null || x === 'null' || x === 'undefined') return 'null';
+    if (typeof x === 'object' && !Array.isArray(x)) {
+      for (const key of ['boolValue','booleanValue','boolean_value','value']) {
+        if (Object.prototype.hasOwnProperty.call(x,key))
+          return countValue(x[key], depth+1);
+      }
+      if (Object.prototype.hasOwnProperty.call(x,'nullValue')) return 'null';
+    }
     if (typeof x === 'string' && /^(error|undefined|null)/i.test(x)) return 'null';
     return 'other';
   }
