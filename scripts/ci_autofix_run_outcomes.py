@@ -177,10 +177,10 @@ def markdown(result):
         ],
         "",
         "**Taxa de autocorrecao real: nao calculavel.** "
-        "Metadados do workflow nao identificam o conjunto de procedimentos "
-        "elegiveis nem comprovam correcao efetiva ou aceite dos testes.",
+        + "Metadados do workflow nao identificam o conjunto de procedimentos "
+        + "elegiveis nem comprovam correcao efetiva ou aceite dos testes.",
         "Nenhuma execucao manual foi contabilizada. Sem logs, segredos, "
-        "causa raiz suposta, alteracao de PR, merge, rerun ou deploy.",
+        + "causa raiz suposta, alteracao de PR, merge, rerun ou deploy.",
         "",
     ])
 
