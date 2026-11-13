@@ -12,12 +12,11 @@ import unittest
 from urllib.error import HTTPError
 
 import scripts.ci_autofix_draft_readonly_audit as readonly_audit
-import scripts.ci_autofix_pr_draft_executor as executor_module
 
 from scripts.ci_autofix_pr_draft_executor import (
     CONFIRMATION, GitHubDraftClient, GitHubDraftReader, QA_TARGET,
     draft_transaction_preview, execute_manually_approved_draft,
-    validate_draft_manifest, verify_existing_qa_draft,
+    validate_draft_manifest, verify_existing_qa_draft, _pinned_source,
 )
 from scripts.ci_autofix_pr_draft_plan import (
     BASE_BRANCH, BRANCH_NAME, STATIC_BODY, STATIC_TITLE, draft_pr_plan,
@@ -43,7 +42,7 @@ def historical_writer_test_fixture():
     already-applied patch. This mock redirects only its extra local source
     proof to our exact-hash historical checkout, never a remote operation.
     """
-    pinned = executor_module._pinned_source
+    pinned = _pinned_source
     # Before mocking, validate the fixture's original content, all static
     # edits, sandbox rollback and hash against the reviewed recipe.
     pinned(ROOT)
@@ -53,7 +52,7 @@ def historical_writer_test_fixture():
             return pinned(ROOT)
         return pinned(checkout_root)
 
-    return patch.object(executor_module, "_pinned_source",
+    return patch("scripts.ci_autofix_pr_draft_executor._pinned_source",
                         side_effect=source_for_test)
 
 
