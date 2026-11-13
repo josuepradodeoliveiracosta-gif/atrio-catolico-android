@@ -69,3 +69,21 @@ A nova job matrix `cached-predicate` testa dois controles com **apenas uma mudan
 Em ambos, o investigador cria **um controle original e uma variante**, cada qual com Firestore Emulator novo, fixtures e verificações positivas/negativas históricas idênticas, sempre `demo-atrio-v11`. As regras da `main` e o histórico do repositório não são alterados; as variantes somente existem dentro do checkout descartável do runner. O instrumento gera JSON sanitizado com código de saída, estágio, SHA da Rules e indicadores de resultado, sem logs brutos.
 
 **Atenção:** mover uma leitura repetida para `let` pode antecipar avaliação em um caso negativo; tal alteração ainda é **somente contrafactual** e não constitui reparo seguro de produção sem validar todos os casos negativos. Se o positivo continuar falhando, a redução isolada não explica a causa. Se passar, será necessária investigação do orçamento de Rules, confirmação semântica e revisão independente. Nenhum sucesso da matriz satisfaz automaticamente as metas 90% e 99%.
+
+## Etapa 19 — cobertura de expressões durante a falha, sem valores privados
+
+O Firebase documenta um endpoint JSON de cobertura das Security Rules, consultável **enquanto o emulador está em execução**: [relatórios do emulador](https://firebase.google.com/docs/rules/emulator-reports). Os dois laboratórios históricos configuram o Firestore Emulator na porta **8089** e o projeto fictício **\`demo-atrio-v11\`**; não usar o endereço de nenhum Firebase externo.
+
+O job \`rule-coverage\` da branch interna usa exclusivamente dois checkouts **SHA literal e auditado** e roda o teste original com um sensor adicionado **somente à cópia efêmera do teste**:
+
+- \`reply_notice\`: consulta \`http://127.0.0.1:8089/emulator/v1/projects/demo-atrio-v11:ruleCoverage\` imediatamente antes e após o caso positivo \`resposta direta com aviso ao autor e destinatario passa\` (\`direct_both\`).
+- \`chat_general\`: faz as mesmas duas consultas ao redor de \`await assertSucceeds(newInvite())\`, no estágio da linha 402 do checkout histórico.
+- Cada consulta ocorre **dentro do processo Node que executa o teste**: o Firestore Emulator permanece ligado em ambas as consultas. \`try/finally\` preserva a falha esperada e tenta coletar a cobertura mesmo após a rejeição.
+
+A rotina JavaScript consome a resposta JSON **somente em memória** e imprime para seu processo pai exclusivamente contadores numéricos \`t/f/n/o\` por posição de linha/coluna, com limites estritos de profundidade, tamanho e quantidade. O Python captura a saída inteira na memória, seleciona apenas os marcadores gerados pelo sensor e calcula **diferenças de avaliação antes/depois**, ordenando no relatório até 70 posições por contagem de erros/nulos e falsos. **Jamais exportar** HTML, regras textuais, valores de documentos, strings dos avaliadores, capturas de tela, tokens ou logs completos.
+
+Sem cobertura disponível, formato compatível, posição válida ou contadores monotônicos, o resultado deve ser \`unavailable\`/outro código fechado, **nunca uma causa inventada**. Observações registradas são valores agregados do Emulator e **não provam por si mesmas** qual condição é responsável pela negação, tampouco substituem reprodução diferencial e revisão independente.
+
+**Segurança e limites:** projeto exclusivamente \`demo-atrio-v11\`, conexões HTTP só para \`127.0.0.1:8089\`, nenhuma permissão GitHub de escrita, configuração de acesso produtivo recusada, dados QA sintéticos, os arquivos históricos oficiais preservados. A branch/PR continuam rascunho, sem merge, deploy, rerun histórico ou alteração de backups.
+
+**Critério de aceite:** dois jobs \`rule-coverage\` concluídos e seus relatórios JSON sanitizados examinados, com indicação de \`coverage.status\` e contadores da etapa específica. Se o sensor retornar \`unavailable\`, investigar somente a compatibilidade do formato/endereço em nova branch e **não** elevar o progresso causal.
