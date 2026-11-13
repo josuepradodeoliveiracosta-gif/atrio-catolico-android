@@ -76,7 +76,8 @@ def instrument_historical_test(source, case):
     else:
         # Observe the last top-level awaited step in this synthetic QA suite,
         # without changing its assertions, permission grants or call ordering.
-        if source.count("try {\n  await env.clearFirestore();") != 1:
+        if (source.count("try {\n await env.clearFirestore();") +
+                source.count("try {\n  await env.clearFirestore();") != 1):
             raise ValueError("unexpected historic chat test structure")
         lines = source.splitlines(keepends=True)
         output_lines = []
@@ -85,9 +86,10 @@ def instrument_historical_test(source, case):
         for number, line in enumerate(lines, start=1):
             if line == "try {\n":
                 active = True
-            if active and line.startswith("  await "):
+            indent = len(line) - len(line.lstrip(" "))
+            if active and indent in (1, 2) and line[indent:].startswith("await "):
                 output_lines.append(
-                    "  console.log('QA_FORENSIC_STAGE:chat_line_" +
+                    " " * indent + "console.log('QA_FORENSIC_STAGE:chat_line_" +
                     str(number) + "');\n")
                 count += 1
             output_lines.append(line)
