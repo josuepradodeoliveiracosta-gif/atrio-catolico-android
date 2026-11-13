@@ -76,6 +76,25 @@ class CoverageSafeguards(unittest.TestCase):
                          'QA_RULECOV_after:' + json.dumps(valid))['status'],
                          'invalid_coverage_markers')
 
+    def test_nested_emulator_boolean_values_are_not_leaked(self):
+        import shutil
+        import subprocess
+        if not shutil.which('node'):
+            self.skipTest('node not available for JS coverage decoder')
+        sample = "const row=" + json.dumps({
+            "expressionReports": [
+                {"sourcePosition":{"line":33,"column":4},"values":[{"count":2,"value":{"value":{"boolValue":False}}}]},
+                {"sourcePosition":{"line":34,"column":5},"values":[{"count":3,"value":{"booleanValue":True}}]},
+                {"sourcePosition":{"line":35,"column":6},"values":[{"count":1,"value":{"nullValue":0}}]}
+            ]}) + ";console.log(JSON.stringify(qaSanitizeCoverage(row)));"
+        p = subprocess.run(['node', '--input-type=module', '-e', JS_PROBE + sample],
+                           capture_output=True, text=True, timeout=15)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        report = json.loads(p.stdout)
+        self.assertEqual(report['counters']['33:4']['f'], 2)
+        self.assertEqual(report['counters']['34:5']['t'], 3)
+        self.assertEqual(report['counters']['35:6']['n'], 1)
+
     def test_oversized_log_is_not_retained(self):
         from scripts.ci_historic_firestore_coverage import COVERAGE_MAX_LOG
         result = interpret_coverage('SECRET=' + 'z'*(COVERAGE_MAX_LOG+1))
