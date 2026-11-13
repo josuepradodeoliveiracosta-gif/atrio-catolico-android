@@ -118,6 +118,23 @@ class LiveDocumentPinTests(unittest.TestCase):
         self.assertEqual(result['target'], candidate.TARGET)
         self.assertTrue(result['sandbox_rollback_verified'])
 
+    def test_fixture_accepts_exact_applied_document_without_changing_it(self):
+        root = Path(__file__).resolve().parents[1]
+        original = original_document_for_test(root)
+        patched = candidate.patch_static_source(original.decode("utf-8")).encode("utf-8")
+        with TemporaryDirectory(prefix="atrio-qa-patched-") as folder:
+            checkout = Path(folder)
+            target = checkout / candidate.TARGET
+            target.parent.mkdir(parents=True)
+            target.write_bytes(patched)
+            with pinned_doc_checkout(checkout) as fixture:
+                self.assertEqual(candidate._pinned_source(fixture).encode("utf-8"), original)
+                self.assertEqual(
+                    candidate.preview_doc_candidate(fixture)["source_blob_sha1"],
+                    candidate.SOURCE_BLOB_SHA1,
+                )
+            self.assertEqual(target.read_bytes(), patched)
+
     def test_test_fixture_rejects_unapproved_document_drift(self):
         root = Path(__file__).resolve().parents[1]
         original = original_document_for_test(root)
