@@ -1,9 +1,9 @@
 """Offline safety tests for the approved GitHub App QA draft workflow."""
 from copy import deepcopy
-import io
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 import unittest
 
 from scripts.ci_autofix_automatic_gate import (
@@ -141,26 +141,28 @@ class ApprovedAutofixTests(unittest.TestCase):
         plan = draft_pr_plan(handoff, ROOT, live())
         with TemporaryDirectory() as td:
             folder = Path(td)
-            efile, hfile, pfile, output = (
-                folder / "event.json", folder / "handoff.json",
-                folder / "manifest.json", folder / "github-output")
-            efile.write_text(json.dumps(event), encoding="utf-8")
+            hfile, pfile, output = (
+                folder / "handoff.json", folder / "manifest.json",
+                folder / "github-output")
             hfile.write_text(json.dumps(handoff), encoding="utf-8")
             pfile.write_text(json.dumps(plan), encoding="utf-8")
-            context = {**env, "GITHUB_EVENT_PATH": str(efile),
+            context = {**env, "GITHUB_EVENT_PATH": "offline-in-memory-event",
                        "GITHUB_OUTPUT": str(output)}
             argv = ["--phase", "select", "--checkout-root", str(ROOT),
                     "--handoff", str(hfile), "--manifest", str(pfile)]
-            self.assertEqual(main(argv, env=context), 0)
-            self.assertEqual(output.read_text(), "eligible=true\nsource_sha="
-                             + SHA + "\n")
-            # A writer cannot be invoked from Termux or with only a PAT.
-            with self.assertRaises(PermissionError):
-                main(["--phase", "write", *argv[2:]],
-                     env={**context, "GITHUB_ACTIONS": "false",
-                          "ATRIO_AUTOFIX_APP_TOKEN": "fake"})
-            with self.assertRaises(PermissionError):
-                main(["--phase", "write", *argv[2:]], env=context)
+            # Keep the mock event in memory: never persist event data to disk.
+            with patch("scripts.ci_autofix_automatic_gate.read_event_file",
+                       return_value=event):
+                self.assertEqual(main(argv, env=context), 0)
+                self.assertEqual(output.read_text(), "eligible=true\nsource_sha="
+                                 + SHA + "\n")
+                # A writer cannot be invoked from Termux or with only a PAT.
+                with self.assertRaises(PermissionError):
+                    main(["--phase", "write", *argv[2:]],
+                         env={**context, "GITHUB_ACTIONS": "false",
+                              "ATRIO_AUTOFIX_APP_TOKEN": "fake"})
+                with self.assertRaises(PermissionError):
+                    main(["--phase", "write", *argv[2:]], env=context)
 
     def test_workflow_privilege_and_provenance_contract(self):
         wf = WORKFLOW.read_text(encoding="utf-8")
