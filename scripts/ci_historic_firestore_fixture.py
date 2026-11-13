@@ -35,16 +35,16 @@ KEYS = {"reply_notice": NOTICE_KEYS, "chat_general": CHAT_KEYS}
 
 NOTICE_SENSOR = r'''
 async function qaSyntheticFixtureProbe() {
-  let row;
+  let row = {probe_unavailable:true};
   try {
-    row = await env.withSecurityRulesDisabled(async ctx => {
+    await env.withSecurityRulesDisabled(async ctx => {
       const db = ctx.firestore();
       const [post, seed, profile] = await Promise.all([
         getDoc(doc(db,'posts',postId)),
         getDoc(doc(db,'posts',postId,'replies','lucia_seed')),
         getDoc(doc(db,'profiles',mi))
       ]);
-      return {
+      row = {
         post_exists: post.exists(),
         post_owner_is_expected: post.exists() && post.data()?.uid === ca,
         cited_reply_exists: seed.exists(),
@@ -61,9 +61,9 @@ async function qaSyntheticFixtureProbe() {
 
 CHAT_SENSOR = r'''
 async function qaSyntheticFixtureProbe() {
-  let row;
+  let row = {probe_unavailable:true};
   try {
-    row = await env.withSecurityRulesDisabled(async ctx => {
+    await env.withSecurityRulesDisabled(async ctx => {
       const db = ctx.firestore();
       const [contact, group, conversations, groupsPolicy, inviterAge,
              inviteeAge, inviterGroup, inviteeGroup, inverseBlock] = await Promise.all([
@@ -82,7 +82,7 @@ async function qaSyntheticFixtureProbe() {
          s.data()?.minimumAge === 16 && s.data()?.policyVersion === '2026-11-16plus-qa-v1';
       const groupValid = s => expiryValid(s) && s.data()?.status === 'approved' &&
          s.data()?.policyVersion === '2026-11-group-safety-v1';
-      return {
+      row = {
         chat_exists: contact.exists(),
         chat_status_accepted: contact.exists() && contact.data()?.status === 'accepted',
         group_exists: group.exists(),
