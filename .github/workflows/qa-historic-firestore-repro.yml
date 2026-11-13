@@ -12,6 +12,8 @@ on:
       - 'scripts/test_ci_historic_firestore_differential.py'
       - 'scripts/ci_historic_firestore_predicate.py'
       - 'scripts/test_ci_historic_firestore_predicate.py'
+      - 'scripts/ci_historic_firestore_coverage.py'
+      - 'scripts/test_ci_historic_firestore_coverage.py'
       - 'docs/ci/diagnosticos-etapa16-reproducao-firestore-2026-11-13.md'
 
 permissions:
@@ -305,5 +307,100 @@ jobs:
         with:
           name: qa-cached-predicate-${{ matrix.scenario }}
           path: ${{ runner.temp }}/qa-cached-predicate-${{ matrix.scenario }}.json
+          if-no-files-found: warn
+          retention-days: 7
+
+  rule-coverage:
+    # QA-only same-fixture comparison; original historical files stay untouched upstream.
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'test/qa-historic-firestore-repro-20261113'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - scenario: reply_notice
+            historic_sha: '43fac1b50ee12fa0ce1b505bf74ebabd4447e001'
+            node_version: '20'
+            java_version: '17'
+          - scenario: chat_general
+            historic_sha: '422d00ccbd9ef3c7dce11252be045daf656b8e09'
+            node_version: '22'
+            java_version: '21'
+    env:
+      GOOGLE_CLOUD_PROJECT: demo-atrio-v11
+      FIREBASE_TOKEN: ''
+      GOOGLE_APPLICATION_CREDENTIALS: ''
+      GCLOUD_PROJECT: ''
+      ATRIO_PUSH_WORKER_URL: ''
+      ATRIO_AVATAR_WORKER_URL: ''
+      ATRIO_GUARDIAN_V2_WORKER_URL: ''
+      ATRIO_SIGNING_STORE_PASSWORD: ''
+      ATRIO_SIGNING_KEY_PASSWORD: ''
+    steps:
+      - name: Checkout do investigador imutavel
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: harness
+          ref: '43a437e7b3dfec6b953120c6eb0835dd84dd5328'
+      - name: Checkout historico notificacoes
+        if: matrix.scenario == 'reply_notice'
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: historical
+          ref: '43fac1b50ee12fa0ce1b505bf74ebabd4447e001'
+      - name: Checkout historico conversas
+        if: matrix.scenario == 'chat_general'
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: historical
+          ref: '422d00ccbd9ef3c7dce11252be045daf656b8e09'
+      - name: Preflight sem recursos e tokens reais
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GOOGLE_CLOUD_PROJECT" = "demo-atrio-v11"
+          test -z "$FIREBASE_TOKEN"
+          test -z "$GOOGLE_APPLICATION_CREDENTIALS"
+          test -z "$GCLOUD_PROJECT"
+          test -z "$ATRIO_PUSH_WORKER_URL"
+          test -z "$ATRIO_AVATAR_WORKER_URL"
+          test -z "$ATRIO_GUARDIAN_V2_WORKER_URL"
+          test "$(git -C harness rev-parse HEAD)" = '43a437e7b3dfec6b953120c6eb0835dd84dd5328'
+          test "$(git -C historical rev-parse HEAD)" = '${{ matrix.historic_sha }}'
+          echo 'QA synthetic local rule coverage'
+      - name: Node version do laboratorio historico
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node_version }}
+      - name: Java para emulador isolado
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java_version }}
+      - name: Testes offline do coletor local sanitizado
+        working-directory: harness
+        run: python3 -m unittest scripts.test_ci_historic_firestore_coverage scripts.test_ci_historic_firestore_differential -v
+      - name: Dependencias fixadas pelo lockfile historico
+        working-directory: historical/tests/security
+        run: npm ci --ignore-scripts
+      - name: Observar ruleCoverage somente no teste positivo final
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH="$GITHUB_WORKSPACE/harness" python3 harness/scripts/ci_historic_firestore_coverage.py \
+            --scenario ${{ matrix.scenario }} \
+            --historical "$GITHUB_WORKSPACE/historical" \
+            --output "$RUNNER_TEMP/qa-rule-coverage-${{ matrix.scenario }}.json"
+      - name: Arquivar somente contagens locais sanitizadas
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-rule-coverage-${{ matrix.scenario }}
+          path: ${{ runner.temp }}/qa-rule-coverage-${{ matrix.scenario }}.json
           if-no-files-found: warn
           retention-days: 7
