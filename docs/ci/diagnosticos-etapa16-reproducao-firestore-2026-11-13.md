@@ -107,3 +107,11 @@ O job \`fixture-integrity\` usa o script \`scripts/ci_historic_firestore_fixture
 - Mesmo se todas as fixtures forem consistentes, a rejeição poderá resultar de complexidade de regras, orçamento de operações, semântica da avaliação ou outro fator. É uma **verificação de pré-condições**, não uma causa comprovada ou correção.
 
 **Métricas separadas:** revisão independente \`0/13\`; diagnóstico causal de 90% e reparos elegíveis de 99% **não medidos**. A validação de segurança do novo job e a execução dos dois artefatos são exigidas antes de declarar o marco concluído. A PR continua em rascunho, sem merge, sem alteração da \`main\` ou produção.
+
+### Retificação do primeiro ensaio de integridade das fixtures
+
+A primeira execução \`fixture-integrity\` no [run 43515048548](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/actions/runs/43515048548) **não produziu os indicadores esperados**: ambos os jobs concluíram como ensaios, mas o relatório \`reply_notice\` marcou \`invalid_marker\` e \`chat_general\` marcou \`probe_unavailable_or_unexpected_schema\`. Esses códigos **não são** provas de fixtures ausentes nem de causas raiz. Seus testes históricos seguiram encerrando com exit \`1\`.
+
+A instrumentação usava \`row = await env.withSecurityRulesDisabled(callback)\`, pressupondo indevidamente que o método do SDK de testes entregaria o valor retornado pelo callback. Corrigi a aquisição dos booleanos para atribuir \`row\` **dentro do callback**, com sentinela explícita \`probe_unavailable\` e uma regressão offline que rejeita a antiga dependência do retorno. O novo job usa o sensor corrigido em checkout pinado pelo SHA \`f7adb919baf57b5812697a4d96a1ef6e2ad12a09\`.
+
+**Reexecutar a matriz e verificar os dois JSONs sanitizados antes de afirmar qualquer resultado sobre as fixtures.** A falha da primeira instrumentação é registrada para não contaminar a amostra causal, sem excluir resultados anteriores.
