@@ -11,6 +11,7 @@ from scripts.ci_autofix_doc_candidate import _pinned_source, patch_static_source
 from scripts.ci_autofix_doc_draft_executor import BRANCH, BASE
 from scripts.ci_autofix_doc_github_adapter import ROOT, GET_BRANCH, GET_BASE_FILE, GET_INSTALLATION, GET_MAIN, GET_PRS, SOURCE_BLOB_SHA1
 from scripts.ci_quality_report import REPO
+from scripts.qa_doc_test_fixture import pinned_doc_checkout
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 BASE_SHA = "a" * 40
@@ -35,9 +36,9 @@ class Response:
 class FakeGitHub:
     """A stateful fake API. No API calls ever leave this test process."""
 
-    def __init__(self, fault=None):
+    def __init__(self, fault=None, *, checkout_root=ROOT_DIR):
         self.fault = fault
-        self.source = _pinned_source(ROOT_DIR)
+        self.source = _pinned_source(checkout_root)
         self.patched = patch_static_source(self.source)
         self.main = BASE_SHA
         self.branch = False
@@ -173,17 +174,20 @@ class FakeGitHub:
 
 class LiveWriteTests(unittest.TestCase):
     def setUp(self):
-        self.before = (ROOT_DIR / TARGET).read_bytes()
+        self.fixture = pinned_doc_checkout(ROOT_DIR)
+        self.checkout = self.fixture.__enter__()
+        self.addCleanup(self.fixture.__exit__, None, None, None)
+        self.before = (self.checkout / TARGET).read_bytes()
 
     def tearDown(self):
-        self.assertEqual((ROOT_DIR / TARGET).read_bytes(), self.before)
+        self.assertEqual((self.checkout / TARGET).read_bytes(), self.before)
 
     def execute(self, fault=None, approval=live.APPROVAL, sha=BASE_SHA):
-        fake = FakeGitHub(fault=fault)
+        fake = FakeGitHub(fault=fault, checkout_root=self.checkout)
         client = live.DocumentDraftAppTransport("unit-test-fake-token", opener=fake)
         try:
             result = live.execute_manually_authorized_document_draft(
-                ROOT_DIR, sha, approval, client)
+                self.checkout, sha, approval, client)
             return fake, result
         except Exception as exc:
             self.last_fake = fake
@@ -217,7 +221,7 @@ class LiveWriteTests(unittest.TestCase):
             self.assertEqual(self.last_fake.calls, [])
         with self.assertRaises(PermissionError):
             live.execute_manually_authorized_document_draft(
-                ROOT_DIR, BASE_SHA, live.APPROVAL, object())
+                self.checkout, BASE_SHA, live.APPROVAL, object())
 
     def test_sha_invalid_blocks_without_calls(self):
         with self.assertRaises(ValueError):
@@ -227,7 +231,7 @@ class LiveWriteTests(unittest.TestCase):
     def test_token_required_and_unexpected_methods_rejected(self):
         with self.assertRaises(PermissionError):
             live.DocumentDraftAppTransport("")
-        fake = FakeGitHub()
+        fake = FakeGitHub(checkout_root=self.checkout)
         client = live.DocumentDraftAppTransport("unit-test-fake-token", opener=fake)
         for method, path in (("DELETE", "/git/refs"), ("PATCH", "/pulls"),
                              ("POST", "/repos/other"), ("GET", "/users/test"),
@@ -237,9 +241,9 @@ class LiveWriteTests(unittest.TestCase):
         self.assertEqual(fake.calls, [])
 
     def test_cannot_send_intent_without_private_transaction_gate(self):
-        fake = FakeGitHub()
+        fake = FakeGitHub(checkout_root=self.checkout)
         client = live.DocumentDraftAppTransport("unit-test-fake-token", opener=fake)
-        plan = live.draft_write_intents(ROOT_DIR, BASE_SHA)
+        plan = live.draft_write_intents(self.checkout, BASE_SHA)
         with self.assertRaises(PermissionError):
             client._send_reviewed(plan, 0, gate=object())
         with self.assertRaises(PermissionError):
