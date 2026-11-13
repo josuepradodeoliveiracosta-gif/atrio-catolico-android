@@ -137,7 +137,7 @@ def main(argv=None, *, env=None):
     if not isinstance(token, str) or not token or len(token) > 4096:
         raise PermissionError("token temporario de instalacao GitHub App ausente")
     client = GitHubDraftClient(token)
-    result = execute_trusted_automatic_draft(
+    execute_trusted_automatic_draft(
         plan, handoff, event, environment, args.checkout_root, client)
     # Remote response can contain untrusted metadata. Never echo it to CI logs.
     print("Transacao QA concluida: PR draft sujeita a revisao humana")
