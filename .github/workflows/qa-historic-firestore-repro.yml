@@ -1,0 +1,104 @@
+name: QA forense - reproduzir Firestore historico no Emulator
+
+# Experimento sem producao, somente PR de QA com source SHA fixado.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/qa-historic-firestore-repro.yml'
+      - 'scripts/ci_historic_firestore_repro.py'
+      - 'scripts/test_ci_historic_firestore_repro.py'
+      - 'docs/ci/diagnosticos-etapa16-reproducao-firestore-2026-11-13.md'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: historic-firestore-repro-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  emulator-only:
+    # Never execute on forks or an unrelated branch.
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'test/qa-historic-firestore-repro-20261113'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - scenario: reply_notice
+            historic_sha: '43fac1b50ee12fa0ce1b505bf74ebabd4447e001'
+            node_version: '20'
+            java_version: '17'
+          - scenario: chat_general
+            historic_sha: '422d00ccbd9ef3c7dce11252be045daf656b8e09'
+            node_version: '22'
+            java_version: '21'
+    env:
+      GOOGLE_CLOUD_PROJECT: demo-atrio-v11
+      FIREBASE_TOKEN: ''
+      GOOGLE_APPLICATION_CREDENTIALS: ''
+      GCLOUD_PROJECT: ''
+      ATRIO_PUSH_WORKER_URL: ''
+      ATRIO_AVATAR_WORKER_URL: ''
+      ATRIO_GUARDIAN_V2_WORKER_URL: ''
+      ATRIO_SIGNING_KEY_PASSWORD: ''
+      ATRIO_SIGNING_STORE_PASSWORD: ''
+    steps:
+      - name: Obter somente o runner de QA desta PR
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: harness
+      - name: Obter a arvore historica EXATA (nao a main)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: historical
+          ref: ${{ matrix.historic_sha }}
+      - name: Bloquear fonte inesperada e identidade produtiva
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GOOGLE_CLOUD_PROJECT" = "demo-atrio-v11"
+          test -z "$FIREBASE_TOKEN"
+          test -z "$GOOGLE_APPLICATION_CREDENTIALS"
+          test -z "$GCLOUD_PROJECT"
+          test -z "$ATRIO_PUSH_WORKER_URL"
+          test -z "$ATRIO_AVATAR_WORKER_URL"
+          test -z "$ATRIO_GUARDIAN_V2_WORKER_URL"
+          test "$(git -C historical rev-parse HEAD)" = "${{ matrix.historic_sha }}"
+          echo "QA forense: checkout exato, sem identidade de producao"
+      - name: Preparar Node para o checkout historico
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node_version }}
+      - name: Preparar Java para Firestore Emulator
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java_version }}
+      - name: Testes do classificador forense (sem rede)
+        working-directory: harness
+        run: python3 -m unittest scripts.test_ci_historic_firestore_repro -v
+      - name: Instalar apenas as dependencias fixadas pelo lockfile historico
+        working-directory: historical/tests/security
+        run: npm ci --ignore-scripts
+      - name: Executar candidato historico somente no Firestore Emulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 harness/scripts/ci_historic_firestore_repro.py \
+            --scenario ${{ matrix.scenario }} \
+            --historical "$GITHUB_WORKSPACE/historical" \
+            --output "$RUNNER_TEMP/qa-historic-${{ matrix.scenario }}.json"
+      - name: Arquivar somente o sumario JSON sanitizado
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-historic-firestore-${{ matrix.scenario }}
+          path: ${{ runner.temp }}/qa-historic-${{ matrix.scenario }}.json
+          if-no-files-found: warn
+          retention-days: 7
