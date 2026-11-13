@@ -41,6 +41,7 @@ jobs:
           set -euo pipefail
           python3 scripts/ci_quality_report.py \
             --sha "$CI_TARGET_SHA" \
+            --source-event "$CI_SOURCE_EVENT" \
             --json ci-report.json \
             --markdown ci-report.md
           # Reutiliza JSON ja coletado: nenhuma chamada de API adicional.

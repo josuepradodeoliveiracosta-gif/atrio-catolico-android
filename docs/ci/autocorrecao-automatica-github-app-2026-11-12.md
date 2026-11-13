@@ -4,6 +4,38 @@
 Não se deve considerar a automação concluída antes de configurar o GitHub App,
 integrar o workflow mediante aprovação e observar uma execução real elegível.
 
+## Ordem obrigatória de integração (revisão de 12/11/2026)
+
+**Não fazer merge automático.** Os checks verdes de cada PR isolada não
+validam sozinhos a composição dos dois conjuntos de alterações.
+
+1. Revisar a **PR #261 primeiro**, pois ela adiciona ao relator de CI
+   a opção `--source-event` (mantendo `unknown` como padrão).
+   Esta PR modifica apenas `scripts/ci_quality_report.py`. Exigir
+   aprovação humana e checks atuais antes de integrar.
+2. Revalidar **PR #260 contra a `main` já contendo #261**:
+   os workflows desta PR passam agora `--source-event` ao relator.
+   Essa CLI não existe antes de #261, portanto **integrar #260 primeiro
+   quebraria os jobs de relatório**. Os testes históricos da receita
+   em #260 preservam a versão original em sandbox e testam o estado
+   real `already_applied` sem criar segunda PR.
+3. Verificar CI completa no SHA ou merge-result correspondente à
+   **combinação**. Se a proteção de branch exigir atualização,
+   tratar a atualização em branch de revisão, preservando trabalho
+   alheio. Não declarar a combinação validada apenas por 6/6 de cada
+   HEAD independente.
+4. Somente após autorização expressa, integrar #260 e observar o
+   diagnóstico no primeiro evento seguro `main/push`. O job escritor
+   deve permanecer inelegível quando a correção já existir; não
+   forçar nova correção para testar a chave privada. Uma prova de
+   token de instalação sem escrita pode ser planejada separadamente
+   para a etapa de validação real.
+
+**A GitHub App e a proteção do ambiente foram configuradas pelo
+proprietário**; o segredo foi informado como cadastrado. Os valores
+não são acessíveis ao assistente nem devem ser publicados. A execução
+real do token e dos novos workflows continua não verificada.
+
 ## Comportamento esperado após aprovação e integração
 
 1. O workflow CodeQL termina com sucesso para um `push` legítimo na

@@ -57,7 +57,7 @@ jobs:
           CI_TARGET_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
-          python3 scripts/ci_quality_report.py --sha "$CI_TARGET_SHA" --json ci-report.json --markdown ci-report.md
+          python3 scripts/ci_quality_report.py --sha "$CI_TARGET_SHA" --source-event push --json ci-report.json --markdown ci-report.md
           python3 -m scripts.ci_diagnostic_snapshot --report-json ci-report.json --output-json ci-diagnostics.json --markdown ci-report.md
           python3 -m scripts.ci_log_identity_verifier --diagnostics ci-diagnostics.json --json ci-job-evidence.json --markdown ci-report.md
           python3 -m scripts.ci_log_safe_analysis --diagnostics ci-diagnostics.json --identity ci-job-evidence.json --json ci-log-signals.json --markdown ci-report.md

@@ -332,6 +332,12 @@ class DraftPlanTests(unittest.TestCase):
         self.assertNotIn(": write", permissions)
         self.assertIn("ci-autofix-pr-draft-plan.json", text)
         self.assertIn("scripts.ci_autofix_pr_draft_plan", text)
+        # The report must receive the same trusted GitHub event as handoff.
+        # This option is added by PR #261; PR #261 merges before PR #260.
+        self.assertIn('--source-event "$CI_SOURCE_EVENT"', text)
+        self.assertIn('--source-event "$CI_SOURCE_EVENT"', text.split(
+            "python3 scripts/ci_quality_report.py", 1)[1].split(
+            "python3 -m scripts.ci_diagnostic_snapshot", 1)[0])
 
     def test_cli_blocked_handoff_does_not_need_token_or_write_repo(self):
         a, b, c = sample()

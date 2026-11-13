@@ -177,6 +177,10 @@ class ApprovedAutofixTests(unittest.TestCase):
         self.assertEqual(wf.count("persist-credentials: false"), 2)
         self.assertEqual(wf.count("ref: main"), 2)
         self.assertIn("github.event.workflow_run.event == 'push'", wf)
+        # Trusted preflight must pass push metadata to the patched reporter;
+        # an implicit 'unknown' would hide the PR-only check interpretation.
+        self.assertIn("scripts/ci_quality_report.py --sha", wf)
+        self.assertIn("--source-event push", wf)
         self.assertIn("github.event.workflow_run.head_branch == 'main'", wf)
         self.assertIn("github.event.workflow_run.head_repository.full_name", wf)
         self.assertIn("cancel-in-progress: false", wf)
