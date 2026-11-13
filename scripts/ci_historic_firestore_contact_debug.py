@@ -29,7 +29,11 @@ DEBUG_CALL = CONTACT_CALL.replace(
     "&& atrioGroupAcceptedContact(", "&& debug(atrioGroupAcceptedContact(", 1
 ).replace("request.resource.data.contactChatId);", "request.resource.data.contactChatId));", 1)
 
-DEBUG_LINE = re.compile(r"(?m)^\s*bool_value:\s*(true|false)\s*$")
+CANARY = "QA_ATRIO_CONTACT_CREATE_CANARY"
+CANARY_CREATE_START = CREATE_START.replace(
+    "if ", "if debug('" + CANARY + "') == '" + CANARY + "' && ", 1)
+CANARY_LINE = re.compile(r"string_value:\s*[\"']" + CANARY + r"[\"']")
+DEBUG_LINE = re.compile(r"\bbool_value:\s*(true|false)\b")
 MAX_DEBUG_BYTES = 8 * 1024 * 1024
 
 
@@ -56,10 +60,11 @@ def instrument_contact_debug(source):
     ):
         if guard not in segment:
             raise ValueError("mandatory guard absent")
-    changed = source[:begin] + segment.replace(
-        CONTACT_CALL, DEBUG_CALL, 1
-    ) + source[end:]
-    if changed == source or changed.count(DEBUG_CALL) != 1:
+    scoped = segment.replace(CONTACT_CALL, DEBUG_CALL, 1)
+    scoped = scoped.replace(CREATE_START, CANARY_CREATE_START, 1)
+    changed = source[:begin] + scoped + source[end:]
+    if (changed == source or changed.count(DEBUG_CALL) != 1
+            or changed.count(CANARY_CREATE_START) != 1):
         raise ValueError("debug wrapping was not unique")
     # This is instrumentation, not a new allow rule or a bypass.
     assert DEBUG_CALL.replace(
@@ -77,6 +82,8 @@ def classify_debug_log(data):
         return {"status": "log_unavailable_or_oversized", "true_count": 0,
                 "false_count": 0}
     raw = data.decode("utf-8", errors="replace")
+    canary_seen = bool(CANARY_LINE.search(raw))
+    bool_keyword_seen = "bool_value" in raw
     values = DEBUG_LINE.findall(raw)
     if len(values) > 100:
         return {"status": "too_many_debug_values", "true_count": 0,
@@ -89,9 +96,13 @@ def classify_debug_log(data):
         status = "only_true_observed"
     elif f:
         status = "only_false_observed"
+    elif canary_seen:
+        status = "canary_seen_boolean_absent"
     else:
-        status = "no_boolean_debug_observed"
+        status = "canary_and_boolean_absent"
     return {"status": status, "true_count": t, "false_count": f,
+            "canary_marker_seen": canary_seen,
+            "bool_keyword_seen": bool_keyword_seen,
             "single_evaluation": len(values) == 1,
             "guard_value_is_not_independent_causal_proof": True}
 
