@@ -1,0 +1,140 @@
+name: Autocorrecao QA - PR draft automatica
+
+# Runs only after the trusted main/push CodeQL workflow finishes.
+# This file must be reviewed and merged to main before it can execute.
+# NEVER check out a pull request head or execute data from CI artifacts.
+on:
+  workflow_run:
+    workflows:
+      - Revisão automática - CodeQL (Kotlin, JS, Python e Actions)
+    types: [completed]
+    branches: [main]
+
+concurrency:
+  group: atrio-autofix-approved-main
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    name: Analisar receita QA sem escrita
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    permissions:
+      contents: read
+      checks: read
+      actions: read
+      pull-requests: read
+    outputs:
+      eligible: ${{ steps.intent.outputs.eligible }}
+      source_sha: ${{ steps.intent.outputs.source_sha }}
+    steps:
+      - name: Checkout SOMENTE de main, sem persistir credenciais
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Conferir evento de origem e SHA contra a main atual
+        env:
+          CI_TARGET_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CI_TARGET_SHA"
+          python3 -m scripts.ci_autofix_automatic_gate --phase event
+      - name: Validar contratos de automacao em memoria
+        run: |
+          python3 -m unittest scripts.test_ci_autofix_automatic_gate scripts.test_ci_autofix_pr_draft_executor scripts.test_ci_autofix_pr_draft_plan -v
+      - name: Gerar diagnostico e proposta de PR usando apenas leituras
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CI_TARGET_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci_quality_report.py --sha "$CI_TARGET_SHA" --source-event push --json ci-report.json --markdown ci-report.md
+          python3 -m scripts.ci_diagnostic_snapshot --report-json ci-report.json --output-json ci-diagnostics.json --markdown ci-report.md
+          python3 -m scripts.ci_log_identity_verifier --diagnostics ci-diagnostics.json --json ci-job-evidence.json --markdown ci-report.md
+          python3 -m scripts.ci_log_safe_analysis --diagnostics ci-diagnostics.json --identity ci-job-evidence.json --json ci-log-signals.json --markdown ci-report.md
+          python3 -m scripts.ci_autofix_policy --diagnostics ci-diagnostics.json --identity ci-job-evidence.json --signals ci-log-signals.json --json ci-remediation-plan.json --markdown ci-report.md
+          python3 -m scripts.ci_autofix_sandbox --plan ci-remediation-plan.json --checkout-root . --json ci-autofix-preview.json
+          python3 -m scripts.ci_autofix_handoff --report ci-report.json --diagnostics ci-diagnostics.json --plan ci-remediation-plan.json --source-event push --source-branch main --checkout-root . --json ci-autofix-handoff.json
+          python3 -m scripts.ci_autofix_pr_draft_plan --handoff ci-autofix-handoff.json --checkout-root . --json ci-autofix-pr-draft-plan.json
+      - name: Selecionar somente a receita estatica aprovada
+        id: intent
+        run: |
+          set -euo pipefail
+          python3 -m scripts.ci_autofix_automatic_gate --phase select --checkout-root . --handoff ci-autofix-handoff.json --manifest ci-autofix-pr-draft-plan.json
+      - name: Transferir somente evidencias JSON (sem codigo executavel)
+        if: steps.intent.outputs.eligible == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: atrio-autofix-reviewed-evidence
+          path: |
+            ci-autofix-handoff.json
+            ci-autofix-pr-draft-plan.json
+          if-no-files-found: error
+          retention-days: 7
+
+  write_draft:
+    name: Abrir PR draft apenas para receita aprovada
+    needs: preflight
+    if: >-
+      needs.preflight.result == 'success' &&
+      needs.preflight.outputs.eligible == 'true' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Only main may use this environment's private key; no human wait gate.
+    # No deployment record is created by this CI-only job.
+    environment:
+      name: atrio-autofix-qa
+      deployment: false
+    # Do not grant this job write access through GITHUB_TOKEN.
+    # A separately installed GitHub App yields a short-lived, repo-scoped token.
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout SOMENTE de main, sem persistir credenciais
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Revalidar evento e HEAD sem segredo de escrita
+        env:
+          CI_TARGET_SHA: ${{ github.event.workflow_run.head_sha }}
+          APPROVED_SHA: ${{ needs.preflight.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CI_TARGET_SHA"
+          test "$CI_TARGET_SHA" = "$APPROVED_SHA"
+          python3 -m scripts.ci_autofix_automatic_gate --phase event
+      - name: Transferir evidencias do mesmo workflow
+        uses: actions/download-artifact@v4
+        with:
+          name: atrio-autofix-reviewed-evidence
+      - name: Gerar token temporario, somente para este repo e duas permissoes
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.ATRIO_AUTOFIX_APP_CLIENT_ID }}
+          private-key: ${{ secrets.ATRIO_AUTOFIX_APP_PRIVATE_KEY }}
+          owner: josuepradodeoliveiracosta-gif
+          repositories: atrio-catolico-android
+          permission-contents: write
+          permission-pull-requests: write
+      - name: Executar somente receita QA pinada e criar PR draft
+        env:
+          ATRIO_AUTOFIX_APP_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          python3 -m scripts.ci_autofix_automatic_gate --phase write --checkout-root . --handoff ci-autofix-handoff.json --manifest ci-autofix-pr-draft-plan.json

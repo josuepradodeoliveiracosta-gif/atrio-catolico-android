@@ -1,5 +1,6 @@
 """QA-only safeguards for bounded log reading and signal-only artifacts."""
 from email.message import Message
+import io
 import json
 import os
 from pathlib import Path
@@ -108,6 +109,41 @@ class LogSafeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             download_job_log(34, "fake-token", opener)
         self.assertEqual(len(seen), 1)
+
+    def test_redirect_response_stream_always_closes_on_302_or_403(self):
+        """Temporary log redirects must release GitHub's HTTP error stream."""
+        for status, destination in (
+            (302, "https://x.actions.githubusercontent.com/log?sig=ok"),
+            (302, "https://evil.example/log?sig=not-approved"),
+            (403, "https://x.actions.githubusercontent.com/log?sig=ok"),
+        ):
+            with self.subTest(status=status, destination=destination):
+                response_body = io.BytesIO(b"response body")
+                headers = Message()
+                headers["Location"] = destination
+                error = HTTPError(
+                    "https://api.github.com/mock", status,
+                    "simulated redirect or denial", headers, response_body)
+                paths = []
+
+                def opener(request, timeout):
+                    paths.append(request.full_url)
+                    if len(paths) == 1:
+                        raise error
+                    return Reply(b"safe simulated log")
+
+                if status == 302 and approved_signed_url(destination):
+                    self.assertEqual(
+                        download_job_log(34, "fake-token", opener),
+                        "safe simulated log")
+                    self.assertEqual(len(paths), 2)
+                    self.assertEqual(paths[1], destination)
+                else:
+                    with self.assertRaises(ValueError):
+                        download_job_log(34, "fake-token", opener)
+                    self.assertEqual(len(paths), 1)
+                self.assertTrue(error.closed)
+                self.assertTrue(response_body.closed)
 
     def test_log_too_large_is_rejected_and_never_classified(self):
         def opener(request, timeout):

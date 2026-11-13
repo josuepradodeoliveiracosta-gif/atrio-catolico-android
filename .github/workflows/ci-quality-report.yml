@@ -13,6 +13,7 @@ permissions:
   contents: read
   checks: read
   actions: read
+  pull-requests: read
 
 jobs:
   snapshot:
@@ -29,15 +30,18 @@ jobs:
         with:
           persist-credentials: false
       - name: Testar relator e consolidacao de diagnosticos em memoria
-        run: python3 -m unittest scripts.test_ci_quality_report scripts.test_ci_diagnostic_snapshot scripts.test_ci_log_identity_verifier scripts.test_ci_log_safe_analysis -v
+        run: python3 -m unittest scripts.test_ci_quality_report scripts.test_ci_diagnostic_snapshot scripts.test_ci_log_identity_verifier scripts.test_ci_log_safe_analysis scripts.test_ci_autofix_policy scripts.test_ci_autofix_sandbox scripts.test_ci_autofix_qa_review scripts.test_ci_autofix_handoff scripts.test_ci_autofix_pr_draft_plan scripts.test_ci_autofix_pr_draft_executor scripts.test_ci_autofix_automatic_gate -v
       - name: Buscar checks e anexar sintese sem alterar APIs remotas
         env:
           GITHUB_TOKEN: ${{ github.token }}
           CI_TARGET_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          CI_SOURCE_EVENT: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.event || 'unknown' }}
+          CI_SOURCE_BRANCH: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || 'unknown' }}
         run: |
           set -euo pipefail
           python3 scripts/ci_quality_report.py \
             --sha "$CI_TARGET_SHA" \
+            --source-event "$CI_SOURCE_EVENT" \
             --json ci-report.json \
             --markdown ci-report.md
           # Reutiliza JSON ja coletado: nenhuma chamada de API adicional.
@@ -58,6 +62,38 @@ jobs:
             --identity ci-job-evidence.json \
             --json ci-log-signals.json \
             --markdown ci-report.md
+          # Planejamento conservador: consome somente JSONs ja verificados.
+          # Nao executa reparo, rerun, push, PR, merge ou deploy.
+          python3 -m scripts.ci_autofix_policy \
+            --diagnostics ci-diagnostics.json \
+            --identity ci-job-evidence.json \
+            --signals ci-log-signals.json \
+            --json ci-remediation-plan.json \
+            --markdown ci-report.md
+          # Le a fixture versionada por caminho/hash fixos (read-only).
+          # Altera APENAS a copia descartavel sob TemporaryDirectory.
+          python3 -m scripts.ci_autofix_sandbox \
+            --plan ci-remediation-plan.json \
+            --checkout-root . \
+            --json ci-autofix-preview.json
+          # Vincula o diagnostico ja verificado ao preview QA para proposta
+          # de PR em modo informativo. NAO cria PR, branch, commit ou push.
+          # Evento e branch derivam do workflow_run, nao de logs ou PR text.
+          python3 -m scripts.ci_autofix_handoff \
+            --report ci-report.json \
+            --diagnostics ci-diagnostics.json \
+            --plan ci-remediation-plan.json \
+            --source-event "$CI_SOURCE_EVENT" \
+            --source-branch "$CI_SOURCE_BRANCH" \
+            --checkout-root . \
+            --json ci-autofix-handoff.json
+          # Descritor deterministico de futura PR draft:
+          # verifica HEAD atual e duplicados apenas com APIs de leitura.
+          # Nao cria branch, commit, PR, release, merge ou deploy.
+          python3 -m scripts.ci_autofix_pr_draft_plan \
+            --handoff ci-autofix-handoff.json \
+            --checkout-root . \
+            --json ci-autofix-pr-draft-plan.json
           cat ci-report.md >> "$GITHUB_STEP_SUMMARY"
       - name: Preservar relatorio por execucao
         uses: actions/upload-artifact@v4
@@ -69,6 +105,10 @@ jobs:
             ci-diagnostics.json
             ci-job-evidence.json
             ci-log-signals.json
+            ci-remediation-plan.json
+            ci-autofix-preview.json
+            ci-autofix-handoff.json
+            ci-autofix-pr-draft-plan.json
             ci-report.md
           retention-days: 14
           if-no-files-found: warn
