@@ -66,3 +66,38 @@ ao gate obrigatório existente `.github/workflows/selos-ci.yml`.
 Não foram criados workflows, gatilhos, tokens, secrets, novos serviços
 nem fontes de dados. Nenhuma escrita na main, backups, Firebase, Cloudflare,
 dados de usuários, deploy, merge ou publicação de APK faz parte desta PR.
+
+## Verificação de origem histórica — metadados GitHub (opcional)
+
+O módulo `scripts/ci_diagnostic_historic_identity.py` reutiliza
+`ci_log_identity_verifier.api_json` e `verify_one`, com **GETs fixos**
+`/actions/runs/{id}` e `/actions/jobs/{id}`. A amostra original é
+comparada por bytes com o holdout congelado antes de qualquer consulta.
+Apenas os 13 jobs com falha entram na verificação; os três controles de
+sucesso permanecem fora da fila de investigação causal.
+
+Com credencial de **leitura** disponível no ambiente, pode-se executar
+em terminal próprio (não em CI nem em produção):
+
+```bash
+GITHUB_TOKEN="$(gh auth token)" python3 -m scripts.ci_diagnostic_historic_identity \
+  --json /tmp/atrio-historico-identidade.json \
+  --markdown /tmp/atrio-historico-identidade.md
+```
+
+Os resultados incluem somente IDs, SHA do run quando verificado, códigos
+fechados de estado e contagem de identidade; nunca mensagens da API,
+segredos ou conteúdo de logs. Sem token, registra **0 identidades
+verificadas** e não faz requisições, em vez de inventar verificação.
+
+A identidade só é marcada `verified` quando coincidirem, entre os
+metadados REST recebidos, repositório de origem, run ID, job ID, run ID
+do job, SHA de execução, estado final, conclusão e tentativa. O SHA
+histórico **não comprova o HEAD atual da branch**, e metadados GitHub
+**não demonstram o conteúdo de sinais, a causa da falha, a correção do
+problema ou revisão humana independente**. A meta causal de 90% e a meta
+de autocorreção de 99% continuam não aferidas.
+
+Os testes `scripts.test_ci_diagnostic_historic_identity` utilizam
+somente respostas artificiais em memória e pertencem ao mesmo gate
+offline existente, sem consultas GitHub durante CI e sem novas permissões.
