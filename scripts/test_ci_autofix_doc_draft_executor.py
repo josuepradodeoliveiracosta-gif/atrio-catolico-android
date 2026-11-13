@@ -4,6 +4,7 @@ import unittest
 
 from scripts import ci_autofix_doc_draft_executor as writer
 from scripts.ci_autofix_doc_candidate import _pinned_source, TARGET
+from scripts.qa_doc_test_fixture import pinned_doc_checkout
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -12,16 +13,19 @@ BASE_SHA = "a" * 40
 
 class DocDraftTransactionTests(unittest.TestCase):
     def setUp(self):
-        self.source = _pinned_source(ROOT)
+        self.fixture = pinned_doc_checkout(ROOT)
+        self.checkout = self.fixture.__enter__()
+        self.addCleanup(self.fixture.__exit__, None, None, None)
+        self.source = _pinned_source(self.checkout)
         self.client = writer.InMemoryDraftClient(BASE_SHA, self.source)
-        self.before = (ROOT / TARGET).read_bytes()
+        self.before = (self.checkout / TARGET).read_bytes()
 
     def tearDown(self):
-        self.assertEqual((ROOT / TARGET).read_bytes(), self.before)
+        self.assertEqual((self.checkout / TARGET).read_bytes(), self.before)
 
     def execute(self, client=None, sha=BASE_SHA, confirmation=writer.CONFIRMATION):
         return writer.simulate_approved_doc_draft(
-            ROOT, sha, confirmation, self.client if client is None else client)
+            self.checkout, sha, confirmation, self.client if client is None else client)
 
     def test_expected_transaction_never_reaches_github(self):
         result = self.execute()
