@@ -139,3 +139,17 @@ Ao comparar o sensor com o arquivo histórico `tests/security/qa-general-firesto
 Corrigido **somente no harness de QA**: invocação `qaSyntheticFixtureProbe(inviteGroup)` no ponto original do teste, parâmetro lexical explícito no sensor e preflight que rejeita fonte histórica sem declaração única anterior ao caso positivo. Testes offline verificam a injeção no local correto, preservação do caso negativo e ausência de chamada sem parâmetro. O workflow de `fixture-integrity` faz checkout do sensor por SHA fixado `7439710501e8d3af3e22b1678b73dbe644ffc8b6` (sem credenciais, apenas `demo-atrio-v11`).
 
 **Próximo critério de aceite:** examinar 2/2 artefatos do novo HEAD e conferir todos os checks. Se o sensor de convite retornar flags, analisá-las antes de investigar o `allow create`; se retornar outra categoria, revisar somente o novo estágio. Em qualquer caso, **não** inferir causa da negação original, taxa de 90% ou reparo automático de 99% sem revisão causal independente. PR continua draft, sem merge, deploy ou alteração produtiva.
+## Etapa 23 — experimento de isolamento de uma guarda (proposta ainda NÃO validada)
+
+A etapa 22 verificou **13/13 condições de fixture do convite** e **5/5 condições da notificação**, porém ambos os testes positivos históricos continuam com `test_exit_code=1`. Assim, não basta inspecionar presença de documentos; a próxima comparação deve testar a contribuição de UMA condição para a rejeição, usando o MESMO teste histórico e o MESMO banco sintético inicial em duas instâncias isoladas do Firestore Emulator.
+
+O job `guard-isolation`, acrescentado ao workflow forense já existente, executa controles históricos e uma variante deliberadamente **menos restritiva, apenas na árvore descartável do runner**:
+- `chat_general`: a condição final `atrioGroupAcceptedContact(...)` do **`allow create` de convites** é substituída temporariamente por `true`, sem modificar as outras guardas, a declaração de idade ou as assertivas históricas.
+- `reply_notice`: é omitida temporariamente apenas uma leitura `exists(.../replies/$(targetId))` dentro de `canonicalDirectRecipient()`; a verificação `get(...).data.uid == recipientUid` permanece e o lote original continua obrigatório.
+
+**Aviso de segurança:** esses desvios intencionais de autorização **NÃO são correções, não preservam necessariamente todas as propriedades de segurança e jamais são elegíveis a deploy ou merge nas Rules oficiais**. O objetivo é observar se a remoção experimental de uma guarda altera o estágio de falha. Os testes negativos originais são mantidos, mas não abrangem todas as propriedades da guarda retirada. Mesmo se a variante passar, isso NÃO justifica retirar a guarda no produto: primeiro será necessário encontrar uma mudança semanticamente segura e exigir revisão independente.
+
+A execução usa `demo-atrio-v11`, dois emuladores descartáveis, fontes históricas fixas por SHA, permissões GitHub `contents:read`, credenciais produtivas vazias e apenas JSON sanitizado (código, estágio, hash, sem documento, Rules, log ou segredo). Os checkouts originais são restaurados após o ensaio. O workflow de origem continua único e sem deploy.
+
+**Critérios de aceite:** dois jobs `guard-isolation` realmente concluídos, classificação dos resultados controle×variante por cenário, todos os checks obrigatórios verdes no HEAD exato, nenhuma alteração na `main`/produção/backups; se houver resultado inconclusivo, registrar como tal. Causas revistas independentemente: 0/13; métricas 90% e 99% não aferidas.
+
