@@ -25,7 +25,7 @@ from scripts.ci_autofix_qa_review import apply_reviewed_patch
 from scripts.test_ci_autofix_pr_draft_plan import good_handoff, live
 from scripts.ci_quality_report import NoRedirect, REPO
 
-ROOT = Path(__file__).resolve().parents[1]
+from scripts.ci_autofix_test_checkout import ROOT, REAL_ROOT
 SHA = "a" * 40
 COMMIT = "c" * 40
 BLOB = "b" * 40
@@ -147,13 +147,13 @@ class DraftExecutorTests(unittest.TestCase):
             cmd = [sys.executable, "-m", "scripts.ci_autofix_pr_draft_executor",
                    "--manifest", str(src), "--checkout-root", str(ROOT),
                    "--json", str(dest)]
-            proc = subprocess.run(cmd, cwd=ROOT, capture_output=True,
+            proc = subprocess.run(cmd, cwd=REAL_ROOT, capture_output=True,
                                   text=True, timeout=20)
             self.assertEqual(proc.returncode, 0, proc.stderr)
             self.assertEqual(json.loads(dest.read_text(encoding="utf-8")),
                              result)
             forbidden = subprocess.run(
-                cmd + ["--execute"], cwd=ROOT, capture_output=True,
+                cmd + ["--execute"], cwd=REAL_ROOT, capture_output=True,
                 text=True, timeout=20)
             self.assertNotEqual(forbidden.returncode, 0)
         self.assertEqual((ROOT / QA_TARGET).read_bytes(), before)

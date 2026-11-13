@@ -15,7 +15,7 @@ from scripts.test_ci_autofix_pr_draft_plan import good_handoff, live
 from scripts.test_ci_autofix_pr_draft_executor import FakeDraftClient
 from scripts.ci_quality_report import REPO
 
-ROOT = Path(__file__).resolve().parents[1]
+from scripts.ci_autofix_test_checkout import ROOT, REAL_ROOT
 WORKFLOW = ROOT / ".github/workflows/autofix-qa-approved-draft.yml"
 SHA = "a" * 40
 

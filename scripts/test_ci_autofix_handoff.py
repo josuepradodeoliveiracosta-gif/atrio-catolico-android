@@ -22,7 +22,7 @@ from scripts.ci_autofix_qa_review import (
 from scripts.ci_autofix_pr_draft_plan import draft_pr_plan
 from scripts.ci_autofix_sandbox import sha256
 
-ROOT = Path(__file__).resolve().parents[1]
+from scripts.ci_autofix_test_checkout import ROOT, REAL_ROOT
 SHA = "a" * 40
 
 
@@ -98,6 +98,20 @@ class HandoffTests(unittest.TestCase):
             target.symlink_to(ROOT / QA_TARGET)
             with self.assertRaises(ValueError):
                 qa_patch_state(directory)
+
+    def test_actual_checkout_never_reapplies_reviewed_fix(self):
+        state = qa_patch_state(REAL_ROOT)
+        self.assertIn(state, ("needs_patch", "already_applied"))
+        a, b, c = sample()
+        decision = handoff(a, b, c, "push", "main", REAL_ROOT)
+        expected = ("blocked_already_applied" if state == "already_applied"
+                    else "draft_pr_intent_review_required")
+        self.assertEqual(decision["status"], expected)
+        self.assertFalse(decision["permission_to_write_repo"])
+        if state == "already_applied":
+            self.assertIsNone(decision["draft_pr_intent_id"])
+            self.assertEqual(draft_pr_plan(decision, REAL_ROOT)["status"],
+                             "blocked_by_handoff")
 
     def test_pr_unknown_event_or_non_main_branch_is_blocked(self):
         a, b, c = sample()
@@ -212,7 +226,7 @@ class HandoffTests(unittest.TestCase):
                 "--source-event", "push", "--source-branch", "main",
                 "--checkout-root", str(ROOT), "--json", str(out),
             ]
-            proc = subprocess.run(cmd, cwd=ROOT, text=True,
+            proc = subprocess.run(cmd, cwd=REAL_ROOT, text=True,
                                   capture_output=True, timeout=20)
             self.assertEqual(proc.returncode, 0, proc.stderr)
             self.assertEqual(json.loads(out.read_text(encoding="utf-8"))[

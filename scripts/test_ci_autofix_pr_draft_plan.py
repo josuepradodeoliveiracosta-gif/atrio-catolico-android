@@ -18,7 +18,7 @@ from scripts.ci_autofix_pr_draft_plan import (
 from scripts.test_ci_autofix_handoff import sample
 from scripts.ci_quality_report import NoRedirect, REPO
 
-ROOT = Path(__file__).resolve().parents[1]
+from scripts.ci_autofix_test_checkout import ROOT, REAL_ROOT
 SHA = "a" * 40
 
 
@@ -344,7 +344,7 @@ class DraftPlanTests(unittest.TestCase):
                 [sys.executable, "-m", "scripts.ci_autofix_pr_draft_plan",
                  "--handoff", str(src), "--checkout-root", str(ROOT),
                  "--json", str(dst)],
-                cwd=ROOT, capture_output=True, text=True, timeout=20)
+                cwd=REAL_ROOT, capture_output=True, text=True, timeout=20)
             self.assertEqual(proc.returncode, 0, proc.stderr)
             output = json.loads(dst.read_text(encoding="utf-8"))
             self.assertEqual(output["status"], "blocked_by_handoff")

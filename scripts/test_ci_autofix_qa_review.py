@@ -19,7 +19,7 @@ from scripts.ci_autofix_qa_review import (
 from scripts.ci_autofix_sandbox import sha256
 from scripts.ci_quality_report import REQUIRED, report
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+from scripts.ci_autofix_test_checkout import ROOT as REPO_ROOT, REAL_ROOT, recover_original
 SHA = "a" * 40
 
 
@@ -123,6 +123,7 @@ class RealQaPatchTests(unittest.TestCase):
         updated = apply_reviewed_patch(original)
         self.assertNotEqual(sha256(updated), QA_TARGET_SHA256)
         self.assertEqual(sha256(updated), QA_PATCHED_SHA256)
+        self.assertEqual(recover_original(updated), original)
         self.assertIn('source_event=args.source_event', updated)
         self.assertIn('not_expected_on_push', updated)
 
@@ -132,7 +133,7 @@ class RealQaPatchTests(unittest.TestCase):
         proc = subprocess.run(
             [sys.executable, "-m", "scripts.ci_autofix_qa_review",
              "--checkout-root", str(REPO_ROOT)],
-            cwd=REPO_ROOT, capture_output=True, text=True, timeout=20,
+            cwd=REAL_ROOT, capture_output=True, text=True, timeout=20,
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         out = json.loads(proc.stdout)
