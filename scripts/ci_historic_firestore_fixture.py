@@ -62,21 +62,24 @@ async function qaSyntheticFixtureProbe() {
 CHAT_SENSOR = r'''
 async function qaSyntheticFixtureProbe() {
   let row = {probe_unavailable:true};
+  let stage = 'initializing';
   try {
     await env.withSecurityRulesDisabled(async ctx => {
       const db = ctx.firestore();
-      const [contact, group, conversations, groupsPolicy, inviterAge,
-             inviteeAge, inviterGroup, inviteeGroup, inverseBlock] = await Promise.all([
-        getDoc(doc(db,room)),
-        getDoc(doc(db,inviteGroup)),
-        getDoc(doc(db,'app_config/conversations')),
-        getDoc(doc(db,'app_config/chat_groups')),
-        getDoc(doc(db,aliceAge)),
-        getDoc(doc(db,bobAge)),
-        getDoc(doc(db,'users/qa-alice/chatGroupAccess/eligibility')),
-        getDoc(doc(db,'users/qa-bob/chatGroupAccess/eligibility')),
-        getDoc(doc(db,'users/qa-bob/blockedMembers/qa-alice'))
-      ]);
+      const read = async (step, path) => {
+        stage = step;
+        return await getDoc(doc(db,path));
+      };
+      const contact = await read('read_contact', room);
+      const group = await read('read_group', inviteGroup);
+      const conversations = await read('read_chat_policy', 'app_config/conversations');
+      const groupsPolicy = await read('read_group_policy', 'app_config/chat_groups');
+      const inviterAge = await read('read_inviter_age', aliceAge);
+      const inviteeAge = await read('read_invitee_age', bobAge);
+      const inviterGroup = await read('read_inviter_group', 'users/qa-alice/chatGroupAccess/eligibility');
+      const inviteeGroup = await read('read_invitee_group', 'users/qa-bob/chatGroupAccess/eligibility');
+      const inverseBlock = await read('read_inverse_block', 'users/qa-bob/blockedMembers/qa-alice');
+      stage = 'evaluate_flags';
       const expiryValid = s => s.exists() && s.data()?.reviewExpiresAt?.toMillis?.() > Date.now();
       const ageValid = s => expiryValid(s) && s.data()?.status === 'eligible' &&
          s.data()?.minimumAge === 16 && s.data()?.policyVersion === '2026-11-16plus-qa-v1';
@@ -103,8 +106,11 @@ async function qaSyntheticFixtureProbe() {
         recipient_has_not_blocked_inviter: !inverseBlock.exists()
       };
     });
-  } catch (_) {
-    row = {probe_unavailable:true};
+  } catch (error) {
+    const name = String(error?.name || '');
+    const category = ['FirebaseError','TypeError','RangeError','Error'].includes(name)
+      ? name : 'other';
+    row = {probe_unavailable:true, stage, category};
   }
   console.log('QA_FOR_FIXTURE:' + JSON.stringify(row));
 }
@@ -134,6 +140,19 @@ def classify_fixture(log, scenario):
         raw = json.loads(found[0])
     except (ValueError, TypeError):
         return {"status": "invalid_marker", "booleans": {}}
+    if isinstance(raw, dict) and raw.get("probe_unavailable") is True:
+        allowed_stages = {
+            "initializing", "read_contact", "read_group", "read_chat_policy",
+            "read_group_policy", "read_inviter_age", "read_invitee_age",
+            "read_inviter_group", "read_invitee_group", "read_inverse_block",
+            "evaluate_flags",
+        }
+        allowed_categories = {"FirebaseError", "TypeError", "RangeError", "Error", "other"}
+        if (set(raw) == {"probe_unavailable", "stage", "category"}
+                and raw["stage"] in allowed_stages
+                and raw["category"] in allowed_categories):
+            return {"status": "probe_unavailable", "stage": raw["stage"],
+                    "failure_category": raw["category"], "booleans": {}}
     if not isinstance(raw, dict) or set(raw) != set(KEYS[scenario]) or any(
             type(raw[k]) is not bool for k in KEYS[scenario]):
         return {"status": "probe_unavailable_or_unexpected_schema", "booleans": {}}
