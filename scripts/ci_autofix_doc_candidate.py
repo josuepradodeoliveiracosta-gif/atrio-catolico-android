@@ -112,14 +112,9 @@ def preview_doc_candidate(checkout_root):
 def main(argv=None):
     parser = argparse.ArgumentParser(description='Verificar candidato real sem escrita.')
     parser.add_argument('--checkout-root', default='.')
-    parser.add_argument('--json', help='Saida de previa sem tokens nem rede.')
     args = parser.parse_args(argv)
     result = preview_doc_candidate(args.checkout_root)
-    data = json.dumps(result, ensure_ascii=False, sort_keys=True, indent=2) + '\n'
-    if args.json:
-        Path(args.json).write_text(data, encoding='utf-8')
-    else:
-        print(data, end='')
+    print(json.dumps(result, ensure_ascii=False, sort_keys=True, indent=2))
     return 0
 
 

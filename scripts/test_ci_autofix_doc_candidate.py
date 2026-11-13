@@ -1,5 +1,7 @@
 """Offline tests for a genuine but nonwriting QA-document recipe candidate."""
 import hashlib
+import io
+from contextlib import redirect_stderr
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -96,6 +98,10 @@ class CandidateTests(unittest.TestCase):
         self.assertFalse(hasattr(candidate, 'create_pr'))
         self.assertFalse(hasattr(candidate, 'deploy'))
         self.assertFalse(hasattr(candidate, 'write_remote'))
+        # No output-path argument that could overwrite anything in checkout.
+        with redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                candidate.main(['--json', 'docs/ci/anything.md'])
 
 
 class LiveDocumentPinTests(unittest.TestCase):
