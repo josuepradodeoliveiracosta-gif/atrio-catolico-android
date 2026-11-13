@@ -92,6 +92,11 @@ jobs:
       github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Only main may use this environment's private key; no human wait gate.
+    # No deployment record is created by this CI-only job.
+    environment:
+      name: atrio-autofix-qa
+      deployment: false
     # Do not grant this job write access through GITHUB_TOKEN.
     # A separately installed GitHub App yields a short-lived, repo-scoped token.
     permissions:
