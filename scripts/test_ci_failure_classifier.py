@@ -90,6 +90,29 @@ BUILD FAILED in 52s
         with self.assertRaises(ValueError):
             classify_failed("x" * (MAX_LOG_BYTES + 1), SHA, RUN, JOB)
 
+    def test_run_and_job_ids_are_canonical_and_never_truncated(self):
+        for good in (1, "1", RUN, str(RUN), 10**18 - 1):
+            with self.subTest(value=good):
+                self.assertEqual(positive_int(good), int(good))
+        for bad in (
+            True, False, 1.0, 12.9, float("nan"), float("inf"),
+            "01", "00012", "+12", "-12", " 12", "12 ",
+            "12.0", "1e2", "1\\n", "\\u0661\\u0662", b"12",
+            None, [], {}, 10**18,
+        ):
+            with self.subTest(value=repr(bad)), self.assertRaises(ValueError):
+                positive_int(bad)
+
+    def test_untrusted_identifiers_block_classification_before_signal_analysis(self):
+        for bad in (True, 12.9, "0012", "12.0", " 12", b"12"):
+            with self.subTest(bad=repr(bad)):
+                with self.assertRaises(ValueError):
+                    classify("adb: device offline", SHA, bad, JOB,
+                             job_conclusion="failure")
+                with self.assertRaises(ValueError):
+                    classify("adb: device offline", SHA, RUN, bad,
+                             job_conclusion="failure")
+
     def test_cli_generates_only_safe_artifacts(self):
         with TemporaryDirectory() as d:
             tmp = Path(d)
