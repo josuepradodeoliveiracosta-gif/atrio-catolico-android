@@ -112,9 +112,8 @@ def markdown(result):
 def generate(manifest_path, json_path, markdown_path, token, fetcher=api_json):
     inp, out_json, out_md = [Path(p).resolve() for p in (
         manifest_path, json_path, markdown_path)]
-    if len({inp, out_json, out_md, SOURCE.resolve()}) != 4 and inp != SOURCE.resolve():
-        raise ValueError("arquivos de entrada e saida sobrepostos")
-    if len({inp, out_json, out_md}) != 3:
+    if (len({inp, out_json, out_md}) != 3
+            or SOURCE.resolve() in {out_json, out_md}):
         raise ValueError("arquivos de entrada e saida sobrepostos")
     if out_json.exists() or out_md.exists():
         raise ValueError("nao sobrescrever relatorios existentes")
