@@ -1,0 +1,682 @@
+name: QA forense - reproduzir Firestore historico no Emulator
+
+# Experimento sem producao, somente PR de QA com source SHA fixado.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/qa-historic-firestore-repro.yml'
+      - 'scripts/ci_historic_firestore_repro.py'
+      - 'scripts/test_ci_historic_firestore_repro.py'
+      - 'scripts/ci_historic_firestore_differential.py'
+      - 'scripts/test_ci_historic_firestore_differential.py'
+      - 'scripts/ci_historic_firestore_predicate.py'
+      - 'scripts/test_ci_historic_firestore_predicate.py'
+      - 'scripts/ci_historic_firestore_coverage.py'
+      - 'scripts/test_ci_historic_firestore_coverage.py'
+      - 'scripts/ci_historic_firestore_fixture.py'
+      - 'scripts/test_ci_historic_firestore_fixture.py'
+      - 'scripts/ci_historic_firestore_guard_probe.py'
+      - 'scripts/test_ci_historic_firestore_guard_probe.py'
+      - 'scripts/ci_historic_firestore_contact_debug.py'
+      - 'scripts/test_ci_historic_firestore_contact_debug.py'
+      - 'docs/ci/diagnosticos-etapa16-reproducao-firestore-2026-11-13.md'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: historic-firestore-repro-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  emulator-only:
+    # Never execute on forks or an unrelated branch.
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'test/qa-historic-firestore-repro-20261113'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - scenario: reply_notice
+            historic_sha: '43fac1b50ee12fa0ce1b505bf74ebabd4447e001'
+            node_version: '20'
+            java_version: '17'
+          - scenario: chat_general
+            historic_sha: '422d00ccbd9ef3c7dce11252be045daf656b8e09'
+            node_version: '22'
+            java_version: '21'
+    env:
+      GOOGLE_CLOUD_PROJECT: demo-atrio-v11
+      FIREBASE_TOKEN: ''
+      GOOGLE_APPLICATION_CREDENTIALS: ''
+      GCLOUD_PROJECT: ''
+      ATRIO_PUSH_WORKER_URL: ''
+      ATRIO_AVATAR_WORKER_URL: ''
+      ATRIO_GUARDIAN_V2_WORKER_URL: ''
+      ATRIO_SIGNING_KEY_PASSWORD: ''
+      ATRIO_SIGNING_STORE_PASSWORD: ''
+    steps:
+      - name: Obter harness auditado por SHA imutavel (nunca checkout dinamico da PR)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: harness
+          ref: '7d70daa8d97ef294ee64ec78f817b015f84e8b15'
+      - name: Obter somente o checkout historico fixo de notificacoes
+        if: matrix.scenario == 'reply_notice'
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: historical
+          ref: '43fac1b50ee12fa0ce1b505bf74ebabd4447e001'
+      - name: Obter somente o checkout historico fixo de conversas
+        if: matrix.scenario == 'chat_general'
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: historical
+          ref: '422d00ccbd9ef3c7dce11252be045daf656b8e09'
+      - name: Bloquear fonte inesperada e identidade produtiva
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GOOGLE_CLOUD_PROJECT" = "demo-atrio-v11"
+          test -z "$FIREBASE_TOKEN"
+          test -z "$GOOGLE_APPLICATION_CREDENTIALS"
+          test -z "$GCLOUD_PROJECT"
+          test -z "$ATRIO_PUSH_WORKER_URL"
+          test -z "$ATRIO_AVATAR_WORKER_URL"
+          test -z "$ATRIO_GUARDIAN_V2_WORKER_URL"
+          test "$(git -C harness rev-parse HEAD)" = "7d70daa8d97ef294ee64ec78f817b015f84e8b15"
+          test "$(git -C historical rev-parse HEAD)" = "${{ matrix.historic_sha }}"
+          echo "QA forense: checkout exato, sem identidade de producao"
+      - name: Preparar Node para o checkout historico
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node_version }}
+      - name: Preparar Java para Firestore Emulator
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java_version }}
+      - name: Testes do classificador forense (sem rede)
+        working-directory: harness
+        run: python3 -m unittest scripts.test_ci_historic_firestore_repro -v
+      - name: Instalar apenas as dependencias fixadas pelo lockfile historico
+        working-directory: historical/tests/security
+        run: npm ci --ignore-scripts
+      - name: Executar candidato historico somente no Firestore Emulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 harness/scripts/ci_historic_firestore_repro.py \
+            --scenario ${{ matrix.scenario }} \
+            --historical "$GITHUB_WORKSPACE/historical" \
+            --output "$RUNNER_TEMP/qa-historic-${{ matrix.scenario }}.json"
+      - name: Arquivar somente o sumario JSON sanitizado
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-historic-firestore-${{ matrix.scenario }}
+          path: ${{ runner.temp }}/qa-historic-${{ matrix.scenario }}.json
+          if-no-files-found: warn
+          retention-days: 7
+
+  causal-differential:
+    # The counterfactual experiment is not a product regression check.
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'test/qa-historic-firestore-repro-20261113'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - scenario: reply_notice
+            historic_sha: '43fac1b50ee12fa0ce1b505bf74ebabd4447e001'
+            node_version: '20'
+            java_version: '17'
+          - scenario: chat_general
+            historic_sha: '422d00ccbd9ef3c7dce11252be045daf656b8e09'
+            node_version: '22'
+            java_version: '21'
+    env:
+      GOOGLE_CLOUD_PROJECT: demo-atrio-v11
+      FIREBASE_TOKEN: ''
+      GOOGLE_APPLICATION_CREDENTIALS: ''
+      GCLOUD_PROJECT: ''
+      ATRIO_PUSH_WORKER_URL: ''
+      ATRIO_AVATAR_WORKER_URL: ''
+      ATRIO_GUARDIAN_V2_WORKER_URL: ''
+      ATRIO_SIGNING_STORE_PASSWORD: ''
+      ATRIO_SIGNING_KEY_PASSWORD: ''
+    steps:
+      - name: Obter harness diferencial com SHA de auditoria imutavel
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: harness
+          ref: 'b85a8b05e2b5c95816100ab8a90ed10a5d7a4731'
+      - name: Checkout historico fixo para notificacoes
+        if: matrix.scenario == 'reply_notice'
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: historical
+          ref: '43fac1b50ee12fa0ce1b505bf74ebabd4447e001'
+      - name: Checkout historico fixo para conversas
+        if: matrix.scenario == 'chat_general'
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: historical
+          ref: '422d00ccbd9ef3c7dce11252be045daf656b8e09'
+      - name: Preflight projeto demo e SHAs sem credenciais
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GOOGLE_CLOUD_PROJECT" = 'demo-atrio-v11'
+          test -z "$FIREBASE_TOKEN"
+          test -z "$GOOGLE_APPLICATION_CREDENTIALS"
+          test -z "$GCLOUD_PROJECT"
+          test -z "$ATRIO_PUSH_WORKER_URL"
+          test -z "$ATRIO_AVATAR_WORKER_URL"
+          test -z "$ATRIO_GUARDIAN_V2_WORKER_URL"
+          test "$(git -C harness rev-parse HEAD)" = 'b85a8b05e2b5c95816100ab8a90ed10a5d7a4731'
+          test "$(git -C historical rev-parse HEAD)" = "${{ matrix.historic_sha }}"
+          echo 'Comparativo forense em demos, sem alteracao produtiva'
+      - name: Preparar Node da epoca
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node_version }}
+      - name: Preparar Java para Firestore Emulator
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java_version }}
+      - name: Testar sem rede as substituicoes limitadas
+        working-directory: harness
+        run: python3 -m unittest scripts.test_ci_historic_firestore_differential -v
+      - name: Instalar dependencias do checkout historico
+        working-directory: historical/tests/security
+        run: npm ci --ignore-scripts
+      - name: Executar controle e variante com bancos temporarios distintos
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m compileall -q harness/scripts/ci_historic_firestore_differential.py
+          PYTHONPATH="$GITHUB_WORKSPACE/harness" python3 harness/scripts/ci_historic_firestore_differential.py \
+            --scenario ${{ matrix.scenario }} \
+            --historical "$GITHUB_WORKSPACE/historical" \
+            --output "$RUNNER_TEMP/qa-differential-${{ matrix.scenario }}.json"
+      - name: Arquivar apenas as classificacoes sanitizadas
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-differential-${{ matrix.scenario }}
+          path: ${{ runner.temp }}/qa-differential-${{ matrix.scenario }}.json
+          if-no-files-found: warn
+          retention-days: 7
+
+  cached-predicate:
+    # QA-only same-fixture comparison; original historical files stay untouched upstream.
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'test/qa-historic-firestore-repro-20261113'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - scenario: reply_notice
+            historic_sha: '43fac1b50ee12fa0ce1b505bf74ebabd4447e001'
+            node_version: '20'
+            java_version: '17'
+          - scenario: chat_general
+            historic_sha: '422d00ccbd9ef3c7dce11252be045daf656b8e09'
+            node_version: '22'
+            java_version: '21'
+    env:
+      GOOGLE_CLOUD_PROJECT: demo-atrio-v11
+      FIREBASE_TOKEN: ''
+      GOOGLE_APPLICATION_CREDENTIALS: ''
+      GCLOUD_PROJECT: ''
+      ATRIO_PUSH_WORKER_URL: ''
+      ATRIO_AVATAR_WORKER_URL: ''
+      ATRIO_GUARDIAN_V2_WORKER_URL: ''
+      ATRIO_SIGNING_STORE_PASSWORD: ''
+      ATRIO_SIGNING_KEY_PASSWORD: ''
+    steps:
+      - name: Checkout do investigador imutavel
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: harness
+          ref: '4732dacb7affdc355435fe2e58a658f61069d43d'
+      - name: Checkout historico notificacoes
+        if: matrix.scenario == 'reply_notice'
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: historical
+          ref: '43fac1b50ee12fa0ce1b505bf74ebabd4447e001'
+      - name: Checkout historico conversas
+        if: matrix.scenario == 'chat_general'
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: historical
+          ref: '422d00ccbd9ef3c7dce11252be045daf656b8e09'
+      - name: Preflight sem recursos e tokens reais
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GOOGLE_CLOUD_PROJECT" = "demo-atrio-v11"
+          test -z "$FIREBASE_TOKEN"
+          test -z "$GOOGLE_APPLICATION_CREDENTIALS"
+          test -z "$GCLOUD_PROJECT"
+          test -z "$ATRIO_PUSH_WORKER_URL"
+          test -z "$ATRIO_AVATAR_WORKER_URL"
+          test -z "$ATRIO_GUARDIAN_V2_WORKER_URL"
+          test "$(git -C harness rev-parse HEAD)" = '4732dacb7affdc355435fe2e58a658f61069d43d'
+          test "$(git -C historical rev-parse HEAD)" = '${{ matrix.historic_sha }}'
+          echo 'QA synthetic historical predicate comparison'
+      - name: Node version do laboratorio historico
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node_version }}
+      - name: Java para emulador isolado
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java_version }}
+      - name: Testes offline das guardas preservadas
+        working-directory: harness
+        run: python3 -m unittest scripts.test_ci_historic_firestore_predicate scripts.test_ci_historic_firestore_differential -v
+      - name: Dependencias fixadas pelo lockfile historico
+        working-directory: historical/tests/security
+        run: npm ci --ignore-scripts
+      - name: Comparar baseline com snapshot em 2 bases efemeras
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH="$GITHUB_WORKSPACE/harness" python3 harness/scripts/ci_historic_firestore_predicate.py \
+            --scenario ${{ matrix.scenario }} \
+            --historical "$GITHUB_WORKSPACE/historical" \
+            --output "$RUNNER_TEMP/qa-cached-predicate-${{ matrix.scenario }}.json"
+      - name: Publicar somente sumario forense sanitizado
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-cached-predicate-${{ matrix.scenario }}
+          path: ${{ runner.temp }}/qa-cached-predicate-${{ matrix.scenario }}.json
+          if-no-files-found: warn
+          retention-days: 7
+
+  rule-coverage:
+    # QA-only same-fixture comparison; original historical files stay untouched upstream.
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'test/qa-historic-firestore-repro-20261113'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - scenario: reply_notice
+            historic_sha: '43fac1b50ee12fa0ce1b505bf74ebabd4447e001'
+            node_version: '20'
+            java_version: '17'
+          - scenario: chat_general
+            historic_sha: '422d00ccbd9ef3c7dce11252be045daf656b8e09'
+            node_version: '22'
+            java_version: '21'
+    env:
+      GOOGLE_CLOUD_PROJECT: demo-atrio-v11
+      FIREBASE_TOKEN: ''
+      GOOGLE_APPLICATION_CREDENTIALS: ''
+      GCLOUD_PROJECT: ''
+      ATRIO_PUSH_WORKER_URL: ''
+      ATRIO_AVATAR_WORKER_URL: ''
+      ATRIO_GUARDIAN_V2_WORKER_URL: ''
+      ATRIO_SIGNING_STORE_PASSWORD: ''
+      ATRIO_SIGNING_KEY_PASSWORD: ''
+    steps:
+      - name: Checkout do investigador imutavel
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: harness
+          ref: 'ba6f6cccd9fe0c7189b51f854e65bb80e8ca858a'
+      - name: Checkout historico notificacoes
+        if: matrix.scenario == 'reply_notice'
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: historical
+          ref: '43fac1b50ee12fa0ce1b505bf74ebabd4447e001'
+      - name: Checkout historico conversas
+        if: matrix.scenario == 'chat_general'
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: historical
+          ref: '422d00ccbd9ef3c7dce11252be045daf656b8e09'
+      - name: Preflight sem recursos e tokens reais
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GOOGLE_CLOUD_PROJECT" = "demo-atrio-v11"
+          test -z "$FIREBASE_TOKEN"
+          test -z "$GOOGLE_APPLICATION_CREDENTIALS"
+          test -z "$GCLOUD_PROJECT"
+          test -z "$ATRIO_PUSH_WORKER_URL"
+          test -z "$ATRIO_AVATAR_WORKER_URL"
+          test -z "$ATRIO_GUARDIAN_V2_WORKER_URL"
+          test "$(git -C harness rev-parse HEAD)" = 'ba6f6cccd9fe0c7189b51f854e65bb80e8ca858a'
+          test "$(git -C historical rev-parse HEAD)" = '${{ matrix.historic_sha }}'
+          echo 'QA synthetic local rule coverage'
+      - name: Node version do laboratorio historico
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node_version }}
+      - name: Java para emulador isolado
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java_version }}
+      - name: Testes offline do coletor local sanitizado
+        working-directory: harness
+        run: python3 -m unittest scripts.test_ci_historic_firestore_coverage scripts.test_ci_historic_firestore_differential -v
+      - name: Dependencias fixadas pelo lockfile historico
+        working-directory: historical/tests/security
+        run: npm ci --ignore-scripts
+      - name: Observar ruleCoverage somente no teste positivo final
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH="$GITHUB_WORKSPACE/harness" python3 harness/scripts/ci_historic_firestore_coverage.py \
+            --scenario ${{ matrix.scenario }} \
+            --historical "$GITHUB_WORKSPACE/historical" \
+            --output "$RUNNER_TEMP/qa-rule-coverage-${{ matrix.scenario }}.json"
+      - name: Arquivar somente contagens locais sanitizadas
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-rule-coverage-${{ matrix.scenario }}
+          path: ${{ runner.temp }}/qa-rule-coverage-${{ matrix.scenario }}.json
+          if-no-files-found: warn
+          retention-days: 7
+
+  fixture-integrity:
+    # QA-only same-fixture comparison; original historical files stay untouched upstream.
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'test/qa-historic-firestore-repro-20261113'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - scenario: reply_notice
+            historic_sha: '43fac1b50ee12fa0ce1b505bf74ebabd4447e001'
+            node_version: '20'
+            java_version: '17'
+          - scenario: chat_general
+            historic_sha: '422d00ccbd9ef3c7dce11252be045daf656b8e09'
+            node_version: '22'
+            java_version: '21'
+    env:
+      GOOGLE_CLOUD_PROJECT: demo-atrio-v11
+      FIREBASE_TOKEN: ''
+      GOOGLE_APPLICATION_CREDENTIALS: ''
+      GCLOUD_PROJECT: ''
+      ATRIO_PUSH_WORKER_URL: ''
+      ATRIO_AVATAR_WORKER_URL: ''
+      ATRIO_GUARDIAN_V2_WORKER_URL: ''
+      ATRIO_SIGNING_STORE_PASSWORD: ''
+      ATRIO_SIGNING_KEY_PASSWORD: ''
+    steps:
+      - name: Checkout do investigador imutavel
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: harness
+          ref: '7439710501e8d3af3e22b1678b73dbe644ffc8b6'
+      - name: Checkout historico notificacoes
+        if: matrix.scenario == 'reply_notice'
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: historical
+          ref: '43fac1b50ee12fa0ce1b505bf74ebabd4447e001'
+      - name: Checkout historico conversas
+        if: matrix.scenario == 'chat_general'
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: historical
+          ref: '422d00ccbd9ef3c7dce11252be045daf656b8e09'
+      - name: Preflight sem recursos e tokens reais
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GOOGLE_CLOUD_PROJECT" = "demo-atrio-v11"
+          test -z "$FIREBASE_TOKEN"
+          test -z "$GOOGLE_APPLICATION_CREDENTIALS"
+          test -z "$GCLOUD_PROJECT"
+          test -z "$ATRIO_PUSH_WORKER_URL"
+          test -z "$ATRIO_AVATAR_WORKER_URL"
+          test -z "$ATRIO_GUARDIAN_V2_WORKER_URL"
+          test "$(git -C harness rev-parse HEAD)" = '7439710501e8d3af3e22b1678b73dbe644ffc8b6'
+          test "$(git -C historical rev-parse HEAD)" = '${{ matrix.historic_sha }}'
+          echo 'QA synthetic fixture integrity'
+      - name: Node version do laboratorio historico
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node_version }}
+      - name: Java para emulador isolado
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java_version }}
+      - name: Testes offline do sensor de fixtures sinteticas
+        working-directory: harness
+        run: python3 -m unittest scripts.test_ci_historic_firestore_fixture scripts.test_ci_historic_firestore_differential -v
+      - name: Dependencias fixadas pelo lockfile historico
+        working-directory: historical/tests/security
+        run: npm ci --ignore-scripts
+      - name: Inspecionar flags de fixture sintetica antes do teste positivo
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH="$GITHUB_WORKSPACE/harness" python3 harness/scripts/ci_historic_firestore_fixture.py \
+            --scenario ${{ matrix.scenario }} \
+            --historical "$GITHUB_WORKSPACE/historical" \
+            --output "$RUNNER_TEMP/qa-fixture-integrity-${{ matrix.scenario }}.json"
+      - name: Arquivar somente flags booleanas sem dados do Firestore
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-fixture-integrity-${{ matrix.scenario }}
+          path: ${{ runner.temp }}/qa-fixture-integrity-${{ matrix.scenario }}.json
+          if-no-files-found: warn
+          retention-days: 7
+
+  guard-isolation:
+    # QA-only: variant removes one authorization check in disposable Emulator.
+    # This intentionally weakened variant MUST NEVER be deployed.
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'test/qa-historic-firestore-repro-20261113'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - scenario: reply_notice
+            historic_sha: '43fac1b50ee12fa0ce1b505bf74ebabd4447e001'
+            node_version: '20'
+            java_version: '17'
+          - scenario: chat_general
+            historic_sha: '422d00ccbd9ef3c7dce11252be045daf656b8e09'
+            node_version: '22'
+            java_version: '21'
+    env:
+      GOOGLE_CLOUD_PROJECT: demo-atrio-v11
+      FIREBASE_TOKEN: ''
+      GOOGLE_APPLICATION_CREDENTIALS: ''
+      GCLOUD_PROJECT: ''
+      ATRIO_PUSH_WORKER_URL: ''
+      ATRIO_AVATAR_WORKER_URL: ''
+      ATRIO_GUARDIAN_V2_WORKER_URL: ''
+      ATRIO_SIGNING_STORE_PASSWORD: ''
+      ATRIO_SIGNING_KEY_PASSWORD: ''
+    steps:
+      - name: Obter investigador fixado por SHA
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: harness
+          ref: 'd22cef8cf3d1d71f0da3fcb0c7887ca06d07f82b'
+      - name: Checkout historico de notificacoes
+        if: matrix.scenario == 'reply_notice'
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: historical
+          ref: '43fac1b50ee12fa0ce1b505bf74ebabd4447e001'
+      - name: Checkout historico de conversas
+        if: matrix.scenario == 'chat_general'
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: historical
+          ref: '422d00ccbd9ef3c7dce11252be045daf656b8e09'
+      - name: Conferir ambiente demo, SHAs e segredos vazios
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GOOGLE_CLOUD_PROJECT" = "demo-atrio-v11"
+          test -z "$FIREBASE_TOKEN"
+          test -z "$GOOGLE_APPLICATION_CREDENTIALS"
+          test -z "$GCLOUD_PROJECT"
+          test -z "$ATRIO_PUSH_WORKER_URL"
+          test -z "$ATRIO_AVATAR_WORKER_URL"
+          test -z "$ATRIO_GUARDIAN_V2_WORKER_URL"
+          test -z "$ATRIO_SIGNING_STORE_PASSWORD"
+          test -z "$ATRIO_SIGNING_KEY_PASSWORD"
+          test "$(git -C harness rev-parse HEAD)" = 'd22cef8cf3d1d71f0da3fcb0c7887ca06d07f82b'
+          test "$(git -C historical rev-parse HEAD)" = '${{ matrix.historic_sha }}'
+          echo 'Guard-isolation only, NO deploy'
+      - name: Preparar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node_version }}
+      - name: Preparar Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java_version }}
+      - name: Testar contratos offline
+        working-directory: harness
+        run: python3 -m unittest scripts.test_ci_historic_firestore_guard_probe scripts.test_ci_historic_firestore_differential -v
+      - name: Instalar dependencias historicas
+        working-directory: historical/tests/security
+        run: npm ci --ignore-scripts
+      - name: Executar comparacao local controle e variante
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH="$GITHUB_WORKSPACE/harness" python3 harness/scripts/ci_historic_firestore_guard_probe.py \
+            --scenario ${{ matrix.scenario }} \
+            --historical "$GITHUB_WORKSPACE/historical" \
+            --output "$RUNNER_TEMP/qa-guard-isolation-${{ matrix.scenario }}.json"
+      - name: Arquivar somente JSON sem logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-guard-isolation-${{ matrix.scenario }}
+          path: ${{ runner.temp }}/qa-guard-isolation-${{ matrix.scenario }}.json
+          if-no-files-found: warn
+          retention-days: 7
+
+  contact-guard-debug:
+    # debug(expr) returns expr unchanged in the isolated Firebase Emulator.
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'test/qa-historic-firestore-repro-20261113'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      GOOGLE_CLOUD_PROJECT: demo-atrio-v11
+      FIREBASE_TOKEN: ''
+      GOOGLE_APPLICATION_CREDENTIALS: ''
+      GCLOUD_PROJECT: ''
+      GOOGLE_CLOUD_QUOTA_PROJECT: ''
+      ATRIO_PUSH_WORKER_URL: ''
+      ATRIO_AVATAR_WORKER_URL: ''
+      ATRIO_GUARDIAN_V2_WORKER_URL: ''
+      ATRIO_SIGNING_STORE_PASSWORD: ''
+      ATRIO_SIGNING_KEY_PASSWORD: ''
+    steps:
+      - name: Checkout do investigador imutavel
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: harness
+          ref: 'c49a426a3a0bae2faaeb48f8c0cbf2c092427de7'
+      - name: Checkout historico QA conversas
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: historical
+          ref: '422d00ccbd9ef3c7dce11252be045daf656b8e09'
+      - name: Preflight demo-only e SHA literal
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GOOGLE_CLOUD_PROJECT" = "demo-atrio-v11"
+          test -z "$FIREBASE_TOKEN"
+          test -z "$GOOGLE_APPLICATION_CREDENTIALS"
+          test -z "$GCLOUD_PROJECT"
+          test -z "$GOOGLE_CLOUD_QUOTA_PROJECT"
+          test -z "$ATRIO_PUSH_WORKER_URL"
+          test -z "$ATRIO_AVATAR_WORKER_URL"
+          test -z "$ATRIO_GUARDIAN_V2_WORKER_URL"
+          test -z "$ATRIO_SIGNING_STORE_PASSWORD"
+          test -z "$ATRIO_SIGNING_KEY_PASSWORD"
+          test "$(git -C harness rev-parse HEAD)" = 'c49a426a3a0bae2faaeb48f8c0cbf2c092427de7'
+          test "$(git -C historical rev-parse HEAD)" = '422d00ccbd9ef3c7dce11252be045daf656b8e09'
+          echo 'Firestore Emulator debug: no production or deployment'
+      - name: Node fixado para o historico
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Java fixado para o Emulator
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Contratos offline da depuracao
+        working-directory: harness
+        run: python3 -m unittest scripts.test_ci_historic_firestore_contact_debug scripts.test_ci_historic_firestore_differential -v
+      - name: Dependencias historicas com lockfile
+        working-directory: historical/tests/security
+        run: npm ci --ignore-scripts
+      - name: Executar controle e guarda intacta com debug local
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH="$GITHUB_WORKSPACE/harness" python3 harness/scripts/ci_historic_firestore_contact_debug.py \
+            --historical "$GITHUB_WORKSPACE/historical" \
+            --output "$RUNNER_TEMP/qa-contact-guard-debug.json"
+      - name: Arquivar exclusivamente JSON sanitizado
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-contact-guard-debug
+          path: ${{ runner.temp }}/qa-contact-guard-debug.json
+          if-no-files-found: warn
+          retention-days: 7
