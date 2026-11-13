@@ -11,7 +11,8 @@ import json
 from pathlib import Path
 
 from scripts.ci_quality_report import REPO, REQUIRED, state_for, validate_sha
-from scripts.ci_autofix_qa_review import PATCH_ID, QA_TARGET, preview_real_qa_patch
+from scripts.ci_autofix_qa_review import (PATCH_ID, QA_TARGET, qa_patch_state,
+                                         preview_real_qa_patch)
 
 MAX_INPUT_BYTES = 250_000
 PR_ONLY = frozenset(REQUIRED[2:])
@@ -145,6 +146,12 @@ def handoff(report, snapshot, plan, source_event, source_branch, checkout_root):
         "reason": "event_scope_metadata_not_root_cause",
     }
     if state != "review_candidate":
+        return result
+    # After PR #261 lands, a matching metadata symptom is not a reason to
+    # reapply the same patch. Reject unknown drift instead of guessing.
+    if qa_patch_state(checkout_root) == "already_applied":
+        result["status"] = "blocked_already_applied"
+        result["reason"] = "reviewed_qa_patch_already_present"
         return result
     evidence = preview_real_qa_patch(checkout_root)
     if (evidence.get("mode") != "manual_review_only_sandbox_preview"

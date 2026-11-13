@@ -29,7 +29,7 @@ BASE_BRANCH = "main"
 STATIC_TITLE = "fix(qa): identificar checks exclusivos de PR no relatorio CI"
 ALLOWED_STATUSES = frozenset((
     "draft_pr_intent_review_required", "blocked_event_or_branch",
-    "blocked_required_check_pattern",
+    "blocked_required_check_pattern", "blocked_already_applied",
     "blocked_competing_failure_or_log_evidence",
 ))
 STATIC_BODY = (

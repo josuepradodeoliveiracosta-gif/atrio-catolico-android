@@ -18,6 +18,8 @@ from scripts.ci_autofix_sandbox import read_pinned_qa_source, sha256
 QA_TARGET = "scripts/ci_quality_report.py"
 QA_ALLOWLIST = frozenset((QA_TARGET,))
 QA_TARGET_SHA256 = "784f29513b0b41cdc24eee34326f5ece05339e30786d2dfa13ef0e448c31fdda"
+# Exact SHA-256 of the already-reviewed patch in PR #261, not an arbitrary update.
+QA_PATCHED_SHA256 = "d031e677de3aded17a2a6d1c52d7dfd1cd2313b1f5ea0f7ff767d9814f68502e"
 MAX_SOURCE_BYTES = 12_000
 MAX_DIFF_BYTES = 3_000
 PATCH_ID = "ci_push_pr_only_check_scope_metadata_v1"
@@ -101,6 +103,24 @@ def apply_reviewed_patch(source):
     ast.parse(patched, filename=QA_TARGET)
     compile(patched, QA_TARGET, "exec")
     return patched
+
+
+def qa_patch_state(checkout_root, relative_path=QA_TARGET):
+    """Only the exact reviewed before/after file is a known recipe state.
+
+    Never interpret an unknown file, missing file or symlink as "already fixed".
+    The existing allowlisted reader checks each directory component and hash.
+    """
+    try:
+        read_pinned_qa_source(
+            checkout_root, relative_path, QA_ALLOWLIST,
+            QA_TARGET_SHA256, MAX_SOURCE_BYTES)
+    except ValueError:
+        read_pinned_qa_source(
+            checkout_root, relative_path, QA_ALLOWLIST,
+            QA_PATCHED_SHA256, MAX_SOURCE_BYTES)
+        return "already_applied"
+    return "needs_patch"
 
 
 def preview_real_qa_patch(checkout_root, relative_path=QA_TARGET):

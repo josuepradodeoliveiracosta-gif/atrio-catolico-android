@@ -16,7 +16,11 @@ from scripts.ci_diagnostic_snapshot import digest
 from scripts.ci_autofix_policy import build_plan
 from scripts.ci_autofix_handoff import evidence_gate, handoff, read_json_bounded
 from scripts.test_ci_autofix_policy import fixtures
-from scripts.ci_autofix_qa_review import PATCH_ID, QA_TARGET
+from scripts.ci_autofix_qa_review import (
+    PATCH_ID, QA_TARGET, QA_PATCHED_SHA256, apply_reviewed_patch, qa_patch_state,
+)
+from scripts.ci_autofix_pr_draft_plan import draft_pr_plan
+from scripts.ci_autofix_sandbox import sha256
 
 ROOT = Path(__file__).resolve().parents[1]
 SHA = "a" * 40
@@ -61,6 +65,39 @@ class HandoffTests(unittest.TestCase):
         self.assertEqual(result["regression_validation"], "requires_ci_tests")
         self.assertNotIn("patch", result)
         self.assertNotIn("log", json.dumps(result))
+
+    def test_exact_already_applied_patch_does_not_create_second_intent(self):
+        a, b, c = sample()
+        original = (ROOT / QA_TARGET).read_text(encoding="utf-8")
+        self.assertEqual(qa_patch_state(ROOT), "needs_patch")
+        corrected = apply_reviewed_patch(original)
+        self.assertEqual(sha256(corrected), QA_PATCHED_SHA256)
+        with TemporaryDirectory() as directory:
+            target = Path(directory) / QA_TARGET
+            target.parent.mkdir(parents=True)
+            target.write_text(corrected, encoding="utf-8")
+            self.assertEqual(qa_patch_state(directory), "already_applied")
+            decision = handoff(a, b, c, "push", "main", directory)
+            self.assertEqual(decision["status"], "blocked_already_applied")
+            self.assertIsNone(decision["draft_pr_intent_id"])
+            self.assertFalse(decision["permission_to_write_repo"])
+            self.assertEqual(decision["automatic_pull_requests_created"], 0)
+            self.assertEqual(
+                draft_pr_plan(decision, directory)["status"],
+                "blocked_by_handoff")
+            self.assertEqual(target.read_text(encoding="utf-8"), corrected)
+            # Unknown drift, even if it contains the desired patch, is not
+            # grounds for a "fixed" classification or a remote write.
+            target.write_text(corrected + "# unexpected drift\n",
+                              encoding="utf-8")
+            with self.assertRaises(ValueError):
+                qa_patch_state(directory)
+            with self.assertRaises(ValueError):
+                handoff(a, b, c, "push", "main", directory)
+            target.unlink()
+            target.symlink_to(ROOT / QA_TARGET)
+            with self.assertRaises(ValueError):
+                qa_patch_state(directory)
 
     def test_pr_unknown_event_or_non_main_branch_is_blocked(self):
         a, b, c = sample()

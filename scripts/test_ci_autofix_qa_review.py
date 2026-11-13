@@ -13,7 +13,8 @@ import unittest
 
 from scripts.ci_autofix_qa_review import (
     EDITS, MAX_DIFF_BYTES, PATCH_ID, QA_TARGET, QA_TARGET_SHA256,
-    apply_reviewed_patch, preview_real_qa_patch,
+    QA_PATCHED_SHA256, apply_reviewed_patch, preview_real_qa_patch,
+    qa_patch_state,
 )
 from scripts.ci_autofix_sandbox import sha256
 from scripts.ci_quality_report import REQUIRED, report
@@ -121,6 +122,7 @@ class RealQaPatchTests(unittest.TestCase):
         self.assertTrue(all(original.count(old) == 1 for old, _ in EDITS))
         updated = apply_reviewed_patch(original)
         self.assertNotEqual(sha256(updated), QA_TARGET_SHA256)
+        self.assertEqual(sha256(updated), QA_PATCHED_SHA256)
         self.assertIn('source_event=args.source_event', updated)
         self.assertIn('not_expected_on_push', updated)
 
