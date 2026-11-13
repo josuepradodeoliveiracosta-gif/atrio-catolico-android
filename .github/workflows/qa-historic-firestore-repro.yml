@@ -18,6 +18,8 @@ on:
       - 'scripts/test_ci_historic_firestore_fixture.py'
       - 'scripts/ci_historic_firestore_guard_probe.py'
       - 'scripts/test_ci_historic_firestore_guard_probe.py'
+      - 'scripts/ci_historic_firestore_contact_debug.py'
+      - 'scripts/test_ci_historic_firestore_contact_debug.py'
       - 'docs/ci/diagnosticos-etapa16-reproducao-firestore-2026-11-13.md'
 
 permissions:
@@ -599,5 +601,82 @@ jobs:
         with:
           name: qa-guard-isolation-${{ matrix.scenario }}
           path: ${{ runner.temp }}/qa-guard-isolation-${{ matrix.scenario }}.json
+          if-no-files-found: warn
+          retention-days: 7
+
+  contact-guard-debug:
+    # debug(expr) returns expr unchanged in the isolated Firebase Emulator.
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'test/qa-historic-firestore-repro-20261113'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      GOOGLE_CLOUD_PROJECT: demo-atrio-v11
+      FIREBASE_TOKEN: ''
+      GOOGLE_APPLICATION_CREDENTIALS: ''
+      GCLOUD_PROJECT: ''
+      GOOGLE_CLOUD_QUOTA_PROJECT: ''
+      ATRIO_PUSH_WORKER_URL: ''
+      ATRIO_AVATAR_WORKER_URL: ''
+      ATRIO_GUARDIAN_V2_WORKER_URL: ''
+      ATRIO_SIGNING_STORE_PASSWORD: ''
+      ATRIO_SIGNING_KEY_PASSWORD: ''
+    steps:
+      - name: Checkout do investigador imutavel
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: harness
+          ref: 'a82987951221b31abdb38c5df79b99adf6d16af2'
+      - name: Checkout historico QA conversas
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: historical
+          ref: '422d00ccbd9ef3c7dce11252be045daf656b8e09'
+      - name: Preflight demo-only e SHA literal
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GOOGLE_CLOUD_PROJECT" = "demo-atrio-v11"
+          test -z "$FIREBASE_TOKEN"
+          test -z "$GOOGLE_APPLICATION_CREDENTIALS"
+          test -z "$GCLOUD_PROJECT"
+          test -z "$GOOGLE_CLOUD_QUOTA_PROJECT"
+          test -z "$ATRIO_PUSH_WORKER_URL"
+          test -z "$ATRIO_AVATAR_WORKER_URL"
+          test -z "$ATRIO_GUARDIAN_V2_WORKER_URL"
+          test -z "$ATRIO_SIGNING_STORE_PASSWORD"
+          test -z "$ATRIO_SIGNING_KEY_PASSWORD"
+          test "$(git -C harness rev-parse HEAD)" = 'a82987951221b31abdb38c5df79b99adf6d16af2'
+          test "$(git -C historical rev-parse HEAD)" = '422d00ccbd9ef3c7dce11252be045daf656b8e09'
+          echo 'Firestore Emulator debug: no production or deployment'
+      - name: Node fixado para o historico
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Java fixado para o Emulator
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Contratos offline da depuracao
+        working-directory: harness
+        run: python3 -m unittest scripts.test_ci_historic_firestore_contact_debug scripts.test_ci_historic_firestore_differential -v
+      - name: Dependencias historicas com lockfile
+        working-directory: historical/tests/security
+        run: npm ci --ignore-scripts
+      - name: Executar controle e guarda intacta com debug local
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH="$GITHUB_WORKSPACE/harness" python3 harness/scripts/ci_historic_firestore_contact_debug.py \
+            --historical "$GITHUB_WORKSPACE/historical" \
+            --output "$RUNNER_TEMP/qa-contact-guard-debug.json"
+      - name: Arquivar exclusivamente JSON sanitizado
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-contact-guard-debug
+          path: ${{ runner.temp }}/qa-contact-guard-debug.json
           if-no-files-found: warn
           retention-days: 7
