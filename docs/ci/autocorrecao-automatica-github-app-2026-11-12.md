@@ -46,15 +46,22 @@ o segundo, caso seja gerado, não precisa ser instalado na automação.
 3. Instale a App na conta
    `josuepradodeoliveiracosta-gif` usando **Only select repositories**,
    escolhendo exclusivamente `atrio-catolico-android`.
-4. Gere **uma chave privada da GitHub App**, mas não a envie ao chat,
-   não a adicione a commits/PRs nem a arquivos públicos. No repositório,
-   em **Settings > Secrets and variables > Actions**:
-   - Cadastre `ATRIO_AUTOFIX_APP_CLIENT_ID` em **Variables**, com o
-     *Client ID* público da App.
-   - Cadastre `ATRIO_AUTOFIX_APP_PRIVATE_KEY` em **Secrets**, com
-     o conteúdo privado da chave da App.
-   - Não conceda essa chave a fluxos de PR: apenas o job privilegiado
-     do novo workflow deve acessá-la.
+4. Em **Settings > Environments**, crie o ambiente
+   `atrio-autofix-qa`; em **Deployment branches and tags** selecione
+   **Selected branches and tags** e permita **somente a branch `main`**,
+   nunca PRs, branches de feature ou curingas. Não configure
+   *required reviewers* nesse ambiente, pois o gate automático usa políticas
+   de código e a revisão humana ocorre somente antes do merge da PR.
+   O job declara `deployment: false`, então não cria um deploy.
+5. Gere **uma chave privada da GitHub App**, mas não a envie ao chat,
+   não a adicione a commits/PRs nem a arquivos públicos. Guarde-a
+   **somente no Secret do ambiente `atrio-autofix-qa`**,
+   com o nome `ATRIO_AUTOFIX_APP_PRIVATE_KEY`.
+   Em **Settings > Secrets and variables > Actions**, armazene apenas o
+   `ATRIO_AUTOFIX_APP_CLIENT_ID` público em **Variables**, com
+   o *Client ID* da App. Não coloque a chave em secrets do repositório:
+   assim apenas jobs que referenciem o ambiente aprovado podem recebê-la.
+   Nunca conceda esse segredo aos workflows de PR.
 5. Revise a PR #260 e seus checks. **A integração na `main` exige
    autorização expressa separada.** Depois da integração, o workflow
    recebe eventos CodeQL de `push` na `main` automaticamente.
