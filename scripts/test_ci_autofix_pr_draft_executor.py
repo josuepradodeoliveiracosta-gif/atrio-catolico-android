@@ -12,6 +12,7 @@ import unittest
 from urllib.error import HTTPError
 
 import scripts.ci_autofix_draft_readonly_audit as readonly_audit
+import scripts.ci_autofix_pr_draft_executor as executor_module
 
 from scripts.ci_autofix_pr_draft_executor import (
     CONFIRMATION, GitHubDraftClient, GitHubDraftReader, QA_TARGET,
@@ -21,7 +22,7 @@ from scripts.ci_autofix_pr_draft_executor import (
 from scripts.ci_autofix_pr_draft_plan import (
     BASE_BRANCH, BRANCH_NAME, STATIC_BODY, STATIC_TITLE, draft_pr_plan,
 )
-from scripts.ci_autofix_qa_review import apply_reviewed_patch
+from scripts.ci_autofix_qa_review import apply_reviewed_patch, qa_patch_state
 from scripts.test_ci_autofix_pr_draft_plan import good_handoff, live
 from scripts.ci_quality_report import NoRedirect, REPO
 
@@ -33,6 +34,27 @@ BLOB = "b" * 40
 
 def reviewed():
     return draft_pr_plan(good_handoff(), ROOT, live())
+
+
+def historical_writer_test_fixture():
+    """Simulate pre-#261 main only for in-memory HTTP writer tests.
+
+    The real writer still verifies the live checkout, which must reject the
+    already-applied patch. This mock redirects only its extra local source
+    proof to our exact-hash historical checkout, never a remote operation.
+    """
+    pinned = executor_module._pinned_source
+    # Before mocking, validate the fixture's original content, all static
+    # edits, sandbox rollback and hash against the reviewed recipe.
+    pinned(ROOT)
+
+    def source_for_test(checkout_root):
+        if Path(checkout_root).resolve() == REAL_ROOT.resolve():
+            return pinned(ROOT)
+        return pinned(checkout_root)
+
+    return patch.object(executor_module, "_pinned_source",
+                        side_effect=source_for_test)
 
 
 class FakeDraftClient:
@@ -357,7 +379,8 @@ class DraftExecutorTests(unittest.TestCase):
                             patched = apply_reviewed_patch(
                                 (ROOT / QA_TARGET).read_text(
                                     encoding="utf-8"))
-                            client.patch_file(BLOB, patched)
+                            with historical_writer_test_fixture():
+                                client.patch_file(BLOB, patched)
                         else:
                             client.create_pr(SHA)
                     self.assertEqual(len(requests), 1)
@@ -778,7 +801,8 @@ class DraftExecutorTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     client._write(method, path, payload)
         self.assertEqual(calls, [])
-        client.patch_file(BLOB, patched)
+        with historical_writer_test_fixture():
+            client.patch_file(BLOB, patched)
         client.create_pr(SHA)
         # A known-good complete PR descriptor must also pass the low-level
         # guard; otherwise the negative cases could all pass vacuously.
@@ -859,8 +883,9 @@ class DraftExecutorTests(unittest.TestCase):
             return io.BytesIO(json.dumps(answer).encode("utf-8"))
 
         client = GitHubDraftClient("offline-placeholder-not-a-secret", opener)
-        result = execute_manually_approved_draft(
-            reviewed(), ROOT, client, SHA, CONFIRMATION)
+        with historical_writer_test_fixture():
+            result = execute_manually_approved_draft(
+                reviewed(), ROOT, client, SHA, CONFIRMATION)
         self.assertEqual(result["status"], "draft_pr_created_review_required")
         self.assertEqual(result["head_sha"], COMMIT)
         self.assertTrue(result["draft"])
@@ -872,6 +897,19 @@ class DraftExecutorTests(unittest.TestCase):
         self.assertEqual([path for method, path in requests if method != "GET"],
                          ["/git/refs", "/contents/" + QA_TARGET, "/pulls"])
         self.assertEqual((ROOT / QA_TARGET).read_bytes(), original)
+
+    def test_real_writer_rejects_reapplying_patch_after_pr261(self):
+        """No test fixture may bypass the real writer's runtime fail-closed gate."""
+        if qa_patch_state(REAL_ROOT) != "already_applied":
+            self.skipTest("reviewed patch has not landed on main")
+        patched = apply_reviewed_patch(
+            (ROOT / QA_TARGET).read_text(encoding="utf-8"))
+        client = GitHubDraftClient(
+            "offline-synthetic-token",
+            lambda req, timeout: self.fail("writer must not send HTTP"))
+        with self.assertRaisesRegex(
+                ValueError, "arquivo QA divergente do hash revisado"):
+            client.patch_file(BLOB, patched)
 
     def test_default_opener_disables_redirects(self):
         with patch("scripts.ci_autofix_pr_draft_executor.build_opener") as builder:
