@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Emulator-only evaluation of the accepted-contact guard, without bypassing it.
 
+The QA-only exists() check can short-circuit before get() when chat is absent;
+it does not authorize previously denied requests and may increase read cost.
 The Firebase Rules debug() call returns the SAME boolean as its argument. Raw
 firestore-debug.log, test output and documents stay in a disposable checkout;
 only a tiny allowlisted count/classification is retained. NEVER deploy.
@@ -30,8 +32,8 @@ DEBUG_CALL = CONTACT_CALL.replace(
 ).replace("request.resource.data.contactChatId);", "request.resource.data.contactChatId));", 1)
 
 HELPER_ORIGINAL = "    function atrioGroupAcceptedContact(a,b,contactChatId) {\n      return validId(contactChatId)\n        && (contactChatId == a + '__' + b\n          || contactChatId == b + '__' + a)\n        && get(/databases/$(database)/documents/chats/$(contactChatId))\n          .data.status == 'accepted';\n    }"
-HELPER_INSTRUMENTED = "    function atrioGroupAcceptedContact(a,b,contactChatId) {\n      return debug('QA_ATRIO_CONTACT_ID') == 'QA_ATRIO_CONTACT_ID'\n        && debug(validId(contactChatId))\n        && debug('QA_ATRIO_CONTACT_PAIR') == 'QA_ATRIO_CONTACT_PAIR'\n        && debug((contactChatId == a + '__' + b\n          || contactChatId == b + '__' + a))\n        && debug('QA_ATRIO_CONTACT_STATUS') == 'QA_ATRIO_CONTACT_STATUS'\n        && debug(get(/databases/$(database)/documents/chats/$(contactChatId))\n          .data.status == 'accepted');\n    }"
-STAGE_MARKERS = {'QA_ATRIO_CONTACT_ID': 'valid_id', 'QA_ATRIO_CONTACT_PAIR': 'canonical_pair', 'QA_ATRIO_CONTACT_STATUS': 'chat_accepted'}
+HELPER_INSTRUMENTED = "    function atrioGroupAcceptedContact(a,b,contactChatId) {\n      return debug('QA_ATRIO_CONTACT_ID') == 'QA_ATRIO_CONTACT_ID'\n        && debug(validId(contactChatId))\n        && debug('QA_ATRIO_CONTACT_PAIR') == 'QA_ATRIO_CONTACT_PAIR'\n        && debug((contactChatId == a + '__' + b\n          || contactChatId == b + '__' + a))\n        && debug('QA_ATRIO_CONTACT_EXISTS') == 'QA_ATRIO_CONTACT_EXISTS'\n        && debug(exists(/databases/$(database)/documents/chats/$(contactChatId)))\n        && debug('QA_ATRIO_CONTACT_STATUS') == 'QA_ATRIO_CONTACT_STATUS'\n        && debug(get(/databases/$(database)/documents/chats/$(contactChatId))\n          .data.status == 'accepted');\n    }"
+STAGE_MARKERS = {'QA_ATRIO_CONTACT_ID': 'valid_id', 'QA_ATRIO_CONTACT_PAIR': 'canonical_pair', 'QA_ATRIO_CONTACT_EXISTS': 'chat_exists', 'QA_ATRIO_CONTACT_STATUS': 'chat_accepted'}
 
 CANARY = "QA_ATRIO_CONTACT_CREATE_CANARY"
 CANARY_CREATE_START = CREATE_START.replace(
@@ -113,7 +115,7 @@ def classify_debug_log(data):
     counts = {key: {"true": 0, "false": 0} for key in markers}
     active = None
     for line in raw.splitlines():
-        tag = re.search(r"string_value:\s*[\"'](QA_ATRIO_CONTACT_(?:ID|PAIR|STATUS))[\"']", line)
+        tag = re.search(r"string_value:\s*[\"'](QA_ATRIO_CONTACT_(?:ID|PAIR|EXISTS|STATUS))[\"']", line)
         if tag:
             active = STAGE_MARKERS[tag.group(1)]
             markers[active] = True
