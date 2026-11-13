@@ -86,15 +86,23 @@ class FixtureProbeTests(unittest.TestCase):
         from scripts.ci_historic_firestore_fixture import CHAT_SENSOR
         self.assertIn("stage = 'evaluate_flags'", CHAT_SENSOR)
         self.assertIn("await read('read_contact', room)", CHAT_SENSOR)
+        self.assertIn("stage = step + '_reference'", CHAT_SENSOR)
+        self.assertIn("stage = step + '_fetch'", CHAT_SENSOR)
+        self.assertIn("stage = step + '_complete'", CHAT_SENSOR)
         self.assertIn("await read('read_inverse_block'", CHAT_SENSOR)
-        sample = {"probe_unavailable": True, "stage": "read_contact",
-                  "category": "FirebaseError"}
+        sample = {"probe_unavailable": True, "stage": "read_contact_fetch",
+                  "category": "ReferenceError"}
         result = classify_fixture(
             "QA_FOR_FIXTURE:" + json.dumps(sample), "chat_general")
         self.assertEqual(result["status"], "probe_unavailable")
-        self.assertEqual(result["stage"], "read_contact")
-        self.assertEqual(result["failure_category"], "FirebaseError")
+        self.assertEqual(result["stage"], "read_contact_fetch")
+        self.assertEqual(result["failure_category"], "ReferenceError")
         self.assertEqual(result["booleans"], {})
+        for phase in ("reference", "fetch", "complete"):
+            probe = {**sample, "stage": "read_contact_" + phase}
+            self.assertEqual(classify_fixture(
+                "QA_FOR_FIXTURE:" + json.dumps(probe), "chat_general")["status"],
+                "probe_unavailable")
         malicious = {**sample, "stage": "SECRET=do-not-expose"}
         rejected = classify_fixture(
             "QA_FOR_FIXTURE:" + json.dumps(malicious), "chat_general")
