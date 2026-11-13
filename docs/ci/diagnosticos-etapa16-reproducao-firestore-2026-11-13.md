@@ -41,3 +41,18 @@ Uma falha histórica reproduzida **não deve ser apresentada como teste bem-suce
 5. Só propor patch de regras se a falha permanecer relevante para a `main`; os testes históricos não representam automaticamente defeitos atuais.
 
 **Metas de precisão causal de 90% e autocorreção elegível de 99%:** ainda não aferidas. **Nenhuma mudança em produção ou merge está autorizada por este experimento.**
+
+## Etapa 17 — comparação por contrafactuais com controle idêntico
+
+A fase anterior reproduziu `2/2` sintomas históricos em runners isolados, sem afirmar causalidade. Nesta ampliação, a PR passa a executar **duas corridas separadas por cenário** em um novo job `causal-differential` (uma com a árvore histórica original e outra com **uma substituição literal única** nas Rules geradas somente no checkout descartável). Cada corrida inicia uma nova instância do Firestore Emulator, mesmo projeto fictício, mesmas fixtures e assertivas de segurança. O código do teste é copiado para arquivo temporário com marcadores de estágio que **não mudam as assertivas nem as permissões**.
+
+Comparações propostas:
+
+- **Notificações:** substituir apenas `get(...replies/$(request.resource.data.replyToId))` por `getAfter(...replies/$(request.resource.data.replyToId))` na verificação canônica da resposta citada. Ambas leem o mesmo alvo *se já existente e não modificado no batch*, mas possuem semânticas temporais distintas. O teste também mantém os casos negativos de destinatário incorreto e aviso ausente; **nenhuma regra oficial é editada**.
+- **Conversas:** materializar um único snapshot de `getAfter(chatQuotaPath(uid)).data` e reutilizá-lo nas quatro comparações do contador, preservando `existsAfter` e os limites `1..5`. O objetivo é diferenciar consultas repetidas de outras origens de erro; se a fonte do contador estiver ausente, o contrafactual pode produzir rejeição antecipada, razão pela qual o resultado é **experimental, nunca patch de produção**.
+
+O runner `scripts/ci_historic_firestore_differential.py` compara o código de saída, último estágio de teste iniciado, sinais binários vistos no log completo, aprovação do caso positivo de notificação e hashes dos candidatos. **Não registra nem publica stdout/stderr, documentos, credenciais ou dados de usuários**. Os campos de precisão, reparo automático e causa comprovada continuam nulos/falsos; resultados inesperados exigem revisão das condições do teste, não são convertidos automaticamente em diagnósticos.
+
+A execução é restrita a PR interna com permissões `contents:read`, referências SHA literais, Node/Java históricos, `demo-atrio-v11`, credenciais Firebase vazias e duas bases locais efêmeras por cenário. O checkout original é conferido por SHA. **A mudança contrafactual ocorre somente em cópia local descartável de Rules.** O novo workflow não executa deploy, Firebase real, Cloudflare, reruns da amostra congelada ou escrita na `main`.
+
+**Critério de interpretação:** se uma variante mudar o resultado, a evidência estabelece apenas que **essa substituição no cenário sintético** mudou o comportamento; ainda será necessária inspeção do predicado exato, preservação das negativas e validação independente antes de atribuir causa raiz. Se a falha persistir, a condição testada isoladamente não foi suficiente para corrigi-la.
