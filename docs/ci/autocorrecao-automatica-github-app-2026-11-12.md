@@ -98,9 +98,9 @@ o segundo, caso seja gerado, não precisa ser instalado na automação.
    e consegue acessar essa variável pelo contexto `vars`. Não coloque a chave em secrets do repositório:
    assim apenas jobs que referenciem o ambiente aprovado podem recebê-la.
    Nunca conceda esse segredo aos workflows de PR.
-5. Revise a PR #260 e seus checks. **A integração na `main` exige
-   autorização expressa separada.** Depois da integração, o workflow
-   recebe eventos CodeQL de `push` na `main` automaticamente.
+6. **Depois das integrações autorizadas das PRs #260 e #262**, confira
+   no GitHub Actions o diagnóstico automático da `main` e seu bloqueio
+   quando não houver receita elegível. Não reaplique o patch da PR #261.
 
 A ação `actions/create-github-app-token@v3` restringe o token de
 instalação **a este único repositório e às duas permissões listadas** e
