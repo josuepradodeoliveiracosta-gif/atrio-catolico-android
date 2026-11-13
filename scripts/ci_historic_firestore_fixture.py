@@ -67,8 +67,12 @@ async function qaSyntheticFixtureProbe() {
     await env.withSecurityRulesDisabled(async ctx => {
       const db = ctx.firestore();
       const read = async (step, path) => {
-        stage = step;
-        return await getDoc(doc(db,path));
+        stage = step + '_reference';
+        const reference = doc(db,path);
+        stage = step + '_fetch';
+        const snapshot = await getDoc(reference);
+        stage = step + '_complete';
+        return snapshot;
       };
       const contact = await read('read_contact', room);
       const group = await read('read_group', inviteGroup);
@@ -108,7 +112,8 @@ async function qaSyntheticFixtureProbe() {
     });
   } catch (error) {
     const name = String(error?.name || '');
-    const category = ['FirebaseError','TypeError','RangeError','Error'].includes(name)
+    const category = ['FirebaseError','FirestoreError','ReferenceError',
+      'TypeError','RangeError','SyntaxError','Error','AbortError','TimeoutError'].includes(name)
       ? name : 'other';
     row = {probe_unavailable:true, stage, category};
   }
@@ -141,13 +146,21 @@ def classify_fixture(log, scenario):
     except (ValueError, TypeError):
         return {"status": "invalid_marker", "booleans": {}}
     if isinstance(raw, dict) and raw.get("probe_unavailable") is True:
-        allowed_stages = {
-            "initializing", "read_contact", "read_group", "read_chat_policy",
+        read_steps = (
+            "read_contact", "read_group", "read_chat_policy",
             "read_group_policy", "read_inviter_age", "read_invitee_age",
             "read_inviter_group", "read_invitee_group", "read_inverse_block",
-            "evaluate_flags",
+        )
+        allowed_stages = {"initializing", "evaluate_flags"} | {
+            f"{step}_{phase}"
+            for step in read_steps
+            for phase in ("reference", "fetch", "complete")
         }
-        allowed_categories = {"FirebaseError", "TypeError", "RangeError", "Error", "other"}
+        allowed_categories = {
+            "FirebaseError", "FirestoreError", "ReferenceError",
+            "TypeError", "RangeError", "SyntaxError", "Error",
+            "AbortError", "TimeoutError", "other",
+        }
         if (set(raw) == {"probe_unavailable", "stage", "category"}
                 and raw["stage"] in allowed_stages
                 and raw["category"] in allowed_categories):
