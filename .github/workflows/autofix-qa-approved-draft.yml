@@ -8,6 +8,7 @@ on:
     workflows:
       - Revisão automática - CodeQL (Kotlin, JS, Python e Actions)
     types: [completed]
+    branches: [main]
 
 concurrency:
   group: atrio-autofix-approved-main

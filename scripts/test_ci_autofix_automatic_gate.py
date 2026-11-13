@@ -168,6 +168,7 @@ class ApprovedAutofixTests(unittest.TestCase):
         wf = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("  workflow_run:\n", wf)
         self.assertIn("    types: [completed]", wf)
+        self.assertIn("    branches: [main]", wf)
         self.assertNotIn("pull_request_target", wf)
         self.assertNotIn("workflow_dispatch", wf)
         self.assertNotIn("secrets.ATRIO_QA_READ_TOKEN", wf)
