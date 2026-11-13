@@ -3,7 +3,7 @@ import unittest
 
 from scripts.ci_historic_firestore_contact_debug import (
     CONTACT_CALL, DEBUG_CALL, CREATE_START, CREATE_END,
-    CANARY, CANARY_CREATE_START,
+    CANARY, CANARY_CREATE_START, HELPER_ORIGINAL, HELPER_INSTRUMENTED,
     classify_debug_log, instrument_contact_debug,
 )
 
@@ -12,6 +12,7 @@ def synthetic_rules():
     return (
         "rules_version = '2';\n"
         "service cloud.firestore { match /databases/{database}/documents {\n"
+        + HELPER_ORIGINAL + "\n"
         "match /chat_groups/{groupId}/atrioGroupInvites/{inviteeUid} {\n"
         + CREATE_START + "\n"
         "          && qaChatAge16Eligible(inviteeUid)\n"
@@ -31,7 +32,10 @@ class ContactDebugSafeguards(unittest.TestCase):
         rules = synthetic_rules()
         result = instrument_contact_debug(rules)
         self.assertEqual(result, rules.replace(CONTACT_CALL, DEBUG_CALL, 1)
-                         .replace(CREATE_START, CANARY_CREATE_START, 1))
+                         .replace(CREATE_START, CANARY_CREATE_START, 1)
+                         .replace(HELPER_ORIGINAL, HELPER_INSTRUMENTED, 1))
+        self.assertIn("debug(validId(contactChatId))", result)
+        self.assertIn("debug(get(/databases/", result)
         self.assertEqual(result.count(CANARY_CREATE_START), 1)
         self.assertIn(CANARY, result)
         self.assertEqual(result.count(DEBUG_CALL), 1)
@@ -56,6 +60,7 @@ class ContactDebugSafeguards(unittest.TestCase):
             original.replace("blockedMembers/", "notBlocked/"),
             original + "debug(true)",
             original.replace(CREATE_END, "allow update: if true"),
+            original.replace(HELPER_ORIGINAL, "function other() {return true;}"),
         ):
             with self.subTest(change=value[:40]), self.assertRaises(ValueError):
                 instrument_contact_debug(value)
@@ -93,6 +98,19 @@ class ContactDebugSafeguards(unittest.TestCase):
         self.assertEqual(classify_debug_log(canary+b'[time] bool_value: false\n')["status"],
                          "only_false_observed")
         self.assertTrue(classify_debug_log(canary+b'[time] bool_value: false\n')["bool_keyword_seen"])
+        segmented = (
+            canary + b'string_value: "QA_ATRIO_CONTACT_ID"\n'
+            b'bool_value: true\n'
+            b'string_value: "QA_ATRIO_CONTACT_PAIR"\n'
+            b'bool_value: true\n'
+            b'string_value: "QA_ATRIO_CONTACT_STATUS"\n'
+        )
+        stage = classify_debug_log(segmented)['guard_subexpressions']
+        self.assertEqual(stage['valid_id']['value'], 'true')
+        self.assertEqual(stage['canonical_pair']['value'], 'true')
+        self.assertEqual(stage['chat_accepted']['value'], 'not_observed')
+        self.assertTrue(stage['chat_accepted']['marker_seen'])
+        self.assertNotIn('SECRET', repr(stage))
         self.assertEqual(classify_debug_log("SECRET")["status"],
                          "log_unavailable_or_oversized")
         rows = classify_debug_log(b"bool_value: true\n" * 101)
