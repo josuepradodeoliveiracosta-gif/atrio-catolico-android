@@ -153,13 +153,41 @@ class HandoffTests(unittest.TestCase):
         self.assertEqual(handoff(a, b, c, "push", "main", ROOT)["status"],
                          "blocked_competing_failure_or_log_evidence")
 
-    def test_duplicate_names_and_forged_required_status_are_rejected(self):
+    def test_real_duplicate_check_names_block_without_crashing_pipeline(self):
+        # Multiple GitHub check runs may share a name on the same push SHA.
+        # Feed them through the real report -> snapshot -> plan builders.
+        checks = [
+            {"name": REQUIRED[0], "status": "completed",
+             "conclusion": "success"},
+            {"name": REQUIRED[0], "status": "completed",
+             "conclusion": "success"},
+            {"name": REQUIRED[1], "status": "completed",
+             "conclusion": "success"},
+        ]
+        a, b, c = sample(checks)
+        sha, state = evidence_gate(a, b, c, "push", "main")
+        self.assertEqual(sha, SHA)
+        self.assertEqual(state, "blocked_competing_failure_or_log_evidence")
+        decision = handoff(a, b, c, "push", "main", REAL_ROOT)
+        self.assertEqual(decision["status"], state)
+        self.assertEqual(decision["reason"],
+                         "repeated_check_names_need_manual_review")
+        self.assertIsNone(decision["draft_pr_intent_id"])
+        self.assertFalse(decision["permission_to_write_repo"])
+        self.assertEqual(decision["automatic_pull_requests_created"], 0)
+        self.assertEqual(draft_pr_plan(decision, REAL_ROOT)["status"],
+                         "blocked_by_handoff")
+
+    def test_duplicate_checks_do_not_override_invalid_evidence(self):
         a, b, c = sample()
         a["checks"].append(deepcopy(a["checks"][0]))
-        a["check_count"] += 1
+        # A forged count or required state must still fail before the
+        # duplicate-name block is considered, never authorize a repair.
         with self.assertRaises(ValueError):
             evidence_gate(a, b, c, "push", "main")
         a, b, c = sample()
+        a["checks"].append(deepcopy(a["checks"][0]))
+        a["check_count"] += 1
         a["required_checks"][REQUIRED[2]] = "success"
         with self.assertRaises(ValueError):
             evidence_gate(a, b, c, "push", "main")
