@@ -57,6 +57,15 @@ class DifferentialTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             instrument_historical_test("try {\n  await x;\n", "chat_general")
 
+    def test_exact_historical_one_space_indent_instrumented(self):
+        synthetic = ("try {\n await env.clearFirestore();\n" +
+                     "".join(f" await assertSucceeds(test{i}());\n"
+                             for i in range(12)) + "} finally {}\n")
+        marked = instrument_historical_test(synthetic, "chat_general")
+        self.assertEqual(marked.count("QA_FORENSIC_STAGE:chat_line_"), 13)
+        self.assertIn("QA_FORENSIC_STAGE:chat_line_2", marked)
+        self.assertIn(" await assertSucceeds(test11());", marked)
+
     def test_report_is_sanitized_and_not_root_cause_claim(self):
         log = ("QA_FORENSIC_STAGE:notice_missing_direct_notice\n" +
                "QA_FORENSIC_STAGE:notice_direct_both_positive\n" +
