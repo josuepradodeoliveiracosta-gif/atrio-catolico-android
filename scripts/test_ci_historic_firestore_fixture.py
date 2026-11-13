@@ -3,7 +3,7 @@ import json
 import unittest
 
 from scripts.ci_historic_firestore_fixture import (
-    NOTICE_ANCHOR, CHAT_ANCHOR, NOTICE_KEYS, CHAT_KEYS,
+    NOTICE_ANCHOR, CHAT_ANCHOR, CHAT_GROUP_DECLARATION, NOTICE_KEYS, CHAT_KEYS,
     classify_fixture, instrument,
 )
 
@@ -28,16 +28,20 @@ class FixtureProbeTests(unittest.TestCase):
 
     def test_chat_anchor_target_is_positive_invite_not_negative(self):
         source = (
-            "try {\n await assertFails(newInvite());\n"
+            "try {\n" + CHAT_GROUP_DECLARATION + "\n"
+            " await assertFails(newInvite());\n"
             + CHAT_ANCHOR + "\n}finally{}\n"
         )
         result = instrument(source, "chat_general")
         self.assertEqual(result.count("await assertFails(newInvite());"), 1)
         self.assertEqual(result.count(CHAT_ANCHOR), 1)
         self.assertLess(result.index("await assertFails(newInvite());"),
-                        result.index("await qaSyntheticFixtureProbe();"))
-        self.assertLess(result.index("await qaSyntheticFixtureProbe();"),
+                        result.index("await qaSyntheticFixtureProbe(inviteGroup);"))
+        self.assertLess(result.index("await qaSyntheticFixtureProbe(inviteGroup);"),
                         result.index(CHAT_ANCHOR))
+        self.assertIn("async function qaSyntheticFixtureProbe(inviteGroup)", result)
+        self.assertEqual(result.count(CHAT_GROUP_DECLARATION), 1)
+        self.assertNotIn("await qaSyntheticFixtureProbe();", result)
         self.assertIn("recipient_has_not_blocked_inviter", result)
 
     def test_reject_modified_source_and_duplicate_instrumentation(self):
@@ -46,6 +50,8 @@ class FixtureProbeTests(unittest.TestCase):
             ("try {\n await wrongNotice();\n", "reply_notice"),
             ("try {\n"+ CHAT_ANCHOR+"\n"+CHAT_ANCHOR+"\n", "chat_general"),
             ("QA_FOR_FIXTURE:unexpected\ntry {\n"+CHAT_ANCHOR, "chat_general"),
+            ("try {\n"+CHAT_ANCHOR, "chat_general"),
+            ("try {\n"+CHAT_ANCHOR+"\n"+CHAT_GROUP_DECLARATION, "chat_general"),
         ]
         for source, case in samples:
             with self.subTest(case=case), self.assertRaises(ValueError):
