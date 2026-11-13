@@ -5,6 +5,7 @@ This module is intentionally MEMORY-ONLY: no HTTP client, no tokens, no CLI,
 no GitHub Actions step, and no API adapter. A separately reviewed change is
 required before any remote write is possible. Do not run from privileged CI.
 """
+import hashlib
 from scripts.ci_quality_report import REPO, validate_sha
 from scripts.ci_autofix_doc_candidate import (
     TARGET, SOURCE_BLOB_SHA1, PATCH_ID, _git_blob_sha, _pinned_source,
@@ -157,7 +158,7 @@ def simulate_approved_doc_draft(checkout_root, expected_main_sha, confirmation, 
         raise ValueError("prova da receita documental nao confiavel")
     source = _pinned_source(checkout_root)
     changed = patch_static_source(source)
-    if (proof.get("patched_sha256") != __import__("hashlib").sha256(
+    if (proof.get("patched_sha256") != hashlib.sha256(
             changed.encode("utf-8")).hexdigest()):
         raise ValueError("patch documental nao corresponde ao diff fixado")
     _snapshot(client.live(), sha, branch_exists=False)

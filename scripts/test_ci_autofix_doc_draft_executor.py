@@ -1,7 +1,6 @@
 """Offline, zero-network contract tests for the future QA documentation writer."""
 from pathlib import Path
 import unittest
-from unittest.mock import patch
 
 from scripts import ci_autofix_doc_draft_executor as writer
 from scripts.ci_autofix_doc_candidate import _pinned_source, TARGET
