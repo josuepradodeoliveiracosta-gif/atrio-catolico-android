@@ -111,7 +111,7 @@ def classify_debug_log(data):
         status = "canary_and_boolean_absent"
 
     # Only known emulator debug labels and booleans. No raw log text escapes.
-    markers = {"valid_id": False, "canonical_pair": False, "chat_accepted": False}
+    markers = {stage: False for stage in STAGE_MARKERS.values()}
     counts = {key: {"true": 0, "false": 0} for key in markers}
     active = None
     for line in raw.splitlines():
