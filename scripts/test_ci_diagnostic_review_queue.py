@@ -1,5 +1,4 @@
 """Safety tests for the human-review queue. No GitHub network calls."""
-from copy import deepcopy
 import hashlib
 import json
 from pathlib import Path
