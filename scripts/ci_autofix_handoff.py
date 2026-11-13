@@ -53,8 +53,7 @@ def evidence_gate(report, snapshot, plan, source_event, source_branch):
             or report["check_count"] != len(checks)
             or any(not isinstance(c, dict) or not isinstance(c.get("name"), str)
                    or not isinstance(c.get("status"), str)
-                   or not isinstance(c.get("conclusion"), str) for c in checks)
-            or len({c["name"] for c in checks}) != len(checks)):
+                   or not isinstance(c.get("conclusion"), str) for c in checks)):
         raise ValueError("checks invalidos ou duplicados")
     reconstructed = {
         name: state_for([c for c in checks if c["name"] == name])
@@ -104,6 +103,15 @@ def evidence_gate(report, snapshot, plan, source_event, source_branch):
     if source_event not in ("push", "pull_request", "unknown"):
         raise ValueError("evento de workflow nao reconhecido")
 
+    # GitHub may legitimately return multiple historical checks with the
+    # same name for a SHA (reruns and separate workflow invocations).
+    # Keep every check and its reconstructed status; never let duplicate
+    # names authorize the reviewed QA patch or cause a fatal report error.
+    # Invalid cross-artifact hashes, counts or check states were rejected
+    # above, before returning this conservative, nonwriting decision.
+    if len({c["name"] for c in checks}) != len(checks):
+        return sha, "blocked_competing_failure_or_log_evidence"
+
     # Event branch is verified by the calling workflow's event payload, never
     # by a URL, a log line, or a report authored by a PR.
     if source_event != "push" or source_branch != "main":
@@ -145,6 +153,10 @@ def handoff(report, snapshot, plan, source_event, source_branch, checkout_root):
         "measured_automation_percent": None,
         "reason": "event_scope_metadata_not_root_cause",
     }
+    if state == "blocked_competing_failure_or_log_evidence":
+        names = [c["name"] for c in report["checks"]]
+        if len(set(names)) != len(names):
+            result["reason"] = "repeated_check_names_need_manual_review"
     if state != "review_candidate":
         return result
     # After PR #261 lands, a matching metadata symptom is not a reason to

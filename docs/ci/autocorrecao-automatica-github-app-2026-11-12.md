@@ -106,6 +106,28 @@ revoga automaticamente o token ao finalizar o job. A chave privada
 continua exigindo armazenamento seguro e rotação conforme a política
 de segurança do projeto. `GITHUB_TOKEN` permanece somente leitura.
 
+## Validação real após integração (#260, 13/11/2026 UTC)
+
+O primeiro `push` da `main` após integrar #260, SHA
+`20a2f8d0102ac061d98803acc54c0aece94315b0`, passou no CodeQL e
+disparou a automação (Actions run `43350631511`) e o relatório consolidado
+(run `43350631545`). Ambos falharam na etapa de handoff, antes de
+qualquer escrita, com `ValueError: checks invalidos ou duplicados`.
+
+A API do GitHub pode retornar múltiplos *check runs* com o mesmo nome no
+mesmo SHA. A proteção original rejeitava duplicatas levantando exceção,
+derrubando também relatórios legítimos. A correção em revisão mantém
+todas as linhas e valida a coerência do relatório, do diagnóstico e do plano;
+quando há nomes repetidos, conclui como
+`blocked_competing_failure_or_log_evidence`, com motivo
+`repeated_check_names_need_manual_review`. **Nunca gera elegibilidade,
+PR, token de escrita ou merge.** Entradas malformadas, SHAs incompatíveis
+e resultados obrigatórios adulterados continuam gerando erro.
+
+**A prova completa de comportamento real só estará concluída quando
+uma execução posterior do workflow confirmar esse bloqueio em runtime.**
+Também não se testou o token da App nem a criação automática de PR elegível.
+
 ## Limites da homologação atual
 
 - A PR #261 já possui a branch estática
