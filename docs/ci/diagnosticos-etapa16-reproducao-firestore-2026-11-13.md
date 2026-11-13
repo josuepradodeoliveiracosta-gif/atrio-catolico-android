@@ -153,3 +153,18 @@ A execução usa `demo-atrio-v11`, dois emuladores descartáveis, fontes histór
 
 **Critérios de aceite:** dois jobs `guard-isolation` realmente concluídos, classificação dos resultados controle×variante por cenário, todos os checks obrigatórios verdes no HEAD exato, nenhuma alteração na `main`/produção/backups; se houver resultado inconclusivo, registrar como tal. Causas revistas independentemente: 0/13; métricas 90% e 99% não aferidas.
 
+## Etapa 24 — observação local da operação positiva (13/11/2026)
+
+**Motivação:** no experimento de isolamento da etapa 23, o `chat_general` avançou do positivo de criação do convite (linha histórica 402) até o reconvite (linha 433) quando a guarda `atrioGroupAcceptedContact` foi omitida **somente no Emulator**. Os logs globais indicavam um possível limite de 1000 expressões em algum ponto da suíte; isso **não autoriza** atribuir tal limite especificamente à operação de criação. A guarda é essencial e permanece obrigatória nas Rules oficiais.
+
+**Novo instrumento:** em vez de acrescentar outro workflow/job, o existente `rule-coverage` recebe um marcador de resultado da **asserção positiva específica**:
+- `reply_notice`: encerra a observação exatamente no `assertSucceeds(b.commit())` do caso `direct_both`, preservando a leitura posterior da notificação e os testes negativos;
+- `chat_general`: observa somente `assertSucceeds(newInvite())` após a restauração da idade sintética do destinatário.
+
+Uma cópia descartável dos testes históricos passa a envolver somente a asserção positiva num `try/catch`, que **repropaga a exceção original**; nenhuma asserção é suprimida. O marcador `QA_TARGET_RESULT` informa estritamente `accepted/rejected`, categoria de erro enumerada e presença/ausência do texto **“maximum of 1000 expressions” na exceção da própria operação**. Mensagens, códigos arbitrários, stacks, paths inesperados, documentos e logs brutos jamais são exportados. O marcador ausente ou duplicado produz código inconclusivo; regex de logs globais não substitui o marcador.
+
+O relatório de cobertura por posição continua independente e cumulativo; avaliações falsas em `allow update` durante `create` não são prova causal. A instrumentação local não é correção das Rules, não altera a permissão de acesso e não supre uma revisão independente.
+
+**Critério de aceite:** verificar o novo run da PR #277 nos dois membros da matrix `rule-coverage`, examinar `target_write` de cada JSON sanitizado e os demais gates do HEAD; registrar `not_observed` se houver interrupção antes do alvo. Todos os checkouts de laboratório permanecem fixados por SHA e executam somente no `demo-atrio-v11` em `127.0.0.1:8089`, sem tokens, deploy, produção ou backups.
+
+**Estado de comprovação:** 0/13 causas independentemente atestadas; as metas de 90% de precisão causal e 99% de automação continuam não medidas. O número de etapas é um organizador do trabalho, não percentual de precisão do diagnóstico.
