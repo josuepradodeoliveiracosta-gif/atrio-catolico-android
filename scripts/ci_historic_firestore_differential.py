@@ -145,7 +145,7 @@ def _run(command, cwd, env, timeout):
         return 124, ""
 
 
-def execute(case, historical, output, env=None):
+def execute(case, historical, output, env=None, patcher=None, label=None):
     if case not in CASES:
         raise ValueError("unsupported scenario")
     root = Path(historical).resolve()
@@ -175,7 +175,7 @@ def execute(case, historical, output, env=None):
     original_rules = rules_path.read_text(encoding="utf-8")
     copy_test = instrument_historical_test(
         script_path.read_text(encoding="utf-8"), case)
-    modified_rules = patch_rules(original_rules, case)
+    modified_rules = (patch_rules if patcher is None else patcher)(original_rules, case)
     output_rows = []
     # Test source is copied to a single untracked file in the ephemeral
     # historical checkout, so Node resolves its pinned node_modules normally.
@@ -207,9 +207,10 @@ def execute(case, historical, output, env=None):
         "historical_checkout_sha": setup["sha"],
         "control_and_variant": output_rows,
         "counterfactual_kind": (
-            "replace_one_existing_reply_get_with_getAfter"
-            if case == "reply_notice"
-            else "reuse_one_getAfter_quota_snapshot_instead_of_four_reads"),
+            label if label is not None else (
+                "replace_one_existing_reply_get_with_getAfter"
+                if case == "reply_notice"
+                else "reuse_one_getAfter_quota_snapshot_instead_of_four_reads")),
         "baseline_and_variant_same_source": False,
         "tests_originally_failing_may_remain_failing": True,
         "no_security_rules_deployed": True,
