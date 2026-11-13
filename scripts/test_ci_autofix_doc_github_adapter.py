@@ -10,6 +10,7 @@ from scripts import ci_autofix_doc_github_adapter as adapter
 from scripts.ci_autofix_doc_candidate import _pinned_source, TARGET, patch_static_source
 from scripts.ci_autofix_doc_draft_executor import BASE, BRANCH, BODY_PREFIX, TITLE
 from scripts.ci_quality_report import REPO
+from scripts.qa_doc_test_fixture import pinned_doc_checkout
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,8 +33,8 @@ class Response:
 
 class OfflineGitHub:
     """Strict URL router; no network and never makes remote writes."""
-    def __init__(self, *, fault=None):
-        self.source = _pinned_source(ROOT)
+    def __init__(self, *, fault=None, checkout_root=ROOT):
+        self.source = _pinned_source(checkout_root)
         self.fault = fault
         self.requests = []
 
@@ -103,18 +104,21 @@ class OfflineGitHub:
 
 class ReaderTests(unittest.TestCase):
     def setUp(self):
-        self.before = (ROOT / TARGET).read_bytes()
+        self.fixture = pinned_doc_checkout(ROOT)
+        self.checkout = self.fixture.__enter__()
+        self.addCleanup(self.fixture.__exit__, None, None, None)
+        self.before = (self.checkout / TARGET).read_bytes()
 
     def tearDown(self):
-        self.assertEqual((ROOT / TARGET).read_bytes(), self.before)
+        self.assertEqual((self.checkout / TARGET).read_bytes(), self.before)
 
     def reader(self, fault=None):
-        fake = OfflineGitHub(fault=fault)
+        fake = OfflineGitHub(fault=fault, checkout_root=self.checkout)
         return adapter.DocGitHubAppReader("hidden-test-token", opener=fake), fake
 
     def test_successful_get_only_preflight_revalidates_live_sha(self):
         client, fake = self.reader()
-        report = adapter.read_only_preflight(ROOT, SHA, client)
+        report = adapter.read_only_preflight(self.checkout, SHA, client)
         self.assertEqual(report["status"],
                          "qa_document_authenticated_read_preflight_passed")
         self.assertEqual(report["source_blob_sha1"], adapter.SOURCE_BLOB_SHA1)
@@ -153,12 +157,12 @@ class ReaderTests(unittest.TestCase):
     def test_installation_must_be_exactly_one_repository(self):
         reader, _ = self.reader("other_installation")
         with self.assertRaises(ValueError):
-            adapter.read_only_preflight(ROOT, SHA, reader)
+            adapter.read_only_preflight(self.checkout, SHA, reader)
 
     def test_different_main_sha_is_blocked(self):
         reader, _ = self.reader("changed_main")
         with self.assertRaises(ValueError):
-            adapter.read_only_preflight(ROOT, SHA, reader)
+            adapter.read_only_preflight(self.checkout, SHA, reader)
 
     def test_existing_branch_and_closed_or_open_pr_block(self):
         for fault in ("existing_branch", "unexpected_branch", "duplicate_pr",
@@ -166,31 +170,31 @@ class ReaderTests(unittest.TestCase):
             with self.subTest(fault=fault):
                 reader, _ = self.reader(fault)
                 with self.assertRaises(ValueError):
-                    adapter.read_only_preflight(ROOT, SHA, reader)
+                    adapter.read_only_preflight(self.checkout, SHA, reader)
 
     def test_non404_for_fixed_branch_does_not_look_absent(self):
         for fault in ("forbidden_branch", "forbidden_main"):
             with self.subTest(fault=fault):
                 reader, _ = self.reader(fault)
                 with self.assertRaises(ValueError):
-                    adapter.read_only_preflight(ROOT, SHA, reader)
+                    adapter.read_only_preflight(self.checkout, SHA, reader)
 
     def test_malformed_or_drifted_source_rejected(self):
         for fault in ("malformed_content", "remote_document_drift", "forged_blob"):
             with self.subTest(fault=fault):
                 reader, _ = self.reader(fault)
                 with self.assertRaises(ValueError):
-                    adapter.read_only_preflight(ROOT, SHA, reader)
+                    adapter.read_only_preflight(self.checkout, SHA, reader)
 
     def test_body_length_and_json_are_bounded(self):
         for fault in ("response_too_large", "invalid_json"):
             with self.subTest(fault=fault):
                 reader, _ = self.reader(fault)
                 with self.assertRaises(ValueError):
-                    adapter.read_only_preflight(ROOT, SHA, reader)
+                    adapter.read_only_preflight(self.checkout, SHA, reader)
 
     def test_no_network_request_is_made_by_planner(self):
-        plan = adapter.draft_write_intents(ROOT, SHA)
+        plan = adapter.draft_write_intents(self.checkout, SHA)
         self.assertEqual(plan["mode"], "frozen_intents_not_executable")
         self.assertEqual(plan["remote_writes"], 0)
         self.assertEqual(plan["actual_pull_requests_created"], 0)
@@ -208,7 +212,7 @@ class ReaderTests(unittest.TestCase):
         self.assertEqual(contents["sha"], adapter.SOURCE_BLOB_SHA1)
         self.assertEqual(contents["branch"], BRANCH)
         decoded = base64.b64decode(contents["content"], validate=True).decode("utf-8")
-        self.assertEqual(decoded, patch_static_source(_pinned_source(ROOT)))
+        self.assertEqual(decoded, patch_static_source(_pinned_source(self.checkout)))
         self.assertEqual(draft, {
             "head": BRANCH, "base": BASE, "draft": True,
             "maintainer_can_modify": False, "title": TITLE,
@@ -219,7 +223,7 @@ class ReaderTests(unittest.TestCase):
 
     def test_bad_sha_rejected_before_plan(self):
         with self.assertRaises(ValueError):
-            adapter.draft_write_intents(ROOT, "bad-sha")
+            adapter.draft_write_intents(self.checkout, "bad-sha")
 
     def test_unapproved_http_methods_and_paths_cannot_be_planned(self):
         for method, path in (("DELETE", "/git/refs"), ("PUT", "/pulls"),
