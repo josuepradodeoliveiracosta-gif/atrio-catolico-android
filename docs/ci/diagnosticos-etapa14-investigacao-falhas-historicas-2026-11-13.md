@@ -50,3 +50,35 @@
 Usei exclusivamente metadados dos runs/jobs e logs de jobs históricos do GitHub Actions, consultados com a conexão do repositório. Conferi as exceções/asserções e, nos casos pertinentes, li as implementações e testes das revisões históricas (SHA dos runs), confrontando fontes pontuais com a main. Os links do quadro levam aos jobs oficiais. Os números de linha (~) referem-se às linhas dos logs de texto observadas durante a inspeção, não a números permanentes de linha da interface do GitHub.
 
 **Este é um parecer técnico do assistente, não um laudo humano independente.** Não incluí nomes, conteúdo pessoal ou material sensível de logs. Não consultei Firebase/Cloudflare, não publiquei APK, não modifiquei a `main`, não escrevi em backups e não habilitei autocorreções novas.
+
+## Etapa 15 — aprofundamento e roteiro de reprodução isolada (13/11/2026)
+
+### Evidência suplementar dos dois Android
+
+**Execução #42866978165 (checkout exato `b5bf73ba8ecb064703b7f21283f141b798581e89`).** O artefato oficial `qa-bots-android-ui-reports-profiles` contém cinco testes da classe `EmailVerificationAndroidUiTest`: **quatro aprovados e um reprovado**. A exceção `ComposeTimeoutException` foi localizada em `EmailVerificationAndroidUiTest.kt:251`, numa espera de até 45 s por `auth.currentUser != null`. O logcat do teste registra a tentativa de criação de conta fictícia com `FirebaseAuth` e depois falha do `RecaptchaCallWrapper` em `signUpPassword` com `unexpected end of stream`.
+
+**Interpretável com segurança:** o fluxo de cadastro/autenticação não completou nessa execução, antes de o teste conseguir avaliar o portão de verificação de e-mail. A causa de transporte (Auth Emulator indisponível, redirecionamento, SDK/reCAPTCHA ou oscilação do runner) **não está comprovada**. O fato de outro teste de cadastro ter passado na mesma suíte afasta uma indisponibilidade constante do emulador durante toda a execução, mas não estabelece a origem da falha isolada.
+
+**Execução #41688182521 (checkout `d3a501ed0b00e5e07a61282623421bbf9e878afc`).** A instrumentação registra `NoSuchElementException` na busca de item de coleção no teste de três bots. Há um problema adicional de correspondência de fonte: o stack trace menciona `ThreeBotsAuthenticatedAndroidUiTest.kt:540`, enquanto a fonte obtida pelo GitHub no SHA de checkout possui 522 linhas, com buscas `single { ... }` em torno das linhas 260 e 269. **Não é correto atribuir o elemento ausente a uma consulta específica** antes de reconciliar símbolos do APK de teste compilado com o checkout da execução e seu cache Gradle. O log registra ADB offline, mas isso também não comprova causalidade direta.
+
+**Reprodução Android autorizável apenas em QA:** validar que o Firebase Auth Emulator responde em `127.0.0.1:9099` antes de iniciar Compose; registrar estado do SDK Auth e motivo seguro da operação `createUser`, sem e-mails, senhas ou tokens; executar primeiro o caso individual e depois a classe completa com projeto demo e dados descartáveis; confirmar a linha/símbolos do APK de teste. Nunca conectar em Firebase de produção nem criar usuários reais.
+
+### Evidência suplementar dos dois Firestore
+
+**Execução #42489241763 (checkout `43fac1b50ee12fa0ce1b505bf74ebabd4447e001`).** No arquivo `tests/security/reply-notice-migration-lab.test.mjs`, o cenário positivo `resposta direta com aviso ao autor e destinatario passa` (linhas 132–142) cria um batch com uma resposta e **dois** documentos de notificação e exige `assertSucceeds(b.commit())`. O log mostra `PERMISSION_DENIED` fatal justamente após a execução anterior do caso negativo `resposta direta sem aviso ao destinatario e rejeitada`. A regra original `firestore.rules` já inclui `canonicalDirectRecipient()` e `getAfter`, e o laboratório injeta funções adicionais `labOwnerNotice` / `labDirectNotice`. **Ainda não há evidência suficiente** para afirmar qual predicado exato negou o batch positivo, ou se a combinação ultrapassou limites de consultas/expressões.
+
+**Reprodução necessária:** executar apenas o cenário positivo com as Rules candidatas **geradas em memória**, projeto `demo-atrio-v11`, Firebase Emulator local, dois avisos válidos e asserts de persistência; confrontar separadamente o caso negativo (um aviso ausente). Colher trace de avaliação com trecho do predicado e contagens dos acessos `get/getAfter/existsAfter` em vez de simplesmente trocar `assertSucceeds` por `assertFails`. Não enfraquecer as regras oficiais.
+
+**Execução #42737119822 (checkout `422d00ccbd9ef3c7dce11252be045daf656b8e09`).** A Rules candidata foi montada localmente por `firebase/qa-general/compose-rules.mjs`, reunindo os fragmentos de chat/grupo e reforçando a elegibilidade etária **sintética**. O teste `tests/security/qa-general-firestore.test.mjs` exige sucesso de um batch inicial de **chat, mensagem e quota** (`createInitialChat()`, linhas 78–106). O log mostra `PERMISSION_DENIED` em avaliação de Rules, uma mensagem de **máximo de 1000 expressões** e um erro de `get` de documento `chats/...` em avaliação posterior. **Não está estabelecido** se ambos os sintomas pertencem ao mesmo predicado nem qual foi a causa determinante da exceção não tratada.
+
+**Reprodução necessária:** montar somente as Rules QA nos arquivos temporários locais (nunca substituir `firestore.rules` oficial), executar primeiro o cenário mínimo `createInitialChat` com as três escritas no mesmo batch, e registrar a primeira operação/linha que falha; comparar acesso a documentos, limite de expressões e gates de idade/email. A suíte deve continuar exigindo negação em usuários não elegíveis — uma suposta correção não poderá simplesmente liberar o chat.
+
+### Critérios de conclusão dos quatro casos
+
+1. Confirmar SHA do **checkout efetivo** de cada job; o SHA da PR, sozinho, não representa a árvore compilada.
+2. Reproduzir o sintoma em **ambiente sintético isolado** com o mesmo candidato e sem ações administrativas na produção.
+3. Demonstrar por contraste qual condição muda o resultado, guardando evidência segura da execução.
+4. Só declarar uma causa confirmada após validação por revisor independente, distinguindo causa, efeito secundário, limite de segurança e falha de fixture.
+5. Somente então propor uma correção mínima, teste positivo/negativo e avaliação de regressão, em branch separada e sem merge automático.
+
+**Estado ao fim desta etapa:** 13/13 logs investigados; explicação técnica inicial de nove interrupções com alta confiança; quatro mecanismos subjacentes ainda exigem os ensaios descritos. A revisão humana independente continua **0/13**. Nenhum percentual de precisão ou reparo automático é derivado deste material.
