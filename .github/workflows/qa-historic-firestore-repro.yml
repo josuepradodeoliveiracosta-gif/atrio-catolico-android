@@ -16,6 +16,8 @@ on:
       - 'scripts/test_ci_historic_firestore_coverage.py'
       - 'scripts/ci_historic_firestore_fixture.py'
       - 'scripts/test_ci_historic_firestore_fixture.py'
+      - 'scripts/ci_historic_firestore_guard_probe.py'
+      - 'scripts/test_ci_historic_firestore_guard_probe.py'
       - 'docs/ci/diagnosticos-etapa16-reproducao-firestore-2026-11-13.md'
 
 permissions:
@@ -499,5 +501,103 @@ jobs:
         with:
           name: qa-fixture-integrity-${{ matrix.scenario }}
           path: ${{ runner.temp }}/qa-fixture-integrity-${{ matrix.scenario }}.json
+          if-no-files-found: warn
+          retention-days: 7
+
+guard-isolation:
+    # QA-only: variant removes one authorization check in disposable Emulator.
+    # This intentionally weakened variant MUST NEVER be deployed.
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'test/qa-historic-firestore-repro-20261113'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - scenario: reply_notice
+            historic_sha: '43fac1b50ee12fa0ce1b505bf74ebabd4447e001'
+            node_version: '20'
+            java_version: '17'
+          - scenario: chat_general
+            historic_sha: '422d00ccbd9ef3c7dce11252be045daf656b8e09'
+            node_version: '22'
+            java_version: '21'
+    env:
+      GOOGLE_CLOUD_PROJECT: demo-atrio-v11
+      FIREBASE_TOKEN: ''
+      GOOGLE_APPLICATION_CREDENTIALS: ''
+      GCLOUD_PROJECT: ''
+      ATRIO_PUSH_WORKER_URL: ''
+      ATRIO_AVATAR_WORKER_URL: ''
+      ATRIO_GUARDIAN_V2_WORKER_URL: ''
+      ATRIO_SIGNING_STORE_PASSWORD: ''
+      ATRIO_SIGNING_KEY_PASSWORD: ''
+    steps:
+      - name: Obter investigador fixado por SHA
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: harness
+          ref: 'd22cef8cf3d1d71f0da3fcb0c7887ca06d07f82b'
+      - name: Checkout historico de notificacoes
+        if: matrix.scenario == 'reply_notice'
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: historical
+          ref: '43fac1b50ee12fa0ce1b505bf74ebabd4447e001'
+      - name: Checkout historico de conversas
+        if: matrix.scenario == 'chat_general'
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: historical
+          ref: '422d00ccbd9ef3c7dce11252be045daf656b8e09'
+      - name: Conferir ambiente demo, SHAs e segredos vazios
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GOOGLE_CLOUD_PROJECT" = "demo-atrio-v11"
+          test -z "$FIREBASE_TOKEN"
+          test -z "$GOOGLE_APPLICATION_CREDENTIALS"
+          test -z "$GCLOUD_PROJECT"
+          test -z "$ATRIO_PUSH_WORKER_URL"
+          test -z "$ATRIO_AVATAR_WORKER_URL"
+          test -z "$ATRIO_GUARDIAN_V2_WORKER_URL"
+          test -z "$ATRIO_SIGNING_STORE_PASSWORD"
+          test -z "$ATRIO_SIGNING_KEY_PASSWORD"
+          test "$(git -C harness rev-parse HEAD)" = 'd22cef8cf3d1d71f0da3fcb0c7887ca06d07f82b'
+          test "$(git -C historical rev-parse HEAD)" = '${{ matrix.historic_sha }}'
+          echo 'Guard-isolation only, NO deploy'
+      - name: Preparar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node_version }}
+      - name: Preparar Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java_version }}
+      - name: Testar contratos offline
+        working-directory: harness
+        run: python3 -m unittest scripts.test_ci_historic_firestore_guard_probe scripts.test_ci_historic_firestore_differential -v
+      - name: Instalar dependencias historicas
+        working-directory: historical/tests/security
+        run: npm ci --ignore-scripts
+      - name: Executar comparacao local controle e variante
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH="$GITHUB_WORKSPACE/harness" python3 harness/scripts/ci_historic_firestore_guard_probe.py \
+            --scenario ${{ matrix.scenario }} \
+            --historical "$GITHUB_WORKSPACE/historical" \
+            --output "$RUNNER_TEMP/qa-guard-isolation-${{ matrix.scenario }}.json"
+      - name: Arquivar somente JSON sem logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-guard-isolation-${{ matrix.scenario }}
+          path: ${{ runner.temp }}/qa-guard-isolation-${{ matrix.scenario }}.json
           if-no-files-found: warn
           retention-days: 7
