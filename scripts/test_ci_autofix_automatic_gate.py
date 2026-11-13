@@ -190,6 +190,7 @@ class ApprovedAutofixTests(unittest.TestCase):
         self.assertNotIn("secrets.", preflight)
         self.assertIn("      contents: read", writer)
         self.assertNotIn("      contents: write", writer)
+        self.assertIn("    environment:\n      name: atrio-autofix-qa\n      deployment: false", writer)
         self.assertIn("actions/create-github-app-token@v3", writer)
         self.assertIn("permission-contents: write", writer)
         self.assertIn("permission-pull-requests: write", writer)
