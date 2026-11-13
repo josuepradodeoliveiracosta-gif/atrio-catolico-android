@@ -1,0 +1,49 @@
+name: QA - Verificar token GitHub App (somente leitura)
+
+# Manual, one-time proof only; never run on PR, fork, schedule or push.
+# Requires the owner's dispatch on protected main and the existing QA env.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atrio-qa-app-token-readonly-smoke
+  cancel-in-progress: false
+
+jobs:
+  app_readonly_smoke:
+    name: Provar token temporario sem qualquer escrita
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android' &&
+      github.actor == 'josuepradodeoliveiracosta-gif'
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    environment:
+      name: atrio-autofix-qa
+      deployment: false
+    steps:
+      - name: Checkout SHA confiavel de main sem credenciais persistentes
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verificar contratos offline antes de acessar a chave privada
+        run: python3 -m unittest scripts.test_ci_autofix_app_token_readonly_smoke -v
+      - name: Emitir somente token de leitura para este repositorio
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.ATRIO_AUTOFIX_APP_CLIENT_ID }}
+          private-key: ${{ secrets.ATRIO_AUTOFIX_APP_PRIVATE_KEY }}
+          owner: josuepradodeoliveiracosta-gif
+          repositories: atrio-catolico-android
+          permission-contents: read
+          permission-pull-requests: read
+      - name: Provar acesso GET limitado sem exibir token nem payload
+        env:
+          ATRIO_APP_SMOKE_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: python3 -m scripts.ci_autofix_app_token_readonly_smoke

@@ -1,8 +1,10 @@
 # Autocorreção Inteligente — fluxo automático por GitHub App
 
-**Estado:** implementação em revisão na PR #260. **Não está ativa em `main`.**
-Não se deve considerar a automação concluída antes de configurar o GitHub App,
-integrar o workflow mediante aprovação e observar uma execução real elegível.
+**Estado em 13/11/2026:** PRs #260 e #262 integradas na `main`. O diagnóstico
+seguro e o bloqueio de escrita inelegível foram validados em execuções reais;
+**a emissão do token GitHub App e a criação de PR elegível continuam não
+comprovadas**. As seções sobre integração das PRs #260/#261 abaixo registram
+a sequência histórica, não instruções pendentes.
 
 ## Ordem obrigatória de integração (revisão de 12/11/2026)
 
@@ -166,3 +168,51 @@ Também não se testou o token da App nem a criação automática de PR elegíve
 - https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows
 - https://github.com/actions/create-github-app-token
 - https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app
+
+
+## Prova manual do token da GitHub App — somente leitura
+
+A etapa final depende da emissão real de um token temporário a partir
+do Client ID e do secret do ambiente protegido `atrio-autofix-qa`.
+A ação `actions/create-github-app-token@v3` aceita `client-id`
+e autoriza reduzir as permissões de um token da instalação para
+`permission-contents: read` e `permission-pull-requests: read`.
+O token é automaticamente revogado no fim do job.
+
+A PR de homologação adiciona o workflow
+`.github/workflows/qa-autofix-app-token-smoke.yml`, com as seguintes
+restrições auditáveis:
+
+- Apenas `workflow_dispatch` manual do usuário proprietário na `main`
+  protegida, nunca `pull_request`, `push`, `workflow_run` ou agendamento.
+- Usa somente o ambiente `atrio-autofix-qa`, sem registro de deployment,
+  com `GITHUB_TOKEN` limitado a Contents read e checkout sem credenciais.
+- Testes offline devem passar **antes** da ação que acessa o secret.
+- O token da App recebe **somente leitura**, escopo limitado a
+  `josuepradodeoliveiracosta-gif/atrio-catolico-android`.
+- O script executa exclusivamente três requisições HTTPS **GET** com URL
+  fixa: `/installation/repositories?per_page=2`, leitura de um único
+  arquivo de workflow da `main` e lista de PRs com `per_page=1`.
+  Redirecionamentos são proibidos e respostas têm limite de tamanho.
+- Confirma que apenas **um repositório** está listado no token da
+  instalação e que as duas leituras funcionam. Não imprime token,
+  resposta HTTP, dados de instalação ou valor de secret.
+- Nenhuma criação de PR, push, commit, modificação de arquivo remoto,
+  release, rerun, deploy ou acesso a serviços de produção.
+
+**Procedimento no Android:** somente depois de aprovação explícita e
+merge dessa PR de homologação, entrar em GitHub > repositório >
+Actions > **QA - Verificar token GitHub App (somente leitura)** >
+**Run workflow**, selecionar `main` e confirmar. Consultar apenas
+o resultado `success`/falha e o log de sucesso de texto fixo.
+Nunca copiar o PEM nem o token para a conversa.
+
+**Critérios da validação real:** job deve terminar com sucesso,
+token temporário emitido pela App configurada, escopo do repositório
+e endpoints de leitura comprovados; nenhuma escrita nem segredo
+publicado. Isso **não comprova** por si só a criação de PRs draft pelo
+job escritor original, que ainda depende de um cenário QA realmente
+elegível e autorizado, sem reaplicar a correção já integrada.
+
+Fontes da ação: https://github.com/actions/create-github-app-token
+e https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow
