@@ -82,6 +82,25 @@ class FixtureProbeTests(unittest.TestCase):
         self.assertEqual(got["unexpected_flags_count"],1)
         self.assertNotIn("ghp_example",repr(got))
 
+    def test_safe_failure_category_identifies_read_without_leaking_error(self):
+        from scripts.ci_historic_firestore_fixture import CHAT_SENSOR
+        self.assertIn("stage = 'evaluate_flags'", CHAT_SENSOR)
+        self.assertIn("await read('read_contact', room)", CHAT_SENSOR)
+        self.assertIn("await read('read_inverse_block'", CHAT_SENSOR)
+        sample = {"probe_unavailable": True, "stage": "read_contact",
+                  "category": "FirebaseError"}
+        result = classify_fixture(
+            "QA_FOR_FIXTURE:" + json.dumps(sample), "chat_general")
+        self.assertEqual(result["status"], "probe_unavailable")
+        self.assertEqual(result["stage"], "read_contact")
+        self.assertEqual(result["failure_category"], "FirebaseError")
+        self.assertEqual(result["booleans"], {})
+        malicious = {**sample, "stage": "SECRET=do-not-expose"}
+        rejected = classify_fixture(
+            "QA_FOR_FIXTURE:" + json.dumps(malicious), "chat_general")
+        self.assertNotIn("do-not-expose", repr(rejected))
+        self.assertEqual(rejected["booleans"], {})
+
     def test_missing_multiple_bad_or_unavailable_are_fail_closed(self):
         valid={k:True for k in NOTICE_KEYS}
         for log in (
