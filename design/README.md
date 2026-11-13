@@ -6,6 +6,15 @@
 - [Selos, títulos e papéis](selos-e-titulos/README.md).
 - [Componentes e telas](componentes/README.md).
 
+## Plano de especificação V1 (em revisão)
+
+- [Priorização e critérios de aceite](PLANO-PRIORIZADO-V1.md).
+- [Componentes DS-01 a DS-04](componentes/ESPECIFICACAO-V1.md).
+- [Movimento, acessibilidade e interrupções](interacoes-animadas/PROTOCOLO-V1.md).
+- [Taxonomia visual de selos e títulos](selos-e-titulos/MODELO-V1.md).
+
+**Importante:** estes documentos são propostas sujeitas a aprovação; ainda não fazem parte do APK. A implementação visual futura precisará de PR própria e testes Android. Nenhum título concede papel religioso ou permissão administrativa.
+
 ## Modelo de proposta
 
 ```text
