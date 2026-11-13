@@ -29,6 +29,10 @@ DEBUG_CALL = CONTACT_CALL.replace(
     "&& atrioGroupAcceptedContact(", "&& debug(atrioGroupAcceptedContact(", 1
 ).replace("request.resource.data.contactChatId);", "request.resource.data.contactChatId));", 1)
 
+HELPER_ORIGINAL = "    function atrioGroupAcceptedContact(a,b,contactChatId) {\n      return validId(contactChatId)\n        && (contactChatId == a + '__' + b\n          || contactChatId == b + '__' + a)\n        && get(/databases/$(database)/documents/chats/$(contactChatId))\n          .data.status == 'accepted';\n    }"
+HELPER_INSTRUMENTED = "    function atrioGroupAcceptedContact(a,b,contactChatId) {\n      return debug('QA_ATRIO_CONTACT_ID') == 'QA_ATRIO_CONTACT_ID'\n        && debug(validId(contactChatId))\n        && debug('QA_ATRIO_CONTACT_PAIR') == 'QA_ATRIO_CONTACT_PAIR'\n        && debug((contactChatId == a + '__' + b\n          || contactChatId == b + '__' + a))\n        && debug('QA_ATRIO_CONTACT_STATUS') == 'QA_ATRIO_CONTACT_STATUS'\n        && debug(get(/databases/$(database)/documents/chats/$(contactChatId))\n          .data.status == 'accepted');\n    }"
+STAGE_MARKERS = {'QA_ATRIO_CONTACT_ID': 'valid_id', 'QA_ATRIO_CONTACT_PAIR': 'canonical_pair', 'QA_ATRIO_CONTACT_STATUS': 'chat_accepted'}
+
 CANARY = "QA_ATRIO_CONTACT_CREATE_CANARY"
 CANARY_CREATE_START = CREATE_START.replace(
     "if ", "if debug('" + CANARY + "') == '" + CANARY + "' && ", 1)
@@ -60,9 +64,12 @@ def instrument_contact_debug(source):
     ):
         if guard not in segment:
             raise ValueError("mandatory guard absent")
+    if source.count(HELPER_ORIGINAL) != 1:
+        raise ValueError('accepted-contact helper changed')
     scoped = segment.replace(CONTACT_CALL, DEBUG_CALL, 1)
     scoped = scoped.replace(CREATE_START, CANARY_CREATE_START, 1)
     changed = source[:begin] + scoped + source[end:]
+    changed = changed.replace(HELPER_ORIGINAL, HELPER_INSTRUMENTED, 1)
     if (changed == source or changed.count(DEBUG_CALL) != 1
             or changed.count(CANARY_CREATE_START) != 1):
         raise ValueError("debug wrapping was not unique")
@@ -100,9 +107,34 @@ def classify_debug_log(data):
         status = "canary_seen_boolean_absent"
     else:
         status = "canary_and_boolean_absent"
+
+    # Only known emulator debug labels and booleans. No raw log text escapes.
+    markers = {"valid_id": False, "canonical_pair": False, "chat_accepted": False}
+    counts = {key: {"true": 0, "false": 0} for key in markers}
+    active = None
+    for line in raw.splitlines():
+        tag = re.search(r"string_value:\s*[\"'](QA_ATRIO_CONTACT_(?:ID|PAIR|STATUS))[\"']", line)
+        if tag:
+            active = STAGE_MARKERS[tag.group(1)]
+            markers[active] = True
+            continue
+        val = DEBUG_LINE.search(line)
+        if val and active is not None:
+            counts[active][val.group(1)] += 1
+    step_results = {}
+    for key in markers:
+        true, false = counts[key]["true"], counts[key]["false"]
+        step_results[key] = {
+            "marker_seen": markers[key],
+            "value": ("mixed" if true and false else
+                      "true" if true else "false" if false else "not_observed"),
+            "true_count": true, "false_count": false,
+        }
+
     return {"status": status, "true_count": t, "false_count": f,
             "canary_marker_seen": canary_seen,
             "bool_keyword_seen": bool_keyword_seen,
+            "guard_subexpressions": step_results,
             "single_evaluation": len(values) == 1,
             "guard_value_is_not_independent_causal_proof": True}
 
