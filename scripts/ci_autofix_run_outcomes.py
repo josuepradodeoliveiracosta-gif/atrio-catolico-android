@@ -8,11 +8,22 @@ No logs, tokens in output, PR mutations, or conclusions about root cause.
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 from urllib.request import Request, build_opener
 
 from scripts.ci_quality_report import NoRedirect, REPO, validate_sha
-from scripts.ci_failure_classifier import positive_int
+
+RUN_ID_RE = re.compile(r"[1-9][0-9]{0,17}")
+
+
+def canonical_run_id(value):
+    """Avoid dependency on an unmerged ID-validation PR."""
+    if type(value) is int and 0 < value < 10 ** 18:
+        return value
+    if isinstance(value, str) and RUN_ID_RE.fullmatch(value):
+        return int(value)
+    raise ValueError("identificador do run nao canonico")
 
 API = "https://api.github.com/repos/" + REPO + "/actions/runs/"
 WORKFLOW = "Autocorrecao QA - PR draft automatica"
@@ -26,7 +37,7 @@ RECOGNIZED_CONCLUSIONS = {"success", "failure", "cancelled", "timed_out", "skipp
 
 def get_json(run_id, token, *, jobs=False, opener=None):
     """Only GET fixed run/job metadata endpoints; never follow redirects."""
-    run_id = positive_int(run_id)
+    run_id = canonical_run_id(run_id)
     if not isinstance(token, str) or not token or len(token) > 4096:
         raise ValueError("token GitHub de leitura ausente")
     if opener is None:
@@ -49,7 +60,7 @@ def get_json(run_id, token, *, jobs=False, opener=None):
 
 def inspect_run(run_id, run, jobs_page):
     """Verify exact run/job binding and classify outcomes without guessing."""
-    run_id = positive_int(run_id)
+    run_id = canonical_run_id(run_id)
     if not isinstance(run, dict) or not isinstance(jobs_page, dict):
         raise ValueError("estrutura invalida de run/job")
     if (run.get("id") != run_id or run.get("name") != WORKFLOW
@@ -192,7 +203,7 @@ def main():
     parser.add_argument("--markdown", required=True)
     args = parser.parse_args()
     # CLI accepts canonical positive decimal IDs; no free-form URL/endpoint.
-    run_ids = [positive_int(value) for value in args.run_id]
+    run_ids = [canonical_run_id(value) for value in args.run_id]
     result = write_report(run_ids, os.environ.get("GITHUB_TOKEN"),
                           args.json, args.markdown)
     print("Auditoria QA:", result["observed_auto_workflow_runs"],
