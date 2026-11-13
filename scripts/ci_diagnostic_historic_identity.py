@@ -22,6 +22,10 @@ def verify_historic_failures(raw, pinned_raw, token=None, fetcher=api_json):
     cases = queue["review_tasks"]
     if not 0 < len(cases) <= MAX_CANDIDATES:
         raise ValueError("quantidade de falhas fora do limite da auditoria")
+    # Empty environment variables are equivalent to an absent read token:
+    # no network calls and no claim that an identity was verified.
+    if token == "":
+        token = None
     if token is not None and (
             not isinstance(token, str) or not 0 < len(token) <= 4096):
         raise ValueError("credencial de leitura invalida")
