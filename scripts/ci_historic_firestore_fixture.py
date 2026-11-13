@@ -19,6 +19,7 @@ from scripts.ci_historic_firestore_differential import _run
 MARKER = "QA_FOR_FIXTURE:"
 NOTICE_ANCHOR = "  await check('resposta direta com aviso ao autor e destinatario passa',async()=>{"
 CHAT_ANCHOR = " await assertSucceeds(newInvite());"
+CHAT_GROUP_DECLARATION = " const inviteGroup='chat_groups/qa-age-invite';"
 
 NOTICE_KEYS = (
     "post_exists", "post_owner_is_expected", "cited_reply_exists",
@@ -60,7 +61,7 @@ async function qaSyntheticFixtureProbe() {
 '''
 
 CHAT_SENSOR = r'''
-async function qaSyntheticFixtureProbe() {
+async function qaSyntheticFixtureProbe(inviteGroup) {
   let row = {probe_unavailable:true};
   let stage = 'initializing';
   try {
@@ -130,8 +131,15 @@ def instrument(source, scenario):
         if scenario == "reply_notice" else (CHAT_ANCHOR, CHAT_SENSOR))
     if source.count(anchor) != 1 or source.count("try {\n") < 1:
         raise ValueError("historical probe anchor is no longer unique")
+    if scenario == "chat_general":
+        if (source.count(CHAT_GROUP_DECLARATION) != 1 or
+                source.index(CHAT_GROUP_DECLARATION) > source.index(anchor)):
+            raise ValueError("historical invite group declaration missing or moved")
+    invocation = ("  await qaSyntheticFixtureProbe();\n"
+                  if scenario == "reply_notice" else
+                  " await qaSyntheticFixtureProbe(inviteGroup);\n")
     source = source.replace("try {\n", sensor + "\ntry {\n", 1)
-    return source.replace(anchor, "  await qaSyntheticFixtureProbe();\n" + anchor, 1)
+    return source.replace(anchor, invocation + anchor, 1)
 
 
 def classify_fixture(log, scenario):
