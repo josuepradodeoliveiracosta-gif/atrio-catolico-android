@@ -3,6 +3,7 @@ import unittest
 
 from scripts.ci_historic_firestore_contact_debug import (
     CONTACT_CALL, DEBUG_CALL, CREATE_START, CREATE_END,
+    CANARY, CANARY_CREATE_START,
     classify_debug_log, instrument_contact_debug,
 )
 
@@ -29,7 +30,10 @@ class ContactDebugSafeguards(unittest.TestCase):
     def test_wraps_only_invite_create_without_changing_its_value(self):
         rules = synthetic_rules()
         result = instrument_contact_debug(rules)
-        self.assertEqual(result, rules.replace(CONTACT_CALL, DEBUG_CALL, 1))
+        self.assertEqual(result, rules.replace(CONTACT_CALL, DEBUG_CALL, 1)
+                         .replace(CREATE_START, CANARY_CREATE_START, 1))
+        self.assertEqual(result.count(CANARY_CREATE_START), 1)
+        self.assertIn(CANARY, result)
         self.assertEqual(result.count(DEBUG_CALL), 1)
         self.assertEqual(result.count(CONTACT_CALL), 0)
         self.assertIn("qaChatAge16Eligible(inviteeUid)", result)
@@ -80,8 +84,15 @@ class ContactDebugSafeguards(unittest.TestCase):
     def test_no_log_or_ambiguous_log_is_never_a_causal_claim(self):
         self.assertEqual(classify_debug_log(None)["status"], "log_unavailable")
         self.assertEqual(classify_debug_log(b"")[ "status"],
-                         "no_boolean_debug_observed")
+                         "canary_and_boolean_absent")
         self.assertEqual(classify_debug_log(b"ERROR SECRET\n")["true_count"], 0)
+        canary = ('string_value: "' + CANARY + '"\n').encode('utf-8')
+        self.assertEqual(classify_debug_log(canary)["status"],
+                         "canary_seen_boolean_absent")
+        self.assertTrue(classify_debug_log(canary)["canary_marker_seen"])
+        self.assertEqual(classify_debug_log(canary+b'[time] bool_value: false\n')["status"],
+                         "only_false_observed")
+        self.assertTrue(classify_debug_log(canary+b'[time] bool_value: false\n')["bool_keyword_seen"])
         self.assertEqual(classify_debug_log("SECRET")["status"],
                          "log_unavailable_or_oversized")
         rows = classify_debug_log(b"bool_value: true\n" * 101)
