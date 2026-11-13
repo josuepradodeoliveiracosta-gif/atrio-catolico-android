@@ -7,7 +7,7 @@ import unittest
 
 from scripts.ci_autofix_run_outcomes import (
     REPO, WORKFLOW, PATH, PREFLIGHT, WRITER,
-    MAX_RUNS, audit, get_json, inspect_run, markdown, write_report,
+    MAX_RUNS, audit, canonical_run_id, get_json, inspect_run, markdown, write_report,
 )
 
 SHA = "a" * 40
@@ -151,6 +151,21 @@ class AutoRunOutcomeTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 write_report([ID], "test-token", json_path, json_path,
                              fetcher=fake)
+
+    def test_canonical_ids_reject_ambiguous_types_without_network(self):
+        for good in (ID, str(ID), 1, "1", 10**18 - 1):
+            with self.subTest(good=good):
+                self.assertEqual(canonical_run_id(good), int(good))
+        for bad in (
+            True, False, 0, 1.0, 1.9, -1, 10**18,
+            "01", "1.0", "+1", " 1", "1 ", "1e3", "１２",
+            None, [], {}, b"1",
+        ):
+            with self.subTest(bad=repr(bad)):
+                with self.assertRaises(ValueError):
+                    canonical_run_id(bad)
+                with self.assertRaises(ValueError):
+                    get_json(bad, "test-token")
 
     def test_metadata_fetch_requires_token_even_before_network(self):
         for bad in ("", None, "a" * 4097):
