@@ -504,7 +504,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-guard-isolation:
+  guard-isolation:
     # QA-only: variant removes one authorization check in disposable Emulator.
     # This intentionally weakened variant MUST NEVER be deployed.
     if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'test/qa-historic-firestore-repro-20261113'
