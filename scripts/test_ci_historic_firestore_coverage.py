@@ -30,6 +30,7 @@ class CoverageSafeguards(unittest.TestCase):
         self.assertNotIn('firebase deploy', result)
 
     def test_chat_wraps_only_invite_not_permissions(self):
+        self.assertEqual(CHAT_TARGET, " await assertSucceeds(newInvite());")
         source = "import {x} from 'x';\ntry {\n" + CHAT_TARGET + "\n}finally{}\n"
         result = instrument_for_coverage(source, 'chat_general')
         self.assertIn(CHAT_TARGET, result)
