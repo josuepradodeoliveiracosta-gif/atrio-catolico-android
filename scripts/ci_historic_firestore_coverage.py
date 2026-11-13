@@ -18,8 +18,25 @@ COVERAGE_MARKER = 'QA_RULECOV_'
 COVERAGE_MAX_LOG = 12 * 1024 * 1024
 MAX_ROWS = 6000
 MAX_TARGETS = 70
+TARGET_MARKER = 'QA_TARGET_RESULT:'
 
 JS_PROBE = r'''// QA-only rules coverage: numeric counters only; never print document values.
+// Emit one finite classification for the specific positive write under test.
+// Never serialize an exception, raw messages or document values.
+function qaTargetResult(error) {
+  const rawCode = typeof error?.code === 'string' ? error.code : '';
+  const rawMessage = typeof error?.message === 'string' ? error.message.slice(0, 20000) : '';
+  const permission = rawCode === 'permission-denied' ||
+    /PERMISSION_DENIED|missing or insufficient permissions/i.test(rawMessage);
+  const precondition = rawCode === 'failed-precondition';
+  console.log('QA_TARGET_RESULT:' + JSON.stringify({
+    status: error == null ? 'accepted' : 'rejected',
+    error_category: error == null ? 'none' :
+      permission ? 'permission_denied' : precondition ? 'failed_precondition' : 'other',
+    expression_limit_in_exception: error != null &&
+      /maximum of 1000 expressions/i.test(rawMessage)
+  }));
+}
 function qaSanitizeCoverage(document) {
   const data = Object.create(null);
   const seen = new WeakSet();
@@ -99,31 +116,81 @@ async function qaCoverageSnapshot(phase) {
 NOTICE_BEGIN = "  await check('resposta direta com aviso ao autor e destinatario passa',async()=>{"
 NOTICE_END = "    assert.equal(n.data()?.replyToId,'lucia_seed');\n  });"
 CHAT_TARGET = " await assertSucceeds(newInvite());"
+NOTICE_BATCH = "    await assertSucceeds(b.commit());"
 
 
 def instrument_for_coverage(source, scenario):
     if scenario not in CASES or not isinstance(source, str):
         raise ValueError('invalid scenario/source')
-    if 'QA_RULECOV_' in source or source.count('try {\n') < 1:
+    if ('QA_RULECOV_' in source or TARGET_MARKER in source
+            or source.count('try {\n') < 1):
         raise ValueError('unexpected or already instrumented fixture')
     source = source.replace('try {\n', JS_PROBE + '\ntry {\n', 1)
     if scenario == 'reply_notice':
         if source.count(NOTICE_BEGIN) != 1 or source.count(NOTICE_END) != 1:
             raise ValueError('notice target changed')
-        source = source.replace(
-            NOTICE_BEGIN,
-            "  await qaCoverageSnapshot('before');\n  try {\n" + NOTICE_BEGIN, 1)
-        source = source.replace(
-            NOTICE_END,
-            NOTICE_END + "\n  } finally {\n    await qaCoverageSnapshot('after');\n  }", 1)
+        start = source.index(NOTICE_BEGIN)
+        end = source.index(NOTICE_END, start) + len(NOTICE_END)
+        target = source[start:end]
+        if target.count(NOTICE_BATCH) != 1:
+            raise ValueError('notice positive write anchor changed')
+        scoped = target.replace(
+            NOTICE_BATCH,
+            "    try {\n" + NOTICE_BATCH +
+            "\n      qaTargetResult(null);\n"
+            "    } catch (error) {\n"
+            "      qaTargetResult(error);\n"
+            "      throw error;\n"
+            "    }", 1)
+        source = (source[:start] +
+                  "  await qaCoverageSnapshot('before');\n  try {\n" +
+                  scoped + "\n  } finally {\n"
+                  "    await qaCoverageSnapshot('after');\n  }" +
+                  source[end:])
     else:
         if source.count(CHAT_TARGET) != 1:
             raise ValueError('invite target changed')
         source = source.replace(
             CHAT_TARGET,
-            "  await qaCoverageSnapshot('before');\n  try {\n" + CHAT_TARGET +
-            "\n  } finally {\n    await qaCoverageSnapshot('after');\n  }", 1)
+            "  await qaCoverageSnapshot('before');\n  try {\n" +
+            "  try {\n" + CHAT_TARGET +
+            "\n    qaTargetResult(null);\n"
+            "  } catch (error) {\n"
+            "    qaTargetResult(error);\n"
+            "    throw error;\n"
+            "  }\n"
+            "  } finally {\n    await qaCoverageSnapshot('after');\n  }", 1)
     return source
+
+
+
+def interpret_target_result(log):
+    """Classify only the caught exception of the selected positive write."""
+    if not isinstance(log, str) or len(log) > COVERAGE_MAX_LOG:
+        return {'status': 'unavailable_or_log_too_large'}
+    found = [line[len(TARGET_MARKER):] for line in log.splitlines()
+             if line.startswith(TARGET_MARKER)]
+    if not found:
+        return {'status': 'not_observed'}
+    if len(found) != 1 or len(found[0]) > 512:
+        return {'status': 'invalid_marker'}
+    try:
+        row = json.loads(found[0])
+    except (ValueError, TypeError):
+        return {'status': 'invalid_marker'}
+    if not isinstance(row, dict) or set(row) != {
+            'status', 'error_category', 'expression_limit_in_exception'}:
+        return {'status': 'invalid_marker'}
+    state, category, limit = (
+        row['status'], row['error_category'], row['expression_limit_in_exception'])
+    if (state not in ('accepted', 'rejected') or
+            category not in ('none', 'permission_denied', 'failed_precondition', 'other')
+            or type(limit) is not bool or
+            (state == 'accepted' and (category != 'none' or limit)) or
+            (state == 'rejected' and category == 'none')):
+        return {'status': 'invalid_marker'}
+    return {'status': state, 'error_category': category,
+            'expression_limit_in_exception': limit}
 
 
 def _safe_snapshot(row):
@@ -237,6 +304,7 @@ def execute(case, historical, output, env=None):
             'mode': 'localhost_8089_firestore_emulator_only',
             'test_exit_code': exit_code, 'test_succeeded': exit_code == 0,
             'coverage': verdict,
+            'target_write': interpret_target_result(output_log),
             'log_sha256': hashlib.sha256(output_log.encode('utf-8')).hexdigest(),
             'source_rules_modified': False, 'real_data_accessed': False,
             'raw_logs_published': False, 'raw_coverage_published': False,
