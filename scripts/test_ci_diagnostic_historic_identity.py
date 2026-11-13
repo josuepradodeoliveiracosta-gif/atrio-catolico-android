@@ -71,11 +71,13 @@ class HistoricIdentityTests(unittest.TestCase):
         def fail(*_):
             raise AssertionError("network call without token")
         raw = SOURCE.read_bytes()
-        r = verify_historic_failures(raw, raw, None, fail)
-        self.assertEqual(r["identities_verified"], 0)
-        self.assertTrue(all(row["verdict"] == "not_verified_no_read_token"
-                            and row["verified_head_sha"] is None
-                            for row in r["rows"]))
+        for missing_token in (None, ""):
+            with self.subTest(token=repr(missing_token)):
+                r = verify_historic_failures(raw, raw, missing_token, fail)
+                self.assertEqual(r["identities_verified"], 0)
+                self.assertTrue(all(row["verdict"] == "not_verified_no_read_token"
+                                    and row["verified_head_sha"] is None
+                                    for row in r["rows"]))
 
     def test_tampered_job_or_repo_fails_closed(self):
         fetch, _ = fixture_fetcher()
