@@ -107,13 +107,13 @@ def markdown(result):
         "",
         "**Acuracia de causa raiz (meta 90%): nao demonstrada.**",
         "**Taxa de autocorrecao (meta 99%): nao aferivel; nao ha denominador "
-        "de procedimentos elegiveis nem numerador de reparos comprovados.**",
+        + "de procedimentos elegiveis nem numerador de reparos comprovados.**",
         "",
         "Cobertura de sinais nao demonstra classificacao correta nem causa raiz.",
         "A PR documental de homologacao manual nao e prova de autocorrecao geral.",
         "A amostra foi separada para sete regras, nao cega para o classificador inteiro.",
         "Esta ferramenta nao acessa logs, rede, usuarios, producao, backups, "
-        "e nao executa reparos, reruns, merges nem deploys.",
+        + "e nao executa reparos, reruns, merges nem deploys.",
         "",
         "SHA-256 da entrada: `" + result["source_sha256"] + "`.",
         "",
