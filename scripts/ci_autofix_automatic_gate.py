@@ -115,7 +115,7 @@ def main(argv=None, *, env=None):
     event = read_event_file(environment.get("GITHUB_EVENT_PATH", ""))
     source_sha = verify_trusted_event(event, environment)
     if args.phase == "event":
-        print("Gatilho autenticado: CodeQL push main, SHA " + source_sha)
+        print("Gatilho de automacao validado (sem exibir metadados)")
         return 0
     if not args.manifest or not args.handoff:
         raise ValueError("artefatos de QA ausentes")
@@ -139,7 +139,8 @@ def main(argv=None, *, env=None):
     client = GitHubDraftClient(token)
     result = execute_trusted_automatic_draft(
         plan, handoff, event, environment, args.checkout_root, client)
-    print(json.dumps(result, sort_keys=True, ensure_ascii=False))
+    # Remote response can contain untrusted metadata. Never echo it to CI logs.
+    print("Transacao QA concluida: PR draft sujeita a revisao humana")
     return 0
 
 
