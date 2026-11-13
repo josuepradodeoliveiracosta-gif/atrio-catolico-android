@@ -1,0 +1,135 @@
+name: "QA - Criar PR documental draft com GitHub App (manual)"
+
+# Teste real exclusivamente manual. Nenhum push, PR, fork ou workflow_run.
+on:
+  workflow_dispatch:
+    inputs:
+      expected_main_sha:
+        description: "SHA completo de 40 caracteres da main revisada"
+        required: true
+        type: string
+      confirmation:
+        description: "Confirme CREATE_ONE_ATRIO_DOCUMENT_QA_DRAFT_ONLY"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atrio-qa-doc-app-one-draft
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validar evento e testes antes de acessar segredo
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android' &&
+      github.actor == 'josuepradodeoliveiracosta-gif' &&
+      github.triggering_actor == 'josuepradodeoliveiracosta-gif' &&
+      inputs.confirmation == 'CREATE_ONE_ATRIO_DOCUMENT_QA_DRAFT_ONLY'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: read
+    outputs:
+      source_sha: ${{ steps.fixed-sha.outputs.source_sha }}
+    steps:
+      - name: Obter apenas o commit do disparo sem credenciais persistentes
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Conferir main e o SHA que o proprietário autorizou
+        id: fixed-sha
+        env:
+          APPROVED_MAIN_SHA: ${{ inputs.expected_main_sha }}
+          EVENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$APPROVED_MAIN_SHA" = "$EVENT_SHA"
+          test "$EVENT_SHA" = "$(git rev-parse HEAD)"
+          python3 -c 'from scripts.ci_quality_report import validate_sha; import os; validate_sha(os.environ["APPROVED_MAIN_SHA"])'
+          echo "source_sha=$EVENT_SHA" >> "$GITHUB_OUTPUT"
+      - name: Testar a receita e o writer com transporte totalmente falso
+        run: |
+          set -euo pipefail
+          python3 -m unittest scripts.test_ci_autofix_doc_candidate scripts.test_ci_autofix_doc_draft_executor scripts.test_ci_autofix_doc_github_adapter scripts.test_ci_autofix_doc_live_writer scripts.test_ci_autofix_doc_app_manual_workflow -v
+      - name: Conferir hash do documento candidato sem executar escrita
+        run: |
+          set -euo pipefail
+          python3 -m scripts.ci_autofix_doc_candidate --checkout-root . >/dev/null
+
+  create_draft:
+    name: Usar GitHub App somente para uma PR documental draft
+    needs: validate
+    if: >-
+      needs.validate.result == 'success' &&
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      github.actor == 'josuepradodeoliveiracosta-gif' &&
+      github.triggering_actor == 'josuepradodeoliveiracosta-gif' &&
+      inputs.confirmation == 'CREATE_ONE_ATRIO_DOCUMENT_QA_DRAFT_ONLY'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    environment:
+      name: atrio-autofix-qa
+      deployment: false
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout do mesmo SHA revisado sem credenciais persistentes
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.validate.outputs.source_sha }}
+          persist-credentials: false
+      - name: Conferir outra vez o commit antes da chave privada
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_main_sha }}
+          VERIFIED_SHA: ${{ needs.validate.outputs.source_sha }}
+          EVENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$EXPECTED_SHA" = "$VERIFIED_SHA"
+          test "$VERIFIED_SHA" = "$EVENT_SHA"
+          test "$EVENT_SHA" = "$(git rev-parse HEAD)"
+          python3 -m scripts.ci_autofix_doc_candidate --checkout-root . >/dev/null
+      - name: Emitir token temporario da App restrita a um repositorio
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.ATRIO_AUTOFIX_APP_CLIENT_ID }}
+          private-key: ${{ secrets.ATRIO_AUTOFIX_APP_PRIVATE_KEY }}
+          owner: josuepradodeoliveiracosta-gif
+          repositories: atrio-catolico-android
+          permission-contents: write
+          permission-pull-requests: write
+      - name: Criar somente branch QA e uma PR draft do documento pinado
+        env:
+          ATRIO_QA_APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          ATRIO_EXPECTED_SHA: ${{ needs.validate.outputs.source_sha }}
+          ATRIO_CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          from scripts.ci_autofix_doc_live_writer import (
+              DocumentDraftAppTransport, execute_manually_authorized_document_draft,
+          )
+          result = execute_manually_authorized_document_draft(
+              ".", os.environ["ATRIO_EXPECTED_SHA"],
+              os.environ["ATRIO_CONFIRMATION"],
+              DocumentDraftAppTransport(os.environ["ATRIO_QA_APP_TOKEN"]),
+          )
+          if (result["status"] != "real_document_draft_created_requires_human_review"
+                  or result["draft"] is not True
+                  or result["merged"] is not False
+                  or result["remote_writes"] != 3):
+              raise ValueError("GitHub App nao retornou prova segura da PR draft")
+          print("QA GitHub App: PR documental em rascunho criada e verificada.")
+          print("PR: https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/pull/"
+                + str(result["pr_number"]))
+          print("Escopo: um documento, tres escritas, sem merge ou deploy.")
+          PY
