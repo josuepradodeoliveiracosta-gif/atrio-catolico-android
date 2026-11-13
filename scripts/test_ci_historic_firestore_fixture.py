@@ -53,6 +53,16 @@ class FixtureProbeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             instrument("try {\n"+CHAT_ANCHOR, "new_case")
 
+    def test_emulator_callback_result_is_assigned_inside_callback(self):
+        from scripts.ci_historic_firestore_fixture import NOTICE_SENSOR, CHAT_SENSOR
+        for source in (NOTICE_SENSOR, CHAT_SENSOR):
+            with self.subTest(sensor=source[:35]):
+                self.assertIn("await env.withSecurityRulesDisabled(async ctx => {", source)
+                self.assertIn("let row = {probe_unavailable:true};", source)
+                self.assertIn("row = {", source)
+                self.assertNotIn("row = await env.withSecurityRulesDisabled", source)
+                self.assertIn("QA_FOR_FIXTURE:", source)
+
     def test_all_true_is_only_prerequisite_validation(self):
         for case, keys in (("reply_notice",NOTICE_KEYS),("chat_general",CHAT_KEYS)):
             log="QA_FOR_FIXTURE:"+json.dumps({k:True for k in keys})+"\n"
