@@ -9,6 +9,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+from collections.abc import Mapping
 
 from scripts.ci_quality_report import REPO, validate_sha
 from scripts.ci_autofix_handoff import read_json_bounded
@@ -25,7 +26,7 @@ MAX_EVENT_BYTES = 512_000
 
 def verify_trusted_event(event, env):
     """Only a successful CodeQL *push on main* in this repository is trusted."""
-    if (type(event) is not dict or type(env) is not dict
+    if (type(event) is not dict or not isinstance(env, Mapping)
             or env.get("GITHUB_ACTIONS") != "true"
             or env.get("GITHUB_EVENT_NAME") != "workflow_run"
             or env.get("GITHUB_WORKFLOW") != TRUSTED_WORKFLOW
@@ -132,9 +133,9 @@ def main(argv=None, *, env=None):
         return 0
     if not eligible:
         raise ValueError("o escritor nao pode iniciar sem receita aprovada")
-    token = environment.get("GITHUB_TOKEN")
+    token = environment.get("ATRIO_AUTOFIX_APP_TOKEN")
     if not isinstance(token, str) or not token or len(token) > 4096:
-        raise PermissionError("credencial temporaria do job ausente")
+        raise PermissionError("token temporario de instalacao GitHub App ausente")
     client = GitHubDraftClient(token)
     result = execute_trusted_automatic_draft(
         plan, handoff, event, environment, args.checkout_root, client)
