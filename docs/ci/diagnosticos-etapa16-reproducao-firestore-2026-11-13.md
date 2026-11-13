@@ -56,3 +56,16 @@ O runner `scripts/ci_historic_firestore_differential.py` compara o código de sa
 A execução é restrita a PR interna com permissões `contents:read`, referências SHA literais, Node/Java históricos, `demo-atrio-v11`, credenciais Firebase vazias e duas bases locais efêmeras por cenário. O checkout original é conferido por SHA. **A mudança contrafactual ocorre somente em cópia local descartável de Rules.** O novo workflow não executa deploy, Firebase real, Cloudflare, reruns da amostra congelada ou escrita na `main`.
 
 **Critério de interpretação:** se uma variante mudar o resultado, a evidência estabelece apenas que **essa substituição no cenário sintético** mudou o comportamento; ainda será necessária inspeção do predicado exato, preservação das negativas e validação independente antes de atribuir causa raiz. Se a falha persistir, a condição testada isoladamente não foi suficiente para corrigi-la.
+
+## Etapa 18 — leitura de documento compartilhado na regra do convite
+
+**Hipótese verificável:** a operação final reprovada `assertSucceeds(newInvite())`, na linha 402 do teste histórico `qa-general-firestore.test.mjs`, percorre as condições de grupo ativo, administração, elegibilidade etária, bloqueio e `atrioGroupAcceptedContact`. A regra original lê `get(atrioGroupPath(groupId)).data` três vezes no mesmo `allow create`; uma função de Rules experimental pode reutilizar esse documento sem mudar suas condições. Separadamente, `canonicalDirectRecipient()` lê duas vezes o mesmo estado `getAfter(currentPath).data` da resposta citada.
+
+A nova job matrix `cached-predicate` testa dois controles com **apenas uma mudança de leitura equivalente por cenário**:
+
+- `chat_general`: as três referências ao documento do grupo passam a usar um único `let group = get(atrioGroupPath(groupId)).data`, mantendo as verificações de administrador, idade, contato aceito, grupo ativo, prevenção de bloqueio, remetente e dados da solicitação.
+- `reply_notice`: a verificação canônica de destinatário direto passa a consultar uma vez `getAfter(currentPath).data` dentro de função auxiliar, mantendo `validId`, `existsAfter`, ambos os campos de destino, consulta da resposta citada e os demais predicados.
+
+Em ambos, o investigador cria **um controle original e uma variante**, cada qual com Firestore Emulator novo, fixtures e verificações positivas/negativas históricas idênticas, sempre `demo-atrio-v11`. As regras da `main` e o histórico do repositório não são alterados; as variantes somente existem dentro do checkout descartável do runner. O instrumento gera JSON sanitizado com código de saída, estágio, SHA da Rules e indicadores de resultado, sem logs brutos.
+
+**Atenção:** mover uma leitura repetida para `let` pode antecipar avaliação em um caso negativo; tal alteração ainda é **somente contrafactual** e não constitui reparo seguro de produção sem validar todos os casos negativos. Se o positivo continuar falhando, a redução isolada não explica a causa. Se passar, será necessária investigação do orçamento de Rules, confirmação semântica e revisão independente. Nenhum sucesso da matriz satisfaz automaticamente as metas 90% e 99%.
