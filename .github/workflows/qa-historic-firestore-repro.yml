@@ -149,7 +149,7 @@ jobs:
         with:
           persist-credentials: false
           path: harness
-          ref: '7ac7f3d1fef5ff6261757d3915da0dfb439e5918'
+          ref: 'b85a8b05e2b5c95816100ab8a90ed10a5d7a4731'
       - name: Checkout historico fixo para notificacoes
         if: matrix.scenario == 'reply_notice'
         uses: actions/checkout@v4
@@ -175,7 +175,7 @@ jobs:
           test -z "$ATRIO_PUSH_WORKER_URL"
           test -z "$ATRIO_AVATAR_WORKER_URL"
           test -z "$ATRIO_GUARDIAN_V2_WORKER_URL"
-          test "$(git -C harness rev-parse HEAD)" = '7ac7f3d1fef5ff6261757d3915da0dfb439e5918'
+          test "$(git -C harness rev-parse HEAD)" = 'b85a8b05e2b5c95816100ab8a90ed10a5d7a4731'
           test "$(git -C historical rev-parse HEAD)" = "${{ matrix.historic_sha }}"
           echo 'Comparativo forense em demos, sem alteracao produtiva'
       - name: Preparar Node da epoca
