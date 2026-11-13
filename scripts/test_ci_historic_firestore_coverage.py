@@ -4,7 +4,7 @@ import unittest
 
 from scripts.ci_historic_firestore_coverage import (
     NOTICE_BEGIN, NOTICE_END, CHAT_TARGET, JS_PROBE,
-    instrument_for_coverage, interpret_coverage,
+    instrument_for_coverage, interpret_coverage, interpret_target_result,
 )
 
 
@@ -26,6 +26,9 @@ class CoverageSafeguards(unittest.TestCase):
         self.assertIn("qaCoverageSnapshot('after')", result)
         self.assertEqual(result.count('QA_RULECOV_'), JS_PROBE.count('QA_RULECOV_'))
         self.assertIn('await assertSucceeds(b.commit());', result)
+        self.assertEqual(result.count('qaTargetResult(null);'), 1)
+        self.assertEqual(result.count('qaTargetResult(error);'), 1)
+        self.assertIn('throw error;', result)
         self.assertIn('127.0.0.1:8089', result)
         self.assertNotIn('firebase deploy', result)
 
@@ -36,6 +39,9 @@ class CoverageSafeguards(unittest.TestCase):
         self.assertIn(CHAT_TARGET, result)
         self.assertEqual(result.count('qaCoverageSnapshot('), 3)
         self.assertIn("  try {\n" + CHAT_TARGET, result)
+        self.assertEqual(result.count("qaTargetResult(null);"), 1)
+        self.assertEqual(result.count("qaTargetResult(error);"), 1)
+        self.assertIn("throw error;", result)
         self.assertIn('} finally {', result)
 
     def test_missing_or_duplicate_instrumentation_refused(self):
@@ -94,6 +100,58 @@ class CoverageSafeguards(unittest.TestCase):
         self.assertEqual(report['counters']['33:4']['f'], 2)
         self.assertEqual(report['counters']['34:5']['t'], 3)
         self.assertEqual(report['counters']['35:6']['n'], 1)
+
+    def test_target_write_classification_is_per_operation_and_sanitized(self):
+        pass_marker = {
+            'status': 'accepted', 'error_category': 'none',
+            'expression_limit_in_exception': False,
+        }
+        denied_marker = {
+            'status': 'rejected', 'error_category': 'permission_denied',
+            'expression_limit_in_exception': True,
+        }
+        for row in (pass_marker, denied_marker):
+            log = ("a previous stage had a different issue\n" +
+                   "QA_TARGET_RESULT:" + json.dumps(row) +
+                   "\nSECRET=private user data\n")
+            got = interpret_target_result(log)
+            self.assertEqual(got, row)
+            self.assertNotIn('private', str(got))
+
+    def test_target_result_rejects_unknown_or_multiple_markers(self):
+        valid = {'status': 'rejected', 'error_category': 'other',
+                 'expression_limit_in_exception': False}
+        marker = 'QA_TARGET_RESULT:' + json.dumps(valid)
+        self.assertEqual(interpret_target_result('no markers')['status'],
+                         'not_observed')
+        for log in (
+            'QA_TARGET_RESULT:{broken',
+            marker + '\n' + marker,
+            marker + '\nQA_TARGET_RESULT:{"token":"secret"}',
+            'QA_TARGET_RESULT:' + json.dumps({**valid, 'token':'private'}),
+            'QA_TARGET_RESULT:' + json.dumps({**valid, 'status':'accepted'}),
+            'QA_TARGET_RESULT:' + json.dumps({**valid,
+                                              'expression_limit_in_exception': 1}),
+            'QA_TARGET_RESULT:' + json.dumps({**valid, 'error_category':'SECRET'}),
+        ):
+            with self.subTest(log=log[:45]):
+                rejected = interpret_target_result(log)
+                self.assertEqual(rejected['status'], 'invalid_marker')
+                self.assertNotIn('private', str(rejected))
+                self.assertNotIn('SECRET', str(rejected))
+        self.assertEqual(
+            interpret_target_result('QA_TARGET_RESULT:' + 'X'*513)['status'],
+            'invalid_marker')
+
+    def test_exception_signal_is_selected_and_not_read_from_global_logs(self):
+        synthetic = ('maximum of 1000 expressions and PERMISSION_DENIED\n' +
+                     'QA_TARGET_RESULT:' + json.dumps({
+                         'status':'rejected', 'error_category':'other',
+                         'expression_limit_in_exception':False,
+                     }))
+        got = interpret_target_result(synthetic)
+        self.assertFalse(got['expression_limit_in_exception'])
+        self.assertEqual(got['error_category'], 'other')
 
     def test_oversized_log_is_not_retained(self):
         from scripts.ci_historic_firestore_coverage import COVERAGE_MAX_LOG
