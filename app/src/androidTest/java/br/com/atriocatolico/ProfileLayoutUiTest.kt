@@ -30,11 +30,10 @@ class ProfileLayoutUiTest {
                     OnlineProfileScreen(
                         db = FirebaseFirestore.getInstance(), uid = "profile-layout-only",
                         name = "Maria da Comunidade", email = "maria@example.test",
-                        biography = "Uma caminhada de fé e comunidade.", posts = emptyList(),
-                        publicationsFooter = {}, onSignOut = { destination = "logout" },
+                        biography = "Uma caminhada de fé e comunidade.",
+                        onSignOut = { destination = "logout" },
                         onModeration = null, onClergyReview = null,
-                        onCreate = { destination = "create" }, onOpen = {}, onLike = {}, onSave = {},
-                        onSavedPosts = { destination = "saved" },
+                        onOpen = {},
                         onNotifications = { destination = "notices" }, onReviews = { destination = "reviews" }
                     )
                 }
@@ -42,14 +41,16 @@ class ProfileLayoutUiTest {
         }
         screenshot("01-identidade-fonte-ampliada")
         val list = compose.onNodeWithTag("atrio-profile-list")
-        list.performScrollToNode(hasText("Publicações salvas"))
-        compose.onNodeWithText("Publicações salvas").performClick()
-        compose.runOnIdle { assertEquals("saved", destination) }
+        list.performScrollToNode(hasText("Minhas discussões"))
+        compose.onNodeWithText("Minhas discussões").performClick()
+        compose.onNodeWithTag("atrio-profile-history").assertExists()
+        compose.onNodeWithText("Voltar ao perfil").performClick()
+        compose.onNodeWithText("Publicações salvas").assertDoesNotExist()
         list.performScrollToNode(hasText("Minhas revisões"))
         compose.onNodeWithText("Minhas revisões").performClick()
         compose.runOnIdle { assertEquals("reviews", destination) }
-        list.performScrollToNode(hasText("Personalizar avisos"))
-        compose.onNodeWithText("Personalizar avisos").performClick()
+        list.performScrollToNode(hasText("Abrir central de notificações"))
+        compose.onNodeWithText("Abrir central de notificações").performClick()
         compose.runOnIdle { assertEquals("notices", destination) }
         list.performScrollToNode(hasContentDescription("Receber avisos neste aparelho"))
         compose.onNodeWithContentDescription("Receber avisos neste aparelho").assertIsOff()
@@ -67,11 +68,8 @@ class ProfileLayoutUiTest {
         compose.onNodeWithText("Ferramentas avançadas de notificações").assertExists()
         compose.onNodeWithTag("atrio-help-toggle").performClick()
         compose.onNodeWithTag("atrio-ota-section").assertDoesNotExist()
-        list.performScrollToNode(hasTestTag("atrio-profile-publications"))
-        compose.onNodeWithTag("atrio-profile-publications").performClick()
-        list.performScrollToNode(hasTestTag("atrio-profile-create-discussion"))
-        compose.onNodeWithTag("atrio-profile-create-discussion").performClick()
-        compose.runOnIdle { assertEquals("create", destination) }
+        compose.onNodeWithTag("atrio-profile-publications").assertDoesNotExist()
+        compose.onNodeWithTag("atrio-profile-create-discussion").assertDoesNotExist()
     }
 
     @Test fun developerSupportStartsClosedAndCanBeExpanded() {
@@ -81,10 +79,9 @@ class ProfileLayoutUiTest {
                 OnlineProfileScreen(
                     db = FirebaseFirestore.getInstance(), uid = "profile-layout-only",
                     name = "Maria da Comunidade", email = "maria@example.test",
-                    biography = "", posts = emptyList(), publicationsFooter = {},
-                    onSignOut = {}, onModeration = null, onClergyReview = null,
-                    onCreate = {}, onOpen = {}, onLike = {}, onSave = {},
-                    onSavedPosts = {}, onNotifications = {}, onReviews = {}
+                    biography = "", onSignOut = {}, onModeration = null, onClergyReview = null,
+                    onOpen = {},
+                    onNotifications = {}, onReviews = {}
                 )
             }
         }
@@ -108,11 +105,11 @@ class ProfileLayoutUiTest {
                     OnlineProfileScreen(
                         db = FirebaseFirestore.getInstance(), uid = "profile-layout-only",
                         name = "Maria da Comunidade", email = "maria@example.test",
-                        biography = "Uma caminhada de fé e comunidade.", posts = emptyList(),
-                        publicationsFooter = {}, onSignOut = {},
+                        biography = "Uma caminhada de fé e comunidade.",
+                        onSignOut = {},
                         onModeration = null, onClergyReview = null,
-                        onCreate = {}, onOpen = {}, onLike = {}, onSave = {},
-                        onSavedPosts = {}, onNotifications = {}, onReviews = {}
+                        onOpen = {},
+                        onNotifications = {}, onReviews = {}
                     )
                 }
             }
