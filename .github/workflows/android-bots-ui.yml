@@ -20,10 +20,9 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: qa-android-emulator-${{ github.event.pull_request.number || github.ref }}
-  # Uma atualização não pode interromper um teste já iniciado.
-  # O GitHub poderá substituir somente uma execução ainda pendente.
-  cancel-in-progress: false
+  group: qa-android-emulator-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  # Somente o HEAD mais recente da mesma PR conserva o emulador; push/manual são isolados.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
