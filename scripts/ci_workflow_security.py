@@ -83,43 +83,30 @@ def protected_workflow_issues(source: str) -> list[str]:
     return errors
 
 
-def audit_workflows(directory: Path) -> list[str]:
-    """Return violations; never print the possibly sensitive matched lines."""
-    if not directory.is_dir():
-        return ["diretorio de workflows ausente ou inacessivel"]
-
-    files = sorted(
-        p for p in directory.iterdir()
-        if p.is_file() and p.suffix.lower() in {".yml", ".yaml"}
-    )
-    if not files:
+def audit_sources(sources: dict[str, str]) -> list[str]:
+    """Validate workflow text in memory, without persisting any test fixtures."""
+    if not sources:
         return ["nenhum workflow YAML encontrado"]
 
     errors: list[str] = []
     protected_source: str | None = None
     allowed_target_count = 0
 
-    for file in files:
-        try:
-            source = file.read_text(encoding="utf-8")
-        except (OSError, UnicodeError):
-            errors.append(f"{file.name}: nao foi possivel ler YAML como UTF-8")
-            continue
-
-        if file.name == PROTECTOR:
+    for filename, source in sorted(sources.items()):
+        if filename == PROTECTOR:
             protected_source = source
 
         for line_no, line in enumerate(source.splitlines(), 1):
             if WRITE_ALL.match(line):
-                errors.append(f"{file.name}:{line_no}: permissions write-all proibido")
+                errors.append(f"{filename}:{line_no}: permissions write-all proibido")
             if TARGET_KEY.match(line):
-                if file.name != PROTECTOR:
-                    errors.append(f"{file.name}:{line_no}: pull_request_target nao autorizado")
+                if filename != PROTECTOR:
+                    errors.append(f"{filename}:{line_no}: pull_request_target nao autorizado")
                 else:
                     allowed_target_count += 1
             if INLINE_TARGET.match(line):
                 errors.append(
-                    f"{file.name}:{line_no}: evento pull_request_target inline nao autorizado"
+                    f"{filename}:{line_no}: evento pull_request_target inline nao autorizado"
                 )
 
     if protected_source is None:
@@ -130,8 +117,32 @@ def audit_workflows(directory: Path) -> list[str]:
         )
     else:
         errors.extend(protected_workflow_issues(protected_source))
-
     return errors
+
+
+def audit_workflows(directory: Path) -> list[str]:
+    """Read checked-out YAML once; never output raw workflow contents."""
+    if not directory.is_dir():
+        return ["diretorio de workflows ausente ou inacessivel"]
+
+    files = sorted(
+        p for p in directory.iterdir()
+        if p.is_file() and p.suffix.lower() in {".yml", ".yaml"}
+    )
+    if not files:
+        return ["nenhum workflow YAML encontrado"]
+
+    sources: dict[str, str] = {}
+    errors: list[str] = []
+    for file in files:
+        if file.is_symlink():
+            errors.append(f"{file.name}: workflow YAML nao pode ser symlink")
+            continue
+        try:
+            sources[file.name] = file.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            errors.append(f"{file.name}: nao foi possivel ler YAML como UTF-8")
+    return errors + audit_sources(sources)
 
 
 def main() -> int:
