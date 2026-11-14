@@ -86,9 +86,9 @@ def contract_errors(s):
     check("  schedule:\n" in w and "  workflow_dispatch:\n" in w and
           "\n  pull_request:\n" not in w and "\n  push:\n" not in w,
           "schedule_or_manual_only")
-    check("vars.GUARDIAN_V2_WRITER_ENABLED == 'true'" in w and
-          "vars.GUARDIAN_V2_WRITER_APPROVED == 'true'" in w and
-          "github.ref == 'refs/heads/main'" in w,
+    check(w.count("vars.GUARDIAN_V2_WRITER_ENABLED == 'true'") == 2 and
+          w.count("vars.GUARDIAN_V2_WRITER_APPROVED == 'true'") == 2 and
+          w.count("github.ref == 'refs/heads/main'") == 2,
           "writer_approved_main_only")
     activate_job = w.split("  activate-policy:", 1)[-1].split(
         "    name:", 1)[0]
