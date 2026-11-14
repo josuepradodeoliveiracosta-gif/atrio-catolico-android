@@ -150,5 +150,16 @@ class EvidenceGateTests(unittest.TestCase):
             self.assertNotIn("QA-case", output.getvalue())
 
 
+    def test_invalid_json_is_explicit_no_go_without_input_leak(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "invalid.json"
+            path.write_text('{broken:"sensitive-qa-value"}', encoding="utf-8")
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(gate.main([str(path)]), 2)
+            self.assertIn("NO_GO", output.getvalue())
+            self.assertNotIn("sensitive-qa-value", output.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()
