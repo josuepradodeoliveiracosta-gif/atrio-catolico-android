@@ -26,7 +26,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Preparar Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '22'
       - name: Testar somente mocks, sem rede nem segredos de producao
