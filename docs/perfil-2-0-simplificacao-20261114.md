@@ -39,3 +39,11 @@
 2. Se houver falhas, corrigir a causa nesta mesma branch e repetir somente os testes necessários.
 3. Confirmar a disponibilização do índice de histórico no destino autorizado, sem deploy automático.
 4. Apresentar PR e limitações ao fundador para revisão. Não fazer merge na `main` sem autorização explícita.
+
+## Retomada do Agente 3 — reforço de UI/UX e QA
+
+- Verificado o head `4e49190a63fc` da PR #291: compilação Android, suíte emulador (grupos `profiles`, `interaction` e `bots`), selos/Firestore, segurança, versão e CodeQL aprovados. O job de prévia visual foi dispensado; nenhuma falha ativa identificada.
+- Acrescentado contador explícito de **discussões carregadas** (não total global), indicação de fim da paginação, anúncio de erro via região acessível e descrição de carregamento para leitores de tela. Os cartões receberam identificadores de teste sem alterar seu comportamento.
+- Acrescentados testes instrumentados na suíte `ProfileLayoutUiTest` com Auth/Firestore emulados: 21 publicações em conta exclusivamente sintética para conferir lotes de 20 e 1, e cenário de erro sem autenticação para verificar a ação de nova tentativa. A passagem no CI do novo SHA deve ser verificada antes de marcar esses testes como aprovados.
+- Nenhum esquema, regra, índice, Worker, credencial, versão, assinatura ou ambiente real foi modificado.
+- **Pendências externas:** confirmar índice composto no destino autorizado, avaliar documentos legados sem `createdAt` e homologar acessibilidade/navegação em Android físico. A consulta por `orderBy(createdAt)` continua excluindo registros antigos sem o campo.

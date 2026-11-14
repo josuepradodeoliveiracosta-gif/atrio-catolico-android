@@ -7,6 +7,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
@@ -90,8 +94,21 @@ internal fun ProfileDiscussionHistory(
             )
         }
         if (entries.isNotEmpty()) {
+            item {
+                Text(
+                    "${entries.size} " +
+                        if (entries.size == 1) "discussão carregada" else "discussões carregadas",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.testTag("atrio-history-count")
+                        .semantics { liveRegion = LiveRegionMode.Polite }
+                )
+            }
             items(entries, key = { it.id }) { item ->
-                Card(onClick = { onOpen(item.id) }, modifier = Modifier.fillMaxWidth()) {
+                Card(
+                    onClick = { onOpen(item.id) },
+                    modifier = Modifier.fillMaxWidth().testTag("atrio-history-item-${item.id}")
+                ) {
                     Column(Modifier.fillMaxWidth().padding(16.dp)) {
                         Text(item.title, style = MaterialTheme.typography.titleMedium)
                         if (item.category.isNotBlank()) Text(item.category,
@@ -101,11 +118,15 @@ internal fun ProfileDiscussionHistory(
                 }
             }
         }
-        if (loading) item { CircularProgressIndicator(Modifier.testTag("atrio-history-loading")) }
+        if (loading) item {
+            CircularProgressIndicator(Modifier.testTag("atrio-history-loading")
+                .semantics { contentDescription = "Carregando discussões" })
+        }
         if (error) item {
             Text(
                 "Não foi possível carregar as discussões. Confira a conexão e tente novamente.",
-                color = MaterialTheme.colorScheme.error
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
             )
             OutlinedButton(onClick = { retry++ }, modifier = Modifier.testTag("atrio-history-retry")) {
                 Text("Tentar novamente")
@@ -121,6 +142,14 @@ internal fun ProfileDiscussionHistory(
                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                     .testTag("atrio-history-more")
             ) { Text("Carregar mais discussões") }
+        }
+        if (!loading && !error && !hasMore && entries.isNotEmpty()) item {
+            Text(
+                "Não há mais discussões disponíveis para carregar.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.testTag("atrio-history-end")
+            )
         }
     }
 }
