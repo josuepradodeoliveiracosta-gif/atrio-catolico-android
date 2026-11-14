@@ -15,7 +15,7 @@
 
 ## Verificações e limites
 
-Os **15 testes** `scripts/test_guardian_v2_qa_firestore_port.py` usam um **cliente e transação falsos** (in-memory), mais uma decisão de identidade simulada. Exercitam o formato de chamadas ao SDK, reads-before-writes, replay, quota, validações negativas, falha de commit e ausência de writes em um commit artificialmente falho.
+Os **16 testes** `scripts/test_guardian_v2_qa_firestore_port.py` usam um **cliente e transação falsos** (in-memory), mais uma decisão de identidade simulada. Exercitam o formato de chamadas ao SDK, reads-before-writes, replay, quota, validações negativas, falha de commit e ausência de writes em um commit artificialmente falho.
 
 **Não comprovam:** assinatura de token Google real, invocação Cloud Run, autorização IAM externa, atomicidade distribuída do Firestore, retries efetivos do SDK, ausência de efeitos após timeout remoto, comportamento do Emulator, autenticação de approver, custos nem implantação. O módulo usa import tardio; **não declara dependência Google instalada no repositório** e não possui entrypoint de execução por HTTP.
 
