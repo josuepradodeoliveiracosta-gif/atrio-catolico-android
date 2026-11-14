@@ -81,9 +81,11 @@ def contract_errors(s):
         "actions/setup-node": "49933ea5288caeca8642d1e84afbd3f7d6820020",
         "google-github-actions/auth": "7c6bc770dae815cd3e89ee6cdf493a5fab2cc093",
     }
-    used_actions = [line.strip()[len("- uses: "):].split(" #", 1)[0]
+    # YAML permits both "- uses: action@sha" and "uses: action@sha"
+    # (the latter when the step also declares a name/id).
+    used_actions = [line.strip().removeprefix("- ").removeprefix("uses: ").split(" #", 1)[0]
                     for line in w.splitlines()
-                    if line.strip().startswith("- uses: ")]
+                    if line.strip().removeprefix("- ").startswith("uses: ")]
     allowed_actions = [name + "@" + sha
                        for name, sha in approved_actions.items()
                        for _ in range(2)]
