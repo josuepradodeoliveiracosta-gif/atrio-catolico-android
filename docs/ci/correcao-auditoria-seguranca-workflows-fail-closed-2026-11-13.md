@@ -35,6 +35,8 @@ O scanner foi adicionado ao check obrigatório de segurança, **preservando inte
 
 O módulo `scripts/test_ci_workflow_security.py` reúne 14 testes e cobre offline:
 
+**Todos os workflows simulados são representados por dicionários em memória**, usando a função `audit_sources`. Não existe gravação de YAML de teste em arquivos temporários. `audit_workflows` faz apenas a leitura dos YAMLs reais do checkout GitHub e rejeita symlinks.
+
 - `main` proposta com 40 workflows e único uso autorizado de `pull_request_target`;
 - workflow normal e protetor legítimo;
 - uso não autorizado do evento (inclusive com aspas e `on:` inline);
