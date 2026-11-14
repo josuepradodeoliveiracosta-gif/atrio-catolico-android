@@ -87,6 +87,13 @@ class PerfilQaConfigTests(unittest.TestCase):
         self.save()
         self.rejected()
 
+    def test_production_reference_in_extra_field_is_rejected(self):
+        self.data["client"][0]["oauth_client"] = [
+            {"client_id": "atrio-catolico.apps.googleusercontent.com"}
+        ]
+        self.save()
+        self.rejected()
+
     def test_missing_or_changed_hash_is_rejected(self):
         self.rejected("")
         self.rejected("0" * 64)
