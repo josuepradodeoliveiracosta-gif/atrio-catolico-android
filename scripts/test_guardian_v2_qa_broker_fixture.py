@@ -1,6 +1,5 @@
 """Offline broker fixture scenarios; no IAM, network, Firebase or deploy."""
 from concurrent.futures import ThreadPoolExecutor
-from copy import deepcopy
 import unittest
 
 from scripts.guardian_v2_qa_broker_fixture import (
