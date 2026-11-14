@@ -69,6 +69,24 @@ proteção. As Security Rules reais do banco estão deny-all conforme o
 editor do Console; a release precisa de verificação read-only do
 Agente 4. Não publicar Rules da PR #296 sem autorização específica.
 
+## Compatibilidade funcional a resolver antes de QA remota
+
+A revisão estática do código em #296 identificou uma dependência além do
+buildType: o cadastro atual em OnlineAtrioApp.kt escreve em
+users/{uid}/private/account e community_consents/{uid}; o fluxo após
+verificação também atualiza users/{uid}/private/account. A política
+restritiva candidata #296 **nega** essas rotas, deliberadamente.
+OnlineUserScreen ainda observa coleções administrativas, salvos,
+notificações e respostas que também continuam bloqueadas.
+
+**Impacto:** um APK Perfil QA corretamente configurado NÃO significa
+homologação funcional integral do fluxo de cadastro ou das demais abas.
+Não ampliar Rules automaticamente para dar acesso a esses caminhos.
+Antes de testes remotos, Agentes 4, 5 e 7 deverão escolher um roteiro
+mínimo seguro: QA de perfil/histórico com identidades e dados sintéticos
+autorizados, ou uma tela/fluxo de QA limitado sem as operações proibidas.
+Nenhuma conta ou documento foi criado nesta análise.
+
 ## Próximos responsáveis e gates
 
 - **Agente 4:** auditar Rules efetivas no projeto QA e manter deny-all
