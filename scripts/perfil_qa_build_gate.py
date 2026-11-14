@@ -40,7 +40,10 @@ def _require(ok, message):
 def validate(path: Path, expected_sha256: str) -> dict[str, str]:
     """Valida o arquivo QA, seu hash aprovado e vinculo estrito ao Android App."""
     path = Path(path)
-    _require(not path.is_symlink() and path.is_file(), "Configuracao QA ausente, invalida ou symlink.")
+    _require(
+        not path.is_symlink() and not path.parent.is_symlink() and path.is_file(),
+        "Configuracao QA ausente, invalida ou symlink.",
+    )
     _require(
         bool(re.fullmatch(r"[0-9a-f]{64}", expected_sha256 or "")),
         "ATRIO_PERFIL_QA_CONFIG_SHA256 obrigatorio (hash SHA-256 valido).",
@@ -85,6 +88,25 @@ def validate(path: Path, expected_sha256: str) -> dict[str, str]:
         isinstance(api_keys[0].get("current_key"), str) and
         len(api_keys[0]["current_key"]) >= 8,
         "Configuracao de chave cliente Firebase invalida.",
+    )
+    # Evitar que campos adicionais apontem silenciosamente para backend oficial.
+    def references_production(value):
+        if isinstance(value, str):
+            without_qa = re.sub(re.escape(EXPECTED_PROJECT), "", value, flags=re.IGNORECASE)
+            return "atrio-catolico" in without_qa.casefold()
+        if isinstance(value, list):
+            return any(references_production(item) for item in value)
+        if isinstance(value, dict):
+            return any(
+                references_production(key) or references_production(item)
+                for key, item in value.items()
+            )
+        return False
+
+    _require(not references_production(config), "Referencia de producao em configuracao QA.")
+    _require(
+        hashlib.sha256(path.read_bytes()).hexdigest() == expected_sha256,
+        "Configuracao QA mudou durante a verificacao.",
     )
     return {
         "firebase_project_id": EXPECTED_PROJECT,
