@@ -96,6 +96,7 @@ def execute_qa_firestore(*, client, scope, authorization, request):
     )
     if (identity.get("decision") != "QA_VERIFIED_IDENTITY_INTENT_ONLY"
             or identity.get("role") != "triage"
+            or identity.get("operation") != operation
             or identity.get("production_authorized") is not False):
         return dict(_DENY)
     # Strict existing request schema; it is a validator, NOT an IAM decision.
