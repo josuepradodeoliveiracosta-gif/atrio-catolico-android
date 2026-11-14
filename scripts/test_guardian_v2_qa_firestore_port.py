@@ -223,10 +223,22 @@ class QaFirestorePortTests(unittest.TestCase):
 
     def test_read_policy_returns_bools_only_without_writes(self):
         self.client.events.clear()
-        answer = self.execute(request={"operation": "read_policy"})
+        with patch.object(port, "authorize_intent", return_value={
+            "decision": "QA_VERIFIED_IDENTITY_INTENT_ONLY", "role": "triage",
+            "operation": "read_policy", "production_authorized": False,
+        }):
+            answer = self.execute(request={"operation": "read_policy"})
         self.assertEqual(answer, {"decision": "QA_POLICY_READ", "enabled": True,
                                   "production_authorized": False})
         self.assertEqual(self.client.events, [("read", "guardian_config/policy")])
+
+    def test_identity_decision_must_be_bound_to_requested_operation(self):
+        with patch.object(port, "authorize_intent", return_value={
+            "decision": "QA_VERIFIED_IDENTITY_INTENT_ONLY", "role": "triage",
+            "operation": "read_policy", "production_authorized": False,
+        }):
+            self.assertEqual(self.execute()["decision"], "QA_TRANSACTION_DENIED")
+        self.assertEqual(self.client.events, [])
 
     def test_missing_sdk_reports_unavailable_not_iam_denial(self):
         with patch.dict(sys.modules, {"google.cloud": None}):
