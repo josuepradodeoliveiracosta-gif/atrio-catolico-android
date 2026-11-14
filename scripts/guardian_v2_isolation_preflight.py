@@ -26,7 +26,12 @@ RESULT_NAMES = ("conta_servico", "provedor_wif", "ambiente")
 def job_fields(source):
     if not isinstance(source, str) or not source.startswith("name:"):
         return None
-    headers = list(JOB.finditer(source))
+    # Consider only jobs, never similarly named keys in triggers or metadata.
+    sections = list(re.finditer(r"(?m)^jobs:[ \t]*$", source))
+    if len(sections) != 1:
+        return None
+    jobs_source = source[sections[0].end():]
+    headers = list(JOB.finditer(jobs_source))
     names = [m.group(1) for m in headers]
     if any(names.count(name) != 1 for name in EXPECTED):
         return None
@@ -34,8 +39,8 @@ def job_fields(source):
     for name in EXPECTED:
         i = names.index(name)
         start = headers[i].end()
-        end = headers[i + 1].start() if i + 1 < len(headers) else len(source)
-        block = source[start:end]
+        end = headers[i + 1].start() if i + 1 < len(headers) else len(jobs_source)
+        block = jobs_source[start:end]
         values = {}
         for field, pattern in FIELDS.items():
             matches = pattern.findall(block)
