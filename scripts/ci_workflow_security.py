@@ -58,7 +58,7 @@ def protected_workflow_issues(source: str) -> list[str]:
             errors.append("protecao contra exclusoes perdeu uma invariante confiavel")
             break
 
-    if len(re.findall(r"(?m)^\s*uses:\s*actions/checkout@", source)) != 1:
+    if len(re.findall(r"(?m)^\s*(?:-\s*)?uses:\s*actions/checkout@", source)) != 1:
         errors.append("protecao contra exclusoes exige um unico checkout da base")
     if EXCESSIVE_PROTECTOR_PERMISSION.search(source):
         errors.append("permissao de escrita proibida na protecao com pull_request_target")
