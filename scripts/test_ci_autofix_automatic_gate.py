@@ -164,13 +164,31 @@ class ApprovedAutofixTests(unittest.TestCase):
                 with self.assertRaises(PermissionError):
                     main(["--phase", "write", *argv[2:]], env=context)
 
+    def test_evidence_collector_keeps_its_existing_automatic_trigger(self):
+        report = (ROOT / ".github/workflows/ci-quality-report.yml").read_text(
+            encoding="utf-8")
+        triggers = report.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
+        self.assertIn("  workflow_run:", triggers)
+        self.assertIn("  workflow_dispatch:", triggers)
+        self.assertIn("    types: [completed]", triggers)
+        self.assertIn("Revisão automática - CodeQL", triggers)
+        self.assertIn("scripts.ci_log_identity_verifier", report)
+        self.assertIn("scripts.ci_log_safe_analysis", report)
+        self.assertIn("ci-log-signals.json", report)
+        self.assertNotIn("contents: write", report)
+        self.assertNotIn("pull_request_target", report)
+
     def test_workflow_privilege_and_provenance_contract(self):
         wf = WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("  workflow_run:\n", wf)
-        self.assertIn("    types: [completed]", wf)
-        self.assertIn("    branches: [main]", wf)
+        # Owner opted out of automatic fix triggers: preserve code, not execution.
+        on_block = wf.split("\non:\n", 1)[1].split("\nconcurrency:", 1)[0]
+        self.assertEqual(on_block.strip(), "workflow_dispatch:")
+        self.assertNotIn("  workflow_run:\n", wf)
+        self.assertNotIn("    types: [completed]", on_block)
+        self.assertNotIn("    branches: [main]", on_block)
         self.assertNotIn("pull_request_target", wf)
-        self.assertNotIn("workflow_dispatch", wf)
+        # The archived workflow is inert even if dispatched manually.
+        self.assertEqual(wf.count("github.event_name == 'workflow_run'"), 2)
         self.assertNotIn("secrets.ATRIO_QA_READ_TOKEN", wf)
         self.assertNotIn("secrets.GITHUB_TOKEN", wf)
         self.assertNotIn("write-all", wf)
