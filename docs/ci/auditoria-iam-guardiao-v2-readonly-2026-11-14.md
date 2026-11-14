@@ -47,3 +47,28 @@ No navegador Android, abra o repositório e entre em **Settings → Environments
 - [ ] Avaliar risco de escrita no escopo do projeto e separação entre ativação manual e triagem agendada; propor eventual correção **em PR separada** e homologação antes de produção.
 
 **Estado nesta PR:** auditor e testes offline preparados; **nenhuma auditoria remota do IAM foi executada**. Não contar a etapa 3 como concluída apenas porque o script existe ou seus testes passam.
+
+
+## Complemento — verificação GitHub após restrição à main
+
+Em **14/11/2026 às 11h11, hora de Fortaleza**, o proprietário aplicou por `gh api` uma política de deployment personalizada no environment `guardian-v2-production-moderation`, permitindo somente o padrão exato `main`. Uma captura mostra o POST respondendo `main` e o GET de validação concluindo com sucesso. O assistente não dispõe de escrita/leitura administrativa diretamente nesse endpoint.
+
+**Verificador sem credenciais e exclusivamente GET:** `scripts/guardian_v2_environment_readonly_audit.py`. Ele consulta os metadados públicos do environment, a lista de branches autorizadas, a lista de execuções naturais de `guardiao-v2-moderator-runner.yml` e, quando existir uma execução elegível, os jobs desse run. Não executa `workflow_dispatch`, não autentica em Google Cloud e não consulta documentos de usuários.
+
+No **Termux** (Android), numa cópia isolada da *branch desta PR* e após conferir o SHA de HEAD mostrado pelo GitHub:
+
+```bash
+pkg install python -y
+python3 -m scripts.guardian_v2_environment_readonly_audit
+```
+
+Resultados exibidos, **sem objetos JSON originais ou tokens**:
+
+- `ambiente_main: OK` somente se a política estiver ativa, houver **exatamente uma** branch autorizada, de nome e tipo exatos `main`, e não aparecerem regras de revisão ou de espera inesperadas.
+- `execucao_pos_mudanca: PENDENTE` enquanto não surgir uma execução agendada iniciada **após 14:12 UTC de 14/11/2026**, de forma conservadora desconsiderando o minuto da transição.
+- `execucao_pos_mudanca: OK` somente quando o **run agendado elegível mais recente** e o job `Casos, auditoria e avisos — sem quarentena` estiverem concluídos com sucesso na `main`.
+- `REVISAR` significa desvio efetivo do contrato consultado; `INCONCLUSIVO` significa dado ausente ou leitura impossível (incluindo 403 ou limite de requisições), **nunca** aprovação por ausência de evidência.
+
+A verificação usa apenas API pública REST GET, sem nenhuma credencial GitHub. Se o ambiente ou as informações dos jobs não forem públicos para a conta utilizada, interrompe de modo seguro com `INCONCLUSIVO`. O script não verifica `can_admins_bypass` nem elimina o risco de permissões amplas por IAM Firestore. Ele não prova que documentos reais foram processados, apenas a execução agendada do job e seus checks. **Nenhuma execução deve ser disparada manualmente para forçar um resultado `OK`**.
+
+A suíte `scripts/test_guardian_v2_environment_readonly_audit.py` cobre a política correta, branches extras, status de jobs e execução anterior à mudança, além de falhas de leitura e ausência de credenciais. A suíte é executada pelo check obrigatório de segurança, sem fazer chamadas à rede durante os testes.
