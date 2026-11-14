@@ -74,6 +74,22 @@ def contract_errors(s):
     check(w.count("      id-token: write") == 2 and
           "permissions:\n  contents: read" in w,
           "job_level_oidc_only")
+    # Require immutable, explicitly reviewed upstream action commits for both jobs.
+    # SHA pins were checked against upstream tag refs; the tests remain offline.
+    approved_actions = {
+        "actions/checkout": "11d5960a326750d5838078e36cf38b85af677262",
+        "actions/setup-node": "49933ea5288caeca8642d1e84afbd3f7d6820020",
+        "google-github-actions/auth": "7c6bc770dae815cd3e89ee6cdf493a5fab2cc093",
+    }
+    used_actions = [line.strip()[len("- uses: "):].split(" #", 1)[0]
+                    for line in w.splitlines()
+                    if line.strip().startswith("- uses: ")]
+    allowed_actions = [name + "@" + sha
+                       for name, sha in approved_actions.items()
+                       for _ in range(2)]
+    check(sorted(used_actions) == sorted(allowed_actions),
+          "approved_action_commit_pins")
+
     check(w.count("    environment: " + ENV) == 2,
           "writer_environment")
     check(w.count("      access_token_lifetime: 300s") == 2 and
@@ -138,6 +154,17 @@ class GuardianWifSecurityTests(unittest.TestCase):
         s = dict(self.sources)
         s[key] = s[key].replace(old, new, 1)
         self.assertIn(expected, contract_errors(s))
+
+    def test_writer_action_sha_pins_cannot_revert_to_tags(self):
+        self.blocked("writer", "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+                     "actions/checkout@v4", "approved_action_commit_pins")
+        self.blocked("writer", "google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093",
+                     "google-github-actions/auth@v3", "approved_action_commit_pins")
+
+    def test_writer_action_sha_cannot_be_replaced(self):
+        self.blocked("writer", "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020",
+                     "actions/setup-node@0000000000000000000000000000000000000000",
+                     "approved_action_commit_pins")
 
     def test_owner_id_cannot_change_silently(self):
         self.blocked("provision", 'OWNER_ID="347622360"',
