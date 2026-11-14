@@ -2,7 +2,7 @@
 import contextlib
 import io
 import json
-from unittest import TestCase, mock
+from unittest import TestCase, mock, main
 
 from scripts import guardian_v2_environment_readonly_audit as guard
 
@@ -163,5 +163,4 @@ class ReadonlyEnvironmentTests(TestCase):
 
 
 if __name__ == "__main__":
-    import unittest
-    unittest.main()
+    main()
