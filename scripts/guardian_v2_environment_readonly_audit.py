@@ -144,7 +144,8 @@ def audit(fetch=get_json):
             jobs = {}
         result["execucao_pos_mudanca"] = evaluate_run(run, jobs)
     except ReadUnavailable:
-        pass
+        # Keep the post-change check INCONCLUSIVO if any read fails.
+        return result
     return result
 
 
