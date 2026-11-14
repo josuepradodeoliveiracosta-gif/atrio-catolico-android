@@ -173,5 +173,14 @@ class IdTokenQaGateTests(unittest.TestCase):
                 config=value), gate.DENY)
 
 
+    def test_runtime_cannot_supply_a_fake_verifier_parameter(self):
+        with self.assertRaises(TypeError):
+            gate.authorize_intent(
+                authorization="Bearer " + TOKEN,
+                operation="read_policy",
+                config=configuration(),
+                verifier=lambda *_: claims())
+
+
 if __name__ == "__main__":
     unittest.main()
