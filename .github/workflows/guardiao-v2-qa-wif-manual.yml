@@ -38,7 +38,7 @@ jobs:
           test "$GITHUB_REPOSITORY" = 'josuepradodeoliveiracosta-gif/atrio-catolico-android'
           test "$GITHUB_EVENT_NAME" = 'workflow_dispatch'
           test "$GITHUB_REF" = 'refs/heads/feature/guardiao-v2-wif-prova-qa-20261030'
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: actions/setup-node@v4

@@ -19,7 +19,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Baixar codigo da PR com token somente de leitura
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Executar somente testes Python isolados
