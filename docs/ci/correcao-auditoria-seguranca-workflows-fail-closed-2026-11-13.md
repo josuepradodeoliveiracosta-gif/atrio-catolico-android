@@ -33,7 +33,7 @@ O scanner foi adicionado ao check obrigatório de segurança, **preservando inte
 
 ## 3. Testes de regressão
 
-O módulo `scripts/test_ci_workflow_security.py` reúne 12 testes e cobre offline:
+O módulo `scripts/test_ci_workflow_security.py` reúne 14 testes e cobre offline:
 
 - `main` proposta com 40 workflows e único uso autorizado de `pull_request_target`;
 - workflow normal e protetor legítimo;
@@ -41,8 +41,8 @@ O módulo `scripts/test_ci_workflow_security.py` reúne 12 testes e cobre offlin
 - `permissions: write-all` com diferentes formas sintáticas;
 - linhas de comentários que não devem provocar falsos positivos;
 - remoção ou duplicação do evento do protetor;
-- substituição do checkout da base pelo head da PR;
-- escrita de token, permissão elevada e segundo checkout no protetor;
+- substituição do checkout da base pelo head da PR, tentativa de mascarar a referência incorreta em comentário e ausência da comparação de HEAD com a base;
+- referências fictícias de credencial verificadas somente em memória (sem gravá-las em texto claro), permissão elevada e segundo checkout no protetor;
 - perda de invariantes do verificador e diretório ausente/vazio;
 - garantia de que `security-audit.yml` chama os novos testes e scanner e mantém o scanner histórico de segredos.
 
