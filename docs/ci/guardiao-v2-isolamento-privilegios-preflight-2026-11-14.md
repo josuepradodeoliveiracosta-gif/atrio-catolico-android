@@ -34,14 +34,14 @@ Mesmo que três nomes diferentes apareçam futuramente, o resultado máximo do s
 
 ## Matriz de negações para homologação (não executada)
 
-Esta matriz é **um plano de testes futuros**, não uma alegação de que o ambiente QA já existe, de que os acessos foram negados ou de que alguma mudança IAM foi aplicada. Pré-condição obrigatória: projeto e banco **exclusivos de homologação**, confirmados pelo proprietário e diferentes de \`atrio-catolico\`, com apenas documentos e atores sintéticos. Não executar operações reais de criação, PATCH ou DELETE enquanto essa homologação e seu custo não forem autorizados.
+Esta matriz é **um plano de testes futuros**, não uma alegação de que o ambiente QA já existe, de que os acessos foram negados ou de que alguma mudança IAM foi aplicada. Pré-condição obrigatória: projeto e banco **exclusivos de homologação**, confirmados pelo proprietário e diferentes de `atrio-catolico`, com apenas documentos e atores sintéticos. Não executar operações reais de criação, PATCH ou DELETE enquanto essa homologação e seu custo não forem autorizados.
 
 | Identidade QA | Operação representativa | Resultado exigido | Fronteira que precisa impor o resultado |
 |---|---|---|---|
-| Triagem agendada | Ler \`guardian_config/policy\` | ALLOW | Leitura necessária para parada emergencial |
+| Triagem agendada | Ler `guardian_config/policy` | ALLOW | Leitura necessária para parada emergencial |
 | Triagem agendada | Criar casos, auditoria e avisos sintéticos válidos | ALLOW | Mediador autenticado ou isolamento de dados |
 | Triagem agendada | Atualizar orçamento sintético com CAS | ALLOW | Mediador autenticado ou isolamento de dados |
-| Triagem agendada | Fazer PATCH direto em \`guardian_config/policy\` | **DENY**, sem efeito | IAM/arquitetura, não apenas validação JavaScript |
+| Triagem agendada | Fazer PATCH direto em `guardian_config/policy` | **DENY**, sem efeito | IAM/arquitetura, não apenas validação JavaScript |
 | Triagem agendada | Alterar perfis, posts ou replies, mesmo adulterando o script | **DENY**, sem efeito | Fronteira externa independente do processo |
 | Triagem agendada | Criar/alterar documentos em coleção fora da allowlist | **DENY**, sem efeito | Fronteira externa independente do processo |
 | Ativação manual | Atualizar somente os dois campos de política permitidos, com aprovação e versão CAS | ALLOW condicionado | Serviço mediador + autorização de operação |
@@ -53,6 +53,6 @@ As negações precisam ser testadas **por solicitações adversariais feitas com
 
 **Evidência mínima por caso:** ID abstrato do cenário acima (não ID de documento/usuário), identidade sintética rotulada apenas TRIAGEM ou ATIVAÇÃO, estado esperado, resultado ALLOW/DENY, confirmação de ausência de efeitos colaterais, timestamp e referência a um log de QA com acesso restrito. Não registrar conteúdo de usuários, tokens, credenciais, URLs completas dos documentos ou payload de IAM em CI público. Resultado ausente, 401 de autenticação inválida, timeout ou erro de rede devem ser **INCONCLUSIVO**, nunca uma prova de DENY de autorização.
 
-A ferramenta **Policy Troubleshooter** do Google Cloud pode auxiliar em consulta somente de leitura para principal/permissão/recurso, respeitando acesso às políticas herdadas, mas **não comprova autorização por coleção/campo** no Firestore. Condições IAM por banco não se confundem com isolamento de coleção dentro do banco \`(default)\`. Fontes técnicas oficiais: https://docs.cloud.google.com/policy-intelligence/docs/troubleshoot-access e https://docs.cloud.google.com/firestore/native/docs/manage-databases.
+A ferramenta **Policy Troubleshooter** do Google Cloud pode auxiliar em consulta somente de leitura para principal/permissão/recurso, respeitando acesso às políticas herdadas, mas **não comprova autorização por coleção/campo** no Firestore. Condições IAM por banco não se confundem com isolamento de coleção dentro do banco `(default)`. Fontes técnicas oficiais: https://docs.cloud.google.com/policy-intelligence/docs/troubleshoot-access e https://docs.cloud.google.com/firestore/native/docs/manage-databases.
 
 **Critério para passar do NO_GO à revisão humana:** todos os cenários obrigatórios executados em QA autorizado, resultados negativos genuínos e positivos previstos, evidências sem vazamentos, avaliação de custos/latência/falha e plano de rollback documentado. Mesmo assim, qualquer deploy ou mudança IAM/Firebase de produção exigirá uma nova autorização expressa. Nenhum passo deste documento aprova uma operação de produção.
