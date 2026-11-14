@@ -135,7 +135,8 @@ def main():
     try:
         data["project"] = query_readonly("project")
     except AuditUnavailable:
-        pass
+        # Treat an unreadable project as inconclusive, never as a valid identity.
+        data["project"] = None
     if evaluate(data)["projeto_exato"] != "OK":
         print("AUDITORIA_GUARDIAO_V2: INCONCLUSIVO; identidade do projeto nao confirmada")
         return 2
@@ -145,7 +146,8 @@ def main():
         try:
             data[name] = query_readonly(name)
         except AuditUnavailable:
-            pass
+            # Keep this resource absent so its control is marked INCONCLUSIVO.
+            continue
     checks = evaluate(data)
     for name, status in checks.items():
         print(f"{name}: {status}")
