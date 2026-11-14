@@ -23,7 +23,9 @@ jobs:
       - name: Obter somente codigo da base confiavel
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          # A base.sha do evento pode anteceder a instalação da trava em PRs antigas.
+          # Ler sempre a política do ramo protegido corrente, nunca do head da PR.
+          ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -33,22 +35,27 @@ jobs:
       - name: Verificar SHAs e exclusoes sem executar codigo da PR
         shell: bash
         env:
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
           [[ "$GITHUB_REPOSITORY" == "josuepradodeoliveiracosta-gif/atrio-catolico-android" ]]
-          [[ "$PR_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PR_BASE_REF" == "main" ]]
           [[ "$PR_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$PR_NUMBER" =~ ^[1-9][0-9]{0,9}$ ]]
           [[ "$(git rev-parse --is-shallow-repository)" == "false" ]]
-          [[ "$(git rev-parse HEAD)" == "$PR_BASE_SHA" ]]
+          # A revisão carregada e os testes vêm da main confiável, não do
+          # SHA histórico informado no evento nem do commit não confiável da PR.
+          TRUSTED_BASE_SHA="$(git rev-parse HEAD)"
+          [[ "$TRUSTED_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$(git symbolic-ref --short HEAD)" == "$PR_BASE_REF" ]]
+          [[ "$(git rev-parse "refs/remotes/origin/$PR_BASE_REF")" == "$TRUSTED_BASE_SHA" ]]
 
           # Apenas obter objetos Git; jamais usar checkout do head da PR.
           git fetch --no-tags --force origin "refs/pull/${PR_NUMBER}/head"
           [[ "$(git rev-parse FETCH_HEAD)" == "$PR_HEAD_SHA" ]]
-          BASE_COMUM="$(git merge-base "$PR_BASE_SHA" "$PR_HEAD_SHA")"
+          BASE_COMUM="$(git merge-base "$TRUSTED_BASE_SHA" "$PR_HEAD_SHA")"
           [[ "$BASE_COMUM" =~ ^[0-9a-f]{40}$ ]]
 
           python3 scripts/guard_exclusoes.py \
