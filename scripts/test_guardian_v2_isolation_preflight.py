@@ -109,9 +109,9 @@ class IsolationPreflightTests(TestCase):
     def test_only_jobs_section_may_supply_identities(self):
         original = source()
         # A top-level trigger can contain similarly named nested keys.
-        augmented = original.replace("on:\\n", "on:\\n  moderator:\\n    ignored: true\\n", 1)
+        augmented = original.replace("on:\n", "on:\n  moderator:\n    ignored: true\n", 1)
         self.assertEqual(audit.assess(augmented), audit.assess(original))
-        without_jobs = original.replace("jobs:\\n", "tasks:\\n", 1)
+        without_jobs = original.replace("jobs:\n", "tasks:\\n", 1)
         self.assertEqual(audit.assess(without_jobs)["decisao"], "NO_GO")
 
     def test_empty_source_is_never_authorized(self):
