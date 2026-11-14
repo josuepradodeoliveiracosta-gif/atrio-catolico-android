@@ -64,6 +64,55 @@ class CiOptimizationContract(unittest.TestCase):
         self.assertIn("languages: " + "$" + "{{ matrix.language }}", codeql)
         self.assertIn("gradle :app:assembleDebug", codeql)
 
+    def test_optional_qa_concurrency_isolated_by_event(self):
+        """Only superseded PR checks cancel; manual and push runs remain distinct."""
+        rule = ("{{ github.event_name == 'pull_request' && "
+                "format('pr-{0}', github.event.pull_request.number) || "
+                "format('run-{0}', github.run_id) }}")
+        candidates = (
+            ("android-bots-ui.yml", "qa-android-emulator-"),
+            ("guardiao-v2-android-ui-ci.yml", "guardian-v2-ui-"),
+            ("cloudflare-push-ci.yml", "${{ github.workflow }}-"),
+            ("ota-in-app-qa.yml", "ota-in-app-qa-"),
+            ("ota-upgrade-qa.yml", "ota-qa-upgrade-"),
+        )
+        for filename, prefix in candidates:
+            with self.subTest(workflow=filename):
+                source = workflow(filename)
+                header = source.split("\njobs:", 1)[0]
+                self.assertIn("  pull_request:\n", header)
+                self.assertIn("  workflow_dispatch:\n", header)
+                self.assertIn("  group: " + prefix + "$" + rule, header)
+                self.assertIn(
+                    "  cancel-in-progress: " + "$" +
+                    "{{ github.event_name == 'pull_request' }}", header,
+                )
+                self.assertNotIn("cancel-in-progress: true", header)
+                self.assertNotIn("pull_request_target:", header)
+                self.assertIn("  contents: read", header)
+        # The bots QA also runs on an old isolated QA branch. Distinct run IDs
+        # prevent that push from cancelling a manual or a PR check.
+        self.assertIn(
+            "  push:\n    branches: [feature/push-gratuito-cloudflare-v0190]",
+            workflow("android-bots-ui.yml"),
+        )
+        # Preserve actual emulator matrix and isolation rather than cutting coverage.
+        bots = workflow("android-bots-ui.yml")
+        self.assertIn("max-parallel: 3", bots)
+        self.assertIn("fail-fast: false", bots)
+        self.assertIn("suite_group: [profiles, interaction, bots]", bots)
+        for filename in (
+            "android-bots-ui.yml",
+            "guardiao-v2-android-ui-ci.yml",
+            "ota-in-app-qa.yml",
+            "ota-upgrade-qa.yml",
+        ):
+            self.assertIn("android-emulator-runner@v2", workflow(filename))
+        # No release, CodeQL, required Firestore or production workflow changed.
+        self.assertIn("    needs: contract", workflow("dependency-review.yml"))
+        self.assertIn("max-parallel: 4", workflow("codeql-review.yml"))
+        self.assertIn("name: Compilar Android de testes", workflow("selos-ci.yml"))
+
     def test_version_and_dependency_cancellation_is_pr_only(self):
         # Nenhum push, agendamento ou workflow_dispatch pode ser cancelado
         # por um commit de PR. Cada PR cancela apenas a propria revisao antiga.
