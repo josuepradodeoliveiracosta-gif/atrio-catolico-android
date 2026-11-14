@@ -34,7 +34,8 @@ HEAD_CHECKOUT = re.compile(
     re.MULTILINE,
 )
 
-TRUSTED_REF = "ref: " + chr(36) + "{{ github.event.pull_request.base.sha }}"
+TRUSTED_REF_VALUE = chr(36) + "{{ github.event.pull_request.base.sha }}"
+TRUSTED_REF = "ref: " + TRUSTED_REF_VALUE
 
 
 def protected_workflow_issues(source: str) -> list[str]:
@@ -60,6 +61,14 @@ def protected_workflow_issues(source: str) -> list[str]:
 
     if len(re.findall(r"(?m)^\s*(?:-\s*)?uses:\s*actions/checkout@", source)) != 1:
         errors.append("protecao contra exclusoes exige um unico checkout da base")
+    # A string da base em comentario nao comprova checkout seguro.
+    refs = re.findall(r"(?m)^\s*ref:\s*(.+?)\s*$", source)
+    if refs != [TRUSTED_REF_VALUE]:
+        errors.append("checkout deve usar exclusivamente o SHA da base confiavel")
+    if not re.search(r"(?m)^permissions:\s*\n  contents:\s*read\s*$", source):
+        errors.append("permissoes raiz do protetor devem ser exclusivamente de leitura")
+    if '[[ "$(git rev-parse HEAD)" == "$PR_BASE_SHA" ]]' not in source:
+        errors.append("protetor deve validar HEAD contra o SHA da base")
     if EXCESSIVE_PROTECTOR_PERMISSION.search(source):
         errors.append("permissao de escrita proibida na protecao com pull_request_target")
     if HEAD_CHECKOUT.search(source):
