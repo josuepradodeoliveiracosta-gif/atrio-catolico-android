@@ -31,8 +31,8 @@ class IsolationPreflightTests(TestCase):
 
     def test_distinct_service_account_alone_is_still_no_go(self):
         modified = manual_only(
-            source(), "guardian-v2-writer@atrio-catolico.iam.gserviceaccount.com",
-            "guardian-v2-activator@atrio-catolico.iam.gserviceaccount.com")
+            source(), "service_account: guardian-v2-writer@atrio-catolico.iam.gserviceaccount.com",
+            "service_account: guardian-v2-activator@atrio-catolico.iam.gserviceaccount.com")
         result = audit.assess(modified)
         self.assertEqual(result["conta_servico"], "DISTINTO_NO_CODIGO")
         self.assertEqual(result["provedor_wif"], "COMPARTILHADO")
@@ -57,8 +57,8 @@ class IsolationPreflightTests(TestCase):
 
     def test_three_distinct_names_still_require_external_iam_proof(self):
         modified = manual_only(
-            source(), "guardian-v2-writer@atrio-catolico.iam.gserviceaccount.com",
-            "guardian-v2-activator@atrio-catolico.iam.gserviceaccount.com")
+            source(), "service_account: guardian-v2-writer@atrio-catolico.iam.gserviceaccount.com",
+            "service_account: guardian-v2-activator@atrio-catolico.iam.gserviceaccount.com")
         modified = manual_only(
             modified, "workloadIdentityPools/guardian-v2-writer/providers/github-moderator",
             "workloadIdentityPools/guardian-v2-activator/providers/github-policy")
