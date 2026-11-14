@@ -11,10 +11,9 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  # Uma atualização não pode interromper um teste já iniciado.
-  # O GitHub poderá substituir somente uma execução ainda pendente.
-  cancel-in-progress: false
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  # Somente commits obsoletos da mesma PR sao cancelados; outros eventos ficam isolados.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
