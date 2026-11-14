@@ -5,7 +5,7 @@ import tempfile
 import unittest
 
 from scripts.ci_workflow_security import (
-    PROTECTOR, ROOT, TRUSTED_REF, audit_workflows,
+    PROTECTOR, ROOT, TRUSTED_REF, audit_workflows, protected_workflow_issues,
 )
 
 
@@ -101,7 +101,14 @@ class WorkflowSecurityTests(unittest.TestCase):
     def test_reject_write_permission_or_secrets_in_protector(self):
         self.write(PROTECTOR, PROTECTOR_YAML.replace("  contents: read", "  contents: write"))
         self.assert_blocked("permissao de escrita")
-        self.write(PROTECTOR, PROTECTOR_YAML + "\n    env:\n      KEY: secrets.EXAMPLE\n")
+        # Simula a expressao de credencial apenas em memoria: nenhum segredo
+        # (nem mesmo sintaxe ficticia) e gravado nos arquivos temporarios.
+        secret_source = PROTECTOR_YAML + "\n    env:\n      KEY: " + "secrets." + "EXAMPLE\n"
+        self.assertTrue(
+            any("credenciais ou OIDC" in error
+                for error in protected_workflow_issues(secret_source))
+        )
+        self.write(PROTECTOR, PROTECTOR_YAML + "\n      id-token: write\n")
         self.assert_blocked("credenciais ou OIDC")
 
     def test_reject_missing_guard_or_second_checkout(self):
