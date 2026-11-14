@@ -62,7 +62,7 @@ try {
   await verify('opt-in público exige e-mail verificado e não expõe privado',async()=>{
     const privateDoc=await getDoc(doc(owner,ownerPath));
     const payload={
-      displayName:'Pessoa de Teste',bio:'Bio de homologação',
+      displayName:'Pessoa de Teste',bio:'',
       joinedAt:privateDoc.data().createdAt,updatedAt:serverTimestamp(),
     };
     await assertFails(setDoc(doc(unverified,publicPath),payload));
