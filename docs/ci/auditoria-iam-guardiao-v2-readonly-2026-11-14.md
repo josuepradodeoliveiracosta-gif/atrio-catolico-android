@@ -17,10 +17,15 @@ O programa imprime `OK`, `REVISAR` ou `INCONCLUSIVO` para cada controle. `REVISA
    git clone --depth 1 --branch audit/guardian-v2-iam-readonly-20261114 https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android.git
    cd atrio-catolico-android
    git rev-parse HEAD
+   ```
+
+3. **Antes de executar o auditor**, compare o SHA exibido com o commit da PR. Depois de inspecionar o código, execute somente:
+
+   ```bash
    python3 -m scripts.guardian_v2_iam_readonly_audit
    ```
 
-3. Compare o SHA exibido com o commit da PR. **Não execute** `scripts/guardian-v2-provision-wif.sh --apply` nem cole a saída bruta de `gcloud` em conversas, issues ou arquivos públicos. Compartilhe, se desejar, **somente os nomes dos controles e seus estados resumidos**.
+    **Não execute** `scripts/guardian-v2-provision-wif.sh --apply` nem cole a saída bruta de `gcloud` em conversas, issues ou arquivos públicos. Compartilhe, se desejar, **somente os nomes dos controles e seus estados resumidos**.
 
 O script consulta exclusivamente o projeto `atrio-catolico` e para antes das demais consultas caso o número do projeto não seja o esperado. Não requer token do GitHub, assinatura de APK ou acesso ao Firebase de testes.
 
