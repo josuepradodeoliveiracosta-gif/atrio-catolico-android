@@ -24,9 +24,7 @@ jobs:
           persist-credentials: false
       - name: Verificar arquivos e objetos históricos sem imprimir credenciais
         run: python3 scripts/check_public_secrets.py --history
-      - name: Confirmar permissões restritas de GitHub Actions
-        shell: bash
-        run: |
-          set -euo pipefail
-          ! grep -RInE '^\s*pull_request_target\s*:|^\s*permissions\s*:\s*write-all\s*$' .github/workflows
-          echo 'OK: nenhum pull_request_target ou write-all encontrado'
+      - name: Testar política fail-closed dos workflows offline
+        run: python3 -m unittest scripts.test_ci_workflow_security -v
+      - name: Bloquear permissões globais e gatilhos privilegiados não autorizados
+        run: python3 scripts/ci_workflow_security.py
