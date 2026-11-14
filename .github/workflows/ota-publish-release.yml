@@ -75,12 +75,20 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: Conferir parâmetros obrigatórios
+        # Entradas de workflow_dispatch sao dados, nunca codigo Bash interpolado.
+        env:
+          RELEASE_MODE: ${{ inputs.mode }}
+          RELEASE_CONFIRMATION: ${{ inputs.confirmation }}
         run: |
           set -euo pipefail
           [[ "$BUILD_RUN_ID" =~ ^[1-9][0-9]+$ ]]
           [[ "$APK_SHA256" =~ ^[a-fA-F0-9]{64}$ ]]
           [[ "$EXPECTED_CERT" =~ ^[a-fA-F0-9:]{64,95}$ ]]
-          if [[ "${{ inputs.mode }}" == "publish" ]]; then
+          case "$RELEASE_MODE" in
+            validate|publish) ;;
+            *) echo "::error::Modo de publicacao invalido"; exit 1 ;;
+          esac
+          if [[ "$RELEASE_MODE" == "publish" ]]; then
             [[ "$ATRIO_OTA_E2E_TESTED" == "true" ]] || {
               echo "::error::Publicação OTA bloqueada: atualização OTA não homologada de ponta a ponta no celular."
               exit 1
@@ -107,7 +115,7 @@ jobs:
               human) echo "Modo publico de moderacao humana solicitado explicitamente." ;;
               *) echo "::error::Modo de moderacao nao permitido."; exit 1 ;;
             esac
-            [[ "${{ inputs.confirmation }}" == "PUBLICAR ATRIO" ]] || {
+            [[ "$RELEASE_CONFIRMATION" == "PUBLICAR ATRIO" ]] || {
               echo "::error::Publicação não autorizada: confirmação explícita ausente"
               exit 1
             }
