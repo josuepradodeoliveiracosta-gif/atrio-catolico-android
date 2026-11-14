@@ -201,12 +201,12 @@ class ProfileLayoutUiTest {
         val auth = FirebaseAuth.getInstance()
         val db = FirebaseFirestore.getInstance()
         auth.signOut()
-        val suffix = UUID.randomUUID().toString().take(12)
-        val user = Tasks.await(
-            auth.createUserWithEmailAndPassword("hist-$suffix@qa.invalid", "SenhaQA2026!NaoReal"),
-            20, TimeUnit.SECONDS
-        ).user ?: error("Conta de QA não foi criada")
         try {
+            val suffix = UUID.randomUUID().toString().take(12)
+            val user = Tasks.await(
+                auth.createUserWithEmailAndPassword("hist-$suffix@qa.invalid", "SenhaQA2026!NaoReal"),
+                20, TimeUnit.SECONDS
+            ).user ?: error("Conta de QA não foi criada")
             val uid = user.uid
             val author = "Histórico QA"
             Tasks.await(db.collection("profiles").document(uid).set(mapOf(
