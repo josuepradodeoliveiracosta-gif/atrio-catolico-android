@@ -1,6 +1,5 @@
 """Synthetic shared-ledger concurrency and rollback tests. No network or IAM."""
 from concurrent.futures import ThreadPoolExecutor
-from copy import deepcopy
 import unittest
 
 from scripts.guardian_v2_qa_broker_fixture import (
