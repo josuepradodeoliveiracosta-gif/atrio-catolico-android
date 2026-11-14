@@ -5,7 +5,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -44,12 +43,9 @@ import com.google.firebase.firestore.FirebaseFirestore
 @Composable
 internal fun OnlineProfileScreen(
     db: FirebaseFirestore, uid: String, name: String, email: String, biography: String,
-    posts: List<Post>, publicationsFooter: @Composable () -> Unit,
     onSignOut: () -> Unit, onModeration: (() -> Unit)?, onClergyReview: (() -> Unit)?,
-    onCreate: () -> Unit, onOpen: (String) -> Unit,
-    onLike: (String) -> Unit, onSave: (String) -> Unit,
-    onSavedPosts: () -> Unit, onNotifications: () -> Unit, onReviews: () -> Unit,
-    followedRevision: Int = 0, savedCount: Int = 0,
+    onOpen: (String) -> Unit, onNotifications: () -> Unit, onReviews: () -> Unit,
+    followedRevision: Int = 0,
     followedRemoteEnabled: Boolean = false, followedRemoteIds: Set<String> = emptySet(),
     followedRemoteLoading: Boolean = false, followedRemoteFailed: Boolean = false,
     onPhotoChanged: () -> Unit = {},
@@ -63,7 +59,6 @@ internal fun OnlineProfileScreen(
 ) {
     var badgesOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var editorOpen by rememberSaveable(uid) { mutableStateOf(false) }
-    var publicationsOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var discussionsOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var followedOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var savedMessage by remember(uid) { mutableStateOf(false) }
@@ -96,7 +91,6 @@ internal fun OnlineProfileScreen(
     } else {
         val founderCanBroadcast = onModeration != null && onClergyReview != null &&
             LocalFounderUid.current.isNotBlank() && LocalFounderUid.current == uid
-        val mine = remember(posts, uid) { posts.filter { it.mine } }
         LazyColumn(Modifier.fillMaxSize().background(Paper).testTag("atrio-profile-list"), contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item {
@@ -144,7 +138,7 @@ internal fun OnlineProfileScreen(
                 Card(Modifier.fillMaxWidth(), border = BorderStroke(1.dp, Line),
                     shape = RoundedCornerShape(18.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-                    ProfileAction("Minhas discussões", "Consulte até 50 discussões; seu histórico pode ser maior.",
+                    ProfileAction("Minhas discussões", "Veja as discussões mais recentes e carregue outras quando desejar.",
                         Icons.Outlined.Forum) { discussionsOpen = true }
                     HorizontalDivider()
                     ProfileAction("Discussões acompanhadas",
@@ -152,36 +146,9 @@ internal fun OnlineProfileScreen(
                         else "Sua lista pessoal neste aparelho.",
                         Icons.Outlined.BookmarkBorder) { followedOpen = true }
                     HorizontalDivider()
-                    ProfileAction("Publicações salvas", "Retome as discussões que você guardou.",
-                        Icons.Outlined.BookmarkBorder, onSavedPosts)
-                    HorizontalDivider()
                     ProfileAction("Minhas revisões", "Acompanhe suas revisões no Átrio Guardião.",
                         Icons.Outlined.VerifiedUser, onReviews)
-                    HorizontalDivider()
-                    OutlinedButton(onClick = { publicationsOpen = !publicationsOpen },
-                        modifier = Modifier.fillMaxWidth().testTag("atrio-profile-publications")) {
-                        Text(if (publicationsOpen) "Recolher publicações carregadas" else "Ver publicações carregadas")
-                    }
                 }
-            }
-            if (publicationsOpen) {
-                item {
-                    Text("Mostramos apenas suas publicações já carregadas no feed. Esta lista não é o histórico completo.",
-                        color = Muted, style = MaterialTheme.typography.bodyMedium)
-                }
-                if (mine.isEmpty()) item {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Nenhuma publicação sua nesta lista. Busque mais discussões ou inicie uma conversa.",
-                            color = Muted, style = MaterialTheme.typography.bodyMedium)
-                        OutlinedButton(onClick = onCreate,
-                            modifier = Modifier.heightIn(min = 48.dp)
-                                .testTag("atrio-profile-create-discussion")) {
-                            Text("Criar discussão")
-                        }
-                    }
-                }
-                items(mine, key = { "profile-post-${it.id}" }) { DiscussionCard(it, onOpen, onLike, onSave) }
-                item { publicationsFooter() }
             }
             item { ProfileSectionTitle("Preferências") }
             item { PushSettings(uid, db, onNotifications = onNotifications) }
@@ -221,10 +188,6 @@ internal fun OnlineProfileScreen(
                         }
                         HorizontalDivider()
                         AccountDeletionRequestPanel(db, uid)
-                        Text("A solicitação de exclusão não remove os dados imediatamente. " +
-                            "A publicação na Google Play exige também um canal externo de solicitação.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
