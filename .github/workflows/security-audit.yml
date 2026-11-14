@@ -30,5 +30,7 @@ jobs:
           python3 -m unittest scripts.test_ci_workflow_security -v
           python3 -m unittest scripts.test_ota_release_gate -v
           python3 -m unittest scripts.test_guardian_v2_wif_contract -v
+          python3 -m unittest scripts.test_guardian_v2_iam_readonly_audit -v
+          python3 -m unittest scripts.test_guardian_v2_environment_readonly_audit -v
       - name: Bloquear permissões globais e gatilhos privilegiados não autorizados
         run: python3 scripts/ci_workflow_security.py
