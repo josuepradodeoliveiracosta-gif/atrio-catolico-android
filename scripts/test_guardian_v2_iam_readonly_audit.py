@@ -1,7 +1,7 @@
 """Offline tests for read-only Guardião V2 IAM verification; no gcloud calls."""
 import contextlib
 import io
-from unittest import TestCase, mock
+from unittest import TestCase, mock, main
 
 from scripts import guardian_v2_iam_readonly_audit as audit
 
@@ -93,5 +93,4 @@ class GuardianIamReadonlyTests(TestCase):
 
 
 if __name__ == "__main__":
-    import unittest
-    unittest.main()
+    main()
