@@ -71,12 +71,12 @@ def verify_google_token(token: str, audience: str) -> Mapping:
 
 
 def authorize_intent(*, authorization: object, operation: object,
-                     config: QaIdentityConfig, verifier=None) -> dict:
+                     config: QaIdentityConfig) -> dict:
     """Check exact QA account identity and route; never execute an operation.
 
-    verifier injection exists ONLY for offline tests. A future service MUST
-    invoke Google's real verifier; it must never trust request headers such
-    as X-Caller-Email or body-supplied role as verified principal.
+    The production-callable interface intentionally does NOT accept a custom
+    verifier: tests replace the module verifier using unittest.mock only.
+    Never trust caller-supplied identity headers or request-body roles.
     """
     if type(config) is not QaIdentityConfig:
         return dict(DENY)
@@ -92,8 +92,7 @@ def authorize_intent(*, authorization: object, operation: object,
             or len(parts) != 3 or any(not TOKEN_PART.fullmatch(p) for p in parts)):
         return dict(DENY)
     try:
-        claims = (verify_google_token if verifier is None else verifier)(
-            token, config.audience)
+        claims = verify_google_token(token, config.audience)
     except Exception:
         # Never emit token, claim contents, certificate errors or identities.
         return dict(DENY)
