@@ -89,7 +89,7 @@ class SharedLedgerQaTests(unittest.TestCase):
             self.assertEqual(ledger.snapshot(), initial)
 
     def test_activation_replay_denied_across_independent_calls(self):
-        ledger, (_, _, activate) = ready()
+        ledger, _, _, activate = ready()
         before = ledger.snapshot()
         for replay in (activation(), activation(before["policy"]["update_time"])):
             self.assertEqual(activate.handle(replay, manually_approved=True)["decision"],
