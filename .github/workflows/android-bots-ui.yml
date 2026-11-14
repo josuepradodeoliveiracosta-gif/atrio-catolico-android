@@ -72,7 +72,7 @@ jobs:
       - name: Iniciar compilacao Android enquanto o emulador inicializa
         run: bash scripts/qa-android-prebuild.sh start
       - name: Preparar Node.js para Firebase Emulator Suite
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '20'
           cache: npm

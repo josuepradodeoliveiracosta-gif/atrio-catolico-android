@@ -41,7 +41,7 @@ jobs:
         run: |
           python3 scripts/ci_worker_scope.py --base "$PR_BASE_SHA" --head "$PR_HEAD_SHA" --output "$GITHUB_OUTPUT"
       - name: Configurar Node 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '22'
       - name: Empacotar Worker de avatares sem login nem upload
