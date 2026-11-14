@@ -34,9 +34,12 @@ def claim(email):
             "iat": now - 60, "exp": now + 900}
 
 
-def request(path="/qa/v1/read-policy", body=None, principal=_TRIAGE,
+_BODY_DEFAULT = object()
+
+
+def request(path="/qa/v1/read-policy", body=_BODY_DEFAULT, principal=_TRIAGE,
             headers=None, method="POST", approved=False, policy=None, config=None):
-    envelope = {"operation": "read_policy"} if body is None else body
+    envelope = {"operation": "read_policy"} if body is _BODY_DEFAULT else body
     payload = json.dumps(envelope, separators=(",", ":")).encode() if type(envelope) is dict else envelope
     pairs = ([("Authorization", "Bearer " + _TOKEN),
               ("Content-Type", "application/json")] if headers is None else headers)
@@ -223,7 +226,7 @@ class QaHttpEnvelopeTests(TestCase):
             ("Authorization", "Bearer invalid"),
             ("Content-Type", "application/json")])
         self.assertEqual(result["decision"], "SIMULATED_HTTP_DENY")
-        self.assertEqual(count, 1)
+        self.assertEqual(count, 0)
 
     def test_wrong_qa_identity_is_rejected(self):
         self.assertDenied(principal="guardian-v2-writer@atrio-catolico.iam.gserviceaccount.com")
