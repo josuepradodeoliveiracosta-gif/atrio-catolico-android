@@ -251,6 +251,19 @@ class ProfileLayoutUiTest {
             // A primeira publicação é a mais antiga, mas deve continuar acessível.
             list.performScrollToNode(hasTestTag("atrio-history-item-${ids.first()}"))
             compose.onNodeWithTag("atrio-history-item-${ids.first()}").assertExists()
+            list.performScrollToNode(hasTestTag("atrio-history-legacy-start"))
+            compose.onNodeWithTag("atrio-history-legacy-start")
+                .assertIsDisplayed().performClick()
+            compose.waitUntil(30_000) {
+                compose.onAllNodesWithTag("atrio-history-legacy-more")
+                    .fetchSemanticsNodes().isNotEmpty()
+            }
+            list.performScrollToNode(hasTestTag("atrio-history-legacy-more"))
+            compose.onNodeWithTag("atrio-history-legacy-more").performClick()
+            compose.waitUntil(30_000) {
+                compose.onAllNodesWithTag("atrio-history-end")
+                    .fetchSemanticsNodes().isNotEmpty()
+            }
             list.performScrollToNode(hasTestTag("atrio-history-end"))
             compose.onNodeWithTag("atrio-history-end").assertIsDisplayed()
             compose.onNodeWithTag("atrio-history-more").assertDoesNotExist()

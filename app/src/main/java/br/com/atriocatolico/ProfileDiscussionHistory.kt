@@ -11,8 +11,10 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.unit.dp
 import com.google.firebase.firestore.DocumentSnapshot
+import com.google.firebase.firestore.FieldPath
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 
@@ -20,7 +22,8 @@ internal data class MyDiscussion(
     val id: String,
     val title: String,
     val category: String,
-    val createdAtSeconds: Long
+    val createdAtSeconds: Long,
+    val hasCreatedAt: Boolean = true
 )
 
 private const val PROFILE_HISTORY_PAGE_SIZE = 20
@@ -44,6 +47,14 @@ internal fun ProfileDiscussionHistory(
     var loading by remember(uid) { mutableStateOf(true) }
     var error by remember(uid) { mutableStateOf(false) }
     var hasMore by remember(uid) { mutableStateOf(true) }
+    var legacyStarted by remember(uid) { mutableStateOf(false) }
+    var legacyCursor by remember(uid) { mutableStateOf<DocumentSnapshot?>(null) }
+    var legacyPage by remember(uid) { mutableIntStateOf(0) }
+    var legacyPageLoaded by remember(uid) { mutableIntStateOf(-1) }
+    var legacyRetry by remember(uid) { mutableIntStateOf(0) }
+    var legacyLoading by remember(uid) { mutableStateOf(false) }
+    var legacyError by remember(uid) { mutableStateOf(false) }
+    var legacyHasMore by remember(uid) { mutableStateOf(true) }
 
     DisposableEffect(db, uid, page, retry) {
         var active = true
@@ -79,6 +90,47 @@ internal fun ProfileDiscussionHistory(
         onDispose { active = false }
     }
 
+
+    // Consulta alternativa, opt-in, que percorre até 20 documentos por vez.
+    // orderBy(createdAt) exclui registros sem esse campo: nenhum dado é migrado.
+    DisposableEffect(db, uid, legacyStarted, legacyPage, legacyRetry) {
+        if (!legacyStarted) return@DisposableEffect onDispose {}
+        var active = true
+        legacyLoading = true
+        legacyError = false
+        val base = db.collection("posts")
+            .whereEqualTo("uid", uid)
+            .orderBy(FieldPath.documentId())
+            .limit(PROFILE_HISTORY_PAGE_SIZE.toLong())
+        val last = legacyCursor
+        val request = if (legacyPage > 0 && last != null) base.startAfter(last) else base
+        request.get().addOnCompleteListener { result ->
+            if (!active) return@addOnCompleteListener
+            legacyLoading = false
+            if (!result.isSuccessful) {
+                legacyError = true
+                return@addOnCompleteListener
+            }
+            val docs = result.result?.documents.orEmpty()
+            val undated = docs.filter { it.getString("uid") == uid && !it.contains("createdAt") }
+                .map { post ->
+                    MyDiscussion(
+                        id = post.id,
+                        title = post.getString("title").orEmpty()
+                            .ifBlank { "Discussão sem título" },
+                        category = post.getString("category").orEmpty(),
+                        createdAtSeconds = 0L,
+                        hasCreatedAt = false
+                    )
+                }
+            entries = (entries + undated).distinctBy { it.id }
+            legacyCursor = docs.lastOrNull()
+            legacyHasMore = docs.size == PROFILE_HISTORY_PAGE_SIZE
+            legacyPageLoaded = legacyPage
+        }
+        onDispose { active = false }
+    }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize().testTag("atrio-profile-history"),
         contentPadding = PaddingValues(16.dp),
@@ -86,7 +138,8 @@ internal fun ProfileDiscussionHistory(
     ) {
         item {
             TextButton(onClick = onBack) { Text("Voltar ao perfil") }
-            Text("Minhas discussões", style = MaterialTheme.typography.headlineSmall)
+            Text("Minhas discussões", style = MaterialTheme.typography.headlineSmall,
+                modifier = Modifier.semantics { heading() })
             Text(
                 "Mais recentes primeiro. Carregamos até 20 por vez; use Carregar mais para continuar.",
                 style = MaterialTheme.typography.bodySmall,
@@ -114,6 +167,9 @@ internal fun ProfileDiscussionHistory(
                         if (item.category.isNotBlank()) Text(item.category,
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (!item.hasCreatedAt) Text("Publicação antiga · sem data informada",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
@@ -132,10 +188,6 @@ internal fun ProfileDiscussionHistory(
                 Text("Tentar novamente")
             }
         }
-        if (!loading && !error && entries.isEmpty()) item {
-            Text("Nenhuma discussão encontrada nesta conta.",
-                style = MaterialTheme.typography.bodyMedium)
-        }
         if (!loading && !error && hasMore) item {
             OutlinedButton(
                 onClick = { page++ },
@@ -143,13 +195,61 @@ internal fun ProfileDiscussionHistory(
                     .testTag("atrio-history-more")
             ) { Text("Carregar mais discussões") }
         }
-        if (!loading && !error && !hasMore && entries.isNotEmpty()) item {
+        if (!loading && !error && !hasMore && !legacyStarted) item {
             Text(
-                "Não há mais discussões disponíveis para carregar.",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                "As discussões com data foram carregadas. " +
+                    "Publicações antigas podem não ter data cadastrada.",
                 style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.testTag("atrio-history-end")
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            OutlinedButton(
+                onClick = { legacyStarted = true },
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                    .testTag("atrio-history-legacy-start")
+            ) { Text("Procurar publicações antigas") }
+        }
+        if (!loading && !error && !hasMore && legacyStarted) {
+            if (legacyLoading || (legacyPageLoaded < legacyPage && !legacyError)) item {
+                CircularProgressIndicator(
+                    Modifier.testTag("atrio-history-legacy-loading")
+                        .semantics { contentDescription = "Procurando publicações antigas" }
+                )
+            }
+            if (legacyError) item {
+                Text("Não foi possível procurar publicações antigas. Tente novamente.",
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                OutlinedButton(
+                    onClick = { legacyRetry++ },
+                    modifier = Modifier.heightIn(min = 48.dp)
+                        .testTag("atrio-history-legacy-retry")
+                ) { Text("Tentar novamente") }
+            }
+            if (!legacyLoading && !legacyError && legacyPageLoaded == legacyPage &&
+                legacyHasMore) item {
+                Text(
+                    "Consultamos até 20 registros por etapa. Continue mesmo se " +
+                        "um lote não contiver publicações antigas.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall
+                )
+                OutlinedButton(
+                    onClick = { legacyPage++ },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        .testTag("atrio-history-legacy-more")
+                ) { Text("Continuar buscando publicações antigas") }
+            }
+            if (!legacyLoading && !legacyError && legacyPageLoaded == legacyPage &&
+                !legacyHasMore) item {
+                Text(
+                    if (entries.isEmpty()) "Nenhuma discussão encontrada nesta conta."
+                    else "Não há mais discussões disponíveis para carregar.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.testTag("atrio-history-end")
+                        .semantics { liveRegion = LiveRegionMode.Polite }
+                )
+            }
         }
     }
 }
