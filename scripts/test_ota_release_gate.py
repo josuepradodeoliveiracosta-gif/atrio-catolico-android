@@ -1,5 +1,9 @@
 """Regression tests for independent OTA release gates, without any GitHub secrets."""
+import os
 import re
+import subprocess
+import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 
@@ -36,7 +40,7 @@ class OtaReleaseGateTests(unittest.TestCase):
 
     def test_publication_checks_both_gates_twice(self):
         publish_only = PUBLISH.split(
-            "if [[ \"${{ inputs.mode }}\" == \"publish\" ]]; then", 1
+            "if [[ \"$RELEASE_MODE\" == \"publish\" ]]; then", 1
         )[1].split("fi\n", 1)[0]
         for gate in GATES:
             self.assertIn(f'"$${gate}"' if False else f'"$' + gate + '"', publish_only)
@@ -48,6 +52,67 @@ class OtaReleaseGateTests(unittest.TestCase):
         self.assertIn("inputs.confirmation == 'PUBLICAR ATRIO'", condition)
         self.assertIn("gh release create", final_job)
         self.assertIn("gh release edit", final_job)
+
+    def test_dispatch_values_are_env_data_not_inline_shell_code(self):
+        self.assertIn("RELEASE_MODE: $" + "{{ inputs.mode }}", PUBLISH)
+        self.assertIn("RELEASE_CONFIRMATION: $" + "{{ inputs.confirmation }}", PUBLISH)
+        script = self._parameter_validation_script()
+        self.assertNotIn("$" + "{{ inputs.", script)
+        self.assertIn('case "$RELEASE_MODE" in', script)
+        self.assertIn('if [[ "$RELEASE_MODE" == "publish" ]]; then', script)
+        self.assertIn('[[ "$RELEASE_CONFIRMATION" == "PUBLICAR ATRIO" ]]', script)
+
+    @staticmethod
+    def _parameter_validation_script():
+        step = PUBLISH.split(
+            "      - name: Conferir parâmetros obrigatórios\n", 1,
+        )[1].split(
+            "      - name: Fixar execução de assinatura e artefato de origem\n", 1,
+        )[0]
+        return textwrap.dedent(step.split("        run: |\n", 1)[1])
+
+    def test_dispatch_shell_rejects_command_substitution_as_plain_data(self):
+        # Apenas preflight Bash local, sem GitHub API, APK, segredo ou publicacao.
+        script = self._parameter_validation_script()
+        with tempfile.TemporaryDirectory() as temporary:
+            marker = Path(temporary) / "should-not-exist"
+            env = dict(os.environ)
+            env.update({
+                "BUILD_RUN_ID": "12345",
+                "APK_SHA256": "a" * 64,
+                "EXPECTED_CERT": "b" * 64,
+                "ATRIO_OTA_E2E_TESTED": "true",
+                "ATRIO_OTA_RELEASE_APPROVED": "true",
+                "ATRIO_EMAIL_VERIFICATION_RELEASE_APPROVED": "true",
+                "ATRIO_RELEASE_MODERATION_MODE": "human",
+                "ATRIO_GUARDIAN_V2_RELEASE_APPROVED": "false",
+                "ATRIO_GUARDIAN_V2_WORKER_URL": "",
+                "RELEASE_MODE": "publish",
+                "RELEASE_CONFIRMATION": "PUBLICAR ATRIO",
+            })
+
+            def validate():
+                return subprocess.run(
+                    ["bash", "-c", script],
+                    cwd=temporary, env=env,
+                    capture_output=True, text=True, timeout=10,
+                    check=False,
+                )
+
+            self.assertEqual(validate().returncode, 0,
+                             "a confirmação oficial deve continuar aceita")
+            env["RELEASE_CONFIRMATION"] = (
+                "PUBLICAR ATRIO$(touch " + str(marker) + ")"
+            )
+            self.assertNotEqual(validate().returncode, 0)
+            self.assertFalse(marker.exists(), "entrada não deve executar comandos")
+            env["RELEASE_MODE"] = "publish$(touch " + str(marker) + ")"
+            self.assertNotEqual(validate().returncode, 0)
+            self.assertFalse(marker.exists(), "modo não deve executar comandos")
+            env["RELEASE_MODE"] = "validate"
+            self.assertEqual(validate().returncode, 0,
+                             "modo somente validar deve permanecer funcional")
+            self.assertFalse(marker.exists())
 
     def test_no_automatic_sign_or_publish_when_main_changes(self):
         self.assertIn("if: github.event_name == 'workflow_dispatch'", BUILD)
