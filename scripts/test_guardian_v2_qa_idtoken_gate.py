@@ -34,10 +34,11 @@ def check(op="read_policy", identity=TRIAGE, *, token=TOKEN, config=None,
         if received != token or audience != AUD:
             raise AssertionError("verification_context_changed")
         return deepcopy(proof)
-    return gate.authorize_intent(
-        authorization="Bearer " + token, operation=op,
-        config=configuration() if config is None else config,
-        verifier=stub if verifier is None else verifier)
+    with patch.object(gate, "verify_google_token",
+                      side_effect=stub if verifier is None else verifier):
+        return gate.authorize_intent(
+            authorization="Bearer " + token, operation=op,
+            config=configuration() if config is None else config)
 
 
 class IdTokenQaGateTests(unittest.TestCase):
@@ -86,10 +87,13 @@ class IdTokenQaGateTests(unittest.TestCase):
             with self.subTest(kind=str(hdr)[:16]):
                 def never_called(*args):
                     raise AssertionError("invalid_header_reached_verifier")
-                result = gate.authorize_intent(
-                    authorization=hdr, operation="read_policy",
-                    config=configuration(), verifier=never_called)
-                self.assertEqual(result, gate.DENY)
+                with patch.object(gate, "verify_google_token",
+                                  side_effect=never_called) as mocked:
+                    result = gate.authorize_intent(
+                        authorization=hdr, operation="read_policy",
+                        config=configuration())
+                    self.assertEqual(result, gate.DENY)
+                    mocked.assert_not_called()
 
     def test_no_unverified_claims_accepted_from_token_string(self):
         # The gate never decodes JWT payloads itself; verifier MUST return claims.
