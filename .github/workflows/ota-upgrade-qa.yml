@@ -12,9 +12,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: ota-qa-upgrade-${{ github.event.pull_request.number || github.ref }}
-  # Descarta ensaio antigo da mesma PR quando uma correcao mais nova chega.
-  cancel-in-progress: true
+  group: ota-qa-upgrade-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  # Descarta somente revisoes obsoletas da PR; dispatch manual permanece isolado.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   upgrade-emulator:
