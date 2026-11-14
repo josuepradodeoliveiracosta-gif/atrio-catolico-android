@@ -5,7 +5,7 @@ import tempfile
 import unittest
 
 from scripts.ci_workflow_security import (
-    PROTECTOR, ROOT, TRUSTED_REF, audit_workflows, protected_workflow_issues,
+    PROTECTOR, ROOT, TRUSTED_REF, audit_sources, audit_workflows, protected_workflow_issues,
 )
 
 
@@ -35,24 +35,25 @@ PROTECTOR_YAML = (
 
 class WorkflowSecurityTests(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        self.directory = Path(tmp.name)
-        self.write(PROTECTOR, PROTECTOR_YAML)
-        self.write("ordinary.yml", "name: comum\non:\n  pull_request:\npermissions:\n  contents: read\n")
+        # Fixture exclusivamente em memoria: nenhuma referencia a credencial
+        # ficticia e escrita em disco durante os testes de seguranca.
+        self.sources = {
+            PROTECTOR: PROTECTOR_YAML,
+            "ordinary.yml": "name: comum\non:\n  pull_request:\npermissions:\n  contents: read\n",
+        }
 
     def write(self, filename, content):
-        (self.directory / filename).write_text(content, encoding="utf-8")
+        self.sources[filename] = content
 
     def assert_blocked(self, expected):
-        errors = audit_workflows(self.directory)
+        errors = audit_sources(self.sources)
         self.assertTrue(any(expected in e for e in errors), errors)
 
     def test_current_repository_policy_passes(self):
         self.assertEqual(audit_workflows(ROOT / ".github" / "workflows"), [])
 
     def test_valid_protection_and_regular_pr_pass(self):
-        self.assertEqual(audit_workflows(self.directory), [])
+        self.assertEqual(audit_sources(self.sources), [])
 
     def test_reject_unapproved_pull_request_target(self):
         self.write("unsafe.yml", "on:\n  pull_request_target:\npermissions:\n  contents: read\n")
@@ -81,10 +82,10 @@ class WorkflowSecurityTests(unittest.TestCase):
         self.write("ordinary.yml",
                    "name: comum\n# permissions: write-all\n# pull_request_target:\n"
                    "on:\n  pull_request:\npermissions:\n  contents: read\n")
-        self.assertEqual(audit_workflows(self.directory), [])
+        self.assertEqual(audit_sources(self.sources), [])
 
     def test_reject_removed_or_duplicated_protected_trigger(self):
-        (self.directory / PROTECTOR).unlink()
+        del self.sources[PROTECTOR]
         self.assert_blocked("workflow de protecao obrigatorio ausente")
         self.write(PROTECTOR, PROTECTOR_YAML.replace(
             "  pull_request_target:\n", "  pull_request:\n"))
@@ -115,8 +116,7 @@ class WorkflowSecurityTests(unittest.TestCase):
     def test_reject_write_permission_or_secrets_in_protector(self):
         self.write(PROTECTOR, PROTECTOR_YAML.replace("  contents: read", "  contents: write"))
         self.assert_blocked("permissao de escrita")
-        # Simula a expressao de credencial apenas em memoria: nenhum segredo
-        # (nem mesmo sintaxe ficticia) e gravado nos arquivos temporarios.
+        # Exercita o detector de credenciais em memoria, sem gravacao em disco.
         secret_source = PROTECTOR_YAML + "\n    env:\n      KEY: " + "secrets." + "EXAMPLE\n"
         self.assertTrue(
             any("credenciais ou OIDC" in error
