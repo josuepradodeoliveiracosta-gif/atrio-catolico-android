@@ -17,7 +17,7 @@ A conta recebe no contrato de provisionamento um papel no **escopo do projeto** 
 python3 -m scripts.guardian_v2_isolation_preflight
 ```
 
-A ferramenta examina só os **dois jobs e os três campos de identidade** citados, com um parser propositalmente limitado, e imprime apenas estados, nunca identidades, caminhos de documentos, credenciais ou políticas completas. Não usa rede nem Firebase. A saída atual deve indicar **`COMPARTILHADO` nos três campos e `decisao: NO_GO`**, com exit code 2. Esse código de saída é intencional: não significa que o CI esteja com falha, mas que a **migração não está pronta para produção**. A suíte offline de 9 testes comprova que mudar apenas a conta, apenas o provider ou apenas o ambiente continua sendo `NO_GO`.
+A ferramenta examina só os **dois jobs e os três campos de identidade** citados, com um parser propositalmente limitado, e imprime apenas estados, nunca identidades, caminhos de documentos, credenciais ou políticas completas. Não usa rede nem Firebase. A saída atual deve indicar **`COMPARTILHADO` nos três campos e `decisao: NO_GO`**, com exit code 2. Esse código de saída é intencional: não significa que o CI esteja com falha, mas que a **migração não está pronta para produção**. A suíte offline de 10 testes comprova que mudar apenas a conta, apenas o provider ou apenas o ambiente continua sendo `NO_GO`.
 
 Mesmo que três nomes diferentes apareçam futuramente, o resultado máximo do scanner será `EXIGE_PROVA_QA_IAM`. Ele **nunca** autoriza produção: nomes diferentes no YAML não demonstram papéis efetivos, vínculos de impersonação, políticas herdadas, restrições Firestore nem autenticação realmente implantada.
 
