@@ -149,7 +149,8 @@ class IndependentQaMediator:
     """Separate local mediator clients sharing a single synthetic ledger."""
 
     def __init__(self, ledger, *, trusted_principal):
-        if type(ledger) is not SharedQaLedger or trusted_principal not in _ROLES:
+        if (type(ledger) is not SharedQaLedger or
+                type(trusted_principal) is not str or trusted_principal not in _ROLES):
             raise ValueError("synthetic_client_only")
         self._ledger = ledger
         self._principal = trusted_principal
