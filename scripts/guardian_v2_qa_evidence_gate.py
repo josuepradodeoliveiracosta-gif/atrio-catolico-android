@@ -103,7 +103,8 @@ def main(argv=None) -> int:
             if path.is_file() and path.stat().st_size <= 131072:
                 record = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError, UnicodeError, RecursionError):
-            pass
+            # Malformed or unreadable QA input must be treated as absent.
+            record = None
     summary = assess(record)
     print("decisao:", summary["decision"])
     print("cenarios_conformes:", summary["conformes"], "/", summary["exigidos"])
