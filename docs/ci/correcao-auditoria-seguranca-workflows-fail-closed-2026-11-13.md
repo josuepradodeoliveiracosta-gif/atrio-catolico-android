@@ -33,7 +33,7 @@ O scanner foi adicionado ao check obrigatório de segurança, **preservando inte
 
 ## 3. Testes de regressão
 
-O módulo `scripts/test_ci_workflow_security.py` cobre offline:
+O módulo `scripts/test_ci_workflow_security.py` reúne 12 testes e cobre offline:
 
 - `main` proposta com 40 workflows e único uso autorizado de `pull_request_target`;
 - workflow normal e protetor legítimo;
