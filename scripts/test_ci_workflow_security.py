@@ -25,6 +25,7 @@ PROTECTOR_YAML = (
     "          " + TRUSTED_REF + "\n"
     "          persist-credentials: false\n"
     "      - run: |\n"
+    "          [[ \"$(git rev-parse HEAD)\" == \"$PR_BASE_SHA\" ]]\n"
     "          git fetch --no-tags --force origin refs/pull/123/head\n"
     "          test \"$(git rev-parse FETCH_HEAD)\" = \"$PR_HEAD_SHA\"\n"
     "          BASE_COMUM=\"$(git merge-base \"$PR_BASE_SHA\" \"$PR_HEAD_SHA\")\"\n"
@@ -97,6 +98,19 @@ class WorkflowSecurityTests(unittest.TestCase):
         self.write(PROTECTOR, PROTECTOR_YAML.replace("base.sha", "head.sha"))
         self.assert_blocked("invariante confiavel")
         self.assert_blocked("checkout da branch/commit nao confiavel")
+
+    def test_reject_spoofed_base_ref_in_comment(self):
+        spoofed = PROTECTOR_YAML.replace(
+            TRUSTED_REF, "ref: refs/heads/untrusted\n          # " + TRUSTED_REF,
+        )
+        self.write(PROTECTOR, spoofed)
+        self.assert_blocked("checkout deve usar exclusivamente o SHA da base confiavel")
+
+    def test_reject_missing_head_base_comparison(self):
+        self.write(PROTECTOR, PROTECTOR_YAML.replace(
+            '[[ "$(git rev-parse HEAD)" == "$PR_BASE_SHA" ]]', "echo bypass",
+        ))
+        self.assert_blocked("validar HEAD contra o SHA da base")
 
     def test_reject_write_permission_or_secrets_in_protector(self):
         self.write(PROTECTOR, PROTECTOR_YAML.replace("  contents: read", "  contents: write"))
