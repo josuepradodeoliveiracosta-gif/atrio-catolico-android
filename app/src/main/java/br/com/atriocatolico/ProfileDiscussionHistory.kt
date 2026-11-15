@@ -38,7 +38,7 @@ internal fun ProfileDiscussionHistory(
     db: FirebaseFirestore,
     uid: String,
     onBack: () -> Unit,
-    onOpen: (String) -> Unit
+    onOpen: ((String) -> Unit)?
 ) {
     var entries by remember(uid) { mutableStateOf<List<MyDiscussion>>(emptyList()) }
     var cursor by remember(uid) { mutableStateOf<DocumentSnapshot?>(null) }
@@ -158,10 +158,7 @@ internal fun ProfileDiscussionHistory(
                 )
             }
             items(entries, key = { it.id }) { item ->
-                Card(
-                    onClick = { onOpen(item.id) },
-                    modifier = Modifier.fillMaxWidth().testTag("atrio-history-item-${item.id}")
-                ) {
+                val content: @Composable () -> Unit = {
                     Column(Modifier.fillMaxWidth().padding(16.dp)) {
                         Text(item.title, style = MaterialTheme.typography.titleMedium)
                         if (item.category.isNotBlank()) Text(item.category,
@@ -171,6 +168,14 @@ internal fun ProfileDiscussionHistory(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
+                }
+                val open = onOpen
+                val modifier = Modifier.fillMaxWidth().testTag("atrio-history-item-${item.id}")
+                if (open == null) {
+                    // Perfil QA: exibir o post sem abrir respostas ou tela comunitária.
+                    Card(modifier = modifier) { content() }
+                } else {
+                    Card(onClick = { open(item.id) }, modifier = modifier) { content() }
                 }
             }
         }
