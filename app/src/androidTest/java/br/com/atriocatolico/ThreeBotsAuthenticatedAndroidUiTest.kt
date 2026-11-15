@@ -51,6 +51,8 @@ class ThreeBotsAuthenticatedAndroidUiTest {
     private val session = UUID.randomUUID().toString().take(8)
 
     @Before fun setup() {
+        assertEquals("Bots autenticados exigem APK QA Geral",
+            "br.com.atriocatolico.qageral", BuildConfig.APPLICATION_ID)
         val context = ApplicationProvider.getApplicationContext<Context>()
         assertTrue("Testes E2E não devem rodar em release", BuildConfig.DEBUG)
         assertTrue("Worker oficial não pode ser configurado no APK E2E",

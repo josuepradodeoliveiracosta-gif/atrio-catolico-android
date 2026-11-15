@@ -1,7 +1,7 @@
 package br.com.atriocatolico
 
 import android.graphics.Bitmap
-import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
@@ -11,6 +11,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import com.google.firebase.FirebaseApp
+import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -227,7 +228,7 @@ class ProfileLayoutUiTest {
             }
             compose.setContent {
                 AtrioTheme {
-                    ProfileDiscussionHistory(db, uid, onBack = {}, onOpen = {})
+                    ProfileDiscussionHistory(db, uid, onBack = {}, onOpen = null)
                 }
             }
             val list = compose.onNodeWithTag("atrio-profile-history")
@@ -251,6 +252,9 @@ class ProfileLayoutUiTest {
             // A primeira publicação é a mais antiga, mas deve continuar acessível.
             list.performScrollToNode(hasTestTag("atrio-history-item-${ids.first()}"))
             compose.onNodeWithTag("atrio-history-item-${ids.first()}").assertExists()
+            // O piloto QA nao pode abrir detalhe/respostas da comunidade.
+            compose.onNodeWithTag("atrio-history-item-${ids.first()}")
+                .assert(!hasClickAction())
             list.performScrollToNode(hasTestTag("atrio-history-legacy-start"))
             compose.onNodeWithTag("atrio-history-legacy-start")
                 .assertIsDisplayed().performClick()
@@ -293,6 +297,123 @@ class ProfileLayoutUiTest {
             compose.onAllNodesWithTag("atrio-history-retry")
                 .fetchSemanticsNodes().isNotEmpty()
         }
+    }
+
+
+    @Test fun perfilQaOnlyOffersSignInAndNeverRegistration() {
+        var emailSubmitted = ""
+        var passwordSubmitted = ""
+        compose.setContent {
+            AtrioTheme {
+                PerfilQaPilotContent(
+                    state = PerfilQaScreenState.Login(),
+                    onLogin = { email, password ->
+                        emailSubmitted = email
+                        passwordSubmitted = password
+                    },
+                    onSignOut = {}, onShowHistory = {}, onBack = {},
+                    onSave = { _, _, _ -> },
+                    history = {}
+                )
+            }
+        }
+        compose.onNodeWithTag("perfilqa-email").performTextInput("qa@example.test")
+        compose.onNodeWithTag("perfilqa-password").performTextInput("SenhaSintetica123!")
+        compose.onNodeWithTag("perfilqa-login").assertIsDisplayed().performClick()
+        compose.runOnIdle {
+            assertEquals("qa@example.test", emailSubmitted)
+            assertEquals("SenhaSintetica123!", passwordSubmitted)
+        }
+        compose.onNodeWithText("Criar conta").assertDoesNotExist()
+        compose.onNodeWithText("Publicar").assertDoesNotExist()
+        compose.onNodeWithText("Conversas").assertDoesNotExist()
+        compose.onNodeWithTag("atrio-profile-list").assertDoesNotExist()
+    }
+
+    @Test fun perfilQaOnlyOpensOwnReadOnlyHistoryWithLargeText() {
+        var state by mutableStateOf<PerfilQaScreenState>(
+            PerfilQaScreenState.Ready(
+                uid = "qa-fake-only", email = "qa@example.test",
+                displayName = "Pessoa de QA", bio = "Apresentação fictícia.",
+                createdAt = Timestamp.now()
+            )
+        )
+        compose.setContent {
+            val density = LocalDensity.current.density
+            CompositionLocalProvider(LocalDensity provides Density(density, 1.5f)) {
+                AtrioTheme {
+                    PerfilQaPilotContent(
+                        state = state,
+                        onLogin = { _, _ -> }, onSignOut = {},
+                        onShowHistory = {
+                            state = (state as PerfilQaScreenState.Ready).copy(history = true)
+                        },
+                        onBack = {
+                            state = (state as PerfilQaScreenState.Ready).copy(history = false)
+                        },
+                        onSave = { _, _, _ -> },
+                        history = {
+                            androidx.compose.foundation.layout.Column {
+                                androidx.compose.material3.Text("Histórico de QA somente leitura")
+                                androidx.compose.material3.TextButton(
+                                    onClick = {
+                                        state = (state as PerfilQaScreenState.Ready)
+                                            .copy(history = false)
+                                    }
+                                ) { androidx.compose.material3.Text("Voltar ao perfil QA") }
+                            }
+                        }
+                    )
+                }
+            }
+        }
+        compose.onNodeWithTag("perfilqa-profile").assertExists()
+        compose.onNodeWithTag("perfilqa-profile")
+            .performScrollToNode(hasTestTag("perfilqa-history-open"))
+        compose.onNodeWithTag("perfilqa-history-open").performClick()
+        compose.onNodeWithText("Histórico de QA somente leitura").assertIsDisplayed()
+        compose.onNodeWithText("Voltar ao perfil QA").performClick()
+        compose.onNodeWithTag("perfilqa-profile").assertExists()
+        compose.onNodeWithText("Minhas revisões").assertDoesNotExist()
+        compose.onNodeWithText("Gerenciar selos").assertDoesNotExist()
+        compose.onNodeWithText("Publicações salvas").assertDoesNotExist()
+        compose.onNodeWithText("Abrir central de notificações").assertDoesNotExist()
+    }
+
+    @Test fun perfilQaEditsOnlyOwnNameAndBio() {
+        var editedName = ""
+        var editedBio = ""
+        compose.setContent {
+            AtrioTheme {
+                PerfilQaPilotContent(
+                    state = PerfilQaScreenState.Ready(
+                        uid = "qa-fake-only", email = "qa@example.test",
+                        displayName = "Pessoa de QA", bio = "Apresentação inicial.",
+                        createdAt = Timestamp.now()
+                    ),
+                    onLogin = { _, _ -> }, onSignOut = {},
+                    onShowHistory = {}, onBack = {},
+                    onSave = { name, bio, done ->
+                        editedName = name
+                        editedBio = bio
+                        done()
+                    },
+                    history = {}
+                )
+            }
+        }
+        compose.onNodeWithTag("perfilqa-profile")
+            .performScrollToNode(hasTestTag("perfilqa-edit"))
+        compose.onNodeWithTag("perfilqa-edit").performClick()
+        compose.onNodeWithTag("perfilqa-name").performTextReplacement("Nome Autorizado")
+        compose.onNodeWithTag("perfilqa-bio").performTextReplacement("Apresentação de teste.")
+        compose.onNodeWithTag("perfilqa-save").performClick()
+        compose.runOnIdle {
+            assertEquals("Nome Autorizado", editedName)
+            assertEquals("Apresentação de teste.", editedBio)
+        }
+        compose.onNodeWithTag("perfilqa-edit").assertExists()
+        compose.onNodeWithTag("perfilqa-name").assertDoesNotExist()
     }
 
     private fun screenshot(name: String) {
