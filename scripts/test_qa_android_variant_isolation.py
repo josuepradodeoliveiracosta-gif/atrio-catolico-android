@@ -4,6 +4,7 @@ from pathlib import Path
 import os
 import subprocess
 import unittest
+import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -75,6 +76,55 @@ class QaGeralBotIsolationTests(unittest.TestCase):
         manifest = source("app/src/qaGeral/AndroidManifest.xml")
         self.assertIn('tools:node="remove"', manifest)
         self.assertIn('android:allowBackup="false"', manifest)
+
+    def test_qa_geral_cleartext_allowlist_is_exactly_two_emulator_hosts(self):
+        manifest = ET.fromstring(source("app/src/qaGeral/AndroidManifest.xml"))
+        android_ns = "{http://schemas.android.com/apk/res/android}"
+        app = manifest.find("application")
+        self.assertIsNotNone(app)
+        self.assertEqual(
+            app.attrib.get(android_ns + "networkSecurityConfig"),
+            "@xml/qa_emulator_network_security",
+        )
+        self.assertNotIn(android_ns + "usesCleartextTraffic", app.attrib)
+
+        qa_config = ET.fromstring(
+            source("app/src/qaGeral/res/xml/qa_emulator_network_security.xml")
+        )
+        self.assertEqual(qa_config.tag, "network-security-config")
+        self.assertEqual(len(qa_config), 2)
+        base = qa_config.find("base-config")
+        self.assertIsNotNone(base)
+        self.assertEqual(base.attrib, {"cleartextTrafficPermitted": "false"})
+        domain_configs = qa_config.findall("domain-config")
+        self.assertEqual(len(domain_configs), 1)
+        allowed = domain_configs[0]
+        self.assertEqual(allowed.attrib, {"cleartextTrafficPermitted": "true"})
+        hosts = allowed.findall("domain")
+        self.assertEqual(
+            {node.text for node in hosts},
+            {"127.0.0.1", "10.0.2.2"},
+        )
+        self.assertEqual(len(hosts), 2)
+        self.assertTrue(
+            all(node.attrib == {"includeSubdomains": "false"} for node in hosts)
+        )
+
+        # Debug preserva a politica original; o Manifest oficial nao e alterado.
+        debug_config = ET.fromstring(
+            source("app/src/debug/res/xml/qa_emulator_network_security.xml")
+        )
+        debug_hosts = {
+            node.text
+            for node in debug_config.findall("./domain-config/domain")
+        }
+        self.assertEqual(debug_hosts, {"127.0.0.1", "10.0.2.2"})
+        self.assertNotIn("networkSecurityConfig",
+                         source("app/src/main/AndroidManifest.xml"))
+        self.assertNotIn("networkSecurityConfig",
+                         source("app/src/perfilQa/AndroidManifest.xml"))
+        self.assertNotIn("networkSecurityConfig",
+                         source("app/src/chatQa/AndroidManifest.xml"))
 
     def test_debug_cannot_run_bots_before_starting_emulators(self):
         env = dict(os.environ)
