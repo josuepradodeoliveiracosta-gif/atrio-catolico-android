@@ -10,6 +10,7 @@
 
     <application
         android:label="Átrio Católico · Perfil QA"
+        android:allowBackup="false"
         tools:replace="android:label">
         <!-- A Activity padrão abriria cadastro/feed e listeners bloqueados. -->
         <activity android:name=".MainActivity" tools:node="remove" />
