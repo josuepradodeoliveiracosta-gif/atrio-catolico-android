@@ -225,32 +225,30 @@ internal class PerfilQaController(
             }
             val privateRef = db.collection("profiles").document(ready.uid)
             val publicRef = db.collection("public_profiles").document(ready.uid)
-            // Leitura do proprio opt-in APENAS ao editar. Se negar, nao escrever.
-            publicRef.get(Source.SERVER).addOnCompleteListener public@{ publicResult ->
-                if (!active(seq)) return@public
-                if (!publicResult.isSuccessful || !ownerSession(ready.uid)) {
-                    state = ready.copy(message = "Não foi possível conferir a apresentação pública.")
-                    return@public
+            // Transação: não recriar opt-in público se alguém o revogar
+            // entre a leitura e o commit. Toda leitura precede a escrita.
+            db.runTransaction { tx ->
+                val profile = tx.get(privateRef)
+                val publicProfile = tx.get(publicRef)
+                check(profile.exists() && profile.getTimestamp("createdAt") == ready.createdAt) {
+                    "Perfil QA ausente ou desatualizado."
                 }
-                val batch = db.batch()
-                batch.update(privateRef, mapOf("displayName" to name, "bio" to bio))
-                if (publicResult.result?.exists() == true) {
-                    batch.set(publicRef, mapOf(
-                        "displayName" to name,
-                        "bio" to bio,
-                        "joinedAt" to ready.createdAt,
+                tx.update(privateRef, mapOf("displayName" to name, "bio" to bio))
+                if (publicProfile.exists()) {
+                    tx.update(publicRef, mapOf(
+                        "displayName" to name, "bio" to bio,
                         "updatedAt" to FieldValue.serverTimestamp()
                     ))
                 }
-                batch.commit().addOnCompleteListener saved@{ saved ->
-                    if (!active(seq)) return@saved
-                    if (saved.isSuccessful && ownerSession(ready.uid)) {
-                        state = ready.copy(displayName = name, bio = bio,
-                            working = false, message = "Perfil de teste atualizado.")
-                        onSuccess()
-                    } else {
-                        state = ready.copy(message = "Não foi possível salvar. Nenhuma publicação foi criada.")
-                    }
+                true
+            }.addOnCompleteListener saved@{ saved ->
+                if (!active(seq)) return@saved
+                if (saved.isSuccessful && ownerSession(ready.uid)) {
+                    state = ready.copy(displayName = name, bio = bio,
+                        working = false, message = "Perfil de teste atualizado.")
+                    onSuccess()
+                } else {
+                    state = ready.copy(message = "Não foi possível salvar o perfil de teste.")
                 }
             }
         }
