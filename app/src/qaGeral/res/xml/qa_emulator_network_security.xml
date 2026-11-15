@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- QA Geral: HTTP somente nos dois enderecos do Firebase Emulator. -->
+    <!-- A politica global permanece fechada; HTTPS segue nao afetado. -->
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <!-- ADB reverse: Auth e Firestore no host local do Android. -->
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <!-- Alias reservado para o host do emulador Android. -->
+        <domain includeSubdomains="false">10.0.2.2</domain>
+    </domain-config>
+</network-security-config>
