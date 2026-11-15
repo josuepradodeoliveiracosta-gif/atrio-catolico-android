@@ -57,7 +57,7 @@ class QaVariantsCoexistenceContract(unittest.TestCase):
         for variant in ["chatQa", "perfilQa"]:
             m = (ROOT / f"app/src/{variant}/AndroidManifest.xml").read_text(encoding="utf-8")
             self.assertIn('android:allowBackup="false"', m)
-            self.assertIn("android:name", m if variant == "perfilQa" else m + "android:name")
+            self.assertIn('android:label=', m)
 
 
 if __name__ == "__main__":
