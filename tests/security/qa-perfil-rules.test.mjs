@@ -135,6 +135,31 @@ try {
     await assertFails(getDocs(collection(owner,'public_profiles')));
   });
 
+  await verify('updatedAt isolado de public_profiles e negado mesmo consistente',async()=>{
+    // Regressao P3: antes o getAfter conferia apenas igualdade dos
+    // documentos, permitindo atualizar metadado publico sem private write.
+    const ref=doc(owner,publicPath);
+    const prior=await assertSucceeds(getDoc(ref));
+    await assertFails(updateDoc(ref,{updatedAt:serverTimestamp()}));
+    const after=await assertSucceeds(getDoc(ref));
+    assert.equal(after.data().updatedAt.toMillis(),prior.data().updatedAt.toMillis());
+  });
+
+  await verify('batch com update privado sem mudanca efetiva nao libera updatedAt isolado',async()=>{
+    const ref=doc(owner,publicPath);
+    const prior=await assertSucceeds(getDoc(ref));
+    const unchanged=await assertSucceeds(getDoc(doc(owner,ownerPath)));
+    const batch=writeBatch(owner);
+    batch.update(doc(owner,ownerPath),{
+      displayName:unchanged.data().displayName,
+      bio:unchanged.data().bio,
+    });
+    batch.update(ref,{updatedAt:serverTimestamp()});
+    await assertFails(batch.commit());
+    const after=await assertSucceeds(getDoc(ref));
+    assert.equal(after.data().updatedAt.toMillis(),prior.data().updatedAt.toMillis());
+  });
+
   await verify('com opt-in, update privado desacompanhado e bloqueado',async()=>{
     await assertFails(updateDoc(doc(owner,ownerPath),{
       displayName:'Sem Sincronizacao',bio:'Inconsistente',
