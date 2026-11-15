@@ -23,6 +23,14 @@ Todas as leituras e edições permitidas exigem Firebase Auth com email_verified
 
 Quando a apresentação pública já existe, a edição do perfil precisa sincronizá-la na mesma transação com getAfter. O aplicativo não pode recriar opt-in revogado nem alterar joinedAt, createdAt ou privilégios.
 
+A atualização de `public_profiles.updatedAt` **isoladamente é negada**, mesmo
+quando os documentos privado e público já estão consistentes. A regra
+`public_profiles.update` compara `get()` e `getAfter()` de `profiles/{uid}`
+e exige diferença efetiva em `displayName` ou `bio` na mesma operação
+atômica. Atualização privada sem sincronização pública continua negada
+quando o opt-in já existe. O teste regressivo inclui também batch com
+escrita privada sem mudança efetiva, que não autoriza atualizar só o timestamp.
+
 **Security Rules não filtram consultas.** A PR #298 deve manter os filtros UID e limit(20) nas consultas ordenadas por createdAt DESC com cursor e na varredura legada por documentId. Uma consulta que possa alcançar posts de outro autor será negada, mesmo se limitar 20.
 
 O piloto não faz cadastro, criação de perfil, UGC/replies, postagens, gerenciamento de selos/fotos, leitura de app_config, conversas, notificações, dados religiosos, Storage ou ações de moderação/Admin.
@@ -36,7 +44,7 @@ No clone, de modo exclusivamente local:
 - npm ci
 - npm test
 
-A suíte existente usa o Firebase Emulator Suite com projeto sintético demo-atrio-v11. O arquivo qa-perfil-rules.test.mjs cobre **17 blocos positivos e negativos**, incluindo titularidade, criação negada, transação/opt-in existente, paginação 20+5, legado, outras contas, consulta sem filtro/limit, modificações indevidas e coleções fora do escopo. O teste não acessa o Firebase remoto.
+A suíte existente usa o Firebase Emulator Suite com projeto sintético demo-atrio-v11. O arquivo qa-perfil-rules.test.mjs cobre **19 blocos positivos e negativos**, incluindo titularidade, criação negada, transação/opt-in existente, paginação 20+5, legado, outras contas, consulta sem filtro/limit, modificações indevidas e coleções fora do escopo. O teste não acessa o Firebase remoto.
 
 **Declarar PASS apenas após conferir execução real no SHA final da PR.** Um build Debug/CI não equivale a APK perfilQa nem testes em aparelho.
 
