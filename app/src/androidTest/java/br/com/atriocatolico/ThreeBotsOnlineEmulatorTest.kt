@@ -44,6 +44,8 @@ class ThreeBotsOnlineEmulatorTest {
     private lateinit var db: FirebaseFirestore
 
     private fun prepareEmulators() {
+        assertEquals("Bots online somente no APK QA Geral",
+            "br.com.atriocatolico.qageral", BuildConfig.APPLICATION_ID)
         val context = ApplicationProvider.getApplicationContext<Context>()
         val app = FirebaseApp.getApps(context).firstOrNull {
             it.name == FirebaseApp.DEFAULT_APP_NAME
