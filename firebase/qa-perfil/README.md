@@ -1,100 +1,72 @@
-# Perfil 2.0 — Rules de QA, candidato estritamente offline
+# Perfil QA — regras do piloto Android e verificação no Termux
 
-**Agente 4 / Segurança • 14/11/2026.** Depende de PR #291 (histórico),
-PR #294 (contratos Firestore), PR #295 (ambiente) e coordenação com PR #193
-(Gradle `chatQa`). Este diretório NÃO é usado por `firebase.json` da raiz,
-portanto não substitui `firestore.rules` da produção.
+## Destino e política
 
-## Destino exclusivamente proposto
+O piloto usa o projeto Firebase `atrio-catolico-qa-perfil`, banco `(default)`,
+e o aplicativo Android `br.com.atriocatolico.perfilqa`. O fundador confirmou
+via Termux que o índice de coleção `posts(uid ASC, createdAt DESC)` está
+`READY` nesse banco. [Registro do índice no Perfil QA](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/issues/105#issuecomment-6896840208)
 
-- Projeto: `atrio-catolico-qa-perfil`, banco `(default)`;
-  aplicativo registrado: `br.com.atriocatolico.perfilqa`.
-- O fundador comprovou via Termux o índice `posts(uid ASC, createdAt DESC)`
-  com escopo `COLLECTION` e estado **READY** na Issue #105.
-- A regra `deny-all` foi vista no editor Firebase; **a release realmente
-  publicada ainda precisa ser confirmada** via leitura de metadados.
-- Não executar `firebase deploy` nem apontar a produção, QA Geral ou
-  Conversas para este arquivo. **Este candidato NÃO está aprovado para deploy.**
+O `firebase.json` da raiz aponta para o `firestore.rules` da raiz. A regra
+deste diretório serve ao piloto isolado com contas e dados sintéticos.
 
-## Escopo intencional da primeira etapa
+| Caminho | Permissões do piloto |
+| --- | --- |
+| `profiles/{uid}` | Titular com e-mail verificado pode ler e editar `displayName` (2 a 35 caracteres) e `bio` (até 180). Listagem, criação e exclusão são negadas. |
+| `public_profiles/{uid}` | Titular com e-mail verificado pode ler a própria projeção e atualizar uma projeção existente na mesma operação atômica da edição privada. Listagem, criação e exclusão são negadas. |
+| `posts/{postId}` | Usuário verificado pode ler posts do próprio UID. Consultas exigem filtro pelo próprio UID e limite de até 20, inclusive na busca legada por ID. Escritas são negadas. |
+| Demais caminhos | Leituras e escritas são negadas, inclusive selos, fotos, respostas, chats, notificações e `app_config`. |
 
-`firestore.rules` permite somente:
+Quando a projeção pública existe, a edição privada precisa sincronizá-la na
+mesma transação ou batch. A regra compara `get()` e `getAfter()` do perfil
+privado para exigir uma mudança efetiva em nome ou bio. Uma escrita isolada
+de `updatedAt` ou um batch que repete os valores privados é negado.
+`updatedAt` deve ser o horário da requisição, e as datas de criação e ingresso
+ficam protegidas. O piloto usa contas pré-existentes com e-mail verificado.
 
-1. Cadastro e leitura do próprio documento `profiles/{uid}`, com nome
-   e data controlados; edição após e-mail verificado, com consistência
-   transacional obrigatória com a apresentação pública, se houver.
-2. Leitura pontual de `public_profiles` por membros com e-mail
-   verificado; criação/edição vinculada ao perfil privado no mesmo
-   estado `getAfter`, sem enumeração.
-3. Leitura de `posts` comunitários por membro verificado. Consultas
-   obrigatoriamente limitadas a **20** registros, como o Perfil 2.0 da
-   PR #291. **Não restringe posts por UID nas Rules**: a consulta do
-   cliente usa o filtro para selecionar o histórico, não para tornar
-   publicações privadas.
-4. Leitura pontual de selos/fotos já existentes, sem conceder papéis
-   ou upload; leitura pontual de metadado `email_verification`.
-5. `deny-all` para todas as outras rotas. Não habilita chats,
-   Guardião, relatórios, preferências de fé/paróquia, notificações,
-   dados de crianças, consentimento, criação/edição/exclusão de posts,
-   gestão de selos ou exclusão de conta.
+## Publicação anterior no Perfil QA
 
-**Limitação funcional conhecida:** a política de laboratório permite
-**histórico e edição de perfil**, não a homologação integral do app.
-Os posts de teste deverão ser **sintéticos** e somente poderão ser
-provisionados depois de autorização separada, por operador confiável.
-Nunca contornar Rules com credenciais administrativas em código Android.
+Em 15/11/2026, o fundador confirmou no Termux a publicação específica das
+regras da [PR #300, commit `134e86d9`](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/commit/134e86d904261d2aafd0d1cedf9ea2c6944ba180)
+no Perfil QA. A leitura após a publicação retornou
+`PERFIL_QA_RULES=PUBLICADA_E_CONFIRMADA` e o SHA-256 abaixo, idêntico ao arquivo
+da #300 que este candidato incorpora. [Evidência do Termux na Issue #105](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/issues/105#issuecomment-6896892061)
 
-A exigência de `email_verified` é **fail-closed** e não depende de
-configuração `app_config` ausente, ao contrário da política de
-compatibilidade legada de produção. Sem um APK `perfilQa` vinculado
-a este projeto, sem dados sintéticos e sem Rules publicadas, o
-aplicativo remoto não deverá funcionar: isso é esperado.
+```text
+a2cba9b09f7b32bc23c5e863703dacd25fd7e54912275413d21e134be8e9bbee
+```
 
-## Testes offline
+A evidência registra a release lida naquela ocasião. Uma nova publicação
+exige autorização expressa do fundador para o destino específico.
 
-`tests/security/qa-perfil-rules.test.mjs` usa exclusivamente o Firebase
-Emulator com `demo-atrio-v11`. É executado como parte de `npm test`
-na branch derivada da PR #294. Cobre titular/terceiros/anônimo,
-verificação de e-mail, edição com `getAfter`, paginação 20+5,
-varredura legada, consulta excessiva, posts comunitários, bloqueio
-de autoatribuição de selos, dados religiosos e demais rotas.
+## Consulta da release pelo Termux
 
-O teste e a análise estática não demonstram que a política foi publicada.
-
-## Gate operacional — Termux, somente leitura
-
-No clone do repositório, executando exatamente esta branch:
+No clone do candidato, use uma sessão já autenticada no Firebase CLI:
 
 ```sh
 node scripts/termux-perfil-qa-rules-readonly.mjs
 ```
 
-O script consulta **dois GETs**, exclusivamente
-`projects/atrio-catolico-qa-perfil` no Firebase Rules API; exige
-sessão já autenticada na Firebase CLI e mostra apenas o hash do
-Ruleset, estado `deny-all` e igualdade de hash com o candidato
-local. Nunca mostra tokens nem conteúdo integral das Rules.
+O script usa dois GETs para consultar a release e o Ruleset exclusivamente no
+Perfil QA. A saída contém os hashes `publishedSha256` e `candidateSha256`,
+`publishedDenyAll` e `matchesCandidate`, com os indicadores de destino e de
+somente leitura. Tokens e conteúdo integral das regras ficam fora da saída.
 
-**Estado aceitável nesta etapa:** `publishedDenyAll=true`,
-`matchesCandidate=false` (candidato ainda não publicado). Resposta
-403, dados inesperados ou política não fechada exige investigação,
-não publicação. O script é apenas prova de metadados, não teste de
-autorização com clientes nem de IAM de serviço.
+| Saída | Como interpretar |
+| --- | --- |
+| `matchesCandidate=true` e hashes iguais | A release consultada tem o mesmo conteúdo do arquivo local. Confira também se o hash coincide com o da #300 acima. |
+| `matchesCandidate=false` | Há divergência de conteúdo. Use os hashes para identificar a release e o arquivo comparados antes de qualquer decisão operacional. |
+| Código `0` | A consulta classificou a release como `deny-all`. |
+| Código `2` | A consulta leu uma release diferente de `deny-all`. Esse é o retorno esperado para a política do piloto quando `matchesCandidate=true` e os hashes coincidem. |
+| Código `1` | A consulta falhou. O estado da release permanece sem confirmação nessa execução. |
 
-## Próximos portões
+## Testes
 
-1. Executar CI no SHA exato e solicitar revisão do Agente 7.
-2. Fundador/operador executa auditoria da release **via Termux**,
-   compartilha somente resultado sanitizado.
-3. Agentes 2/3/7 alinham variante `perfilQa` com `chatQa` da #193
-   e provas de `project_id`, `applicationId` e ausência de
-   fallback para o JSON/hosts de produção, sem compilar APK oficial.
-4. **Qualquer publicação futura** requer autorização explícita e
-   específica do fundador após revisão e planejamento de reversão.
-   Não autorizar ampliação para testes de outros módulos por esta PR.
-5. Agente 5 executa teste físico com contas/dados estritamente
-   sintéticos depois da aprovação de infraestrutura. Integração
-   #291/#294 continua NO-GO até esses gates e decisão do fundador.
+O CI executa `npm test` em `tests/security` com o Firebase Emulator e o
+projeto sintético `demo-atrio-v11`. A suíte inclui 19 contratos das regras do
+Perfil QA, 9 de autorização e paginação, 5 do histórico legado e 4 testes do
+Termux com respostas simuladas. Para rodar apenas a simulação, use na raiz:
 
-Não usar nem inserir dados reais, credenciais, tokens, fotos pessoais
-ou chaves de serviço. Não habilitar billing, PITR ou serviços pagos.
+```sh
+node --test scripts/termux-perfil-qa-rules-readonly.test.mjs
+```
