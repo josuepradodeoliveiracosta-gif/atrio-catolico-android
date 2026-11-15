@@ -3,6 +3,11 @@
 # O checkout ja deve ter sido isolado de google-services.json e credenciais.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# Nao compilar silenciosamente o Debug se um identificador de variante for invalido.
+case "${ATRIO_QA_APK:-debug}" in
+  debug|qaGeral) ;;
+  *) echo "Prebuild: variante QA desconhecida" >&2; exit 2 ;;
+esac
 
 status_file="qa-android-prebuild.status"
 pid_file="qa-android-prebuild.pid"
