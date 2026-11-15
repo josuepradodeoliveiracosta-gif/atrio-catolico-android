@@ -76,11 +76,12 @@ mkdir -p qa-android-suite-results
 qa_failed=0
 run_suite() {
   local suite="$1"
-  # Modo all preserva as 13 suites e sua ordem; cada grupo so roda as suas.
+  # Modo all preserva a ordem das suites; cada grupo so roda as suas.
   if [[ "$qa_group" != "all" ]]; then
     case "$qa_group:$suite" in
       profiles:GuardianSessionUiTest|profiles:ProfileLayoutUiTest|profiles:ProfilePhotoUiTest|\
       profiles:ProfileEditorUiTest|profiles:DesignV2UiTest|profiles:EmailVerificationAndroidUiTest|\
+      profiles:PerfilQaSaveEmulatorTest|\
       interaction:EngagementUiTest|interaction:ReactionEmojiUiTest|\
       interaction:DiscussionDetailV2UiTest|interaction:AtrioTypographyAccessibilityUiTest|\
       bots:ThreeBotsAndroidUiTest|bots:ThreeBotsAuthenticatedAndroidUiTest|\
@@ -146,5 +147,15 @@ run_suite ThreeBotsAndroidUiTest
 run_suite ThreeBotsAuthenticatedAndroidUiTest
 run_suite ThreeBotsOnlineEmulatorTest
 run_suite EmailVerificationAndroidUiTest
+if [[ "$qa_group" == "all" || "$qa_group" == "profiles" ]]; then
+  # Só a última suíte usa a política restritiva. As suítes anteriores
+  # continuam no mesmo emulador local com as Rules gerais.
+  jq -n --rawfile rules firebase/qa-perfil/firestore.rules \
+    '{rules:{files:[{name:"firestore.rules",content:$rules}]}}' |
+    curl --fail-with-body --silent --show-error --max-time 10 -X PUT \
+      -H 'Content-Type: application/json' --data-binary @- \
+      http://127.0.0.1:8089/emulator/v1/projects/demo-atrio-v11:securityRules
+  run_suite PerfilQaSaveEmulatorTest
+fi
 echo "QA Android: suítes concluídas em processos separados; status=$qa_failed"
 exit "$qa_failed"
