@@ -14,6 +14,37 @@ val atrioOtaQaLoopback = System.getenv("ATRIO_OTA_QA_LOOPBACK") == "1"
 val atrioOtaReleasePilot = System.getenv("ATRIO_OTA_RELEASE_PILOT") == "1"
 val atrioOtaPilotCompileOnly = System.getenv("ATRIO_OTA_PILOT_COMPILE_ONLY") == "1"
 val atrioOtaPilotEnabled = atrioOtaReleasePilot || atrioOtaPilotCompileOnly
+// O APK QA Geral e local, separado da identidade oficial e de qualquer Firebase remoto.
+val atrioQaGeralBuild = System.getenv("ATRIO_QA_GERAL_BUILD") == "1"
+if (atrioQaGeralBuild) {
+    require(!atrioDesignPreview && !atrioOtaQaLoopback && !atrioOtaPilotEnabled &&
+        System.getenv("ATRIO_CHAT_QA_BUILD") != "1" &&
+        System.getenv("ATRIO_PERFIL_QA_BUILD") != "1") {
+        "QA Geral nao combina variantes restritas, preview ou OTA."
+    }
+    require(gradle.startParameter.taskNames.isNotEmpty() &&
+        gradle.startParameter.taskNames.all {
+            it.substringAfterLast(':') in setOf(
+                "assembleQaGeral", "assembleQaGeralAndroidTest",
+                "connectedQaGeralAndroidTest", "testQaGeralUnitTest"
+            )
+        }) { "QA Geral: somente tarefas explicitas da variante local." }
+    require(listOf(
+        "ATRIO_PUSH_WORKER_URL", "ATRIO_AVATAR_WORKER_URL",
+        "ATRIO_GUARDIAN_V2_WORKER_URL", "ATRIO_CHAT_QA_WORKER_URL",
+        "ATRIO_SIGNING_STORE_FILE", "ATRIO_SIGNING_STORE_PASSWORD",
+        "ATRIO_SIGNING_KEY_ALIAS", "ATRIO_SIGNING_KEY_PASSWORD",
+        "GOOGLE_APPLICATION_CREDENTIALS", "FIREBASE_SERVICE_ACCOUNT_JSON"
+    ).all { System.getenv(it).isNullOrBlank() }) {
+        "QA Geral nao aceita endpoints, credenciais Admin ou assinatura real."
+    }
+    require(listOf(
+        "google-services.json", "src/qaGeral/google-services.json",
+        "src/chatQa/google-services.json", "src/perfilQa/google-services.json"
+    ).none { file(it).exists() }) {
+        "QA Geral nao usa arquivos Firebase reais no checkout isolado."
+    }
+}
 // O chat QA possui pacote e Firebase próprios; nunca habilitar por padrão.
 val atrioChatQaBuild = System.getenv("ATRIO_CHAT_QA_BUILD") == "1"
 // O Worker QA nao oferece acesso publico. Sem relay, apenas build isolado.
@@ -237,6 +268,18 @@ android {
             buildConfigField("String", "GUARDIAN_V2_WORKER_URL", "\"\"")
             buildConfigField("String", "AVATAR_WORKER_URL", "\"\"")
         }
+        create("qaGeral") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".qageral"
+            matchingFallbacks += listOf("debug")
+            isDebuggable = true
+            buildConfigField("boolean", "OTA_QA_LOOPBACK", "false")
+            buildConfigField("boolean", "OTA_RELEASE_PILOT_LOOPBACK", "false")
+            buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"QA Geral offline\"")
+            buildConfigField("String", "PUSH_RELAY_URL", "\"\"")
+            buildConfigField("String", "GUARDIAN_V2_WORKER_URL", "\"\"")
+            buildConfigField("String", "AVATAR_WORKER_URL", "\"\"")
+        }
         create("perfilQa") {
             initWith(getByName("debug"))
             applicationIdSuffix = ".perfilqa"
@@ -263,6 +306,9 @@ android {
         }
     }
 
+    // Instrumentacao em qaGeral so com opt-in; Debug oficial permanece normal.
+    testBuildType = if (atrioQaGeralBuild) "qaGeral" else "debug"
+
     buildFeatures { compose = true; buildConfig = true }
 
     compileOptions {
@@ -270,6 +316,19 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+}
+
+// APK QA Geral desligado em builds comuns e em release.
+androidComponents {
+    beforeVariants(selector().withBuildType("qaGeral")) { variant ->
+        variant.enable = atrioQaGeralBuild
+    }
+    onVariants(selector().withBuildType("qaGeral")) { variant ->
+        variant.outputs.forEach { output ->
+            output.versionName.set("$atrioDebugVersionName-qa-geral")
+            output.versionCode.set(atrioDebugVersionCode)
+        }
+    }
 }
 
 // O chat de homologacao nunca participa de builds normais.
