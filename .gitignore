@@ -67,3 +67,6 @@ key.properties
 
 # Chat QA: arquivo cliente isolado, nunca versionar.
 /app/src/chatQa/google-services.json
+
+# APK QA Geral utiliza apenas Firebase Emulator; nao versionar configuracao remota.
+/app/src/qaGeral/google-services.json
