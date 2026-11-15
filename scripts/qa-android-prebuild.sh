@@ -19,10 +19,19 @@ case "${1:-}" in
       echo "QA offline: google-services.json nao pode entrar no prebuild" >&2
       exit 2
     fi
+    if [[ "${ATRIO_QA_APK:-debug}" == "qaGeral" ]]; then
+      [[ "${ATRIO_QA_GERAL_BUILD:-}" == "1" ]] || {
+        echo "APK QA Geral exige opt-in" >&2
+        exit 2
+      }
+      build_tasks=( :app:assembleQaGeral :app:assembleQaGeralAndroidTest )
+    else
+      build_tasks=( :app:assembleDebug :app:assembleDebugAndroidTest )
+    fi
     date -u +%s > "$started_file"
     (
       set +e
-      gradle :app:assembleDebug :app:assembleDebugAndroidTest \
+      gradle "${build_tasks[@]}" \
         --daemon --stacktrace --max-workers=2 > "$log_file" 2>&1
       result=$?
       printf '%s\n' "$result" > "${status_file}.tmp"
