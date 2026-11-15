@@ -70,6 +70,13 @@ service cloud.firestore {
           getAfter(/databases/$(database)/documents/profiles/$(uid)).data.displayName
         && request.resource.data.bio ==
           getAfter(/databases/$(database)/documents/profiles/$(uid)).data.get('bio', '')
+        // getAfter isolado compara estados, mas nao demonstra que
+        // profiles/{uid} foi alterado no mesmo batch/transaction.
+        // Exigir diferenca real nos campos editaveis fecha o bypass
+        // de "updatedAt-only" em public_profiles.
+        && getAfter(/databases/$(database)/documents/profiles/$(uid))
+          .data.diff(get(/databases/$(database)/documents/profiles/$(uid)).data)
+          .affectedKeys().hasAny(['displayName', 'bio'])
         && request.resource.data.updatedAt == request.time;
     }
 
