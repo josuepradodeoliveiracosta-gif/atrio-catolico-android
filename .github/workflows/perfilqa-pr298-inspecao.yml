@@ -1,0 +1,102 @@
+name: Inspecionar APK Perfil QA da PR 298
+on:
+  push:
+    branches: [test/perfilqa-apk-pr298-78006ad4]
+permissions:
+  contents: read
+jobs:
+  perfilqa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: 78006ad4ad12621ace119ffbe7e4b41ca61c9b02
+          persist-credentials: false
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+      - uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c
+        with:
+          gradle-version: '8.13'
+      - name: Instalar SDK
+        run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+      - name: Compilar a variante com configuração sintética
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "78006ad4ad12621ace119ffbe7e4b41ca61c9b02"
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          from scripts.perfil_qa_build_gate import EXPECTED_APP_ID, EXPECTED_PACKAGE, EXPECTED_PROJECT, EXPECTED_SENDER
+          config = {
+              'project_info': {'project_id': EXPECTED_PROJECT, 'project_number': EXPECTED_SENDER},
+              'client': [{
+                  'client_info': {
+                      'mobilesdk_app_id': EXPECTED_APP_ID,
+                      'android_client_info': {'package_name': EXPECTED_PACKAGE},
+                  },
+                  'api_key': [{'current_key': 'test-placeholder-qa-only-no-network'}],
+              }],
+              'configuration_version': '1',
+          }
+          path = Path('app/src/perfilQa/google-services.json')
+          path.write_text(json.dumps(config), encoding='utf-8')
+          PY
+          export ATRIO_PERFIL_QA_CONFIG_SHA256
+          ATRIO_PERFIL_QA_CONFIG_SHA256=$(sha256sum app/src/perfilQa/google-services.json | cut -d ' ' -f 1)
+          ATRIO_PERFIL_QA_BUILD=1 gradle :app:assemblePerfilQa --no-daemon --stacktrace
+      - name: Inspecionar APK e validar isolamento
+        run: |
+          set -euo pipefail
+          apk=app/build/outputs/apk/perfilQa/app-perfilQa.apk
+          bt="$ANDROID_HOME/build-tools/35.0.0"
+          "$bt/aapt2" dump badging "$apk" > "$RUNNER_TEMP/perfilqa-badging.txt"
+          "$bt/aapt2" dump xmltree "$apk" --file AndroidManifest.xml > "$RUNNER_TEMP/perfilqa-manifest.txt"
+          "$bt/aapt2" dump resources "$apk" > "$RUNNER_TEMP/perfilqa-resources.txt"
+          "$bt/apksigner" verify --verbose --print-certs "$apk" > "$RUNNER_TEMP/perfilqa-signature.txt"
+          python3 - <<'PY'
+          import hashlib
+          import os
+          import re
+          from pathlib import Path
+          from scripts.perfil_qa_build_gate import EXPECTED_APP_ID, EXPECTED_PACKAGE, EXPECTED_PROJECT
+          temp = Path(os.environ['RUNNER_TEMP'])
+          read = lambda name: (temp / f'perfilqa-{name}.txt').read_text()
+          badging, manifest, resources, signature = map(read, ('badging', 'manifest', 'resources', 'signature'))
+          fields = next(line for line in badging.splitlines() if line.startswith('package:'))
+          assert f"name='{EXPECTED_PACKAGE}'" in fields, fields
+          launchers = [line for line in badging.splitlines() if line.startswith('launchable-activity:')]
+          assert len(launchers) == 1 and "name='br.com.atriocatolico.PerfilQaActivity'" in launchers[0], launchers
+          assert 'br.com.atriocatolico.MainActivity' not in manifest, 'Launcher comunitário presente'
+          assert 'br.com.atriocatolico.AtrioPushService' not in manifest, 'Serviço de push presente'
+          assert '.ota.fileprovider' not in manifest, 'Provider OTA presente'
+          assert 'android.permission.REQUEST_INSTALL_PACKAGES' not in manifest, 'Permissão OTA presente'
+          assert re.search(r'android:allowBackup[^\n]*=(?:false|0x0)\s*$', manifest, re.M), 'Backup não está bloqueado'
+          assert 'CN=Android Debug' in signature, 'Certificado não é de depuração'
+          assert 'Verified using v2 scheme (APK Signature Scheme v2): true' in signature, 'Assinatura v2 ausente'
+          for name, value in {'project_id': EXPECTED_PROJECT, 'google_app_id': EXPECTED_APP_ID, 'google_api_key': 'test-placeholder-qa-only-no-network'}.items():
+              block = re.search(rf'(?m)^\s*resource\s+\S+\s+(?:\S+:)?string/{name}\b[^\n]*\n((?:(?!\s*resource\s+).*(?:\n|$))*)', resources)
+              assert block and value in block.group(1), f'Recurso {name} não corresponde à configuração sintética'
+          apk = Path('app/build/outputs/apk/perfilQa/app-perfilQa.apk')
+          report = '\n'.join([
+              'Checkout: 78006ad4ad12621ace119ffbe7e4b41ca61c9b02',
+              fields, *launchers, f'Firebase project_id: {EXPECTED_PROJECT}', f'Firebase google_app_id: {EXPECTED_APP_ID}',
+              'Configuração sintética de inspeção. Auth/Firestore reais não foram exercitados.',
+              'Manifest: launcher dedicado, backup desativado e componentes de push/OTA do app ausentes.',
+              *(line for line in signature.splitlines() if 'Verified using v2 scheme' in line or 'certificate DN' in line or 'certificate SHA-256 digest' in line),
+              f'APK SHA-256: {hashlib.sha256(apk.read_bytes()).hexdigest()}',
+          ])
+          Path('perfilqa-inspecao.txt').write_text(report + '\n')
+          print(report)
+          PY
+      - uses: actions/upload-artifact@v7
+        with:
+          name: perfilqa-pr298-78006ad4-inspecao-sintetica
+          path: |
+            app/build/outputs/apk/perfilQa/app-perfilQa.apk
+            perfilqa-inspecao.txt
+          if-no-files-found: error
+          retention-days: 7
