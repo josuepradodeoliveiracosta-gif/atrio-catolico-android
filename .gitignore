@@ -61,3 +61,6 @@ key.properties
 *.aab
 .kotlin/
 .wrangler/
+
+# Perfil QA: configuracao exclusiva fornecida pelo fundador, nunca versionar.
+/app/src/perfilQa/google-services.json
