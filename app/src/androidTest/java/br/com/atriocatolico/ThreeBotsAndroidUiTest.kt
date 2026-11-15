@@ -31,6 +31,8 @@ class ThreeBotsAndroidUiTest {
     private lateinit var prefs: android.content.SharedPreferences
 
     @Before fun reset() {
+        org.junit.Assert.assertEquals("Bots somente no APK QA Geral",
+            "br.com.atriocatolico.qageral", BuildConfig.APPLICATION_ID)
         val ctx = ApplicationProvider.getApplicationContext<Context>()
         prefs = ctx.getSharedPreferences("atrio-ui-bot-emulator",Context.MODE_PRIVATE)
         prefs.edit().clear().commit()

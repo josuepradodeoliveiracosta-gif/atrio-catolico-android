@@ -24,6 +24,7 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Source
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -40,10 +41,26 @@ class ThreeBotsOnlineEmulatorTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
 
     private val project = "demo-atrio-v11"
+    @Test fun qaGeralPermiteHttpSomenteAoFirebaseEmulator() {
+        assertEquals("Politica testada somente no QA Geral",
+            "br.com.atriocatolico.qageral", BuildConfig.APPLICATION_ID)
+        val policy = android.security.NetworkSecurityPolicy.getInstance()
+        assertTrue("ADB reverse exige HTTP 127.0.0.1",
+            policy.isCleartextTrafficPermitted("127.0.0.1"))
+        assertTrue("Gateway local exige HTTP 10.0.2.2",
+            policy.isCleartextTrafficPermitted("10.0.2.2"))
+        assertFalse("HTTP externo deve ser recusado",
+            policy.isCleartextTrafficPermitted("example.com"))
+        assertFalse("HTTP por IP remoto deve ser recusado",
+            policy.isCleartextTrafficPermitted("8.8.8.8"))
+    }
+
     private lateinit var auth: FirebaseAuth
     private lateinit var db: FirebaseFirestore
 
     private fun prepareEmulators() {
+        assertEquals("Bots online somente no APK QA Geral",
+            "br.com.atriocatolico.qageral", BuildConfig.APPLICATION_ID)
         val context = ApplicationProvider.getApplicationContext<Context>()
         val app = FirebaseApp.getApps(context).firstOrNull {
             it.name == FirebaseApp.DEFAULT_APP_NAME
