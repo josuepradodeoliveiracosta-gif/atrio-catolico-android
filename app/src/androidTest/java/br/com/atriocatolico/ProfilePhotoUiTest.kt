@@ -96,11 +96,9 @@ class ProfilePhotoUiTest {
                     OnlineProfileScreen(
                         db = FirebaseFirestore.getInstance(), uid = uid,
                         name = "Maria da Comunidade", email = "maria@example.test",
-                        biography = "Minha fé e minha comunidade", posts = emptyList(),
-                        publicationsFooter = {}, onSignOut = {},
-                        onModeration = null, onClergyReview = null,
-                        onCreate = {}, onOpen = {}, onLike = {}, onSave = {},
-                        onSavedPosts = {}, onNotifications = {}, onReviews = {}
+                        biography = "Minha fé e minha comunidade",
+                        onSignOut = {}, onModeration = null, onClergyReview = null,
+                        onOpen = {}, onNotifications = {}, onReviews = {}
                     )
                 }
             }

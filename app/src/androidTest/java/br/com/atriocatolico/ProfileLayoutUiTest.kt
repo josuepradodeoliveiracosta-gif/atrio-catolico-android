@@ -11,7 +11,12 @@ import androidx.test.platform.app.InstrumentationRegistry
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import com.google.firebase.FirebaseApp
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.android.gms.tasks.Tasks
+import java.util.UUID
+import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -30,11 +35,10 @@ class ProfileLayoutUiTest {
                     OnlineProfileScreen(
                         db = FirebaseFirestore.getInstance(), uid = "profile-layout-only",
                         name = "Maria da Comunidade", email = "maria@example.test",
-                        biography = "Uma caminhada de fé e comunidade.", posts = emptyList(),
-                        publicationsFooter = {}, onSignOut = { destination = "logout" },
+                        biography = "Uma caminhada de fé e comunidade.",
+                        onSignOut = { destination = "logout" },
                         onModeration = null, onClergyReview = null,
-                        onCreate = { destination = "create" }, onOpen = {}, onLike = {}, onSave = {},
-                        onSavedPosts = { destination = "saved" },
+                        onOpen = {},
                         onNotifications = { destination = "notices" }, onReviews = { destination = "reviews" }
                     )
                 }
@@ -42,14 +46,16 @@ class ProfileLayoutUiTest {
         }
         screenshot("01-identidade-fonte-ampliada")
         val list = compose.onNodeWithTag("atrio-profile-list")
-        list.performScrollToNode(hasText("Publicações salvas"))
-        compose.onNodeWithText("Publicações salvas").performClick()
-        compose.runOnIdle { assertEquals("saved", destination) }
+        list.performScrollToNode(hasText("Minhas discussões"))
+        compose.onNodeWithText("Minhas discussões").performClick()
+        compose.onNodeWithTag("atrio-profile-history").assertExists()
+        compose.onNodeWithText("Voltar ao perfil").performClick()
+        compose.onNodeWithText("Publicações salvas").assertDoesNotExist()
         list.performScrollToNode(hasText("Minhas revisões"))
         compose.onNodeWithText("Minhas revisões").performClick()
         compose.runOnIdle { assertEquals("reviews", destination) }
-        list.performScrollToNode(hasText("Personalizar avisos"))
-        compose.onNodeWithText("Personalizar avisos").performClick()
+        list.performScrollToNode(hasText("Abrir central de notificações"))
+        compose.onNodeWithText("Abrir central de notificações").performClick()
         compose.runOnIdle { assertEquals("notices", destination) }
         list.performScrollToNode(hasContentDescription("Receber avisos neste aparelho"))
         compose.onNodeWithContentDescription("Receber avisos neste aparelho").assertIsOff()
@@ -67,11 +73,8 @@ class ProfileLayoutUiTest {
         compose.onNodeWithText("Ferramentas avançadas de notificações").assertExists()
         compose.onNodeWithTag("atrio-help-toggle").performClick()
         compose.onNodeWithTag("atrio-ota-section").assertDoesNotExist()
-        list.performScrollToNode(hasTestTag("atrio-profile-publications"))
-        compose.onNodeWithTag("atrio-profile-publications").performClick()
-        list.performScrollToNode(hasTestTag("atrio-profile-create-discussion"))
-        compose.onNodeWithTag("atrio-profile-create-discussion").performClick()
-        compose.runOnIdle { assertEquals("create", destination) }
+        compose.onNodeWithTag("atrio-profile-publications").assertDoesNotExist()
+        compose.onNodeWithTag("atrio-profile-create-discussion").assertDoesNotExist()
     }
 
     @Test fun developerSupportStartsClosedAndCanBeExpanded() {
@@ -81,10 +84,9 @@ class ProfileLayoutUiTest {
                 OnlineProfileScreen(
                     db = FirebaseFirestore.getInstance(), uid = "profile-layout-only",
                     name = "Maria da Comunidade", email = "maria@example.test",
-                    biography = "", posts = emptyList(), publicationsFooter = {},
-                    onSignOut = {}, onModeration = null, onClergyReview = null,
-                    onCreate = {}, onOpen = {}, onLike = {}, onSave = {},
-                    onSavedPosts = {}, onNotifications = {}, onReviews = {}
+                    biography = "", onSignOut = {}, onModeration = null, onClergyReview = null,
+                    onOpen = {},
+                    onNotifications = {}, onReviews = {}
                 )
             }
         }
@@ -108,11 +110,11 @@ class ProfileLayoutUiTest {
                     OnlineProfileScreen(
                         db = FirebaseFirestore.getInstance(), uid = "profile-layout-only",
                         name = "Maria da Comunidade", email = "maria@example.test",
-                        biography = "Uma caminhada de fé e comunidade.", posts = emptyList(),
-                        publicationsFooter = {}, onSignOut = {},
+                        biography = "Uma caminhada de fé e comunidade.",
+                        onSignOut = {},
                         onModeration = null, onClergyReview = null,
-                        onCreate = {}, onOpen = {}, onLike = {}, onSave = {},
-                        onSavedPosts = {}, onNotifications = {}, onReviews = {}
+                        onOpen = {},
+                        onNotifications = {}, onReviews = {}
                     )
                 }
             }
@@ -190,6 +192,107 @@ class ProfileLayoutUiTest {
         compose.onNodeWithTag("atrio-onboarding-enter").assertIsEnabled()
         compose.onNodeWithTag("atrio-onboarding-skip").assertDoesNotExist()
         compose.onNodeWithTag("atrio-onboarding-save").assertDoesNotExist()
+    }
+
+
+    @Test fun historyPagesTwentyAndLoadsAllTwentyOneFromEmulator() {
+        check(BuildConfig.DEBUG && FirebaseApp.getInstance().options.projectId == "demo-atrio-v11")
+        check(BuildConfig.PUSH_RELAY_URL.isBlank())
+        val auth = FirebaseAuth.getInstance()
+        val db = FirebaseFirestore.getInstance()
+        auth.signOut()
+        try {
+            val suffix = UUID.randomUUID().toString().take(12)
+            val user = Tasks.await(
+                auth.createUserWithEmailAndPassword("hist-$suffix@qa.invalid", "SenhaQA2026!NaoReal"),
+                20, TimeUnit.SECONDS
+            ).user ?: error("Conta de QA não foi criada")
+            val uid = user.uid
+            val author = "Histórico QA"
+            Tasks.await(db.collection("profiles").document(uid).set(mapOf(
+                "displayName" to author,
+                "createdAt" to FieldValue.serverTimestamp()
+            )), 15, TimeUnit.SECONDS)
+            val ids = (1..21).map { number ->
+                val ref = db.collection("posts").document()
+                Tasks.await(ref.set(mapOf(
+                    "uid" to uid,
+                    "authorName" to author,
+                    "title" to "Discussão de teste $number",
+                    "body" to "Publicação de QA isolado para verificar a paginação do Perfil.",
+                    "category" to "Vida espiritual",
+                    "createdAt" to FieldValue.serverTimestamp()
+                )), 15, TimeUnit.SECONDS)
+                ref.id
+            }
+            compose.setContent {
+                AtrioTheme {
+                    ProfileDiscussionHistory(db, uid, onBack = {}, onOpen = {})
+                }
+            }
+            val list = compose.onNodeWithTag("atrio-profile-history")
+            compose.waitUntil(30_000) {
+                runCatching {
+                    compose.onNodeWithTag("atrio-history-count")
+                        .assertTextEquals("20 discussões carregadas")
+                    true
+                }.getOrDefault(false)
+            }
+            list.performScrollToNode(hasTestTag("atrio-history-more"))
+            compose.onNodeWithTag("atrio-history-more").assertIsDisplayed().performClick()
+            compose.waitUntil(30_000) {
+                runCatching {
+                    list.performScrollToIndex(1)
+                    compose.onNodeWithTag("atrio-history-count")
+                        .assertTextEquals("21 discussões carregadas")
+                    true
+                }.getOrDefault(false)
+            }
+            // A primeira publicação é a mais antiga, mas deve continuar acessível.
+            list.performScrollToNode(hasTestTag("atrio-history-item-${ids.first()}"))
+            compose.onNodeWithTag("atrio-history-item-${ids.first()}").assertExists()
+            list.performScrollToNode(hasTestTag("atrio-history-legacy-start"))
+            compose.onNodeWithTag("atrio-history-legacy-start")
+                .assertIsDisplayed().performClick()
+            compose.waitUntil(30_000) {
+                compose.onAllNodesWithTag("atrio-history-legacy-more")
+                    .fetchSemanticsNodes().isNotEmpty()
+            }
+            list.performScrollToNode(hasTestTag("atrio-history-legacy-more"))
+            compose.onNodeWithTag("atrio-history-legacy-more").performClick()
+            compose.waitUntil(30_000) {
+                compose.onAllNodesWithTag("atrio-history-end")
+                    .fetchSemanticsNodes().isNotEmpty()
+            }
+            list.performScrollToNode(hasTestTag("atrio-history-end"))
+            compose.onNodeWithTag("atrio-history-end").assertIsDisplayed()
+            compose.onNodeWithTag("atrio-history-more").assertDoesNotExist()
+        } finally {
+            auth.signOut()
+        }
+    }
+
+    @Test fun historyOffersRetryInsteadOfFalseEmptyStateWhenUnauthenticated() {
+        check(BuildConfig.DEBUG && FirebaseApp.getInstance().options.projectId == "demo-atrio-v11")
+        FirebaseAuth.getInstance().signOut()
+        compose.setContent {
+            AtrioTheme {
+                ProfileDiscussionHistory(
+                    FirebaseFirestore.getInstance(), "qa-history-without-session",
+                    onBack = {}, onOpen = {}
+                )
+            }
+        }
+        compose.waitUntil(20_000) {
+            compose.onAllNodesWithTag("atrio-history-retry")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText("Nenhuma discussão encontrada nesta conta.").assertDoesNotExist()
+        compose.onNodeWithTag("atrio-history-retry").assertIsDisplayed().performClick()
+        compose.waitUntil(20_000) {
+            compose.onAllNodesWithTag("atrio-history-retry")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
     }
 
     private fun screenshot(name: String) {
