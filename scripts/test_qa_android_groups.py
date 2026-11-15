@@ -6,7 +6,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
 GROUPS = {
-    "profiles": ["GuardianSessionUiTest","ProfileLayoutUiTest","ProfilePhotoUiTest","ProfileEditorUiTest","DesignV2UiTest","EmailVerificationAndroidUiTest"],
+    "profiles": ["GuardianSessionUiTest","ProfileLayoutUiTest","ProfilePhotoUiTest","ProfileEditorUiTest","DesignV2UiTest","EmailVerificationAndroidUiTest","PerfilQaSaveEmulatorTest"],
     "interaction": ["EngagementUiTest","ReactionEmojiUiTest","DiscussionDetailV2UiTest","AtrioTypographyAccessibilityUiTest"],
     "bots": ["ThreeBotsAndroidUiTest","ThreeBotsAuthenticatedAndroidUiTest","ThreeBotsOnlineEmulatorTest"],
 }
@@ -15,11 +15,11 @@ class AndroidGroupTests(unittest.TestCase):
     def test_complete_disjoint_partition(self):
         source = (ROOT / "scripts/run-qa-android-emulator.sh").read_text()
         calls = re.findall(r"(?m)^\s*run_suite ([A-Za-z][A-Za-z0-9]+)$", source)
-        self.assertEqual(len(calls), 14)
+        self.assertEqual(len(calls), 15)
         self.assertEqual(len(calls), len(set(calls)))
         self.assertIn("GuardianV2UiTest", calls)
         pairs = re.findall(r"(profiles|interaction|bots):([A-Za-z][A-Za-z0-9]+)", source)
-        self.assertEqual(len(pairs), 13)
+        self.assertEqual(len(pairs), 14)
         self.assertEqual(len(pairs), len(set(pairs)))
         for group, suites in GROUPS.items():
             self.assertEqual({x for g, x in pairs if g == group}, set(suites))
@@ -39,6 +39,9 @@ class AndroidGroupTests(unittest.TestCase):
         self.assertIn("max-parallel: 3", source)
         self.assertIn("suite_group: [profiles, interaction, bots]", source)
         self.assertIn('ATRIO_QA_SUITE_GROUP: ${{ matrix.suite_group }}', source)
+        self.assertIn('ATRIO_QA_APK: qaGeral', source)
+        self.assertIn("ATRIO_QA_GERAL_BUILD: '1'", source)
+        self.assertIn('ATRIO_QA_FIREBASE_PROJECT: demo-atrio-v11', source)
         self.assertIn('name: qa-bots-android-ui-reports-${{ matrix.suite_group }}', source)
 
 if __name__ == "__main__":

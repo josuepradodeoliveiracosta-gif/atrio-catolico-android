@@ -1,5 +1,7 @@
 name: QA Android dos três bots (emulador isolado)
 
+# Três bots usam exclusivamente o APK qaGeral + Auth/Firestore emulados.
+# As variantes perfilQa/chatQa possuem contratos proprios, sem testes completos de bots.
 # CI de UI executa somente em emulador local e NUNCA interage com o Firestore oficial.
 # A comunidade real permanece sob disparo pontual mediante pedido nesta conversa.
 on:
@@ -9,6 +11,7 @@ on:
       - 'app/src/main/**'
       - 'app/src/androidTest/**'
       - 'app/build.gradle.kts'
+      - 'app/src/qaGeral/**'
       - '.github/workflows/android-bots-ui.yml'
       - 'scripts/run-qa-android-emulator.sh'
       - 'scripts/test_qa_android_groups.py'
@@ -38,6 +41,9 @@ jobs:
         suite_group: [profiles, interaction, bots]
     env:
       ATRIO_QA_SUITE_GROUP: ${{ matrix.suite_group }}
+      ATRIO_QA_APK: qaGeral
+      ATRIO_QA_GERAL_BUILD: '1'
+      ATRIO_QA_FIREBASE_PROJECT: demo-atrio-v11
     timeout-minutes: 35
     steps:
       - name: Obter código
@@ -58,9 +64,20 @@ jobs:
       - name: Isolar Firebase antes de iniciar a compilacao
         shell: bash
         run: |
+          test "$ATRIO_QA_APK" = 'qaGeral'
+          test "$ATRIO_QA_GERAL_BUILD" = '1'
+          test "$ATRIO_QA_FIREBASE_PROJECT" = 'demo-atrio-v11'
+          test -z "${ATRIO_CHAT_QA_BUILD:-}"
+          test -z "${ATRIO_PERFIL_QA_BUILD:-}"
           for key in ATRIO_PUSH_WORKER_URL ATRIO_GUARDIAN_V2_WORKER_URL ATRIO_AVATAR_WORKER_URL GOOGLE_APPLICATION_CREDENTIALS ATRIO_SIGNING_STORE_FILE ATRIO_SIGNING_STORE_PASSWORD ATRIO_SIGNING_KEY_ALIAS ATRIO_SIGNING_KEY_PASSWORD; do
             if [[ -n "${!key:-}" ]]; then
               echo "QA offline: variavel de producao proibida: $key" >&2
+              exit 2
+            fi
+          done
+          for config in app/src/qaGeral/google-services.json app/src/chatQa/google-services.json app/src/perfilQa/google-services.json; do
+            if [[ -e "$config" ]]; then
+              echo "QA Geral: configuracao de variante diferente detectada" >&2
               exit 2
             fi
           done
@@ -69,7 +86,7 @@ jobs:
             rm -- app/google-services.json
           fi
           test ! -e app/google-services.json
-      - name: Iniciar compilacao Android enquanto o emulador inicializa
+      - name: Iniciar compilacao APK QA Geral enquanto o emulador inicializa
         run: bash scripts/qa-android-prebuild.sh start
       - name: Preparar Node.js para Firebase Emulator Suite
         uses: actions/setup-node@v4

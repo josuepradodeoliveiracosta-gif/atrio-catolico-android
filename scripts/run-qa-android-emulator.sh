@@ -3,6 +3,28 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 qa_group="${ATRIO_QA_SUITE_GROUP:-all}"
+qa_apk="${ATRIO_QA_APK:-debug}"
+case "$qa_apk" in
+  debug|qaGeral) ;;
+  *) echo "Variante de instrumentacao nao permitida: $qa_apk" >&2; exit 2 ;;
+esac
+# Bots completos so no APK QA Geral, com Auth/Firestore Emulator.
+if [[ "$qa_group" == "bots" || ( "$qa_group" == "all" && -z "${ATRIO_QA_SUITE:-}" ) ]]; then
+  [[ "$qa_apk" == "qaGeral" ]] || {
+    echo "Tres bots completos: permitido somente APK QA Geral" >&2
+    exit 2
+  }
+fi
+if [[ "$qa_apk" == "qaGeral" ]]; then
+  [[ "${ATRIO_QA_GERAL_BUILD:-}" == "1" &&
+     "${ATRIO_QA_FIREBASE_PROJECT:-}" == "demo-atrio-v11" ]] || {
+    echo "APK QA Geral exige build isolado e projeto demo-atrio-v11" >&2
+    exit 2
+  }
+  test_task=":app:connectedQaGeralAndroidTest"
+else
+  test_task=":app:connectedDebugAndroidTest"
+fi
 case "$qa_group" in
   all|profiles|interaction|bots) ;;
   *) echo "Grupo QA desconhecido: $qa_group" >&2; exit 2 ;;
@@ -15,6 +37,12 @@ if [[ -n "${GOOGLE_APPLICATION_CREDENTIALS:-}" ||
   echo "ERRO: variáveis de produção não podem estar presentes no QA Android" >&2
   exit 2
 fi
+for config in app/src/qaGeral/google-services.json app/src/chatQa/google-services.json app/src/perfilQa/google-services.json; do
+  if [[ -e "$config" && "$qa_apk" == "qaGeral" ]]; then
+    echo "APK QA Geral nao admite configuracoes de outras variantes" >&2
+    exit 2
+  fi
+done
 if [[ -e app/google-services.json ]]; then
   # Isolamento da VM efêmera do GitHub Actions. NÃO modifica o repositório:
   # remove apenas o arquivo da cópia local temporária do runner.
@@ -76,11 +104,12 @@ mkdir -p qa-android-suite-results
 qa_failed=0
 run_suite() {
   local suite="$1"
-  # Modo all preserva as 13 suites e sua ordem; cada grupo so roda as suas.
+  # Modo all preserva a ordem das suites; cada grupo so roda as suas.
   if [[ "$qa_group" != "all" ]]; then
     case "$qa_group:$suite" in
       profiles:GuardianSessionUiTest|profiles:ProfileLayoutUiTest|profiles:ProfilePhotoUiTest|\
       profiles:ProfileEditorUiTest|profiles:DesignV2UiTest|profiles:EmailVerificationAndroidUiTest|\
+      profiles:PerfilQaSaveEmulatorTest|\
       interaction:EngagementUiTest|interaction:ReactionEmojiUiTest|\
       interaction:DiscussionDetailV2UiTest|interaction:AtrioTypographyAccessibilityUiTest|\
       bots:ThreeBotsAndroidUiTest|bots:ThreeBotsAuthenticatedAndroidUiTest|\
@@ -88,9 +117,16 @@ run_suite() {
       *) echo "QA Android: $suite executada por outro grupo"; return 0 ;;
     esac
   fi
+  case "$suite" in
+    ThreeBots*)
+      [[ "$qa_apk" == "qaGeral" ]] || {
+        echo "Suite de bot recusada fora do APK QA Geral" >&2
+        exit 2
+      } ;;
+  esac
   local full="br.com.atriocatolico.$suite"
   echo "QA Android: iniciando $suite (isolado)"
-  if gradle :app:connectedDebugAndroidTest \
+  if gradle "$test_task" \
     "-Pandroid.testInstrumentationRunnerArguments.class=$full" \
     --daemon --stacktrace; then
     echo "QA Android: $suite aprovada"
@@ -146,5 +182,15 @@ run_suite ThreeBotsAndroidUiTest
 run_suite ThreeBotsAuthenticatedAndroidUiTest
 run_suite ThreeBotsOnlineEmulatorTest
 run_suite EmailVerificationAndroidUiTest
+if [[ "$qa_group" == "all" || "$qa_group" == "profiles" ]]; then
+  # Só a última suíte usa a política restritiva. As suítes anteriores
+  # continuam no mesmo emulador local com as Rules gerais.
+  jq -n --rawfile rules firebase/qa-perfil/firestore.rules \
+    '{rules:{files:[{name:"firestore.rules",content:$rules}]}}' |
+    curl --fail-with-body --silent --show-error --max-time 10 -X PUT \
+      -H 'Content-Type: application/json' --data-binary @- \
+      http://127.0.0.1:8089/emulator/v1/projects/demo-atrio-v11:securityRules
+  run_suite PerfilQaSaveEmulatorTest
+fi
 echo "QA Android: suítes concluídas em processos separados; status=$qa_failed"
 exit "$qa_failed"
