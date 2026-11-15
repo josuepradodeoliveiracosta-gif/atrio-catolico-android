@@ -400,6 +400,9 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+    // Custom buildType nao herda dependencies de debugImplementation.
+    // A Activity sintetica e necessaria a createAndroidComposeRule<ComponentActivity>().
+    add("qaGeralImplementation", "androidx.compose.ui:ui-test-manifest")
 
     // Somente APK instrumentation de teste: nunca integra a versão publicada.
     androidTestImplementation(composeBom)
