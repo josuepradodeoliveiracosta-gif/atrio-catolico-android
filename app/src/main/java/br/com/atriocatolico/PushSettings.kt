@@ -110,7 +110,7 @@ internal fun PushSettings(
             if (feedback.isNotBlank()) Text(feedback, color = Wine, fontSize = 14.sp,
                 modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
             TextButton(onClick = onNotifications, modifier = Modifier.fillMaxWidth()) {
-                Text("Personalizar avisos", color = Wine)
+                Text("Abrir central de notificações", color = Wine)
             }
             }
             if (advancedOnly) {

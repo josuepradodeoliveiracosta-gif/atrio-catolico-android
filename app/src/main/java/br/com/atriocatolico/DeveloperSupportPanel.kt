@@ -149,18 +149,6 @@ internal fun DeveloperSupportPanel(db: FirebaseFirestore, uid: String, founderAd
                                     copyMessage = "Dados bancários copiados."
                                 })
                             }
-                            if (support.pixKey.isNotBlank()) Button(
-                                onClick = {
-                                    copySupportText(context, "Chave Pix", support.pixKey)
-                                    copyMessage = "Chave Pix copiada."
-                                }, modifier = Modifier.fillMaxWidth().testTag("atrio-support-copy-pix"),
-                                colors = ButtonDefaults.buttonColors(containerColor = Wine),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Icon(Icons.Outlined.ContentCopy, contentDescription = null)
-                                Spacer(Modifier.width(8.dp))
-                                Text("Copiar chave Pix")
-                            }
                         } else {
                             Text("Informações de apoio ainda não disponíveis.",
                                 color = Muted, style = MaterialTheme.typography.bodyMedium)

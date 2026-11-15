@@ -1456,33 +1456,27 @@ private fun OnlineCommunity(
                             Text("Algumas publicações salvas foram removidas.", color = Muted, fontSize = AtrioType.secondary)
                     })
                 Tab.PROFILE -> {
-                    OnlineProfileScreen(db, uid, name, email, biography, posts,
-                    publicationsFooter = {
-                        LoadMore(feedLoading, feedMore, feedError, "Buscar mais publicações") {
-                            if (feedError) feedRetry++ else feedLimit += 30
-                        }
-                    },
-                    onSignOut = onSignOut, onModeration = onModeration,
-                    onClergyReview = onClergyReview,
-                    onSavedPosts = { navigate(Tab.SAVED) },
-                    followedRevision = followedRevision, savedCount = savedOrder.size,
-                    followedRemoteEnabled = advancedEngagement,
-                    followedRemoteIds = syncedFollow.ids,
-                    followedRemoteLoading = syncedFollow.loading,
-                    followedRemoteFailed = syncedFollow.failed,
-                    onPhotoChanged = onPhotoChanged,
-                    otaStatus = ota.status,
-                    onRefreshUpdates = { otaScope.launch { ota.refresh() } },
-                    otaDownload = ota.downloadState,
-                    otaInstallMessage = ota.installMessage,
-                    onDownloadUpdate = { offer -> otaScope.launch { ota.download(offer) } },
-                    onCancelUpdateDownload = { ota.cancelDownload() },
-                    onInstallUpdate = { otaScope.launch { ota.install() } },
-                    onNotifications = { noticesOpen = true; returnToNotices = false },
-                    onReviews = { guardiaoAppealsOpen = true },
-                    onCreate = { navigate(Tab.PUBLISH) }, onOpen = { detailId = it },
-                    onLike = { id -> posts.firstOrNull { it.id == id }?.let { toggle("likedPosts", id, it.liked) } },
-                    onSave = { id -> posts.firstOrNull { it.id == id }?.let { saveCoordinator.toggle(id, it.saved) } })
+                    OnlineProfileScreen(
+                        db = db, uid = uid, name = name, email = email, biography = biography,
+                        onSignOut = onSignOut, onModeration = onModeration,
+                        onClergyReview = onClergyReview,
+                        onOpen = { detailId = it },
+                        onNotifications = { noticesOpen = true; returnToNotices = false },
+                        onReviews = { guardiaoAppealsOpen = true },
+                        followedRevision = followedRevision,
+                        followedRemoteEnabled = advancedEngagement,
+                        followedRemoteIds = syncedFollow.ids,
+                        followedRemoteLoading = syncedFollow.loading,
+                        followedRemoteFailed = syncedFollow.failed,
+                        onPhotoChanged = onPhotoChanged,
+                        otaStatus = ota.status,
+                        onRefreshUpdates = { otaScope.launch { ota.refresh() } },
+                        otaDownload = ota.downloadState,
+                        otaInstallMessage = ota.installMessage,
+                        onDownloadUpdate = { offer -> otaScope.launch { ota.download(offer) } },
+                        onCancelUpdateDownload = { ota.cancelDownload() },
+                        onInstallUpdate = { otaScope.launch { ota.install() } }
+                    )
                 }
             }
             AnimatedVisibility(
