@@ -229,23 +229,27 @@ internal class PerfilQaController(
             // entre a leitura e o commit. Toda leitura precede a escrita.
             db.runTransaction { tx ->
                 val profile = tx.get(privateRef)
-                val publicProfile = tx.get(publicRef)
                 check(profile.exists() && profile.getTimestamp("createdAt") == ready.createdAt) {
                     "Perfil QA ausente ou desatualizado."
                 }
-                tx.update(privateRef, mapOf("displayName" to name, "bio" to bio))
+                if (name == profile.getString("displayName").orEmpty().trim() &&
+                    bio == profile.getString("bio").orEmpty().trim()) {
+                    return@runTransaction false
+                }
+                val publicProfile = tx.get(publicRef)
+                val fields = mapOf("displayName" to name, "bio" to bio)
+                tx.update(privateRef, fields)
                 if (publicProfile.exists()) {
-                    tx.update(publicRef, mapOf(
-                        "displayName" to name, "bio" to bio,
-                        "updatedAt" to FieldValue.serverTimestamp()
-                    ))
+                    tx.update(publicRef, fields + ("updatedAt" to FieldValue.serverTimestamp()))
                 }
                 true
             }.addOnCompleteListener saved@{ saved ->
                 if (!active(seq)) return@saved
                 if (saved.isSuccessful && ownerSession(ready.uid)) {
+                    val message = if (saved.result == true) "Perfil de teste atualizado."
+                        else "Nenhuma alteração no perfil de teste."
                     state = ready.copy(displayName = name, bio = bio,
-                        working = false, message = "Perfil de teste atualizado.")
+                        working = false, message = message)
                     onSuccess()
                 } else {
                     state = ready.copy(message = "Não foi possível salvar o perfil de teste.")
