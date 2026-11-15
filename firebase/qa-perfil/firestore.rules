@@ -1,8 +1,8 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // PERFIL QA: candidato OFFLINE, nunca publicado automaticamente.
-    // Sem fallbacks para flags inexistentes; Auth do projeto QA exclusivamente.
+    // Candidato EXCLUSIVAMENTE offline para o piloto Perfil QA.
+    // Sem cadastro, conteudo comunitario, chat ou dados reais.
     function signedInWithEmail() {
       return request.auth != null
         && request.auth.token.get('email', '') is string
@@ -12,8 +12,11 @@ service cloud.firestore {
       return signedInWithEmail()
         && request.auth.token.get('email_verified', false) == true;
     }
-    function owner(uid) {
-      return signedInWithEmail() && request.auth.uid == uid;
+    function verifiedOwner(uid) {
+      return verified() && request.auth.uid == uid;
+    }
+    function ownPost() {
+      return verified() && resource.data.uid == request.auth.uid;
     }
     function validName(name) {
       return name is string && name.size() >= 2 && name.size() <= 35;
@@ -22,22 +25,18 @@ service cloud.firestore {
       return bio is string && bio.size() <= 180;
     }
 
-    // Cadastro mínimo do próprio titular. Nenhuma enumeração de perfis privados.
+    // Login de conta QA existente; perfis sintéticos são provisionados
+    // fora do aplicativo e somente após autorização própria do fundador.
     match /profiles/{uid} {
-      allow get: if owner(uid);
-      allow list: if false;
-      allow create: if owner(uid)
-        && request.resource.data.keys().hasOnly(['displayName', 'createdAt'])
-        && request.resource.data.keys().hasAll(['displayName', 'createdAt'])
-        && validName(request.resource.data.displayName)
-        && request.resource.data.createdAt == request.time;
-      // Edição exige e-mail confirmado e projeção pública sincronizada no
-      // mesmo batch/transaction quando o opt-in público já existe.
-      allow update: if owner(uid) && verified()
+      allow get: if verifiedOwner(uid);
+      allow list, create, delete: if false;
+      allow update: if verifiedOwner(uid)
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['displayName', 'bio'])
         && validName(request.resource.data.displayName)
         && validBio(request.resource.data.get('bio', ''))
+        // Se ja existe opt-in publico, a transacao deve atualizar a
+        // mesma projecao e nao pode recria-la apos revogacao.
         && (!exists(/databases/$(database)/documents/public_profiles/$(uid))
           || (getAfter(/databases/$(database)/documents/public_profiles/$(uid))
                 .data.displayName == request.resource.data.displayName
@@ -45,14 +44,14 @@ service cloud.firestore {
                 .data.bio == request.resource.data.get('bio', '')
             && getAfter(/databases/$(database)/documents/public_profiles/$(uid))
                 .data.updatedAt == request.time));
-      allow delete: if false;
     }
 
-    // Apresentação voluntária: não expõe /profiles a outros membros.
+    // A transacao Android consulta SOMENTE a projecao propria.
+    // Opt-in novo, enumeracao publica e exclusao nao fazem parte do piloto.
     match /public_profiles/{uid} {
-      allow get: if verified();
-      allow list: if false;
-      allow create, update: if owner(uid) && verified()
+      allow get: if verifiedOwner(uid);
+      allow list, create, delete: if false;
+      allow update: if verifiedOwner(uid)
         && exists(/databases/$(database)/documents/profiles/$(uid))
         && request.resource.data.keys().hasOnly([
           'displayName', 'bio', 'joinedAt', 'updatedAt'
@@ -60,49 +59,33 @@ service cloud.firestore {
         && request.resource.data.keys().hasAll([
           'displayName', 'bio', 'joinedAt', 'updatedAt'
         ])
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['displayName', 'bio', 'updatedAt'])
         && validName(request.resource.data.displayName)
         && validBio(request.resource.data.bio)
+        && request.resource.data.joinedAt == resource.data.joinedAt
+        && request.resource.data.joinedAt ==
+          getAfter(/databases/$(database)/documents/profiles/$(uid)).data.createdAt
         && request.resource.data.displayName ==
           getAfter(/databases/$(database)/documents/profiles/$(uid)).data.displayName
         && request.resource.data.bio ==
           getAfter(/databases/$(database)/documents/profiles/$(uid)).data.get('bio', '')
-        && request.resource.data.joinedAt ==
-          getAfter(/databases/$(database)/documents/profiles/$(uid)).data.createdAt
         && request.resource.data.updatedAt == request.time;
-      allow delete: if owner(uid) && verified();
     }
 
-    // O histórico "Minhas discussões" usa UID + createdAt ou ID, com limit(20).
-    // Posts são comunitários, não privados por UID. Neste piloto somente
-    // documentos SINTÉTICOS provisionados sob autorização administrativa;
-    // clientes NÃO publicam, editam nem apagam posts.
+    // Firestore Rules NÃO filtram resultados: o cliente deve enviar
+    // where('uid', '==', auth.uid) E limit(20) inclusive no legado por ID.
     match /posts/{postId} {
-      allow get: if verified();
-      allow list: if verified()
+      allow get: if ownPost();
+      allow list: if ownPost()
         && request.query.limit != null
         && request.query.limit <= 20;
+      // Publicacoes do titular apenas para leitura. Sem UGC no piloto.
       allow create, update, delete: if false;
     }
 
-    // Exibir foto/selo público de QA, sem permitir atribuir identidade
-    // religiosa ou publicar fotos a partir do APK.
-    match /badges/{uid} {
-      allow get: if verified();
-      allow list, create, update, delete: if false;
-    }
-    match /profile_photos/{uid} {
-      allow get: if verified();
-      allow list, create, update, delete: if false;
-    }
-
-    // Metadado de política consultável no cadastro, imutável pelo cliente.
-    match /app_config/email_verification {
-      allow get: if signedInWithEmail();
-      allow list, create, update, delete: if false;
-    }
-
-    // Guardião, chats, notificações, denúncias, consentimentos, preferências
-    // sensíveis, Admin, Storage e todas as demais rotas ficam FECHADOS.
+    // Selos, fotos, app_config, chats, notificacoes, dados religiosos,
+    // replies e todas as outras colecoes permanecem FECHADAS.
     match /{document=**} {
       allow read, write: if false;
     }
