@@ -23,6 +23,7 @@ class QaGeralBotIsolationTests(unittest.TestCase):
             'applicationIdSuffix = ".chatqa"',
             'applicationIdSuffix = ".perfilqa"',
             'file(it).exists()',
+            'add("qaGeralImplementation", "androidx.compose.ui:ui-test-manifest")',
         ):
             with self.subTest(expected=expected):
                 self.assertIn(expected, gradle)
