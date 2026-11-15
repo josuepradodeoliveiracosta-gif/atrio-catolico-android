@@ -64,7 +64,7 @@ As três entradas sem `license` são: raiz do projeto (`packages[""]`), `fuzzy@0
 
 ## 4. Python e infraestrutura
 
-- [scripts/qa_official/requirements.txt](../../scripts/qa_official/requirements.txt) declara `uiautomator2==3.7.1` para QA; o [projeto upstream](https://github.com/openatx/uiautomator2) apresenta licença MIT. **Pendência:** conferir a distribuição específica 3.7.1 e suas dependências transitivas.
+- [A revisão usada neste inventário](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/blob/5ceb39116ce047b81576de6464953b5ed77a792f/scripts/qa_official/requirements.txt) declarava `uiautomator2==3.7.1` para QA; o [projeto upstream](https://github.com/openatx/uiautomator2) apresenta licença MIT. **Pendência:** conferir a distribuição específica 3.7.1 e suas dependências transitivas.
 - O repositório usa GitHub Actions, Firebase e Cloudflare. Licenças de bibliotecas são diferentes de **termos de uso de serviço**; contratos/termos de plataformas também devem ser observados.
 - Não foi executada instalação, download de pacotes, alteração de configurações nem acesso a produção.
 

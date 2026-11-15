@@ -6,7 +6,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
-from common import PROJECT, PACKAGE, REPO, accounts, digest, request, require, validate_source
+from common import PROJECT, PACKAGE, REPO, digest, request, require, validate_source
 
 
 def command(*args):
@@ -17,7 +17,6 @@ def verify():
     require(os.environ.get("GITHUB_REPOSITORY") == REPO, "wrong_repository")
     require(os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch", "manual_only")
     require(os.environ.get("GITHUB_RUN_ATTEMPT") == "1", "rerun_not_allowed")
-    accounts(os.environ["ATRIO_QA_BOTS_JSON"])
     build_id = os.environ["APK_RUN_ID"]
     require(re.fullmatch(r"[1-9][0-9]+", build_id), "invalid_build_id")
     token = os.environ["GH_TOKEN"]
@@ -49,9 +48,6 @@ def verify():
                 "certificate_sha256": digest(certs[0]), "package": PACKAGE, "project": PROJECT,
                 "version": command(analyzer, "manifest", "version-name", apk)}
     Path("qa-official-results/apk.json").write_text(json.dumps(evidence, indent=2))
-    # Public API key from the verified APK, not a service-account credential.
-    with open(os.environ["GITHUB_ENV"], "a") as env:
-        env.write(f"VERIFIED_APK={apk}\nFIREBASE_WEB_API_KEY={key}\n")
 
 
 if __name__ == "__main__":
@@ -59,5 +55,5 @@ if __name__ == "__main__":
         verify()
         print("APK assinado e origem conferidos.")
     except Exception:
-        print("Preflight do APK falhou; confira artefato, hashes, certificado e configuracao.")
+        print("Verificação do APK falhou; confira artefato, hashes, certificado e configuracao.")
         sys.exit(1)

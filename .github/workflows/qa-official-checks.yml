@@ -1,4 +1,4 @@
-name: Validar executor oficial sem acessar producao
+name: Validar verificacao de integridade do APK oficial
 on:
   pull_request:
     branches: [main]
@@ -18,4 +18,3 @@ jobs:
         with:
           python-version: '3.12'
       - run: python3 -m unittest discover -s tests/qa_official -v
-      - run: bash -n scripts/qa_official/run-device.sh
