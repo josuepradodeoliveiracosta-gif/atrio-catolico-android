@@ -1,100 +1,50 @@
-# Perfil 2.0 — Rules de QA, candidato estritamente offline
+# Perfil QA — regras de titularidade para o piloto Android isolado
 
-**Agente 4 / Segurança • 14/11/2026.** Depende de PR #291 (histórico),
-PR #294 (contratos Firestore), PR #295 (ambiente) e coordenação com PR #193
-(Gradle `chatQa`). Este diretório NÃO é usado por `firebase.json` da raiz,
-portanto não substitui `firestore.rules` da produção.
+**Agente 2 · Backend e Firebase · 15/11/2026 · somente OFFLINE e NÃO publicado.**
 
-## Destino exclusivamente proposto
+## Contrato e referências
 
-- Projeto: `atrio-catolico-qa-perfil`, banco `(default)`;
-  aplicativo registrado: `br.com.atriocatolico.perfilqa`.
-- O fundador comprovou via Termux o índice `posts(uid ASC, createdAt DESC)`
-  com escopo `COLLECTION` e estado **READY** na Issue #105.
-- A regra `deny-all` foi vista no editor Firebase; **a release realmente
-  publicada ainda precisa ser confirmada** via leitura de metadados.
-- Não executar `firebase deploy` nem apontar a produção, QA Geral ou
-  Conversas para este arquivo. **Este candidato NÃO está aprovado para deploy.**
+- Fluxo Android restrito da PR #298, derivado da cadeia #297 → #296 → #294 → #291.
+- Destino futuro: Firebase QA atrio-catolico-qa-perfil, banco (default), Spark; índice composto posts(uid ASC,createdAt DESC) confirmado READY por Termux do fundador.
+- Security Rules reais permanecem na política inicial deny-all visualizada no Console; a release efetivamente publicada ainda carece de confirmação read-only independente.
+- O arquivo de Rules aqui não é referenciado pelo firebase.json da raiz. **Não executar deploy.**
+- A PR #193 (chatQa), o Firebase oficial e os demais QA não foram alterados.
 
-## Escopo intencional da primeira etapa
+## Menor privilégio no piloto
 
-`firestore.rules` permite somente:
+Todas as leituras e edições permitidas exigem Firebase Auth com email_verified=true e UID do próprio token:
 
-1. Cadastro e leitura do próprio documento `profiles/{uid}`, com nome
-   e data controlados; edição após e-mail verificado, com consistência
-   transacional obrigatória com a apresentação pública, se houver.
-2. Leitura pontual de `public_profiles` por membros com e-mail
-   verificado; criação/edição vinculada ao perfil privado no mesmo
-   estado `getAfter`, sem enumeração.
-3. Leitura de `posts` comunitários por membro verificado. Consultas
-   obrigatoriamente limitadas a **20** registros, como o Perfil 2.0 da
-   PR #291. **Não restringe posts por UID nas Rules**: a consulta do
-   cliente usa o filtro para selecionar o histórico, não para tornar
-   publicações privadas.
-4. Leitura pontual de selos/fotos já existentes, sem conceder papéis
-   ou upload; leitura pontual de metadado `email_verification`.
-5. `deny-all` para todas as outras rotas. Não habilita chats,
-   Guardião, relatórios, preferências de fé/paróquia, notificações,
-   dados de crianças, consentimento, criação/edição/exclusão de posts,
-   gestão de selos ou exclusão de conta.
+| Caminho | Permitido | Negado |
+| --- | --- | --- |
+| profiles/{uid} | get do titular; update somente displayName de 2–35 e bio até 180 | list, create, delete, campo alheio, outros UIDs |
+| public_profiles/{uid} | get do próprio titular; update de projeção existente e sincronizada | get de terceiros; list, create e delete |
+| posts/{postId} | get de post cujo uid armazenado corresponde ao Auth UID; list com filtro uid próprio e limit <=20 | posts de terceiros; sem filtro/limite; create/update/delete |
+| Todos os demais caminhos | nenhum acesso | read e write |
 
-**Limitação funcional conhecida:** a política de laboratório permite
-**histórico e edição de perfil**, não a homologação integral do app.
-Os posts de teste deverão ser **sintéticos** e somente poderão ser
-provisionados depois de autorização separada, por operador confiável.
-Nunca contornar Rules com credenciais administrativas em código Android.
+Quando a apresentação pública já existe, a edição do perfil precisa sincronizá-la na mesma transação com getAfter. O aplicativo não pode recriar opt-in revogado nem alterar joinedAt, createdAt ou privilégios.
 
-A exigência de `email_verified` é **fail-closed** e não depende de
-configuração `app_config` ausente, ao contrário da política de
-compatibilidade legada de produção. Sem um APK `perfilQa` vinculado
-a este projeto, sem dados sintéticos e sem Rules publicadas, o
-aplicativo remoto não deverá funcionar: isso é esperado.
+**Security Rules não filtram consultas.** A PR #298 deve manter os filtros UID e limit(20) nas consultas ordenadas por createdAt DESC com cursor e na varredura legada por documentId. Uma consulta que possa alcançar posts de outro autor será negada, mesmo se limitar 20.
 
-## Testes offline
+O piloto não faz cadastro, criação de perfil, UGC/replies, postagens, gerenciamento de selos/fotos, leitura de app_config, conversas, notificações, dados religiosos, Storage ou ações de moderação/Admin.
 
-`tests/security/qa-perfil-rules.test.mjs` usa exclusivamente o Firebase
-Emulator com `demo-atrio-v11`. É executado como parte de `npm test`
-na branch derivada da PR #294. Cobre titular/terceiros/anônimo,
-verificação de e-mail, edição com `getAfter`, paginação 20+5,
-varredura legada, consulta excessiva, posts comunitários, bloqueio
-de autoatribuição de selos, dados religiosos e demais rotas.
+**email_verified não é whitelist de contas de homologação.** Nunca provisionar identidades ou dados no Firebase real sem autorização específica.
 
-O teste e a análise estática não demonstram que a política foi publicada.
+## Testes e evidências
 
-## Gate operacional — Termux, somente leitura
+No clone, de modo exclusivamente local:
+- cd tests/security
+- npm ci
+- npm test
 
-No clone do repositório, executando exatamente esta branch:
+A suíte existente usa o Firebase Emulator Suite com projeto sintético demo-atrio-v11. O arquivo qa-perfil-rules.test.mjs cobre **17 blocos positivos e negativos**, incluindo titularidade, criação negada, transação/opt-in existente, paginação 20+5, legado, outras contas, consulta sem filtro/limit, modificações indevidas e coleções fora do escopo. O teste não acessa o Firebase remoto.
 
-```sh
-node scripts/termux-perfil-qa-rules-readonly.mjs
-```
+**Declarar PASS apenas após conferir execução real no SHA final da PR.** Um build Debug/CI não equivale a APK perfilQa nem testes em aparelho.
 
-O script consulta **dois GETs**, exclusivamente
-`projects/atrio-catolico-qa-perfil` no Firebase Rules API; exige
-sessão já autenticada na Firebase CLI e mostra apenas o hash do
-Ruleset, estado `deny-all` e igualdade de hash com o candidato
-local. Nunca mostra tokens nem conteúdo integral das Rules.
+## Revisão e gates
 
-**Estado aceitável nesta etapa:** `publishedDenyAll=true`,
-`matchesCandidate=false` (candidato ainda não publicado). Resposta
-403, dados inesperados ou política não fechada exige investigação,
-não publicação. O script é apenas prova de metadados, não teste de
-autorização com clientes nem de IAM de serviço.
+- Agente 4: revisar permissão por UID, Auth verificado, getAfter e negativas.
+- Agente 5: confirmar logs do Firebase Emulator por SHA e regressões. Homologação APK/física requer autorização específica futura.
+- Agente 7: conferir integração com fluxo da PR #298 e preservação do chatQa da PR #193.
+- Fundador: autoridade final para qualquer deploy, contas/fixtures reais, APK conectado e merge.
 
-## Próximos portões
-
-1. Executar CI no SHA exato e solicitar revisão do Agente 7.
-2. Fundador/operador executa auditoria da release **via Termux**,
-   compartilha somente resultado sanitizado.
-3. Agentes 2/3/7 alinham variante `perfilQa` com `chatQa` da #193
-   e provas de `project_id`, `applicationId` e ausência de
-   fallback para o JSON/hosts de produção, sem compilar APK oficial.
-4. **Qualquer publicação futura** requer autorização explícita e
-   específica do fundador após revisão e planejamento de reversão.
-   Não autorizar ampliação para testes de outros módulos por esta PR.
-5. Agente 5 executa teste físico com contas/dados estritamente
-   sintéticos depois da aprovação de infraestrutura. Integração
-   #291/#294 continua NO-GO até esses gates e decisão do fundador.
-
-Não usar nem inserir dados reais, credenciais, tokens, fotos pessoais
-ou chaves de serviço. Não habilitar billing, PITR ou serviços pagos.
+**NÃO foram alterados** Firebase remoto, Rule publicada, contas, dados reais, custos, produção, Conversas, backups, assinatura oficial ou main.
