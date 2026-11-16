@@ -611,7 +611,7 @@ private fun OnlineUserScreen(
     LaunchedEffect(uid) {
         val isolatedQa = BuildConfig.DEBUG &&
             com.google.firebase.FirebaseApp.getInstance().options.projectId == "demo-atrio-v11"
-        if (!isolatedQa) {
+        if (!isolatedQa && !BuildConfig.ATRIO_QA_GERAL_REMOTE) {
             PushRegistry.refreshIfEnabled(context, uid, db)
             BackgroundNoticeScheduler.sync(context, uid)
         }
@@ -780,8 +780,13 @@ private fun OnlineCommunity(
     var publicProfileTarget by remember(uid) { mutableStateOf<PublicMemberTarget?>(null) }
     val conversationsQa = BuildConfig.DEBUG &&
         BuildConfig.APPLICATION_ID == "br.com.atriocatolico.qageral" &&
-        db.app.options.projectId == "demo-atrio-v11" &&
-        db.firestoreSettings.host == "127.0.0.1:8089"
+        if (BuildConfig.ATRIO_QA_GERAL_REMOTE) {
+            qaGeralRemoteFirebaseReady(context) &&
+                db.firestoreSettings.host == "firestore.googleapis.com"
+        } else {
+            db.app.options.projectId == "demo-atrio-v11" &&
+                db.firestoreSettings.host == "127.0.0.1:8089"
+        }
     var conversationsOpen by remember(uid) { mutableStateOf(false) }
     var conversationPeer by remember(uid) { mutableStateOf<PublicMemberTarget?>(null) }
     fun closeConversations() {

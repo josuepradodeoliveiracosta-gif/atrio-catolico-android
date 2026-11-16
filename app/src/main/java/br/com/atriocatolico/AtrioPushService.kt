@@ -53,7 +53,8 @@ internal object PushRegistry {
     private fun enabledKey(uid: String) = "enabled_$uid"
 
     fun enabled(context: Context, uid: String): Boolean =
-        uid.isNotBlank() && prefs(context).getBoolean(enabledKey(uid), false)
+        !BuildConfig.ATRIO_QA_GERAL_REMOTE && uid.isNotBlank() &&
+            prefs(context).getBoolean(enabledKey(uid), false)
 
     private fun deviceId(context: Context): String {
         val preferences = prefs(context)
@@ -142,6 +143,10 @@ internal object PushRegistry {
             done(false, PushRegistrationProblem.SESSION_CHANGED)
             return
         }
+        if (BuildConfig.ATRIO_QA_GERAL_REMOTE) {
+            done(false, null)
+            return
+        }
         prefs(context).edit().putBoolean(enabledKey(uid), true).apply()
         register(context, uid, db) { ok, issue ->
             if (!ok && FirebaseAuth.getInstance().currentUser?.uid == uid) {
@@ -157,7 +162,7 @@ internal object PushRegistry {
     }
 
     fun deactivate(context: Context, uid: String, db: FirebaseFirestore) {
-        if (uid.isBlank()) return
+        if (uid.isBlank() || BuildConfig.ATRIO_QA_GERAL_REMOTE) return
         prefs(context).edit().putBoolean(enabledKey(uid), false).apply()
         FirebaseMessaging.getInstance().isAutoInitEnabled = false
         FirebaseMessaging.getInstance().unsubscribeFromTopic(COMMUNICATION_TOPIC)

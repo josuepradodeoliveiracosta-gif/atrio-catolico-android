@@ -24,7 +24,8 @@ internal object ThreadPushSubscriptions {
         idPattern.matches(postId) && postId in get(context, uid)
 
     fun track(context: Context, uid: String, postId: String) {
-        if (!idPattern.matches(postId) || FirebaseAuth.getInstance().currentUser?.uid != uid) return
+        if (BuildConfig.ATRIO_QA_GERAL_REMOTE || !idPattern.matches(postId) ||
+            FirebaseAuth.getInstance().currentUser?.uid != uid) return
         val before = get(context, uid)
         if (postId in before) return
         // O registro persiste inclusive com Push desabilitado, para reinscrever
