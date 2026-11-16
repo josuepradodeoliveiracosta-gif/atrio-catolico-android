@@ -714,6 +714,7 @@ private fun OnlineUserScreen(
             visible = !(isAdmin && (moderationOpen || clergyReviewOpen)),
             onModeration = if (isAdmin) ({ moderationOpen = true }) else null,
             onClergyReview = if (isAdmin) ({ clergyReviewOpen = true }) else null,
+            onQaReplyBatch = onQaReplyBatch,
             onSignOut = { BackgroundNoticeScheduler.disable(context, uid); PushRegistry.deactivate(context, uid, db); auth.signOut() })
         if (moderationOpen && isAdmin) ModerationScreen(db, uid, onBack = { moderationOpen = false })
         else if (clergyReviewOpen && isAdmin) ClergyBadgeReviewScreen(db, uid, onBack = { clergyReviewOpen = false })
@@ -730,7 +731,8 @@ private fun OnlineCommunity(
     db: FirebaseFirestore, uid: String, name: String, email: String, biography: String,
     onPhotoChanged: () -> Unit,
     visible: Boolean, onSignOut: () -> Unit, onModeration: (() -> Unit)?,
-    onClergyReview: (() -> Unit)?
+    onClergyReview: (() -> Unit)?,
+    onQaReplyBatch: ((QaReplyBatchState) -> Unit)?,
 ) {
     val context = LocalContext.current
     val ota = rememberOtaUpdateController()
