@@ -59,12 +59,21 @@ import com.google.firebase.firestore.FieldValue
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.launch
 
+internal data class QaReplyBatchState(
+    val replyId: String,
+    val ownerNoticeQueued: Boolean,
+    val result: String,
+)
+
 /**
  * O modo conectado só é exibido se um google-services.json válido estiver instalado.
  * Nenhuma chave nem projeto Firebase é embutido no repositório de exemplo.
  */
 @Composable
-internal fun OnlineAtrioApp(activity: androidx.activity.ComponentActivity) {
+internal fun OnlineAtrioApp(
+    activity: androidx.activity.ComponentActivity,
+    onQaReplyBatch: ((QaReplyBatchState) -> Unit)? = null,
+) {
     val auth = remember { FirebaseAuth.getInstance() }
     val db = remember { FirebaseFirestore.getInstance() }
     var signedUser by remember { mutableStateOf(auth.currentUser) }
@@ -176,7 +185,11 @@ internal fun OnlineAtrioApp(activity: androidx.activity.ComponentActivity) {
                         onSignOut = onGateSignOut
                     )
                 } else if (canEnterAtrioCommunity(verifiedThisSession, verificationPolicy)) {
-                    OnlineUserScreen(auth = auth, db = db, user = user)
+                    OnlineUserScreen(auth = auth, db = db, user = user,
+                        onQaReplyBatch = if (isolatedQa &&
+                            BuildConfig.APPLICATION_ID == "br.com.atriocatolico.qageral") {
+                            onQaReplyBatch
+                        } else null)
                 } else if (verificationPolicy == EmailVerificationPolicyAccess.REQUIRED) {
                     MandatoryEmailVerificationGate(
                         uid = user.uid,
@@ -548,7 +561,12 @@ private fun registrationErrorMessage(failure: Exception): String {
 }
 
 @Composable
-private fun OnlineUserScreen(auth: FirebaseAuth, db: FirebaseFirestore, user: FirebaseUser) {
+private fun OnlineUserScreen(
+    auth: FirebaseAuth,
+    db: FirebaseFirestore,
+    user: FirebaseUser,
+    onQaReplyBatch: ((QaReplyBatchState) -> Unit)?,
+) {
     val uid = user.uid
     // Rollout seguro: o novo portão só liga APÓS implantar as regras Firestore
     // e aprovar explicitamente app_config/community_rules pelo Console.
@@ -1180,7 +1198,8 @@ private fun OnlineCommunity(
                     }
                 }
                 batch.set(replyRef, replyData)
-                if (ownerUid != uid) {
+                val ownerNoticeQueued = ownerUid != uid
+                if (ownerNoticeQueued) {
                     val noticeRef = db.collection("users").document(ownerUid)
                         .collection("notifications").document(replyRef.id)
                     val notice = mutableMapOf<String, Any>(
@@ -1239,7 +1258,14 @@ private fun OnlineCommunity(
                     batch.set(noticeRef, mentionNotice)
                 }
                 // Resposta e notificações continuam atômicas.
+                onQaReplyBatch?.invoke(QaReplyBatchState(replyRef.id, ownerNoticeQueued, "pendente"))
                 batch.commit().addOnCompleteListener { result ->
+                    if (onQaReplyBatch != null) {
+                        val status = if (result.isSuccessful) "confirmado" else
+                            (result.exception as? com.google.firebase.firestore.FirebaseFirestoreException)
+                                ?.code?.name ?: "falhou"
+                        onQaReplyBatch(QaReplyBatchState(replyRef.id, ownerNoticeQueued, status))
+                    }
                     // Confirmar imediatamente o resultado para a interface.
                     // Inscrições FCM e relay não devem bloquear o botão Responder.
                     if (!result.isSuccessful) {
