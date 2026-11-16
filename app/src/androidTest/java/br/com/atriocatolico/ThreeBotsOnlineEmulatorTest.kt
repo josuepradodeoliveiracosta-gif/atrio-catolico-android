@@ -232,20 +232,47 @@ class ThreeBotsOnlineEmulatorTest {
             .assertIsDisplayed()
             .assertIsEnabled()
             .performClick()
-        // A escrita deve ser confirmada no servidor, não apenas no cache
-        // local da tela. A resposta também precisa pertencer a Miguel.
-        compose.waitUntil(30000) {
-            val replies=Tasks.await(db.collection("posts").document(postId)
-                .collection("replies").get(Source.SERVER),20,TimeUnit.SECONDS)
-            replies.documents.any {
-                it.getString("body")=="Resposta de Miguel pelo app Android conectado." &&
-                    it.getString("uid")==auth.currentUser?.uid
+        val miguelId = requireNotNull(auth.currentUser?.uid)
+        assertTrue("Miguel deve ser diferente de Clara", miguelId != claraId)
+        val repliesRef = db.collection("posts").document(postId).collection("replies")
+        var replyId: String? = null
+        var sawPendingWrite = false
+        try {
+            compose.waitUntil(30000) {
+                val matchingReplies = Tasks.await(repliesRef.get(Source.SERVER), 5, TimeUnit.SECONDS)
+                    .documents.filter {
+                        it.getString("body") == "Resposta de Miguel pelo app Android conectado." &&
+                            it.getString("uid") == miguelId
+                    }
+                assertTrue("O toque criou mais de uma resposta de Miguel", matchingReplies.size <= 1)
+                val reply = matchingReplies.singleOrNull()
+                val pending = reply?.metadata?.hasPendingWrites() == true
+                sawPendingWrite = sawPendingWrite || pending
+                replyId = reply?.takeUnless { pending }?.id
+                replyId != null
             }
+        } catch (timeout: androidx.compose.ui.test.ComposeTimeoutException) {
+            throw AssertionError("Resposta sem confirmação antes de sair de Miguel; pendência local observada=$sawPendingWrite", timeout)
         }
-        assertTrue("A resposta foi publicada fora da conta de Miguel",
-            auth.currentUser?.uid!=claraId)
-        // Miguel não pode ler as notificações privadas de Clara. A leitura
-        // será feita após reautenticar como destinatária, no final da sessão.
+        Tasks.await(db.waitForPendingWrites(), 15, TimeUnit.SECONDS)
+        val confirmedReplyId = requireNotNull(replyId)
+        val confirmedReply = Tasks.await(repliesRef.document(confirmedReplyId).get(Source.SERVER),
+            10, TimeUnit.SECONDS)
+        assertTrue("Resposta precisa existir sem gravação pendente",
+            confirmedReply.exists() && !confirmedReply.metadata.hasPendingWrites())
+        assertEquals("Autor da resposta confirmada", miguelId, confirmedReply.getString("uid"))
+        android.util.Log.i("AtrioNoticeQA", "resposta_confirmada=true pendencia_observada=$sawPendingWrite")
+
+        val noticesRef = db.collection("users").document(claraId).collection("notifications")
+        val noticeRef = noticesRef.document(confirmedReplyId)
+        leave()
+
+        // Consultar como destinatária, antes da interação de Lúcia.
+        enter(claraEmail, "Clara")
+        assertEquals("Sessão inicial da destinatária", claraId, auth.currentUser?.uid)
+        val earlyNotice = Tasks.await(noticeRef.get(Source.SERVER), 10, TimeUnit.SECONDS)
+        android.util.Log.i("AtrioNoticeQA",
+            "antes_de_lucia documento=${earlyNotice.exists()} pendente=${earlyNotice.metadata.hasPendingWrites()}")
         leave()
 
         // Lúcia autentica sua própria conta, curte e salva a discussão.
@@ -282,19 +309,30 @@ class ThreeBotsOnlineEmulatorTest {
         enter(claraEmail,"Clara")
         assertEquals("A sessão de Clara deve ser restaurada corretamente",
             claraId,auth.currentUser?.uid)
-        // Espera a sincronização da sessão do Auth + aviso do Firestore.
-        // Não considerar um snapshot inicial vazio como prova de falha.
-        // Se permanecer vazio, informar também o dono e o autor canônicos,
-        // sem expor credenciais nem qualquer conteúdo de usuários reais.
-        compose.waitUntil(30000) {
-            val result=Tasks.await(db.collection("users").document(claraId)
-                .collection("notifications").get(Source.SERVER),20,TimeUnit.SECONDS)
-            result.documents.any { it.getString("postId")==postId }
+        var diagnostic = "nenhuma leitura concluída"
+        try {
+            compose.waitUntil(30000) {
+                val exact = Tasks.await(noticeRef.get(Source.SERVER), 5, TimeUnit.SECONDS)
+                val canonical = exact.exists() && !exact.metadata.hasPendingWrites() &&
+                    exact.getString("postId") == postId &&
+                    exact.getString("replyId") == confirmedReplyId &&
+                    exact.getString("actorUid") == miguelId
+                diagnostic = "documento=${exact.exists()} campos_corretos=$canonical lista=sem_resposta"
+                val list = Tasks.await(noticesRef.get(Source.SERVER), 5, TimeUnit.SECONDS)
+                val matching = list.documents.filter { it.getString("postId") == postId }
+                val inList = matching.singleOrNull()?.id == confirmedReplyId
+                diagnostic = "documento=${exact.exists()} campos_corretos=$canonical " +
+                    "aviso_exato_na_lista=$inList avisos_da_discussao=${matching.size}"
+                canonical && inList
+            }
+        } catch (exception: Exception) {
+            val cause = (exception.cause ?: exception)
+            val reason = (cause as? com.google.firebase.firestore.FirebaseFirestoreException)
+                ?.code?.name ?: cause.javaClass.simpleName
+            throw AssertionError("Falha ao confirmar aviso: $diagnostic erro=$reason")
         }
-        val notice=Tasks.await(db.collection("users").document(claraId)
-            .collection("notifications").get(Source.SERVER),25,TimeUnit.SECONDS)
-        assertEquals(
-            "Miguel publicou a resposta, mas a notificação de Clara não foi persistida.",
-            1,notice.documents.count { it.getString("postId")==postId })
+        android.util.Log.i("AtrioNoticeQA", "depois_de_lucia $diagnostic")
+        assertTrue("Aviso ausente ou pendente antes das ações de Lúcia",
+            earlyNotice.exists() && !earlyNotice.metadata.hasPendingWrites())
     }
 }
