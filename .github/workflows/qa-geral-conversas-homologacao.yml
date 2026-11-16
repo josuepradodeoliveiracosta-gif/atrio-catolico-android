@@ -38,9 +38,11 @@ jobs:
               *) echo "Arquivo fora do roteiro de homologação: $path" >&2; exit 1 ;;
             esac
           done < <(git diff --name-only "$APP_SOURCE_SHA" HEAD)
-          for config in app/google-services.json app/src/qaGeral/google-services.json app/src/chatQa/google-services.json app/src/perfilQa/google-services.json; do
+          for config in app/src/qaGeral/google-services.json app/src/chatQa/google-services.json app/src/perfilQa/google-services.json; do
             test ! -e "$config"
           done
+          rm -f -- app/google-services.json
+          test ! -e app/google-services.json
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
