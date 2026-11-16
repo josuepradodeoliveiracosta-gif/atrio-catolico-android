@@ -1,0 +1,383 @@
+
+    // Etapa 3 experimental — grupos PRIVADOS somente texto.
+    // Fragmento isolado do deploy oficial; ativação administrativa fechada.
+    // Compartilhar os campos do MESMO documento por parâmetro elimina
+    // leituras repetidas e respeita as cotas do Firestore Security Rules.
+    function atrioGroupConfigValid(config) {
+      return config.get('enabled',false) == true
+        && config.get('minorPolicyApproved',false) == true
+        && config.get('version','') == '2026-11-groups-v1';
+    }
+    function atrioGroupsEnabled() {
+      return chatEnabled() && signedIn()
+        && atrioGroupConfigValid(get(/databases/$(database)/documents/app_config/chat_groups).data);
+    }
+    // O operador só pode provisionar elegibilidade via Console/Admin SDK.
+    // Este registro é CONTROLE DE HOMOLOGAÇÃO, não comprovação de idade.
+    function atrioGroupEligibilityPath(uid) {
+      return /databases/$(database)/documents/users/$(uid)/chatGroupAccess/eligibility;
+    }
+    function atrioGroupEligibleData(eligibility) {
+      return eligibility.get('status','') == 'approved'
+        && eligibility.get('policyVersion','') == '2026-11-group-safety-v1'
+        && eligibility.get('reviewExpiresAt',request.time) is timestamp
+        && eligibility.get('reviewExpiresAt',request.time) > request.time;
+    }
+    function atrioGroupEligible(uid) {
+      return atrioGroupEligibleData(get(atrioGroupEligibilityPath(uid)).data);
+    }
+    function atrioGroupPath(groupId) {
+      return /databases/$(database)/documents/chat_groups/$(groupId);
+    }
+    // Proteção anti-spam: convites apenas a contatos com conversa individual
+    // previamente aceita. Não basta conhecer o UID por fora do aplicativo.
+    // ID de conversa é validado contra os DOIS UIDs; nenhuma busca em
+    // duas orientações e nenhuma leitura repetida do mesmo documento.
+    function atrioGroupAcceptedContact(a,b,contactChatId) {
+      return validId(contactChatId)
+        && (contactChatId == a + '__' + b
+          || contactChatId == b + '__' + a)
+        && get(/databases/$(database)/documents/chats/$(contactChatId))
+          .data.status == 'accepted';
+    }
+    function atrioGroupInvitation(groupId,uid) {
+      return /databases/$(database)/documents/chat_groups/$(groupId)/atrioGroupInvites/$(uid);
+    }
+    function atrioGroupCreationQuota(uid) {
+      return /databases/$(database)/documents/users/$(uid)/chatGroupLimits/creation;
+    }
+    function atrioGroupHasRole(group, needsAdmin) {
+      return request.auth.uid in group.memberUids
+        && (!needsAdmin || request.auth.uid in group.adminUids);
+    }
+    function atrioGroupMember(groupId) {
+      return signedIn() && atrioGroupEligible(request.auth.uid)
+        && atrioGroupHasRole(get(atrioGroupPath(groupId)).data,false);
+    }
+    function atrioGroupAdmin(groupId) {
+      return signedIn() && atrioGroupEligible(request.auth.uid)
+        && atrioGroupHasRole(get(atrioGroupPath(groupId)).data,true);
+    }
+    function atrioGroupBasicChange() {
+      return request.resource.data.updatedAt == request.time;
+    }
+    // Firestore exige um match recursivo explícito para collectionGroup.
+    // O nome da coleção é exclusivo do Átrio; nunca concede leitura de
+    // convites pertencentes a outra conta.
+    match /{path=**}/atrioGroupInvites/{inviteId} {
+      allow list: if atrioGroupsEnabled() && signedIn()
+        && atrioGroupEligible(request.auth.uid)
+        && resource.data.inviteeUid == request.auth.uid;
+    }
+    match /app_config/chat_groups {
+      allow get: if signedIn();
+      allow list, create, update, delete: if false;
+    }
+    match /users/{uid}/chatGroupAccess/eligibility {
+      allow get: if atrioGroupsEnabled() && me(uid);
+      allow list, create, update, delete: if false;
+    }
+
+    // Preferência privada de aviso de grupo. O Worker confere silêncio e
+    // elegibilidade novamente antes de cada envio.
+    match /users/{uid}/chatGroupBox/{groupId} {
+      allow get, list: if atrioGroupsEnabled() && me(uid)
+        && atrioGroupMember(groupId);
+      allow create, update: if atrioGroupsEnabled() && me(uid)
+        && atrioGroupMember(groupId)
+        && request.resource.data.keys().hasOnly(['muted','updatedAt'])
+        && request.resource.data.keys().hasAll(['muted','updatedAt'])
+        && request.resource.data.muted is bool
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if false;
+    }
+    match /users/{uid}/chatGroupLimits/creation {
+      allow get: if atrioGroupsEnabled() && me(uid);
+      allow list, delete: if false;
+      allow create: if atrioGroupsEnabled() && me(uid)
+        && request.resource.data.keys().hasOnly(['count','windowStart','updatedAt','lastGroupId'])
+        && request.resource.data.keys().hasAll(['count','windowStart','updatedAt','lastGroupId'])
+        && request.resource.data.count == 1
+        && request.resource.data.windowStart == request.time
+        && request.resource.data.updatedAt == request.time
+        && validId(request.resource.data.lastGroupId)
+        && !exists(atrioGroupPath(request.resource.data.lastGroupId))
+        && existsAfter(atrioGroupPath(request.resource.data.lastGroupId))
+        && getAfter(atrioGroupPath(request.resource.data.lastGroupId)).data.ownerUid == uid
+        && getAfter(atrioGroupPath(request.resource.data.lastGroupId)).data.createdAt == request.time;
+      allow update: if atrioGroupsEnabled() && me(uid)
+        && request.resource.data.keys().hasOnly(['count','windowStart','updatedAt','lastGroupId'])
+        && request.resource.data.keys().hasAll(['count','windowStart','updatedAt','lastGroupId'])
+        && request.resource.data.count is int && resource.data.count is int
+        && resource.data.windowStart is timestamp
+        && request.resource.data.updatedAt == request.time
+        && validId(request.resource.data.lastGroupId)
+        && request.resource.data.lastGroupId != resource.data.lastGroupId
+        && !exists(atrioGroupPath(request.resource.data.lastGroupId))
+        && existsAfter(atrioGroupPath(request.resource.data.lastGroupId))
+        && getAfter(atrioGroupPath(request.resource.data.lastGroupId)).data.ownerUid == uid
+        && getAfter(atrioGroupPath(request.resource.data.lastGroupId)).data.createdAt == request.time
+        && (
+          (request.time < resource.data.windowStart + duration.value(24,'h')
+            && resource.data.count < 2
+            && request.resource.data.windowStart == resource.data.windowStart
+            && request.resource.data.count == resource.data.count + 1)
+          || (request.time >= resource.data.windowStart + duration.value(24,'h')
+            && request.resource.data.windowStart == request.time
+            && request.resource.data.count == 1)
+        );
+    }
+    match /chat_groups/{groupId} {
+      allow get, list: if atrioGroupsEnabled()
+        && atrioGroupEligible(request.auth.uid)
+        && signedIn() && request.auth.uid in resource.data.memberUids;
+      allow create: if atrioGroupsEnabled() && validId(groupId)
+        && atrioGroupEligible(request.auth.uid)
+        && request.auth.uid == request.resource.data.ownerUid
+        && request.resource.data.keys().hasOnly([
+          'name','category','ownerUid','memberUids','adminUids','status',
+          'createdAt','updatedAt','lastMessageId','lastPreview','lastSenderUid'
+        ])
+        && request.resource.data.keys().hasAll([
+          'name','category','ownerUid','memberUids','adminUids','status',
+          'createdAt','updatedAt','lastMessageId','lastPreview','lastSenderUid'
+        ])
+        && validText(request.resource.data.name, 5, 80)
+        && request.resource.data.category in ['study','prayer','community']
+        && request.resource.data.memberUids == [request.auth.uid]
+        && request.resource.data.adminUids == [request.auth.uid]
+        && request.resource.data.status == 'active'
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.lastMessageId == ''
+        && request.resource.data.lastPreview == ''
+        && request.resource.data.lastSenderUid == ''
+        && existsAfter(atrioGroupCreationQuota(request.auth.uid))
+        && getAfter(atrioGroupCreationQuota(request.auth.uid)).data.lastGroupId == groupId
+        && getAfter(atrioGroupCreationQuota(request.auth.uid)).data.updatedAt == request.time
+        && getAfter(atrioGroupCreationQuota(request.auth.uid)).data.count <= 2;
+      allow update: if atrioGroupsEnabled()
+        && atrioGroupEligible(request.auth.uid)
+        && resource.data.status == 'active'
+        && atrioGroupBasicChange()
+        && (
+          // O criador encerra definitivamente sem apagar dados/reportes.
+          // Só permite o triplo status/closedByUid/closedAt em um commit.
+          (signedIn() && request.auth.uid == resource.data.ownerUid
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['status','closedByUid','closedAt','updatedAt'])
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasAll(['status','closedByUid','closedAt'])
+            && request.resource.data.status == 'closed'
+            && request.resource.data.closedByUid == request.auth.uid
+            && request.resource.data.closedAt == request.time)
+          ||
+          // A pessoa aceita convite e adiciona somente a própria conta.
+          (signedIn()
+            && !request.resource.data.diff(resource.data).affectedKeys()
+              .hasAny(['adminUids'])
+            && !(request.auth.uid in resource.data.memberUids)
+            && resource.data.memberUids.size() < 8
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['memberUids','updatedAt'])
+            && request.resource.data.memberUids.size() == resource.data.memberUids.size() + 1
+            && request.resource.data.memberUids.hasAll(resource.data.memberUids)
+            && request.auth.uid in request.resource.data.memberUids
+            && exists(atrioGroupInvitation(groupId,request.auth.uid))
+            && get(atrioGroupInvitation(groupId,request.auth.uid)).data.status == 'pending'
+            && getAfter(atrioGroupInvitation(groupId,request.auth.uid)).data.status == 'accepted'
+            && getAfter(atrioGroupInvitation(groupId,request.auth.uid)).data.updatedAt == request.time)
+          ||
+          // A própria pessoa sai, ou um administrador remove alguém,
+          // sem tocar nas funções do fundador/admin restante.
+          (signedIn()
+            && !request.resource.data.diff(resource.data).affectedKeys()
+              .hasAny(['adminUids'])
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['memberUids','lastRemovedUid','updatedAt'])
+            && request.resource.data.keys().hasAny(['lastRemovedUid'])
+            && validId(request.resource.data.lastRemovedUid)
+            && request.resource.data.lastRemovedUid != resource.data.ownerUid
+            && request.resource.data.lastRemovedUid in resource.data.memberUids
+            && !(request.resource.data.lastRemovedUid in resource.data.adminUids)
+            && !(request.resource.data.lastRemovedUid in request.resource.data.memberUids)
+            && request.resource.data.memberUids.size() == resource.data.memberUids.size()-1
+            && resource.data.memberUids.hasAll(request.resource.data.memberUids)
+            && (request.auth.uid == request.resource.data.lastRemovedUid
+              || request.auth.uid in resource.data.adminUids))
+          ||
+          // Um administrador promove um participante existente.
+          (signedIn() && request.auth.uid in resource.data.adminUids
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['adminUids','lastRoleUid','updatedAt'])
+            && validId(request.resource.data.lastRoleUid)
+            && request.resource.data.lastRoleUid in resource.data.memberUids
+            && !(request.resource.data.lastRoleUid in resource.data.adminUids)
+            && request.resource.data.lastRoleUid in request.resource.data.adminUids
+            && request.resource.data.adminUids.size() == resource.data.adminUids.size()+1
+            && request.resource.data.adminUids.hasAll(resource.data.adminUids))
+          ||
+          // Só o criador revoga a função de outro administrador.
+          (signedIn() && request.auth.uid == resource.data.ownerUid
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['adminUids','lastRoleUid','updatedAt'])
+            && validId(request.resource.data.lastRoleUid)
+            && request.resource.data.lastRoleUid != resource.data.ownerUid
+            && request.resource.data.lastRoleUid in resource.data.adminUids
+            && !(request.resource.data.lastRoleUid in request.resource.data.adminUids)
+            && request.resource.data.adminUids.size() == resource.data.adminUids.size()-1
+            && resource.data.adminUids.hasAll(request.resource.data.adminUids))
+          ||
+          // Toda nova mensagem exige batch atômico, nunca se altera o corpo
+          // original sem atualizar corretamente os metadados da conversa.
+          (signedIn() && request.auth.uid in resource.data.memberUids
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['lastMessageId','lastPreview','lastSenderUid','updatedAt'])
+            && validId(request.resource.data.lastMessageId)
+            && request.resource.data.lastMessageId != resource.data.lastMessageId
+            && request.resource.data.lastSenderUid == request.auth.uid
+            && validText(request.resource.data.lastPreview,1,1500)
+            && existsAfter(/databases/$(database)/documents/chat_groups/$(groupId)/messages/$(request.resource.data.lastMessageId))
+            && getAfter(/databases/$(database)/documents/chat_groups/$(groupId)/messages/$(request.resource.data.lastMessageId)).data.uid
+              == request.auth.uid
+            && getAfter(/databases/$(database)/documents/chat_groups/$(groupId)/messages/$(request.resource.data.lastMessageId)).data.text
+              == request.resource.data.lastPreview
+            && getAfter(/databases/$(database)/documents/chat_groups/$(groupId)/messages/$(request.resource.data.lastMessageId)).data.createdAt
+              == request.time
+            && (request.auth.uid != resource.data.lastSenderUid
+              || request.time >= resource.data.updatedAt + duration.value(3,'s')))
+        );
+      // Sair de um grupo ENCERRADO é decisão pessoal, inclusive para
+      // coadministrador. Só retira o próprio UID, sem apagar histórico,
+      // reabrir o grupo ou modificar o proprietário.
+      allow update: if atrioGroupsEnabled()
+        && atrioGroupEligible(request.auth.uid)
+        && resource.data.status == 'closed'
+        && signedIn()
+        && request.auth.uid != resource.data.ownerUid
+        && request.auth.uid in resource.data.memberUids
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.lastRemovedUid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['memberUids','adminUids','lastRemovedUid','updatedAt'])
+        && request.resource.data.memberUids.size() == resource.data.memberUids.size()-1
+        && resource.data.memberUids.hasAll(request.resource.data.memberUids)
+        && !(request.auth.uid in request.resource.data.memberUids)
+        && (
+          (request.auth.uid in resource.data.adminUids
+            && request.resource.data.adminUids.size() == resource.data.adminUids.size()-1
+            && resource.data.adminUids.hasAll(request.resource.data.adminUids)
+            && !(request.auth.uid in request.resource.data.adminUids))
+          || (!(request.auth.uid in resource.data.adminUids)
+            && request.resource.data.adminUids == resource.data.adminUids)
+        );
+      allow delete: if false;
+      match /atrioGroupInvites/{inviteeUid} {
+        allow get: if atrioGroupsEnabled() && signedIn()
+          && atrioGroupEligible(request.auth.uid)
+          && (request.auth.uid == inviteeUid || atrioGroupAdmin(groupId));
+        allow list: if atrioGroupsEnabled() && signedIn()
+          && atrioGroupEligible(request.auth.uid)
+          && (resource.data.inviteeUid == request.auth.uid || atrioGroupAdmin(groupId));
+        // O convite não concede acesso. A elegibilidade individual do
+      // destinatário é obrigatória para LER o convite e para ACEITÁ-LO.
+      // Evita uma leitura extra por operação na quota de acesso das Rules.
+      allow create: if atrioGroupsEnabled() && validId(inviteeUid)
+          && atrioGroupAdmin(groupId)
+          && get(atrioGroupPath(groupId)).data.status == 'active'
+          && request.resource.data.keys().hasOnly([
+            'inviteeUid','inviterUid','groupName','contactChatId','status','createdAt','updatedAt'
+          ])
+          && request.resource.data.keys().hasAll([
+            'inviteeUid','inviterUid','groupName','contactChatId','status','createdAt','updatedAt'
+          ])
+          && request.resource.data.inviteeUid == inviteeUid
+          && inviteeUid != request.auth.uid
+          && !(inviteeUid in get(atrioGroupPath(groupId)).data.memberUids)
+          && request.resource.data.inviterUid == request.auth.uid
+          && request.resource.data.groupName == get(atrioGroupPath(groupId)).data.name
+          && request.resource.data.status == 'pending'
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.updatedAt == request.time
+          // O destinatário nunca recebe convite de quem bloqueou.
+          // O bloqueio inverso é revalidado no ACEITE, para economizar
+          // leituras de regras na simples criação de convite.
+          && !exists(/databases/$(database)/documents/users/$(inviteeUid)/blockedMembers/$(request.auth.uid))
+          && atrioGroupAcceptedContact(
+            request.auth.uid,inviteeUid,request.resource.data.contactChatId);
+        allow update: if atrioGroupsEnabled()
+          && atrioGroupEligible(request.auth.uid)
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['status','updatedAt'])
+          && request.resource.data.updatedAt == request.time
+          && (
+            // Destinatário aceita somente se entrar no grupo no mesmo batch.
+            (me(inviteeUid) && resource.data.status == 'pending'
+              && chatNoBlock(resource.data.inviterUid, inviteeUid)
+              && request.resource.data.status == 'accepted'
+              && !(inviteeUid in get(atrioGroupPath(groupId)).data.memberUids)
+              && inviteeUid in getAfter(atrioGroupPath(groupId)).data.memberUids
+              && getAfter(atrioGroupPath(groupId)).data.updatedAt == request.time)
+            ||
+            (me(inviteeUid) && resource.data.status == 'pending'
+              && request.resource.data.status == 'declined')
+            ||
+            // Reconvite de quem recusou ou saiu; administrador não se torna
+            // membro nem pode reativar um participante bloqueado.
+            (atrioGroupAdmin(groupId) && resource.data.status in ['declined','accepted']
+              && !(inviteeUid in get(atrioGroupPath(groupId)).data.memberUids)
+              && request.resource.data.status == 'pending'
+              && !exists(/databases/$(database)/documents/users/$(inviteeUid)/blockedMembers/$(request.auth.uid))
+              && resource.data.inviterUid == request.auth.uid
+              && atrioGroupAcceptedContact(
+                request.auth.uid,inviteeUid,resource.data.contactChatId))
+          );
+        allow delete: if false;
+      }
+      match /messages/{messageId} {
+        allow get, list: if atrioGroupsEnabled() && atrioGroupMember(groupId);
+        allow create: if atrioGroupsEnabled() && validId(messageId)
+          && atrioGroupMember(groupId)
+          && get(atrioGroupPath(groupId)).data.status == 'active'
+          && request.resource.data.keys().hasOnly(['uid','text','kind','createdAt'])
+          && request.resource.data.keys().hasAll(['uid','text','kind','createdAt'])
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.kind == 'text'
+          && validText(request.resource.data.text,1,1500)
+          && request.resource.data.createdAt == request.time
+          && getAfter(atrioGroupPath(groupId)).data.lastMessageId == messageId
+          && getAfter(atrioGroupPath(groupId)).data.lastPreview == request.resource.data.text
+          && getAfter(atrioGroupPath(groupId)).data.lastSenderUid == request.auth.uid
+          && getAfter(atrioGroupPath(groupId)).data.updatedAt == request.time;
+        allow update, delete: if false;
+      }
+    }
+    // A moderação central recebe somente mensagens denunciadas; não tem
+    // autorização genérica para ler os grupos privados.
+    match /chat_group_reports/{reportId} {
+      allow get: if isAdmin()
+        || (signedIn() && resource.data.reporterUid == request.auth.uid);
+      allow list: if isAdmin();
+      allow create: if atrioGroupsEnabled() && signedIn()
+        && atrioGroupEligible(request.auth.uid)
+        && request.resource.data.keys().hasOnly([
+          'groupId','messageId','reporterUid','reason','reportedText','createdAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'groupId','messageId','reporterUid','reason','reportedText','createdAt'
+        ])
+        && validId(request.resource.data.groupId)
+        && validId(request.resource.data.messageId)
+        && request.resource.data.reporterUid == request.auth.uid
+        && reportId == request.auth.uid + '__' + request.resource.data.groupId
+          + '__' + request.resource.data.messageId
+        && validText(request.resource.data.reason,5,300)
+        && validText(request.resource.data.reportedText,1,1500)
+        && request.resource.data.createdAt == request.time
+        && exists(atrioGroupPath(request.resource.data.groupId))
+        && request.auth.uid in get(atrioGroupPath(request.resource.data.groupId)).data.memberUids
+        && exists(/databases/$(database)/documents/chat_groups/$(request.resource.data.groupId)/messages/$(request.resource.data.messageId))
+        && request.resource.data.reportedText ==
+          get(/databases/$(database)/documents/chat_groups/$(request.resource.data.groupId)/messages/$(request.resource.data.messageId)).data.text;
+      allow update, delete: if false;
+    }

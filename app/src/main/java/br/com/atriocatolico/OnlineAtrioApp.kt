@@ -778,6 +778,17 @@ private fun OnlineCommunity(
     val homeListState = rememberLazyListState()
     var detailId by remember { mutableStateOf<String?>(null) }
     var publicProfileTarget by remember(uid) { mutableStateOf<PublicMemberTarget?>(null) }
+    val conversationsQa = BuildConfig.DEBUG &&
+        BuildConfig.APPLICATION_ID == "br.com.atriocatolico.qageral" &&
+        db.app.options.projectId == "demo-atrio-v11" &&
+        db.firestoreSettings.host == "127.0.0.1:8089"
+    var conversationsOpen by remember(uid) { mutableStateOf(false) }
+    var conversationPeer by remember(uid) { mutableStateOf<PublicMemberTarget?>(null) }
+    fun closeConversations() {
+        conversationsOpen = false
+        conversationPeer = null
+    }
+    val showConversations = conversationsQa && conversationsOpen
     var profilePostOpen by remember(uid) { mutableStateOf(false) }
     var previousDetailId by remember(uid) { mutableStateOf<String?>(null) }
     var detailReplies by remember(uid, detailId) { mutableStateOf<List<Reply>>(emptyList()) }
@@ -1001,6 +1012,7 @@ private fun OnlineCommunity(
             android.util.Log.d("AtrioQaNavigation", "request_${destination.name}_from_${tab.name}")
         }
         tab = destination; detailId = null; noticesOpen = false
+        closeConversations()
         publicProfileTarget = null; profilePostOpen = false; previousDetailId = null
         guardiaoAppealsOpen = false
         noticeBadgesOpen = false; returnToNotices = false
@@ -1288,7 +1300,9 @@ private fun OnlineCommunity(
             }
     }
     fun closeNoticeDestination() {
-        if (profilePostOpen && publicProfileTarget != null) {
+        if (showConversations) {
+            closeConversations()
+        } else if (profilePostOpen && publicProfileTarget != null) {
             profilePostOpen = false
             detailId = previousDetailId
         } else if (publicProfileTarget != null) {
@@ -1312,12 +1326,15 @@ private fun OnlineCommunity(
             publishSuccessVisible = false
         }
     }
-    BackHandler(enabled = publicProfileTarget != null || detailId != null || noticesOpen || noticeBadgesOpen || guardiaoAppealsOpen) { closeNoticeDestination() }
+    BackHandler(enabled = showConversations || publicProfileTarget != null || detailId != null ||
+        noticesOpen || noticeBadgesOpen || guardiaoAppealsOpen) { closeNoticeDestination() }
 
     Scaffold(containerColor = Paper, snackbarHost = { SnackbarHost(otaSnackbar) }, topBar = {
         AtrioTopBar(
-            details = publicProfileTarget != null || detailId != null || noticesOpen || noticeBadgesOpen || guardiaoAppealsOpen,
-            detailsTitle = if (publicProfileTarget != null && !profilePostOpen) "Perfil público"
+            details = showConversations || publicProfileTarget != null || detailId != null ||
+                noticesOpen || noticeBadgesOpen || guardiaoAppealsOpen,
+            detailsTitle = if (showConversations) "Conversas"
+                else if (publicProfileTarget != null && !profilePostOpen) "Perfil público"
                 else if (guardiaoAppealsOpen) "Minhas revisões" else if (noticeBadgesOpen) "Meus selos"
                 else if (noticesOpen) "Notificações" else "Discussão",
             unreadCount = inbox.groups(notificationAdmin).count { it.unread },
@@ -1325,22 +1342,34 @@ private fun OnlineCommunity(
             onBack = ::closeNoticeDestination,
             onSearch = { val open = !searchOpen; navigate(Tab.HOME); searchOpen = open },
             onNotification = {
+                closeConversations()
                 publicProfileTarget = null; profilePostOpen = false; previousDetailId = null
                 detailId = null; noticeBadgesOpen = false; returnToNotices = false
                 noticesOpen = !noticesOpen; searchOpen = false
             }
         )
-    }, bottomBar = { AtrioBottomBar(selected = tab, onSelect = ::navigate) }) { inset ->
+    }, bottomBar = {
+        if (!showConversations) AtrioBottomBar(selected = tab, onSelect = ::navigate)
+    }) { inset ->
         Box(Modifier.padding(inset)) {
             val detail = openedPost?.takeUnless { it.ownerUid in blockedMembers }
                 ?.copy(liked = detailId in likedIds,
                     saved = saveOverrides[detailId] ?: (detailId in savedIds),
                     savePending = detailId in pendingSaveIds)
-            if (publicProfileTarget != null && !profilePostOpen) {
+            if (showConversations) {
+                AtrioConversationsScreen(
+                    db = db, uid = uid, onBack = ::closeConversations,
+                    initialPeer = conversationPeer
+                )
+            } else if (publicProfileTarget != null && !profilePostOpen) {
                 PublicMemberProfileScreen(
                     db = db, target = publicProfileTarget!!, viewerUid = uid,
                     onBack = ::closeNoticeDestination,
-                    onOpenDiscussion = { postId -> profilePostOpen = true; detailId = postId }
+                    onOpenDiscussion = { postId -> profilePostOpen = true; detailId = postId },
+                    onConverse = if (conversationsQa) ({
+                        conversationPeer = publicProfileTarget
+                        conversationsOpen = true
+                    }) else null
                 )
             } else if (guardiaoAppealsOpen) {
                 GuardiaoAppealsScreen(db, uid)
@@ -1491,6 +1520,10 @@ private fun OnlineCommunity(
                         onOpen = { detailId = it },
                         onNotifications = { noticesOpen = true; returnToNotices = false },
                         onReviews = { guardiaoAppealsOpen = true },
+                        onConversations = if (conversationsQa) ({
+                            conversationPeer = null
+                            conversationsOpen = true
+                        }) else null,
                         followedRevision = followedRevision,
                         followedRemoteEnabled = advancedEngagement,
                         followedRemoteIds = syncedFollow.ids,
