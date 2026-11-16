@@ -121,7 +121,7 @@ run_suite() {
   case "$suite" in
     ThreeBots*|AtrioConversas*)
       [[ "$qa_apk" == "qaGeral" ]] || {
-        echo "Suíte de bots ou Conversas recusada fora do APK QA Geral" >&2
+        echo "Suite de bot recusada fora do APK QA Geral" >&2
         exit 2
       } ;;
   esac
