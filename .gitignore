@@ -16,6 +16,7 @@ firebase-debug*.log
 firestore-debug*.log
 ui-debug*.log
 /tests/security/firestore.rules
+/tests/security/qa-parity.generated.rules
 /tests/security/RESULTADO.txt
 
 # Segredos e certificados privados — nunca enviar para Git/GitHub

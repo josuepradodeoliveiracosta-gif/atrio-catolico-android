@@ -55,7 +55,8 @@ internal fun OnlineProfileScreen(
     otaInstallMessage: String = "",
     onDownloadUpdate: (OtaApkOffer) -> Unit = {},
     onCancelUpdateDownload: () -> Unit = {},
-    onInstallUpdate: () -> Unit = {}
+    onInstallUpdate: () -> Unit = {},
+    onConversations: (() -> Unit)? = null
 ) {
     var badgesOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var editorOpen by rememberSaveable(uid) { mutableStateOf(false) }
@@ -138,6 +139,11 @@ internal fun OnlineProfileScreen(
                 Card(Modifier.fillMaxWidth(), border = BorderStroke(1.dp, Line),
                     shape = RoundedCornerShape(18.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                    if (onConversations != null) {
+                        ProfileAction("Conversas", "Mensagens privadas, solicitações e privacidade.",
+                            Icons.Outlined.Forum, onConversations)
+                        HorizontalDivider()
+                    }
                     ProfileAction("Minhas discussões", "Veja as discussões mais recentes e carregue outras quando desejar.",
                         Icons.Outlined.Forum) { discussionsOpen = true }
                     HorizontalDivider()
