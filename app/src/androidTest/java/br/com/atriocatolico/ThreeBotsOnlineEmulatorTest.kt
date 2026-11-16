@@ -311,6 +311,11 @@ class ThreeBotsOnlineEmulatorTest {
                 "mesmo_id=${batch?.replyId == replyId}")
 
         // Só consultar os outros sinais depois de encerrar a verificação histórica.
+        val serverReply = runCatching {
+            val reply = Tasks.await(db.collection("posts").document(postId)
+                .collection("replies").document(replyId).get(Source.SERVER), 5, TimeUnit.SECONDS)
+            reply.exists() && !reply.metadata.hasPendingWrites() && reply.getString("uid") == miguelId
+        }
         val exact = runCatching {
             val notice = Tasks.await(notices.document(replyId).get(Source.SERVER), 5, TimeUnit.SECONDS)
             when {
@@ -340,14 +345,17 @@ class ThreeBotsOnlineEmulatorTest {
         android.util.Log.i("AtrioNoticeQA",
             "etapa=diagnostico lote=${finalBatch?.result ?: "sem_callback"} " +
                 "aviso_no_lote=${finalBatch?.ownerNoticeQueued} mesmo_id=${finalBatch?.replyId == replyId} " +
+                "resposta_no_servidor=${serverReply.fold({ it.toString() }, ::diagnosticError)} " +
                 "aviso_exato=${exact.fold({ it }, ::diagnosticError)} " +
                 "na_consulta_da_central=${ordered.fold({ it.toString() }, ::diagnosticError)} " +
                 "visivel_na_central=${visible.fold({ it.toString() }, ::diagnosticError)}")
 
         original.getOrThrow()
-        assertTrue("Confirmação do lote do mesmo ID com aviso da autora",
-            finalBatch != null && finalBatch.replyId == replyId &&
-                finalBatch.result == "confirmado" && finalBatch.ownerNoticeQueued)
+        // A troca da sessão pode deixar a callback de Miguel sem resposta observada.
+        // Comprovar a gravação pelos dois documentos do mesmo ID, no servidor.
+        assertTrue("O aviso da autora foi incluído no lote do mesmo ID",
+            finalBatch != null && finalBatch.replyId == replyId && finalBatch.ownerNoticeQueued)
+        assertTrue("Resposta do mesmo ID confirmada no servidor", serverReply.getOrThrow())
         assertEquals("Estado do aviso pelo ID exato", "confirmado", exact.getOrThrow())
         assertTrue("Mesmo ID na consulta ordenada da central", ordered.getOrThrow())
         visible.getOrThrow()
