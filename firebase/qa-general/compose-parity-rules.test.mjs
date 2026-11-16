@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {lstatSync,mkdirSync,mkdtempSync,readdirSync,readFileSync,rmSync,
-  symlinkSync,writeFileSync} from 'node:fs';
+import {closeSync,constants,mkdirSync,mkdtempSync,openSync,readdirSync,
+  readFileSync,rmSync,symlinkSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {generateParity,renderParity} from './compose-parity-rules.mjs';
@@ -95,10 +95,13 @@ test('publica os bytes das regras sem seguir o link simbólico no destino',t=>{
   symlinkSync(target,destination);
 
   const {output}=generateParity(root);
-  const file=lstatSync(output);
   assert.equal(output,destination);
-  assert.equal(file.isFile(),true);
-  assert.deepEqual(readFileSync(output),Buffer.from(renderParity(base,chat,group)));
+  const file=openSync(output,constants.O_RDONLY|constants.O_NOFOLLOW);
+  try {
+    assert.deepEqual(readFileSync(file),Buffer.from(renderParity(base,chat,group)));
+  } finally {
+    closeSync(file);
+  }
   assert.deepEqual(readFileSync(target),sentinel);
   assert.deepEqual(readdirSync(outputDir),['qa-parity.generated.rules']);
 });
