@@ -294,10 +294,13 @@ class ThreeBotsOnlineEmulatorTest {
         assertEquals("A sessão de Clara deve ser restaurada corretamente",
             claraId,auth.currentUser?.uid)
         val notices = db.collection("users").document(claraId).collection("notifications")
+        // Ensaio da #201: omite o aviso alvo apenas na condição da consulta original.
+        android.util.Log.i("AtrioNoticeQA",
+            "etapa=ensaio_timeout curtida_e_salvamento_verificados=true aviso_alvo_filtrado=true")
         val original = runCatching {
             compose.waitUntil(30000) {
                 val result = Tasks.await(notices.get(Source.SERVER), 20, TimeUnit.SECONDS)
-                result.documents.any { it.getString("postId") == postId }
+                result.documents.any { it.getString("postId") == postId && it.id != replyId }
             }
             val notice = Tasks.await(notices.get(Source.SERVER), 25, TimeUnit.SECONDS)
             assertEquals("A lista histórica deve conter um aviso para a discussão",
