@@ -91,15 +91,21 @@ export function renderParity(base,chat,group) {
   return candidate;
 }
 
-export function generateParity(){
-  const base=fs.readFileSync(path.join(ROOT,'firestore.rules'),'utf8');
-  const chat=fs.readFileSync(path.join(ROOT,'firebase/atrio-conversas-v1.rules.fragment'),'utf8');
-  const group=fs.readFileSync(path.join(ROOT,'firebase/atrio-grupos-v1.rules.fragment'),'utf8');
-  const output=path.join(ROOT,'tests/security/qa-parity.generated.rules');
-  if(fs.existsSync(output)&&fs.lstatSync(output).isSymbolicLink())
-    refuse('destination_symlink');
+export function generateParity(root=ROOT){
+  const base=fs.readFileSync(path.join(root,'firestore.rules'),'utf8');
+  const chat=fs.readFileSync(path.join(root,'firebase/atrio-conversas-v1.rules.fragment'),'utf8');
+  const group=fs.readFileSync(path.join(root,'firebase/atrio-grupos-v1.rules.fragment'),'utf8');
+  const output=path.join(root,'tests/security/qa-parity.generated.rules');
   const content=renderParity(base,chat,group);
-  fs.writeFileSync(output,content,{encoding:'utf8',mode:0o600});
+  const stagingDir=fs.mkdtempSync(path.join(path.dirname(output),'.qa-parity-'));
+  const stagingFile=path.join(stagingDir,'rules');
+  try {
+    fs.writeFileSync(stagingFile,content,{encoding:'utf8',flag:'wx',mode:0o600});
+    // O rename troca a entrada do destino sem seguir um link simbólico.
+    fs.renameSync(stagingFile,output);
+  } finally {
+    fs.rmSync(stagingDir,{recursive:true,force:true});
+  }
   return {output,baseBlobSha:BASE_BLOB_SHA};
 }
 

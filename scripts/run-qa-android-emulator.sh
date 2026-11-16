@@ -183,6 +183,7 @@ run_suite ThreeBotsAuthenticatedAndroidUiTest
 run_suite ThreeBotsOnlineEmulatorTest
 if [[ "$qa_group" == "all" || "$qa_group" == "bots" ]]; then
   # Carregar as Rules candidatas só depois dos bots, no mesmo emulador local.
+  node --test firebase/qa-general/compose-parity-rules.test.mjs
   node firebase/qa-general/compose-parity-rules.mjs
   sha256sum tests/security/qa-parity.generated.rules
   (cd tests/security && node seed-chat-groups-android.mjs)

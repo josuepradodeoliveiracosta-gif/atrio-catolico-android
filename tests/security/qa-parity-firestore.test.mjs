@@ -1,5 +1,4 @@
 // COMPOSIÇÃO DE PARIDADE LOCAL. NUNCA CONECTAR AO FIREBASE REAL.
-import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {initializeTestEnvironment,assertFails,assertSucceeds}
   from '@firebase/rules-unit-testing';

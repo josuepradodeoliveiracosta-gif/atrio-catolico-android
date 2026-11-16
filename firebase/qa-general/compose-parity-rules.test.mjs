@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
-import {renderParity} from './compose-parity-rules.mjs';
+import {lstatSync,mkdirSync,mkdtempSync,readdirSync,readFileSync,rmSync,
+  symlinkSync,writeFileSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import path from 'node:path';
+import {generateParity,renderParity} from './compose-parity-rules.mjs';
 
 const base=readFileSync('firestore.rules','utf8');
 const chat=readFileSync('firebase/atrio-conversas-v1.rules.fragment','utf8');
@@ -73,4 +76,29 @@ test('o QA exige elegibilidade do destinatario e do convidado',()=>{
     'validId(request.resource.data.recipientUid)',
     'validId(request.resource.data.recipientUid) /* fonte mudou */'),group),
     /qa_age18_dm_recipient_anchor_changed/);
+});
+
+test('publica os bytes das regras sem seguir o link simbólico no destino',t=>{
+  const root=mkdtempSync(path.join(tmpdir(),'atrio-qa-parity-'));
+  t.after(()=>rmSync(root,{recursive:true,force:true}));
+  const outputDir=path.join(root,'tests/security');
+  mkdirSync(outputDir,{recursive:true});
+  mkdirSync(path.join(root,'firebase'));
+  writeFileSync(path.join(root,'firestore.rules'),base);
+  writeFileSync(path.join(root,'firebase/atrio-conversas-v1.rules.fragment'),chat);
+  writeFileSync(path.join(root,'firebase/atrio-grupos-v1.rules.fragment'),group);
+
+  const target=path.join(root,'sentinela');
+  const destination=path.join(outputDir,'qa-parity.generated.rules');
+  const sentinel=Buffer.from('arquivo fora do destino das regras');
+  writeFileSync(target,sentinel);
+  symlinkSync(target,destination);
+
+  const {output}=generateParity(root);
+  const file=lstatSync(output);
+  assert.equal(output,destination);
+  assert.equal(file.isFile(),true);
+  assert.deepEqual(readFileSync(output),Buffer.from(renderParity(base,chat,group)));
+  assert.deepEqual(readFileSync(target),sentinel);
+  assert.deepEqual(readdirSync(outputDir),['qa-parity.generated.rules']);
 });
