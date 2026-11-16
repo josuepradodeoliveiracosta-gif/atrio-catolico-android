@@ -1,0 +1,86 @@
+name: APK QA Geral para homologação física de Conversas
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - .github/workflows/qa-geral-conversas-homologacao.yml
+      - app/src/androidTest/java/br/com/atriocatolico/AtrioConversasNavegacaoEmulatorUiTest.kt
+
+permissions:
+  contents: read
+
+jobs:
+  pacote-qa-local:
+    if: github.event.pull_request.number == 322 && github.head_ref == 'test/chat5-199-navegacao-conversas-4b86877f' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ATRIO_QA_GERAL_BUILD: '1'
+      APP_SOURCE_SHA: '4b86877f01388112ff973f611fc42844ae5458fb'
+    steps:
+      - name: Obter o roteiro de teste
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Conferir origem do código e isolamento do Firebase
+        shell: bash
+        run: |
+          git merge-base --is-ancestor "$APP_SOURCE_SHA" HEAD
+          while IFS= read -r path; do
+            case "$path" in
+              .github/workflows/qa-geral-conversas-homologacao.yml|\
+              app/src/androidTest/java/br/com/atriocatolico/AtrioConversasNavegacaoEmulatorUiTest.kt|\
+              scripts/run-qa-android-emulator.sh|scripts/test_qa_android_groups.py|\
+              tests/security/seed-chat-groups-android.mjs) ;;
+              *) echo "Arquivo fora do roteiro de homologação: $path" >&2; exit 1 ;;
+            esac
+          done < <(git diff --name-only "$APP_SOURCE_SHA" HEAD)
+          for config in app/google-services.json app/src/qaGeral/google-services.json app/src/chatQa/google-services.json app/src/perfilQa/google-services.json; do
+            test ! -e "$config"
+          done
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with:
+          gradle-version: '8.13'
+          cache-read-only: true
+      - name: Compilar e verificar os APKs
+        shell: bash
+        run: |
+          gradle :app:assembleQaGeral :app:assembleQaGeralAndroidTest --no-daemon --max-workers=2
+          shopt -s nullglob
+          app_apks=(app/build/outputs/apk/qaGeral/*.apk)
+          test_apks=(app/build/outputs/apk/androidTest/qaGeral/*.apk)
+          test "${#app_apks[@]}" -eq 1
+          test "${#test_apks[@]}" -eq 1
+          mkdir qa-geral-homologacao
+          cp "${app_apks[0]}" qa-geral-homologacao/atrio-qa-geral.apk
+          cp "${test_apks[0]}" qa-geral-homologacao/atrio-qa-geral-test.apk
+          checkout="$(git rev-parse HEAD)"
+          printf 'app_source_sha=%s\ntest_checkout_sha=%s\n' "$APP_SOURCE_SHA" "$checkout" > qa-geral-homologacao/ORIGEM.txt
+          cd qa-geral-homologacao
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          "$tools/aapt" dump badging atrio-qa-geral.apk > badging-app.txt
+          "$tools/aapt" dump badging atrio-qa-geral-test.apk > badging-test.txt
+          grep -F "package: name='br.com.atriocatolico.qageral'" badging-app.txt
+          grep -F "package: name='br.com.atriocatolico.qageral.test'" badging-test.txt
+          "$tools/apksigner" verify --print-certs atrio-qa-geral.apk > assinatura-app.txt
+          "$tools/apksigner" verify --print-certs atrio-qa-geral-test.apk > assinatura-test.txt
+          cmp assinatura-app.txt assinatura-test.txt
+          sha256sum atrio-qa-geral.apk atrio-qa-geral-test.apk | tee SHA256SUMS
+          cat ORIGEM.txt
+      - name: Guardar pacote de homologação
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: qa-geral-4b86877f-homologacao-fisica
+          path: qa-geral-homologacao/
+          if-no-files-found: error
+          retention-days: 7
