@@ -153,7 +153,7 @@ class AtrioConversasCompostasEmulatorUiTest {
         show(Screen(bob, peer = PublicMemberTarget(alice, "Alice QA")))
         send("atrio-chat-composer", "atrio-chat-send", first)
         waitForText("Pedido não confirmado.", substring = true)
-        assertTrue(await(db.collection("chats").whereArrayContains("participants", bob)
+        assertTrue(await(db.collection("chats").whereArrayContains("participants", bob).limit(100)
             .get(Source.SERVER)).isEmpty)
 
         assertEquals(alice, login(aliceEmail))
@@ -186,7 +186,7 @@ class AtrioConversasCompostasEmulatorUiTest {
         compose.onNodeWithTag("atrio-group-title").performTextInput("Grupo de estudo QA")
         click("atrio-group-create")
         waitForTag("atrio-group-thread")
-        val group = await(db.collection("chat_groups").whereArrayContains("memberUids", alice)
+        val group = await(db.collection("chat_groups").whereArrayContains("memberUids", alice).limit(50)
             .get(Source.SERVER)).documents.single().reference
         val history = group.collection("messages")
         val message = "Histórico fictício anterior ao ingresso."
