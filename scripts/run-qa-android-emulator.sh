@@ -113,7 +113,7 @@ run_suite() {
       interaction:EngagementUiTest|interaction:ReactionEmojiUiTest|\
       interaction:DiscussionDetailV2UiTest|interaction:AtrioTypographyAccessibilityUiTest|\
       bots:ThreeBotsAndroidUiTest|bots:ThreeBotsAuthenticatedAndroidUiTest|\
-      bots:ThreeBotsOnlineEmulatorTest) ;;
+      bots:ThreeBotsOnlineEmulatorTest|bots:AtrioConversasCompostasEmulatorUiTest) ;;
       *) echo "QA Android: $suite executada por outro grupo"; return 0 ;;
     esac
   fi
@@ -181,6 +181,13 @@ run_suite DesignV2UiTest
 run_suite ThreeBotsAndroidUiTest
 run_suite ThreeBotsAuthenticatedAndroidUiTest
 run_suite ThreeBotsOnlineEmulatorTest
+if [[ "$qa_group" == "all" || "$qa_group" == "bots" ]]; then
+  # Carregar as Rules candidatas só depois dos bots, no mesmo emulador local.
+  node firebase/qa-general/compose-parity-rules.mjs
+  sha256sum tests/security/qa-parity.generated.rules
+  (cd tests/security && node seed-chat-groups-android.mjs)
+fi
+run_suite AtrioConversasCompostasEmulatorUiTest
 run_suite EmailVerificationAndroidUiTest
 if [[ "$qa_group" == "all" || "$qa_group" == "profiles" ]]; then
   # Só a última suíte usa a política restritiva. As suítes anteriores
