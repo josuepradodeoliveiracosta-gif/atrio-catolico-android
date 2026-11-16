@@ -236,25 +236,27 @@ class ThreeBotsOnlineEmulatorTest {
             .assertIsDisplayed()
             .assertIsEnabled()
             .performClick()
-        // Preserva a condição histórica e sai de Miguel sem aguardar o ACK.
+        // A leitura do servidor pode incluir uma gravação local ainda pendente.
+        // Mantenha a sessão de Miguel até o lote dessa resposta ser confirmado.
         val miguelId = requireNotNull(auth.currentUser?.uid)
-        var observedReplyId: String? = null
-        compose.waitUntil(30000) {
-            val replies = Tasks.await(db.collection("posts").document(postId)
-                .collection("replies").get(Source.SERVER), 20, TimeUnit.SECONDS)
-            val observed = replies.documents.firstOrNull {
-                it.getString("body") == "Resposta de Miguel pelo app Android conectado." &&
-                    it.getString("uid") == miguelId
-            } ?: return@waitUntil false
-            observedReplyId = observed.id
-            val batch = batchState.get()
-            android.util.Log.i("AtrioNoticeQA",
-                "etapa=antes_da_troca resposta_pendente=${observed.metadata.hasPendingWrites()} " +
-                    "lote=${batch?.result ?: "sem_callback"} mesmo_id=${batch?.replyId == observed.id}")
-            true
-        }
-        val replyId = requireNotNull(observedReplyId)
         assertTrue("A resposta foi publicada fora da conta de Miguel", miguelId != claraId)
+        val repliesRef = db.collection("posts").document(postId).collection("replies")
+        compose.waitUntil(30000) {
+            val batch = batchState.get() ?: return@waitUntil false
+            if (batch.result == "pendente") return@waitUntil false
+            assertEquals("O Firestore deve confirmar o lote na sessão de Miguel",
+                "confirmado", batch.result)
+            val reply = Tasks.await(repliesRef.document(batch.replyId).get(Source.SERVER),
+                5, TimeUnit.SECONDS)
+            reply.exists() && !reply.metadata.hasPendingWrites() &&
+                reply.getString("uid") == miguelId &&
+                reply.getString("body") == "Resposta de Miguel pelo app Android conectado."
+        }
+        val replyId = requireNotNull(batchState.get()).replyId
+        assertEquals("A sessão de Miguel deve estar ativa até a confirmação",
+            miguelId, auth.currentUser?.uid)
+        android.util.Log.i("AtrioNoticeQA",
+            "etapa=antes_da_troca resposta_pendente=false lote=confirmado mesmo_id=true")
         // Miguel não pode ler as notificações privadas de Clara. A leitura
         // será feita após reautenticar como destinatária, no final da sessão.
         leave()
