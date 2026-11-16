@@ -3,6 +3,11 @@
 # O checkout ja deve ter sido isolado de google-services.json e credenciais.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# Nao compilar silenciosamente o Debug se um identificador de variante for invalido.
+case "${ATRIO_QA_APK:-debug}" in
+  debug|qaGeral) ;;
+  *) echo "Prebuild: variante QA desconhecida" >&2; exit 2 ;;
+esac
 
 status_file="qa-android-prebuild.status"
 pid_file="qa-android-prebuild.pid"
@@ -19,10 +24,19 @@ case "${1:-}" in
       echo "QA offline: google-services.json nao pode entrar no prebuild" >&2
       exit 2
     fi
+    if [[ "${ATRIO_QA_APK:-debug}" == "qaGeral" ]]; then
+      [[ "${ATRIO_QA_GERAL_BUILD:-}" == "1" ]] || {
+        echo "APK QA Geral exige opt-in" >&2
+        exit 2
+      }
+      build_tasks=( :app:assembleQaGeral :app:assembleQaGeralAndroidTest )
+    else
+      build_tasks=( :app:assembleDebug :app:assembleDebugAndroidTest )
+    fi
     date -u +%s > "$started_file"
     (
       set +e
-      gradle :app:assembleDebug :app:assembleDebugAndroidTest \
+      gradle "${build_tasks[@]}" \
         --daemon --stacktrace --max-workers=2 > "$log_file" 2>&1
       result=$?
       printf '%s\n' "$result" > "${status_file}.tmp"

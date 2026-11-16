@@ -39,6 +39,9 @@ class AndroidGroupTests(unittest.TestCase):
         self.assertIn("max-parallel: 3", source)
         self.assertIn("suite_group: [profiles, interaction, bots]", source)
         self.assertIn('ATRIO_QA_SUITE_GROUP: ${{ matrix.suite_group }}', source)
+        self.assertIn('ATRIO_QA_APK: qaGeral', source)
+        self.assertIn("ATRIO_QA_GERAL_BUILD: '1'", source)
+        self.assertIn('ATRIO_QA_FIREBASE_PROJECT: demo-atrio-v11', source)
         self.assertIn('name: qa-bots-android-ui-reports-${{ matrix.suite_group }}', source)
 
 if __name__ == "__main__":
