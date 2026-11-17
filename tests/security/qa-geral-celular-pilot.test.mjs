@@ -3,9 +3,10 @@ import {createHash} from 'node:crypto';
 import {after, before, test} from 'node:test';
 import {assertFails, initializeTestEnvironment} from '@firebase/rules-unit-testing';
 import {arrayRemove, arrayUnion, collection, collectionGroup, deleteDoc, doc, getDoc,
-  getDocs, limit, orderBy, query, serverTimestamp, setDoc, updateDoc, where, writeBatch}
+  getDocFromServer, getDocs, getDocsFromServer, limit, orderBy, query, serverTimestamp,
+  setDoc, updateDoc, where, writeBatch}
   from 'firebase/firestore';
-import {renderClosedPilotRules} from '../../firebase/qa-geral-celular/pilot/rules.mjs';
+import {renderClosedPilotRules, renderPilotRollbackRules} from '../../firebase/qa-geral-celular/pilot/rules.mjs';
 import {alice, bob, moderator, pilotDocuments, pilotFlags, projectId}
   from '../../firebase/qa-geral-celular/pilot/fixtures.mjs';
 
@@ -14,8 +15,8 @@ console.log('SHA-256 das Rules do piloto:', createHash('sha256').update(rules).d
 const env = await initializeTestEnvironment({
   projectId, firestore: {host: '127.0.0.1', port: 8089, rules}
 });
-function session(account, verified = true) {
-  return env.authenticatedContext(account.uid, {email: account.email, email_verified: verified}).firestore();
+function session(account, verified = true, environment = env) {
+  return environment.authenticatedContext(account.uid, {email: account.email, email_verified: verified}).firestore();
 }
 const a = session(alice);
 const b = session(bob);
@@ -282,4 +283,61 @@ test('as permissões de Fórum e perfil ficam disponíveis com o piloto fechado'
   await assertFails(getDoc(doc(b, 'profiles', alice.uid)));
   const post = 'posts/qa-nav-bob-profile';
   assert.equal((await getDoc(doc(a, post))).get('uid'), bob.uid);
+});
+
+test('as regras de retorno fecham dados piloto preexistentes mesmo com as flags ativas', async () => {
+  await seed([...pilotFlags(true), ['admins/' + moderator.uid, {enabled: true}]]);
+  // Os dados do grupo permanecem após a saída de Bob no cenário anterior.
+  // Repor o participante antes de testar o bloqueio para as duas contas.
+  await env.withSecurityRulesDisabled(async context => {
+    await updateDoc(doc(context.firestore(), group), {memberUids: [alice.uid, bob.uid]});
+  });
+  const requests = (db, uid) => [
+    getDocFromServer(doc(db, room)),
+    getDocFromServer(doc(db, room, 'messages', 'primeira')),
+    getDocsFromServer(query(collection(db, 'chats'), where('participants', 'array-contains', uid), limit(100))),
+    getDocFromServer(doc(db, group)),
+    getDocFromServer(doc(db, group, 'messages', 'primeira')),
+    getDocsFromServer(query(collection(db, 'chat_groups'), where('memberUids', 'array-contains', uid), limit(100)))
+  ];
+  const preferenceWrites = (db, uid, muted) => [
+    setDoc(doc(db, 'users', uid, 'chatBox', chatId),
+      {muted, pinned: false, archived: false, updatedAt: serverTimestamp()}),
+    setDoc(doc(db, 'users', uid, 'chatGroupBox', groupId), {muted, updatedAt: serverTimestamp()})
+  ];
+  for (const [db, uid] of [[a, alice.uid], [b, bob.uid]]) {
+    const results = await Promise.all(requests(db, uid));
+    assert.ok(results.every(result => typeof result.exists === 'function' ? result.exists() : !result.empty));
+    await Promise.all(preferenceWrites(db, uid, false));
+  }
+  assert.equal((await getDocFromServer(doc(b, invite))).exists(), true);
+
+  const rollbackRules = renderPilotRollbackRules();
+  console.log('SHA-256 das Rules de retorno fechado:', createHash('sha256').update(rollbackRules).digest('hex'));
+  const rollback = await initializeTestEnvironment({
+    projectId, firestore: {host: '127.0.0.1', port: 8089, rules: rollbackRules}
+  });
+  try {
+    const closedAlice = session(alice, true, rollback);
+    const closedBob = session(bob, true, rollback);
+    const closedModerator = session(moderator, true, rollback);
+    for (const [db, uid] of [[closedAlice, alice.uid], [closedBob, bob.uid]]) {
+      await Promise.all(requests(db, uid).map(request => assertFails(request)));
+      await assertFails(getDocFromServer(doc(db, invite)));
+      await assertFails(getDocsFromServer(query(collectionGroup(db, 'atrioGroupInvites'), where('inviteeUid', '==', uid))));
+      await Promise.all(preferenceWrites(db, uid, true).map(request => assertFails(request)));
+    }
+    for (const [path] of pilotFlags()) {
+      assert.equal((await getDocFromServer(doc(closedBob, path))).get('enabled'), true);
+    }
+    for (const path of [directReport, groupReport]) {
+      assert.equal((await getDocFromServer(doc(closedBob, path))).exists(), true);
+      assert.equal((await getDocFromServer(doc(closedModerator, path))).exists(), true);
+      await assertFails(getDocFromServer(doc(closedAlice, path)));
+    }
+    assert.equal((await getDocFromServer(doc(closedAlice, 'posts/qa-nav-bob-profile'))).get('uid'), bob.uid);
+    assert.equal((await getDocFromServer(doc(closedAlice, 'profiles', alice.uid))).get('displayName'), alice.name);
+  } finally {
+    await rollback.cleanup();
+  }
 });

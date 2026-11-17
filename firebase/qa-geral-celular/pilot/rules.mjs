@@ -85,3 +85,14 @@ export function renderClosedPilotRules() {
 `;
   return replaceChecked(base, denyAll, adapters + fragments + denyAll);
 }
+
+// Proposta para ensaiar o retorno fechado mesmo se os documentos de configuração
+// ainda tiverem as flags ativas. Mantém as regras de Fórum, Perfil e denúncias.
+// Não faz parte do alvo Firebase e é usada somente no Firestore Emulator.
+export function renderPilotRollbackRules() {
+  const gate = '    function chatEnabled() {\n'
+    + '      let config = /databases/$(database)/documents/app_config/conversations;\n'
+    + '      return ';
+  return replaceChecked(renderClosedPilotRules(),
+    gate, gate + 'false && ');
+}

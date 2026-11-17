@@ -22,16 +22,17 @@ jobs:
   compilar-qa-geral-celular:
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
-      contains(fromJSON('["qa/chat5-qa-geral-firebase-celular","qa/chat5-qa-geral-registro-push","qa/chat7-qa-geral-composicao-integrada","qa/chat7-qa-geral-celular-forum-integrado","qa/chat5-qa-geral-celular-pacote-proprio","qa/chat5-qa-geral-celular-identidade","qa/chat5-qa-geral-celular-funcional","qa/chat5-qa-geral-celular-combinado"]'), github.head_ref)
+      contains(fromJSON('["qa/chat5-qa-geral-firebase-celular","qa/chat5-qa-geral-registro-push","qa/chat7-qa-geral-composicao-integrada","qa/chat7-qa-geral-celular-forum-integrado","qa/chat5-qa-geral-celular-pacote-proprio","qa/chat5-qa-geral-celular-identidade","qa/chat5-qa-geral-celular-funcional","qa/chat5-qa-geral-celular-combinado","qa/chat7-composicao-dois-celulares"]'), github.head_ref)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
       ATRIO_QA_GERAL_BUILD: '1'
       ATRIO_QA_GERAL_REMOTE_BUILD: '1'
       ATRIO_QA_GERAL_CELULAR_FICTICIO: ${{ contains(fromJSON('["qa/chat5-qa-geral-celular-pacote-proprio","qa/chat5-qa-geral-celular-identidade"]'), github.head_ref) && '1' || '0' }}
-      ATRIO_QA_GERAL_CELULAR_FUNCIONAL: ${{ contains(fromJSON('["qa/chat5-qa-geral-celular-funcional","qa/chat5-qa-geral-celular-combinado"]'), github.head_ref) && '1' || '0' }}
-      ATRIO_QA_GERAL_CELULAR_APP_ID: ${{ contains(fromJSON('["qa/chat5-qa-geral-celular-funcional","qa/chat5-qa-geral-celular-combinado"]'), github.head_ref) && '1:835727158563:android:0000000000000000000000' || '' }}
-      ATRIO_QA_GERAL_PUSH_BUILD: ${{ !contains(fromJSON('["qa/chat5-qa-geral-firebase-celular","qa/chat5-qa-geral-celular-pacote-proprio","qa/chat5-qa-geral-celular-identidade","qa/chat5-qa-geral-celular-funcional","qa/chat5-qa-geral-celular-combinado"]'), github.head_ref) && '1' || '0' }}
+      ATRIO_QA_GERAL_CELULAR_FUNCIONAL: ${{ contains(fromJSON('["qa/chat5-qa-geral-celular-funcional","qa/chat5-qa-geral-celular-combinado","qa/chat7-composicao-dois-celulares"]'), github.head_ref) && '1' || '0' }}
+      ATRIO_QA_GERAL_CELULAR_APP_ID: ${{ contains(fromJSON('["qa/chat5-qa-geral-celular-funcional","qa/chat5-qa-geral-celular-combinado","qa/chat7-composicao-dois-celulares"]'), github.head_ref) && '1:835727158563:android:0000000000000000000000' || '' }}
+      ATRIO_QA_GERAL_CELULAR_RODADA_FIXTURE: ${{ github.head_ref == 'qa/chat7-composicao-dois-celulares' && '1' || '0' }}
+      ATRIO_QA_GERAL_PUSH_BUILD: ${{ !contains(fromJSON('["qa/chat5-qa-geral-firebase-celular","qa/chat5-qa-geral-celular-pacote-proprio","qa/chat5-qa-geral-celular-identidade","qa/chat5-qa-geral-celular-funcional","qa/chat5-qa-geral-celular-combinado","qa/chat7-composicao-dois-celulares"]'), github.head_ref) && '1' || '0' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -161,6 +162,10 @@ jobs:
           if [[ "$ATRIO_QA_GERAL_CELULAR_FUNCIONAL" == 1 ]]; then
             test "$version_code" -gt 39
             label='Átrio QA Geral Celular'
+          fi
+          if [[ "$ATRIO_QA_GERAL_CELULAR_RODADA_FIXTURE" == 1 ]]; then
+            test "$version_code" = 41
+            grep -Eq "^package: .*versionName='[^']+-rodada-41'" "$RUNNER_TEMP/qa-geral-badging.txt"
           fi
           grep -F "application-label:'$label'" "$RUNNER_TEMP/qa-geral-badging.txt"
           "$tools/aapt" dump --values resources "$apk" > "$RUNNER_TEMP/qa-geral-resources.txt"

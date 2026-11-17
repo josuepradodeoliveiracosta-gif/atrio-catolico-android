@@ -21,6 +21,8 @@ val atrioQaGeralRemote = System.getenv("ATRIO_QA_GERAL_REMOTE_BUILD") == "1"
 val atrioQaGeralPush = System.getenv("ATRIO_QA_GERAL_PUSH_BUILD") == "1"
 val atrioQaGeralCelularFicticio = System.getenv("ATRIO_QA_GERAL_CELULAR_FICTICIO") == "1"
 val atrioQaGeralCelularFunctional = System.getenv("ATRIO_QA_GERAL_CELULAR_FUNCIONAL") == "1"
+// O CI confere a identidade da rodada sem usar a configuração do celular nem o fluxo protegido.
+val atrioQaGeralCelularRoundFixture = System.getenv("ATRIO_QA_GERAL_CELULAR_RODADA_FIXTURE") == "1"
 val atrioQaGeralCelularUnsigned = System.getenv("ATRIO_QA_GERAL_CELULAR_UNSIGNED_BUILD") == "1"
 val atrioQaGeralCelularPairCode = System.getenv("ATRIO_QA_GERAL_CELULAR_PAIR_CODE").orEmpty()
 require(atrioQaGeralCelularPairCode.isEmpty() ||
@@ -43,17 +45,22 @@ require(!atrioQaGeralCelularFunctional ||
 val atrioQaGeralRemoteProject = if (atrioQaGeralCelularFicticio)
     "atrio-catolico-qa-geral-ficticio" else "atrio-catolico-qa-general"
 val atrioQaGeralLegacyAppId = "1:835727158563:android:618218ab4be326d75cb096"
+val atrioQaGeralFunctionalFixtureAppId = "1:835727158563:android:0000000000000000000000"
 val atrioQaGeralRemoteAppId = when {
     atrioQaGeralCelularFicticio -> "1:000000000000:android:0000000000000000000000"
     atrioQaGeralCelularFunctional -> System.getenv("ATRIO_QA_GERAL_CELULAR_APP_ID").orEmpty().also {
         require(it in setOf(
             "1:835727158563:android:4258e81cc0ccc4df5cb096",
-            "1:835727158563:android:0000000000000000000000"
+            atrioQaGeralFunctionalFixtureAppId
         )) {
             "Informe o App ID independente do pacote novo no Firebase de QA Geral."
         }
     }
     else -> atrioQaGeralLegacyAppId
+}
+require(!atrioQaGeralCelularRoundFixture ||
+    (atrioQaGeralCelularFunctional && atrioQaGeralRemoteAppId == atrioQaGeralFunctionalFixtureAppId)) {
+    "O ensaio da rodada em dois celulares exige a configuração fictícia do build funcional."
 }
 require(!atrioQaGeralCelularPilot ||
     (atrioQaGeralBuild && !atrioQaGeralRemote && !atrioQaGeralPush)) {
@@ -427,10 +434,17 @@ androidComponents {
         variant.outputs.forEach { output ->
             val suffix = if (atrioQaGeralRemote) "qa-geral-celular" else "qa-geral"
             val pairSuffix = if (atrioQaGeralCelularPairCode.isEmpty()) "" else "-$atrioQaGeralCelularPairCode"
-            val functionalSuffix = if (atrioQaGeralCelularFunctional) "-funcional" else ""
+            val functionalSuffix = when {
+                atrioQaGeralCelularRoundFixture -> "-rodada-41"
+                atrioQaGeralCelularFunctional -> "-funcional"
+                else -> ""
+            }
             output.versionName.set("$atrioDebugVersionName-$suffix$pairSuffix$functionalSuffix")
-            val code = if (atrioQaGeralCelularFunctional) 40
-                else atrioQaGeralCelularPairCode.toIntOrNull() ?: atrioDebugVersionCode
+            val code = when {
+                atrioQaGeralCelularRoundFixture -> 41
+                atrioQaGeralCelularFunctional -> 40
+                else -> atrioQaGeralCelularPairCode.toIntOrNull() ?: atrioDebugVersionCode
+            }
             output.versionCode.set(code)
         }
     }
