@@ -19,6 +19,7 @@ val atrioQaGeralBuild = System.getenv("ATRIO_QA_GERAL_BUILD") == "1"
 val atrioQaGeralRemote = System.getenv("ATRIO_QA_GERAL_REMOTE_BUILD") == "1"
 val atrioQaGeralPush = System.getenv("ATRIO_QA_GERAL_PUSH_BUILD") == "1"
 val atrioQaGeralCelularFicticio = System.getenv("ATRIO_QA_GERAL_CELULAR_FICTICIO") == "1"
+val atrioQaGeralCelularFunctional = System.getenv("ATRIO_QA_GERAL_CELULAR_FUNCIONAL") == "1"
 val atrioQaGeralCelularUnsigned = System.getenv("ATRIO_QA_GERAL_CELULAR_UNSIGNED_BUILD") == "1"
 val atrioQaGeralCelularPairCode = System.getenv("ATRIO_QA_GERAL_CELULAR_PAIR_CODE").orEmpty()
 require(atrioQaGeralCelularPairCode.isEmpty() ||
@@ -34,11 +35,25 @@ require(!atrioQaGeralCelularFicticio || (atrioQaGeralRemote && !atrioQaGeralPush
 require(!atrioQaGeralPush || atrioQaGeralRemote) {
     "O Push do QA Geral requer o build dedicado para celular."
 }
+require(!atrioQaGeralCelularFunctional ||
+    (atrioQaGeralRemote && !atrioQaGeralCelularFicticio && !atrioQaGeralPush)) {
+    "QA Geral Celular funcional exige o build remoto dedicado, sem modo fictício nem push."
+}
 val atrioQaGeralRemoteProject = if (atrioQaGeralCelularFicticio)
     "atrio-catolico-qa-geral-ficticio" else "atrio-catolico-qa-general"
-val atrioQaGeralRemoteAppId = if (atrioQaGeralCelularFicticio)
-    "1:000000000000:android:0000000000000000000000" else "1:835727158563:android:618218ab4be326d75cb096"
-val atrioQaGeralPackageSuffix = if (atrioQaGeralCelularFicticio) ".qageral.celular" else ".qageral"
+val atrioQaGeralLegacyAppId = "1:835727158563:android:618218ab4be326d75cb096"
+val atrioQaGeralRemoteAppId = when {
+    atrioQaGeralCelularFicticio -> "1:000000000000:android:0000000000000000000000"
+    atrioQaGeralCelularFunctional -> System.getenv("ATRIO_QA_GERAL_CELULAR_APP_ID").orEmpty().also {
+        require(Regex("1:835727158563:android:[0-9a-f]{8,64}").matches(it) &&
+            it != atrioQaGeralLegacyAppId) {
+            "Informe o App ID independente do pacote novo no Firebase de QA Geral."
+        }
+    }
+    else -> atrioQaGeralLegacyAppId
+}
+val atrioQaGeralPackageSuffix =
+    if (atrioQaGeralCelularFicticio || atrioQaGeralCelularFunctional) ".qageral.celular" else ".qageral"
 require(!atrioQaGeralRemote || atrioQaGeralBuild) {
     "A homologação física requer o build QA Geral."
 }
@@ -71,19 +86,21 @@ if (atrioQaGeralBuild) {
         "QA Geral exige checkout sem configuração Firebase oficial ou de outras variantes."
     }
     if (atrioQaGeralRemote) {
-        val allowedTasks = if (atrioQaGeralCelularFicticio) {
+        val allowedTasks = if (atrioQaGeralCelularFicticio || atrioQaGeralCelularFunctional) {
             setOf("assembleQaGeral", "testQaGeralUnitTest")
         } else {
             setOf("assembleQaGeral")
         }
         require(gradle.startParameter.taskNames.all { it.substringAfterLast(':') in allowedTasks }) {
-            "QA Geral para celular: somente compilação e, no modo fictício, testes unitários."
+            "QA Geral para celular: somente compilação e testes unitários nos modos do pacote novo."
         }
-        val preflight = ProcessBuilder(
+        val gate = mutableListOf(
             "python3", rootProject.file("scripts/qa_geral_remote_build_gate.py").absolutePath,
             qaConfig.absolutePath, atrioQaGeralRemoteProject, atrioQaGeralRemoteAppId,
             "br.com.atriocatolico$atrioQaGeralPackageSuffix"
-        ).inheritIO().start()
+        )
+        if (atrioQaGeralCelularFunctional) gate.add("--functional")
+        val preflight = ProcessBuilder(gate).inheritIO().start()
         require(preflight.waitFor() == 0) { "Configuração Firebase do QA Geral para celular recusada." }
     } else {
         require(!qaConfig.exists()) { "QA Geral local não usa google-services.json." }
@@ -246,6 +263,7 @@ android {
         buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"0.20.4\"")
         buildConfigField("boolean", "ATRIO_QA_GERAL_REMOTE", "false")
         buildConfigField("boolean", "ATRIO_QA_GERAL_CELULAR_FICTICIO", "false")
+        buildConfigField("boolean", "ATRIO_QA_GERAL_CELULAR_FUNCIONAL", "false")
         buildConfigField("boolean", "ATRIO_QA_GERAL_PUSH", "false")
         buildConfigField("String", "ATRIO_QA_GERAL_PROJECT_ID", "\"\"")
         buildConfigField("String", "ATRIO_QA_GERAL_APP_ID", "\"\"")
@@ -320,7 +338,7 @@ android {
         }
         create("qaGeral") {
             initWith(getByName("debug"))
-            if (atrioQaGeralCelularUnsigned) signingConfig = null
+            if (atrioQaGeralCelularUnsigned || atrioQaGeralCelularFunctional) signingConfig = null
             applicationIdSuffix = atrioQaGeralPackageSuffix
             matchingFallbacks += listOf("debug")
             isDebuggable = true
@@ -329,6 +347,7 @@ android {
             val qaName = if (atrioQaGeralRemote) "QA Geral · Celular" else "QA Geral offline"
             manifestPlaceholders["atrioQaGeralLabel"] = when {
                 atrioQaGeralCelularPairCode.isNotEmpty() -> "Átrio QA Celular · Atualização"
+                atrioQaGeralCelularFunctional -> "Átrio QA Geral Celular"
                 atrioQaGeralRemote -> "Átrio Católico · QA Geral Celular"
                 else -> "Átrio Católico · QA Geral"
             }
@@ -336,6 +355,7 @@ android {
             if (atrioQaGeralRemote) {
                 buildConfigField("boolean", "ATRIO_QA_GERAL_REMOTE", "true")
                 buildConfigField("boolean", "ATRIO_QA_GERAL_CELULAR_FICTICIO", atrioQaGeralCelularFicticio.toString())
+                buildConfigField("boolean", "ATRIO_QA_GERAL_CELULAR_FUNCIONAL", atrioQaGeralCelularFunctional.toString())
                 buildConfigField("boolean", "ATRIO_QA_GERAL_PUSH", atrioQaGeralPush.toString())
                 buildConfigField("String", "ATRIO_QA_GERAL_PROJECT_ID", "\"$atrioQaGeralRemoteProject\"")
                 buildConfigField("String", "ATRIO_QA_GERAL_APP_ID", "\"$atrioQaGeralRemoteAppId\"")
@@ -397,8 +417,11 @@ androidComponents {
         variant.outputs.forEach { output ->
             val suffix = if (atrioQaGeralRemote) "qa-geral-celular" else "qa-geral"
             val pairSuffix = if (atrioQaGeralCelularPairCode.isEmpty()) "" else "-$atrioQaGeralCelularPairCode"
-            output.versionName.set("$atrioDebugVersionName-$suffix$pairSuffix")
-            output.versionCode.set(atrioQaGeralCelularPairCode.toIntOrNull() ?: atrioDebugVersionCode)
+            val functionalSuffix = if (atrioQaGeralCelularFunctional) "-funcional" else ""
+            output.versionName.set("$atrioDebugVersionName-$suffix$pairSuffix$functionalSuffix")
+            val code = if (atrioQaGeralCelularFunctional) 40
+                else atrioQaGeralCelularPairCode.toIntOrNull() ?: atrioDebugVersionCode
+            output.versionCode.set(code)
         }
     }
 }

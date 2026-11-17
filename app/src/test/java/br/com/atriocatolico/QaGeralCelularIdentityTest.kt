@@ -57,4 +57,36 @@ class QaGeralCelularIdentityTest {
             )
         }
     }
+
+    @Test
+    fun aceitaSomenteAIdentidadeFuncionalDoNovoPacote() {
+        val project = "atrio-catolico-qa-general"
+        val expectedAppId = "1:835727158563:android:0000000000000000000000"
+        val legacyAppId = "1:835727158563:android:618218ab4be326d75cb096"
+        assertTrue(qaGeralCelularFunctionalMatches(qaPackage, project, expectedAppId, expectedAppId))
+        assertFalse(qaGeralCelularFunctionalMatches("br.com.atriocatolico.qageral", project, expectedAppId, expectedAppId))
+        assertFalse(qaGeralCelularFunctionalMatches(qaPackage, project, legacyAppId, expectedAppId))
+        assertFalse(qaGeralCelularFunctionalMatches(qaPackage, "atrio-catolico", expectedAppId, expectedAppId))
+        assertFalse(qaGeralCelularFunctionalMatches(qaPackage, fixtureProject, fixtureAppId, expectedAppId))
+        assertFalse(qaGeralCelularFunctionalMatches(qaPackage, null, expectedAppId, expectedAppId))
+        assertFalse(qaGeralCelularFunctionalMatches(qaPackage, project, null, expectedAppId))
+        assertFalse(qaGeralCelularFunctionalMatches(qaPackage, project, "", ""))
+    }
+
+    @Test
+    fun metadadosDoBuildFuncionalCasamComOValidadorDoApp() {
+        val requested = System.getenv("ATRIO_QA_GERAL_CELULAR_FUNCIONAL") == "1"
+        assertEquals(requested, BuildConfig.ATRIO_QA_GERAL_CELULAR_FUNCIONAL)
+        if (requested) {
+            assertTrue(BuildConfig.ATRIO_QA_GERAL_REMOTE)
+            assertFalse(BuildConfig.ATRIO_QA_GERAL_CELULAR_FICTICIO)
+            assertFalse(BuildConfig.ATRIO_QA_GERAL_PUSH)
+            assertTrue(
+                qaGeralCelularFunctionalMatches(
+                    BuildConfig.APPLICATION_ID, BuildConfig.ATRIO_QA_GERAL_PROJECT_ID, BuildConfig.ATRIO_QA_GERAL_APP_ID,
+                    System.getenv("ATRIO_QA_GERAL_CELULAR_APP_ID").orEmpty()
+                )
+            )
+        }
+    }
 }
