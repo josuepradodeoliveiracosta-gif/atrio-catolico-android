@@ -1,0 +1,440 @@
+ÁTRIO CATÓLICO — PERFIL 2.0 — PROPOSTA CORRIGIDA
+Revisão de 17/11/2026
+================================================================================
+
+1. ESTADO DESTE DOCUMENTO
+
+Este texto substitui a proposta técnica do arquivo “Todas as Melhorias da Aba
+Perfil - Atrio Catolico _1_.txt” para orientar trabalho futuro. As dez ideias
+foram analisadas; NÃO foram implementadas nesta revisão. Os blocos Kotlin e
+Rules do TXT original não devem ser copiados integralmente para o aplicativo.
+Exigem integração incremental aos contratos atuais e testes do novo candidato.
+
+Repositório: josuepradodeoliveiracosta-gif/atrio-catolico-android
+Base efetivamente consultada: ebbed2edcdefa77fbda785ca6324aafa6d376c11 (main).
+Base antiga informada no TXT: 6c7afcbe.
+Versionamento integrado nessa base: defaultConfig 0.20.4 / versionCode 39.
+Isso não confirma APK publicado, instalado, assinado ou aprovado no aparelho.
+
+Agente desta revisão: Codex; papel: análise e revisão documental.
+Coordenação de referência: Issue #105. Nenhum número de chat foi presumido.
+Escopo desta entrega: comparação, correção da especificação e evidências locais.
+
+As regras lidas são as VERSIONADAS no GitHub. Sua publicação remota atual não
+foi consultada. Não se presume equivalência entre código, QA remoto e produção.
+
+2. LIMITES E REAPROVEITAMENTO OBRIGATÓRIO
+
+- Trabalhar em branch própria e PR, sem merge ou push na main.
+- Firebase remoto, Rules/índices remotos, Workers, dados reais, backups,
+  assinatura oficial e publicação exigem a autorização específica aplicável.
+- Preservar Wine, Gold, Paper, Ink, Muted, Line, WineSoft e AtrioType em sp.
+- Preservar navegação, foto local/pública moderada, selos, histórico e legado,
+  discussões acompanhadas, revisões, notificações, apoio, exclusão de conta e OTA.
+- Preservar RegistrationOptionalPreferences e os dados já cadastrados.
+- Preservar onConversations de OnlineProfileScreen e onConverse de
+  PublicMemberProfileScreen, inclusive os gates de acesso de QA existentes.
+- Preservar os testTags atuais, inclusive atrio-onboarding-*, atrio-badge-*,
+  atrio-member-* e atrio-help-toggle, além dos seletores de perfil.
+- Não aumentar permissões de uma variante somente para acomodar este texto.
+- Não alterar versão Android ou assinatura por esta revisão documental.
+
+3. COMPARAÇÃO DAS DEZ IDEIAS COM A BASE CONSULTADA
+
+1) Identidade católica opcional:
+   Estado civil e santo são propostas novas. Paróquia privada já existe em
+   users/{uid}/private/preferences. Hoje não há contrato para publicá-los.
+   Corrigir a fonte dos dados e aprovar consentimento e Rules antes de gravar.
+
+2) “Ver como me veem”:
+   Perfil público já existe. O atalho e o banner de prévia são novos.
+   Reusar a tela atual sem eliminar o callback onConverse nem expor dados privados.
+
+3) “Membro desde...”:
+   O perfil público já mostra joinedAt como data de ingresso. A novidade é o
+   formato mês/ano e sua apresentação no próprio perfil. Reusar createdAt real.
+
+4) Selos interativos e acompanhamento:
+   MemberBadgeRow já abre explicações; BadgeSettings já acompanha solicitação.
+   Ampliar apenas o que falta, como a observação acessível da última decisão.
+   Um único documento badge_requests/{uid} não é uma linha do tempo completa.
+
+5) Diagnóstico Android:
+   PushSettings já controla permissão e oferece diagnóstico. Acrescentar a
+   inspeção de canais e a atualização ao voltar dos ajustes, sem duplicar o fluxo.
+
+6) Interesses de formação:
+   Personalização, consentimento e remoção já existem em RegistrationV2.kt.
+   Os seis temas novos não pertencem ao enum atual. Não sobrescrever interesses
+   antigos nem retirar cidade, participação e paróquia do gerenciamento da conta.
+
+7) Permissão de contato:
+   Conversas usa users/{uid}/chatSettings/privacy.requests = 'all' ou 'none'.
+   Não criar allowDirectMessages em profiles: essa chave não controla Conversas.
+
+8) Membros bloqueados:
+   O contrato privado e o bloqueio/desbloqueio no perfil de outro membro já existem.
+   A novidade é centralizar a lista no próprio perfil com tratamento de erros.
+
+9) Senha e regras:
+   O FirebaseAuth permite solicitar redefinição. CommunityRulesPolicy já é a
+   fonte das regras comunitárias; esse texto não é uma política de privacidade.
+   Adicionar atalhos coerentes com os provedores da conta e documentos existentes.
+
+10) Exportação:
+    É uma proposta nova e parcial. Renomear para “Exportar dados do perfil”.
+    Não apresentar esse recorte como cópia integral da conta ou cumprimento
+    completo dos direitos LGPD. A implementação do TXT ainda faria três leituras.
+
+4. ORGANIZAÇÃO DA TELA
+
+Manter AtrioTopBar e uma única lista vertical na tela principal:
+
+Meu perfil
+  Foto, nome, data válida de ingresso, selos e apresentação.
+  Editar perfil; gerenciar foto com o componente existente.
+
+Apresentação pública
+  Estado confirmado: publicada, não publicada, carregando ou indisponível.
+  Resumo dos campos; publicar/retirar apresentação; prévia pública.
+  Aviso: retirar a apresentação não apaga posts, selos ou foto pública.
+
+Meus selos
+  Entrada única para gerenciamento e última solicitação/decisão.
+
+Minha participação
+  Conversas SOMENTE quando o callback/gate existente permitir.
+  Minhas discussões; discussões acompanhadas; minhas revisões.
+
+Preferências
+  PushSettings; personalização existente, com expansão coerente se aprovada;
+  apoio ao projeto. Evitar duas telas que editem os mesmos dados privativos.
+
+Conta e privacidade
+  E-mail e verificação; personalização se mantida no local atual;
+  bloqueados; recuperação de senha; documentos; exportação parcial;
+  sair; solicitação administrativa de exclusão.
+
+Ajuda e suporte
+  Versão visível; OTA e diagnóstico existentes; ferramentas administrativas
+  apenas com as mesmas permissões atuais. Manter ProfileBasilicaFooter.
+
+Textos devem ser curtos, mas podem quebrar linha. Não impor uma linha ou altura
+fixa que corte texto em fonte 200%, tela estreita ou TalkBack. Controles precisam
+de alvo efetivo mínimo de 48dp; FlowRow/coluna quando necessário. O 36dp mínimo
+do chip sugerido não comprova alvo acessível. Manter português acentuado.
+
+5. EDIÇÃO, IDENTIDADE OPCIONAL E CONSENTIMENTO
+
+Preservar nome de 2 a 35 caracteres e apresentação de até 180. Acrescentar,
+somente após contrato de dados aprovado:
+
+- Estado civil opcional, com “Não informar”; códigos sugeridos '', solteiro,
+  casado. Não atribuir valor por dedução; aprovar opções e texto antes da entrega.
+- Santo de devoção opcional, até 60 caracteres, uma linha de entrada.
+- Paróquia ou diocese opcional, até 80 caracteres, uma linha de entrada.
+- Chave de publicação individual abaixo de cada campo, desligada por padrão.
+- A chave só é utilizável com valor válido. Limpar o valor desativa a publicação.
+- Informar que paróquia pode revelar vínculo e localização aproximada.
+- Separar autorização para guardar informação sensível da autorização para
+  publicá-la. Reutilizar consentimento existente somente se sua finalidade
+  realmente cobrir o novo tratamento. Não inventar versão jurídica aprovada.
+- Salvar, cancelar e confirmar descarte; impedir múltiplos salvamentos.
+- Modal rolável com teclado aberto e fontes ampliadas; botões alcançáveis.
+
+Paróquia canônica: users/{uid}/private/preferences.parish. Não criar uma segunda
+fonte autoritativa em profiles/{uid}. A projeção pública pode conter uma cópia
+autorizada, cujo valor deve corresponder à fonte privada após a transação.
+Qualquer mudança do modelo exige plano explícito de migração/revogação das cópias.
+
+Carregar os dados antes de habilitar edição. rememberSaveable não reinicializa
+automaticamente um rascunho após leitura assíncrona. Não preencher formulário
+tarde sobre alterações feitas pelo usuário. Em erro, mostrar falha e nova
+tentativa; ausência e falta de permissão não significam valores vazios válidos.
+
+6. SALVAMENTO ATÔMICO E PUBLICAÇÃO
+
+Reusar a transação existente em vez de substituir os arquivos completos.
+
+- Derivar UID da sessão autenticada e validar a identidade do ambiente.
+- Ler os documentos envolvidos antes das escritas. Nenhum efeito de UI dentro
+  do corpo da transação, que pode ser repetido pelo SDK.
+- Atualizar perfil privado e, quando necessário, preferências canônicas e
+  projeção pública na mesma operação atômica. Preservar campos não editados.
+- Não criar perfil privado ausente pelo editor. No piloto isso é proibido;
+  ausência é erro de provisionamento a ser tratado no fluxo correto.
+- Edição não publica perfil inexistente: somente a ação explícita de publicar
+  pode criar a projeção, em ambiente que já autorize essa operação.
+- Validar existência da projeção dentro da transação; concorrência com retirada
+  deve ser reavaliada pelo SDK e não recriar opt-in após revogação.
+- Publicar a projeção exata dos campos autorizados; remover do documento público
+  os campos cuja autorização foi retirada. Não basta ocultá-los na interface.
+- createdAt é o cadastro original, imutável; joinedAt deve ser timestamp válido
+  e igual a createdAt. Nunca usar a data atual para “consertar” ingresso ausente.
+- Não adicionar updatedAt privado sem contrato correspondente nas Rules.
+- Transações exigem conexão. Sem rede, manter rascunho e não anunciar sucesso
+  até a confirmação do servidor; distinguir cache, pendência e publicação efetiva.
+- Testar clientes antigos: a escrita pública antiga pode remover campos novos,
+  e edições privadas antigas não podem deixar uma projeção sensível desatualizada.
+  Definir compatibilidade antes de liberar o novo esquema.
+
+Resumo público deve distinguir “selecionado para publicar” de “já publicado”.
+Nome, selos, foto e publicações têm visibilidades distintas. Não prometer que
+“retirar perfil” torna toda a presença do participante privada.
+
+7. PRÉVIA E DATA DE INGRESSO
+
+- Reusar PublicMemberProfileScreen com modo de prévia explícito para o próprio
+  UID. Sem bloquear, denunciar ou conversar consigo mesmo.
+- Mostrar dados da projeção public_profiles confirmada; não preencher silenciosamente
+  com informação privada e dizer que terceiros a veem.
+- Se não houver projeção: “Sua apresentação não está publicada”. Nome proveniente
+  de publicação, foto, selos e posts podem continuar visíveis pelas regras atuais.
+- Distinguir rascunho local de publicação real. Se houver prévia de rascunho,
+  informar claramente que ainda não foi publicado.
+- Atualizar estado ao voltar para a tela e após edição/retirada; listener deve
+  ser removido ao sair e limpar informação sensível revogada. Não afirmar
+  revogação remota atual se só houver dados em cache ou falha de leitura.
+- Preservar paginação das discussões, retorno e callbacks atuais.
+- “Membro desde mês de ano” deriva do timestamp real. Data ausente/inválida não
+  deve ser inventada. Definir locale e fuso para evitar discrepâncias de mês.
+
+8. SELOS E DIAGNÓSTICO ANDROID
+
+Selos:
+- Usar MemberBadgeRow existente e seu modelo privado BadgeDescription, cujos
+  campos são kind, name, details e tint. Não usar id/label/description/accent
+  sem alterar deliberadamente o contrato e todos os consumidores.
+- Não expor um tipo private numa função internal.
+- Incrementar BadgeSettings para mostrar última decisão e nota autorizada.
+  Tratar pending, approved, rejected, dismissed e revoked, ausência e falha.
+- Mostrar revokeNote quando aplicável. Não chamar um documento de “histórico”.
+  badge_events existente tem finalidade e permissões próprias; não abri-lo a
+  usuários comuns apenas para construir uma linha do tempo.
+- Selo visual e autodeclaração continuam sem conceder grants administrativos.
+
+Avisos Android:
+- Integrar o banner ao PushSettings existente; declarar um helper não o exibe.
+- No Android 13+, verificar POST_NOTIFICATIONS; nas versões aplicáveis, verificar
+  a permissão global do app e a importância dos canais de notificação usados.
+- areNotificationsEnabled() sozinho não detecta todos os canais silenciados.
+- Reavaliar no ON_RESUME/retorno dos ajustes. remember com flags iguais mantém
+  um diagnóstico antigo mesmo depois de o usuário alterar a configuração.
+- Não confundir ausência de isenção de otimização com bloqueio comprovado.
+  Separar avisos de economia de bateria e restrição real de segundo plano.
+- Abrir ajuste disponível com alternativa e mensagem de falha; não alterar
+  preferências ou solicitar isenções automaticamente.
+- Registrar aparelho/Android e resultado; diagnóstico não comprova entrega FCM.
+
+9. PERSONALIZAÇÃO, CONVERSAS E BLOQUEADOS
+
+Personalização:
+- Preservar RegistrationOptionalPreferences, cidade, participação e paróquia.
+- O contrato atual de interests permite Oração, Formação, Comunidade e Notícias
+  católicas, no máximo quatro; consentVersion é cadastro-v2-2026-11 e os campos
+  obrigatórios/tempos devem corresponder às Rules versionadas.
+- Os novos temas detalhados ficam fora da primeira entrega. Antes de adotá-los,
+  definir um contrato adicional ou migração compatível. Não reutilizar interests
+  com outro enum nem substituir a versão de consentimento arbitrariamente.
+- “Limpar interesses” deve alterar somente a seleção correspondente e preservar
+  os demais dados, com consentimento/horários válidos. Se não restar qualquer
+  dado opcional, usar o fluxo coerente de revogação existente.
+- “Apagar minhas preferências” pode revogar o conjunto integral, desde que o
+  rótulo e a confirmação expliquem que cidade, participação e paróquia sairão.
+  Com novos dados públicos, a remoção privada também deve revogar a cópia pública.
+
+Conversas:
+- Usar exclusivamente users/{uid}/chatSettings/privacy.requests ('none'/'all').
+- Preservar readReceipts e showPushPreview ao alterar só requests; não redefini-los
+  para false por conveniência. Completar defaults somente na criação legítima.
+- Usar o mesmo fluxo/contrato da tela de Conversas e respeitar os gates, política
+  etária, bloqueio bilateral, configuração administrativa e regras do ambiente.
+- A chave só controla NOVAS solicitações; não concede acesso ao serviço nem
+  substitui aceite do destinatário ou encerra conversas existentes.
+- Sem elegibilidade/configuração válida, ocultar ou explicar indisponibilidade.
+  Ausência/erro de preferência não significa consentimento para todos.
+
+Bloqueados:
+- Reusar users/{uid}/blockedMembers e seu controle de propriedade.
+- Listar com paginação/limite e sob demanda, não carregar todo o conjunto a cada
+  recomposição. Não fazer leituras ilimitadas de nomes de outros perfis.
+- Nome vem da projeção pública quando disponível; usar rótulo neutro se ausente.
+  Não consultar perfil privado de terceiros nem mostrar UID como nome do membro.
+- Diferenciar carregando, vazio e erro. Exibir falha de desbloqueio e atualizar
+  a lista somente após confirmação. Bloquear/desbloquear não envia contato.
+
+10. CONTA, DOCUMENTOS E EXPORTAÇÃO PARCIAL
+
+Conta e documentos:
+- Recuperação usa a instância Auth do ambiente correto e a conta da sessão.
+  Conferir provedor de senha; tratar reenvio, limite, falha e mudança de conta.
+- “E-mail solicitado” não é prova de recebimento. Evitar solicitações repetidas.
+- Regras comunitárias: reusar CommunityRulesPolicy sem modificar o aceite.
+- Privacidade: apontar para a política própria vigente e verificada; se ainda
+  faltar, registrar a pendência. Não substituir por frase genérica sobre dados.
+
+Exportação:
+- Rótulo: “Exportar dados do perfil”. Informar conteúdo e exclusões antes de gerar.
+- Incluir identidade do titular, dados e visibilidade do perfil, preferências e
+  respectivos consentimentos/tempos dentro do recorte aprovado. Relacionar
+  fontes não incluídas, como posts, conversas e histórico administrativo.
+- Reusar estado completo quando disponível; caso haja leituras, contabilizá-las.
+  Não prometer “sem leituras extras”. Indicar geração/data e origem em cache.
+- Erro de public_profiles ou preferences deve constar como “não consultado”,
+  com nova tentativa ou resultado parcial. Não converter falha em “nenhum dado”.
+- Executar leitura/gravação fora de trabalho pesado na UI; cancelar/invalidar o
+  resultado ao sair ou trocar de conta; nunca exportar sob identidade divergente.
+- Preferir Storage Access Framework (ACTION_CREATE_DOCUMENT) para o usuário
+  escolher onde salvar, sem nova permissão ampla de armazenamento.
+- Se houver compartilhamento, usar provider dedicado e restrito à exportação,
+  URI temporária com permissão de leitura e diretório próprio. O provider atual
+  é ${applicationId}.ota.fileprovider, não ${applicationId}.fileprovider.
+  Não misturar TXT sensível em cacheDir/ota. perfilQa remove esse provider.
+- Tratar exceções, ausência de aplicativo de destino, cancelamento e limpeza
+  posterior do arquivo temporário; não apagar um arquivo que ainda está em uso.
+- Compartilhar é ação explícita. Não enviar arquivos automaticamente.
+
+11. CONTRATO DE SEGURANÇA PARA UMA IMPLEMENTAÇÃO FUTURA
+
+O fragmento da seção 7 original não é uma substituição segura das Rules.
+
+- Preservar o ciclo de criação existente; editor atualiza somente documento
+  legítimo. Privado: titular autenticado, verificações adicionais do ambiente
+  e nenhuma listagem. Perfil QA exige e-mail confirmado e nega criação/exclusão.
+- Usar allowlists de campos editáveis por operação; não abrir alteração de
+  createdAt, permissões, grants ou identificadores junto com a identidade.
+- Exigir campos obrigatórios, tipos, limites e timestamps; createdAt imutável,
+  joinedAt igual ao cadastro real e updatedAt público igual a request.time.
+- Projeção sem e-mail, interesses privados, cidade, consentimentos internos,
+  allowDirectMessages ou campos não autorizados.
+- Valor público só existe com autorização específica e valor privado válido
+  correspondente após a operação atômica. Revogação remove o valor público.
+- Se o contrato exigir mudança privada real na mesma operação, comparar get()
+  e getAfter(); getAfter() sozinho não prova que o documento foi modificado.
+- Preservar privacidade de preferências, denúncias e bloqueios; negação padrão
+  dos caminhos não aprovados. Avaliar limites de leituras das Rules/transações.
+- Não somar matches permissivos a contratos restritos: permissões coincidentes
+  nas Rules se combinam por OR, não por AND.
+- Regras novas entram primeiro em composição local isolada, com testes positivos,
+  negativos e regressões. Publicação remota exige autorização por destino.
+
+12. AMBIENTES E COMANDOS CORRETOS
+
+perfilQa é um buildType, não uma combinação de flavor com Debug.
+O comando :app:connectedPerfilQaDebugAndroidTest do TXT não corresponde ao
+Gradle atual. Não substituí-lo cegamente por outro nome de tarefa.
+
+Contrato vigente do piloto Perfil QA:
+- Pacote br.com.atriocatolico.perfilqa; projeto atrio-catolico-qa-perfil.
+- Login preexistente verificado; nome/bio; histórico próprio de leitura.
+- Sem preferências, selos, foto, notificações, conversas, cadastro ou opt-in novo.
+- Gate atual aceita somente :app:assemblePerfilQa com ATRIO_PERFIL_QA_BUILD=1,
+  configuração exclusiva validada e ambiente limpo. Não é comando para executar
+  nesta revisão sem o preparo e as autorizações do destino.
+- testBuildType é qaGeral no modo QA Geral e debug no modo padrão. A atividade
+  de perfilQa nem sequer abre OnlineProfileScreen.
+
+Para instrumentação ampla, reaproveitar o workflow android-bots-ui e runner
+atuais de qaGeral com Auth/Firestore Emulator em demo-atrio-v11. A atividade
+comunitária e as Rules do emulador precisam conter o candidato compatível.
+Esse QA usa pacote isolado e endpoints locais; não reaproveitar configuração
+remota de outro ambiente. Novos caminhos dependem do contrato aprovado, não de
+um bypass no gate. Não gerar um APK Debug genérico para instalar sobre o oficial.
+
+O teste exportado runProfileCatholicIdentityTests do TXT não é executado sozinho
+por node e não consta de package.json. Criar ambiente/fixtures/cleanup, chamar
+os testes explicitamente e integrá-los ao comando existente ao implementar.
+
+13. CRITÉRIOS DE ACEITAÇÃO DA FUTURA IMPLEMENTAÇÃO
+
+[ ] Código compila preservando assinaturas e fluxos atuais, sem trocar arquivos
+    completos por snippets antigos; diff sem segredos ou remoções acidentais.
+[ ] Consentimento privado e publicação por campo começam desligados; salvar
+    sem publicar não cria projeção nem expõe dados em consultas/API.
+[ ] Preferências anteriores são preservadas; limpar interesses não apaga outros
+    campos; revogação integral remove também cópias públicas dependentes.
+[ ] Perfil/projeção/preferências ficam consistentes em sucesso, falha, concorrência
+    com retirada e uso de cliente antigo; nenhuma gravação parcial.
+[ ] CreatedAt/joinedAt inválidos ou adulterados são negados no Emulator.
+[ ] Prévia mostra projeção real, identifica ausência/erro/cache e impede ações
+    contra si; retirada limpa campos privados da exibição confirmada.
+[ ] Selos existentes funcionam; ausência/erro/status e notas são tratados sem
+    ampliar privilégios ou leitura de histórico administrativo.
+[ ] Diagnóstico detecta permissão global e canal, atualiza ao retornar dos ajustes
+    e diferencia economia de bateria de impedimento efetivamente constatado.
+[ ] Requests usa o contrato de Conversas; nenhuma preferência habilita serviço
+    bloqueado, libera menor ou contorna bloqueios/aceite/gates.
+[ ] Lista de bloqueados tem paginação, erro e desbloqueio confirmado.
+[ ] Recuperação e documentos usam ambiente/conta/fontes corretos.
+[ ] Exportação é parcial e explícita, trata leitura negada/cache/cancelamento,
+    preserva privacidade no armazenamento e funciona no pacote a testar.
+[ ] Testes novos realmente executados; regressões atuais passam no SHA final.
+[ ] QA Android isolado: navegação, erro, retorno, teclado, fonte 200%, TalkBack,
+    mudança de conta, recriação e callbacks atrasados. QA físico separado.
+
+Novos testTags devem ser introduzidos só junto com UI e testes consumidores,
+preservando os existentes. O teste legado de ProfileEditorDialog não pode exibir
+campos novos e descartá-los silenciosamente no adaptador de onSave antigo.
+
+14. ORDEM DE ENTREGA E ENCAMINHAMENTO
+
+Etapa A — Contrato e revisão: Coordenação define dono; Backend/Firebase e
+Segurança fecham modelo, consentimento, compatibilidade e Rules locais.
+
+Etapa B — UI com reaproveitamento: prévia, data e última decisão; atalhos de
+documentos/conta e bloqueados. Cada recorte mantém seus critérios e testes.
+
+Etapa C — Dados opcionais: editor e transações do contrato aprovado, depois
+diagnóstico de sistema e exportação parcial com armazenamento próprio.
+
+Etapa D — Validação: Emulator, instrumentação QA Geral e revisão por SHA;
+aparelho e liberação somente no ambiente/artefato autorizado.
+
+Não há percentual confiável de implementação das dez ideias nesta revisão.
+Análise documental concluída não significa funcionalidade pronta nem release.
+
+Encaminhamentos sugeridos — consultar a PR desta revisão e revalidar o SHA:
+- Chat 2: defina o contrato de identidade/projeção e a preservação de preferências;
+  teste revogação e datas no Emulator. Sem publicar Rules nem acessar dados reais.
+- Chat 3: detalhe a UI incremental com callbacks e personalização preservados;
+  confira prévia e fontes 200%. Sem ampliar escopo de backend ou produção.
+- Chat 4: revise consentimento, projeção, datas e exportação parcial contra as
+  evidências desta análise. Registre riscos; sem deploy.
+- Chat 5: use o runner QA Geral compatível e evidências por SHA; mantenha o piloto
+  Perfil QA restrito. Não declarar teste físico, assinatura ou release sem prova.
+- Chat 6: integre diagnóstico ao PushSettings e contrato requests existente;
+  preserve gates e não habilite envios ou serviços reais.
+- Chat 7: revise compatibilidade, dependências e preservação dos contratos;
+  encaminhe o parecer à Coordenação, sem merge.
+
+Os encaminhamentos são textos para distribuição; nenhum outro chat recebeu ou
+executou tarefas automaticamente. A Coordenação usa a Issue #105 existente.
+
+15. EVIDÊNCIAS DESTA ANÁLISE
+
+Comparação estática dos arquivos no SHA indicado; consulta de PRs e registros
+existentes; nenhum acesso ao conteúdo de contas reais ou operações no
+Firebase/Cloudflare remotos.
+
+Teste local: Firestore Emulator, projeto demo-atrio-v11, 127.0.0.1:8089;
+Node 22.23.5 e Java 21.0.13; dependências do package-lock.json dessa base.
+- 30/30 verificações da suíte existente public-profile.test.mjs passaram.
+- 9/9 verificações direcionadas passaram: recusa dos novos campos e de
+  allowDirectMessages pelas Rules atuais; interesses novos negados na criação
+  e no merge; exclusão integral de preferências; proteção atual de createdAt;
+  aceitação indevida de createdAt alterado, joinedAt divergente e projeção sem
+  joinedAt pelo fragmento original do TXT no harness local.
+
+Os três últimos sucessos demonstram falhas da proposta original. Não são
+aprovação das suas Rules. O ensaio do fragmento adicionou somente wrapper de
+Rules e me(uid) para autenticação do titular; não prova uma integração completa.
+
+Nenhuma nova Rule corrigida foi implementada ou certificada por estes testes.
+Não foram executados build Android, Compose, teste físico, deploy ou migração
+nesta revisão. A futura implementação exige seus próprios testes no SHA final.
+
+SHA-256 do TXT original analisado:
+058eb32ed64d1a91e371160a7d7d2df69982cf2db955c90b57bfa5347cc30ea7
+
+Relatório rastreável: docs/qa/perfil-2-0-analise-txt-20261117.md.
+================================================================================

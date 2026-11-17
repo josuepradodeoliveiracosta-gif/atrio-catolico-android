@@ -1,0 +1,71 @@
+rules_version = '2';
+service cloud.firestore {
+match /databases/{database}/documents {
+function me(uid) { return request.auth != null && request.auth.uid == uid; }
+function validCatholicOptionalFields(data) {
+  return (!('maritalStatus' in data) || data.maritalStatus in ['', 'solteiro', 'casado']) &&
+         (!('devotionSaint' in data) || (data.devotionSaint is string && data.devotionSaint.size() <= 60)) &&
+         (!('parish' in data) || (data.parish is string && data.parish.size() <= 80)) &&
+         (!('showMaritalStatusPublic' in data) || data.showMaritalStatusPublic is bool) &&
+         (!('showSaintPublic' in data) || data.showSaintPublic is bool) &&
+         (!('showParishPublic' in data) || data.showParishPublic is bool) &&
+         (!('allowDirectMessages' in data) || data.allowDirectMessages is bool);
+}
+
+match /profiles/{uid} {
+  allow get: if me(uid);
+  allow list: if false;
+  allow create, update: if me(uid) &&
+    request.resource.data.keys().hasOnly([
+      'displayName', 'bio', 'createdAt', 'updatedAt',
+      'maritalStatus', 'devotionSaint', 'parish',
+      'showMaritalStatusPublic', 'showSaintPublic', 'showParishPublic',
+      'allowDirectMessages'
+    ]) &&
+    request.resource.data.displayName is string &&
+    request.resource.data.displayName.size() >= 2 &&
+    request.resource.data.displayName.size() <= 35 &&
+    (!('bio' in request.resource.data) || (request.resource.data.bio is string && request.resource.data.bio.size() <= 180)) &&
+    validCatholicOptionalFields(request.resource.data) &&
+    (!existsAfter(/databases/$(database)/documents/public_profiles/$(uid)) ||
+      publicMatchesPrivateAfter(uid));
+  allow delete: if false;
+}
+
+function publicMatchesPrivateAfter(uid) {
+  let priv = getAfter(/databases/$(database)/documents/profiles/$(uid)).data;
+  let pub = getAfter(/databases/$(database)/documents/public_profiles/$(uid)).data;
+  return pub.displayName == priv.displayName &&
+         pub.bio == priv.get('bio', '') &&
+         (!('maritalStatus' in pub) ||
+           (priv.get('showMaritalStatusPublic', false) == true &&
+            pub.maritalStatus in ['solteiro', 'casado'] &&
+            pub.maritalStatus == priv.get('maritalStatus', ''))) &&
+         (!('devotionSaint' in pub) ||
+           (priv.get('showSaintPublic', false) == true &&
+            pub.devotionSaint is string &&
+            pub.devotionSaint.size() >= 1 &&
+            pub.devotionSaint.size() <= 60 &&
+            pub.devotionSaint == priv.get('devotionSaint', ''))) &&
+         (!('parish' in pub) ||
+           (priv.get('showParishPublic', false) == true &&
+            pub.parish is string &&
+            pub.parish.size() >= 1 &&
+            pub.parish.size() <= 80 &&
+            pub.parish == priv.get('parish', '')));
+}
+
+match /public_profiles/{uid} {
+  allow get: if request.auth != null;
+  allow list: if false;
+  allow create, update: if me(uid) &&
+    request.resource.data.keys().hasOnly([
+      'displayName', 'bio', 'joinedAt', 'updatedAt',
+      'maritalStatus', 'devotionSaint', 'parish'
+    ]) &&
+    request.resource.data.updatedAt == request.time &&
+    publicMatchesPrivateAfter(uid);
+  allow delete: if me(uid);
+}
+}
+}
