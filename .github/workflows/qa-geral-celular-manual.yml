@@ -46,7 +46,9 @@ jobs:
           cache-read-only: true
       - name: Compilar e testar com certificados descartáveis
         shell: bash
-        run: bash scripts/test_qa_geral_celular_manual.sh
+        run: |
+          rm -f -- app/google-services.json
+          bash scripts/test_qa_geral_celular_manual.sh
 
   compilar-manual:
     name: Compilar e validar no ambiente protegido
@@ -79,6 +81,7 @@ jobs:
         shell: bash
         run: |
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          rm -f -- app/google-services.json
           bash scripts/qa_geral_celular_manual.sh build "$RUNNER_TEMP/qa-celular-unsigned.apk"
       - name: Assinar e aprovar apenas com certificado fixado
         shell: bash
