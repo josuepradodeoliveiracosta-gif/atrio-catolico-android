@@ -155,7 +155,7 @@ if [[ "${ATRIO_QA_SUITE:-}" == "GuardianV2UiTest" ]]; then
 fi
 if [[ "${ATRIO_QA_GERAL_CELULAR_PILOT:-}" == 1 ]]; then
   (cd tests/security && node seed-qa-celular-pilot-android.mjs)
-  run_suite AtrioConversasCompostasEmulatorUiTest
+  run_suite "$ATRIO_QA_SUITE"
   exit "$qa_failed"
 fi
 if [[ -n "${ATRIO_QA_SUITE:-}" ]]; then

@@ -384,8 +384,10 @@ class AtrioConversasCompostasEmulatorUiTest {
         assertDenied(history.get(Source.SERVER))
         if (pilot) {
             reopen(Screen(bob, groupId = group.id))
-            waitForText("Você ainda não participa de grupos.")
+            waitForText("Este grupo não está disponível para esta conta.")
+            compose.onNodeWithTag("atrio-group-thread").assertDoesNotExist()
             compose.onNodeWithText(message).assertDoesNotExist()
+            assertDenied(entry.get(Source.SERVER))
             assertTrue(await(report.get(Source.SERVER)).exists())
         }
 
