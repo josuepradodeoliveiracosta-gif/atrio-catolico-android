@@ -1,0 +1,90 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function qaTester() {
+      return request.auth != null &&
+        request.auth.token.get('email_verified', false) == true &&
+        ((request.auth.uid == 'qa-nav-alice' &&
+            request.auth.token.get('email', '') == 'alice.navegacao@qa.invalid') ||
+         (request.auth.uid == 'qa-nav-bob' &&
+            request.auth.token.get('email', '') == 'bob.navegacao@qa.invalid'));
+    }
+
+    function qaOwner(uid) {
+      return qaTester() && request.auth.uid == uid;
+    }
+
+    match /app_config/{config} {
+      allow get: if qaTester() && config in [
+        'conversations', 'community_rules', 'email_verification', 'founder', 'opening_video'
+      ];
+    }
+
+    match /profiles/{uid} {
+      allow get: if qaOwner(uid);
+    }
+
+    match /public_profiles/{uid} {
+      allow get: if qaTester() && uid in ['qa-nav-alice', 'qa-nav-bob'];
+    }
+
+    match /badges/{uid} {
+      allow get: if qaTester() && uid in ['qa-nav-alice', 'qa-nav-bob'];
+    }
+
+    match /admins/{uid} {
+      allow get: if qaOwner(uid);
+    }
+
+    match /community_consents/{uid} {
+      allow get: if qaOwner(uid);
+    }
+
+    match /posts/{postId} {
+      // O feed do aplicativo ordena todos os posts sem filtrar por autor.
+      allow get, list: if qaTester();
+    }
+
+    match /users/{uid}/private/account {
+      allow get: if qaOwner(uid);
+    }
+
+    match /users/{uid}/chatAgeEligibility/current {
+      allow get: if qaOwner(uid);
+    }
+
+    match /users/{uid}/chatSettings/privacy {
+      allow get: if qaOwner(uid);
+    }
+
+    match /users/{uid}/pushDevices/{deviceId} {
+      allow get, delete: if qaOwner(uid);
+      allow create, update: if qaOwner(uid)
+        && deviceId.matches('[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}')
+        && request.resource.data.keys().hasOnly(['token', 'updatedAt'])
+        && request.resource.data.token is string
+        && request.resource.data.token.size() >= 20
+        && request.resource.data.token.size() <= 4096
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    match /users/{uid}/{collection}/{item} {
+      allow get, list: if qaOwner(uid) && collection in [
+        'chatBox', 'likedPosts', 'savedPosts', 'blockedMembers', 'notifications'
+      ];
+      allow create: if qaOwner(uid) && collection in ['likedPosts', 'savedPosts']
+        && exists(/databases/$(database)/documents/posts/$(item))
+        && request.resource.data.keys().hasOnly(['createdAt'])
+        && request.resource.data.createdAt == request.time;
+      allow delete: if qaOwner(uid) && collection in ['likedPosts', 'savedPosts'];
+    }
+
+    match /chats/{chatId} {
+      allow get, list: if qaTester() && request.auth.uid in resource.data.participants;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

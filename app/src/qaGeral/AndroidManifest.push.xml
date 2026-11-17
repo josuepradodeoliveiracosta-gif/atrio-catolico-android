@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <!-- QA Geral Celular com Firebase Messaging, sem instalador OTA. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" tools:node="remove" />
+    <application android:label="${atrioQaGeralLabel}"
+        android:allowBackup="false"
+        android:networkSecurityConfig="@xml/qa_emulator_network_security"
+        tools:replace="android:label">
+        <provider android:name="androidx.core.content.FileProvider" tools:node="remove" />
+    </application>
+</manifest>

@@ -4,7 +4,7 @@
     <!-- QA Geral: app completo para bots, sem push remoto nem instalador OTA. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" tools:node="remove" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" tools:node="remove" />
-    <application android:label="Átrio Católico · QA Geral"
+    <application android:label="${atrioQaGeralLabel}"
         android:allowBackup="false"
         android:networkSecurityConfig="@xml/qa_emulator_network_security"
         tools:replace="android:label">
