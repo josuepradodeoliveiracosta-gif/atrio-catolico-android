@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {after, before, test} from 'node:test';
 import {assertFails, initializeTestEnvironment} from '@firebase/rules-unit-testing';
-import {arrayUnion, collection, deleteDoc, doc, getDoc, getDocs, limit, orderBy, query,
-  serverTimestamp, setDoc, updateDoc, where, writeBatch} from 'firebase/firestore';
-import {accounts, documents} from '../../firebase/qa-geral-celular/fixtures.mjs';
+import {arrayUnion, collection, deleteDoc, deleteField, doc, getDoc, getDocs, limit, orderBy, query,
+  runTransaction, serverTimestamp, setDoc, updateDoc, where, writeBatch} from 'firebase/firestore';
+import {accounts, documents, moderationDocuments, moderator} from '../../firebase/qa-geral-celular/fixtures.mjs';
 
 const projectId = 'demo-atrio-v11';
 const env = await initializeTestEnvironment({
@@ -25,6 +25,7 @@ function session(account, overrides = {}) {
 }
 const a = session(alice);
 const b = session(bob);
+const admin = session(moderator);
 const outsider = env.authenticatedContext('estranho', {
   email: alice.email, email_verified: true, admin: true
 }).firestore();
@@ -63,7 +64,8 @@ before(async () => {
   await env.clearFirestore();
   await env.withSecurityRulesDisabled(async context => {
     const db = context.firestore();
-    await Promise.all(documents(new Date('2026-11-16T10:00:00Z'))
+    const now = new Date('2026-11-16T10:00:00Z');
+    await Promise.all([...documents(now), ...moderationDocuments(now)]
       .map(([path, fields]) => setDoc(doc(db, path), fields)));
   });
 });
@@ -198,6 +200,7 @@ test('resposta de Alice confirma o aviso de Bob no mesmo lote, com leitura priva
   assert.ok(replies.docs.some(item => item.id === replyId));
   await assertFails(getDoc(doc(a, noticePath)));
   await assertFails(getDocs(collection(a, inboxPath)));
+  await assertFails(getDoc(doc(admin, noticePath)));
   await assertFails(getDoc(doc(outsider, noticePath)));
   await assertFails(updateDoc(doc(a, noticePath), {read: true}));
   await assertFails(deleteDoc(doc(a, noticePath)));
@@ -224,14 +227,12 @@ test('Bob responde à publicação de Alice e o aviso fica na caixa dela', async
 test('a Central consulta revisão de selo somente pelo ID do próprio titular', async () => {
   const alicePath = 'badge_requests/' + alice.uid;
   const bobPath = 'badge_requests/' + bob.uid;
-  await env.withSecurityRulesDisabled(context =>
-    setDoc(doc(context.firestore(), bobPath), {status: 'approved', kind: 'lay'}));
   assert.equal((await getDoc(doc(a, alicePath))).exists(), false);
-  assert.equal((await getDoc(doc(b, bobPath))).get('status'), 'approved');
+  assert.equal((await getDoc(doc(b, bobPath))).get('status'), 'pending');
   await assertFails(getDoc(doc(a, bobPath)));
   await assertFails(getDoc(doc(b, alicePath)));
   await assertFails(getDocs(collection(b, 'badge_requests')));
-  await assertFails(updateDoc(doc(b, bobPath), {status: 'pending'}));
+  await assertFails(updateDoc(doc(b, bobPath), {status: 'approved'}));
 });
 
 test('responder ao próprio post dispensa aviso e mantém a resposta sob autoria de Bob', async () => {
@@ -324,7 +325,7 @@ test('o titular cadastra, atualiza e revoga seu próprio dispositivo', async () 
   await setDoc(own, {token: token + '-novo', updatedAt: serverTimestamp()});
   assert.equal((await getDoc(own)).get('token'), token + '-novo');
   await assertFails(getDocs(collection(a, devices)));
-  for (const db of [b, outsider, withoutLogin, session(alice, {email_verified: false}),
+  for (const db of [b, admin, outsider, withoutLogin, session(alice, {email_verified: false}),
     session(alice, {email: bob.email})]) {
     const other = doc(db, path);
     await assertFails(getDoc(other));
@@ -345,4 +346,244 @@ test('o registro FCM recusa campos extras, dispositivo inválido e relógio do c
   await assertFails(setDoc(own, {token: 'x'.repeat(4097), updatedAt: serverTimestamp()}));
   await assertFails(setDoc(doc(b, devices, 'nao-e-um-uuid'),
     {token, updatedAt: serverTimestamp()}));
+});
+
+test('perfil público e privado são atualizados pela transação do titular', async () => {
+  const own = doc(a, 'profiles', alice.uid);
+  const projection = doc(a, 'public_profiles', alice.uid);
+  const fields = {displayName: 'Alice QA atualizada', bio: 'Apresentação fictícia revisada.'};
+  const initial = (await getDoc(projection)).data();
+  assert.ok(initial.joinedAt.isEqual((await getDoc(own)).get('createdAt')));
+  await assertFails(updateDoc(own, fields));
+  await assertFails(updateDoc(doc(b, own.path), fields));
+  await assertFails(updateDoc(doc(admin, own.path), fields));
+  await assertFails(getDoc(doc(admin, own.path)));
+  await assertFails(updateDoc(projection, {bio: fields.bio, updatedAt: serverTimestamp()}));
+  await runTransaction(a, async tx => {
+    const published = await tx.get(projection);
+    tx.update(own, fields);
+    tx.set(projection, {...fields, joinedAt: published.get('joinedAt'), updatedAt: serverTimestamp()});
+  });
+  const visible = (await getDoc(doc(b, projection.path))).data();
+  assert.deepEqual([visible.displayName, visible.bio], [fields.displayName, fields.bio]);
+  assert.ok(visible.joinedAt.isEqual(initial.joinedAt));
+  await assertFails(getDoc(doc(b, own.path)));
+  await assertFails(getDocs(collection(admin, 'profiles')));
+});
+
+test('a retirada da projeção permite edição privada e novo opt-in explícito', async () => {
+  const privateRef = doc(b, 'profiles', bob.uid);
+  const publicRef = doc(b, 'public_profiles', bob.uid);
+  await assertFails(deleteDoc(doc(a, publicRef.path)));
+  await deleteDoc(publicRef);
+  await updateDoc(privateRef, {bio: 'Apresentação ainda privada.'});
+  assert.equal((await getDoc(doc(a, publicRef.path))).exists(), false);
+  const own = (await getDoc(privateRef)).data();
+  const fields = {displayName: own.displayName, bio: own.bio,
+    joinedAt: own.createdAt, updatedAt: serverTimestamp()};
+  await assertFails(setDoc(publicRef, {...fields, joinedAt: new Date(0)}));
+  await assertFails(setDoc(publicRef, {...fields, uid: bob.uid}));
+  await setDoc(publicRef, fields);
+  assert.equal((await getDoc(doc(a, publicRef.path))).get('bio'), own.bio);
+  await assertFails(getDocs(collection(a, 'public_profiles')));
+});
+
+test('foto publicada tem leitura delimitada e gravação reservada ao serviço', async () => {
+  const path = 'profile_photos/' + bob.uid;
+  await env.withSecurityRulesDisabled(context =>
+    setDoc(doc(context.firestore(), path), {photoUrl: 'https://example.invalid/avatar-qa.png'}));
+  assert.equal((await getDoc(doc(a, path))).exists(), true);
+  await assertFails(getDoc(doc(outsider, path)));
+  await assertFails(getDocs(collection(admin, 'profile_photos')));
+  for (const db of [a, b, admin]) {
+    await assertFails(setDoc(doc(db, path), {photoUrl: 'https://example.invalid/outro-avatar.png'}));
+    await assertFails(deleteDoc(doc(db, path)));
+  }
+});
+
+test('índice dedicado corresponde à consulta de histórico datado por autor', () => {
+  const config = JSON.parse(readFileSync(
+    new URL('../../firebase/qa-geral-celular/firestore.indexes.json', import.meta.url), 'utf8'
+  ));
+  assert.ok(config.indexes.some(index =>
+    index.collectionGroup === 'posts' && index.queryScope === 'COLLECTION'
+    && index.fields.length === 2 && index.fields[0].fieldPath === 'uid'
+    && index.fields[0].order === 'ASCENDING' && index.fields[1].fieldPath === 'createdAt'
+    && index.fields[1].order === 'DESCENDING'
+  ));
+});
+
+test('titulares gerenciam o selo leigo e enviam pedido de verificação privado', async () => {
+  const badgePath = 'badges/' + alice.uid;
+  const requestPath = 'badge_requests/' + alice.uid;
+  await setDoc(doc(a, badgePath), {lay: 'leiga'});
+  assert.equal((await getDoc(doc(b, badgePath))).get('lay'), 'leiga');
+  await updateDoc(doc(a, badgePath), {lay: ''});
+  await assertFails(updateDoc(doc(b, badgePath), {lay: 'leiga'}));
+  await assertFails(updateDoc(doc(a, badgePath), {clergy: 'religiosa'}));
+  await assertFails(updateDoc(doc(a, badgePath), {moderator: true}));
+  const fields = {kind: 'religiosa', status: 'pending', createdAt: serverTimestamp()};
+  await assertFails(setDoc(doc(b, requestPath), fields));
+  await setDoc(doc(a, requestPath), fields);
+  assert.equal((await getDoc(doc(a, requestPath))).get('status'), 'pending');
+  await assertFails(getDoc(doc(b, requestPath)));
+  await assertFails(getDocs(collection(a, 'badge_requests')));
+});
+
+test('o moderador consulta a fila e concede ou revoga selo com decisão e histórico', async () => {
+  const requestRef = doc(admin, 'badge_requests', bob.uid);
+  const badgeRef = doc(admin, 'badges', bob.uid);
+  const pending = await getDocs(query(collection(admin, 'badge_requests'),
+    where('status', '==', 'pending'), limit(31)));
+  assert.ok(pending.docs.some(item => item.id === bob.uid));
+  const reason = 'Justificativa fictícia da moderação QA.';
+  const approval = {
+    status: 'approved', reviewedBy: moderator.uid, reviewedAt: serverTimestamp(), reviewNote: reason
+  };
+  const event = decision => ({
+    targetUid: bob.uid, kind: 'diacono', decision, actorUid: moderator.uid,
+    reason, createdAt: serverTimestamp()
+  });
+  await assertFails(updateDoc(requestRef, approval));
+  await assertFails(setDoc(badgeRef, {clergy: 'diacono'}));
+  const grantEvent = doc(admin, 'badge_events', 'qa-selo-concedido');
+  const grant = writeBatch(admin);
+  grant.update(requestRef, approval);
+  grant.set(badgeRef, {clergy: 'diacono'}, {merge: true});
+  grant.set(grantEvent, event('approved'));
+  await grant.commit();
+  assert.equal((await getDoc(doc(a, badgeRef.path))).get('clergy'), 'diacono');
+  assert.equal((await getDoc(grantEvent)).get('decision'), 'approved');
+  await assertFails(getDoc(doc(b, grantEvent.path)));
+  await assertFails(setDoc(doc(admin, 'badge_events', 'qa-decisao-retroativa'), event('approved')));
+  await assertFails(deleteDoc(grantEvent));
+
+  const revocation = {
+    status: 'revoked', revokedBy: moderator.uid, revokedAt: serverTimestamp(), revokeNote: reason
+  };
+  await assertFails(updateDoc(requestRef, revocation));
+  const revoke = writeBatch(admin);
+  revoke.update(requestRef, revocation);
+  revoke.update(badgeRef, {clergy: deleteField()});
+  revoke.set(doc(admin, 'badge_events', 'qa-selo-revogado'), event('revoked'));
+  await revoke.commit();
+  assert.equal((await getDoc(doc(b, requestRef.path))).get('status'), 'revoked');
+  assert.equal((await getDoc(doc(a, badgeRef.path))).get('clergy'), undefined);
+  await setDoc(doc(b, requestRef.path),
+    {kind: 'diacono', status: 'pending', createdAt: serverTimestamp()}, {merge: true});
+  assert.equal((await getDoc(doc(b, requestRef.path))).get('status'), 'pending');
+});
+
+test('denúncia de participante fica privada e só o moderador pode analisá-la', async () => {
+  const reportPath = 'user_reports/' + alice.uid + '__' + bob.uid;
+  const report = {reporterUid: alice.uid, targetUid: bob.uid,
+    reason: 'Denúncia fictícia de participante.', createdAt: serverTimestamp()};
+  await setDoc(doc(a, reportPath), report);
+  await assertFails(setDoc(doc(a, reportPath), report));
+  await assertFails(getDoc(doc(b, reportPath)));
+  await assertFails(getDocs(collection(a, 'user_reports')));
+  assert.equal((await getDoc(doc(a, reportPath))).get('reporterUid'), alice.uid);
+
+  const reviewed = {status: 'reviewed', reviewedBy: moderator.uid, reviewedAt: serverTimestamp()};
+  await assertFails(updateDoc(doc(a, reportPath), reviewed));
+  await assertFails(updateDoc(doc(admin, reportPath), {...reviewed, reason: 'Razão diferente'}));
+  const queue = await getDocs(query(collection(admin, 'user_reports'), orderBy('createdAt', 'desc'), limit(30)));
+  assert.ok(queue.docs.some(item => item.id === reportPath.split('/')[1]));
+  await updateDoc(doc(admin, reportPath), reviewed);
+  assert.equal((await getDoc(doc(a, reportPath))).get('status'), 'reviewed');
+  await assertFails(updateDoc(doc(admin, reportPath), reviewed));
+});
+
+function reportReview(status, reviewTarget) {
+  return {status, reviewedBy: moderator.uid, reviewedAt: serverTimestamp(),
+    reviewNote: 'Resultado fictício da análise QA.', reviewTarget};
+}
+
+test('denúncia de publicação só é listada pelo moderador e pode ser encerrada', async () => {
+  const postId = 'qa-nav-bob-profile';
+  const path = 'reports/' + alice.uid + '_post_' + postId;
+  const fields = {postId, reporterUid: alice.uid,
+    reason: 'Denúncia fictícia da publicação.', createdAt: serverTimestamp()};
+  await assertFails(setDoc(doc(a, 'reports', 'id-divergente'), fields));
+  await setDoc(doc(a, path), fields);
+  await assertFails(setDoc(doc(a, path), fields));
+  await assertFails(getDoc(doc(a, path)));
+  await assertFails(getDoc(doc(b, path)));
+  const queue = await getDocs(query(collection(admin, 'reports'), orderBy('createdAt', 'desc'), limit(31)));
+  assert.ok(queue.docs.some(item => item.id === path.split('/')[1]));
+  await assertFails(updateDoc(doc(a, path), reportReview('dismissed', 'post')));
+  await updateDoc(doc(admin, path), reportReview('dismissed', 'post'));
+  assert.equal((await getDoc(doc(admin, path))).get('status'), 'dismissed');
+  assert.equal((await getDoc(doc(b, 'posts', postId))).exists(), true);
+  await assertFails(deleteDoc(doc(admin, path)));
+  await assertFails(updateDoc(doc(admin, 'reports', 'qa-guardiao-retido'), reportReview('dismissed', 'post')));
+});
+
+test('remoção de resposta pelo moderador exige análise atômica e preserva a publicação', async () => {
+  const postId = 'qa-nav-bob-profile';
+  const replyId = 'qa-reply-atomic';
+  const reportId = bob.uid + '_reply_' + postId + '_' + replyId;
+  const target = doc(admin, 'posts', postId, 'replies', replyId);
+  const reportRef = doc(admin, 'reports', reportId);
+  await setDoc(doc(b, reportRef.path), {postId, replyId, reporterUid: bob.uid,
+    reason: 'Denúncia fictícia da resposta.', createdAt: serverTimestamp()});
+  await assertFails(deleteDoc(target));
+  await assertFails(updateDoc(reportRef, reportReview('removed', 'reply')));
+  await runTransaction(admin, async tx => {
+    const content = await tx.get(target);
+    assert.ok(content.exists());
+    tx.delete(target);
+    tx.update(reportRef, reportReview('removed', 'reply'));
+  });
+  assert.equal((await getDoc(target)).exists(), false);
+  assert.equal((await getDoc(doc(admin, 'posts', postId))).exists(), true);
+});
+
+test('remoção de publicação também exige denúncia e decisão no mesmo lote', async () => {
+  const postId = 'qa-thread-alice';
+  const reportPath = 'reports/' + bob.uid + '_post_' + postId;
+  const postRef = doc(admin, 'posts', postId);
+  await setDoc(doc(b, reportPath), {postId, reporterUid: bob.uid,
+    reason: 'Denúncia fictícia para remoção.', createdAt: serverTimestamp()});
+  await assertFails(deleteDoc(postRef));
+  const remove = writeBatch(admin);
+  remove.delete(postRef);
+  remove.update(doc(admin, reportPath), reportReview('removed', 'post'));
+  await remove.commit();
+  assert.equal((await getDoc(postRef)).exists(), false);
+  await assertFails(getDocs(collection(b, 'posts', postId, 'replies')));
+});
+
+test('papel de moderação exige identidade de QA verificada e é revogado pelo documento', async () => {
+  const rolePath = 'admins/' + moderator.uid;
+  assert.equal((await getDoc(doc(admin, rolePath))).get('enabled'), true);
+  assert.equal((await getDoc(doc(admin, 'profiles', moderator.uid))).get('displayName'), moderator.name);
+  await assertFails(getDoc(doc(a, rolePath)));
+  await assertFails(updateDoc(doc(admin, rolePath), {enabled: false}));
+  await assertFails(setDoc(doc(b, 'admins', bob.uid), {enabled: true}));
+  for (const db of [session(moderator, {email_verified: false}), session(moderator, {email: alice.email}),
+    session(alice, {admin: true}), outsider]) {
+    await assertFails(getDocs(collection(db, 'reports')));
+    await assertFails(getDocs(collection(db, 'badge_requests')));
+  }
+  try {
+    await env.withSecurityRulesDisabled(context =>
+      updateDoc(doc(context.firestore(), rolePath), {enabled: false}));
+    assert.equal((await getDoc(doc(admin, rolePath))).get('enabled'), false);
+    await assertFails(getDocs(collection(admin, 'reports')));
+    await assertFails(getDocs(collection(admin, 'badge_requests')));
+    await assertFails(getDocs(collection(admin, 'badge_events')));
+  } finally {
+    await env.withSecurityRulesDisabled(context =>
+      updateDoc(doc(context.firestore(), rolePath), {enabled: true}));
+  }
+});
+
+test('moderação de QA não ativa Conversas, Grupos ou o Guardião', async () => {
+  const config = await getDoc(doc(admin, configPath));
+  assert.equal(config.get('enabled'), false);
+  assert.equal(config.get('minorPolicyApproved'), false);
+  await assertFails(updateDoc(doc(admin, configPath), {enabled: true}));
+  await assertFails(setDoc(doc(admin, 'app_config', 'chat_groups'), {enabled: true}));
+  await assertFails(setDoc(doc(admin, 'guardian_config', 'policy'), {enabled: true}));
 });
