@@ -611,9 +611,9 @@ private fun OnlineUserScreen(
     LaunchedEffect(uid) {
         val isolatedQa = BuildConfig.DEBUG &&
             com.google.firebase.FirebaseApp.getInstance().options.projectId == "demo-atrio-v11"
-        if (!isolatedQa && !BuildConfig.ATRIO_QA_GERAL_REMOTE) {
+        if (!isolatedQa) {
             PushRegistry.refreshIfEnabled(context, uid, db)
-            BackgroundNoticeScheduler.sync(context, uid)
+            if (!BuildConfig.ATRIO_QA_GERAL_REMOTE) BackgroundNoticeScheduler.sync(context, uid)
         }
     }
     var isAdmin by remember(uid) { mutableStateOf(false) }

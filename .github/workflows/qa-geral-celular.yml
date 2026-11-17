@@ -16,12 +16,16 @@ permissions:
 
 jobs:
   compilar-qa-geral-celular:
-    if: github.head_ref == 'qa/chat5-qa-geral-firebase-celular' && github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      (github.head_ref == 'qa/chat5-qa-geral-firebase-celular' ||
+       github.head_ref == 'qa/chat5-qa-geral-registro-push')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
       ATRIO_QA_GERAL_BUILD: '1'
       ATRIO_QA_GERAL_REMOTE_BUILD: '1'
+      ATRIO_QA_GERAL_PUSH_BUILD: ${{ github.head_ref == 'qa/chat5-qa-geral-registro-push' && '1' || '0' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -42,7 +46,7 @@ jobs:
         id: configuracao
         shell: bash
         env:
-          ATRIO_QA_CONFIG: ${{ secrets.ATRIO_QA_GENERAL_GOOGLE_SERVICES_JSON }}
+          ATRIO_QA_CONFIG: ${{ github.head_ref == 'qa/chat5-qa-geral-firebase-celular' && secrets.ATRIO_QA_GENERAL_GOOGLE_SERVICES_JSON || '' }}
         run: |
           rm -f -- app/google-services.json
           config=app/src/qaGeral/google-services.json
@@ -93,6 +97,13 @@ jobs:
           grep -Fq 'atrio-catolico-qa-general' "$RUNNER_TEMP/qa-geral-resources.txt"
           grep -Fq '1:835727158563:android:618218ab4be326d75cb096' "$RUNNER_TEMP/qa-geral-resources.txt"
           "$tools/apksigner" verify "$apk"
+          if [[ "$ATRIO_QA_GERAL_PUSH_BUILD" == 1 ]]; then
+            "$tools/aapt" dump xmltree "$apk" AndroidManifest.xml > "$RUNNER_TEMP/qa-geral-manifest.txt"
+            grep -Fq 'br.com.atriocatolico.AtrioPushService' "$RUNNER_TEMP/qa-geral-manifest.txt"
+            grep -Fq 'android.permission.POST_NOTIFICATIONS' "$RUNNER_TEMP/qa-geral-manifest.txt"
+            ! grep -Fq 'android.permission.REQUEST_INSTALL_PACKAGES' "$RUNNER_TEMP/qa-geral-manifest.txt"
+            test "$CONFIG_REAL" = false
+          fi
           if [[ "$CONFIG_REAL" == true ]]; then
             mkdir qa-geral-celular
             cp "$apk" qa-geral-celular/atrio-qa-geral-celular.apk

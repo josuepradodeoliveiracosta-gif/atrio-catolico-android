@@ -12,6 +12,7 @@ import android.os.Build
 import androidx.core.app.NotificationManagerCompat
 import com.google.android.gms.common.ConnectionResult
 import com.google.android.gms.common.GoogleApiAvailability
+import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -52,9 +53,19 @@ internal object PushRegistry {
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     private fun enabledKey(uid: String) = "enabled_$uid"
 
+    fun available(context: Context, uid: String): Boolean =
+        !BuildConfig.ATRIO_QA_GERAL_REMOTE || qaGeralPushSessionReady(context, uid)
+
     fun enabled(context: Context, uid: String): Boolean =
-        !BuildConfig.ATRIO_QA_GERAL_REMOTE && uid.isNotBlank() &&
+        uid.isNotBlank() && available(context, uid) &&
             prefs(context).getBoolean(enabledKey(uid), false)
+
+    private fun acceptsDatabase(db: FirebaseFirestore): Boolean =
+        !BuildConfig.ATRIO_QA_GERAL_REMOTE ||
+            (db.app.name == FirebaseApp.DEFAULT_APP_NAME &&
+                db.app.options.projectId == BuildConfig.ATRIO_QA_GERAL_PROJECT_ID &&
+                db.app.options.applicationId == BuildConfig.ATRIO_QA_GERAL_APP_ID &&
+                db.firestoreSettings.host == "firestore.googleapis.com")
 
     private fun deviceId(context: Context): String {
         val preferences = prefs(context)
@@ -73,7 +84,8 @@ internal object PushRegistry {
         db: FirebaseFirestore,
         done: (Boolean, PushRegistrationProblem?) -> Unit = { _, _ -> }
     ) {
-        if (FirebaseAuth.getInstance().currentUser?.uid != uid || !enabled(context, uid)) {
+        if (FirebaseAuth.getInstance().currentUser?.uid != uid ||
+            !enabled(context, uid) || !acceptsDatabase(db)) {
             done(false, PushRegistrationProblem.SESSION_CHANGED)
             return
         }
@@ -99,6 +111,9 @@ internal object PushRegistry {
                 )).addOnCompleteListener { result ->
                     if (FirebaseAuth.getInstance().currentUser?.uid != uid || !enabled(context, uid)) {
                         done(false, PushRegistrationProblem.SESSION_CHANGED)
+                    } else if (result.isSuccessful && BuildConfig.ATRIO_QA_GERAL_REMOTE) {
+                        // O relay de QA envia por dispositivo.
+                        done(true, null)
                     } else if (result.isSuccessful) {
                         FirebaseMessaging.getInstance().subscribeToTopic(COMMUNICATION_TOPIC)
                             .addOnCompleteListener { subscribed ->
@@ -143,7 +158,7 @@ internal object PushRegistry {
             done(false, PushRegistrationProblem.SESSION_CHANGED)
             return
         }
-        if (BuildConfig.ATRIO_QA_GERAL_REMOTE) {
+        if (!available(context, uid) || !acceptsDatabase(db)) {
             done(false, null)
             return
         }
@@ -162,11 +177,13 @@ internal object PushRegistry {
     }
 
     fun deactivate(context: Context, uid: String, db: FirebaseFirestore) {
-        if (uid.isBlank() || BuildConfig.ATRIO_QA_GERAL_REMOTE) return
+        if (uid.isBlank() || !available(context, uid) || !acceptsDatabase(db)) return
         prefs(context).edit().putBoolean(enabledKey(uid), false).apply()
         FirebaseMessaging.getInstance().isAutoInitEnabled = false
-        FirebaseMessaging.getInstance().unsubscribeFromTopic(COMMUNICATION_TOPIC)
-        ThreadPushSubscriptions.unsubscribeAll(context, uid)
+        if (!BuildConfig.ATRIO_QA_GERAL_REMOTE) {
+            FirebaseMessaging.getInstance().unsubscribeFromTopic(COMMUNICATION_TOPIC)
+            ThreadPushSubscriptions.unsubscribeAll(context, uid)
+        }
         // A exclusao remota e a rotacao do token sao tentativas assincronas.
         // Nao mostramos informacoes pessoais no corpo de avisos enviados.
         document(db, uid, context).delete()
@@ -290,6 +307,8 @@ class AtrioPushService : FirebaseMessagingService() {
         // Apenas mensagens DATA, com UID correspondente a sessao atual.
         // Nunca use texto fornecido no payload como conteudo da notificacao.
         val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
+        if (BuildConfig.ATRIO_QA_GERAL_REMOTE &&
+            (message.data["uid"] != uid || message.data["kind"] !in setOf("reply", "review", "admin"))) return
         if (message.data["kind"] == "broadcast") {
             PushRegistry.showBroadcast(applicationContext, uid,
                 message.data["title"].orEmpty(), message.data["body"].orEmpty())

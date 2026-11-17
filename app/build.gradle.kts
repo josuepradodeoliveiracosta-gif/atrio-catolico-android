@@ -17,6 +17,10 @@ val atrioOtaPilotEnabled = atrioOtaReleasePilot || atrioOtaPilotCompileOnly
 // QA Geral usa emuladores por padrão. A homologação física é um build opt-in.
 val atrioQaGeralBuild = System.getenv("ATRIO_QA_GERAL_BUILD") == "1"
 val atrioQaGeralRemote = System.getenv("ATRIO_QA_GERAL_REMOTE_BUILD") == "1"
+val atrioQaGeralPush = System.getenv("ATRIO_QA_GERAL_PUSH_BUILD") == "1"
+require(!atrioQaGeralPush || atrioQaGeralRemote) {
+    "O Push do QA Geral requer o build dedicado para celular."
+}
 val atrioQaGeralRemoteProject = "atrio-catolico-qa-general"
 val atrioQaGeralRemoteAppId = "1:835727158563:android:618218ab4be326d75cb096"
 require(!atrioQaGeralRemote || atrioQaGeralBuild) {
@@ -220,6 +224,7 @@ android {
         versionName = "0.20.4"
         buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"0.20.4\"")
         buildConfigField("boolean", "ATRIO_QA_GERAL_REMOTE", "false")
+        buildConfigField("boolean", "ATRIO_QA_GERAL_PUSH", "false")
         buildConfigField("String", "ATRIO_QA_GERAL_PROJECT_ID", "\"\"")
         buildConfigField("String", "ATRIO_QA_GERAL_APP_ID", "\"\"")
         val relayUrl = System.getenv("ATRIO_PUSH_WORKER_URL").orEmpty()
@@ -304,6 +309,7 @@ android {
             buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"$qaName\"")
             if (atrioQaGeralRemote) {
                 buildConfigField("boolean", "ATRIO_QA_GERAL_REMOTE", "true")
+                buildConfigField("boolean", "ATRIO_QA_GERAL_PUSH", atrioQaGeralPush.toString())
                 buildConfigField("String", "ATRIO_QA_GERAL_PROJECT_ID", "\"$atrioQaGeralRemoteProject\"")
                 buildConfigField("String", "ATRIO_QA_GERAL_APP_ID", "\"$atrioQaGeralRemoteAppId\"")
             }
@@ -335,6 +341,10 @@ android {
             buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"$atrioPilotName\"")
             signingConfigs.findByName("atrioRelease")?.let { signingConfig = it }
         }
+    }
+
+    if (atrioQaGeralPush) {
+        sourceSets.getByName("qaGeral").manifest.srcFile("src/qaGeral/AndroidManifest.push.xml")
     }
 
     // Instrumentacao em qaGeral so com opt-in; Debug oficial permanece normal.

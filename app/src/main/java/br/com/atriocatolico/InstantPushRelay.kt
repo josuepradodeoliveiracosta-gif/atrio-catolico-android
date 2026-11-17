@@ -65,7 +65,11 @@ internal object InstantPushRelay {
     private fun post(type: String, args: Map<String, String>,
                      route: String = "event") {
         val actor = FirebaseAuth.getInstance().currentUser ?: return
-        val origin = BuildConfig.PUSH_RELAY_URL
+        val origin = if (BuildConfig.ATRIO_QA_GERAL_REMOTE) {
+            if (route != "event" ||
+                !qaGeralPushSessionReady(FirebaseApp.getInstance().applicationContext, actor.uid)) return
+            QA_GERAL_PUSH_RELAY_URL
+        } else BuildConfig.PUSH_RELAY_URL
         if (!origin.startsWith("https://") || !origin.endsWith(".workers.dev")) {
             record(actor.uid, "Sem endereço Cloudflare configurado neste APK.", route)
             return
@@ -90,6 +94,10 @@ internal object InstantPushRelay {
                 args.forEach { (key, value) -> payload.put(key, value) }
                 try {
                     executor.execute {
+                        if (BuildConfig.ATRIO_QA_GERAL_REMOTE &&
+                            !qaGeralPushSessionReady(FirebaseApp.getInstance().applicationContext, actor.uid)) {
+                            return@execute
+                        }
                         try {
                             val connection = URL("$origin/$route").openConnection() as HttpURLConnection
                             try {
