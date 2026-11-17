@@ -18,11 +18,45 @@ function source(path) {
   return readFileSync(new URL(path, import.meta.url), 'utf8');
 }
 
-export function renderClosedPilotRules() {
-  let base = source('../firestore.rules');
+function dedicatedBase() {
+  const base = source('../firestore.rules');
   if (createHash('sha256').update(base).digest('hex') !== dedicatedSha) {
     throw Error('Rules dedicadas divergiram da versão revisada para o piloto');
   }
+  return base;
+}
+
+// Permissões de matches sobrepostos são avaliadas em OR pelo Firestore.
+function withoutLegacyChatReads(base) {
+  const withoutBox = replaceChecked(base, "        'chatBox', 'likedPosts', 'savedPosts', 'blockedMembers'",
+    "        'likedPosts', 'savedPosts', 'blockedMembers'");
+  return replaceChecked(withoutBox,
+    '    match /chats/{chatId} {\n      allow get, list: if qaTester() && request.auth.uid in resource.data.participants;\n    }\n\n', '');
+}
+
+// Revisão candidata de encerramento, ensaiada separadamente da abertura.
+// Conserva protocolos existentes, com a mesma autorização de leitura do piloto.
+export function renderPilotShutdownRules() {
+  const evidence = `    function pilotEvidenceReadable() {
+      return qaModerator() || (qaTester() && resource.data.reporterUid == request.auth.uid);
+    }
+
+    match /chat_reports/{reportId} {
+      allow get: if pilotEvidenceReadable();
+      allow list: if qaModerator();
+    }
+
+    match /chat_group_reports/{reportId} {
+      allow get: if pilotEvidenceReadable();
+      allow list: if qaModerator();
+    }
+
+`;
+  return replaceChecked(withoutLegacyChatReads(dedicatedBase()), denyAll, evidence + denyAll);
+}
+
+export function renderClosedPilotRules() {
+  let base = withoutLegacyChatReads(dedicatedBase());
 
   const parity = renderParity(source('../../../firestore.rules'),
     source('../../atrio-conversas-v1.rules.fragment'), source('../../atrio-grupos-v1.rules.fragment'));
@@ -54,12 +88,6 @@ export function renderClosedPilotRules() {
     + '          // O bloqueio inverso é revalidado no ACEITE, para economizar\n'
     + '          // leituras de regras na simples criação de convite.\n', '');
 
-  // A permissão de leitura da caixa legada e os matches sobrepostos seriam
-  // avaliados em OR pelo Firestore. Removê-los só da composição local.
-  base = replaceChecked(base, "        'chatBox', 'likedPosts', 'savedPosts', 'blockedMembers'",
-    "        'likedPosts', 'savedPosts', 'blockedMembers'");
-  base = replaceChecked(base,
-    '    match /chats/{chatId} {\n      allow get, list: if qaTester() && request.auth.uid in resource.data.participants;\n    }\n\n', '');
   for (const path of ['chatAgeEligibility/current', 'chatSettings/privacy']) {
     base = replaceChecked(base,
       `    match /users/{uid}/${path} {\n      allow get: if qaOwner(uid);\n    }\n\n`, '');
@@ -84,15 +112,4 @@ export function renderClosedPilotRules() {
 
 `;
   return replaceChecked(base, denyAll, adapters + fragments + denyAll);
-}
-
-// Proposta para ensaiar o retorno fechado mesmo se os documentos de configuração
-// ainda tiverem as flags ativas. Mantém as regras de Fórum, Perfil e denúncias.
-// Não faz parte do alvo Firebase e é usada somente no Firestore Emulator.
-export function renderPilotRollbackRules() {
-  const gate = '    function chatEnabled() {\n'
-    + '      let config = /databases/$(database)/documents/app_config/conversations;\n'
-    + '      return ';
-  return replaceChecked(renderClosedPilotRules(),
-    gate, gate + 'false && ');
 }
