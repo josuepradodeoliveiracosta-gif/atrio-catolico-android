@@ -82,17 +82,10 @@ jobs:
       ATRIO_QA_FIREBASE_PROJECT: demo-atrio-v11
     timeout-minutes: 35
     steps:
-      - name: Obter código da PR
-        if: github.event_name == 'pull_request'
+      # A revisão padrão do evento mantém a PR no ref de teste do GitHub.
+      - name: Obter revisão do evento
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref == 'qa/chat7-composicao-dois-celulares' && github.event.pull_request.head.sha || github.sha }}
-          persist-credentials: false
-      - name: Obter revisão do push ou disparo manual
-        if: github.event_name != 'pull_request'
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.sha }}
           persist-credentials: false
       - name: Registrar o commit executado pela suíte
         run: git rev-parse HEAD
