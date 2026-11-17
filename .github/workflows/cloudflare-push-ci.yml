@@ -27,4 +27,4 @@ jobs:
         with:
           node-version: "22"
       - name: Testes isolados sem Firebase ou Cloudflare de produção
-        run: node --test cloudflare/push-worker/src/index.test.js cloudflare/email-verification-policy.test.mjs cloudflare/worker-email-gate.test.mjs
+        run: node --test cloudflare/push-worker/src/index.test.js cloudflare/push-worker/src/qa-geral.test.js cloudflare/email-verification-policy.test.mjs cloudflare/worker-email-gate.test.mjs
