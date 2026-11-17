@@ -61,6 +61,11 @@ service cloud.firestore {
       allow get, list: if qaOwner(uid) && collection in [
         'chatBox', 'likedPosts', 'savedPosts', 'blockedMembers', 'notifications'
       ];
+      allow create: if qaOwner(uid) && collection in ['likedPosts', 'savedPosts']
+        && exists(/databases/$(database)/documents/posts/$(item))
+        && request.resource.data.keys().hasOnly(['createdAt'])
+        && request.resource.data.createdAt == request.time;
+      allow delete: if qaOwner(uid) && collection in ['likedPosts', 'savedPosts'];
     }
 
     match /chats/{chatId} {
