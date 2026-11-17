@@ -18,7 +18,8 @@ class QaGeralBotIsolationTests(unittest.TestCase):
         gradle = source("app/build.gradle.kts")
         for expected in (
             'create("qaGeral")', 'applicationIdSuffix = atrioQaGeralPackageSuffix',
-            'if (atrioQaGeralCelularFicticio) ".qageral.celular" else ".qageral"',
+            'if (atrioQaGeralCelularFicticio || atrioQaGeralCelularFunctional) ".qageral.celular" else ".qageral"',
+            '(atrioQaGeralRemote && !atrioQaGeralCelularFicticio && !atrioQaGeralPush)',
             'testBuildType = if (atrioQaGeralBuild) "qaGeral" else "debug"',
             'variant.enable = atrioQaGeralBuild',
             'create("chatQa")', 'create("perfilQa")',
