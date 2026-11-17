@@ -1,0 +1,72 @@
+name: QA Geral Celular — reteste de identidade 98834b1c
+
+on:
+  push:
+    branches: [qa/chat5-reteste-identidade-98834b1c]
+
+permissions:
+  contents: read
+
+jobs:
+  identidade:
+    name: Identidade fictícia no HEAD exato da PR 334
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CANDIDATE_SHA: '98834b1c0dd4de2c47e429bb3d519a3b6398dc7b'
+      ATRIO_QA_GERAL_BUILD: '1'
+      ATRIO_QA_GERAL_REMOTE_BUILD: '1'
+      ATRIO_QA_GERAL_CELULAR_FICTICIO: '1'
+      ATRIO_QA_GERAL_PUSH_BUILD: '0'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: '98834b1c0dd4de2c47e429bb3d519a3b6398dc7b'
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with:
+          gradle-version: '8.13'
+          cache-read-only: true
+      - name: Executar os contratos da PR 333 no checkout exato
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          git rev-parse HEAD HEAD^{tree}
+          rm -f -- app/google-services.json
+          python3 scripts/qa_geral_remote_build_gate.py --write-fixture app/src/qaGeral/google-services.json
+          gradle :app:testQaGeralUnitTest :app:assembleQaGeral --no-daemon --max-workers=2
+          python3 - <<'PY'
+          import xml.etree.ElementTree as et
+          report = et.parse("app/build/test-results/testQaGeralUnitTest/TEST-br.com.atriocatolico.QaGeralCelularIdentityTest.xml").getroot()
+          rows = report.findall("testcase")
+          assert len(rows) == 6, "A suíte precisa executar os seis contratos"
+          assert all(report.attrib[key] == "0" for key in ("skipped", "errors", "failures"))
+          for row in rows:
+              print("PASSOU", row.attrib["name"])
+          PY
+      - name: Conferir identidade e isolamento no APK compilado
+        shell: bash
+        run: |
+          shopt -s nullglob
+          apks=(app/build/outputs/apk/qaGeral/*.apk)
+          test "${#apks[@]}" -eq 1
+          aapt="$ANDROID_HOME/build-tools/36.0.0/aapt"
+          "$aapt" dump badging "${apks[0]}" > "$RUNNER_TEMP/identity-badging.txt"
+          grep -F "package: name='br.com.atriocatolico.qageral.celular' versionCode='37' " "$RUNNER_TEMP/identity-badging.txt"
+          "$aapt" dump --values resources "${apks[0]}" > "$RUNNER_TEMP/identity-resources.txt"
+          grep -F 'atrio-catolico-qa-geral-ficticio' "$RUNNER_TEMP/identity-resources.txt"
+          grep -F '1:000000000000:android:0000000000000000000000' "$RUNNER_TEMP/identity-resources.txt"
+          "$aapt" dump xmltree "${apks[0]}" AndroidManifest.xml > "$RUNNER_TEMP/identity-manifest.txt"
+          grep -Eq 'android:allowBackup[^=]*=.*0x0$' "$RUNNER_TEMP/identity-manifest.txt"
+          if grep -Fq -e android.permission.INTERNET -e android.permission.REQUEST_INSTALL_PACKAGES -e android.permission.POST_NOTIFICATIONS -e br.com.atriocatolico.AtrioPushService "$RUNNER_TEMP/identity-manifest.txt"; then
+            echo 'Manifesto fictício com funcionalidade externa habilitada.' >&2
+            exit 1
+          fi
+          echo 'Identidade fictícia e isolamento confirmados no APK.'
