@@ -1,4 +1,4 @@
-"""Cifra o par já aprovado no runner e inclui metadados de verificação."""
+"""Cifra os APKs já aprovados no runner e inclui metadados de verificação."""
 
 import argparse
 import json
@@ -11,7 +11,7 @@ from tempfile import TemporaryDirectory
 from zipfile import ZipFile
 
 from scripts.ota_apk_preflight import PreflightError, file_sha256
-from scripts.qa_geral_celular_approve import PACKAGE, PAIR_CODES
+from scripts.qa_geral_celular_approve import APK_NAME, FUNCTIONAL_CODE, PACKAGE, PAIR_CODES
 
 
 def validate_recipient(recipient):
@@ -19,7 +19,7 @@ def validate_recipient(recipient):
         raise PreflightError("Configure o destinatário público age do fundador no ambiente protegido.")
 
 
-def encrypt_pair(approved_dir, output, recipient, source_sha, certificate):
+def encrypt_approved(approved_dir, output, recipient, source_sha, certificate, *, functional=False):
     validate_recipient(recipient)
     if not re.fullmatch(r"[0-9a-f]{40}", source_sha):
         raise PreflightError("SHA do build ausente ou inválido.")
@@ -28,9 +28,14 @@ def encrypt_pair(approved_dir, output, recipient, source_sha, certificate):
     if output.exists() or output.is_symlink():
         raise PreflightError("O caminho de entrega já existe.")
 
+    names = (
+        [(APK_NAME, FUNCTIONAL_CODE)]
+        if functional
+        else [(f"atrio-qa-geral-celular-{code}.apk", code) for code in PAIR_CODES]
+    )
     files = []
-    for code in PAIR_CODES:
-        path = approved_dir / f"atrio-qa-geral-celular-{code}.apk"
+    for name, code in names:
+        path = approved_dir / name
         if path.is_symlink() or not path.is_file() or path.stat().st_size == 0:
             raise PreflightError(f"APK aprovado de versionCode {code} ausente.")
         files.append({"file": path.name, "versionCode": code, "sha256": file_sha256(path)})
@@ -43,8 +48,8 @@ def encrypt_pair(approved_dir, output, recipient, source_sha, certificate):
     }
     with TemporaryDirectory(dir=output.parent) as temporary:
         stage = Path(temporary)
-        plain = stage / "par.zip"
-        encrypted = stage / "par.zip.age"
+        plain = stage / "entrega.zip"
+        encrypted = stage / "entrega.zip.age"
         with ZipFile(plain, "w") as bundle:
             for item in files:
                 bundle.write(approved_dir / item["file"], item["file"])
@@ -65,20 +70,22 @@ def main():
     parser.add_argument("--approved-dir", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--source-sha", required=True)
+    parser.add_argument("--functional", action="store_true")
     args = parser.parse_args()
     try:
-        encrypt_pair(
+        encrypt_approved(
             args.approved_dir,
             args.output,
             os.environ.get("ATRIO_QA_CELULAR_AGE_RECIPIENT", ""),
             args.source_sha,
             os.environ.get("ATRIO_QA_CELULAR_CERT_SHA256", ""),
+            functional=args.functional,
         )
     except subprocess.CalledProcessError:
-        print("Entrega do par recusada. Falha ao cifrar para o destinatário configurado.", file=sys.stderr)
+        print("Entrega recusada. Falha ao cifrar para o destinatário configurado.", file=sys.stderr)
         return 1
     except (OSError, PreflightError) as exc:
-        print(f"Entrega do par recusada. {exc}", file=sys.stderr)
+        print(f"Entrega recusada. {exc}", file=sys.stderr)
         return 1
     print(f"Pacote cifrado de entrega aprovado. SHA-256={file_sha256(args.output)}")
     return 0

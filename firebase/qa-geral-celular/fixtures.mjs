@@ -3,13 +3,19 @@ export const accounts = [
   {uid: 'qa-nav-bob', name: 'Bob QA', email: 'bob.navegacao@qa.invalid'}
 ];
 
+export const moderator = {
+  uid: 'qa-nav-moderador', name: 'Moderador QA', email: 'moderador.navegacao@qa.invalid'
+};
+
 export function documents(now) {
   const bob = accounts[1];
   const profiles = accounts.flatMap(({uid, name}) => {
     const profile = {displayName: name, bio: 'Conta fictícia do QA Geral.', createdAt: now};
     return [
       ['profiles/' + uid, profile],
-      ['public_profiles/' + uid, {...profile, uid}],
+      ['public_profiles/' + uid, {
+        displayName: name, bio: profile.bio, joinedAt: now, updatedAt: now
+      }],
       ['users/' + uid + '/private/account', {onboardingStatus: 'complete'}],
       ['users/' + uid + '/chatSettings/privacy', {requests: 'none', readReceipts: false}],
       ['users/' + uid + '/chatAgeEligibility/current', {
@@ -31,5 +37,20 @@ export function documents(now) {
       category: 'Vida espiritual', createdAt: now
     }],
     ...profiles
+  ];
+}
+
+// Contextos privilegiados e dados sintéticos usados pela suíte local do Emulator.
+export function moderationDocuments(now) {
+  const [alice, bob] = accounts;
+  return [
+    ['admins/' + moderator.uid, {enabled: true}],
+    ['profiles/' + moderator.uid, {displayName: moderator.name, createdAt: now}],
+    ['users/' + moderator.uid + '/private/account', {onboardingStatus: 'complete'}],
+    ['badge_requests/' + bob.uid, {kind: 'diacono', status: 'pending', createdAt: now}],
+    ['reports/qa-guardiao-retido', {
+      postId: 'qa-nav-bob-profile', reporterUid: alice.uid, source: 'guardiao',
+      reason: 'Caso sintético reservado ao Guardião QA.', status: 'pending', createdAt: now
+    }]
   ];
 }

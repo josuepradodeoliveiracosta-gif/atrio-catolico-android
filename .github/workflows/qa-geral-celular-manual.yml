@@ -8,13 +8,18 @@ on:
         required: true
         type: string
       build_kind:
-        description: 'Compilação fictícia já autorizada para este disparo'
+        description: 'Tipo de compilação autorizado para este disparo'
         type: choice
-        options: [single, pair]
+        options: [single, pair, functional]
         default: single
         required: true
       deliver_pair:
         description: 'Disponibilizar o par cifrado após autorização específica'
+        type: boolean
+        default: false
+        required: true
+      deliver_functional:
+        description: 'Disponibilizar o APK funcional cifrado após autorização específica'
         type: boolean
         default: false
         required: true
@@ -64,16 +69,22 @@ jobs:
           ruby -ryaml - .github/workflows/qa-geral-celular-manual.yml <<'RUBY'
           workflow = YAML.load_file(ARGV.fetch(0))
           dispatch = (workflow["on"] || workflow.fetch(true)).fetch("workflow_dispatch")
-          delivery = dispatch.fetch("inputs").fetch("deliver_pair")
-          abort "A entrega deve vir desabilitada." unless delivery["type"] == "boolean" && delivery["default"] == false
+          deliveries = {
+            "pair" => ["deliver_pair", "atrio-qa-geral-celular-38-39.zip.age"],
+            "functional" => ["deliver_functional", "atrio-qa-geral-celular-funcional.zip.age"]
+          }
           uploads = workflow.fetch("jobs").flat_map do |id, job|
             job.fetch("steps", []).filter_map { |step| [id, step] if step.fetch("uses", "").start_with?("actions/upload-artifact@") }
           end
-          abort "Esperado um único upload no job protegido." unless uploads.size == 1 && uploads[0][0] == "compilar-manual"
-          upload = uploads[0][1]
-          abort "Gate de entrega divergente." unless upload["if"] == "inputs.deliver_pair && inputs.build_kind == 'pair' && steps.assinar.outputs.entrega == 'true'"
-          abort "Caminho de entrega divergente." unless upload.fetch("with").fetch("path").end_with?("/atrio-qa-geral-celular-38-39.zip.age")
-          puts "Entrega desabilitada por padrão. Upload condicionado do .zip.age no job protegido."
+          abort "Uploads fora do job protegido." unless uploads.size == deliveries.size && uploads.all? { |id, _| id == "compilar-manual" }
+          deliveries.each do |kind, (flag, file)|
+            input = dispatch.fetch("inputs").fetch(flag)
+            abort "A entrega deve vir desabilitada." unless input["type"] == "boolean" && input["default"] == false
+            gate = "inputs.#{flag} && inputs.build_kind == '#{kind}' && steps.assinar.outputs.entrega == 'true'"
+            entry = uploads.find { |_, step| step["if"] == gate }
+            abort "Gate ou caminho de entrega divergente." unless entry && entry.last.fetch("with").fetch("path").end_with?("/#{file}")
+          end
+          puts "Entregas desabilitadas por padrão. Upload condicionado dos .zip.age no job protegido."
           RUBY
       - name: Compilar e testar com certificados descartáveis
         shell: bash
@@ -89,7 +100,7 @@ jobs:
         run: |
           test -c /dev/kvm
           sudo chmod 0666 /dev/kvm
-      - name: Validar telas fictícias 37, 38 e 39 no emulador
+      - name: Validar telas 37 a 39 e atualização para o 40 no emulador
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         with:
           api-level: 35
@@ -120,6 +131,7 @@ jobs:
     env:
       QA_CELULAR_BUILD_KIND: ${{ inputs.build_kind }}
       QA_CELULAR_DELIVER_PAIR: ${{ inputs.deliver_pair }}
+      QA_CELULAR_DELIVER_FUNCTIONAL: ${{ inputs.deliver_functional }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -137,20 +149,23 @@ jobs:
           gradle-version: '8.13'
           cache-disabled: true
       - name: Conferir destinatário público da entrega autorizada
-        if: inputs.deliver_pair
+        if: inputs.deliver_pair || inputs.deliver_functional
         shell: bash
         env:
           ATRIO_QA_CELULAR_AGE_RECIPIENT: ${{ vars.ATRIO_QA_CELULAR_AGE_RECIPIENT }}
         run: |
-          test "$QA_CELULAR_BUILD_KIND" = pair
+          if [[ "$QA_CELULAR_DELIVER_PAIR" == true ]]; then test "$QA_CELULAR_BUILD_KIND" = pair; fi
+          if [[ "$QA_CELULAR_DELIVER_FUNCTIONAL" == true ]]; then test "$QA_CELULAR_BUILD_KIND" = functional; fi
           python3 -c 'import os; from scripts.qa_geral_celular_delivery import validate_recipient; validate_recipient(os.environ["ATRIO_QA_CELULAR_AGE_RECIPIENT"])'
           if ! command -v age >/dev/null; then
             sudo apt-get update -qq
             sudo apt-get install -y --no-install-recommends age
           fi
           age --encrypt --recipient "$ATRIO_QA_CELULAR_AGE_RECIPIENT" /dev/null > /dev/null
-      - name: Compilar variante fictícia sem assinatura
+      - name: Compilar variante autorizada sem assinatura
         shell: bash
+        env:
+          ATRIO_QA_CELULAR_GOOGLE_SERVICES_JSON: ${{ inputs.build_kind == 'functional' && secrets.ATRIO_QA_CELULAR_GOOGLE_SERVICES_JSON || '' }}
         run: |
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           rm -f -- app/google-services.json
@@ -158,6 +173,17 @@ jobs:
             for code in 38 39; do
               bash scripts/qa_geral_celular_manual.sh build "$RUNNER_TEMP/qa-celular-unsigned-$code.apk" "$code"
             done
+          elif [[ "$QA_CELULAR_BUILD_KIND" == functional ]]; then
+            bash scripts/qa_geral_celular_manual.sh build-functional "$RUNNER_TEMP/qa-celular-unsigned.apk"
+            python3 - "$RUNNER_TEMP/qa-celular-unsigned.apk" "$ANDROID_HOME/build-tools/36.0.0" <<'PY'
+          from pathlib import Path
+          import sys
+          from scripts.qa_geral_celular_approve import read_version_code, verify_functional_variant
+          from scripts.qa_geral_remote_build_gate import REGISTERED_APP_ID
+
+          apk, sdk = map(Path, sys.argv[1:])
+          verify_functional_variant(apk, sdk, read_version_code(apk, sdk), REGISTERED_APP_ID)
+          PY
           else
             test "$QA_CELULAR_BUILD_KIND" = single
             bash scripts/qa_geral_celular_manual.sh build "$RUNNER_TEMP/qa-celular-unsigned.apk"
@@ -179,6 +205,11 @@ jobs:
             echo 'SHA-256 de referência ausente ou inválido.' >&2
             exit 1
           fi
+          if [[ "$QA_CELULAR_BUILD_KIND" == functional ]] &&
+             [[ "${ATRIO_QA_CELULAR_CERT_SHA256,,}" != 63b26756491bb0103e44e561d63c5481c0d9a6e7374b322ff4e97e1cd5629e57 ]]; then
+            echo 'O certificado de referência diverge do APK 39 homologado.' >&2
+            exit 1
+          fi
           : "${ATRIO_QA_CELULAR_KEYSTORE_BASE64:?Keystore dedicado ausente}"
           work="$(mktemp -d "$RUNNER_TEMP/qa-celular-sign.XXXXXX")"
           trap 'rm -rf -- "$work"' EXIT
@@ -194,6 +225,9 @@ jobs:
             bash scripts/qa_geral_celular_manual.sh sign \
               "$RUNNER_TEMP/qa-celular-unsigned.apk" "$work/candidate.apk" "$work/qa.keystore"
             candidates=(--apk "$work/candidate.apk")
+            if [[ "$QA_CELULAR_BUILD_KIND" == functional ]]; then
+              candidates+=(--functional)
+            fi
           fi
           rm -f -- "$work/qa.keystore"
           unset ATRIO_QA_CELULAR_KEY_ALIAS ATRIO_QA_CELULAR_STORE_PASSWORD ATRIO_QA_CELULAR_KEY_PASSWORD
@@ -206,13 +240,28 @@ jobs:
               --output "$RUNNER_TEMP/atrio-qa-geral-celular-38-39.zip.age" --source-sha "$GITHUB_SHA" \
               | tee -a "$GITHUB_STEP_SUMMARY"
             echo 'entrega=true' >> "$GITHUB_OUTPUT"
+          elif [[ "$QA_CELULAR_DELIVER_FUNCTIONAL" == true ]]; then
+            test "$QA_CELULAR_BUILD_KIND" = functional
+            python3 -m scripts.qa_geral_celular_delivery --functional --approved-dir "$work/approved" \
+              --output "$RUNNER_TEMP/atrio-qa-geral-celular-funcional.zip.age" --source-sha "$GITHUB_SHA" \
+              | tee -a "$GITHUB_STEP_SUMMARY"
+            echo 'entrega=true' >> "$GITHUB_OUTPUT"
           fi
-      - name: Disponibilizar somente o pacote cifrado
+      - name: Disponibilizar o par fictício cifrado
         if: inputs.deliver_pair && inputs.build_kind == 'pair' && steps.assinar.outputs.entrega == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: atrio-qa-geral-celular-38-39-cifrado
           path: ${{ runner.temp }}/atrio-qa-geral-celular-38-39.zip.age
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+      - name: Disponibilizar somente o APK funcional cifrado
+        if: inputs.deliver_functional && inputs.build_kind == 'functional' && steps.assinar.outputs.entrega == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: atrio-qa-geral-celular-funcional-cifrado
+          path: ${{ runner.temp }}/atrio-qa-geral-celular-funcional.zip.age
           compression-level: 0
           retention-days: 1
           if-no-files-found: error
@@ -222,4 +271,6 @@ jobs:
         run: |
           rm -f -- "$RUNNER_TEMP/qa-celular-unsigned.apk" \
             "$RUNNER_TEMP/qa-celular-unsigned-38.apk" "$RUNNER_TEMP/qa-celular-unsigned-39.apk" \
-            "$RUNNER_TEMP/atrio-qa-geral-celular-38-39.zip.age"
+            "$RUNNER_TEMP/atrio-qa-geral-celular-38-39.zip.age" \
+            "$RUNNER_TEMP/atrio-qa-geral-celular-funcional.zip.age" \
+            app/src/qaGeral/google-services.json

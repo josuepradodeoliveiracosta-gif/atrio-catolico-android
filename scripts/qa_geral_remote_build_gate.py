@@ -4,20 +4,35 @@ from pathlib import Path
 import sys
 
 
-CELULAR_FICTICIO = {
-    "project_info": {
-        "project_number": "000000000000",
-        "project_id": "atrio-catolico-qa-geral-ficticio",
-    },
-    "client": [{
-        "client_info": {
-            "mobilesdk_app_id": "1:000000000000:android:0000000000000000000000",
-            "android_client_info": {"package_name": "br.com.atriocatolico.qageral.celular"},
+CELULAR_PACKAGE = "br.com.atriocatolico.qageral.celular"
+QA_PROJECT = "atrio-catolico-qa-general"
+REGISTERED_APP_ID = "1:835727158563:android:4258e81cc0ccc4df5cb096"
+FUNCTIONAL_FIXTURE_APP_ID = "1:835727158563:android:0000000000000000000000"
+FIXTURE_KEY = "chave-ficticia-apenas-para-compilacao"
+
+
+def fixture(project_id, app_id):
+    return {
+        "project_info": {
+            "project_number": app_id.split(":")[1],
+            "project_id": project_id,
         },
-        "api_key": [{"current_key": "chave-ficticia-apenas-para-compilacao"}],
-    }],
-    "configuration_version": "1",
-}
+        "client": [{
+            "client_info": {
+                "mobilesdk_app_id": app_id,
+                "android_client_info": {"package_name": CELULAR_PACKAGE},
+            },
+            "api_key": [{"current_key": FIXTURE_KEY}],
+        }],
+        "configuration_version": "1",
+    }
+
+
+CELULAR_FICTICIO = fixture(
+    "atrio-catolico-qa-geral-ficticio",
+    "1:000000000000:android:0000000000000000000000",
+)
+FUNCTIONAL_FIXTURE = fixture(QA_PROJECT, FUNCTIONAL_FIXTURE_APP_ID)
 
 
 def unique_object(pairs):
@@ -29,7 +44,13 @@ def unique_object(pairs):
     return result
 
 
-def validate(path, project_id, app_id, package_name):
+def validate(path, project_id, app_id, package_name, *, functional=False):
+    if functional and (
+        package_name != CELULAR_PACKAGE
+        or project_id != QA_PROJECT
+        or app_id not in (REGISTERED_APP_ID, FUNCTIONAL_FIXTURE_APP_ID)
+    ):
+        raise ValueError("Referência inválida para o QA Geral Celular funcional.")
     if not path.is_file() or path.is_symlink() or path.parent.is_symlink():
         raise ValueError("Configuração Firebase ausente ou simbólica.")
     if not 0 < path.stat().st_size <= 1024 * 1024:
@@ -51,7 +72,13 @@ def validate(path, project_id, app_id, package_name):
     api_key, = client["api_key"]
     if not isinstance(api_key["current_key"], str) or len(api_key["current_key"]) < 8:
         raise ValueError("Chave de cliente do Android ausente.")
-    if package_name == "br.com.atriocatolico.qageral.celular" and config != CELULAR_FICTICIO:
+    if functional:
+        if app_id == FUNCTIONAL_FIXTURE_APP_ID:
+            if config != FUNCTIONAL_FIXTURE:
+                raise ValueError("A configuração funcional de CI deve ser a fixture exata.")
+        elif api_key["current_key"] == FIXTURE_KEY:
+            raise ValueError("O App ID funcional exige uma chave de cliente de QA.")
+    elif package_name == CELULAR_PACKAGE and config != CELULAR_FICTICIO:
         raise ValueError("O pacote QA Geral Celular exige a configuração fictícia exata.")
 
     bucket = project.get("storage_bucket")
@@ -68,13 +95,23 @@ def validate(path, project_id, app_id, package_name):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) == 3 and sys.argv[1] == "--write-fixture":
-        with Path(sys.argv[2]).open("x", encoding="utf-8") as file:
-            json.dump(CELULAR_FICTICIO, file)
-        sys.exit(0)
-    path, project_id, app_id, package_name = sys.argv[1:]
+    fixtures = {
+        "--write-fixture": CELULAR_FICTICIO,
+        "--write-functional-fixture": FUNCTIONAL_FIXTURE,
+    }
+    args = sys.argv[1:]
     try:
-        validate(Path(path), project_id, app_id, package_name)
+        if len(args) == 2 and args[0] == "--registered":
+            validate(Path(args[1]), QA_PROJECT, REGISTERED_APP_ID, CELULAR_PACKAGE, functional=True)
+            print(f"Configuração Android validada: {QA_PROJECT}, {CELULAR_PACKAGE}, {REGISTERED_APP_ID}.")
+            sys.exit(0)
+        if len(args) == 2 and args[0] in fixtures:
+            with Path(args[1]).open("x", encoding="utf-8") as file:
+                json.dump(fixtures[args[0]], file)
+            sys.exit(0)
+        functional = len(args) == 5 and args[-1] == "--functional"
+        path, project_id, app_id, package_name = args[:4] if functional else args
+        validate(Path(path), project_id, app_id, package_name, functional=functional)
     except (OSError, ValueError, TypeError, KeyError, IndexError):
         print("Configuração recusada. Confira projeto, App ID e pacote Android.", file=sys.stderr)
         sys.exit(1)

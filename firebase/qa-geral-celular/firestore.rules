@@ -14,6 +14,30 @@ service cloud.firestore {
       return qaTester() && request.auth.uid == uid;
     }
 
+    function qaModeratorIdentity() {
+      return request.auth != null
+        && request.auth.uid == 'qa-nav-moderador'
+        && request.auth.token.get('email', '') == 'moderador.navegacao@qa.invalid'
+        && request.auth.token.get('email_verified', false) == true;
+    }
+
+    function qaModerator() {
+      return qaModeratorIdentity()
+        && get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.enabled == true;
+    }
+
+    function qaReader() {
+      return qaTester() || qaModerator();
+    }
+
+    function qaOwnRead(uid) {
+      return qaReader() && request.auth.uid == uid;
+    }
+
+    function qaMemberUid(uid) {
+      return uid in ['qa-nav-alice', 'qa-nav-bob'];
+    }
+
     function validText(value, minimum, maximum) {
       return value is string && value.size() >= minimum && value.size() <= maximum;
     }
@@ -22,6 +46,9 @@ service cloud.firestore {
       return validText(value, 1, 128) && !value.matches('.*[/].*');
     }
 
+    function validTime() {
+      return request.resource.data.createdAt == request.time;
+    }
     function authorNameMatchesProfile(name) {
       return name is string
         && name == get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.displayName;
@@ -60,40 +87,287 @@ service cloud.firestore {
         && getAfter(reply).data.createdAt == request.time;
     }
 
+    // A remoção por moderador exige a decisão sobre a denúncia canônica no mesmo lote.
+    function recordedRemoval(reportId, postId, replyId) {
+      let path = /databases/$(database)/documents/reports/$(reportId);
+      return exists(path)
+        && get(path).data.postId == postId
+        && get(path).data.get('replyId', '') == replyId
+        && get(path).data.get('source', '') != 'guardiao'
+        && get(path).data.get('status', 'pending') == 'pending'
+        && getAfter(path).data.status == 'removed'
+        && getAfter(path).data.reviewedBy == request.auth.uid
+        && getAfter(path).data.reviewedAt == request.time;
+    }
+
+    function reviewedRemoval(postId, replyId) {
+      let suffix = replyId == '' ? '_post_' + postId : '_reply_' + postId + '_' + replyId;
+      return qaModerator() && (recordedRemoval('qa-nav-alice' + suffix, postId, replyId)
+        || recordedRemoval('qa-nav-bob' + suffix, postId, replyId));
+    }
+
+    // A decisão de uma resposta não pode apagar nem alterar a publicação principal.
+    function reportParentUnchanged() {
+      let path = /databases/$(database)/documents/posts/$(resource.data.postId);
+      return (exists(path) && existsAfter(path) && get(path).data == getAfter(path).data)
+        || (!exists(path) && !existsAfter(path));
+    }
+    function reportTargetRemoved() {
+      return resource.data.keys().hasAny(['replyId'])
+        ? (exists(/databases/$(database)/documents/posts/$(resource.data.postId)/replies/$(resource.data.replyId))
+          && !existsAfter(/databases/$(database)/documents/posts/$(resource.data.postId)/replies/$(resource.data.replyId))
+          && reportParentUnchanged())
+        : !existsAfter(/databases/$(database)/documents/posts/$(resource.data.postId));
+    }
+    function validReviewTarget() {
+      // Clientes antigos não podem tratar denúncia de resposta como publicação.
+      return resource.data.keys().hasAny(['replyId'])
+        ? request.resource.data.get('reviewTarget', '') == 'reply'
+        : request.resource.data.get('reviewTarget', 'post') == 'post';
+    }
+
     match /app_config/{config} {
-      allow get: if qaTester() && config in [
+      allow get: if qaReader() && config in [
         'conversations', 'community_rules', 'email_verification', 'founder', 'opening_video'
       ];
     }
 
     match /profiles/{uid} {
-      allow get: if qaOwner(uid);
+      // Os perfis não podem ser enumerados, apenas lidos pelo proprietário.
+      allow get: if qaOwnRead(uid);
+      allow list: if false;
+      allow update: if qaOwner(uid)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'bio'])
+        && validText(request.resource.data.displayName, 2, 35)
+        && request.resource.data.diff(resource.data).affectedKeys().hasAny(['displayName', 'bio'])
+        && request.resource.data.get('bio', '') is string
+        && request.resource.data.get('bio', '').size() <= 180
+        // Se já houve opt-in, impedir que clientes antigos alterem a bio
+        // privada deixando uma cópia pública desatualizada. A edição deve
+        // atualizar ambos os documentos na MESMA transação, ou o usuário
+        // deve primeiro retirar sua apresentação pública.
+        && (!exists(/databases/$(database)/documents/public_profiles/$(uid))
+          || (getAfter(/databases/$(database)/documents/public_profiles/$(uid)).data.displayName
+                == request.resource.data.displayName
+            && getAfter(/databases/$(database)/documents/public_profiles/$(uid)).data.bio
+                == request.resource.data.get('bio', '')
+            && getAfter(/databases/$(database)/documents/public_profiles/$(uid)).data.updatedAt
+                == request.time));
+      allow delete: if false;
+    }
+
+    // Projeção pública voluntária: nunca conceder acesso de terceiros a /profiles.
+    // A biografia só chega aqui após opt-in pelo titular da conta.
+    // Foto pública independente da biografia voluntária; ninguém grava pelo APK.
+    // O Worker autenticado usa IAM do serviço e verifica a moderação antes de publicar.
+    match /profile_photos/{uid} {
+      allow get: if qaReader() && qaMemberUid(uid);
+      allow list: if false;
+      allow create, update, delete: if false;
     }
 
     match /public_profiles/{uid} {
-      allow get: if qaTester() && uid in ['qa-nav-alice', 'qa-nav-bob'];
+      allow get: if qaReader() && qaMemberUid(uid);
+      allow list: if false;
+      // getAfter valida o perfil privado após a mesma transação de atualização.
+      // APKs antigos devem revogar a publicação antes de editar a bio privada.
+      allow create, update: if qaOwner(uid)
+        && exists(/databases/$(database)/documents/profiles/$(uid))
+        && request.resource.data.keys().hasOnly([
+          'displayName', 'bio', 'joinedAt', 'updatedAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'displayName', 'bio', 'joinedAt', 'updatedAt'
+        ])
+        && validText(request.resource.data.displayName, 2, 35)
+        && request.resource.data.displayName ==
+          getAfter(/databases/$(database)/documents/profiles/$(uid)).data.displayName
+        && request.resource.data.bio is string
+        && request.resource.data.bio.size() <= 180
+        && request.resource.data.bio ==
+          getAfter(/databases/$(database)/documents/profiles/$(uid)).data.get('bio', '')
+        && request.resource.data.joinedAt is timestamp
+        && request.resource.data.joinedAt ==
+          getAfter(/databases/$(database)/documents/profiles/$(uid)).data.createdAt
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if qaOwner(uid);
     }
 
+    // Atribuição de clero e aprovação devem ocorrer no mesmo batch.
+    // Verificamos estados ANTES e DEPOIS, nunca apenas flags da interface.
+    function approvedClergyGrant(uid, clergy) {
+      let requestPath = /databases/$(database)/documents/badge_requests/$(uid);
+      return qaModerator()
+        && qaMemberUid(uid)
+        && exists(requestPath)
+        && get(requestPath).data.status == 'pending'
+        && get(requestPath).data.kind == clergy
+        && getAfter(requestPath).data.status == 'approved'
+        && getAfter(requestPath).data.reviewedBy == request.auth.uid;
+    }
+    function approvedRequestHasGrant(uid) {
+      let badgePath = /databases/$(database)/documents/badges/$(uid);
+      return existsAfter(badgePath)
+        && getAfter(badgePath).data.clergy == resource.data.kind
+        && (!exists(badgePath)
+          || get(badgePath).data.get('clergy', '') != resource.data.kind);
+    }
+
+    // Revogar um selo verificado exige remover o campo no mesmo batch.
+    function revokedVerifiedBadge(uid) {
+      let requestPath = /databases/$(database)/documents/badge_requests/$(uid);
+      return qaModerator()
+        && qaMemberUid(uid)
+        && exists(requestPath)
+        && get(requestPath).data.status == 'approved'
+        && get(requestPath).data.kind == resource.data.get('clergy', '')
+        && getAfter(requestPath).data.status == 'revoked'
+        && getAfter(requestPath).data.revokedBy == request.auth.uid
+        && getAfter(requestPath).data.revokedAt == request.time;
+    }
+    function revokedRequestHasBadgeRemoved(uid) {
+      let badgePath = /databases/$(database)/documents/badges/$(uid);
+      return exists(badgePath)
+        && get(badgePath).data.get('clergy', '') == resource.data.kind
+        && getAfter(badgePath).data.get('clergy', '') == '';
+    }
+
+    // Leigos podem autodeclarar; identidade religiosa exige aprovação atômica.
     match /badges/{uid} {
-      allow get: if qaTester() && uid in ['qa-nav-alice', 'qa-nav-bob'];
+      allow get: if qaReader() && qaMemberUid(uid);
+      allow list: if false;
+      allow create: if (qaOwner(uid)
+        && request.resource.data.keys().hasOnly(['lay'])
+        && request.resource.data.keys().hasAll(['lay'])
+        && request.resource.data.lay in ['leigo', 'leiga', ''])
+        || (approvedClergyGrant(uid, request.resource.data.get('clergy', ''))
+          && request.resource.data.keys().hasOnly(['clergy'])
+          && request.resource.data.clergy in ['padre', 'diacono', 'religioso', 'religiosa']);
+      allow update: if (qaOwner(uid)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lay'])
+        && request.resource.data.keys().hasAll(['lay'])
+        && request.resource.data.lay in ['leigo', 'leiga', ''])
+        || (approvedClergyGrant(uid, request.resource.data.get('clergy', ''))
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['clergy'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasAll(['clergy'])
+          && request.resource.data.clergy in ['padre', 'diacono', 'religioso', 'religiosa'])
+        || (revokedVerifiedBadge(uid)
+          && resource.data.get('clergy', '') in ['padre', 'diacono', 'religioso', 'religiosa']
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['clergy'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasAll(['clergy'])
+          && request.resource.data.get('clergy', '') == '');
+      allow delete: if false;
     }
 
-    // A Central de Avisos consulta também a revisão de selo do próprio titular.
+    // Os pedidos são privados para terceiros e consultáveis por admins ativos.
+    // Rejeitar altera só o pedido; aprovar exige gravar o selo no mesmo batch.
     match /badge_requests/{uid} {
-      allow get: if qaOwner(uid);
+      allow get: if qaOwner(uid) || qaModerator();
+      allow list: if qaModerator();
+      allow create: if qaOwner(uid)
+        && request.resource.data.keys().hasOnly(['kind', 'status', 'createdAt'])
+        && request.resource.data.keys().hasAll(['kind', 'status', 'createdAt'])
+        && request.resource.data.kind in ['padre', 'diacono', 'religioso', 'religiosa']
+        && request.resource.data.status == 'pending'
+        && validTime();
+      allow update: if (qaOwner(uid)
+        && resource.data.status in ['rejected', 'dismissed', 'revoked']
+        && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['kind', 'status', 'createdAt'])
+        && request.resource.data.kind in ['padre', 'diacono', 'religioso', 'religiosa']
+        && request.resource.data.status == 'pending'
+        && validTime())
+        || (qaModerator()
+          && qaMemberUid(uid)
+          && resource.data.status == 'pending'
+          && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['status', 'reviewedBy', 'reviewedAt', 'reviewNote'])
+          && request.resource.data.keys().hasAll([
+              'status', 'reviewedBy', 'reviewedAt', 'reviewNote'
+            ])
+          && request.resource.data.status in ['approved', 'rejected']
+          && request.resource.data.reviewedBy == request.auth.uid
+          && request.resource.data.reviewedAt == request.time
+          && validText(request.resource.data.reviewNote, 10, 300)
+          && (request.resource.data.status == 'rejected'
+              || approvedRequestHasGrant(uid)))
+        || (qaModerator()
+          && qaMemberUid(uid)
+          && resource.data.status == 'approved'
+          && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['status', 'revokedBy', 'revokedAt', 'revokeNote'])
+          && request.resource.data.keys().hasAll([
+              'status', 'revokedBy', 'revokedAt', 'revokeNote'
+            ])
+          && request.resource.data.status == 'revoked'
+          && request.resource.data.revokedBy == request.auth.uid
+          && request.resource.data.revokedAt == request.time
+          && validText(request.resource.data.revokeNote, 10, 300)
+          && revokedRequestHasBadgeRemoved(uid));
+      allow delete: if false;
+    }
+
+    // O evento só nasce durante uma mudança real de estado do pedido.
+    // Impede inserir posteriormente registros que aleguem aprovações/revogações
+    // antigas ou com justificativas diferentes das decisões correspondentes.
+    function badgeEventMatchesTransition(uid, decision, reason) {
+      let path = /databases/$(database)/documents/badge_requests/$(uid);
+      return exists(path)
+        && get(path).data.status == (decision == 'revoked' ? 'approved' : 'pending')
+        && getAfter(path).data.status == decision
+        && (decision == 'revoked'
+          ? (getAfter(path).data.revokedBy == request.auth.uid
+              && getAfter(path).data.revokeNote == reason
+              && getAfter(path).data.revokedAt == request.time)
+          : (getAfter(path).data.reviewedBy == request.auth.uid
+              && getAfter(path).data.reviewNote == reason
+              && getAfter(path).data.reviewedAt == request.time));
+    }
+
+    // Histórico append-only, visível apenas pela administração ativa.
+    match /badge_events/{eventId} {
+      allow get, list: if qaModerator();
+      allow create: if qaModerator()
+        && request.resource.data.keys().hasOnly([
+          'targetUid', 'kind', 'decision', 'actorUid', 'reason', 'createdAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'targetUid', 'kind', 'decision', 'actorUid', 'reason', 'createdAt'
+        ])
+        && qaMemberUid(request.resource.data.targetUid)
+        && request.resource.data.kind in ['padre', 'diacono', 'religioso', 'religiosa']
+        && request.resource.data.decision in ['approved', 'rejected', 'revoked']
+        && request.resource.data.actorUid == request.auth.uid
+        && validText(request.resource.data.reason, 10, 300)
+        && request.resource.data.createdAt == request.time
+        && getAfter(/databases/$(database)/documents/badge_requests/$(request.resource.data.targetUid)).data.kind
+            == request.resource.data.kind
+        && badgeEventMatchesTransition(
+            request.resource.data.targetUid,
+            request.resource.data.decision,
+            request.resource.data.reason
+          )
+        && (request.resource.data.decision == 'rejected'
+          || (request.resource.data.decision == 'approved'
+            && getAfter(/databases/$(database)/documents/badges/$(request.resource.data.targetUid)).data.get('clergy', '')
+                == request.resource.data.kind)
+          || (request.resource.data.decision == 'revoked'
+            && getAfter(/databases/$(database)/documents/badges/$(request.resource.data.targetUid)).data.get('clergy', '') == ''));
+      allow update, delete: if false;
     }
 
     match /admins/{uid} {
-      allow get: if qaOwner(uid);
+      // O APK consulta o próprio papel. O documento é provisionado fora do cliente.
+      allow get: if qaOwner(uid) || (qaModeratorIdentity() && request.auth.uid == uid);
     }
 
     match /community_consents/{uid} {
-      allow get: if qaOwner(uid);
+      allow get: if qaOwnRead(uid);
     }
 
     match /posts/{postId} {
       // O feed do aplicativo ordena todos os posts sem filtrar por autor.
-      allow get, list: if qaTester();
+      allow get, list: if qaReader();
       allow create: if qaTester() && validId(postId)
         && communityPublicationAllowed()
         && request.resource.data.keys().hasOnly(['uid', 'authorName', 'title', 'body', 'category', 'createdAt'])
@@ -110,17 +384,17 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasAny(['updatedAt'])
         && request.resource.data.updatedAt == request.time
         && validPostContent(request.resource.data);
-      allow delete: if qaOwner(resource.data.uid);
+      allow delete: if qaOwner(resource.data.uid) || reviewedRemoval(postId, '');
 
       match /replies/{replyId} {
         function postOwner() {
           return get(postPath(postId)).data.uid;
         }
 
-        allow get, list: if qaTester() && exists(postPath(postId));
+        allow get, list: if qaReader() && exists(postPath(postId));
         allow create: if qaTester() && validId(postId) && validId(replyId)
           && communityPublicationAllowed()
-          && postOwner() in ['qa-nav-alice', 'qa-nav-bob']
+          && qaMemberUid(postOwner())
           && existsAfter(postPath(postId))
           && request.resource.data.keys().hasOnly(['uid', 'authorName', 'body', 'createdAt'])
           && request.resource.data.uid == request.auth.uid
@@ -129,12 +403,13 @@ service cloud.firestore {
           && request.resource.data.createdAt == request.time
           // O Android pula o aviso ao responder ao próprio post.
           && (postOwner() == request.auth.uid || replyHasNewNotice(postId, replyId, postOwner()));
-        allow delete: if qaOwner(resource.data.uid) && exists(postPath(postId));
+        allow delete: if exists(postPath(postId))
+          && (qaOwner(resource.data.uid) || reviewedRemoval(postId, replyId));
       }
     }
 
     match /users/{uid}/private/account {
-      allow get: if qaOwner(uid);
+      allow get: if qaOwnRead(uid);
     }
 
     match /users/{uid}/chatAgeEligibility/current {
@@ -146,9 +421,10 @@ service cloud.firestore {
     }
 
     match /users/{uid}/notifications/{noticeId} {
-      allow get, list, delete: if qaOwner(uid);
+      allow get, list: if qaOwnRead(uid);
+      allow delete: if qaOwner(uid);
       allow create: if qaTester()
-        && uid in ['qa-nav-alice', 'qa-nav-bob'] && request.auth.uid != uid
+        && qaMemberUid(uid) && request.auth.uid != uid
         && request.resource.data.keys().hasOnly(['postId', 'replyId', 'actorUid', 'actorName', 'read', 'createdAt'])
         && validId(request.resource.data.postId) && validId(noticeId)
         && request.resource.data.replyId == noticeId
@@ -175,7 +451,7 @@ service cloud.firestore {
     }
 
     match /users/{uid}/{collection}/{item} {
-      allow get, list: if qaOwner(uid) && collection in [
+      allow get, list: if qaOwnRead(uid) && collection in [
         'chatBox', 'likedPosts', 'savedPosts', 'blockedMembers'
       ];
       allow create: if qaOwner(uid) && collection in ['likedPosts', 'savedPosts']
@@ -183,6 +459,69 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['createdAt'])
         && request.resource.data.createdAt == request.time;
       allow delete: if qaOwner(uid) && collection in ['likedPosts', 'savedPosts'];
+    }
+
+    // Denúncia de usuário (além das denúncias existentes de posts/respostas).
+    // IDs determinísticos impedem denúncias duplicadas do mesmo par.
+    match /user_reports/{reportId} {
+      allow get: if qaModerator() ||
+        (qaTester() && resource.data.reporterUid == request.auth.uid);
+      allow list: if qaModerator();
+      allow create: if qaTester()
+        && request.resource.data.keys().hasOnly(['reporterUid', 'targetUid', 'reason', 'createdAt'])
+        && request.resource.data.keys().hasAll(['reporterUid', 'targetUid', 'reason', 'createdAt'])
+        && request.resource.data.reporterUid == request.auth.uid
+        && qaMemberUid(request.resource.data.targetUid)
+        && request.resource.data.targetUid != request.auth.uid
+        && reportId == request.auth.uid + '__' + request.resource.data.targetUid
+        && validText(request.resource.data.reason, 10, 500)
+        && request.resource.data.createdAt == request.time;
+      allow update: if qaModerator()
+        && resource.data.get('status', 'pending') == 'pending'
+        && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['status', 'reviewedBy', 'reviewedAt'])
+        && request.resource.data.keys().hasAll(['status', 'reviewedBy', 'reviewedAt'])
+        && request.resource.data.status == 'reviewed'
+        && request.resource.data.reviewedBy == request.auth.uid
+        && request.resource.data.reviewedAt == request.time;
+      allow delete: if false;
+    }
+
+    match /reports/{reportId} {
+      // Denúncias são privadas; somente administradores ativos podem consultá-las.
+      allow read: if qaModerator();
+      allow create: if qaTester()
+        && request.resource.data.keys().hasOnly([
+          'postId', 'replyId', 'reporterUid', 'reason', 'createdAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'postId', 'reporterUid', 'reason', 'createdAt'
+        ])
+        && request.resource.data.reporterUid == request.auth.uid
+        && validId(request.resource.data.postId)
+        // PR #35: somente um registro por denunciante e alvo, inclusive no QA.
+        && exists(/databases/$(database)/documents/posts/$(request.resource.data.postId))
+        && (request.resource.data.keys().hasAny(['replyId'])
+          ? (validId(request.resource.data.replyId)
+            && reportId == request.auth.uid + '_reply_' + request.resource.data.postId + '_' + request.resource.data.replyId
+            && exists(/databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(request.resource.data.replyId)))
+          : reportId == request.auth.uid + '_post_' + request.resource.data.postId)
+        && validText(request.resource.data.reason, 5, 300)
+        && validTime();
+      allow update: if qaModerator()
+        && resource.data.get('status', 'pending') == 'pending'
+        && resource.data.get('source', '') != 'guardiao'
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'reviewedBy', 'reviewedAt', 'reviewNote', 'reviewTarget'])
+        && request.resource.data.keys().hasAll(['status', 'reviewedBy', 'reviewedAt', 'reviewNote'])
+        && request.resource.data.status in ['dismissed', 'removed']
+        && request.resource.data.reviewedBy == request.auth.uid
+        && request.resource.data.reviewedAt == request.time
+        && validText(request.resource.data.reviewNote, 5, 300)
+        && validReviewTarget()
+        && (request.resource.data.status != 'removed'
+          || reportTargetRemoved());
+      allow delete: if false;
     }
 
     match /chats/{chatId} {
