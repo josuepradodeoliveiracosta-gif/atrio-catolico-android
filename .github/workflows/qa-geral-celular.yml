@@ -18,7 +18,7 @@ jobs:
   compilar-qa-geral-celular:
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
-      contains(fromJSON('["qa/chat5-qa-geral-firebase-celular","qa/chat5-qa-geral-registro-push","qa/chat7-qa-geral-composicao-integrada"]'), github.head_ref)
+      contains(fromJSON('["qa/chat5-qa-geral-firebase-celular","qa/chat5-qa-geral-registro-push","qa/chat7-qa-geral-composicao-integrada","qa/chat7-qa-geral-celular-forum-integrado"]'), github.head_ref)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -98,7 +98,32 @@ jobs:
           "$tools/aapt" dump --values resources "$apk" > "$RUNNER_TEMP/qa-geral-resources.txt"
           grep -Fq 'atrio-catolico-qa-general' "$RUNNER_TEMP/qa-geral-resources.txt"
           grep -Fq '1:835727158563:android:618218ab4be326d75cb096' "$RUNNER_TEMP/qa-geral-resources.txt"
-          "$tools/apksigner" verify "$apk"
+          "$tools/apksigner" verify --print-certs "$apk" > "$RUNNER_TEMP/qa-geral-certificado.txt"
+          grep -E '^Signer #[0-9]+ certificate SHA-256 digest: [[:xdigit:]]{64}
+          if [[ "$ATRIO_QA_GERAL_PUSH_BUILD" == 1 ]]; then
+            "$tools/aapt" dump xmltree "$apk" AndroidManifest.xml > "$RUNNER_TEMP/qa-geral-manifest.txt"
+            grep -Fq 'br.com.atriocatolico.AtrioPushService' "$RUNNER_TEMP/qa-geral-manifest.txt"
+            grep -Fq 'android.permission.POST_NOTIFICATIONS' "$RUNNER_TEMP/qa-geral-manifest.txt"
+            ! grep -Fq 'android.permission.REQUEST_INSTALL_PACKAGES' "$RUNNER_TEMP/qa-geral-manifest.txt"
+            test "$CONFIG_REAL" = false
+          fi
+          if [[ "$CONFIG_REAL" == true ]]; then
+            mkdir qa-geral-celular
+            cp "$apk" qa-geral-celular/atrio-qa-geral-celular.apk
+            git rev-parse HEAD > qa-geral-celular/ORIGEM.txt
+            (cd qa-geral-celular && sha256sum atrio-qa-geral-celular.apk | tee SHA256SUMS)
+          else
+            echo 'Build validado com configuração fictícia. APK de instalação requer a configuração do Firebase de QA.'
+          fi
+      - name: Guardar APK de homologação
+        if: steps.configuracao.outputs.real == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: atrio-qa-geral-celular
+          path: qa-geral-celular/
+          if-no-files-found: error
+          retention-days: 7
+ "$RUNNER_TEMP/qa-geral-certificado.txt"
           if [[ "$ATRIO_QA_GERAL_PUSH_BUILD" == 1 ]]; then
             "$tools/aapt" dump xmltree "$apk" AndroidManifest.xml > "$RUNNER_TEMP/qa-geral-manifest.txt"
             grep -Fq 'br.com.atriocatolico.AtrioPushService' "$RUNNER_TEMP/qa-geral-manifest.txt"
