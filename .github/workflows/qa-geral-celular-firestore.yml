@@ -1,12 +1,13 @@
 name: Regras do QA Geral Celular no Firestore Emulator
 on:
   pull_request:
-    branches: [main]
+    branches: [main, qa/chat5-200-piloto-android]
     paths:
       - .github/workflows/qa-geral-celular-firestore.yml
       - firebase/qa-geral-celular/**
       - tests/security/qa-geral-celular.test.mjs
       - tests/security/qa-geral-celular-pilot.test.mjs
+      - tests/security/qa-geral-celular-pilot-shutdown.test.mjs
 permissions:
   contents: read
 jobs:
@@ -31,4 +32,4 @@ jobs:
         run: |
           npm ci
           node prepare.mjs
-          ./node_modules/.bin/firebase emulators:exec --only firestore --project demo-atrio-v11 'node --test --test-concurrency=1 qa-geral-celular.test.mjs qa-geral-celular-pilot.test.mjs'
+          ./node_modules/.bin/firebase emulators:exec --only firestore --project demo-atrio-v11 'node --test --test-concurrency=1 qa-geral-celular.test.mjs qa-geral-celular-pilot.test.mjs qa-geral-celular-pilot-shutdown.test.mjs'
