@@ -9,7 +9,10 @@ on:
       - app/build.gradle.kts
       - app/src/main/**
       - app/src/qaGeral/**
+      - app/src/test/**/QaGeralCelularIdentityTest.kt
       - scripts/qa_geral_remote_build_gate.py
+      - scripts/qa_geral_celular_signature.py
+      - scripts/test_qa_geral_celular_signature.py
 
 permissions:
   contents: read
@@ -18,14 +21,14 @@ jobs:
   compilar-qa-geral-celular:
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
-      contains(fromJSON('["qa/chat5-qa-geral-firebase-celular","qa/chat5-qa-geral-registro-push","qa/chat7-qa-geral-composicao-integrada","qa/chat7-qa-geral-celular-forum-integrado","qa/chat5-qa-geral-celular-pacote-proprio"]'), github.head_ref)
+      contains(fromJSON('["qa/chat5-qa-geral-firebase-celular","qa/chat5-qa-geral-registro-push","qa/chat7-qa-geral-composicao-integrada","qa/chat7-qa-geral-celular-forum-integrado","qa/chat5-qa-geral-celular-pacote-proprio","qa/chat5-qa-geral-celular-identidade"]'), github.head_ref)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
       ATRIO_QA_GERAL_BUILD: '1'
       ATRIO_QA_GERAL_REMOTE_BUILD: '1'
-      ATRIO_QA_GERAL_CELULAR_FICTICIO: ${{ github.head_ref == 'qa/chat5-qa-geral-celular-pacote-proprio' && '1' || '0' }}
-      ATRIO_QA_GERAL_PUSH_BUILD: ${{ !contains(fromJSON('["qa/chat5-qa-geral-firebase-celular","qa/chat5-qa-geral-celular-pacote-proprio"]'), github.head_ref) && '1' || '0' }}
+      ATRIO_QA_GERAL_CELULAR_FICTICIO: ${{ contains(fromJSON('["qa/chat5-qa-geral-celular-pacote-proprio","qa/chat5-qa-geral-celular-identidade"]'), github.head_ref) && '1' || '0' }}
+      ATRIO_QA_GERAL_PUSH_BUILD: ${{ !contains(fromJSON('["qa/chat5-qa-geral-firebase-celular","qa/chat5-qa-geral-celular-pacote-proprio","qa/chat5-qa-geral-celular-identidade"]'), github.head_ref) && '1' || '0' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -88,6 +91,23 @@ jobs:
           PY
             echo 'real=false' >> "$GITHUB_OUTPUT"
           fi
+      - name: Exercitar identidade fictícia e futuros critérios de assinatura
+        if: env.ATRIO_QA_GERAL_CELULAR_FICTICIO == '1'
+        shell: bash
+        run: |
+          python3 -m unittest discover -s scripts -p test_qa_geral_celular_signature.py -v
+          gradle :app:testQaGeralUnitTest --no-daemon --max-workers=2
+          python3 - <<'PY'
+          import xml.etree.ElementTree as et
+
+          suite = et.parse(
+              "app/build/test-results/testQaGeralUnitTest/TEST-br.com.atriocatolico.QaGeralCelularIdentityTest.xml"
+          ).getroot()
+          cases = suite.findall("testcase")
+          if not cases or any(int(suite.attrib[name]) > 0 for name in ("failures", "errors", "skipped")):
+              raise SystemExit("A suíte de identidade do app precisa executar sem falhas ou omissões.")
+          print(f"Identidade fictícia do app: {len(cases)} testes aprovados.")
+          PY
       - name: Compilar e conferir a identidade do APK
         env:
           CONFIG_REAL: ${{ steps.configuracao.outputs.real }}
@@ -139,12 +159,13 @@ jobs:
             "$tools/aapt" dump xmltree "$apk" AndroidManifest.xml > "$RUNNER_TEMP/qa-geral-manifest.txt"
             grep -Eq 'android:allowBackup[^=]*=.*0x0$' "$RUNNER_TEMP/qa-geral-manifest.txt"
             if grep -Fq \
+              -e 'android.permission.INTERNET' \
               -e 'br.com.atriocatolico.AtrioPushService' \
               -e 'android.permission.POST_NOTIFICATIONS' \
               -e 'android.permission.REQUEST_INSTALL_PACKAGES' \
               -e 'androidx.core.content.FileProvider' \
               "$RUNNER_TEMP/qa-geral-manifest.txt"; then
-              echo 'O APK fictício incluiu push ou instalador OTA.' >&2
+              echo 'O APK fictício incluiu acesso à internet, push ou instalador OTA.' >&2
               exit 1
             fi
             if grep -Fq \
@@ -154,7 +175,7 @@ jobs:
               echo 'O APK fictício incluiu a identidade Firebase do QA anterior.' >&2
               exit 1
             fi
-            echo 'Pacote isolado, identidade Firebase fictícia, backup, push e instalador OTA desabilitados.'
+            echo 'Pacote isolado e identidade Firebase fictícia. Internet, backup, push e instalador OTA desabilitados.'
           fi
           if [[ "$CONFIG_REAL" == true ]]; then
             mkdir qa-geral-celular

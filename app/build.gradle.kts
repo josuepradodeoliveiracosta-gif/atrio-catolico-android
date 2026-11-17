@@ -62,8 +62,13 @@ if (atrioQaGeralBuild) {
         "QA Geral exige checkout sem configuração Firebase oficial ou de outras variantes."
     }
     if (atrioQaGeralRemote) {
-        require(gradle.startParameter.taskNames.all { it.substringAfterLast(':') == "assembleQaGeral" }) {
-            "QA Geral para celular: executar somente :app:assembleQaGeral."
+        val allowedTasks = if (atrioQaGeralCelularFicticio) {
+            setOf("assembleQaGeral", "testQaGeralUnitTest")
+        } else {
+            setOf("assembleQaGeral")
+        }
+        require(gradle.startParameter.taskNames.all { it.substringAfterLast(':') in allowedTasks }) {
+            "QA Geral para celular: somente compilação e, no modo fictício, testes unitários."
         }
         val preflight = ProcessBuilder(
             "python3", rootProject.file("scripts/qa_geral_remote_build_gate.py").absolutePath,
@@ -231,6 +236,7 @@ android {
         versionName = "0.20.4"
         buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"0.20.4\"")
         buildConfigField("boolean", "ATRIO_QA_GERAL_REMOTE", "false")
+        buildConfigField("boolean", "ATRIO_QA_GERAL_CELULAR_FICTICIO", "false")
         buildConfigField("boolean", "ATRIO_QA_GERAL_PUSH", "false")
         buildConfigField("String", "ATRIO_QA_GERAL_PROJECT_ID", "\"\"")
         buildConfigField("String", "ATRIO_QA_GERAL_APP_ID", "\"\"")
@@ -316,6 +322,7 @@ android {
             buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"$qaName\"")
             if (atrioQaGeralRemote) {
                 buildConfigField("boolean", "ATRIO_QA_GERAL_REMOTE", "true")
+                buildConfigField("boolean", "ATRIO_QA_GERAL_CELULAR_FICTICIO", atrioQaGeralCelularFicticio.toString())
                 buildConfigField("boolean", "ATRIO_QA_GERAL_PUSH", atrioQaGeralPush.toString())
                 buildConfigField("String", "ATRIO_QA_GERAL_PROJECT_ID", "\"$atrioQaGeralRemoteProject\"")
                 buildConfigField("String", "ATRIO_QA_GERAL_APP_ID", "\"$atrioQaGeralRemoteAppId\"")
@@ -350,7 +357,9 @@ android {
         }
     }
 
-    if (atrioQaGeralPush) {
+    if (atrioQaGeralCelularFicticio) {
+        sourceSets.getByName("qaGeral").manifest.srcFile("src/qaGeral/AndroidManifest.ficticio.xml")
+    } else if (atrioQaGeralPush) {
         sourceSets.getByName("qaGeral").manifest.srcFile("src/qaGeral/AndroidManifest.push.xml")
     }
 
