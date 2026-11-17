@@ -226,6 +226,35 @@ jobs:
           else
             echo 'Build validado com configuração fictícia. APK de instalação requer a configuração do Firebase de QA.'
           fi
+      - name: Validar a rota física 41 com configuração sintética
+        if: env.ATRIO_QA_GERAL_CELULAR_RODADA_FIXTURE == '1'
+        shell: bash
+        run: |
+          config=app/src/qaGeral/google-services.json
+          rm -f -- "$config"
+          config_sintetica="$(python3 - <<'PY'
+          import json
+          from scripts.qa_geral_remote_build_gate import QA_PROJECT, REGISTERED_APP_ID, fixture
+
+          config = fixture(QA_PROJECT, REGISTERED_APP_ID)
+          config["client"][0]["api_key"][0]["current_key"] = "sem-credencial-remota-ensaio-41"
+          print(json.dumps(config))
+          PY
+          )"
+          apk="$RUNNER_TEMP/qa-geral-celular-rodada-41-ci.apk"
+          trap 'rm -f -- "$apk"' EXIT
+          ATRIO_QA_CELULAR_GOOGLE_SERVICES_JSON="$config_sintetica" \
+            bash scripts/qa_geral_celular_manual.sh build-round "$apk"
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          test ! -e "$config"
+          "$tools/aapt" dump badging "$apk" > "$RUNNER_TEMP/rodada-41-badging.txt"
+          grep -F "package: name='br.com.atriocatolico.qageral.celular' versionCode='41' " "$RUNNER_TEMP/rodada-41-badging.txt"
+          "$tools/aapt" dump --values resources "$apk" > "$RUNNER_TEMP/rodada-41-resources.txt"
+          grep -Fq '1:835727158563:android:4258e81cc0ccc4df5cb096' "$RUNNER_TEMP/rodada-41-resources.txt"
+          if "$tools/apksigner" verify "$apk" >/dev/null 2>&1; then
+            echo 'O ensaio da rota física deve sair sem assinatura.' >&2
+            exit 1
+          fi
       - name: Guardar APK de homologação
         if: steps.configuracao.outputs.real == 'true' && env.ATRIO_QA_GERAL_CELULAR_FICTICIO == '0' && env.ATRIO_QA_GERAL_CELULAR_FUNCIONAL == '0'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

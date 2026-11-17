@@ -5,10 +5,15 @@ umask 077
 tools="${ANDROID_HOME:?ANDROID_HOME ausente}/build-tools/36.0.0"
 
 case "${1:-}" in
-    build|build-functional)
+    build|build-functional|build-round)
         output="${2:?Caminho do APK sem assinatura ausente}"
         config=app/src/qaGeral/google-services.json
-        if [[ "$1" == build-functional ]]; then
+        if [[ "$1" != build ]]; then
+            round=0
+            if [[ "$1" == build-round ]]; then
+                [[ -z "${3:-}" ]] || { echo 'A rodada física exige a configuração registrada.' >&2; exit 2; }
+                round=1
+            fi
             case "${3:-}" in
                 --fixture)
                     python3 scripts/qa_geral_remote_build_gate.py --write-functional-fixture "$config"
@@ -30,6 +35,7 @@ case "${1:-}" in
             ATRIO_QA_GERAL_BUILD=1 ATRIO_QA_GERAL_REMOTE_BUILD=1 ATRIO_QA_GERAL_PUSH_BUILD=0 \
                 ATRIO_QA_GERAL_CELULAR_FICTICIO=0 ATRIO_QA_GERAL_CELULAR_UNSIGNED_BUILD=0 \
                 ATRIO_QA_GERAL_CELULAR_FUNCIONAL=1 ATRIO_QA_GERAL_CELULAR_APP_ID="$app_id" \
+                ATRIO_QA_GERAL_CELULAR_RODADA="$round" ATRIO_QA_GERAL_CELULAR_RODADA_FIXTURE=0 \
                 ATRIO_QA_GERAL_CELULAR_PAIR_CODE= \
                 gradle :app:assembleQaGeral --no-daemon --max-workers=2
         else
@@ -46,6 +52,10 @@ case "${1:-}" in
             echo 'Esperado exatamente um APK QA Geral Celular.' >&2
             exit 1
         fi
+        if [[ "$1" == build-round ]]; then
+            "$tools/aapt" dump badging "${apks[0]}" |
+                grep -F "package: name='br.com.atriocatolico.qageral.celular' versionCode='41' " >/dev/null
+        fi
         "$tools/zipalign" -P 16 4 "${apks[0]}" "$output"
         ;;
     sign)
@@ -60,7 +70,7 @@ case "${1:-}" in
             --v4-signing-enabled false --out "$signed" "$unsigned"
         ;;
     *)
-        echo 'Use build <saída.apk> [versionCode do par], build-functional <saída.apk> ou sign <entrada.apk> <saída.apk> <keystore>.' >&2
+        echo 'Use build <saída.apk> [versionCode do par], build-functional <saída.apk>, build-round <saída.apk> ou sign <entrada.apk> <saída.apk> <keystore>.' >&2
         exit 2
         ;;
 esac

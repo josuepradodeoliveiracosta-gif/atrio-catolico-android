@@ -780,9 +780,26 @@ private fun OnlineCommunity(
     var publicProfileTarget by remember(uid) { mutableStateOf<PublicMemberTarget?>(null) }
     val localConversationEmulator = db.app.options.projectId == "demo-atrio-v11" &&
         db.firestoreSettings.host == "127.0.0.1:8089" && !db.firestoreSettings.isSslEnabled
+    val roundIdentity = BuildConfig.ATRIO_QA_GERAL_CELULAR_RODADA &&
+        BuildConfig.ATRIO_QA_GERAL_CELULAR_FUNCIONAL && qaGeralCelularRoundMatches(
+            context.packageName, db.app.options.projectId, db.app.options.applicationId,
+            db.firestoreSettings.host, db.firestoreSettings.isSslEnabled
+        )
+    var roundConversationsOpen by remember(db, uid, roundIdentity) { mutableStateOf(false) }
+    DisposableEffect(db, uid, roundIdentity) {
+        if (!roundIdentity) onDispose {}
+        else {
+            val listener = db.document("app_config/conversations").addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, error ->
+                roundConversationsOpen = error == null && snapshot != null &&
+                    !snapshot.metadata.hasPendingWrites() && atrioConversationConfigEnabled(snapshot)
+            }
+            onDispose { listener.remove() }
+        }
+    }
     val conversationsQa = BuildConfig.DEBUG && when (BuildConfig.APPLICATION_ID) {
         "br.com.atriocatolico.qageral.celular" ->
-            BuildConfig.ATRIO_QA_GERAL_CELULAR_PILOT && localConversationEmulator
+            (BuildConfig.ATRIO_QA_GERAL_CELULAR_PILOT && localConversationEmulator) ||
+                (roundIdentity && roundConversationsOpen)
         "br.com.atriocatolico.qageral" -> if (BuildConfig.ATRIO_QA_GERAL_REMOTE) {
             qaGeralRemoteFirebaseReady(context) &&
                 db.firestoreSettings.host == "firestore.googleapis.com"
@@ -794,6 +811,9 @@ private fun OnlineCommunity(
     fun closeConversations() {
         conversationsOpen = false
         conversationPeer = null
+    }
+    LaunchedEffect(roundIdentity, conversationsQa) {
+        if (roundIdentity && !conversationsQa) closeConversations()
     }
     val showConversations = conversationsQa && conversationsOpen
     var profilePostOpen by remember(uid) { mutableStateOf(false) }

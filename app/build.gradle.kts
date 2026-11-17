@@ -23,6 +23,7 @@ val atrioQaGeralCelularFicticio = System.getenv("ATRIO_QA_GERAL_CELULAR_FICTICIO
 val atrioQaGeralCelularFunctional = System.getenv("ATRIO_QA_GERAL_CELULAR_FUNCIONAL") == "1"
 // O CI confere a identidade da rodada sem usar a configuração do celular nem o fluxo protegido.
 val atrioQaGeralCelularRoundFixture = System.getenv("ATRIO_QA_GERAL_CELULAR_RODADA_FIXTURE") == "1"
+val atrioQaGeralCelularRound = System.getenv("ATRIO_QA_GERAL_CELULAR_RODADA") == "1"
 val atrioQaGeralCelularUnsigned = System.getenv("ATRIO_QA_GERAL_CELULAR_UNSIGNED_BUILD") == "1"
 val atrioQaGeralCelularPairCode = System.getenv("ATRIO_QA_GERAL_CELULAR_PAIR_CODE").orEmpty()
 require(atrioQaGeralCelularPairCode.isEmpty() ||
@@ -45,12 +46,13 @@ require(!atrioQaGeralCelularFunctional ||
 val atrioQaGeralRemoteProject = if (atrioQaGeralCelularFicticio)
     "atrio-catolico-qa-geral-ficticio" else "atrio-catolico-qa-general"
 val atrioQaGeralLegacyAppId = "1:835727158563:android:618218ab4be326d75cb096"
+val atrioQaGeralRegisteredAppId = "1:835727158563:android:4258e81cc0ccc4df5cb096"
 val atrioQaGeralFunctionalFixtureAppId = "1:835727158563:android:0000000000000000000000"
 val atrioQaGeralRemoteAppId = when {
     atrioQaGeralCelularFicticio -> "1:000000000000:android:0000000000000000000000"
     atrioQaGeralCelularFunctional -> System.getenv("ATRIO_QA_GERAL_CELULAR_APP_ID").orEmpty().also {
         require(it in setOf(
-            "1:835727158563:android:4258e81cc0ccc4df5cb096",
+            atrioQaGeralRegisteredAppId,
             atrioQaGeralFunctionalFixtureAppId
         )) {
             "Informe o App ID independente do pacote novo no Firebase de QA Geral."
@@ -61,6 +63,11 @@ val atrioQaGeralRemoteAppId = when {
 require(!atrioQaGeralCelularRoundFixture ||
     (atrioQaGeralCelularFunctional && atrioQaGeralRemoteAppId == atrioQaGeralFunctionalFixtureAppId)) {
     "O ensaio da rodada em dois celulares exige a configuração fictícia do build funcional."
+}
+require(!atrioQaGeralCelularRound ||
+    (atrioQaGeralCelularFunctional && !atrioQaGeralCelularRoundFixture &&
+        atrioQaGeralRemoteAppId == atrioQaGeralRegisteredAppId)) {
+    "A rodada física exige o App ID registrado do QA Geral Celular."
 }
 require(!atrioQaGeralCelularPilot ||
     (atrioQaGeralBuild && !atrioQaGeralRemote && !atrioQaGeralPush)) {
@@ -277,6 +284,7 @@ android {
         buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"0.20.4\"")
         buildConfigField("boolean", "ATRIO_QA_GERAL_REMOTE", "false")
         buildConfigField("boolean", "ATRIO_QA_GERAL_CELULAR_PILOT", "false")
+        buildConfigField("boolean", "ATRIO_QA_GERAL_CELULAR_RODADA", "false")
         buildConfigField("boolean", "ATRIO_QA_GERAL_CELULAR_FICTICIO", "false")
         buildConfigField("boolean", "ATRIO_QA_GERAL_CELULAR_FUNCIONAL", "false")
         buildConfigField("boolean", "ATRIO_QA_GERAL_PUSH", "false")
@@ -369,6 +377,7 @@ android {
             }
             buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"$qaName\"")
             buildConfigField("boolean", "ATRIO_QA_GERAL_CELULAR_PILOT", atrioQaGeralCelularPilot.toString())
+            buildConfigField("boolean", "ATRIO_QA_GERAL_CELULAR_RODADA", atrioQaGeralCelularRound.toString())
             if (atrioQaGeralRemote) {
                 buildConfigField("boolean", "ATRIO_QA_GERAL_REMOTE", "true")
                 buildConfigField("boolean", "ATRIO_QA_GERAL_CELULAR_FICTICIO", atrioQaGeralCelularFicticio.toString())
@@ -435,13 +444,13 @@ androidComponents {
             val suffix = if (atrioQaGeralRemote) "qa-geral-celular" else "qa-geral"
             val pairSuffix = if (atrioQaGeralCelularPairCode.isEmpty()) "" else "-$atrioQaGeralCelularPairCode"
             val functionalSuffix = when {
-                atrioQaGeralCelularRoundFixture -> "-rodada-41"
+                atrioQaGeralCelularRound || atrioQaGeralCelularRoundFixture -> "-rodada-41"
                 atrioQaGeralCelularFunctional -> "-funcional"
                 else -> ""
             }
             output.versionName.set("$atrioDebugVersionName-$suffix$pairSuffix$functionalSuffix")
             val code = when {
-                atrioQaGeralCelularRoundFixture -> 41
+                atrioQaGeralCelularRound || atrioQaGeralCelularRoundFixture -> 41
                 atrioQaGeralCelularFunctional -> 40
                 else -> atrioQaGeralCelularPairCode.toIntOrNull() ?: atrioDebugVersionCode
             }

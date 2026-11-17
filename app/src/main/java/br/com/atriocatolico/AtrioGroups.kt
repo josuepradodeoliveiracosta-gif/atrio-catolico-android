@@ -222,12 +222,12 @@ internal fun AtrioGroupsScreen(
     }
     val canReadGroups=enabled && accessApproved && ownSession
     LaunchedEffect(membershipQuery,canReadGroups) {
-        if (BuildConfig.ATRIO_QA_GERAL_CELULAR_PILOT && canReadGroups) {
+        if (atrioChatRequiresServer && canReadGroups) {
             pollAtrioPilotServer({ membershipQuery.get(Source.SERVER) }, ::updateRooms)
         }
     }
     LaunchedEffect(invitationQuery,canReadGroups) {
-        if (BuildConfig.ATRIO_QA_GERAL_CELULAR_PILOT && canReadGroups) {
+        if (atrioChatRequiresServer && canReadGroups) {
             pollAtrioPilotServer({ invitationQuery.get(Source.SERVER) }, ::updateInvitations)
         }
     }
@@ -236,7 +236,7 @@ internal fun AtrioGroupsScreen(
             rooms=emptyList()
             invitations=emptyList()
             onDispose {}
-        } else if (BuildConfig.ATRIO_QA_GERAL_CELULAR_PILOT) {
+        } else if (atrioChatRequiresServer) {
             onDispose {}
         } else {
             val members=membershipQuery.addSnapshotListener(::updateRooms)

@@ -152,10 +152,7 @@ internal fun AtrioConversationsScreen(
         } else {
         val config = db.document("app_config/conversations").addSnapshotListener(atrioChatMetadataChanges) { doc, failure ->
             loadedConfig = failure != null || atrioChatSnapshotUsable(doc)
-            enabled = failure == null && atrioChatSnapshotUsable(doc) && doc?.getBoolean("enabled") == true &&
-                doc.getBoolean("minorPolicyApproved") == true &&
-                doc.getString("safetyReviewVersion") == "2026-11-safety-v1" &&
-                doc.getString("version") == AtrioChatPolicy.VERSION
+            enabled = failure == null && atrioConversationConfigEnabled(doc)
             editWindowMinutes = (doc?.getLong("editWindowMinutes") ?: 0L)
                 .coerceIn(0L, 1440L).toInt()
             deleteWindowMinutes = (doc?.getLong("deleteWindowMinutes") ?: 0L)
@@ -183,7 +180,7 @@ internal fun AtrioConversationsScreen(
         if (failure != null) error = "Não foi possível carregar as conversas."
     }
     LaunchedEffect(inbox, enabled, ownSession) {
-        if (BuildConfig.ATRIO_QA_GERAL_CELULAR_PILOT && enabled && ownSession) {
+        if (atrioChatRequiresServer && enabled && ownSession) {
             pollAtrioPilotServer({ inbox.get(Source.SERVER) }, ::updateInbox)
         }
     }
@@ -192,7 +189,7 @@ internal fun AtrioConversationsScreen(
             rooms = emptyList()
             loaded = true
             onDispose {}
-        } else if (BuildConfig.ATRIO_QA_GERAL_CELULAR_PILOT) {
+        } else if (atrioChatRequiresServer) {
             onDispose {}
         } else {
             loaded = false
@@ -204,11 +201,13 @@ internal fun AtrioConversationsScreen(
         if (!enabled || !ownSession) onDispose {}
         else {
             val listener = db.collection("users").document(uid).collection("chatBox")
-                .limit(100).addSnapshotListener { snapshot, failure ->
-                    if (failure == null) prefs = snapshot?.documents.orEmpty().associate { d ->
-                        d.id to ChatPrefs(d.getBoolean("muted") == true,
-                            d.getBoolean("pinned") == true, d.getBoolean("archived") == true)
-                    }
+                .limit(100).addSnapshotListener(atrioChatMetadataChanges) { snapshot, failure ->
+                    if (failure == null && atrioChatSnapshotUsable(snapshot)) {
+                        prefs = snapshot?.documents.orEmpty().associate { d ->
+                            d.id to ChatPrefs(d.getBoolean("muted") == true,
+                                d.getBoolean("pinned") == true, d.getBoolean("archived") == true)
+                        }
+                    } else if (atrioChatRequiresServer) prefs = emptyMap()
                 }
             onDispose { listener.remove() }
         }
@@ -369,7 +368,7 @@ private fun AtrioChatThread(
 ) {
     val ref = remember(db, chatId) { db.collection("chats").document(chatId) }
     var chat by remember(uid, chatId) {
-        mutableStateOf(preview.takeUnless { BuildConfig.ATRIO_QA_GERAL_CELULAR_PILOT })
+        mutableStateOf(preview.takeUnless { atrioChatRequiresServer })
     }
     var accessDenied by remember(uid, chatId) { mutableStateOf(false) }
     var loaded by remember(uid, chatId) { mutableStateOf(false) }
@@ -428,7 +427,7 @@ private fun AtrioChatThread(
     // ficava gravado, mas a tela continuava em "primeira mensagem".
     // Aguardar a inbox confirmar o novo documento ANTES de iniciar a escuta.
     LaunchedEffect(preview) {
-        if (preview != null && !BuildConfig.ATRIO_QA_GERAL_CELULAR_PILOT) {
+        if (preview != null && !atrioChatRequiresServer) {
             chat = preview
             loaded = true
         }
@@ -448,7 +447,7 @@ private fun AtrioChatThread(
         if (failure != null) info = "Não foi possível sincronizar a conversa."
     }
     LaunchedEffect(ref, uid, firstContact) {
-        if (BuildConfig.ATRIO_QA_GERAL_CELULAR_PILOT && !firstContact) {
+        if (atrioChatRequiresServer && !firstContact) {
             pollAtrioPilotServer({ ref.get(Source.SERVER) }, ::updateRoom)
         }
     }
@@ -456,7 +455,7 @@ private fun AtrioChatThread(
         if (firstContact) {
             if (!accessDenied) loaded = true
             onDispose {}
-        } else if (BuildConfig.ATRIO_QA_GERAL_CELULAR_PILOT) {
+        } else if (atrioChatRequiresServer) {
             onDispose {}
         } else {
             val listener = ref.addSnapshotListener(::updateRoom)
@@ -1067,15 +1066,24 @@ private fun AtrioChatThread(
     }
 }
 
+internal val atrioChatRequiresServer
+    get() = BuildConfig.ATRIO_QA_GERAL_CELULAR_PILOT || BuildConfig.ATRIO_QA_GERAL_CELULAR_RODADA
+
 internal val atrioChatMetadataChanges
-    get() = if (BuildConfig.ATRIO_QA_GERAL_CELULAR_PILOT) MetadataChanges.INCLUDE
+    get() = if (atrioChatRequiresServer) MetadataChanges.INCLUDE
         else MetadataChanges.EXCLUDE
 
 internal fun atrioChatSnapshotUsable(snapshot: DocumentSnapshot?): Boolean =
-    !BuildConfig.ATRIO_QA_GERAL_CELULAR_PILOT || snapshot?.metadata?.isFromCache == false
+    !atrioChatRequiresServer || snapshot?.metadata?.isFromCache == false
 
 internal fun atrioChatSnapshotUsable(snapshot: QuerySnapshot?): Boolean =
-    !BuildConfig.ATRIO_QA_GERAL_CELULAR_PILOT || snapshot?.metadata?.isFromCache == false
+    !atrioChatRequiresServer || snapshot?.metadata?.isFromCache == false
+
+internal fun atrioConversationConfigEnabled(snapshot: DocumentSnapshot?): Boolean =
+    snapshot != null && atrioChatSnapshotUsable(snapshot) &&
+        snapshot.get("enabled") == true && snapshot.get("minorPolicyApproved") == true &&
+        snapshot.get("safetyReviewVersion") == "2026-11-safety-v1" &&
+        snapshot.get("version") == AtrioChatPolicy.VERSION
 
 
 // As regras leem documentos de controle além do alvo. O Emulator pode
