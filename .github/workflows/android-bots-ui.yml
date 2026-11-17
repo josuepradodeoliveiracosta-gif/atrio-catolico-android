@@ -40,8 +40,10 @@ jobs:
       run:
         working-directory: tests/security
     steps:
-      - name: Obter código
+      - name: Obter revisão do evento
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Preparar Java 17
         uses: actions/setup-java@v4
         with:
@@ -51,7 +53,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: npm
+          # Só push ou disparo manual pode ler e gravar o cache compartilhado.
+          cache: ${{ github.event_name != 'pull_request' && 'npm' || '' }}
           cache-dependency-path: tests/security/package-lock.json
       - name: Instalar ferramentas de teste
         run: npm ci
@@ -79,10 +82,17 @@ jobs:
       ATRIO_QA_FIREBASE_PROJECT: demo-atrio-v11
     timeout-minutes: 35
     steps:
-      - name: Obter código
+      - name: Obter código da PR
+        if: github.event_name == 'pull_request'
         uses: actions/checkout@v4
         with:
           ref: ${{ github.head_ref == 'qa/chat7-composicao-dois-celulares' && github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Obter revisão do push ou disparo manual
+        if: github.event_name != 'pull_request'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
           persist-credentials: false
       - name: Registrar o commit executado pela suíte
         run: git rev-parse HEAD
@@ -97,6 +107,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
+          cache-disabled: ${{ github.event_name == 'pull_request' }}
       # A compilacao pesada comeca antes do boot e do npm ci.
       # A VM e efemera; segredos e google-services.json nao entram no APK.
       - name: Isolar Firebase antes de iniciar a compilacao
@@ -130,7 +141,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: npm
+          # Só push ou disparo manual pode ler e gravar o cache compartilhado.
+          cache: ${{ github.event_name != 'pull_request' && 'npm' || '' }}
           cache-dependency-path: tests/security/package-lock.json
       - name: Validar plano de grupos offline
         run: python3 -m unittest discover -s scripts -p 'test_qa_android_*.py' -v
