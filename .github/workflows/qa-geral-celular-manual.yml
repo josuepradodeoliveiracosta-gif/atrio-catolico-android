@@ -1,0 +1,113 @@
+name: QA Geral Celular — compilação manual protegida
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: 'SHA completo aprovado pelo fundador para a compilação'
+        required: true
+        type: string
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/qa-geral-celular-manual.yml
+      - app/build.gradle.kts
+      - app/src/qaGeral/**
+      - scripts/qa_geral_remote_build_gate.py
+      - scripts/qa_geral_celular_*.py
+      - scripts/qa_geral_celular_manual.sh
+      - scripts/test_qa_geral_celular_manual.sh
+      - scripts/ota_apk_preflight.py
+
+permissions:
+  contents: read
+
+jobs:
+  fixtures:
+    name: Testar aprovação com APKs fictícios
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with:
+          gradle-version: '8.13'
+          cache-read-only: true
+      - name: Compilar e testar com certificados descartáveis
+        shell: bash
+        run: bash scripts/test_qa_geral_celular_manual.sh
+
+  compilar-manual:
+    name: Compilar e validar no ambiente protegido
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android' &&
+      github.ref == 'refs/heads/main' && github.ref_protected &&
+      github.actor == 'josuepradodeoliveiracosta-gif' &&
+      github.run_attempt == 1 && inputs.source_sha == github.sha
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: qa-geral-celular-assinatura
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with:
+          gradle-version: '8.13'
+          cache-disabled: true
+      - name: Compilar variante fictícia sem assinatura
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          bash scripts/qa_geral_celular_manual.sh build "$RUNNER_TEMP/qa-celular-unsigned.apk"
+      - name: Assinar e aprovar apenas com certificado fixado
+        shell: bash
+        env:
+          ATRIO_QA_CELULAR_CERT_SHA256: ${{ vars.ATRIO_QA_CELULAR_CERT_SHA256 }}
+          ATRIO_QA_CELULAR_KEYSTORE_BASE64: ${{ secrets.ATRIO_QA_CELULAR_KEYSTORE_BASE64 }}
+          ATRIO_QA_CELULAR_KEY_ALIAS: ${{ secrets.ATRIO_QA_CELULAR_KEY_ALIAS }}
+          ATRIO_QA_CELULAR_STORE_PASSWORD: ${{ secrets.ATRIO_QA_CELULAR_STORE_PASSWORD }}
+          ATRIO_QA_CELULAR_KEY_PASSWORD: ${{ secrets.ATRIO_QA_CELULAR_KEY_PASSWORD }}
+        run: |
+          set +x
+          umask 077
+          if [[ ! "$ATRIO_QA_CELULAR_CERT_SHA256" =~ ^[0-9a-fA-F]{64}$ ]]; then
+            echo 'SHA-256 de referência ausente ou inválido.' >&2
+            exit 1
+          fi
+          : "${ATRIO_QA_CELULAR_KEYSTORE_BASE64:?Keystore dedicado ausente}"
+          work="$(mktemp -d "$RUNNER_TEMP/qa-celular-sign.XXXXXX")"
+          trap 'rm -rf -- "$work"' EXIT
+          printf '%s' "$ATRIO_QA_CELULAR_KEYSTORE_BASE64" | base64 --decode > "$work/qa.keystore"
+          unset ATRIO_QA_CELULAR_KEYSTORE_BASE64
+          bash scripts/qa_geral_celular_manual.sh sign \
+            "$RUNNER_TEMP/qa-celular-unsigned.apk" "$work/candidate.apk" "$work/qa.keystore"
+          rm -f -- "$work/qa.keystore"
+          unset ATRIO_QA_CELULAR_KEY_ALIAS ATRIO_QA_CELULAR_STORE_PASSWORD ATRIO_QA_CELULAR_KEY_PASSWORD
+          python3 -m scripts.qa_geral_celular_approve --apk "$work/candidate.apk" \
+            --approved-dir "$work/approved" --build-tools "$ANDROID_HOME/build-tools/36.0.0" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Limpar APK temporário da compilação
+        if: always()
+        shell: bash
+        run: rm -f -- "$RUNNER_TEMP/qa-celular-unsigned.apk"

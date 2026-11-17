@@ -19,6 +19,10 @@ val atrioQaGeralBuild = System.getenv("ATRIO_QA_GERAL_BUILD") == "1"
 val atrioQaGeralRemote = System.getenv("ATRIO_QA_GERAL_REMOTE_BUILD") == "1"
 val atrioQaGeralPush = System.getenv("ATRIO_QA_GERAL_PUSH_BUILD") == "1"
 val atrioQaGeralCelularFicticio = System.getenv("ATRIO_QA_GERAL_CELULAR_FICTICIO") == "1"
+val atrioQaGeralCelularUnsigned = System.getenv("ATRIO_QA_GERAL_CELULAR_UNSIGNED_BUILD") == "1"
+require(!atrioQaGeralCelularUnsigned || atrioQaGeralCelularFicticio) {
+    "O build sem assinatura é exclusivo do QA Geral Celular fictício."
+}
 require(!atrioQaGeralCelularFicticio || (atrioQaGeralRemote && !atrioQaGeralPush)) {
     "O pacote QA Geral Celular fictício requer o build dedicado e mantém o push desabilitado."
 }
@@ -311,6 +315,7 @@ android {
         }
         create("qaGeral") {
             initWith(getByName("debug"))
+            if (atrioQaGeralCelularUnsigned) signingConfig = null
             applicationIdSuffix = atrioQaGeralPackageSuffix
             matchingFallbacks += listOf("debug")
             isDebuggable = true
