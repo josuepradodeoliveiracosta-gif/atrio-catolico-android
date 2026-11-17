@@ -20,6 +20,11 @@ val atrioQaGeralRemote = System.getenv("ATRIO_QA_GERAL_REMOTE_BUILD") == "1"
 val atrioQaGeralPush = System.getenv("ATRIO_QA_GERAL_PUSH_BUILD") == "1"
 val atrioQaGeralCelularFicticio = System.getenv("ATRIO_QA_GERAL_CELULAR_FICTICIO") == "1"
 val atrioQaGeralCelularUnsigned = System.getenv("ATRIO_QA_GERAL_CELULAR_UNSIGNED_BUILD") == "1"
+val atrioQaGeralCelularPairCode = System.getenv("ATRIO_QA_GERAL_CELULAR_PAIR_CODE").orEmpty()
+require(atrioQaGeralCelularPairCode.isEmpty() ||
+    (atrioQaGeralCelularUnsigned && atrioQaGeralCelularPairCode in setOf("38", "39"))) {
+    "O par de atualização QA Celular exige o build fictício sem assinatura e versionCode 38 ou 39."
+}
 require(!atrioQaGeralCelularUnsigned || atrioQaGeralCelularFicticio) {
     "O build sem assinatura é exclusivo do QA Geral Celular fictício."
 }
@@ -322,8 +327,11 @@ android {
             buildConfigField("boolean", "OTA_QA_LOOPBACK", "false")
             buildConfigField("boolean", "OTA_RELEASE_PILOT_LOOPBACK", "false")
             val qaName = if (atrioQaGeralRemote) "QA Geral · Celular" else "QA Geral offline"
-            manifestPlaceholders["atrioQaGeralLabel"] = if (atrioQaGeralRemote)
-                "Átrio Católico · QA Geral Celular" else "Átrio Católico · QA Geral"
+            manifestPlaceholders["atrioQaGeralLabel"] = when {
+                atrioQaGeralCelularPairCode.isNotEmpty() -> "Átrio QA Celular · Atualização"
+                atrioQaGeralRemote -> "Átrio Católico · QA Geral Celular"
+                else -> "Átrio Católico · QA Geral"
+            }
             buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"$qaName\"")
             if (atrioQaGeralRemote) {
                 buildConfigField("boolean", "ATRIO_QA_GERAL_REMOTE", "true")
@@ -388,8 +396,9 @@ androidComponents {
     onVariants(selector().withBuildType("qaGeral")) { variant ->
         variant.outputs.forEach { output ->
             val suffix = if (atrioQaGeralRemote) "qa-geral-celular" else "qa-geral"
-            output.versionName.set("$atrioDebugVersionName-$suffix")
-            output.versionCode.set(atrioDebugVersionCode)
+            val pairSuffix = if (atrioQaGeralCelularPairCode.isEmpty()) "" else "-$atrioQaGeralCelularPairCode"
+            output.versionName.set("$atrioDebugVersionName-$suffix$pairSuffix")
+            output.versionCode.set(atrioQaGeralCelularPairCode.toIntOrNull() ?: atrioDebugVersionCode)
         }
     }
 }
