@@ -38,6 +38,7 @@ internal fun PushSettings(
     onNotifications: () -> Unit = {}, advancedOnly: Boolean = false
 ) {
     val context = LocalContext.current
+    val available = PushRegistry.available(context, uid)
     var active by remember(uid) { mutableStateOf(PushRegistry.enabled(context, uid)) }
     var busy by remember(uid) { mutableStateOf(false) }
     var feedback by remember(uid) { mutableStateOf("") }
@@ -89,7 +90,7 @@ internal fun PushSettings(
                 }
                 Switch(
                     modifier = Modifier.semantics { contentDescription = "Receber avisos neste aparelho" },
-                    checked = active, enabled = !busy,
+                    checked = active, enabled = !busy && available,
                     onCheckedChange = { enabled ->
                         feedback = ""
                         if (enabled) {
@@ -127,7 +128,7 @@ internal fun PushSettings(
                 fontSize = AtrioType.secondary, color = Muted)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text(if (backgroundEnabled) "Verificação ativada" else "Desativada", fontSize = 14.sp, modifier = Modifier.weight(1f).padding(end = 12.dp))
-                Switch(modifier = Modifier.semantics { contentDescription = "Verificação periódica em segundo plano" }, checked = backgroundEnabled, onCheckedChange = { newValue ->
+                Switch(modifier = Modifier.semantics { contentDescription = "Verificação periódica em segundo plano" }, checked = backgroundEnabled, enabled = !BuildConfig.ATRIO_QA_GERAL_REMOTE, onCheckedChange = { newValue ->
                     feedback = ""
                     if (!newValue) {
                         BackgroundNoticeScheduler.disable(context, uid)
