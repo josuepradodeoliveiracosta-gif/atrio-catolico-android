@@ -246,7 +246,6 @@ android {
         buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"0.20.4\"")
         buildConfigField("boolean", "ATRIO_QA_GERAL_REMOTE", "false")
         buildConfigField("boolean", "ATRIO_QA_GERAL_CELULAR_FICTICIO", "false")
-        buildConfigField("int", "ATRIO_QA_GERAL_CELULAR_PAIR_CODE", "0")
         buildConfigField("boolean", "ATRIO_QA_GERAL_PUSH", "false")
         buildConfigField("String", "ATRIO_QA_GERAL_PROJECT_ID", "\"\"")
         buildConfigField("String", "ATRIO_QA_GERAL_APP_ID", "\"\"")
@@ -337,7 +336,6 @@ android {
             if (atrioQaGeralRemote) {
                 buildConfigField("boolean", "ATRIO_QA_GERAL_REMOTE", "true")
                 buildConfigField("boolean", "ATRIO_QA_GERAL_CELULAR_FICTICIO", atrioQaGeralCelularFicticio.toString())
-                buildConfigField("int", "ATRIO_QA_GERAL_CELULAR_PAIR_CODE", atrioQaGeralCelularPairCode.ifEmpty { "0" })
                 buildConfigField("boolean", "ATRIO_QA_GERAL_PUSH", atrioQaGeralPush.toString())
                 buildConfigField("String", "ATRIO_QA_GERAL_PROJECT_ID", "\"$atrioQaGeralRemoteProject\"")
                 buildConfigField("String", "ATRIO_QA_GERAL_APP_ID", "\"$atrioQaGeralRemoteAppId\"")

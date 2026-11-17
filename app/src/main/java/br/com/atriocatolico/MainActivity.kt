@@ -12,6 +12,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.core.content.pm.PackageInfoCompat
 import androidx.lifecycle.ViewModel
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -193,11 +194,12 @@ class MainActivity : ComponentActivity() {
                     Text("Configuração Firebase do QA Geral inválida.", modifier = Modifier.padding(24.dp))
                 }
             } else if (BuildConfig.ATRIO_QA_GERAL_CELULAR_FICTICIO) {
+                val packageInfo = packageManager.getPackageInfo(packageName, 0)
+                val versionCode = PackageInfoCompat.getLongVersionCode(packageInfo)
                 AtrioTheme {
-                    if (BuildConfig.ATRIO_QA_GERAL_CELULAR_PAIR_CODE > 0) {
-                        QaGeralCelularUpdateScreen()
-                    } else {
-                        Text("Configuração fictícia do QA Geral Celular validada.", modifier = Modifier.padding(24.dp))
+                    when (versionCode) {
+                        38L, 39L -> QaGeralCelularUpdateScreen(versionCode)
+                        else -> Text("Configuração fictícia do QA Geral Celular validada.", modifier = Modifier.padding(24.dp))
                     }
                 }
             } else if (OtaQaChannel.active) {

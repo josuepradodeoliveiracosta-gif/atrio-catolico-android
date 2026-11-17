@@ -29,7 +29,7 @@ import kotlinx.coroutines.withContext
 private const val MARKER_KEY = "marcador"
 
 @Composable
-internal fun QaGeralCelularUpdateScreen() {
+internal fun QaGeralCelularUpdateScreen(versionCode: Long) {
     val context = LocalContext.current
     val preferences = remember(context) {
         context.getSharedPreferences("qa-celular-atualizacao", Context.MODE_PRIVATE)
@@ -45,7 +45,7 @@ internal fun QaGeralCelularUpdateScreen() {
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Text("QA Geral Celular", style = MaterialTheme.typography.headlineSmall)
-            Text("Teste de atualização · versão ${BuildConfig.ATRIO_QA_GERAL_CELULAR_PAIR_CODE}")
+            Text("Teste de atualização · versão $versionCode")
             val savedMarker = marker
             if (savedMarker != null) {
                 Text("Marcador local salvo")

@@ -30,6 +30,7 @@ on:
       - scripts/qa_geral_celular_*.py
       - scripts/qa_geral_celular_manual.sh
       - scripts/test_qa_geral_celular_manual.sh
+      - scripts/test_qa_geral_celular_screens.py
       - scripts/ota_apk_preflight.py
 
 permissions:
@@ -40,7 +41,7 @@ jobs:
     name: Testar aprovação com APKs fictícios
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -57,6 +58,23 @@ jobs:
         with:
           gradle-version: '8.13'
           cache-read-only: true
+      - name: Conferir que a entrega é opt-in e só envia o cifrado
+        shell: bash
+        run: |
+          ruby -ryaml - .github/workflows/qa-geral-celular-manual.yml <<'RUBY'
+          workflow = YAML.load_file(ARGV.fetch(0))
+          dispatch = (workflow["on"] || workflow.fetch(true)).fetch("workflow_dispatch")
+          delivery = dispatch.fetch("inputs").fetch("deliver_pair")
+          abort "A entrega deve vir desabilitada." unless delivery["type"] == "boolean" && delivery["default"] == false
+          uploads = workflow.fetch("jobs").flat_map do |id, job|
+            job.fetch("steps", []).filter_map { |step| [id, step] if step.fetch("uses", "").start_with?("actions/upload-artifact@") }
+          end
+          abort "Esperado um único upload no job protegido." unless uploads.size == 1 && uploads[0][0] == "compilar-manual"
+          upload = uploads[0][1]
+          abort "Gate de entrega divergente." unless upload["if"] == "inputs.deliver_pair && inputs.build_kind == 'pair' && steps.assinar.outputs.entrega == 'true'"
+          abort "Caminho de entrega divergente." unless upload.fetch("with").fetch("path").end_with?("/atrio-qa-geral-celular-38-39.zip.age")
+          puts "Entrega desabilitada por padrão. Upload condicionado do .zip.age no job protegido."
+          RUBY
       - name: Compilar e testar com certificados descartáveis
         shell: bash
         run: |
@@ -65,7 +83,28 @@ jobs:
             sudo apt-get install -y --no-install-recommends age
           fi
           rm -f -- app/google-services.json
-          bash scripts/test_qa_geral_celular_manual.sh
+          bash scripts/test_qa_geral_celular_manual.sh "$RUNNER_TEMP/qa-celular-ui"
+      - name: Habilitar KVM na VM de CI
+        shell: bash
+        run: |
+          test -c /dev/kvm
+          sudo chmod 0666 /dev/kvm
+      - name: Validar telas fictícias 37, 38 e 39 no emulador
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_4
+          target: google_apis
+          disk-size: 2048M
+          ram-size: 2048M
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -accel on -camera-back none
+          script: python3 -m scripts.test_qa_geral_celular_screens "$RUNNER_TEMP/qa-celular-ui"
+      - name: Limpar APKs descartáveis da validação de tela
+        if: always()
+        shell: bash
+        run: rm -rf -- "$RUNNER_TEMP/qa-celular-ui"
 
   compilar-manual:
     name: Compilar e validar no ambiente protegido

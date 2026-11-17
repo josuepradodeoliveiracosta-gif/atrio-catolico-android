@@ -184,3 +184,11 @@ with ZipFile(work / "conferir.zip") as bundle:
     assert bundle.read("SHA256SUMS").decode() == expected_sums
 PY
 echo 'Entrega cifrada conferida: SHA, APKs e hashes íntegros; outro destinatário não decifra.'
+
+if [[ $# == 1 ]]; then
+    # Somente no runner do CI, depois de conferir assinatura e conteúdo.
+    mkdir -m 700 -- "$1"
+    cp -- "$work/aprovado/atrio-qa-geral-celular.apk" "$1/37.apk"
+    cp -- "$work/par-aprovado/atrio-qa-geral-celular-38.apk" "$1/38.apk"
+    cp -- "$work/par-aprovado/atrio-qa-geral-celular-39.apk" "$1/39.apk"
+fi
