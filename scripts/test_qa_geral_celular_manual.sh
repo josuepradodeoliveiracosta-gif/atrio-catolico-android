@@ -14,6 +14,7 @@ bash scripts/qa_geral_celular_manual.sh build "$unsigned"
 for code in 38 39; do
     bash scripts/qa_geral_celular_manual.sh build "$work/unsigned-$code.apk" "$code"
 done
+bash scripts/qa_geral_celular_manual.sh build-functional "$work/unsigned-40.apk" --fixture
 
 export ATRIO_QA_CELULAR_STORE_PASSWORD
 ATRIO_QA_CELULAR_STORE_PASSWORD="$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')"
@@ -127,6 +128,27 @@ for code in 38 39; do
 done
 echo '4 cenários de atualização com APKs reais e chaves descartáveis passaram.'
 
+bash scripts/qa_geral_celular_manual.sh sign "$work/unsigned-40.apk" "$work/signed-40.apk" "$keystore"
+
+approve_functional() {
+    ATRIO_QA_CELULAR_CERT_SHA256="$reference" python3 -m scripts.qa_geral_celular_approve \
+        --apk "$work/$1" --build-tools "$sdk" --approved-dir "$work/$2" "$3"
+}
+
+if approve_functional signed-39.apk funcional-versao-invalida --functional-fixture > "$work/result.log" 2>&1; then
+    echo 'Aprovação funcional indevida com versionCode 39.' >&2
+    exit 1
+fi
+grep -Fq 'exige versionCode 40' "$work/result.log"
+test ! -e "$work/funcional-versao-invalida"
+if approve_functional signed-40.apk funcional-identidade-invalida --functional > "$work/result.log" 2>&1; then
+    echo 'O APK com identidade sintética passou no gate do App ID registrado.' >&2
+    exit 1
+fi
+grep -Fq 'identidade Firebase' "$work/result.log"
+test ! -e "$work/funcional-identidade-invalida"
+approve_functional signed-40.apk funcional-aprovado --functional-fixture
+
 age-keygen -o "$work/recipient.agekey" 2>/dev/null
 age-keygen -o "$work/other.agekey" 2>/dev/null
 recipient="$(age-keygen -y "$work/recipient.agekey")"
@@ -157,6 +179,10 @@ if age --decrypt --identity "$work/other.agekey" "$work/entrega.zip.age" >/dev/n
     exit 1
 fi
 age --decrypt --identity "$work/recipient.agekey" --output "$work/conferir.zip" "$work/entrega.zip.age"
+ATRIO_QA_CELULAR_AGE_RECIPIENT="$recipient" ATRIO_QA_CELULAR_CERT_SHA256="$reference" \
+    python3 -m scripts.qa_geral_celular_delivery --functional --approved-dir "$work/funcional-aprovado" \
+    --output "$work/funcional.zip.age" --source-sha "$source_sha"
+age --decrypt --identity "$work/recipient.agekey" --output "$work/conferir-funcional.zip" "$work/funcional.zip.age"
 python3 - "$work" "$source_sha" "$reference" <<'PY'
 from hashlib import sha256
 from pathlib import Path
@@ -165,23 +191,26 @@ import sys
 from zipfile import ZipFile
 
 work = Path(sys.argv[1])
-with ZipFile(work / "conferir.zip") as bundle:
-    filenames = [f"atrio-qa-geral-celular-{code}.apk" for code in (38, 39)]
-    assert sorted(bundle.namelist()) == sorted(filenames + ["ORIGEM.json", "SHA256SUMS"])
-    metadata = json.loads(bundle.read("ORIGEM.json"))
-    assert metadata["source_sha"] == sys.argv[2]
-    assert metadata["applicationId"] == "br.com.atriocatolico.qageral.celular"
-    assert metadata["certificate_sha256"] == sys.argv[3]
-    assert [(apk["file"], apk["versionCode"]) for apk in metadata["apks"]] == list(zip(filenames, (38, 39)))
-    expected_sums = ""
-    for apk in metadata["apks"]:
-        filename = apk["file"]
-        original = (work / "par-aprovado" / filename).read_bytes()
-        assert bundle.read(filename) == original
-        digest = sha256(original).hexdigest()
-        assert apk["sha256"] == digest
-        expected_sums += f"{digest}  {filename}\n"
-    assert bundle.read("SHA256SUMS").decode() == expected_sums
+for archive, approved, files in (
+    ("conferir.zip", "par-aprovado", [(f"atrio-qa-geral-celular-{code}.apk", code) for code in (38, 39)]),
+    ("conferir-funcional.zip", "funcional-aprovado", [("atrio-qa-geral-celular.apk", 40)]),
+):
+    with ZipFile(work / archive) as bundle:
+        assert sorted(bundle.namelist()) == sorted([name for name, _ in files] + ["ORIGEM.json", "SHA256SUMS"])
+        metadata = json.loads(bundle.read("ORIGEM.json"))
+        assert metadata["source_sha"] == sys.argv[2]
+        assert metadata["applicationId"] == "br.com.atriocatolico.qageral.celular"
+        assert metadata["certificate_sha256"] == sys.argv[3]
+        assert [(apk["file"], apk["versionCode"]) for apk in metadata["apks"]] == files
+        expected_sums = ""
+        for apk in metadata["apks"]:
+            filename = apk["file"]
+            original = (work / approved / filename).read_bytes()
+            assert bundle.read(filename) == original
+            digest = sha256(original).hexdigest()
+            assert apk["sha256"] == digest
+            expected_sums += f"{digest}  {filename}\n"
+        assert bundle.read("SHA256SUMS").decode() == expected_sums
 PY
 echo 'Entrega cifrada conferida: SHA, APKs e hashes íntegros; outro destinatário não decifra.'
 
@@ -191,4 +220,5 @@ if [[ $# == 1 ]]; then
     cp -- "$work/aprovado/atrio-qa-geral-celular.apk" "$1/37.apk"
     cp -- "$work/par-aprovado/atrio-qa-geral-celular-38.apk" "$1/38.apk"
     cp -- "$work/par-aprovado/atrio-qa-geral-celular-39.apk" "$1/39.apk"
+    cp -- "$work/funcional-aprovado/atrio-qa-geral-celular.apk" "$1/40.apk"
 fi

@@ -9,10 +9,13 @@ from qa_geral_remote_build_gate import (
     CELULAR_PACKAGE,
     FUNCTIONAL_FIXTURE,
     FUNCTIONAL_FIXTURE_APP_ID,
-    LEGACY_APP_ID,
+    REGISTERED_APP_ID,
     QA_PROJECT,
     validate,
 )
+
+
+LEGACY_APP_ID = "1:835727158563:android:618218ab4be326d75cb096"
 
 
 class QaGeralRemoteBuildGateTest(unittest.TestCase):
@@ -29,15 +32,18 @@ class QaGeralRemoteBuildGateTest(unittest.TestCase):
     def test_accepts_the_exact_functional_ci_fixture(self):
         self.check(FUNCTIONAL_FIXTURE)
 
-    def test_accepts_an_independently_selected_qa_app_id(self):
-        other_app_id = "1:835727158563:android:1111111111111111111111"
+    def test_accepts_the_registered_qa_app_id(self):
         config = copy.deepcopy(FUNCTIONAL_FIXTURE)
         client, = config["client"]
-        client["client_info"]["mobilesdk_app_id"] = other_app_id
+        client["client_info"]["mobilesdk_app_id"] = REGISTERED_APP_ID
         client["api_key"][0]["current_key"] = "android-qa-client-key-for-test"
-        self.check(config, app_id=other_app_id)
+        self.check(config, app_id=REGISTERED_APP_ID)
         with self.assertRaises(ValueError):
             self.check(config)
+        other_app_id = "1:835727158563:android:1111111111111111111111"
+        client["client_info"]["mobilesdk_app_id"] = other_app_id
+        with self.assertRaises(ValueError):
+            self.check(config, app_id=other_app_id)
 
     def test_rejects_old_app_id_even_with_new_package_and_matching_reference(self):
         config = copy.deepcopy(FUNCTIONAL_FIXTURE)
@@ -71,12 +77,13 @@ class QaGeralRemoteBuildGateTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.check(FUNCTIONAL_FIXTURE, functional=False)
 
-    def test_rejects_reusing_the_ci_key_for_a_different_app(self):
-        other_app_id = "1:835727158563:android:1111111111111111111111"
-        config = copy.deepcopy(FUNCTIONAL_FIXTURE)
-        config["client"][0]["client_info"]["mobilesdk_app_id"] = other_app_id
+    def test_rejects_reusing_the_ci_key_or_app_id_for_the_registered_app(self):
         with self.assertRaises(ValueError):
-            self.check(config, app_id=other_app_id)
+            self.check(FUNCTIONAL_FIXTURE, app_id=REGISTERED_APP_ID)
+        config = copy.deepcopy(FUNCTIONAL_FIXTURE)
+        config["client"][0]["client_info"]["mobilesdk_app_id"] = REGISTERED_APP_ID
+        with self.assertRaises(ValueError):
+            self.check(config, app_id=REGISTERED_APP_ID)
 
     def test_rejects_a_modified_functional_ci_fixture(self):
         config = copy.deepcopy(FUNCTIONAL_FIXTURE)

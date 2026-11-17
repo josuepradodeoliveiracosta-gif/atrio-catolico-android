@@ -1,13 +1,12 @@
 """Valida localmente a configuração do Android QA Geral para celular."""
 import json
 from pathlib import Path
-import re
 import sys
 
 
 CELULAR_PACKAGE = "br.com.atriocatolico.qageral.celular"
 QA_PROJECT = "atrio-catolico-qa-general"
-LEGACY_APP_ID = "1:835727158563:android:618218ab4be326d75cb096"
+REGISTERED_APP_ID = "1:835727158563:android:4258e81cc0ccc4df5cb096"
 FUNCTIONAL_FIXTURE_APP_ID = "1:835727158563:android:0000000000000000000000"
 FIXTURE_KEY = "chave-ficticia-apenas-para-compilacao"
 
@@ -49,8 +48,7 @@ def validate(path, project_id, app_id, package_name, *, functional=False):
     if functional and (
         package_name != CELULAR_PACKAGE
         or project_id != QA_PROJECT
-        or not re.fullmatch(r"1:835727158563:android:[0-9a-f]{8,64}", app_id)
-        or app_id == LEGACY_APP_ID
+        or app_id not in (REGISTERED_APP_ID, FUNCTIONAL_FIXTURE_APP_ID)
     ):
         raise ValueError("Referência inválida para o QA Geral Celular funcional.")
     if not path.is_file() or path.is_symlink() or path.parent.is_symlink():
@@ -103,6 +101,10 @@ if __name__ == "__main__":
     }
     args = sys.argv[1:]
     try:
+        if len(args) == 2 and args[0] == "--registered":
+            validate(Path(args[1]), QA_PROJECT, REGISTERED_APP_ID, CELULAR_PACKAGE, functional=True)
+            print(f"Configuração Android validada: {QA_PROJECT}, {CELULAR_PACKAGE}, {REGISTERED_APP_ID}.")
+            sys.exit(0)
         if len(args) == 2 and args[0] in fixtures:
             with Path(args[1]).open("x", encoding="utf-8") as file:
                 json.dump(fixtures[args[0]], file)

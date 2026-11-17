@@ -45,8 +45,10 @@ val atrioQaGeralLegacyAppId = "1:835727158563:android:618218ab4be326d75cb096"
 val atrioQaGeralRemoteAppId = when {
     atrioQaGeralCelularFicticio -> "1:000000000000:android:0000000000000000000000"
     atrioQaGeralCelularFunctional -> System.getenv("ATRIO_QA_GERAL_CELULAR_APP_ID").orEmpty().also {
-        require(Regex("1:835727158563:android:[0-9a-f]{8,64}").matches(it) &&
-            it != atrioQaGeralLegacyAppId) {
+        require(it in setOf(
+            "1:835727158563:android:4258e81cc0ccc4df5cb096",
+            "1:835727158563:android:0000000000000000000000"
+        )) {
             "Informe o App ID independente do pacote novo no Firebase de QA Geral."
         }
     }

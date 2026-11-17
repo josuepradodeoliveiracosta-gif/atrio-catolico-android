@@ -1,4 +1,4 @@
-"""Exercita a variante fictícia com APKs descartáveis no emulador do CI."""
+"""Exercita as atualizações de QA com APKs descartáveis no emulador do CI."""
 
 from pathlib import Path
 import re
@@ -63,6 +63,15 @@ def main(directory):
     updated = wait_screen("Teste de atualização · versão 39")
     assert "Marcador local salvo" in updated and marker in updated
     print("Tela do par 39 exibida com o mesmo marcador após atualização.", flush=True)
+
+    # O APK funcional sintético é instalado sem iniciar a atividade nem conectar ao Firebase.
+    package_prefs = "shared_prefs/qa-celular-atualizacao.xml"
+    adb("shell", "am", "force-stop", PACKAGE)
+    assert "Success" in adb("install", "-r", str(directory / "40.apk"), timeout=90)
+    assert re.search(r"\bversionCode=40\b", adb("shell", "dumpsys", "package", PACKAGE))
+    prefs = et.fromstring(adb("shell", "run-as", PACKAGE, "cat", package_prefs))
+    assert prefs.findtext("./string[@name='marcador']") == marker
+    print("Atualização 39 → 40 com certificado descartável preservou o marcador.", flush=True)
 
 
 if __name__ == "__main__":
