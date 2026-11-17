@@ -140,10 +140,10 @@ run_suite() {
     qa_failed=1
     echo "QA Android: $suite falhou; preservando relatório e executando as demais"
   fi
-  if [[ -d app/build/outputs/androidTest-results/connected/debug ]]; then
+  local results="app/build/outputs/androidTest-results/connected/$qa_apk"
+  if [[ -d "$results" ]]; then
     mkdir -p "qa-android-suite-results/$suite"
-    cp -a app/build/outputs/androidTest-results/connected/debug/. \
-      "qa-android-suite-results/$suite/"
+    cp -a "$results/." "qa-android-suite-results/$suite/"
   fi
 }
 # Suite-only QA V2: reuse the existing isolated emulator/auth startup,

@@ -171,28 +171,39 @@ class ProfileLayoutUiTest {
     }
 
     @Test fun optionalOnboardingCanBeSkippedWithoutChoosingReligion() {
-        check(FirebaseApp.getInstance().options.projectId == "demo-atrio-v11")
+        check(BuildConfig.DEBUG && FirebaseApp.getInstance().options.projectId == "demo-atrio-v11")
+        FirebaseAuth.getInstance().signOut()
+        var finished = false
         compose.setContent {
             AtrioTheme {
                 RegistrationOnboardingScreen(FirebaseFirestore.getInstance(),
-                    uid = "qa-onboarding-skippable", onFinish = {})
+                    uid = "qa-onboarding-skippable", onFinish = { finished = true })
             }
         }
-        compose.onNodeWithTag("atrio-onboarding-save").assertIsNotEnabled()
-        // O formulário comprido deixa Pular abaixo da área visível no
-        // emulador pequeno. Um performClick sem rolagem toca fora da tela.
-        // Exercitar o toque real: rolar, verificar visibilidade e clicar.
-        compose.onNodeWithTag("atrio-onboarding-skip")
-            .performScrollTo().assertIsDisplayed().assertIsEnabled().performClick()
-        // Esperar a composição da próxima etapa, não assumir que a árvore
-        // semântica mudou no mesmo instante do clique.
-        compose.waitUntil(5_000) {
-            compose.onAllNodesWithTag("atrio-onboarding-enter")
+        // Sem sessão nesta fixture, a leitura é recusada. O aviso entra
+        // acima dos botões e altera a posição alvo durante a rolagem.
+        compose.waitUntil(15_000) {
+            compose.onAllNodesWithTag("atrio-onboarding-info")
                 .fetchSemanticsNodes().isNotEmpty()
         }
-        compose.onNodeWithTag("atrio-onboarding-enter").assertIsEnabled()
-        compose.onNodeWithTag("atrio-onboarding-skip").assertDoesNotExist()
+        compose.onNodeWithTag("atrio-onboarding-info").assertTextContains(
+            "Não foi possível consultar suas preferências. Elas são opcionais."
+        )
+        compose.onNodeWithTag("atrio-onboarding-save").assertIsNotEnabled()
+
+        val skip = compose.onNodeWithTag("atrio-onboarding-skip")
+        skip.performScrollTo().assertIsDisplayed().assertIsEnabled()
+        assertEquals(skip.getUnclippedBoundsInRoot(), skip.getBoundsInRoot())
+        android.util.Log.i("AtrioOnboardingQA", "Pular visível após a resposta de preferências.")
+        skip.performTouchInput { click() }
+
+        val enter = compose.onNodeWithTag("atrio-onboarding-enter")
+        enter.assertIsEnabled()
+        skip.assertDoesNotExist()
         compose.onNodeWithTag("atrio-onboarding-save").assertDoesNotExist()
+        enter.performScrollTo().assertIsDisplayed().performTouchInput { click() }
+        compose.runOnIdle { assertEquals(true, finished) }
+        android.util.Log.i("AtrioOnboardingQA", "Pular e Continuar concluídos por toque.")
     }
 
 
