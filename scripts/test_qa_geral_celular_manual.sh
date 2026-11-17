@@ -116,6 +116,7 @@ for code in 38 39; do
     test -s "$apk"
     "$sdk/aapt" dump badging "$apk" > "$work/badging-$code.txt"
     grep -F "package: name='br.com.atriocatolico.qageral.celular' versionCode='$code' " "$work/badging-$code.txt"
+    grep -F "application-label:'Átrio QA Celular · Atualização'" "$work/badging-$code.txt"
     "$sdk/aapt" dump xmltree "$apk" AndroidManifest.xml > "$work/manifest-$code.txt"
     grep -Eq 'android:allowBackup[^=]*=.*0x0$' "$work/manifest-$code.txt"
     if grep -Fq -e android.permission.INTERNET -e android.permission.REQUEST_INSTALL_PACKAGES \

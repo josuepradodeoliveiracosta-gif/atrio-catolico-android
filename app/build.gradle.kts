@@ -328,8 +328,11 @@ android {
             buildConfigField("boolean", "OTA_QA_LOOPBACK", "false")
             buildConfigField("boolean", "OTA_RELEASE_PILOT_LOOPBACK", "false")
             val qaName = if (atrioQaGeralRemote) "QA Geral · Celular" else "QA Geral offline"
-            manifestPlaceholders["atrioQaGeralLabel"] = if (atrioQaGeralRemote)
-                "Átrio Católico · QA Geral Celular" else "Átrio Católico · QA Geral"
+            manifestPlaceholders["atrioQaGeralLabel"] = when {
+                atrioQaGeralCelularPairCode.isNotEmpty() -> "Átrio QA Celular · Atualização"
+                atrioQaGeralRemote -> "Átrio Católico · QA Geral Celular"
+                else -> "Átrio Católico · QA Geral"
+            }
             buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"$qaName\"")
             if (atrioQaGeralRemote) {
                 buildConfigField("boolean", "ATRIO_QA_GERAL_REMOTE", "true")
