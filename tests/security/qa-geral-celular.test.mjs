@@ -3,7 +3,7 @@ import {readFileSync} from 'node:fs';
 import {after, before, test} from 'node:test';
 import {assertFails, initializeTestEnvironment} from '@firebase/rules-unit-testing';
 import {arrayUnion, collection, deleteDoc, doc, getDoc, getDocs, limit, orderBy, query,
-  serverTimestamp, setDoc, updateDoc, where} from 'firebase/firestore';
+  serverTimestamp, setDoc, updateDoc, where, writeBatch} from 'firebase/firestore';
 import {accounts, documents} from '../../firebase/qa-geral-celular/fixtures.mjs';
 
 const projectId = 'demo-atrio-v11';
@@ -29,6 +29,35 @@ const outsider = env.authenticatedContext('estranho', {
   email: alice.email, email_verified: true, admin: true
 }).firestore();
 const withoutLogin = env.unauthenticatedContext().firestore();
+const invalidSessions = [outsider, withoutLogin, session(alice, {email_verified: false}),
+  session(alice, {email: bob.email})];
+
+function publication(author) {
+  return {
+    uid: author.uid, authorName: author.name, title: 'Discussão fictícia do QA',
+    body: 'Texto fictício da publicação.', category: 'Vida espiritual', createdAt: serverTimestamp()
+  };
+}
+
+function reply(author) {
+  return {uid: author.uid, authorName: author.name, body: 'Resposta fictícia.', createdAt: serverTimestamp()};
+}
+
+function notice(author, postId, replyId) {
+  return {
+    postId, replyId, actorUid: author.uid, actorName: author.name,
+    read: false, createdAt: serverTimestamp()
+  };
+}
+
+function replyWithNotice(db, author, postId, replyId, recipientUid, overrides = {}) {
+  const batch = writeBatch(db);
+  batch.set(doc(db, 'posts', postId, 'replies', replyId), reply(author));
+  batch.set(doc(db, 'users', recipientUid, 'notifications', replyId), {
+    ...notice(author, postId, replyId), ...overrides
+  });
+  return batch.commit();
+}
 
 before(async () => {
   await env.clearFirestore();
@@ -75,17 +104,18 @@ test('Alice pode consultar a inbox de que participa, que começa vazia', async (
 });
 
 test('somente os dois UIDs verificados e e-mails correspondentes leem as fixtures', async () => {
-  for (const db of [outsider, withoutLogin, session(alice, {email_verified: false}),
-    session(alice, {email: bob.email})]) {
+  for (const db of invalidSessions) {
     await assertFails(getDoc(doc(db, postPath)));
     await assertFails(getDoc(doc(db, configPath)));
   }
 });
 
-test('clientes não podem criar mensagens, contatos, publicações ou regras de acesso', async () => {
+test('clientes não podem abrir Conversas e Grupos ou mudar regras de acesso', async () => {
   const chatId = alice.uid + '__' + bob.uid;
   await assertFails(setDoc(doc(a, 'chats/' + chatId), {participants: [alice.uid, bob.uid]}));
   await assertFails(setDoc(doc(a, 'chats/' + chatId + '/messages/1'), {text: 'teste'}));
+  await assertFails(setDoc(doc(a, 'app_config/chat_groups'), {enabled: true}));
+  await assertFails(getDoc(doc(a, 'app_config/chat_groups')));
   await assertFails(setDoc(doc(a, 'chat_groups/1'), {participants: [alice.uid]}));
   await assertFails(updateDoc(doc(a, postPath), {likes: arrayUnion(alice.uid)}));
   await assertFails(deleteDoc(doc(a, 'profiles/' + alice.uid)));
@@ -93,15 +123,164 @@ test('clientes não podem criar mensagens, contatos, publicações ou regras de 
   await assertFails(getDoc(doc(a, 'chat_groups/1')));
 });
 
-test('os clientes ainda não geram respostas nem avisos no projeto de homologação', async () => {
-  const replyId = 'qa-reply-denied';
-  await assertFails(setDoc(doc(a, postPath, 'replies', replyId), {
-    uid: alice.uid, authorName: 'Alice QA', body: 'Resposta fictícia do ensaio.', createdAt: serverTimestamp()
-  }));
-  await assertFails(setDoc(doc(a, 'users', bob.uid, 'notifications', replyId), {
-    postId: postPath.split('/')[1], replyId, actorUid: alice.uid, actorName: 'Alice QA',
-    read: false, createdAt: serverTimestamp()
-  }));
+test('Bob publica e edita a própria discussão, que Alice encontra no fórum', async () => {
+  const path = 'posts/qa-forum-bob';
+  const own = doc(b, path);
+  const newTitle = 'Título revisado no ensaio de QA';
+  await setDoc(own, publication(bob));
+  await updateDoc(own, {title: newTitle, updatedAt: serverTimestamp()});
+  assert.equal((await getDoc(doc(a, path))).get('title'), newTitle);
+  await assertFails(updateDoc(doc(a, path), {title: 'Edição alheia', updatedAt: serverTimestamp()}));
+  await assertFails(updateDoc(own, {category: 'Santos', updatedAt: serverTimestamp()}));
+  await assertFails(updateDoc(own, {title: 'Edição sem horário'}));
+  await assertFails(deleteDoc(doc(a, path)));
+  await deleteDoc(own);
+  assert.equal((await getDoc(own)).exists(), false);
+});
+
+test('publicação exige conta autorizada, autoria, formato e horário do servidor', async () => {
+  const path = 'posts/qa-forum-denied';
+  for (const db of invalidSessions) {
+    await assertFails(setDoc(doc(db, path), publication(alice)));
+  }
+  for (const fields of [{uid: bob.uid}, {authorName: bob.name}, {category: 'Outra categoria'},
+    {title: 'a'}, {body: 'x'.repeat(1201)}, {createdAt: new Date(0)}, {extra: true}]) {
+    await assertFails(setDoc(doc(a, path), {...publication(alice), ...fields}));
+  }
+  assert.equal((await getDoc(doc(a, path))).exists(), false);
+});
+
+test('a política comunitária ativa exige aceite antes de publicar ou responder', async () => {
+  const rulesConfig = 'app_config/community_rules';
+  const postId = 'qa-nav-bob-profile';
+  const consent = 'community_consents/' + alice.uid;
+  const publicationRef = doc(a, 'posts/qa-forum-consent');
+  await env.withSecurityRulesDisabled(context =>
+    setDoc(doc(context.firestore(), rulesConfig), {enabled: true, version: '2026-11-v1'}));
+  try {
+    await assertFails(setDoc(publicationRef, publication(alice)));
+    await assertFails(replyWithNotice(a, alice, postId, 'qa-consent-denied', bob.uid));
+    await env.withSecurityRulesDisabled(context =>
+      setDoc(doc(context.firestore(), consent), {version: '2026-11-v1'}));
+    await setDoc(publicationRef, publication(alice));
+    await replyWithNotice(a, alice, postId, 'qa-consent-allowed', bob.uid);
+  } finally {
+    await env.withSecurityRulesDisabled(async context => {
+      const db = context.firestore();
+      const batch = writeBatch(db);
+      batch.set(doc(db, rulesConfig), {enabled: false});
+      batch.delete(doc(db, consent));
+      batch.delete(doc(db, 'users', bob.uid, 'notifications', 'qa-consent-allowed'));
+      batch.delete(doc(db, 'posts', postId, 'replies', 'qa-consent-allowed'));
+      batch.delete(doc(db, publicationRef.path));
+      await batch.commit();
+    });
+  }
+});
+
+test('resposta de Alice confirma o aviso de Bob no mesmo lote, com leitura privada', async () => {
+  const postId = 'qa-nav-bob-profile';
+  const replyId = 'qa-reply-atomic';
+  const replyPath = `${postPath}/replies/${replyId}`;
+  const inboxPath = 'users/' + bob.uid + '/notifications';
+  const noticePath = inboxPath + '/' + replyId;
+  await replyWithNotice(a, alice, postId, replyId, bob.uid);
+  const savedReply = await getDoc(doc(b, replyPath));
+  const savedNotice = await getDoc(doc(b, noticePath));
+  assert.equal(savedReply.get('uid'), alice.uid);
+  assert.equal(savedNotice.get('actorUid'), alice.uid);
+  assert.equal(savedNotice.get('replyId'), savedReply.id);
+  assert.equal(savedNotice.get('read'), false);
+  assert.ok(savedNotice.get('createdAt').isEqual(savedReply.get('createdAt')));
+  const ownInbox = await getDocs(query(collection(b, inboxPath), orderBy('createdAt', 'desc'), limit(21)));
+  assert.ok(ownInbox.docs.some(item => item.id === replyId));
+  const replies = await getDocs(query(collection(b, postPath, 'replies'), orderBy('createdAt')));
+  assert.ok(replies.docs.some(item => item.id === replyId));
+  await assertFails(getDoc(doc(a, noticePath)));
+  await assertFails(getDocs(collection(a, inboxPath)));
+  await assertFails(getDoc(doc(outsider, noticePath)));
+  await assertFails(updateDoc(doc(a, noticePath), {read: true}));
+  await assertFails(deleteDoc(doc(a, noticePath)));
+  await assertFails(updateDoc(doc(b, noticePath), {read: true, actorName: bob.name}));
+  await updateDoc(doc(b, noticePath), {read: true});
+  assert.equal((await getDoc(doc(b, noticePath))).get('read'), true);
+  await assertFails(updateDoc(doc(b, noticePath), {read: false}));
+  await deleteDoc(doc(b, noticePath));
+  assert.equal((await getDoc(doc(b, noticePath))).exists(), false);
+  assert.equal((await getDoc(doc(b, replyPath))).exists(), true);
+  await assertFails(setDoc(doc(a, noticePath), notice(alice, postId, replyId)));
+});
+
+test('Bob responde à publicação de Alice e o aviso fica na caixa dela', async () => {
+  const postId = 'qa-thread-alice';
+  const replyId = 'qa-reply-from-bob';
+  const noticePath = 'users/' + alice.uid + '/notifications/' + replyId;
+  await setDoc(doc(a, 'posts', postId), publication(alice));
+  await replyWithNotice(b, bob, postId, replyId, alice.uid);
+  assert.equal((await getDoc(doc(a, noticePath))).get('actorUid'), bob.uid);
+  await assertFails(getDoc(doc(b, noticePath)));
+});
+
+test('a Central consulta revisão de selo somente pelo ID do próprio titular', async () => {
+  const alicePath = 'badge_requests/' + alice.uid;
+  const bobPath = 'badge_requests/' + bob.uid;
+  await env.withSecurityRulesDisabled(context =>
+    setDoc(doc(context.firestore(), bobPath), {status: 'approved', kind: 'lay'}));
+  assert.equal((await getDoc(doc(a, alicePath))).exists(), false);
+  assert.equal((await getDoc(doc(b, bobPath))).get('status'), 'approved');
+  await assertFails(getDoc(doc(a, bobPath)));
+  await assertFails(getDoc(doc(b, alicePath)));
+  await assertFails(getDocs(collection(b, 'badge_requests')));
+  await assertFails(updateDoc(doc(b, bobPath), {status: 'pending'}));
+});
+
+test('responder ao próprio post dispensa aviso e mantém a resposta sob autoria de Bob', async () => {
+  const own = doc(b, postPath, 'replies', 'qa-reply-own');
+  await setDoc(own, reply(bob));
+  assert.equal((await getDoc(doc(a, own.path))).get('uid'), bob.uid);
+  assert.equal((await getDoc(doc(b, 'users', bob.uid, 'notifications', own.id))).exists(), false);
+  await assertFails(updateDoc(own, {body: 'Resposta alterada'}));
+  await assertFails(deleteDoc(doc(a, own.path)));
+  await deleteDoc(own);
+  assert.equal((await getDoc(own)).exists(), false);
+});
+
+test('resposta cruzada sem aviso e aviso sem resposta são recusados', async () => {
+  const postId = 'qa-nav-bob-profile';
+  const replyId = 'qa-missing-companion';
+  const replyRef = doc(a, postPath, 'replies', replyId);
+  const noticeRef = doc(b, 'users', bob.uid, 'notifications', replyId);
+  await assertFails(setDoc(replyRef, reply(alice)));
+  await assertFails(setDoc(doc(a, noticeRef.path), notice(alice, postId, replyId)));
+  assert.equal((await getDoc(replyRef)).exists(), false);
+  assert.equal((await getDoc(noticeRef)).exists(), false);
+});
+
+test('o lote inteiro é recusado se destinatário, ID ou dados do aviso não conferirem', async () => {
+  const postId = 'qa-nav-bob-profile';
+  const replyId = 'qa-invalid-notice';
+  await assertFails(replyWithNotice(a, alice, postId, replyId, alice.uid));
+  for (const fields of [{replyId: 'outro-id'}, {postId: 'outro-post'}, {actorUid: bob.uid},
+    {actorName: bob.name}, {read: true}, {createdAt: new Date(0)}, {extra: true}]) {
+    await assertFails(replyWithNotice(a, alice, postId, replyId, bob.uid, fields));
+  }
+  assert.equal((await getDoc(doc(a, postPath, 'replies', replyId))).exists(), false);
+  assert.equal((await getDoc(doc(b, 'users', bob.uid, 'notifications', replyId))).exists(), false);
+});
+
+test('resposta exige publicação existente, identidade autorizada e conteúdo válido', async () => {
+  const postId = 'qa-nav-bob-profile';
+  const replyId = 'qa-denied-reply';
+  for (const db of invalidSessions) {
+    await assertFails(replyWithNotice(db, alice, postId, replyId, bob.uid));
+    await assertFails(getDoc(doc(db, postPath, 'replies', replyId)));
+  }
+  await assertFails(replyWithNotice(a, alice, 'sem-publicacao', replyId, bob.uid));
+  const own = doc(b, postPath, 'replies', replyId);
+  for (const fields of [{uid: alice.uid}, {authorName: alice.name}, {body: ''},
+    {body: 'x'.repeat(601)}, {createdAt: new Date(0)}, {replyToId: 'fora-do-escopo'}]) {
+    await assertFails(setDoc(own, {...reply(bob), ...fields}));
+  }
 });
 
 test('Curtir e Salvar gravam e removem marcadores somente para o próprio titular', async () => {

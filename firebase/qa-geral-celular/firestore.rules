@@ -14,6 +14,52 @@ service cloud.firestore {
       return qaTester() && request.auth.uid == uid;
     }
 
+    function validText(value, minimum, maximum) {
+      return value is string && value.size() >= minimum && value.size() <= maximum;
+    }
+
+    function validId(value) {
+      return validText(value, 1, 128) && !value.matches('.*[/].*');
+    }
+
+    function authorNameMatchesProfile(name) {
+      return name is string
+        && name == get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.displayName;
+    }
+
+    function communityPublicationAllowed() {
+      let settings = /databases/$(database)/documents/app_config/community_rules;
+      let acceptance = /databases/$(database)/documents/community_consents/$(request.auth.uid);
+      return !exists(settings)
+        || get(settings).data.get('enabled', false) != true
+        || get(settings).data.get('version', '') != '2026-11-v1'
+        || get(acceptance).data.version == '2026-11-v1';
+    }
+
+    function validPostContent(post) {
+      return validText(post.title, 5, 120) && validText(post.body, 5, 1200);
+    }
+
+    function postPath(postId) {
+      return /databases/$(database)/documents/posts/$(postId);
+    }
+
+    function replyHasNewNotice(postId, replyId, recipientUid) {
+      let notice = /databases/$(database)/documents/users/$(recipientUid)/notifications/$(replyId);
+      return !exists(notice)
+        && getAfter(notice).data.postId == postId
+        && getAfter(notice).data.replyId == replyId;
+    }
+
+    function matchesNewReply(recipientUid, postId, replyId, actorName) {
+      let reply = /databases/$(database)/documents/posts/$(postId)/replies/$(replyId);
+      return get(postPath(postId)).data.uid == recipientUid
+        && !exists(reply)
+        && getAfter(reply).data.uid == request.auth.uid
+        && getAfter(reply).data.authorName == actorName
+        && getAfter(reply).data.createdAt == request.time;
+    }
+
     match /app_config/{config} {
       allow get: if qaTester() && config in [
         'conversations', 'community_rules', 'email_verification', 'founder', 'opening_video'
@@ -32,6 +78,11 @@ service cloud.firestore {
       allow get: if qaTester() && uid in ['qa-nav-alice', 'qa-nav-bob'];
     }
 
+    // A Central de Avisos consulta também a revisão de selo do próprio titular.
+    match /badge_requests/{uid} {
+      allow get: if qaOwner(uid);
+    }
+
     match /admins/{uid} {
       allow get: if qaOwner(uid);
     }
@@ -43,6 +94,43 @@ service cloud.firestore {
     match /posts/{postId} {
       // O feed do aplicativo ordena todos os posts sem filtrar por autor.
       allow get, list: if qaTester();
+      allow create: if qaTester() && validId(postId)
+        && communityPublicationAllowed()
+        && request.resource.data.keys().hasOnly(['uid', 'authorName', 'title', 'body', 'category', 'createdAt'])
+        && request.resource.data.uid == request.auth.uid
+        && authorNameMatchesProfile(request.resource.data.authorName)
+        && validPostContent(request.resource.data)
+        && request.resource.data.category in [
+          'Sagradas Escrituras', 'Apologética', 'Vida espiritual', 'História da Igreja',
+          'Liturgia', 'Santos', 'Juventude', 'Pedidos de oração'
+        ]
+        && request.resource.data.createdAt == request.time;
+      allow update: if qaOwner(resource.data.uid)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'body', 'updatedAt'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasAny(['updatedAt'])
+        && request.resource.data.updatedAt == request.time
+        && validPostContent(request.resource.data);
+      allow delete: if qaOwner(resource.data.uid);
+
+      match /replies/{replyId} {
+        function postOwner() {
+          return get(postPath(postId)).data.uid;
+        }
+
+        allow get, list: if qaTester() && exists(postPath(postId));
+        allow create: if qaTester() && validId(postId) && validId(replyId)
+          && communityPublicationAllowed()
+          && postOwner() in ['qa-nav-alice', 'qa-nav-bob']
+          && existsAfter(postPath(postId))
+          && request.resource.data.keys().hasOnly(['uid', 'authorName', 'body', 'createdAt'])
+          && request.resource.data.uid == request.auth.uid
+          && authorNameMatchesProfile(request.resource.data.authorName)
+          && validText(request.resource.data.body, 1, 600)
+          && request.resource.data.createdAt == request.time
+          // O Android pula o aviso ao responder ao próprio post.
+          && (postOwner() == request.auth.uid || replyHasNewNotice(postId, replyId, postOwner()));
+        allow delete: if qaOwner(resource.data.uid) && exists(postPath(postId));
+      }
     }
 
     match /users/{uid}/private/account {
@@ -55,6 +143,24 @@ service cloud.firestore {
 
     match /users/{uid}/chatSettings/privacy {
       allow get: if qaOwner(uid);
+    }
+
+    match /users/{uid}/notifications/{noticeId} {
+      allow get, list, delete: if qaOwner(uid);
+      allow create: if qaTester()
+        && uid in ['qa-nav-alice', 'qa-nav-bob'] && request.auth.uid != uid
+        && request.resource.data.keys().hasOnly(['postId', 'replyId', 'actorUid', 'actorName', 'read', 'createdAt'])
+        && validId(request.resource.data.postId) && validId(noticeId)
+        && request.resource.data.replyId == noticeId
+        && request.resource.data.actorUid == request.auth.uid
+        && request.resource.data.read == false
+        && request.resource.data.createdAt == request.time
+        // A resposta também verifica a presença deste novo aviso no lote.
+        && matchesNewReply(uid, request.resource.data.postId, noticeId, request.resource.data.actorName);
+      allow update: if qaOwner(uid)
+        && resource.data.read == false
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])
+        && request.resource.data.read == true;
     }
 
     match /users/{uid}/pushDevices/{deviceId} {
@@ -70,7 +176,7 @@ service cloud.firestore {
 
     match /users/{uid}/{collection}/{item} {
       allow get, list: if qaOwner(uid) && collection in [
-        'chatBox', 'likedPosts', 'savedPosts', 'blockedMembers', 'notifications'
+        'chatBox', 'likedPosts', 'savedPosts', 'blockedMembers'
       ];
       allow create: if qaOwner(uid) && collection in ['likedPosts', 'savedPosts']
         && exists(/databases/$(database)/documents/posts/$(item))
