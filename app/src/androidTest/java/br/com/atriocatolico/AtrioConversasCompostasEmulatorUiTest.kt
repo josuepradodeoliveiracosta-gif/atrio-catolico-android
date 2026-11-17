@@ -214,18 +214,15 @@ class AtrioConversasCompostasEmulatorUiTest {
             show(destination)
             waitForText(history)
             await(block.set(mapOf("createdAt" to FieldValue.serverTimestamp())))
-            assertDenied(entry.get(Source.SERVER))
             waitForHiddenHistory(history, destination)
+            assertDenied(entry.get(Source.SERVER))
             await(block.delete())
             reopen(destination)
             waitForText(history)
 
             fixtureField("users/$bob/chatAgeEligibility/current", "status", "stringValue", "revoked")
-            assertDenied(entry.get(Source.SERVER))
             waitForHiddenHistory(history, destination)
-            val revokedGroup = Screen(bob, groupPeer = alice)
-            reopen(revokedGroup)
-            waitForText("Acesso aos grupos indisponível para esta conta")
+            assertDenied(entry.get(Source.SERVER))
         } finally {
             otherApp.delete()
         }

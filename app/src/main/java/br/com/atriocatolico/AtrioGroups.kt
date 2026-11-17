@@ -20,6 +20,8 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.QuerySnapshot
+import com.google.firebase.firestore.Source
 import com.google.firebase.firestore.Query
 import java.text.DateFormat
 
@@ -194,42 +196,52 @@ internal fun AtrioGroupsScreen(
             }
         }
     }
-    DisposableEffect(db,uid,enabled,accessApproved,ownSession) {
-        if (!enabled || !accessApproved || !ownSession) {
-            rooms=emptyList()
-            onDispose {}
-        } else {
-            val listener=db.collection("chat_groups")
-                .whereArrayContains("memberUids",uid).limit(50)
-                .addSnapshotListener(atrioChatMetadataChanges) { data,error ->
-                    rooms=if (error==null && atrioChatSnapshotUsable(data))
-                        data?.documents?.mapNotNull { it.asAtrioGroup() }.orEmpty()
-                    else emptyList()
-                    if (error!=null) info="Falha ao consultar os grupos privados."
-                }
-            onDispose { listener.remove() }
+    val membershipQuery=remember(db,uid) {
+        db.collection("chat_groups").whereArrayContains("memberUids",uid).limit(50)
+    }
+    val invitationQuery=remember(db,uid) {
+        db.collectionGroup("atrioGroupInvites").whereEqualTo("inviteeUid",uid).limit(100)
+    }
+    fun updateRooms(data: QuerySnapshot?, failure: Throwable?) {
+        rooms=if (failure==null && atrioChatSnapshotUsable(data))
+            data?.documents?.mapNotNull { it.asAtrioGroup() }.orEmpty()
+        else emptyList()
+        if (failure!=null) info="Falha ao consultar os grupos privados."
+    }
+    fun updateInvitations(data: QuerySnapshot?, failure: Throwable?) {
+        invitations=if (failure==null && atrioChatSnapshotUsable(data))
+            data?.documents.orEmpty().mapNotNull { snap ->
+                val groupId=snap.reference.parent.parent?.id ?: return@mapNotNull null
+                AtrioGroupInvite(snap.id,groupId,
+                    snap.getString("groupName").orEmpty(),
+                    snap.getString("inviterUid").orEmpty(),
+                    snap.getString("status").orEmpty())
+            }
+        else emptyList()
+        if (failure!=null) info="Convites não disponíveis. Verifique a conexão ou os índices."
+    }
+    val canReadGroups=enabled && accessApproved && ownSession
+    LaunchedEffect(membershipQuery,canReadGroups) {
+        if (BuildConfig.ATRIO_QA_GERAL_CELULAR_PILOT && canReadGroups) {
+            pollAtrioPilotServer({ membershipQuery.get(Source.SERVER) }, ::updateRooms)
         }
     }
-    DisposableEffect(db,uid,enabled,accessApproved,ownSession) {
-        if (!enabled || !accessApproved || !ownSession) {
+    LaunchedEffect(invitationQuery,canReadGroups) {
+        if (BuildConfig.ATRIO_QA_GERAL_CELULAR_PILOT && canReadGroups) {
+            pollAtrioPilotServer({ invitationQuery.get(Source.SERVER) }, ::updateInvitations)
+        }
+    }
+    DisposableEffect(membershipQuery,invitationQuery,canReadGroups) {
+        if (!canReadGroups) {
+            rooms=emptyList()
             invitations=emptyList()
             onDispose {}
+        } else if (BuildConfig.ATRIO_QA_GERAL_CELULAR_PILOT) {
+            onDispose {}
         } else {
-            val listener=db.collectionGroup("atrioGroupInvites")
-                .whereEqualTo("inviteeUid",uid).limit(100)
-                .addSnapshotListener(atrioChatMetadataChanges) { data,error ->
-                    invitations=if (error==null && atrioChatSnapshotUsable(data)) data?.documents.orEmpty()
-                        .mapNotNull { snap ->
-                            val groupId=snap.reference.parent.parent?.id ?: return@mapNotNull null
-                            AtrioGroupInvite(snap.id,groupId,
-                                snap.getString("groupName").orEmpty(),
-                                snap.getString("inviterUid").orEmpty(),
-                                snap.getString("status").orEmpty())
-                        }
-                    else emptyList()
-                    if (error!=null) info="Convites não disponíveis. Verifique a conexão ou os índices."
-                }
-            onDispose { listener.remove() }
+            val members=membershipQuery.addSnapshotListener(::updateRooms)
+            val invites=invitationQuery.addSnapshotListener(::updateInvitations)
+            onDispose { members.remove(); invites.remove() }
         }
     }
 
