@@ -186,7 +186,17 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val prefs = getSharedPreferences("atrio-demo", Context.MODE_PRIVATE)
         setContent {
-            if (OtaQaChannel.active) {
+            if ((BuildConfig.ATRIO_QA_GERAL_REMOTE || BuildConfig.ATRIO_QA_GERAL_CELULAR_FICTICIO) &&
+                !qaGeralRemoteFirebaseReady(this@MainActivity)
+            ) {
+                AtrioTheme {
+                    Text("Configuração Firebase do QA Geral inválida.", modifier = Modifier.padding(24.dp))
+                }
+            } else if (BuildConfig.ATRIO_QA_GERAL_CELULAR_FICTICIO) {
+                AtrioTheme {
+                    Text("Configuração fictícia do QA Geral Celular validada.", modifier = Modifier.padding(24.dp))
+                }
+            } else if (OtaQaChannel.active) {
                 OtaQaScreen()
             } else if (startupState.opening) {
                 AtrioTheme {

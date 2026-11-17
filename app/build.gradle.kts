@@ -14,8 +14,29 @@ val atrioOtaQaLoopback = System.getenv("ATRIO_OTA_QA_LOOPBACK") == "1"
 val atrioOtaReleasePilot = System.getenv("ATRIO_OTA_RELEASE_PILOT") == "1"
 val atrioOtaPilotCompileOnly = System.getenv("ATRIO_OTA_PILOT_COMPILE_ONLY") == "1"
 val atrioOtaPilotEnabled = atrioOtaReleasePilot || atrioOtaPilotCompileOnly
-// O APK QA Geral e local, separado da identidade oficial e de qualquer Firebase remoto.
+// QA Geral usa emuladores por padrão. A homologação física é um build opt-in.
 val atrioQaGeralBuild = System.getenv("ATRIO_QA_GERAL_BUILD") == "1"
+val atrioQaGeralRemote = System.getenv("ATRIO_QA_GERAL_REMOTE_BUILD") == "1"
+val atrioQaGeralPush = System.getenv("ATRIO_QA_GERAL_PUSH_BUILD") == "1"
+val atrioQaGeralCelularFicticio = System.getenv("ATRIO_QA_GERAL_CELULAR_FICTICIO") == "1"
+val atrioQaGeralCelularUnsigned = System.getenv("ATRIO_QA_GERAL_CELULAR_UNSIGNED_BUILD") == "1"
+require(!atrioQaGeralCelularUnsigned || atrioQaGeralCelularFicticio) {
+    "O build sem assinatura é exclusivo do QA Geral Celular fictício."
+}
+require(!atrioQaGeralCelularFicticio || (atrioQaGeralRemote && !atrioQaGeralPush)) {
+    "O pacote QA Geral Celular fictício requer o build dedicado e mantém o push desabilitado."
+}
+require(!atrioQaGeralPush || atrioQaGeralRemote) {
+    "O Push do QA Geral requer o build dedicado para celular."
+}
+val atrioQaGeralRemoteProject = if (atrioQaGeralCelularFicticio)
+    "atrio-catolico-qa-geral-ficticio" else "atrio-catolico-qa-general"
+val atrioQaGeralRemoteAppId = if (atrioQaGeralCelularFicticio)
+    "1:000000000000:android:0000000000000000000000" else "1:835727158563:android:618218ab4be326d75cb096"
+val atrioQaGeralPackageSuffix = if (atrioQaGeralCelularFicticio) ".qageral.celular" else ".qageral"
+require(!atrioQaGeralRemote || atrioQaGeralBuild) {
+    "A homologação física requer o build QA Geral."
+}
 if (atrioQaGeralBuild) {
     require(!atrioDesignPreview && !atrioOtaQaLoopback && !atrioOtaPilotEnabled &&
         System.getenv("ATRIO_CHAT_QA_BUILD") != "1" &&
@@ -38,11 +59,29 @@ if (atrioQaGeralBuild) {
     ).all { System.getenv(it).isNullOrBlank() }) {
         "QA Geral nao aceita endpoints, credenciais Admin ou assinatura real."
     }
+    val qaConfig = file("src/qaGeral/google-services.json")
     require(listOf(
-        "google-services.json", "src/qaGeral/google-services.json",
-        "src/chatQa/google-services.json", "src/perfilQa/google-services.json"
+        "google-services.json", "src/chatQa/google-services.json", "src/perfilQa/google-services.json"
     ).none { file(it).exists() }) {
-        "QA Geral nao usa arquivos Firebase reais no checkout isolado."
+        "QA Geral exige checkout sem configuração Firebase oficial ou de outras variantes."
+    }
+    if (atrioQaGeralRemote) {
+        val allowedTasks = if (atrioQaGeralCelularFicticio) {
+            setOf("assembleQaGeral", "testQaGeralUnitTest")
+        } else {
+            setOf("assembleQaGeral")
+        }
+        require(gradle.startParameter.taskNames.all { it.substringAfterLast(':') in allowedTasks }) {
+            "QA Geral para celular: somente compilação e, no modo fictício, testes unitários."
+        }
+        val preflight = ProcessBuilder(
+            "python3", rootProject.file("scripts/qa_geral_remote_build_gate.py").absolutePath,
+            qaConfig.absolutePath, atrioQaGeralRemoteProject, atrioQaGeralRemoteAppId,
+            "br.com.atriocatolico$atrioQaGeralPackageSuffix"
+        ).inheritIO().start()
+        require(preflight.waitFor() == 0) { "Configuração Firebase do QA Geral para celular recusada." }
+    } else {
+        require(!qaConfig.exists()) { "QA Geral local não usa google-services.json." }
     }
 }
 // O chat QA possui pacote e Firebase próprios; nunca habilitar por padrão.
@@ -162,7 +201,8 @@ if (atrioOtaQaLoopback && gradle.startParameter.taskNames.any { task ->
 }
 // Com app/google-services.json presente, o Google Services gera os recursos Firebase.
 // Sem o arquivo, este projeto ainda pode ser compilado em modo demonstração.
-if ((file("google-services.json").exists() || atrioPerfilQaBuild || atrioChatQaBuild) && !atrioOtaQaLoopback && !atrioDesignPreview) {
+if ((file("google-services.json").exists() || atrioPerfilQaBuild || atrioChatQaBuild ||
+        atrioQaGeralRemote) && !atrioOtaQaLoopback && !atrioDesignPreview) {
     apply(plugin = "com.google.gms.google-services")
 }
 
@@ -199,6 +239,11 @@ android {
         versionCode = 39
         versionName = "0.20.4"
         buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"0.20.4\"")
+        buildConfigField("boolean", "ATRIO_QA_GERAL_REMOTE", "false")
+        buildConfigField("boolean", "ATRIO_QA_GERAL_CELULAR_FICTICIO", "false")
+        buildConfigField("boolean", "ATRIO_QA_GERAL_PUSH", "false")
+        buildConfigField("String", "ATRIO_QA_GERAL_PROJECT_ID", "\"\"")
+        buildConfigField("String", "ATRIO_QA_GERAL_APP_ID", "\"\"")
         val relayUrl = System.getenv("ATRIO_PUSH_WORKER_URL").orEmpty()
         val allowed = Regex("^https://[a-zA-Z0-9-]+\\.[a-zA-Z0-9-]+\\.workers\\.dev$")
         require(relayUrl.isBlank() || allowed.matches(relayUrl)) { "ATRIO_PUSH_WORKER_URL invalida" }
@@ -270,12 +315,23 @@ android {
         }
         create("qaGeral") {
             initWith(getByName("debug"))
-            applicationIdSuffix = ".qageral"
+            if (atrioQaGeralCelularUnsigned) signingConfig = null
+            applicationIdSuffix = atrioQaGeralPackageSuffix
             matchingFallbacks += listOf("debug")
             isDebuggable = true
             buildConfigField("boolean", "OTA_QA_LOOPBACK", "false")
             buildConfigField("boolean", "OTA_RELEASE_PILOT_LOOPBACK", "false")
-            buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"QA Geral offline\"")
+            val qaName = if (atrioQaGeralRemote) "QA Geral · Celular" else "QA Geral offline"
+            manifestPlaceholders["atrioQaGeralLabel"] = if (atrioQaGeralRemote)
+                "Átrio Católico · QA Geral Celular" else "Átrio Católico · QA Geral"
+            buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"$qaName\"")
+            if (atrioQaGeralRemote) {
+                buildConfigField("boolean", "ATRIO_QA_GERAL_REMOTE", "true")
+                buildConfigField("boolean", "ATRIO_QA_GERAL_CELULAR_FICTICIO", atrioQaGeralCelularFicticio.toString())
+                buildConfigField("boolean", "ATRIO_QA_GERAL_PUSH", atrioQaGeralPush.toString())
+                buildConfigField("String", "ATRIO_QA_GERAL_PROJECT_ID", "\"$atrioQaGeralRemoteProject\"")
+                buildConfigField("String", "ATRIO_QA_GERAL_APP_ID", "\"$atrioQaGeralRemoteAppId\"")
+            }
             buildConfigField("String", "PUSH_RELAY_URL", "\"\"")
             buildConfigField("String", "GUARDIAN_V2_WORKER_URL", "\"\"")
             buildConfigField("String", "AVATAR_WORKER_URL", "\"\"")
@@ -306,6 +362,12 @@ android {
         }
     }
 
+    if (atrioQaGeralCelularFicticio) {
+        sourceSets.getByName("qaGeral").manifest.srcFile("src/qaGeral/AndroidManifest.ficticio.xml")
+    } else if (atrioQaGeralPush) {
+        sourceSets.getByName("qaGeral").manifest.srcFile("src/qaGeral/AndroidManifest.push.xml")
+    }
+
     // Instrumentacao em qaGeral so com opt-in; Debug oficial permanece normal.
     testBuildType = if (atrioQaGeralBuild) "qaGeral" else "debug"
 
@@ -325,7 +387,8 @@ androidComponents {
     }
     onVariants(selector().withBuildType("qaGeral")) { variant ->
         variant.outputs.forEach { output ->
-            output.versionName.set("$atrioDebugVersionName-qa-geral")
+            val suffix = if (atrioQaGeralRemote) "qa-geral-celular" else "qa-geral"
+            output.versionName.set("$atrioDebugVersionName-$suffix")
             output.versionCode.set(atrioDebugVersionCode)
         }
     }

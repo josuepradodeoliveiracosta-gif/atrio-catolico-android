@@ -1,0 +1,195 @@
+name: APK QA Geral Celular
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - .github/workflows/qa-geral-celular.yml
+      - app/build.gradle.kts
+      - app/src/main/**
+      - app/src/qaGeral/**
+      - app/src/test/**/QaGeralCelularIdentityTest.kt
+      - scripts/qa_geral_remote_build_gate.py
+      - scripts/qa_geral_celular_signature.py
+      - scripts/test_qa_geral_celular_signature.py
+
+permissions:
+  contents: read
+
+jobs:
+  compilar-qa-geral-celular:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      contains(fromJSON('["qa/chat5-qa-geral-firebase-celular","qa/chat5-qa-geral-registro-push","qa/chat7-qa-geral-composicao-integrada","qa/chat7-qa-geral-celular-forum-integrado","qa/chat5-qa-geral-celular-pacote-proprio","qa/chat5-qa-geral-celular-identidade"]'), github.head_ref)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ATRIO_QA_GERAL_BUILD: '1'
+      ATRIO_QA_GERAL_REMOTE_BUILD: '1'
+      ATRIO_QA_GERAL_CELULAR_FICTICIO: ${{ contains(fromJSON('["qa/chat5-qa-geral-celular-pacote-proprio","qa/chat5-qa-geral-celular-identidade"]'), github.head_ref) && '1' || '0' }}
+      ATRIO_QA_GERAL_PUSH_BUILD: ${{ !contains(fromJSON('["qa/chat5-qa-geral-firebase-celular","qa/chat5-qa-geral-celular-pacote-proprio","qa/chat5-qa-geral-celular-identidade"]'), github.head_ref) && '1' || '0' }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with:
+          gradle-version: '8.13'
+          cache-read-only: true
+      - name: Preparar configuração Firebase do build
+        id: configuracao
+        shell: bash
+        env:
+          ATRIO_QA_CONFIG: ${{ github.head_ref == 'qa/chat5-qa-geral-firebase-celular' && secrets.ATRIO_QA_GENERAL_GOOGLE_SERVICES_JSON || '' }}
+        run: |
+          rm -f -- app/google-services.json
+          config=app/src/qaGeral/google-services.json
+          test ! -e "$config"
+          test ! -L "$config"
+          if [[ "$ATRIO_QA_GERAL_CELULAR_FICTICIO" == 1 ]]; then
+            test -z "$ATRIO_QA_CONFIG"
+            python3 scripts/qa_geral_remote_build_gate.py --write-fixture "$config"
+            echo 'real=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ "$ATRIO_QA_GERAL_PUSH_BUILD" == 1 ]]; then
+            test -z "$ATRIO_QA_CONFIG"
+          fi
+          if [[ -n "$ATRIO_QA_CONFIG" ]]; then
+            printf '%s' "$ATRIO_QA_CONFIG" > "$config"
+            echo 'real=true' >> "$GITHUB_OUTPUT"
+          else
+            python3 - "$config" <<'PY'
+          import json
+          from pathlib import Path
+          import sys
+
+          config = {
+              "project_info": {
+                  "project_number": "835727158563",
+                  "project_id": "atrio-catolico-qa-general"
+              },
+              "client": [{
+                  "client_info": {
+                      "mobilesdk_app_id": "1:835727158563:android:618218ab4be326d75cb096",
+                      "android_client_info": {"package_name": "br.com.atriocatolico.qageral"}
+                  },
+                  "api_key": [{"current_key": "chave-ficticia-apenas-para-compilacao"}]
+              }],
+              "configuration_version": "1"
+          }
+          Path(sys.argv[1]).write_text(json.dumps(config), encoding="utf-8")
+          PY
+            echo 'real=false' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Exercitar identidade fictícia e futuros critérios de assinatura
+        if: env.ATRIO_QA_GERAL_CELULAR_FICTICIO == '1'
+        shell: bash
+        run: |
+          python3 -m unittest discover -s scripts -p test_qa_geral_celular_signature.py -v
+          gradle :app:testQaGeralUnitTest --no-daemon --max-workers=2
+          python3 - <<'PY'
+          import xml.etree.ElementTree as et
+
+          suite = et.parse(
+              "app/build/test-results/testQaGeralUnitTest/TEST-br.com.atriocatolico.QaGeralCelularIdentityTest.xml"
+          ).getroot()
+          cases = suite.findall("testcase")
+          if not cases or any(int(suite.attrib[name]) > 0 for name in ("failures", "errors", "skipped")):
+              raise SystemExit("A suíte de identidade do app precisa executar sem falhas ou omissões.")
+          print(f"Identidade fictícia do app: {len(cases)} testes aprovados.")
+          PY
+      - name: Compilar e conferir a identidade do APK
+        env:
+          CONFIG_REAL: ${{ steps.configuracao.outputs.real }}
+        shell: bash
+        run: |
+          gradle :app:assembleQaGeral --no-daemon --max-workers=2
+          shopt -s nullglob
+          apks=(app/build/outputs/apk/qaGeral/*.apk)
+          test "${#apks[@]}" -eq 1
+          apk="${apks[0]}"
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          package=br.com.atriocatolico.qageral
+          project_id=atrio-catolico-qa-general
+          firebase_app_id=1:835727158563:android:618218ab4be326d75cb096
+          if [[ "$ATRIO_QA_GERAL_CELULAR_FICTICIO" == 1 ]]; then
+            test "$CONFIG_REAL" = false
+            package=br.com.atriocatolico.qageral.celular
+            project_id=atrio-catolico-qa-geral-ficticio
+            firebase_app_id=1:000000000000:android:0000000000000000000000
+          fi
+          "$tools/aapt" dump badging "$apk" > "$RUNNER_TEMP/qa-geral-badging.txt"
+          version_code="$(python3 - "$(dirname "$apk")/output-metadata.json" <<'PY'
+          import json
+          from pathlib import Path
+          import sys
+
+          output, = json.loads(Path(sys.argv[1]).read_text())["elements"]
+          version = output["versionCode"]
+          if type(version) is not int or version <= 0:
+              raise SystemExit("versionCode inválido nos metadados do Gradle.")
+          print(version)
+          PY
+          )"
+          grep -F "package: name='$package' versionCode='$version_code' " "$RUNNER_TEMP/qa-geral-badging.txt"
+          grep -F "application-label:'Átrio Católico · QA Geral Celular'" "$RUNNER_TEMP/qa-geral-badging.txt"
+          "$tools/aapt" dump --values resources "$apk" > "$RUNNER_TEMP/qa-geral-resources.txt"
+          grep -Fq "$project_id" "$RUNNER_TEMP/qa-geral-resources.txt"
+          grep -Fq "$firebase_app_id" "$RUNNER_TEMP/qa-geral-resources.txt"
+          "$tools/apksigner" verify --print-certs "$apk" > "$RUNNER_TEMP/qa-geral-certificado.txt"
+          grep -E '^Signer #[0-9]+ certificate SHA-256 digest: [[:xdigit:]]{64}$' "$RUNNER_TEMP/qa-geral-certificado.txt"
+          if [[ "$ATRIO_QA_GERAL_PUSH_BUILD" == 1 ]]; then
+            "$tools/aapt" dump xmltree "$apk" AndroidManifest.xml > "$RUNNER_TEMP/qa-geral-manifest.txt"
+            grep -Fq 'br.com.atriocatolico.AtrioPushService' "$RUNNER_TEMP/qa-geral-manifest.txt"
+            grep -Fq 'android.permission.POST_NOTIFICATIONS' "$RUNNER_TEMP/qa-geral-manifest.txt"
+            ! grep -Fq 'android.permission.REQUEST_INSTALL_PACKAGES' "$RUNNER_TEMP/qa-geral-manifest.txt"
+            test "$CONFIG_REAL" = false
+          fi
+          if [[ "$ATRIO_QA_GERAL_CELULAR_FICTICIO" == 1 ]]; then
+            "$tools/aapt" dump xmltree "$apk" AndroidManifest.xml > "$RUNNER_TEMP/qa-geral-manifest.txt"
+            grep -Eq 'android:allowBackup[^=]*=.*0x0$' "$RUNNER_TEMP/qa-geral-manifest.txt"
+            if grep -Fq \
+              -e 'android.permission.INTERNET' \
+              -e 'br.com.atriocatolico.AtrioPushService' \
+              -e 'android.permission.POST_NOTIFICATIONS' \
+              -e 'android.permission.REQUEST_INSTALL_PACKAGES' \
+              -e 'androidx.core.content.FileProvider' \
+              "$RUNNER_TEMP/qa-geral-manifest.txt"; then
+              echo 'O APK fictício incluiu acesso à internet, push ou instalador OTA.' >&2
+              exit 1
+            fi
+            if grep -Fq \
+              -e 'atrio-catolico-qa-general' \
+              -e '1:835727158563:android:618218ab4be326d75cb096' \
+              "$RUNNER_TEMP/qa-geral-resources.txt"; then
+              echo 'O APK fictício incluiu a identidade Firebase do QA anterior.' >&2
+              exit 1
+            fi
+            echo 'Pacote isolado e identidade Firebase fictícia. Internet, backup, push e instalador OTA desabilitados.'
+          fi
+          if [[ "$CONFIG_REAL" == true ]]; then
+            mkdir qa-geral-celular
+            cp "$apk" qa-geral-celular/atrio-qa-geral-celular.apk
+            git rev-parse HEAD > qa-geral-celular/ORIGEM.txt
+            (cd qa-geral-celular && sha256sum atrio-qa-geral-celular.apk | tee SHA256SUMS)
+          else
+            echo 'Build validado com configuração fictícia. APK de instalação requer a configuração do Firebase de QA.'
+          fi
+      - name: Guardar APK de homologação
+        if: steps.configuracao.outputs.real == 'true' && env.ATRIO_QA_GERAL_CELULAR_FICTICIO == '0'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: atrio-qa-geral-celular
+          path: qa-geral-celular/
+          if-no-files-found: error
+          retention-days: 7

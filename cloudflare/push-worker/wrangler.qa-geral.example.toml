@@ -1,0 +1,16 @@
+name = "atrio-push-qa-general"
+main = "src/qa-geral.js"
+compatibility_date = "2026-10-26"
+workers_dev = false
+preview_urls = false
+
+[vars]
+QA_PUSH_ENABLED = "false"
+
+# Modelo para o QA Geral. Preencher o UUID do D1 dedicado ao preparar a implantação.
+# Usar schema.sql nesse D1. A conta de serviço e a chave web do Firebase de QA
+# entram como secrets QA_FIREBASE_SERVICE_ACCOUNT_JSON e QA_FIREBASE_WEB_API_KEY.
+[[d1_databases]]
+binding = "QA_PUSH_DB"
+database_name = "atrio-push-qa-general-delivery"
+database_id = "00000000-0000-4000-8000-000000000000"

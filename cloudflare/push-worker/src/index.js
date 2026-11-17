@@ -4,7 +4,15 @@ import {emailAllowsCommunity} from '../../email-verification-policy.mjs';
 // Recebe eventos autenticados pelo Firebase, confere documentos no Firestore,
 // limita destinatários e evita reenvios com Cloudflare D1.
 const PROJECT = 'atrio-catolico';
-const ROOT = 'https://firestore.googleapis.com/v1/projects/' + PROJECT + '/databases/(default)/documents';
+const QA_PROJECT = 'atrio-catolico-qa-general';
+const QA_SERVICE_EMAIL = 'atrio-qa-general-push@' + QA_PROJECT + '.iam.gserviceaccount.com';
+const QA_EMAILS = new Map([
+  ['qa-nav-alice', 'alice.navegacao@qa.invalid'],
+  ['qa-nav-bob', 'bob.navegacao@qa.invalid'],
+]);
+const firestoreRoot = project =>
+  'https://firestore.googleapis.com/v1/projects/' + project + '/databases/(default)/documents';
+const ROOT = firestoreRoot(PROJECT);
 const MAX_ADMINS = 8;
 const MAX_TOKENS = 3;
 const MAX_AGE_MS = 5 * 60_000;
@@ -56,18 +64,27 @@ export async function readEventBody(request) {
   return JSON.parse(new TextDecoder('utf-8', {fatal:true}).decode(bytes));
 }
 
-let cachedOAuth = null;
-let cachedSigningKey = null;
-async function oauth(env) {
-  if (cachedOAuth && cachedOAuth.expiresAt > Date.now() + 60_000) return cachedOAuth.token;
+const cachedCredentials = new Map();
+
+function serviceAccount(env, project) {
   const service = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT_JSON);
-  if (service.project_id !== PROJECT || !service.client_email || !service.private_key)
+  if (service?.project_id !== project || !service.client_email || !service.private_key
+    || (project === QA_PROJECT && service.client_email !== QA_SERVICE_EMAIL))
     throw Error('Configuração de identidade inválida');
+  return service;
+}
+
+async function oauth(env, project = PROJECT) {
+  const cached = cachedCredentials.get(project);
+  const credential = env.FIREBASE_SERVICE_ACCOUNT_JSON;
+  const sameCredentials = cached && (project === PROJECT || cached.credential === credential);
+  if (sameCredentials && cached.expiresAt > Date.now() + 60_000) return cached.token;
+  const service = serviceAccount(env, project);
   const privateDer = Uint8Array.from(atob(service.private_key
     .replace(/-----BEGIN PRIVATE KEY-----|-----END PRIVATE KEY-----|\s/g,'')), c=>c.charCodeAt(0));
-  const privateKey = cachedSigningKey || await crypto.subtle.importKey('pkcs8', privateDer,
-    {name:'RSASSA-PKCS1-v1_5', hash:'SHA-256'},false,['sign']);
-  cachedSigningKey = privateKey;
+  const privateKey = (sameCredentials && cached.privateKey)
+    || await crypto.subtle.importKey('pkcs8', privateDer,
+      {name:'RSASSA-PKCS1-v1_5', hash:'SHA-256'},false,['sign']);
   const issued = Math.floor(Date.now()/1000);
   const header = urlSafeBase64(JSON.stringify({alg:'RS256',typ:'JWT'}));
   const claim = urlSafeBase64(JSON.stringify({
@@ -85,15 +102,28 @@ async function oauth(env) {
   if (!token.ok) throw Error('Falha de autenticação de serviço');
   const payload = await token.json();
   if (!payload.access_token) throw Error('Token de serviço ausente');
-  cachedOAuth = {token:payload.access_token,
-    expiresAt:Date.now() + Math.min(50*60_000,Math.max(120_000,Number(payload.expires_in||3600)*1000-120_000))};
-  return cachedOAuth.token;
+  cachedCredentials.set(project, {credential, privateKey, token:payload.access_token,
+    expiresAt:Date.now() + Math.min(50*60_000,Math.max(120_000,Number(payload.expires_in||3600)*1000-120_000))});
+  return payload.access_token;
 }
 
-export async function verifyIdentity(req,env) {
+function matchesQaTokenProject(token) {
+  // O Identity Toolkit ainda autentica a assinatura. Esta checagem recusa
+  // o projeto incorreto antes da consulta, mesmo se a chave web for trocada.
+  const [, payload, signature, extra] = token.split('.');
+  if (!payload || !signature || extra !== undefined) return false;
+  try {
+    const claims = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')));
+    return claims.aud === QA_PROJECT && claims.iss === 'https://securetoken.google.com/' + QA_PROJECT;
+  } catch {
+    return false;
+  }
+}
+
+export async function verifyIdentity(req,env,project = PROJECT) {
   const auth = req.headers.get('Authorization') || '';
   const match = /^Bearer ([A-Za-z0-9._-]{100,5000})$/.exec(auth);
-  if (!match) return null;
+  if (!match || (project === QA_PROJECT && !matchesQaTokenProject(match[1]))) return null;
   const validated = await fetch('https://identitytoolkit.googleapis.com/v1/accounts:lookup?key='+
     enc(env.FIREBASE_WEB_API_KEY),{
     method:'POST',headers:{'Content-Type':'application/json'},
@@ -103,6 +133,11 @@ export async function verifyIdentity(req,env) {
   const data = await validated.json();
   const account = data.users?.[0];
   if(!account || account.disabled || !uidPart(account.localId)) return null;
+  if (project === QA_PROJECT) {
+    const expectedEmail = QA_EMAILS.get(account.localId);
+    return expectedEmail && account.emailVerified === true && account.email === expectedEmail
+      ? account.localId : null;
+  }
   // As operacoes subsequentes usam credencial de servico, portanto a
   // verificacao da conta e da politica deve ocorrer ANTES da mutacao.
   // Identidade conferida no Firebase Auth; a politica e lida pelo
@@ -120,14 +155,14 @@ export async function verifyIdentity(req,env) {
   return account.localId;
 }
 
-async function firestoreGet(token, path) {
-  const res = await fetch(ROOT+'/'+path,{headers:{Authorization:'Bearer '+token}});
+async function firestoreGet(token, path, project = PROJECT) {
+  const res = await fetch(firestoreRoot(project)+'/'+path,{headers:{Authorization:'Bearer '+token}});
   if (res.status===404) return null;
   if (!res.ok) throw Error('Firestore indisponível');
   return res.json();
 }
-async function firestoreList(token, path, max) {
-  const res = await fetch(ROOT+'/'+path+'?pageSize='+max,
+async function firestoreList(token, path, max, project = PROJECT) {
+  const res = await fetch(firestoreRoot(project)+'/'+path+'?pageSize='+max,
     {headers:{Authorization:'Bearer '+token}});
   if (!res.ok) throw Error('Consulta Firestore indisponível');
   const data = await res.json();
@@ -135,7 +170,7 @@ async function firestoreList(token, path, max) {
   return data.documents || [];
 }
 
-export async function threadParticipants(token, postId, actor, owner, replyTime) {
+export async function threadParticipants(token, postId, actor, owner, replyTime, project = PROJECT) {
   if(!uidPart(postId)||!uidPart(actor)||!uidPart(owner)) throw Error('thread_invalid');
   const users=new Set();
   if(owner!==actor) users.add(owner);
@@ -145,7 +180,7 @@ export async function threadParticipants(token, postId, actor, owner, replyTime)
     params.append('mask.fieldPaths','uid');
     params.append('mask.fieldPaths','createdAt');
     if(next) params.set('pageToken',next);
-    const res=await fetch(ROOT+'/posts/'+enc(postId)+'/replies?'+params.toString(),
+    const res=await fetch(firestoreRoot(project)+'/posts/'+enc(postId)+'/replies?'+params.toString(),
       {headers:{Authorization:'Bearer '+token}});
     if(res.status===404 && page===0) return [...users];
     if(!res.ok) throw Error('thread_replies_unavailable');
@@ -187,27 +222,27 @@ export async function writeThreadNotices(token, event) {
     throw Error('thread_fanout_partial');
 }
 
-async function adminUids(token, origin) {
-  const docs = await firestoreList(token,'admins',MAX_ADMINS+1);
+async function adminUids(token, origin, project = PROJECT) {
+  const docs = await firestoreList(token,'admins',MAX_ADMINS+1,project);
   if (docs.length > MAX_ADMINS) throw Error('Limite administrativo excedido');
   return docs.filter(x=>boolField(x,'enabled')).map(x=>x.name.split('/').pop())
     .filter(uid=>uidPart(uid)&&uid!==origin);
 }
 
-export async function resolveEvent(event, actor, token) {
+export async function resolveEvent(event, actor, token, project = PROJECT) {
   if (!event || typeof event!=='object' || Array.isArray(event)) return null;
   const type = event.type;
   if (type==='reply') {
     if (!uidPart(event.postId)||!uidPart(event.replyId)) return null;
-    const post = await firestoreGet(token,'posts/'+enc(event.postId));
-    const reply = await firestoreGet(token,'posts/'+enc(event.postId)+'/replies/'+enc(event.replyId));
+    const post = await firestoreGet(token,'posts/'+enc(event.postId),project);
+    const reply = await firestoreGet(token,'posts/'+enc(event.postId)+'/replies/'+enc(event.replyId),project);
     if (!post||!reply||stringField(reply,'uid')!==actor||!recent(timeField(reply,'createdAt'))) return null;
     const owner=stringField(post,'uid');
     if(!uidPart(owner)) return null;
     // Cliente antigo cria aviso para o dono em batch, mas respostas do próprio
     // dono também devem ser entregues aos demais participantes.
     if(owner!==actor) {
-      const notice=await firestoreGet(token,'users/'+enc(owner)+'/notifications/'+enc(event.replyId));
+      const notice=await firestoreGet(token,'users/'+enc(owner)+'/notifications/'+enc(event.replyId),project);
       if(!notice||stringField(notice,'actorUid')!==actor
         ||stringField(notice,'postId')!==event.postId
         ||stringField(notice,'replyId')!==event.replyId) return null;
@@ -215,7 +250,7 @@ export async function resolveEvent(event, actor, token) {
     const replyTime=timeField(reply,'createdAt');
     let recipients;
     try {
-      recipients=await threadParticipants(token,event.postId,actor,owner,replyTime);
+      recipients=await threadParticipants(token,event.postId,actor,owner,replyTime,project);
     } catch(error) {
       // Em discussão maior que os limites seguros do Worker Free, conservar
       // o envio individual que funcionava para o criador, em vez de regressão
@@ -232,17 +267,17 @@ export async function resolveEvent(event, actor, token) {
         createdAt:reply.fields.createdAt.timestampValue}};
   }
   if (type==='badge_request') {
-    const request=await firestoreGet(token,'badge_requests/'+enc(actor));
+    const request=await firestoreGet(token,'badge_requests/'+enc(actor),project);
     if (!request||stringField(request,'status')!=='pending'
       ||!recent(timeField(request,'createdAt'))) return null;
     return {key:'request:'+actor+':'+timeField(request,'createdAt'),
-      kind:'admin',recipients:await adminUids(token,actor)};
+      kind:'admin',recipients:await adminUids(token,actor,project)};
   }
   if (type==='badge_result') {
     if(!uidPart(event.targetUid)||event.targetUid===actor) return null;
     const [admin,request] = await Promise.all([
-      firestoreGet(token,'admins/'+enc(actor)),
-      firestoreGet(token,'badge_requests/'+enc(event.targetUid)),
+      firestoreGet(token,'admins/'+enc(actor),project),
+      firestoreGet(token,'badge_requests/'+enc(event.targetUid),project),
     ]);
     if(!admin||!boolField(admin,'enabled')||!request
       ||!['approved','rejected'].includes(stringField(request,'status'))
@@ -253,21 +288,21 @@ export async function resolveEvent(event, actor, token) {
   }
   if(type==='report'){
     if(!uidPart(event.reportId)) return null;
-    const doc=await firestoreGet(token,'reports/'+enc(event.reportId));
+    const doc=await firestoreGet(token,'reports/'+enc(event.reportId),project);
     if(!doc||stringField(doc,'reporterUid')!==actor
       ||!recent(timeField(doc,'createdAt'))
       ||(stringField(doc,'status') && stringField(doc,'status')!=='pending')) return null;
-    return {key:'report:'+event.reportId,kind:'admin',recipients:await adminUids(token,actor)};
+    return {key:'report:'+event.reportId,kind:'admin',recipients:await adminUids(token,actor,project)};
   }
   return null;
 }
 
-async function devices(token,uid) {
-  const docs=await firestoreList(token,'users/'+enc(uid)+'/pushDevices',MAX_TOKENS+1);
+async function devices(token,uid, project = PROJECT) {
+  const docs=await firestoreList(token,'users/'+enc(uid)+'/pushDevices',MAX_TOKENS+1,project);
   if(docs.length>MAX_TOKENS) throw Error('Limite de dispositivos excedido');
   // O nome e a versão do documento só serão usados para remoção condicional
   // se o FCM comprovar que o token já não está registrado.
-  const prefix='projects/'+PROJECT+'/databases/(default)/documents/users/'+uid+'/pushDevices/';
+  const prefix='projects/'+project+'/databases/(default)/documents/users/'+uid+'/pushDevices/';
   return docs.map(x=>({
     token:stringField(x,'token'),time:timeField(x,'updatedAt'),
     path:typeof x.name==='string'&&x.name.startsWith(prefix)
@@ -279,8 +314,8 @@ async function devices(token,uid) {
       &&x.time>Date.now()-60*86400_000&&x.time<=Date.now()+60_000);
 }
 
-async function send(token,device,uid,kind) {
-  return fetch('https://fcm.googleapis.com/v1/projects/'+PROJECT+'/messages:send',{
+async function send(token,device,uid,kind, project = PROJECT) {
+  return fetch('https://fcm.googleapis.com/v1/projects/'+project+'/messages:send',{
     method:'POST',
     headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
     body:JSON.stringify({message:{
@@ -758,110 +793,141 @@ export default {
       return handleGuardiaoReview(request,env);
     if(request.method!=='POST'||path!=='/event')
       return response(404,'not_found');
-    if(env.PUSH_ENABLED!=='true') return response(503,'disabled');
-    if(!configured) return response(503,'not_configured');
-    if(Number(request.headers.get('content-length')||'0')>512)
-      return response(413,'too_large');
-    try {
-      let data;
-      try { data = await readEventBody(request); }
-      catch (error) { return response(error instanceof RangeError ? 413 : 400,
-        error instanceof RangeError ? 'too_large' : 'invalid_json'); }
-      if (!data || typeof data !== 'object' || Array.isArray(data)
-        || !['reply','badge_request','badge_result','report'].includes(data.type))
-        return response(400,'invalid_event');
-      const uid=await verifyIdentity(request,env);
-      if(!uid) return response(401,'unauthorized');
-      const token=await oauth(env);
-      const event=await resolveEvent(data,uid,token);
-      if(!event) {
-        await auditDelivery(env,data.type,'ignored');
-        return response(202,'ignored');
-      }
-      if(event.recipients.length>(event.topic?THREAD_MAX_RECIPIENTS:MAX_ADMINS))
-        return response(503,'capacity_limit');
-      if(event.degraded) await auditDelivery(env,'thread','capacity_fallback');
-      // Em caso de falha do fan-out de avisos internos, preservar o Push
-      // individual que já funciona na versão anterior.
-      let fanoutOk=true;
-      if(event.topic) {
-        try { await writeThreadNotices(token,event); }
-        catch {
-          fanoutOk=false;
-          await auditDelivery(env,'thread','fanout_failed');
-        }
-      }
-      // Events expire after five minutes; keep delivery markers for one day.
-      // Bounded cleanup prevents an unbounded D1 retention table.
-      await env.PUSH_DB.prepare('DELETE FROM delivered WHERE event_key IN ' +
-        '(SELECT event_key FROM delivered WHERE created_at < ? ORDER BY created_at LIMIT 100)')
-        .bind(Date.now() - 86400_000).run();
-      let attempted=0;
-      let accepted=0;
-      let failedHttp=0;
-      let cleaned=0;
-      if(event.topic) {
-        // Um único envio por tópico para todos os participantes inscritos.
-        const marker='topic:'+event.key;
-        const insert=await env.PUSH_DB.prepare(
-          'INSERT OR IGNORE INTO delivered (event_key,created_at) VALUES (?,?)'
-        ).bind(marker,Date.now()).run();
-        if(insert.meta?.changes) {
-          const res=await fetch('https://fcm.googleapis.com/v1/projects/'+PROJECT+'/messages:send',{
-            method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
-            body:JSON.stringify({message:{
-              topic:event.topic,
-              data:{kind:'discussion_reply',postId:event.notice.postId,
-                replyId:event.notice.replyId,actorUid:event.notice.actorUid},
-              android:{priority:'HIGH',ttl:'3600s'},
-            }}),
-          });
-          attempted++;
-          if(res.ok) accepted++; else failedHttp=res.status;
-        }
-      }
-      for(const recipient of (event.topic?event.legacyOwner?[event.legacyOwner]:[]:event.recipients)) {
-        if(!uidPart(recipient)||recipient===uid) continue;
-        const list=await devices(token,recipient);
-        if(!list.length) continue;
-        // At most once: a network fault may lose a push, not duplicate or spam it.
-        const marker=event.key+':'+recipient;
-        const record=await env.PUSH_DB.prepare(
-          'INSERT OR IGNORE INTO delivered (event_key,created_at) VALUES (?,?)'
-        ).bind(marker,Date.now()).run();
-        if(!record.meta?.changes) continue;
-        for(const target of list) {
-          const result=event.topic
-            ? await fetch('https://fcm.googleapis.com/v1/projects/'+PROJECT+'/messages:send',{
-                method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
-                body:JSON.stringify({message:{
-                  token:target.token,
-                  data:{uid:recipient,kind:'reply',postId:event.notice.postId,
-                    replyId:event.notice.replyId,actorUid:event.notice.actorUid},
-                  android:{priority:'HIGH',ttl:'3600s'},
-                }}),
-              })
-            : await send(token,target.token,recipient,event.kind);
-          attempted++;
-          if(result.ok) accepted++;
-          else {
-            failedHttp=result.status;
-            if(await cleanupInvalidDevice(token,target,result)) cleaned++;
-          }
-          if(!result.ok && result.status>=500) break;
-        }
-      }
-      const outcome=attempted && !accepted ? 'delivery_failed'
-        : accepted ? 'accepted_by_fcm' : 'no_devices_or_duplicate';
-      await auditDelivery(env,event.kind,outcome,attempted,accepted,failedHttp);
-      if(cleaned) await auditDelivery(env,'cleanup','unregistered_removed',cleaned,0,404);
-      return response(outcome==='delivery_failed'||!fanoutOk ? 503 : 202,
-        !fanoutOk ? 'fanout_failed' : outcome);
-    } catch {
-      // Não registrar ID tokens, chaves, UID, FCM tokens nem payloads em logs.
-      return response(503,'unavailable');
-    }
+    return handlePushEvent(request, env, configured, PROJECT);
   },
 };
 
+async function handlePushEvent(request, env, configured, project) {
+  if(env.PUSH_ENABLED!=='true') return response(503,'disabled');
+  if(!configured) return response(503,'not_configured');
+  if(Number(request.headers.get('content-length')||'0')>512)
+    return response(413,'too_large');
+  try {
+    let data;
+    try { data = await readEventBody(request); }
+    catch (error) { return response(error instanceof RangeError ? 413 : 400,
+      error instanceof RangeError ? 'too_large' : 'invalid_json'); }
+    if (!data || typeof data !== 'object' || Array.isArray(data)
+      || !['reply','badge_request','badge_result','report'].includes(data.type))
+      return response(400,'invalid_event');
+    const uid=await verifyIdentity(request,env,project);
+    if(!uid) return response(401,'unauthorized');
+    const token=await oauth(env,project);
+    const event=await resolveEvent(data,uid,token,project);
+    if(!event) {
+      await auditDelivery(env,data.type,'ignored');
+      return response(202,'ignored');
+    }
+    if(event.recipients.length>(event.topic?THREAD_MAX_RECIPIENTS:MAX_ADMINS))
+      return response(503,'capacity_limit');
+    if(event.degraded) await auditDelivery(env,'thread','capacity_fallback');
+    const qa = project === QA_PROJECT;
+    const sendTopic = !qa && event.topic;
+    // Em caso de falha do fan-out de avisos internos, preservar o Push
+    // individual que já funciona na versão anterior.
+    let fanoutOk=true;
+    if(sendTopic) {
+      try { await writeThreadNotices(token,event); }
+      catch {
+        fanoutOk=false;
+        await auditDelivery(env,'thread','fanout_failed');
+      }
+    }
+    // Events expire after five minutes; keep delivery markers for one day.
+    // Bounded cleanup prevents an unbounded D1 retention table.
+    await env.PUSH_DB.prepare('DELETE FROM delivered WHERE event_key IN ' +
+      '(SELECT event_key FROM delivered WHERE created_at < ? ORDER BY created_at LIMIT 100)')
+      .bind(Date.now() - 86400_000).run();
+    let attempted=0;
+    let accepted=0;
+    let failedHttp=0;
+    let cleaned=0;
+    if(sendTopic) {
+      // Um único envio por tópico para todos os participantes inscritos.
+      const marker='topic:'+event.key;
+      const insert=await env.PUSH_DB.prepare(
+        'INSERT OR IGNORE INTO delivered (event_key,created_at) VALUES (?,?)'
+      ).bind(marker,Date.now()).run();
+      if(insert.meta?.changes) {
+        const res=await fetch('https://fcm.googleapis.com/v1/projects/'+project+'/messages:send',{
+          method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+          body:JSON.stringify({message:{
+            topic:event.topic,
+            data:{kind:'discussion_reply',postId:event.notice.postId,
+              replyId:event.notice.replyId,actorUid:event.notice.actorUid},
+            android:{priority:'HIGH',ttl:'3600s'},
+          }}),
+        });
+        attempted++;
+        if(res.ok) accepted++; else failedHttp=res.status;
+      }
+    }
+    const recipients = sendTopic ? (event.legacyOwner ? [event.legacyOwner] : []) : event.recipients;
+    for(const recipient of recipients) {
+      if(!uidPart(recipient)||recipient===uid||(qa&&!QA_EMAILS.has(recipient))) continue;
+      const list=await devices(token,recipient,project);
+      if(!list.length) continue;
+      // At most once: a network fault may lose a push, not duplicate or spam it.
+      const marker=event.key+':'+recipient;
+      const record=await env.PUSH_DB.prepare(
+        'INSERT OR IGNORE INTO delivered (event_key,created_at) VALUES (?,?)'
+      ).bind(marker,Date.now()).run();
+      if(!record.meta?.changes) continue;
+      for(const target of list) {
+        const result=event.topic
+          ? await fetch('https://fcm.googleapis.com/v1/projects/'+project+'/messages:send',{
+              method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+              body:JSON.stringify({message:{
+                token:target.token,
+                data:{uid:recipient,kind:'reply',postId:event.notice.postId,
+                  replyId:event.notice.replyId,actorUid:event.notice.actorUid},
+                android:{priority:'HIGH',ttl:'3600s'},
+              }}),
+            })
+          : await send(token,target.token,recipient,event.kind,project);
+        attempted++;
+        if(result.ok) accepted++;
+        else {
+          failedHttp=result.status;
+          if(!qa && await cleanupInvalidDevice(token,target,result)) cleaned++;
+        }
+        if(!result.ok && result.status>=500) break;
+      }
+    }
+    const outcome=attempted && !accepted ? 'delivery_failed'
+      : accepted ? 'accepted_by_fcm' : 'no_devices_or_duplicate';
+    await auditDelivery(env,event.kind,outcome,attempted,accepted,failedHttp);
+    if(cleaned) await auditDelivery(env,'cleanup','unregistered_removed',cleaned,0,404);
+    return response(outcome==='delivery_failed'||!fanoutOk ? 503 : 202,
+      !fanoutOk ? 'fanout_failed' : outcome);
+  } catch {
+    // Não registrar ID tokens, chaves, UID, FCM tokens nem payloads em logs.
+    return response(503,'unavailable');
+  }
+}
 
+// O relay de QA envia por dispositivo e apenas consulta o Firestore.
+export async function handleQaPush(request, env) {
+  const path = new URL(request.url).pathname;
+  const health = request.method === 'GET' && path === '/health';
+  if (!health && (request.method !== 'POST' || path !== '/event'))
+    return response(404, 'not_found');
+
+  const scoped = {
+    PUSH_ENABLED: env.QA_PUSH_ENABLED,
+    PUSH_DB: env.QA_PUSH_DB,
+    FIREBASE_WEB_API_KEY: env.QA_FIREBASE_WEB_API_KEY,
+    FIREBASE_SERVICE_ACCOUNT_JSON: env.QA_FIREBASE_SERVICE_ACCOUNT_JSON,
+  };
+  let configured = false;
+  if (scoped.PUSH_ENABLED === 'true' && scoped.PUSH_DB && scoped.FIREBASE_WEB_API_KEY) {
+    try {
+      serviceAccount(scoped, QA_PROJECT);
+      configured = true;
+    } catch {
+      // Configuração cruzada ou incompleta não chega ao Google ou ao banco.
+    }
+  }
+  if (health) return response(200, configured ? 'configured' : 'disabled');
+  return handlePushEvent(request, scoped, configured, QA_PROJECT);
+}
