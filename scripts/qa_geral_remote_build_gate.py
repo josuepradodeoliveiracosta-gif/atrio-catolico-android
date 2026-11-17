@@ -4,6 +4,22 @@ from pathlib import Path
 import sys
 
 
+CELULAR_FICTICIO = {
+    "project_info": {
+        "project_number": "000000000000",
+        "project_id": "atrio-catolico-qa-geral-ficticio",
+    },
+    "client": [{
+        "client_info": {
+            "mobilesdk_app_id": "1:000000000000:android:0000000000000000000000",
+            "android_client_info": {"package_name": "br.com.atriocatolico.qageral.celular"},
+        },
+        "api_key": [{"current_key": "chave-ficticia-apenas-para-compilacao"}],
+    }],
+    "configuration_version": "1",
+}
+
+
 def unique_object(pairs):
     result = {}
     for key, value in pairs:
@@ -35,6 +51,8 @@ def validate(path, project_id, app_id, package_name):
     api_key, = client["api_key"]
     if not isinstance(api_key["current_key"], str) or len(api_key["current_key"]) < 8:
         raise ValueError("Chave de cliente do Android ausente.")
+    if package_name == "br.com.atriocatolico.qageral.celular" and config != CELULAR_FICTICIO:
+        raise ValueError("O pacote QA Geral Celular exige a configuração fictícia exata.")
 
     bucket = project.get("storage_bucket")
     if bucket is not None and bucket not in (
@@ -50,6 +68,10 @@ def validate(path, project_id, app_id, package_name):
 
 
 if __name__ == "__main__":
+    if len(sys.argv) == 3 and sys.argv[1] == "--write-fixture":
+        with Path(sys.argv[2]).open("x", encoding="utf-8") as file:
+            json.dump(CELULAR_FICTICIO, file)
+        sys.exit(0)
     path, project_id, app_id, package_name = sys.argv[1:]
     try:
         validate(Path(path), project_id, app_id, package_name)

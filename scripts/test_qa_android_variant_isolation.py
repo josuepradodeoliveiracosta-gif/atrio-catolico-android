@@ -17,7 +17,8 @@ class QaGeralBotIsolationTests(unittest.TestCase):
     def test_gradle_has_separate_opt_in_build_and_keeps_chat_profile(self):
         gradle = source("app/build.gradle.kts")
         for expected in (
-            'create("qaGeral")', 'applicationIdSuffix = ".qageral"',
+            'create("qaGeral")', 'applicationIdSuffix = atrioQaGeralPackageSuffix',
+            'if (atrioQaGeralCelularFicticio) ".qageral.celular" else ".qageral"',
             'testBuildType = if (atrioQaGeralBuild) "qaGeral" else "debug"',
             'variant.enable = atrioQaGeralBuild',
             'create("chatQa")', 'create("perfilQa")',

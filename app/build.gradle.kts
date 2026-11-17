@@ -18,11 +18,18 @@ val atrioOtaPilotEnabled = atrioOtaReleasePilot || atrioOtaPilotCompileOnly
 val atrioQaGeralBuild = System.getenv("ATRIO_QA_GERAL_BUILD") == "1"
 val atrioQaGeralRemote = System.getenv("ATRIO_QA_GERAL_REMOTE_BUILD") == "1"
 val atrioQaGeralPush = System.getenv("ATRIO_QA_GERAL_PUSH_BUILD") == "1"
+val atrioQaGeralCelularFicticio = System.getenv("ATRIO_QA_GERAL_CELULAR_FICTICIO") == "1"
+require(!atrioQaGeralCelularFicticio || (atrioQaGeralRemote && !atrioQaGeralPush)) {
+    "O pacote QA Geral Celular fictício requer o build dedicado e mantém o push desabilitado."
+}
 require(!atrioQaGeralPush || atrioQaGeralRemote) {
     "O Push do QA Geral requer o build dedicado para celular."
 }
-val atrioQaGeralRemoteProject = "atrio-catolico-qa-general"
-val atrioQaGeralRemoteAppId = "1:835727158563:android:618218ab4be326d75cb096"
+val atrioQaGeralRemoteProject = if (atrioQaGeralCelularFicticio)
+    "atrio-catolico-qa-geral-ficticio" else "atrio-catolico-qa-general"
+val atrioQaGeralRemoteAppId = if (atrioQaGeralCelularFicticio)
+    "1:000000000000:android:0000000000000000000000" else "1:835727158563:android:618218ab4be326d75cb096"
+val atrioQaGeralPackageSuffix = if (atrioQaGeralCelularFicticio) ".qageral.celular" else ".qageral"
 require(!atrioQaGeralRemote || atrioQaGeralBuild) {
     "A homologação física requer o build QA Geral."
 }
@@ -61,7 +68,7 @@ if (atrioQaGeralBuild) {
         val preflight = ProcessBuilder(
             "python3", rootProject.file("scripts/qa_geral_remote_build_gate.py").absolutePath,
             qaConfig.absolutePath, atrioQaGeralRemoteProject, atrioQaGeralRemoteAppId,
-            "br.com.atriocatolico.qageral"
+            "br.com.atriocatolico$atrioQaGeralPackageSuffix"
         ).inheritIO().start()
         require(preflight.waitFor() == 0) { "Configuração Firebase do QA Geral para celular recusada." }
     } else {
@@ -298,7 +305,7 @@ android {
         }
         create("qaGeral") {
             initWith(getByName("debug"))
-            applicationIdSuffix = ".qageral"
+            applicationIdSuffix = atrioQaGeralPackageSuffix
             matchingFallbacks += listOf("debug")
             isDebuggable = true
             buildConfigField("boolean", "OTA_QA_LOOPBACK", "false")
