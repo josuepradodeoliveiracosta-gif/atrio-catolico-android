@@ -20,6 +20,11 @@ val atrioQaGeralRemote = System.getenv("ATRIO_QA_GERAL_REMOTE_BUILD") == "1"
 val atrioQaGeralPush = System.getenv("ATRIO_QA_GERAL_PUSH_BUILD") == "1"
 val atrioQaGeralCelularFicticio = System.getenv("ATRIO_QA_GERAL_CELULAR_FICTICIO") == "1"
 val atrioQaGeralCelularUnsigned = System.getenv("ATRIO_QA_GERAL_CELULAR_UNSIGNED_BUILD") == "1"
+val atrioQaGeralCelularPairCode = System.getenv("ATRIO_QA_GERAL_CELULAR_PAIR_CODE").orEmpty()
+require(atrioQaGeralCelularPairCode.isEmpty() ||
+    (atrioQaGeralCelularUnsigned && atrioQaGeralCelularPairCode in setOf("38", "39"))) {
+    "O par de atualização QA Celular exige o build fictício sem assinatura e versionCode 38 ou 39."
+}
 require(!atrioQaGeralCelularUnsigned || atrioQaGeralCelularFicticio) {
     "O build sem assinatura é exclusivo do QA Geral Celular fictício."
 }
@@ -241,6 +246,7 @@ android {
         buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"0.20.4\"")
         buildConfigField("boolean", "ATRIO_QA_GERAL_REMOTE", "false")
         buildConfigField("boolean", "ATRIO_QA_GERAL_CELULAR_FICTICIO", "false")
+        buildConfigField("int", "ATRIO_QA_GERAL_CELULAR_PAIR_CODE", "0")
         buildConfigField("boolean", "ATRIO_QA_GERAL_PUSH", "false")
         buildConfigField("String", "ATRIO_QA_GERAL_PROJECT_ID", "\"\"")
         buildConfigField("String", "ATRIO_QA_GERAL_APP_ID", "\"\"")
@@ -328,6 +334,7 @@ android {
             if (atrioQaGeralRemote) {
                 buildConfigField("boolean", "ATRIO_QA_GERAL_REMOTE", "true")
                 buildConfigField("boolean", "ATRIO_QA_GERAL_CELULAR_FICTICIO", atrioQaGeralCelularFicticio.toString())
+                buildConfigField("int", "ATRIO_QA_GERAL_CELULAR_PAIR_CODE", atrioQaGeralCelularPairCode.ifEmpty { "0" })
                 buildConfigField("boolean", "ATRIO_QA_GERAL_PUSH", atrioQaGeralPush.toString())
                 buildConfigField("String", "ATRIO_QA_GERAL_PROJECT_ID", "\"$atrioQaGeralRemoteProject\"")
                 buildConfigField("String", "ATRIO_QA_GERAL_APP_ID", "\"$atrioQaGeralRemoteAppId\"")
@@ -388,8 +395,9 @@ androidComponents {
     onVariants(selector().withBuildType("qaGeral")) { variant ->
         variant.outputs.forEach { output ->
             val suffix = if (atrioQaGeralRemote) "qa-geral-celular" else "qa-geral"
-            output.versionName.set("$atrioDebugVersionName-$suffix")
-            output.versionCode.set(atrioDebugVersionCode)
+            val pairSuffix = if (atrioQaGeralCelularPairCode.isEmpty()) "" else "-$atrioQaGeralCelularPairCode"
+            output.versionName.set("$atrioDebugVersionName-$suffix$pairSuffix")
+            output.versionCode.set(atrioQaGeralCelularPairCode.toIntOrNull() ?: atrioDebugVersionCode)
         }
     }
 }

@@ -194,7 +194,11 @@ class MainActivity : ComponentActivity() {
                 }
             } else if (BuildConfig.ATRIO_QA_GERAL_CELULAR_FICTICIO) {
                 AtrioTheme {
-                    Text("Configuração fictícia do QA Geral Celular validada.", modifier = Modifier.padding(24.dp))
+                    if (BuildConfig.ATRIO_QA_GERAL_CELULAR_PAIR_CODE > 0) {
+                        QaGeralCelularUpdateScreen()
+                    } else {
+                        Text("Configuração fictícia do QA Geral Celular validada.", modifier = Modifier.padding(24.dp))
+                    }
                 }
             } else if (OtaQaChannel.active) {
                 OtaQaScreen()

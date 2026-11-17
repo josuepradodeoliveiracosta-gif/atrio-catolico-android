@@ -7,11 +7,19 @@ on:
         description: 'SHA completo aprovado pelo fundador para a compilação'
         required: true
         type: string
+      build_kind:
+        description: 'Compilação fictícia já autorizada para este disparo'
+        type: choice
+        options: [single, pair]
+        default: single
+        required: true
   pull_request:
     branches: [main]
     paths:
       - .github/workflows/qa-geral-celular-manual.yml
       - app/build.gradle.kts
+      - app/src/main/java/br/com/atriocatolico/MainActivity.kt
+      - app/src/main/java/br/com/atriocatolico/QaGeralCelularUpdateScreen.kt
       - app/src/qaGeral/**
       - scripts/qa_geral_remote_build_gate.py
       - scripts/qa_geral_celular_*.py
@@ -27,7 +35,7 @@ jobs:
     name: Testar aprovação com APKs fictícios
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -61,6 +69,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: qa-geral-celular-assinatura
+    env:
+      QA_CELULAR_BUILD_KIND: ${{ inputs.build_kind }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -82,7 +92,14 @@ jobs:
         run: |
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           rm -f -- app/google-services.json
-          bash scripts/qa_geral_celular_manual.sh build "$RUNNER_TEMP/qa-celular-unsigned.apk"
+          if [[ "$QA_CELULAR_BUILD_KIND" == pair ]]; then
+            for code in 38 39; do
+              bash scripts/qa_geral_celular_manual.sh build "$RUNNER_TEMP/qa-celular-unsigned-$code.apk" "$code"
+            done
+          else
+            test "$QA_CELULAR_BUILD_KIND" = single
+            bash scripts/qa_geral_celular_manual.sh build "$RUNNER_TEMP/qa-celular-unsigned.apk"
+          fi
       - name: Assinar e aprovar apenas com certificado fixado
         shell: bash
         env:
@@ -103,14 +120,25 @@ jobs:
           trap 'rm -rf -- "$work"' EXIT
           printf '%s' "$ATRIO_QA_CELULAR_KEYSTORE_BASE64" | base64 --decode > "$work/qa.keystore"
           unset ATRIO_QA_CELULAR_KEYSTORE_BASE64
-          bash scripts/qa_geral_celular_manual.sh sign \
-            "$RUNNER_TEMP/qa-celular-unsigned.apk" "$work/candidate.apk" "$work/qa.keystore"
+          if [[ "$QA_CELULAR_BUILD_KIND" == pair ]]; then
+            for code in 38 39; do
+              bash scripts/qa_geral_celular_manual.sh sign \
+                "$RUNNER_TEMP/qa-celular-unsigned-$code.apk" "$work/candidate-$code.apk" "$work/qa.keystore"
+            done
+            candidates=(--apk "$work/candidate-38.apk" --update-apk "$work/candidate-39.apk")
+          else
+            bash scripts/qa_geral_celular_manual.sh sign \
+              "$RUNNER_TEMP/qa-celular-unsigned.apk" "$work/candidate.apk" "$work/qa.keystore"
+            candidates=(--apk "$work/candidate.apk")
+          fi
           rm -f -- "$work/qa.keystore"
           unset ATRIO_QA_CELULAR_KEY_ALIAS ATRIO_QA_CELULAR_STORE_PASSWORD ATRIO_QA_CELULAR_KEY_PASSWORD
-          python3 -m scripts.qa_geral_celular_approve --apk "$work/candidate.apk" \
+          python3 -m scripts.qa_geral_celular_approve "${candidates[@]}" \
             --approved-dir "$work/approved" --build-tools "$ANDROID_HOME/build-tools/36.0.0" \
             | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Limpar APK temporário da compilação
         if: always()
         shell: bash
-        run: rm -f -- "$RUNNER_TEMP/qa-celular-unsigned.apk"
+        run: |
+          rm -f -- "$RUNNER_TEMP/qa-celular-unsigned.apk" \
+            "$RUNNER_TEMP/qa-celular-unsigned-38.apk" "$RUNNER_TEMP/qa-celular-unsigned-39.apk"

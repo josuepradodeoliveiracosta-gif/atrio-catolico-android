@@ -12,6 +12,7 @@ case "${1:-}" in
         trap 'rm -f -- "$config"' EXIT
         ATRIO_QA_GERAL_BUILD=1 ATRIO_QA_GERAL_REMOTE_BUILD=1 ATRIO_QA_GERAL_PUSH_BUILD=0 \
             ATRIO_QA_GERAL_CELULAR_FICTICIO=1 ATRIO_QA_GERAL_CELULAR_UNSIGNED_BUILD=1 \
+            ATRIO_QA_GERAL_CELULAR_PAIR_CODE="${3:-}" \
             gradle :app:assembleQaGeral --no-daemon --max-workers=2
         shopt -s nullglob
         apks=(app/build/outputs/apk/qaGeral/*.apk)
@@ -33,7 +34,7 @@ case "${1:-}" in
             --v4-signing-enabled false --out "$signed" "$unsigned"
         ;;
     *)
-        echo 'Use build <saída.apk> ou sign <entrada.apk> <saída.apk> <keystore>.' >&2
+        echo 'Use build <saída.apk> [versionCode do par] ou sign <entrada.apk> <saída.apk> <keystore>.' >&2
         exit 2
         ;;
 esac

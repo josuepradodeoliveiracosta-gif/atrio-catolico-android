@@ -11,6 +11,9 @@ signed="$work/signed.apk"
 keystore="$work/fixture.p12"
 
 bash scripts/qa_geral_celular_manual.sh build "$unsigned"
+for code in 38 39; do
+    bash scripts/qa_geral_celular_manual.sh build "$work/unsigned-$code.apk" "$code"
+done
 
 export ATRIO_QA_CELULAR_STORE_PASSWORD
 ATRIO_QA_CELULAR_STORE_PASSWORD="$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')"
@@ -79,3 +82,46 @@ if grep -Fq -e android.permission.INTERNET -e android.permission.REQUEST_INSTALL
     exit 1
 fi
 echo '6 cenários com APKs reais e chaves descartáveis passaram.'
+
+for code in 38 39; do
+    bash scripts/qa_geral_celular_manual.sh sign "$work/unsigned-$code.apk" "$work/signed-$code.apk" "$keystore"
+done
+ATRIO_QA_CELULAR_KEY_ALIAS=fixture-b bash scripts/qa_geral_celular_manual.sh sign \
+    "$work/unsigned-39.apk" "$work/other-39.apk" "$keystore"
+
+approve_pair() {
+    ATRIO_QA_CELULAR_CERT_SHA256="$reference" python3 -m scripts.qa_geral_celular_approve \
+        --apk "$work/$1" --update-apk "$work/$2" \
+        --build-tools "$sdk" --approved-dir "$work/$3"
+}
+
+expect_pair_rejected() {
+    local scenario="$1" base="$2" update="$3" reason="$4"
+    if approve_pair "$base" "$update" "$scenario" > "$work/result.log" 2>&1; then
+        echo "Aprovação indevida do par no cenário $scenario." >&2
+        exit 1
+    fi
+    cat "$work/result.log"
+    grep -Fq "$reason" "$work/result.log"
+    test ! -e "$work/$scenario"
+    echo "$scenario: recusado sem aprovar nenhum APK."
+}
+
+expect_pair_rejected par-invertido signed-39.apk signed-38.apk "versionCode 38 → 39"
+expect_pair_rejected par-repetido signed-38.apk signed-38.apk "versionCode 38 → 39"
+expect_pair_rejected par-certificado-divergente signed-38.apk other-39.apk "diverge da referência"
+approve_pair signed-38.apk signed-39.apk par-aprovado
+for code in 38 39; do
+    apk="$work/par-aprovado/atrio-qa-geral-celular-$code.apk"
+    test -s "$apk"
+    "$sdk/aapt" dump badging "$apk" > "$work/badging-$code.txt"
+    grep -F "package: name='br.com.atriocatolico.qageral.celular' versionCode='$code' " "$work/badging-$code.txt"
+    "$sdk/aapt" dump xmltree "$apk" AndroidManifest.xml > "$work/manifest-$code.txt"
+    grep -Eq 'android:allowBackup[^=]*=.*0x0$' "$work/manifest-$code.txt"
+    if grep -Fq -e android.permission.INTERNET -e android.permission.REQUEST_INSTALL_PACKAGES \
+        -e android.permission.POST_NOTIFICATIONS -e br.com.atriocatolico.AtrioPushService "$work/manifest-$code.txt"; then
+        echo "O APK $code perdeu o isolamento do modo fictício." >&2
+        exit 1
+    fi
+done
+echo '4 cenários de atualização com APKs reais e chaves descartáveis passaram.'
