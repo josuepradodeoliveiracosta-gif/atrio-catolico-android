@@ -1,0 +1,155 @@
+name: QA Geral Celular — assinatura protegida do APK 41
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: 'SHA completo do candidato 41 já auditado'
+        required: true
+        type: string
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/qa-geral-celular-assinar-41.yml
+      - scripts/qa_geral_celular_sign_round.sh
+      - scripts/qa_geral_celular_approve.py
+      - scripts/qa_geral_celular_signature.py
+
+permissions:
+  contents: read
+
+jobs:
+  fixture:
+    name: Validar assinatura do APK 41 com chave descartável
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: 94e94b85a0fbc43d7a51c5874dc2fa6928b41053
+          path: candidate
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with:
+          gradle-version: '8.13'
+          cache-disabled: true
+      - name: Compilar o candidato auditado com identidade sintética
+        working-directory: candidate
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = 94e94b85a0fbc43d7a51c5874dc2fa6928b41053
+          rm -f -- app/google-services.json
+          config="$(python3 - <<'PY'
+          import json
+
+          from scripts.qa_geral_remote_build_gate import QA_PROJECT, REGISTERED_APP_ID, fixture
+
+          config = fixture(QA_PROJECT, REGISTERED_APP_ID)
+          config["client"][0]["api_key"][0]["current_key"] = "sem-credencial-remota-ensaio-41"
+          print(json.dumps(config))
+          PY
+          )"
+          ATRIO_QA_CELULAR_GOOGLE_SERVICES_JSON="$config" \
+            bash scripts/qa_geral_celular_manual.sh build-round "$RUNNER_TEMP/round-unsigned.apk"
+      - name: Assinar e verificar com certificado descartável
+        shell: bash
+        run: |
+          python3 -m unittest scripts.test_qa_geral_celular_signature -v
+          work="$(mktemp -d "$RUNNER_TEMP/qa-41-fixture.XXXXXX")"
+          trap 'rm -rf -- "$work"; rm -f -- "$RUNNER_TEMP/round-unsigned.apk"' EXIT
+          export ATRIO_QA_CELULAR_STORE_PASSWORD=fixture-descartavel
+          export ATRIO_QA_CELULAR_KEY_PASSWORD="$ATRIO_QA_CELULAR_STORE_PASSWORD"
+          export ATRIO_QA_CELULAR_KEY_ALIAS=qa41-fixture
+          keytool -genkeypair -keystore "$work/fixture.p12" -storetype PKCS12 \
+            -storepass:env ATRIO_QA_CELULAR_STORE_PASSWORD -alias "$ATRIO_QA_CELULAR_KEY_ALIAS" \
+            -keyalg RSA -keysize 2048 -validity 1 -dname CN=QA41-fixture
+          export ATRIO_QA_CELULAR_CERT_SHA256="$(keytool -exportcert -keystore "$work/fixture.p12" \
+            -storepass:env ATRIO_QA_CELULAR_STORE_PASSWORD -alias "$ATRIO_QA_CELULAR_KEY_ALIAS" | sha256sum | cut -d ' ' -f 1)"
+          export ATRIO_QA_CELULAR_KEYSTORE_BASE64="$(base64 -w0 "$work/fixture.p12")"
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          if python3 -m scripts.qa_geral_celular_signature \
+            --apk "$RUNNER_TEMP/round-unsigned.apk" --apksigner "$tools/apksigner"; then
+            echo 'O APK sem assinatura deveria ser recusado.' >&2
+            exit 1
+          fi
+          bash scripts/qa_geral_celular_sign_round.sh "$RUNNER_TEMP/round-unsigned.apk"
+
+  assinatura:
+    name: Assinar o APK 41 aprovado e registrar evidências
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android' &&
+      github.ref == 'refs/heads/main' && github.ref_protected &&
+      github.actor == 'josuepradodeoliveiracosta-gif' &&
+      github.run_attempt == 1 && inputs.source_sha == '94e94b85a0fbc43d7a51c5874dc2fa6928b41053'
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    environment: qa-geral-celular-assinatura
+    env:
+      QA_ROUND_SOURCE_SHA: 94e94b85a0fbc43d7a51c5874dc2fa6928b41053
+      QA_APK39_CERT_SHA256: 63b26756491bb0103e44e561d63c5481c0d9a6e7374b322ff4e97e1cd5629e57
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: 94e94b85a0fbc43d7a51c5874dc2fa6928b41053
+          path: candidate
+          persist-credentials: false
+      - name: Reconfirmar a referência auditada
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C candidate rev-parse HEAD)" = "$QA_ROUND_SOURCE_SHA"
+          test "$(git ls-remote --exit-code origin refs/pull/343/head | cut -f 1)" = "$QA_ROUND_SOURCE_SHA"
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with:
+          gradle-version: '8.13'
+          cache-disabled: true
+      - name: Compilar com a configuração registrada do Firebase de QA
+        working-directory: candidate
+        shell: bash
+        env:
+          ATRIO_QA_CELULAR_GOOGLE_SERVICES_JSON: ${{ secrets.ATRIO_QA_CELULAR_GOOGLE_SERVICES_JSON }}
+        run: |
+          rm -f -- app/google-services.json
+          bash scripts/qa_geral_celular_manual.sh build-round "$RUNNER_TEMP/round-unsigned.apk"
+      - name: Assinar e comparar o único certificado com o APK 39
+        shell: bash
+        env:
+          ATRIO_QA_CELULAR_CERT_SHA256: ${{ vars.ATRIO_QA_CELULAR_CERT_SHA256 }}
+          ATRIO_QA_CELULAR_KEYSTORE_BASE64: ${{ secrets.ATRIO_QA_CELULAR_KEYSTORE_BASE64 }}
+          ATRIO_QA_CELULAR_KEY_ALIAS: ${{ secrets.ATRIO_QA_CELULAR_KEY_ALIAS }}
+          ATRIO_QA_CELULAR_STORE_PASSWORD: ${{ secrets.ATRIO_QA_CELULAR_STORE_PASSWORD }}
+          ATRIO_QA_CELULAR_KEY_PASSWORD: ${{ secrets.ATRIO_QA_CELULAR_KEY_PASSWORD }}
+        run: |
+          test "$(git ls-remote --exit-code origin refs/pull/343/head | cut -f 1)" = "$QA_ROUND_SOURCE_SHA"
+          if [[ "${ATRIO_QA_CELULAR_CERT_SHA256,,}" != "$QA_APK39_CERT_SHA256" ]]; then
+            echo 'O certificado de referência diverge do APK 39 homologado.' >&2
+            exit 1
+          fi
+          printf 'Origem do APK: %s\n' "$QA_ROUND_SOURCE_SHA" | tee -a "$GITHUB_STEP_SUMMARY"
+          bash scripts/qa_geral_celular_sign_round.sh "$RUNNER_TEMP/round-unsigned.apk" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Limpar arquivos temporários
+        if: always()
+        shell: bash
+        run: rm -f -- "$RUNNER_TEMP/round-unsigned.apk" candidate/app/src/qaGeral/google-services.json

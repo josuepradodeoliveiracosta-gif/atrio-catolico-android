@@ -32,9 +32,9 @@ def verified_version_code(apk, build_tools, expected_sha256):
     return read_version_code(apk, build_tools)
 
 
-def verify_functional_variant(apk, build_tools, version_code, firebase_app_id):
-    if version_code != FUNCTIONAL_CODE:
-        raise PreflightError(f"O APK funcional exige versionCode {FUNCTIONAL_CODE}.")
+def verify_functional_variant(apk, build_tools, version_code, firebase_app_id, *, expected_code=FUNCTIONAL_CODE):
+    if version_code != expected_code:
+        raise PreflightError(f"O APK funcional exige versionCode {expected_code}.")
     aapt = str(build_tools / "aapt")
     resources = command([aapt, "dump", "--values", "resources", str(apk.resolve())])
     if QA_PROJECT not in resources or firebase_app_id not in resources:
