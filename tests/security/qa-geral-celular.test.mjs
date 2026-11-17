@@ -3,7 +3,7 @@ import {readFileSync} from 'node:fs';
 import {after, before, test} from 'node:test';
 import {assertFails, initializeTestEnvironment} from '@firebase/rules-unit-testing';
 import {arrayUnion, collection, deleteDoc, doc, getDoc, getDocs, limit, orderBy, query,
-  setDoc, updateDoc, where} from 'firebase/firestore';
+  serverTimestamp, setDoc, updateDoc, where} from 'firebase/firestore';
 import {accounts, documents} from '../../firebase/qa-geral-celular/fixtures.mjs';
 
 const projectId = 'demo-atrio-v11';
@@ -91,4 +91,35 @@ test('clientes não podem criar mensagens, contatos, publicações ou regras de 
   await assertFails(deleteDoc(doc(a, 'profiles/' + alice.uid)));
   await assertFails(setDoc(doc(a, 'admins/' + alice.uid), {enabled: true}));
   await assertFails(getDoc(doc(a, 'chat_groups/1')));
+});
+
+test('Curtir e Salvar gravam e removem marcadores somente para o próprio titular', async () => {
+  const postId = 'qa-nav-bob-profile';
+  for (const kind of ['likedPosts', 'savedPosts']) {
+    const path = `users/${alice.uid}/${kind}/${postId}`;
+    const marker = doc(a, path);
+    await setDoc(marker, {createdAt: serverTimestamp()});
+    assert.equal((await getDoc(marker)).exists(), true);
+    await assertFails(getDoc(doc(b, path)));
+    await assertFails(deleteDoc(doc(b, path)));
+    await assertFails(updateDoc(marker, {createdAt: serverTimestamp()}));
+    await deleteDoc(marker);
+    assert.equal((await getDoc(marker)).exists(), false);
+  }
+});
+
+test('Curtir e Salvar recusam alvo inexistente, payload extra e identidade não verificada', async () => {
+  for (const kind of ['likedPosts', 'savedPosts']) {
+    const postId = 'qa-nav-bob-profile';
+    const ownCollection = `users/${alice.uid}/${kind}/`;
+    const ownPath = ownCollection + postId;
+    await assertFails(setDoc(doc(a, ownCollection + 'sem-publicacao'), {createdAt: serverTimestamp()}));
+    await assertFails(setDoc(doc(a, ownPath), {createdAt: serverTimestamp(), extra: true}));
+    await assertFails(setDoc(doc(a, ownPath), {}));
+    await assertFails(setDoc(doc(a, ownPath), {createdAt: new Date(0)}));
+    await assertFails(setDoc(doc(b, ownPath), {createdAt: serverTimestamp()}));
+    await assertFails(setDoc(doc(outsider, ownPath), {createdAt: serverTimestamp()}));
+    const unverified = session(alice, {email_verified: false});
+    await assertFails(setDoc(doc(unverified, ownPath), {createdAt: serverTimestamp()}));
+  }
 });
