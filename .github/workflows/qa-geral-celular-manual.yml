@@ -13,6 +13,11 @@ on:
         options: [single, pair]
         default: single
         required: true
+      deliver_pair:
+        description: 'Disponibilizar o par cifrado após autorização específica'
+        type: boolean
+        default: false
+        required: true
   pull_request:
     branches: [main]
     paths:
@@ -55,6 +60,10 @@ jobs:
       - name: Compilar e testar com certificados descartáveis
         shell: bash
         run: |
+          if ! command -v age >/dev/null || ! command -v age-keygen >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends age
+          fi
           rm -f -- app/google-services.json
           bash scripts/test_qa_geral_celular_manual.sh
 
@@ -71,6 +80,7 @@ jobs:
     environment: qa-geral-celular-assinatura
     env:
       QA_CELULAR_BUILD_KIND: ${{ inputs.build_kind }}
+      QA_CELULAR_DELIVER_PAIR: ${{ inputs.deliver_pair }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -87,6 +97,19 @@ jobs:
         with:
           gradle-version: '8.13'
           cache-disabled: true
+      - name: Conferir destinatário público da entrega autorizada
+        if: inputs.deliver_pair
+        shell: bash
+        env:
+          ATRIO_QA_CELULAR_AGE_RECIPIENT: ${{ vars.ATRIO_QA_CELULAR_AGE_RECIPIENT }}
+        run: |
+          test "$QA_CELULAR_BUILD_KIND" = pair
+          python3 -c 'import os; from scripts.qa_geral_celular_delivery import validate_recipient; validate_recipient(os.environ["ATRIO_QA_CELULAR_AGE_RECIPIENT"])'
+          if ! command -v age >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends age
+          fi
+          age --encrypt --recipient "$ATRIO_QA_CELULAR_AGE_RECIPIENT" /dev/null > /dev/null
       - name: Compilar variante fictícia sem assinatura
         shell: bash
         run: |
@@ -101,8 +124,10 @@ jobs:
             bash scripts/qa_geral_celular_manual.sh build "$RUNNER_TEMP/qa-celular-unsigned.apk"
           fi
       - name: Assinar e aprovar apenas com certificado fixado
+        id: assinar
         shell: bash
         env:
+          ATRIO_QA_CELULAR_AGE_RECIPIENT: ${{ vars.ATRIO_QA_CELULAR_AGE_RECIPIENT }}
           ATRIO_QA_CELULAR_CERT_SHA256: ${{ vars.ATRIO_QA_CELULAR_CERT_SHA256 }}
           ATRIO_QA_CELULAR_KEYSTORE_BASE64: ${{ secrets.ATRIO_QA_CELULAR_KEYSTORE_BASE64 }}
           ATRIO_QA_CELULAR_KEY_ALIAS: ${{ secrets.ATRIO_QA_CELULAR_KEY_ALIAS }}
@@ -136,9 +161,26 @@ jobs:
           python3 -m scripts.qa_geral_celular_approve "${candidates[@]}" \
             --approved-dir "$work/approved" --build-tools "$ANDROID_HOME/build-tools/36.0.0" \
             | tee -a "$GITHUB_STEP_SUMMARY"
+          if [[ "$QA_CELULAR_DELIVER_PAIR" == true ]]; then
+            test "$QA_CELULAR_BUILD_KIND" = pair
+            python3 -m scripts.qa_geral_celular_delivery --approved-dir "$work/approved" \
+              --output "$RUNNER_TEMP/atrio-qa-geral-celular-38-39.zip.age" --source-sha "$GITHUB_SHA" \
+              | tee -a "$GITHUB_STEP_SUMMARY"
+            echo 'entrega=true' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Disponibilizar somente o pacote cifrado
+        if: inputs.deliver_pair && inputs.build_kind == 'pair' && steps.assinar.outputs.entrega == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: atrio-qa-geral-celular-38-39-cifrado
+          path: ${{ runner.temp }}/atrio-qa-geral-celular-38-39.zip.age
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
       - name: Limpar APK temporário da compilação
         if: always()
         shell: bash
         run: |
           rm -f -- "$RUNNER_TEMP/qa-celular-unsigned.apk" \
-            "$RUNNER_TEMP/qa-celular-unsigned-38.apk" "$RUNNER_TEMP/qa-celular-unsigned-39.apk"
+            "$RUNNER_TEMP/qa-celular-unsigned-38.apk" "$RUNNER_TEMP/qa-celular-unsigned-39.apk" \
+            "$RUNNER_TEMP/atrio-qa-geral-celular-38-39.zip.age"

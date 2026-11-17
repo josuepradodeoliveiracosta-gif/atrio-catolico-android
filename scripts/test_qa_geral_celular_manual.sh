@@ -126,3 +126,61 @@ for code in 38 39; do
     fi
 done
 echo '4 cenários de atualização com APKs reais e chaves descartáveis passaram.'
+
+age-keygen -o "$work/recipient.agekey" 2>/dev/null
+age-keygen -o "$work/other.agekey" 2>/dev/null
+recipient="$(age-keygen -y "$work/recipient.agekey")"
+source_sha="$(git rev-parse HEAD)"
+
+deliver_pair() {
+    ATRIO_QA_CELULAR_AGE_RECIPIENT="$1" ATRIO_QA_CELULAR_CERT_SHA256="$reference" \
+        python3 -m scripts.qa_geral_celular_delivery --approved-dir "$work/$2" \
+        --output "$work/$3.zip.age" --source-sha "$source_sha"
+}
+
+if deliver_pair "" par-aprovado sem-destinatario; then
+    echo 'Cifra aprovada sem destinatário.' >&2
+    exit 1
+fi
+test ! -e "$work/sem-destinatario.zip.age"
+mkdir "$work/par-incompleto"
+cp -- "$work/par-aprovado/atrio-qa-geral-celular-38.apk" "$work/par-incompleto/"
+if deliver_pair "$recipient" par-incompleto sem-segundo-apk; then
+    echo 'Cifra aprovada com par incompleto.' >&2
+    exit 1
+fi
+test ! -e "$work/sem-segundo-apk.zip.age"
+
+deliver_pair "$recipient" par-aprovado entrega
+if age --decrypt --identity "$work/other.agekey" "$work/entrega.zip.age" >/dev/null 2>&1; then
+    echo 'Outro destinatário conseguiu decifrar o pacote.' >&2
+    exit 1
+fi
+age --decrypt --identity "$work/recipient.agekey" --output "$work/conferir.zip" "$work/entrega.zip.age"
+python3 - "$work" "$source_sha" "$reference" <<'PY'
+from hashlib import sha256
+from pathlib import Path
+import json
+import sys
+from zipfile import ZipFile
+
+work = Path(sys.argv[1])
+with ZipFile(work / "conferir.zip") as bundle:
+    filenames = [f"atrio-qa-geral-celular-{code}.apk" for code in (38, 39)]
+    assert sorted(bundle.namelist()) == sorted(filenames + ["ORIGEM.json", "SHA256SUMS"])
+    metadata = json.loads(bundle.read("ORIGEM.json"))
+    assert metadata["source_sha"] == sys.argv[2]
+    assert metadata["applicationId"] == "br.com.atriocatolico.qageral.celular"
+    assert metadata["certificate_sha256"] == sys.argv[3]
+    assert [(apk["file"], apk["versionCode"]) for apk in metadata["apks"]] == list(zip(filenames, (38, 39)))
+    expected_sums = ""
+    for apk in metadata["apks"]:
+        filename = apk["file"]
+        original = (work / "par-aprovado" / filename).read_bytes()
+        assert bundle.read(filename) == original
+        digest = sha256(original).hexdigest()
+        assert apk["sha256"] == digest
+        expected_sums += f"{digest}  {filename}\n"
+    assert bundle.read("SHA256SUMS").decode() == expected_sums
+PY
+echo 'Entrega cifrada conferida: SHA, APKs e hashes íntegros; outro destinatário não decifra.'
