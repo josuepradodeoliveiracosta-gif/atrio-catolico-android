@@ -778,15 +778,17 @@ private fun OnlineCommunity(
     val homeListState = rememberLazyListState()
     var detailId by remember { mutableStateOf<String?>(null) }
     var publicProfileTarget by remember(uid) { mutableStateOf<PublicMemberTarget?>(null) }
-    val conversationsQa = BuildConfig.DEBUG &&
-        BuildConfig.APPLICATION_ID == "br.com.atriocatolico.qageral" &&
-        if (BuildConfig.ATRIO_QA_GERAL_REMOTE) {
+    val localConversationEmulator = db.app.options.projectId == "demo-atrio-v11" &&
+        db.firestoreSettings.host == "127.0.0.1:8089" && !db.firestoreSettings.isSslEnabled
+    val conversationsQa = BuildConfig.DEBUG && when (BuildConfig.APPLICATION_ID) {
+        "br.com.atriocatolico.qageral.celular" ->
+            BuildConfig.ATRIO_QA_GERAL_CELULAR_PILOT && localConversationEmulator
+        "br.com.atriocatolico.qageral" -> if (BuildConfig.ATRIO_QA_GERAL_REMOTE) {
             qaGeralRemoteFirebaseReady(context) &&
                 db.firestoreSettings.host == "firestore.googleapis.com"
-        } else {
-            db.app.options.projectId == "demo-atrio-v11" &&
-                db.firestoreSettings.host == "127.0.0.1:8089"
-        }
+        } else localConversationEmulator
+        else -> false
+    }
     var conversationsOpen by remember(uid) { mutableStateOf(false) }
     var conversationPeer by remember(uid) { mutableStateOf<PublicMemberTarget?>(null) }
     fun closeConversations() {

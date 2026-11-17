@@ -16,6 +16,7 @@ val atrioOtaPilotCompileOnly = System.getenv("ATRIO_OTA_PILOT_COMPILE_ONLY") == 
 val atrioOtaPilotEnabled = atrioOtaReleasePilot || atrioOtaPilotCompileOnly
 // QA Geral usa emuladores por padrão. A homologação física é um build opt-in.
 val atrioQaGeralBuild = System.getenv("ATRIO_QA_GERAL_BUILD") == "1"
+val atrioQaGeralCelularPilot = System.getenv("ATRIO_QA_GERAL_CELULAR_PILOT") == "1"
 val atrioQaGeralRemote = System.getenv("ATRIO_QA_GERAL_REMOTE_BUILD") == "1"
 val atrioQaGeralPush = System.getenv("ATRIO_QA_GERAL_PUSH_BUILD") == "1"
 val atrioQaGeralCelularFicticio = System.getenv("ATRIO_QA_GERAL_CELULAR_FICTICIO") == "1"
@@ -54,8 +55,12 @@ val atrioQaGeralRemoteAppId = when {
     }
     else -> atrioQaGeralLegacyAppId
 }
-val atrioQaGeralPackageSuffix =
-    if (atrioQaGeralCelularFicticio || atrioQaGeralCelularFunctional) ".qageral.celular" else ".qageral"
+require(!atrioQaGeralCelularPilot ||
+    (atrioQaGeralBuild && !atrioQaGeralRemote && !atrioQaGeralPush)) {
+    "O piloto QA Celular exige a variante QA Geral exclusiva do Emulator."
+}
+val atrioQaGeralPackageSuffix = if (atrioQaGeralCelularFicticio ||
+    atrioQaGeralCelularFunctional || atrioQaGeralCelularPilot) ".qageral.celular" else ".qageral"
 require(!atrioQaGeralRemote || atrioQaGeralBuild) {
     "A homologação física requer o build QA Geral."
 }
@@ -264,6 +269,7 @@ android {
         versionName = "0.20.4"
         buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"0.20.4\"")
         buildConfigField("boolean", "ATRIO_QA_GERAL_REMOTE", "false")
+        buildConfigField("boolean", "ATRIO_QA_GERAL_CELULAR_PILOT", "false")
         buildConfigField("boolean", "ATRIO_QA_GERAL_CELULAR_FICTICIO", "false")
         buildConfigField("boolean", "ATRIO_QA_GERAL_CELULAR_FUNCIONAL", "false")
         buildConfigField("boolean", "ATRIO_QA_GERAL_PUSH", "false")
@@ -349,11 +355,13 @@ android {
             val qaName = if (atrioQaGeralRemote) "QA Geral · Celular" else "QA Geral offline"
             manifestPlaceholders["atrioQaGeralLabel"] = when {
                 atrioQaGeralCelularPairCode.isNotEmpty() -> "Átrio QA Celular · Atualização"
+                atrioQaGeralCelularPilot -> "Átrio QA Celular · Piloto local"
                 atrioQaGeralCelularFunctional -> "Átrio QA Geral Celular"
                 atrioQaGeralRemote -> "Átrio Católico · QA Geral Celular"
                 else -> "Átrio Católico · QA Geral"
             }
             buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"$qaName\"")
+            buildConfigField("boolean", "ATRIO_QA_GERAL_CELULAR_PILOT", atrioQaGeralCelularPilot.toString())
             if (atrioQaGeralRemote) {
                 buildConfigField("boolean", "ATRIO_QA_GERAL_REMOTE", "true")
                 buildConfigField("boolean", "ATRIO_QA_GERAL_CELULAR_FICTICIO", atrioQaGeralCelularFicticio.toString())

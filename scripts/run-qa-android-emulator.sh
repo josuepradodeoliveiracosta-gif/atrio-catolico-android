@@ -29,6 +29,12 @@ case "$qa_group" in
   all|profiles|interaction|bots) ;;
   *) echo "Grupo QA desconhecido: $qa_group" >&2; exit 2 ;;
 esac
+if [[ "${ATRIO_QA_GERAL_CELULAR_PILOT:-}" == 1 ]]; then
+  [[ "$qa_apk" == "qaGeral" && "${ATRIO_QA_SUITE:-}" == "AtrioConversasCompostasEmulatorUiTest" ]] || {
+    echo "Piloto QA Celular: somente a suíte de Conversas e Grupos no Emulator" >&2
+    exit 2
+  }
+fi
 if [[ -n "${ATRIO_QA_SUITE:-}" && "$qa_group" != all ]]; then
   echo "Suite focal e grupo paralelo nao podem ser combinados" >&2; exit 2
 fi
@@ -145,6 +151,11 @@ run_suite() {
 if [[ "${ATRIO_QA_SUITE:-}" == "GuardianV2UiTest" ]]; then
   run_suite GuardianV2UiTest
   echo "QA Android: apenas GuardianV2UiTest; status=$qa_failed"
+  exit "$qa_failed"
+fi
+if [[ "${ATRIO_QA_GERAL_CELULAR_PILOT:-}" == 1 ]]; then
+  (cd tests/security && node seed-qa-celular-pilot-android.mjs)
+  run_suite AtrioConversasCompostasEmulatorUiTest
   exit "$qa_failed"
 fi
 if [[ -n "${ATRIO_QA_SUITE:-}" ]]; then

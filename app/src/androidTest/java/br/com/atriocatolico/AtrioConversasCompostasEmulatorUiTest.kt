@@ -12,7 +12,9 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
 import com.google.android.gms.tasks.Task
@@ -20,14 +22,18 @@ import com.google.android.gms.tasks.Tasks
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.Source
+import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
 
@@ -35,20 +41,26 @@ class AtrioConversasCompostasEmulatorUiTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
     private lateinit var auth: FirebaseAuth
     private lateinit var db: FirebaseFirestore
-    private val aliceEmail = "conversas.alice@qa.invalid"
-    private val bobEmail = "conversas.bob@qa.invalid"
+    private val pilot = BuildConfig.ATRIO_QA_GERAL_CELULAR_PILOT
+    private val aliceEmail = if (pilot) "alice.navegacao@qa.invalid" else "conversas.alice@qa.invalid"
+    private val bobEmail = if (pilot) "bob.navegacao@qa.invalid" else "conversas.bob@qa.invalid"
+    private val password = "GrupoQa2026!Emulador"
+    private var showOnlineApp by mutableStateOf(false)
 
     private data class Screen(
         val uid: String,
         val peer: PublicMemberTarget? = null,
         val chatId: String? = null,
         val groupPeer: String? = null,
+        val groupId: String? = null,
     )
 
     private var screen by mutableStateOf<Screen?>(null)
 
     private fun initializeDemo() {
-        assertEquals("br.com.atriocatolico.qageral", BuildConfig.APPLICATION_ID)
+        val expected = if (pilot) "br.com.atriocatolico.qageral.celular" else "br.com.atriocatolico.qageral"
+        assertEquals(expected, compose.activity.packageName)
+        assertEquals(expected, BuildConfig.APPLICATION_ID)
         check(BuildConfig.DEBUG && BuildConfig.PUSH_RELAY_URL.isBlank())
         val context = ApplicationProvider.getApplicationContext<Context>()
         val project = "demo-atrio-v11"
@@ -61,20 +73,27 @@ class AtrioConversasCompostasEmulatorUiTest {
             .build()))
         check(firebase.options.projectId == project)
         auth = FirebaseAuth.getInstance(firebase)
-        auth.useEmulator("127.0.0.1", 9099)
         db = FirebaseFirestore.getInstance(firebase)
-        db.useEmulator("127.0.0.1", 8089)
+        if (pilot) {
+            check(!BuildConfig.ATRIO_QA_GERAL_REMOTE && !BuildConfig.ATRIO_QA_GERAL_PUSH)
+            check(db.firestoreSettings.host == "127.0.0.1:8089" && !db.firestoreSettings.isSslEnabled)
+        } else {
+            auth.useEmulator("127.0.0.1", 9099)
+            db.useEmulator("127.0.0.1", 8089)
+        }
         auth.signOut()
         compose.setContent {
             AtrioTheme {
-                screen?.let { current ->
-                    if (current.groupPeer == null) {
+                if (showOnlineApp) OnlineAtrioApp(compose.activity)
+                else screen?.let { current ->
+                    if (current.groupPeer == null && current.groupId == null) {
                         AtrioConversationsScreen(
                             db = db, uid = current.uid, onBack = {},
                             initialPeer = current.peer, initialChatId = current.chatId
                         )
                     } else {
-                        AtrioGroupsScreen(db, current.uid, listOf(current.groupPeer), onBack = {})
+                        AtrioGroupsScreen(db, current.uid, listOfNotNull(current.groupPeer),
+                            onBack = {}, initialGroupId = current.groupId)
                     }
                 }
             }
@@ -83,16 +102,18 @@ class AtrioConversasCompostasEmulatorUiTest {
 
     private fun <T> await(task: Task<T>): T = Tasks.await(task, 8, TimeUnit.SECONDS)
 
-    private fun login(email: String): String {
-        compose.runOnIdle { screen = null }
+    private fun login(email: String, eligible: Boolean = true): String {
+        compose.runOnIdle { screen = null; showOnlineApp = false }
         compose.waitForIdle()
         auth.signOut()
         val user = requireNotNull(await(auth.signInWithEmailAndPassword(
-            email, "GrupoQa2026!Emulador")).user)
+            email, password)).user)
         assertEquals(true, await(user.getIdToken(true)).claims["email_verified"])
-        val eligibility = await(db.document("users/${user.uid}/chatAgeEligibility/current")
-            .get(Source.SERVER))
-        assertEquals("eligible", eligibility.getString("status"))
+        if (eligible) {
+            val eligibility = await(db.document("users/${user.uid}/chatAgeEligibility/current")
+                .get(Source.SERVER))
+            assertEquals("eligible", eligibility.getString("status"))
+        }
         return user.uid
     }
 
@@ -138,6 +159,86 @@ class AtrioConversasCompostasEmulatorUiTest {
         }
     }
 
+    private fun reopen(destination: Screen) {
+        compose.runOnIdle { screen = null }
+        compose.waitForIdle()
+        show(destination)
+    }
+
+    // Só existe na instrumentação. O dono é o context privilegiado do Emulator.
+    private fun fixtureField(path: String, field: String, type: String, value: Any) {
+        check(pilot && db.app.options.projectId == "demo-atrio-v11")
+        val documents = "http://127.0.0.1:8089/v1/projects/demo-atrio-v11/databases/(default)/documents"
+        val connection = URL("$documents/$path?updateMask.fieldPaths=$field")
+            .openConnection() as HttpURLConnection
+        try {
+            connection.requestMethod = "PATCH"
+            connection.instanceFollowRedirects = false
+            connection.setRequestProperty("Authorization", "Bearer owner")
+            connection.setRequestProperty("Content-Type", "application/json")
+            connection.connectTimeout = 5_000
+            connection.readTimeout = 5_000
+            connection.doOutput = true
+            val body = JSONObject().put("fields",
+                JSONObject().put(field, JSONObject().put(type, value)))
+            connection.outputStream.use { it.write(body.toString().toByteArray()) }
+            check(connection.responseCode in 200..299) {
+                "Fixture recusada pelo Emulator: HTTP ${connection.responseCode}"
+            }
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private fun enablePilotFromEmulator() {
+        for (path in listOf("app_config/conversations", "app_config/chat_groups")) {
+            fixtureField(path, "minorPolicyApproved", "booleanValue", true)
+            fixtureField(path, "enabled", "booleanValue", true)
+        }
+    }
+
+    private fun checkDirectRevocation(alice: String, bob: String, chatId: String, history: String) {
+        assertEquals(bob, login(bobEmail))
+        val destination = Screen(bob, chatId = chatId)
+        val firstMessage = await(db.document("chats/$chatId").get(Source.SERVER))
+            .getString("initialId")!!
+        val entry = db.document("chats/$chatId/messages/$firstMessage")
+        val otherApp = FirebaseApp.initializeApp(compose.activity, db.app.options, "pilot-alice")
+        try {
+            val otherAuth = FirebaseAuth.getInstance(otherApp)
+            otherAuth.useEmulator("127.0.0.1", 9099)
+            val otherDb = FirebaseFirestore.getInstance(otherApp)
+            otherDb.useEmulator("127.0.0.1", 8089)
+            assertEquals(alice, await(otherAuth.signInWithEmailAndPassword(aliceEmail, password)).user?.uid)
+            val block = otherDb.document("users/$alice/blockedMembers/$bob")
+            show(destination)
+            waitForText(history)
+            await(block.set(mapOf("createdAt" to FieldValue.serverTimestamp())))
+            assertDenied(entry.get(Source.SERVER))
+            waitForHiddenHistory(history, destination)
+            await(block.delete())
+            reopen(destination)
+            waitForText(history)
+
+            fixtureField("users/$bob/chatAgeEligibility/current", "status", "stringValue", "revoked")
+            assertDenied(entry.get(Source.SERVER))
+            waitForHiddenHistory(history, destination)
+            val revokedGroup = Screen(bob, groupPeer = alice)
+            reopen(revokedGroup)
+            waitForText("Acesso aos grupos indisponível para esta conta")
+        } finally {
+            otherApp.delete()
+        }
+    }
+
+    private fun waitForHiddenHistory(history: String, destination: Screen) {
+        waitForText("Conversa não encontrada ou acesso negado.")
+        compose.onNodeWithText(history).assertDoesNotExist()
+        reopen(destination)
+        waitForText("Conversa não encontrada ou acesso negado.")
+        compose.onNodeWithText(history).assertDoesNotExist()
+    }
+
     @After fun cleanSession() {
         if (::auth.isInitialized) auth.signOut()
     }
@@ -146,6 +247,26 @@ class AtrioConversasCompostasEmulatorUiTest {
         initializeDemo()
         val alice = login(aliceEmail)
         val bob = login(bobEmail)
+        if (pilot) {
+            assertEquals("qa-nav-alice", alice)
+            assertEquals("qa-nav-bob", bob)
+            compose.runOnIdle { showOnlineApp = true }
+            click("atrio-tab-profile")
+            waitForTag("atrio-profile-list")
+            compose.onNodeWithTag("atrio-profile-list").performScrollToNode(hasText("Conversas"))
+            compose.onNodeWithText("Conversas").performClick()
+            waitForText("As conversas ainda não foram liberadas.", substring = true)
+            compose.onNodeWithTag("atrio-open-groups").assertDoesNotExist()
+            enablePilotFromEmulator()
+            waitForTag("atrio-open-groups")
+
+            val outsider = login("fora@qa.invalid", eligible = false)
+            assertEquals("qa-pilot-fora", outsider)
+            show(Screen(outsider, peer = PublicMemberTarget(alice, "Alice QA")))
+            waitForText("As conversas ainda não foram liberadas.", substring = true)
+            compose.onNodeWithTag("atrio-chat-composer").assertDoesNotExist()
+            assertEquals(bob, login(bobEmail))
+        }
         val chatId = AtrioChatPolicy.id(alice, bob)
         val chat = db.document("chats/$chatId")
         val first = "Podemos conversar sobre o grupo de estudo?"
@@ -231,6 +352,28 @@ class AtrioConversasCompostasEmulatorUiTest {
         assertEquals("accepted", await(invite.get(Source.SERVER)).getString("status"))
         assertTrue((await(group.get(Source.SERVER)).get("memberUids") as List<*>).contains(bob))
         assertEquals(message, await(entry.get(Source.SERVER)).getString("text"))
+        val report = db.document("chat_group_reports/${bob}__${group.id}__${entry.id}")
+        if (pilot) {
+            click("atrio-group-report-message")
+            waitForTag("atrio-group-report-reason")
+            compose.onNodeWithTag("atrio-group-report-reason")
+                .performTextInput("Relato fictício para o piloto local.")
+            compose.onNodeWithText("Enviar denúncia").performClick()
+            waitForText("Denúncia registrada para análise.")
+            assertEquals(message, await(report.get(Source.SERVER)).getString("reportedText"))
+
+            fixtureField("users/$bob/chatGroupAccess/eligibility", "status", "stringValue", "suspended")
+            waitForText("Acesso aos grupos indisponível para esta conta")
+            compose.onNodeWithText(message).assertDoesNotExist()
+            assertDenied(entry.get(Source.SERVER))
+            reopen(Screen(bob, groupId = group.id))
+            waitForText("Acesso aos grupos indisponível para esta conta")
+            compose.onNodeWithText(message).assertDoesNotExist()
+            assertTrue(await(report.get(Source.SERVER)).exists())
+            fixtureField("users/$bob/chatGroupAccess/eligibility", "status", "stringValue", "approved")
+            reopen(Screen(bob, groupId = group.id))
+            waitForText(message)
+        }
 
         click("atrio-group-members")
         click("atrio-group-leave")
@@ -239,10 +382,30 @@ class AtrioConversasCompostasEmulatorUiTest {
         assertDenied(group.get(Source.SERVER))
         assertDenied(entry.get(Source.SERVER))
         assertDenied(history.get(Source.SERVER))
+        if (pilot) {
+            reopen(Screen(bob, groupId = group.id))
+            waitForText("Você ainda não participa de grupos.")
+            compose.onNodeWithText(message).assertDoesNotExist()
+            assertTrue(await(report.get(Source.SERVER)).exists())
+        }
 
         assertEquals(alice, login(aliceEmail))
         assertEquals(listOf(alice), await(group.get(Source.SERVER)).get("memberUids"))
         assertEquals(message, await(entry.get(Source.SERVER)).getString("text"))
+        if (pilot) {
+            assertDenied(report.get(Source.SERVER))
+            val moderatorUid = login("moderador.navegacao@qa.invalid", eligible = false)
+            assertEquals("qa-nav-moderador", moderatorUid)
+            assertEquals(bob, await(report.get(Source.SERVER)).getString("reporterUid"))
+            assertDenied(entry.get(Source.SERVER))
+            fixtureField("admins/$moderatorUid", "enabled", "booleanValue", false)
+            assertDenied(report.get(Source.SERVER))
+
+            login("fora@qa.invalid", eligible = false)
+            assertDenied(report.get(Source.SERVER))
+            checkDirectRevocation(alice, bob, chatId, first)
+            assertTrue(await(report.get(Source.SERVER)).exists())
+        }
         android.util.Log.i("AtrioConversasQA",
             "primeiro_contato=confirmado recusa=confirmada aceite=confirmado saida=confirmada " +
                 "historico_ex_membro=PERMISSION_DENIED historico_proprietario=preservado")
