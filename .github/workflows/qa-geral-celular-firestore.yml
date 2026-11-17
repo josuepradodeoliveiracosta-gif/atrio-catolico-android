@@ -6,6 +6,7 @@ on:
       - .github/workflows/qa-geral-celular-firestore.yml
       - firebase/qa-geral-celular/**
       - tests/security/qa-geral-celular.test.mjs
+      - tests/security/qa-geral-celular-pilot.test.mjs
 permissions:
   contents: read
 jobs:
@@ -29,4 +30,4 @@ jobs:
         run: |
           npm ci
           node prepare.mjs
-          ./node_modules/.bin/firebase emulators:exec --only firestore --project demo-atrio-v11 'node --test qa-geral-celular.test.mjs'
+          ./node_modules/.bin/firebase emulators:exec --only firestore --project demo-atrio-v11 'node --test --test-concurrency=1 qa-geral-celular.test.mjs qa-geral-celular-pilot.test.mjs'
