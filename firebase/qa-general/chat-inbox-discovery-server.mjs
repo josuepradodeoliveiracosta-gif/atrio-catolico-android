@@ -198,3 +198,40 @@ export async function backfillInboxBatch(adminDb,ownerUid,{after=null,limit=20}=
   for(const id of ids)await reconcilePeerInbox(adminDb,id);
   return {processed:ids.length,nextAfter:ids.length===limit?ids.at(-1):null};
 }
+
+/**
+ * Adaptador HTTP para Chat 3, NAO montado em Worker remoto.
+ * Gate operacional fechado por padrao. Nunca confia em uid vindo da URL.
+ * A implantacao requer Firebase Admin Auth e endpoint de QA revisado.
+ */
+export function createInboxHttpHandler(service,{enabled=false}={}) {
+  if(!service||typeof service.list!=='function')
+    throw Error('inbox_http_service_required');
+  const headers={'Cache-Control':'private, no-store, max-age=0',
+    'Pragma':'no-cache','Content-Type':'application/json; charset=utf-8'};
+  const response=(status,body)=>new Response(JSON.stringify(body),{status,headers});
+  return async request=>{
+    if(!enabled)return response(503,{error:'inbox_closed'});
+    if(request?.method!=='GET')return response(405,{error:'method_not_allowed'});
+    let url;
+    try{url=new URL(request.url);}catch{return response(400,{error:'invalid_request'});}
+    if(url.pathname!=='/v1/qa/conversations/inbox' ||
+       url.searchParams.has('uid') ||
+       [...url.searchParams.keys()].some(k=>k!=='limit'&&k!=='cursor') ||
+       [...url.searchParams.keys()].some(k=>url.searchParams.getAll(k).length!==1))
+      return response(400,{error:'invalid_request'});
+    const auth=request.headers?.get('authorization')||'';
+    if(!/^Bearer \S{1,8192}$/.test(auth))return response(403,{error:'forbidden'});
+    const rawLimit=url.searchParams.get('limit');
+    if(rawLimit!==null&&!/^(?:[1-9]|1\d|20)$/.test(rawLimit))
+      return response(400,{error:'invalid_request'});
+    try{
+      const result=await service.list({
+        idToken:auth.slice(7),
+        limit:rawLimit===null?20:Number(rawLimit),
+        cursor:url.searchParams.get('cursor')
+      });
+      return response(200,result);
+    }catch{return response(403,{error:'forbidden'});}
+  };
+}
