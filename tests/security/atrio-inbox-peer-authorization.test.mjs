@@ -102,6 +102,12 @@ try{
       ownerUid:v,peerUid:u,chatId:'forged'
     }));
   });
+  await check('composição #352: GET e mensagens diretas funcionam sem bloqueio',async()=>{
+    for(const db of [a,b]) {
+      assert.equal((await assertSucceeds(getDocFromServer(doc(db,'chats/'+id)))).exists(),true);
+      assert.equal((await assertSucceeds(getDocFromServer(doc(db,'chats/'+id+'/messages/m1')))).exists(),true);
+    }
+  });
   await check('bloqueio Alice→Bob nega GET e LIST aos DOIS mesmo com index antigo',async()=>{
     await assertSucceeds(setDoc(doc(a,'users/'+u+'/blockedMembers/'+v),{
       createdAt:serverTimestamp()
