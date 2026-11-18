@@ -8,11 +8,11 @@ import {randomBytes} from 'node:crypto';
 import {initializeTestEnvironment,assertFails} from '@firebase/rules-unit-testing';
 import {
   collection,deleteDoc,doc,documentId,getDocFromServer,getDocsFromServer,
-  limit,orderBy,query,runTransaction,setDoc,startAfter,Timestamp,where,writeBatch
+  limit,orderBy,query,runTransaction,setDoc,startAfter,Timestamp,updateDoc,where,writeBatch
 } from 'firebase/firestore';
 import {peerInboxEntries} from '../../firebase/qa-general/chat-inbox-peer-index.mjs';
 import {
-  backfillInboxBatch,createAdminInboxStore,createAuthorizedInboxService,
+  applyTrustedInboxEvent,backfillInboxBatch,createAdminInboxStore,createAuthorizedInboxService,
   createInboxHttpHandler,syncBlockedPair
 } from '../../firebase/qa-general/chat-inbox-discovery-server.mjs';
 
@@ -207,6 +207,28 @@ try{
       assert.equal((await handler(request('/v1/qa/conversations/inbox',tokens.alice,'POST'))).status,405);
       assert.equal((await handler(request('/v1/qa/conversations/inbox','invalid-token'))).status,403);
     });
+  });
+  await check('evento confiavel sincroniza edicao, bloqueio e exclusao da conversa',async()=>{
+    const chatRef=doc(db,'chats/'+idAB);
+    const original=(await getDocFromServer(chatRef)).data();
+    await updateDoc(chatRef,{lastPreview:'Nova previa autorizada'});
+    await applyTrustedInboxEvent(admin,{kind:'chat_written',chatId:idAB});
+    assert.equal((await getDocFromServer(doc(db,pathView(alice,bob,idAB)))).get('lastPreview'),
+      'Nova previa autorizada');
+    await setDoc(doc(db,'users/'+alice+'/blockedMembers/'+bob),{createdAt:Timestamp.now()});
+    await applyTrustedInboxEvent(admin,{kind:'block_changed',ownerUid:alice,peerUid:bob});
+    assert.equal((await getDocFromServer(doc(db,pathView(alice,bob,idAB)))).exists(),false);
+    await deleteDoc(doc(db,'users/'+alice+'/blockedMembers/'+bob));
+    await applyTrustedInboxEvent(admin,{kind:'block_changed',ownerUid:alice,peerUid:bob});
+    assert.equal((await getDocFromServer(doc(db,pathView(alice,bob,idAB)))).exists(),true);
+    await deleteDoc(chatRef);
+    await applyTrustedInboxEvent(admin,{
+      kind:'chat_deleted',chatId:idAB,
+      previousChat:{...original,lastPreview:'Nova previa autorizada'}
+    });
+    for(const path of [pathView(alice,bob,idAB),pathView(bob,alice,idAB)])
+      assert.equal((await getDocFromServer(doc(db,path))).exists(),false);
+    await assert.rejects(applyTrustedInboxEvent(admin,{kind:'anything'}),/inbox_access_denied/);
   });
   console.log('AUTHORIZED INBOX DISCOVERY TESTS:',checks,'OK');
 }finally{await env.cleanup();}
