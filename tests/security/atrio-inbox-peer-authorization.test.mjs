@@ -60,6 +60,10 @@ try{
     }
     for(const [chatId,data] of [[id,main],[otherId,other]]){
       batch.set(doc(db,'chats/'+chatId),data);
+      batch.set(doc(db,'chats/'+chatId+'/messages/m1'),{
+        uid:data.requesterUid,kind:'text',text:'Histórico de QA',
+        createdAt:Timestamp.now()
+      });
       for(const view of peerInboxEntries(chatId,data)) batch.set(doc(db,view.path),view.data);
     }
     await batch.commit();
@@ -115,6 +119,9 @@ try{
     for(const [db,owner,peer] of [[a,u,v],[b,v,u]]){
       await assertFails(getDocFromServer(doc(db,entry(owner,peer))));
       await assertFails(getDocsFromServer(peerQuery(db,owner,peer)));
+      await assertFails(getDocFromServer(doc(db,'chats/'+id)));
+      await assertFails(getDocFromServer(doc(db,'chats/'+id+'/messages/m1')));
+      await assertFails(getDocsFromServer(collection(db,'chats/'+id+'/messages')));
     }
     // A outra conversa continua disponivel, sem abrir leitura de Bob.
     assert.equal((await assertSucceeds(getDocsFromServer(peerQuery(a,u,w)))).size,1);
