@@ -39,7 +39,7 @@ function adminAdapter(db){
     where:(field,op,value)=>coll(query(q,where(field,op,value))),
     orderBy:(name)=>coll(query(q,orderBy(name==='__name__'?documentId():name))),
     limit:(n)=>coll(query(q,limit(n))),
-    startAfter:(r)=>coll(query(q,startAfter(r.raw))),
+    startAfter:(id)=>coll(query(q,startAfter(id))),
     get:async()=>({docs:(await getDocsFromServer(q)).docs.map(convert)})
   });
   return {
