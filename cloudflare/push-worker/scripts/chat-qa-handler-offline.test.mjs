@@ -130,9 +130,17 @@ function makeScenario(type,change,deviceCount=1) {
       if(currentChange==='fcm_failure' ||
           (currentChange==='fcm_second_failure' && fcmCalls===2))
         return okJson({error:{status:'UNAVAILABLE'}},503);
-      if(currentChange==='fcm_second_rate_limited' && fcmCalls===2)
+      if ((currentChange==='fcm_first_rate_limited' && fcmCalls===1) ||
+          (currentChange==='fcm_second_rate_limited' && fcmCalls===2))
         return okJson({error:{status:'RESOURCE_EXHAUSTED'}},429);
-      return okJson({name:'offline-synthetic-only'});
+      if(currentChange==='fcm_empty_receipt' ||
+          (currentChange==='fcm_second_empty_receipt' && fcmCalls===2))
+        return okJson({});
+      if(currentChange==='fcm_wrong_project_receipt')
+        return okJson({name:'projects/foreign-project/messages/offline-fake'});
+      if(currentChange==='fcm_invalid_json_receipt')
+        return new Response('synthetic-non-json',{status:200});
+      return okJson({name:'projects/'+project+'/messages/offline-synthetic-'+fcmCalls});
     }
     if(target.startsWith(documentRoot)){
       const relative=decodeURIComponent(url.pathname.split('/documents/')[1]||'');
@@ -176,6 +184,9 @@ function makeScenario(type,change,deviceCount=1) {
           return okJson(makeDoc({muted:true}));
       }
       if(sawDevices){
+        if(currentChange==='pre_send_firestore_outage' &&
+            relative==='app_config/conversations')
+          throw Error('synthetic_firestore_connection_lost');
         if(currentChange==='remove_message' && relative===messagePath)
           return okJson({},404);
         // Marcador da operacao 'remover para todos' preserva o documento.
@@ -526,4 +537,125 @@ test('QA: duas chamadas simultaneas compartilham uma reserva D1',async()=>{
       assert.equal(scenario.stat.fcmCalls,1,type);
     }
   } finally { globalThis.fetch=oldFetch; }
+});
+
+
+test('QA: um recibo HTTP 200 malformado nao equivale a aceite FCM',async()=>{
+  const worker=(await import('data:text/javascript;charset=utf-8,'+
+    encodeURIComponent(generated))).default;
+  const oldFetch=globalThis.fetch;
+  try {
+    for(const type of ['dm','group']) {
+      for(const change of ['fcm_empty_receipt','fcm_wrong_project_receipt',
+        'fcm_invalid_json_receipt']) {
+        const scenario=makeScenario(type,change,2);
+        globalThis.fetch=scenario.mockFetch;
+        const result=await worker.fetch(scenario.request(),scenario.env);
+        assert.equal(result.status,503,type+'/'+change);
+        assert.equal((await result.json()).status,'delivery_transport_unknown',
+          type+'/'+change);
+        assert.equal(scenario.stat.fcmCalls,1,'Nao tocar segundo aparelho');
+        assert.equal(scenario.stat.uniqueMarkers,1,'D1 nao remove reserva');
+        assert.deepEqual(scenario.stat.auditOutcomes.at(-1),{
+          kind:type==='dm'?'chat_message':'group_message',
+          outcome:'delivery_transport_unknown',http:0,attempted:1,accepted:0
+        });
+        scenario.setChange('none');
+        const repeated=await worker.fetch(scenario.request(),scenario.env);
+        assert.equal((await repeated.json()).status,'no_devices_or_duplicate');
+        assert.equal(scenario.stat.fcmCalls,1,'Sem retry de resposta ambigua');
+      }
+    }
+  } finally {globalThis.fetch=oldFetch;}
+});
+
+test('QA: recibo ausente no segundo aparelho preserva aceite parcial',async()=>{
+  const worker=(await import('data:text/javascript;charset=utf-8,'+
+    encodeURIComponent(generated))).default;
+  const oldFetch=globalThis.fetch;
+  try {
+    for(const type of ['dm','group']) {
+      const scenario=makeScenario(type,'fcm_second_empty_receipt',3);
+      globalThis.fetch=scenario.mockFetch;
+      const result=await worker.fetch(scenario.request(),scenario.env);
+      assert.equal(result.status,503,type);
+      assert.equal((await result.json()).status,'partial_delivery_unknown',type);
+      assert.equal(scenario.stat.fcmCalls,2,'Terceiro aparelho nao foi acionado');
+      assert.deepEqual(scenario.stat.auditOutcomes.at(-1),{
+        kind:type==='dm'?'chat_message':'group_message',
+        outcome:'partial_delivery_unknown',http:0,attempted:2,accepted:1
+      },type);
+      scenario.setChange('none');
+      await worker.fetch(scenario.request(),scenario.env);
+      assert.equal(scenario.stat.fcmCalls,2,'Sem replay com D1 reservado');
+    }
+  } finally {globalThis.fetch=oldFetch;}
+});
+
+test('QA: 429 interrompe fanout e nao provoca retry ou tempestade de cotas',async()=>{
+  const worker=(await import('data:text/javascript;charset=utf-8,'+
+    encodeURIComponent(generated))).default;
+  const oldFetch=globalThis.fetch;
+  try {
+    for(const type of ['dm','group']) {
+      for(const [change,expectedCalls,expectedStatus,accepted] of [
+        ['fcm_first_rate_limited',1,'delivery_failed',0],
+        ['fcm_second_rate_limited',2,'partial_delivery_failed',1]
+      ]) {
+        const scenario=makeScenario(type,change,3);
+        globalThis.fetch=scenario.mockFetch;
+        const result=await worker.fetch(scenario.request(),scenario.env);
+        assert.equal(result.status,503,type+'/'+change);
+        assert.equal((await result.json()).status,expectedStatus,type+'/'+change);
+        assert.equal(scenario.stat.fcmCalls,expectedCalls,'Parar apos HTTP 429');
+        assert.deepEqual(scenario.stat.auditOutcomes.at(-1),{
+          kind:type==='dm'?'chat_message':'group_message',
+          outcome:expectedStatus,http:429,attempted:expectedCalls,accepted
+        });
+        scenario.setChange('none');
+        const replay=await worker.fetch(scenario.request(),scenario.env);
+        assert.equal((await replay.json()).status,'no_devices_or_duplicate');
+        assert.equal(scenario.stat.fcmCalls,expectedCalls,'Nao repetir em retomada');
+      }
+    }
+  } finally {globalThis.fetch=oldFetch;}
+});
+
+test('QA: queda do Firestore antes de D1 pode ser retomada sem envio duplicado',async()=>{
+  const worker=(await import('data:text/javascript;charset=utf-8,'+
+    encodeURIComponent(generated))).default;
+  const oldFetch=globalThis.fetch;
+  try {
+    for(const type of ['dm','group']) {
+      const scenario=makeScenario(type,'pre_send_firestore_outage',2);
+      globalThis.fetch=scenario.mockFetch;
+      const failed=await worker.fetch(scenario.request(),scenario.env);
+      assert.equal(failed.status,503,type);
+      assert.equal(scenario.stat.uniqueMarkers,0,'Falha anterior a D1');
+      assert.equal(scenario.stat.fcmCalls,0,'Nenhum envio nesta falha');
+      scenario.setChange('none');
+      const resumed=await worker.fetch(scenario.request(),scenario.env);
+      assert.equal(resumed.status,202,type);
+      assert.equal((await resumed.json()).status,'accepted_by_fcm',type);
+      assert.equal(scenario.stat.fcmCalls,2,'Dois dispositivos elegiveis');
+      const replay=await worker.fetch(scenario.request(),scenario.env);
+      assert.equal((await replay.json()).status,'no_devices_or_duplicate');
+      assert.equal(scenario.stat.fcmCalls,2,'Sem duplicar apos reconectar');
+    }
+  } finally {globalThis.fetch=oldFetch;}
+});
+
+test('QA: kill switch PUSH_ENABLED=false impede FCM mesmo com simulador pronto',async()=>{
+  const worker=(await import('data:text/javascript;charset=utf-8,'+
+    encodeURIComponent(generated))).default;
+  const oldFetch=globalThis.fetch;
+  try {
+    const scenario=makeScenario('dm','none',3);
+    globalThis.fetch=scenario.mockFetch;
+    scenario.env.PUSH_ENABLED='false';
+    const res=await worker.fetch(scenario.request(),scenario.env);
+    assert.equal(res.status,503);
+    assert.equal(scenario.stat.fcmCalls,0);
+    assert.equal(scenario.stat.markerWrites,0);
+  } finally {globalThis.fetch=oldFetch;}
 });
