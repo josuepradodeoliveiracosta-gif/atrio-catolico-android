@@ -4,6 +4,7 @@ import {doc,setDoc,serverTimestamp,Timestamp} from 'firebase/firestore';
 
 const project = 'demo-atrio-v11';
 const auth = 'http://127.0.0.1:9099/identitytoolkit.googleapis.com/v1';
+const navigationFixtures = process.argv.includes('--navegacao-perfis');
 const rules = readFileSync('qa-parity.generated.rules', 'utf8');
 if (!rules.includes('BEGIN QA PARITY ADDITIVE')) {
   throw new Error('As regras compostas são obrigatórias.');
@@ -60,10 +61,24 @@ try {
         reviewExpiresAt: expiration
       });
       await setDoc(doc(db, 'public_profiles', uid), {
-        uid, displayName: name, createdAt: serverTimestamp()
+        uid, displayName: name, createdAt: serverTimestamp(),
+        ...(navigationFixtures && name === 'Bob QA'
+          ? {bio: 'Apresentação fictícia da navegação QA.'} : {})
       });
+      if (navigationFixtures) {
+        await setDoc(doc(db, 'profiles', uid), {displayName: name, createdAt: serverTimestamp()});
+      }
       await setDoc(doc(db, 'users', uid, 'chatSettings', 'privacy'), {
         requests, readReceipts: false, showPushPreview: false, updatedAt: serverTimestamp()
+      });
+    }
+    if (navigationFixtures) {
+      const bob = accounts[1];
+      await setDoc(doc(db, 'posts', 'qa-nav-bob-profile'), {
+        uid: bob.uid, authorName: bob.name,
+        title: 'Discussão fictícia para navegação QA',
+        body: 'Publicação sintética para abrir o perfil público no emulador.',
+        category: 'Vida espiritual', createdAt: serverTimestamp()
       });
     }
   });
