@@ -159,6 +159,38 @@ class AtrioConversasCompostasEmulatorUiTest {
         }
     }
 
+    // Materialização sintética privilegiada SOMENTE no Emulator local.
+    // Os reads do aplicativo continuam sujeitos às Rules e Source.SERVER.
+    private fun materializePeerIndex(owner: String, peer: String, chatId: String,
+                                     status: String, preview: String) {
+        check(db.app.options.projectId == "demo-atrio-v11")
+        check(db.firestoreSettings.host == "127.0.0.1:8089" &&
+              !db.firestoreSettings.isSslEnabled)
+        val fields = JSONObject()
+        fun put(name: String, value: String) {
+            fields.put(name, JSONObject().put("stringValue", value))
+        }
+        put("ownerUid", owner); put("peerUid", peer); put("chatId", chatId)
+        put("status", status); put("lastPreview", preview)
+        fields.put("updatedAt", JSONObject().put(
+            "timestampValue", java.time.Instant.now().toString()))
+        val url = "http://127.0.0.1:8089/v1/projects/demo-atrio-v11/databases/(default)/documents/users/$owner/chatInboxByPeer/$peer/entries/$chatId"
+        val conn = URL(url).openConnection() as HttpURLConnection
+        try {
+            conn.requestMethod = "PATCH"
+            conn.connectTimeout = 5_000
+            conn.readTimeout = 5_000
+            conn.setRequestProperty("Authorization", "Bearer owner")
+            conn.setRequestProperty("Content-Type", "application/json")
+            conn.doOutput = true
+            conn.outputStream.use {
+                it.write(JSONObject().put("fields", fields).toString().toByteArray())
+            }
+            check(conn.responseCode in 200..299) {
+                "Materialização local recusada: HTTP ${conn.responseCode}"
+            }
+        } finally { conn.disconnect() }
+    }
     private fun reopen(destination: Screen) {
         compose.runOnIdle { screen = null }
         compose.waitForIdle()
@@ -266,13 +298,22 @@ class AtrioConversasCompostasEmulatorUiTest {
         }
         val chatId = AtrioChatPolicy.id(alice, bob)
         val chat = db.document("chats/$chatId")
+        fun materializeBoth(status: String, preview: String) {
+            materializePeerIndex(alice, bob, chatId, status, preview)
+            materializePeerIndex(bob, alice, chatId, status, preview)
+        }
         val first = "Podemos conversar sobre o grupo de estudo?"
 
         show(Screen(bob, peer = PublicMemberTarget(alice, "Alice QA")))
         send("atrio-chat-composer", "atrio-chat-send", first)
         waitForText("Pedido não confirmado.", substring = true)
-        assertTrue(await(db.collection("chats").whereArrayContains("participants", bob).limit(100)
-            .get(Source.SERVER)).isEmpty)
+        // O contrato seguro nega a consulta global, ainda com filtros.
+        assertDenied(db.collection("chats").whereArrayContains("participants", bob)
+            .limit(100).get(Source.SERVER))
+        // Antes de um chat permitido, o índice por par não revela mensagem.
+        assertTrue(await(db.collection("users").document(bob)
+            .collection("chatInboxByPeer").document(alice)
+            .collection("entries").limit(20).get(Source.SERVER)).isEmpty)
 
         assertEquals(alice, login(aliceEmail))
         show(Screen(alice, peer = PublicMemberTarget(bob, "Bob QA")))
@@ -282,10 +323,11 @@ class AtrioConversasCompostasEmulatorUiTest {
         val pending = await(chat.get(Source.SERVER))
         assertEquals("pending", pending.getString("status"))
         assertEquals(alice, pending.getString("requesterUid"))
+        materializeBoth("pending", first)
         compose.onNodeWithTag("atrio-chat-composer").assertDoesNotExist()
 
         assertEquals(bob, login(bobEmail))
-        show(Screen(bob, chatId = chatId))
+        show(Screen(bob, peer = PublicMemberTarget(alice, "Alice QA"), chatId = chatId))
         waitForText(first)
         waitForText("Aceitar")
         compose.onNodeWithText("Aceitar").performClick()
@@ -297,6 +339,7 @@ class AtrioConversasCompostasEmulatorUiTest {
                 document.getString("lastPreview") == reply && !document.metadata.hasPendingWrites()
         }
 
+        materializeBoth("accepted", reply)
         // Na suite regular, exercitar o envio real pela UI com a transacao
         // falhando sem rede. O app deve reutilizar o mesmo ID ao reenviar,
         // e o servidor deve persistir apenas uma mensagem.
