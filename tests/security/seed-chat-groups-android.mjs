@@ -98,6 +98,22 @@ try {
         uid: alice.uid, text: privateText, kind: 'text',
         createdAt: serverTimestamp()
       });
+      // Só nesta fixture com Rules desativadas no Emulator; os clientes
+      // permanecem proibidos de materializar índices de outros usuários.
+      for (const [owner, peer] of [[alice, lucia], [lucia, alice]]) {
+        await setDoc(doc(db, 'users', owner.uid, 'chatInboxByPeer', peer.uid,
+          'entries', id), {
+          ownerUid: owner.uid, peerUid: peer.uid, chatId: id,
+          status: 'accepted', lastPreview: privateText,
+          updatedAt: serverTimestamp()
+        });
+      }
+      await setDoc(doc(db, 'posts', 'qa-nav-lucia-profile'), {
+        uid: lucia.uid, authorName: lucia.name,
+        title: 'Publicação fictícia de Lúcia para teste de conversas',
+        body: 'Perfil sintético de Lúcia para verificar troca de conta.',
+        category: 'Vida espiritual', createdAt: serverTimestamp()
+      });
     }
   });
   console.log('Conversas QA: regras compostas e duas contas fictícias verificadas no emulador local.');

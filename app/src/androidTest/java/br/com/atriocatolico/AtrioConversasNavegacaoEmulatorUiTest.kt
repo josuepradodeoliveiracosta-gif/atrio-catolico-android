@@ -193,11 +193,23 @@ class AtrioConversasTrocaContaEmulatorUiTest : AtrioConversasNavegacaoQa() {
     @Test fun bobNaoRecebeHistoricoDeAliceAposAlternarSessao() {
         startApp(8089)
         val aliceUid = requireNotNull(auth.currentUser?.uid)
-        ownProfile()
-        compose.onNodeWithTag("atrio-profile-list", useUnmergedTree = true)
-            .performScrollToNode(hasText("Conversas"))
-        compose.onNodeWithText("Conversas").assertIsDisplayed().performClick()
-        waitForTag("atrio-chats-list")
+        // A inbox completa não é um índice autorizado. Abra a conversa de
+        // Lúcia por seu perfil explícito, na MESMA Activity da futura troca.
+        val luciaPost = "atrio-open-author-qa-nav-lucia-profile"
+        compose.waitUntil(30_000) {
+            try {
+                compose.onNodeWithTag("atrio-home-feed", useUnmergedTree = true)
+                    .performScrollToNode(hasTestTag(luciaPost))
+                true
+            } catch (_: AssertionError) { false }
+        }
+        compose.onNodeWithTag(luciaPost, useUnmergedTree = true)
+            .assertIsDisplayed().performClick()
+        waitForTag("atrio-public-profile")
+        compose.onNodeWithTag("atrio-public-profile", useUnmergedTree = true)
+            .performScrollToNode(hasTestTag("atrio-public-profile-converse"))
+        compose.onNodeWithTag("atrio-public-profile-converse").performClick()
+        waitForTag("atrio-chat-thread")
         val privateText = "Mensagem privada de Alice para Lúcia, somente no emulador."
         // A lista é LazyColumn: o texto existe mas pode estar fora da área
         // visível no instante em que a lista aparece. Verificar em seguida
@@ -209,12 +221,13 @@ class AtrioConversasTrocaContaEmulatorUiTest : AtrioConversasNavegacaoQa() {
             .performScrollToNode(hasText(privateText))
         compose.onNodeWithText(privateText).assertIsDisplayed()
 
-        val ownRooms = Tasks.await(db.collection("chats")
-            .whereArrayContains("participants", aliceUid).limit(100).get(Source.SERVER),
-            10, TimeUnit.SECONDS)
-        val privateRoom = ownRooms.documents.single { it.getString("lastPreview") == privateText }
-        val oldChat = privateRoom.reference
-        assertTrue(privateRoom.get("participants") != null)
+        val luciaPostDoc = Tasks.await(db.document("posts/qa-nav-lucia-profile")
+            .get(Source.SERVER), 10, TimeUnit.SECONDS)
+        val luciaUid = requireNotNull(luciaPostDoc.getString("uid"))
+        val oldChat = db.document("chats/${AtrioChatPolicy.id(aliceUid, luciaUid)}")
+        val privateRoom = Tasks.await(oldChat.get(Source.SERVER), 10, TimeUnit.SECONDS)
+        assertEquals(privateText, privateRoom.getString("lastPreview"))
+        assertTrue((privateRoom.get("participants") as? List<*>)?.contains(aliceUid) == true)
 
         auth.signOut()
         val bob = requireNotNull(Tasks.await(auth.signInWithEmailAndPassword(
