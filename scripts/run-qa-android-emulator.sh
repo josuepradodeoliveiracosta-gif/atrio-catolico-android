@@ -119,12 +119,13 @@ run_suite() {
       interaction:EngagementUiTest|interaction:ReactionEmojiUiTest|\
       interaction:DiscussionDetailV2UiTest|interaction:AtrioTypographyAccessibilityUiTest|\
       bots:ThreeBotsAndroidUiTest|bots:ThreeBotsAuthenticatedAndroidUiTest|\
-      bots:ThreeBotsOnlineEmulatorTest|bots:AtrioConversasCompostasEmulatorUiTest) ;;
+      bots:ThreeBotsOnlineEmulatorTest|bots:AtrioConversasCompostasEmulatorUiTest|\
+      bots:AtrioConversasNavegacaoEmulatorUiTest|bots:AtrioConversasForaDaConfiguracaoEmulatorUiTest) ;;
       *) echo "QA Android: $suite executada por outro grupo"; return 0 ;;
     esac
   fi
   case "$suite" in
-    ThreeBots*)
+    ThreeBots*|AtrioConversas*)
       [[ "$qa_apk" == "qaGeral" ]] || {
         echo "Suite de bot recusada fora do APK QA Geral" >&2
         exit 2
@@ -197,9 +198,12 @@ if [[ "$qa_group" == "all" || "$qa_group" == "bots" ]]; then
   node --test firebase/qa-general/compose-parity-rules.test.mjs
   node firebase/qa-general/compose-parity-rules.mjs
   sha256sum tests/security/qa-parity.generated.rules
-  (cd tests/security && node seed-chat-groups-android.mjs)
+  (cd tests/security && node seed-chat-groups-android.mjs --navegacao-perfis)
+  adb reverse tcp:18089 tcp:8089
 fi
 run_suite AtrioConversasCompostasEmulatorUiTest
+run_suite AtrioConversasNavegacaoEmulatorUiTest
+run_suite AtrioConversasForaDaConfiguracaoEmulatorUiTest
 run_suite EmailVerificationAndroidUiTest
 if [[ "$qa_group" == "all" || "$qa_group" == "profiles" ]]; then
   # Só a última suíte usa a política restritiva. As suítes anteriores
