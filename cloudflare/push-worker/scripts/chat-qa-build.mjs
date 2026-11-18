@@ -26,7 +26,7 @@ export function validateQaIdentity(project, d1) {
 }
 export function renderQaWorker(original, project) {
   validateQaIdentity(project, '11111111-2222-4333-8444-555555555555');
-  if (typeof original !== 'string' || original.split(PROD_PROJECT).length !== 2)
+  if (typeof original !== 'string' || original.split("const PROJECT = '"+PROD_PROJECT+"';").length !== 2)
     fail('unexpected_production_project_literals');
   let code = adaptCurrentMainToQaBase(original);
   code = exactlyOnce(code, "import {executeQaCommand} from './qa-manual.js';",
