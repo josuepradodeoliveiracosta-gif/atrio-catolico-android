@@ -19,6 +19,7 @@ import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.Source
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -26,10 +27,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.ExecutionException
 
 abstract class AtrioConversasNavegacaoQa {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
-    private lateinit var auth: FirebaseAuth
+    protected lateinit var auth: FirebaseAuth
+    protected lateinit var db: FirebaseFirestore
     private val viewerName = "Alice QA"
     protected val peerName = "Bob QA"
     private val peerBio = "Apresentação fictícia da navegação QA."
@@ -49,7 +52,7 @@ abstract class AtrioConversasNavegacaoQa {
         assertEquals(project, app.options.projectId)
         auth = FirebaseAuth.getInstance(app)
         auth.useEmulator("127.0.0.1", 9099)
-        val db = FirebaseFirestore.getInstance(app)
+        db = FirebaseFirestore.getInstance(app)
         db.useEmulator("127.0.0.1", firestorePort)
         assertEquals("127.0.0.1:" + firestorePort, db.firestoreSettings.host)
         auth.signOut()
@@ -177,5 +180,59 @@ class AtrioConversasForaDaConfiguracaoEmulatorUiTest : AtrioConversasNavegacaoQa
         compose.onNodeWithText("Conversar").assertDoesNotExist()
         android.util.Log.i("AtrioNavegacaoQA",
             "host_alternativo=127.0.0.1:18089 conversas=oculta conversar=oculta")
+    }
+}
+
+/**
+ * Complementa a navegação com uma troca de conta na MESMA Activity e no
+ * mesmo processo, verificando a UI e a recusa de leitura pelo servidor.
+ * A conversa Alice-Lúcia é semeada apenas no Firebase Emulator local.
+ */
+class AtrioConversasTrocaContaEmulatorUiTest : AtrioConversasNavegacaoQa() {
+    @Test fun bobNaoRecebeHistoricoDeAliceAposAlternarSessao() {
+        startApp(8089)
+        val aliceUid = requireNotNull(auth.currentUser?.uid)
+        ownProfile()
+        compose.onNodeWithTag("atrio-profile-list", useUnmergedTree = true)
+            .performScrollToNode(hasText("Conversas"))
+        compose.onNodeWithText("Conversas").assertIsDisplayed().performClick()
+        waitForTag("atrio-chats-list")
+        val privateText = "Mensagem privada de Alice para Lúcia, somente no emulador."
+        compose.onNodeWithText(privateText).assertIsDisplayed()
+
+        val ownRooms = Tasks.await(db.collection("chats")
+            .whereArrayContains("participants", aliceUid).get(Source.SERVER),
+            10, TimeUnit.SECONDS)
+        val privateRoom = ownRooms.documents.single { it.getString("lastPreview") == privateText }
+        val oldChat = privateRoom.reference
+        assertTrue(privateRoom.get("participants") != null)
+
+        auth.signOut()
+        val bob = requireNotNull(Tasks.await(auth.signInWithEmailAndPassword(
+            "conversas.bob@qa.invalid", "GrupoQa2026!Emulador"),
+            15, TimeUnit.SECONDS).user)
+        assertTrue(bob.uid != aliceUid)
+        compose.waitUntil(30_000) {
+            compose.onAllNodesWithTag("atrio-home-feed", useUnmergedTree = true)
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("atrio-tab-profile").performClick()
+        waitForTag("atrio-profile-list")
+        val profile = hasTestTag("atrio-profile-list")
+        compose.onNode(hasText("Bob QA") and hasAnyAncestor(profile)).assertIsDisplayed()
+        compose.onNodeWithTag("atrio-profile-list", useUnmergedTree = true)
+            .performScrollToNode(hasText("Conversas"))
+        compose.onNodeWithText("Conversas").assertIsDisplayed().performClick()
+        waitForTag("atrio-chats-list")
+        compose.onNodeWithText(privateText).assertDoesNotExist()
+        try {
+            Tasks.await(oldChat.get(Source.SERVER), 10, TimeUnit.SECONDS)
+            throw AssertionError("Bob leu uma conversa privada de Alice e Lúcia.")
+        } catch (failure: ExecutionException) {
+            val denied = failure.cause as? FirebaseFirestoreException ?: throw failure
+            assertEquals(FirebaseFirestoreException.Code.PERMISSION_DENIED, denied.code)
+        }
+        android.util.Log.i("AtrioNavegacaoQA",
+            "troca_alice_bob=sem_historico_alheio_e_permission_denied")
     }
 }
