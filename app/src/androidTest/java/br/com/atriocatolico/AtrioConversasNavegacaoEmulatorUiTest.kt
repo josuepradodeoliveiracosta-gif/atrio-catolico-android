@@ -198,6 +198,14 @@ class AtrioConversasTrocaContaEmulatorUiTest : AtrioConversasNavegacaoQa() {
         compose.onNodeWithText("Conversas").assertIsDisplayed().performClick()
         waitForTag("atrio-chats-list")
         val privateText = "Mensagem privada de Alice para Lúcia, somente no emulador."
+        // A lista é LazyColumn: o texto existe mas pode estar fora da área
+        // visível no instante em que a lista aparece. Verificar em seguida
+        // a mesma linha realmente exibida, sem substituir por busca no banco.
+        compose.waitUntil(30_000) {
+            compose.onAllNodesWithText(privateText).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("atrio-chats-list", useUnmergedTree = true)
+            .performScrollToNode(hasText(privateText))
         compose.onNodeWithText(privateText).assertIsDisplayed()
 
         val ownRooms = Tasks.await(db.collection("chats")

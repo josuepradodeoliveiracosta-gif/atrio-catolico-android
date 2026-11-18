@@ -317,6 +317,15 @@ class AtrioConversasCompostasEmulatorUiTest {
                     false
                 }
             }
+            // A regra de QA limita envios consecutivos do mesmo autor a 3 s.
+            // A falha offline não pode ser confundida com a recusa do cooldown:
+            // aguardar a janela a partir do timestamp CONFIRMADO pelo servidor,
+            // mantendo o mesmo ID de tentativa para a prova de idempotência.
+            val previousAt = requireNotNull(await(chat.get(Source.SERVER))
+                .getTimestamp("updatedAt")).toDate().time
+            compose.waitUntil(10_000) {
+                System.currentTimeMillis() - previousAt >= 3_500L
+            }
             click("atrio-chat-send")
             var serverCount = -1
             var lastPreview = ""
