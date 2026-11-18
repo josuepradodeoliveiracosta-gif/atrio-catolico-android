@@ -138,6 +138,8 @@ function makeScenario(type,change,deviceCount=1) {
         return okJson({});
       if(currentChange==='fcm_wrong_project_receipt')
         return okJson({name:'projects/foreign-project/messages/offline-fake'});
+      if(currentChange==='fcm_empty_id_receipt')
+        return okJson({name:'projects/'+project+'/messages/'});
       if(currentChange==='fcm_invalid_json_receipt')
         return new Response('synthetic-non-json',{status:200});
       return okJson({name:'projects/'+project+'/messages/offline-synthetic-'+fcmCalls});
@@ -547,7 +549,7 @@ test('QA: um recibo HTTP 200 malformado nao equivale a aceite FCM',async()=>{
   try {
     for(const type of ['dm','group']) {
       for(const change of ['fcm_empty_receipt','fcm_wrong_project_receipt',
-        'fcm_invalid_json_receipt']) {
+        'fcm_empty_id_receipt','fcm_invalid_json_receipt']) {
         const scenario=makeScenario(type,change,2);
         globalThis.fetch=scenario.mockFetch;
         const result=await worker.fetch(scenario.request(),scenario.env);
