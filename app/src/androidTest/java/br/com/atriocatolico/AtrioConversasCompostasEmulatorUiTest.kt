@@ -318,11 +318,25 @@ class AtrioConversasCompostasEmulatorUiTest {
                 }
             }
             click("atrio-chat-send")
-            compose.waitUntil(30_000) {
-                val messages = await(chat.collection("messages").get(Source.SERVER))
-                val saved = messages.documents.filter { it.getString("text") == retry }
-                saved.size == 1 && !saved.single().metadata.hasPendingWrites() &&
-                    await(chat.get(Source.SERVER)).getString("lastPreview") == retry
+            var serverCount = -1
+            var lastPreview = ""
+            var pendingWrites = true
+            try {
+                compose.waitUntil(30_000) {
+                    val messages = await(chat.collection("messages").get(Source.SERVER))
+                    val saved = messages.documents.filter { it.getString("text") == retry }
+                    serverCount = saved.size
+                    pendingWrites = saved.any { it.metadata.hasPendingWrites() }
+                    lastPreview = await(chat.get(Source.SERVER)).getString("lastPreview").orEmpty()
+                    serverCount == 1 && !pendingWrites && lastPreview == retry
+                }
+            } catch (failure: androidx.compose.ui.test.ComposeTimeoutException) {
+                throw AssertionError(
+                    "Reenvio sem confirmação única: count=$serverCount, " +
+                        "previewAtualCorresponde=${lastPreview == retry}, " +
+                        "pendingWrites=$pendingWrites",
+                    failure
+                )
             }
             android.util.Log.i("AtrioConversasQA", "reconexao_apos_falha=um_unico_envio_confirmado")
         }
