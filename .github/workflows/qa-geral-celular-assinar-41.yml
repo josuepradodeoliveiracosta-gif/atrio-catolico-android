@@ -7,6 +7,11 @@ on:
         description: 'SHA completo do candidato 41 já auditado'
         required: true
         type: string
+      deliver_private:
+        description: 'Preservar o APK cifrado para entrega no Drive privado'
+        required: false
+        type: boolean
+        default: false
   pull_request:
     branches: [main]
     paths:
@@ -14,6 +19,7 @@ on:
       - scripts/qa_geral_celular_sign_round.sh
       - scripts/qa_geral_celular_approve.py
       - scripts/qa_geral_celular_signature.py
+      - scripts/qa_geral_celular_round_delivery.py
 
 permissions:
   contents: read
@@ -62,7 +68,14 @@ jobs:
           )"
           ATRIO_QA_CELULAR_GOOGLE_SERVICES_JSON="$config" \
             bash scripts/qa_geral_celular_manual.sh build-round "$RUNNER_TEMP/round-unsigned.apk"
-      - name: Assinar e verificar com certificado descartável
+      - name: Preparar age para o ensaio de entrega
+        shell: bash
+        run: |
+          if ! command -v age >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y age
+          fi
+      - name: Assinar, recuperar e verificar com chaves descartáveis
         shell: bash
         run: |
           python3 -m unittest scripts.test_qa_geral_celular_signature -v
@@ -83,7 +96,48 @@ jobs:
             echo 'O APK sem assinatura deveria ser recusado.' >&2
             exit 1
           fi
-          bash scripts/qa_geral_celular_sign_round.sh "$RUNNER_TEMP/round-unsigned.apk"
+          age-keygen -o "$work/identity" 2>/dev/null
+          age-keygen -o "$work/other-identity" 2>/dev/null
+          export ATRIO_QA_CELULAR_AGE_RECIPIENT="$(age-keygen -y "$work/identity")"
+          bash scripts/qa_geral_celular_sign_round.sh "$RUNNER_TEMP/round-unsigned.apk" "$work/fixture.apk.age" |
+            tee "$work/proof.log"
+          python3 - "$work" "$tools" <<'PYTHON'
+          import os
+          from pathlib import Path
+          import re
+          import subprocess
+          import sys
+
+          from scripts.ota_apk_preflight import PreflightError
+          from scripts.qa_geral_celular_round_delivery import recover_apk, verify_apk
+
+          work, tools = map(Path, sys.argv[1:])
+          proof = (work / "proof.log").read_text()
+          apk_sha, = re.findall(r"^SHA-256 do APK assinado: ([a-f0-9]{64})$", proof, re.M)
+          cipher_sha, = re.findall(r"^SHA-256 do APK cifrado: ([a-f0-9]{64})$", proof, re.M)
+          certificate = os.environ["ATRIO_QA_CELULAR_CERT_SHA256"]
+          cipher = work / "fixture.apk.age"
+          recovered = work / "recovered.apk"
+          try:
+              recover_apk(cipher, cipher_sha, work / "other-identity", recovered,
+                          apk_sha, tools, certificate=certificate)
+          except subprocess.CalledProcessError:
+              assert not recovered.exists()
+          else:
+              raise AssertionError("Uma identidade incorreta recuperou o APK.")
+
+          recover_apk(cipher, cipher_sha, work / "identity", recovered,
+                      apk_sha, tools, certificate=certificate)
+          assert verify_apk(recovered, apk_sha, tools, certificate) == apk_sha
+          with recovered.open("ab") as copy:
+              copy.write(b"bytes alterados")
+          try:
+              verify_apk(recovered, apk_sha, tools, certificate)
+          except PreflightError:
+              print("APK original recuperado e cópia alterada recusada.")
+          else:
+              raise AssertionError("Uma cópia alterada foi aprovada.")
+          PYTHON
 
   assinatura:
     name: Assinar o APK 41 aprovado e registrar evidências
@@ -99,6 +153,7 @@ jobs:
     env:
       QA_ROUND_SOURCE_SHA: 94e94b85a0fbc43d7a51c5874dc2fa6928b41053
       QA_APK39_CERT_SHA256: 63b26756491bb0103e44e561d63c5481c0d9a6e7374b322ff4e97e1cd5629e57
+      QA_FOUNDER_AGE_RECIPIENT: age1aww8m2zr2p85engnrj5yfecpuraveueh6845aepa5jpzywsm2dcszyxmhh
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -125,6 +180,21 @@ jobs:
         with:
           gradle-version: '8.13'
           cache-disabled: true
+      - name: Conferir o destinatário público e preparar a entrega
+        if: inputs.deliver_private
+        shell: bash
+        env:
+          ATRIO_QA_CELULAR_AGE_RECIPIENT: ${{ vars.ATRIO_QA_CELULAR_AGE_RECIPIENT }}
+        run: |
+          if [[ "$ATRIO_QA_CELULAR_AGE_RECIPIENT" != "$QA_FOUNDER_AGE_RECIPIENT" ]]; then
+            echo 'O destinatário age diverge da referência conferida pelo fundador.' >&2
+            exit 1
+          fi
+          if ! command -v age >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y age
+          fi
+          install -d -m 700 "$RUNNER_TEMP/apk41-delivery"
       - name: Compilar com a configuração registrada do Firebase de QA
         working-directory: candidate
         shell: bash
@@ -136,6 +206,8 @@ jobs:
       - name: Assinar e comparar o único certificado com o APK 39
         shell: bash
         env:
+          QA_DELIVER_PRIVATE: ${{ inputs.deliver_private }}
+          ATRIO_QA_CELULAR_AGE_RECIPIENT: ${{ vars.ATRIO_QA_CELULAR_AGE_RECIPIENT }}
           ATRIO_QA_CELULAR_CERT_SHA256: ${{ vars.ATRIO_QA_CELULAR_CERT_SHA256 }}
           ATRIO_QA_CELULAR_KEYSTORE_BASE64: ${{ secrets.ATRIO_QA_CELULAR_KEYSTORE_BASE64 }}
           ATRIO_QA_CELULAR_KEY_ALIAS: ${{ secrets.ATRIO_QA_CELULAR_KEY_ALIAS }}
@@ -148,8 +220,25 @@ jobs:
             exit 1
           fi
           printf 'Origem do APK: %s\n' "$QA_ROUND_SOURCE_SHA" | tee -a "$GITHUB_STEP_SUMMARY"
-          bash scripts/qa_geral_celular_sign_round.sh "$RUNNER_TEMP/round-unsigned.apk" | tee -a "$GITHUB_STEP_SUMMARY"
+          output=()
+          if [[ "$QA_DELIVER_PRIVATE" == 'true' ]]; then
+            test "$ATRIO_QA_CELULAR_AGE_RECIPIENT" = "$QA_FOUNDER_AGE_RECIPIENT"
+            output=("$RUNNER_TEMP/apk41-delivery/atrio-qa-geral-celular-41.apk.age")
+          fi
+          bash scripts/qa_geral_celular_sign_round.sh "$RUNNER_TEMP/round-unsigned.apk" "${output[@]}" |
+            tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Disponibilizar somente o APK cifrado para o fundador
+        if: inputs.deliver_private
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: atrio-qa-geral-celular-41-cifrado
+          path: ${{ runner.temp }}/apk41-delivery/atrio-qa-geral-celular-41.apk.age
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
       - name: Limpar arquivos temporários
         if: always()
         shell: bash
-        run: rm -f -- "$RUNNER_TEMP/round-unsigned.apk" candidate/app/src/qaGeral/google-services.json
+        run: |
+          rm -f -- "$RUNNER_TEMP/round-unsigned.apk" candidate/app/src/qaGeral/google-services.json
+          rm -rf -- "$RUNNER_TEMP/apk41-delivery"
