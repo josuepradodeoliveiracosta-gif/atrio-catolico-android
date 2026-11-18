@@ -179,16 +179,28 @@ export function createAuthorizedInboxService({
  */
 export async function syncBlockedPair(adminDb,a,b) {
   if(!UID.test(a||'')||!UID.test(b||'')||a===b)deny();
-  const candidates=[a+'__'+b,b+'__'+a];
-  let synced=0;
+  const candidates=[...new Set([a+'__'+b,b+'__'+a])];
+  let synced=0,staleRemoved=0;
   for(const id of candidates){
-    const snap=await adminDb.doc('chats/'+id).get();
+    const parent=adminDb.doc('chats/'+id);
+    const snap=await parent.get();
     if(has(snap)){
+      // O reconciliador relê conversa e bloqueios em transação; um evento
+      // anterior não pode restaurar índices usando payload desatualizado.
       await reconcilePeerInbox(adminDb,id);
       synced++;
+    }else{
+      // Reexecuções de eventos, exclusões e índice órfão: sempre confirme
+      // a ausência da conversa DENTRO da transação antes de limpar a vista.
+      staleRemoved+=await adminDb.runTransaction(async tx=>{
+        if(has(await tx.get(parent)))return 0;
+        tx.delete(adminDb.doc('users/'+a+'/chatInboxByPeer/'+b+'/entries/'+id));
+        tx.delete(adminDb.doc('users/'+b+'/chatInboxByPeer/'+a+'/entries/'+id));
+        return 2;
+      });
     }
   }
-  return {synced};
+  return {synced,staleRemoved};
 }
 export async function backfillInboxBatch(adminDb,ownerUid,{after=null,limit=20}={}) {
   if(!UID.test(ownerUid||'')||!Number.isInteger(limit)||limit<1||
@@ -234,4 +246,35 @@ export function createInboxHttpHandler(service,{enabled=false}={}) {
       return response(200,result);
     }catch{return response(403,{error:'forbidden'});}
   };
+}
+
+/**
+ * Ponto de integracao de eventos ADMIN: criar/atualizar chat,
+ * atualizar/remover bloqueio e remover chat. Nao registra trigger nem
+ * executa rede remotamente. O operador conecta o handler autorizado.
+ */
+export async function applyTrustedInboxEvent(adminDb,event) {
+  if(!event||typeof event!=='object'||Array.isArray(event))deny();
+  if(event.kind==='chat_written'){
+    if(!CHAT.test(event.chatId||''))deny();
+    return reconcilePeerInbox(adminDb,event.chatId);
+  }
+  if(event.kind==='block_changed'){
+    return syncBlockedPair(adminDb,event.ownerUid,event.peerUid);
+  }
+  if(event.kind==='chat_deleted'){
+    if(!CHAT.test(event.chatId||''))deny();
+    // A prova dos participantes vem do snapshot ANTERIOR confiável do
+    // gatilho Admin, nunca de um request do cliente.
+    const views=peerInboxEntries(event.chatId,event.previousChat);
+    return adminDb.runTransaction(async tx=>{
+      // Gatilhos chegam fora de ordem: se a conversa reapareceu, a exclusão
+      // antiga NÃO pode apagar a vista da conversa ativa.
+      if(has(await tx.get(adminDb.doc('chats/'+event.chatId))))
+        return {deleted:0,staleEvent:true};
+      for(const view of views)tx.delete(adminDb.doc(view.path));
+      return {deleted:views.length,staleEvent:false};
+    });
+  }
+  deny();
 }
