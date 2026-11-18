@@ -11,6 +11,29 @@ const qaProject='atrio-catolico-qa-geral';
 const qaD1='11111111-2222-4333-8444-555555555555';
 const generated=renderQaWorker(original,qaProject);
 
+// Protege o proprio teste contra falsos positivos de host (CodeQL HIGH).
+// origin tambem rejeita HTTP, porta alternada e sufixo malicioso.
+function isExactFirebaseIdentityLookup(input){
+  try {
+    const parsed=new URL(String(input));
+    return parsed.origin==='https://identitytoolkit.googleapis.com'
+      && parsed.pathname==='/v1/accounts:lookup'
+      && parsed.searchParams.has('key');
+  } catch { return false; }
+}
+test('QA rejeita hosts Firebase Auth impostores no verificador do endpoint',()=>{
+  assert.equal(isExactFirebaseIdentityLookup(
+    'https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=offline'),true);
+  for(const impostor of [
+    'https://identitytoolkitXgoogleapisYcom/v1/accounts:lookup?key=offline',
+    'https://identitytoolkit.googleapis.com.evil.invalid/v1/accounts:lookup?key=offline',
+    'http://identitytoolkit.googleapis.com/v1/accounts:lookup?key=offline',
+    'https://identitytoolkit.googleapis.com:444/v1/accounts:lookup?key=offline',
+    'https://identitytoolkit.googleapis.com/v1/accounts:lookup-extra?key=offline',
+    'https://identitytoolkit.googleapis.com/v1/accounts:lookup'
+  ]) assert.equal(isExactFirebaseIdentityLookup(impostor),false,impostor);
+});
+
 test('bundle QA contém o projeto segregado sem literal do Firebase oficial',()=>{
   assert.match(generated,/const PROJECT = 'atrio-catolico-qa-geral'/);
   assert.doesNotMatch(generated,/const PROJECT = 'atrio-catolico';/);
@@ -186,11 +209,8 @@ test('token do projeto QA continua exigindo confirmação do Firebase Auth',asyn
   const savedFetch=globalThis.fetch;
   let lookupCalls=0;
   globalThis.fetch=async(url,options)=>{
-    const endpoint=new URL(String(url));
-    assert.equal(endpoint.protocol,'https:');
-    assert.equal(endpoint.hostname,'identitytoolkit.googleapis.com');
-    assert.equal(endpoint.pathname,'/v1/accounts:lookup');
-    assert.ok(endpoint.searchParams.has('key'));
+    assert.equal(isExactFirebaseIdentityLookup(url),true);
+    assert.equal(new URL(String(url)).searchParams.get('key'),'fake-qa-key');
     assert.match(options.body,/"idToken"/);
     lookupCalls++;
     return new Response(JSON.stringify({users:[{localId:'qa_user',emailVerified:true}]}),
