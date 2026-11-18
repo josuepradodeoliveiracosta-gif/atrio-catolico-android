@@ -20,7 +20,7 @@ internal fun rememberBlockedMembers(db: FirebaseFirestore, viewerUid: String): S
     var sessionUid by remember(auth) { mutableStateOf(auth.currentUser?.uid) }
     var ids by remember(db, viewerUid) { mutableStateOf<Set<String>>(emptySet()) }
 
-    DisposableEffect(auth) {
+    DisposableEffect(auth, viewerUid) {
         val observer = FirebaseAuth.AuthStateListener { instance ->
             sessionUid = instance.currentUser?.uid
             if (sessionUid != viewerUid) ids = emptySet()
