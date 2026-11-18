@@ -79,14 +79,11 @@ export function renderClosedPilotRules() {
   if (!fromReports || extra.length) throw Error('Regras de denúncia direta indisponíveis');
   fragments = beforeReports + reportMatch + replaceChecked(fromReports,
     'allow create: if chatEnabled()', 'allow create: if pilotDirectEnabled()');
-  // Nos convites do piloto, aplicar bloqueio bilateral já na emissão e no reconvite.
-  fragments = replaceChecked(fragments,
-    '!exists(/databases/$(database)/documents/users/$(inviteeUid)/blockedMembers/$(request.auth.uid))',
-    'chatNoBlock(request.auth.uid, inviteeUid)', 2);
-  fragments = replaceChecked(fragments,
-    '          // O destinatário nunca recebe convite de quem bloqueou.\n'
-    + '          // O bloqueio inverso é revalidado no ACEITE, para economizar\n'
-    + '          // leituras de regras na simples criação de convite.\n', '');
+  // O fragmento-base agora impõe bloqueio bilateral em convite e reconvite.
+  // Falhar fechado se o contrato mudar antes de reutilizá-lo no piloto.
+  if (fragments.split('&& chatNoBlock(request.auth.uid, inviteeUid)').length !== 3) {
+    throw Error('Bloqueio bilateral ausente das regras de convites');
+  }
 
   for (const path of ['chatAgeEligibility/current', 'chatSettings/privacy']) {
     base = replaceChecked(base,
