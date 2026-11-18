@@ -153,10 +153,12 @@
       // a caixa de entrada, apesar de os documentos terem dados corretos.
       allow get: if chatEnabled() && chatMember(resource.data)
         && chatNoBlock(resource.data.requesterUid, resource.data.recipientUid);
+      // Uma query da caixa nao prova pares dinamicos via Rules; o gate
+      // bilateral de get/historico permanece fail-closed. A listagem requer
+      // arquitetura de inbox materializada para ocultar metadados bloqueados.
       allow list: if chatEnabled() && signedIn()
         && request.query.limit != null && request.query.limit <= 100
-        && request.auth.uid in resource.data.participants
-        && chatNoBlock(resource.data.requesterUid, resource.data.recipientUid);
+        && request.auth.uid in resource.data.participants;
       allow create: if chatEnabled()
         && request.auth.uid == request.resource.data.requesterUid
         && validId(request.resource.data.requesterUid)
