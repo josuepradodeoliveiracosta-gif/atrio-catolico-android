@@ -122,6 +122,30 @@ export function renderQaWorker(original, project) {
     "        let attemptedForRecipient=0;\n        for(const target of list) {\n          // A primeira revalidacao antecede a reserva D1; nos dispositivos\n          // seguintes, conferir novamente bloqueios, status, grupo e mensagem.\n          if (attemptedForRecipient>0 &&\n              (event.kind==='chat_message' || event.kind==='group_message')) {\n            let stillAllowed=false;\n            try {\n              stillAllowed=await qaChatPushPreSendAllowed(token,uid,recipient,\n                event.kind==='group_message' ? event.groupId : null) &&\n                await qaChatPolicyPreSendAllowed(token,uid,recipient,event) &&\n                await qaChatMessagePreSendAllowed(token,uid,event);\n            } catch { stillAllowed=false; }\n            if (!stillAllowed) {\n              policyInterrupted=true;\n              break;\n            }\n          }\n          let result;\n          try {\n            result=event.topic");
   code = exactlyOnce(code, "                    {groupId:event.groupId,messageId:event.messageId} : {});\n          attempted++;",
     "                    {groupId:event.groupId,messageId:event.messageId} : {});\n          } catch {\n            transportFailure=true;\n            attempted++;\n            break;\n          }\n          attempted++;\n          attemptedForRecipient++;");
+  // QA-only: HTTP 200 nao prova entrega e sequer deve contar como aceite
+  // se o recibo JSON nao nomeia uma mensagem do projeto Firebase QA.
+  // Um recibo ambiguo nao permite retry (D1 ja reservado).
+  code = exactlyOnce(code,
+    "          if(result.ok) accepted++;\n          else {",
+    `          if(result.ok) {
+            let receipt;
+            try { receipt=await result.json(); } catch { receipt=null; }
+            const prefix='projects/'+PROJECT+'/messages/';
+            if (typeof receipt?.name!=='string' ||
+                !receipt.name.startsWith(prefix) ||
+                receipt.name.length<=prefix.length ||
+                receipt.name.length>prefix.length+512 ||
+                /\s/.test(receipt.name)) {
+              transportFailure=true;
+              break;
+            }
+            accepted++;
+          } else {`);
+  // 429 indica limite de cota. Suspender os demais aparelhos desta
+  // tentativa sem reenvio automatico nem esgotar a cota.
+  code = exactlyOnce(code,
+    "          if(!result.ok && result.status>=500) break;",
+    "          if(!result.ok && (result.status===429 || result.status>=500)) break;");
   code = exactlyOnce(code, "      await auditDelivery(env,event.kind,outcome,attempted,accepted,failedHttp);",
     "      await auditDelivery(env,event.kind,outcome,attempted,accepted,transportFailure ? 0 : failedHttp);");
   const queueStart = '  async queue(batch,env) {';
