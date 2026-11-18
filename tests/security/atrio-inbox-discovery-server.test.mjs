@@ -207,7 +207,6 @@ try{
       assert.equal((await handler(request('/v1/qa/conversations/inbox',tokens.alice,'POST'))).status,405);
       assert.equal((await handler(request('/v1/qa/conversations/inbox','invalid-token'))).status,403);
     });
-  });
   await check('evento confiavel sincroniza edicao, bloqueio e exclusao da conversa',async()=>{
     const chatRef=doc(db,'chats/'+idAB);
     const original=(await getDocFromServer(chatRef)).data();
@@ -229,6 +228,7 @@ try{
     for(const path of [pathView(alice,bob,idAB),pathView(bob,alice,idAB)])
       assert.equal((await getDocFromServer(doc(db,path))).exists(),false);
     await assert.rejects(applyTrustedInboxEvent(admin,{kind:'anything'}),/inbox_access_denied/);
+  });
   });
   console.log('AUTHORIZED INBOX DISCOVERY TESTS:',checks,'OK');
 }finally{await env.cleanup();}
