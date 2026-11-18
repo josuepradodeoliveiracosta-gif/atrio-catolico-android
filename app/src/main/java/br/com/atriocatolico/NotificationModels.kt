@@ -1,5 +1,19 @@
 package br.com.atriocatolico
 
+/**
+ * A UI só mostra pendências administrativas com resposta atual do servidor.
+ * A leitura de cache e os avisos pendentes de escrita não provam autorização.
+ */
+internal object NoticePrivacyPolicy {
+    fun serverConfirmed(fromCache: Boolean, pendingWrites: Boolean,
+                        ownSession: Boolean): Boolean =
+        ownSession && !fromCache && !pendingWrites
+
+    fun safeActorName(raw: String?): String =
+        raw?.filterNot { it.isISOControl() }?.trim()?.take(60)
+            ?.takeIf { it.isNotBlank() } ?: "Alguém"
+}
+
 internal enum class NoticeKind { REPLY, REVIEW, REPORTS, REQUESTS }
 internal data class NoticeEvent(
     val id: String, val kind: NoticeKind, val target: String = "",
