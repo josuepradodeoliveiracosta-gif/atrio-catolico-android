@@ -201,7 +201,7 @@ class AtrioConversasTrocaContaEmulatorUiTest : AtrioConversasNavegacaoQa() {
         compose.onNodeWithText(privateText).assertIsDisplayed()
 
         val ownRooms = Tasks.await(db.collection("chats")
-            .whereArrayContains("participants", aliceUid).get(Source.SERVER),
+            .whereArrayContains("participants", aliceUid).limit(100).get(Source.SERVER),
             10, TimeUnit.SECONDS)
         val privateRoom = ownRooms.documents.single { it.getString("lastPreview") == privateText }
         val oldChat = privateRoom.reference
