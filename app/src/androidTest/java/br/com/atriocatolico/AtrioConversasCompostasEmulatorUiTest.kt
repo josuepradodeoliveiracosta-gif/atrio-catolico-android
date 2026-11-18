@@ -297,6 +297,36 @@ class AtrioConversasCompostasEmulatorUiTest {
                 document.getString("lastPreview") == reply && !document.metadata.hasPendingWrites()
         }
 
+        // Na suite regular, exercitar o envio real pela UI com a transacao
+        // falhando sem rede. O app deve reutilizar o mesmo ID ao reenviar,
+        // e o servidor deve persistir apenas uma mensagem.
+        if (!pilot) {
+            val retry = "Reenvio do Android apos reconexao, mensagem unica."
+            await(db.disableNetwork())
+            try {
+                send("atrio-chat-composer", "atrio-chat-send", retry)
+                waitForText("Envio não confirmado. Confira a conexão.")
+            } finally {
+                await(db.enableNetwork())
+            }
+            compose.waitUntil(30_000) {
+                try {
+                    compose.onNodeWithTag("atrio-chat-send").assertIsEnabled()
+                    true
+                } catch (_: AssertionError) {
+                    false
+                }
+            }
+            click("atrio-chat-send")
+            compose.waitUntil(30_000) {
+                val messages = await(chat.collection("messages").get(Source.SERVER))
+                val saved = messages.documents.filter { it.getString("text") == retry }
+                saved.size == 1 && !saved.single().metadata.hasPendingWrites() &&
+                    await(chat.get(Source.SERVER)).getString("lastPreview") == retry
+            }
+            android.util.Log.i("AtrioConversasQA", "reconexao_apos_falha=um_unico_envio_confirmado")
+        }
+
         assertEquals(alice, login(aliceEmail))
         show(Screen(alice, groupPeer = bob))
         click("atrio-group-create-open")
