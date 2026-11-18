@@ -13,9 +13,9 @@ class NotificationModelsTest {
 
     @Test fun actorNameInNotificationCannotAddControlCharactersOrHugeText() {
         assertEquals("Alguém", NoticePrivacyPolicy.safeActorName(null))
-        assertEquals("Alguém", NoticePrivacyPolicy.safeActorName("\\n\\t"))
+        assertEquals("Alguém", NoticePrivacyPolicy.safeActorName("" + 10.toChar() + 9.toChar()))
         assertEquals("Clara", NoticePrivacyPolicy.safeActorName("  Clara  "))
-        assertEquals("Miguel", NoticePrivacyPolicy.safeActorName("Mi\\u0000guel"))
+        assertEquals("Miguel", NoticePrivacyPolicy.safeActorName("Mi" + 0.toChar() + "guel"))
         assertEquals(60, NoticePrivacyPolicy.safeActorName("L".repeat(500)).length)
     }
 
