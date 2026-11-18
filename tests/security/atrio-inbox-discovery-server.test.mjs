@@ -140,13 +140,13 @@ try{
       assert.deepEqual((await list()).items.map(v=>v.peerUid),[clara]);
     });
     await check('materializador em evento de bloqueio remove vistas de AMBOS',async()=>{
-      assert.deepEqual(await syncBlockedPair(admin,alice,bob),{synced:1});
+      assert.deepEqual(await syncBlockedPair(admin,alice,bob),{synced:1,staleRemoved:2});
       assert.equal((await getDocFromServer(doc(db,pathView(alice,bob,idAB)))).exists(),false);
       assert.equal((await getDocFromServer(doc(db,pathView(bob,alice,idAB)))).exists(),false);
     });
     await check('desbloqueio e reconciliação restauram indices consistentes',async()=>{
       await deleteDoc(doc(db,'users/'+bob+'/blockedMembers/'+alice));
-      assert.deepEqual(await syncBlockedPair(admin,alice,bob),{synced:1});
+      assert.deepEqual(await syncBlockedPair(admin,alice,bob),{synced:1,staleRemoved:2});
       assert.equal((await getDocFromServer(doc(db,pathView(alice,bob,idAB)))).exists(),true);
       assert.deepEqual((await list()).items.map(v=>v.peerUid),[bob,clara]);
     });
@@ -220,11 +220,28 @@ try{
     await deleteDoc(doc(db,'users/'+alice+'/blockedMembers/'+bob));
     await applyTrustedInboxEvent(admin,{kind:'block_changed',ownerUid:alice,peerUid:bob});
     assert.equal((await getDocFromServer(doc(db,pathView(alice,bob,idAB)))).exists(),true);
-    await deleteDoc(chatRef);
-    await applyTrustedInboxEvent(admin,{
+    const deleteEvent={
       kind:'chat_deleted',chatId:idAB,
       previousChat:{...original,lastPreview:'Nova previa autorizada'}
-    });
+    };
+    // Um evento antigo de exclusão não pode apagar índices de uma
+    // conversa que ainda está ativa; pode chegar fora de ordem.
+    assert.deepEqual(await applyTrustedInboxEvent(admin,deleteEvent),
+      {deleted:0,staleEvent:true});
+    assert.equal((await getDocFromServer(doc(db,pathView(alice,bob,idAB)))).exists(),true);
+    await deleteDoc(chatRef);
+    assert.deepEqual(await applyTrustedInboxEvent(admin,deleteEvent),
+      {deleted:2,staleEvent:false});
+    assert.deepEqual(await applyTrustedInboxEvent(admin,deleteEvent),
+      {deleted:2,staleEvent:false});
+    for(const path of [pathView(alice,bob,idAB),pathView(bob,alice,idAB)])
+      assert.equal((await getDocFromServer(doc(db,path))).exists(),false);
+    // Caso um backend anterior deixe vistas órfãs, o próximo evento
+    // de bloqueio deve saneá-las sem reabrir dados da conversa apagada.
+    for(const view of peerInboxEntries(idAB,original))
+      await setDoc(doc(db,view.path),view.data);
+    assert.deepEqual(await syncBlockedPair(admin,alice,bob),
+      {synced:0,staleRemoved:4});
     for(const path of [pathView(alice,bob,idAB),pathView(bob,alice,idAB)])
       assert.equal((await getDocFromServer(doc(db,path))).exists(),false);
     await assert.rejects(applyTrustedInboxEvent(admin,{kind:'anything'}),/inbox_access_denied/);
