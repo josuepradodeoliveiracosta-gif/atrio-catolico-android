@@ -1,0 +1,47 @@
+Validação local de 17/11/2026 — proposta de Perfil
+Base: ebbed2edcdefa77fbda785ca6324aafa6d376c11
+Emulator: demo-atrio-v11 em 127.0.0.1:8089, v1.19.8
+Node 22.23.5; Java 21.0.13
+R7–R9 demonstram falhas do fragmento original, não aprovação.
+
+PASS PUBLIC PROFILE titular cria perfil privado
+PASS PUBLIC PROFILE titular atualiza apresentação privada
+PASS PUBLIC PROFILE outro membro não lê bio privada
+PASS PUBLIC PROFILE anônimo não lê perfil privado
+PASS PUBLIC PROFILE terceiro não publica em nome da titular
+PASS PUBLIC PROFILE titular não pode publicar e-mail ou CPF
+PASS PUBLIC PROFILE titular não pode forjar nome
+PASS PUBLIC PROFILE titular não pode forjar data de entrada
+PASS PUBLIC PROFILE titular publica dados permitidos com opt-in
+PASS PUBLIC PROFILE outro membro consulta apenas projeção pública
+PASS PUBLIC PROFILE anônimo não consulta apresentação pública
+PASS PUBLIC PROFILE ninguém enumera coleção pública
+PASS PUBLIC PROFILE titular não injeta selo na projeção
+PASS PUBLIC PROFILE titular revoga publicação
+PASS PUBLIC PROFILE recurso revogado deixa de aparecer
+PASS PUBLIC PROFILE terceiro não apaga publicação alheia
+PASS PUBLIC PROFILE biografia pública não pode antecipar a edição privada
+PASS PUBLIC PROFILE nome e bio são atualizados atomicamente no perfil privado e público
+PASS PUBLIC PROFILE lote inválido não altera perfil privado parcialmente
+PASS PUBLIC PROFILE APK legado não altera bio privada deixando projeção pública antiga
+PASS PUBLIC PROFILE após revogação, edição privada volta a funcionar
+PASS PUBLIC PROFILE foto não pode ser publicada diretamente pelo dono
+PASS PUBLIC PROFILE outro usuário não pode forjar foto alheia
+PASS PUBLIC PROFILE serviço privilegiado pode preparar fixture de foto
+PASS PUBLIC PROFILE outro usuário autenticado pode consultar foto pública por UID
+PASS PUBLIC PROFILE usuário anônimo não lê foto pública
+PASS PUBLIC PROFILE coleção de fotos não pode ser enumerada
+PASS PUBLIC PROFILE dono não pode alterar URL Cloudinary sem backend
+PASS PUBLIC PROFILE dono não pode excluir diretamente o documento público
+PASS PUBLIC PROFILE outro participante não pode excluir foto
+OK: 30 verificações de perfil público concluídas
+PASS REVIEW 1: Rules atuais recusam identidade nova sem contrato aprovado
+PASS REVIEW 2: Rules atuais recusam allowDirectMessages em profiles
+PASS REVIEW 3: Payload de interesses do TXT é negado em documento novo
+PASS REVIEW 4: Merge do TXT também é negado com preferências preexistentes
+PASS REVIEW 5: Apagar do TXT remove também cidade, paróquia e participação
+PASS REVIEW 6: Rules atuais protegem a data original do perfil
+PASS REVIEW 7: Fragmento do TXT aceita adulterar createdAt privado
+PASS REVIEW 8: Fragmento do TXT aceita joinedAt diferente do cadastro
+PASS REVIEW 9: Fragmento do TXT aceita projeção sem joinedAt
+OK REVIEW: 9/9 verificações concluídas. Sucessos do fragmento original demonstram falhas, não aprovação.
