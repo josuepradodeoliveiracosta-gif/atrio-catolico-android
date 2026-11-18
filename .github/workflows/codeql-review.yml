@@ -104,3 +104,30 @@ jobs:
         uses: github/codeql-action/analyze@v4
         with:
           category: /language:${{ matrix.language }}
+          # Temporario para localizar o alerta por regra/arquivo/linha.
+          post-processed-sarif-path: ${{ runner.temp }}/atrio-codeql-sarif
+      - name: Diagnostico de alertas CodeQL do JavaScript, sem revelar codigo
+        if: matrix.language == 'javascript-typescript'
+        shell: bash
+        env:
+          ATRIO_SARIF_DIR: ${{ runner.temp }}/atrio-codeql-sarif
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          root=Path(os.environ['ATRIO_SARIF_DIR'])
+          paths=sorted(root.rglob('*.sarif')) if root.exists() else []
+          print('CODEQL_DIAGNOSTIC_FILES',len(paths))
+          for path in paths:
+              data=json.loads(path.read_text())
+              for run in data.get('runs',[]):
+                  for finding in run.get('results',[]):
+                      loc=(finding.get('locations') or [{}])[0]
+                      physical=loc.get('physicalLocation') or {}
+                      file=(physical.get('artifactLocation') or {}).get('uri','')
+                      region=physical.get('region') or {}
+                      if not file: continue
+                      print('CODEQL_DIAGNOSTIC_RULE',finding.get('ruleId','?'),
+                            'FILE',file,'LINE',region.get('startLine','?'),
+                            'LEVEL',finding.get('level','?'))
+          PY
