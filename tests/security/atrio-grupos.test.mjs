@@ -173,6 +173,13 @@ try {
   }));
   await check('contato aceito que bloqueou administrador não recebe convite',()=>
     assertFails(invitation(a,groupId,'group-c')));
+  await assertSucceeds(deleteDoc(doc(c,'users/group-c/blockedMembers/group-a')));
+  await assertSucceeds(setDoc(doc(a,'users/group-a/blockedMembers/group-c'),{
+    createdAt:serverTimestamp()
+  }));
+  await check('administrador que bloqueou contato também não envia convite',()=>
+    assertFails(invitation(a,groupId,'group-c')));
+  await assertSucceeds(deleteDoc(doc(a,'users/group-a/blockedMembers/group-c')));
   await check('convite não permite falsificar ID de conversa de terceiros',()=>
     assertFails(invitation(a,groupId,'group-b',{
       contactChatId:'group-a__group-c'
@@ -393,6 +400,22 @@ try {
     await assertFails(getDoc(doc(b,group)));
     await assertFails(getDoc(doc(b,group+'/messages/msg1')));
   });
+  await assertSucceeds(setDoc(doc(b,'users/group-b/blockedMembers/group-a'),{
+    createdAt:serverTimestamp()
+  }));
+  await check('reconvite é negado quando destinatário bloqueia administrador',()=>
+    assertFails(updateDoc(doc(a,group+'/atrioGroupInvites/group-b'),{
+      status:'pending',updatedAt:serverTimestamp()
+    })));
+  await assertSucceeds(deleteDoc(doc(b,'users/group-b/blockedMembers/group-a')));
+  await assertSucceeds(setDoc(doc(a,'users/group-a/blockedMembers/group-b'),{
+    createdAt:serverTimestamp()
+  }));
+  await check('reconvite é negado quando administrador bloqueia destinatário',()=>
+    assertFails(updateDoc(doc(a,group+'/atrioGroupInvites/group-b'),{
+      status:'pending',updatedAt:serverTimestamp()
+    })));
+  await assertSucceeds(deleteDoc(doc(a,'users/group-a/blockedMembers/group-b')));
   await check('admin pode reconvidar participante que saiu',()=>
     assertSucceeds(updateDoc(doc(a,group+'/atrioGroupInvites/group-b'),{
       status:'pending',updatedAt:serverTimestamp()

@@ -15,6 +15,8 @@ on:
       - '.github/workflows/android-bots-ui.yml'
       - 'tests/security/qa-geral-integrado.test.mjs'
       - 'tests/security/qa-geral-celular-pilot.test.mjs'
+      - 'tests/security/atrio-grupos.test.mjs'
+      - 'firebase/atrio-grupos-v1.rules.fragment'
       - 'firebase/qa-geral-celular/pilot/**'
       - 'scripts/run-qa-android-emulator.sh'
       - 'scripts/test_qa_android_groups.py'
@@ -67,7 +69,7 @@ jobs:
       - name: Validar regras com as contas fictícias do QA Geral Celular
         run: |
           ./node_modules/.bin/firebase emulators:exec --only firestore \
-            --project demo-atrio-v11 'node qa-geral-integrado.test.mjs && node --test qa-geral-celular-pilot.test.mjs'
+            --project demo-atrio-v11 'node qa-geral-integrado.test.mjs && node --test qa-geral-celular-pilot.test.mjs && node atrio-grupos.test.mjs'
 
   android-ui:
     name: Testar telas do Átrio — ${{ matrix.suite_group }}
