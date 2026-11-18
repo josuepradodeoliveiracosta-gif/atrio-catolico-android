@@ -8,6 +8,11 @@ package br.com.atriocatolico
 internal object AtrioPeerInboxPolicy {
     private val uidPattern = Regex("^[A-Za-z0-9_-]{1,128}$")
 
+    /** Cache local, escrita pendente e conta trocada nunca autorizam prévia. */
+    fun freshServer(fromCache: Boolean, pendingWrites: Boolean,
+                    sameSession: Boolean): Boolean =
+        sameSession && !fromCache && !pendingWrites
+
     fun validPeer(owner: String, peer: String): Boolean =
         uidPattern.matches(owner) && uidPattern.matches(peer) && owner != peer
 

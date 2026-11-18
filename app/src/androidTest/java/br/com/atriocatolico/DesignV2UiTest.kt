@@ -1,6 +1,11 @@
 package br.com.atriocatolico
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.Modifier
@@ -21,6 +26,30 @@ import org.junit.Test
 /** Confere estados reais do guia v2 sem alterar o Firebase de produção. */
 class DesignV2UiTest {
     @get:Rule val compose = createComposeRule()
+
+    @Test fun chatInboxErroTemRetentativaAcessivelComFonteDuzentosPorCento() {
+        var retry = 0
+        compose.setContent {
+            val density = LocalDensity.current
+            CompositionLocalProvider(LocalDensity provides Density(density.density, 2.0f)) {
+                AtrioTheme {
+                    AtrioPeerInboxError(
+                        "Não foi possível confirmar suas conversas no servidor.",
+                        onRetry = { retry++ }
+                    )
+                }
+            }
+        }
+        compose.onNodeWithTag("atrio-peer-inbox-error")
+            .assertIsDisplayed()
+            .assert(SemanticsMatcher.expectValue(
+                SemanticsProperties.LiveRegion, LiveRegionMode.Polite))
+        compose.onNodeWithTag("atrio-peer-inbox-retry")
+            .assertIsDisplayed().assertIsEnabled().performClick()
+        compose.runOnIdle { assertEquals(1, retry) }
+        compose.onNodeWithText("Nenhuma conversa nesta caixa de entrada.")
+            .assertDoesNotExist()
+    }
 
     @Test fun openingCategoryMaintainsOfficialName() {
         var chosen = ""

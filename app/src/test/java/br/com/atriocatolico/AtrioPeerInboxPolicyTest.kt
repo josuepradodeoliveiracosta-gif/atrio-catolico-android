@@ -5,6 +5,12 @@ import org.junit.Test
 
 /** Contrato #355 sem rede ou credenciais: nenhuma descoberta global. */
 class AtrioPeerInboxPolicyTest {
+    @Test fun cacheOfflineAndAccountSwitchNeverAuthorizeInbox() {
+        assertTrue(AtrioPeerInboxPolicy.freshServer(false, false, true))
+        assertFalse(AtrioPeerInboxPolicy.freshServer(true, false, true))
+        assertFalse(AtrioPeerInboxPolicy.freshServer(false, true, true))
+        assertFalse(AtrioPeerInboxPolicy.freshServer(false, false, false))
+    }
     @Test fun knownPeerIsValidated() {
         assertTrue(AtrioPeerInboxPolicy.validPeer("alice", "bob"))
         assertFalse(AtrioPeerInboxPolicy.validPeer("alice", "alice"))

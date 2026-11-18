@@ -12,9 +12,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.liveRegion
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -241,7 +238,11 @@ internal fun AtrioConversationsScreen(
         // Source.SERVER é obrigatório: um índice revogado pode permanecer
         // no cache do aparelho depois do bloqueio bilateral.
         val confirmed = failure == null && snapshot != null &&
-            !snapshot.metadata.isFromCache && !snapshot.metadata.hasPendingWrites()
+            AtrioPeerInboxPolicy.freshServer(
+                snapshot.metadata.isFromCache,
+                snapshot.metadata.hasPendingWrites(),
+                authentication.currentUser?.uid == uid
+            )
         if (!confirmed) {
             rooms = emptyList()
             error = "Não foi possível confirmar suas conversas no servidor. " +
@@ -325,12 +326,7 @@ internal fun AtrioConversationsScreen(
                     Modifier.padding(24.dp).testTag("atrio-peer-inbox-loading"))
                 error.isNotBlank() -> Column(Modifier.padding(20.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(error, color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.testTag("atrio-peer-inbox-error")
-                            .semantics { liveRegion = LiveRegionMode.Polite })
-                    OutlinedButton(onClick = { retryInbox++ },
-                        modifier = Modifier.heightIn(min = 48.dp)
-                            .testTag("atrio-peer-inbox-retry")) { Text("Tentar novamente") }
+                    AtrioPeerInboxError(error, onRetry = { retryInbox++ })
                     TextButton(onClick = { selected = null }) { Text("Voltar") }
                 }
                 chosen == null && !firstContact ->
@@ -406,15 +402,8 @@ internal fun AtrioConversationsScreen(
             if (!loaded && knownPeer) LinearProgressIndicator(
                 Modifier.fillMaxWidth().testTag("atrio-peer-inbox-loading"))
             if (error.isNotBlank()) {
-                Text(error, Modifier.padding(12.dp)
-                    .testTag("atrio-peer-inbox-error")
-                    .semantics { liveRegion = LiveRegionMode.Polite },
-                    color = MaterialTheme.colorScheme.error)
-                OutlinedButton(onClick = { retryInbox++ },
-                    modifier = Modifier.padding(horizontal = 16.dp)
-                        .heightIn(min = 48.dp).testTag("atrio-peer-inbox-retry")) {
-                    Text("Tentar novamente")
-                }
+                AtrioPeerInboxError(error, modifier = Modifier.padding(16.dp),
+                    onRetry = { retryInbox++ })
             }
             if (knownPeer && loaded && error.isBlank() && matches.isEmpty()) Text(
                 when {
