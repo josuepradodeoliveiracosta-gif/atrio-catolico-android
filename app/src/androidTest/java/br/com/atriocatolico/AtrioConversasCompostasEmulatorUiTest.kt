@@ -344,11 +344,20 @@ class AtrioConversasCompostasEmulatorUiTest {
                 failure
             )
         }
-        waitForText("Aguardando aceite do destinatário.")
+        // Confirmar primeiro o estado real da transação. O novo contrato
+        // não permite que o cliente descubra a solicitação pela lista global.
         val pending = await(chat.get(Source.SERVER))
         assertEquals("pending", pending.getString("status"))
         assertEquals(alice, pending.getString("requesterUid"))
+        // Em produção, o serviço Admin da #359 materializa o índice; apenas
+        // nesta instrumentação o teste simula esse evento no Emulator local.
         materializeBoth("pending", first)
+        val indexed = await(db.collection("users").document(alice)
+            .collection("chatInboxByPeer").document(bob)
+            .collection("entries").limit(20).get(Source.SERVER))
+        assertEquals(1, indexed.size())
+        assertEquals(chatId, indexed.documents.single().getString("chatId"))
+        waitForText("Aguardando aceite do destinatário.")
         compose.onNodeWithTag("atrio-chat-composer").assertDoesNotExist()
 
         assertEquals(bob, login(bobEmail))
