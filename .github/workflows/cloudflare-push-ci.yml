@@ -29,4 +29,4 @@ jobs:
       - name: Testes isolados sem Firebase ou Cloudflare de produção
         run: node --test cloudflare/push-worker/src/index.test.js cloudflare/push-worker/src/qa-geral.test.js cloudflare/email-verification-policy.test.mjs cloudflare/worker-email-gate.test.mjs
       - name: Contratos offline do Worker QA Conversas na main
-        run: node --test cloudflare/push-worker/scripts/chat-qa-build.test.mjs cloudflare/push-worker/scripts/chat-qa-handler-offline.test.mjs cloudflare/push-worker/scripts/chat-qa-main-adapter.test.mjs
+        run: node --test cloudflare/push-worker/scripts/chat-qa-build.test.mjs cloudflare/push-worker/scripts/chat-qa-handler-offline.test.mjs cloudflare/push-worker/scripts/chat-qa-main-adapter.test.mjs cloudflare/push-worker/scripts/chat-qa-rules-parity.test.mjs

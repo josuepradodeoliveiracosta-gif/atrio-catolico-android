@@ -242,7 +242,8 @@ function makeScenario(type,change,deviceCount=1) {
   const fakeToken=fakeJwt();
   const env={
     ATRIO_GENERAL_QA_MODE:'true',ATRIO_GENERAL_QA_PROJECT:project,
-    PUSH_ENABLED:'true',FIREBASE_WEB_API_KEY:'offline-fake-key',
+    PUSH_ENABLED:'true',ATRIO_QA_AGE_POLICY:'eligible',
+    FIREBASE_WEB_API_KEY:'offline-fake-key',
     FIREBASE_SERVICE_ACCOUNT_JSON:JSON.stringify(service),
     PUSH_DB:db
   };
@@ -689,6 +690,7 @@ test('QA: compatibilidade 18+ permite declaracao canonica sem alegar verificacao
   try {
     for(const type of ['dm','group']) {
       const scenario=makeScenario(type,'age_selfdecl_valid',2);
+      scenario.env.ATRIO_QA_AGE_POLICY='declared_18_plus';
       globalThis.fetch=scenario.mockFetch;
       const result=await worker.fetch(scenario.request(),scenario.env);
       assert.equal(result.status,202,type);
@@ -720,4 +722,47 @@ test('QA: declaracao 18+ revogada/fora da versao estrita nunca reserva D1',async
       }
     }
   } finally { globalThis.fetch=oldFetch; }
+});
+
+
+test('QA: modo de Rules deve concordar com status etario antes da reserva D1',async()=>{
+  const worker=(await import('data:text/javascript;charset=utf-8,'+
+    encodeURIComponent(generated))).default;
+  const oldFetch=globalThis.fetch;
+  try {
+    for(const type of ['dm','group']) {
+      for(const [change,mode] of [
+        ['none','declared_18_plus'],
+        ['age_selfdecl_valid','eligible']
+      ]) {
+        const scenario=makeScenario(type,change,2);
+        scenario.env.ATRIO_QA_AGE_POLICY=mode;
+        globalThis.fetch=scenario.mockFetch;
+        const rejected=await worker.fetch(scenario.request(),scenario.env);
+        assert.equal(rejected.status,202,type+'/'+change);
+        assert.equal((await rejected.json()).status,'no_devices_or_duplicate');
+        assert.equal(scenario.stat.markerWrites,0,'Nao consumir D1 em Rules incompativeis');
+        assert.equal(scenario.stat.fcmCalls,0,'Nao enviar FCM');
+      }
+    }
+  } finally {globalThis.fetch=oldFetch;}
+});
+
+test('QA: ausencia de modo etario nao pode habilitar FCM por engano',async()=>{
+  const worker=(await import('data:text/javascript;charset=utf-8,'+
+    encodeURIComponent(generated))).default;
+  const oldFetch=globalThis.fetch;
+  try {
+    for(const mode of [undefined,'disabled','qualquer']) {
+      const scenario=makeScenario('dm','none',2);
+      if(mode===undefined) delete scenario.env.ATRIO_QA_AGE_POLICY;
+      else scenario.env.ATRIO_QA_AGE_POLICY=mode;
+      globalThis.fetch=scenario.mockFetch;
+      const denied=await worker.fetch(scenario.request(),scenario.env);
+      assert.equal(denied.status,503);
+      assert.equal((await denied.json()).status,'qa_age_policy_disabled');
+      assert.equal(scenario.stat.markerWrites,0);
+      assert.equal(scenario.stat.fcmCalls,0);
+    }
+  } finally {globalThis.fetch=oldFetch;}
 });

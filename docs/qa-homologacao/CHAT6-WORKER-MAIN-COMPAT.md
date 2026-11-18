@@ -28,3 +28,17 @@ Worker oficial nem o relay de navegação QA já presente na main.
   dispositivo de grupo. Projetar volume/cotas/latência antes de ativar.
 - **NO-GO remoto:** exige Chat 4 (segurança), Chat 5 (CI/três bots),
   Chat 7 (composição/arquitetura) e aprovação específica do fundador.
+
+## Paridade de contrato etário (ensaio da main)
+
+A `main` atual, via `firebase/qa-general/age18-gate.mjs`, admite apenas
+`eligible/2026-11-18plus-qa-v1` nas Rules sintéticas de acesso a chat.
+A alternativa da #232 admite apenas `declared_18_plus/2026-11-selfdecl-qa-v1`.
+O Worker QA gerado revalida ambos os pares, **mas somente despacha** quando
+`ATRIO_QA_AGE_POLICY` corresponde ao `status` de autor e destinatário,
+na última reconsulta anterior a D1 e a cada dispositivo posterior.
+A configuração gerada traz `ATRIO_QA_AGE_POLICY="disabled"`, além de
+`PUSH_ENABLED=false`; falta escolher Rules reais compatíveis e validar
+no mesmo Firebase Emulator antes de qualquer autorização de ativação.
+Uma string de ambiente não comprova qual Ruleset remoto está implantado.
+O modo legado permanece transitório, conforme parecer do Chat 2 na PR #351.
