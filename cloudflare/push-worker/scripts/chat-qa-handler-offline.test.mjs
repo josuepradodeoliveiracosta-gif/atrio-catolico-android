@@ -79,6 +79,7 @@ function makeScenario(type,change,deviceCount=1) {
     ?{type:'group_message',groupId,messageId}
     :{type:'chat_message',chatId,messageId};
   let sawDevices=false,markerWrites=0,fcmCalls=0,firestoreReads=0,authCalls=0;
+  let externalRequests=0,d1Statements=0;
   let currentChange=change;
   const auditOutcomes=[];
   const insertedMarkers=new Set(); // D1 sintetico retido entre chamadas
@@ -86,8 +87,12 @@ function makeScenario(type,change,deviceCount=1) {
     get markerWrites(){return markerWrites;},get fcmCalls(){return fcmCalls;},
     get uniqueMarkers(){return insertedMarkers.size;},
     get firestoreReads(){return firestoreReads;},get authCalls(){return authCalls;},
-    get auditOutcomes(){return auditOutcomes.map(item=>({...item}));}};
+    get auditOutcomes(){return auditOutcomes.map(item=>({...item}));},
+    get externalRequests(){return externalRequests;},
+    get d1Statements(){return d1Statements;},
+    get estimatedSubrequests(){return externalRequests+d1Statements;}};
   const db={prepare(sql){
+    d1Statements++;
     if(sql.includes('atrio_qa_identity'))
       return {bind(name){
         assert.equal(name,'atrio-qa-geral');
@@ -111,6 +116,7 @@ function makeScenario(type,change,deviceCount=1) {
     throw Error('Unexpected QA D1 SQL: '+sql.slice(0,75));
   }};
   const mockFetch=async(input,options={})=>{
+    externalRequests++;
     const target=String(input);
     const url=new URL(target);
     if(url.origin==='https://identitytoolkit.googleapis.com' &&
@@ -765,4 +771,28 @@ test('QA: ausencia de modo etario nao pode habilitar FCM por engano',async()=>{
       assert.equal(scenario.stat.fcmCalls,0);
     }
   } finally {globalThis.fetch=oldFetch;}
+});
+
+
+test('QA: inventario sintetico do limite de subrequests por quantidade de aparelhos',async()=>{
+  const worker=(await import('data:text/javascript;charset=utf-8,'+
+    encodeURIComponent(generated))).default;
+  const oldFetch=globalThis.fetch;
+  try{
+    for(const type of ['dm','group']){
+      for(const count of [1,2,3]){
+        const scenario=makeScenario(type,'none',count);
+        globalThis.fetch=scenario.mockFetch;
+        const result=await worker.fetch(scenario.request(),scenario.env);
+        assert.equal(result.status,202,type+'/'+count);
+        assert.equal((await result.json()).status,'accepted_by_fcm');
+        assert.equal(scenario.stat.fcmCalls,count);
+        assert.ok(scenario.stat.estimatedSubrequests>count);
+        console.log('QA_SUBREQUEST_ESTIMATE '+type+' devices='+count+
+          ' network='+scenario.stat.externalRequests+
+          ' d1='+scenario.stat.d1Statements+
+          ' total='+scenario.stat.estimatedSubrequests);
+      }
+    }
+  }finally{globalThis.fetch=oldFetch;}
 });
