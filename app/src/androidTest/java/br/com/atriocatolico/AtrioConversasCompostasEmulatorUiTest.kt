@@ -297,6 +297,59 @@ class AtrioConversasCompostasEmulatorUiTest {
                 document.getString("lastPreview") == reply && !document.metadata.hasPendingWrites()
         }
 
+        // Na suite regular, exercitar o envio real pela UI com a transacao
+        // falhando sem rede. O app deve reutilizar o mesmo ID ao reenviar,
+        // e o servidor deve persistir apenas uma mensagem.
+        if (!pilot) {
+            val retry = "Reenvio do Android apos reconexao, mensagem unica."
+            await(db.disableNetwork())
+            try {
+                send("atrio-chat-composer", "atrio-chat-send", retry)
+                waitForText("Envio não confirmado. Confira a conexão.")
+            } finally {
+                await(db.enableNetwork())
+            }
+            compose.waitUntil(30_000) {
+                try {
+                    compose.onNodeWithTag("atrio-chat-send").assertIsEnabled()
+                    true
+                } catch (_: AssertionError) {
+                    false
+                }
+            }
+            // A regra de QA limita envios consecutivos do mesmo autor a 3 s.
+            // A falha offline não pode ser confundida com a recusa do cooldown:
+            // aguardar a janela a partir do timestamp CONFIRMADO pelo servidor,
+            // mantendo o mesmo ID de tentativa para a prova de idempotência.
+            val previousAt = requireNotNull(await(chat.get(Source.SERVER))
+                .getTimestamp("updatedAt")).toDate().time
+            compose.waitUntil(10_000) {
+                System.currentTimeMillis() - previousAt >= 3_500L
+            }
+            click("atrio-chat-send")
+            var serverCount = -1
+            var lastPreview = ""
+            var pendingWrites = true
+            try {
+                compose.waitUntil(30_000) {
+                    val messages = await(chat.collection("messages").get(Source.SERVER))
+                    val saved = messages.documents.filter { it.getString("text") == retry }
+                    serverCount = saved.size
+                    pendingWrites = saved.any { it.metadata.hasPendingWrites() }
+                    lastPreview = await(chat.get(Source.SERVER)).getString("lastPreview").orEmpty()
+                    serverCount == 1 && !pendingWrites && lastPreview == retry
+                }
+            } catch (failure: androidx.compose.ui.test.ComposeTimeoutException) {
+                throw AssertionError(
+                    "Reenvio sem confirmação única: count=$serverCount, " +
+                        "previewAtualCorresponde=${lastPreview == retry}, " +
+                        "pendingWrites=$pendingWrites",
+                    failure
+                )
+            }
+            android.util.Log.i("AtrioConversasQA", "reconexao_apos_falha=um_unico_envio_confirmado")
+        }
+
         assertEquals(alice, login(aliceEmail))
         show(Screen(alice, groupPeer = bob))
         click("atrio-group-create-open")
