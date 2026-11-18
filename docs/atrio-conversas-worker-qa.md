@@ -362,3 +362,65 @@ de qualquer ativação de FCM no Worker QA. O candidato permanece
 bloqueado, sem mudança na produção ou nos backups. A decisão sobre
 retry/migração por dispositivo segue aberta (#201) e o gate humano
 da #200 continua vigente.
+
+### Recibo HTTP v1, cota 429 e retomada segura — candidato QA isolado (18/11/2026)
+
+Complemento do Chat 6 à PR #231, implementado exclusivamente no GERADOR
+do Worker QA e em testes offline. O Worker oficial `src/index.js`,
+a configuracao gerada com `PUSH_ENABLED=false`, o D1/Firebase remoto e
+as regras oficiais permanecem intocados. Os testes ajustam o switch
+APENAS no objeto `env` em memoria com FCM ficticio e fetch restrito.
+
+- **FCM HTTP 200 nao basta:** conferir `name` de
+  `projects/atrio-catolico-qa-geral/messages/...` no corpo JSON antes
+  de incrementar `accepted`. Corpo ausente, JSON invalido ou projeto
+  divergente retornam `delivery_transport_unknown` ou
+  `partial_delivery_unknown` (HTTP 503) e contadores anonimos. O aviso
+  pode ter sido aceito pelo provedor; nao repetir automaticamente.
+- **FCM HTTP 429:** interromper envios restantes no destinatario
+  imediatamente, assim como 5xx; classificar `delivery_failed` ou
+  `partial_delivery_failed` (HTTP 503), com diagnostico agregado da
+  resposta 429. Nao iniciar retry sem politica aprovada e sem respeitar
+  Retry-After e backoff. O D1 permanece reservado em ambas as falhas.
+- **Recuperacao sem D1:** indisponibilidade do Firestore na ultima
+  revalidacao anterior ao marcador nao envia FCM nem consome a reserva.
+  Uma nova tentativa autorizada pode prosseguir; depois da reserva D1,
+  perda de conexao e resposta ambigua ficam at-most-once, com risco de
+  aviso perdido. A deduplicacao continua por evento/destinatario, nao
+  por dispositivo. Nenhuma entrega ao Android e comprovada.
+- **3 dispositivos:** os testes verificam parada no primeiro ou
+  segundo erro, nao envio ao terceiro, deduplicacao apos replay,
+  conclusao permitida em retomada pre-D1 e kill switch desligado.
+- **18+ (compatibilidade QA com PR #232):** o Worker exige registro
+  `chatAgeEligibility/current` de autor e destinatario, revalidado
+  antes de cada aparelho posterior, e aceita somente os pares completos
+  `status=declared_18_plus` + `policyVersion=2026-11-selfdecl-qa-v1`
+  (escolha operacional provisoria do fundador) ou o par legado
+  `status=eligible` + `policyVersion=2026-11-18plus-qa-v1`.
+  Ambos exigem `minimumAge=18` inteiro, vencimento futuro e exatamente
+  quatro campos. **Autodeclaracao nao e verificacao independente de
+  idade**, nem altera requisitos legais. O par legado permanece aceito
+  apenas para retrocompatibilidade do candidato QA; Chat 2 deve conferir
+  se registros legados podem existir, quem os produz e quando removê-los.
+  Versoes trocadas, vencimento, campo extra ou valor diferente falham
+  fechado antes de D1/FCM.
+
+**Custos/cotas/privacidade:** a leitura do corpo HTTP 200 nao gera
+consulta adicional ao Firestore nem envio FCM extra. Parar em 429
+reduz tentativas e risco de exceder cotas. Permanecem as reconsultas
+ja descritas para cada destinatario e aparelho adicional (DM: ate
+8 a 9 leituras extras por dispositivo; grupo: ate 11), alem das
+chamadas FCM por token, D1 e contadores agregados. Antes de qualquer
+ativacao, medir volume/tamanho de grupos, taxa de mensagens,
+dispositivos por usuario, cotas FCM, latencia, custo de leituras REST,
+budget de D1 e retenção do diagnostico. Nao persistir respostas
+`name` do FCM, UIDs, tokens ou corpos das mensagens nos logs.
+A consulta do `name` nao prova entrega ao dispositivo ou exibicao.
+
+Referencias oficiais: https://firebase.google.com/docs/cloud-messaging/send/v1-api
+e https://firebase.google.com/docs/cloud-messaging/error-codes.
+
+**Portoes NO-GO:** aprovacao de Chat 2 (contrato etario/backend),
+Chat 4 (autorizacao, privacidade, 429/503 e corrida), Chat 5 (tres bots
+e dry-run por SHA), Chat 7 (revisao de PR empilhada na #231) e
+fundador para qualquer merge/deploy, ativacao de FCM ou servico pago.
