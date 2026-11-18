@@ -235,3 +235,28 @@ export function createInboxHttpHandler(service,{enabled=false}={}) {
     }catch{return response(403,{error:'forbidden'});}
   };
 }
+
+/**
+ * Ponto de integracao de eventos ADMIN: criar/atualizar chat,
+ * atualizar/remover bloqueio e remover chat. Nao registra trigger nem
+ * executa rede remotamente. O operador conecta o handler autorizado.
+ */
+export async function applyTrustedInboxEvent(adminDb,event) {
+  if(!event||typeof event!=='object'||Array.isArray(event))deny();
+  if(event.kind==='chat_written'){
+    if(!CHAT.test(event.chatId||''))deny();
+    return reconcilePeerInbox(adminDb,event.chatId);
+  }
+  if(event.kind==='block_changed'){
+    return syncBlockedPair(adminDb,event.ownerUid,event.peerUid);
+  }
+  if(event.kind==='chat_deleted'){
+    if(!CHAT.test(event.chatId||''))deny();
+    const views=peerInboxEntries(event.chatId,event.previousChat);
+    await adminDb.runTransaction(async tx=>{
+      for(const view of views)tx.delete(adminDb.doc(view.path));
+    });
+    return {deleted:views.length};
+  }
+  deny();
+}
