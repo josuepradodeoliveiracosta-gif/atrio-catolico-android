@@ -23,7 +23,8 @@ async function authRequest(path, body, headers = {}) {
 
 const accounts = [
   {email: 'conversas.alice@qa.invalid', name: 'Alice QA', requests: 'none'},
-  {email: 'conversas.bob@qa.invalid', name: 'Bob QA', requests: 'all'}
+  {email: 'conversas.bob@qa.invalid', name: 'Bob QA', requests: 'all'},
+  ...(navigationFixtures ? [{email: 'conversas.lucia@qa.invalid', name: 'Lúcia QA', requests: 'all'}] : [])
 ];
 for (const account of accounts) {
   const {localId} = await authRequest('/accounts:signUp?key=local-emulator-test', {
@@ -79,6 +80,23 @@ try {
         title: 'Discussão fictícia para navegação QA',
         body: 'Publicação sintética para abrir o perfil público no emulador.',
         category: 'Vida espiritual', createdAt: serverTimestamp()
+      });
+      // Conversa privada de controle entre Alice e Lúcia. Bob existe, mas
+      // não participa: depois da troca de conta não pode ver nem consultar.
+      const alice = accounts[0], lucia = accounts[2];
+      const id = [alice.uid, lucia.uid].sort().join('__');
+      const privateText = 'Mensagem privada de Alice para Lúcia, somente no emulador.';
+      await setDoc(doc(db, 'chats', id), {
+        participants: [alice.uid, lucia.uid],
+        requesterUid: alice.uid, recipientUid: lucia.uid,
+        status: 'accepted', initialId: 'qa-privacidade',
+        lastMessageId: 'qa-privacidade', lastPreview: privateText,
+        lastSenderUid: alice.uid, createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(), unreadRequester: 0, unreadRecipient: 1
+      });
+      await setDoc(doc(db, 'chats', id, 'messages', 'qa-privacidade'), {
+        uid: alice.uid, text: privateText, kind: 'text',
+        createdAt: serverTimestamp()
       });
     }
   });
