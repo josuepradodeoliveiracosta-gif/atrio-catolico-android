@@ -68,8 +68,9 @@ export function renderClosedPilotRules() {
   fragments = replaceChecked(fragments,
     "return proof.keys().hasAll(['status','minimumAge','policyVersion','reviewExpiresAt'])",
     "return qaMemberUid(uid) && proof.keys().hasAll(['status','minimumAge','policyVersion','reviewExpiresAt'])");
-  fragments = replaceChecked(fragments, 'allow get: if chatEnabled() && chatMember(resource.data);',
-    'allow get: if pilotDirectEnabled() && chatMember(resource.data);');
+  fragments = replaceChecked(fragments,
+    'allow get: if chatEnabled() && chatMember(resource.data)\n        && chatNoBlock(resource.data.requesterUid, resource.data.recipientUid);',
+    'allow get: if pilotDirectEnabled() && chatMember(resource.data)\n        && chatNoBlock(resource.data.requesterUid, resource.data.recipientUid);');
   // Compatibilidade EXCLUSIVA do antigo roteiro sintético Alice/Bob.
   // Nunca implantar: a Rules base nega a listagem global (#355).
   // Este ensaio especial ja revoga o par na propria pilotDirectEnabled().
