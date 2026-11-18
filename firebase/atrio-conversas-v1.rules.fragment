@@ -172,7 +172,8 @@
       // Uma checagem adicional "is list" na expressão de list não é
       // demonstrável pelo analisador de consultas do Firestore e bloqueava
       // a caixa de entrada, apesar de os documentos terem dados corretos.
-      allow get: if chatEnabled() && chatMember(resource.data);
+      allow get: if chatEnabled() && chatMember(resource.data)
+        && chatNoBlock(resource.data.requesterUid, resource.data.recipientUid);
       // Bloqueador #355: a listagem geral revela previ as e UIDs apos bloqueio.
       // Rules nao provam chatNoBlock por item em queries globais do Firestore.
       // A caixa deve migrar para chatInboxByPeer (escopo fixo no caminho).
@@ -303,7 +304,10 @@
       match /messages/{messageId} {
         allow get, list: if chatEnabled()
           && exists(/databases/$(database)/documents/chats/$(chatId))
-          && chatMember(get(/databases/$(database)/documents/chats/$(chatId)).data);
+          && chatMember(get(/databases/$(database)/documents/chats/$(chatId)).data)
+          && chatNoBlock(
+            get(/databases/$(database)/documents/chats/$(chatId)).data.requesterUid,
+            get(/databases/$(database)/documents/chats/$(chatId)).data.recipientUid);
         allow create: if chatEnabled() && validId(messageId)
           && existsAfter(/databases/$(database)/documents/chats/$(chatId))
           && chatMember(getAfter(/databases/$(database)/documents/chats/$(chatId)).data)
