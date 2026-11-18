@@ -147,8 +147,10 @@ internal fun AtrioConversationsScreen(
     // Somente um par já conhecido do perfil ou de um link exato da própria
     // conversa. Sem API autorizada de descoberta, nunca enumerar chats/UIDs.
     val peerUid = remember(uid, initialPeer?.uid, initialChatId) {
-        initialPeer?.uid?.takeIf { AtrioPeerInboxPolicy.validPeer(uid, it) }
-            ?: AtrioPeerInboxPolicy.peerFromChatId(uid, initialChatId)
+        initialPeer?.uid?.takeIf {
+            AtrioPeerInboxPolicy.validPeer(uid, it) &&
+                (initialChatId == null || AtrioChatPolicy.id(uid, it) == initialChatId)
+        } ?: AtrioPeerInboxPolicy.peerFromChatId(uid, initialChatId)
     }
     val knownPeer = peerUid != null
     var retryInbox by remember(uid, peerUid) { mutableIntStateOf(0) }
@@ -295,8 +297,9 @@ internal fun AtrioConversationsScreen(
         } else if (selected != null) {
             val firstContact = initialPeer != null &&
                 AtrioPeerInboxPolicy.validPeer(uid, initialPeer.uid) &&
-                peerUid == initialPeer.uid && loaded && error.isBlank() &&
-                rooms.isEmpty()
+                peerUid == initialPeer.uid &&
+                selected == AtrioChatPolicy.id(uid, initialPeer.uid) &&
+                loaded && error.isBlank() && rooms.isEmpty()
             when {
                 !loaded -> CircularProgressIndicator(
                     Modifier.padding(24.dp).testTag("atrio-peer-inbox-loading"))
