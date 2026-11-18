@@ -194,9 +194,18 @@ export async function syncBlockedPair(adminDb,a,b) {
       // a ausência da conversa DENTRO da transação antes de limpar a vista.
       staleRemoved+=await adminDb.runTransaction(async tx=>{
         if(has(await tx.get(parent)))return 0;
-        tx.delete(adminDb.doc('users/'+a+'/chatInboxByPeer/'+b+'/entries/'+id));
-        tx.delete(adminDb.doc('users/'+b+'/chatInboxByPeer/'+a+'/entries/'+id));
-        return 2;
+        const refs=[
+          adminDb.doc('users/'+a+'/chatInboxByPeer/'+b+'/entries/'+id),
+          adminDb.doc('users/'+b+'/chatInboxByPeer/'+a+'/entries/'+id)
+        ];
+        // Eventos frequentes nao devem gerar escritas cobradas em
+        // documentos inexistentes. Todas as leituras precedem os deletes.
+        const snaps=await Promise.all(refs.map(ref=>tx.get(ref)));
+        let count=0;
+        for(let i=0;i<refs.length;i++){
+          if(has(snaps[i])){tx.delete(refs[i]);count++;}
+        }
+        return count;
       });
     }
   }
@@ -272,8 +281,13 @@ export async function applyTrustedInboxEvent(adminDb,event) {
       // antiga NÃO pode apagar a vista da conversa ativa.
       if(has(await tx.get(adminDb.doc('chats/'+event.chatId))))
         return {deleted:0,staleEvent:true};
-      for(const view of views)tx.delete(adminDb.doc(view.path));
-      return {deleted:views.length,staleEvent:false};
+      const refs=views.map(view=>adminDb.doc(view.path));
+      const snaps=await Promise.all(refs.map(ref=>tx.get(ref)));
+      let deleted=0;
+      for(let i=0;i<refs.length;i++){
+        if(has(snaps[i])){tx.delete(refs[i]);deleted++;}
+      }
+      return {deleted,staleEvent:false};
     });
   }
   deny();
