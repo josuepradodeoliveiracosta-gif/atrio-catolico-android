@@ -20,9 +20,16 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FieldPath
+import com.google.android.gms.tasks.Task
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.QuerySnapshot
+import com.google.firebase.firestore.Source
+import com.google.firebase.firestore.MetadataChanges
 import com.google.firebase.firestore.Query
 import java.text.DateFormat
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 
 /** Somente texto. Todas as autorizações são revalidadas nas regras Firestore. */
 internal object AtrioChatPolicy {
@@ -143,12 +150,9 @@ internal fun AtrioConversationsScreen(
             requestPolicy = "none"
             onDispose {}
         } else {
-        val config = db.document("app_config/conversations").addSnapshotListener { doc, failure ->
-            loadedConfig = true
-            enabled = failure == null && doc?.getBoolean("enabled") == true &&
-                doc.getBoolean("minorPolicyApproved") == true &&
-                doc.getString("safetyReviewVersion") == "2026-11-safety-v1" &&
-                doc.getString("version") == AtrioChatPolicy.VERSION
+        val config = db.document("app_config/conversations").addSnapshotListener(atrioChatMetadataChanges) { doc, failure ->
+            loadedConfig = failure != null || atrioChatSnapshotUsable(doc)
+            enabled = failure == null && atrioConversationConfigEnabled(doc)
             editWindowMinutes = (doc?.getLong("editWindowMinutes") ?: 0L)
                 .coerceIn(0L, 1440L).toInt()
             deleteWindowMinutes = (doc?.getLong("deleteWindowMinutes") ?: 0L)
@@ -165,17 +169,31 @@ internal fun AtrioConversationsScreen(
         onDispose { config.remove(); privacy.remove() }
         }
     }
-    DisposableEffect(db, uid, enabled, ownSession) {
-        if (!enabled || !ownSession) { rooms = emptyList(); loaded = true; onDispose {} }
-        else {
+    val inbox = remember(db, uid) {
+        db.collection("chats").whereArrayContains("participants", uid).limit(100)
+    }
+    fun updateInbox(snapshot: QuerySnapshot?, failure: Throwable?) {
+        loaded = true
+        rooms = if (failure == null && atrioChatSnapshotUsable(snapshot))
+            snapshot?.documents?.mapNotNull { it.chatRoom() }.orEmpty()
+        else emptyList()
+        if (failure != null) error = "Não foi possível carregar as conversas."
+    }
+    LaunchedEffect(inbox, enabled, ownSession) {
+        if (atrioChatRequiresServer && enabled && ownSession) {
+            pollAtrioPilotServer({ inbox.get(Source.SERVER) }, ::updateInbox)
+        }
+    }
+    DisposableEffect(inbox, enabled, ownSession) {
+        if (!enabled || !ownSession) {
+            rooms = emptyList()
+            loaded = true
+            onDispose {}
+        } else if (atrioChatRequiresServer) {
+            onDispose {}
+        } else {
             loaded = false
-            val listener = db.collection("chats").whereArrayContains("participants", uid)
-                .limit(100).addSnapshotListener { snapshot, failure ->
-                    loaded = true
-                    if (failure == null) rooms = snapshot?.documents
-                        ?.mapNotNull { it.chatRoom() }.orEmpty()
-                    else error = "Não foi possível carregar as conversas."
-                }
+            val listener = inbox.addSnapshotListener(::updateInbox)
             onDispose { listener.remove() }
         }
     }
@@ -183,11 +201,13 @@ internal fun AtrioConversationsScreen(
         if (!enabled || !ownSession) onDispose {}
         else {
             val listener = db.collection("users").document(uid).collection("chatBox")
-                .limit(100).addSnapshotListener { snapshot, failure ->
-                    if (failure == null) prefs = snapshot?.documents.orEmpty().associate { d ->
-                        d.id to ChatPrefs(d.getBoolean("muted") == true,
-                            d.getBoolean("pinned") == true, d.getBoolean("archived") == true)
-                    }
+                .limit(100).addSnapshotListener(atrioChatMetadataChanges) { snapshot, failure ->
+                    if (failure == null && atrioChatSnapshotUsable(snapshot)) {
+                        prefs = snapshot?.documents.orEmpty().associate { d ->
+                            d.id to ChatPrefs(d.getBoolean("muted") == true,
+                                d.getBoolean("pinned") == true, d.getBoolean("archived") == true)
+                        }
+                    } else if (atrioChatRequiresServer) prefs = emptyMap()
                 }
             onDispose { listener.remove() }
         }
@@ -347,7 +367,10 @@ private fun AtrioChatThread(
     editWindowMinutes: Int, deleteWindowMinutes: Int
 ) {
     val ref = remember(db, chatId) { db.collection("chats").document(chatId) }
-    var chat by remember(uid, chatId) { mutableStateOf(preview) }
+    var chat by remember(uid, chatId) {
+        mutableStateOf(preview.takeUnless { atrioChatRequiresServer })
+    }
+    var accessDenied by remember(uid, chatId) { mutableStateOf(false) }
     var loaded by remember(uid, chatId) { mutableStateOf(false) }
     var limit by remember(uid, chatId) { mutableIntStateOf(40) }
     var messages by remember(uid, chatId) { mutableStateOf<List<ChatItem>>(emptyList()) }
@@ -404,21 +427,38 @@ private fun AtrioChatThread(
     // ficava gravado, mas a tela continuava em "primeira mensagem".
     // Aguardar a inbox confirmar o novo documento ANTES de iniciar a escuta.
     LaunchedEffect(preview) {
-        if (preview != null) {
+        if (preview != null && !atrioChatRequiresServer) {
             chat = preview
             loaded = true
         }
     }
-    DisposableEffect(db, uid, chatId, preview?.id, initialPeer?.uid) {
-        if (preview == null && initialPeer != null) {
-            loaded = true // Primeira mensagem permitida, sem leitura negada.
+    var confirmedRoom by remember(uid, chatId) { mutableStateOf(preview != null) }
+    LaunchedEffect(preview?.id) {
+        if (preview != null) confirmedRoom = true
+    }
+    val firstContact = !confirmedRoom && preview == null && initialPeer != null
+    fun updateRoom(snapshot: DocumentSnapshot?, failure: Throwable?) {
+        loaded = failure != null || atrioChatSnapshotUsable(snapshot)
+        accessDenied = failure != null
+        chat = if (failure == null && atrioChatSnapshotUsable(snapshot))
+            snapshot?.takeIf { it.exists() }?.chatRoom()
+        else null
+        if (chat == null) messages = emptyList()
+        if (failure != null) info = "Não foi possível sincronizar a conversa."
+    }
+    LaunchedEffect(ref, uid, firstContact) {
+        if (atrioChatRequiresServer && !firstContact) {
+            pollAtrioPilotServer({ ref.get(Source.SERVER) }, ::updateRoom)
+        }
+    }
+    DisposableEffect(ref, uid, firstContact) {
+        if (firstContact) {
+            if (!accessDenied) loaded = true
+            onDispose {}
+        } else if (atrioChatRequiresServer) {
             onDispose {}
         } else {
-            val listener = ref.addSnapshotListener { snapshot, error ->
-                loaded = true
-                if (error == null) chat = snapshot?.takeIf { it.exists() }?.chatRoom()
-                else info = "Não foi possível sincronizar a conversa."
-            }
+            val listener = ref.addSnapshotListener(::updateRoom)
             onDispose { listener.remove() }
         }
     }
@@ -427,8 +467,9 @@ private fun AtrioChatThread(
         else {
             val listener = ref.collection("messages")
                 .orderBy("createdAt", Query.Direction.DESCENDING).limit(limit.toLong())
-                .addSnapshotListener { data, error ->
-                    if (error == null) messages = data?.documents.orEmpty().mapNotNull { doc ->
+                .addSnapshotListener(atrioChatMetadataChanges) { data, error ->
+                    messages = if (error == null && atrioChatSnapshotUsable(data))
+                        data?.documents.orEmpty().mapNotNull { doc ->
                         val sender = doc.getString("uid") ?: return@mapNotNull null
                         val body = doc.getString("text") ?: return@mapNotNull null
                         val edited = doc.getString("editedText")
@@ -444,7 +485,12 @@ private fun AtrioChatThread(
                             doc.getString("replyToId"), reactions,
                             doc.getString("postId"), doc.getString("postTitle"),
                             doc.getString("kind") ?: "text", edited != null, removed)
-                    }.reversed() else info = "Não foi possível carregar as mensagens."
+                    }.reversed() else emptyList()
+                    if (error != null) {
+                        accessDenied = true
+                        chat = null
+                        info = "Não foi possível carregar as mensagens."
+                    }
                 }
             onDispose { listener.remove() }
         }
@@ -617,7 +663,7 @@ private fun AtrioChatThread(
         }
         HorizontalDivider(color = Line)
         if (!loaded) LinearProgressIndicator(Modifier.fillMaxWidth())
-        if (chat == null && initialPeer == null && loaded) {
+        if (accessDenied || (chat == null && initialPeer == null && loaded)) {
             Text("Conversa não encontrada ou acesso negado.", Modifier.padding(20.dp))
         } else {
             if (chat?.incomingRequest(uid) == true) {
@@ -984,7 +1030,7 @@ private fun AtrioChatThread(
                 TextButton(onClick = { reactingTo = null }) { Text("Fechar") }
             })
     }
-    if (report != null && chat != null) {
+    if (!accessDenied && report != null && chat != null) {
         val selectedMessage = report!!
         AlertDialog(onDismissRequest = { if (!saving) report = null },
             title = { Text("Denunciar mensagem") },
@@ -1017,5 +1063,45 @@ private fun AtrioChatThread(
             dismissButton = {
                 TextButton(onClick = { report = null }) { Text("Cancelar") }
             })
+    }
+}
+
+internal val atrioChatRequiresServer
+    get() = BuildConfig.ATRIO_QA_GERAL_CELULAR_PILOT || BuildConfig.ATRIO_QA_GERAL_CELULAR_RODADA
+
+internal val atrioChatMetadataChanges
+    get() = if (atrioChatRequiresServer) MetadataChanges.INCLUDE
+        else MetadataChanges.EXCLUDE
+
+internal fun atrioChatSnapshotUsable(snapshot: DocumentSnapshot?): Boolean =
+    !atrioChatRequiresServer || snapshot?.metadata?.isFromCache == false
+
+internal fun atrioChatSnapshotUsable(snapshot: QuerySnapshot?): Boolean =
+    !atrioChatRequiresServer || snapshot?.metadata?.isFromCache == false
+
+internal fun atrioConversationConfigEnabled(snapshot: DocumentSnapshot?): Boolean =
+    snapshot != null && atrioChatSnapshotUsable(snapshot) &&
+        snapshot.get("enabled") == true && snapshot.get("minorPolicyApproved") == true &&
+        snapshot.get("safetyReviewVersion") == "2026-11-safety-v1" &&
+        snapshot.get("version") == AtrioChatPolicy.VERSION
+
+
+// As regras leem documentos de controle além do alvo. O Emulator pode
+// negar uma nova leitura sem encerrar um listener ativo sobre o alvo.
+// O piloto usa uma consulta ao servidor sem listener persistente no mesmo alvo.
+internal suspend fun <T> pollAtrioPilotServer(
+    read: () -> Task<T>,
+    onRead: (T?, Throwable?) -> Unit
+) {
+    while (true) {
+        val result = suspendCancellableCoroutine<Result<T>> { continuation ->
+            read().addOnCompleteListener { task ->
+                if (task.isSuccessful) continuation.resume(Result.success(task.result))
+                else continuation.resume(Result.failure(task.exception
+                    ?: IllegalStateException("Leitura do piloto cancelada.")))
+            }
+        }
+        onRead(result.getOrNull(), result.exceptionOrNull())
+        delay(2_000)
     }
 }

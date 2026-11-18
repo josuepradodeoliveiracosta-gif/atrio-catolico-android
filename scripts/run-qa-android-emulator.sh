@@ -29,6 +29,12 @@ case "$qa_group" in
   all|profiles|interaction|bots) ;;
   *) echo "Grupo QA desconhecido: $qa_group" >&2; exit 2 ;;
 esac
+if [[ "${ATRIO_QA_GERAL_CELULAR_PILOT:-}" == 1 ]]; then
+  [[ "$qa_apk" == "qaGeral" && "${ATRIO_QA_SUITE:-}" == "AtrioConversasCompostasEmulatorUiTest" ]] || {
+    echo "Piloto QA Celular: somente a suíte de Conversas e Grupos no Emulator" >&2
+    exit 2
+  }
+fi
 if [[ -n "${ATRIO_QA_SUITE:-}" && "$qa_group" != all ]]; then
   echo "Suite focal e grupo paralelo nao podem ser combinados" >&2; exit 2
 fi
@@ -134,10 +140,10 @@ run_suite() {
     qa_failed=1
     echo "QA Android: $suite falhou; preservando relatório e executando as demais"
   fi
-  if [[ -d app/build/outputs/androidTest-results/connected/debug ]]; then
+  local results="app/build/outputs/androidTest-results/connected/$qa_apk"
+  if [[ -d "$results" ]]; then
     mkdir -p "qa-android-suite-results/$suite"
-    cp -a app/build/outputs/androidTest-results/connected/debug/. \
-      "qa-android-suite-results/$suite/"
+    cp -a "$results/." "qa-android-suite-results/$suite/"
   fi
 }
 # Suite-only QA V2: reuse the existing isolated emulator/auth startup,
@@ -145,6 +151,11 @@ run_suite() {
 if [[ "${ATRIO_QA_SUITE:-}" == "GuardianV2UiTest" ]]; then
   run_suite GuardianV2UiTest
   echo "QA Android: apenas GuardianV2UiTest; status=$qa_failed"
+  exit "$qa_failed"
+fi
+if [[ "${ATRIO_QA_GERAL_CELULAR_PILOT:-}" == 1 ]]; then
+  (cd tests/security && node seed-qa-celular-pilot-android.mjs)
+  run_suite "$ATRIO_QA_SUITE"
   exit "$qa_failed"
 fi
 if [[ -n "${ATRIO_QA_SUITE:-}" ]]; then

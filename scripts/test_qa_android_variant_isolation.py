@@ -18,7 +18,9 @@ class QaGeralBotIsolationTests(unittest.TestCase):
         gradle = source("app/build.gradle.kts")
         for expected in (
             'create("qaGeral")', 'applicationIdSuffix = atrioQaGeralPackageSuffix',
-            'if (atrioQaGeralCelularFicticio || atrioQaGeralCelularFunctional) ".qageral.celular" else ".qageral"',
+            'atrioQaGeralCelularFunctional || atrioQaGeralCelularPilot) ".qageral.celular" else ".qageral"',
+            '(atrioQaGeralBuild && !atrioQaGeralRemote && !atrioQaGeralPush)',
+            'buildConfigField("boolean", "ATRIO_QA_GERAL_CELULAR_PILOT", "false")',
             '(atrioQaGeralRemote && !atrioQaGeralCelularFicticio && !atrioQaGeralPush)',
             'testBuildType = if (atrioQaGeralBuild) "qaGeral" else "debug"',
             'variant.enable = atrioQaGeralBuild',
@@ -137,6 +139,20 @@ class QaGeralBotIsolationTests(unittest.TestCase):
         )
         self.assertEqual(p.returncode, 2)
         self.assertIn("somente APK QA Geral", p.stderr)
+
+    def test_pilot_cannot_start_emulators_for_another_suite(self):
+        env = dict(os.environ)
+        env.update(
+            ATRIO_QA_APK="qaGeral", ATRIO_QA_SUITE_GROUP="all",
+            ATRIO_QA_GERAL_BUILD="1", ATRIO_QA_GERAL_CELULAR_PILOT="1",
+            ATRIO_QA_FIREBASE_PROJECT="demo-atrio-v11", ATRIO_QA_SUITE="GuardianV2UiTest",
+        )
+        p = subprocess.run(
+            ["bash", str(ROOT / "scripts/run-qa-android-emulator.sh")],
+            cwd=ROOT, env=env, text=True, capture_output=True, timeout=5,
+        )
+        self.assertEqual(p.returncode, 2)
+        self.assertIn("somente a suíte de Conversas e Grupos", p.stderr)
 
     def test_wrong_project_cannot_run_bots_before_starting_emulators(self):
         env = dict(os.environ)

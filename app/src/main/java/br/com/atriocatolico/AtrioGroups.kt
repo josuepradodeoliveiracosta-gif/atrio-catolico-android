@@ -20,6 +20,8 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.QuerySnapshot
+import com.google.firebase.firestore.Source
 import com.google.firebase.firestore.Query
 import java.text.DateFormat
 
@@ -143,9 +145,10 @@ internal fun AtrioGroupsScreen(
             onDispose {}
         } else {
         val listener=db.document("app_config/chat_groups")
-            .addSnapshotListener { data,error ->
-                configLoaded=true
-                enabled=error==null && data?.getBoolean("enabled")==true &&
+            .addSnapshotListener(atrioChatMetadataChanges) { data,error ->
+                configLoaded=error!=null || atrioChatSnapshotUsable(data)
+                enabled=error==null && atrioChatSnapshotUsable(data) &&
+                    data?.getBoolean("enabled")==true &&
                     data.getBoolean("minorPolicyApproved")==true &&
                     data.getString("version")==AtrioGroupPolicy.VERSION
             }
@@ -162,9 +165,9 @@ internal fun AtrioGroupsScreen(
             accessLoaded=false
             val watcher=db.collection("users").document(uid)
                 .collection("chatGroupAccess").document("eligibility")
-                .addSnapshotListener { snapshot,failure ->
-                    accessLoaded=true
-                    accessValidUntil=if(failure==null)
+                .addSnapshotListener(atrioChatMetadataChanges) { snapshot,failure ->
+                    accessLoaded=failure!=null || atrioChatSnapshotUsable(snapshot)
+                    accessValidUntil=if(failure==null && atrioChatSnapshotUsable(snapshot))
                         snapshot?.getTimestamp("reviewExpiresAt")?.toDate()?.time ?: 0L
                         else 0L
                     accessApproved=failure==null &&
@@ -193,40 +196,52 @@ internal fun AtrioGroupsScreen(
             }
         }
     }
-    DisposableEffect(db,uid,enabled,accessApproved,ownSession) {
-        if (!enabled || !accessApproved || !ownSession) {
-            rooms=emptyList()
-            onDispose {}
-        } else {
-            val listener=db.collection("chat_groups")
-                .whereArrayContains("memberUids",uid).limit(50)
-                .addSnapshotListener { data,error ->
-                    if (error==null) rooms=data?.documents
-                        ?.mapNotNull { it.asAtrioGroup() }.orEmpty()
-                    else info="Falha ao consultar os grupos privados."
-                }
-            onDispose { listener.remove() }
+    val membershipQuery=remember(db,uid) {
+        db.collection("chat_groups").whereArrayContains("memberUids",uid).limit(50)
+    }
+    val invitationQuery=remember(db,uid) {
+        db.collectionGroup("atrioGroupInvites").whereEqualTo("inviteeUid",uid).limit(100)
+    }
+    fun updateRooms(data: QuerySnapshot?, failure: Throwable?) {
+        rooms=if (failure==null && atrioChatSnapshotUsable(data))
+            data?.documents?.mapNotNull { it.asAtrioGroup() }.orEmpty()
+        else emptyList()
+        if (failure!=null) info="Falha ao consultar os grupos privados."
+    }
+    fun updateInvitations(data: QuerySnapshot?, failure: Throwable?) {
+        invitations=if (failure==null && atrioChatSnapshotUsable(data))
+            data?.documents.orEmpty().mapNotNull { snap ->
+                val groupId=snap.reference.parent.parent?.id ?: return@mapNotNull null
+                AtrioGroupInvite(snap.id,groupId,
+                    snap.getString("groupName").orEmpty(),
+                    snap.getString("inviterUid").orEmpty(),
+                    snap.getString("status").orEmpty())
+            }
+        else emptyList()
+        if (failure!=null) info="Convites não disponíveis. Verifique a conexão ou os índices."
+    }
+    val canReadGroups=enabled && accessApproved && ownSession
+    LaunchedEffect(membershipQuery,canReadGroups) {
+        if (atrioChatRequiresServer && canReadGroups) {
+            pollAtrioPilotServer({ membershipQuery.get(Source.SERVER) }, ::updateRooms)
         }
     }
-    DisposableEffect(db,uid,enabled,accessApproved,ownSession) {
-        if (!enabled || !accessApproved || !ownSession) {
+    LaunchedEffect(invitationQuery,canReadGroups) {
+        if (atrioChatRequiresServer && canReadGroups) {
+            pollAtrioPilotServer({ invitationQuery.get(Source.SERVER) }, ::updateInvitations)
+        }
+    }
+    DisposableEffect(membershipQuery,invitationQuery,canReadGroups) {
+        if (!canReadGroups) {
+            rooms=emptyList()
             invitations=emptyList()
             onDispose {}
+        } else if (atrioChatRequiresServer) {
+            onDispose {}
         } else {
-            val listener=db.collectionGroup("atrioGroupInvites")
-                .whereEqualTo("inviteeUid",uid).limit(100)
-                .addSnapshotListener { data,error ->
-                    if (error==null) invitations=data?.documents.orEmpty()
-                        .mapNotNull { snap ->
-                            val groupId=snap.reference.parent.parent?.id ?: return@mapNotNull null
-                            AtrioGroupInvite(snap.id,groupId,
-                                snap.getString("groupName").orEmpty(),
-                                snap.getString("inviterUid").orEmpty(),
-                                snap.getString("status").orEmpty())
-                        }
-                    else info="Convites não disponíveis. Verifique a conexão ou os índices."
-                }
-            onDispose { listener.remove() }
+            val members=membershipQuery.addSnapshotListener(::updateRooms)
+            val invites=invitationQuery.addSnapshotListener(::updateInvitations)
+            onDispose { members.remove(); invites.remove() }
         }
     }
 
@@ -506,8 +521,8 @@ private fun AtrioGroupThread(
     DisposableEffect(db,room.id,limit) {
         val listener=roomRef.collection("messages")
             .orderBy("createdAt",Query.Direction.DESCENDING).limit(limit.toLong())
-            .addSnapshotListener { result,failure ->
-                if(failure==null) messages=result?.documents.orEmpty()
+            .addSnapshotListener(atrioChatMetadataChanges) { result,failure ->
+                messages=if(failure==null && atrioChatSnapshotUsable(result)) result?.documents.orEmpty()
                     .mapNotNull { doc ->
                         val sender=doc.getString("uid") ?: return@mapNotNull null
                         val text=doc.getString("text") ?: return@mapNotNull null
@@ -515,7 +530,9 @@ private fun AtrioGroupThread(
                             doc.getTimestamp("createdAt")?.toDate()?.time ?: 0,
                             doc.metadata.hasPendingWrites())
                     }.reversed()
-                else error="Não foi possível carregar as mensagens do grupo."
+                else emptyList()
+                if(failure!=null || !atrioChatSnapshotUsable(result)) reporting=null
+                if(failure!=null) error="Não foi possível carregar as mensagens do grupo."
             }
         onDispose { listener.remove() }
     }
@@ -834,7 +851,7 @@ private fun AtrioGroupThread(
                     Text(selected.text,maxLines=3,overflow=TextOverflow.Ellipsis)
                     OutlinedTextField(reportReason,{reportReason=it.take(300)},
                         label={Text("Motivo da denúncia")},maxLines=4,
-                        modifier=Modifier.fillMaxWidth())
+                        modifier=Modifier.fillMaxWidth().testTag("atrio-group-report-reason"))
                 }
             },
             confirmButton={
