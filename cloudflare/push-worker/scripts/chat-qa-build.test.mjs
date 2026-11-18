@@ -302,7 +302,7 @@ test('Worker QA filtra push de grupo para destinatarios sem prova 18+ e autor in
 });
 
 test('QA revalida idade apos selecao de destinatarios e antes do despacho',async()=>{
-  assert.ok(generated.includes('qaChatPushPreSendAllowed(token,uid,recipient)'));
+  assert.ok(generated.includes('qaChatPushPreSendAllowed(token,uid,recipient,null,env.ATRIO_QA_AGE_POLICY)'));
   const {resolveEvent,qaChatPushPreSendAllowed}=await import(
     'data:text/javascript;charset=utf-8,'+encodeURIComponent(generated));
   const goodAge=()=>qaDoc({status:'eligible',minimumAge:18,
@@ -326,7 +326,7 @@ test('QA revalida idade apos selecao de destinatarios e antes do despacho',async
     qaMockFirestore(base);
     const selected=await resolveEvent(event,'chat-alice','fake');
     assert.deepEqual(selected.recipients,['chat-bob']);
-    assert.equal(await qaChatPushPreSendAllowed('fake','chat-alice','chat-bob'),true);
+    assert.equal(await qaChatPushPreSendAllowed('fake','chat-alice','chat-bob',null,'eligible'),true);
     // A escolha antiga da fila nao pode superar uma revogacao posterior.
     qaMockFirestore({...base,
       'users/chat-bob/chatAgeEligibility/current':qaDoc({
@@ -334,20 +334,20 @@ test('QA revalida idade apos selecao de destinatarios e antes do despacho',async
         policyVersion:'2026-11-18plus-qa-v1',reviewExpiresAt:qaFuture()
       })
     });
-    assert.equal(await qaChatPushPreSendAllowed('fake','chat-alice','chat-bob'),false);
+    assert.equal(await qaChatPushPreSendAllowed('fake','chat-alice','chat-bob',null,'eligible'),false);
     qaMockFirestore({...base,'users/chat-alice/chatAgeEligibility/current':null});
-    assert.equal(await qaChatPushPreSendAllowed('fake','chat-alice','chat-bob'),false);
+    assert.equal(await qaChatPushPreSendAllowed('fake','chat-alice','chat-bob',null,'eligible'),false);
     qaMockFirestore({...base,'users/chat-bob/chatAgeEligibility/current':null});
-    assert.equal(await qaChatPushPreSendAllowed('fake','chat-alice','chat-bob'),false);
-    assert.equal(await qaChatPushPreSendAllowed('fake','chat-alice','chat-alice'),false);
-    assert.equal(await qaChatPushPreSendAllowed('fake','../outside','chat-bob'),false);
+    assert.equal(await qaChatPushPreSendAllowed('fake','chat-alice','chat-bob',null,'eligible'),false);
+    assert.equal(await qaChatPushPreSendAllowed('fake','chat-alice','chat-alice',null,'eligible'),false);
+    assert.equal(await qaChatPushPreSendAllowed('fake','../outside','chat-bob',null,'eligible'),false);
     globalThis.fetch=async()=>{throw Error('qa-offline-simulated-outage')};
-    assert.equal(await qaChatPushPreSendAllowed('fake','chat-alice','chat-bob'),false);
+    assert.equal(await qaChatPushPreSendAllowed('fake','chat-alice','chat-bob',null,'eligible'),false);
   } finally { globalThis.fetch=saved; }
 });
 
 test('QA bloqueia aviso de grupo apos saida, revogacao e encerramento antes do FCM',async()=>{
-  assert.ok(generated.includes('qaChatPushPreSendAllowed(token,uid,recipient,event.groupId)'));
+  assert.ok(generated.includes('qaChatPushPreSendAllowed(token,uid,recipient,event.groupId,env.ATRIO_QA_AGE_POLICY)'));
   const {qaChatPushPreSendAllowed}=await import(
     'data:text/javascript;charset=utf-8,'+encodeURIComponent(generated));
   const age=()=>qaDoc({status:'eligible',minimumAge:18,
@@ -362,13 +362,13 @@ test('QA bloqueia aviso de grupo apos saida, revogacao e encerramento antes do F
     'users/chat-bob/chatGroupAccess/eligibility':access(),
     'chat_groups/grp-qa':group()
   };
-  const allowed=()=>qaChatPushPreSendAllowed('fake','chat-alice','chat-bob','grp-qa');
+  const allowed=()=>qaChatPushPreSendAllowed('fake','chat-alice','chat-bob','grp-qa','eligible');
   const saved=globalThis.fetch;
   try {
     qaMockFirestore(base);
     assert.equal(await allowed(),true);
     // O envio privado continua usando apenas a prova etaria.
-    assert.equal(await qaChatPushPreSendAllowed('fake','chat-alice','chat-bob'),true);
+    assert.equal(await qaChatPushPreSendAllowed('fake','chat-alice','chat-bob',null,'eligible'),true);
     const denied=[
       {'chat_groups/grp-qa':null},
       {'chat_groups/grp-qa':qaDoc({status:'closed',memberUids:['chat-alice','chat-bob']})},
@@ -389,7 +389,7 @@ test('QA bloqueia aviso de grupo apos saida, revogacao e encerramento antes do F
       assert.equal(await allowed(),false,JSON.stringify(Object.keys(change)));
     }
     qaMockFirestore(base);
-    assert.equal(await qaChatPushPreSendAllowed('fake','chat-alice','chat-bob','../bad'),false);
+    assert.equal(await qaChatPushPreSendAllowed('fake','chat-alice','chat-bob','../bad','eligible'),false);
     globalThis.fetch=async()=>{throw Error('QA Firestore offline');};
     assert.equal(await allowed(),false);
   } finally {globalThis.fetch=saved;}
@@ -415,24 +415,24 @@ test('QA revalida bloqueio bilateral apos selecao de aviso privado',async()=>{
   try {
     qaMockFirestore(base);
     assert.deepEqual((await resolveEvent(event,'chat-alice','fake')).recipients,['chat-bob']);
-    assert.equal(await qaChatPushPreSendAllowed('fake','chat-alice','chat-bob'),true);
+    assert.equal(await qaChatPushPreSendAllowed('fake','chat-alice','chat-bob',null,'eligible'),true);
     for(const path of [
       'users/chat-alice/blockedMembers/chat-bob',
       'users/chat-bob/blockedMembers/chat-alice'
     ]) {
       qaMockFirestore({...base,[path]:qaDoc({createdAt:qaFuture()})});
-      assert.equal(await qaChatPushPreSendAllowed('fake','chat-alice','chat-bob'),false,
+      assert.equal(await qaChatPushPreSendAllowed('fake','chat-alice','chat-bob',null,'eligible'),false,
         'Bloqueio novo deve impedir push: '+path);
     }
     qaMockFirestore(base);
-    assert.equal(await qaChatPushPreSendAllowed('fake','chat-alice','chat-bob'),true);
+    assert.equal(await qaChatPushPreSendAllowed('fake','chat-alice','chat-bob',null,'eligible'),true);
   } finally {globalThis.fetch=saved;}
 });
 
 test('QA revalida bloqueios e silenciamento de grupo antes de reservar D1',async()=>{
   const {resolveEvent,qaChatPushPreSendAllowed}=await import(
     'data:text/javascript;charset=utf-8,'+encodeURIComponent(generated));
-  assert.ok(generated.includes('qaChatPushPreSendAllowed(token,uid,recipient,event.groupId)'));
+  assert.ok(generated.includes('qaChatPushPreSendAllowed(token,uid,recipient,event.groupId,env.ATRIO_QA_AGE_POLICY)'));
   const age=()=>qaDoc({status:'eligible',minimumAge:18,
     policyVersion:'2026-11-18plus-qa-v1',reviewExpiresAt:qaFuture()});
   const access=()=>qaDoc({status:'approved',
@@ -452,7 +452,7 @@ test('QA revalida bloqueios e silenciamento de grupo antes de reservar D1',async
     'users/chat-bob/chatAgeEligibility/current':age()
   };
   const event={type:'group_message',groupId:'grp-qa',messageId:'m2'};
-  const allowed=()=>qaChatPushPreSendAllowed('fake','chat-alice','chat-bob','grp-qa');
+  const allowed=()=>qaChatPushPreSendAllowed('fake','chat-alice','chat-bob','grp-qa','eligible');
   const saved=globalThis.fetch;
   try {
     qaMockFirestore(base);
