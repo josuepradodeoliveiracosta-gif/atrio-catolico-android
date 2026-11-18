@@ -5,6 +5,7 @@ import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
 
 internal const val QA_GERAL_PUSH_RELAY_URL = "https://atrio-push-qa-general.atrio-catolico.workers.dev"
+private const val QA_GERAL_CELULAR_REGISTERED_APP_ID = "1:835727158563:android:4258e81cc0ccc4df5cb096"
 
 internal fun qaGeralCelularFixtureMatches(packageName: String, projectId: String?, appId: String?): Boolean =
     packageName == "br.com.atriocatolico.qageral.celular" &&
@@ -16,6 +17,11 @@ internal fun qaGeralCelularFunctionalMatches(
 ): Boolean = packageName == "br.com.atriocatolico.qageral.celular" &&
     projectId == "atrio-catolico-qa-general" &&
     expectedAppId.isNotEmpty() && appId == expectedAppId
+
+internal fun qaGeralCelularRoundMatches(
+    packageName: String, projectId: String?, appId: String?, host: String, sslEnabled: Boolean
+): Boolean = sslEnabled && host == "firestore.googleapis.com" &&
+    qaGeralCelularFunctionalMatches(packageName, projectId, appId, QA_GERAL_CELULAR_REGISTERED_APP_ID)
 
 internal fun qaGeralRemoteFirebaseReady(context: Context): Boolean {
     if (!BuildConfig.ATRIO_QA_GERAL_REMOTE) return false

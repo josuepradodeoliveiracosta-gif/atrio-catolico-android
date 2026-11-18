@@ -89,4 +89,21 @@ class QaGeralCelularIdentityTest {
             )
         }
     }
+
+    @Test
+    fun aRodadaFisicaSoUsaIdentidadeRegistradaETls() {
+        val project = "atrio-catolico-qa-general"
+        val registeredAppId = "1:835727158563:android:4258e81cc0ccc4df5cb096"
+        val host = "firestore.googleapis.com"
+        assertTrue(qaGeralCelularRoundMatches(qaPackage, project, registeredAppId, host, true))
+        assertFalse(qaGeralCelularRoundMatches(qaPackage, project,
+            "1:835727158563:android:0000000000000000000000", host, true))
+        assertFalse(qaGeralCelularRoundMatches(qaPackage, project, registeredAppId, host, false))
+        assertFalse(qaGeralCelularRoundMatches(qaPackage, project, registeredAppId, "127.0.0.1:8089", true))
+        assertFalse(qaGeralCelularRoundMatches(qaPackage, "atrio-catolico", registeredAppId, host, true))
+        assertFalse(qaGeralCelularRoundMatches("br.com.atriocatolico", project, registeredAppId, host, true))
+        if (System.getenv("ATRIO_QA_GERAL_CELULAR_RODADA_FIXTURE") == "1") {
+            assertFalse(BuildConfig.ATRIO_QA_GERAL_CELULAR_RODADA)
+        }
+    }
 }

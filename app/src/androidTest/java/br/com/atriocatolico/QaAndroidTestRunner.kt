@@ -6,6 +6,8 @@ import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreSettings
+import com.google.firebase.firestore.MemoryCacheSettings
 
 /**
  * Somente testes instrumentados:
@@ -29,7 +31,13 @@ class QaAndroidTestRunner : AndroidJUnitRunner() {
             "QA Android recusado: projeto Firebase não é o emulador de teste."
         }
         FirebaseAuth.getInstance(app).useEmulator("127.0.0.1", 9099)
-        FirebaseFirestore.getInstance(app).useEmulator("127.0.0.1", 8089)
+        val db = FirebaseFirestore.getInstance(app)
+        if (BuildConfig.ATRIO_QA_GERAL_CELULAR_PILOT) {
+            db.firestoreSettings = FirebaseFirestoreSettings.Builder()
+                .setLocalCacheSettings(MemoryCacheSettings.newBuilder().build())
+                .build()
+        }
+        db.useEmulator("127.0.0.1", 8089)
         super.onCreate(arguments)
     }
 }
