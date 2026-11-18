@@ -334,7 +334,14 @@ internal fun NotificationCenter(
             }, color = Muted)
         }
         items(shown, key = { it.id }) { group ->
-            Card(onClick = { if (!inbox.busy) { inbox.markRead(listOf(group)); onOpen(group) } },
+            Card(onClick = {
+                // O callback de navegação também valida a conta no instante do toque.
+                // Não abrir destinos da sessão anterior enquanto o Compose recompõe.
+                if (!inbox.busy &&
+                    FirebaseAuth.getInstance(inbox.db.app).currentUser?.uid == inbox.uid) {
+                    inbox.markRead(listOf(group)); onOpen(group)
+                }
+            },
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = if (group.unread) WineSoft else Color.White)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
