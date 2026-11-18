@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {after, before, test} from 'node:test';
 import {assertFails, initializeTestEnvironment} from '@firebase/rules-unit-testing';
-import {arrayRemove, arrayUnion, collection, collectionGroup, deleteDoc, doc, getDoc,
-  getDocs, limit, orderBy, query, serverTimestamp, setDoc, updateDoc, where, writeBatch}
+import {arrayRemove, arrayUnion, collection, collectionGroup, deleteDoc, disableNetwork, doc, enableNetwork, getDoc,
+  getDocFromServer, getDocs, getDocsFromServer, limit, orderBy, query, serverTimestamp, setDoc, updateDoc, where, writeBatch}
   from 'firebase/firestore';
 import {renderClosedPilotRules} from '../../firebase/qa-geral-celular/pilot/rules.mjs';
 import {alice, bob, moderator, pilotDocuments, pilotFlags, projectId}
@@ -282,4 +282,95 @@ test('as permissões de Fórum e perfil ficam disponíveis com o piloto fechado'
   await assertFails(getDoc(doc(b, 'profiles', alice.uid)));
   const post = 'posts/qa-nav-bob-profile';
   assert.equal((await getDoc(doc(a, post))).get('uid'), bob.uid);
+});
+
+test('bloqueio bilateral impede leitura, envio e novos convites após reconectar', async () => {
+  await env.clearFirestore();
+  await seed([...fixtures, ...pilotFlags(true)]);
+  await setDoc(doc(b, 'users', bob.uid, 'chatSettings', 'privacy'), {
+    requests: 'all', readReceipts: false, showPushPreview: false, updatedAt: serverTimestamp()
+  });
+  await firstContact();
+  await updateDoc(doc(b, room), {status: 'accepted', updatedAt: serverTimestamp()});
+  const initialRoom = (await getDocFromServer(doc(a, room))).data();
+  const directions = [
+    {db: a, sender: alice.uid, recipient: bob.uid, counter: 'unreadRecipient'},
+    {db: b, sender: bob.uid, recipient: alice.uid, counter: 'unreadRequester'}
+  ].map(direction => ({
+    ...direction,
+    groupPath: 'chat_groups/qa-bloqueio-' + direction.sender,
+    groupName: 'Grupo de controle ' + direction.sender,
+    messageId: 'controle-' + direction.sender
+  }));
+
+  await seed(directions.map(({sender, groupPath, groupName}) => [groupPath, {
+    name: groupName, category: 'study', ownerUid: sender, memberUids: [sender],
+    adminUids: [sender], status: 'active', createdAt: now, updatedAt: now,
+    lastMessageId: '', lastPreview: '', lastSenderUid: ''
+  }]));
+
+  const firstMessage = 'messages/primeira';
+  const sendText = 'Mensagem fictícia de controle bilateral.';
+  function send({db, sender, counter, messageId}) {
+    const batch = writeBatch(db);
+    batch.set(doc(db, room, 'messages', messageId), {
+      uid: sender, kind: 'text', text: sendText, createdAt: serverTimestamp()
+    });
+    batch.update(doc(db, room), {
+      lastMessageId: messageId, lastPreview: sendText, lastSenderUid: sender,
+      updatedAt: serverTimestamp(), [counter]: initialRoom[counter] + 1
+    });
+    return batch.commit();
+  }
+
+  function invitePeer({db, sender, recipient, groupPath, groupName}) {
+    return setDoc(doc(db, groupPath, 'atrioGroupInvites', recipient), {
+      inviteeUid: recipient, inviterUid: sender, contactChatId: chatId, groupName,
+      status: 'pending', createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+    });
+  }
+
+  async function verifyBlocked() {
+    for (const direction of directions) {
+      const {db, sender, groupPath} = direction;
+      // Confirma que o servidor e a própria conta continuam acessíveis.
+      assert.equal((await getDocFromServer(doc(db, groupPath))).get('ownerUid'), sender);
+      await assertFails(getDocFromServer(doc(db, room)));
+      await assertFails(getDocFromServer(doc(db, room, firstMessage)));
+      await assertFails(getDocsFromServer(query(
+        collection(db, room, 'messages'), orderBy('createdAt'), limit(100))));
+      await assertFails(send(direction));
+      await assertFails(invitePeer(direction));
+    }
+  }
+
+  for (const {db} of directions) {
+    assert.equal((await getDocFromServer(doc(db, room, firstMessage))).get('text'), chatText);
+  }
+
+  const block = doc(a, 'users', alice.uid, 'blockedMembers', bob.uid);
+  await setDoc(block, {createdAt: serverTimestamp()});
+  await verifyBlocked();
+
+  try {
+    await Promise.all(directions.map(({db}) => disableNetwork(db)));
+    for (const {db, groupPath} of directions) {
+      await assert.rejects(getDocFromServer(doc(db, groupPath)), {code: 'unavailable'});
+    }
+  } finally {
+    await Promise.all(directions.map(({db}) => enableNetwork(db)));
+  }
+  await verifyBlocked();
+
+  // Os mesmos pedidos devem funcionar depois de remover apenas o bloqueio.
+  await deleteDoc(block);
+  assert.equal((await directHistory(a)).size, 1);
+  for (const direction of directions) {
+    await send(direction);
+    await invitePeer(direction);
+  }
+  for (const {db, recipient, groupPath, messageId} of directions) {
+    assert.equal((await getDocFromServer(doc(db, room, 'messages', messageId))).get('text'), sendText);
+    assert.equal((await getDocFromServer(doc(db, groupPath, 'atrioGroupInvites', recipient))).get('status'), 'pending');
+  }
 });

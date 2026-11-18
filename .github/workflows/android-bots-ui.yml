@@ -6,7 +6,7 @@ name: QA Android dos três bots (emulador isolado)
 # A comunidade real permanece sob disparo pontual mediante pedido nesta conversa.
 on:
   pull_request:
-    branches: [main]
+    branches: [main, qa/chat7-composicao-dois-celulares]
     paths:
       - 'app/src/main/**'
       - 'app/src/androidTest/**'
@@ -14,6 +14,8 @@ on:
       - 'app/src/qaGeral/**'
       - '.github/workflows/android-bots-ui.yml'
       - 'tests/security/qa-geral-integrado.test.mjs'
+      - 'tests/security/qa-geral-celular-pilot.test.mjs'
+      - 'firebase/qa-geral-celular/pilot/**'
       - 'scripts/run-qa-android-emulator.sh'
       - 'scripts/test_qa_android_groups.py'
       - 'scripts/qa-android-prebuild.sh'
@@ -65,7 +67,7 @@ jobs:
       - name: Validar regras com as contas fictícias do QA Geral Celular
         run: |
           ./node_modules/.bin/firebase emulators:exec --only firestore \
-            --project demo-atrio-v11 'node qa-geral-integrado.test.mjs'
+            --project demo-atrio-v11 'node qa-geral-integrado.test.mjs && node --test qa-geral-celular-pilot.test.mjs'
 
   android-ui:
     name: Testar telas do Átrio — ${{ matrix.suite_group }}
