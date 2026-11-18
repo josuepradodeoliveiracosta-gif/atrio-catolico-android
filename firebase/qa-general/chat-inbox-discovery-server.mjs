@@ -93,7 +93,7 @@ export function createAdminInboxStore(db) {
     async candidateIds(uid,after,limitCount) {
       let q=db.collection('chats').where('participants','array-contains',uid)
         .orderBy('__name__').limit(limitCount);
-      if(after)q=q.startAfter(ref('chats/'+after));
+      if(after)q=q.startAfter(after);
       const docs=await q.get();
       return docs.docs.map(x=>x.id);
     },
