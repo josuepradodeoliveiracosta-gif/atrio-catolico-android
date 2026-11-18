@@ -299,10 +299,8 @@
           && request.resource.data.status == 'pending'
           && request.resource.data.createdAt == request.time
           && request.resource.data.updatedAt == request.time
-          // O destinatário nunca recebe convite de quem bloqueou.
-          // O bloqueio inverso é revalidado no ACEITE, para economizar
-          // leituras de regras na simples criação de convite.
-          && !exists(/databases/$(database)/documents/users/$(inviteeUid)/blockedMembers/$(request.auth.uid))
+          // Bloqueio bilateral: o convite é recusado já na criação.
+          && chatNoBlock(request.auth.uid, inviteeUid)
           && atrioGroupAcceptedContact(
             request.auth.uid,inviteeUid,request.resource.data.contactChatId);
         allow update: if atrioGroupsEnabled()
@@ -327,7 +325,7 @@
             (atrioGroupAdmin(groupId) && resource.data.status in ['declined','accepted']
               && !(inviteeUid in get(atrioGroupPath(groupId)).data.memberUids)
               && request.resource.data.status == 'pending'
-              && !exists(/databases/$(database)/documents/users/$(inviteeUid)/blockedMembers/$(request.auth.uid))
+              && chatNoBlock(request.auth.uid, inviteeUid)
               && resource.data.inviterUid == request.auth.uid
               && atrioGroupAcceptedContact(
                 request.auth.uid,inviteeUid,resource.data.contactChatId))
