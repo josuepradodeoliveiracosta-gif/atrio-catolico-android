@@ -173,6 +173,26 @@ internal fun AtrioConversationsScreen(
     val ownSession = activeAuthUid == uid &&
         authentication.currentUser?.uid == uid
 
+    // O bloqueio realizado pelo próprio titular remove imediatamente a
+    // prévia visível, mesmo antes do próximo ciclo de consulta do índice.
+    // O bloqueio do OUTRO participante continua sendo decidido nas Rules
+    // e revalidado pela consulta Source.SERVER.
+    var ownBlockedPeer by remember(uid, peerUid) { mutableStateOf(false) }
+    DisposableEffect(db, uid, peerUid, ownSession) {
+        if (!ownSession || peerUid == null) {
+            ownBlockedPeer = false
+            onDispose {}
+        } else {
+            val blocked = db.collection("users").document(uid)
+                .collection("blockedMembers").document(peerUid)
+                .addSnapshotListener { doc, failure ->
+                    if (authentication.currentUser?.uid == uid &&
+                        failure == null) ownBlockedPeer = doc?.exists() == true
+                }
+            onDispose { blocked.remove() }
+        }
+    }
+
     DisposableEffect(db, uid, ownSession) {
         if (!ownSession) {
             enabled = false
@@ -238,13 +258,13 @@ internal fun AtrioConversationsScreen(
             error = ""
         }
     }
-    LaunchedEffect(db, uid, inbox, enabled, ownSession, retryInbox) {
+    LaunchedEffect(db, uid, inbox, enabled, ownSession, ownBlockedPeer, retryInbox) {
         // Ao trocar de conta, offline ou revogar acesso: eliminar previews de
         // memória imediatamente. Não usar cache como fallback visual.
         rooms = emptyList()
-        error = ""
-        loaded = inbox == null || !enabled || !ownSession
-        if (inbox != null && enabled && ownSession) {
+        error = if (ownBlockedPeer) "Conversa indisponível por bloqueio." else ""
+        loaded = inbox == null || !enabled || !ownSession || ownBlockedPeer
+        if (inbox != null && enabled && ownSession && !ownBlockedPeer) {
             pollAtrioPilotServer({ inbox.get(Source.SERVER) },
                 { snapshot, failure -> updateInbox(snapshot, failure) },
                 intervalMs = 10_000L)

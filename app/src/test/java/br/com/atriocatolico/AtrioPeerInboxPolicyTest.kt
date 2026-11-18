@@ -15,7 +15,9 @@ class AtrioPeerInboxPolicyTest {
         assertEquals("bob", AtrioPeerInboxPolicy.peerFromChatId("alice", "alice__bob"))
         assertEquals("alice", AtrioPeerInboxPolicy.peerFromChatId("bob", "alice__bob"))
         assertNull(AtrioPeerInboxPolicy.peerFromChatId("alice", null))
-        assertNull(AtrioPeerInboxPolicy.peerFromChatId("alice", "alice__stranger__wrong"))
+        assertEquals("stranger__wrong",
+            AtrioPeerInboxPolicy.peerFromChatId("alice", "alice__stranger__wrong"))
+        assertNull(AtrioPeerInboxPolicy.peerFromChatId("alice", "alice__bad/uid"))
         assertNull(AtrioPeerInboxPolicy.peerFromChatId("alice", "alice__alice"))
         assertNull(AtrioPeerInboxPolicy.peerFromChatId("alice", "not-a-conversation"))
     }
