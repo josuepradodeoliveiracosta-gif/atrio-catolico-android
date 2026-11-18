@@ -29,3 +29,29 @@ O integrador de backend deverá invocar a reconciliação no fluxo de criação,
 
 ## Estado de entrega
 **GO somente para auditoria técnica da proteção server-side e teste isolado. NO-GO para UX de caixa completa, migração real, deploy, merge sem fundador, push, produção e declaração de backend concluído.** Encaminhar PR ao Chat 4 (Rules e bypass), Chat 5 (três bots) e Chat 7 (dependências e integração). Preservar a PR #352.
+
+
+## Atualização Chat 2 — Descoberta autorizada, sem exposição de pares (PR empilhada)
+**Consumidor:** Chat 3. **Endpoint proposto** (não publicado): 
+\`GET /v1/qa/conversations/inbox?limit=20&cursor=<token-opaco>\`.
+Enviar \`Authorization: Bearer <Firebase ID Token QA>\`. **Não** enviar \`uid\`: o backend deriva \`ownerUid\` do ID token verificado pelo Firebase Admin Auth com checagem de revogação. O backend HTTP fica **desligado por padrão** e responde 503 até integração/autorização específicas.
+
+**Sucesso HTTP 200**:
+\`\`\`json
+{"items":[{"chatId":"UID_A__UID_B","peerUid":"UID_B","status":"accepted","lastPreview":"...",
+"updatedAtMs":1730000000000,"unreadCount":0,"lastSenderUid":"UID_A"}],
+"nextCursor":"token-opaco-ou-null"}
+\`\`\`
+O cursor usa **AES-256-GCM**, TTL de dez minutos e vínculo ao UID; nenhum ID de contato bloqueado, prévia ou contagem de bloqueados é devolvido. Limite 1–20, janela interna de até 40 chats por chamada; quando a página contém apenas chats bloqueados, pode retornar \`items=[]\` **com** \`nextCursor\`. O Chat 3 deve continuar enquanto houver cursor, mas limitar retentativas e evitar laços; não pressupor ordenação por atividade, pois o índice usa ID de documento.
+
+A consulta de descoberta no **Admin SDK** varre \`chats\` autorizados por \`participants array-contains\`, mas cada candidato é relido em transação com validação de formato, participação e par, ambos os bloqueios, elegibilidade 18+ **de ambas** as contas e flags administrativas. O Admin SDK ignora Rules, portanto essa camada de aplicação é obrigatória e não pode ser removida. A resposta usa \`Cache-Control: private, no-store\` e \`Pragma: no-cache\`, não tem endpoint para \`list(chats)\` pública nem \`collectionGroup\` de entradas.
+
+**Política etária:** o backend aceita **somente** o par legado da composição QA ativa \`eligible/2026-11-18plus-qa-v1\`. Não reinterpreta \`declared_18_plus\` da PR #232 como verificação de idade nem habilita o novo par antes de Rules, Worker e identidade convergirem. O código permite configuração **somente do servidor** para futura revisão explícita.
+
+**Materialização:** \`reconcilePeerInbox\` atualiza duas vistas em uma transação; \`syncBlockedPair\` sincroniza a exclusão/retorno após bloquear e desbloquear nos dois sentidos, e \`backfillInboxBatch\` reconcilia até 40 chats numa chamada administrativa paginada. **Não são gatilhos implantados**: conectar a eventos de chat e bloqueio, definir identidade de serviço e monitorar falhas depende de aprovação/revisão. A descoberta funciona em modo de leitura diretamente sobre a fonte \`chats\`, mesmo antes do backfill, sem confiar em vista desatualizada.
+
+**Cache/reconexão:** o endpoint HTTP é no-store; Firestore ainda pode guardar dados prévios em cache local. Chat 3 deverá limpar projeções de UI no bloqueio/troca de conta, suspender exibição em modo offline de dados sensíveis e exigir atualização do servidor; novo GET não remove bytes do armazenamento local. Nenhuma proteção criptográfica elimina conteúdo já recebido antes de um bloqueio.
+
+**Custos:** até 40 candidatos examinados por página; cada candidato envolve releitura da conversa, flags, duas elegibilidades e dois bloqueios em transação (até ~6 leituras por candidato, fora a query base), mais as duas vistas gravadas por materialização. Requer orçamento de leituras/latência, rate limiting, métricas agregadas sem UIDs e estratégia de índice antes de liberar QA remoto. Consultas antigas \`whereArrayContains(chats)\` na UI devem ser migradas pelo Chat 3, sem enfraquecer Rules.
+
+**Compatibilidade da PR #352:** o bloqueio de GET direto em \`chats/{chatId}\` e GET/LIST em \`messages\` é requisito adicional. A nova descoberta **não substitui** a #352, não remove seus gates e deve ser validada em árvore composta por Chat 5/7. Não há merge nem deploy autorizado.
