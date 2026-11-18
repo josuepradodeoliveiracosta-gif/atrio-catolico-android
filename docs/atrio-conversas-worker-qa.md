@@ -391,14 +391,19 @@ APENAS no objeto `env` em memoria com FCM ficticio e fetch restrito.
 - **3 dispositivos:** os testes verificam parada no primeiro ou
   segundo erro, nao envio ao terceiro, deduplicacao apos replay,
   conclusao permitida em retomada pre-D1 e kill switch desligado.
-- **18+:** o Worker exige prova derivada do servidor em
-  `chatAgeEligibility/current` de autor e destinatario, revalidada antes
-  de cada aparelho posterior. A autodeclaracao local
-  `declared_18_plus` e a decisao provisoria da Issue #200 **nao**
-  devem ser convertidas por este Worker em prova independente. Chat 2
-  deve confirmar a fonte canonica, o produtor/expiracao dessa prova e
-  a compatibilidade com a PR #232; rejeitar registros ausentes,
-  revogados ou malformados sem contornar regras.
+- **18+ (compatibilidade QA com PR #232):** o Worker exige registro
+  `chatAgeEligibility/current` de autor e destinatario, revalidado
+  antes de cada aparelho posterior, e aceita somente os pares completos
+  `status=declared_18_plus` + `policyVersion=2026-11-selfdecl-qa-v1`
+  (escolha operacional provisoria do fundador) ou o par legado
+  `status=eligible` + `policyVersion=2026-11-18plus-qa-v1`.
+  Ambos exigem `minimumAge=18` inteiro, vencimento futuro e exatamente
+  quatro campos. **Autodeclaracao nao e verificacao independente de
+  idade**, nem altera requisitos legais. O par legado permanece aceito
+  apenas para retrocompatibilidade do candidato QA; Chat 2 deve conferir
+  se registros legados podem existir, quem os produz e quando removê-los.
+  Versoes trocadas, vencimento, campo extra ou valor diferente falham
+  fechado antes de D1/FCM.
 
 **Custos/cotas/privacidade:** a leitura do corpo HTTP 200 nao gera
 consulta adicional ao Firestore nem envio FCM extra. Parar em 429
