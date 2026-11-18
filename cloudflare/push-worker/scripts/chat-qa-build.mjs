@@ -135,7 +135,7 @@ export function renderQaWorker(original, project) {
                 !receipt.name.startsWith(prefix) ||
                 receipt.name.length<=prefix.length ||
                 receipt.name.length>prefix.length+512 ||
-                /\s/.test(receipt.name)) {
+                /\\s/.test(receipt.name)) {
               transportFailure=true;
               break;
             }
