@@ -120,7 +120,8 @@ run_suite() {
       interaction:DiscussionDetailV2UiTest|interaction:AtrioTypographyAccessibilityUiTest|\
       bots:ThreeBotsAndroidUiTest|bots:ThreeBotsAuthenticatedAndroidUiTest|\
       bots:ThreeBotsOnlineEmulatorTest|bots:AtrioConversasCompostasEmulatorUiTest|\
-      bots:AtrioConversasNavegacaoEmulatorUiTest|bots:AtrioConversasForaDaConfiguracaoEmulatorUiTest) ;;
+      bots:AtrioConversasNavegacaoEmulatorUiTest|bots:AtrioConversasForaDaConfiguracaoEmulatorUiTest|\\
+      bots:AtrioConversasTrocaContaEmulatorUiTest) ;;
       *) echo "QA Android: $suite executada por outro grupo"; return 0 ;;
     esac
   fi
@@ -204,6 +205,7 @@ fi
 run_suite AtrioConversasCompostasEmulatorUiTest
 run_suite AtrioConversasNavegacaoEmulatorUiTest
 run_suite AtrioConversasForaDaConfiguracaoEmulatorUiTest
+run_suite AtrioConversasTrocaContaEmulatorUiTest
 run_suite EmailVerificationAndroidUiTest
 if [[ "$qa_group" == "all" || "$qa_group" == "profiles" ]]; then
   # Só a última suíte usa a política restritiva. As suítes anteriores
