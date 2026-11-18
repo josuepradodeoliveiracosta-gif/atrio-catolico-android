@@ -135,16 +135,29 @@ try{
     }));
     await assertFails(getDocsFromServer(peerQuery(a,u,v)));
     await assertFails(getDocsFromServer(peerQuery(b,v,u)));
+    for(const db of [a,b]){
+      await assertFails(getDocFromServer(doc(db,'chats/'+id)));
+      await assertFails(getDocFromServer(doc(db,'chats/'+id+'/messages/m1')));
+      await assertFails(getDocsFromServer(collection(db,'chats/'+id+'/messages')));
+    }
   });
   await check('retirar só um bloqueio não reabre GET/LIST',async()=>{
     await assertSucceeds(deleteDoc(doc(a,'users/'+u+'/blockedMembers/'+v)));
     await assertFails(getDocFromServer(doc(b,entry(v,u))));
     await assertFails(getDocsFromServer(peerQuery(a,u,v)));
+    for(const db of [a,b]){
+      await assertFails(getDocFromServer(doc(db,'chats/'+id)));
+      await assertFails(getDocFromServer(doc(db,'chats/'+id+'/messages/m1')));
+    }
   });
   await check('depois de remover ambos, GET/LIST voltam sem escrita no índice',async()=>{
     await assertSucceeds(deleteDoc(doc(b,'users/'+v+'/blockedMembers/'+u)));
     assert.equal((await assertSucceeds(getDocsFromServer(peerQuery(a,u,v)))).size,1);
     assert.equal((await assertSucceeds(getDocsFromServer(peerQuery(b,v,u)))).size,1);
+    for(const db of [a,b]){
+      assert.equal((await assertSucceeds(getDocFromServer(doc(db,'chats/'+id)))).exists(),true);
+      assert.equal((await assertSucceeds(getDocFromServer(doc(db,'chats/'+id+'/messages/m1')))).exists(),true);
+    }
   });
   await check('transacao de materializacao confiavel preserva ambos os indices',async()=>{
     await env.withSecurityRulesDisabled(async ctx=>{
