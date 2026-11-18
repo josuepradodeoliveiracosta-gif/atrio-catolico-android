@@ -504,6 +504,21 @@ try {
       unreadRecipient:1
     }));
   });
+  await check('bloqueio bilateral impede documento direto e histórico para ambos',async()=>{
+    for(const db of [alice,bob]) {
+      await assertFails(getDoc(doc(db,room)));
+      await assertFails(getDoc(doc(db,room+'/messages/m2')));
+      await assertFails(getDocs(collection(db,room+'/messages')));
+    }
+  });
+  await check('listagem mantém a consulta permitida; metadados exigem arquitetura separada',async()=>{
+    for(const [db,uid] of [[alice,'chat-alice'],[bob,'chat-bob']]) {
+      const rows=await assertSucceeds(getDocs(query(
+        collection(db,'chats'),where('participants','array-contains',uid),limit(100)
+      )));
+      assert.ok(rows.docs.some(row=>row.id===chatId));
+    }
+  });
   await check('quem bloqueou pode desfazer o bloqueio sem permitir forja por terceiros',async()=>{
     await assertFails(deleteDoc(doc(stranger,'users/chat-bob/blockedMembers/chat-alice')));
     await assertSucceeds(deleteDoc(doc(bob,'users/chat-bob/blockedMembers/chat-alice')));

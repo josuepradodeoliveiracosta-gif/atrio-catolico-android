@@ -68,8 +68,9 @@ export function renderClosedPilotRules() {
   fragments = replaceChecked(fragments,
     "return proof.keys().hasAll(['status','minimumAge','policyVersion','reviewExpiresAt'])",
     "return qaMemberUid(uid) && proof.keys().hasAll(['status','minimumAge','policyVersion','reviewExpiresAt'])");
-  fragments = replaceChecked(fragments, 'allow get: if chatEnabled() && chatMember(resource.data);',
-    'allow get: if pilotDirectEnabled() && chatMember(resource.data);');
+  fragments = replaceChecked(fragments,
+    'allow get: if chatEnabled() && chatMember(resource.data)\\n        && chatNoBlock(resource.data.requesterUid, resource.data.recipientUid);'.replace('\\n', '\n'),
+    'allow get: if pilotDirectEnabled() && chatMember(resource.data)\\n        && chatNoBlock(resource.data.requesterUid, resource.data.recipientUid);'.replace('\\n', '\n'));
   fragments = replaceChecked(fragments, 'allow list: if chatEnabled() && signedIn()',
     'allow list: if pilotDirectEnabled() && signedIn()');
   fragments = replaceChecked(fragments, 'allow get, list: if chatEnabled()\n          && exists(/databases/$(database)/documents/chats/$(chatId))',
