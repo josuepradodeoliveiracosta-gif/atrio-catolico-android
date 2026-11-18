@@ -23,23 +23,21 @@ internal fun rememberBlockedMembers(db: FirebaseFirestore, viewerUid: String): S
     DisposableEffect(auth, viewerUid) {
         val observer = FirebaseAuth.AuthStateListener { instance ->
             sessionUid = instance.currentUser?.uid
-            if (sessionUid != viewerUid) ids = emptySet()
         }
         auth.addAuthStateListener(observer)
         onDispose { auth.removeAuthStateListener(observer) }
     }
 
+    // Conservar o filtro já conhecido durante uma transição de sessão;
+    // limpar aqui poderia exibir conteúdo de pessoas antes bloqueadas.
     DisposableEffect(db, viewerUid, sessionUid) {
-        ids = emptySet()
         if (viewerUid.isBlank() || sessionUid != viewerUid) {
             onDispose { }
         } else {
             val listener = db.collection("users").document(viewerUid)
                 .collection("blockedMembers")
                 .addSnapshotListener { data, failure ->
-                    if (auth.currentUser?.uid != viewerUid) {
-                        ids = emptySet()
-                    } else if (failure == null) {
+                    if (auth.currentUser?.uid == viewerUid && failure == null) {
                         ids = data?.documents?.map { it.id }?.toSet().orEmpty()
                     }
                     // Uma falha temporária não apaga a lista de bloqueios já lida.
@@ -47,6 +45,7 @@ internal fun rememberBlockedMembers(db: FirebaseFirestore, viewerUid: String): S
             onDispose { listener.remove() }
         }
     }
-    return if (sessionUid == viewerUid && auth.currentUser?.uid == viewerUid) ids
-        else emptySet()
+    // remember(db, viewerUid) separa as contas; a lista conhecida não se
+    // torna temporariamente vazia apenas por perda de sessão ou de rede.
+    return ids
 }
