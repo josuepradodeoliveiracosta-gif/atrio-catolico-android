@@ -16,6 +16,12 @@ on:
       - 'tests/security/qa-geral-integrado.test.mjs'
       - 'tests/security/qa-geral-celular-pilot.test.mjs'
       - 'tests/security/atrio-grupos.test.mjs'
+      - 'tests/security/atrio-conversas.test.mjs'
+      - 'tests/security/atrio-inbox-peer-authorization.test.mjs'
+      - 'tests/security/atrio-inbox-discovery-server.test.mjs'
+      - 'firebase/atrio-conversas-v1.rules.fragment'
+      - 'firebase/qa-general/chat-inbox-peer-index.mjs'
+      - 'firebase/qa-general/chat-inbox-discovery-server.mjs'
       - 'firebase/atrio-grupos-v1.rules.fragment'
       - 'firebase/qa-geral-celular/pilot/**'
       - 'scripts/run-qa-android-emulator.sh'
@@ -69,7 +75,7 @@ jobs:
       - name: Validar regras com as contas fictícias do QA Geral Celular
         run: |
           ./node_modules/.bin/firebase emulators:exec --only firestore \
-            --project demo-atrio-v11 'node qa-geral-integrado.test.mjs && node --test qa-geral-celular-pilot.test.mjs && node atrio-grupos.test.mjs'
+            --project demo-atrio-v11 'node qa-geral-integrado.test.mjs && node --test qa-geral-celular-pilot.test.mjs && node atrio-grupos.test.mjs && node atrio-conversas.test.mjs && node atrio-inbox-peer-authorization.test.mjs && node atrio-inbox-discovery-server.test.mjs'
 
   android-ui:
     name: Testar telas do Átrio — ${{ matrix.suite_group }}

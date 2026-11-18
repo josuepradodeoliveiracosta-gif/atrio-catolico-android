@@ -145,16 +145,39 @@
         && request.resource.data.updatedAt == request.time;
       allow delete: if chatEnabled() && me(uid);
     }
+    // #355: indice de inbox por titular E por contato. Uma listagem desta
+    // subcolecao tem par de UIDs fixo no CAMINHO, permitindo ao Firestore
+    // verificar ambos os bloqueios ANTES de retornar qualquer documento.
+    // Somente servico confiavel/Admin SDK materializa as entradas; clientes
+    // nao podem criar, editar ou apagar previews nem metadados.
+    match /users/{uid}/chatInboxByPeer/{peerUid}/entries/{chatId} {
+      allow get: if chatEnabled() && me(uid)
+        && validId(peerUid) && peerUid != uid
+        && chatNoBlock(uid, peerUid)
+        && (chatId == uid + '__' + peerUid
+          || chatId == peerUid + '__' + uid)
+        && resource.data.get('ownerUid','') == uid
+        && resource.data.get('peerUid','') == peerUid
+        && resource.data.get('chatId','') == chatId;
+      allow list: if chatEnabled() && me(uid)
+        && validId(peerUid) && peerUid != uid
+        && chatNoBlock(uid, peerUid)
+        && request.query.limit != null && request.query.limit >= 1
+        && request.query.limit <= 20;
+      allow create, update, delete: if false;
+    }
     match /chats/{chatId} {
       // Documentos individuais mantêm a validação de tipo e participação.
       // A listagem exige a consulta com array-contains do próprio UID.
       // Uma checagem adicional "is list" na expressão de list não é
       // demonstrável pelo analisador de consultas do Firestore e bloqueava
       // a caixa de entrada, apesar de os documentos terem dados corretos.
-      allow get: if chatEnabled() && chatMember(resource.data);
-      allow list: if chatEnabled() && signedIn()
-        && request.query.limit != null && request.query.limit <= 100
-        && request.auth.uid in resource.data.participants;
+      allow get: if chatEnabled() && chatMember(resource.data)
+        && chatNoBlock(resource.data.requesterUid, resource.data.recipientUid);
+      // Bloqueador #355: a listagem geral revela previ as e UIDs apos bloqueio.
+      // Rules nao provam chatNoBlock por item em queries globais do Firestore.
+      // A caixa deve migrar para chatInboxByPeer (escopo fixo no caminho).
+      allow list: if false;
       allow create: if chatEnabled()
         && request.auth.uid == request.resource.data.requesterUid
         && validId(request.resource.data.requesterUid)
@@ -281,7 +304,10 @@
       match /messages/{messageId} {
         allow get, list: if chatEnabled()
           && exists(/databases/$(database)/documents/chats/$(chatId))
-          && chatMember(get(/databases/$(database)/documents/chats/$(chatId)).data);
+          && chatMember(get(/databases/$(database)/documents/chats/$(chatId)).data)
+          && chatNoBlock(
+            get(/databases/$(database)/documents/chats/$(chatId)).data.requesterUid,
+            get(/databases/$(database)/documents/chats/$(chatId)).data.recipientUid);
         allow create: if chatEnabled() && validId(messageId)
           && existsAfter(/databases/$(database)/documents/chats/$(chatId))
           && chatMember(getAfter(/databases/$(database)/documents/chats/$(chatId)).data)
