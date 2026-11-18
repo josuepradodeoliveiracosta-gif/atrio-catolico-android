@@ -1,3 +1,6 @@
+import {createHash} from 'node:crypto';
+
+const EXPECTED_MAIN_BLOB = '00ac078372b634b642b1d7c37e2b3faef725da91';
 /**
  * Adaptador estritamente offline: usa a fonte da main atual como base,
  * acrescentando APENAS os contratos de Conversas necessarios ao Worker QA.
@@ -24,6 +27,12 @@ function replaceOnce(code,from,to) {
   return code.replace(from,to);
 }
 export function adaptCurrentMainToQaBase(source) {
+  if (typeof source!=='string') throw Error('chat_qa_invalid_source');
+  // SHA do blob de src/index.js: nao substituir silenciosamente seguranca da main.
+  const blob=createHash('sha1')
+    .update('blob '+Buffer.byteLength(source,'utf8')+String.fromCharCode(0)+source,'utf8')
+    .digest('hex');
+  if (blob!==EXPECTED_MAIN_BLOB) throw Error('chat_qa_main_blob_changed');
   if (typeof source!=='string' ||
       source.split("const PROJECT = 'atrio-catolico';").length!==2 ||
       !source.includes("const QA_PROJECT = 'atrio-catolico-qa-general';") ||
