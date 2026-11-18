@@ -54,9 +54,12 @@ const okJson=(value,status=200)=>new Response(JSON.stringify(value),
   {status,headers:{'Content-Type':'application/json'}});
 const messageDoc=()=>makeDoc({uid,kind:'text',createdAt:recent()});
 
-function makeScenario(type,change,deviceCount=1) {
+function makeScenario(type,change,deviceCount=1,recipientCount=1) {
   assert.ok(Number.isInteger(deviceCount) && deviceCount>=1 && deviceCount<=3);
   const group=type==='group';
+  assert.ok(Number.isInteger(recipientCount) && recipientCount>=1 && recipientCount<=7);
+  if(!group) assert.equal(recipientCount,1);
+  const peers=[recipient,...Array.from({length:recipientCount-1},(_,i)=>'chat-extra-'+i)];
   const chatId='chat-alice__chat-bob';
   const groupId='grp-qa';
   const messageId='m2';
@@ -68,13 +71,17 @@ function makeScenario(type,change,deviceCount=1) {
     'app_config/chat_groups':groupConfig(),
     ['chats/'+chatId]:makeDoc({requesterUid:uid,recipientUid:recipient,
       status:'accepted',initialId:'m1'}),
-    ['chat_groups/'+groupId]:makeDoc({status:'active',memberUids:[uid,recipient]}),
+    ['chat_groups/'+groupId]:makeDoc({status:'active',memberUids:[uid,...peers]}),
     [messagePath]:messageDoc(),
     ['users/'+uid+'/chatAgeEligibility/current']:age(),
     ['users/'+recipient+'/chatAgeEligibility/current']:age(),
     ['users/'+uid+'/chatGroupAccess/eligibility']:groupPermission(),
     ['users/'+recipient+'/chatGroupAccess/eligibility']:groupPermission()
   };
+  for(const peer of peers.slice(1)){
+    docs['users/'+peer+'/chatAgeEligibility/current']=age();
+    docs['users/'+peer+'/chatGroupAccess/eligibility']=groupPermission();
+  }
   const event=group
     ?{type:'group_message',groupId,messageId}
     :{type:'chat_message',chatId,messageId};
@@ -102,7 +109,8 @@ function makeScenario(type,change,deviceCount=1) {
       return {bind(){return {run:async()=>({meta:{changes:0}})}}};
     if(sql.startsWith('INSERT OR IGNORE INTO delivered'))
       return {bind(marker){return {run:async()=>{
-        assert.ok(typeof marker==='string' && marker.endsWith(':'+recipient));
+        assert.ok(typeof marker==='string' &&
+          peers.some(peer=>marker.endsWith(':'+peer)));
         markerWrites++;
         if(insertedMarkers.has(marker)) return {meta:{changes:0}};
         insertedMarkers.add(marker);
@@ -117,6 +125,7 @@ function makeScenario(type,change,deviceCount=1) {
   }};
   const mockFetch=async(input,options={})=>{
     externalRequests++;
+    assert.equal(options.redirect,'error','Sem redirecionamento externo QA');
     const target=String(input);
     const url=new URL(target);
     if(url.origin==='https://identitytoolkit.googleapis.com' &&
@@ -134,6 +143,8 @@ function makeScenario(type,change,deviceCount=1) {
       fcmCalls++;
       assert.equal(url.pathname,'/v1/projects/'+project+'/messages:send');
       assert.equal(JSON.parse(options.body).message.data.kind,event.type);
+      if(currentChange==='fcm_redirect')
+        throw Error('synthetic_redirect_rejected');
       if(currentChange==='fcm_transport_error' ||
           (currentChange==='fcm_second_transport_error' && fcmCalls===2))
         throw Error('synthetic_network_exception_no_provider_receipt');
@@ -170,13 +181,14 @@ function makeScenario(type,change,deviceCount=1) {
         if(currentChange==='age_selfdecl_extra_field')
           return okJson(selfDeclaredAge({verifiedBy:'fake-admin'}));
       }
-      if(relative==='users/'+recipient+'/pushDevices'){
+      const devicePeer=peers.find(peer=>relative==='users/'+peer+'/pushDevices');
+      if(devicePeer){
         sawDevices=true;
         return okJson({documents:Array.from({length:deviceCount},(_,i)=>({
           name:'projects/'+project+'/databases/(default)/documents/users/'+
-            recipient+'/pushDevices/offline-phone-'+i,
+            devicePeer+'/pushDevices/offline-phone-'+i,
           fields:{
-            token:{stringValue:'synthetic_fcm_token_1234567890_'+i},
+            token:{stringValue:'synthetic_fcm_token_1234567890_'+devicePeer+'_'+i},
             updatedAt:{timestampValue:recent()}
           },
           updateTime:recent()
@@ -795,4 +807,46 @@ test('QA: inventario sintetico do limite de subrequests por quantidade de aparel
       }
     }
   }finally{globalThis.fetch=oldFetch;}
+});
+
+
+test('QA: grupos com 2, 3 e 7 destinatarios devem ser recusados antes de FCM/D1',async()=>{
+  const worker=(await import('data:text/javascript;charset=utf-8,'+
+    encodeURIComponent(generated))).default;
+  const original=globalThis.fetch;
+  try {
+    for(const peers of [2,3,7]){
+      for(const devices of [1,2,3]){
+        const scenario=makeScenario('group','none',devices,peers);
+        globalThis.fetch=scenario.mockFetch;
+        const result=await worker.fetch(scenario.request(),scenario.env);
+        assert.equal(result.status,503,'peers='+peers+' devices='+devices);
+        assert.equal((await result.json()).status,'qa_capacity_limit');
+        assert.equal(scenario.stat.fcmCalls,0,'Nenhum FCM ficticio');
+        assert.equal(scenario.stat.markerWrites,0,'Nenhuma reserva de entrega D1');
+        assert.ok(scenario.stat.externalRequests<=50,'Nao exceder cota externa');
+        const replay=await worker.fetch(scenario.request(),scenario.env);
+        assert.equal((await replay.json()).status,'qa_capacity_limit');
+        assert.equal(scenario.stat.fcmCalls,0);
+      }
+    }
+  } finally {globalThis.fetch=original;}
+});
+
+test('QA: salto de redirecionamento FCM nao segue outra origem ou token',async()=>{
+  const worker=(await import('data:text/javascript;charset=utf-8,'+
+    encodeURIComponent(generated))).default;
+  const original=globalThis.fetch;
+  try {
+    const s=makeScenario('dm','fcm_redirect',3);
+    globalThis.fetch=s.mockFetch;
+    const res=await worker.fetch(s.request(),s.env);
+    assert.equal(res.status,503);
+    assert.equal((await res.json()).status,'delivery_transport_unknown');
+    assert.equal(s.stat.fcmCalls,1);
+    assert.equal(s.stat.uniqueMarkers,1);
+    s.setChange('none');
+    await worker.fetch(s.request(),s.env);
+    assert.equal(s.stat.fcmCalls,1,'Sem retry de resultado ambiguo');
+  } finally {globalThis.fetch=original;}
 });

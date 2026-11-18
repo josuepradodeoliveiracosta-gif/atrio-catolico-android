@@ -186,7 +186,11 @@ test('token do projeto QA continua exigindo confirmação do Firebase Auth',asyn
   const savedFetch=globalThis.fetch;
   let lookupCalls=0;
   globalThis.fetch=async(url,options)=>{
-    assert.match(String(url),/^https:\/\/identitytoolkit.googleapis.com\/v1\/accounts:lookup\?key=/);
+    const endpoint=new URL(String(url));
+    assert.equal(endpoint.protocol,'https:');
+    assert.equal(endpoint.hostname,'identitytoolkit.googleapis.com');
+    assert.equal(endpoint.pathname,'/v1/accounts:lookup');
+    assert.ok(endpoint.searchParams.has('key'));
     assert.match(options.body,/"idToken"/);
     lookupCalls++;
     return new Response(JSON.stringify({users:[{localId:'qa_user',emailVerified:true}]}),
@@ -277,7 +281,7 @@ test('Worker QA filtra push de grupo para destinatarios sem prova 18+ e autor in
     'app_config/chat_groups':qaDoc({enabled:true,pushEnabled:true,
       minorPolicyApproved:true,version:'2026-11-groups-v1'}),
     'chat_groups/grp-qa':qaDoc({status:'active',
-      memberUids:['chat-alice','chat-bob','chat-charlie']}),
+      memberUids:['chat-alice','chat-bob']}),
     'chat_groups/grp-qa/messages/m3':qaDoc({uid:'chat-alice',kind:'text',
       createdAt:new Date(Date.now()-1000).toISOString()}),
     'users/chat-alice/chatGroupAccess/eligibility':groupAccess(),
@@ -292,12 +296,17 @@ test('Worker QA filtra push de grupo para destinatarios sem prova 18+ e autor in
   try {
     qaMockFirestore(docs);
     assert.deepEqual((await resolveEvent(event,'chat-alice','fake')).recipients,
-      ['chat-bob','chat-charlie']);
+      ['chat-bob']);
     qaMockFirestore({...docs,'users/chat-bob/chatAgeEligibility/current':null});
     assert.deepEqual((await resolveEvent(event,'chat-alice','fake')).recipients,
-      ['chat-charlie']);
+      []);
     qaMockFirestore({...docs,'users/chat-alice/chatAgeEligibility/current':null});
     assert.equal(await resolveEvent(event,'chat-alice','fake'),null);
+    qaMockFirestore({...docs,'chat_groups/grp-qa':qaDoc({
+      status:'active',memberUids:['chat-alice','chat-bob','chat-charlie']})});
+    const oversized=await resolveEvent(event,'chat-alice','fake');
+    assert.equal(oversized.qaCapacityLimited,true);
+    assert.deepEqual(oversized.recipients,[]);
   } finally {globalThis.fetch=saved;}
 });
 

@@ -93,3 +93,21 @@ NO-GO para considerar consumo/cobertura de grupos homologados, para FCM
 real, deploy ou integração protegida. Pendente Chat 2 paridade de Rules
 com o Worker no MESMO Firebase Emulator, Chat 4 auditoria de segurança e
 cotas, Chat 5 testes de três bots, Chat 7 revisão do patch isolado.
+
+## Bloqueio preventivo da capacidade, sem plano pago (Chat 6)
+
+Os nove cenarios offline de grupos com **2, 3 e 7 destinatarios** e
+**1, 2 e 3 aparelhos** agora testam recusa em HTTP 503 `qa_capacity_limit`
+**antes** da reserva D1 ou de qualquer chamada FCM. A recusa ocorre logo
+depois de conferir os membros canonicamente no Firestore e impede a
+varredura descontrolada de permissões de cada participante. O envio
+normal a um unico destinatario permanece em ensaio. Este limite e
+provisorio: nao equivale a suportar todos os tamanhos de grupo.
+Proibir redirecionamentos automáticos de OAuth/Auth/Firestore/FCM
+evita subrequests adicionais e destinos inesperados.
+
+Para implementar um fan-out completo futuro, escolher estrategia de
+orquestracao/limites gratuitos que continue revalidando bloqueios,
+idade, grupo e mensagens sem aceitar sucesso parcial nem gerar retry
+duplicado. A cota de 50 subrequests do Workers Free inclui cadeias
+de redirect. Novo desenho requer avaliacao conjunta Chats 2/4/5/7.
