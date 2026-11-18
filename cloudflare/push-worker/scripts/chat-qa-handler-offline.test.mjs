@@ -32,6 +32,10 @@ const makeDoc=(fields)=>({fields:Object.fromEntries(Object.entries(fields).map((
 }))});
 const age=()=>makeDoc({status:'eligible',minimumAge:18,
   policyVersion:'2026-11-18plus-qa-v1',reviewExpiresAt:future()});
+const selfDeclaredAge=(overrides={})=>makeDoc({
+  status:'declared_18_plus',minimumAge:18,
+  policyVersion:'2026-11-selfdecl-qa-v1',reviewExpiresAt:future(),...overrides
+});
 const groupPermission=()=>makeDoc({status:'approved',
   policyVersion:'2026-11-group-safety-v1',reviewExpiresAt:future()});
 const chatConfig=()=>makeDoc({enabled:true,minorPolicyApproved:true,
@@ -146,6 +150,20 @@ function makeScenario(type,change,deviceCount=1) {
     }
     if(target.startsWith(documentRoot)){
       const relative=decodeURIComponent(url.pathname.split('/documents/')[1]||'');
+      if(relative==='users/'+uid+'/chatAgeEligibility/current' ||
+          relative==='users/'+recipient+'/chatAgeEligibility/current'){
+        if(currentChange==='age_selfdecl_valid')
+          return okJson(selfDeclaredAge());
+        if(currentChange==='age_selfdecl_cross_policy')
+          return okJson(selfDeclaredAge({policyVersion:'2026-11-18plus-qa-v1'}));
+        if(currentChange==='age_selfdecl_expired')
+          return okJson(selfDeclaredAge({reviewExpiresAt:
+            new Date(Date.now()-86_400_000).toISOString()}));
+        if(currentChange==='age_selfdecl_underage')
+          return okJson(selfDeclaredAge({minimumAge:17}));
+        if(currentChange==='age_selfdecl_extra_field')
+          return okJson(selfDeclaredAge({verifiedBy:'fake-admin'}));
+      }
       if(relative==='users/'+recipient+'/pushDevices'){
         sawDevices=true;
         return okJson({documents:Array.from({length:deviceCount},(_,i)=>({
@@ -661,4 +679,45 @@ test('QA: kill switch PUSH_ENABLED=false impede FCM mesmo com simulador pronto',
     assert.equal(scenario.stat.fcmCalls,0);
     assert.equal(scenario.stat.markerWrites,0);
   } finally {globalThis.fetch=oldFetch;}
+});
+
+
+test('QA: compatibilidade 18+ permite declaracao canonica sem alegar verificacao',async()=>{
+  const worker=(await import('data:text/javascript;charset=utf-8,'+
+    encodeURIComponent(generated))).default;
+  const oldFetch=globalThis.fetch;
+  try {
+    for(const type of ['dm','group']) {
+      const scenario=makeScenario(type,'age_selfdecl_valid',2);
+      globalThis.fetch=scenario.mockFetch;
+      const result=await worker.fetch(scenario.request(),scenario.env);
+      assert.equal(result.status,202,type);
+      assert.equal((await result.json()).status,'accepted_by_fcm',type);
+      assert.equal(scenario.stat.fcmCalls,2,type);
+      assert.equal(scenario.stat.uniqueMarkers,1,type);
+      const replay=await worker.fetch(scenario.request(),scenario.env);
+      assert.equal((await replay.json()).status,'no_devices_or_duplicate');
+      assert.equal(scenario.stat.fcmCalls,2,type);
+    }
+  } finally { globalThis.fetch=oldFetch; }
+});
+
+test('QA: declaracao 18+ revogada/fora da versao estrita nunca reserva D1',async()=>{
+  const worker=(await import('data:text/javascript;charset=utf-8,'+
+    encodeURIComponent(generated))).default;
+  const oldFetch=globalThis.fetch;
+  try {
+    for(const type of ['dm','group']) {
+      for(const change of ['age_selfdecl_cross_policy','age_selfdecl_expired',
+        'age_selfdecl_underage','age_selfdecl_extra_field']) {
+        const scenario=makeScenario(type,change,2);
+        globalThis.fetch=scenario.mockFetch;
+        const result=await worker.fetch(scenario.request(),scenario.env);
+        assert.equal(result.status,202,type+'/'+change);
+        assert.equal((await result.json()).status,'ignored',type+'/'+change);
+        assert.equal(scenario.stat.markerWrites,0,type+'/'+change);
+        assert.equal(scenario.stat.fcmCalls,0,type+'/'+change);
+      }
+    }
+  } finally { globalThis.fetch=oldFetch; }
 });
