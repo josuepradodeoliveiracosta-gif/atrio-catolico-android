@@ -307,9 +307,14 @@ class AtrioConversasCompostasEmulatorUiTest {
         show(Screen(bob, peer = PublicMemberTarget(alice, "Alice QA")))
         send("atrio-chat-composer", "atrio-chat-send", first)
         waitForText("Pedido não confirmado.", substring = true)
-        // O contrato seguro nega a consulta global, ainda com filtros.
-        assertDenied(db.collection("chats").whereArrayContains("participants", bob)
-            .limit(100).get(Source.SERVER))
+        // QA REGULAR: list(chats) deve ser PERMISSION_DENIED, sem bypass.
+        // PILOTO EMULADO: Rules sintéticas legadas permitem somente consulta
+        // limitada por titular enquanto o par ainda não está bloqueado;
+        // antes do primeiro contato não devem existir resultados nem prévias.
+        val legacyQuery = db.collection("chats").whereArrayContains("participants", bob)
+            .limit(100).get(Source.SERVER)
+        if (pilot) assertTrue(await(legacyQuery).isEmpty)
+        else assertDenied(legacyQuery)
         // Antes de um chat permitido, o índice por par não revela mensagem.
         assertTrue(await(db.collection("users").document(bob)
             .collection("chatInboxByPeer").document(alice)
@@ -318,7 +323,27 @@ class AtrioConversasCompostasEmulatorUiTest {
         assertEquals(alice, login(aliceEmail))
         show(Screen(alice, peer = PublicMemberTarget(bob, "Bob QA")))
         send("atrio-chat-composer", "atrio-chat-send", first)
-        waitForText("Solicitação enviada.")
+        try {
+            waitForText("Solicitação enviada.")
+        } catch (failure: androidx.compose.ui.test.ComposeTimeoutException) {
+            // Falhar com diagnóstico, NUNCA transformar a recusa em sucesso.
+            // O estado da transação fica separável do estado da interface.
+            val server = try {
+                val got = await(chat.get(Source.SERVER))
+                "chat.exists=${got.exists()},chat.status=${got.getString("status")}"
+            } catch (error: Exception) {
+                "chat.get=${error.javaClass.simpleName}"
+            }
+            val denied = compose.onAllNodesWithText("Pedido não confirmado.",
+                substring = true).fetchSemanticsNodes().isNotEmpty()
+            val waiting = compose.onAllNodesWithText("Aguardando confirmação do servidor",
+                substring = true).fetchSemanticsNodes().isNotEmpty()
+            throw AssertionError(
+                "Pedido Alice-Bob sem confirmação de UI: $server, " +
+                    "pedidoRecusado=$denied,aguardandoServidor=$waiting",
+                failure
+            )
+        }
         waitForText("Aguardando aceite do destinatário.")
         val pending = await(chat.get(Source.SERVER))
         assertEquals("pending", pending.getString("status"))

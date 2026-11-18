@@ -217,9 +217,10 @@ class AtrioConversasTrocaContaEmulatorUiTest : AtrioConversasNavegacaoQa() {
         compose.waitUntil(30_000) {
             compose.onAllNodesWithText(privateText).fetchSemanticsNodes().isNotEmpty()
         }
-        compose.onNodeWithTag("atrio-chats-list", useUnmergedTree = true)
-            .performScrollToNode(hasText(privateText))
-        compose.onNodeWithText(privateText).assertIsDisplayed()
+        // O destino agora é a THREAD de Lúcia, não a inbox global removida.
+        // A prova pré-troca exige conteúdo visível no próprio thread.
+        compose.onNode(hasText(privateText) and
+            hasAnyAncestor(hasTestTag("atrio-chat-thread"))).assertIsDisplayed()
 
         val luciaPostDoc = Tasks.await(db.document("posts/qa-nav-lucia-profile")
             .get(Source.SERVER), 10, TimeUnit.SECONDS)
