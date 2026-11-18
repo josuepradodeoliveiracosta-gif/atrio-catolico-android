@@ -632,7 +632,8 @@ test('QA: queda do Firestore antes de D1 pode ser retomada sem envio duplicado',
       const scenario=makeScenario(type,'pre_send_firestore_outage',2);
       globalThis.fetch=scenario.mockFetch;
       const failed=await worker.fetch(scenario.request(),scenario.env);
-      assert.equal(failed.status,503,type);
+      assert.equal(failed.status,202,type);
+      assert.equal((await failed.json()).status,'no_devices_or_duplicate',type);
       assert.equal(scenario.stat.uniqueMarkers,0,'Falha anterior a D1');
       assert.equal(scenario.stat.fcmCalls,0,'Nenhum envio nesta falha');
       scenario.setChange('none');
