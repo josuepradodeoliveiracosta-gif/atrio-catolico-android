@@ -26,7 +26,7 @@ test('anchors da main alteradas negam geracao em vez de fallback silencioso',()=
     "const QA_PROJECT = 'projeto-inesperado';")) ,/chat_qa_/);
   assert.throws(()=>adaptCurrentMainToQaBase(source.replace(
     'async function handlePushEvent(request, env, configured, project)',
-    'async function handlePushEvent(request, env, x, project)'),/chat_qa_/);
+    'async function handlePushEvent(request, env, x, project)')),/chat_qa_/);
 });
 
 test('o adaptador conserva os controles de origem em sua fonte versionada',()=>{

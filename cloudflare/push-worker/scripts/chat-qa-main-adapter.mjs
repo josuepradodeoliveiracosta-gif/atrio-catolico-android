@@ -29,35 +29,29 @@ export function adaptCurrentMainToQaBase(source) {
       !source.includes("const QA_PROJECT = 'atrio-catolico-qa-general';") ||
       !source.includes('async function handlePushEvent(request, env, configured, project)'))
     throw Error('chat_qa_main_shape_incompatible');
-  // Nao herdar listas de bots/navegacao de outro projeto QA.
+  const NL=String.fromCharCode(10);
+  // Remover todas as rotas/listas de outra variante QA ao adaptar.
   let code=spliceOnce(source,'const QA_PROJECT =','const firestoreRoot =','');
   code=spliceOnce(code,'function serviceAccount(env, project) {',
-    'async function oauth',QA_SERVICE+'
-');
+    'async function oauth',QA_SERVICE+NL);
   code=spliceOnce(code,'function matchesQaTokenProject(token) {',
     'export async function verifyIdentity','');
   code=spliceOnce(code,'export async function verifyIdentity',
-    'async function firestoreGet',OLD_VERIFY+'
-');
-  code=replaceOnce(code,'const uidPart = value =>',OLD_GROUP+'
-const uidPart = value =>');
+    'async function firestoreGet',OLD_VERIFY+NL);
+  code=replaceOnce(code,'const uidPart = value =>',
+    OLD_GROUP+NL+'const uidPart = value =>');
   code=spliceOnce(code,'export async function resolveEvent',
-    'async function devices',OLD_RESOLVER+'
-');
+    'async function devices',OLD_RESOLVER+NL);
   code=spliceOnce(code,'async function send(',
-    '/**
- * Excluir apenas',OLD_SEND+'
-');
+    ['/**',' * Excluir apenas'].join(NL),OLD_SEND+NL);
   const start=code.indexOf('export default {');
   if(start<0 || code.indexOf('export default {',start+1)>=0)
     throw Error('chat_qa_main_default_incompatible');
   code=code.slice(0,start)+OLD_DEFAULT;
   code=replaceOnce(code,'  const service = serviceAccount(env, project);',
-    "  const service = serviceAccount(env, project);
-"+
-    "  if (service.project_id !== PROJECT || !service.client_email || !service.private_key)
-"+
-    "    throw Error('qa_service_identity_denied');");
+    ['  const service = serviceAccount(env, project);',
+     '  if (service.project_id !== PROJECT || !service.client_email || !service.private_key)',
+     "    throw Error('qa_service_identity_denied');"].join(NL));
   if(code.includes('QA_PROJECT') || code.includes('QA_EMAILS') ||
       code.includes('qa-nav-alice') || code.includes('qa-nav-bob'))
     throw Error('chat_qa_other_project_leak');
