@@ -70,8 +70,16 @@ export function renderClosedPilotRules() {
     "return qaMemberUid(uid) && proof.keys().hasAll(['status','minimumAge','policyVersion','reviewExpiresAt'])");
   fragments = replaceChecked(fragments, 'allow get: if chatEnabled() && chatMember(resource.data);',
     'allow get: if pilotDirectEnabled() && chatMember(resource.data);');
-  fragments = replaceChecked(fragments, 'allow list: if chatEnabled() && signedIn()',
-    'allow list: if pilotDirectEnabled() && signedIn()');
+  // Compatibilidade EXCLUSIVA do antigo roteiro sintético Alice/Bob.
+  // Nunca implantar: a Rules base nega a listagem global (#355).
+  // Este ensaio especial ja revoga o par na propria pilotDirectEnabled().
+  fragments = replaceChecked(fragments,
+    'allow list: if false;\\n      allow create: if chatEnabled()'.replace('\\n','\n'),
+    ('allow list: if pilotDirectEnabled() && signedIn()\\n'
+      + '        && qaInboxLegacySourceWrites()\\n'
+      + '        && request.query.limit != null && request.query.limit <= 100\\n'
+      + '        && request.auth.uid in resource.data.participants;\\n'
+      + '      allow create: if chatEnabled()').replaceAll('\\n','\n'));
   fragments = replaceChecked(fragments, 'allow get, list: if chatEnabled()\n          && exists(/databases/$(database)/documents/chats/$(chatId))',
     'allow get, list: if pilotDirectEnabled()\n          && exists(/databases/$(database)/documents/chats/$(chatId))');
   const reportMatch = '    match /chat_reports/{reportId} {';
@@ -102,9 +110,11 @@ export function renderClosedPilotRules() {
 
     match /users/{uid}/blockedMembers/{peerUid} {
       allow create: if chatEnabled() && qaOwner(uid) && qaMemberUid(peerUid) && uid != peerUid
+        && qaInboxLegacySourceWrites()
         && request.resource.data.keys().hasOnly(['createdAt'])
         && request.resource.data.createdAt == request.time;
-      allow delete: if qaOwner(uid) && qaMemberUid(peerUid) && uid != peerUid;
+      allow delete: if qaOwner(uid) && qaMemberUid(peerUid) && uid != peerUid
+        && qaInboxLegacySourceWrites();
     }
 
 `;

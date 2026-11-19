@@ -13,6 +13,11 @@
       return !exists(/databases/$(database)/documents/users/$(a)/blockedMembers/$(b))
         && !exists(/databases/$(database)/documents/users/$(b)/blockedMembers/$(a));
     }
+    // A primeira carga gerenciada instala esta fronteira no mesmo commit.
+    // A presença do documento veda a escrita mesmo com o índice indisponível.
+    function qaInboxLegacySourceWrites() {
+      return !exists(/databases/$(database)/documents/serverInboxControl/writeBoundary);
+    }
     function chatAllowsRequests(uid) {
       let config = /databases/$(database)/documents/users/$(uid)/chatSettings/privacy;
       return exists(config) && get(config).data.get('requests', 'none') == 'all';
@@ -92,11 +97,13 @@
       allow get: if chatEnabled() && me(uid);
       allow list, delete: if false;
       allow create: if chatEnabled() && me(uid)
+        && qaInboxLegacySourceWrites()
         && chatQuotaFields(request.resource.data)
         && request.resource.data.count == 1
         && request.resource.data.windowStart == request.time
         && chatQuotaNewRequest(uid, request.resource.data.lastChatId);
       allow update: if chatEnabled() && me(uid)
+        && qaInboxLegacySourceWrites()
         && chatQuotaFields(request.resource.data)
         && chatQuotaNewRequest(uid, request.resource.data.lastChatId)
         && request.resource.data.lastChatId != resource.data.lastChatId
@@ -145,6 +152,27 @@
         && request.resource.data.updatedAt == request.time;
       allow delete: if chatEnabled() && me(uid);
     }
+    // #355: indice de inbox por titular E por contato. Uma listagem desta
+    // subcolecao tem par de UIDs fixo no CAMINHO, permitindo ao Firestore
+    // verificar ambos os bloqueios ANTES de retornar qualquer documento.
+    // Somente servico confiavel/Admin SDK materializa as entradas; clientes
+    // nao podem criar, editar ou apagar previews nem metadados.
+    match /users/{uid}/chatInboxByPeer/{peerUid}/entries/{chatId} {
+      allow get: if chatEnabled() && me(uid)
+        && validId(peerUid) && peerUid != uid
+        && chatNoBlock(uid, peerUid)
+        && (chatId == uid + '__' + peerUid
+          || chatId == peerUid + '__' + uid)
+        && resource.data.get('ownerUid','') == uid
+        && resource.data.get('peerUid','') == peerUid
+        && resource.data.get('chatId','') == chatId;
+      allow list: if chatEnabled() && me(uid)
+        && validId(peerUid) && peerUid != uid
+        && chatNoBlock(uid, peerUid)
+        && request.query.limit != null && request.query.limit >= 1
+        && request.query.limit <= 20;
+      allow create, update, delete: if false;
+    }
     match /chats/{chatId} {
       // Documentos individuais mantêm a validação de tipo e participação.
       // A listagem exige a consulta com array-contains do próprio UID.
@@ -152,10 +180,12 @@
       // demonstrável pelo analisador de consultas do Firestore e bloqueava
       // a caixa de entrada, apesar de os documentos terem dados corretos.
       allow get: if chatEnabled() && chatMember(resource.data);
-      allow list: if chatEnabled() && signedIn()
-        && request.query.limit != null && request.query.limit <= 100
-        && request.auth.uid in resource.data.participants;
+      // Bloqueador #355: a listagem geral revela previ as e UIDs apos bloqueio.
+      // Rules nao provam chatNoBlock por item em queries globais do Firestore.
+      // A caixa deve migrar para chatInboxByPeer (escopo fixo no caminho).
+      allow list: if false;
       allow create: if chatEnabled()
+        && qaInboxLegacySourceWrites()
         && request.auth.uid == request.resource.data.requesterUid
         && validId(request.resource.data.requesterUid)
         && validId(request.resource.data.recipientUid)
@@ -192,6 +222,7 @@
         && getAfter(chatMessagePath(chatId, request.resource.data.initialId)).data.text
             == request.resource.data.lastPreview;
       allow update: if chatEnabled() && chatMember(resource.data)
+        && qaInboxLegacySourceWrites()
         && chatNoBlock(resource.data.requesterUid, resource.data.recipientUid)
         && (
           // Somente o destinatário aceita ou recusa explicitamente o contato.
@@ -283,6 +314,7 @@
           && exists(/databases/$(database)/documents/chats/$(chatId))
           && chatMember(get(/databases/$(database)/documents/chats/$(chatId)).data);
         allow create: if chatEnabled() && validId(messageId)
+          && qaInboxLegacySourceWrites()
           && existsAfter(/databases/$(database)/documents/chats/$(chatId))
           && chatMember(getAfter(/databases/$(database)/documents/chats/$(chatId)).data)
           && chatNoBlock(
@@ -333,6 +365,7 @@
         // Todas as alterações são verificadas no servidor; somente o próprio
         // usuário reage, somente o autor modifica texto ou retira para todos.
         allow update: if chatEnabled()
+          && qaInboxLegacySourceWrites()
           && exists(/databases/$(database)/documents/chats/$(chatId))
           && chatMember(get(/databases/$(database)/documents/chats/$(chatId)).data)
           && get(/databases/$(database)/documents/chats/$(chatId)).data.status == 'accepted'

@@ -86,7 +86,25 @@ export function renderParity(base,chat,group) {
     '    // END QA PARITY ADDITIVE: politicas ainda pendentes (#200)',
     ''
   ].join('\n');
-  const candidate=base.slice(0,-TAIL.length)+added+TAIL;
+  // Um match com false sobreposto não revoga a concessão do bloco original.
+  const blockAnchor=[
+    '    match /users/{uid}/blockedMembers/{blockedUid} {',
+    '      allow get, list: if me(uid);',
+    '      allow create: if me(uid)',
+    '        && validId(blockedUid)',
+    '        && blockedUid != uid',
+    "        && request.resource.data.keys().hasOnly(['createdAt'])",
+    "        && request.resource.data.keys().hasAll(['createdAt'])",
+    '        && request.resource.data.createdAt == request.time;',
+    '      allow delete: if me(uid);',
+    '      allow update: if false;',
+    '    }'
+  ].join('\n');
+  if(base.split(blockAnchor).length!==2)refuse('block_write_boundary_anchor_changed');
+  const fencedBlocks=blockAnchor
+    .replace('allow create: if me(uid)','allow create: if me(uid) && qaInboxLegacySourceWrites()')
+    .replace('allow delete: if me(uid);','allow delete: if me(uid) && qaInboxLegacySourceWrites();');
+  const candidate=base.slice(0,-TAIL.length).replace(blockAnchor,fencedBlocks)+added+TAIL;
   if(Buffer.byteLength(candidate,'utf8')>240000)refuse('rules_size_limit');
   return candidate;
 }
