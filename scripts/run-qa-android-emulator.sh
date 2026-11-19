@@ -129,6 +129,7 @@ mkdir -p qa-android-suite-results
 qa_failed=0
 run_suite() {
   local suite="$1"
+  shift
   # Modo all preserva a ordem das suites; cada grupo so roda as suas.
   if [[ "$qa_group" != "all" ]]; then
     case "$qa_group:$suite" in
@@ -155,6 +156,7 @@ run_suite() {
   echo "QA Android: iniciando $suite (isolado)"
   if gradle "$test_task" \
     "-Pandroid.testInstrumentationRunnerArguments.class=$full" \
+    "$@" \
     --daemon --stacktrace; then
     echo "QA Android: $suite aprovada"
   else
@@ -223,7 +225,8 @@ if [[ "${ATRIO_QA_GERAL_CELULAR_PILOT:-}" == 1 ]]; then
   run_suite "$ATRIO_QA_SUITE"
   exit "$qa_failed"
 fi
-if [[ "${ATRIO_QA_SUITE:-}" == AtrioConversasCompostasEmulatorUiTest ]]; then
+if [[ "${ATRIO_QA_SUITE:-}" == AtrioConversasCompostasEmulatorUiTest ||
+      "${ATRIO_QA_SUITE:-}" == 'AtrioConversasCompostasEmulatorUiTest#primeiroContatoRecusaAceiteESaidaProtegemHistorico' ]]; then
   [[ "$qa_apk" == qaGeral && "${ATRIO_QA_GERAL_REMOTE_BUILD:-}" != 1 &&
      "${ATRIO_QA_INBOX_DISCOVERY:-}" != 1 ]] || {
     echo "Histórico regular exige qaGeral local sem descoberta opt-in" >&2
@@ -231,7 +234,13 @@ if [[ "${ATRIO_QA_SUITE:-}" == AtrioConversasCompostasEmulatorUiTest ]]; then
   }
   node firebase/qa-general/compose-parity-rules.mjs
   (cd tests/security && node seed-chat-groups-android.mjs)
-  run_suite "$ATRIO_QA_SUITE"
+  case "${ATRIO_QA_199_CASE:-}" in
+    RECUSA|DESBLOQUEIO)
+      run_suite "$ATRIO_QA_SUITE" "-Pandroid.testInstrumentationRunnerArguments.atrioQa199Case=$ATRIO_QA_199_CASE"
+      ;;
+    '') run_suite "$ATRIO_QA_SUITE" ;;
+    *) echo "Cenário de QA #199 desconhecido" >&2; exit 2 ;;
+  esac
   exit "$qa_failed"
 fi
 if [[ -n "${ATRIO_QA_SUITE:-}" ]]; then
