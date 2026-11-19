@@ -67,6 +67,7 @@ test('o candidato offline exige 18+ sem escrita de cliente',()=>{
   const candidate=renderParity(base,chat,group);
   assert.equal(candidate.includes('function qaChatAge18Eligible(uid)'),true);
   assert.equal(candidate.includes('qaChatAge18Eligible(request.auth.uid)'),true);
+  assert.equal(candidate.includes("proof.get('minimumAge',0) is int"),true);
   assert.equal(candidate.includes("proof.get('minimumAge',0) == 18"),true);
   assert.equal(candidate.includes("proof.get('policyVersion','') == '2026-11-18plus-qa-v1'"),true);
   assert.equal(candidate.includes("allow list, create, update, delete: if false;"),true);

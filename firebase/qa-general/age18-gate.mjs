@@ -15,6 +15,7 @@ export const QA_AGE18_GATE=`
       return proof.keys().hasAll(['status','minimumAge','policyVersion','reviewExpiresAt'])
         && proof.keys().hasOnly(['status','minimumAge','policyVersion','reviewExpiresAt'])
         && proof.get('status','') == 'eligible'
+        && proof.get('minimumAge',0) is int
         && proof.get('minimumAge',0) == 18
         && proof.get('policyVersion','') == '2026-11-18plus-qa-v1'
         && proof.get('reviewExpiresAt',request.time) is timestamp

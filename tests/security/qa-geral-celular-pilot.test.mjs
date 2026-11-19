@@ -393,4 +393,23 @@ test('a fronteira do índice veda o roteiro legado do piloto gerenciado', async 
   await assertFails(deleteDoc(doc(admin, INBOX_WRITE_BOUNDARY)));
   await assertFails(updateDoc(doc(admin, age(alice.uid)), {minimumAge: 21}));
   assert.equal((await getDocFromServer(doc(b, room))).get('status'), 'pending');
+  const initialMessage = doc(a, room, 'messages', 'primeira');
+  assert.equal((await getDocFromServer(initialMessage)).get('text'), chatText);
+
+  // O SDK grava o número 18 como inteiro. Envie o tipo double explicitamente ao Emulator.
+  const url = `http://127.0.0.1:8089/v1/projects/${projectId}/databases/(default)/documents/${age(alice.uid)}`;
+  const response = await fetch(`${url}?updateMask.fieldPaths=minimumAge`, {
+    method: 'PATCH', headers: {Authorization: 'Bearer owner', 'Content-Type': 'application/json'},
+    body: JSON.stringify({fields: {minimumAge: {doubleValue: 18}}})
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).fields.minimumAge, {doubleValue: 18});
+  await assertFails(getDocFromServer(doc(a, room)));
+  await assertFails(getDocFromServer(initialMessage));
+  assert.equal((await getDocFromServer(doc(b, room))).get('status'), 'pending');
+
+  await seed([[age(alice.uid), fixtures.get(age(alice.uid))]]);
+  assert.equal((await getDocFromServer(doc(a, room))).get('status'), 'pending');
+  assert.equal((await getDocFromServer(initialMessage)).get('text'), chatText);
+  await assertFails(inbox(a, alice.uid));
 });
