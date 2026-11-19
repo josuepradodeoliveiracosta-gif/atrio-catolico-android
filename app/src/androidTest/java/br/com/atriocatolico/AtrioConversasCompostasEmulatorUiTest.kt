@@ -374,11 +374,17 @@ class AtrioConversasCompostasEmulatorUiTest {
         waitForText(chat.first)
         waitForText("Recusar")
         compose.onNodeWithText("Recusar").assertIsDisplayed().assertIsEnabled().performClick()
-        await(db.waitForPendingWrites())
-        waitForText("Solicitação recusada.")
+        android.util.Log.i("AtrioDmQA", "cenario=recusa clique_recusar=true status_anterior=pending")
+        // A recusa volta para a lista na sessão do destinatário. Confirmar
+        // o estado persistido aqui e verificar o texto na sessão de Alice.
+        compose.waitUntil(30_000) {
+            val snapshot = await(chat.room.get(Source.SERVER))
+            snapshot.getString("status") == "declined" && !snapshot.metadata.hasPendingWrites()
+        }
         val refused = await(chat.room.get(Source.SERVER))
         assertEquals("declined", refused.getString("status"))
         assertEquals(false, refused.metadata.hasPendingWrites())
+        android.util.Log.i("AtrioDmQA", "cenario=recusa status_servidor=declined pendente=false")
         chat.materialize("declined", chat.first)
 
         assertEquals(chat.alice, login(aliceEmail))
