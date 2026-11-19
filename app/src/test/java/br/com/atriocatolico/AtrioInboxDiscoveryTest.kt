@@ -1,9 +1,9 @@
 package br.com.atriocatolico
 
-import com.sun.net.httpserver.HttpExchange
-import com.sun.net.httpserver.HttpServer
-import java.net.InetSocketAddress
-import java.net.URL
+import okhttp3.mockwebserver.Dispatcher
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.RecordedRequest
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
@@ -12,27 +12,22 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AtrioInboxDiscoveryTest {
-    private val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+    private val server = MockWebServer()
     private val path = "/v1/qa/conversations/inbox"
-    private val client = AtrioInboxDiscovery(URL("http://127.0.0.1:${server.address.port}$path"))
+    private val client by lazy { AtrioInboxDiscovery(server.url(path).toUrl()) }
 
-    @After fun stopServer() = server.stop(0)
+    @After fun stopServer() = server.shutdown()
 
     @Test fun followsNewCursorsToLastPageAndSendsOnlyBearer() {
-        val requests = mutableListOf<Triple<String, String?, String?>>()
-        server.createContext(path) { exchange ->
-            val query = exchange.requestURI.rawQuery
-            requests.add(Triple(query, exchange.requestHeaders.getFirst("Authorization"),
-                exchange.requestHeaders.getFirst("Cache-Control")))
-            when (query) {
-                "limit=20" -> exchange.reply(200, page(1..20, "opaque+1/="))
-                "limit=20&cursor=opaque%2B1%2F%3D" ->
-                    exchange.reply(200, page(21..40, "opaque_2"))
-                "limit=20&cursor=opaque_2" -> exchange.reply(200, page(41..43, null))
-                else -> exchange.reply(400)
+        respond { request ->
+            when (request.path) {
+                "$path?limit=20" -> reply(200, page(1..20, "opaque+1/="))
+                "$path?limit=20&cursor=opaque%2B1%2F%3D" ->
+                    reply(200, page(21..40, "opaque_2"))
+                "$path?limit=20&cursor=opaque_2" -> reply(200, page(41..43, null))
+                else -> reply(400)
             }
         }
-        server.start()
 
         val first = client.fetch("clara", "qa-token", null) as AtrioInboxResult.Page
         val second = client.fetch("clara", "qa-token", first.nextCursor) as AtrioInboxResult.Page
@@ -41,32 +36,77 @@ class AtrioInboxDiscoveryTest {
         assertEquals((1..43).map { "peer" + it.toString().padStart(2, '0') },
             (first.items + second.items + last.items).map { it.peerUid })
         assertNull(last.nextCursor)
-        assertEquals(listOf("limit=20", "limit=20&cursor=opaque%2B1%2F%3D",
-            "limit=20&cursor=opaque_2"), requests.map { it.first })
-        assertTrue(requests.all { it.second == "Bearer qa-token" && it.third == "no-store" })
+        val requests = List(3) { server.takeRequest() }
+        assertEquals(listOf("$path?limit=20", "$path?limit=20&cursor=opaque%2B1%2F%3D",
+            "$path?limit=20&cursor=opaque_2"), requests.map { it.path })
+        assertTrue(requests.all {
+            it.getHeader("Authorization") == "Bearer qa-token" &&
+                it.getHeader("Cache-Control") == "no-store"
+        })
     }
 
     @Test fun distinguishesConfirmedEmptyUnavailableDeniedAndInvalidResponses() {
-        server.createContext(path) { exchange ->
-            when (exchange.requestHeaders.getFirst("Authorization")) {
-                "Bearer empty" -> exchange.reply(200, """{"items":[],"nextCursor":null}""")
-                "Bearer missing" -> exchange.reply(200, """{"items":[]}""")
-                "Bearer bad-peer" -> exchange.reply(200, page(1..1, null).replace("clara__", "lucia__"))
-                "Bearer denied" -> exchange.reply(403)
-                "Bearer redirect" -> {
-                    exchange.responseHeaders.add("Location", "$path?limit=20")
-                    exchange.reply(302)
-                }
-                else -> exchange.reply(503, """{"error":"inbox_unavailable"}""")
+        respond { request ->
+            when (request.getHeader("Authorization")) {
+                "Bearer empty" -> reply(200, """{"items":[],"nextCursor":null}""")
+                "Bearer missing" -> reply(200, """{"items":[]}""")
+                "Bearer bad-peer" -> reply(200, page(1..1, null).replace("clara__", "lucia__"))
+                "Bearer denied" -> reply(403)
+                "Bearer redirect" -> reply(302).setHeader("Location", "$path?limit=20")
+                else -> reply(503, """{"error":"inbox_unavailable"}""")
             }
         }
-        server.start()
 
         assertEquals(AtrioInboxResult.Page(emptyList(), null), client.fetch("clara", "empty", null))
         for (token in listOf("offline", "missing", "bad-peer", "redirect")) {
             assertEquals(token, AtrioInboxResult.Unavailable, client.fetch("clara", token, null))
         }
         assertEquals(AtrioInboxResult.Denied, client.fetch("clara", "denied", null))
+    }
+
+    @Test fun invalidatedCursorClearsTrailAndReplacesPageFromFirstRequest() {
+        server.enqueue(reply(200, page(1..20, "old1")))
+        server.enqueue(reply(200, page(21..40, "old2")))
+        server.enqueue(reply(409, """{"error":"inbox_restart_required"}"""))
+        server.enqueue(reply(200, page(41..43, null)))
+        server.start()
+
+        val first = client.fetch("clara", "qa-token", null) as AtrioInboxResult.Page
+        val second = client.fetch("clara", "qa-token", first.nextCursor) as AtrioInboxResult.Page
+        val old = AtrioInboxPaging(listOf(null, first.nextCursor, second.nextCursor), second)
+        val restart = client.fetch("clara", "qa-token", old.cursor)
+        assertEquals(AtrioInboxResult.RestartRequired, restart)
+        val reset = old.receive(restart)
+        assertEquals(listOf<String?>(null), reset.cursors)
+        assertNull(reset.result)
+        val replaced = reset.receive(client.fetch("clara", "qa-token", reset.cursor))
+        val fresh = replaced.result as AtrioInboxResult.Page
+        assertEquals(listOf("peer41", "peer42", "peer43"), fresh.items.map { it.peerUid })
+        assertEquals(listOf("$path?limit=20", "$path?limit=20&cursor=old1",
+            "$path?limit=20&cursor=old2", "$path?limit=20"),
+            List(4) { server.takeRequest().path })
+    }
+
+    @Test fun onlyRecognizedConflictOnContinuationRestarts() {
+        respond { request ->
+            val code = if (request.getHeader("Authorization") == "Bearer qa-token")
+                "inbox_restart_required" else "conflict"
+            reply(409, """{"error":"$code"}""")
+        }
+
+        assertEquals(AtrioInboxResult.Unavailable, client.fetch("clara", "qa-token", null))
+        assertEquals(AtrioInboxResult.Unavailable, client.fetch("clara", "unknown", "old"))
+        assertEquals(AtrioInboxResult.RestartRequired, client.fetch("clara", "qa-token", "old"))
+    }
+
+    @Test fun dropsLateRestartAfterSessionChange() = runBlocking {
+        var current = true
+        val load = client.load("clara", "old", { current }, getToken = { "old-token" },
+            request = { _, _, _ ->
+                current = false
+                AtrioInboxResult.RestartRequired
+            })
+        assertNull(load)
     }
 
     @Test fun dropsLatePageEvenAfterReloginWithSameUid() = runBlocking {
@@ -98,11 +138,10 @@ class AtrioInboxDiscoveryTest {
     }
 
     @Test fun acceptsBothIdOrdersAndDeduplicatesPageByChatId() {
-        server.createContext(path) { exchange ->
+        respond {
             val row = entry(1).replace("clara__peer01", "peer01__clara")
-            exchange.reply(200, """{"items":[$row,$row],"nextCursor":null}""")
+            reply(200, """{"items":[$row,$row],"nextCursor":null}""")
         }
-        server.start()
 
         val page = client.fetch("clara", "qa-token", null) as AtrioInboxResult.Page
         assertEquals(listOf("peer01__clara"), page.items.map { it.chatId })
@@ -122,9 +161,13 @@ class AtrioInboxDiscoveryTest {
         return """{"items":[$items],"nextCursor":$nextCursor}"""
     }
 
-    private fun HttpExchange.reply(code: Int, json: String = "{}") {
-        val data = json.toByteArray(Charsets.UTF_8)
-        sendResponseHeaders(code, data.size.toLong())
-        responseBody.use { it.write(data) }
+    private fun respond(handler: (RecordedRequest) -> MockResponse) {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = handler(request)
+        }
+        server.start()
     }
+
+    private fun reply(code: Int, json: String = "{}"): MockResponse =
+        MockResponse().setResponseCode(code).setBody(json)
 }

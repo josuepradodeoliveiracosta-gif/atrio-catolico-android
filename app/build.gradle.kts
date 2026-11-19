@@ -518,6 +518,7 @@ androidComponents {
 dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20250107")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     implementation(platform("com.google.firebase:firebase-bom:35.0.2"))
     implementation("com.google.firebase:firebase-auth")
     implementation("com.google.firebase:firebase-firestore")

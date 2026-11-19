@@ -1,5 +1,6 @@
 package br.com.atriocatolico
 
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.Proxy
 import java.net.URL
@@ -20,6 +21,19 @@ internal sealed interface AtrioInboxResult {
     data class Page(val items: List<AtrioInboxEntry>, val nextCursor: String?) : AtrioInboxResult
     data object Unavailable : AtrioInboxResult
     data object Denied : AtrioInboxResult
+    data object RestartRequired : AtrioInboxResult
+}
+
+/** A UI mantém apenas a página visível e os cursores do percurso atual. */
+internal data class AtrioInboxPaging(
+    val cursors: List<String?> = listOf(null),
+    val result: AtrioInboxResult? = null
+) {
+    val cursor: String? get() = cursors.last()
+
+    fun receive(response: AtrioInboxResult): AtrioInboxPaging =
+        if (response == AtrioInboxResult.RestartRequired) AtrioInboxPaging()
+        else copy(result = response)
 }
 
 internal class AtrioInboxDiscovery(
@@ -55,19 +69,12 @@ internal class AtrioInboxDiscovery(
             request.setRequestProperty("Accept", "application/json")
             request.setRequestProperty("Cache-Control", "no-store")
             when (request.responseCode) {
-                200 -> request.inputStream.bufferedReader(Charsets.UTF_8).use { body ->
-                    val buffer = CharArray(4096)
-                    val json = StringBuilder()
-                    while (true) {
-                        val count = body.read(buffer)
-                        if (count == -1) break
-                        if (json.length + count > MAX_RESPONSE_CHARS)
-                            return AtrioInboxResult.Unavailable
-                        json.append(buffer, 0, count)
-                    }
-                    parsePage(owner, cursor, JSONObject(json.toString()))
-                }
+                200 -> readJson(request.inputStream)?.let { parsePage(owner, cursor, it) }
+                    ?: AtrioInboxResult.Unavailable
                 403 -> AtrioInboxResult.Denied
+                409 -> if (cursor != null &&
+                    readJson(request.errorStream)?.opt("error") == "inbox_restart_required"
+                ) AtrioInboxResult.RestartRequired else AtrioInboxResult.Unavailable
                 else -> AtrioInboxResult.Unavailable
             }
         } catch (_: java.io.IOException) {
@@ -78,6 +85,19 @@ internal class AtrioInboxDiscovery(
             connection?.disconnect()
         }
     }
+
+    private fun readJson(stream: InputStream?): JSONObject? =
+        stream?.bufferedReader(Charsets.UTF_8)?.use { body ->
+            val buffer = CharArray(4096)
+            val json = StringBuilder()
+            while (true) {
+                val count = body.read(buffer)
+                if (count == -1) break
+                if (json.length + count > MAX_RESPONSE_CHARS) return null
+                json.append(buffer, 0, count)
+            }
+            JSONObject(json.toString())
+        }
 
     private fun parsePage(owner: String, cursor: String?, json: JSONObject): AtrioInboxResult {
         val items = json.getJSONArray("items")

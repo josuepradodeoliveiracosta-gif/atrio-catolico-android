@@ -334,11 +334,6 @@ class AtrioConversasCompostasEmulatorUiTest {
         send("atrio-chat-composer", "atrio-chat-send", first)
         waitForText("Pedido não confirmado.", substring = true)
         assertChatNotCreated(chatId)
-        // A Rules regular nega list(chats) mesmo com filtro por participante.
-        if (!pilot) {
-            assertDenied(db.collection("chats").whereArrayContains("participants", bob)
-                .limit(100).get(Source.SERVER))
-        }
         // Antes de um chat permitido, o índice por par não revela mensagem.
         assertTrue(await(db.collection("users").document(bob)
             .collection("chatInboxByPeer").document(alice)
@@ -395,6 +390,15 @@ class AtrioConversasCompostasEmulatorUiTest {
             val document = await(chat.get(Source.SERVER))
             document.getString("status") == "accepted" &&
                 document.getString("lastPreview") == reply && !document.metadata.hasPendingWrites()
+        }
+        // Bob consegue ler a conversa e o histórico pelo caminho autorizado.
+        // A mesma sessão deve receber PERMISSION_DENIED na listagem global.
+        assertTrue(await(chat.collection("messages").get(Source.SERVER)).documents
+            .any { it.getString("text") == reply })
+        assertDenied(db.collection("chats").limit(100).get(Source.SERVER))
+        if (!pilot) {
+            assertDenied(db.collection("chats").whereArrayContains("participants", bob)
+                .limit(100).get(Source.SERVER))
         }
 
         materializeBoth("accepted", reply)

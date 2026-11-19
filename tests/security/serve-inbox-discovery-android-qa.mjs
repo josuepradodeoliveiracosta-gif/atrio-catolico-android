@@ -6,11 +6,11 @@ import {randomBytes} from 'node:crypto';
 import {createServer} from 'node:http';
 import {Firestore, Timestamp} from '@google-cloud/firestore';
 import {
-  backfillInboxBatch, createAdminInboxStore, createAuthorizedInboxService, createInboxHttpHandler
+  createAdminInboxStore, createAuthorizedInboxService, createInboxHttpHandler
 } from '../../firebase/qa-general/chat-inbox-discovery-server.mjs';
 import {
-  INBOX_DISCOVERY_CONTROL, INBOX_DISCOVERY_SCHEMA
-} from '../../firebase/qa-general/chat-inbox-peer-index.mjs';
+  advanceInboxMaintenance, beginInboxBackfill, writeInboxBlock
+} from '../../firebase/qa-general/chat-inbox-maintenance.mjs';
 
 const project = 'demo-atrio-v11';
 const host = '127.0.0.1';
@@ -73,13 +73,13 @@ for (let index = 1; index <= 43; index++) {
   });
 }
 await batch.commit();
-for (let after = null;;) {
-  const page = await backfillInboxBatch(db, clara, {after, limit: 20});
-  after = page.nextAfter;
-  if (after == null) break;
+const bootstrap = 'qa-android-inbox-bootstrap';
+await beginInboxBackfill(db, bootstrap);
+while (!(await advanceInboxMaintenance(db, bootstrap)).done) {
+  // Avança a carga e certifica o corte pelas operações reais do backend.
 }
-await db.doc(INBOX_DISCOVERY_CONTROL).set({ready: true, schema: INBOX_DISCOVERY_SCHEMA});
 
+let revisionChange;
 const firestore = createAdminInboxStore(db);
 const service = createAuthorizedInboxService({
   // Validação por lookup do emulador, exclusiva para tokens QA fictícios.
@@ -92,9 +92,18 @@ const service = createAuthorizedInboxService({
     return {uid: account.localId, email_verified: account.emailVerified === true};
   },
   store: {
-    authorizedPage(uid, ...args) {
+    async authorizedPage(uid, after, ...args) {
       if (uid === lucia) throw new Error('Indisponibilidade simulada para a conta fictícia.');
-      return firestore.authorizedPage(uid, ...args);
+      if (uid === clara && after) {
+        // Bloqueio originado pelo par: o listener local de Clara não reinicia
+        // a UI antes que o servidor responda 409 ao cursor desatualizado.
+        revisionChange ??= writeInboxBlock(db, {
+          operationId: 'qa-android-inbox-change-revision',
+          ownerUid: 'qa-inbox-peer-20', peerUid: clara, blocked: true, createdAt: Timestamp.now()
+        });
+        await revisionChange;
+      }
+      return firestore.authorizedPage(uid, after, ...args);
     }
   },
   cursorKey: randomBytes(32)
@@ -105,10 +114,11 @@ createServer(async (request, response) => {
     const result = await handleInbox(new Request('http://' + host + ':8091' + request.url, {
       method: request.method, headers: request.headers
     }));
+    if (result.status === 409) console.log('Inbox QA local: HTTP 409 na continuação.');
     response.writeHead(result.status, Object.fromEntries(result.headers));
     response.end(await result.text());
   } catch {
     response.writeHead(503, {'Cache-Control': 'private, no-store'});
     response.end('{"error":"inbox_unavailable"}');
   }
-}).listen(8091, host, () => console.log('Inbox QA local pronta: Clara 43, Miguel 0, Lúcia 503.'));
+}).listen(8091, host, () => console.log('Inbox QA local pronta: Clara 43 com mudança de revisão, Miguel 0, Lúcia 503.'));

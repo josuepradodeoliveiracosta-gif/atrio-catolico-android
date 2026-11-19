@@ -5,8 +5,9 @@
  */
 import {createCipheriv,createDecipheriv,randomBytes} from 'node:crypto';
 import {
-  INBOX_AGE_COLLECTIONS,INBOX_DISCOVERY_CONTROL,INBOX_DISCOVERY_SCHEMA,LEGACY_INBOX_AGE_PAIR,
-  inboxAgeGrant,inboxDiscoveryCollection,peerInboxEntries,readInboxDiscoveryEntries,
+  INBOX_AGE_COLLECTIONS,INBOX_DISCOVERY_CONTROL,LEGACY_INBOX_AGE_PAIR,
+  inboxAgeGrant,inboxDiscoveryCollection,inboxOwnerPath,inboxProjectionReady,
+  peerInboxEntries,readInboxDiscoveryEntries,
   reconcilePeerInbox,syncInboxDiscoveryEntries
 } from './chat-inbox-peer-index.mjs';
 
@@ -21,6 +22,9 @@ const deny=()=>{throw new InboxAccessDenied();};
 class InboxUnavailable extends Error {
   constructor() {super('inbox_unavailable');}
 }
+class InboxRestartRequired extends Error {
+  constructor() {super('inbox_restart_required');}
+}
 const has=(s)=>s && typeof s.exists==='function' ? s.exists() : !!s?.exists;
 
 export function validInboxAge(data,acceptedPairs=[LEGACY_INBOX_AGE_PAIR],now=Date.now()) {
@@ -33,10 +37,10 @@ function configValid(c) {
     c?.version==='2026-11-v1';
 }
 function keyValid(k) {return Buffer.isBuffer(k) && k.length===32;}
-function seal(key,uid,{chatId,expiresAtMs},now) {
+function seal(key,uid,{chatId,expiresAtMs,revision},now) {
   const nonce=randomBytes(12);
   const cipher=createCipheriv('aes-256-gcm',key,nonce);
-  const payload=Buffer.from(JSON.stringify({v:2,uid,chatId,expiresAtMs,until:now+TTL_MS}),'utf8');
+  const payload=Buffer.from(JSON.stringify({v:3,uid,chatId,expiresAtMs,revision,until:now+TTL_MS}),'utf8');
   const bytes=Buffer.concat([cipher.update(payload),cipher.final()]);
   return Buffer.concat([nonce,cipher.getAuthTag(),bytes]).toString('base64url');
 }
@@ -51,11 +55,12 @@ function unseal(key,uid,opaque,now) {
     const obj=JSON.parse(Buffer.concat([
       decipher.update(raw.subarray(28)),decipher.final()
     ]).toString('utf8'));
-    if(obj.v!==2 || obj.uid!==uid || !CHAT.test(obj.chatId||'') ||
+    if(obj.v!==3 || obj.uid!==uid || !CHAT.test(obj.chatId||'') ||
        !Number.isFinite(obj.expiresAtMs) ||
+       typeof obj.revision!=='string' || obj.revision.length>240 ||
        !Number.isSafeInteger(obj.until) || obj.until<=now ||
        obj.until>now+TTL_MS)deny();
-    return {chatId:obj.chatId,expiresAtMs:obj.expiresAtMs};
+    return {chatId:obj.chatId,expiresAtMs:obj.expiresAtMs,revision:obj.revision};
   }catch{deny();}
 }
 function normalizeChat(uid,chatId,data) {
@@ -96,27 +101,32 @@ export function createAdminInboxStore(db) {
   return {
     async authorizedPage(uid,after,limit,requestedAt,acceptedPairs) {
       return db.runTransaction(async tx=>{
-        const [cfg,viewer,control]=await tx.getAll(
-          ref('app_config/conversations'),ageRef(uid),ref(INBOX_DISCOVERY_CONTROL)
+        const [cfg,viewer,control,owner]=await tx.getAll(
+          ref('app_config/conversations'),ageRef(uid),ref(INBOX_DISCOVERY_CONTROL),
+          ref(inboxOwnerPath(uid))
         );
         const now=Math.max(requestedAt,cfg.readTime.toMillis());
         if(!configValid(cfg.data())||!validInboxAge(viewer.data(),acceptedPairs,now))deny();
-        if(control.data()?.ready!==true||control.data()?.schema!==INBOX_DISCOVERY_SCHEMA)
-          throw new InboxUnavailable();
+        if(!inboxProjectionReady(control.data()))throw new InboxUnavailable();
+        const revision=acceptedPairs.map(pair=>{
+          const bucket=INBOX_AGE_COLLECTIONS[pair];
+          return bucket+':'+(owner.data()?.revisions?.[bucket]??'');
+        }).join('|');
+        if(after&&(after.revision!==revision||after.expiresAtMs<=now))
+          throw new InboxRestartRequired();
 
         const pages=await Promise.all(acceptedPairs.map(async pair=>{
           let query=db.collection(inboxDiscoveryCollection(uid,pair))
             .where('peerExpiresAtMs','>',now)
             .orderBy('peerExpiresAtMs').orderBy('__name__').limit(limit+1);
-          // O filtro de validade já exclui a posição de uma âncora vencida.
-          if(after?.expiresAtMs>now)query=query.startAfter(after.expiresAtMs,after.chatId);
+          if(after)query=query.startAfter(after.expiresAtMs,after.chatId);
           const snapshot=await tx.get(query);
           return snapshot.docs.map(doc=>({
             chatId:doc.id,expiresAtMs:doc.data().peerExpiresAtMs,pair
           }));
         }));
         const indexed=pages.flat();
-        if(indexed.length===0)return [];
+        if(indexed.length===0)return {rows:[],revision};
         if(indexed.some(row=>!CHAT.test(row.chatId)||!Number.isFinite(row.expiresAtMs))||
            new Set(indexed.map(row=>row.chatId)).size!==indexed.length)
           throw new InboxUnavailable();
@@ -135,7 +145,7 @@ export function createAdminInboxStore(db) {
         }
         const proofs=await tx.getAll(...Array.from(paths,ref));
         const byPath=new Map(proofs.map(proof=>[proof.ref.path,proof]));
-        return items.map((item,i)=>{
+        const rows=items.map((item,i)=>{
           const peer=item.peerUid;
           const grant=inboxAgeGrant(byPath.get(ageRef(peer).path).data());
           if(grant?.pair!==page[i].pair || grant.expiresAtMs!==page[i].expiresAtMs ||
@@ -144,6 +154,7 @@ export function createAdminInboxStore(db) {
             throw new InboxUnavailable();
           return {item,expiresAtMs:page[i].expiresAtMs};
         });
+        return {rows,revision};
       },{readOnly:true});
     }
   };
@@ -164,7 +175,7 @@ export function createAuthorizedInboxService({
   if(!Array.isArray(acceptedPairs)||!acceptedPairs.length||
      acceptedPairs.some(pair=>typeof pair!=='string'||!Object.hasOwn(INBOX_AGE_COLLECTIONS,pair)))
     throw Error('inbox_invalid_eligibility_config');
-  const policyPairs=[...new Set(acceptedPairs)];
+  const policyPairs=[...new Set(acceptedPairs)].sort();
   return {
     async list({idToken,limit=MAX_LIMIT,cursor=null}={}) {
       if(typeof idToken!=='string'||idToken.length<1||idToken.length>8192)deny();
@@ -175,13 +186,13 @@ export function createAuthorizedInboxService({
       const now=clock();
       if(!Number.isSafeInteger(now))deny();
       const after=cursor===null?null:unseal(cursorKey,uid,cursor,now);
-      const rows=await store.authorizedPage(uid,after,limit,now,policyPairs);
+      const {rows,revision}=await store.authorizedPage(uid,after,limit,now,policyPairs);
       const items=rows.slice(0,limit).map(row=>row.item);
       const last=rows[limit-1];
       return {
         items,
         nextCursor:rows.length>limit
-          ? seal(cursorKey,uid,{chatId:last.item.chatId,expiresAtMs:last.expiresAtMs},now)
+          ? seal(cursorKey,uid,{chatId:last.item.chatId,expiresAtMs:last.expiresAtMs,revision},now)
           : null
       };
     }
@@ -221,8 +232,8 @@ export async function syncBlockedPair(adminDb,a,b) {
           readInboxDiscoveryEntries(adminDb,tx,a,id),
           readInboxDiscoveryEntries(adminDb,tx,b,id)
         ]);
-        syncInboxDiscoveryEntries(tx,discoveryA);
-        syncInboxDiscoveryEntries(tx,discoveryB);
+        syncInboxDiscoveryEntries(adminDb,tx,discoveryA);
+        syncInboxDiscoveryEntries(adminDb,tx,discoveryB);
         let count=0;
         for(let i=0;i<refs.length;i++){
           if(has(snaps[i])){tx.delete(refs[i]);count++;}
@@ -279,6 +290,7 @@ export function createInboxHttpHandler(service,{enabled=false}={}) {
       return response(200,result);
     }catch(error){
       if(error instanceof InboxAccessDenied)return response(403,{error:'forbidden'});
+      if(error instanceof InboxRestartRequired)return response(409,{error:'inbox_restart_required'});
       return response(503,{error:'inbox_unavailable'});
     }
   };
@@ -314,7 +326,7 @@ export async function applyTrustedInboxEvent(adminDb,event) {
         Promise.all(views.map(view=>
           readInboxDiscoveryEntries(adminDb,tx,view.data.ownerUid,event.chatId)))
       ]);
-      for(const entries of discovery)syncInboxDiscoveryEntries(tx,entries);
+      for(const entries of discovery)syncInboxDiscoveryEntries(adminDb,tx,entries);
       let deleted=0;
       for(let i=0;i<refs.length;i++){
         if(has(snaps[i])){tx.delete(refs[i]);deleted++;}

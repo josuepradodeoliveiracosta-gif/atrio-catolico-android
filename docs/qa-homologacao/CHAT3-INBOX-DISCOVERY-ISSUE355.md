@@ -1,12 +1,17 @@
 # #355 · Caixa de Conversas com descoberta em QA local
 
 - Base Android: #361 em `6891fa8b156b47c03dec162ca0cd1c477ce3cd93`.
-- Contrato e handler: #359 em `d8e0b122ec2296e086e152333886ff2c39229f4b`.
+- Contrato e handler: #359 em `a5acc9101adb23c58996e1a20c832c29a0b3f2bb`. O ajuste de reinício parte do Android `48e7cd6bd478c86af11abcc7b10bca7736bc43b7`.
+- HTTP 409 com `inbox_restart_required` na continuação limpa a página visível e todos os cursores do percurso. A tela solicita a primeira página sem cursor e mostra somente o resultado novo. Um 409 na primeira página ou com outro código de erro exibe indisponibilidade.
 - Compose navega uma página por vez, com cursor opaco e encerramento em `nextCursor=null`. Busca e ordenação se aplicam à página aberta.
 - O cliente distingue HTTP 200 vazio, 403 e falha de serviço. Em falha, limpa a página e uma nova tentativa começa da primeira página. A caixa descarta a resposta se a sessão mudar, inclusive em novo login com o mesmo UID. A troca de rede e a alteração de bloqueios observados invalidam a página. A página visível é revalidada a cada 10 s.
 - A descoberta usa o ID token da sessão, sem UID nos parâmetros, via `127.0.0.1:8091` no `qaGeral` com opt-in. O destino conhecido mantém o índice por par e a abertura de conversa continua a verificar o documento no servidor. Para homologar histórico e bloqueio, componha também a #352 com a #357.
 
-## Evidência do consumidor
+## Smoke do cursor v3
+
+A fixture certifica a carga em Auth/Firestore Emulator. Ao pedir a primeira continuação de Clara, o par 20 bloqueia Clara pelas operações transacionais da #359. O handler retorna 409 para o cursor anterior. A primeira página nova exclui o par 20 e inclui o par 21. O percurso reiniciado termina em 20 + 20 + 2 itens. Miguel confirma 200 vazio e Lúcia simula 503. Os testes JVM verificam também que um 409 atrasado de outra sessão não reinicia a caixa atual.
+
+## Evidência histórica do consumidor em d8e0b122
 
 - JVM: 11 testes em `AtrioInboxDiscoveryTest` e `AtrioPeerInboxPolicyTest`.
 - Smoke HTTP com o cliente Kotlin e handler real de `d8e0b122`, Auth/Firestore Emulator `demo-atrio-v11` e fixture abaixo. Clara percorreu 20 + 20 + 3 itens únicos com cursor final nulo. Miguel recebeu 200 vazio e 403 ao usar cursor alheio. Lúcia recebeu 503 simulado. Uma resposta 200 de Clara foi descartada após troca para Miguel, antes de publicar no estado.

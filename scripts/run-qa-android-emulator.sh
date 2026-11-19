@@ -194,6 +194,12 @@ if [[ "$inbox_focal" == 1 ]]; then
   fi
   adb reverse tcp:8091 tcp:8091
   run_suite "$ATRIO_QA_SUITE"
+  if [[ "$qa_failed" == 0 ]]; then
+    grep -F 'Inbox QA local: HTTP 409 na continuação.' qa-inbox-discovery-emulator.log
+    (cd tests/security && node seed-chat-groups-android.mjs)
+    history_suite=AtrioConversasCompostasEmulatorUiTest
+    run_suite "$history_suite"
+  fi
   exit "$qa_failed"
 fi
 if [[ "${ATRIO_QA_GERAL_CELULAR_PILOT:-}" == 1 ]]; then
