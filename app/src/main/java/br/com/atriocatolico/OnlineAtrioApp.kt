@@ -709,8 +709,10 @@ private fun OnlineUserScreen(
             LocalProfileAvatar provides LocalAvatarState(uid, localPhoto),
             LocalAvatarFirestore provides db
         ) {
+        val managedBlocks = rememberAtrioManagedBlocks(auth, user, db)
+        val managedMessages = rememberAtrioManagedMessages(auth, user, db)
         OnlineCommunity(db = db, uid = uid, name = name!!, email = user.email.orEmpty(),
-            biography = biography, onPhotoChanged = { photoRevision++ },
+            managedBlocks = managedBlocks, managedMessages = managedMessages, biography = biography, onPhotoChanged = { photoRevision++ },
             visible = !(isAdmin && (moderationOpen || clergyReviewOpen)),
             onModeration = if (isAdmin) ({ moderationOpen = true }) else null,
             onClergyReview = if (isAdmin) ({ clergyReviewOpen = true }) else null,
@@ -729,6 +731,8 @@ private fun OnlineUserScreen(
 @Composable
 private fun OnlineCommunity(
     db: FirebaseFirestore, uid: String, name: String, email: String, biography: String,
+    managedBlocks: AtrioManagedBlocks?,
+    managedMessages: AtrioManagedMessages?,
     onPhotoChanged: () -> Unit,
     visible: Boolean, onSignOut: () -> Unit, onModeration: (() -> Unit)?,
     onClergyReview: (() -> Unit)?,
@@ -742,6 +746,7 @@ private fun OnlineCommunity(
     var publishSuccessVisible by remember(uid) { mutableStateOf(false) }
     var sourcePosts by remember(uid) { mutableStateOf<List<Post>>(emptyList()) }
     val blockedMembers = rememberBlockedMembers(db, uid)
+    LaunchedEffect(managedBlocks, blockedMembers) { managedBlocks?.observeBlockList(blockedMembers) }
     var likedIds by remember(uid) { mutableStateOf<Set<String>>(emptySet()) }
     var savedIds by remember(uid) { mutableStateOf<Set<String>>(emptySet()) }
     var pendingSaveIds by remember(uid) { mutableStateOf<Set<String>>(emptySet()) }
@@ -1386,12 +1391,13 @@ private fun OnlineCommunity(
             if (showConversations) {
                 AtrioConversationsScreen(
                     db = db, uid = uid, onBack = ::closeConversations,
-                    initialPeer = conversationPeer
+                    initialPeer = conversationPeer, blockedPeers = blockedMembers,
+                    managedBlocks = managedBlocks, managedMessages = managedMessages
                 )
             } else if (publicProfileTarget != null && !profilePostOpen) {
                 PublicMemberProfileScreen(
                     db = db, target = publicProfileTarget!!, viewerUid = uid,
-                    onBack = ::closeNoticeDestination,
+                    managedBlocks = managedBlocks, onBack = ::closeNoticeDestination,
                     onOpenDiscussion = { postId -> profilePostOpen = true; detailId = postId },
                     onConverse = if (conversationsQa) ({
                         conversationPeer = publicProfileTarget

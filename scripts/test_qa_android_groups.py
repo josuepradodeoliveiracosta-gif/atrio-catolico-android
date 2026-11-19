@@ -8,18 +8,18 @@ ROOT = Path(__file__).resolve().parent.parent
 GROUPS = {
     "profiles": ["GuardianSessionUiTest","ProfileLayoutUiTest","ProfilePhotoUiTest","ProfileEditorUiTest","DesignV2UiTest","EmailVerificationAndroidUiTest","PerfilQaSaveEmulatorTest"],
     "interaction": ["EngagementUiTest","ReactionEmojiUiTest","DiscussionDetailV2UiTest","AtrioTypographyAccessibilityUiTest"],
-    "bots": ["ThreeBotsAndroidUiTest","ThreeBotsAuthenticatedAndroidUiTest","ThreeBotsOnlineEmulatorTest","AtrioConversasCompostasEmulatorUiTest"],
+    "bots": ["ThreeBotsAndroidUiTest","ThreeBotsAuthenticatedAndroidUiTest","ThreeBotsOnlineEmulatorTest","AtrioConversasCompostasEmulatorUiTest","AtrioConversasNavegacaoEmulatorUiTest","AtrioConversasForaDaConfiguracaoEmulatorUiTest","AtrioConversasTrocaContaEmulatorUiTest"],
 }
 
 class AndroidGroupTests(unittest.TestCase):
     def test_complete_disjoint_partition(self):
         source = (ROOT / "scripts/run-qa-android-emulator.sh").read_text()
         calls = re.findall(r"(?m)^\s*run_suite ([A-Za-z][A-Za-z0-9]+)$", source)
-        self.assertEqual(len(calls), 16)
+        self.assertEqual(len(calls), 19)
         self.assertEqual(len(calls), len(set(calls)))
         self.assertIn("GuardianV2UiTest", calls)
         pairs = re.findall(r"(profiles|interaction|bots):([A-Za-z][A-Za-z0-9]+)", source)
-        self.assertEqual(len(pairs), 15)
+        self.assertEqual(len(pairs), 18)
         self.assertEqual(len(pairs), len(set(pairs)))
         for group, suites in GROUPS.items():
             self.assertEqual({x for g, x in pairs if g == group}, set(suites))

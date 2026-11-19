@@ -16,6 +16,20 @@ on:
       - 'tests/security/qa-geral-integrado.test.mjs'
       - 'tests/security/qa-geral-celular-pilot.test.mjs'
       - 'tests/security/atrio-grupos.test.mjs'
+      - 'tests/security/atrio-conversas.test.mjs'
+      - 'tests/security/atrio-inbox-peer-authorization.test.mjs'
+      - 'tests/security/atrio-inbox-discovery-server.test.mjs'
+      - 'tests/security/atrio-inbox-maintenance.test.mjs'
+      - 'tests/security/atrio-inbox-block-http.test.mjs'
+      - 'tests/security/atrio-inbox-message-http.test.mjs'
+      - 'firebase/atrio-conversas-v1.rules.fragment'
+      - 'firebase/qa-general/chat-inbox-peer-index.mjs'
+      - 'firebase/qa-general/chat-inbox-discovery-server.mjs'
+      - 'firebase/qa-general/chat-inbox-maintenance.mjs'
+      - 'firebase/qa-general/chat-inbox-block-http.mjs'
+      - 'firebase/qa-general/chat-inbox-message-http.mjs'
+      - 'firebase/qa-general/compose-parity-rules.mjs'
+      - 'firebase/qa-general/compose-parity-rules.test.mjs'
       - 'firebase/atrio-grupos-v1.rules.fragment'
       - 'firebase/qa-geral-celular/pilot/**'
       - 'scripts/run-qa-android-emulator.sh'
@@ -64,12 +78,13 @@ jobs:
         run: npm ci
       - name: Gerar regras compostas para o emulador
         run: |
+          (cd ../.. && node --test firebase/qa-general/compose-parity-rules.test.mjs)
           node prepare.mjs
           node ../../firebase/qa-general/compose-parity-rules.mjs
       - name: Validar regras com as contas fictícias do QA Geral Celular
         run: |
-          ./node_modules/.bin/firebase emulators:exec --only firestore \
-            --project demo-atrio-v11 'node qa-geral-integrado.test.mjs && node --test qa-geral-celular-pilot.test.mjs && node atrio-grupos.test.mjs'
+          ./node_modules/.bin/firebase emulators:exec --only firestore,auth \
+            --project demo-atrio-v11 'node qa-geral-integrado.test.mjs && node --test qa-geral-celular-pilot.test.mjs && node atrio-grupos.test.mjs && node atrio-conversas.test.mjs && node atrio-inbox-peer-authorization.test.mjs && node atrio-inbox-discovery-server.test.mjs && node atrio-inbox-maintenance.test.mjs && node atrio-inbox-block-http.test.mjs && node atrio-inbox-message-http.test.mjs'
 
   android-ui:
     name: Testar telas do Átrio — ${{ matrix.suite_group }}

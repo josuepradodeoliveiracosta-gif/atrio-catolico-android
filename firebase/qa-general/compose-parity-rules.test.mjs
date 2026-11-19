@@ -18,10 +18,18 @@ const tail=[
   ''
 ].join('\n');
 
-test('preserva byte a byte a base revisada fora da adição QA',()=>{
+test('preserva a base revisada fora da fronteira de escrita QA',()=>{
   const candidate=renderParity(base,chat,group);
   const prefix=base.slice(0,-tail.length);
-  assert.equal(candidate.slice(0,prefix.length),prefix);
+  const [renderedPrefix]=candidate.split('    // BEGIN QA PARITY ADDITIVE:');
+  const gate=' && qaInboxLegacySourceWrites()';
+  const originalPrefix=renderedPrefix.replaceAll(gate,'');
+  assert.equal(originalPrefix,prefix);
+  assert.equal(renderedPrefix.split(gate).length,3);
+  const blocked=renderedPrefix.split('match /users/{uid}/blockedMembers/{blockedUid} {')[1]
+    .split('\n    }')[0];
+  assert.match(blocked,/allow create: if me\(uid\) && qaInboxLegacySourceWrites\(\)/);
+  assert.match(blocked,/allow delete: if me\(uid\) && qaInboxLegacySourceWrites\(\);/);
   assert.equal(candidate.slice(-tail.length),tail);
   assert.equal(candidate.split('BEGIN QA PARITY ADDITIVE').length,2);
   assert.equal(candidate.split('END QA PARITY ADDITIVE').length,2);

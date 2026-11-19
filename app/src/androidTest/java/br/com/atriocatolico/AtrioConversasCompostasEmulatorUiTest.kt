@@ -159,6 +159,53 @@ class AtrioConversasCompostasEmulatorUiTest {
         }
     }
 
+    // Esta conexão só é usada pelas fixtures da instrumentação local.
+    private fun emulatorDocument(path: String): HttpURLConnection {
+        check(db.app.options.projectId == "demo-atrio-v11")
+        check(db.firestoreSettings.host == "127.0.0.1:8089" &&
+              !db.firestoreSettings.isSslEnabled)
+        val documents = "http://127.0.0.1:8089/v1/projects/demo-atrio-v11/databases/(default)/documents"
+        return (URL("$documents/$path").openConnection() as HttpURLConnection).apply {
+            instanceFollowRedirects = false
+            connectTimeout = 5_000
+            readTimeout = 5_000
+            setRequestProperty("Authorization", "Bearer owner")
+        }
+    }
+
+    private fun assertChatNotCreated(chatId: String) {
+        val conn = emulatorDocument("chats/$chatId")
+        try {
+            assertEquals("A solicitação recusada não pode criar o chat", 404, conn.responseCode)
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    // A fixture materializa o índice. O aplicativo continua sujeito às Rules e Source.SERVER.
+    private fun materializePeerIndex(owner: String, peer: String, chatId: String,
+                                     status: String, preview: String) {
+        val fields = JSONObject()
+        fun put(name: String, value: String) {
+            fields.put(name, JSONObject().put("stringValue", value))
+        }
+        put("ownerUid", owner); put("peerUid", peer); put("chatId", chatId)
+        put("status", status); put("lastPreview", preview)
+        fields.put("updatedAt", JSONObject().put(
+            "timestampValue", java.time.Instant.now().toString()))
+        val conn = emulatorDocument("users/$owner/chatInboxByPeer/$peer/entries/$chatId")
+        try {
+            conn.requestMethod = "PATCH"
+            conn.setRequestProperty("Content-Type", "application/json")
+            conn.doOutput = true
+            conn.outputStream.use {
+                it.write(JSONObject().put("fields", fields).toString().toByteArray())
+            }
+            check(conn.responseCode in 200..299) {
+                "Materialização local recusada: HTTP ${conn.responseCode}"
+            }
+        } finally { conn.disconnect() }
+    }
     private fun reopen(destination: Screen) {
         compose.runOnIdle { screen = null }
         compose.waitForIdle()
@@ -229,11 +276,22 @@ class AtrioConversasCompostasEmulatorUiTest {
     }
 
     private fun waitForHiddenHistory(history: String, destination: Screen) {
-        waitForText("Conversa não encontrada ou acesso negado.")
-        compose.onNodeWithText(history).assertDoesNotExist()
+        fun verifyClosedView() {
+            compose.waitUntil(30_000) {
+                val hidden = compose.onAllNodesWithText(history).fetchSemanticsNodes().isEmpty()
+                val denied = compose.onAllNodesWithTag("atrio-peer-inbox-error")
+                    .fetchSemanticsNodes().isNotEmpty() ||
+                    compose.onAllNodesWithText("Conversa não encontrada ou acesso negado.")
+                        .fetchSemanticsNodes().isNotEmpty() ||
+                    compose.onAllNodesWithText("Conversa indisponível para esta conta.")
+                        .fetchSemanticsNodes().isNotEmpty()
+                hidden && denied
+            }
+            compose.onNodeWithText(history).assertDoesNotExist()
+        }
+        verifyClosedView()
         reopen(destination)
-        waitForText("Conversa não encontrada ou acesso negado.")
-        compose.onNodeWithText(history).assertDoesNotExist()
+        verifyClosedView()
     }
 
     @After fun cleanSession() {
@@ -266,26 +324,63 @@ class AtrioConversasCompostasEmulatorUiTest {
         }
         val chatId = AtrioChatPolicy.id(alice, bob)
         val chat = db.document("chats/$chatId")
+        fun materializeBoth(status: String, preview: String) {
+            materializePeerIndex(alice, bob, chatId, status, preview)
+            materializePeerIndex(bob, alice, chatId, status, preview)
+        }
         val first = "Podemos conversar sobre o grupo de estudo?"
 
         show(Screen(bob, peer = PublicMemberTarget(alice, "Alice QA")))
         send("atrio-chat-composer", "atrio-chat-send", first)
         waitForText("Pedido não confirmado.", substring = true)
-        assertTrue(await(db.collection("chats").whereArrayContains("participants", bob).limit(100)
-            .get(Source.SERVER)).isEmpty)
+        assertChatNotCreated(chatId)
+        // Antes de um chat permitido, o índice por par não revela mensagem.
+        assertTrue(await(db.collection("users").document(bob)
+            .collection("chatInboxByPeer").document(alice)
+            .collection("entries").limit(20).get(Source.SERVER)).isEmpty)
 
         assertEquals(alice, login(aliceEmail))
         show(Screen(alice, peer = PublicMemberTarget(bob, "Bob QA")))
         send("atrio-chat-composer", "atrio-chat-send", first)
-        waitForText("Solicitação enviada.")
-        waitForText("Aguardando aceite do destinatário.")
+        try {
+            waitForText("Solicitação enviada.")
+        } catch (failure: androidx.compose.ui.test.ComposeTimeoutException) {
+            // Falhar com diagnóstico, NUNCA transformar a recusa em sucesso.
+            // O estado da transação fica separável do estado da interface.
+            val server = try {
+                val got = await(chat.get(Source.SERVER))
+                "chat.exists=${got.exists()},chat.status=${got.getString("status")}"
+            } catch (error: Exception) {
+                "chat.get=${error.javaClass.simpleName}"
+            }
+            val denied = compose.onAllNodesWithText("Pedido não confirmado.",
+                substring = true).fetchSemanticsNodes().isNotEmpty()
+            val waiting = compose.onAllNodesWithText("Aguardando confirmação do servidor",
+                substring = true).fetchSemanticsNodes().isNotEmpty()
+            throw AssertionError(
+                "Pedido Alice-Bob sem confirmação de UI: $server, " +
+                    "pedidoRecusado=$denied,aguardandoServidor=$waiting",
+                failure
+            )
+        }
+        // Confirmar primeiro o estado real da transação. O novo contrato
+        // não permite que o cliente descubra a solicitação pela lista global.
         val pending = await(chat.get(Source.SERVER))
         assertEquals("pending", pending.getString("status"))
         assertEquals(alice, pending.getString("requesterUid"))
+        // Em produção, o serviço Admin da #359 materializa o índice; apenas
+        // nesta instrumentação o teste simula esse evento no Emulator local.
+        materializeBoth("pending", first)
+        val indexed = await(db.collection("users").document(alice)
+            .collection("chatInboxByPeer").document(bob)
+            .collection("entries").limit(20).get(Source.SERVER))
+        assertEquals(1, indexed.size())
+        assertEquals(chatId, indexed.documents.single().getString("chatId"))
+        waitForText("Aguardando aceite do destinatário.")
         compose.onNodeWithTag("atrio-chat-composer").assertDoesNotExist()
 
         assertEquals(bob, login(bobEmail))
-        show(Screen(bob, chatId = chatId))
+        show(Screen(bob, peer = PublicMemberTarget(alice, "Alice QA"), chatId = chatId))
         waitForText(first)
         waitForText("Aceitar")
         compose.onNodeWithText("Aceitar").performClick()
@@ -295,6 +390,69 @@ class AtrioConversasCompostasEmulatorUiTest {
             val document = await(chat.get(Source.SERVER))
             document.getString("status") == "accepted" &&
                 document.getString("lastPreview") == reply && !document.metadata.hasPendingWrites()
+        }
+        // Bob consegue ler a conversa e o histórico pelo caminho autorizado.
+        // A mesma sessão deve receber PERMISSION_DENIED na listagem global.
+        assertTrue(await(chat.collection("messages").get(Source.SERVER)).documents
+            .any { it.getString("text") == reply })
+        assertDenied(db.collection("chats").limit(100).get(Source.SERVER))
+        if (!pilot) {
+            assertDenied(db.collection("chats").whereArrayContains("participants", bob)
+                .limit(100).get(Source.SERVER))
+        }
+
+        materializeBoth("accepted", reply)
+        // Na suite regular, exercitar o envio real pela UI com a transacao
+        // falhando sem rede. O app deve reutilizar o mesmo ID ao reenviar,
+        // e o servidor deve persistir apenas uma mensagem.
+        if (!pilot) {
+            val retry = "Reenvio do Android apos reconexao, mensagem unica."
+            await(db.disableNetwork())
+            try {
+                send("atrio-chat-composer", "atrio-chat-send", retry)
+                waitForText("Envio não confirmado. Confira a conexão.")
+            } finally {
+                await(db.enableNetwork())
+            }
+            compose.waitUntil(30_000) {
+                try {
+                    compose.onNodeWithTag("atrio-chat-send").assertIsEnabled()
+                    true
+                } catch (_: AssertionError) {
+                    false
+                }
+            }
+            // A regra de QA limita envios consecutivos do mesmo autor a 3 s.
+            // A falha offline não pode ser confundida com a recusa do cooldown:
+            // aguardar a janela a partir do timestamp CONFIRMADO pelo servidor,
+            // mantendo o mesmo ID de tentativa para a prova de idempotência.
+            val previousAt = requireNotNull(await(chat.get(Source.SERVER))
+                .getTimestamp("updatedAt")).toDate().time
+            compose.waitUntil(10_000) {
+                System.currentTimeMillis() - previousAt >= 3_500L
+            }
+            click("atrio-chat-send")
+            var serverCount = -1
+            var lastPreview = ""
+            var pendingWrites = true
+            try {
+                compose.waitUntil(30_000) {
+                    val messages = await(chat.collection("messages").get(Source.SERVER))
+                    val saved = messages.documents.filter { it.getString("text") == retry }
+                    serverCount = saved.size
+                    pendingWrites = saved.any { it.metadata.hasPendingWrites() }
+                    lastPreview = await(chat.get(Source.SERVER)).getString("lastPreview").orEmpty()
+                    serverCount == 1 && !pendingWrites && lastPreview == retry
+                }
+            } catch (failure: androidx.compose.ui.test.ComposeTimeoutException) {
+                throw AssertionError(
+                    "Reenvio sem confirmação única: count=$serverCount, " +
+                        "previewAtualCorresponde=${lastPreview == retry}, " +
+                        "pendingWrites=$pendingWrites",
+                    failure
+                )
+            }
+            android.util.Log.i("AtrioConversasQA", "reconexao_apos_falha=um_unico_envio_confirmado")
         }
 
         assertEquals(alice, login(aliceEmail))
@@ -346,8 +504,18 @@ class AtrioConversasCompostasEmulatorUiTest {
         click("atrio-group-accept-${group.id}")
         waitForText(message)
         compose.onNodeWithText(message).assertIsDisplayed()
-        assertEquals("accepted", await(invite.get(Source.SERVER)).getString("status"))
-        assertTrue((await(group.get(Source.SERVER)).get("memberUids") as List<*>).contains(bob))
+        // Source.SERVER ainda pode incluir uma gravação local pendente.
+        await(db.waitForPendingWrites())
+        val acceptedInvite = await(invite.get(Source.SERVER))
+        assertEquals(bob, auth.currentUser?.uid)
+        assertEquals("accepted", acceptedInvite.getString("status"))
+        assertEquals(false, acceptedInvite.metadata.isFromCache)
+        assertEquals(false, acceptedInvite.metadata.hasPendingWrites())
+        requireNotNull(acceptedInvite.getTimestamp("updatedAt"))
+
+        val acceptedGroup = await(group.get(Source.SERVER))
+        assertTrue((acceptedGroup.get("memberUids") as List<*>).contains(bob))
+        assertEquals(false, acceptedGroup.metadata.hasPendingWrites())
         assertEquals(message, await(entry.get(Source.SERVER)).getString("text"))
         val report = db.document("chat_group_reports/${bob}__${group.id}__${entry.id}")
         if (pilot) {

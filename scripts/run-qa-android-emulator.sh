@@ -38,6 +38,16 @@ fi
 if [[ -n "${ATRIO_QA_SUITE:-}" && "$qa_group" != all ]]; then
   echo "Suite focal e grupo paralelo nao podem ser combinados" >&2; exit 2
 fi
+inbox_focal=0
+if [[ "${ATRIO_QA_SUITE:-}" == AtrioInboxDiscoveryEmulatorUiTest ]]; then
+  [[ "$qa_apk" == qaGeral && "${ATRIO_QA_INBOX_DISCOVERY:-}" == 1 &&
+     "${ATRIO_QA_GERAL_REMOTE_BUILD:-}" != 1 &&
+     "${ATRIO_QA_GERAL_CELULAR_PILOT:-}" != 1 ]] || {
+    echo "Descoberta da inbox exige qaGeral local com opt-in" >&2
+    exit 2
+  }
+  inbox_focal=1
+fi
 if [[ -n "${GOOGLE_APPLICATION_CREDENTIALS:-}" ||
       -n "${ATRIO_PUSH_WORKER_URL:-}" ]]; then
   echo "ERRO: variáveis de produção não podem estar presentes no QA Android" >&2
@@ -62,10 +72,19 @@ test ! -e app/google-services.json || {
 
 cd tests/security
 node prepare.mjs
+if [[ "$inbox_focal" == 1 ]]; then
+  node ../../firebase/qa-general/compose-parity-rules.mjs
+  cp qa-parity.generated.rules firestore.rules
+  sha256sum firestore.rules
+fi
 ./node_modules/.bin/firebase emulators:start --only auth,firestore \
   --project demo-atrio-v11 > ../../qa-firebase-emulators.log 2>&1 &
 FIREBASE_PID=$!
-cleanup() { kill "$FIREBASE_PID" 2>/dev/null || true; }
+inbox_pid=
+cleanup() {
+  if [[ -n "$inbox_pid" ]]; then kill "$inbox_pid" 2>/dev/null || true; fi
+  kill "$FIREBASE_PID" 2>/dev/null || true
+}
 trap cleanup EXIT
 
 ready=0
@@ -119,12 +138,14 @@ run_suite() {
       interaction:EngagementUiTest|interaction:ReactionEmojiUiTest|\
       interaction:DiscussionDetailV2UiTest|interaction:AtrioTypographyAccessibilityUiTest|\
       bots:ThreeBotsAndroidUiTest|bots:ThreeBotsAuthenticatedAndroidUiTest|\
-      bots:ThreeBotsOnlineEmulatorTest|bots:AtrioConversasCompostasEmulatorUiTest) ;;
+      bots:ThreeBotsOnlineEmulatorTest|bots:AtrioConversasCompostasEmulatorUiTest|\
+      bots:AtrioConversasNavegacaoEmulatorUiTest|bots:AtrioConversasForaDaConfiguracaoEmulatorUiTest|\
+      bots:AtrioConversasTrocaContaEmulatorUiTest) ;;
       *) echo "QA Android: $suite executada por outro grupo"; return 0 ;;
     esac
   fi
   case "$suite" in
-    ThreeBots*)
+    ThreeBots*|AtrioConversas*)
       [[ "$qa_apk" == "qaGeral" ]] || {
         echo "Suite de bot recusada fora do APK QA Geral" >&2
         exit 2
@@ -153,8 +174,63 @@ if [[ "${ATRIO_QA_SUITE:-}" == "GuardianV2UiTest" ]]; then
   echo "QA Android: apenas GuardianV2UiTest; status=$qa_failed"
   exit "$qa_failed"
 fi
+if [[ "$inbox_focal" == 1 ]]; then
+  FIRESTORE_EMULATOR_HOST=127.0.0.1:8089 FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 \
+    node tests/security/serve-inbox-discovery-android-qa.mjs > qa-inbox-discovery-emulator.log 2>&1 &
+  inbox_pid=$!
+  ready=0
+  for attempt in $(seq 1 60); do
+    if ! kill -0 "$inbox_pid" 2>/dev/null; then break; fi
+    if curl -s --max-time 1 -o /dev/null http://127.0.0.1:8091/; then
+      ready=1
+      break
+    fi
+    sleep 1
+  done
+  if [[ "$ready" != 1 ]]; then
+    echo "Fixture local da inbox não abriu a porta 8091" >&2
+    tail -60 qa-inbox-discovery-emulator.log >&2
+    exit 1
+  fi
+  adb reverse tcp:8091 tcp:8091
+  run_suite "$ATRIO_QA_SUITE"
+  if [[ "$qa_failed" == 0 ]]; then
+    grep -F 'Inbox QA local: HTTP 409 na continuação.' qa-inbox-discovery-emulator.log
+    authenticated_block_suite=AtrioAuthenticatedBlockEmulatorUiTest
+    run_suite "$authenticated_block_suite"
+    if [[ "$qa_failed" == 0 ]]; then
+      grep -F 'QA BLOCK 503: sem bloqueio ou recibo' qa-inbox-discovery-emulator.log
+      grep -F 'QA BLOCK 200: mesma chave e ETag' qa-inbox-discovery-emulator.log
+      grep -F 'QA BLOCK 200: mutação e recibo gravados; projeções coerentes.' qa-inbox-discovery-emulator.log
+    fi
+    managed_block_suite=AtrioManagedBlockUiTest
+    run_suite "$managed_block_suite"
+  fi
+  if [[ "$qa_failed" == 0 ]]; then
+    authenticated_message_suite=AtrioInboxMessageEmulatorUiTest
+    run_suite "$authenticated_message_suite"
+    if [[ "$qa_failed" == 0 ]]; then
+      test "$(grep -Fc 'QA MESSAGE 400: limite UTF-16 recusado' qa-inbox-discovery-emulator.log)" -eq 4
+      grep -F 'QA MESSAGE 503: sem conversa, quota ou recibo' qa-inbox-discovery-emulator.log
+      grep -F 'QA MESSAGE 200: primeiro contato confirmou' qa-inbox-discovery-emulator.log
+      grep -F 'QA MESSAGE 200: retry pós-timeout preservou' qa-inbox-discovery-emulator.log
+    fi
+  fi
+  exit "$qa_failed"
+fi
 if [[ "${ATRIO_QA_GERAL_CELULAR_PILOT:-}" == 1 ]]; then
   (cd tests/security && node seed-qa-celular-pilot-android.mjs)
+  run_suite "$ATRIO_QA_SUITE"
+  exit "$qa_failed"
+fi
+if [[ "${ATRIO_QA_SUITE:-}" == AtrioConversasCompostasEmulatorUiTest ]]; then
+  [[ "$qa_apk" == qaGeral && "${ATRIO_QA_GERAL_REMOTE_BUILD:-}" != 1 &&
+     "${ATRIO_QA_INBOX_DISCOVERY:-}" != 1 ]] || {
+    echo "Histórico regular exige qaGeral local sem descoberta opt-in" >&2
+    exit 2
+  }
+  node firebase/qa-general/compose-parity-rules.mjs
+  (cd tests/security && node seed-chat-groups-android.mjs)
   run_suite "$ATRIO_QA_SUITE"
   exit "$qa_failed"
 fi
@@ -197,9 +273,13 @@ if [[ "$qa_group" == "all" || "$qa_group" == "bots" ]]; then
   node --test firebase/qa-general/compose-parity-rules.test.mjs
   node firebase/qa-general/compose-parity-rules.mjs
   sha256sum tests/security/qa-parity.generated.rules
-  (cd tests/security && node seed-chat-groups-android.mjs)
+  (cd tests/security && node seed-chat-groups-android.mjs --navegacao-perfis)
+  adb reverse tcp:18089 tcp:8089
 fi
 run_suite AtrioConversasCompostasEmulatorUiTest
+run_suite AtrioConversasNavegacaoEmulatorUiTest
+run_suite AtrioConversasForaDaConfiguracaoEmulatorUiTest
+run_suite AtrioConversasTrocaContaEmulatorUiTest
 run_suite EmailVerificationAndroidUiTest
 if [[ "$qa_group" == "all" || "$qa_group" == "profiles" ]]; then
   # Só a última suíte usa a política restritiva. As suítes anteriores
