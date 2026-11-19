@@ -9,6 +9,7 @@ on:
       - 'firebase/qa-geral-celular/**'
       - 'scripts/run-qa-android-emulator.sh'
       - 'tests/security/seed-qa-celular-pilot-android.mjs'
+      - 'tests/security/serve-inbox-discovery-android-qa.mjs'
 
 permissions:
   contents: read
@@ -19,20 +20,20 @@ concurrency:
 
 jobs:
   android:
-    name: ${{ matrix.mode == 'discovery' && 'Compose focal da inbox emulada' || (matrix.mode == 'history' && 'Histórico com Rules compostas no emulador' || 'android') }}
+    name: ${{ matrix.mode == 'profile-block' && 'Bloqueio remoto no perfil público' || matrix.mode == 'discovery' && 'Compose focal da inbox emulada' || matrix.mode == 'history' && 'Histórico com Rules compostas no emulador' || 'android' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        mode: ${{ fromJSON(github.head_ref == 'qa/chat5-inbox-366-d8e0b122' && '["discovery","history"]' || '["pilot"]') }}
+        mode: ${{ fromJSON(github.head_ref == 'qa/chat5-inbox-366-d8e0b122' && '["discovery","history"]' || github.head_ref == 'fix/chat3-privacidade-avisos-354' && '["pilot","profile-block"]' || '["pilot"]') }}
     env:
       ATRIO_QA_GERAL_BUILD: '1'
       ATRIO_QA_GERAL_CELULAR_PILOT: ${{ matrix.mode == 'pilot' && '1' || '0' }}
-      ATRIO_QA_INBOX_DISCOVERY: ${{ matrix.mode == 'discovery' && '1' || '0' }}
+      ATRIO_QA_INBOX_DISCOVERY: ${{ (matrix.mode == 'discovery' || matrix.mode == 'profile-block') && '1' || '0' }}
       ATRIO_QA_APK: qaGeral
       ATRIO_QA_FIREBASE_PROJECT: demo-atrio-v11
-      ATRIO_QA_SUITE: ${{ matrix.mode == 'discovery' && 'AtrioInboxDiscoveryEmulatorUiTest' || 'AtrioConversasCompostasEmulatorUiTest' }}
+      ATRIO_QA_SUITE: ${{ matrix.mode == 'profile-block' && 'AtrioPublicProfileBlockEmulatorUiTest' || matrix.mode == 'discovery' && 'AtrioInboxDiscoveryEmulatorUiTest' || 'AtrioConversasCompostasEmulatorUiTest' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:

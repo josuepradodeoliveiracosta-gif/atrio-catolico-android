@@ -1,12 +1,27 @@
 package br.com.atriocatolico
 
+/**
+ * A UI só mostra pendências administrativas com resposta atual do servidor.
+ * A leitura de cache e os avisos pendentes de escrita não provam autorização.
+ */
+internal object NoticePrivacyPolicy {
+    fun serverConfirmed(fromCache: Boolean, pendingWrites: Boolean,
+                        ownSession: Boolean): Boolean =
+        ownSession && !fromCache && !pendingWrites
+
+    fun safeActorName(raw: String?): String =
+        raw?.filterNot { it.isISOControl() }?.trim()?.take(60)
+            ?.takeIf { it.isNotBlank() } ?: "Alguém"
+}
+
 internal enum class NoticeKind { REPLY, REVIEW, REPORTS, REQUESTS }
 internal data class NoticeEvent(
     val id: String, val kind: NoticeKind, val target: String = "",
     val title: String, val body: String, val at: Long = 0L,
     val read: Boolean = false, val localToken: String = "",
     val directReply: Boolean = false,
-    val mentioned: Boolean = false
+    val mentioned: Boolean = false,
+    val actorUid: String = ""
 )
 internal data class NoticeGroup(
     val id: String, val kind: NoticeKind, val target: String,
@@ -53,4 +68,29 @@ internal fun reviewNotice(status: String, kind: String, at: Long, token: String)
         body = if (status == "approved") "Sua verificação foi concluída. Confira a identificação em Meus selos."
             else "A análise foi concluída. Você pode conferir o status e enviar uma nova solicitação em Meus selos.",
         at = at, localToken = token)
+}
+
+internal fun canShowWithBlockedMembers(confirmed: Set<String>?, ownerUid: String): Boolean =
+    confirmed != null && ownerUid !in confirmed && (ownerUid.isNotBlank() || confirmed.isEmpty())
+
+/** Confere a sessão antes de submeter cada lote e antes de consumir sua resposta. */
+internal fun <T> runNoticeBatches(
+    chunks: List<List<T>>,
+    current: () -> Boolean,
+    submit: (List<T>, (Boolean) -> Unit) -> Unit,
+    finish: (Boolean) -> Unit
+) {
+    fun next(index: Int) {
+        if (!current()) return
+        if (index == chunks.size) {
+            finish(true)
+        } else {
+            submit(chunks[index]) { ok ->
+                if (current()) {
+                    if (ok) next(index + 1) else finish(false)
+                }
+            }
+        }
+    }
+    next(0)
 }

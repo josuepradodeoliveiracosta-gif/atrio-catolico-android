@@ -4,6 +4,21 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class NotificationModelsTest {
+    @Test fun cachedOrPendingAdminDataNeverCountsAsFreshAuthorization() {
+        assertFalse(NoticePrivacyPolicy.serverConfirmed(true, false, true))
+        assertFalse(NoticePrivacyPolicy.serverConfirmed(false, true, true))
+        assertFalse(NoticePrivacyPolicy.serverConfirmed(false, false, false))
+        assertTrue(NoticePrivacyPolicy.serverConfirmed(false, false, true))
+    }
+
+    @Test fun actorNameInNotificationCannotAddControlCharactersOrHugeText() {
+        assertEquals("Alguém", NoticePrivacyPolicy.safeActorName(null))
+        assertEquals("Alguém", NoticePrivacyPolicy.safeActorName("" + 10.toChar() + 9.toChar()))
+        assertEquals("Clara", NoticePrivacyPolicy.safeActorName("  Clara  "))
+        assertEquals("Miguel", NoticePrivacyPolicy.safeActorName("Mi" + 0.toChar() + "guel"))
+        assertEquals(60, NoticePrivacyPolicy.safeActorName("L".repeat(500)).length)
+    }
+
     private fun event(id: String, kind: NoticeKind, target: String = "", read: Boolean = false, at: Long = 1) =
         NoticeEvent(id, kind, target, "title", "body", at, read)
 

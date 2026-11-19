@@ -39,7 +39,8 @@ if [[ -n "${ATRIO_QA_SUITE:-}" && "$qa_group" != all ]]; then
   echo "Suite focal e grupo paralelo nao podem ser combinados" >&2; exit 2
 fi
 inbox_focal=0
-if [[ "${ATRIO_QA_SUITE:-}" == AtrioInboxDiscoveryEmulatorUiTest ]]; then
+if [[ "${ATRIO_QA_SUITE:-}" == AtrioInboxDiscoveryEmulatorUiTest ||
+      "${ATRIO_QA_SUITE:-}" == AtrioPublicProfileBlockEmulatorUiTest ]]; then
   [[ "$qa_apk" == qaGeral && "${ATRIO_QA_INBOX_DISCOVERY:-}" == 1 &&
      "${ATRIO_QA_GERAL_REMOTE_BUILD:-}" != 1 &&
      "${ATRIO_QA_GERAL_CELULAR_PILOT:-}" != 1 ]] || {
@@ -194,6 +195,13 @@ if [[ "$inbox_focal" == 1 ]]; then
   fi
   adb reverse tcp:8091 tcp:8091
   run_suite "$ATRIO_QA_SUITE"
+  if [[ "$ATRIO_QA_SUITE" == AtrioPublicProfileBlockEmulatorUiTest ]]; then
+    if [[ "$qa_failed" == 0 ]]; then
+      grep -F 'QA PROFILE: GET anterior ao bloqueio retornou blocked=false e ficou retido.' qa-inbox-discovery-emulator.log
+      grep -F 'QA PROFILE: GET tardio blocked=false liberado após bloqueio confirmado e ocultação na UI.' qa-inbox-discovery-emulator.log
+    fi
+    exit "$qa_failed"
+  fi
   if [[ "$qa_failed" == 0 ]]; then
     grep -F 'Inbox QA local: HTTP 409 na continuação.' qa-inbox-discovery-emulator.log
     authenticated_block_suite=AtrioAuthenticatedBlockEmulatorUiTest

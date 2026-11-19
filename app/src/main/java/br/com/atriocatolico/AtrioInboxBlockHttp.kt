@@ -29,7 +29,8 @@ internal interface AtrioManagedBlockService {
 
 internal class AtrioInboxBlockHttp(
     private val token: suspend () -> String?,
-    private val baseUrl: URL = URL("http://127.0.0.1:8091/v1/qa/conversations/blocks/")
+    private val baseUrl: URL = URL("http://127.0.0.1:8091/v1/qa/conversations/blocks/"),
+    private val readTimeoutMs: Int = 5_000
 ) : AtrioManagedBlockService {
     override suspend fun read(peerUid: String): AtrioBlockState? =
         request(peerUid, intent = null)?.takeIf { it.status == 200 }?.state()
@@ -62,7 +63,7 @@ internal class AtrioInboxBlockHttp(
                 call.instanceFollowRedirects = false
                 call.useCaches = false
                 call.connectTimeout = 4_000
-                call.readTimeout = 5_000
+                call.readTimeout = readTimeoutMs
                 call.requestMethod = when (intent?.block) {
                     null -> "GET"
                     true -> "PUT"

@@ -137,7 +137,7 @@ internal suspend fun atrioQaInboxToken(auth: FirebaseAuth, user: FirebaseUser): 
 
 @Composable
 internal fun AtrioManagedBlockControl(
-    blocks: AtrioManagedBlocks, peerUid: String, tag: String
+    blocks: AtrioManagedBlocks, peerUid: String, tag: String, blockedByList: Boolean = false
 ) {
     val scope = rememberCoroutineScope()
     val operation = blocks.operation(peerUid)
@@ -146,9 +146,10 @@ internal fun AtrioManagedBlockControl(
     LaunchedEffect(blocks, peerUid) { blocks.refresh(peerUid) }
 
     val pending = operation?.phase == AtrioManagedBlocks.Phase.Pending
+    val staleUnblocked = blockedByList && confirmed == false
     val action = when {
         pending -> "Tentar novamente"
-        confirmed == null -> "Atualizar estado"
+        confirmed == null || staleUnblocked -> "Atualizar estado"
         confirmed -> "Desbloquear participante"
         else -> "Bloquear participante"
     }
@@ -171,7 +172,8 @@ internal fun AtrioManagedBlockControl(
         OutlinedButton(
             onClick = {
                 scope.launch {
-                    if (pending || confirmed != null) blocks.submit(peerUid) else blocks.refresh(peerUid)
+                    if (pending || (confirmed != null && !staleUnblocked)) blocks.submit(peerUid)
+                    else blocks.refresh(peerUid)
                 }
             },
             enabled = !loading && operation?.phase != AtrioManagedBlocks.Phase.Sending,

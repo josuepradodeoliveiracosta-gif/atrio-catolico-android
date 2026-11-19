@@ -16,6 +16,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -41,28 +42,45 @@ internal fun PublicMemberProfileScreen(
     onOpenDiscussion: (String) -> Unit,
     viewerUid: String = "",
     onConverse: (() -> Unit)? = null,
-    managedBlocks: AtrioManagedBlocks? = null
+    managedBlocks: AtrioManagedBlocks? = null,
+    confirmedBlockedMembers: Set<String>? = null
 ) {
     val uid = target.uid
+    val managed = BuildConfig.ATRIO_QA_INBOX_DISCOVERY
+    val auth = remember(db) { FirebaseAuth.getInstance(db.app) }
+    val session = rememberAtrioCurrentUser(auth)
+    var blockListRetry by remember(db, viewerUid) { mutableIntStateOf(0) }
+    val blockedMembers = if (viewerUid.isBlank()) emptySet()
+        else confirmedBlockedMembers ?: rememberBlockedMembers(db, viewerUid, blockListRetry)
+    BackHandler(onBack = onBack)
+    if (blockedMembers == null || (viewerUid.isNotBlank() && session?.uid != viewerUid)) {
+        Column {
+            TextButton(onClick = onBack, modifier = Modifier.testTag("atrio-public-profile-back")) {
+                Text("Voltar")
+            }
+            BlockedMembersConnectionStatus { blockListRetry++ }
+        }
+        return
+    }
     var info by remember(uid) { mutableStateOf<PublicMemberInfo?>(null) }
     var infoLoading by remember(uid) { mutableStateOf(true) }
     var infoError by remember(uid) { mutableStateOf(false) }
-    val entries = remember(uid) { mutableStateListOf<PublicMemberDiscussion>() }
-    var last by remember(uid) { mutableStateOf<DocumentSnapshot?>(null) }
-    var nextPage by remember(uid) { mutableIntStateOf(0) }
-    var loading by remember(uid) { mutableStateOf(true) }
-    var failed by remember(uid) { mutableStateOf(false) }
-    var more by remember(uid) { mutableStateOf(false) }
-    val managed = BuildConfig.ATRIO_QA_INBOX_DISCOVERY
-    val blocked = if (managed) {
-        managedBlocks?.confirmed(uid)?.blocked != false || uid in managedBlocks.hiddenPeers()
-    } else uid in rememberBlockedMembers(db, viewerUid)
+    val blockedByList = uid in blockedMembers
+    val blocked = blockedByList || (managed &&
+        (managedBlocks?.confirmed(uid)?.blocked != false || uid in managedBlocks.hiddenPeers()))
+    val entries = remember(db, session, uid, blocked) { mutableStateListOf<PublicMemberDiscussion>() }
+    var last by remember(db, session, uid, blocked) { mutableStateOf<DocumentSnapshot?>(null) }
+    var nextPage by remember(db, session, uid, blocked) { mutableIntStateOf(0) }
+    var loading by remember(db, session, uid, blocked) { mutableStateOf(true) }
+    var failed by remember(db, session, uid, blocked) { mutableStateOf(false) }
+    var more by remember(db, session, uid, blocked) { mutableStateOf(false) }
+    val contentVisible by rememberUpdatedState(!blocked)
+    fun canOpenContent() = contentVisible && (viewerUid.isBlank() || auth.currentUser === session)
     var actionBusy by remember(viewerUid, uid) { mutableStateOf(false) }
     var reportOpen by remember(viewerUid, uid) { mutableStateOf(false) }
     var reportReason by remember(viewerUid, uid) { mutableStateOf("") }
     var reportMessage by remember(viewerUid, uid) { mutableStateOf("") }
 
-    BackHandler(onBack = onBack)
     DisposableEffect(db, uid) {
         var active = true
         db.collection("public_profiles").document(uid).get().addOnCompleteListener { result ->
@@ -80,7 +98,8 @@ internal fun PublicMemberProfileScreen(
         }
         onDispose { active = false }
     }
-    DisposableEffect(db, uid, nextPage) {
+    DisposableEffect(db, session, uid, blocked, nextPage) {
+        if (blocked) return@DisposableEffect onDispose {}
         var active = true
         loading = true
         failed = false
@@ -88,7 +107,7 @@ internal fun PublicMemberProfileScreen(
             .orderBy("createdAt", Query.Direction.DESCENDING).limit(20)
         val page = if (last == null) query else query.startAfter(last!!)
         page.get().addOnCompleteListener { task ->
-            if (!active) return@addOnCompleteListener
+            if (!active || !canOpenContent()) return@addOnCompleteListener
             loading = false
             failed = !task.isSuccessful
             if (task.isSuccessful) {
@@ -152,7 +171,7 @@ internal fun PublicMemberProfileScreen(
         if (viewerUid.isNotBlank() && uid != viewerUid) item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (!blocked && onConverse != null) {
-                    Button(onClick = onConverse,
+                    Button(onClick = { if (canOpenContent()) onConverse() },
                         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                             .testTag("atrio-public-profile-converse")) {
                         Text("Conversar")
@@ -160,17 +179,19 @@ internal fun PublicMemberProfileScreen(
                 }
                 if (managed) {
                     if (managedBlocks != null) AtrioManagedBlockControl(
-                        managedBlocks, uid, "atrio-member-block"
+                        managedBlocks, uid, "atrio-member-block", blockedByList = blockedByList
                     )
                 } else OutlinedButton(
                     enabled = !actionBusy,
                     onClick = {
+                        if (session == null || auth.currentUser !== session) return@OutlinedButton
                         actionBusy = true
                         val ref = db.collection("users").document(viewerUid)
                             .collection("blockedMembers").document(uid)
                         val task = if (blocked) ref.delete()
                             else ref.set(mapOf("createdAt" to FieldValue.serverTimestamp()))
                         task.addOnCompleteListener { result ->
+                            if (auth.currentUser !== session) return@addOnCompleteListener
                             actionBusy = false
                             reportMessage = if (result.isSuccessful) {
                                 if (blocked) "Participante desbloqueado." else "Participante bloqueado."
@@ -189,14 +210,14 @@ internal fun PublicMemberProfileScreen(
                     style = MaterialTheme.typography.bodySmall, color = Muted)
             }
         }
-        item {
+        if (!blocked) item {
             Text("Discussões", style = MaterialTheme.typography.titleLarge)
             Text("${entries.size} discussões carregadas · lista paginada",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (!blocked) items(entries, key = { "public-post-${it.id}" }) { post ->
-            Card(onClick = { onOpenDiscussion(post.id) }, modifier = Modifier.fillMaxWidth()
+            Card(onClick = { if (canOpenContent()) onOpenDiscussion(post.id) }, modifier = Modifier.fillMaxWidth()
                 .testTag("atrio-public-post-${post.id}")) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Text(post.title, style = MaterialTheme.typography.titleMedium)
@@ -207,8 +228,8 @@ internal fun PublicMemberProfileScreen(
                 }
             }
         }
-        if (loading) item { CircularProgressIndicator(Modifier.testTag("atrio-public-posts-loading")) }
-        if (failed) item {
+        if (!blocked && loading) item { CircularProgressIndicator(Modifier.testTag("atrio-public-posts-loading")) }
+        if (!blocked && failed) item {
             Text("Não foi possível carregar as discussões. Confira a conexão ou o índice necessário.",
                 color = MaterialTheme.colorScheme.error)
             OutlinedButton(onClick = { nextPage++ }) { Text("Tentar novamente") }
