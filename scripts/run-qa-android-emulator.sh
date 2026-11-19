@@ -196,6 +196,13 @@ if [[ "$inbox_focal" == 1 ]]; then
   run_suite "$ATRIO_QA_SUITE"
   if [[ "$qa_failed" == 0 ]]; then
     grep -F 'Inbox QA local: HTTP 409 na continuação.' qa-inbox-discovery-emulator.log
+    authenticated_block_suite=AtrioAuthenticatedBlockEmulatorUiTest
+    run_suite "$authenticated_block_suite"
+    if [[ "$qa_failed" == 0 ]]; then
+      grep -F 'QA BLOCK 503: sem bloqueio ou recibo' qa-inbox-discovery-emulator.log
+      grep -F 'QA BLOCK 200: mesma chave e ETag' qa-inbox-discovery-emulator.log
+      grep -F 'QA BLOCK 200: mutação e recibo gravados; projeções coerentes.' qa-inbox-discovery-emulator.log
+    fi
     managed_block_suite=AtrioManagedBlockUiTest
     run_suite "$managed_block_suite"
   fi

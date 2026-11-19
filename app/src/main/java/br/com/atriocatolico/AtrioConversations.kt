@@ -353,6 +353,10 @@ private fun AtrioConversationsForSession(
                 onBack = { groupsOpen = false },
                 initialGroupId = initialGroupId)
         } else if (selected != null) {
+            // O controle precisa continuar acessível quando as Rules já ocultam a conversa.
+            val blockPeer = selectedDiscoveryRoom?.takeIf { it.id == selected }?.peer(uid) ?: peerUid
+            if (managedBlocks != null && blockPeer != null)
+                AtrioManagedBlockControl(managedBlocks, blockPeer, "atrio-chat-block-toggle")
             val firstContact = AtrioPeerInboxPolicy.explicitFirstContact(
                 uid, initialPeer?.uid, selected, rooms.isNotEmpty()
             ) && peerUid == initialPeer?.uid && loaded && error.isBlank()
@@ -612,10 +616,9 @@ private fun AtrioChatThread(
     val peerName = chatPeerName(db, peerUid, initialPeer?.nameFromPublication ?: "Participante")
     // Apenas o próprio titular pode ler sua lista de bloqueados. Não tentar
     // descobrir se o outro participante bloqueou esta conta.
-    val confirmedBlock = if (!legacyWrites) rememberAtrioConfirmedBlock(db, uid, peerUid) else null
     var legacyBlockedByMe by remember(uid, peerUid) { mutableStateOf<Boolean?>(null) }
     val blockedByMe = if (legacyWrites) legacyBlockedByMe
-        else managedBlocks?.confirmed(peerUid, confirmedBlock) ?: confirmedBlock
+        else managedBlocks?.confirmed(peerUid)?.blocked
     val hiddenByManagedBlock = !legacyWrites &&
         (blockedByMe == true || peerUid in managedBlocks?.hiddenPeers().orEmpty())
     DisposableEffect(db, uid, peerUid, legacyWrites) {
@@ -887,8 +890,6 @@ private fun AtrioChatThread(
             }
         }
         HorizontalDivider(color = Line)
-        if (!legacyWrites && managedBlocks != null && peerUid.isNotBlank())
-            AtrioManagedBlockControl(managedBlocks, peerUid, confirmedBlock, "atrio-chat-block-toggle")
         if (!loaded) LinearProgressIndicator(Modifier.fillMaxWidth())
         if (hiddenByManagedBlock) {
             Text("Conversa oculta por bloqueio ou solicitação pendente.", Modifier.padding(20.dp))
