@@ -129,6 +129,7 @@ mkdir -p qa-android-suite-results
 qa_failed=0
 run_suite() {
   local suite="$1"
+  shift
   # Modo all preserva a ordem das suites; cada grupo so roda as suas.
   if [[ "$qa_group" != "all" ]]; then
     case "$qa_group:$suite" in
@@ -155,6 +156,7 @@ run_suite() {
   echo "QA Android: iniciando $suite (isolado)"
   if gradle "$test_task" \
     "-Pandroid.testInstrumentationRunnerArguments.class=$full" \
+    "$@" \
     --daemon --stacktrace; then
     echo "QA Android: $suite aprovada"
   else
@@ -234,6 +236,16 @@ if [[ "${ATRIO_QA_SUITE:-}" == AtrioConversasCompostasEmulatorUiTest ]]; then
   run_suite "$ATRIO_QA_SUITE"
   exit "$qa_failed"
 fi
+case "${ATRIO_QA_SUITE:-}" in
+  'ThreeBotsOnlineEmulatorTest#claraMiguelLuciaFazemLoginENavegamComFirebaseEmulado')
+    case "${ATRIO_QA_201_TIMING:-}" in
+      AFTER_ACK|FIRST_SERVER_READ|PENDING_OFFLINE) ;;
+      *) echo "Modo de diagnóstico da #201 inválido" >&2; exit 2 ;;
+    esac
+    run_suite "$ATRIO_QA_SUITE" "-Pandroid.testInstrumentationRunnerArguments.atrioQa201Timing=$ATRIO_QA_201_TIMING"
+    exit "$qa_failed"
+    ;;
+esac
 if [[ -n "${ATRIO_QA_SUITE:-}" ]]; then
   echo "Suite seletiva desconhecida; negando execucao" >&2
   exit 2

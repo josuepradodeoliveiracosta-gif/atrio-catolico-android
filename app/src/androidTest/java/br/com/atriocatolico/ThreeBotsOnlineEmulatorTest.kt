@@ -1,6 +1,8 @@
 package br.com.atriocatolico
 
 import android.content.Context
+import android.os.SystemClock
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsDisplayed
@@ -16,6 +18,7 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
+import androidx.test.platform.app.InstrumentationRegistry
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
@@ -60,6 +63,8 @@ class ThreeBotsOnlineEmulatorTest {
 
     private lateinit var auth: FirebaseAuth
     private lateinit var db: FirebaseFirestore
+
+    private enum class SwitchTiming { AFTER_ACK, FIRST_SERVER_READ, PENDING_OFFLINE }
 
     private fun prepareEmulators() {
         assertEquals("Bots online somente no APK QA Geral",
@@ -147,7 +152,14 @@ class ThreeBotsOnlineEmulatorTest {
     }
 
     @Test fun claraMiguelLuciaFazemLoginENavegamComFirebaseEmulado() {
+        val configuredTiming = InstrumentationRegistry.getArguments().getString("atrioQa201Timing")
+        val timing = configuredTiming?.let(SwitchTiming::valueOf) ?: SwitchTiming.AFTER_ACK
         prepareEmulators()
+        val startedAt = SystemClock.elapsedRealtime()
+        fun trace(event: String, state: String) {
+            Log.i("AtrioNoticeQA",
+                "modo=$timing etapa=$event ms=${SystemClock.elapsedRealtime() - startedAt} $state")
+        }
         // UUIDs de Auth, perfis e dados são novos a cada execução em ambiente
         // local, onde não há leitura/escrita no projeto oficial.
         val nonce = System.currentTimeMillis()
@@ -160,7 +172,12 @@ class ThreeBotsOnlineEmulatorTest {
         createAccount(luciaEmail, "Lúcia BOT DE TESTE")
 
         val batchState = AtomicReference<QaReplyBatchState>()
-        compose.setContent { OnlineAtrioApp(compose.activity, onQaReplyBatch = { batchState.set(it) }) }
+        compose.setContent {
+            OnlineAtrioApp(compose.activity, onQaReplyBatch = {
+                batchState.set(it)
+                trace("callback_lote", "estado=${it.result} aviso_no_lote=${it.ownerNoticeQueued}")
+            })
+        }
 
         // Clara entra pelo formulário real do Átrio e publica tocando na tela.
         enter(claraEmail,"Clara")
@@ -232,34 +249,62 @@ class ThreeBotsOnlineEmulatorTest {
             .assertIsDisplayed()
             .assertIsEnabled()
             .performTextInput("Resposta de Miguel pelo app Android conectado.")
-        compose.onNodeWithTag("atrio-reply-submit")
-            .assertIsDisplayed()
-            .assertIsEnabled()
-            .performClick()
-        // A leitura do servidor pode incluir uma gravação local ainda pendente.
-        // Mantenha a sessão de Miguel até o lote dessa resposta ser confirmado.
         val miguelId = requireNotNull(auth.currentUser?.uid)
         assertTrue("A resposta foi publicada fora da conta de Miguel", miguelId != claraId)
         val repliesRef = db.collection("posts").document(postId).collection("replies")
-        compose.waitUntil(30000) {
-            val batch = batchState.get() ?: return@waitUntil false
-            if (batch.result == "pendente") return@waitUntil false
-            assertEquals("O Firestore deve confirmar o lote na sessão de Miguel",
-                "confirmado", batch.result)
-            val reply = Tasks.await(repliesRef.document(batch.replyId).get(Source.SERVER),
-                5, TimeUnit.SECONDS)
-            reply.exists() && !reply.metadata.hasPendingWrites() &&
-                reply.getString("uid") == miguelId &&
-                reply.getString("body") == "Resposta de Miguel pelo app Android conectado."
+        val pauseNetwork = timing == SwitchTiming.PENDING_OFFLINE
+        val replyId: String
+        if (pauseNetwork) Tasks.await(db.disableNetwork(), 5, TimeUnit.SECONDS)
+        try {
+            trace("toque_responder", "firestore_pausado=$pauseNetwork")
+            compose.onNodeWithTag("atrio-reply-submit")
+                .assertIsDisplayed()
+                .assertIsEnabled()
+                .performClick()
+
+            val source = if (pauseNetwork) Source.CACHE else Source.SERVER
+            var observedPending = false
+            var observed = "sem_leitura"
+            compose.waitUntil(30000) {
+                val batch = batchState.get() ?: return@waitUntil false
+                if (timing == SwitchTiming.AFTER_ACK) {
+                    if (batch.result == "pendente") return@waitUntil false
+                    assertEquals("Confirmação do lote de Miguel", "confirmado", batch.result)
+                }
+                val task = repliesRef.document(batch.replyId).get(source)
+                val reply = if (pauseNetwork) runCatching {
+                    Tasks.await(task, 5, TimeUnit.SECONDS)
+                }.getOrNull() else Tasks.await(task, 5, TimeUnit.SECONDS)
+                if (reply == null || !reply.exists() || reply.getString("uid") != miguelId ||
+                    reply.getString("body") != "Resposta de Miguel pelo app Android conectado."
+                ) return@waitUntil false
+                val pending = reply.metadata.hasPendingWrites()
+                observedPending = pending
+                observed = "fonte=$source resposta_pendente=$pending cache=${reply.metadata.isFromCache}"
+                timing != SwitchTiming.AFTER_ACK || !pending
+            }
+            replyId = requireNotNull(batchState.get()).replyId
+            compose.runOnIdle {
+                assertEquals("Miguel deve estar ativo até a troca", miguelId, auth.currentUser?.uid)
+                val batch = requireNotNull(batchState.get())
+                assertEquals(replyId, batch.replyId)
+                trace("troca_de_miguel", "lote=${batch.result} aviso_no_lote=${batch.ownerNoticeQueued} " +
+                    "sessao_miguel=true mesmo_id=true $observed")
+                if (pauseNetwork) {
+                    assertEquals("O botão deve ter enfileirado uma gravação pendente",
+                        "pendente", batch.result)
+                    assertTrue("A leitura local deve mostrar a escrita pendente",
+                        observedPending)
+                }
+                auth.signOut()
+            }
+            awaitScreen("Entrar na comunidade")
+        } finally {
+            if (pauseNetwork) {
+                Tasks.await(db.enableNetwork(), 5, TimeUnit.SECONDS)
+                trace("rede_restaurada", "apos_troca=true")
+            }
         }
-        val replyId = requireNotNull(batchState.get()).replyId
-        assertEquals("A sessão de Miguel deve estar ativa até a confirmação",
-            miguelId, auth.currentUser?.uid)
-        android.util.Log.i("AtrioNoticeQA",
-            "etapa=antes_da_troca resposta_pendente=false lote=confirmado mesmo_id=true")
-        // Miguel não pode ler as notificações privadas de Clara. A leitura
-        // será feita após reautenticar como destinatária, no final da sessão.
-        leave()
 
         // Lúcia autentica sua própria conta, curte e salva a discussão.
         enter(luciaEmail,"Lúcia")
@@ -289,6 +334,7 @@ class ThreeBotsOnlineEmulatorTest {
             .collection("savedPosts").document(postId).get(Source.SERVER),25,TimeUnit.SECONDS)
         assertTrue("Lúcia não curtiu o post no Firestore emulado",liked.exists())
         assertTrue("Lúcia não salvou o post no Firestore emulado",saved.exists())
+        trace("lucia", "curtida_servidor=true salvamento_servidor=true")
         leave()
 
         // Clara retorna e lê seu aviso interno real no Firestore emulado.
@@ -296,6 +342,7 @@ class ThreeBotsOnlineEmulatorTest {
         assertEquals("A sessão de Clara deve ser restaurada corretamente",
             claraId,auth.currentUser?.uid)
         val notices = db.collection("users").document(claraId).collection("notifications")
+        val originalStartedAt = SystemClock.elapsedRealtime()
         val original = runCatching {
             compose.waitUntil(30000) {
                 val result = Tasks.await(notices.get(Source.SERVER), 20, TimeUnit.SECONDS)
@@ -307,8 +354,8 @@ class ThreeBotsOnlineEmulatorTest {
         }
         val originalResult = original.exceptionOrNull()?.let(::diagnosticError) ?: "encontrado"
         val batch = batchState.get()
-        android.util.Log.i("AtrioNoticeQA",
-            "etapa=consulta_original resultado=$originalResult " +
+        trace("consulta_original",
+            "resultado=$originalResult duracao_ms=${SystemClock.elapsedRealtime() - originalStartedAt} " +
                 "lote=${batch?.result ?: "sem_callback"} aviso_no_lote=${batch?.ownerNoticeQueued} " +
                 "mesmo_id=${batch?.replyId == replyId}")
 
@@ -316,13 +363,20 @@ class ThreeBotsOnlineEmulatorTest {
         val serverReply = runCatching {
             val reply = Tasks.await(db.collection("posts").document(postId)
                 .collection("replies").document(replyId).get(Source.SERVER), 5, TimeUnit.SECONDS)
-            reply.exists() && !reply.metadata.hasPendingWrites() && reply.getString("uid") == miguelId
+            when {
+                !reply.exists() -> "ausente"
+                reply.metadata.hasPendingWrites() -> "pendente"
+                reply.metadata.isFromCache -> "cache"
+                reply.getString("uid") != miguelId -> "autor_divergente"
+                else -> "confirmada"
+            }
         }
         val exact = runCatching {
             val notice = Tasks.await(notices.document(replyId).get(Source.SERVER), 5, TimeUnit.SECONDS)
             when {
                 !notice.exists() -> "ausente"
                 notice.metadata.hasPendingWrites() -> "pendente"
+                notice.metadata.isFromCache -> "cache"
                 notice.getString("postId") != postId || notice.getString("replyId") != replyId ||
                     notice.getString("actorUid") != miguelId -> "campos_divergentes"
                 else -> "confirmado"
@@ -344,10 +398,9 @@ class ThreeBotsOnlineEmulatorTest {
             true
         }
         val finalBatch = batchState.get()
-        android.util.Log.i("AtrioNoticeQA",
-            "etapa=diagnostico lote=${finalBatch?.result ?: "sem_callback"} " +
+        trace("diagnostico", "lote=${finalBatch?.result ?: "sem_callback"} " +
                 "aviso_no_lote=${finalBatch?.ownerNoticeQueued} mesmo_id=${finalBatch?.replyId == replyId} " +
-                "resposta_no_servidor=${serverReply.fold({ it.toString() }, ::diagnosticError)} " +
+                "resposta_no_servidor=${serverReply.fold({ it }, ::diagnosticError)} " +
                 "aviso_exato=${exact.fold({ it }, ::diagnosticError)} " +
                 "na_consulta_da_central=${ordered.fold({ it.toString() }, ::diagnosticError)} " +
                 "visivel_na_central=${visible.fold({ it.toString() }, ::diagnosticError)}")
@@ -357,7 +410,7 @@ class ThreeBotsOnlineEmulatorTest {
         // Comprovar a gravação pelos dois documentos do mesmo ID, no servidor.
         assertTrue("O aviso da autora foi incluído no lote do mesmo ID",
             finalBatch != null && finalBatch.replyId == replyId && finalBatch.ownerNoticeQueued)
-        assertTrue("Resposta do mesmo ID confirmada no servidor", serverReply.getOrThrow())
+        assertEquals("Resposta do mesmo ID confirmada no servidor", "confirmada", serverReply.getOrThrow())
         assertEquals("Estado do aviso pelo ID exato", "confirmado", exact.getOrThrow())
         assertTrue("Mesmo ID na consulta ordenada da central", ordered.getOrThrow())
         visible.getOrThrow()
