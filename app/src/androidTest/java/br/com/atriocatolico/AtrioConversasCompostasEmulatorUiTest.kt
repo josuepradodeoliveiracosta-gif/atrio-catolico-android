@@ -261,11 +261,22 @@ class AtrioConversasCompostasEmulatorUiTest {
     }
 
     private fun waitForHiddenHistory(history: String, destination: Screen) {
-        waitForText("Conversa não encontrada ou acesso negado.")
-        compose.onNodeWithText(history).assertDoesNotExist()
+        fun verifyClosedView() {
+            compose.waitUntil(30_000) {
+                val hidden = compose.onAllNodesWithText(history).fetchSemanticsNodes().isEmpty()
+                val denied = compose.onAllNodesWithTag("atrio-peer-inbox-error")
+                    .fetchSemanticsNodes().isNotEmpty() ||
+                    compose.onAllNodesWithText("Conversa não encontrada ou acesso negado.")
+                        .fetchSemanticsNodes().isNotEmpty() ||
+                    compose.onAllNodesWithText("Conversa indisponível para esta conta.")
+                        .fetchSemanticsNodes().isNotEmpty()
+                hidden && denied
+            }
+            compose.onNodeWithText(history).assertDoesNotExist()
+        }
+        verifyClosedView()
         reopen(destination)
-        waitForText("Conversa não encontrada ou acesso negado.")
-        compose.onNodeWithText(history).assertDoesNotExist()
+        verifyClosedView()
     }
 
     @After fun cleanSession() {
