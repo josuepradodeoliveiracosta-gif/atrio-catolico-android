@@ -9,7 +9,8 @@ import {peerInboxEntries,reconcilePeerInbox} from './chat-inbox-peer-index.mjs';
 const UID=/^[A-Za-z0-9_-]{1,128}$/;
 const CHAT=/^[A-Za-z0-9_-]{1,260}$/;
 const LEGACY_PAIR='eligible|2026-11-18plus-qa-v1';
-const MAX_SCAN=40;
+const MAX_SCAN=40; // tamanho do lote interno, NUNCA fonte de cursor público
+const MAX_SCAN_BUDGET=160; // teto de custo por requisição; falha fechado
 const MAX_LIMIT=20;
 const TTL_MS=10*60*1000;
 const deny=()=>{throw Error('inbox_access_denied');};
@@ -150,23 +151,42 @@ export function createAuthorizedInboxService({
       const now=clock();
       if(!Number.isFinite(now)||
          !await store.viewerGate(uid,now,acceptedPairs))deny();
-      const after=cursor===null?null:unseal(cursorKey,uid,cursor,now);
-      const candidates=await store.candidateIds(uid,after,MAX_SCAN);
-      if(!Array.isArray(candidates)||candidates.length>MAX_SCAN)deny();
+      // A paginação pública só considera contatos efetivamente AUTORIZADOS.
+      // Nunca criar cursor pelo número de candidatos privados/ocultos:
+      // 39, 40 e 41 bloqueados devem produzir a mesma resposta vazia.
+      let scanAfter=cursor===null?null:unseal(cursorKey,uid,cursor,now);
+      let lastVisible=null, nextVisible=false, scanned=0;
       const items=[];
-      let scanned=0;
-      for(const id of candidates) {
-        if(!CHAT.test(id||''))deny();
-        const item=await store.permittedChat(uid,id,now,acceptedPairs);
-        scanned++;
-        if(item)items.push(item);
-        if(items.length===limit)break;
+      while(scanned<MAX_SCAN_BUDGET && !nextVisible){
+        const requested=Math.min(MAX_SCAN,MAX_SCAN_BUDGET-scanned);
+        const candidates=await store.candidateIds(uid,scanAfter,requested);
+        if(!Array.isArray(candidates)||candidates.length>requested)deny();
+        for(const id of candidates){
+          if(!CHAT.test(id||'') || (scanAfter!==null && id<=scanAfter))
+            deny();
+          scanAfter=id;
+          scanned++;
+          const item=await store.permittedChat(uid,id,now,acceptedPairs);
+          if(item){
+            if(items.length<limit){
+              items.push(item);
+              lastVisible=id;
+            }else{
+              // Lookahead AUTORIZADO: candidatos ocultos não geram cursor,
+              // mesmo que o lote tenha atingido exatamente 40 documentos.
+              nextVisible=true;
+              break;
+            }
+          }
+        }
+        if(candidates.length<requested)break;
       }
-      const hasMore=scanned<candidates.length || candidates.length===MAX_SCAN;
-      const last=scanned?candidates[scanned-1]:null;
+      // Se o teto interno acabar, o cursor NÃO denuncia que existam
+      // outros documentos: sem prova de próximo autorizado, não há cursor.
       return {
         items,
-        nextCursor:hasMore&&last?seal(cursorKey,uid,last,now):null
+        nextCursor:nextVisible&&lastVisible
+          ? seal(cursorKey,uid,lastVisible,now) : null
       };
     }
   };
