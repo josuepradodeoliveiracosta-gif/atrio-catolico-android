@@ -35,6 +35,7 @@ export function renderSelfDeclarationRules(chat,group){
   "        && request.resource.data.keys().hasAll(['status','minimumAge','policyVersion','reviewExpiresAt'])",
   "        && request.resource.data.keys().hasOnly(['status','minimumAge','policyVersion','reviewExpiresAt'])",
   "        && request.resource.data.status == 'declared_18_plus'",
+  '        && request.resource.data.minimumAge is int',
   '        && request.resource.data.minimumAge == 18',
   "        && request.resource.data.policyVersion == '2026-11-selfdecl-qa-v1'",
   '        && request.resource.data.reviewExpiresAt is timestamp',
