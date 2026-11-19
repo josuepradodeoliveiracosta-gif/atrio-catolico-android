@@ -741,7 +741,7 @@ private fun AtrioChatThread(
                     requestSubmitted = true
                     loaded = false
                     confirmedRoom = true
-                    info = "Solicitação enviada. Confirmando conversa no servidor."
+                    info = "Solicitação enviada."
                     replyingTo = null
                     pendingAttemptId = ""; pendingAttemptText = ""
                 } else if (FirebaseAuth.getInstance().currentUser?.uid != uid) {
