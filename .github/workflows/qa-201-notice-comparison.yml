@@ -21,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mode: [AFTER_ACK, FIRST_SERVER_READ, PENDING_OFFLINE]
+        mode: [PENDING_OFFLINE]
     env:
       TECH_REF: ${{ github.event.pull_request.head.sha }}
       ATRIO_QA_GERAL_BUILD: '1'

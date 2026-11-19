@@ -17,6 +17,8 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.platform.app.InstrumentationRegistry
 import com.google.android.gms.tasks.Tasks
@@ -254,13 +256,27 @@ class ThreeBotsOnlineEmulatorTest {
         val repliesRef = db.collection("posts").document(postId).collection("replies")
         val pauseNetwork = timing == SwitchTiming.PENDING_OFFLINE
         val replyId: String
+        var switched = false
+        if (pauseNetwork) {
+            compose.runOnIdle {
+                val window = compose.activity.window
+                WindowCompat.getInsetsController(window, window.decorView)
+                    .hide(WindowInsetsCompat.Type.ime())
+            }
+        }
         if (pauseNetwork) Tasks.await(db.disableNetwork(), 5, TimeUnit.SECONDS)
         try {
-            trace("toque_responder", "firestore_pausado=$pauseNetwork")
-            compose.onNodeWithTag("atrio-reply-submit")
-                .assertIsDisplayed()
-                .assertIsEnabled()
-                .performClick()
+            val submit = compose.onNodeWithTag("atrio-reply-submit")
+            compose.waitUntil(10_000) {
+                try {
+                    submit.assertIsDisplayed().assertIsEnabled()
+                    true
+                } catch (_: AssertionError) {
+                    false
+                }
+            }
+            submit.performClick()
+            trace("toque_responder", "executado=true firestore_pausado=$pauseNetwork")
 
             val source = if (pauseNetwork) Source.CACHE else Source.SERVER
             var observedPending = false
@@ -288,8 +304,6 @@ class ThreeBotsOnlineEmulatorTest {
                 assertEquals("Miguel deve estar ativo até a troca", miguelId, auth.currentUser?.uid)
                 val batch = requireNotNull(batchState.get())
                 assertEquals(replyId, batch.replyId)
-                trace("troca_de_miguel", "lote=${batch.result} aviso_no_lote=${batch.ownerNoticeQueued} " +
-                    "sessao_miguel=true mesmo_id=true $observed")
                 if (pauseNetwork) {
                     assertEquals("O botão deve ter enfileirado uma gravação pendente",
                         "pendente", batch.result)
@@ -297,12 +311,16 @@ class ThreeBotsOnlineEmulatorTest {
                         observedPending)
                 }
                 auth.signOut()
+                assertEquals("A sessão de Miguel deve ter sido encerrada", null, auth.currentUser)
+                switched = true
+                trace("troca_de_miguel", "lote=${batch.result} aviso_no_lote=${batch.ownerNoticeQueued} " +
+                    "sessao_antes=miguel sessao_depois=encerrada mesmo_id=true $observed")
             }
             awaitScreen("Entrar na comunidade")
         } finally {
             if (pauseNetwork) {
                 Tasks.await(db.enableNetwork(), 5, TimeUnit.SECONDS)
-                trace("rede_restaurada", "apos_troca=true")
+                trace("rede_restaurada", "apos_troca=$switched")
             }
         }
 
