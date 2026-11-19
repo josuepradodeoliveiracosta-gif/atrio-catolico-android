@@ -20,7 +20,7 @@ jobs:
     timeout-minutes: 12
     steps:
       - name: Checkout sem credenciais persistentes
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Testar instrumento em memoria, sem APIs

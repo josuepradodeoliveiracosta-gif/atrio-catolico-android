@@ -59,7 +59,7 @@ jobs:
         working-directory: tests/security
     steps:
       - name: Obter revisão do evento
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Preparar Java 17
@@ -103,7 +103,7 @@ jobs:
     steps:
       # A revisão padrão do evento mantém a PR no ref de teste do GitHub.
       - name: Obter revisão do evento
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Registrar o commit executado pela suíte

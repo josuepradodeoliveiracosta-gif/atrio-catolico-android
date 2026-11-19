@@ -43,7 +43,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Obter ferramentas de verificação (sem chave de assinatura)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: actions/setup-java@v4
