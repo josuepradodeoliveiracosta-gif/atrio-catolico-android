@@ -125,6 +125,29 @@ async function traversal(uid){
   return items;
 }
 const peers=async uid=>(await traversal(uid)).map(item=>item.peerUid);
+async function acceptFixture(chatId){
+  await db.runTransaction(async tx=>{
+    const ref=room(chatId);
+    const current=(await tx.get(ref)).data();
+    const materialize=await preparePeerInbox(db,tx,peerInboxEntries(chatId,{...current,status:'accepted'}));
+    tx.update(ref,{status:'accepted'});
+    materialize();
+  });
+}
+async function persistedState(actor,peer,chatId){
+  const roomRef=room(chatId);
+  const refs=[roomRef,quota(actor)];
+  for(const [owner,other] of [[actor,peer],[peer,actor]]){
+    const inbox=db.doc('serverInboxOwners/'+owner);
+    refs.push(inbox,inbox.collection('legacy').doc(chatId),
+      db.doc('users/'+owner+'/chatInboxByPeer/'+other+'/entries/'+chatId));
+  }
+  const [documents,messageList,receiptList]=await Promise.all([
+    db.getAll(...refs),roomRef.collection('messages').get(),receipts()
+  ]);
+  return [...documents,...messageList.docs,...receiptList.docs]
+    .map(snap=>({path:snap.ref.path,data:snap.data(),updated:snap.updateTime}));
+}
 let count=0;
 async function check(label,run){
   await run();
@@ -232,13 +255,7 @@ try{
   });
 
   // Aceite sintético por escritor confiável, fora das rotas desta etapa.
-  await db.runTransaction(async tx=>{
-    const current=(await tx.get(room(ab))).data();
-    const next={...current,status:'accepted'};
-    const materialize=await preparePeerInbox(db,tx,peerInboxEntries(ab,next));
-    tx.update(room(ab),{status:'accepted'});
-    materialize();
-  });
+  await acceptFixture(ab);
 
   let lastKey;
   await check('envio confirma conteúdo, resposta e contadores mantendo a ordem e o cursor válidos',async()=>{
@@ -347,6 +364,37 @@ try{
     assert.equal((await peers(b)).includes(a),false);
     assert.equal((await block(b,a,'DELETE')).status,200);
   });
+
+  for(const {label,actor,peer,text,above} of [
+    {label:'BMP',actor:b,peer:l,text:'á'.repeat(1500),above:['á'.repeat(1501)]},
+    {label:'suplementar',actor:c,peer:m,text:'🙂'.repeat(750),
+      above:['🙂'.repeat(750)+'a','🙂'.repeat(751)]}
+  ]){
+    await check('limite UTF-16 '+label+' no primeiro contato e no envio',async()=>{
+      const chatId=id(actor,peer);
+      assert.equal(text.length,1500);
+      for(const path of [requestPath(peer),messages(chatId)]){
+        const before=await persistedState(actor,peer,chatId);
+        for(const invalid of above){
+          assert.ok(invalid.length>1500);
+          const key=randomUUID();
+          for(let attempt=0;attempt<2;attempt++)
+            assert.deepEqual(await write(actor,path,{text:invalid},key),rejected(400,'invalid_request'));
+        }
+        assert.deepEqual(await persistedState(actor,peer,chatId),before);
+        const reply=await write(actor,path,{text:' '+text+' '});
+        assert.equal(reply.status,200);
+        assert.equal(reply.body.committed,true);
+        const message=await room(chatId).collection('messages').doc(reply.body.messageId).get();
+        assert.equal(message.get('text'),text);
+        for(const [owner,other] of [[actor,peer],[peer,actor]]){
+          const preview=(await traversal(owner)).find(item=>item.peerUid===other);
+          assert.equal(preview?.lastPreview,text);
+        }
+        if(path===requestPath(peer))await acceptFixture(chatId);
+      }
+    });
+  }
 
   await check('revogação real impede nova escrita e replay de envio',async()=>{
     const before=(await room(ab).collection('messages').get()).size;

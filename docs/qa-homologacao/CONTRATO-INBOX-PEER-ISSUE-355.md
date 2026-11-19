@@ -85,7 +85,9 @@ Em QA, essas rotas são montadas por um teste HTTP em loopback com Auth e Firest
 
 ### Rotas de primeiro contato e envio de texto em QA
 
-Ambas aceitam apenas `POST`, com `Authorization: Bearer <Firebase ID token QA>`, `Content-Type: application/json` e `Idempotency-Key` estável por intenção. As chaves aceitam 16–128 caracteres ASCII alfanuméricos, hífen ou sublinhado. Recomenda-se UUID. O corpo tem limite de 20 KiB. Envie o texto com até 1.500 caracteres após remover espaços das extremidades. O titular vem do token. UID de autor, query, campos extras e texto inválido são recusados.
+Ambas aceitam apenas `POST`, com `Authorization: Bearer <Firebase ID token QA>`, `Content-Type: application/json` e `Idempotency-Key` estável por intenção. As chaves aceitam 16–128 caracteres ASCII alfanuméricos, hífen ou sublinhado. Recomenda-se UUID. O corpo tem limite de 20 KiB. O titular vem do token. UID de autor, query, campos extras e texto inválido são recusados.
+
+API, prévia e consumidor usam o limite de **1.500 unidades UTF-16** após remover espaços das extremidades do texto. A contagem corresponde a `String.length` no Android. Um caractere do BMP, como `á`, ocupa uma unidade. Um caractere suplementar, como `🙂`, ocupa duas. Assim, 1.500 repetições de `á` ou 750 repetições de `🙂` cabem no limite. Acima de 1.500 unidades, ambas as rotas devolvem **HTTP 400 `invalid_request`** antes da transação, sem alterar mensagem, prévia, quota ou recibo. Preserve o rascunho para edição antes de tentar novamente.
 
 | Rota | Corpo | Condição adicional |
 | --- | --- | --- |

@@ -4,8 +4,9 @@ import {
   authenticateInboxCaller,InboxAccessDenied,inboxConfigValid,validInboxAge
 } from './chat-inbox-discovery-server.mjs';
 import {
-  INBOX_DISCOVERY_CONTROL,INBOX_WRITE_BOUNDARY,existingPeerInboxViews,inboxAgePath,
-  inboxBlockPath,inboxProjectionReady,peerInboxEntries,preparePeerInbox
+  INBOX_DISCOVERY_CONTROL,INBOX_TEXT_MAX_UTF16_UNITS,INBOX_WRITE_BOUNDARY,
+  existingPeerInboxViews,inboxAgePath,inboxBlockPath,inboxProjectionReady,
+  peerInboxEntries,preparePeerInbox
 } from './chat-inbox-peer-index.mjs';
 
 const REQUEST=/^\/v1\/qa\/conversations\/requests\/([A-Za-z0-9_-]{1,128})$/;
@@ -49,7 +50,7 @@ async function readPayload(request,first) {
        Object.keys(input).some(key=>key!=='text'&&(first||key!=='replyToId'))||
        typeof input.text!=='string')return null;
     const text=input.text.trim();
-    if(!text||[...text].length>1500||Buffer.from(text).toString()!==text||
+    if(!text||text.length>INBOX_TEXT_MAX_UTF16_UNITS||Buffer.from(text).toString()!==text||
        (first&&FIRST_LINK.test(text)))return null;
     if(Object.hasOwn(input,'replyToId')&&
        (typeof input.replyToId!=='string'||!ID.test(input.replyToId)))return null;

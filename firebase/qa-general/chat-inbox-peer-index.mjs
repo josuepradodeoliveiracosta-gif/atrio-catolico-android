@@ -8,7 +8,7 @@ import {randomUUID} from 'node:crypto';
 
 const VALID_UID=/^[A-Za-z0-9_-]{1,128}$/;
 const VALID_CHAT=/^[A-Za-z0-9_-]{1,260}$/;
-const MAX_PREVIEW=1500;
+export const INBOX_TEXT_MAX_UTF16_UNITS=1500;
 export const LEGACY_INBOX_AGE_PAIR='eligible|2026-11-18plus-qa-v1';
 export const INBOX_AGE_COLLECTIONS=Object.freeze({
   [LEGACY_INBOX_AGE_PAIR]:'legacy',
@@ -93,7 +93,7 @@ export function peerInboxEntries(chatId, chat) {
      chat.participants.length!==2 ||
      chat.participants[0]!==a || chat.participants[1]!==b ||
      !['pending','accepted','declined'].includes(status) ||
-     typeof lastPreview!=='string' || lastPreview.length>MAX_PREVIEW ||
+     typeof lastPreview!=='string' || lastPreview.length>INBOX_TEXT_MAX_UTF16_UNITS ||
      typeof updatedAt?.toMillis!=='function' || !Number.isFinite(updatedAt.toMillis()))
     throw Error('inbox_invalid_contract');
   const one=(ownerUid,peerUid)=>({
