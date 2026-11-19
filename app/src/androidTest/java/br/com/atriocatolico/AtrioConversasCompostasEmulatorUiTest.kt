@@ -1,6 +1,8 @@
 package br.com.atriocatolico
 
 import android.content.Context
+import android.os.SystemClock
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -41,6 +43,7 @@ class AtrioConversasCompostasEmulatorUiTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
     private lateinit var auth: FirebaseAuth
     private lateinit var db: FirebaseFirestore
+    private var diagnosticIdToken: String? = null
     private val pilot = BuildConfig.ATRIO_QA_GERAL_CELULAR_PILOT
     private val aliceEmail = if (pilot) "alice.navegacao@qa.invalid" else "conversas.alice@qa.invalid"
     private val bobEmail = if (pilot) "bob.navegacao@qa.invalid" else "conversas.bob@qa.invalid"
@@ -108,7 +111,9 @@ class AtrioConversasCompostasEmulatorUiTest {
         auth.signOut()
         val user = requireNotNull(await(auth.signInWithEmailAndPassword(
             email, password)).user)
-        assertEquals(true, await(user.getIdToken(true)).claims["email_verified"])
+        val token = await(user.getIdToken(true))
+        assertEquals(true, token.claims["email_verified"])
+        diagnosticIdToken = token.token
         if (eligible) {
             val eligibility = await(db.document("users/${user.uid}/chatAgeEligibility/current")
                 .get(Source.SERVER))
@@ -180,6 +185,72 @@ class AtrioConversasCompostasEmulatorUiTest {
         } finally {
             conn.disconnect()
         }
+    }
+
+    private fun historyTrace(event: String, participantUid: String, details: String = "") {
+        val session = when (auth.currentUser?.uid) {
+            participantUid -> "participant"
+            null -> "signed-out"
+            else -> "other"
+        }
+        Log.i("AtrioHistoryQA", "event=$event monoMs=${SystemClock.elapsedRealtime()} " +
+            "session=$session screenParticipant=${screen?.uid == participantUid} $details")
+    }
+
+    // Read only from the same throwaway emulator. Never log the token or the document body.
+    private fun diagnoseDeniedGroupRead(groupPath: String, participantUid: String) {
+        fun hasParticipant(fields: JSONObject?): Boolean {
+            val members = fields?.optJSONObject("memberUids")
+                ?.optJSONObject("arrayValue")?.optJSONArray("values") ?: return false
+            return (0 until members.length()).any {
+                members.optJSONObject(it)?.optString("stringValue") == participantUid
+            }
+        }
+
+        fun observe(path: String, name: String, token: String? = null): JSONObject? {
+            val result = runCatching {
+                val connection = emulatorDocument(path)
+                try {
+                    if (token != null) connection.setRequestProperty("Authorization", "Bearer $token")
+                    val code = connection.responseCode
+                    historyTrace(name, participantUid, "http=$code")
+                    if (code == 200) {
+                        connection.inputStream.bufferedReader().use { JSONObject(it.readText()) }
+                    } else null
+                } finally {
+                    connection.disconnect()
+                }
+            }
+            result.exceptionOrNull()?.let {
+                historyTrace(name, participantUid, "probeError=${it.javaClass.simpleName}")
+            }
+            return result.getOrNull()
+        }
+
+        val token = diagnosticIdToken
+        if (auth.currentUser?.uid == participantUid && token != null) {
+            val participant = observe(groupPath, "independent-participant-get", token)
+            if (participant != null) {
+                historyTrace("independent-participant-membership", participantUid,
+                    "member=${hasParticipant(participant.optJSONObject("fields"))}")
+            }
+        } else {
+            historyTrace("independent-participant-get", participantUid, "unavailable=true")
+        }
+        val group = observe(groupPath, "emulator-group-state")
+        val eligibility = observe("users/$participantUid/chatGroupAccess/eligibility",
+            "emulator-eligibility-state")?.optJSONObject("fields")
+        val config = observe("app_config/chat_groups", "emulator-config-state")
+            ?.optJSONObject("fields")
+        historyTrace("emulator-rule-inputs", participantUid,
+            "member=${group?.let { hasParticipant(it.optJSONObject("fields")) }} " +
+                "groupUpdatedAt=${group?.optString("updateTime")} " +
+                "eligibility=${eligibility?.optJSONObject("status")?.optString("stringValue")} " +
+                "policy=${eligibility?.optJSONObject("policyVersion")?.optString("stringValue")} " +
+                "expires=${eligibility?.optJSONObject("reviewExpiresAt")?.optString("timestampValue")} " +
+                "enabled=${config?.optJSONObject("enabled")?.optBoolean("booleanValue")} " +
+                "minorPolicyApproved=${config?.optJSONObject("minorPolicyApproved")?.optBoolean("booleanValue")} " +
+                "ruleVersion=${config?.optJSONObject("version")?.optString("stringValue")}")
     }
 
     // A fixture materializa o índice. O aplicativo continua sujeito às Rules e Source.SERVER.
@@ -493,6 +564,7 @@ class AtrioConversasCompostasEmulatorUiTest {
         assertEquals("declined", await(invite.get(Source.SERVER)).getString("status"))
         assertDenied(group.get(Source.SERVER))
         assertDenied(entry.get(Source.SERVER))
+        historyTrace("group-and-history-denied-after-decline", bob)
 
         assertEquals(alice, login(aliceEmail))
         show(Screen(alice, groupPeer = bob))
@@ -501,12 +573,38 @@ class AtrioConversasCompostasEmulatorUiTest {
 
         assertEquals(bob, login(bobEmail))
         show(Screen(bob, groupPeer = alice))
+        historyTrace("accept-click", bob)
         click("atrio-group-accept-${group.id}")
         waitForText(message)
         compose.onNodeWithText(message).assertIsDisplayed()
-        assertEquals("accepted", await(invite.get(Source.SERVER)).getString("status"))
-        assertTrue((await(group.get(Source.SERVER)).get("memberUids") as List<*>).contains(bob))
+        historyTrace("history-visible", bob)
+        val acceptedInvite = await(invite.get(Source.SERVER))
+        assertEquals("accepted", acceptedInvite.getString("status"))
+        historyTrace("invite-confirmed", bob,
+            "status=accepted cache=${acceptedInvite.metadata.isFromCache} " +
+                "pending=${acceptedInvite.metadata.hasPendingWrites()} " +
+                "updatedAt=${acceptedInvite.getTimestamp("updatedAt")?.toDate()?.toInstant()}")
+        historyTrace("group-get-start", bob)
+        val acceptedGroup = try {
+            await(group.get(Source.SERVER))
+        } catch (failure: ExecutionException) {
+            val firestore = failure.cause as? FirebaseFirestoreException
+            val rules = Regex("""L\d+(?::\d+)?""").findAll(firestore?.message.orEmpty())
+                .map { it.value }.distinct().joinToString(",")
+            historyTrace("group-get-failed", bob, "code=${firestore?.code} ruleRefs=$rules")
+            if (firestore?.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
+                diagnoseDeniedGroupRead(group.path, bob)
+            }
+            throw failure
+        }
+        val member = (acceptedGroup.get("memberUids") as List<*>).contains(bob)
+        assertTrue(member)
+        historyTrace("group-get-allowed", bob,
+            "member=$member cache=${acceptedGroup.metadata.isFromCache} " +
+                "pending=${acceptedGroup.metadata.hasPendingWrites()} " +
+                "updatedAt=${acceptedGroup.getTimestamp("updatedAt")?.toDate()?.toInstant()}")
         assertEquals(message, await(entry.get(Source.SERVER)).getString("text"))
+        historyTrace("history-get-allowed", bob)
         val report = db.document("chat_group_reports/${bob}__${group.id}__${entry.id}")
         if (pilot) {
             click("atrio-group-report-message")
@@ -537,6 +635,7 @@ class AtrioConversasCompostasEmulatorUiTest {
         assertDenied(group.get(Source.SERVER))
         assertDenied(entry.get(Source.SERVER))
         assertDenied(history.get(Source.SERVER))
+        historyTrace("group-and-history-denied-after-leave", bob)
         if (pilot) {
             reopen(Screen(bob, groupId = group.id))
             waitForText("Este grupo não está disponível para esta conta.")
