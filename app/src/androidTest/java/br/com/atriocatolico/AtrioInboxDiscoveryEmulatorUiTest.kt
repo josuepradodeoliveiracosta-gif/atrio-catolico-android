@@ -21,7 +21,7 @@ import org.junit.runner.RunWith
 class AtrioInboxDiscoveryEmulatorUiTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
 
-    @Test fun percorreAteUltimaPaginaETrocaDeContaSemPreviaAnterior() {
+    @Test fun reiniciaAposMudancaDeRevisaoEConcluiPaginacaoSemPreviaAnterior() {
         val db = FirebaseFirestore.getInstance()
         val auth = FirebaseAuth.getInstance(db.app)
         check(BuildConfig.ATRIO_QA_INBOX_DISCOVERY && !BuildConfig.ATRIO_QA_GERAL_REMOTE)
@@ -47,7 +47,16 @@ class AtrioInboxDiscoveryEmulatorUiTest {
         try {
             login("clara")
             waitFor(next)
+            val claraUid = checkNotNull(uid.value)
+            fun card(peer: String) = "atrio-chat-" + AtrioChatPolicy.id(claraUid, "qa-inbox-peer-$peer")
             compose.onNodeWithTag(page).assertTextContains("Página 1")
+            compose.onNodeWithTag(card("20")).assertExists()
+            compose.onNodeWithTag(next).performClick()
+            waitFor(card("21"))
+            compose.onNodeWithTag(page).assertTextContains("Página 1")
+            compose.onNodeWithTag(card("20")).assertDoesNotExist()
+            compose.onNodeWithTag("atrio-inbox-previous").assertDoesNotExist()
+            compose.onNodeWithTag("atrio-inbox-unavailable").assertDoesNotExist()
             compose.onNodeWithTag(next).performClick()
             waitFor(next)
             compose.onNodeWithTag(page).assertTextContains("Página 2")
@@ -56,7 +65,6 @@ class AtrioInboxDiscoveryEmulatorUiTest {
             compose.onNodeWithTag(page).assertTextContains("Última página", substring = true)
             compose.onNodeWithTag(next).assertDoesNotExist()
 
-            val claraUid = checkNotNull(uid.value)
             login("miguel")
             waitFor("atrio-inbox-empty")
             compose.onNodeWithTag("atrio-inbox-empty").assertTextContains("Nenhuma conversa encontrada.")

@@ -439,7 +439,7 @@ private fun AtrioConversationsForSession(
                 when (discovery.result) {
                     null -> LinearProgressIndicator(Modifier.fillMaxWidth()
                         .testTag("atrio-inbox-loading"))
-                    AtrioInboxResult.Unavailable -> AtrioPeerInboxError(
+                    AtrioInboxResult.Unavailable, AtrioInboxResult.RestartRequired -> AtrioPeerInboxError(
                         "Serviço de conversas indisponível. Tente novamente.",
                         modifier = Modifier.padding(16.dp).testTag("atrio-inbox-unavailable"),
                         onRetry = discovery.restart)

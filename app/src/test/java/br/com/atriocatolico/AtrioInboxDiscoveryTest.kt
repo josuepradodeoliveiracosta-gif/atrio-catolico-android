@@ -64,6 +64,51 @@ class AtrioInboxDiscoveryTest {
         assertEquals(AtrioInboxResult.Denied, client.fetch("clara", "denied", null))
     }
 
+    @Test fun invalidatedCursorClearsTrailAndReplacesPageFromFirstRequest() {
+        server.enqueue(reply(200, page(1..20, "old1")))
+        server.enqueue(reply(200, page(21..40, "old2")))
+        server.enqueue(reply(409, """{"error":"inbox_restart_required"}"""))
+        server.enqueue(reply(200, page(41..43, null)))
+        server.start()
+
+        val first = client.fetch("clara", "qa-token", null) as AtrioInboxResult.Page
+        val second = client.fetch("clara", "qa-token", first.nextCursor) as AtrioInboxResult.Page
+        val old = AtrioInboxPaging(listOf(null, first.nextCursor, second.nextCursor), second)
+        val restart = client.fetch("clara", "qa-token", old.cursor)
+        assertEquals(AtrioInboxResult.RestartRequired, restart)
+        val reset = old.receive(restart)
+        assertEquals(listOf<String?>(null), reset.cursors)
+        assertNull(reset.result)
+        val replaced = reset.receive(client.fetch("clara", "qa-token", reset.cursor))
+        val fresh = replaced.result as AtrioInboxResult.Page
+        assertEquals(listOf("peer41", "peer42", "peer43"), fresh.items.map { it.peerUid })
+        assertEquals(listOf("$path?limit=20", "$path?limit=20&cursor=old1",
+            "$path?limit=20&cursor=old2", "$path?limit=20"),
+            List(4) { server.takeRequest().path })
+    }
+
+    @Test fun onlyRecognizedConflictOnContinuationRestarts() {
+        respond { request ->
+            val code = if (request.getHeader("Authorization") == "Bearer qa-token")
+                "inbox_restart_required" else "conflict"
+            reply(409, """{"error":"$code"}""")
+        }
+
+        assertEquals(AtrioInboxResult.Unavailable, client.fetch("clara", "qa-token", null))
+        assertEquals(AtrioInboxResult.Unavailable, client.fetch("clara", "unknown", "old"))
+        assertEquals(AtrioInboxResult.RestartRequired, client.fetch("clara", "qa-token", "old"))
+    }
+
+    @Test fun dropsLateRestartAfterSessionChange() = runBlocking {
+        var current = true
+        val load = client.load("clara", "old", { current }, getToken = { "old-token" },
+            request = { _, _, _ ->
+                current = false
+                AtrioInboxResult.RestartRequired
+            })
+        assertNull(load)
+    }
+
     @Test fun dropsLatePageEvenAfterReloginWithSameUid() = runBlocking {
         val oldSession = Any()
         var activeSession = oldSession

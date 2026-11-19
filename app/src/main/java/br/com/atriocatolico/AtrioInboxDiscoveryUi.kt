@@ -45,13 +45,12 @@ internal fun rememberAtrioInboxNavigation(
         onDispose { manager.unregisterNetworkCallback(callback) }
     }
     val client = remember { AtrioInboxDiscovery() }
-    var cursors by remember(user, network, blockedPeers) { mutableStateOf(listOf<String?>(null)) }
+    var paging by remember(user, network, blockedPeers) { mutableStateOf(AtrioInboxPaging()) }
     var refresh by remember(user, network, blockedPeers) { mutableIntStateOf(0) }
-    val cursor = cursors.last()
-    var result by remember(user, network, blockedPeers, cursors, refresh) {
-        mutableStateOf<AtrioInboxResult?>(null)
-    }
-    LaunchedEffect(user, network, blockedPeers, cursors, refresh) {
+    val cursors = paging.cursors
+    val cursor = paging.cursor
+    val requestRefresh = refresh
+    LaunchedEffect(user, network, blockedPeers, cursors, requestRefresh) {
         if (network == null) return@LaunchedEffect
         while (true) {
             val page = client.load(user.uid, cursor, sameSession = { auth.currentUser === user },
@@ -67,11 +66,15 @@ internal fun rememberAtrioInboxNavigation(
                     withContext(Dispatchers.IO) { client.fetch(owner, token, next) }
                 }) ?: return@LaunchedEffect
             ensureActive()
-            result = if (page is AtrioInboxResult.Page &&
+            if (paging.cursors != cursors || refresh != requestRefresh) return@LaunchedEffect
+            val allowed = if (page is AtrioInboxResult.Page &&
                 (page.items.any { it.peerUid in blockedPeers } ||
                     (page.nextCursor != null && page.nextCursor in cursors))
             ) AtrioInboxResult.Unavailable else page
-            if (result !is AtrioInboxResult.Page) return@LaunchedEffect
+            // Em 409, uma única transição limpa a página e todo o percurso.
+            // A troca dos cursores inicia o próximo efeito na primeira página.
+            paging = paging.receive(allowed)
+            if (allowed !is AtrioInboxResult.Page) return@LaunchedEffect
             // Revalida a página aberta sem manter prévias de páginas anteriores em memória.
             delay(10_000)
         }
@@ -79,13 +82,13 @@ internal fun rememberAtrioInboxNavigation(
     val visible = when {
         network == null -> AtrioInboxResult.Unavailable
         auth.currentUser !== user -> null
-        else -> result
+        else -> paging.result
     }
     return AtrioInboxNavigation(visible, cursors.size,
-        restart = { cursors = listOf(null); refresh++ },
-        previous = { if (cursors.size > 1) cursors = cursors.dropLast(1) },
+        restart = { paging = AtrioInboxPaging(); refresh++ },
+        previous = { if (cursors.size > 1) paging = AtrioInboxPaging(cursors.dropLast(1)) },
         next = {
             val nextCursor = (visible as? AtrioInboxResult.Page)?.nextCursor
-            if (nextCursor != null && nextCursor !in cursors) cursors = cursors + nextCursor
+            if (nextCursor != null && nextCursor !in cursors) paging = AtrioInboxPaging(cursors + nextCursor)
         })
 }
