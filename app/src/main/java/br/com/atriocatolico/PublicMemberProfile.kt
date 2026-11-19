@@ -179,7 +179,7 @@ internal fun PublicMemberProfileScreen(
                 }
                 if (managed) {
                     if (managedBlocks != null) AtrioManagedBlockControl(
-                        managedBlocks, uid, "atrio-member-block"
+                        managedBlocks, uid, "atrio-member-block", blockedByList = blockedByList
                     )
                 } else OutlinedButton(
                     enabled = !actionBusy,
