@@ -10,6 +10,7 @@ import {doc,setDoc,getDoc,getDocs,collection,serverTimestamp,Timestamp,updateDoc
 import {renderClosedQaParity}
  from '../../firebase/qa-general/closed-qa-parity.mjs';
 import {STAGED_QA_DOCS} from '../../firebase/qa-general/admin-config-preflight.mjs';
+import {assertDeclarationRequiresInteger} from './qa-self-declaration-rest-fixture.mjs';
 const read=p=>readFileSync(new URL(p,import.meta.url),'utf8');
 const rules=renderClosedQaParity(
  read('../../firestore.rules'),
@@ -55,7 +56,7 @@ try{
   await assertSucceeds(setDoc(own('profiles/'+uid),{
    displayName:'Adulto QA',createdAt:serverTimestamp()
   }));
-  await assertSucceeds(setDoc(own(age),proof()));
+  await assertDeclarationRequiresInteger(uid,proof().reviewExpiresAt);
   await assertFails(setDoc(doc(other,age),proof()));
   await assertFails(setDoc(own(age),proof()));
   await assertFails(getDoc(doc(other,account)));

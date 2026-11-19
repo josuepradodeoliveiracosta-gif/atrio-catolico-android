@@ -8,6 +8,7 @@ import {STAGED_QA_DOCS,LAB_ONLY_ACTIVE_CHAT,validateStagedQaDocs}
 import {initializeTestEnvironment,assertFails,assertSucceeds}
  from '@firebase/rules-unit-testing';
 import {doc,setDoc,getDoc,getDocs,collection,deleteDoc,Timestamp,serverTimestamp} from 'firebase/firestore';
+import {assertDeclarationRequiresInteger} from './qa-self-declaration-rest-fixture.mjs';
 
 const chat=readFileSync(new URL('../../firebase/atrio-conversas-v1.rules.fragment',import.meta.url),'utf8');
 const group=readFileSync(new URL('../../firebase/atrio-grupos-v1.rules.fragment',import.meta.url),'utf8');
@@ -167,7 +168,7 @@ try{
    await assertFails(getDoc(doc(c(alice),limitFor(alice))));
  });
  await test('declaração do próprio UID habilita somente conta autenticada e verificada',async()=>{
-   await assertSucceeds(setDoc(doc(c(alice),pathFor(alice)),claim()));
+   await assertDeclarationRequiresInteger(alice,claim().reviewExpiresAt);
    await assertSucceeds(getDoc(doc(c(alice),limitFor(alice))));
    await assertFails(getDoc(doc(unverified,limitFor(alice))));
    await assertFails(getDoc(doc(c(bob),pathFor(alice))));
