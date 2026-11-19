@@ -36,14 +36,14 @@ A `main` atual, via `firebase/qa-general/age18-gate.mjs`, admite apenas
 A alternativa da #232 admite apenas `declared_18_plus/2026-11-selfdecl-qa-v1`.
 O Worker QA gerado revalida ambos os pares, **mas somente despacha** quando
 `ATRIO_QA_AGE_POLICY` corresponde ao `status` de autor e destinatário,
-na última reconsulta anterior a D1 e a cada dispositivo posterior.
+na reconsulta anterior a D1 e em nova reconsulta antes de cada envio.
 A configuração gerada traz `ATRIO_QA_AGE_POLICY="disabled"`, além de
 `PUSH_ENABLED=false`; falta escolher Rules reais compatíveis e validar
 no mesmo Firebase Emulator antes de qualquer autorização de ativação.
 Uma string de ambiente não comprova qual Ruleset remoto está implantado.
 O modo legado permanece transitório, conforme parecer do Chat 2 na PR #351.
 
-## Inventário de chamadas offline, custos e margens do plano Free — 18/11/2026
+## Medições de referência antes do ajuste — 18/11/2026
 
 O [job Node #44410176124](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/actions/runs/44410176124)
 contou cada chamada `fetch()` de mocks Firebase Auth, OAuth, Firestore REST e
@@ -60,12 +60,12 @@ Cloudflare de produção, cache, redirecionamentos ou custo monetário.
 | Grupo | 2 | 37 | 4 | 41 |
 | Grupo | 3 | 49 | 4 | 53 |
 
-**Alerta de capacidade, NO-GO por ora:** Workers Free admite **50
+**Situação no ensaio anterior.** Workers Free admite **50
 subrequests externas por invocação** e possui também limite separado de
 subrequests internas; D1 Free limita consultas por invocação. Uma única
 entrega a três aparelhos no grupo já exige **49 `fetch()` simulados**,
 restando margem mínima. Redirecionamentos, novas chamadas ou outros
-destinatários no mesmo evento podem exceder o limite. A soma 53 é apenas
+destinatários no mesmo evento podiam exceder o limite. A soma 53 é apenas
 contador de operações misturadas, **não uma prova isolada de estouro da
 cota de 50 chamadas externas**. Antes de ativar, escolher/implementar
 otimização segura (sem dispensar revogação), limite por invocação, divisão
@@ -111,3 +111,55 @@ orquestracao/limites gratuitos que continue revalidando bloqueios,
 idade, grupo e mensagens sem aceitar sucesso parcial nem gerar retry
 duplicado. A cota de 50 subrequests do Workers Free inclui cadeias
 de redirect. Novo desenho requer avaliacao conjunta Chats 2/4/5/7.
+
+## Orçamento com OAuth frio e limpeza de tokens
+
+O candidato agrupa em um `batchGet` as leituras de idade, bloqueios e,
+quando aplicável, grupo, acesso e silenciamento. Cada etapa lê novamente.
+A resposta deve identificar cada documento solicitado uma vez, inclusive
+os que faltam. Falhas e respostas incompletas são tratadas como recusa.
+
+Antes da reserva D1, o candidato verifica o teto para um destinatário.
+O cálculo reserva até 18 chamadas para Auth, OAuth, seleção do evento e
+lista de aparelhos. Acrescenta uma rechecagem antes da reserva e uma por
+aparelho (até 6 chamadas na DM ou 4 no grupo por rechecagem), um envio e
+até uma limpeza condicional por aparelho. O teto conservador para três
+aparelhos é **48 na DM** e **40 no grupo**. Contabiliza HTTP externo
+separadamente de D1. Acima de 50, retorna `qa_capacity_limit` antes da
+reserva da entrega. Grupos com mais de um destinatário continuam recusados.
+
+Medição offline com um destinatário, três aparelhos e três retornos FCM
+`UNREGISTERED` com exclusão condicional pelo `updateTime`:
+
+| Fluxo | OAuth frio | OAuth em cache | Operações D1 |
+| --- | ---: | ---: | ---: |
+| DM aceita | 37 | 36 | 5 |
+| DM pendente | 42 | 41 | 5 |
+| Grupo | 36 | 35 | 5 |
+
+A matriz também confere duas limpezas com aceite parcial e a rejeição
+da exclusão pelo Firestore quando o token já foi atualizado. Os números
+são contagens HTTP com mocks locais, sem medir CPU, latência ou custo
+no Cloudflare.
+
+## Revogação antes do envio
+
+A primeira rechecagem antecede a reserva D1. Depois da reserva, uma
+nova rechecagem confirma idade, bloqueios, regras do chat ou grupo e
+estado da mensagem imediatamente antes de cada tentativa de envio.
+Revogação durante a reserva interrompe o primeiro envio e registra
+`authorization_interrupted`. A reserva permanece para evitar duplicação
+em reprocessamento. A suíte exercita esse cenário em DM e grupo, além
+das revogações entre aparelhos.
+
+Uma revogação após a última leitura ainda pode coincidir com o envio
+porque Firestore, D1 e FCM são serviços distintos. Para uma eventual
+ativação, a proposta é um sinal genérico de atualização com TTL curto,
+sem texto, remetente ou identificadores de conversa/mensagem no payload.
+O Android deve consultar a caixa na sessão ativa e só mostrar um aviso
+após nova autorização do servidor. A proposta depende de validação
+offline do contrato, paridade em Firebase Emulator e revisão de
+segurança. O sinal genérico ainda pode chegar se a revogação for
+posterior à última leitura. Se o requisito impedir até esse sinal,
+manter o push desligado. A proposta de payload e exibição segue em
+avaliação, com `PUSH_ENABLED=false` no candidato.

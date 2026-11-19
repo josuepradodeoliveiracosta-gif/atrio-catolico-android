@@ -244,8 +244,16 @@ function qaDoc(fields) {
   return {fields:Object.fromEntries(entries)};
 }
 function qaMockFirestore(docs) {
-  globalThis.fetch=async input=>{
-    const path=decodeURIComponent(new URL(input).pathname.split('/documents/').slice(1).join('/documents/'));
+  globalThis.fetch=async (input, options)=>{
+    const url=new URL(input);
+    if (url.pathname.endsWith('/documents:batchGet')) {
+      const {documents}=JSON.parse(options.body);
+      return Response.json(documents.map(name=>{
+        const doc=docs[name.split('/documents/')[1]];
+        return doc ? {found:{...doc,name}} : {missing:name};
+      }).reverse());
+    }
+    const path=decodeURIComponent(url.pathname.split('/documents/').slice(1).join('/documents/'));
     return docs[path]
       ?new Response(JSON.stringify(docs[path]),{status:200})
       :new Response('{}',{status:404});
@@ -331,7 +339,6 @@ test('Worker QA filtra push de grupo para destinatarios sem prova 18+ e autor in
 });
 
 test('QA revalida idade apos selecao de destinatarios e antes do despacho',async()=>{
-  assert.ok(generated.includes('qaChatPushPreSendAllowed(token,uid,recipient,null,env.ATRIO_QA_AGE_POLICY)'));
   const {resolveEvent,qaChatPushPreSendAllowed}=await import(
     'data:text/javascript;charset=utf-8,'+encodeURIComponent(generated));
   const goodAge=()=>qaDoc({status:'eligible',minimumAge:18,
@@ -376,7 +383,6 @@ test('QA revalida idade apos selecao de destinatarios e antes do despacho',async
 });
 
 test('QA bloqueia aviso de grupo apos saida, revogacao e encerramento antes do FCM',async()=>{
-  assert.ok(generated.includes('qaChatPushPreSendAllowed(token,uid,recipient,event.groupId,env.ATRIO_QA_AGE_POLICY)'));
   const {qaChatPushPreSendAllowed}=await import(
     'data:text/javascript;charset=utf-8,'+encodeURIComponent(generated));
   const age=()=>qaDoc({status:'eligible',minimumAge:18,
@@ -461,7 +467,6 @@ test('QA revalida bloqueio bilateral apos selecao de aviso privado',async()=>{
 test('QA revalida bloqueios e silenciamento de grupo antes de reservar D1',async()=>{
   const {resolveEvent,qaChatPushPreSendAllowed}=await import(
     'data:text/javascript;charset=utf-8,'+encodeURIComponent(generated));
-  assert.ok(generated.includes('qaChatPushPreSendAllowed(token,uid,recipient,event.groupId,env.ATRIO_QA_AGE_POLICY)'));
   const age=()=>qaDoc({status:'eligible',minimumAge:18,
     policyVersion:'2026-11-18plus-qa-v1',reviewExpiresAt:qaFuture()});
   const access=()=>qaDoc({status:'approved',

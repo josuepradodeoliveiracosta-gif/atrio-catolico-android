@@ -82,11 +82,17 @@ function makeScenario(type,change,deviceCount=1,recipientCount=1) {
     docs['users/'+peer+'/chatAgeEligibility/current']=age();
     docs['users/'+peer+'/chatGroupAccess/eligibility']=groupPermission();
   }
+  const deviceVersions=Array.from({length:deviceCount},recent);
+  if(change==='pending') {
+    docs['chats/'+chatId]=makeDoc({requesterUid:uid,recipientUid:recipient,
+      status:'pending',initialId:messageId});
+    docs['users/'+recipient+'/chatSettings/privacy']=makeDoc({requests:'all'});
+  }
   const event=group
     ?{type:'group_message',groupId,messageId}
     :{type:'chat_message',chatId,messageId};
   let sawDevices=false,markerWrites=0,fcmCalls=0,firestoreReads=0,authCalls=0;
-  let externalRequests=0,d1Statements=0;
+  let externalRequests=0,d1Statements=0,oauthCalls=0,deviceDeletes=0;
   let currentChange=change;
   const auditOutcomes=[];
   const insertedMarkers=new Set(); // D1 sintetico retido entre chamadas
@@ -96,6 +102,8 @@ function makeScenario(type,change,deviceCount=1,recipientCount=1) {
     get firestoreReads(){return firestoreReads;},get authCalls(){return authCalls;},
     get auditOutcomes(){return auditOutcomes.map(item=>({...item}));},
     get externalRequests(){return externalRequests;},
+    get oauthCalls(){return oauthCalls;},
+    get deviceDeletes(){return deviceDeletes;},
     get d1Statements(){return d1Statements;},
     get estimatedSubrequests(){return externalRequests+d1Statements;}};
   const db={prepare(sql){
@@ -123,6 +131,98 @@ function makeScenario(type,change,deviceCount=1,recipientCount=1) {
       }};
     throw Error('Unexpected QA D1 SQL: '+sql.slice(0,75));
   }};
+  function readFirestore(relative) {
+    if(relative==='users/'+uid+'/chatAgeEligibility/current' ||
+        relative==='users/'+recipient+'/chatAgeEligibility/current'){
+      if(currentChange==='age_selfdecl_valid')
+        return okJson(selfDeclaredAge());
+      if(currentChange==='age_selfdecl_cross_policy')
+        return okJson(selfDeclaredAge({policyVersion:'2026-11-18plus-qa-v1'}));
+      if(currentChange==='age_selfdecl_expired')
+        return okJson(selfDeclaredAge({reviewExpiresAt:
+          new Date(Date.now()-86_400_000).toISOString()}));
+      if(currentChange==='age_selfdecl_underage')
+        return okJson(selfDeclaredAge({minimumAge:17}));
+      if(currentChange==='age_selfdecl_extra_field')
+        return okJson(selfDeclaredAge({verifiedBy:'fake-admin'}));
+    }
+    const devicePeer=peers.find(peer=>relative==='users/'+peer+'/pushDevices');
+    if(devicePeer){
+      sawDevices=true;
+      return okJson({documents:Array.from({length:deviceCount},(_,i)=>({
+        name:'projects/'+project+'/databases/(default)/documents/users/'+
+          devicePeer+'/pushDevices/offline-phone-'+i,
+        fields:{
+          token:{stringValue:'synthetic_fcm_token_1234567890_'+devicePeer+'_'+i},
+          updatedAt:{timestampValue:recent()}
+        },
+        updateTime:deviceVersions[i]
+      }))});
+    }
+    firestoreReads++;
+    if(fcmCalls>0 && sawDevices){
+      if(currentChange==='after_first_revoke_age' &&
+          relative==='users/'+recipient+'/chatAgeEligibility/current')
+        return okJson({},404);
+      if(currentChange==='after_first_block' &&
+          relative==='users/'+recipient+'/blockedMembers/'+uid)
+        return okJson(makeDoc({createdAt:recent()}));
+      if(currentChange==='after_first_disable_chat' &&
+          relative==='app_config/conversations')
+        return okJson(makeDoc({enabled:false,minorPolicyApproved:true,
+          safetyReviewVersion:'2026-11-safety-v1',version:'2026-11-v1'}));
+      if(currentChange==='after_first_soft_delete' && relative===messagePath)
+        return okJson(makeDoc({uid,kind:'text',createdAt:recent(),
+          deletedForAll:true,deletedAt:recent(),text:'[Mensagem removida]'}));
+      if(currentChange==='after_first_remove_membership' &&
+          relative==='chat_groups/'+groupId)
+        return okJson(makeDoc({status:'active',memberUids:[uid,'chat-charlie']}));
+      if(currentChange==='after_first_disable_group_push' &&
+          relative==='app_config/chat_groups')
+        return okJson(makeDoc({enabled:true,pushEnabled:false,
+          minorPolicyApproved:true,version:'2026-11-groups-v1'}));
+      if(currentChange==='after_first_mute' &&
+          (relative==='users/'+recipient+'/chatBox/'+chatId ||
+           relative==='users/'+recipient+'/chatGroupBox/'+groupId))
+        return okJson(makeDoc({muted:true}));
+    }
+    if(sawDevices){
+      if(currentChange==='revoke_at_reservation' && markerWrites>0 &&
+          relative==='users/'+recipient+'/chatAgeEligibility/current')
+        return okJson({},404);
+      if(currentChange==='pre_send_firestore_outage' &&
+          relative==='app_config/conversations')
+        throw Error('synthetic_firestore_connection_lost');
+      if(currentChange==='remove_message' && relative===messagePath)
+        return okJson({},404);
+      // Marcador da operacao 'remover para todos' preserva o documento.
+      if(currentChange==='soft_delete_message' && relative===messagePath)
+        return okJson(makeDoc({uid,kind:'text',createdAt:recent(),
+          text:'[Mensagem removida]',deletedForAll:true,deletedAt:recent()}));
+      // Campo injetado e mal tipado deve falhar fechado, nunca virar false.
+      if(currentChange==='invalid_delete_flag' && relative===messagePath)
+        return okJson(makeDoc({uid,kind:'text',createdAt:recent(),
+          text:'[Mensagem removida]',deletedForAll:'true'}));
+      if(currentChange==='false_delete_flag' && relative===messagePath)
+        return okJson(makeDoc({uid,kind:'text',createdAt:recent(),
+          text:'[Mensagem removida]',deletedForAll:false}));
+      if(currentChange==='revoke_age' &&
+          relative==='users/'+recipient+'/chatAgeEligibility/current')
+        return okJson({},404);
+      if(currentChange==='block_contact' &&
+          relative==='users/'+recipient+'/blockedMembers/'+uid)
+        return okJson(makeDoc({createdAt:recent()}));
+      if(currentChange==='disable_chat' && relative==='app_config/conversations')
+        return okJson(makeDoc({enabled:false,minorPolicyApproved:true,
+          safetyReviewVersion:'2026-11-safety-v1',version:'2026-11-v1'}));
+      if(currentChange==='remove_membership' && relative==='chat_groups/'+groupId)
+        return okJson(makeDoc({status:'active',memberUids:[uid,'chat-charlie']}));
+      if(currentChange==='disable_group_push' && relative==='app_config/chat_groups')
+        return okJson(makeDoc({enabled:true,pushEnabled:false,
+          minorPolicyApproved:true,version:'2026-11-groups-v1'}));
+    }
+    return docs[relative]?okJson(docs[relative]):okJson({},404);
+  }
   const mockFetch=async(input,options={})=>{
     externalRequests++;
     assert.equal(options.redirect,'error','Sem redirecionamento externo QA');
@@ -136,6 +236,7 @@ function makeScenario(type,change,deviceCount=1,recipientCount=1) {
     }
     if(url.origin==='https://oauth2.googleapis.com' &&
         url.pathname==='/token'){
+      oauthCalls++;
       assert.match(String(options.body),/grant_type=/);
       return okJson({access_token:'offline-qa-service-token',expires_in:3600});
     }
@@ -143,6 +244,11 @@ function makeScenario(type,change,deviceCount=1,recipientCount=1) {
       fcmCalls++;
       assert.equal(url.pathname,'/v1/projects/'+project+'/messages:send');
       assert.equal(JSON.parse(options.body).message.data.kind,event.type);
+      if(currentChange==='unregistered_all' || currentChange==='unregistered_rotated' ||
+          (currentChange==='unregistered_two' && fcmCalls<=2))
+        return okJson({error:{code:404,status:'NOT_FOUND',details:[{
+          '@type':'type.googleapis.com/google.firebase.fcm.v1.FcmError',errorCode:'UNREGISTERED'
+        }]}},404);
       if(currentChange==='fcm_redirect')
         throw Error('synthetic_redirect_rejected');
       if(currentChange==='fcm_transport_error' ||
@@ -165,95 +271,34 @@ function makeScenario(type,change,deviceCount=1,recipientCount=1) {
         return new Response('synthetic-non-json',{status:200});
       return okJson({name:'projects/'+project+'/messages/offline-synthetic-'+fcmCalls});
     }
+    if(url.href===documentRoot.slice(0,-1)+':batchGet'){
+      assert.equal(options.method,'POST');
+      assert.equal(options.headers.Authorization,'Bearer offline-qa-service-token');
+      const {documents}=JSON.parse(options.body);
+      assert.equal(documents.length,group?8:4);
+      const resourceRoot=new URL(documentRoot).pathname.slice('/v1/'.length);
+      assert.ok(documents.every(name=>name.startsWith(resourceRoot)));
+      const rows=await Promise.all(documents.map(async name=>{
+        const response=readFirestore(name.slice(resourceRoot.length));
+        return response.status===404 ? {missing:name} : {found:{...await response.json(),name}};
+      }));
+      if(currentChange==='batch_missing_row') rows.pop();
+      if(currentChange==='batch_duplicate_row') rows[rows.length-1]=rows[0];
+      if(currentChange==='batch_foreign_row') rows[rows.length-1]={missing:'projects/foreign'};
+      if(currentChange==='batch_unavailable') return okJson({},503);
+      return okJson(rows.reverse());
+    }
     if(target.startsWith(documentRoot)){
       const relative=decodeURIComponent(url.pathname.split('/documents/')[1]||'');
-      if(relative==='users/'+uid+'/chatAgeEligibility/current' ||
-          relative==='users/'+recipient+'/chatAgeEligibility/current'){
-        if(currentChange==='age_selfdecl_valid')
-          return okJson(selfDeclaredAge());
-        if(currentChange==='age_selfdecl_cross_policy')
-          return okJson(selfDeclaredAge({policyVersion:'2026-11-18plus-qa-v1'}));
-        if(currentChange==='age_selfdecl_expired')
-          return okJson(selfDeclaredAge({reviewExpiresAt:
-            new Date(Date.now()-86_400_000).toISOString()}));
-        if(currentChange==='age_selfdecl_underage')
-          return okJson(selfDeclaredAge({minimumAge:17}));
-        if(currentChange==='age_selfdecl_extra_field')
-          return okJson(selfDeclaredAge({verifiedBy:'fake-admin'}));
+      if(options.method==='DELETE'){
+        const deviceIndex=Number(relative.split('offline-phone-')[1]);
+        assert.ok(deviceIndex>=0 && deviceIndex<deviceCount);
+        assert.equal(relative,'users/'+recipient+'/pushDevices/offline-phone-'+deviceIndex);
+        assert.equal(url.searchParams.get('currentDocument.updateTime'),deviceVersions[deviceIndex]);
+        deviceDeletes++;
+        return okJson({},currentChange==='unregistered_rotated'?412:200);
       }
-      const devicePeer=peers.find(peer=>relative==='users/'+peer+'/pushDevices');
-      if(devicePeer){
-        sawDevices=true;
-        return okJson({documents:Array.from({length:deviceCount},(_,i)=>({
-          name:'projects/'+project+'/databases/(default)/documents/users/'+
-            devicePeer+'/pushDevices/offline-phone-'+i,
-          fields:{
-            token:{stringValue:'synthetic_fcm_token_1234567890_'+devicePeer+'_'+i},
-            updatedAt:{timestampValue:recent()}
-          },
-          updateTime:recent()
-        }))});
-      }
-      firestoreReads++;
-      if(fcmCalls>0 && sawDevices){
-        if(currentChange==='after_first_revoke_age' &&
-            relative==='users/'+recipient+'/chatAgeEligibility/current')
-          return okJson({},404);
-        if(currentChange==='after_first_block' &&
-            relative==='users/'+recipient+'/blockedMembers/'+uid)
-          return okJson(makeDoc({createdAt:recent()}));
-        if(currentChange==='after_first_disable_chat' &&
-            relative==='app_config/conversations')
-          return okJson(makeDoc({enabled:false,minorPolicyApproved:true,
-            safetyReviewVersion:'2026-11-safety-v1',version:'2026-11-v1'}));
-        if(currentChange==='after_first_soft_delete' && relative===messagePath)
-          return okJson(makeDoc({uid,kind:'text',createdAt:recent(),
-            deletedForAll:true,deletedAt:recent(),text:'[Mensagem removida]'}));
-        if(currentChange==='after_first_remove_membership' &&
-            relative==='chat_groups/'+groupId)
-          return okJson(makeDoc({status:'active',memberUids:[uid,'chat-charlie']}));
-        if(currentChange==='after_first_disable_group_push' &&
-            relative==='app_config/chat_groups')
-          return okJson(makeDoc({enabled:true,pushEnabled:false,
-            minorPolicyApproved:true,version:'2026-11-groups-v1'}));
-        if(currentChange==='after_first_mute' &&
-            (relative==='users/'+recipient+'/chatBox/'+chatId ||
-             relative==='users/'+recipient+'/chatGroupBox/'+groupId))
-          return okJson(makeDoc({muted:true}));
-      }
-      if(sawDevices){
-        if(currentChange==='pre_send_firestore_outage' &&
-            relative==='app_config/conversations')
-          throw Error('synthetic_firestore_connection_lost');
-        if(currentChange==='remove_message' && relative===messagePath)
-          return okJson({},404);
-        // Marcador da operacao 'remover para todos' preserva o documento.
-        if(currentChange==='soft_delete_message' && relative===messagePath)
-          return okJson(makeDoc({uid,kind:'text',createdAt:recent(),
-            text:'[Mensagem removida]',deletedForAll:true,deletedAt:recent()}));
-        // Campo injetado e mal tipado deve falhar fechado, nunca virar false.
-        if(currentChange==='invalid_delete_flag' && relative===messagePath)
-          return okJson(makeDoc({uid,kind:'text',createdAt:recent(),
-            text:'[Mensagem removida]',deletedForAll:'true'}));
-        if(currentChange==='false_delete_flag' && relative===messagePath)
-          return okJson(makeDoc({uid,kind:'text',createdAt:recent(),
-            text:'[Mensagem removida]',deletedForAll:false}));
-        if(currentChange==='revoke_age' &&
-            relative==='users/'+recipient+'/chatAgeEligibility/current')
-          return okJson({},404);
-        if(currentChange==='block_contact' &&
-            relative==='users/'+recipient+'/blockedMembers/'+uid)
-          return okJson(makeDoc({createdAt:recent()}));
-        if(currentChange==='disable_chat' && relative==='app_config/conversations')
-          return okJson(makeDoc({enabled:false,minorPolicyApproved:true,
-            safetyReviewVersion:'2026-11-safety-v1',version:'2026-11-v1'}));
-        if(currentChange==='remove_membership' && relative==='chat_groups/'+groupId)
-          return okJson(makeDoc({status:'active',memberUids:[uid,'chat-charlie']}));
-        if(currentChange==='disable_group_push' && relative==='app_config/chat_groups')
-          return okJson(makeDoc({enabled:true,pushEnabled:false,
-            minorPolicyApproved:true,version:'2026-11-groups-v1'}));
-      }
-      return docs[relative]?okJson(docs[relative]):okJson({},404);
+      return readFirestore(relative);
     }
     throw Error('External network denied in QA test: '+url.origin);
   };
@@ -849,4 +894,89 @@ test('QA: salto de redirecionamento FCM nao segue outra origem ou token',async()
     await worker.fetch(s.request(),s.env);
     assert.equal(s.stat.fcmCalls,1,'Sem retry de resultado ambiguo');
   } finally {globalThis.fetch=original;}
+});
+
+test('QA: orçamento inclui OAuth frio, todos os envios e limpeza UNREGISTERED', async()=>{
+  const moduleUrl='data:text/javascript;charset=utf-8,'+encodeURIComponent(generated);
+  const original=globalThis.fetch;
+  try {
+    for (const [type,initialChange] of [['dm','none'],['dm','pending'],['group','none']]){
+      for (const warm of [false,true]){
+        for (const change of ['unregistered_two','unregistered_all','unregistered_rotated']){
+          const label=type+'/'+initialChange+'/'+(warm?'warm':'cold')+'/'+change;
+          const worker=(await import(moduleUrl+'#'+label)).default;
+          if (warm) {
+            const primer=makeScenario('dm','none');
+            globalThis.fetch=primer.mockFetch;
+            assert.equal((await worker.fetch(primer.request(),primer.env)).status,202);
+            assert.equal(primer.stat.oauthCalls,1);
+          }
+          const scenario=makeScenario(type,initialChange,3);
+          scenario.setChange(change);
+          globalThis.fetch=scenario.mockFetch;
+          const response=await worker.fetch(scenario.request(),scenario.env);
+          assert.equal(response.status,503,label);
+          assert.equal((await response.json()).status,
+            change==='unregistered_two'?'partial_delivery_failed':'delivery_failed',label);
+          assert.equal(scenario.stat.oauthCalls,warm?0:1,label);
+          assert.equal(scenario.stat.fcmCalls,3,label);
+          assert.equal(scenario.stat.deviceDeletes,change==='unregistered_two'?2:3,label);
+          assert.equal(scenario.stat.uniqueMarkers,1,label);
+          assert.equal(scenario.stat.auditOutcomes.some(row=>row.outcome==='unregistered_removed'),
+            change!=='unregistered_rotated',label);
+          const warmBeforeCleanup=initialChange==='pending' ? 38 : type==='group' ? 32 : 33;
+          const expected=warmBeforeCleanup + scenario.stat.oauthCalls + scenario.stat.deviceDeletes;
+          assert.equal(scenario.stat.externalRequests,expected,label);
+          assert.ok(scenario.stat.externalRequests<=50,label);
+          console.log('QA_HTTP_BUDGET '+label+' external='+scenario.stat.externalRequests+
+            ' oauth='+scenario.stat.oauthCalls+' cleanup='+scenario.stat.deviceDeletes+
+            ' d1='+scenario.stat.d1Statements);
+        }
+      }
+    }
+  } finally { globalThis.fetch=original; }
+});
+
+test('QA: revogação durante a reserva D1 bloqueia o primeiro envio', async()=>{
+  const worker=(await import('data:text/javascript;charset=utf-8,'+
+    encodeURIComponent(generated))).default;
+  const original=globalThis.fetch;
+  try {
+    for (const type of ['dm','group']){
+      const scenario=makeScenario(type,'revoke_at_reservation',3);
+      globalThis.fetch=scenario.mockFetch;
+      const denied=await worker.fetch(scenario.request(),scenario.env);
+      assert.equal(denied.status,503,type);
+      assert.equal((await denied.json()).status,'authorization_interrupted',type);
+      assert.equal(scenario.stat.uniqueMarkers,1,type);
+      assert.equal(scenario.stat.fcmCalls,0,type);
+      assert.deepEqual(scenario.stat.auditOutcomes.at(-1),{
+        kind:type==='dm'?'chat_message':'group_message',
+        outcome:'authorization_interrupted',http:0,attempted:0,accepted:0
+      },type);
+      scenario.setChange('none');
+      const replay=await worker.fetch(scenario.request(),scenario.env);
+      assert.equal((await replay.json()).status,'no_devices_or_duplicate',type);
+      assert.equal(scenario.stat.fcmCalls,0,type);
+    }
+  } finally { globalThis.fetch=original; }
+});
+
+test('QA: lote de autorização incompleto ou inválido falha fechado', async()=>{
+  const worker=(await import('data:text/javascript;charset=utf-8,'+
+    encodeURIComponent(generated))).default;
+  const original=globalThis.fetch;
+  try {
+    for (const change of [
+      'batch_missing_row','batch_duplicate_row','batch_foreign_row','batch_unavailable'
+    ]){
+      const scenario=makeScenario('group',change,3);
+      globalThis.fetch=scenario.mockFetch;
+      const denied=await worker.fetch(scenario.request(),scenario.env);
+      assert.equal(denied.status,202,change);
+      assert.equal((await denied.json()).status,'no_devices_or_duplicate',change);
+      assert.equal(scenario.stat.markerWrites,0,change);
+      assert.equal(scenario.stat.fcmCalls,0,change);
+    }
+  } finally { globalThis.fetch=original; }
 });
