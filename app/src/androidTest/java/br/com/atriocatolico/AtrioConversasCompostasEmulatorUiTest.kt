@@ -504,8 +504,18 @@ class AtrioConversasCompostasEmulatorUiTest {
         click("atrio-group-accept-${group.id}")
         waitForText(message)
         compose.onNodeWithText(message).assertIsDisplayed()
-        assertEquals("accepted", await(invite.get(Source.SERVER)).getString("status"))
-        assertTrue((await(group.get(Source.SERVER)).get("memberUids") as List<*>).contains(bob))
+        // Source.SERVER ainda pode incluir uma gravação local pendente.
+        await(db.waitForPendingWrites())
+        val acceptedInvite = await(invite.get(Source.SERVER))
+        assertEquals(bob, auth.currentUser?.uid)
+        assertEquals("accepted", acceptedInvite.getString("status"))
+        assertEquals(false, acceptedInvite.metadata.isFromCache)
+        assertEquals(false, acceptedInvite.metadata.hasPendingWrites())
+        requireNotNull(acceptedInvite.getTimestamp("updatedAt"))
+
+        val acceptedGroup = await(group.get(Source.SERVER))
+        assertTrue((acceptedGroup.get("memberUids") as List<*>).contains(bob))
+        assertEquals(false, acceptedGroup.metadata.hasPendingWrites())
         assertEquals(message, await(entry.get(Source.SERVER)).getString("text"))
         val report = db.document("chat_group_reports/${bob}__${group.id}__${entry.id}")
         if (pilot) {
