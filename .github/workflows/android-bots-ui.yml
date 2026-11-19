@@ -63,7 +63,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Preparar Java 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '17'
@@ -109,7 +109,7 @@ jobs:
       - name: Registrar o commit executado pela suíte
         run: git rev-parse HEAD
       - name: Preparar Java 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '17'
