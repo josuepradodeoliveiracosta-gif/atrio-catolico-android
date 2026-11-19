@@ -167,16 +167,13 @@ try {
     await assertFails(getDoc(doc(stranger,initial)));
     await assertFails(getDocs(collection(stranger,room+'/messages')));
   });
-  await check('inbox lê somente conversas filtradas pela própria participação',async()=>{
+  await check('inbox global nunca lista metadados nem com filtro por participante',async()=>{
     const own = query(collection(alice,'chats'),
       where('participants','array-contains','chat-alice'),limit(100));
-    const results = await assertSucceeds(getDocs(own));
-    assert.ok(results.docs.some(d => d.id === chatId));
-    assert.equal(results.docs.length,5);
+    await assertFails(getDocs(own));
     const ownBob = query(collection(bob,'chats'),
       where('participants','array-contains','chat-bob'),limit(100));
-    const bobResults = await assertSucceeds(getDocs(ownBob));
-    assert.ok(bobResults.docs.some(d => d.id === chatId));
+    await assertFails(getDocs(ownBob));
   });
   await check('consultas genéricas ou em nome de outro usuário nunca listam chats',async()=>{
     await assertFails(getDocs(query(collection(alice,'chats'),limit(100))));

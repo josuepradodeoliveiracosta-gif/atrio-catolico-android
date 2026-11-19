@@ -18,6 +18,10 @@ val atrioOtaPilotEnabled = atrioOtaReleasePilot || atrioOtaPilotCompileOnly
 val atrioQaGeralBuild = System.getenv("ATRIO_QA_GERAL_BUILD") == "1"
 val atrioQaGeralCelularPilot = System.getenv("ATRIO_QA_GERAL_CELULAR_PILOT") == "1"
 val atrioQaGeralRemote = System.getenv("ATRIO_QA_GERAL_REMOTE_BUILD") == "1"
+val atrioQaInboxDiscovery = System.getenv("ATRIO_QA_INBOX_DISCOVERY") == "1"
+require(!atrioQaInboxDiscovery || (atrioQaGeralBuild && !atrioQaGeralRemote)) {
+    "A descoberta de Conversas exige o QA Geral local."
+}
 val atrioQaGeralPush = System.getenv("ATRIO_QA_GERAL_PUSH_BUILD") == "1"
 val atrioQaGeralCelularFicticio = System.getenv("ATRIO_QA_GERAL_CELULAR_FICTICIO") == "1"
 val atrioQaGeralCelularFunctional = System.getenv("ATRIO_QA_GERAL_CELULAR_FUNCIONAL") == "1"
@@ -287,6 +291,7 @@ android {
         buildConfigField("boolean", "ATRIO_QA_GERAL_CELULAR_RODADA", "false")
         buildConfigField("boolean", "ATRIO_QA_GERAL_CELULAR_FICTICIO", "false")
         buildConfigField("boolean", "ATRIO_QA_GERAL_CELULAR_FUNCIONAL", "false")
+        buildConfigField("boolean", "ATRIO_QA_INBOX_DISCOVERY", "false")
         buildConfigField("boolean", "ATRIO_QA_GERAL_PUSH", "false")
         buildConfigField("String", "ATRIO_QA_GERAL_PROJECT_ID", "\"\"")
         buildConfigField("String", "ATRIO_QA_GERAL_APP_ID", "\"\"")
@@ -367,6 +372,7 @@ android {
             isDebuggable = true
             buildConfigField("boolean", "OTA_QA_LOOPBACK", "false")
             buildConfigField("boolean", "OTA_RELEASE_PILOT_LOOPBACK", "false")
+            buildConfigField("boolean", "ATRIO_QA_INBOX_DISCOVERY", atrioQaInboxDiscovery.toString())
             val qaName = if (atrioQaGeralRemote) "QA Geral · Celular" else "QA Geral offline"
             manifestPlaceholders["atrioQaGeralLabel"] = when {
                 atrioQaGeralCelularPairCode.isNotEmpty() -> "Átrio QA Celular · Atualização"
@@ -511,6 +517,8 @@ androidComponents {
 
 dependencies {
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20250107")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     implementation(platform("com.google.firebase:firebase-bom:35.0.2"))
     implementation("com.google.firebase:firebase-auth")
     implementation("com.google.firebase:firebase-firestore")
