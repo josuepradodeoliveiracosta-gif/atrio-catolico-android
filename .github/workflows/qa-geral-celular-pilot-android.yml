@@ -1,4 +1,4 @@
-name: Piloto QA Geral Celular no Android Emulator
+name: Descoberta e reenvio HTTP em QA isolado da main
 
 on:
   pull_request:
@@ -19,13 +19,14 @@ concurrency:
 
 jobs:
   android:
+    if: ${{ github.head_ref == 'qa/chat5-199-discovery-759b61c1' }}
     name: ${{ matrix.mode == 'discovery' && 'Compose focal da inbox emulada' || (matrix.mode == 'history' && 'Histórico com Rules compostas no emulador' || 'android') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        mode: ${{ fromJSON(github.head_ref == 'qa/chat5-inbox-366-d8e0b122' && '["discovery","history"]' || '["pilot"]') }}
+        mode: [discovery]
     env:
       ATRIO_QA_GERAL_BUILD: '1'
       ATRIO_QA_GERAL_CELULAR_PILOT: ${{ matrix.mode == 'pilot' && '1' || '0' }}
@@ -36,7 +37,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: '759b61c126580c628f0dfb74559bcc3bc4e37586'
           persist-credentials: false
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
@@ -48,7 +49,9 @@ jobs:
           gradle-version: '8.13'
       - name: Compilar a variante local sem configuração Firebase remota
         run: |
-          git rev-parse HEAD
+          git rev-parse HEAD 'HEAD^{tree}'
+          test "$(git rev-parse HEAD)" = '759b61c126580c628f0dfb74559bcc3bc4e37586'
+          test "$(git rev-parse 'HEAD^{tree}')" = '23fefdc726b4a1c7412351d916601baae05ffcca'
           rm -f -- app/google-services.json
           bash scripts/qa-android-prebuild.sh start
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -92,7 +95,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: qa-celular-pilot-android-${{ matrix.mode }}-${{ github.event.pull_request.head.sha }}
+          name: qa-celular-pilot-android-${{ matrix.mode }}-759b61c126580c628f0dfb74559bcc3bc4e37586
           path: |
             app/build/reports/androidTests
             app/build/outputs/androidTest-results
