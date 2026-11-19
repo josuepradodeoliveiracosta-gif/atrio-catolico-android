@@ -85,7 +85,6 @@ jobs:
             --project demo-atrio-v11 'node qa-geral-integrado.test.mjs && node --test qa-geral-celular-pilot.test.mjs && node atrio-grupos.test.mjs && node atrio-conversas.test.mjs && node atrio-inbox-peer-authorization.test.mjs && node atrio-inbox-discovery-server.test.mjs && node atrio-inbox-maintenance.test.mjs && node atrio-inbox-block-http.test.mjs'
 
   android-ui:
-    if: ${{ github.head_ref != 'qa/chat5-inbox-366-d8e0b122' }}
     name: Testar telas do Átrio — ${{ matrix.suite_group }}
     runs-on: ubuntu-latest
     strategy:
