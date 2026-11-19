@@ -66,6 +66,25 @@ private fun DocumentSnapshot.chatRoom(): ChatRoom? {
         (getLong("unreadRequester") ?: 0).toInt(),
         (getLong("unreadRecipient") ?: 0).toInt())
 }
+/**
+ * Metadado minimizado de `chatInboxByPeer`: nunca traz direção do convite,
+ * contadores de leitura, identificadores internos ou conteúdo do histórico.
+ * A validade do par é conferida antes de criar qualquer card.
+ */
+private fun DocumentSnapshot.peerInboxRoom(owner: String, peer: String): ChatRoom? {
+    val chatId = getString("chatId") ?: return null
+    val preview = getString("lastPreview") ?: return null
+    val status = getString("status") ?: return null
+    if (id != chatId || !AtrioPeerInboxPolicy.entryMatches(
+            owner, peer, chatId,
+            getString("ownerUid"), getString("peerUid"), status, preview
+        )) return null
+    val updated = getTimestamp("updatedAt") ?: return null
+    // Os papéis reais são lidos SOMENTE do documento de DM autorizado.
+    // Nenhuma inferência de destinatário ou sinal de "nova solicitação".
+    return ChatRoom(chatId, owner, peer, status, preview, "", updated.toDate().time, 0, 0)
+}
+
 private fun chatTime(value: Long): String =
     if (value <= 0) "" else DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
         .format(java.util.Date(value))
@@ -122,6 +141,16 @@ internal fun AtrioConversationsScreen(
     var selected by remember(uid, initialPeer?.uid, initialChatId) {
         mutableStateOf(initialChatId ?: initialPeer?.uid?.let { AtrioChatPolicy.id(uid, it) })
     }
+    // Somente um par já conhecido do perfil ou de um link exato da própria
+    // conversa. Sem API autorizada de descoberta, nunca enumerar chats/UIDs.
+    val peerUid = remember(uid, initialPeer?.uid, initialChatId) {
+        initialPeer?.uid?.takeIf {
+            AtrioPeerInboxPolicy.validPeer(uid, it) &&
+                (initialChatId == null || AtrioChatPolicy.id(uid, it) == initialChatId)
+        } ?: AtrioPeerInboxPolicy.peerFromChatId(uid, initialChatId)
+    }
+    val knownPeer = peerUid != null
+    var retryInbox by remember(uid, peerUid) { mutableIntStateOf(0) }
     val chosen = rooms.firstOrNull { it.id == selected }
 
     // O logout encerra listeners privados imediatamente, mesmo que a
@@ -140,6 +169,26 @@ internal fun AtrioConversationsScreen(
     }
     val ownSession = activeAuthUid == uid &&
         authentication.currentUser?.uid == uid
+
+    // O bloqueio realizado pelo próprio titular remove imediatamente a
+    // prévia visível, mesmo antes do próximo ciclo de consulta do índice.
+    // O bloqueio do OUTRO participante continua sendo decidido nas Rules
+    // e revalidado pela consulta Source.SERVER.
+    var ownBlockedPeer by remember(uid, peerUid) { mutableStateOf(false) }
+    DisposableEffect(db, uid, peerUid, ownSession) {
+        if (!ownSession || peerUid == null) {
+            ownBlockedPeer = false
+            onDispose {}
+        } else {
+            val blocked = db.collection("users").document(uid)
+                .collection("blockedMembers").document(peerUid)
+                .addSnapshotListener { doc, failure ->
+                    if (authentication.currentUser?.uid == uid &&
+                        failure == null) ownBlockedPeer = doc?.exists() == true
+                }
+            onDispose { blocked.remove() }
+        }
+    }
 
     DisposableEffect(db, uid, ownSession) {
         if (!ownSession) {
@@ -169,32 +218,57 @@ internal fun AtrioConversationsScreen(
         onDispose { config.remove(); privacy.remove() }
         }
     }
-    val inbox = remember(db, uid) {
-        db.collection("chats").whereArrayContains("participants", uid).limit(100)
-    }
-    fun updateInbox(snapshot: QuerySnapshot?, failure: Throwable?) {
-        loaded = true
-        rooms = if (failure == null && atrioChatSnapshotUsable(snapshot))
-            snapshot?.documents?.mapNotNull { it.chatRoom() }.orEmpty()
-        else emptyList()
-        if (failure != null) error = "Não foi possível carregar as conversas."
-    }
-    LaunchedEffect(inbox, enabled, ownSession) {
-        if (atrioChatRequiresServer && enabled && ownSession) {
-            pollAtrioPilotServer({ inbox.get(Source.SERVER) }, ::updateInbox)
+    // #355: a listagem global de chats é negada pela Rule, inclusive com
+    // whereArrayContains. Nenhuma descoberta por chatBox ou collectionGroup.
+    val inbox = remember(db, uid, peerUid) {
+        peerUid?.let { peer ->
+            db.collection("users").document(uid)
+                .collection("chatInboxByPeer").document(peer)
+                .collection("entries").limit(20)
         }
     }
-    DisposableEffect(inbox, enabled, ownSession) {
-        if (!enabled || !ownSession) {
+    fun updateInbox(snapshot: QuerySnapshot?, failure: Throwable?) {
+        if (authentication.currentUser?.uid != uid) {
             rooms = emptyList()
             loaded = true
-            onDispose {}
-        } else if (atrioChatRequiresServer) {
-            onDispose {}
+            error = ""
+            return
+        }
+        loaded = true
+        // Source.SERVER é obrigatório: um índice revogado pode permanecer
+        // no cache do aparelho depois do bloqueio bilateral.
+        val confirmed = failure == null && snapshot != null &&
+            AtrioPeerInboxPolicy.freshServer(
+                snapshot.metadata.isFromCache,
+                snapshot.metadata.hasPendingWrites(),
+                authentication.currentUser?.uid == uid
+            )
+        if (!confirmed) {
+            rooms = emptyList()
+            error = "Não foi possível confirmar suas conversas no servidor. " +
+                "Confira a conexão e tente novamente."
+            return
+        }
+        val peer = peerUid ?: return
+        val verified = snapshot!!.documents.mapNotNull { it.peerInboxRoom(uid, peer) }
+        if (verified.size != snapshot.size()) {
+            rooms = emptyList()
+            error = "Os dados desta conversa não puderam ser confirmados com segurança."
         } else {
-            loaded = false
-            val listener = inbox.addSnapshotListener(::updateInbox)
-            onDispose { listener.remove() }
+            rooms = verified
+            error = ""
+        }
+    }
+    LaunchedEffect(db, uid, inbox, enabled, ownSession, ownBlockedPeer, retryInbox) {
+        // Ao trocar de conta, offline ou revogar acesso: eliminar previews de
+        // memória imediatamente. Não usar cache como fallback visual.
+        rooms = emptyList()
+        error = if (ownBlockedPeer) "Conversa indisponível por bloqueio." else ""
+        loaded = inbox == null || !enabled || !ownSession || ownBlockedPeer
+        if (inbox != null && enabled && ownSession && !ownBlockedPeer) {
+            pollAtrioPilotServer({ inbox.get(Source.SERVER) },
+                { snapshot, failure -> updateInbox(snapshot, failure) },
+                intervalMs = 10_000L)
         }
     }
     DisposableEffect(db, uid, enabled, ownSession) {
@@ -213,6 +287,10 @@ internal fun AtrioConversationsScreen(
         }
     }
     fun changePrefs(chatId: String, updated: ChatPrefs) {
+        // Preferências não concedem acesso; só operar sobre índice validado
+        // no servidor e na própria sessão.
+        if (authentication.currentUser?.uid != uid ||
+            rooms.none { it.id == chatId }) return
         db.collection("users").document(uid).collection("chatBox").document(chatId)
             .set(mapOf("muted" to updated.muted, "pinned" to updated.pinned,
                 "archived" to updated.archived, "updatedAt" to FieldValue.serverTimestamp()))
@@ -238,16 +316,34 @@ internal fun AtrioConversationsScreen(
                 onBack = { groupsOpen = false },
                 initialGroupId = initialGroupId)
         } else if (selected != null) {
-            AtrioChatThread(db, uid, selected!!, chosen,
-                initialPeer?.takeIf { AtrioChatPolicy.id(uid, it.uid) == selected },
-                onBack = { selected = null },
-                sharePost = sharePost,
-                onShareSent = { sharePost = null },
-                onOpenDiscussion = onOpenDiscussion,
-                editingEnabled = editingEnabled,
-                deletingEnabled = deletingEnabled,
-                editWindowMinutes = editWindowMinutes,
-                deleteWindowMinutes = deleteWindowMinutes)
+            val firstContact = AtrioPeerInboxPolicy.explicitFirstContact(
+                uid, initialPeer?.uid, selected, rooms.isNotEmpty()
+            ) && peerUid == initialPeer?.uid && loaded && error.isBlank()
+            when {
+                !loaded -> CircularProgressIndicator(
+                    Modifier.padding(24.dp).testTag("atrio-peer-inbox-loading"))
+                error.isNotBlank() -> Column(Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    AtrioPeerInboxError(error, onRetry = { retryInbox++ })
+                    TextButton(onClick = { selected = null }) { Text("Voltar") }
+                }
+                chosen == null && !firstContact ->
+                    Column(Modifier.padding(20.dp)) {
+                        Text("Conversa indisponível para esta conta.",
+                            modifier = Modifier.testTag("atrio-peer-inbox-unavailable"))
+                        TextButton(onClick = { selected = null }) { Text("Voltar") }
+                    }
+                else -> AtrioChatThread(db, uid, selected!!, chosen,
+                    initialPeer?.takeIf { AtrioChatPolicy.id(uid, it.uid) == selected },
+                    onBack = { selected = null },
+                    sharePost = sharePost,
+                    onShareSent = { sharePost = null },
+                    onOpenDiscussion = onOpenDiscussion,
+                    editingEnabled = editingEnabled,
+                    deletingEnabled = deletingEnabled,
+                    editWindowMinutes = editWindowMinutes,
+                    deleteWindowMinutes = deleteWindowMinutes)
+            }
         } else {
             Row(Modifier.fillMaxWidth().padding(horizontal=12.dp),
                 verticalAlignment=Alignment.CenterVertically) {
@@ -264,10 +360,25 @@ internal fun AtrioConversationsScreen(
                     Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp),
                     color = Wine, fontSize = 14.sp)
             }
+            if (!knownPeer) {
+                Text("Caixa de entrada completa indisponível nesta etapa. " +
+                    "Por segurança, abra uma conversa pelo perfil de um participante. " +
+                    "Seus contatos e solicitações anteriores não são listados até " +
+                    "a descoberta autorizada pelo servidor estar pronta.",
+                    Modifier.fillMaxWidth().padding(16.dp)
+                        .testTag("atrio-peer-discovery-unavailable"),
+                    color = MaterialTheme.colorScheme.onSurface)
+            } else {
+                Text("Mostrando apenas o contato aberto pelo perfil ou por um " +
+                    "destino conhecido. A caixa completa ainda não está disponível.",
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    color = MaterialTheme.colorScheme.onSurface)
+            }
             OutlinedTextField(search, { search = it.take(80) },
                 modifier = Modifier.fillMaxWidth().padding(12.dp)
                     .testTag("atrio-chats-search"),
-                singleLine = true, label = { Text("Buscar conversa") })
+                enabled = knownPeer,
+                singleLine = true, label = { Text("Buscar neste contato") })
             Row(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(!requestsTab && !archivesTab,
                     onClick = { requestsTab = false; archivesTab = false },
@@ -280,19 +391,25 @@ internal fun AtrioConversationsScreen(
                     label = { Text("Arquivadas") })
             }
             val matches = rooms.filter { room ->
-                (if (requestsTab) room.incomingRequest(uid)
+                (if (requestsTab) room.status == "pending"
                  else if (archivesTab) prefs[room.id]?.archived == true
-                 else !room.incomingRequest(uid) && prefs[room.id]?.archived != true) &&
+                 else room.status != "pending" && prefs[room.id]?.archived != true) &&
                 (search.isBlank() || room.preview.contains(search, true))
             }.sortedWith(compareByDescending<ChatRoom> { prefs[it.id]?.pinned == true }
                 .thenByDescending { it.lastAt })
-            if (!loaded) LinearProgressIndicator(Modifier.fillMaxWidth())
-            if (error.isNotBlank()) Text(error, Modifier.padding(12.dp), color = MaterialTheme.colorScheme.error)
-            if (loaded && matches.isEmpty()) Text(
-                if (requestsTab) "Nenhuma solicitação recebida."
-                else if (archivesTab) "Nenhuma conversa arquivada."
-                else "Nenhuma conversa nesta caixa de entrada.",
-                Modifier.padding(20.dp), color = Muted)
+            if (!loaded && knownPeer) LinearProgressIndicator(
+                Modifier.fillMaxWidth().testTag("atrio-peer-inbox-loading"))
+            if (error.isNotBlank()) {
+                AtrioPeerInboxError(error, modifier = Modifier.padding(16.dp),
+                    onRetry = { retryInbox++ })
+            }
+            if (knownPeer && loaded && error.isBlank() && matches.isEmpty()) Text(
+                when {
+                    search.isNotBlank() -> "Nenhum resultado para este contato."
+                    requestsTab -> "Nenhuma solicitação confirmada para este contato."
+                    archivesTab -> "Nenhuma conversa arquivada confirmada para este contato."
+                    else -> "Nenhuma conversa confirmada para este contato."
+                }, Modifier.padding(20.dp), color = Muted)
             LazyColumn(Modifier.weight(1f).testTag("atrio-chats-list"),
                 contentPadding = PaddingValues(12.dp),
                 verticalArrangement = Arrangement.spacedBy(9.dp)) {
@@ -300,7 +417,10 @@ internal fun AtrioConversationsScreen(
                     val peer = room.peer(uid)
                     val name = chatPeerName(db, peer)
                     val minePrefs = prefs[room.id] ?: ChatPrefs()
-                    Card(onClick = { selected = room.id },
+                    Card(onClick = {
+                        if (authentication.currentUser?.uid == uid && error.isBlank())
+                            selected = room.id
+                    },
                         modifier = Modifier.fillMaxWidth().testTag("atrio-chat-" + room.id),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                         border = BorderStroke(1.dp, Line), shape = RoundedCornerShape(16.dp)) {
@@ -319,7 +439,7 @@ internal fun AtrioConversationsScreen(
                             Text(room.preview, maxLines = 2, overflow = TextOverflow.Ellipsis,
                                 fontSize = 14.sp, color = Muted)
                             if (room.status == "pending") Text(
-                                if (room.incomingRequest(uid)) "Novo pedido" else "Aguardando aceite",
+                                "Solicitação pendente • abra para conferir",
                                 color = Wine, fontSize = 13.sp)
                             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                 TextButton(onClick = {
@@ -368,7 +488,9 @@ private fun AtrioChatThread(
 ) {
     val ref = remember(db, chatId) { db.collection("chats").document(chatId) }
     var chat by remember(uid, chatId) {
-        mutableStateOf(preview.takeUnless { atrioChatRequiresServer })
+        // O índice minimizado NÃO contém os papéis e permissões do chat.
+        // Ler o documento real exclusivamente no servidor após confirmar índice.
+        mutableStateOf<ChatRoom?>(null)
     }
     var accessDenied by remember(uid, chatId) { mutableStateOf(false) }
     var loaded by remember(uid, chatId) { mutableStateOf(false) }
@@ -420,55 +542,57 @@ private fun AtrioChatThread(
             onDispose { listener.remove() }
         }
     }
-    // A inbox já usa a query autorizada por participação. Quando o
-    // destinatário vem do perfil, o chat ainda NÃO existe: uma escuta de
-    // documento inexistente é negada pelas regras Firestore e encerra
-    // definitivamente esse listener. Assim, o pedido criado em seguida
-    // ficava gravado, mas a tela continuava em "primeira mensagem".
-    // Aguardar a inbox confirmar o novo documento ANTES de iniciar a escuta.
-    LaunchedEffect(preview) {
-        if (preview != null && !atrioChatRequiresServer) {
-            chat = preview
-            loaded = true
-        }
-    }
+    // Um contato novo não possui índice; nesse caso a UI permite somente
+    // o pedido inicial, sujeito às Rules. Para chats existentes, o índice
+    // pelo par precisa vir do servidor antes de ler mensagens.
     var confirmedRoom by remember(uid, chatId) { mutableStateOf(preview != null) }
+    var requestSubmitted by remember(uid, chatId) { mutableStateOf(false) }
     LaunchedEffect(preview?.id) {
         if (preview != null) confirmedRoom = true
     }
-    val firstContact = !confirmedRoom && preview == null && initialPeer != null
+    val firstContact = AtrioPeerInboxPolicy.explicitFirstContact(
+        uid, initialPeer?.uid, chatId, confirmedRoom
+    )
     fun updateRoom(snapshot: DocumentSnapshot?, failure: Throwable?) {
+        // Respostas atrasadas da sessão anterior nunca reabrem conteúdo.
+        if (FirebaseAuth.getInstance().currentUser?.uid != uid) {
+            loaded = true
+            accessDenied = true
+            chat = null
+            messages = emptyList()
+            return
+        }
         loaded = failure != null || atrioChatSnapshotUsable(snapshot)
-        accessDenied = failure != null
-        chat = if (failure == null && atrioChatSnapshotUsable(snapshot))
-            snapshot?.takeIf { it.exists() }?.chatRoom()
-        else null
+        val fresh = failure == null && atrioChatSnapshotUsable(snapshot)
+        val candidate = if (fresh && snapshot?.exists() == true)
+            snapshot.chatRoom() else null
+        val verified = candidate?.takeIf {
+            AtrioPeerInboxPolicy.roomMatches(
+                uid, chatId, it.requester, it.recipient, it.status
+            ) && (initialPeer == null || it.peer(uid) == initialPeer.uid)
+        }
+        accessDenied = failure != null ||
+            (fresh && snapshot?.exists() == true && verified == null)
+        chat = verified
         if (chat == null) messages = emptyList()
         if (failure != null) info = "Não foi possível sincronizar a conversa."
     }
+    // Revalidar no servidor durante a thread: listener local isolado não
+    // garante revogação de acesso após bloqueio. Offline não usa cache.
     LaunchedEffect(ref, uid, firstContact) {
-        if (atrioChatRequiresServer && !firstContact) {
+        if (!firstContact) {
             pollAtrioPilotServer({ ref.get(Source.SERVER) }, ::updateRoom)
-        }
-    }
-    DisposableEffect(ref, uid, firstContact) {
-        if (firstContact) {
-            if (!accessDenied) loaded = true
-            onDispose {}
-        } else if (atrioChatRequiresServer) {
-            onDispose {}
-        } else {
-            val listener = ref.addSnapshotListener(::updateRoom)
-            onDispose { listener.remove() }
-        }
+        } else loaded = true
     }
     DisposableEffect(db, chatId, limit, chat?.id) {
         if (chat == null) onDispose {}
         else {
             val listener = ref.collection("messages")
                 .orderBy("createdAt", Query.Direction.DESCENDING).limit(limit.toLong())
-                .addSnapshotListener(atrioChatMetadataChanges) { data, error ->
-                    messages = if (error == null && atrioChatSnapshotUsable(data))
+                .addSnapshotListener(MetadataChanges.INCLUDE) { data, error ->
+                    messages = if (error == null && data != null &&
+                        !data.metadata.isFromCache && !data.metadata.hasPendingWrites() &&
+                        FirebaseAuth.getInstance().currentUser?.uid == uid)
                         data?.documents.orEmpty().mapNotNull { doc ->
                         val sender = doc.getString("uid") ?: return@mapNotNull null
                         val body = doc.getString("text") ?: return@mapNotNull null
@@ -545,6 +669,10 @@ private fun AtrioChatThread(
             info = "Compartilhamentos exigem uma conversa aceita."
             return
         }
+        if (chat == null && (!firstContact || requestSubmitted)) {
+            info = "Aguarde a confirmação da conversa no servidor."
+            return
+        }
         if (chat == null && !AtrioChatPolicy.validRequest(body)) {
             info = "A primeira mensagem não pode conter links."
             return
@@ -605,11 +733,19 @@ private fun AtrioChatThread(
                 true
             }.addOnCompleteListener { response ->
                 saving = false
-                if (response.isSuccessful) {
+                if (response.isSuccessful &&
+                    FirebaseAuth.getInstance().currentUser?.uid == uid) {
                     if (draft.trim() == body) draft = ""
+                    // Não permitir nova criação enquanto o GET autenticado
+                    // confirma a transação. O índice pode ainda não existir.
+                    requestSubmitted = true
+                    loaded = false
+                    confirmedRoom = true
                     info = "Solicitação enviada."
                     replyingTo = null
                     pendingAttemptId = ""; pendingAttemptText = ""
+                } else if (FirebaseAuth.getInstance().currentUser?.uid != uid) {
+                    info = "Sessão alterada. Entre novamente."
                 } else {
                     info = "Pedido não confirmado. O destinatário pode não aceitar " +
                         "solicitações ou você atingiu o limite de novos contatos."
@@ -663,9 +799,11 @@ private fun AtrioChatThread(
         }
         HorizontalDivider(color = Line)
         if (!loaded) LinearProgressIndicator(Modifier.fillMaxWidth())
-        if (accessDenied || (chat == null && initialPeer == null && loaded)) {
+        if (accessDenied || (chat == null && !firstContact && loaded)) {
             Text("Conversa não encontrada ou acesso negado.", Modifier.padding(20.dp))
         } else {
+            if (requestSubmitted && chat == null) AtrioFirstContactStatus(
+                Modifier.fillMaxWidth().padding(12.dp))
             if (chat?.incomingRequest(uid) == true) {
                 Text("Apenas aceitar autoriza uma nova conversa. Visualizar não significa aceitar.",
                     Modifier.padding(12.dp), fontSize = 14.sp, color = Wine)
@@ -854,7 +992,8 @@ private fun AtrioChatThread(
                     }
                 }
             }
-            if (chat == null || chat?.status == "accepted") {
+            if ((chat == null && firstContact && !requestSubmitted) ||
+                chat?.status == "accepted") {
                 if (replyingTo != null) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                         verticalAlignment = Alignment.CenterVertically) {
@@ -1091,7 +1230,8 @@ internal fun atrioConversationConfigEnabled(snapshot: DocumentSnapshot?): Boolea
 // O piloto usa uma consulta ao servidor sem listener persistente no mesmo alvo.
 internal suspend fun <T> pollAtrioPilotServer(
     read: () -> Task<T>,
-    onRead: (T?, Throwable?) -> Unit
+    onRead: (T?, Throwable?) -> Unit,
+    intervalMs: Long = 2_000L
 ) {
     while (true) {
         val result = suspendCancellableCoroutine<Result<T>> { continuation ->
@@ -1102,6 +1242,6 @@ internal suspend fun <T> pollAtrioPilotServer(
             }
         }
         onRead(result.getOrNull(), result.exceptionOrNull())
-        delay(2_000)
+        delay(intervalMs)
     }
 }
