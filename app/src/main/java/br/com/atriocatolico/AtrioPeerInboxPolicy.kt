@@ -26,13 +26,16 @@ internal object AtrioPeerInboxPolicy {
             validPeer(owner, profilePeer) &&
             chatId == AtrioChatPolicy.id(owner, profilePeer)
 
+    private fun matchesPairId(chatId: String, a: String, b: String): Boolean =
+        chatId == "${a}__${b}" || chatId == "${b}__${a}"
+
     /** Uma resposta direta só pode ser exibida se o par pertence à sessão. */
     fun roomMatches(owner: String, chatId: String, requester: String?,
                     recipient: String?, status: String?): Boolean =
         requester != null && recipient != null &&
             validPeer(requester, recipient) &&
             (requester == owner || recipient == owner) &&
-            chatId == AtrioChatPolicy.id(requester, recipient) &&
+            matchesPairId(chatId, requester, recipient) &&
             status in setOf("pending", "accepted", "declined")
 
     fun peerFromChatId(owner: String, chatId: String?): String? {
@@ -43,7 +46,7 @@ internal object AtrioPeerInboxPolicy {
             chatId.takeIf { it.startsWith(prefix) }?.removePrefix(prefix),
             chatId.takeIf { it.endsWith(suffix) }?.removeSuffix(suffix)
         ).distinct().filter { peer ->
-            validPeer(owner, peer) && AtrioChatPolicy.id(owner, peer) == chatId
+            validPeer(owner, peer) && matchesPairId(chatId, owner, peer)
         }
         // IDs ambíguos não legitimam uma consulta a contato arbitrário.
         return candidates.singleOrNull()
@@ -53,7 +56,7 @@ internal object AtrioPeerInboxPolicy {
                      entryOwner: String?, entryPeer: String?,
                      status: String?, preview: String?): Boolean =
         validPeer(owner, peer) &&
-            chatId == AtrioChatPolicy.id(owner, peer) &&
+            matchesPairId(chatId, owner, peer) &&
             entryOwner == owner && entryPeer == peer &&
             status in setOf("pending", "accepted", "declined") &&
             preview != null && preview.length <= AtrioChatPolicy.MAX_TEXT

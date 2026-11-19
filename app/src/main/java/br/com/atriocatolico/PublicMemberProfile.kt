@@ -40,7 +40,8 @@ internal fun PublicMemberProfileScreen(
     onBack: () -> Unit,
     onOpenDiscussion: (String) -> Unit,
     viewerUid: String = "",
-    onConverse: (() -> Unit)? = null
+    onConverse: (() -> Unit)? = null,
+    managedBlocks: AtrioManagedBlocks? = null
 ) {
     val uid = target.uid
     var info by remember(uid) { mutableStateOf<PublicMemberInfo?>(null) }
@@ -52,8 +53,10 @@ internal fun PublicMemberProfileScreen(
     var loading by remember(uid) { mutableStateOf(true) }
     var failed by remember(uid) { mutableStateOf(false) }
     var more by remember(uid) { mutableStateOf(false) }
-    val blockedMembers = rememberBlockedMembers(db, viewerUid)
-    val blocked = uid in blockedMembers
+    val managed = BuildConfig.ATRIO_QA_INBOX_DISCOVERY
+    val blocked = if (managed) {
+        managedBlocks?.confirmed(uid)?.blocked != false || uid in managedBlocks.hiddenPeers()
+    } else uid in rememberBlockedMembers(db, viewerUid)
     var actionBusy by remember(viewerUid, uid) { mutableStateOf(false) }
     var reportOpen by remember(viewerUid, uid) { mutableStateOf(false) }
     var reportReason by remember(viewerUid, uid) { mutableStateOf("") }
@@ -155,7 +158,11 @@ internal fun PublicMemberProfileScreen(
                         Text("Conversar")
                     }
                 }
-                OutlinedButton(
+                if (managed) {
+                    if (managedBlocks != null) AtrioManagedBlockControl(
+                        managedBlocks, uid, "atrio-member-block"
+                    )
+                } else OutlinedButton(
                     enabled = !actionBusy,
                     onClick = {
                         actionBusy = true
