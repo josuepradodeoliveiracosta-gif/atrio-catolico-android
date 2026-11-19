@@ -60,6 +60,7 @@ async function seedUser(name) {
 const [clara, miguel, lucia] = await Promise.all(['clara', 'miguel', 'lucia'].map(seedUser));
 const contactPeer = 'qa-inbox-message-contact';
 const acceptedPeer = 'qa-inbox-peer-02';
+const profilePeer = 'qa-inbox-peer-03';
 const now = Date.now();
 const expiresAt = Timestamp.fromMillis(now + 86_400_000);
 const seedAge = (batch, uid, reviewExpiresAt) => batch.set(
@@ -93,6 +94,10 @@ for (let index = 1; index <= 43; index++) {
     });
   }
 }
+batch.set(db.doc('posts/qa-inbox-profile-post'), {
+  uid: profilePeer, title: 'Discussão já carregada em QA', body: 'Trecho fictício para o focal de bloqueio.',
+  category: 'Vida espiritual', createdAt: Timestamp.fromMillis(now)
+});
 await batch.commit();
 const bootstrap = 'qa-android-inbox-bootstrap';
 await beginInboxBackfill(db, bootstrap);
@@ -133,8 +138,46 @@ const peerProjection = db.doc('serverInboxOwners/' + blockPeer + '/legacy/' + bl
 let refusedRequest;
 let maintenanceExercised = false;
 
+// O focal do perfil arma um único GET. O handler lê o estado real antes do
+// PUT da segunda sessão, mas a resposta só sai após a prova de ocultação.
+let holdProfileRead = false;
+let releaseProfileRead;
+const profileRoute = '/v1/qa/conversations/blocks/' + profilePeer;
+const profileBlockDoc = db.doc('users/' + clara + '/blockedMembers/' + profilePeer);
+async function profileBlockControl(method) {
+  if (method === 'POST') {
+    assert.ok(!holdProfileRead && !releaseProfileRead);
+    holdProfileRead = true;
+    return new Response(null, {status: 204});
+  }
+  if (method === 'GET') return new Response(null, {status: releaseProfileRead ? 200 : 204});
+  if (method === 'DELETE') {
+    assert.ok(releaseProfileRead && (await profileBlockDoc.get()).exists);
+    releaseProfileRead();
+    releaseProfileRead = undefined;
+    return new Response(null, {status: 204});
+  }
+  return new Response(null, {status: 405});
+}
+
 async function dispatchBlock(request) {
   const url = new URL(request.url);
+  if (url.pathname === profileRoute && request.method === 'GET' && holdProfileRead) {
+    holdProfileRead = false;
+    const result = await handleBlock(request);
+    assert.equal(result.status, 200);
+    assert.equal((await result.clone().json()).blocked, false);
+    console.log('QA PROFILE: GET anterior ao bloqueio retornou blocked=false e ficou retido.');
+    await new Promise((resolve, reject) => {
+      const deadline = setTimeout(() => {
+        releaseProfileRead = undefined;
+        reject(new Error('O focal não liberou o GET retido.'));
+      }, 25_000);
+      releaseProfileRead = () => { clearTimeout(deadline); resolve(); };
+    });
+    console.log('QA PROFILE: GET tardio blocked=false liberado após bloqueio confirmado e ocultação na UI.');
+    return result;
+  }
   if (url.pathname !== blockRoute || !['PUT', 'DELETE'].includes(request.method))
     return handleBlock(request);
 
@@ -274,7 +317,8 @@ createServer(async (request, response) => {
     }
     const incoming = new Request('http://' + host + ':8091' + request.url, options);
     const path = new URL(incoming.url).pathname;
-    const result = path.startsWith('/v1/qa/conversations/blocks/') ? await dispatchBlock(incoming)
+    const result = path === '/qa/profile-block' ? await profileBlockControl(incoming.method)
+      : path.startsWith('/v1/qa/conversations/blocks/') ? await dispatchBlock(incoming)
       : incoming.method === 'POST' ? await dispatchMessage(incoming) : await handleInbox(incoming);
     if (incoming.method === 'GET' && new URL(incoming.url).searchParams.has('cursor') &&
         result.status === 409) console.log('Inbox QA local: HTTP 409 na continuação.');

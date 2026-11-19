@@ -47,3 +47,20 @@ As duas provas instrumentadas foram acrescentadas a `AtrioTypographyAccessibilit
 - **Chat 7:** revisar diffs, neutralidade dos textos, privacidade na troca de sessão, comportamento offline, colisões de PRs e riscos de composição com a `main`.
 
 **Critério de conclusão:** não declarar “homologação integral” até que as lacunas das transições privadas e o CI completo com os três bots estejam demonstrados em commit compatível. Teste físico é opcional para QA segundo o Prompt Supremo 3.1, não equivalente à comprovação de entrega FCM. Merge, deploy, produção e backups exigem autorizações específicas.
+
+## Perfil público com Inbox HTTP
+
+A suíte `AtrioPublicProfileBlockEmulatorUiTest` usa `qaGeral` com `ATRIO_QA_INBOX_DISCOVERY=1`, Auth e Firestore Emulator do projeto `demo-atrio-v11` e a fixture autenticada em loopback. O perfil permanece aberto na primeira sessão enquanto a segunda sessão, autenticada na mesma conta fictícia, bloqueia o participante.
+
+1. Com a lista do servidor confirmada e o GET HTTP indicando desbloqueio, confira a discussão no perfil e no cache do SDK.
+2. Retenha um segundo GET HTTP com o estado anterior. Faça o PUT autenticado na segunda sessão, confira o documento de bloqueio no servidor e verifique que a primeira sessão já escondeu a publicação, seu trecho, a contagem e o botão Conversar.
+3. Libere o GET antigo e confirme que o controlador efetivamente recebeu o estado desbloqueado. A interface deve continuar oculta e oferecer **Atualizar estado**. Um GET novo confirma o bloqueio e libera a ação de desbloqueio.
+
+O job **Bloqueio remoto no perfil público** executa só esse focal e preserva o XML de instrumentação e os logs da fixture. Em uma máquina com o Android Emulator iniciado, execute na raiz da cópia de QA:
+
+```bash
+npm ci --prefix tests/security
+ATRIO_QA_APK=qaGeral ATRIO_QA_GERAL_BUILD=1 ATRIO_QA_FIREBASE_PROJECT=demo-atrio-v11 \
+ATRIO_QA_INBOX_DISCOVERY=1 ATRIO_QA_SUITE=AtrioPublicProfileBlockEmulatorUiTest \
+bash scripts/run-qa-android-emulator.sh
+```
