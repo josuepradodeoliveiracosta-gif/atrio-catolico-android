@@ -34,7 +34,7 @@ jobs:
       ATRIO_QA_GERAL_CELULAR_RODADA_FIXTURE: ${{ github.head_ref == 'qa/chat7-composicao-dois-celulares' && '1' || '0' }}
       ATRIO_QA_GERAL_PUSH_BUILD: ${{ !contains(fromJSON('["qa/chat5-qa-geral-firebase-celular","qa/chat5-qa-geral-celular-pacote-proprio","qa/chat5-qa-geral-celular-identidade","qa/chat5-qa-geral-celular-funcional","qa/chat5-qa-geral-celular-combinado","qa/chat7-composicao-dois-celulares"]'), github.head_ref) && '1' || '0' }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
