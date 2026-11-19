@@ -249,7 +249,6 @@ try{
       assert.equal((await getDocFromServer(doc(db,path))).exists(),false);
     await assert.rejects(applyTrustedInboxEvent(admin,{kind:'anything'}),/inbox_access_denied/);
   });
-  });
   // P0 #355: teste de fronteira real no Firestore Emulator. A quantidade
   // de candidatos OCULTOS nunca deve ser inferida pela presenca de cursor.
   const pageOwner='inbox-pagination-owner';
@@ -334,6 +333,7 @@ try{
     assert.equal(response.status,200);
     assert.deepEqual(await response.json(),hidden39);
     assert.match(response.headers.get('cache-control'),/no-store/);
+  });
   });
   console.log('AUTHORIZED INBOX DISCOVERY TESTS:',checks,'OK');
 }finally{await env.cleanup();}
