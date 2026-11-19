@@ -364,11 +364,9 @@ internal fun NotificationCenter(
         }
         items(shown, key = { it.id }) { group ->
             Card(onClick = {
-                // O callback de navegação também valida a conta no instante do toque.
-                // Não abrir destinos da sessão anterior enquanto o Compose recompõe.
-                if (!inbox.busy &&
-                    FirebaseAuth.getInstance(inbox.db.app).currentUser?.uid == inbox.uid) {
-                    inbox.markRead(listOf(group)); onOpen(group)
+                if (!inbox.busy && group in inbox.groups(admin)) {
+                    inbox.markRead(listOf(group))
+                    if (inbox.sessionIsCurrent()) onOpen(group)
                 }
             },
                 modifier = Modifier.fillMaxWidth(),
