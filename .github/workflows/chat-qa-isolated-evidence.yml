@@ -1,0 +1,174 @@
+name: Chat QA isolado — build e inspeção do APK
+
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/chat-qa-isolated-evidence.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  chat-qa:
+    if: ${{ github.head_ref == 'qa/chat5-199-chatqa-isolado-759b61c1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      SOURCE_SHA: '759b61c126580c628f0dfb74559bcc3bc4e37586'
+      SOURCE_TREE: '23fefdc726b4a1c7412351d916601baae05ffcca'
+      QA_PROJECT: atrio-catolico-qa-geral
+      QA_PACKAGE: br.com.atriocatolico.chatqa
+      QA_APP_ID: '1:123456789:android:0123456789abcdef'
+      QA_SYNTHETIC_KEY: synthetic-test-value
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: '759b61c126580c628f0dfb74559bcc3bc4e37586'
+          persist-credentials: false
+      - name: Conferir checkout e contratos de isolamento
+        run: |
+          git rev-parse HEAD 'HEAD^{tree}'
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test "$(git rev-parse 'HEAD^{tree}')" = "$SOURCE_TREE"
+          python3 -m unittest scripts.test_chat_qa_build_gate scripts.test_perfil_qa_build_gate scripts.test_ag7_qa_variants_contract scripts.test_qa_android_variant_isolation
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with:
+          gradle-version: '8.13'
+          cache-disabled: true
+      - name: Compilar chatQa com fixture sintética e sem Worker
+        env:
+          ATRIO_CHAT_QA_BUILD: '1'
+          ATRIO_CHAT_QA_OFFLINE_ONLY: '1'
+          ATRIO_CHAT_QA_WORKER_URL: ''
+          ATRIO_CHAT_QA_PROJECT: atrio-catolico-qa-geral
+          ATRIO_CHAT_QA_APP_ID: '1:123456789:android:0123456789abcdef'
+        run: |
+          rm -f app/google-services.json
+          for path in app/src/*/google-services.json; do
+            test ! -e "$path"
+          done
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          data = {
+              "project_info": {
+                  "project_id": os.environ["QA_PROJECT"], "project_number": "123456789",
+              },
+              "client": [{
+                  "client_info": {
+                      "mobilesdk_app_id": os.environ["QA_APP_ID"],
+                      "android_client_info": {"package_name": os.environ["QA_PACKAGE"]},
+                  },
+                  "api_key": [{"current_key": os.environ["QA_SYNTHETIC_KEY"]}],
+              }],
+          }
+          Path("app/src/chatQa/google-services.json").write_text(json.dumps(data), encoding="utf-8")
+          PY
+          export ATRIO_CHAT_QA_CONFIG_SHA256="$(sha256sum app/src/chatQa/google-services.json | cut -d' ' -f1)"
+          mkdir -p chat-qa-evidence
+          python3 scripts/chat_qa_build_gate.py --receipt > chat-qa-evidence/preflight.json
+          gradle :app:assembleChatQa --no-daemon
+      - name: Inspecionar manifesto, recursos, assinatura e conteúdo do APK
+        run: |
+          sdkmanager 'build-tools;35.0.0'
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import subprocess
+          import xml.etree.ElementTree as ET
+          import zipfile
+
+          def run(*args):
+              return subprocess.check_output(args, text=True).strip()
+
+          def require(condition, label):
+              if not condition:
+                  raise SystemExit(f"Falha da inspeção: {label}")
+
+          sdk = Path(os.environ["ANDROID_HOME"])
+          analyzer = str(sdk / "cmdline-tools/latest/bin/apkanalyzer")
+          signer = str(sdk / "build-tools/35.0.0/apksigner")
+          apks = list(Path("app/build/outputs/apk/chatQa").glob("*.apk"))
+          require(len(apks) == 1, "APK chatQa único")
+          apk = str(apks[0])
+
+          def resource(name):
+              return run(analyzer, "resources", "value", "--config", "default", "--type",
+                         "string", "--name", name, apk).strip('"')
+
+          package = run(analyzer, "manifest", "application-id", apk)
+          require(package == os.environ["QA_PACKAGE"], "applicationId do APK")
+          manifest = ET.fromstring(run(analyzer, "manifest", "print", apk))
+          app = manifest.find("application")
+          require(app is not None, "nó application")
+          android = "{http://schemas.android.com/apk/res/android}"
+          require(app.get(android + "allowBackup") == "false", "backup desativado")
+          require(app.get(android + "label") == "Átrio QA • laboratório", "rótulo de laboratório")
+          require(run(analyzer, "manifest", "debuggable", apk) == "true", "variante depurável")
+          require(resource("project_id") == os.environ["QA_PROJECT"], "projeto Firebase")
+          require(resource("google_app_id") == os.environ["QA_APP_ID"], "app Firebase sintético")
+          require(resource("gcm_defaultSenderId") == "123456789", "sender sintético")
+          require(resource("google_api_key") == os.environ["QA_SYNTHETIC_KEY"], "credencial fictícia")
+
+          cfgs = list(Path("app/build/generated/source/buildConfig/chatQa").rglob("BuildConfig.java"))
+          require(len(cfgs) == 1, "BuildConfig exclusivo de chatQa")
+          cfg = cfgs[0].read_text()
+          for name in ("PUSH_RELAY_URL", "AVATAR_WORKER_URL", "GUARDIAN_V2_WORKER_URL"):
+              require(re.search(r'\b' + name + r'\s*=\s*"";', cfg), f"{name} vazio")
+          for name in ("ATRIO_QA_GERAL_REMOTE", "ATRIO_QA_INBOX_DISCOVERY", "OTA_QA_LOOPBACK",
+                       "OTA_RELEASE_PILOT_LOOPBACK"):
+              require(re.search(r'\b' + name + r'\s*=\s*false;', cfg), f"{name} inativo")
+
+          forbidden = (
+              b"atrio-catolico.firebasestorage.app", b"atrio-catolico.appspot.com",
+              b"atrio-catolico.firebaseio.com", b"atrio-catolico-default-rtdb",
+              b"atrio-push.atrio-catolico.workers.dev",
+              b"atrio-guardian-v2.atrio-catolico.workers.dev",
+          )
+          with zipfile.ZipFile(apk) as archive:
+              for item in archive.infolist():
+                  data = archive.read(item).lower()
+                  require(all(host not in data and host.decode().encode("utf-16le") not in data
+                              for host in forbidden), "domínio oficial conhecido encontrado no APK")
+
+          signed = run(signer, "verify", "--print-certs", apk)
+          certs = re.findall(r"Signer #\d+ certificate SHA-256 digest: ([a-fA-F0-9]{64})", signed)
+          local_debug = subprocess.check_output([
+              "keytool", "-exportcert", "-keystore", str(Path.home() / ".android/debug.keystore"),
+              "-storepass", "android", "-alias", "androiddebugkey",
+          ])
+          debug_hash = hashlib.sha256(local_debug).hexdigest()
+          require(len(certs) == 1 and certs[0].lower() == debug_hash, "assinatura debug do runner")
+
+          evidence = {
+              "source_sha": os.environ["SOURCE_SHA"], "source_tree": os.environ["SOURCE_TREE"],
+              "variant": "chatQa", "application_id": package, "allow_backup": False,
+              "label": app.get(android + "label"), "debuggable": True,
+              "version_code": run(analyzer, "manifest", "version-code", apk),
+              "version_name": run(analyzer, "manifest", "version-name", apk),
+              "apk_sha256": hashlib.sha256(Path(apk).read_bytes()).hexdigest(),
+              "signer": "debug-keystore-do-runner", "signer_sha256": debug_hash,
+              "firebase_project": os.environ["QA_PROJECT"], "firebase_fixture_synthetic": True,
+              "worker_urls_empty": ["PUSH_RELAY_URL", "AVATAR_WORKER_URL", "GUARDIAN_V2_WORKER_URL"],
+              "known_production_domains_absent": True,
+          }
+          receipt = json.dumps(evidence, indent=2, ensure_ascii=False)
+          Path("chat-qa-evidence/apk.json").write_text(receipt + "\n", encoding="utf-8")
+          print(receipt)
+          PY
+      - name: Guardar somente evidência sanitizada
+        uses: actions/upload-artifact@v4
+        with:
+          name: chat-qa-isolated-evidence
+          path: chat-qa-evidence/
+          if-no-files-found: error
+          retention-days: 7
