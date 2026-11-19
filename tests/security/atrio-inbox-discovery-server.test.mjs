@@ -11,7 +11,8 @@ import {
   collection,deleteDoc,doc,getDocFromServer,getDocsFromServer,setDoc,Timestamp,updateDoc,writeBatch
 } from 'firebase/firestore';
 import {
-  INBOX_DISCOVERY_CONTROL,INBOX_DISCOVERY_SCHEMA,LEGACY_INBOX_AGE_PAIR,
+  INBOX_DISCOVERY_CONTROL,INBOX_DISCOVERY_SCHEMA,INBOX_WRITE_BOUNDARY,
+  INBOX_WRITE_POLICY,LEGACY_INBOX_AGE_PAIR,
   inboxDiscoveryCollection,peerInboxEntries
 } from '../../firebase/qa-general/chat-inbox-peer-index.mjs';
 import {
@@ -37,8 +38,10 @@ const chatData=(a,b,preview)=>({
 });
 const baseStore=createAdminInboxStore(admin);
 const indexed=(uid,chatId)=>inboxDiscoveryCollection(uid,LEGACY_INBOX_AGE_PAIR)+'/'+chatId;
+const boundary={policy:INBOX_WRITE_POLICY,epoch:'discovery-fixture-boundary'};
 const ready={ready:true,schema:INBOX_DISCOVERY_SCHEMA,
-  certificate:{operationId:'discovery-regression-fixture',cutAtMs:Date.now()}};
+  certificate:{operationId:'discovery-regression-fixture',cutAtMs:Date.now(),
+    boundaryEpoch:boundary.epoch}};
 let checks=0;
 async function check(label,work){await work();checks++;console.log('PASS DISCOVERY',label);}
 try{
@@ -66,6 +69,7 @@ try{
     }
     await batch.commit();
     await backfillInboxBatch(admin,alice);
+    await admin.doc(INBOX_WRITE_BOUNDARY).set(boundary);
     await admin.doc(INBOX_DISCOVERY_CONTROL).set(ready);
     const tokens={alice:'token-alice',bob:'token-bob',clara:'token-clara'};
     const verified={
@@ -419,7 +423,7 @@ try{
     assert.equal(at41.result.nextCursor,null);
     assert.deepEqual(at41.io,{
       collections:[inboxDiscoveryCollection(pageOwner,LEGACY_INBOX_AGE_PAIR)],
-      queries:1,indexRows:1,documentReads:8
+      queries:1,indexRows:1,documentReads:9
     });
     await seedHidden(41,159);
     assert.deepEqual(await measuredPage(1),at41);
@@ -443,7 +447,7 @@ try{
     assert.ok(first.result.nextCursor);
     assert.equal(first.io.queries,1);
     assert.equal(first.io.indexRows,limitCount+1);
-    assert.equal(first.io.documentReads,4+4*(limitCount+1));
+    assert.equal(first.io.documentReads,5+4*(limitCount+1));
     assert.deepEqual(first.io.collections,[inboxDiscoveryCollection(pageOwner,LEGACY_INBOX_AGE_PAIR)]);
     const ids=[];
     let cursor=first.result.nextCursor;
@@ -476,6 +480,11 @@ try{
     assert.equal(unready.status,503);
     assert.deepEqual(await unready.json(),{error:'inbox_unavailable'});
     await admin.doc(INBOX_DISCOVERY_CONTROL).set(ready);
+    await admin.doc(INBOX_WRITE_BOUNDARY).update({epoch:'different-boundary'});
+    const wrongBoundary=await handler(pageRequest());
+    assert.equal(wrongBoundary.status,503);
+    assert.deepEqual(await wrongBoundary.json(),{error:'inbox_unavailable'});
+    await admin.doc(INBOX_WRITE_BOUNDARY).set(boundary);
     const blocked=doc(db,'users/'+allowedPeer(1)+'/blockedMembers/'+pageOwner);
     await setDoc(blocked,{createdAt:Timestamp.now()});
     const stale=await handler(pageRequest());

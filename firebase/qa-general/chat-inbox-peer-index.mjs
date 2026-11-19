@@ -15,13 +15,22 @@ export const INBOX_AGE_COLLECTIONS=Object.freeze({
   'declared_18_plus|2026-11-selfdecl-qa-v1':'selfDeclared'
 });
 export const INBOX_DISCOVERY_CONTROL='serverInboxControl/pagination';
-export const INBOX_DISCOVERY_SCHEMA=2;
+export const INBOX_WRITE_BOUNDARY='serverInboxControl/writeBoundary';
+export const INBOX_WRITE_POLICY='coordinated-v1';
+export const INBOX_DISCOVERY_SCHEMA=3;
 export const inboxOwnerPath=uid=>'serverInboxOwners/'+uid;
 export const inboxAgePath=uid=>'users/'+uid+'/chatAgeEligibility/current';
 export const inboxBlockPath=(owner,peer)=>'users/'+owner+'/blockedMembers/'+peer;
 
-export function inboxProjectionReady(control) {
+export function inboxBoundaryEpoch(boundary) {
+  return boundary?.policy===INBOX_WRITE_POLICY &&
+    typeof boundary.epoch==='string' && boundary.epoch.length>0 ? boundary.epoch : null;
+}
+
+export function inboxProjectionReady(control,boundary) {
+  const epoch=inboxBoundaryEpoch(boundary);
   return control?.ready===true && control.schema===INBOX_DISCOVERY_SCHEMA &&
+    epoch!==null && control.certificate?.boundaryEpoch===epoch &&
     typeof control.certificate?.operationId==='string' &&
     Number.isFinite(control.certificate.cutAtMs) && !control.job;
 }

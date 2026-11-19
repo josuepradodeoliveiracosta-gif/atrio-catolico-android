@@ -13,6 +13,11 @@
       return !exists(/databases/$(database)/documents/users/$(a)/blockedMembers/$(b))
         && !exists(/databases/$(database)/documents/users/$(b)/blockedMembers/$(a));
     }
+    // A primeira carga gerenciada instala esta fronteira no mesmo commit.
+    // A presença do documento veda a escrita mesmo com o índice indisponível.
+    function qaInboxLegacySourceWrites() {
+      return !exists(/databases/$(database)/documents/serverInboxControl/writeBoundary);
+    }
     function chatAllowsRequests(uid) {
       let config = /databases/$(database)/documents/users/$(uid)/chatSettings/privacy;
       return exists(config) && get(config).data.get('requests', 'none') == 'all';
@@ -92,11 +97,13 @@
       allow get: if chatEnabled() && me(uid);
       allow list, delete: if false;
       allow create: if chatEnabled() && me(uid)
+        && qaInboxLegacySourceWrites()
         && chatQuotaFields(request.resource.data)
         && request.resource.data.count == 1
         && request.resource.data.windowStart == request.time
         && chatQuotaNewRequest(uid, request.resource.data.lastChatId);
       allow update: if chatEnabled() && me(uid)
+        && qaInboxLegacySourceWrites()
         && chatQuotaFields(request.resource.data)
         && chatQuotaNewRequest(uid, request.resource.data.lastChatId)
         && request.resource.data.lastChatId != resource.data.lastChatId
@@ -179,6 +186,7 @@
       // A caixa deve migrar para chatInboxByPeer (escopo fixo no caminho).
       allow list: if false;
       allow create: if chatEnabled()
+        && qaInboxLegacySourceWrites()
         && request.auth.uid == request.resource.data.requesterUid
         && validId(request.resource.data.requesterUid)
         && validId(request.resource.data.recipientUid)
@@ -215,6 +223,7 @@
         && getAfter(chatMessagePath(chatId, request.resource.data.initialId)).data.text
             == request.resource.data.lastPreview;
       allow update: if chatEnabled() && chatMember(resource.data)
+        && qaInboxLegacySourceWrites()
         && chatNoBlock(resource.data.requesterUid, resource.data.recipientUid)
         && (
           // Somente o destinatário aceita ou recusa explicitamente o contato.
@@ -309,6 +318,7 @@
             get(/databases/$(database)/documents/chats/$(chatId)).data.requesterUid,
             get(/databases/$(database)/documents/chats/$(chatId)).data.recipientUid);
         allow create: if chatEnabled() && validId(messageId)
+          && qaInboxLegacySourceWrites()
           && existsAfter(/databases/$(database)/documents/chats/$(chatId))
           && chatMember(getAfter(/databases/$(database)/documents/chats/$(chatId)).data)
           && chatNoBlock(
@@ -359,6 +369,7 @@
         // Todas as alterações são verificadas no servidor; somente o próprio
         // usuário reage, somente o autor modifica texto ou retira para todos.
         allow update: if chatEnabled()
+          && qaInboxLegacySourceWrites()
           && exists(/databases/$(database)/documents/chats/$(chatId))
           && chatMember(get(/databases/$(database)/documents/chats/$(chatId)).data)
           && get(/databases/$(database)/documents/chats/$(chatId)).data.status == 'accepted'

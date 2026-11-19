@@ -5,7 +5,7 @@
  */
 import {createCipheriv,createDecipheriv,randomBytes} from 'node:crypto';
 import {
-  INBOX_AGE_COLLECTIONS,INBOX_DISCOVERY_CONTROL,LEGACY_INBOX_AGE_PAIR,
+  INBOX_AGE_COLLECTIONS,INBOX_DISCOVERY_CONTROL,INBOX_WRITE_BOUNDARY,LEGACY_INBOX_AGE_PAIR,
   inboxAgeGrant,inboxDiscoveryCollection,inboxOwnerPath,inboxProjectionReady,
   peerInboxEntries,readInboxDiscoveryEntries,
   reconcilePeerInbox,syncInboxDiscoveryEntries
@@ -101,13 +101,13 @@ export function createAdminInboxStore(db) {
   return {
     async authorizedPage(uid,after,limit,requestedAt,acceptedPairs) {
       return db.runTransaction(async tx=>{
-        const [cfg,viewer,control,owner]=await tx.getAll(
+        const [cfg,viewer,control,owner,boundary]=await tx.getAll(
           ref('app_config/conversations'),ageRef(uid),ref(INBOX_DISCOVERY_CONTROL),
-          ref(inboxOwnerPath(uid))
+          ref(inboxOwnerPath(uid)),ref(INBOX_WRITE_BOUNDARY)
         );
         const now=Math.max(requestedAt,cfg.readTime.toMillis());
         if(!configValid(cfg.data())||!validInboxAge(viewer.data(),acceptedPairs,now))deny();
-        if(!inboxProjectionReady(control.data()))throw new InboxUnavailable();
+        if(!inboxProjectionReady(control.data(),boundary.data()))throw new InboxUnavailable();
         const revision=acceptedPairs.map(pair=>{
           const bucket=INBOX_AGE_COLLECTIONS[pair];
           return bucket+':'+(owner.data()?.revisions?.[bucket]??'');

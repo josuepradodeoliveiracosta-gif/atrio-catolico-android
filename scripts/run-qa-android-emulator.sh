@@ -196,6 +196,8 @@ if [[ "$inbox_focal" == 1 ]]; then
   run_suite "$ATRIO_QA_SUITE"
   if [[ "$qa_failed" == 0 ]]; then
     grep -F 'Inbox QA local: HTTP 409 na continuação.' qa-inbox-discovery-emulator.log
+    managed_block_suite=AtrioManagedBlockUiTest
+    run_suite "$managed_block_suite"
   fi
   exit "$qa_failed"
 fi

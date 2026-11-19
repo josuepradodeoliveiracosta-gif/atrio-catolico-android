@@ -120,7 +120,8 @@ internal fun AtrioConversationsScreen(
     initialGroupId: String? = null,
     initialSharePost: Pair<String, String>? = null,
     onOpenDiscussion: (String) -> Unit = {},
-    blockedPeers: Set<String> = emptySet()
+    blockedPeers: Set<String> = emptySet(),
+    managedBlocks: AtrioManagedBlocks? = null
 ) {
     val auth = remember(db) { FirebaseAuth.getInstance(db.app) }
     var user by remember(auth) { mutableStateOf(auth.currentUser, referentialEqualityPolicy()) }
@@ -134,7 +135,7 @@ internal fun AtrioConversationsScreen(
         Text("Sessão alterada. Entre novamente.", Modifier.padding(20.dp))
     } else key(current) {
         AtrioConversationsForSession(db, auth, current, onBack, initialPeer, initialChatId,
-            initialGroupId, initialSharePost, onOpenDiscussion, blockedPeers)
+            initialGroupId, initialSharePost, onOpenDiscussion, blockedPeers, managedBlocks)
     }
 }
 
@@ -143,7 +144,7 @@ private fun AtrioConversationsForSession(
     db: FirebaseFirestore, authentication: FirebaseAuth, user: FirebaseUser, onBack: () -> Unit,
     initialPeer: PublicMemberTarget?, initialChatId: String?, initialGroupId: String?,
     initialSharePost: Pair<String, String>?, onOpenDiscussion: (String) -> Unit,
-    blockedPeers: Set<String>
+    blockedPeers: Set<String>, managedBlocks: AtrioManagedBlocks?
 ) {
     val uid = user.uid
     var enabled by remember(uid) { mutableStateOf(false) }
@@ -192,6 +193,7 @@ private fun AtrioConversationsForSession(
         ChatRoom(it.chatId, uid, it.peerUid, it.status, it.preview, "", it.updatedAtMs,
             it.unreadCount, 0)
     } else rooms
+    val hiddenByPendingBlock = managedBlocks?.hiddenPeers().orEmpty()
     var prefsError by remember { mutableStateOf("") }
 
     fun closeThread() {
@@ -377,7 +379,8 @@ private fun AtrioConversationsForSession(
                     editingEnabled = editingEnabled,
                     deletingEnabled = deletingEnabled,
                     editWindowMinutes = editWindowMinutes,
-                    deleteWindowMinutes = deleteWindowMinutes)
+                    deleteWindowMinutes = deleteWindowMinutes,
+                    managedBlocks = managedBlocks)
             }
         } else {
             Row(Modifier.fillMaxWidth().padding(horizontal=12.dp),
@@ -428,6 +431,7 @@ private fun AtrioConversationsForSession(
                     label = { Text("Arquivadas") })
             }
             val matches = visibleRooms.filter { room ->
+                room.peer(uid) !in hiddenByPendingBlock &&
                 (if (requestsTab) room.status == "pending"
                  else if (archivesTab) prefs[room.id]?.archived == true
                  else room.status != "pending" && prefs[room.id]?.archived != true) &&
@@ -559,8 +563,10 @@ private fun AtrioChatThread(
     onShareSent: () -> Unit,
     onOpenDiscussion: (String) -> Unit,
     editingEnabled: Boolean, deletingEnabled: Boolean,
-    editWindowMinutes: Int, deleteWindowMinutes: Int
+    editWindowMinutes: Int, deleteWindowMinutes: Int,
+    managedBlocks: AtrioManagedBlocks?
 ) {
+    val legacyWrites = !BuildConfig.ATRIO_QA_INBOX_DISCOVERY
     val ref = remember(db, chatId) { db.collection("chats").document(chatId) }
     var chat by remember(uid, chatId) {
         // O índice minimizado NÃO contém os papéis e permissões do chat.
@@ -601,18 +607,24 @@ private fun AtrioChatThread(
     var deletingMessage by remember(uid, chatId) { mutableStateOf<ChatItem?>(null) }
     var report by remember(uid, chatId) { mutableStateOf<ChatItem?>(null) }
     var reason by remember(uid, chatId) { mutableStateOf("") }
-    val peerUid = chat?.peer(uid) ?: initialPeer?.uid.orEmpty()
+    val peerUid = chat?.peer(uid) ?: initialPeer?.uid
+        ?: if (legacyWrites) "" else preview?.peer(uid).orEmpty()
     val peerName = chatPeerName(db, peerUid, initialPeer?.nameFromPublication ?: "Participante")
     // Apenas o próprio titular pode ler sua lista de bloqueados. Não tentar
     // descobrir se o outro participante bloqueou esta conta.
-    var blockedByMe by remember(uid, peerUid) { mutableStateOf<Boolean?>(null) }
-    DisposableEffect(db, uid, peerUid) {
-        if (peerUid.isBlank()) onDispose {}
+    val confirmedBlock = if (!legacyWrites) rememberAtrioConfirmedBlock(db, uid, peerUid) else null
+    var legacyBlockedByMe by remember(uid, peerUid) { mutableStateOf<Boolean?>(null) }
+    val blockedByMe = if (legacyWrites) legacyBlockedByMe
+        else managedBlocks?.confirmed(peerUid, confirmedBlock) ?: confirmedBlock
+    val hiddenByManagedBlock = !legacyWrites &&
+        (blockedByMe == true || peerUid in managedBlocks?.hiddenPeers().orEmpty())
+    DisposableEffect(db, uid, peerUid, legacyWrites) {
+        if (!legacyWrites || peerUid.isBlank()) onDispose {}
         else {
             val listener = db.collection("users").document(uid)
                 .collection("blockedMembers").document(peerUid)
                 .addSnapshotListener { snapshot, failure ->
-                    blockedByMe = if (failure == null) snapshot?.exists() == true else null
+                    legacyBlockedByMe = if (failure == null) snapshot?.exists() == true else null
                 }
             onDispose { listener.remove() }
         }
@@ -702,7 +714,7 @@ private fun AtrioChatThread(
     var lastReadAttemptKey by remember(uid, chatId) { mutableStateOf<String?>(null) }
     LaunchedEffect(uid, chatId, chat?.lastMessageId, chat?.unread(uid), chat?.status) {
         val currentRoom = chat
-        if (FirebaseAuth.getInstance().currentUser?.uid == uid &&
+        if (legacyWrites && FirebaseAuth.getInstance().currentUser?.uid == uid &&
             currentRoom != null &&
             currentRoom.unread(uid) > 0 &&
             currentRoom.status in listOf("pending", "accepted")) {
@@ -731,6 +743,7 @@ private fun AtrioChatThread(
     }
 
     fun send(shared: Pair<String, String>? = null) {
+        if (!legacyWrites) return
         if (blockedByMe != false) {
             info = "Aguarde a verificação de bloqueio ou desbloqueie este participante."
             return
@@ -874,8 +887,12 @@ private fun AtrioChatThread(
             }
         }
         HorizontalDivider(color = Line)
+        if (!legacyWrites && managedBlocks != null && peerUid.isNotBlank())
+            AtrioManagedBlockControl(managedBlocks, peerUid, confirmedBlock, "atrio-chat-block-toggle")
         if (!loaded) LinearProgressIndicator(Modifier.fillMaxWidth())
-        if (accessDenied || (chat == null && !firstContact && loaded)) {
+        if (hiddenByManagedBlock) {
+            Text("Conversa oculta por bloqueio ou solicitação pendente.", Modifier.padding(20.dp))
+        } else if (accessDenied || (chat == null && !firstContact && loaded)) {
             Text("Conversa não encontrada ou acesso negado.", Modifier.padding(20.dp))
         } else {
             if (requestSubmitted && chat == null) AtrioFirstContactStatus(
@@ -884,11 +901,11 @@ private fun AtrioChatThread(
                 Text("Apenas aceitar autoriza uma nova conversa. Visualizar não significa aceitar.",
                     Modifier.padding(12.dp), fontSize = 14.sp, color = Wine)
                 Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = {
+                    Button(enabled = legacyWrites, onClick = {
                         ref.update("status", "accepted", "updatedAt", FieldValue.serverTimestamp())
                             .addOnFailureListener { info = "Aceite não confirmado." }
                     }) { Text("Aceitar") }
-                    OutlinedButton(onClick = {
+                    OutlinedButton(enabled = legacyWrites, onClick = {
                         ref.update("status", "declined", "updatedAt", FieldValue.serverTimestamp())
                             .addOnSuccessListener { onBack() }
                             .addOnFailureListener { info = "Recusa não confirmada." }
@@ -981,7 +998,7 @@ private fun AtrioChatThread(
                                     TextButton(onClick = { replyingTo = msg }) {
                                         Text("Responder", fontSize = 13.sp)
                                     }
-                                    TextButton(onClick = { reactingTo = msg }) {
+                                    TextButton(enabled = legacyWrites, onClick = { reactingTo = msg }) {
                                         Text(if (msg.reactions.containsKey(uid))
                                             "Reagiu " + msg.reactions[uid] else "Reagir",
                                             fontSize = 13.sp)
@@ -999,7 +1016,7 @@ private fun AtrioChatThread(
                                             msg.kind == "text" && !msg.deletedForAll &&
                                             msg.whenSent > 0L) {
                                             val elapsed = System.currentTimeMillis() - msg.whenSent
-                                            if (editingEnabled && elapsed >= 0 &&
+                                            if (legacyWrites && editingEnabled && elapsed >= 0 &&
                                                 elapsed <= editWindowMinutes * 60_000L) {
                                                 DropdownMenuItem(text = { Text("Editar mensagem") },
                                                     onClick = {
@@ -1008,7 +1025,7 @@ private fun AtrioChatThread(
                                                         editDraft = msg.text
                                                     })
                                             }
-                                            if (deletingEnabled && elapsed >= 0 &&
+                                            if (legacyWrites && deletingEnabled && elapsed >= 0 &&
                                                 elapsed <= deleteWindowMinutes * 60_000L) {
                                                 DropdownMenuItem(text = {
                                                     Text("Remover para todos")
@@ -1061,7 +1078,7 @@ private fun AtrioChatThread(
                             color = Wine)
                         Text(sharePost.second, maxLines = 2,
                             overflow = TextOverflow.Ellipsis)
-                        Button(onClick = { send(sharePost) }, enabled = !saving && blockedByMe == false,
+                        Button(onClick = { send(sharePost) }, enabled = legacyWrites && !saving && blockedByMe == false,
                             modifier = Modifier.testTag("atrio-chat-share-post")) {
                             Text("Enviar cartão textual")
                         }
@@ -1081,19 +1098,19 @@ private fun AtrioChatThread(
                     }
                 }
                 OutlinedTextField(draft, { if (it.length <= AtrioChatPolicy.MAX_TEXT) draft = it },
-                    enabled = !saving && blockedByMe == false,
+                    enabled = legacyWrites && !saving && blockedByMe == false,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)
                         .testTag("atrio-chat-composer"),
                     label = { Text(if (chat == null) "Primeira mensagem" else "Mensagem") },
                     maxLines = 5,
                     supportingText = { Text(draft.length.toString() + "/1500 • somente texto") })
-                Button(onClick = { send() }, enabled = !saving && blockedByMe == false && draft.isNotBlank(),
+                Button(onClick = { send() }, enabled = legacyWrites && !saving && blockedByMe == false && draft.isNotBlank(),
                     modifier = Modifier.fillMaxWidth().padding(12.dp)
                         .heightIn(min = 48.dp).testTag("atrio-chat-send")) {
                     Text(if (chat == null) "Solicitar conversa" else "Enviar")
                 }
             }
-            if (chat != null && peerUid.isNotBlank() && blockedByMe != null) {
+            if (legacyWrites && chat != null && peerUid.isNotBlank() && blockedByMe != null) {
                 OutlinedButton(onClick = {
                     val ref = db.collection("users").document(uid)
                         .collection("blockedMembers").document(peerUid)
@@ -1114,7 +1131,7 @@ private fun AtrioChatThread(
             }
         }
     }
-    if (editingMessage != null && editingEnabled && chat?.status == "accepted") {
+    if (!hiddenByManagedBlock && legacyWrites && editingMessage != null && editingEnabled && chat?.status == "accepted") {
         val selectedMessage = editingMessage!!
         val proposed = editDraft.trim()
         AlertDialog(
@@ -1168,7 +1185,7 @@ private fun AtrioChatThread(
             }
         )
     }
-    if (deletingMessage != null && deletingEnabled && chat?.status == "accepted") {
+    if (!hiddenByManagedBlock && legacyWrites && deletingMessage != null && deletingEnabled && chat?.status == "accepted") {
         val selectedMessage = deletingMessage!!
         AlertDialog(
             onDismissRequest = { if (!saving) deletingMessage = null },
@@ -1215,7 +1232,7 @@ private fun AtrioChatThread(
             }
         )
     }
-    if (reactingTo != null && chat?.status == "accepted") {
+    if (!hiddenByManagedBlock && legacyWrites && reactingTo != null && chat?.status == "accepted") {
         val selected = reactingTo!!
         AlertDialog(onDismissRequest = { reactingTo = null },
             title = { Text("Reagir à mensagem") },
