@@ -4,6 +4,8 @@
  * do backend. Nao importe em Android/Web, nao publique Rules nem credenciais.
  * As Rules negam qualquer escrita destas visoes por clientes.
  */
+import {randomUUID} from 'node:crypto';
+
 const VALID_UID=/^[A-Za-z0-9_-]{1,128}$/;
 const VALID_CHAT=/^[A-Za-z0-9_-]{1,260}$/;
 const MAX_PREVIEW=1500;
@@ -13,7 +15,16 @@ export const INBOX_AGE_COLLECTIONS=Object.freeze({
   'declared_18_plus|2026-11-selfdecl-qa-v1':'selfDeclared'
 });
 export const INBOX_DISCOVERY_CONTROL='serverInboxControl/pagination';
-export const INBOX_DISCOVERY_SCHEMA=1;
+export const INBOX_DISCOVERY_SCHEMA=2;
+export const inboxOwnerPath=uid=>'serverInboxOwners/'+uid;
+export const inboxAgePath=uid=>'users/'+uid+'/chatAgeEligibility/current';
+export const inboxBlockPath=(owner,peer)=>'users/'+owner+'/blockedMembers/'+peer;
+
+export function inboxProjectionReady(control) {
+  return control?.ready===true && control.schema===INBOX_DISCOVERY_SCHEMA &&
+    typeof control.certificate?.operationId==='string' &&
+    Number.isFinite(control.certificate.cutAtMs) && !control.job;
+}
 
 export function inboxAgeGrant(data) {
   if(!data || typeof data!=='object' || Array.isArray(data) ||
@@ -28,26 +39,36 @@ export function inboxAgeGrant(data) {
 }
 
 export function inboxDiscoveryCollection(ownerUid,pair) {
-  return 'serverInboxOwners/'+ownerUid+'/'+INBOX_AGE_COLLECTIONS[pair];
+  return inboxOwnerPath(ownerUid)+'/'+INBOX_AGE_COLLECTIONS[pair];
 }
 
 // Read before writing, including on replay. An absent entry costs no delete.
 export async function readInboxDiscoveryEntries(adminDb,tx,ownerUid,chatId) {
   return Promise.all(Object.keys(INBOX_AGE_COLLECTIONS).map(async pair=>{
     const ref=adminDb.doc(inboxDiscoveryCollection(ownerUid,pair)+'/'+chatId);
-    return {pair,ref,snap:await tx.get(ref)};
+    return {ownerUid,pair,ref,snap:await tx.get(ref)};
   }));
 }
 
-export function syncInboxDiscoveryEntries(tx,entries,grant=null) {
-  for(const {pair,ref,snap} of entries) {
-    if(grant?.pair===pair) {
-      if(snap.data()?.peerExpiresAtMs!==grant.expiresAtMs)
-        tx.set(ref,{peerExpiresAtMs:grant.expiresAtMs});
-    } else if(snap.exists) {
-      tx.delete(ref);
-    }
+export function writeInboxDiscoveryEntry(db,tx,{ownerUid,pair,ref,snap},grant) {
+  const current=snap.data();
+  if(grant?.pair===pair) {
+    if(current?.peerExpiresAtMs===grant.expiresAtMs && Object.keys(current).length===1)
+      return;
+    tx.set(ref,{peerExpiresAtMs:grant.expiresAtMs});
+  } else {
+    if(!snap.exists)return;
+    tx.delete(ref);
   }
+  const now=snap.readTime?.toMillis() ?? Date.now();
+  if(current?.peerExpiresAtMs>now || (grant?.pair===pair && grant.expiresAtMs>now))
+    tx.set(db.doc(inboxOwnerPath(ownerUid)),{
+      revisions:{[INBOX_AGE_COLLECTIONS[pair]]:randomUUID()}
+    },{merge:true});
+}
+
+export function syncInboxDiscoveryEntries(db,tx,entries,grant=null) {
+  for(const entry of entries)writeInboxDiscoveryEntry(db,tx,entry,grant);
 }
 function validUid(uid) {
   return typeof uid==='string' && VALID_UID.test(uid);
@@ -72,6 +93,47 @@ export function peerInboxEntries(chatId, chat) {
   });
   return [one(a,b),one(b,a)];
 }
+
+export function existingPeerInboxViews(chat) {
+  if(!chat.exists)return [];
+  try{return peerInboxEntries(chat.id,chat.data());}
+  catch{return [];}
+}
+
+export async function readPeerInboxAuthorization(db,tx,views,blockOverride=null) {
+  const [a,b]=views.map(view=>view.data.ownerUid);
+  const [blockA,blockB,ageA,ageB]=await Promise.all([
+    tx.get(db.doc(inboxBlockPath(a,b))),
+    tx.get(db.doc(inboxBlockPath(b,a))),
+    tx.get(db.doc(inboxAgePath(a))),
+    tx.get(db.doc(inboxAgePath(b)))
+  ]);
+  const blocked=(blockA,ownerBlockPath)=>{
+    return ownerBlockPath===blockOverride?.path ? blockOverride.blocked : blockA.exists;
+  };
+  const denied=blocked(blockA,inboxBlockPath(a,b)) || blocked(blockB,inboxBlockPath(b,a));
+  return {blocked:denied,grants:denied ? [null,null] : [
+    inboxAgeGrant(ageB.data()),inboxAgeGrant(ageA.data())
+  ]};
+}
+
+// Plan all reads before applying any writes, including a multi-chat batch.
+export async function preparePeerInbox(db,tx,views,blockOverride) {
+  const [authorization,entries]=await Promise.all([
+    readPeerInboxAuthorization(db,tx,views,blockOverride),
+    Promise.all(views.map(({data})=>
+      readInboxDiscoveryEntries(db,tx,data.ownerUid,data.chatId)))
+  ]);
+  return ()=>{
+    for(const [i,entry] of views.entries()) {
+      const ref=db.doc(entry.path);
+      if(authorization.blocked)tx.delete(ref);
+      else tx.set(ref,entry.data);
+      syncInboxDiscoveryEntries(db,tx,entries[i],authorization.grants[i]);
+    }
+    return {blocked:authorization.blocked,views:views.length};
+  };
+}
 /**
  * Reconciliacao opcional para Worker/Function ADMIN, nao para o cliente.
  * Usa transacao: os dois bloqueios sao lidos antes das duas escritas.
@@ -87,23 +149,7 @@ export async function reconcilePeerInbox(adminDb,chatId) {
     const snap=await tx.get(chatRef);
     if(!snap.exists) throw Error('inbox_chat_not_found');
     const views=peerInboxEntries(chatId,snap.data());
-    const [a,b]=views.map(v=>v.data.ownerUid);
-    const [blockedByA,blockedByB,ageA,ageB,discoveryA,discoveryB]=await Promise.all([
-      tx.get(adminDb.doc('users/'+a+'/blockedMembers/'+b)),
-      tx.get(adminDb.doc('users/'+b+'/blockedMembers/'+a)),
-      tx.get(adminDb.doc('users/'+a+'/chatAgeEligibility/current')),
-      tx.get(adminDb.doc('users/'+b+'/chatAgeEligibility/current')),
-      readInboxDiscoveryEntries(adminDb,tx,a,chatId),
-      readInboxDiscoveryEntries(adminDb,tx,b,chatId)
-    ]);
-    const blocked=blockedByA.exists || blockedByB.exists;
-    for(const entry of views) {
-      const ref=adminDb.doc(entry.path);
-      if(blocked) tx.delete(ref);
-      else tx.set(ref,entry.data);
-    }
-    syncInboxDiscoveryEntries(tx,discoveryA,blocked ? null : inboxAgeGrant(ageB.data()));
-    syncInboxDiscoveryEntries(tx,discoveryB,blocked ? null : inboxAgeGrant(ageA.data()));
-    return {blocked,views:views.length};
+    const apply=await preparePeerInbox(adminDb,tx,views);
+    return apply();
   });
 }

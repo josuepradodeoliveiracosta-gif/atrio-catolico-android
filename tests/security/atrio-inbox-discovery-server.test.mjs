@@ -37,7 +37,8 @@ const chatData=(a,b,preview)=>({
 });
 const baseStore=createAdminInboxStore(admin);
 const indexed=(uid,chatId)=>inboxDiscoveryCollection(uid,LEGACY_INBOX_AGE_PAIR)+'/'+chatId;
-const ready={ready:true,schema:INBOX_DISCOVERY_SCHEMA};
+const ready={ready:true,schema:INBOX_DISCOVERY_SCHEMA,
+  certificate:{operationId:'discovery-regression-fixture',cutAtMs:Date.now()}};
 let checks=0;
 async function check(label,work){await work();checks++;console.log('PASS DISCOVERY',label);}
 try{
@@ -322,8 +323,7 @@ try{
       {createdAt:Timestamp.now()});
     await assert.rejects(list(pageToken,{limit:1,cursor:page.nextCursor}),/inbox_unavailable/);
     await syncBlockedPair(admin,pageOwner,allowedPeer(1));
-    assert.deepEqual(await list(pageToken,{limit:1,cursor:page.nextCursor}),
-      {items:[],nextCursor:null});
+    await assert.rejects(list(pageToken,{limit:1,cursor:page.nextCursor}),/inbox_restart_required/);
     await deleteDoc(doc(db,'users/'+allowedPeer(1)+'/blockedMembers/'+pageOwner));
     await syncBlockedPair(admin,pageOwner,allowedPeer(1));
     const fresh=createAuthorizedInboxService({
@@ -336,7 +336,7 @@ try{
       cursorKey:sharedCursorKey
     });
     const restored=await fresh.list({
-      idToken:pageToken,limit:1,cursor:page.nextCursor
+      idToken:pageToken,limit:1,cursor:(await list(pageToken,{limit:1})).nextCursor
     });
     assert.deepEqual(restored.items.map(v=>v.peerUid),[allowedPeer(1)]);
   });
@@ -419,7 +419,7 @@ try{
     assert.equal(at41.result.nextCursor,null);
     assert.deepEqual(at41.io,{
       collections:[inboxDiscoveryCollection(pageOwner,LEGACY_INBOX_AGE_PAIR)],
-      queries:1,indexRows:1,documentReads:7
+      queries:1,indexRows:1,documentReads:8
     });
     await seedHidden(41,159);
     assert.deepEqual(await measuredPage(1),at41);
@@ -443,7 +443,7 @@ try{
     assert.ok(first.result.nextCursor);
     assert.equal(first.io.queries,1);
     assert.equal(first.io.indexRows,limitCount+1);
-    assert.equal(first.io.documentReads,3+4*(limitCount+1));
+    assert.equal(first.io.documentReads,4+4*(limitCount+1));
     assert.deepEqual(first.io.collections,[inboxDiscoveryCollection(pageOwner,LEGACY_INBOX_AGE_PAIR)]);
     const ids=[];
     let cursor=first.result.nextCursor;
@@ -522,7 +522,8 @@ try{
     const start=await timed.list(args);
     assert.equal(start.items[0].peerUid,allowedPeer(0));
     now=shortly;
-    const withoutOld=await timed.list({...args,cursor:start.nextCursor});
+    await assert.rejects(timed.list({...args,cursor:start.nextCursor}),/inbox_restart_required/);
+    const withoutOld=await timed.list(args);
     assert.equal(withoutOld.items[0].peerUid,allowedPeer(1));
     assert.ok((await admin.doc(indexed(pageOwner,pageChatId(allowedPeer(0)))).get()).exists);
     now+=10*60*1000;
