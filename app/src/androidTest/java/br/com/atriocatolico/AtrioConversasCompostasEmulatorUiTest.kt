@@ -17,11 +17,13 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
+import androidx.test.platform.app.InstrumentationRegistry
 import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
@@ -53,6 +55,7 @@ class AtrioConversasCompostasEmulatorUiTest {
         val chatId: String? = null,
         val groupPeer: String? = null,
         val groupId: String? = null,
+        val peerProfile: Boolean = false,
     )
 
     private var screen by mutableStateOf<Screen?>(null)
@@ -86,7 +89,10 @@ class AtrioConversasCompostasEmulatorUiTest {
             AtrioTheme {
                 if (showOnlineApp) OnlineAtrioApp(compose.activity)
                 else screen?.let { current ->
-                    if (current.groupPeer == null && current.groupId == null) {
+                    if (current.peerProfile) {
+                        PublicMemberProfileScreen(db, requireNotNull(current.peer),
+                            onBack = {}, onOpenDiscussion = {}, viewerUid = current.uid)
+                    } else if (current.groupPeer == null && current.groupId == null) {
                         AtrioConversationsScreen(
                             db = db, uid = current.uid, onBack = {},
                             initialPeer = current.peer, initialChatId = current.chatId
@@ -298,7 +304,182 @@ class AtrioConversasCompostasEmulatorUiTest {
         if (::auth.isInitialized) auth.signOut()
     }
 
+    private data class DirectChat(
+        val alice: String,
+        val bob: String,
+        val room: DocumentReference,
+        val first: String,
+    ) {
+        fun openedByAlice() = Screen(alice, PublicMemberTarget(bob, "Bob QA"), room.id)
+        fun openedByBob() = Screen(bob, PublicMemberTarget(alice, "Alice QA"), room.id)
+    }
+
+    private fun openPendingDirectChat(): DirectChat {
+        check(!pilot && !BuildConfig.ATRIO_QA_INBOX_DISCOVERY)
+        initializeDemo()
+        val alice = login(aliceEmail)
+        val bob = login(bobEmail)
+        assertEquals(alice, login(aliceEmail))
+        val room = db.collection("chats").document(AtrioChatPolicy.id(alice, bob))
+        val first = "Solicitação de conversa para o roteiro de QA."
+        show(Screen(alice, PublicMemberTarget(bob, "Bob QA")))
+        send("atrio-chat-composer", "atrio-chat-send", first)
+        waitForText("Solicitação enviada.")
+        await(db.waitForPendingWrites())
+        val pending = await(room.get(Source.SERVER))
+        assertEquals("pending", pending.getString("status"))
+        assertEquals(alice, pending.getString("requesterUid"))
+        assertEquals(bob, pending.getString("recipientUid"))
+        assertEquals(false, pending.metadata.hasPendingWrites())
+        return DirectChat(alice, bob, room, first).also { it.materialize("pending", first) }
+    }
+
+    private fun DirectChat.materialize(status: String, preview: String) {
+        materializePeerIndex(alice, bob, room.id, status, preview)
+        materializePeerIndex(bob, alice, room.id, status, preview)
+    }
+
+    private fun readHistory(room: DocumentReference): Map<String, String?> {
+        val result = await(room.collection("messages").get(Source.SERVER))
+        assertEquals(false, result.metadata.isFromCache)
+        assertEquals(false, result.metadata.hasPendingWrites())
+        return result.documents.associate { it.id to it.getString("text") }
+    }
+
+    // Mesmo lote de mensagem/prévia do cliente, sem o guard local de status.
+    // O caso de desbloqueio exercita o mesmo lote como controle positivo.
+    private fun appendAsRequester(room: DocumentReference, text: String): Task<Void> {
+        val uid = requireNotNull(auth.currentUser).uid
+        val server = await(room.get(Source.SERVER))
+        assertEquals(uid, server.getString("requesterUid"))
+        assertEquals(false, server.metadata.hasPendingWrites())
+        val counter = (requireNotNull(server.getLong("unreadRecipient")) + 1).coerceAtMost(99)
+        val message = room.collection("messages").document()
+        return db.batch().apply {
+            set(message, mapOf("uid" to uid, "kind" to "text", "text" to text,
+                "createdAt" to FieldValue.serverTimestamp()))
+            update(room, mapOf("lastMessageId" to message.id, "lastPreview" to text,
+                "lastSenderUid" to uid, "updatedAt" to FieldValue.serverTimestamp(),
+                "unreadRecipient" to counter))
+        }.commit()
+    }
+
+    private fun recusaDmPendenteImpedeNovaMensagem() {
+        val chat = openPendingDirectChat()
+        val original = readHistory(chat.room)
+        assertEquals(listOf(chat.first), original.values.toList())
+
+        assertEquals(chat.bob, login(bobEmail))
+        show(chat.openedByBob())
+        waitForText(chat.first)
+        waitForText("Recusar")
+        compose.onNodeWithText("Recusar").assertIsDisplayed().assertIsEnabled().performClick()
+        android.util.Log.i("AtrioDmQA", "cenario=recusa clique_recusar=true status_anterior=pending")
+        // A recusa volta para a lista na sessão do destinatário. Confirmar
+        // o estado persistido aqui e verificar o texto na sessão de Alice.
+        compose.waitUntil(30_000) {
+            val snapshot = await(chat.room.get(Source.SERVER))
+            snapshot.getString("status") == "declined" && !snapshot.metadata.hasPendingWrites()
+        }
+        val refused = await(chat.room.get(Source.SERVER))
+        assertEquals("declined", refused.getString("status"))
+        assertEquals(false, refused.metadata.hasPendingWrites())
+        android.util.Log.i("AtrioDmQA", "cenario=recusa status_servidor=declined pendente=false")
+        chat.materialize("declined", chat.first)
+
+        assertEquals(chat.alice, login(aliceEmail))
+        show(chat.openedByAlice())
+        waitForText("Solicitação recusada.")
+        compose.onNodeWithTag("atrio-chat-composer").assertDoesNotExist()
+        compose.onNodeWithTag("atrio-chat-send").assertDoesNotExist()
+        assertDenied(appendAsRequester(chat.room, "Tentativa posterior à recusa."))
+        assertEquals(original, readHistory(chat.room))
+        val after = await(chat.room.get(Source.SERVER))
+        assertEquals("declined", after.getString("status"))
+        assertEquals(refused.getString("lastMessageId"), after.getString("lastMessageId"))
+        assertEquals(chat.first, after.getString("lastPreview"))
+        android.util.Log.i("AtrioDmQA",
+            "cenario=recusa status_servidor=declined compositor=ausente novo_envio=PERMISSION_DENIED " +
+                "ids_preservados=true mensagens=${original.size}")
+    }
+
+    private fun desbloqueioRestauraMesmoHistoricoEPermiteContinuar() {
+        val chat = openPendingDirectChat()
+        assertEquals(chat.bob, login(bobEmail))
+        show(chat.openedByBob())
+        waitForText(chat.first)
+        waitForText("Aceitar")
+        compose.onNodeWithText("Aceitar").assertIsDisplayed().assertIsEnabled().performClick()
+        await(db.waitForPendingWrites())
+        val reply = "Resposta de Bob guardada antes do bloqueio."
+        send("atrio-chat-composer", "atrio-chat-send", reply)
+        waitForText(reply)
+        await(db.waitForPendingWrites())
+        assertEquals("accepted", await(chat.room.get(Source.SERVER)).getString("status"))
+        val original = readHistory(chat.room)
+        assertEquals(setOf(chat.first, reply), original.values.toSet())
+        assertEquals(2, original.size)
+        chat.materialize("accepted", reply)
+
+        val block = db.document("users/${chat.bob}/blockedMembers/${chat.alice}")
+        val profile = Screen(chat.bob, PublicMemberTarget(chat.alice, "Alice QA"), peerProfile = true)
+        reopen(profile)
+        waitForText("Bloquear participante")
+        click("atrio-member-block")
+        waitForText("Participante bloqueado.")
+        assertTrue(await(block.get(Source.SERVER)).exists())
+        assertDenied(chat.room.get(Source.SERVER))
+        assertDenied(chat.room.collection("messages").get(Source.SERVER))
+
+        assertEquals(chat.alice, login(aliceEmail))
+        assertDenied(chat.room.get(Source.SERVER))
+        assertDenied(chat.room.collection("messages").get(Source.SERVER))
+        assertDenied(block.delete())
+        android.util.Log.i("AtrioDmQA",
+            "cenario=desbloqueio etapa=bloqueado historico_bilateral=PERMISSION_DENIED " +
+                "desbloqueio_por_nao_titular=PERMISSION_DENIED")
+
+        assertEquals(chat.bob, login(bobEmail))
+        show(profile)
+        waitForText("Desbloquear participante")
+        click("atrio-member-block")
+        waitForText("Participante desbloqueado.")
+        assertEquals(false, await(block.get(Source.SERVER)).exists())
+        reopen(chat.openedByBob())
+        waitForText(chat.first)
+        waitForText(reply)
+        assertEquals(original, readHistory(chat.room))
+
+        assertEquals(chat.alice, login(aliceEmail))
+        show(chat.openedByAlice())
+        waitForText(chat.first)
+        waitForText(reply)
+        assertEquals(original, readHistory(chat.room))
+        val next = "Mensagem confirmada após desbloqueio."
+        await(appendAsRequester(chat.room, next))
+        waitForText(next)
+        val continued = readHistory(chat.room)
+        assertEquals(original, continued.filterKeys { it in original })
+        assertEquals(listOf(next), continued.filterKeys { it !in original }.values.toList())
+        assertEquals(next, await(chat.room.get(Source.SERVER)).getString("lastPreview"))
+        android.util.Log.i("AtrioDmQA",
+            "cenario=desbloqueio titular=bob ids_e_textos_preservados=true " +
+                "leitura_ui_ambos=true nova_gravacao=confirmada mensagens=${continued.size}")
+    }
+
     @Test fun primeiroContatoRecusaAceiteESaidaProtegemHistorico() {
+        when (InstrumentationRegistry.getArguments().getString("atrioQa199Case")) {
+            "RECUSA" -> {
+                recusaDmPendenteImpedeNovaMensagem()
+                return
+            }
+            "DESBLOQUEIO" -> {
+                desbloqueioRestauraMesmoHistoricoEPermiteContinuar()
+                return
+            }
+            null -> Unit
+            else -> error("Cenário de QA #199 desconhecido.")
+        }
         initializeDemo()
         val alice = login(aliceEmail)
         val bob = login(bobEmail)
