@@ -709,8 +709,10 @@ private fun OnlineUserScreen(
             LocalProfileAvatar provides LocalAvatarState(uid, localPhoto),
             LocalAvatarFirestore provides db
         ) {
+        val managedBlocks = if (BuildConfig.ATRIO_QA_INBOX_DISCOVERY)
+            rememberAtrioManagedBlocks(auth, user) else null
         OnlineCommunity(db = db, uid = uid, name = name!!, email = user.email.orEmpty(),
-            biography = biography, onPhotoChanged = { photoRevision++ },
+            managedBlocks = managedBlocks, biography = biography, onPhotoChanged = { photoRevision++ },
             visible = !(isAdmin && (moderationOpen || clergyReviewOpen)),
             onModeration = if (isAdmin) ({ moderationOpen = true }) else null,
             onClergyReview = if (isAdmin) ({ clergyReviewOpen = true }) else null,
@@ -729,6 +731,7 @@ private fun OnlineUserScreen(
 @Composable
 private fun OnlineCommunity(
     db: FirebaseFirestore, uid: String, name: String, email: String, biography: String,
+    managedBlocks: AtrioManagedBlocks?,
     onPhotoChanged: () -> Unit,
     visible: Boolean, onSignOut: () -> Unit, onModeration: (() -> Unit)?,
     onClergyReview: (() -> Unit)?,
@@ -1386,12 +1389,13 @@ private fun OnlineCommunity(
             if (showConversations) {
                 AtrioConversationsScreen(
                     db = db, uid = uid, onBack = ::closeConversations,
-                    initialPeer = conversationPeer, blockedPeers = blockedMembers
+                    initialPeer = conversationPeer, blockedPeers = blockedMembers,
+                    managedBlocks = managedBlocks
                 )
             } else if (publicProfileTarget != null && !profilePostOpen) {
                 PublicMemberProfileScreen(
                     db = db, target = publicProfileTarget!!, viewerUid = uid,
-                    onBack = ::closeNoticeDestination,
+                    managedBlocks = managedBlocks, onBack = ::closeNoticeDestination,
                     onOpenDiscussion = { postId -> profilePostOpen = true; detailId = postId },
                     onConverse = if (conversationsQa) ({
                         conversationPeer = publicProfileTarget
