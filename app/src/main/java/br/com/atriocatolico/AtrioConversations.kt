@@ -316,11 +316,9 @@ internal fun AtrioConversationsScreen(
                 onBack = { groupsOpen = false },
                 initialGroupId = initialGroupId)
         } else if (selected != null) {
-            val firstContact = initialPeer != null &&
-                AtrioPeerInboxPolicy.validPeer(uid, initialPeer.uid) &&
-                peerUid == initialPeer.uid &&
-                selected == AtrioChatPolicy.id(uid, initialPeer.uid) &&
-                loaded && error.isBlank() && rooms.isEmpty()
+            val firstContact = AtrioPeerInboxPolicy.explicitFirstContact(
+                uid, initialPeer?.uid, selected, rooms.isNotEmpty()
+            ) && peerUid == initialPeer?.uid && loaded && error.isBlank()
             when {
                 !loaded -> CircularProgressIndicator(
                     Modifier.padding(24.dp).testTag("atrio-peer-inbox-loading"))
@@ -548,16 +546,34 @@ private fun AtrioChatThread(
     // o pedido inicial, sujeito às Rules. Para chats existentes, o índice
     // pelo par precisa vir do servidor antes de ler mensagens.
     var confirmedRoom by remember(uid, chatId) { mutableStateOf(preview != null) }
+    var requestSubmitted by remember(uid, chatId) { mutableStateOf(false) }
     LaunchedEffect(preview?.id) {
         if (preview != null) confirmedRoom = true
     }
-    val firstContact = !confirmedRoom && preview == null && initialPeer != null
+    val firstContact = AtrioPeerInboxPolicy.explicitFirstContact(
+        uid, initialPeer?.uid, chatId, confirmedRoom
+    )
     fun updateRoom(snapshot: DocumentSnapshot?, failure: Throwable?) {
+        // Respostas atrasadas da sessão anterior nunca reabrem conteúdo.
+        if (FirebaseAuth.getInstance().currentUser?.uid != uid) {
+            loaded = true
+            accessDenied = true
+            chat = null
+            messages = emptyList()
+            return
+        }
         loaded = failure != null || atrioChatSnapshotUsable(snapshot)
-        accessDenied = failure != null
-        chat = if (failure == null && atrioChatSnapshotUsable(snapshot))
-            snapshot?.takeIf { it.exists() }?.chatRoom()
-        else null
+        val fresh = failure == null && atrioChatSnapshotUsable(snapshot)
+        val candidate = if (fresh && snapshot?.exists() == true)
+            snapshot.chatRoom() else null
+        val verified = candidate?.takeIf {
+            AtrioPeerInboxPolicy.roomMatches(
+                uid, chatId, it.requester, it.recipient, it.status
+            ) && (initialPeer == null || it.peer(uid) == initialPeer.uid)
+        }
+        accessDenied = failure != null ||
+            (fresh && snapshot?.exists() == true && verified == null)
+        chat = verified
         if (chat == null) messages = emptyList()
         if (failure != null) info = "Não foi possível sincronizar a conversa."
     }
@@ -653,6 +669,10 @@ private fun AtrioChatThread(
             info = "Compartilhamentos exigem uma conversa aceita."
             return
         }
+        if (chat == null && (!firstContact || requestSubmitted)) {
+            info = "Aguarde a confirmação da conversa no servidor."
+            return
+        }
         if (chat == null && !AtrioChatPolicy.validRequest(body)) {
             info = "A primeira mensagem não pode conter links."
             return
@@ -713,11 +733,19 @@ private fun AtrioChatThread(
                 true
             }.addOnCompleteListener { response ->
                 saving = false
-                if (response.isSuccessful) {
+                if (response.isSuccessful &&
+                    FirebaseAuth.getInstance().currentUser?.uid == uid) {
                     if (draft.trim() == body) draft = ""
+                    // Não permitir nova criação enquanto o GET autenticado
+                    // confirma a transação. O índice pode ainda não existir.
+                    requestSubmitted = true
+                    loaded = false
+                    confirmedRoom = true
                     info = "Solicitação enviada."
                     replyingTo = null
                     pendingAttemptId = ""; pendingAttemptText = ""
+                } else if (FirebaseAuth.getInstance().currentUser?.uid != uid) {
+                    info = "Sessão alterada. Entre novamente."
                 } else {
                     info = "Pedido não confirmado. O destinatário pode não aceitar " +
                         "solicitações ou você atingiu o limite de novos contatos."
@@ -771,9 +799,11 @@ private fun AtrioChatThread(
         }
         HorizontalDivider(color = Line)
         if (!loaded) LinearProgressIndicator(Modifier.fillMaxWidth())
-        if (accessDenied || (chat == null && initialPeer == null && loaded)) {
+        if (accessDenied || (chat == null && !firstContact && loaded)) {
             Text("Conversa não encontrada ou acesso negado.", Modifier.padding(20.dp))
         } else {
+            if (requestSubmitted && chat == null) AtrioFirstContactStatus(
+                Modifier.fillMaxWidth().padding(12.dp))
             if (chat?.incomingRequest(uid) == true) {
                 Text("Apenas aceitar autoriza uma nova conversa. Visualizar não significa aceitar.",
                     Modifier.padding(12.dp), fontSize = 14.sp, color = Wine)
@@ -962,7 +992,8 @@ private fun AtrioChatThread(
                     }
                 }
             }
-            if (chat == null || chat?.status == "accepted") {
+            if ((chat == null && firstContact && !requestSubmitted) ||
+                chat?.status == "accepted") {
                 if (replyingTo != null) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                         verticalAlignment = Alignment.CenterVertically) {

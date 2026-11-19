@@ -159,13 +159,32 @@ class AtrioConversasCompostasEmulatorUiTest {
         }
     }
 
-    // Materialização sintética privilegiada SOMENTE no Emulator local.
-    // Os reads do aplicativo continuam sujeitos às Rules e Source.SERVER.
-    private fun materializePeerIndex(owner: String, peer: String, chatId: String,
-                                     status: String, preview: String) {
+    // Esta conexão só é usada pelas fixtures da instrumentação local.
+    private fun emulatorDocument(path: String): HttpURLConnection {
         check(db.app.options.projectId == "demo-atrio-v11")
         check(db.firestoreSettings.host == "127.0.0.1:8089" &&
               !db.firestoreSettings.isSslEnabled)
+        val documents = "http://127.0.0.1:8089/v1/projects/demo-atrio-v11/databases/(default)/documents"
+        return (URL("$documents/$path").openConnection() as HttpURLConnection).apply {
+            instanceFollowRedirects = false
+            connectTimeout = 5_000
+            readTimeout = 5_000
+            setRequestProperty("Authorization", "Bearer owner")
+        }
+    }
+
+    private fun assertChatNotCreated(chatId: String) {
+        val conn = emulatorDocument("chats/$chatId")
+        try {
+            assertEquals("A solicitação recusada não pode criar o chat", 404, conn.responseCode)
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    // A fixture materializa o índice. O aplicativo continua sujeito às Rules e Source.SERVER.
+    private fun materializePeerIndex(owner: String, peer: String, chatId: String,
+                                     status: String, preview: String) {
         val fields = JSONObject()
         fun put(name: String, value: String) {
             fields.put(name, JSONObject().put("stringValue", value))
@@ -174,13 +193,9 @@ class AtrioConversasCompostasEmulatorUiTest {
         put("status", status); put("lastPreview", preview)
         fields.put("updatedAt", JSONObject().put(
             "timestampValue", java.time.Instant.now().toString()))
-        val url = "http://127.0.0.1:8089/v1/projects/demo-atrio-v11/databases/(default)/documents/users/$owner/chatInboxByPeer/$peer/entries/$chatId"
-        val conn = URL(url).openConnection() as HttpURLConnection
+        val conn = emulatorDocument("users/$owner/chatInboxByPeer/$peer/entries/$chatId")
         try {
             conn.requestMethod = "PATCH"
-            conn.connectTimeout = 5_000
-            conn.readTimeout = 5_000
-            conn.setRequestProperty("Authorization", "Bearer owner")
             conn.setRequestProperty("Content-Type", "application/json")
             conn.doOutput = true
             conn.outputStream.use {
@@ -318,14 +333,12 @@ class AtrioConversasCompostasEmulatorUiTest {
         show(Screen(bob, peer = PublicMemberTarget(alice, "Alice QA")))
         send("atrio-chat-composer", "atrio-chat-send", first)
         waitForText("Pedido não confirmado.", substring = true)
-        // QA REGULAR: list(chats) deve ser PERMISSION_DENIED, sem bypass.
-        // PILOTO EMULADO: Rules sintéticas legadas permitem somente consulta
-        // limitada por titular enquanto o par ainda não está bloqueado;
-        // antes do primeiro contato não devem existir resultados nem prévias.
-        val legacyQuery = db.collection("chats").whereArrayContains("participants", bob)
-            .limit(100).get(Source.SERVER)
-        if (pilot) assertTrue(await(legacyQuery).isEmpty)
-        else assertDenied(legacyQuery)
+        assertChatNotCreated(chatId)
+        // A Rules regular nega list(chats) mesmo com filtro por participante.
+        if (!pilot) {
+            assertDenied(db.collection("chats").whereArrayContains("participants", bob)
+                .limit(100).get(Source.SERVER))
+        }
         // Antes de um chat permitido, o índice por par não revela mensagem.
         assertTrue(await(db.collection("users").document(bob)
             .collection("chatInboxByPeer").document(alice)

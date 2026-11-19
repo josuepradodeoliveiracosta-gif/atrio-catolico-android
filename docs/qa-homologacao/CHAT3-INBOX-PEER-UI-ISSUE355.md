@@ -25,3 +25,10 @@ O contrato #357 **não inclui descoberta autorizada de contatos** e não habilit
 
 ### Limites
 A aprovação de compilação/Rules isoladas não comprova a homologação integral; o teste de bot antigo dependerá de adaptação dos fixtures do Chat 5. Este trabalho não modifica Rules, Worker, Firebase remoto, dados reais ou produção.
+
+## Complemento Chat 3 — transição segura e contrato autenticado #359
+- Quando um contato é escolhido explicitamente no perfil, o índice peer-scoped só é aceito se `Source.SERVER` confirmar o documento. Não há GET HTTP novo: o endpoint autenticado da PR #359 **não está implantado nem autorizado**; nenhuma URL, token ou credencial foi adicionada ao Android.
+- Primeiro contato é permitido apenas para um par de perfil exato, com índice ainda ausente. Após a transação confirmada, o formulário é bloqueado e a thread faz GET da conversa diretamente do servidor; não repete o pedido enquanto aguarda o materializador. Índice existente com DM ausente, inválida ou negada **não** volta ao formulário de novo contato.
+- A thread verifica novamente UID titular, ID determinístico, membros e status da DM. Resposta tardia de outra conta e dados de cache não reabrem conteúdo; tentativas de leitura são revalidadas periodicamente. Aviso de confirmação tem live region acessível e teste de tipografia em 200%.
+- O contrato futuro da #359 (Bearer de Auth QA, UID apenas derivado da sessão, `items/nextCursor` sem informações de pares bloqueados, `no-store`) permanece **dependência**, não uma chamada ativa. Não consultar `chats` global, `chatBox` para descoberta ou `collectionGroup`; backend, Rules, triggers e backfill são responsabilidade do Chat 2 e requerem autorização separada.
+- Cobertura adicionada: identidade de primeiro contato, par e sala forjados, sala de conta alheia, estado de confirmação acessível; validar `AtrioPeerInboxPolicyTest` e `DesignV2UiTest` na variante `qaGeral`, depois suíte integral Clara/Miguel/Lúcia em composição com #352/#357/#359. Sem testes de aparelho real nem prova de cache físico apagado.

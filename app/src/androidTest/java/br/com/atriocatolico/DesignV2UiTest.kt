@@ -51,6 +51,21 @@ class DesignV2UiTest {
             .assertDoesNotExist()
     }
 
+    @Test fun firstContactSentWaitIsAnnouncedAtTwoHundredPercent() {
+        compose.setContent {
+            val density = LocalDensity.current
+            CompositionLocalProvider(LocalDensity provides Density(density.density, 2.0f)) {
+                AtrioTheme { AtrioFirstContactStatus() }
+            }
+        }
+        compose.onNodeWithTag("atrio-first-contact-verifying")
+            .assertIsDisplayed()
+            .assert(SemanticsMatcher.expectValue(
+                SemanticsProperties.LiveRegion, LiveRegionMode.Polite))
+        compose.onNodeWithText("Solicitação enviada. Verificando a conversa no servidor.")
+            .assertExists()
+    }
+
     @Test fun openingCategoryMaintainsOfficialName() {
         var chosen = ""
         compose.setContent {
