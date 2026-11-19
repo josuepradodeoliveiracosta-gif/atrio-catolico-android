@@ -71,6 +71,20 @@ jobs:
             --config cloudflare/push-worker/wrangler.qa-geral.example.toml \
             --dry-run \
             --outdir "$RUNNER_TEMP/atrio-push-qa-geral-bundle"
+      - name: Gerar e empacotar somente Worker QA Conversas ficticio, sem deploy
+        if: ${{ steps.scope.outputs.push == 'true' }}
+        env:
+          ATRIO_GENERAL_QA_PROJECT: atrio-catolico-qa-geral
+          ATRIO_GENERAL_QA_D1_ID: 11111111-2222-4333-8444-555555555555
+          CLOUDFLARE_API_TOKEN: ''
+        run: |
+          node cloudflare/push-worker/scripts/chat-qa-build.mjs
+          node --check cloudflare/push-worker/src/index.general-qa.generated.js
+          npx --yes wrangler@4 deploy \
+            --config cloudflare/push-worker/wrangler.general-qa.generated.toml \
+            --dry-run \
+            --outdir "$RUNNER_TEMP/atrio-chat-qa-bundle"
+          test "$(find "$RUNNER_TEMP/atrio-chat-qa-bundle" -type f | wc -l)" -gt 0
       - name: Confirmar somente os pacotes selecionados
         shell: bash
         env:
