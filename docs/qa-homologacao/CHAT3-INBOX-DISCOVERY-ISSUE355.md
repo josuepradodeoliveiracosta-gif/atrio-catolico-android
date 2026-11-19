@@ -48,3 +48,9 @@ Registre HEAD, árvore, variante e execução do teste focal e dos três bots da
 Use a mesma fixture acima, a #359 em `d8ae4090192784a15ff43cd196d71028a3284640` e o lockfile da composição com Firebase Admin Auth. Troque a classe de instrumentação por `br.com.atriocatolico.AtrioAuthenticatedBlockEmulatorUiTest`. Use um Firestore Emulator limpo para cada execução da fixture.
 
 O perfil da Clara consulta a ETag via GET e tenta bloquear o par 01 durante uma manutenção aberta pela fixture. Confira a indicação pendente e a ausência do bloqueio. No retry, a fixture compara chave e ETag e reabre a manutenção antes de enviar o comando ao handler. As confirmações 200 chegam ao Android depois que a fixture confere a origem, o recibo e as duas projeções. Após o bloqueio, a tela de Conversas ainda permite confirmar o desbloqueio sem abrir o conteúdo restrito.
+
+### Primeiro contato e envio de texto
+
+Na composição com a #359 em `b3dc64306833f598ed3e4b875f183437eebd9882`, inicie a fixture com `ATRIO_QA_INBOX_MESSAGE_ONLY=1` em um Auth/Firestore Emulator limpo. Use `br.com.atriocatolico.AtrioInboxMessageEmulatorUiTest` como classe de instrumentação e mantenha o ADB reverse e o opt-in acima. A flag desativa o bloqueio artificial do cenário anterior de paginação, de modo que uma revisão alterada nesse ensaio venha do próprio primeiro contato.
+
+O handler devolve 503 antes de criar o primeiro contato. A fixture confere ausência da conversa, quota e recibo e exige a repetição da mesma chave e do mesmo corpo. No envio em conversa aceita, ela retém a primeira resposta por seis segundos **após o commit**, para provocar o timeout do Android. O teste compara os IDs da mensagem gravada antes e depois do retry. A fixture verifica também que houve só uma mensagem da conta remetente.
