@@ -196,14 +196,22 @@ if [[ "$inbox_focal" == 1 ]]; then
   run_suite "$ATRIO_QA_SUITE"
   if [[ "$qa_failed" == 0 ]]; then
     grep -F 'Inbox QA local: HTTP 409 na continuação.' qa-inbox-discovery-emulator.log
-    (cd tests/security && node seed-chat-groups-android.mjs)
-    history_suite=AtrioConversasCompostasEmulatorUiTest
-    run_suite "$history_suite"
   fi
   exit "$qa_failed"
 fi
 if [[ "${ATRIO_QA_GERAL_CELULAR_PILOT:-}" == 1 ]]; then
   (cd tests/security && node seed-qa-celular-pilot-android.mjs)
+  run_suite "$ATRIO_QA_SUITE"
+  exit "$qa_failed"
+fi
+if [[ "${ATRIO_QA_SUITE:-}" == AtrioConversasCompostasEmulatorUiTest ]]; then
+  [[ "$qa_apk" == qaGeral && "${ATRIO_QA_GERAL_REMOTE_BUILD:-}" != 1 &&
+     "${ATRIO_QA_INBOX_DISCOVERY:-}" != 1 ]] || {
+    echo "Histórico regular exige qaGeral local sem descoberta opt-in" >&2
+    exit 2
+  }
+  node firebase/qa-general/compose-parity-rules.mjs
+  (cd tests/security && node seed-chat-groups-android.mjs)
   run_suite "$ATRIO_QA_SUITE"
   exit "$qa_failed"
 fi

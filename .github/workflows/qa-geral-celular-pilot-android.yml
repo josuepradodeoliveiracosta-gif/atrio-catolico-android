@@ -19,16 +19,20 @@ concurrency:
 
 jobs:
   android:
-    name: ${{ github.head_ref == 'qa/chat5-inbox-366-d8e0b122' && 'Compose focal da inbox emulada' || 'android' }}
+    name: ${{ matrix.mode == 'discovery' && 'Compose focal da inbox emulada' || (matrix.mode == 'history' && 'Histórico com Rules compostas no emulador' || 'android') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: ${{ fromJSON(github.head_ref == 'qa/chat5-inbox-366-d8e0b122' && '["discovery","history"]' || '["pilot"]') }}
     env:
       ATRIO_QA_GERAL_BUILD: '1'
-      ATRIO_QA_GERAL_CELULAR_PILOT: ${{ github.head_ref == 'qa/chat5-inbox-366-d8e0b122' && '0' || '1' }}
-      ATRIO_QA_INBOX_DISCOVERY: ${{ github.head_ref == 'qa/chat5-inbox-366-d8e0b122' && '1' || '0' }}
+      ATRIO_QA_GERAL_CELULAR_PILOT: ${{ matrix.mode == 'pilot' && '1' || '0' }}
+      ATRIO_QA_INBOX_DISCOVERY: ${{ matrix.mode == 'discovery' && '1' || '0' }}
       ATRIO_QA_APK: qaGeral
       ATRIO_QA_FIREBASE_PROJECT: demo-atrio-v11
-      ATRIO_QA_SUITE: ${{ github.head_ref == 'qa/chat5-inbox-366-d8e0b122' && 'AtrioInboxDiscoveryEmulatorUiTest' || 'AtrioConversasCompostasEmulatorUiTest' }}
+      ATRIO_QA_SUITE: ${{ matrix.mode == 'discovery' && 'AtrioInboxDiscoveryEmulatorUiTest' || 'AtrioConversasCompostasEmulatorUiTest' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -79,7 +83,7 @@ jobs:
           aapt="$(find "$ANDROID_HOME/build-tools" -type f -name aapt2 | sort -V | tail -n1)"
           "$aapt" dump badging "$apk" | awk '/^package: / { print }'
           expected_package='br.com.atriocatolico.qageral.celular'
-          if [[ "$ATRIO_QA_INBOX_DISCOVERY" == '1' ]]; then
+          if [[ "$ATRIO_QA_GERAL_CELULAR_PILOT" == '0' ]]; then
             expected_package='br.com.atriocatolico.qageral'
           fi
           test "$("$aapt" dump packagename "$apk")" = "$expected_package"
@@ -88,7 +92,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: qa-celular-pilot-android-${{ github.event.pull_request.head.sha }}
+          name: qa-celular-pilot-android-${{ matrix.mode }}-${{ github.event.pull_request.head.sha }}
           path: |
             app/build/reports/androidTests
             app/build/outputs/androidTest-results
