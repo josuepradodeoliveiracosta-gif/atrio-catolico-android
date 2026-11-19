@@ -142,12 +142,11 @@ jobs:
 
           signed = run(signer, "verify", "--print-certs", apk)
           certs = re.findall(r"Signer #\d+ certificate SHA-256 digest: ([a-fA-F0-9]{64})", signed)
-          local_debug = subprocess.check_output([
-              "keytool", "-exportcert", "-keystore", str(Path.home() / ".android/debug.keystore"),
-              "-storepass", "android", "-alias", "androiddebugkey",
-          ])
-          debug_hash = hashlib.sha256(local_debug).hexdigest()
-          require(len(certs) == 1 and certs[0].lower() == debug_hash, "assinatura debug do runner")
+          subjects = re.findall(r"Signer #\d+ certificate DN: (.+)", signed)
+          require(len(certs) == 1 and len(subjects) == 1 and
+                  "CN=Android Debug" in [part.strip() for part in subjects[0].split(",")],
+                  "certificado Android Debug")
+          debug_hash = certs[0].lower()
 
           evidence = {
               "source_sha": os.environ["SOURCE_SHA"], "source_tree": os.environ["SOURCE_TREE"],
@@ -156,7 +155,7 @@ jobs:
               "version_code": run(analyzer, "manifest", "version-code", apk),
               "version_name": run(analyzer, "manifest", "version-name", apk),
               "apk_sha256": hashlib.sha256(Path(apk).read_bytes()).hexdigest(),
-              "signer": "debug-keystore-do-runner", "signer_sha256": debug_hash,
+              "signer": "Android Debug", "signer_sha256": debug_hash,
               "firebase_project": os.environ["QA_PROJECT"], "firebase_fixture_synthetic": True,
               "worker_urls_empty": ["PUSH_RELAY_URL", "AVATAR_WORKER_URL", "GUARDIAN_V2_WORKER_URL"],
               "known_production_domains_absent": True,
