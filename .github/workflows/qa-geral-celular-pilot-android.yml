@@ -78,7 +78,11 @@ jobs:
           apk='app/build/outputs/apk/qaGeral/app-qaGeral.apk'
           aapt="$(find "$ANDROID_HOME/build-tools" -type f -name aapt2 | sort -V | tail -n1)"
           "$aapt" dump badging "$apk" | awk '/^package: / { print }'
-          test "$("$aapt" dump packagename "$apk")" = 'br.com.atriocatolico.qageral.celular'
+          expected_package='br.com.atriocatolico.qageral.celular'
+          if [[ "$ATRIO_QA_INBOX_DISCOVERY" == '1' ]]; then
+            expected_package='br.com.atriocatolico.qageral'
+          fi
+          test "$("$aapt" dump packagename "$apk")" = "$expected_package"
           sha256sum "$apk"
       - name: Preservar evidências da execução
         if: always()
