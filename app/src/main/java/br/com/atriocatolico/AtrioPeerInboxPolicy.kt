@@ -16,6 +16,25 @@ internal object AtrioPeerInboxPolicy {
     fun validPeer(owner: String, peer: String): Boolean =
         uidPattern.matches(owner) && uidPattern.matches(peer) && owner != peer
 
+    /**
+     * Primeiro contato só nasce de perfil explicitamente escolhido, nunca
+     * de documento de chat inexistente, índice inválido ou descoberta local.
+     */
+    fun explicitFirstContact(owner: String, profilePeer: String?,
+                             chatId: String?, hasAuthorizedIndex: Boolean): Boolean =
+        !hasAuthorizedIndex && profilePeer != null && chatId != null &&
+            validPeer(owner, profilePeer) &&
+            chatId == AtrioChatPolicy.id(owner, profilePeer)
+
+    /** Uma resposta direta só pode ser exibida se o par pertence à sessão. */
+    fun roomMatches(owner: String, chatId: String, requester: String?,
+                    recipient: String?, status: String?): Boolean =
+        requester != null && recipient != null &&
+            validPeer(requester, recipient) &&
+            (requester == owner || recipient == owner) &&
+            chatId == AtrioChatPolicy.id(requester, recipient) &&
+            status in setOf("pending", "accepted", "declined")
+
     fun peerFromChatId(owner: String, chatId: String?): String? {
         if (chatId == null || !uidPattern.matches(owner) || chatId.length > 260) return null
         val prefix = owner + "__"

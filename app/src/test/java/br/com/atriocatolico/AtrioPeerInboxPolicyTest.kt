@@ -17,6 +17,38 @@ class AtrioPeerInboxPolicyTest {
         assertFalse(AtrioPeerInboxPolicy.validPeer("", "bob"))
         assertFalse(AtrioPeerInboxPolicy.validPeer("alice", "bad/uid"))
     }
+    @Test fun firstContactRequiresExplicitProfileAndNoAuthorizedIndex() {
+        val id = AtrioChatPolicy.id("clara", "miguel")
+        assertTrue(AtrioPeerInboxPolicy.explicitFirstContact(
+            "clara", "miguel", id, false))
+        assertFalse(AtrioPeerInboxPolicy.explicitFirstContact(
+            "clara", null, id, false)) // link exato não cria contato
+        assertFalse(AtrioPeerInboxPolicy.explicitFirstContact(
+            "clara", "miguel", id, true)) // índice existente, não sobrescrever
+        assertFalse(AtrioPeerInboxPolicy.explicitFirstContact(
+            "clara", "lucia", id, false)) // perfil diferente do chat
+        assertFalse(AtrioPeerInboxPolicy.explicitFirstContact(
+            "clara", "clara", "clara__clara", false))
+    }
+
+    @Test fun serverRoomMustMatchAuthenticatedOwnerAndDeterministicChat() {
+        val id = AtrioChatPolicy.id("clara", "miguel")
+        assertTrue(AtrioPeerInboxPolicy.roomMatches(
+            "clara", id, "miguel", "clara", "pending"))
+        assertTrue(AtrioPeerInboxPolicy.roomMatches(
+            "miguel", id, "miguel", "clara", "accepted"))
+        assertFalse(AtrioPeerInboxPolicy.roomMatches(
+            "lucia", id, "miguel", "clara", "accepted"))
+        assertFalse(AtrioPeerInboxPolicy.roomMatches(
+            "clara", id, "lucia", "clara", "accepted"))
+        assertFalse(AtrioPeerInboxPolicy.roomMatches(
+            "clara", id, "clara", "clara", "pending"))
+        assertFalse(AtrioPeerInboxPolicy.roomMatches(
+            "clara", id, "miguel", "clara", "unknown"))
+        assertFalse(AtrioPeerInboxPolicy.roomMatches(
+            "clara", id, null, "clara", "accepted"))
+    }
+
     @Test fun exactChatIdYieldsOnlyItsKnownPartner() {
         assertEquals("bob", AtrioPeerInboxPolicy.peerFromChatId("alice", "alice__bob"))
         assertEquals("alice", AtrioPeerInboxPolicy.peerFromChatId("bob", "alice__bob"))
