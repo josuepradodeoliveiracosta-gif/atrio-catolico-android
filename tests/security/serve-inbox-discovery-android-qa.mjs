@@ -2,9 +2,14 @@
  * Fixture manual #355. Requer uma composição com a #359 e dois emuladores
  * locais limpos. Subir somente em 127.0.0.1; o Android usa adb reverse.
  */
-import {randomBytes} from 'node:crypto';
+import assert from 'node:assert/strict';
+import {createHash, randomBytes} from 'node:crypto';
 import {createServer} from 'node:http';
+import {Readable} from 'node:stream';
 import {Firestore, Timestamp} from '@google-cloud/firestore';
+import {initializeApp} from 'firebase-admin/app';
+import {getAuth} from 'firebase-admin/auth';
+import {createInboxBlockHttpHandler} from '../../firebase/qa-general/chat-inbox-block-http.mjs';
 import {
   createAdminInboxStore, createAuthorizedInboxService, createInboxHttpHandler
 } from '../../firebase/qa-general/chat-inbox-discovery-server.mjs';
@@ -21,6 +26,8 @@ if (process.env.FIRESTORE_EMULATOR_HOST !== host + ':8089' ||
 }
 const db = new Firestore({projectId: project});
 const auth = 'http://' + host + ':9099/identitytoolkit.googleapis.com/v1';
+const adminAuth = getAuth(initializeApp({projectId: project}, 'qa-android-inbox'));
+const verifyIdToken = adminAuth.verifyIdToken.bind(adminAuth);
 const password = 'InboxQa355!Emulador';
 const makeEmail = name => 'inbox.' + name + '@qa.invalid';
 
@@ -82,15 +89,7 @@ while (!(await advanceInboxMaintenance(db, bootstrap)).done) {
 let revisionChange;
 const firestore = createAdminInboxStore(db);
 const service = createAuthorizedInboxService({
-  // Validação por lookup do emulador, exclusiva para tokens QA fictícios.
-  async verifyIdToken(idToken, revoked) {
-    if (revoked !== true) throw new Error('Revogação precisa ser solicitada.');
-    const {users} = await authRequest('/accounts:lookup?key=local-emulator-test', {idToken});
-    const account = users?.[0];
-    if (!account || account.disabled || ![clara, miguel, lucia].includes(account.localId))
-      throw new Error('Token fora da fixture.');
-    return {uid: account.localId, email_verified: account.emailVerified === true};
-  },
+  verifyIdToken,
   store: {
     async authorizedPage(uid, after, ...args) {
       if (uid === lucia) throw new Error('Indisponibilidade simulada para a conta fictícia.');
@@ -109,15 +108,85 @@ const service = createAuthorizedInboxService({
   cursorKey: randomBytes(32)
 });
 const handleInbox = createInboxHttpHandler(service, {enabled: true});
+const handleBlock = createInboxBlockHttpHandler({db, verifyIdToken, enabled: true});
+const blockPeer = 'qa-inbox-peer-01';
+const maintenance = 'qa-android-block-maintenance';
+const blockRoute = '/v1/qa/conversations/blocks/' + blockPeer;
+const blockChat = [clara, blockPeer].sort().join('__');
+const blockDoc = db.doc('users/' + clara + '/blockedMembers/' + blockPeer);
+const ownProjection = db.doc('serverInboxOwners/' + clara + '/legacy/' + blockChat);
+const peerProjection = db.doc('serverInboxOwners/' + blockPeer + '/legacy/' + blockChat);
+let refusedRequest;
+let maintenanceExercised = false;
+
+async function dispatchBlock(request) {
+  const url = new URL(request.url);
+  if (url.pathname !== blockRoute || !['PUT', 'DELETE'].includes(request.method))
+    return handleBlock(request);
+
+  // A primeira intenção fictícia encontra a fronteira de manutenção real.
+  // A fixture só controla o momento do corte; a recusa e os commits são do handler.
+  const token = request.headers.get('authorization')?.match(/^Bearer (.+)$/)?.[1];
+  const actor = await verifyIdToken(token ?? '', true).catch(() => null);
+  if (actor?.uid !== clara) return handleBlock(request);
+  const key = request.headers.get('idempotency-key');
+  const precondition = request.headers.get('if-match');
+  if (!key || !precondition) return handleBlock(request);
+  const receiptId = 'http-block-' + createHash('sha256')
+    .update(JSON.stringify([clara, key])).digest('hex');
+  const receipt = db.doc('serverInboxBlockRequests/' + receiptId);
+  if (request.method === 'PUT' && !maintenanceExercised) {
+    await beginInboxBackfill(db, maintenance);
+    const refused = await handleBlock(request);
+    assert.equal(refused.status, 503);
+    assert.deepEqual(await refused.clone().json(), {error: 'block_unavailable'});
+    const snapshots = await db.getAll(blockDoc, receipt, ownProjection, peerProjection);
+    assert.deepEqual(snapshots.map(snapshot => snapshot.exists), [false, false, true, true]);
+    refusedRequest = {key, precondition};
+    maintenanceExercised = true;
+    console.log('QA BLOCK 503: sem bloqueio ou recibo; duas projeções preservadas.');
+    return refused;
+  }
+  if (request.method === 'PUT' && refusedRequest) {
+    assert.deepEqual({key, precondition}, refusedRequest);
+    while (!(await advanceInboxMaintenance(db, maintenance)).done) {
+      // Reabre somente depois do certificado gerado pelo backend.
+    }
+  }
+  const result = await handleBlock(request);
+  if (result.status === 200) {
+    const {committed, replayed, requestedBlocked, blocked} = await result.clone().json();
+    assert.equal(committed, true);
+    assert.equal(requestedBlocked, request.method === 'PUT');
+    const snapshots = await db.getAll(blockDoc, receipt, ownProjection, peerProjection);
+    assert.deepEqual(snapshots.map(snapshot => snapshot.exists), [blocked, true, !blocked, !blocked]);
+    if (replayed) {
+      console.log('QA BLOCK 200: replay retornou o estado atual e preservou o recibo.');
+    } else if (blocked && refusedRequest) {
+      refusedRequest = null;
+      console.log('QA BLOCK 200: mesma chave e ETag; bloqueio e recibo gravados, duas projeções retiradas.');
+    } else {
+      console.log('QA BLOCK 200: mutação e recibo gravados; projeções coerentes.');
+    }
+  }
+  return result;
+}
+
 createServer(async (request, response) => {
   try {
-    const result = await handleInbox(new Request('http://' + host + ':8091' + request.url, {
-      method: request.method, headers: request.headers
-    }));
+    const options = {method: request.method, headers: request.headers};
+    if (Number(request.headers['content-length']) > 0 || request.headers['transfer-encoding']) {
+      options.body = Readable.toWeb(request);
+      options.duplex = 'half';
+    }
+    const incoming = new Request('http://' + host + ':8091' + request.url, options);
+    const result = new URL(incoming.url).pathname.startsWith('/v1/qa/conversations/blocks/')
+      ? await dispatchBlock(incoming) : await handleInbox(incoming);
     response.writeHead(result.status, Object.fromEntries(result.headers));
     response.end(await result.text());
-  } catch {
-    response.writeHead(503, {'Cache-Control': 'private, no-store'});
-    response.end('{"error":"inbox_unavailable"}');
+  } catch (error) {
+    console.error('Falha na fixture local da inbox:', error.message);
+    response.writeHead(500, {'Cache-Control': 'private, no-store'});
+    response.end();
   }
-}).listen(8091, host, () => console.log('Inbox QA local pronta: Clara 43 com mudança de revisão, Miguel 0, Lúcia 503.'));
+}).listen(8091, host, () => console.log('Inbox QA local pronta: descoberta e bloqueio autenticado.'));

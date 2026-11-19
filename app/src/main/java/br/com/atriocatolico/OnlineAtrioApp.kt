@@ -709,8 +709,7 @@ private fun OnlineUserScreen(
             LocalProfileAvatar provides LocalAvatarState(uid, localPhoto),
             LocalAvatarFirestore provides db
         ) {
-        val managedBlocks = if (BuildConfig.ATRIO_QA_INBOX_DISCOVERY)
-            rememberAtrioManagedBlocks(auth, user) else null
+        val managedBlocks = rememberAtrioManagedBlocks(auth, user, db)
         OnlineCommunity(db = db, uid = uid, name = name!!, email = user.email.orEmpty(),
             managedBlocks = managedBlocks, biography = biography, onPhotoChanged = { photoRevision++ },
             visible = !(isAdmin && (moderationOpen || clergyReviewOpen)),
@@ -745,6 +744,7 @@ private fun OnlineCommunity(
     var publishSuccessVisible by remember(uid) { mutableStateOf(false) }
     var sourcePosts by remember(uid) { mutableStateOf<List<Post>>(emptyList()) }
     val blockedMembers = rememberBlockedMembers(db, uid)
+    LaunchedEffect(managedBlocks, blockedMembers) { managedBlocks?.observeBlockList(blockedMembers) }
     var likedIds by remember(uid) { mutableStateOf<Set<String>>(emptySet()) }
     var savedIds by remember(uid) { mutableStateOf<Set<String>>(emptySet()) }
     var pendingSaveIds by remember(uid) { mutableStateOf<Set<String>>(emptySet()) }

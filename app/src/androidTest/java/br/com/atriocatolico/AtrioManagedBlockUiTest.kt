@@ -21,17 +21,21 @@ class AtrioManagedBlockUiTest {
     @Test fun maintenanceKeepsConversationHiddenAndBlockUnconfirmedUntilRetryCommits() {
         val pendingReply = CompletableDeferred<AtrioBlockReply>()
         val requests = mutableListOf<AtrioBlockIntent>()
-        val blocks = AtrioManagedBlocks({ true }) { intent ->
-            requests += intent
-            if (requests.size == 1) pendingReply.await() else AtrioBlockReply.Committed
-        }
+        val blocks = AtrioManagedBlocks({ true }, object : AtrioManagedBlockService {
+            override suspend fun read(peerUid: String) = AtrioBlockState(false, "\"initial\"")
+            override suspend fun submit(intent: AtrioBlockIntent): AtrioBlockReply {
+                requests += intent
+                return if (requests.size == 1) pendingReply.await()
+                else AtrioBlockReply.Committed(AtrioBlockState(true, "\"v-confirmed\""))
+            }
+        })
         val action = "atrio-chat-block-toggle"
         val feedback = "atrio-managed-block-feedback"
         compose.setContent {
             Column {
                 if ("miguel" !in blocks.hiddenPeers())
                     Text("Conversa de Miguel", Modifier.testTag("conversation"))
-                AtrioManagedBlockControl(blocks, "miguel", fromServer = false, tag = action)
+                AtrioManagedBlockControl(blocks, "miguel", tag = action)
             }
         }
 

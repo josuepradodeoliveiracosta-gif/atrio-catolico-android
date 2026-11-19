@@ -54,10 +54,8 @@ internal fun PublicMemberProfileScreen(
     var failed by remember(uid) { mutableStateOf(false) }
     var more by remember(uid) { mutableStateOf(false) }
     val managed = BuildConfig.ATRIO_QA_INBOX_DISCOVERY
-    val confirmedBlock = if (managed) rememberAtrioConfirmedBlock(db, viewerUid, uid) else null
     val blocked = if (managed) {
-        val confirmed = managedBlocks?.confirmed(uid, confirmedBlock) ?: confirmedBlock
-        confirmed != false || uid in managedBlocks?.hiddenPeers().orEmpty()
+        managedBlocks?.confirmed(uid)?.blocked != false || uid in managedBlocks.hiddenPeers()
     } else uid in rememberBlockedMembers(db, viewerUid)
     var actionBusy by remember(viewerUid, uid) { mutableStateOf(false) }
     var reportOpen by remember(viewerUid, uid) { mutableStateOf(false) }
@@ -162,7 +160,7 @@ internal fun PublicMemberProfileScreen(
                 }
                 if (managed) {
                     if (managedBlocks != null) AtrioManagedBlockControl(
-                        managedBlocks, uid, confirmedBlock, "atrio-member-block"
+                        managedBlocks, uid, "atrio-member-block"
                     )
                 } else OutlinedButton(
                     enabled = !actionBusy,

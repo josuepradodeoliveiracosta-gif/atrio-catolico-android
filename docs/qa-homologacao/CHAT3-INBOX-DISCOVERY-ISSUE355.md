@@ -42,3 +42,9 @@ ATRIO_QA_INBOX_DISCOVERY=1 gradle :app:testQaGeralUnitTest :app:connectedQaGeral
 ```
 
 Registre HEAD, árvore, variante e execução do teste focal e dos três bots da composição vigente. A fixture é descartável e usa contas e conversas fictícias. O endpoint do backend segue fechado fora deste ensaio.
+
+### Bloqueio autenticado no perfil e em Conversas
+
+Use a mesma fixture acima, a #359 em `d8ae4090192784a15ff43cd196d71028a3284640` e o lockfile da composição com Firebase Admin Auth. Troque a classe de instrumentação por `br.com.atriocatolico.AtrioAuthenticatedBlockEmulatorUiTest`. Use um Firestore Emulator limpo para cada execução da fixture.
+
+O perfil da Clara consulta a ETag via GET e tenta bloquear o par 01 durante uma manutenção aberta pela fixture. Confira a indicação pendente e a ausência do bloqueio. No retry, a fixture compara chave e ETag e reabre a manutenção antes de enviar o comando ao handler. As confirmações 200 chegam ao Android depois que a fixture confere a origem, o recibo e as duas projeções. Após o bloqueio, a tela de Conversas ainda permite confirmar o desbloqueio sem abrir o conteúdo restrito.
