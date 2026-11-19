@@ -6,6 +6,8 @@ import {arrayRemove, arrayUnion, collection, collectionGroup, deleteDoc, disable
   getDocFromServer, getDocs, getDocsFromServer, limit, orderBy, query, serverTimestamp, setDoc, updateDoc, where, writeBatch}
   from 'firebase/firestore';
 import {renderClosedPilotRules} from '../../firebase/qa-geral-celular/pilot/rules.mjs';
+import {INBOX_WRITE_BOUNDARY,INBOX_WRITE_POLICY}
+  from '../../firebase/qa-general/chat-inbox-peer-index.mjs';
 import {alice, bob, moderator, pilotDocuments, pilotFlags, projectId}
   from '../../firebase/qa-geral-celular/pilot/fixtures.mjs';
 
@@ -373,4 +375,22 @@ test('bloqueio bilateral impede leitura, envio e novos convites após reconectar
     assert.equal((await getDocFromServer(doc(db, room, 'messages', messageId))).get('text'), sendText);
     assert.equal((await getDocFromServer(doc(db, groupPath, 'atrioGroupInvites', recipient))).get('status'), 'pending');
   }
+});
+
+test('a fronteira do índice veda o roteiro legado do piloto gerenciado', async () => {
+  await env.clearFirestore();
+  await seed([...fixtures, ...pilotFlags(true)]);
+  await setDoc(doc(b, 'users', bob.uid, 'chatSettings', 'privacy'), {
+    requests: 'all', readReceipts: false, showPushPreview: false, updatedAt: serverTimestamp()
+  });
+  await firstContact();
+  assert.equal((await inbox(a, alice.uid)).size, 1);
+  await seed([[INBOX_WRITE_BOUNDARY, {policy: INBOX_WRITE_POLICY, epoch: 'pilot-test'}]]);
+  await assertFails(inbox(a, alice.uid));
+  const block = doc(a, 'users', alice.uid, 'blockedMembers', bob.uid);
+  await assertFails(setDoc(block, {createdAt: serverTimestamp()}));
+  await assertFails(updateDoc(doc(b, room), {status: 'accepted', updatedAt: serverTimestamp()}));
+  await assertFails(deleteDoc(doc(admin, INBOX_WRITE_BOUNDARY)));
+  await assertFails(updateDoc(doc(admin, age(alice.uid)), {minimumAge: 21}));
+  assert.equal((await getDocFromServer(doc(b, room))).get('status'), 'pending');
 });

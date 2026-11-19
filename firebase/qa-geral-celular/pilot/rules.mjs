@@ -76,6 +76,7 @@ export function renderClosedPilotRules() {
   fragments = replaceChecked(fragments,
     'allow list: if false;\\n      allow create: if chatEnabled()'.replace('\\n','\n'),
     ('allow list: if pilotDirectEnabled() && signedIn()\\n'
+      + '        && qaInboxLegacySourceWrites()\\n'
       + '        && request.query.limit != null && request.query.limit <= 100\\n'
       + '        && request.auth.uid in resource.data.participants;\\n'
       + '      allow create: if chatEnabled()').replaceAll('\\n','\n'));
@@ -109,9 +110,11 @@ export function renderClosedPilotRules() {
 
     match /users/{uid}/blockedMembers/{peerUid} {
       allow create: if chatEnabled() && qaOwner(uid) && qaMemberUid(peerUid) && uid != peerUid
+        && qaInboxLegacySourceWrites()
         && request.resource.data.keys().hasOnly(['createdAt'])
         && request.resource.data.createdAt == request.time;
-      allow delete: if qaOwner(uid) && qaMemberUid(peerUid) && uid != peerUid;
+      allow delete: if qaOwner(uid) && qaMemberUid(peerUid) && uid != peerUid
+        && qaInboxLegacySourceWrites();
     }
 
 `;
