@@ -19,14 +19,16 @@ concurrency:
 
 jobs:
   android:
+    name: ${{ github.head_ref == 'qa/chat5-inbox-366-d8e0b122' && 'Compose focal da inbox emulada' || 'android' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
       ATRIO_QA_GERAL_BUILD: '1'
-      ATRIO_QA_GERAL_CELULAR_PILOT: '1'
+      ATRIO_QA_GERAL_CELULAR_PILOT: ${{ github.head_ref == 'qa/chat5-inbox-366-d8e0b122' && '0' || '1' }}
+      ATRIO_QA_INBOX_DISCOVERY: ${{ github.head_ref == 'qa/chat5-inbox-366-d8e0b122' && '1' || '0' }}
       ATRIO_QA_APK: qaGeral
       ATRIO_QA_FIREBASE_PROJECT: demo-atrio-v11
-      ATRIO_QA_SUITE: AtrioConversasCompostasEmulatorUiTest
+      ATRIO_QA_SUITE: ${{ github.head_ref == 'qa/chat5-inbox-366-d8e0b122' && 'AtrioInboxDiscoveryEmulatorUiTest' || 'AtrioConversasCompostasEmulatorUiTest' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -59,7 +61,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
           test -c /dev/kvm
           sudo chmod 0666 /dev/kvm
-      - name: Validar APK e regras compostas com Alice e Bob fictícios
+      - name: Validar a suíte focal com contas fictícias
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         with:
           api-level: 35
@@ -87,6 +89,7 @@ jobs:
             app/build/reports/androidTests
             app/build/outputs/androidTest-results
             qa-firebase-emulators.log
+            qa-inbox-discovery-emulator.log
             qa-android-prebuild.log
           retention-days: 7
           if-no-files-found: warn

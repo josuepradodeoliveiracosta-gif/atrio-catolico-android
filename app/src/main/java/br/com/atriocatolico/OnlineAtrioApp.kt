@@ -1386,7 +1386,7 @@ private fun OnlineCommunity(
             if (showConversations) {
                 AtrioConversationsScreen(
                     db = db, uid = uid, onBack = ::closeConversations,
-                    initialPeer = conversationPeer
+                    initialPeer = conversationPeer, blockedPeers = blockedMembers
                 )
             } else if (publicProfileTarget != null && !profilePostOpen) {
                 PublicMemberProfileScreen(
