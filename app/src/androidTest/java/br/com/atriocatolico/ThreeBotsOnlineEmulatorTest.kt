@@ -1,6 +1,7 @@
 package br.com.atriocatolico
 
 import android.content.Context
+import android.net.Uri
 import android.os.SystemClock
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -8,6 +9,7 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.isDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
@@ -30,11 +32,14 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.Source
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 
@@ -111,14 +116,39 @@ class ThreeBotsOnlineEmulatorTest {
         }
     }
 
-    private fun createAccount(email: String, name: String) {
+    private fun createAccount(email: String, name: String, verifyEmail: Boolean = false) {
         val result = Tasks.await(auth.createUserWithEmailAndPassword(email, "QaEmulator2026!"),
             25, TimeUnit.SECONDS)
-        val uid = requireNotNull(result.user?.uid)
+        val user = requireNotNull(result.user)
+        val uid = user.uid
         Tasks.await(db.collection("profiles").document(uid).set(mapOf(
             "displayName" to name,
             "createdAt" to FieldValue.serverTimestamp(),
         )),25,TimeUnit.SECONDS)
+        if (verifyEmail) {
+            check(FirebaseApp.getInstance().options.projectId == "demo-atrio-v11")
+            Tasks.await(user.sendEmailVerification(), 10, TimeUnit.SECONDS)
+            val connection = (URL("http://127.0.0.1:9099/emulator/v1/projects/demo-atrio-v11/oobCodes")
+                .openConnection() as HttpURLConnection).apply {
+                connectTimeout = 5_000
+                readTimeout = 5_000
+            }
+            val codes = try {
+                check(connection.responseCode == 200)
+                JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+                    .getJSONArray("oobCodes")
+            } finally {
+                connection.disconnect()
+            }
+            val code = (0 until codes.length()).map(codes::getJSONObject).single {
+                it.optString("email") == email && it.optString("requestType") == "VERIFY_EMAIL"
+            }
+            val action = requireNotNull(Uri.parse(code.getString("oobLink")).getQueryParameter("oobCode"))
+            Tasks.await(auth.applyActionCode(action), 10, TimeUnit.SECONDS)
+            Tasks.await(user.reload(), 10, TimeUnit.SECONDS)
+            assertTrue("O Auth Emulator deve verificar a conta de Miguel",
+                requireNotNull(auth.currentUser).isEmailVerified)
+        }
         auth.signOut()
     }
 
@@ -170,7 +200,8 @@ class ThreeBotsOnlineEmulatorTest {
         val luciaEmail = "lucia.${nonce}@bots.example.test"
 
         createAccount(claraEmail, "Clara BOT DE TESTE")
-        createAccount(miguelEmail, "Miguel BOT DE TESTE")
+        createAccount(miguelEmail, "Miguel BOT DE TESTE",
+            verifyEmail = timing == SwitchTiming.PENDING_OFFLINE)
         createAccount(luciaEmail, "Lúcia BOT DE TESTE")
 
         val batchState = AtomicReference<QaReplyBatchState>()
@@ -257,16 +288,21 @@ class ThreeBotsOnlineEmulatorTest {
         val pauseNetwork = timing == SwitchTiming.PENDING_OFFLINE
         val replyId: String
         var switched = false
+        val submit = compose.onNodeWithTag("atrio-reply-submit")
         if (pauseNetwork) {
+            assertTrue("A discussão deve manter a sessão verificada sem rede",
+                requireNotNull(auth.currentUser).isEmailVerified)
             compose.runOnIdle {
                 val window = compose.activity.window
                 WindowCompat.getInsetsController(window, window.decorView)
                     .hide(WindowInsetsCompat.Type.ime())
             }
+            compose.waitUntil(10_000) { submit.isDisplayed() }
+            submit.assertIsEnabled()
+            trace("formulario_pronto", "miguel_email_verificado=true botao_visivel_e_habilitado=true")
         }
         if (pauseNetwork) Tasks.await(db.disableNetwork(), 5, TimeUnit.SECONDS)
         try {
-            val submit = compose.onNodeWithTag("atrio-reply-submit")
             compose.waitUntil(10_000) {
                 try {
                     submit.assertIsDisplayed().assertIsEnabled()
