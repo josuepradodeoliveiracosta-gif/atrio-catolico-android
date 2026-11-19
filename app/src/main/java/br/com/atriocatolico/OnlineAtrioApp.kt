@@ -76,7 +76,7 @@ internal fun OnlineAtrioApp(
 ) {
     val auth = remember { FirebaseAuth.getInstance() }
     val db = remember { FirebaseFirestore.getInstance() }
-    var signedUser by remember { mutableStateOf(auth.currentUser) }
+    val signedUser = rememberAtrioCurrentUser(auth)
     // Escopo local: somente contas NOVAS criadas neste fluxo de cadastro V2.
     // Nunca impor onboarding retroativamente aos UIDs existentes.
     val registrationPrefs = remember(activity) {
@@ -85,12 +85,6 @@ internal fun OnlineAtrioApp(
     var registrationStarted by rememberSaveable { mutableStateOf(false) }
     var pendingRegistrationUid by remember {
         mutableStateOf(registrationPrefs.getString("pendingUid", null))
-    }
-
-    DisposableEffect(auth) {
-        val listener = FirebaseAuth.AuthStateListener { signedUser = it.currentUser }
-        auth.addAuthStateListener(listener)
-        onDispose { auth.removeAuthStateListener(listener) }
     }
 
     AtrioTheme {
@@ -104,7 +98,7 @@ internal fun OnlineAtrioApp(
                 },
                 onRegistrationFailed = { registrationStarted = false })
         } else {
-            key(user.uid) {
+            key(user) {
                 // Seguranca de entrada: o cliente deve conhecer a politica do
                 // servidor antes de apresentar a comunidade a uma conta nao verificada.
                 // O cache local e erros de rede NUNCA equivalem a enabled=false.
@@ -745,15 +739,19 @@ private fun OnlineCommunity(
     var lastAnnouncedOtaVersion by remember { mutableStateOf<String?>(null) }
     var publishSuccessVisible by remember(uid) { mutableStateOf(false) }
     var sourcePosts by remember(uid) { mutableStateOf<List<Post>>(emptyList()) }
-    val blockedMembers = rememberBlockedMembers(db, uid)
-    LaunchedEffect(managedBlocks, blockedMembers) { managedBlocks?.observeBlockList(blockedMembers) }
+    var blockListRetry by remember(uid) { mutableIntStateOf(0) }
+    val blockedMembers = rememberBlockedMembers(db, uid, blockListRetry)
+    LaunchedEffect(managedBlocks, blockedMembers) {
+        if (blockedMembers != null) managedBlocks?.observeBlockList(blockedMembers)
+    }
+    fun canShowMember(ownerUid: String): Boolean = canShowWithBlockedMembers(blockedMembers, ownerUid)
     var likedIds by remember(uid) { mutableStateOf<Set<String>>(emptySet()) }
     var savedIds by remember(uid) { mutableStateOf<Set<String>>(emptySet()) }
     var pendingSaveIds by remember(uid) { mutableStateOf<Set<String>>(emptySet()) }
     var saveOverrides by remember(uid) { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
     val notificationAdmin = onModeration != null && onClergyReview != null
     val advancedEngagement = rememberAdvancedEngagementEnabled(db, uid)
-    val inbox = rememberNotificationInbox(db, uid, notificationAdmin)
+    val inbox = rememberNotificationInbox(db, uid, notificationAdmin, blockedMembers)
     var noticeBadgesOpen by remember(uid) { mutableStateOf(false) }
     var guardiaoAppealsOpen by remember(uid) { mutableStateOf(false) }
     var returnToNotices by remember(uid) { mutableStateOf(false) }
@@ -1019,21 +1017,21 @@ private fun OnlineCommunity(
             (openedPost?.ownerUid == uid || detailReplies.any { it.mine }))
             ThreadPushSubscriptions.track(context, uid, id)
     }
-    val posts = sourcePosts.filter { it.ownerUid !in blockedMembers }
+    val posts = sourcePosts.filter { canShowMember(it.ownerUid) }
         .map {
             it.copy(liked = it.id in likedIds,
                 saved = saveOverrides[it.id] ?: (it.id in savedIds),
                 savePending = it.id in pendingSaveIds)
         }
     val allPosts = (sourcePosts + savedPosts.values + listOfNotNull(openedPost))
-        .filter { it.ownerUid !in blockedMembers }
+        .filter { canShowMember(it.ownerUid) }
         .associateBy { it.id }.values.map {
             it.copy(liked = it.id in likedIds,
                 saved = saveOverrides[it.id] ?: (it.id in savedIds),
                 savePending = it.id in pendingSaveIds)
         }
     val savedDisplay = savedOrder.take(savedLimit).mapNotNull { id ->
-        savedPosts[id]?.takeUnless { it.ownerUid in blockedMembers }
+        savedPosts[id]?.takeIf { canShowMember(it.ownerUid) }
             ?.copy(liked = id in likedIds,
                 saved = saveOverrides[id] ?: (id in savedIds),
                 savePending = id in pendingSaveIds)
@@ -1384,11 +1382,15 @@ private fun OnlineCommunity(
         if (!showConversations) AtrioBottomBar(selected = tab, onSelect = ::navigate)
     }) { inset ->
         Box(Modifier.padding(inset)) {
-            val detail = openedPost?.takeUnless { it.ownerUid in blockedMembers }
+            val detail = openedPost?.takeIf { canShowMember(it.ownerUid) }
                 ?.copy(liked = detailId in likedIds,
                     saved = saveOverrides[detailId] ?: (detailId in savedIds),
                     savePending = detailId in pendingSaveIds)
-            if (showConversations) {
+            val needsBlockList = showConversations || publicProfileTarget != null ||
+                noticesOpen || detailId != null || tab in listOf(Tab.HOME, Tab.COMMUNITIES, Tab.SAVED)
+            if (blockedMembers == null && needsBlockList && !guardiaoAppealsOpen && !noticeBadgesOpen) {
+                BlockedMembersConnectionStatus { blockListRetry++ }
+            } else if (showConversations && blockedMembers != null) {
                 AtrioConversationsScreen(
                     db = db, uid = uid, onBack = ::closeConversations,
                     initialPeer = conversationPeer, blockedPeers = blockedMembers,
@@ -1398,6 +1400,7 @@ private fun OnlineCommunity(
                 PublicMemberProfileScreen(
                     db = db, target = publicProfileTarget!!, viewerUid = uid,
                     managedBlocks = managedBlocks, onBack = ::closeNoticeDestination,
+                    confirmedBlockedMembers = blockedMembers,
                     onOpenDiscussion = { postId -> profilePostOpen = true; detailId = postId },
                     onConverse = if (conversationsQa) ({
                         conversationPeer = publicProfileTarget
@@ -1434,7 +1437,7 @@ private fun OnlineCommunity(
                     if (detailError) "Tentar novamente" else "Voltar",
                     { if (detailError) detailRetry++ else closeNoticeDestination() })
             } else if (detail != null) {
-                DetailScreen(detail.copy(replies = detailReplies.filter { it.ownerUid !in blockedMembers }), name,
+                DetailScreen(detail.copy(replies = detailReplies.filter { canShowMember(it.ownerUid) }), name,
                     onLike = { toggle("likedPosts", detail.id, detail.liked) },
                     onSave = { saveCoordinator.toggle(detail.id, detail.saved) },
                     onReply = { body, done ->
@@ -1562,6 +1565,8 @@ private fun OnlineCommunity(
                         followedRemoteIds = syncedFollow.ids,
                         followedRemoteLoading = syncedFollow.loading,
                         followedRemoteFailed = syncedFollow.failed,
+                        blockedMembers = blockedMembers,
+                        onRetryBlocks = { blockListRetry++ },
                         onPhotoChanged = onPhotoChanged,
                         otaStatus = ota.status,
                         onRefreshUpdates = { otaScope.launch { ota.refresh() } },
@@ -1693,7 +1698,10 @@ private fun OnlineCommunity(
             }
         )
     }
-    reportReply?.let { target ->
+    reportReply?.takeIf { target ->
+        target.postId == detailId && openedPost?.let { canShowMember(it.ownerUid) } == true &&
+            detailReplies.any { it.id == target.replyId && canShowMember(it.ownerUid) }
+    }?.let { target ->
         key(target.postId, target.replyId) {
             ReplyReportDialog(db, uid, target,
                 onClose = { reportReply = null },

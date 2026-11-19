@@ -48,6 +48,7 @@ internal fun OnlineProfileScreen(
     followedRevision: Int = 0,
     followedRemoteEnabled: Boolean = false, followedRemoteIds: Set<String> = emptySet(),
     followedRemoteLoading: Boolean = false, followedRemoteFailed: Boolean = false,
+    blockedMembers: Set<String>? = null, onRetryBlocks: () -> Unit = {},
     onPhotoChanged: () -> Unit = {},
     otaStatus: OtaCheckStatus = OtaCheckStatus.Idle,
     onRefreshUpdates: () -> Unit = {},
@@ -73,7 +74,8 @@ internal fun OnlineProfileScreen(
         FollowedDiscussionsScreen(db, uid, followedRevision,
             onBack = { followedOpen = false }, onOpen = onOpen,
             remoteEnabled = followedRemoteEnabled, remoteIds = followedRemoteIds,
-            remoteLoading = followedRemoteLoading, remoteFailed = followedRemoteFailed)
+            remoteLoading = followedRemoteLoading, remoteFailed = followedRemoteFailed,
+            blockedMembers = blockedMembers, onRetryBlocks = onRetryBlocks)
     } else if (discussionsOpen) {
         ProfileDiscussionHistory(db, uid, onBack = { discussionsOpen = false }, onOpen = onOpen)
     } else if (badgesOpen) {

@@ -45,15 +45,23 @@ internal object LocalFollowedDiscussions {
     }
 }
 
-internal data class FollowedDiscussion(val id: String, val title: String)
+private data class FollowedDiscussion(val id: String, val title: String, val ownerUid: String)
 
 @Composable
 internal fun FollowedDiscussionsScreen(
     db: FirebaseFirestore, uid: String, revision: Int,
     onBack: () -> Unit, onOpen: (String) -> Unit,
     remoteEnabled: Boolean = false, remoteIds: Set<String> = emptySet(),
-    remoteLoading: Boolean = false, remoteFailed: Boolean = false
+    remoteLoading: Boolean = false, remoteFailed: Boolean = false,
+    blockedMembers: Set<String>?, onRetryBlocks: () -> Unit
 ) {
+    if (blockedMembers == null) {
+        Column(Modifier.padding(16.dp)) {
+            TextButton(onClick = onBack) { Text("Voltar ao perfil") }
+            BlockedMembersConnectionStatus(onRetryBlocks)
+        }
+        return
+    }
     val context = LocalContext.current
     val ids = remember(uid, revision, remoteEnabled, remoteIds) {
         if (remoteEnabled) remoteIds.sorted() else LocalFollowedDiscussions.ids(context, uid).sorted()
@@ -82,7 +90,8 @@ internal fun FollowedDiscussionsScreen(
                             val doc = task.result
                             if (doc?.exists() == true) {
                                 entries[id] = FollowedDiscussion(id,
-                                    doc.getString("title").orEmpty().ifBlank { "Discussão" })
+                                    doc.getString("title").orEmpty().ifBlank { "Discussão" },
+                                    doc.getString("uid").orEmpty())
                             }
                         } else error = true
                         pending--
@@ -96,6 +105,7 @@ internal fun FollowedDiscussionsScreen(
         }
     }
 
+    val visible = found.filter { canShowWithBlockedMembers(blockedMembers, it.ownerUid) }
     LazyColumn(
         modifier = Modifier.fillMaxSize().testTag("atrio-followed-list"),
         contentPadding = PaddingValues(16.dp),
@@ -121,10 +131,10 @@ internal fun FollowedDiscussionsScreen(
         if (!loading && !remoteLoading && !remoteFailed && ids.isEmpty()) item {
             Text("Acompanhe uma discussão pelo botão disponível na conversa.")
         }
-        if (!loading && found.isEmpty() && ids.isNotEmpty() && !error) item {
+        if (!loading && visible.isEmpty() && ids.isNotEmpty() && !error) item {
             Text("Essas discussões não estão mais disponíveis.")
         }
-        if (!loading) items(found, key = { it.id }) { item ->
+        if (!loading) items(visible, key = { it.id }) { item ->
             Card(onClick = { onOpen(item.id) }, modifier = Modifier.fillMaxWidth()) {
                 Text(item.title, Modifier.padding(16.dp),
                     style = MaterialTheme.typography.titleMedium)
