@@ -256,17 +256,17 @@ try{
     reviewExpiresAt:future()
   });
   await setDoc(doc(db,'users/'+pageOwner+'/chatAgeEligibility/current'),ageDoc());
-  const seedHidden=async(start,end)=>{
+  const seedHidden=async(start,end,owner=pageOwner)=>{
     const batch=writeBatch(db);
     for(let i=start;i<end;i++){
       const peer=pagePeer(i);
       batch.set(doc(db,'users/'+peer+'/chatAgeEligibility/current'),ageDoc());
-      batch.set(doc(db,'chats/'+pageChatId(peer)),
-        chatData(pageOwner,peer,'SOMENTE TESTE: mensagem privada'));
-      // 39/40/41 mesclam as duas direcoes e um bloqueio simultaneo.
-      batch.set(doc(db,'users/'+(i%2===0?pageOwner:peer)+'/blockedMembers/'+
-        (i%2===0?peer:pageOwner)),{createdAt:Timestamp.now()});
-      if(i===0)batch.set(doc(db,'users/'+peer+'/blockedMembers/'+pageOwner),
+      batch.set(doc(db,'chats/'+owner+'__'+peer),
+        chatData(owner,peer,'SOMENTE TESTE: mensagem privada'));
+      // Os cenários cobrem as duas direções e um bloqueio simultâneo.
+      batch.set(doc(db,'users/'+(i%2===0?owner:peer)+'/blockedMembers/'+
+        (i%2===0?peer:owner)),{createdAt:Timestamp.now()});
+      if(i===0)batch.set(doc(db,'users/'+peer+'/blockedMembers/'+owner),
         {createdAt:Timestamp.now()});
     }
     await batch.commit();
@@ -549,6 +549,85 @@ try{
     const next=await both.list({...args,cursor:first.nextCursor});
     assert.deepEqual(next.items.map(item=>item.peerUid),[allowedPeer(1),allowedPeer(2)]);
   });
+
+  const frontierCases=[
+    {name:'vazia',limit:20,visible:[]},
+    {name:'apos-ocultos',limit:1,visible:['zz-frontier-tail']},
+    {name:'pagina-1',limit:1,visible:['aaa-frontier-00','zz-frontier-tail']},
+    {name:'pagina-20',limit:20,visible:[
+      ...Array.from({length:20},(_,i)=>'aaa-frontier-'+String(i).padStart(2,'0')),
+      'zz-frontier-tail'
+    ]}
+  ];
+  const frontierHandler=createInboxHttpHandler(service,{enabled:true});
+  async function readFrontierPages(token,pageSize,maxPages){
+    const pages=[];
+    const seen=new Set();
+    let cursor=null;
+    for(let index=0;index<maxPages;index++){
+      const url=new URL('https://qa.invalid/v1/qa/conversations/inbox');
+      url.searchParams.set('limit',String(pageSize));
+      if(cursor!==null)url.searchParams.set('cursor',cursor);
+      const response=await frontierHandler(new Request(url,{
+        headers:{Authorization:'Bearer '+token}
+      }));
+      assert.equal(response.status,200);
+      assert.match(response.headers.get('cache-control'),/no-store/);
+      const body=await response.json();
+      assert.deepEqual(Object.keys(body).sort(),['items','nextCursor']);
+      assert.ok(Array.isArray(body.items));
+      assert.ok(body.items.length<=pageSize);
+      assert.doesNotMatch(JSON.stringify(body.items),/inbox-hidden-|SOMENTE TESTE: mensagem privada/);
+      cursor=body.nextCursor;
+      pages.push({items:body.items,hasNext:cursor!==null});
+      if(cursor===null)return pages;
+      assert.equal(typeof cursor,'string');
+      assert.ok(cursor.length>0 && !seen.has(cursor),'cursor deve avançar');
+      seen.add(cursor);
+    }
+    assert.fail('o cursor não terminou após a última página autorizada');
+  }
+
+  const frontierResults=[];
+  for(const {name,limit:pageSize,visible} of frontierCases){
+    const owner='inbox-frontier-'+name;
+    const token='token-frontier-'+name;
+    verified[token]={uid:owner,email_verified:true};
+    const batch=writeBatch(db);
+    batch.set(doc(db,'users/'+owner+'/chatAgeEligibility/current'),ageDoc());
+    for(const peer of visible){
+      const id=owner+'__'+peer;
+      const data=chatData(owner,peer,'Contato autorizado '+peer);
+      batch.set(doc(db,'users/'+peer+'/chatAgeEligibility/current'),ageDoc());
+      batch.set(doc(db,'chats/'+id),data);
+      for(const view of peerInboxEntries(id,data))batch.set(doc(db,view.path),view.data);
+    }
+    await batch.commit();
+    for(const peer of visible){
+      await applyTrustedInboxEvent(admin,{kind:'chat_written',chatId:owner+'__'+peer});
+    }
+    const maxPages=Math.max(1,Math.ceil(visible.length/pageSize));
+    const baseline=await readFrontierPages(token,pageSize,maxPages);
+    assert.deepEqual(baseline.flatMap(page=>page.items.map(item=>item.peerUid)),visible);
+    let previous=0;
+    for(const hiddenCount of [159,160,161]){
+      await seedHidden(previous,hiddenCount,owner);
+      previous=hiddenCount;
+      const actual=await readFrontierPages(token,pageSize,maxPages);
+      frontierResults.push({name,hiddenCount,actual,baseline});
+    }
+  }
+  const mismatches=[];
+  for(const {name,hiddenCount,actual,baseline} of frontierResults){
+    const label=`${name} com ${hiddenCount} ocultos`;
+    try{
+      assert.deepEqual(actual,baseline);
+      await check('P0 fronteira HTTP: '+label,async()=>{});
+    }catch(error){
+      mismatches.push(`${label}: ${actual.map(page=>page.items.length).join('+')} itens em páginas (esperado ${baseline.map(page=>page.items.length).join('+')})`);
+    }
+  }
+  assert.deepEqual(mismatches,[],'fronteira não pode omitir autorizados nem alterar páginas');
   });
   console.log('AUTHORIZED INBOX DISCOVERY TESTS:',checks,'OK');
 }finally{await Promise.all([env.cleanup(),admin.terminate()]);}
