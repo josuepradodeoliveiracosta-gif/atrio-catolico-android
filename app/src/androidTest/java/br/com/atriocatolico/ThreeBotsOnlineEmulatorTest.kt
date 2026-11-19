@@ -23,6 +23,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.platform.app.InstrumentationRegistry
+import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
@@ -186,6 +187,7 @@ class ThreeBotsOnlineEmulatorTest {
     @Test fun claraMiguelLuciaFazemLoginENavegamComFirebaseEmulado() {
         val configuredTiming = InstrumentationRegistry.getArguments().getString("atrioQa201Timing")
         val timing = configuredTiming?.let(SwitchTiming::valueOf) ?: SwitchTiming.AFTER_ACK
+        val pauseNetwork = timing == SwitchTiming.PENDING_OFFLINE
         prepareEmulators()
         val startedAt = SystemClock.elapsedRealtime()
         fun trace(event: String, state: String) {
@@ -201,12 +203,19 @@ class ThreeBotsOnlineEmulatorTest {
 
         createAccount(claraEmail, "Clara BOT DE TESTE")
         createAccount(miguelEmail, "Miguel BOT DE TESTE",
-            verifyEmail = timing == SwitchTiming.PENDING_OFFLINE)
+            verifyEmail = pauseNetwork)
         createAccount(luciaEmail, "Lúcia BOT DE TESTE")
 
         val batchState = AtomicReference<QaReplyBatchState>()
+        val networkPause = AtomicReference<Task<Void>>()
         compose.setContent {
             OnlineAtrioApp(compose.activity, onQaReplyBatch = {
+                if (pauseNetwork && it.result == "pendente") {
+                    // Este callback do app vem depois do GET canônico e antes
+                    // do commit. O SDK enfileira a pausa antes da escrita.
+                    check(networkPause.get() == null)
+                    networkPause.set(db.disableNetwork())
+                }
                 batchState.set(it)
                 trace("callback_lote", "estado=${it.result} aviso_no_lote=${it.ownerNoticeQueued}")
             })
@@ -285,7 +294,6 @@ class ThreeBotsOnlineEmulatorTest {
         val miguelId = requireNotNull(auth.currentUser?.uid)
         assertTrue("A resposta foi publicada fora da conta de Miguel", miguelId != claraId)
         val repliesRef = db.collection("posts").document(postId).collection("replies")
-        val pauseNetwork = timing == SwitchTiming.PENDING_OFFLINE
         val replyId: String
         var switched = false
         val submit = compose.onNodeWithTag("atrio-reply-submit")
@@ -301,7 +309,6 @@ class ThreeBotsOnlineEmulatorTest {
             submit.assertIsEnabled()
             trace("formulario_pronto", "miguel_email_verificado=true botao_visivel_e_habilitado=true")
         }
-        if (pauseNetwork) Tasks.await(db.disableNetwork(), 5, TimeUnit.SECONDS)
         try {
             compose.waitUntil(10_000) {
                 try {
@@ -312,7 +319,13 @@ class ThreeBotsOnlineEmulatorTest {
                 }
             }
             submit.performClick()
-            trace("toque_responder", "executado=true firestore_pausado=$pauseNetwork")
+            trace("toque_responder", "executado=true pausa_solicitada_apos_leitura_canonica=$pauseNetwork")
+
+            if (pauseNetwork) {
+                compose.waitUntil(30_000) { networkPause.get() != null }
+                Tasks.await(requireNotNull(networkPause.get()), 5, TimeUnit.SECONDS)
+                trace("rede_pausada", "confirmada=true etapa=antes_do_commit")
+            }
 
             val source = if (pauseNetwork) Source.CACHE else Source.SERVER
             var observedPending = false
@@ -354,7 +367,7 @@ class ThreeBotsOnlineEmulatorTest {
             }
             awaitScreen("Entrar na comunidade")
         } finally {
-            if (pauseNetwork) {
+            if (networkPause.get() != null) {
                 Tasks.await(db.enableNetwork(), 5, TimeUnit.SECONDS)
                 trace("rede_restaurada", "apos_troca=$switched")
             }
