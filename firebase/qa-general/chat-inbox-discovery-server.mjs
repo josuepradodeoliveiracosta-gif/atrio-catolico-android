@@ -15,7 +15,7 @@ const UID=/^[A-Za-z0-9_-]{1,128}$/;
 const CHAT=/^[A-Za-z0-9_-]{1,260}$/;
 const MAX_LIMIT=20;
 const TTL_MS=10*60*1000;
-class InboxAccessDenied extends Error {
+export class InboxAccessDenied extends Error {
   constructor() {super('inbox_access_denied');}
 }
 const deny=()=>{throw new InboxAccessDenied();};
@@ -31,10 +31,19 @@ export function validInboxAge(data,acceptedPairs=[LEGACY_INBOX_AGE_PAIR],now=Dat
   const grant=inboxAgeGrant(data);
   return grant!==null && acceptedPairs.includes(grant.pair) && grant.expiresAtMs>now;
 }
-function configValid(c) {
+export function inboxConfigValid(c) {
   return c?.enabled===true && c?.minorPolicyApproved===true &&
     c?.safetyReviewVersion==='2026-11-safety-v1' &&
     c?.version==='2026-11-v1';
+}
+export async function authenticateInboxCaller(verifyIdToken,idToken) {
+  if(typeof idToken!=='string'||idToken.length<1||idToken.length>8192)deny();
+  let claims;
+  try{claims=await verifyIdToken(idToken,true);}
+  catch{deny();}
+  const uid=claims?.uid;
+  if(typeof uid!=='string'||!UID.test(uid)||claims.email_verified!==true)deny();
+  return uid;
 }
 function keyValid(k) {return Buffer.isBuffer(k) && k.length===32;}
 function seal(key,uid,{chatId,expiresAtMs,revision},now) {
@@ -106,7 +115,7 @@ export function createAdminInboxStore(db) {
           ref(inboxOwnerPath(uid)),ref(INBOX_WRITE_BOUNDARY)
         );
         const now=Math.max(requestedAt,cfg.readTime.toMillis());
-        if(!configValid(cfg.data())||!validInboxAge(viewer.data(),acceptedPairs,now))deny();
+        if(!inboxConfigValid(cfg.data())||!validInboxAge(viewer.data(),acceptedPairs,now))deny();
         if(!inboxProjectionReady(control.data(),boundary.data()))throw new InboxUnavailable();
         const revision=acceptedPairs.map(pair=>{
           const bucket=INBOX_AGE_COLLECTIONS[pair];
@@ -178,11 +187,8 @@ export function createAuthorizedInboxService({
   const policyPairs=[...new Set(acceptedPairs)].sort();
   return {
     async list({idToken,limit=MAX_LIMIT,cursor=null}={}) {
-      if(typeof idToken!=='string'||idToken.length<1||idToken.length>8192)deny();
       if(!Number.isInteger(limit)||limit<1||limit>MAX_LIMIT)deny();
-      const claims=await verifyIdToken(idToken,true).catch(deny);
-      const uid=claims?.uid;
-      if(typeof uid!=='string'||!UID.test(uid)||claims.email_verified!==true)deny();
+      const uid=await authenticateInboxCaller(verifyIdToken,idToken);
       const now=clock();
       if(!Number.isSafeInteger(now))deny();
       const after=cursor===null?null:unseal(cursorKey,uid,cursor,now);
