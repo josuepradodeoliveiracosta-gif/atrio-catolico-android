@@ -578,12 +578,21 @@ class AtrioConversasCompostasEmulatorUiTest {
         waitForText(message)
         compose.onNodeWithText(message).assertIsDisplayed()
         historyTrace("history-visible", bob)
+        val observedInvite = await(invite.get(Source.SERVER))
+        assertEquals("accepted", observedInvite.getString("status"))
+        historyTrace("invite-observed", bob,
+            "status=accepted cache=${observedInvite.metadata.isFromCache} " +
+                "pending=${observedInvite.metadata.hasPendingWrites()} " +
+                "updatedAt=${observedInvite.getTimestamp("updatedAt")?.toDate()?.toInstant()}")
+        await(db.waitForPendingWrites())
         val acceptedInvite = await(invite.get(Source.SERVER))
+        assertEquals(bob, auth.currentUser?.uid)
         assertEquals("accepted", acceptedInvite.getString("status"))
-        historyTrace("invite-confirmed", bob,
-            "status=accepted cache=${acceptedInvite.metadata.isFromCache} " +
-                "pending=${acceptedInvite.metadata.hasPendingWrites()} " +
-                "updatedAt=${acceptedInvite.getTimestamp("updatedAt")?.toDate()?.toInstant()}")
+        assertEquals(false, acceptedInvite.metadata.isFromCache)
+        assertEquals(false, acceptedInvite.metadata.hasPendingWrites())
+        val committedAt = requireNotNull(acceptedInvite.getTimestamp("updatedAt"))
+        historyTrace("invite-acknowledged", bob,
+            "status=accepted cache=false pending=false updatedAt=${committedAt.toDate().toInstant()}")
         historyTrace("group-get-start", bob)
         val acceptedGroup = try {
             await(group.get(Source.SERVER))
@@ -599,6 +608,7 @@ class AtrioConversasCompostasEmulatorUiTest {
         }
         val member = (acceptedGroup.get("memberUids") as List<*>).contains(bob)
         assertTrue(member)
+        assertEquals(false, acceptedGroup.metadata.hasPendingWrites())
         historyTrace("group-get-allowed", bob,
             "member=$member cache=${acceptedGroup.metadata.isFromCache} " +
                 "pending=${acceptedGroup.metadata.hasPendingWrites()} " +
