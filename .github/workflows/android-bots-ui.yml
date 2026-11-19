@@ -24,6 +24,8 @@ on:
       - 'firebase/qa-general/chat-inbox-peer-index.mjs'
       - 'firebase/qa-general/chat-inbox-discovery-server.mjs'
       - 'firebase/qa-general/chat-inbox-maintenance.mjs'
+      - 'firebase/qa-general/compose-parity-rules.mjs'
+      - 'firebase/qa-general/compose-parity-rules.test.mjs'
       - 'firebase/atrio-grupos-v1.rules.fragment'
       - 'firebase/qa-geral-celular/pilot/**'
       - 'scripts/run-qa-android-emulator.sh'
@@ -72,6 +74,7 @@ jobs:
         run: npm ci
       - name: Gerar regras compostas para o emulador
         run: |
+          (cd ../.. && node --test firebase/qa-general/compose-parity-rules.test.mjs)
           node prepare.mjs
           node ../../firebase/qa-general/compose-parity-rules.mjs
       - name: Validar regras com as contas fictícias do QA Geral Celular

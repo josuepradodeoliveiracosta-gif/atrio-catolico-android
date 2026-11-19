@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import {randomBytes} from 'node:crypto';
+import {readFileSync} from 'node:fs';
 import {Firestore,Timestamp} from '@google-cloud/firestore';
-import {initializeTestEnvironment} from '@firebase/rules-unit-testing';
+import {assertFails,initializeTestEnvironment} from '@firebase/rules-unit-testing';
+import {
+  collection,deleteDoc,doc,getDocsFromServer,limit,query,serverTimestamp,
+  setDoc,updateDoc,where,writeBatch
+} from 'firebase/firestore';
 import {
   createAdminInboxStore,createAuthorizedInboxService,createInboxHttpHandler
 } from '../../firebase/qa-general/chat-inbox-discovery-server.mjs';
@@ -9,13 +14,15 @@ import {
   beginInboxBackfill,beginInboxEligibilityChange,advanceInboxMaintenance,writeInboxBlock
 } from '../../firebase/qa-general/chat-inbox-maintenance.mjs';
 import {
-  INBOX_DISCOVERY_CONTROL,INBOX_DISCOVERY_SCHEMA
+  INBOX_DISCOVERY_CONTROL,INBOX_DISCOVERY_SCHEMA,INBOX_WRITE_BOUNDARY,INBOX_WRITE_POLICY
 } from '../../firebase/qa-general/chat-inbox-peer-index.mjs';
 
 assert.equal(process.env.FIRESTORE_EMULATOR_HOST,'127.0.0.1:8089');
 const projectId='demo-atrio-v11';
 const db=new Firestore({projectId});
-const env=await initializeTestEnvironment({projectId,firestore:{host:'127.0.0.1',port:8089}});
+const env=await initializeTestEnvironment({projectId,firestore:{
+  host:'127.0.0.1',port:8089,rules:readFileSync('qa-parity.generated.rules','utf8')
+}});
 const now=Date.now();
 const minute=60_000;
 const a='qa-alice',b='qa-bob',c='qa-clara',d='qa-dan',e='qa-eli',f='qa-fred',x='qa-expired';
@@ -156,14 +163,13 @@ try {
     assert.equal(result.chatsScanned,visiblePairs.length+blockedPairs.length);
     assert.ok(result.rowsScanned>=visiblePairs.length*2);
     assert.deepEqual((await control().get()).get('certificate'),{
-      operationId:start.id,cutAtMs:start.cutAtMs
+      operationId:start.id,cutAtMs:start.cutAtMs,boundaryEpoch:start.boundaryEpoch
     });
     assert.deepEqual(await readRows(),expectedRows(visiblePairs));
     assert.equal((await unrelated.get()).exists,true);
     assert.deepEqual(await advanceInboxMaintenance(db,start.id),result);
     assert.deepEqual(await traverse(a),[b,c,d]);
   });
-
   await check('bloqueios nas duas direcoes atomicos, desbloqueio parcial e replay fora de ordem',async()=>{
     const first=(await http(a)).body;
     const ab=command('block-ab',a,b,true);
@@ -258,6 +264,98 @@ try {
     assert.equal(second.status,200);
     assert.equal(second.body.items[0].peerUid,c);
   });
+  await check('fronteira do checkpoint recusa escritor legado concorrente e certifica toda a fonte',async()=>{
+    await env.clearFirestore();
+    const low='qa-aaa';
+    ageByUid.set(low,grant(40));
+    const roomAB='chats/'+id(a,b), messageAB=roomAB+'/messages/initial';
+    const lateId=id(low,a), lateRoom='chats/'+lateId, lateMessage=lateRoom+'/messages/contact';
+    const quota='users/'+a+'/chatLimits/requests';
+    const retained=blockPath(c,b);
+    const seed=db.batch();
+    seed.set(db.doc('app_config/conversations'),{
+      enabled:true,minorPolicyApproved:true,safetyReviewVersion:'2026-11-safety-v1',version:'2026-11-v1'
+    });
+    for(const uid of [a,b,c,low])seed.set(db.doc(agePath(uid)),ageByUid.get(uid));
+    seed.set(db.doc('users/'+low+'/chatSettings/privacy'),{requests:'all'});
+    seed.set(db.doc(roomAB),{
+      ...chat(a,b),initialId:'initial',lastMessageId:'initial',unreadRequester:0,unreadRecipient:1
+    });
+    seed.set(db.doc(messageAB),{uid:a,kind:'text',text:'Fixture QA',createdAt:Timestamp.fromMillis(now)});
+    seed.set(db.doc('chats/'+id(a,c)),chat(a,c));
+    seed.set(db.doc(retained),{createdAt:Timestamp.fromMillis(now)});
+    await seed.commit();
+    const actor=env.authenticatedContext(a,{email_verified:true}).firestore();
+    const recipient=env.authenticatedContext(b,{email_verified:true}).firestore();
+    const other=env.authenticatedContext(c,{email_verified:true}).firestore();
+    const adminClaim=env.authenticatedContext(a,{email_verified:true,admin:true}).firestore();
+    const firstContact=()=>{
+      const batch=writeBatch(actor);
+      const text='Contato fictício no checkpoint';
+      batch.set(doc(actor,lateRoom),{
+        participants:[a,low],requesterUid:a,recipientUid:low,status:'pending',initialId:'contact',
+        lastMessageId:'contact',lastPreview:text,lastSenderUid:a,createdAt:serverTimestamp(),
+        updatedAt:serverTimestamp(),unreadRequester:0,unreadRecipient:1
+      });
+      batch.set(doc(actor,lateMessage),{uid:a,kind:'text',text,createdAt:serverTimestamp()});
+      batch.set(doc(actor,quota),{
+        count:1,windowStart:serverTimestamp(),updatedAt:serverTimestamp(),lastChatId:lateId
+      });
+      return batch.commit();
+    };
+    // The exact legacy transaction is accepted with the same flags and data
+    // before installing the boundary. Reset this fixture before the cut.
+    await firstContact();
+    assert.equal((await db.doc(lateRoom).get()).exists,true);
+    const reset=db.batch();
+    for(const path of [lateRoom,lateMessage,quota])reset.delete(db.doc(path));
+    await reset.commit();
+    const start=await beginInboxBackfill(db,'concurrent-writer-cut');
+    const boundary=db.doc(INBOX_WRITE_BOUNDARY);
+    assert.deepEqual((await boundary.get()).data(),{
+      policy:INBOX_WRITE_POLICY,epoch:start.boundaryEpoch
+    });
+    const checkpoint=await advanceInboxMaintenance(db,start.id,{limit:1});
+    assert.equal(checkpoint.after,id(a,b));
+    assert.ok(lateId<checkpoint.after);
+    assert.deepEqual(await http(a),{status:503,body:{error:'inbox_unavailable'}});
+    const [next]=await Promise.all([
+      advanceInboxMaintenance(db,start.id,{limit:1}),
+      assertFails(firstContact()),
+      assertFails(updateDoc(doc(recipient,roomAB),{unreadRecipient:0})),
+      assertFails(updateDoc(doc(actor,messageAB),{reactions:{[a]:'🙏'}})),
+      assertFails(setDoc(doc(actor,blockPath(a,b)),{createdAt:serverTimestamp()})),
+      assertFails(deleteDoc(doc(other,retained))),
+      assertFails(updateDoc(doc(adminClaim,agePath(a)),{minimumAge:21})),
+      assertFails(deleteDoc(doc(adminClaim,INBOX_WRITE_BOUNDARY)))
+    ]);
+    assert.equal(next.chatsScanned,2);
+    for(const path of [lateRoom,lateMessage,quota,blockPath(a,b)])
+      assert.equal((await db.doc(path).get()).exists,false);
+    assert.equal((await db.doc(retained).get()).exists,true);
+    assert.equal((await db.doc(roomAB).get()).get('unreadRecipient'),1);
+    assert.equal((await db.doc(messageAB).get()).get('reactions'),undefined);
+    assert.equal((await db.doc(agePath(a)).get()).get('minimumAge'),18);
+
+    // Losing the generation mid-load cannot certify the old checkpoint.
+    await boundary.update({epoch:'wrong-epoch'});
+    await assert.rejects(advanceInboxMaintenance(db,start.id),/inbox_write_boundary_invalid/);
+    assert.deepEqual(await beginInboxBackfill(db,start.id),next);
+    await boundary.update({epoch:start.boundaryEpoch});
+    const finished=await finish(start.id,1);
+    assert.equal(finished.chatsScanned,2);
+    assert.deepEqual(await readRows(),expectedRows([[a,b],[a,c]]));
+    assert.deepEqual(await traverse(a),[b,c]);
+    // The write boundary survives certification and a new read can never
+    // use the client's global list in this composition.
+    await assertFails(firstContact());
+    await assertFails(getDocsFromServer(query(collection(actor,'chats'),
+      where('participants','array-contains',a),limit(20))));
+    await assertFails(deleteDoc(doc(actor,roomAB)));
+    await assertFails(deleteDoc(doc(actor,messageAB)));
+    await assertFails(deleteDoc(doc(adminClaim,agePath(a))));
+  });
+
   console.log('AUTHORIZED INBOX MAINTENANCE TESTS:',count,'OK');
 } finally {
   await Promise.all([env.cleanup(),db.terminate()]);

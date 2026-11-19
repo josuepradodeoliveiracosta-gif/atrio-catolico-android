@@ -3,9 +3,10 @@
  * quando todos os escritores da fonte respeitam o controle de manutenção.
  * Não monta rotas, gatilhos ou credenciais.
  */
-import {createHash} from 'node:crypto';
+import {createHash,randomUUID} from 'node:crypto';
 import {
   INBOX_AGE_COLLECTIONS,INBOX_DISCOVERY_CONTROL,INBOX_DISCOVERY_SCHEMA,
+  INBOX_WRITE_BOUNDARY,INBOX_WRITE_POLICY,inboxBoundaryEpoch,
   existingPeerInboxViews,inboxAgeGrant,inboxAgePath,inboxBlockPath,
   inboxProjectionReady,preparePeerInbox,readPeerInboxAuthorization,
   writeInboxDiscoveryEntry
@@ -51,6 +52,7 @@ export async function beginInboxEligibilityChange(db,{
 
 async function beginMaintenance(db,id,kind,change=null) {
   const control=controlRef(db);
+  const boundary=db.doc(INBOX_WRITE_BOUNDARY);
   const receipt=receiptRef(db,id);
   const source=change ? db.doc(inboxAgePath(change.uid)) : null;
   const version=source ? versionRef(db,source.path) : null;
@@ -58,15 +60,20 @@ async function beginMaintenance(db,id,kind,change=null) {
     kind,change?.uid,change?.parsed?.pair,change?.parsed?.expiresAtMs,change?.expectedVersion
   ]);
   return db.runTransaction(async tx=>{
-    const [state,prior]=await tx.getAll(control,receipt);
+    const [state,prior,fence]=await tx.getAll(control,receipt,boundary);
     if(prior.exists)return checkReplay(prior.data(),key);
-    if(state.data()?.job)throw Error('inbox_maintenance_active');
+    const legacyJob=kind==='bootstrap'&&state.data()?.schema===2&&!fence.exists;
+    if(state.data()?.job&&!legacyJob)throw Error('inbox_maintenance_active');
+    const epoch=inboxBoundaryEpoch(fence.data());
+    if(fence.exists&&!epoch)throw Error('inbox_write_boundary_invalid');
     if(source) {
-      if(!inboxProjectionReady(state.data()))throw Error('inbox_not_certified');
+      if(!inboxProjectionReady(state.data(),fence.data()))throw Error('inbox_not_certified');
       expectVersion(await tx.get(version),change.expectedVersion);
     }
+    const boundaryEpoch=epoch??randomUUID();
     const job={
       id,kind,uid:change?.uid??null,phase:'chats',after:null,done:false,
+      boundaryEpoch,
       cutAtMs:state.readTime.toMillis(),chatsScanned:0,rowsScanned:0
     };
     // O mesmo commit que muda a fonte torna a descoberta indisponível.
@@ -75,6 +82,7 @@ async function beginMaintenance(db,id,kind,change=null) {
       else tx.set(source,change.grant);
       tx.set(version,{operationId:id});
     }
+    if(!fence.exists)tx.create(boundary,{policy:INBOX_WRITE_POLICY,epoch:boundaryEpoch});
     tx.set(control,{...state.data(),schema:INBOX_DISCOVERY_SCHEMA,ready:false,job});
     tx.create(receipt,{fingerprint:key,result:job});
     return job;
@@ -101,12 +109,15 @@ export async function advanceInboxMaintenance(db,id,{limit=20}={}) {
   const control=controlRef(db);
   const receipt=receiptRef(db,id);
   return db.runTransaction(async tx=>{
-    const [state,operation]=await tx.getAll(control,receipt);
+    const [state,operation,fence]=await tx.getAll(control,receipt,db.doc(INBOX_WRITE_BOUNDARY));
     const previous=operation.data()?.result;
     if(previous?.done)return previous;
     const job=state.data()?.job;
-    if(job?.id!==id||!previous||state.data().ready!==false)
+    if(job?.id!==id||!previous||state.data().ready!==false||
+       state.data().schema!==INBOX_DISCOVERY_SCHEMA)
       throw Error('inbox_maintenance_missing');
+    if(!job.boundaryEpoch||inboxBoundaryEpoch(fence.data())!==job.boundaryEpoch)
+      throw Error('inbox_write_boundary_invalid');
     const fromChats=job.phase==='chats';
     let query=fromChats ? db.collection('chats') : db.collectionGroup(job.phase);
     if(fromChats&&job.uid)query=query.where('participants','array-contains',job.uid);
@@ -134,7 +145,7 @@ export async function advanceInboxMaintenance(db,id,{limit=20}={}) {
     }
     const updated={...state.data(),ready:next.done,job:next.done ? null : next};
     if(next.done&&job.kind==='bootstrap')
-      updated.certificate={operationId:id,cutAtMs:job.cutAtMs};
+      updated.certificate={operationId:id,cutAtMs:job.cutAtMs,boundaryEpoch:job.boundaryEpoch};
     tx.set(control,updated);
     tx.update(receipt,{result:next});
     return next;
@@ -156,9 +167,10 @@ export async function writeInboxBlock(db,{
   const version=versionRef(db,path);
   const key=JSON.stringify(['block',path,blocked,blocked?createdAt.toMillis():null,expectedVersion]);
   return db.runTransaction(async tx=>{
-    const [state,prior,currentVersion]=await tx.getAll(controlRef(db),receipt,version);
+    const [state,prior,currentVersion,fence]=await tx.getAll(
+      controlRef(db),receipt,version,db.doc(INBOX_WRITE_BOUNDARY));
     if(prior.exists)return checkReplay(prior.data(),key);
-    if(!inboxProjectionReady(state.data()))throw Error('inbox_not_certified');
+    if(!inboxProjectionReady(state.data(),fence.data()))throw Error('inbox_not_certified');
     expectVersion(currentVersion,expectedVersion);
     const chats=await tx.getAll(
       db.doc('chats/'+ownerUid+'__'+peerUid),db.doc('chats/'+peerUid+'__'+ownerUid)
