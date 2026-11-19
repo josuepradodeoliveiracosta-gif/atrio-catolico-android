@@ -20,10 +20,12 @@ on:
       - 'tests/security/atrio-inbox-peer-authorization.test.mjs'
       - 'tests/security/atrio-inbox-discovery-server.test.mjs'
       - 'tests/security/atrio-inbox-maintenance.test.mjs'
+      - 'tests/security/atrio-inbox-block-http.test.mjs'
       - 'firebase/atrio-conversas-v1.rules.fragment'
       - 'firebase/qa-general/chat-inbox-peer-index.mjs'
       - 'firebase/qa-general/chat-inbox-discovery-server.mjs'
       - 'firebase/qa-general/chat-inbox-maintenance.mjs'
+      - 'firebase/qa-general/chat-inbox-block-http.mjs'
       - 'firebase/qa-general/compose-parity-rules.mjs'
       - 'firebase/qa-general/compose-parity-rules.test.mjs'
       - 'firebase/atrio-grupos-v1.rules.fragment'
@@ -79,8 +81,8 @@ jobs:
           node ../../firebase/qa-general/compose-parity-rules.mjs
       - name: Validar regras com as contas fictícias do QA Geral Celular
         run: |
-          ./node_modules/.bin/firebase emulators:exec --only firestore \
-            --project demo-atrio-v11 'node qa-geral-integrado.test.mjs && node --test qa-geral-celular-pilot.test.mjs && node atrio-grupos.test.mjs && node atrio-conversas.test.mjs && node atrio-inbox-peer-authorization.test.mjs && node atrio-inbox-discovery-server.test.mjs && node atrio-inbox-maintenance.test.mjs'
+          ./node_modules/.bin/firebase emulators:exec --only firestore,auth \
+            --project demo-atrio-v11 'node qa-geral-integrado.test.mjs && node --test qa-geral-celular-pilot.test.mjs && node atrio-grupos.test.mjs && node atrio-conversas.test.mjs && node atrio-inbox-peer-authorization.test.mjs && node atrio-inbox-discovery-server.test.mjs && node atrio-inbox-maintenance.test.mjs && node atrio-inbox-block-http.test.mjs'
 
   android-ui:
     name: Testar telas do Átrio — ${{ matrix.suite_group }}

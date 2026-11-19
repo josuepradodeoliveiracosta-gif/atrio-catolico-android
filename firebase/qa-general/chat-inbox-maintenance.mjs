@@ -16,7 +16,7 @@ const ID=/^[A-Za-z0-9_-]{1,128}$/;
 const phases=['chats',...Object.values(INBOX_AGE_COLLECTIONS)];
 const controlRef=db=>db.doc(INBOX_DISCOVERY_CONTROL);
 const receiptRef=(db,id)=>db.doc('serverInboxJobs/'+id);
-const versionRef=(db,path)=>db.doc('serverInboxMutationVersions/'+
+export const inboxMutationVersionRef=(db,path)=>db.doc('serverInboxMutationVersions/'+
   createHash('sha256').update(path).digest('hex'));
 
 function assertId(id) {
@@ -55,7 +55,7 @@ async function beginMaintenance(db,id,kind,change=null) {
   const boundary=db.doc(INBOX_WRITE_BOUNDARY);
   const receipt=receiptRef(db,id);
   const source=change ? db.doc(inboxAgePath(change.uid)) : null;
-  const version=source ? versionRef(db,source.path) : null;
+  const version=source ? inboxMutationVersionRef(db,source.path) : null;
   const key=JSON.stringify([
     kind,change?.uid,change?.parsed?.pair,change?.parsed?.expiresAtMs,change?.expectedVersion
   ]);
@@ -152,6 +152,22 @@ export async function advanceInboxMaintenance(db,id,{limit=20}={}) {
   });
 }
 
+/** Prepara apenas leituras; o chamador fornece autorização e confirma o commit. */
+export async function prepareInboxBlockMutation(db,tx,{ownerUid,peerUid,blocked,createdAt}) {
+  const path=inboxBlockPath(ownerUid,peerUid);
+  const ids=new Set([ownerUid+'__'+peerUid,peerUid+'__'+ownerUid]);
+  const chats=await tx.getAll(...Array.from(ids,id=>db.doc('chats/'+id)));
+  const views=chats.map(existingPeerInboxViews).filter(list=>
+    list.some(v=>v.data.ownerUid===ownerUid&&v.data.peerUid===peerUid));
+  const plans=await Promise.all(views.map(list=>
+    preparePeerInbox(db,tx,list,{path,blocked})));
+  return ()=>{
+    if(blocked)tx.set(db.doc(path),{createdAt});
+    else tx.delete(db.doc(path));
+    for(const apply of plans)apply();
+  };
+}
+
 /** Bloqueio e ambas as projeções compartilham o commit de origem. */
 export async function writeInboxBlock(db,{
   operationId,ownerUid,peerUid,blocked,createdAt=null,expectedVersion=null
@@ -164,7 +180,7 @@ export async function writeInboxBlock(db,{
     throw Error('inbox_invalid_block');
   const path=inboxBlockPath(ownerUid,peerUid);
   const receipt=receiptRef(db,operationId);
-  const version=versionRef(db,path);
+  const version=inboxMutationVersionRef(db,path);
   const key=JSON.stringify(['block',path,blocked,blocked?createdAt.toMillis():null,expectedVersion]);
   return db.runTransaction(async tx=>{
     const [state,prior,currentVersion,fence]=await tx.getAll(
@@ -172,16 +188,8 @@ export async function writeInboxBlock(db,{
     if(prior.exists)return checkReplay(prior.data(),key);
     if(!inboxProjectionReady(state.data(),fence.data()))throw Error('inbox_not_certified');
     expectVersion(currentVersion,expectedVersion);
-    const chats=await tx.getAll(
-      db.doc('chats/'+ownerUid+'__'+peerUid),db.doc('chats/'+peerUid+'__'+ownerUid)
-    );
-    const views=chats.map(existingPeerInboxViews).filter(list=>
-      list.some(v=>v.data.ownerUid===ownerUid&&v.data.peerUid===peerUid));
-    const plans=await Promise.all(views.map(list=>
-      preparePeerInbox(db,tx,list,{path,blocked})));
-    if(blocked)tx.set(db.doc(path),{createdAt});
-    else tx.delete(db.doc(path));
-    for(const apply of plans)apply();
+    const apply=await prepareInboxBlockMutation(db,tx,{ownerUid,peerUid,blocked,createdAt});
+    apply();
     const result={id:operationId,done:true};
     tx.set(version,{operationId});
     tx.create(receipt,{fingerprint:key,result});
