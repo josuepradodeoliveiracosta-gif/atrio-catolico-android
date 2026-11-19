@@ -77,8 +77,8 @@ internal class AtrioInboxBlockHttp(
                 }
                 val status = call.responseCode
                 val body = when (status) {
-                    200 -> readBlockJson(call.inputStream)
-                    409 -> readBlockJson(call.errorStream)
+                    200 -> readInboxJson(call.inputStream)
+                    409 -> readInboxJson(call.errorStream)
                     else -> null
                 }
                 Response(status, call.getHeaderField("ETag"), body)
@@ -106,7 +106,7 @@ internal class AtrioInboxBlockHttp(
     }
 }
 
-private fun readBlockJson(stream: InputStream?): JSONObject? = stream?.bufferedReader(Charsets.UTF_8)?.use { body ->
+internal fun readInboxJson(stream: InputStream?): JSONObject? = stream?.bufferedReader(Charsets.UTF_8)?.use { body ->
     val buffer = CharArray(1024)
     val json = StringBuilder()
     while (true) {

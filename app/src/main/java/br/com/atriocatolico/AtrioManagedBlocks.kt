@@ -113,21 +113,25 @@ internal class AtrioManagedBlocks(
 internal fun rememberAtrioManagedBlocks(
     auth: FirebaseAuth, user: FirebaseUser, db: FirebaseFirestore
 ): AtrioManagedBlocks? = remember(auth, user, db) {
-    if (!BuildConfig.ATRIO_QA_INBOX_DISCOVERY || BuildConfig.ATRIO_QA_GERAL_REMOTE ||
-        db.app.options.projectId != "demo-atrio-v11" ||
-        db.firestoreSettings.host != "127.0.0.1:8089" || db.firestoreSettings.isSslEnabled
-    ) null else {
-        val service = AtrioInboxBlockHttp(token = {
-            if (auth.currentUser !== user) null
-            else suspendCancellableCoroutine { continuation ->
-                user.getIdToken(false).addOnCompleteListener { task ->
-                    if (continuation.isActive) continuation.resume(
-                        if (auth.currentUser === user && task.isSuccessful) task.result?.token else null
-                    )
-                }
-            }
-        })
+    if (!isAtrioManagedInboxQa(db)) null else {
+        val service = AtrioInboxBlockHttp(token = { atrioQaInboxToken(auth, user) })
         AtrioManagedBlocks({ auth.currentUser === user }, service)
+    }
+}
+
+internal fun isAtrioManagedInboxQa(db: FirebaseFirestore): Boolean =
+    BuildConfig.ATRIO_QA_INBOX_DISCOVERY && !BuildConfig.ATRIO_QA_GERAL_REMOTE &&
+        db.app.options.projectId == "demo-atrio-v11" &&
+        db.firestoreSettings.host == "127.0.0.1:8089" && !db.firestoreSettings.isSslEnabled
+
+internal suspend fun atrioQaInboxToken(auth: FirebaseAuth, user: FirebaseUser): String? {
+    if (auth.currentUser !== user) return null
+    return suspendCancellableCoroutine { continuation ->
+        user.getIdToken(false).addOnCompleteListener { task ->
+            if (continuation.isActive) continuation.resume(
+                if (auth.currentUser === user && task.isSuccessful) task.result?.token else null
+            )
+        }
     }
 }
 

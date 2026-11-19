@@ -83,6 +83,29 @@ A resposta de escrita inclui `{"committed":true,"replayed":false,"requestedBlock
 
 Em QA, essas rotas são montadas por um teste HTTP em loopback com Auth e Firestore Emulator. A política de retenção dos recibos, rate limiting, a montagem Android e o host remoto seguem pendentes. As demais escritas de conversa seguem na próxima etapa.
 
+### Rotas de primeiro contato e envio de texto em QA
+
+Ambas aceitam apenas `POST`, com `Authorization: Bearer <Firebase ID token QA>`, `Content-Type: application/json` e `Idempotency-Key` estável por intenção. As chaves aceitam 16–128 caracteres ASCII alfanuméricos, hífen ou sublinhado. Recomenda-se UUID. O corpo tem limite de 20 KiB. O titular vem do token. UID de autor, query, campos extras e texto inválido são recusados.
+
+API, prévia e consumidor usam o limite de **1.500 unidades UTF-16** após remover espaços das extremidades do texto. A contagem corresponde a `String.length` no Android. Um caractere do BMP, como `á`, ocupa uma unidade. Um caractere suplementar, como `🙂`, ocupa duas. Assim, 1.500 repetições de `á` ou 750 repetições de `🙂` cabem no limite. Acima de 1.500 unidades, ambas as rotas devolvem **HTTP 400 `invalid_request`** antes da transação, sem alterar mensagem, prévia, quota ou recibo. Preserve o rascunho para edição antes de tentar novamente.
+
+| Rota | Corpo | Condição adicional |
+| --- | --- | --- |
+| `/v1/qa/conversations/requests/{peerUid}` | `{"text":"Paz e bem!"}` | Par distinto, solicitações permitidas pelo destinatário, texto sem links HTTP/www e até cinco novos contatos por janela de 24h. Cria uma conversa `pending`, inclusive com a primeira mensagem e a quota no mesmo commit. |
+| `/v1/qa/conversations/chats/{chatId}/messages` | `{"text":"Paz e bem!"}` ou `{"text":"Paz e bem!","replyToId":"id"}` | Ator é participante, conversa `accepted` e citação pertence ao mesmo chat. O próximo envio consecutivo pelo mesmo autor respeita a janela de três segundos, conforme a regra legada após a primeira mensagem aceita. |
+
+O servidor verifica revogação, e-mail, configuração e elegibilidade 18+ vigente. Confirma a elegibilidade do par e lê os dois bloqueios na mesma transação que a escrita, inclusive ao repetir um recibo. **HTTP 200** devolve `{"committed":true,"replayed":false,"chatId":"…","messageId":"…"}` após o commit. Origem, mensagem, quota quando aplicável, projeções por titular e recibo são atômicos. O envio atualiza prévia e contador do destinatário (máximo 99). Repetir método, rota, corpo e chave após timeout ou 503 confirma a mesma operação, sem mensagem ou quota duplicadas, se o acesso continuar autorizado. Respostas usam `Cache-Control: private, no-store`.
+
+- **400** `invalid_request` ou `invalid_reply`. Corrija a solicitação. **405** para método distinto.
+- **403** `conversation_unavailable` genérico para Auth ou autorização negada, inclusive bloqueio. A UI não atribui a recusa a um sentido de bloqueio nem confirma o envio.
+- **409** `message_operation_conflict` para chave reaproveitada com intenção diferente, `conversation_exists` quando já há contato, ou `conversation_not_accepted` para envio sem aceite. Atualize o estado da conversa antes de nova intenção.
+- **429** `contact_quota_exceeded` ou `message_rate_limited`. Mantenha o texto e respeite o prazo informado (o segundo código envia `Retry-After: 3`).
+- **503** `conversation_unavailable` durante manutenção/falha de armazenamento ou `inbox_closed` quando o handler está fechado. A escrita segue pendente até confirmação com 200.
+
+**Paginação após a escrita.** Um novo contato autorizado entra nas duas projeções, altera a revisão de ambos os titulares e invalida cursores anteriores com 409 `inbox_restart_required`. Reinicie da primeira página. O envio em conversa já aceita atualiza a prévia sem mudar a ordem (prazo de elegibilidade e ID continuam os mesmos). Um cursor válido continua utilizável. Para atualizar uma prévia já exibida, atualize a lista a partir da primeira página. Uma escrita recusada não altera o índice.
+
+O teste monta as rotas em loopback com Firebase Auth e Firestore Emulator. Decisão de aceite/recusa, cartões do mural, reações, lidas e edição/remoção ficam fora deste primeiro contrato. Host e piloto remotos permanecem fechados.
+
 **Cache/reconexão:** Firestore ainda pode guardar dados prévios em cache local. Chat 3 deverá limpar projeções de UI no bloqueio/troca de conta, suspender exibição em modo offline de dados sensíveis e exigir atualização do servidor. Uma consulta concluída antes da confirmação do bloqueio pode ter entregue dados anteriormente.
 
 **Custos por página.** Uma consulta indexada por política aceita (uma por padrão, até duas) retorna no máximo 21 linhas por política. Uma transação de snapshot consulta cinco documentos de controle/fronteira/elegibilidade/configuração/revisão e lê no máximo 21 chats e 63 provas de elegibilidade/bloqueio, deduplicadas por par. No caminho padrão, página de 20 com lookahead usa até 21 linhas de índice e 89 leituras pontuais solicitadas. O número de linhas examinadas pela aplicação e de documentos relidos independe do volume de conversas ocultas. Contagem de chamadas no Emulator não mede cobrança, latência de rede ou execução do índice hospedado. A carga varre cada chat e cada entrada privada por política em lotes. Uma alteração de elegibilidade relê os chats do participante afetado. Antes de ativar, auditar a duração da janela 503, amplificação de escritas, latência, rate limiting, erros observáveis e a exposição da ordem de validade.

@@ -6,9 +6,11 @@ import assert from 'node:assert/strict';
 import {createHash, randomBytes} from 'node:crypto';
 import {createServer} from 'node:http';
 import {Readable} from 'node:stream';
+import {setTimeout as delay} from 'node:timers/promises';
 import {Firestore, Timestamp} from '@google-cloud/firestore';
 import {initializeApp} from 'firebase-admin/app';
 import {getAuth} from 'firebase-admin/auth';
+import {createInboxMessageHttpHandler} from '../../firebase/qa-general/chat-inbox-message-http.mjs';
 import {createInboxBlockHttpHandler} from '../../firebase/qa-general/chat-inbox-block-http.mjs';
 import {
   createAdminInboxStore, createAuthorizedInboxService, createInboxHttpHandler
@@ -16,6 +18,7 @@ import {
 import {
   advanceInboxMaintenance, beginInboxBackfill, writeInboxBlock
 } from '../../firebase/qa-general/chat-inbox-maintenance.mjs';
+import {INBOX_TEXT_MAX_UTF16_UNITS} from '../../firebase/qa-general/chat-inbox-peer-index.mjs';
 
 const project = 'demo-atrio-v11';
 const host = '127.0.0.1';
@@ -55,6 +58,8 @@ async function seedUser(name) {
 }
 
 const [clara, miguel, lucia] = await Promise.all(['clara', 'miguel', 'lucia'].map(seedUser));
+const contactPeer = 'qa-inbox-message-contact';
+const acceptedPeer = 'qa-inbox-peer-02';
 const now = Date.now();
 const expiresAt = Timestamp.fromMillis(now + 86_400_000);
 const seedAge = (batch, uid, reviewExpiresAt) => batch.set(
@@ -67,6 +72,9 @@ batch.set(db.doc('app_config/conversations'), {
   version: '2026-11-v1'
 });
 for (const uid of [clara, miguel, lucia]) seedAge(batch, uid, expiresAt);
+seedAge(batch, contactPeer, expiresAt);
+batch.set(db.doc('public_profiles/' + contactPeer), {uid: contactPeer, displayName: 'Contato QA'});
+batch.set(db.doc('users/' + contactPeer + '/chatSettings/privacy'), {requests: 'all'});
 for (let index = 1; index <= 43; index++) {
   const suffix = String(index).padStart(2, '0');
   const peer = 'qa-inbox-peer-' + suffix;
@@ -76,8 +84,14 @@ for (let index = 1; index <= 43; index++) {
   batch.set(db.doc('chats/' + chatId), {
     participants: [clara, peer], requesterUid: clara, recipientUid: peer,
     status: 'accepted', lastPreview: 'Prévia QA ' + suffix, lastSenderUid: clara,
-    unreadRequester: 0, unreadRecipient: 0, updatedAt: Timestamp.fromMillis(now + index)
+    unreadRequester: 0, unreadRecipient: 0, updatedAt: Timestamp.fromMillis(now + index),
+    initialId: 'qa-initial', lastMessageId: 'qa-initial'
   });
+  if (peer === acceptedPeer) {
+    batch.set(db.doc('chats/' + chatId + '/messages/qa-initial'), {
+      uid: peer, text: 'Mensagem inicial de QA', kind: 'text', createdAt: Timestamp.fromMillis(now)
+    });
+  }
 }
 await batch.commit();
 const bootstrap = 'qa-android-inbox-bootstrap';
@@ -93,7 +107,7 @@ const service = createAuthorizedInboxService({
   store: {
     async authorizedPage(uid, after, ...args) {
       if (uid === lucia) throw new Error('Indisponibilidade simulada para a conta fictícia.');
-      if (uid === clara && after) {
+      if (uid === clara && after && process.env.ATRIO_QA_INBOX_MESSAGE_ONLY !== '1') {
         // Bloqueio originado pelo par: o listener local de Clara não reinicia
         // a UI antes que o servidor responda 409 ao cursor desatualizado.
         revisionChange ??= writeInboxBlock(db, {
@@ -172,6 +186,85 @@ async function dispatchBlock(request) {
   return result;
 }
 
+const handleMessage = createInboxMessageHttpHandler({db, verifyIdToken, enabled: true});
+const contactChat = [clara, contactPeer].sort().join('__');
+const acceptedChat = [clara, acceptedPeer].sort().join('__');
+const contactPath = '/v1/qa/conversations/requests/' + contactPeer;
+const acceptedPath = '/v1/qa/conversations/chats/' + acceptedChat + '/messages';
+let pendingContact;
+let slowSend;
+
+async function dispatchMessage(request) {
+  const pathname = new URL(request.url).pathname;
+  if (![contactPath, acceptedPath].includes(pathname) || request.method !== 'POST')
+    return handleMessage(request);
+
+  const token = request.headers.get('authorization')?.match(/^Bearer (.+)$/)?.[1];
+  const actor = await verifyIdToken(token ?? '', true).catch(() => null);
+  const key = request.headers.get('idempotency-key');
+  if (actor?.uid !== clara || !key) return handleMessage(request);
+  const operation = {key, body: await request.clone().text(), pathname};
+  const receiptId = createHash('sha256').update(JSON.stringify([clara, key])).digest('hex');
+  const receipt = db.doc('serverInboxMessageRequests/' + receiptId);
+  const room = db.doc('chats/' + (pathname === contactPath ? contactChat : acceptedChat));
+  const quota = db.doc('users/' + clara + '/chatLimits/requests');
+
+  if (JSON.parse(operation.body).text.length > INBOX_TEXT_MAX_UTF16_UNITS) {
+    const before = (await db.getAll(room, receipt, quota)).map(snapshot => snapshot.data());
+    const response = await handleMessage(request);
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.clone().json(), {error: 'invalid_request'});
+    const after = (await db.getAll(room, receipt, quota)).map(snapshot => snapshot.data());
+    assert.deepEqual(after, before);
+    console.log('QA MESSAGE 400: limite UTF-16 recusado sem alteração persistida.');
+    return response;
+  }
+
+  if (pathname === contactPath && !pendingContact) {
+    await beginInboxBackfill(db, 'qa-message-maintenance');
+    const response = await handleMessage(request);
+    assert.equal(response.status, 503);
+    assert.deepEqual((await db.getAll(room, receipt, quota)).map(s => s.exists), [false, false, false]);
+    pendingContact = {operation, tested: false};
+    console.log('QA MESSAGE 503: sem conversa, quota ou recibo durante manutenção.');
+    return response;
+  }
+  if (pathname === contactPath && !pendingContact.tested) {
+    assert.deepEqual(operation, pendingContact.operation);
+    while (!(await advanceInboxMaintenance(db, 'qa-message-maintenance')).done) {
+      // Reabre somente após a certificação do backend.
+    }
+    pendingContact.tested = true;
+  }
+
+  const response = await handleMessage(request);
+  if (response.status !== 200) return response;
+  const result = await response.clone().json();
+  assert.equal(result.committed, true);
+  assert.equal(result.chatId, room.id);
+  const [chatSnapshot, messageSnapshot, receiptSnapshot] =
+    await db.getAll(room, room.collection('messages').doc(result.messageId), receipt);
+  assert.ok(chatSnapshot.exists && messageSnapshot.exists && receiptSnapshot.exists);
+  assert.equal(messageSnapshot.get('text'), JSON.parse(operation.body).text);
+  if (pathname === contactPath) {
+    assert.equal((await quota.get()).get('count'), 1);
+    console.log('QA MESSAGE 200: primeiro contato confirmou a intenção e gravou quota uma vez.');
+  } else if (!slowSend) {
+    assert.equal(result.replayed, false);
+    slowSend = {operation, messageId: result.messageId};
+    console.log('QA MESSAGE: commit de envio confirmado no Firestore; resposta retida para timeout local.');
+    await delay(6_000);
+  } else if (key === slowSend.operation.key) {
+    assert.deepEqual(operation, slowSend.operation);
+    assert.equal(result.messageId, slowSend.messageId);
+    assert.equal(result.replayed, true);
+    const sent = await room.collection('messages').where('uid', '==', clara).get();
+    assert.equal(sent.size, 1);
+    console.log('QA MESSAGE 200: retry pós-timeout preservou intenção e messageId; uma gravação.');
+  }
+  return response;
+}
+
 createServer(async (request, response) => {
   try {
     const options = {method: request.method, headers: request.headers};
@@ -180,8 +273,9 @@ createServer(async (request, response) => {
       options.duplex = 'half';
     }
     const incoming = new Request('http://' + host + ':8091' + request.url, options);
-    const result = new URL(incoming.url).pathname.startsWith('/v1/qa/conversations/blocks/')
-      ? await dispatchBlock(incoming) : await handleInbox(incoming);
+    const path = new URL(incoming.url).pathname;
+    const result = path.startsWith('/v1/qa/conversations/blocks/') ? await dispatchBlock(incoming)
+      : incoming.method === 'POST' ? await dispatchMessage(incoming) : await handleInbox(incoming);
     if (incoming.method === 'GET' && new URL(incoming.url).searchParams.has('cursor') &&
         result.status === 409) console.log('Inbox QA local: HTTP 409 na continuação.');
     response.writeHead(result.status, Object.fromEntries(result.headers));
@@ -191,4 +285,4 @@ createServer(async (request, response) => {
     response.writeHead(500, {'Cache-Control': 'private, no-store'});
     response.end();
   }
-}).listen(8091, host, () => console.log('Inbox QA local pronta: descoberta e bloqueio autenticado.'));
+}).listen(8091, host, () => console.log('Inbox QA local pronta: descoberta, bloqueio e mensagens autenticadas.'));

@@ -206,6 +206,16 @@ if [[ "$inbox_focal" == 1 ]]; then
     managed_block_suite=AtrioManagedBlockUiTest
     run_suite "$managed_block_suite"
   fi
+  if [[ "$qa_failed" == 0 ]]; then
+    authenticated_message_suite=AtrioInboxMessageEmulatorUiTest
+    run_suite "$authenticated_message_suite"
+    if [[ "$qa_failed" == 0 ]]; then
+      test "$(grep -Fc 'QA MESSAGE 400: limite UTF-16 recusado' qa-inbox-discovery-emulator.log)" -eq 4
+      grep -F 'QA MESSAGE 503: sem conversa, quota ou recibo' qa-inbox-discovery-emulator.log
+      grep -F 'QA MESSAGE 200: primeiro contato confirmou' qa-inbox-discovery-emulator.log
+      grep -F 'QA MESSAGE 200: retry pós-timeout preservou' qa-inbox-discovery-emulator.log
+    fi
+  fi
   exit "$qa_failed"
 fi
 if [[ "${ATRIO_QA_GERAL_CELULAR_PILOT:-}" == 1 ]]; then
