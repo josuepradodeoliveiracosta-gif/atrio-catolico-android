@@ -4,25 +4,28 @@
  * O cliente nunca consulta /chats via Rules: essa listagem continua negada.
  */
 import {createCipheriv,createDecipheriv,randomBytes} from 'node:crypto';
-import {peerInboxEntries,reconcilePeerInbox} from './chat-inbox-peer-index.mjs';
+import {
+  INBOX_AGE_COLLECTIONS,INBOX_DISCOVERY_CONTROL,INBOX_DISCOVERY_SCHEMA,LEGACY_INBOX_AGE_PAIR,
+  inboxAgeGrant,inboxDiscoveryCollection,peerInboxEntries,readInboxDiscoveryEntries,
+  reconcilePeerInbox,syncInboxDiscoveryEntries
+} from './chat-inbox-peer-index.mjs';
 
 const UID=/^[A-Za-z0-9_-]{1,128}$/;
 const CHAT=/^[A-Za-z0-9_-]{1,260}$/;
-const LEGACY_PAIR='eligible|2026-11-18plus-qa-v1';
-const MAX_SCAN=40; // tamanho do lote interno, NUNCA fonte de cursor público
-const MAX_SCAN_BUDGET=160; // teto de custo por requisição; falha fechado
 const MAX_LIMIT=20;
 const TTL_MS=10*60*1000;
-const deny=()=>{throw Error('inbox_access_denied');};
+class InboxAccessDenied extends Error {
+  constructor() {super('inbox_access_denied');}
+}
+const deny=()=>{throw new InboxAccessDenied();};
+class InboxUnavailable extends Error {
+  constructor() {super('inbox_unavailable');}
+}
 const has=(s)=>s && typeof s.exists==='function' ? s.exists() : !!s?.exists;
-const ms=v=>v && typeof v.toMillis==='function' ? v.toMillis() : NaN;
 
-export function validInboxAge(data,acceptedPairs=[LEGACY_PAIR],now=Date.now()) {
-  if(!data || typeof data!=='object' || Array.isArray(data) ||
-     Object.keys(data).sort().join('|')!=='minimumAge|policyVersion|reviewExpiresAt|status' ||
-     data.minimumAge!==18 || !Number.isFinite(ms(data.reviewExpiresAt)) ||
-     ms(data.reviewExpiresAt)<=now) return false;
-  return acceptedPairs.includes(data.status+'|'+data.policyVersion);
+export function validInboxAge(data,acceptedPairs=[LEGACY_INBOX_AGE_PAIR],now=Date.now()) {
+  const grant=inboxAgeGrant(data);
+  return grant!==null && acceptedPairs.includes(grant.pair) && grant.expiresAtMs>now;
 }
 function configValid(c) {
   return c?.enabled===true && c?.minorPolicyApproved===true &&
@@ -30,10 +33,10 @@ function configValid(c) {
     c?.version==='2026-11-v1';
 }
 function keyValid(k) {return Buffer.isBuffer(k) && k.length===32;}
-function seal(key,uid,id,now) {
+function seal(key,uid,{chatId,expiresAtMs},now) {
   const nonce=randomBytes(12);
   const cipher=createCipheriv('aes-256-gcm',key,nonce);
-  const payload=Buffer.from(JSON.stringify({v:1,uid,id,until:now+TTL_MS}),'utf8');
+  const payload=Buffer.from(JSON.stringify({v:2,uid,chatId,expiresAtMs,until:now+TTL_MS}),'utf8');
   const bytes=Buffer.concat([cipher.update(payload),cipher.final()]);
   return Buffer.concat([nonce,cipher.getAuthTag(),bytes]).toString('base64url');
 }
@@ -42,15 +45,17 @@ function unseal(key,uid,opaque,now) {
      !/^[A-Za-z0-9_-]+$/.test(opaque))deny();
   try{
     const raw=Buffer.from(opaque,'base64url');
+    if(raw.toString('base64url')!==opaque)deny();
     const decipher=createDecipheriv('aes-256-gcm',key,raw.subarray(0,12));
     decipher.setAuthTag(raw.subarray(12,28));
     const obj=JSON.parse(Buffer.concat([
       decipher.update(raw.subarray(28)),decipher.final()
     ]).toString('utf8'));
-    if(obj.v!==1 || obj.uid!==uid || !CHAT.test(obj.id||'') ||
+    if(obj.v!==2 || obj.uid!==uid || !CHAT.test(obj.chatId||'') ||
+       !Number.isFinite(obj.expiresAtMs) ||
        !Number.isSafeInteger(obj.until) || obj.until<=now ||
        obj.until>now+TTL_MS)deny();
-    return obj.id;
+    return {chatId:obj.chatId,expiresAtMs:obj.expiresAtMs};
   }catch{deny();}
 }
 function normalizeChat(uid,chatId,data) {
@@ -62,63 +67,84 @@ function normalizeChat(uid,chatId,data) {
     const peer=own.data.peerUid;
     const fields={
       chatId,peerUid:peer,status:data.status,lastPreview:data.lastPreview,
-      updatedAtMs:ms(data.updatedAt),
+      updatedAtMs:data.updatedAt.toMillis(),
       unreadCount: uid===data.requesterUid ? data.unreadRequester : data.unreadRecipient,
       lastSenderUid:data.lastSenderUid
     };
-    if(!Number.isFinite(fields.updatedAtMs))return null;
     if(!Number.isInteger(fields.unreadCount)||fields.unreadCount<0)fields.unreadCount=0;
     if(typeof fields.lastSenderUid!=='string')fields.lastSenderUid='';
     return fields;
   }catch{return null;}
 }
 
+function comparePosition(a,b) {
+  if(a.expiresAtMs!==b.expiresAtMs)return a.expiresAtMs-b.expiresAtMs;
+  if(a.chatId<b.chatId)return -1;
+  return a.chatId===b.chatId?0:1;
+}
+
 /**
- * Adapter para Admin SDK: nao usa bibliotecas de cliente nem caminhos de producao.
- * Todas as provas de bloqueio, idade e estado da conversa ocorrem em transacao
- * de leitura, independentemente da materializacao e do cache.
+ * A projeção privada deve refletir a autorização atual. O escritor confiável
+ * fecha a descoberta durante o backfill ou quando a atualização não é atômica.
+ * Revalide os itens da página e a continuação no mesmo snapshot do servidor.
  */
 export function createAdminInboxStore(db) {
   if(!db || typeof db.doc!=='function' || typeof db.collection!=='function' ||
      typeof db.runTransaction!=='function')throw Error('inbox_admin_required');
   const ref=path=>db.doc(path);
+  const ageRef=uid=>ref('users/'+uid+'/chatAgeEligibility/current');
   return {
-    async viewerGate(uid,now,acceptedPairs) {
-      const [cfg,age]=await Promise.all([
-        ref('app_config/conversations').get(),
-        ref('users/'+uid+'/chatAgeEligibility/current').get()
-      ]);
-      return has(cfg)&&has(age)&&configValid(cfg.data())&&
-        validInboxAge(age.data(),acceptedPairs,now);
-    },
-    async candidateIds(uid,after,limitCount) {
-      let q=db.collection('chats').where('participants','array-contains',uid)
-        .orderBy('__name__').limit(limitCount);
-      if(after)q=q.startAfter(after);
-      const docs=await q.get();
-      return docs.docs.map(x=>x.id);
-    },
-    async permittedChat(uid,chatId,now,acceptedPairs) {
+    async authorizedPage(uid,after,limit,requestedAt,acceptedPairs) {
       return db.runTransaction(async tx=>{
-        const chatSnap=await tx.get(ref('chats/'+chatId));
-        if(!has(chatSnap))return null;
-        const item=normalizeChat(uid,chatId,chatSnap.data());
-        if(!item)return null;
-        const peer=item.peerUid;
-        const refs=[
-          ref('app_config/conversations'),
-          ref('users/'+uid+'/chatAgeEligibility/current'),
-          ref('users/'+peer+'/chatAgeEligibility/current'),
-          ref('users/'+uid+'/blockedMembers/'+peer),
-          ref('users/'+peer+'/blockedMembers/'+uid)
-        ];
-        const [cfg,a,b,blockedA,blockedB]=await Promise.all(refs.map(x=>tx.get(x)));
-        if(!has(cfg)||!configValid(cfg.data())||
-           !has(a)||!validInboxAge(a.data(),acceptedPairs,now)||
-           !has(b)||!validInboxAge(b.data(),acceptedPairs,now)||
-           has(blockedA)||has(blockedB))return null;
-        return item;
-      });
+        const [cfg,viewer,control]=await tx.getAll(
+          ref('app_config/conversations'),ageRef(uid),ref(INBOX_DISCOVERY_CONTROL)
+        );
+        const now=Math.max(requestedAt,cfg.readTime.toMillis());
+        if(!configValid(cfg.data())||!validInboxAge(viewer.data(),acceptedPairs,now))deny();
+        if(control.data()?.ready!==true||control.data()?.schema!==INBOX_DISCOVERY_SCHEMA)
+          throw new InboxUnavailable();
+
+        const pages=await Promise.all(acceptedPairs.map(async pair=>{
+          let query=db.collection(inboxDiscoveryCollection(uid,pair))
+            .where('peerExpiresAtMs','>',now)
+            .orderBy('peerExpiresAtMs').orderBy('__name__').limit(limit+1);
+          // O filtro de validade já exclui a posição de uma âncora vencida.
+          if(after?.expiresAtMs>now)query=query.startAfter(after.expiresAtMs,after.chatId);
+          const snapshot=await tx.get(query);
+          return snapshot.docs.map(doc=>({
+            chatId:doc.id,expiresAtMs:doc.data().peerExpiresAtMs,pair
+          }));
+        }));
+        const indexed=pages.flat();
+        if(indexed.length===0)return [];
+        if(indexed.some(row=>!CHAT.test(row.chatId)||!Number.isFinite(row.expiresAtMs))||
+           new Set(indexed.map(row=>row.chatId)).size!==indexed.length)
+          throw new InboxUnavailable();
+        const page=indexed.sort(comparePosition).slice(0,limit+1);
+
+        const chats=await tx.getAll(...page.map(row=>ref('chats/'+row.chatId)));
+        const items=chats.map((chat,i)=>normalizeChat(uid,page[i].chatId,chat.data()));
+        if(items.some(item=>item===null))throw new InboxUnavailable();
+
+        // Reutilize as mesmas provas quando a página contém mais de um chat do par.
+        const paths=new Set();
+        for(const {peerUid:peer} of items){
+          paths.add(ageRef(peer).path);
+          paths.add('users/'+uid+'/blockedMembers/'+peer);
+          paths.add('users/'+peer+'/blockedMembers/'+uid);
+        }
+        const proofs=await tx.getAll(...Array.from(paths,ref));
+        const byPath=new Map(proofs.map(proof=>[proof.ref.path,proof]));
+        return items.map((item,i)=>{
+          const peer=item.peerUid;
+          const grant=inboxAgeGrant(byPath.get(ageRef(peer).path).data());
+          if(grant?.pair!==page[i].pair || grant.expiresAtMs!==page[i].expiresAtMs ||
+             has(byPath.get('users/'+uid+'/blockedMembers/'+peer)) ||
+             has(byPath.get('users/'+peer+'/blockedMembers/'+uid)))
+            throw new InboxUnavailable();
+          return {item,expiresAtMs:page[i].expiresAtMs};
+        });
+      },{readOnly:true});
     }
   };
 }
@@ -130,63 +156,33 @@ export function createAdminInboxStore(db) {
  */
 export function createAuthorizedInboxService({
   verifyIdToken,store,cursorKey,clock=()=>Date.now(),
-  acceptedPairs=[LEGACY_PAIR]
+  acceptedPairs=[LEGACY_INBOX_AGE_PAIR]
 }) {
   if(typeof verifyIdToken!=='function' || !store ||
-     typeof store.viewerGate!=='function' ||
-     typeof store.candidateIds!=='function' ||
-     typeof store.permittedChat!=='function' ||
+     typeof store.authorizedPage!=='function' ||
      !keyValid(cursorKey))throw Error('inbox_service_not_configured');
   if(!Array.isArray(acceptedPairs)||!acceptedPairs.length||
-     acceptedPairs.some(p=>p!==LEGACY_PAIR &&
-       p!=='declared_18_plus|2026-11-selfdecl-qa-v1'))
+     acceptedPairs.some(pair=>typeof pair!=='string'||!Object.hasOwn(INBOX_AGE_COLLECTIONS,pair)))
     throw Error('inbox_invalid_eligibility_config');
+  const policyPairs=[...new Set(acceptedPairs)];
   return {
     async list({idToken,limit=MAX_LIMIT,cursor=null}={}) {
       if(typeof idToken!=='string'||idToken.length<1||idToken.length>8192)deny();
       if(!Number.isInteger(limit)||limit<1||limit>MAX_LIMIT)deny();
       const claims=await verifyIdToken(idToken,true).catch(deny);
       const uid=claims?.uid;
-      if(!UID.test(uid||'')||claims.email_verified!==true)deny();
+      if(typeof uid!=='string'||!UID.test(uid)||claims.email_verified!==true)deny();
       const now=clock();
-      if(!Number.isFinite(now)||
-         !await store.viewerGate(uid,now,acceptedPairs))deny();
-      // A paginação pública só considera contatos efetivamente AUTORIZADOS.
-      // Nunca criar cursor pelo número de candidatos privados/ocultos:
-      // 39, 40 e 41 bloqueados devem produzir a mesma resposta vazia.
-      let scanAfter=cursor===null?null:unseal(cursorKey,uid,cursor,now);
-      let lastVisible=null, nextVisible=false, scanned=0;
-      const items=[];
-      while(scanned<MAX_SCAN_BUDGET && !nextVisible){
-        const requested=Math.min(MAX_SCAN,MAX_SCAN_BUDGET-scanned);
-        const candidates=await store.candidateIds(uid,scanAfter,requested);
-        if(!Array.isArray(candidates)||candidates.length>requested)deny();
-        for(const id of candidates){
-          if(!CHAT.test(id||'') || (scanAfter!==null && id<=scanAfter))
-            deny();
-          scanAfter=id;
-          scanned++;
-          const item=await store.permittedChat(uid,id,now,acceptedPairs);
-          if(item){
-            if(items.length<limit){
-              items.push(item);
-              lastVisible=id;
-            }else{
-              // Lookahead AUTORIZADO: candidatos ocultos não geram cursor,
-              // mesmo que o lote tenha atingido exatamente 40 documentos.
-              nextVisible=true;
-              break;
-            }
-          }
-        }
-        if(candidates.length<requested)break;
-      }
-      // Se o teto interno acabar, o cursor NÃO denuncia que existam
-      // outros documentos: sem prova de próximo autorizado, não há cursor.
+      if(!Number.isSafeInteger(now))deny();
+      const after=cursor===null?null:unseal(cursorKey,uid,cursor,now);
+      const rows=await store.authorizedPage(uid,after,limit,now,policyPairs);
+      const items=rows.slice(0,limit).map(row=>row.item);
+      const last=rows[limit-1];
       return {
         items,
-        nextCursor:nextVisible&&lastVisible
-          ? seal(cursorKey,uid,lastVisible,now) : null
+        nextCursor:rows.length>limit
+          ? seal(cursorKey,uid,{chatId:last.item.chatId,expiresAtMs:last.expiresAtMs},now)
+          : null
       };
     }
   };
@@ -220,7 +216,13 @@ export async function syncBlockedPair(adminDb,a,b) {
         ];
         // Eventos frequentes nao devem gerar escritas cobradas em
         // documentos inexistentes. Todas as leituras precedem os deletes.
-        const snaps=await Promise.all(refs.map(ref=>tx.get(ref)));
+        const [snaps,discoveryA,discoveryB]=await Promise.all([
+          Promise.all(refs.map(ref=>tx.get(ref))),
+          readInboxDiscoveryEntries(adminDb,tx,a,id),
+          readInboxDiscoveryEntries(adminDb,tx,b,id)
+        ]);
+        syncInboxDiscoveryEntries(tx,discoveryA);
+        syncInboxDiscoveryEntries(tx,discoveryB);
         let count=0;
         for(let i=0;i<refs.length;i++){
           if(has(snaps[i])){tx.delete(refs[i]);count++;}
@@ -234,8 +236,10 @@ export async function syncBlockedPair(adminDb,a,b) {
 export async function backfillInboxBatch(adminDb,ownerUid,{after=null,limit=20}={}) {
   if(!UID.test(ownerUid||'')||!Number.isInteger(limit)||limit<1||
      limit>40||(after!==null&&!CHAT.test(after)))deny();
-  const store=createAdminInboxStore(adminDb);
-  const ids=await store.candidateIds(ownerUid,after,limit);
+  let query=adminDb.collection('chats').where('participants','array-contains',ownerUid)
+    .orderBy('__name__').limit(limit);
+  if(after)query=query.startAfter(after);
+  const ids=(await query.get()).docs.map(doc=>doc.id);
   for(const id of ids)await reconcilePeerInbox(adminDb,id);
   return {processed:ids.length,nextAfter:ids.length===limit?ids.at(-1):null};
 }
@@ -273,7 +277,10 @@ export function createInboxHttpHandler(service,{enabled=false}={}) {
         cursor:url.searchParams.get('cursor')
       });
       return response(200,result);
-    }catch{return response(403,{error:'forbidden'});}
+    }catch(error){
+      if(error instanceof InboxAccessDenied)return response(403,{error:'forbidden'});
+      return response(503,{error:'inbox_unavailable'});
+    }
   };
 }
 
@@ -302,7 +309,12 @@ export async function applyTrustedInboxEvent(adminDb,event) {
       if(has(await tx.get(adminDb.doc('chats/'+event.chatId))))
         return {deleted:0,staleEvent:true};
       const refs=views.map(view=>adminDb.doc(view.path));
-      const snaps=await Promise.all(refs.map(ref=>tx.get(ref)));
+      const [snaps,discovery]=await Promise.all([
+        Promise.all(refs.map(ref=>tx.get(ref))),
+        Promise.all(views.map(view=>
+          readInboxDiscoveryEntries(adminDb,tx,view.data.ownerUid,event.chatId)))
+      ]);
+      for(const entries of discovery)syncInboxDiscoveryEntries(tx,entries);
       let deleted=0;
       for(let i=0;i<refs.length;i++){
         if(has(snaps[i])){tx.delete(refs[i]);deleted++;}
