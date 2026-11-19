@@ -87,6 +87,7 @@ try{
       'token-stranger':{uid:'inbox-stranger',email_verified:true},
       'token-pagination':{uid:'inbox-pagination-owner',email_verified:true}
     };
+    const sharedCursorKey=randomBytes(32);
     const service=createAuthorizedInboxService({
       verifyIdToken:async(token,revoked)=>{
         assert.equal(revoked,true,'obrigatorio validar revogacao');
@@ -94,7 +95,7 @@ try{
         return verified[token];
       },
       store:createAdminInboxStore(admin),
-      cursorKey:randomBytes(32)
+      cursorKey:sharedCursorKey
     });
     const list=(token=tokens.alice,args={})=>
       service.list({idToken:token,...args});
@@ -319,6 +320,28 @@ try{
     await assert.rejects(list(pageToken,{cursor:first.nextCursor+'x'}),
       /inbox_access_denied/);
   });
+  await check('P0 paginacao: cursor em sessao renovada revalida bloqueio',async()=>{
+    const page=await list(pageToken,{limit:1});
+    assert.ok(page.nextCursor);
+    await setDoc(doc(db,'users/'+allowedPeer(1)+'/blockedMembers/'+pageOwner),
+      {createdAt:Timestamp.now()});
+    assert.deepEqual(await list(pageToken,{limit:1,cursor:page.nextCursor}),
+      {items:[],nextCursor:null});
+    await deleteDoc(doc(db,'users/'+allowedPeer(1)+'/blockedMembers/'+pageOwner));
+    const fresh=createAuthorizedInboxService({
+      verifyIdToken:async(token,revoked)=>{
+        assert.equal(revoked,true);
+        if(token!==pageToken)throw Error('invalid');
+        return {uid:pageOwner,email_verified:true};
+      },
+      store:createAdminInboxStore(admin),
+      cursorKey:sharedCursorKey
+    });
+    const restored=await fresh.list({
+      idToken:pageToken,limit:1,cursor:page.nextCursor
+    });
+    assert.deepEqual(restored.items.map(v=>v.peerUid),[allowedPeer(1)]);
+  });
   await check('P0 paginacao: HTTP para 41 ocultos nao entrega cursor nem contagem',async()=>{
     // Ocultar os dois autorizados e comparar com retorno de 39 ocultos.
     for(let i=0;i<2;i++)await setDoc(
@@ -333,6 +356,15 @@ try{
     assert.equal(response.status,200);
     assert.deepEqual(await response.json(),hidden39);
     assert.match(response.headers.get('cache-control'),/no-store/);
+  });
+  await check('P0 paginacao: contato visivel antes dos 41 ocultos nao gera cursor',async()=>{
+    const visible='aaa-visible-before-hidden';
+    await setDoc(doc(db,'users/'+visible+'/chatAgeEligibility/current'),ageDoc());
+    await setDoc(doc(db,'chats/'+pageChatId(visible)),
+      chatData(pageOwner,visible,'Contato visivel antes dos bloqueados'));
+    const one=await list(pageToken,{limit:1});
+    assert.deepEqual(one.items.map(x=>x.peerUid),[visible]);
+    assert.equal(one.nextCursor,null);
   });
   });
   console.log('AUTHORIZED INBOX DISCOVERY TESTS:',checks,'OK');
