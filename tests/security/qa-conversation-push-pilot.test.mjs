@@ -31,8 +31,10 @@ const secret=JSON.stringify({
   client_email:'fixture@'+pilot.projectId+'.iam.gserviceaccount.com',
   private_key:privateKey.export({type:'pkcs8',format:'pem'}),
 });
-const sender=pilot.senderUid;
-const recipient=pilot.recipientUid;
+const reverse=process.env.ATRIO_383_REVERSE==='1';
+const sender=reverse ? pilot.recipientUid : pilot.senderUid;
+const recipient=reverse ? pilot.senderUid : pilot.recipientUid;
+const unreadCounter=reverse ? 'unreadRequester' : 'unreadRecipient';
 const room='chats/'+pilot.conversationId;
 const event=room+'/messages/'+pilot.messageId;
 const pending='users/'+recipient+'/chatPushPending/current';
@@ -45,16 +47,34 @@ const wrongProject='atrio-catolico-qa-geral';
 const sha=value=>createHash('sha256').update(value).digest('hex');
 console.log('qa_push_pilot_rules_sha256='+sha(rules)+' worker_sha256='+sha(workerSource));
 
-function fakeToken(project) {
+function fakeToken(project, uid=sender) {
   const b64=value=>Buffer.from(JSON.stringify(value)).toString('base64url');
   return b64({alg:'RS256'})+'.'+
-    b64({aud:project,iss:'https://securetoken.google.com/'+project})+'.fixture-signature';
+    b64({aud:project,iss:'https://securetoken.google.com/'+project,sub:uid})+'.fixture-signature';
 }
 function request(project=pilot.projectId) {
   return new Request('https://qa.invalid/event',{
     method:'POST',headers:{Authorization:'Bearer '+fakeToken(project)},
     body:JSON.stringify({type:'chat_message',chatId:pilot.conversationId,messageId:pilot.messageId}),
   });
+}
+
+function requestNotice(project=pilot.projectId, uid=recipient, suffix='') {
+  return new Request('https://qa.invalid/notice'+suffix,{
+    headers:{Authorization:'Bearer '+fakeToken(project,uid)},
+  });
+}
+
+async function assertNotice(fixture, expected=200) {
+  const before=fixture.stats();
+  const notice=await worker.fetch(requestNotice(),fixture.env);
+  assert.equal(notice.status,expected);
+  assert.equal(notice.headers.get('Cache-Control'),'no-store');
+  assert.deepEqual(await notice.json(),expected===200 ? {
+    conversationId:pilot.conversationId,messageId:pilot.messageId,senderUid:sender,
+  } : {status:expected===401 ? 'unauthorized' : 'no_notice'});
+  assert.equal(fixture.stats().reserved,before.reserved);
+  assert.equal(fixture.stats().sent,before.sent);
 }
 
 function useExternalFixtures(t,{changeAuth=()=>{},afterReservation=async()=>{}}={}) {
@@ -93,14 +113,16 @@ function useExternalFixtures(t,{changeAuth=()=>{},afterReservation=async()=>{}}=
     }
     if (url.origin==='https://identitytoolkit.googleapis.com'
         && url.pathname==='/v1/accounts:lookup') {
-      assert.equal(JSON.parse(init.body).idToken,fakeToken(pilot.projectId));
-      return Response.json({users:[accounts[sender]]});
+      const idToken=JSON.parse(init.body).idToken;
+      const uid=[sender,recipient].find(candidate=>fakeToken(pilot.projectId,candidate)===idToken);
+      return uid ? Response.json({users:[accounts[uid]]}) : new Response(null,{status:401});
     }
     if (url.origin==='https://identitytoolkit.googleapis.com'
         && url.pathname===('/v1/projects/'+pilot.projectId+'/accounts:lookup')) {
       assert.equal(headers.get('Authorization'),'Bearer fixture-access-token');
-      assert.deepEqual(JSON.parse(init.body),{localId:[sender,recipient]});
-      return Response.json({users:[accounts[sender],accounts[recipient]].filter(Boolean)});
+      const {localId}=JSON.parse(init.body);
+      assert.deepEqual(localId,[sender,recipient]);
+      return Response.json({users:localId.map(uid=>accounts[uid]).filter(Boolean)});
     }
     if (url.origin==='https://fcm.googleapis.com'
         && url.pathname===('/v1/projects/'+pilot.projectId+'/messages:send')) {
@@ -130,7 +152,7 @@ function useExternalFixtures(t,{changeAuth=()=>{},afterReservation=async()=>{}}=
     ATRIO_QA_AGE_POLICY:pilot.ageMode,PUSH_ENABLED:'true',
     FIREBASE_WEB_API_KEY:'fixture',FIREBASE_SERVICE_ACCOUNT_JSON:secret,PUSH_DB:database,
   };
-  return {env, network, stats:()=>({reserved,sent,reads,cloudCalls})};
+  return {env, network, accounts, stats:()=>({reserved,sent,reads,cloudCalls})};
 }
 
 test('mesmos documentos para Rules e Worker de Conversas do piloto DM #199',async t=>{
@@ -144,6 +166,13 @@ test('mesmos documentos para Rules e Worker de Conversas do piloto DM #199',asyn
   async function seed(change=()=>{}) {
     await env.clearFirestore();
     const rows=new Map(conversationPushPilotDocuments());
+    if (reverse) {
+      rows.set(room,{...rows.get(room),lastSenderUid:sender,unreadRequester:1,unreadRecipient:0});
+      rows.set(event,{...rows.get(event),uid:sender});
+      const originalPending='users/'+pilot.recipientUid+'/chatPushPending/current';
+      rows.set(pending,{...rows.get(originalPending),senderUid:sender});
+      rows.delete(originalPending);
+    }
     rows.set('users/'+recipient+'/pushDevices/fixture',{
       token:'fixture-device-token-for-recipient',updatedAt:new Date(),
     });
@@ -179,7 +208,7 @@ test('mesmos documentos para Rules e Worker de Conversas do piloto DM #199',asyn
     ['aviso marcado como lido',alter(pending,{unread:false}),false],
     ['aviso com conteúdo estranho ao contrato',alter(pending,{body:'conteúdo fictício'}),false],
     ['aviso pertence a outro tipo',alter(pending,{kind:'group_message'}),false],
-    ['contador canônico zerado',alter(room,{unreadRecipient:0}),false],
+    ['contador canônico zerado',alter(room,{[unreadCounter]:0}),false],
     ['última mensagem divergente',alter(room,{lastMessageId:'outra'}),false],
     ['mensagem removida',alter(event,{deletedForAll:true}),false],
     ['participantes divergentes',alter(room,{participants:[sender,'outro']}),false],
@@ -190,16 +219,16 @@ test('mesmos documentos para Rules e Worker de Conversas do piloto DM #199',asyn
   ]) {
     await t.test(name,async sub=>{
       await seed(change);
-      const read=getDocFromServer(doc(session(),pending));
-      if (allowed) assert.equal((await read).exists(),true);
-      else await assertFails(read);
+      await assertFails(getDocFromServer(doc(session(),pending)));
       const fixture=useExternalFixtures(sub);
+      await assertNotice(fixture,allowed ? 200 : 404);
+      const before=fixture.stats().cloudCalls;
       const response=await worker.fetch(request(),fixture.env);
       assert.equal(response.status,202);
       const counts=fixture.stats();
       assert.equal(counts.reserved,Number(allowed),JSON.stringify(counts));
       assert.equal(counts.sent,Number(allowed),JSON.stringify(counts));
-      assert.ok(counts.cloudCalls<=50);
+      assert.ok(counts.cloudCalls-before<=50);
     });
   }
 
@@ -213,8 +242,9 @@ test('mesmos documentos para Rules e Worker de Conversas do piloto DM #199',asyn
         expiresAt:new Date(Date.now()+60_000),
       });
     });
-    assert.equal((await getDocFromServer(doc(owner,pending))).exists(),true);
+    await assertFails(getDocFromServer(doc(owner,pending)));
     const fixture=useExternalFixtures(sub);
+    await assertNotice(fixture);
     assert.equal((await worker.fetch(request(),fixture.env)).status,202);
     assert.equal(fixture.stats().reserved,1);
     assert.equal(fixture.stats().sent,1);
@@ -226,6 +256,9 @@ test('mesmos documentos para Rules e Worker de Conversas do piloto DM #199',asyn
     const response=await worker.fetch(request(),fixture.env);
     assert.equal(response.status,503);
     assert.equal((await response.json()).status,'disabled');
+    const notice=await worker.fetch(requestNotice(),fixture.env);
+    assert.equal(notice.status,503);
+    assert.equal((await notice.json()).status,'disabled');
     assert.deepEqual(fixture.stats(),{reserved:0,sent:0,reads:0,cloudCalls:0});
   });
 
@@ -253,15 +286,41 @@ test('mesmos documentos para Rules e Worker de Conversas do piloto DM #199',asyn
     assert.deepEqual(fixture.stats(),{reserved:0,sent:0,reads:0,cloudCalls:1});
   });
 
-  await t.test('e-mail do destinatário precisa continuar verificado',async sub=>{
+  for (const [label,uid] of [['autor',sender],['destinatário',recipient]]) {
+    for (const [change,patch] of [
+      ['mudança de e-mail',{email:'changed@qa.invalid'}],
+      ['perda de verificação',{emailVerified:false}],
+      ['desativação',{disabled:true}],
+    ]) {
+      await t.test(label+' — '+change+' com sessão anterior e admissão vigente',async sub=>{
+        await seed();
+        const fixture=useExternalFixtures(sub);
+        await assertNotice(fixture);
+        Object.assign(fixture.accounts[uid],patch);
+        await assertFails(getDocFromServer(doc(session(),pending)));
+        await assertNotice(fixture,uid===recipient ? 401 : 404);
+        assert.equal((await worker.fetch(request(),fixture.env)).status,uid===sender ? 401 : 202);
+        assert.equal(fixture.stats().reserved,0);
+        assert.equal(fixture.stats().sent,0);
+      });
+    }
+  }
+
+  await t.test('aviso privado do titular; mensagem manual independe da admissão push',async sub=>{
     await seed();
-    await assertFails(getDocFromServer(doc(session(recipient,{email_verified:false}),pending)));
-    const fixture=useExternalFixtures(sub,{changeAuth(accounts){
-      accounts[recipient].emailVerified=false;
-    }});
-    assert.equal((await worker.fetch(request(),fixture.env)).status,202);
-    assert.equal(fixture.stats().reserved,0);
-    assert.equal(fixture.stats().sent,0);
+    const fixture=useExternalFixtures(sub);
+    assert.equal((await worker.fetch(requestNotice(pilot.projectId,sender),fixture.env)).status,404);
+    assert.equal((await worker.fetch(requestNotice(wrongProject),fixture.env)).status,401);
+    assert.equal((await worker.fetch(requestNotice(pilot.projectId,recipient,'?uid='+sender),
+      fixture.env)).status,404);
+    await env.withSecurityRulesDisabled(async context=>{
+      await deleteDoc(doc(context.firestore(),admission(recipient)));
+    });
+    await assertNotice(fixture,404);
+    for (const uid of [sender,recipient]) {
+      const message=await getDocFromServer(doc(session(uid),event));
+      assert.equal(message.get('text'),'Mensagem fictícia do teste 08–09');
+    }
   });
 
   await t.test('revogação na reserva D1 barra a primeira tentativa',async sub=>{

@@ -16,7 +16,6 @@ import com.google.android.gms.tasks.Tasks
 import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
-import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Source
 import kotlinx.coroutines.CoroutineScope
@@ -26,6 +25,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONException
+import org.json.JSONObject
+import java.io.IOException
+import java.net.HttpURLConnection
+import java.net.Proxy
+import java.net.URL
 import java.util.UUID
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
@@ -48,6 +53,7 @@ internal object QaConversationNotices {
     private const val TAP = "br.com.atriocatolico.qa.CONVERSATION_OPEN"
     private const val TICKET = "qaNoticeTicket"
     private const val NOTICE_ID = 701
+    private const val LAB_NOTICE_URL = "http://127.0.0.1:8092/notice"
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private data class Session(val user: FirebaseUser, val generation: Long)
@@ -120,7 +126,7 @@ internal object QaConversationNotices {
     private fun current(session: Session) =
         session.generation == generation && auth?.currentUser === session.user
 
-    private suspend fun await(task: Task<DocumentSnapshot>): DocumentSnapshot? =
+    private suspend fun <T> await(task: Task<T>): T? =
         try {
             withContext(Dispatchers.IO) { Tasks.await(task, 3, TimeUnit.SECONDS) }
         } catch (_: ExecutionException) {
@@ -129,21 +135,39 @@ internal object QaConversationNotices {
             null
         }
 
+    private suspend fun pending(token: String): JSONObject? = withContext(Dispatchers.IO) {
+        val connection = URL(LAB_NOTICE_URL).openConnection(Proxy.NO_PROXY) as HttpURLConnection
+        try {
+            connection.instanceFollowRedirects = false
+            connection.useCaches = false
+            connection.connectTimeout = 2_000
+            connection.readTimeout = 2_000
+            connection.setRequestProperty("Authorization", "Bearer $token")
+            if (connection.responseCode != HttpURLConnection.HTTP_OK) return@withContext null
+            JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+        } catch (_: IOException) {
+            null
+        } catch (_: JSONException) {
+            null
+        } finally {
+            connection.disconnect()
+        }
+    }
+
     private suspend fun read(session: Session): Event? {
         if (!current(session)) return null
         val uid = session.user.uid
-        val db = FirebaseFirestore.getInstance()
-        val pending = await(db.document("users/$uid/chatPushPending/current").get(Source.SERVER))
-        if (!current(session) || pending == null || !pending.exists() ||
-            pending.metadata.isFromCache || pending.metadata.hasPendingWrites() ||
-            pending.get("kind") != "chat_message" || pending.get("unread") != true
-        ) return null
-        val chat = pending.get("conversationId") as? String ?: return null
-        val message = pending.get("messageId") as? String ?: return null
-        val sender = pending.get("senderUid") as? String ?: return null
+        val token = await(session.user.getIdToken(false))?.token ?: return null
+        if (!current(session)) return null
+        val pending = pending(token) ?: return null
+        if (!current(session)) return null
+        val chat = pending.opt("conversationId") as? String ?: return null
+        val message = pending.opt("messageId") as? String ?: return null
+        val sender = pending.opt("senderUid") as? String ?: return null
         if (AtrioPeerInboxPolicy.peerFromChatId(uid, chat) != sender ||
             !message.matches(Regex("[A-Za-z0-9_-]{1,128}"))
         ) return null
+        val db = FirebaseFirestore.getInstance()
         val canonical = await(db.document("chats/$chat/messages/$message").get(Source.SERVER))
         if (!current(session) || canonical == null || !canonical.exists() ||
             canonical.metadata.isFromCache || canonical.metadata.hasPendingWrites() ||

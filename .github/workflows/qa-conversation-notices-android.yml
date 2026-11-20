@@ -11,7 +11,9 @@ on:
       - 'app/src/qaGeral/AndroidManifest.notices.xml'
       - 'app/build.gradle.kts'
       - 'scripts/run-qa-android-emulator.sh'
-      - 'tests/security/seed-qa-conversation-notice-android.mjs'
+      - 'tests/security/*qa-conversation-notice-android.mjs'
+      - 'cloudflare/push-worker/scripts/conversation-push-pilot.mjs'
+      - 'tests/security/qa-conversation-push-*.test.mjs'
       - 'firebase/qa-geral-celular/pilot/conversation-push-*.mjs'
 
 permissions:
@@ -55,6 +57,12 @@ jobs:
           cache: npm
           cache-dependency-path: tests/security/package-lock.json
       - run: npm ci --prefix tests/security
+      - name: Conferir autorização nas duas direções
+        working-directory: tests/security
+        run: |
+          node prepare.mjs
+          ./node_modules/.bin/firebase emulators:exec --only firestore --project demo-atrio-v11 \
+            'node --test qa-conversation-push-admission.test.mjs && node --test qa-conversation-push-pilot.test.mjs && ATRIO_383_REVERSE=1 node --test qa-conversation-push-pilot.test.mjs'
       - name: Preparar Android Emulator
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -92,5 +100,6 @@ jobs:
             qa-android-suite-results
             qa-firebase-emulators.log
             qa-android-prebuild.log
+            qa-conversation-notice-worker.log
           retention-days: 7
           if-no-files-found: warn

@@ -22,18 +22,21 @@ Celular. O APK 42 foi assinado com push desligado. Propõe-se `versionCode`
 adotado para atualização do mesmo pacote. Chat 3 e Chat 5 devem confirmar o alvo antes do empacotamento.
 A abertura da rodada depende de autorização específica do fundador.
 
-O Worker de Conversas da #358 fixa `atrio-catolico-qa-geral`. Ele segue
-como referência dos controles de orçamento e revogação. Sua composição
-carece da mesma admissão das Rules do piloto no projeto `qa-general`.
-O manifesto revisável deve fixar projeto, banco, App ID, Ruleset e SHA,
-Worker e SHA, modo etário e identidade da rodada. Proposta de modo
-legado `eligible / 2026-11-18plus-qa-v1`, com validação dos dois lados e
-admissão vigente, sem reaproveitar autorização anterior por ausência de
-registro. Chat 2 deve fechar os negativos de revogação, expiração,
-exclusão/readmissão e bloqueio, incluindo destinatário, antes da reserva
-D1 e antes de cada envio. O ensaio deste patch cobre a lista de contas
-com o relay existente. Ainda falta repetir a matriz com o Worker de
-Conversas, os mesmos documentos e a composição final.
+O Worker de Conversas da #358 fixa `atrio-catolico-qa-geral`. A #383
+ensaiou um candidato separado para `atrio-catolico-qa-general`, banco
+`(default)`, modo `eligible / 2026-11-18plus-qa-v1`. O manifesto
+revisável deve fixar também App ID, Ruleset e SHA, Worker e SHA e rodada.
+
+As Rules do candidato fecham acesso cliente a `chatPushPending` e
+`chatPushAdmission`. O APK de laboratório consulta `GET /notice` no Worker
+por loopback. O Worker obtém o destinatário pelo token Firebase e revalida
+o Auth atual dos dois participantes, a admissão, o 18+, o bloqueio,
+a rodada e o evento. `GET /notice` e o envio compartilham essa verificação.
+A resposta contém apenas identificadores do evento autorizado, com
+`Cache-Control: no-store`. O caminho manual do chat usa as Rules de
+Conversas e continua sujeito à sua própria autorização. A readmissão
+administrativa de uma conta na mesma rodada ainda pode recuperar um aviso
+vigente. A decisão sobre essa política fica com a revisão de segurança.
 
 [Paridade do Chat 2](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/issues/200#issuecomment-7025224643) ·
 [Auditoria do Chat 4](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/pull/358#pullrequestreview-5985117653)
@@ -52,12 +55,11 @@ A permissão de sistema recusada impede o alerta e preserva a leitura
 manual da mesma mensagem. O protótipo modela essa separação e a matriz
 de Rules comprova a leitura da mensagem fictícia com a conta admitida.
 
-Os testes usam callbacks fictícios para exibir e navegar. Falta integrar
-o receptor, o leitor autorizado de pendências, a notificação de sistema e
-a navegação do APK para executar o fluxo em Android. O código-fonte atual da
-`main` aceita os tipos legados do relay de navegação no QA remoto. No
-contrato atual o sinal genérico não ingressa no fluxo de Conversas.
-Os testes JVM documentam o candidato e ficam fora do APK.
+O teste JVM exercita o modelo. A instrumentação do APK local injeta o sinal
+no receptor e usa o mesmo Worker candidato com Auth e Firestore Emulator
+por encaminhamento ADB. O fluxo revalida a pendência no toque antes de navegar.
+O APK de laboratório mantém FCM e Firebase remoto desligados. A versão
+para uma rodada real ainda precisa ser composta e validada com autorização.
 
 | Item | Evidência complementar |
 | --- | --- |
@@ -79,10 +81,13 @@ Em um checkout descartável sem arquivos Google Services, com Gradle
 ATRIO_QA_GERAL_BUILD=1 gradle :app:testQaGeralUnitTest
 ```
 
-No mesmo checkout, inicie o Firestore Emulator local no projeto
-`demo-atrio-v11` e aponte ao endpoint loopback da instância de teste:
+A matriz de admissão e a matriz bilateral do Worker usam o Firestore
+Emulator em loopback e simulam Auth, OAuth, D1 e FCM. Para executá-las:
 
 ```bash
-FIRESTORE_EMULATOR_HOST=127.0.0.1:8089 \
-  node --test tests/security/qa-conversation-push-admission.test.mjs
+cd tests/security
+npm ci
+node prepare.mjs
+./node_modules/.bin/firebase emulators:exec --only firestore --project demo-atrio-v11 \
+  'node --test qa-conversation-push-admission.test.mjs && node --test qa-conversation-push-pilot.test.mjs && ATRIO_383_REVERSE=1 node --test qa-conversation-push-pilot.test.mjs'
 ```

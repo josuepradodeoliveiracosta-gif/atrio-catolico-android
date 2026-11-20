@@ -19,8 +19,6 @@ import androidx.compose.ui.test.performScrollToNode
 import androidx.test.platform.app.InstrumentationRegistry
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.Source
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -34,7 +32,6 @@ abstract class QaConversationNoticeAndroidCase {
     private val instrument = InstrumentationRegistry.getInstrumentation()
     protected val context: Context get() = instrument.targetContext
     private val auth get() = FirebaseAuth.getInstance()
-    private val db get() = FirebaseFirestore.getInstance()
     private val manager get() = context.getSystemService(NotificationManager::class.java)
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
 
@@ -51,9 +48,6 @@ abstract class QaConversationNoticeAndroidCase {
             "bob.navegacao@qa.invalid", "GrupoQa2026!Emulador"), 10, TimeUnit.SECONDS).user
         assertEquals("qa-nav-bob", user?.uid)
         assertEquals(true, user?.isEmailVerified)
-        val pending = Tasks.await(db.document("users/qa-nav-bob/chatPushPending/current")
-            .get(Source.SERVER), 8, TimeUnit.SECONDS)
-        assertEquals("qa-199-mensagem", pending.getString("messageId"))
         compose.waitUntil(30_000) {
             compose.onAllNodes(hasTestTag("atrio-home-feed"), useUnmergedTree = true)
                 .fetchSemanticsNodes().isNotEmpty()

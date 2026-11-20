@@ -39,7 +39,7 @@ async function qaPilotAccountsValid(token, sender, recipient) {
       && (account.localId===sender || account.localId===recipient));
 }
 
-async function qaPilotCanDispatch(token, sender, recipient, event) {
+async function qaPilotAllowsNotice(token, sender, recipient, event) {
   if (!Object.hasOwn(qaPilot.accounts,sender) || !Object.hasOwn(qaPilot.accounts,recipient) ||
       sender===recipient || event.kind!=='chat_message' || !uidPart(event.chatId) ||
       !uidPart(event.messageId)) return false;
@@ -76,12 +76,44 @@ async function qaPilotCanDispatch(token, sender, recipient, event) {
     if (!Array.isArray(participants) || participants.length!==2 ||
         !participants.some(item=>item?.stringValue===sender) ||
         !participants.some(item=>item?.stringValue===recipient)) return false;
-    const counter=stringField(room,'requesterUid')===recipient ? 'unreadRequester' : 'unreadRecipient';
-    const unread=room?.fields?.[counter]?.integerValue;
+    const requester=stringField(room,'requesterUid');
+    const receiver=stringField(room,'recipientUid');
+    const recipientIsRequester=requester===recipient && receiver===sender;
+    if (!recipientIsRequester && !(requester===sender && receiver===recipient)) return false;
+    const unread=room?.fields?.[recipientIsRequester ? 'unreadRequester' : 'unreadRecipient']?.integerValue;
     return typeof unread==='string' && /^[1-9][0-9]*$/.test(unread) &&
       await qaPilotAccountsValid(token,sender,recipient);
   } catch { return false; }
 }
+async function qaConversationNoticeAllowed(token, sender, recipient, event, agePolicy) {
+  return await qaChatPushPreSendAllowed(token,sender,recipient,null,agePolicy)
+    && await qaChatPolicyPreSendAllowed(token,sender,recipient,event)
+    && await qaChatMessagePreSendAllowed(token,sender,event)
+    && await qaPilotAllowsNotice(token,sender,recipient,event);
+}
+
+// O UID vem da sessão autenticada. O cliente não escolhe o aviso nem o destino.
+async function qaReadConversationNotice(request, env, configured) {
+  if (env.PUSH_ENABLED!=='true') return response(503,'disabled');
+  if (!configured) return response(503,'not_configured');
+  try {
+    const recipient=await verifyIdentity(request,env,PROJECT);
+    if (!recipient) return response(401,'unauthorized');
+    const token=await oauth(env,PROJECT);
+    const pending=await firestoreGet(token,'users/'+enc(recipient)+'/chatPushPending/current');
+    const sender=stringField(pending,'senderUid');
+    const event={
+      kind:stringField(pending,'kind'),
+      chatId:stringField(pending,'conversationId'),
+      messageId:stringField(pending,'messageId'),
+    };
+    if (!await qaConversationNoticeAllowed(token,sender,recipient,event,env.ATRIO_QA_AGE_POLICY))
+      return response(404,'no_notice');
+    return Response.json({conversationId:event.chatId,messageId:event.messageId,senderUid:sender},
+      {headers:{'Cache-Control':'no-store'}});
+  } catch { return response(503,'notice_unavailable'); }
+}
+
 `;
 
 export function renderConversationPushPilotWorker(mainWorker) {
@@ -100,10 +132,19 @@ export function renderConversationPushPilotWorker(mainWorker) {
     "if(!qaPilotAccountValid(account)) return null;");
   replace("https://www.googleapis.com/auth/firebase.messaging'",
     "https://www.googleapis.com/auth/firebase.messaging https://www.googleapis.com/auth/identitytoolkit'");
-  // Um GET em lote e um lookup do Auth por rechecagem.
+  replace("(request.method==='POST' && qaPath==='/event')))",
+    "(request.method==='POST' && qaPath==='/event') || " +
+    "(request.method==='GET' && qaPath==='/notice' && !new URL(request.url).search)))");
+  replace("    const path = new URL(request.url).pathname;",
+    "    if (qaPath==='/notice') return qaReadConversationNotice(request,env,configured);\n" +
+    "    const path = new URL(request.url).pathname;");
+  // Um GET em lote e um lookup do Auth adicionais por rechecagem.
   replace("const checksPerPass=event.kind==='group_message' ? 4 : 6;", 'const checksPerPass=8;');
-  replace('await qaChatMessagePreSendAllowed(token,uid,event)\n',
-    'await qaChatMessagePreSendAllowed(token,uid,event) &&\n          await qaPilotCanDispatch(token,uid,recipient,event)\n');
+  replace(`await qaChatPushPreSendAllowed(token,uid,recipient,
+            event.kind==='group_message' ? event.groupId : null,env.ATRIO_QA_AGE_POLICY) &&
+          await qaChatPolicyPreSendAllowed(token,uid,recipient,event) &&
+          await qaChatMessagePreSendAllowed(token,uid,event)
+`, 'await qaConversationNoticeAllowed(token,uid,recipient,event,env.ATRIO_QA_AGE_POLICY)\n');
   replace('token:device, data:{uid,kind,...extras},\n      android:{priority:\'HIGH\',ttl:\'3600s\'},',
     "token:device, data:{signal:'refresh'},\n      android:{priority:'HIGH',ttl:'60s'},");
   return code;

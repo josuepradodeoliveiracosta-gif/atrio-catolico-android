@@ -91,8 +91,10 @@ fi
   --project demo-atrio-v11 > ../../qa-firebase-emulators.log 2>&1 &
 FIREBASE_PID=$!
 inbox_pid=
+notice_pid=
 cleanup() {
   if [[ -n "$inbox_pid" ]]; then kill "$inbox_pid" 2>/dev/null || true; fi
+  if [[ -n "$notice_pid" ]]; then kill "$notice_pid" 2>/dev/null || true; fi
   kill "$FIREBASE_PID" 2>/dev/null || true
 }
 trap cleanup EXIT
@@ -232,6 +234,19 @@ if [[ "$notice_focal" == 1 ]]; then
   # Instalação nova para verificar POST_NOTIFICATIONS negada antes de concedê-la.
   adb uninstall br.com.atriocatolico.qageral >/dev/null 2>&1 || true
   (cd tests/security && node seed-qa-conversation-notice-android.mjs)
+  node tests/security/serve-qa-conversation-notice-android.mjs \
+    > qa-conversation-notice-worker.log 2>&1 &
+  notice_pid=$!
+  for attempt in $(seq 1 20); do
+    if curl -fsS --max-time 1 http://127.0.0.1:8092/ready >/dev/null; then break; fi
+    if ! kill -0 "$notice_pid" 2>/dev/null; then break; fi
+    sleep 1
+  done
+  curl -fsS --max-time 2 http://127.0.0.1:8092/ready >/dev/null || {
+    cat qa-conversation-notice-worker.log
+    exit 1
+  }
+  adb reverse tcp:8092 tcp:8092
   run_suite QaConversationNoticeDeniedAndroidTest
   (cd tests/security && node seed-qa-conversation-notice-android.mjs --firestore-only)
   run_suite QaConversationNoticeGrantedAndroidTest
