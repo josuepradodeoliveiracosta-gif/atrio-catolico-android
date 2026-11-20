@@ -91,6 +91,31 @@ try {
     updatedAt: serverTimestamp()
   }));
 
+
+  // Regressão: titular oculta no privado, mas visitante não pode continuar
+  // vendo o valor antigo no documento público.
+  const incomplete = {...details, visibleFields: ['ageBand'],
+    consentAt: serverTimestamp(), updatedAt: serverTimestamp()};
+  await assertFails(setDoc(doc(owner, v3Path), incomplete));
+  assert.equal((await assertSucceeds(getDoc(doc(visitor, publicPath)))).data().saint,
+    'Santa Teresinha');
+  const staleBatch = writeBatch(owner);
+  staleBatch.set(doc(owner, v3Path), incomplete);
+  staleBatch.set(doc(owner, publicPath), {
+    ...visible, updatedAt: serverTimestamp()
+  });
+  await assertFails(staleBatch.commit());
+  // Também não se pode retirar o valor privado mantendo a publicação antiga.
+  await assertFails(setDoc(doc(owner, v3Path), {
+    ...details, saint: '', visibleFields: ['ageBand'],
+    consentAt: serverTimestamp(), updatedAt: serverTimestamp()
+  }));
+  // Uma publicação parcial não pode omitir campo ainda autorizado no privado.
+  await assertFails(setDoc(doc(owner, publicPath), {
+    displayName: profileData.displayName, bio: '', joinedAt,
+    updatedAt: serverTimestamp(), ageBand: '25–34'
+  }));
+
   const privateUpdate = {
     ...details,
     visibleFields: [],
