@@ -86,6 +86,9 @@ case "$mode" in
     fixture43)
         build_action=build-round-43-fixture
         ;;
+    notice43)
+        build_action=build-round-43-notice-lab
+        ;;
     fixture)
         python3 - > "$sandbox/home/firebase.json" <<'PY'
 import json
@@ -122,7 +125,7 @@ sudo -u "$builder" -- env -i \
         printf "%s\n" "$version"
         printf "%s\n" "$version" | grep -Fxq "Gradle 8.13"
         cd "$1/source"
-        if [[ "$2" != build-round-43-fixture ]]; then
+        if [[ "$2" == build-round-42 ]]; then
             export ATRIO_QA_CELULAR_GOOGLE_SERVICES_JSON="$(cat "$HOME/firebase.json")"
             rm -- "$HOME/firebase.json"
         fi
