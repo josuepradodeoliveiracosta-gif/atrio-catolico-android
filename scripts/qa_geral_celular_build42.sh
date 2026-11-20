@@ -68,6 +68,9 @@ sudo -u "$builder" -- env -i \
     JAVA_HOME="$JAVA_HOME" ANDROID_HOME="$ANDROID_HOME" \
     bash -c '
         set -euo pipefail
+        version="$(gradle --version)"
+        printf "%s\n" "$version"
+        printf "%s\n" "$version" | grep -Fxq "Gradle 8.13"
         cd "$1/source"
         export ATRIO_QA_CELULAR_GOOGLE_SERVICES_JSON="$(cat "$HOME/firebase.json")"
         rm -- "$HOME/firebase.json"
