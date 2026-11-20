@@ -437,6 +437,33 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
+    // Perfil V3: a projeção deve corresponder integralmente ao estado privado
+    // após o mesmo commit. Impede ocultação privada com valor público residual.
+    function v3ProjectionMatches(uid, privateData, publicData) {
+      return
+        (privateData.visibleFields.hasAny(['saint'])
+          ? (publicData.keys().hasAny(['saint'])
+            && publicData.saint == privateData.saint)
+          : !publicData.keys().hasAny(['saint']))
+        && (privateData.visibleFields.hasAny(['saint'])
+            && privateData.devotionPhrase.size() > 0
+          ? (publicData.keys().hasAny(['devotionPhrase'])
+            && publicData.devotionPhrase == privateData.devotionPhrase)
+          : !publicData.keys().hasAny(['devotionPhrase']))
+        && (privateData.visibleFields.hasAny(['ageBand'])
+          ? (publicData.keys().hasAny(['ageBand'])
+            && publicData.ageBand == privateData.ageBand)
+          : !publicData.keys().hasAny(['ageBand']))
+        && (privateData.visibleFields.hasAny(['maritalStatus'])
+          ? (publicData.keys().hasAny(['maritalStatus'])
+            && publicData.maritalStatus == privateData.maritalStatus)
+          : !publicData.keys().hasAny(['maritalStatus']))
+        && (privateData.publicInterests.size() > 0
+          ? (publicData.keys().hasAny(['interests'])
+            && publicData.interests == privateData.publicInterests)
+          : !publicData.keys().hasAny(['interests']));
+    }
+
     match /public_profiles/{uid} {
       allow get: if signedIn();
       allow list: if false;
@@ -461,6 +488,10 @@ service cloud.firestore {
         && request.resource.data.joinedAt ==
           getAfter(/databases/$(database)/documents/profiles/$(uid)).data.createdAt
         && request.resource.data.updatedAt == request.time
+        && (!existsAfter(/databases/$(database)/documents/users/$(uid)/private/profile_v3)
+          || v3ProjectionMatches(uid,
+            getAfter(/databases/$(database)/documents/users/$(uid)/private/profile_v3).data,
+            request.resource.data))
         && (!request.resource.data.keys().hasAny(['saint'])
           || (
             existsAfter(/databases/$(database)/documents/users/$(uid)/private/profile_v3)
@@ -732,6 +763,10 @@ service cloud.firestore {
               getAfter(/databases/$(database)/documents/users/$(uid)/private/preferences)
                 .data.interests
             )))
+        && (!exists(/databases/$(database)/documents/public_profiles/$(uid))
+          || (existsAfter(/databases/$(database)/documents/public_profiles/$(uid))
+            && v3ProjectionMatches(uid, request.resource.data,
+              getAfter(/databases/$(database)/documents/public_profiles/$(uid)).data)))
         && request.resource.data.consentVersion == 'perfil-v3-2026-11'
         && request.resource.data.consentAt == request.time
         && request.resource.data.updatedAt == request.time;
