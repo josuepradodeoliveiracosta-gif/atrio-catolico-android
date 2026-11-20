@@ -236,13 +236,14 @@ class Atrio199ClientesEmulatorUiTest {
             await(db.disableNetwork())
             try {
                 show(view)
-                waitText("Conversa não encontrada ou acesso negado.")
+                waitTag("atrio-peer-inbox-error")
                 compose.onNodeWithText(initial).assertDoesNotExist()
             } finally {
                 await(db.enableNetwork())
             }
             show(view)
-            waitText("Conversa não encontrada ou acesso negado.")
+            waitTag("atrio-peer-inbox-error")
+            compose.onNodeWithTag("atrio-peer-inbox-error").assertIsDisplayed()
             compose.onNodeWithText(initial).assertDoesNotExist()
             compose.onNodeWithTag("atrio-chat-send").assertDoesNotExist()
             denied(pair.room.get(Source.SERVER))
@@ -279,7 +280,9 @@ class Atrio199ClientesEmulatorUiTest {
         repeat(2) {
             await(db.disableNetwork())
             try {
-                waitText("Conversa não encontrada ou acesso negado.")
+                compose.waitUntil(30_000) {
+                    compose.onAllNodesWithText(initial).fetchSemanticsNodes().isEmpty()
+                }
                 compose.onNodeWithText(initial).assertDoesNotExist()
             } finally {
                 await(db.enableNetwork())
