@@ -71,3 +71,5 @@ key.properties
 
 # APK QA Geral utiliza apenas Firebase Emulator; nao versionar configuracao remota.
 /app/src/qaGeral/google-services.json
+
+/generated-artifacts/

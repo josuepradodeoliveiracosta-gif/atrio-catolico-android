@@ -335,7 +335,7 @@ private fun ContributionTrackCard(
                 horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 ContributionBadgeIcon(track.key, level.coerceAtLeast(1), Modifier.size(58.dp), earned = level > 0)
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(track.title, color = track.color, fontWeight = FontWeight.Bold)
+                    Text(track.title, color = if (androidx.compose.foundation.isSystemInDarkTheme()) Ink else track.color, fontWeight = FontWeight.Bold)
                     Text("${points} pontos · Nível $level",
                         style = MaterialTheme.typography.bodySmall, color = Muted)
                 }

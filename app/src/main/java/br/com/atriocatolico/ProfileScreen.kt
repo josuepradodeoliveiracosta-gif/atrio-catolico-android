@@ -182,7 +182,10 @@ internal fun OnlineProfileScreen(
                         Icons.Outlined.VerifiedUser, onReviews)
                 }
             }
-            item { ProfileSectionTitle("Preferências") }
+            item {
+                ProfileSectionTitle("Preferências")
+                AppearanceSettings(uid)
+            }
             item { PushSettings(uid, db, onNotifications = onNotifications) }
             item { DeveloperSupportPanel(db, uid, founderAdmin = founderCanBroadcast) }
             item {
@@ -292,6 +295,7 @@ internal fun OnlineProfileScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("Acesso rápido ao perfil, à privacidade e ao suporte.",
                         style = MaterialTheme.typography.bodySmall, color = Muted)
+                    TextButton(onClick = { closeAndScroll(4) }) { Text("Aparência") }
                     TextButton(
                         onClick = { closeAndScroll(1) },
                         modifier = Modifier.fillMaxWidth().testTag("atrio-profile-settings-public")

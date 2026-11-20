@@ -265,15 +265,15 @@ private fun OnlineAuthScreen(
     } else emailValid && password.length >= 6 // Não bloquear senhas antigas no login.
 
     Column(
-        Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Wine, Color(0xFF8B4B5A))))
+        Modifier.fillMaxSize().background(Wine)
             .statusBarsPadding().verticalScroll(rememberScrollState())
             .padding(horizontal = 24.dp, vertical = 26.dp)
     ) {
         Text("✝", fontFamily = FontFamily.Serif, fontSize = 52.sp, color = Gold)
         Text("Átrio Católico", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
-            fontSize = 33.sp, color = Color.White)
+            fontSize = 33.sp, color = MaterialTheme.colorScheme.onPrimary)
         Spacer(Modifier.height(10.dp))
-        Text("Um lugar para aprender e compartilhar a fé.", color = Color(0xFFF7E9EB), fontSize = 15.sp)
+        Text("Um lugar para aprender e compartilhar a fé.", color = MaterialTheme.colorScheme.onPrimary, fontSize = 15.sp)
         Spacer(Modifier.height(26.dp))
         Card(colors = CardDefaults.cardColors(containerColor = Paper), shape = RoundedCornerShape(20.dp)) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1512,7 +1512,7 @@ private fun OnlineCommunity(
                     }
                 )
             } else when (tab) {
-                Tab.HOME -> HomeScreen(name, posts, filter, search, searchOpen,
+                Tab.HOME -> HomeScreen(name, posts, filter, search, searchOpen, welcomeUid = uid,
                     onSearch = { search = it; otaScope.launch { homeListState.scrollToItem(0) } },
                     onFilter = { filter = it; otaScope.launch { homeListState.scrollToItem(0) } },
                     loading = feedLoading, loadError = feedError,
@@ -1593,7 +1593,7 @@ private fun OnlineCommunity(
                 ) {
                     Text(
                         "Discussão publicada!",
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.onPrimary,
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp)
                             .semantics { liveRegion = LiveRegionMode.Polite },
                         fontWeight = FontWeight.SemiBold, fontSize = 14.sp

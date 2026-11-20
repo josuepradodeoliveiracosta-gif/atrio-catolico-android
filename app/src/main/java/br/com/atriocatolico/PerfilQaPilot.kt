@@ -419,6 +419,7 @@ internal fun PerfilQaPilotContent(
                                 .testTag("perfilqa-history-open")
                         ) { Text("Minhas discussões") }
                     }
+                    item { AppearanceSettings(state.uid) }
                     state.message?.let { message ->
                         item {
                             Text(message, modifier = Modifier.testTag("perfilqa-message")
