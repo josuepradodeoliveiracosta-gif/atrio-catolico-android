@@ -2,6 +2,11 @@ package br.com.atriocatolico
 
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
@@ -145,6 +150,101 @@ class ProfileV3ConsentEmulatorUiTest {
                 .fetchSemanticsNodes().isEmpty()
         }
         compose.onNodeWithText("Apresentação anterior").assertExists()
+    }
+
+    @Test fun publishHideAndWithdrawAcrossOwnerAndVisitor() {
+        val beforeLegacy = await(legacy.get(Source.SERVER)).data
+        val beforePreferences = await(preferences.get(Source.SERVER)).data
+        val beforePublic = await(publicProfile.get(Source.SERVER)).data.orEmpty()
+        val legacyPresentation = beforePublic.filterKeys {
+            it !in ProfileV3Policy.publicFields && it != "updatedAt"
+        }
+        val devotion = "Santo de devoção · $saint"
+        val age = "Faixa etária · 25–34"
+        val hiddenDevotion = owner.batch()
+        hiddenDevotion.update(privateV3, "visibleFields",
+            ProfileV3Policy.visibleFields.filterNot { it == "saint" }, "updatedAt",
+            FieldValue.serverTimestamp())
+        hiddenDevotion.update(owner.document(publicProfile.path), mapOf(
+            "saint" to FieldValue.delete(),
+            "devotionPhrase" to FieldValue.delete(),
+            "updatedAt" to FieldValue.serverTimestamp()
+        ))
+        await(hiddenDevotion.commit())
+
+        var visitorOpen by mutableStateOf(true)
+        compose.setContent {
+            AtrioTheme {
+                Column {
+                    ProfileV3Editor(owner, uid)
+                    if (visitorOpen) {
+                        PublicMemberProfileScreen(visitor, PublicMemberTarget(uid, name),
+                            onBack = { visitorOpen = false }, onOpenDiscussion = {},
+                            viewerUid = visitorUid)
+                    } else {
+                        Button(onClick = { visitorOpen = true }) { Text("Reabrir perfil do titular") }
+                    }
+                }
+            }
+        }
+
+        waitForText("Apresentação anterior")
+        waitForText(age)
+        compose.onNodeWithText(devotion).assertDoesNotExist()
+        changeDevotionVisibility()
+        waitForText(devotion)
+        assertEquals(saint, await(publicProfile.get(Source.SERVER)).getString("saint"))
+        reopenVisitorProfile()
+        waitForText(devotion)
+
+        changeDevotionVisibility()
+        waitForTextToDisappear(devotion)
+        assertFalse(await(publicProfile.get(Source.SERVER)).contains("saint"))
+        assertEquals(saint, await(privateV3.get(Source.SERVER)).getString("saint"))
+        reopenVisitorProfile()
+        waitForText(age)
+        compose.onNodeWithText(devotion).assertDoesNotExist()
+
+        compose.onNodeWithTag("atrio-profile-v3-edit").performClick()
+        waitForEnabled("atrio-profile-v3-save")
+        openConfirmation()
+        compose.onNodeWithTag("atrio-profile-v3-withdraw-confirm").performClick()
+        waitForTag("atrio-profile-v3-status")
+        compose.onNodeWithTag("atrio-profile-v3-status")
+            .assertTextContains("Consentimento retirado.", substring = true)
+        waitForTextToDisappear(age)
+        compose.onNodeWithText("Apresentação anterior").assertExists()
+        reopenVisitorProfile()
+        compose.onNodeWithText(devotion).assertDoesNotExist()
+        compose.onNodeWithText(age).assertDoesNotExist()
+
+        assertFalse(await(privateV3.get(Source.SERVER)).exists())
+        assertEquals(beforeLegacy, await(legacy.get(Source.SERVER)).data)
+        assertEquals(beforePreferences, await(preferences.get(Source.SERVER)).data)
+        assertEquals(legacyPresentation,
+            await(publicProfile.get(Source.SERVER)).data.orEmpty().filterKeys { it != "updatedAt" })
+    }
+
+    private fun changeDevotionVisibility() {
+        compose.onNodeWithTag("atrio-profile-v3-edit").performClick()
+        waitForEnabled("atrio-profile-v3-save")
+        val toggle = "atrio-profile-v3-show-saint"
+        compose.onNodeWithTag("atrio-profile-v3-editor").performScrollToNode(hasTestTag(toggle))
+        compose.onNodeWithTag(toggle).performClick()
+        compose.onNodeWithTag("atrio-profile-v3-save").performClick()
+        compose.waitUntil(15_000) {
+            compose.onAllNodes(hasTestTag("atrio-profile-v3-editor")).fetchSemanticsNodes().isEmpty()
+        }
+    }
+
+    private fun reopenVisitorProfile() {
+        compose.onNodeWithTag("atrio-public-profile-back").performClick()
+        compose.onNodeWithText("Reabrir perfil do titular").performClick()
+        waitForText("Apresentação anterior")
+    }
+
+    private fun waitForTextToDisappear(text: String) = compose.waitUntil(15_000) {
+        compose.onAllNodes(hasText(text)).fetchSemanticsNodes().isEmpty()
     }
 
     private fun createSession(role: String): Pair<FirebaseFirestore, String> {
