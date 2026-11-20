@@ -1,7 +1,14 @@
 package br.com.atriocatolico
 
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
@@ -27,6 +34,7 @@ import com.google.firebase.firestore.Source
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -46,6 +54,7 @@ class ProfileV3ConsentEmulatorUiTest {
     private val publicProfile get() = visitor.document("public_profiles/$uid")
     private val name = "Pessoa de teste"
     private val saint = "Santa Teresinha"
+    private val fakePassword = "PerfilFake-2026!"
 
     @Before fun setUp() {
         check(BuildConfig.APPLICATION_ID == "br.com.atriocatolico.qageral" &&
@@ -66,20 +75,27 @@ class ProfileV3ConsentEmulatorUiTest {
             "consentVersion" to "cadastro-v2-2026-11",
             "consentAt" to FieldValue.serverTimestamp(), "updatedAt" to FieldValue.serverTimestamp()
         )))
+    }
+
+    private fun seedV3(devotionVisible: Boolean = true) {
+        val visibleFields = if (devotionVisible) ProfileV3Policy.visibleFields
+            else ProfileV3Policy.visibleFields.filterNot { it == "saint" }
         await(privateV3.set(mapOf(
             "saint" to saint, "devotionPhrase" to "Fazer o simples com amor.",
             "ageBand" to "25–34", "maritalStatus" to "Casado(a)",
-            "visibleFields" to ProfileV3Policy.visibleFields, "publicInterests" to listOf("Oração"),
+            "visibleFields" to visibleFields, "publicInterests" to listOf("Oração"),
             "consentVersion" to ProfileV3Policy.CONSENT_VERSION,
             "consentAt" to FieldValue.serverTimestamp(), "updatedAt" to FieldValue.serverTimestamp()
         )))
-        await(owner.document(publicProfile.path).set(mapOf(
+        val published = mapOf(
             "displayName" to name, "bio" to "Apresentação anterior",
             "joinedAt" to requireNotNull(await(legacy.get(Source.SERVER)).getTimestamp("createdAt")),
             "updatedAt" to FieldValue.serverTimestamp(), "saint" to saint,
             "devotionPhrase" to "Fazer o simples com amor.", "ageBand" to "25–34",
             "maritalStatus" to "Casado(a)", "interests" to listOf("Oração")
-        )))
+        )
+        await(owner.document(publicProfile.path).set(if (devotionVisible) published
+            else published - setOf("saint", "devotionPhrase")))
     }
 
     @After fun cleanSessions() {
@@ -87,6 +103,7 @@ class ProfileV3ConsentEmulatorUiTest {
     }
 
     @Test fun cancelThenWithdrawPreservesLegacyAndV2ForTheOwnerAndVisitor() {
+        seedV3()
         val beforeV3 = await(privateV3.get(Source.SERVER)).data
         val beforeProfile = await(legacy.get(Source.SERVER)).data
         val beforePreferences = await(preferences.get(Source.SERVER)).data
@@ -121,6 +138,7 @@ class ProfileV3ConsentEmulatorUiTest {
     }
 
     @Test fun openEditorCannotRepublishAfterExternalWithdrawal() {
+        seedV3()
         showEditor()
         withdrawFromOutsideEditor()
         compose.onNodeWithTag("atrio-profile-v3-save").performClick()
@@ -132,6 +150,7 @@ class ProfileV3ConsentEmulatorUiTest {
     }
 
     @Test fun visitorAlreadyOnProfileLosesThePublishedV3Fields() {
+        seedV3()
         compose.setContent {
             AtrioTheme {
                 PublicMemberProfileScreen(visitor, PublicMemberTarget(uid, name),
@@ -145,6 +164,206 @@ class ProfileV3ConsentEmulatorUiTest {
                 .fetchSemanticsNodes().isEmpty()
         }
         compose.onNodeWithText("Apresentação anterior").assertExists()
+    }
+
+    @Test fun publishHideAndWithdrawAcrossOwnerAndVisitor() {
+        seedV3(devotionVisible = false)
+        val beforeLegacy = await(legacy.get(Source.SERVER)).data
+        val beforePreferences = await(preferences.get(Source.SERVER)).data
+        val beforePublic = await(publicProfile.get(Source.SERVER)).data.orEmpty()
+        val legacyPresentation = beforePublic.filterKeys {
+            it !in ProfileV3Policy.publicFields && it != "updatedAt"
+        }
+        val devotion = "Santo de devoção · $saint"
+        val age = "Faixa etária · 25–34"
+
+        var visitorOpen by mutableStateOf(true)
+        compose.setContent {
+            AtrioTheme {
+                Column {
+                    ProfileV3Editor(owner, uid)
+                    if (visitorOpen) {
+                        PublicMemberProfileScreen(visitor, PublicMemberTarget(uid, name),
+                            onBack = { visitorOpen = false }, onOpenDiscussion = {},
+                            viewerUid = visitorUid)
+                    } else {
+                        Button(onClick = { visitorOpen = true }) { Text("Reabrir perfil do titular") }
+                    }
+                }
+            }
+        }
+
+        waitForText("Apresentação anterior")
+        waitForText(age)
+        compose.onNodeWithText(devotion).assertDoesNotExist()
+        changeDevotionVisibility()
+        waitForText(devotion)
+        assertEquals(saint, await(publicProfile.get(Source.SERVER)).getString("saint"))
+        reopenVisitorProfile()
+        waitForText(devotion)
+
+        changeDevotionVisibility()
+        waitForTextToDisappear(devotion)
+        assertFalse(await(publicProfile.get(Source.SERVER)).contains("saint"))
+        assertEquals(saint, await(privateV3.get(Source.SERVER)).getString("saint"))
+        reopenVisitorProfile()
+        waitForText(age)
+        compose.onNodeWithText(devotion).assertDoesNotExist()
+
+        compose.onNodeWithTag("atrio-profile-v3-edit").performClick()
+        waitForEnabled("atrio-profile-v3-save")
+        openConfirmation()
+        compose.onNodeWithTag("atrio-profile-v3-withdraw-confirm").performClick()
+        waitForTag("atrio-profile-v3-status")
+        compose.onNodeWithTag("atrio-profile-v3-status")
+            .assertTextContains("Consentimento retirado.", substring = true)
+        waitForTextToDisappear(age)
+        compose.onNodeWithText("Apresentação anterior").assertExists()
+        reopenVisitorProfile()
+        compose.onNodeWithText(devotion).assertDoesNotExist()
+        compose.onNodeWithText(age).assertDoesNotExist()
+
+        assertFalse(await(privateV3.get(Source.SERVER)).exists())
+        assertEquals(beforeLegacy, await(legacy.get(Source.SERVER)).data)
+        assertEquals(beforePreferences, await(preferences.get(Source.SERVER)).data)
+        assertEquals(legacyPresentation,
+            await(publicProfile.get(Source.SERVER)).data.orEmpty().filterKeys { it != "updatedAt" })
+    }
+
+    @Test fun offlineVisitorRefreshesRevokedProfileAndSwitchesAccounts() {
+        seedV3()
+        val ownerAuth = sessions.first()
+        val visitorAuth = sessions.last()
+        val ownerEmail = requireNotNull(ownerAuth.currentUser?.email)
+        val visitorEmail = requireNotNull(visitorAuth.currentUser?.email)
+        val presentation = "Apresentação anterior"
+        val devotion = "Santo de devoção · $saint"
+        val visitorDocument = publicProfile
+        val ownerDocument = owner.document(visitorDocument.path)
+        val beforePublic = await(ownerDocument.get(Source.SERVER)).data.orEmpty()
+            .filterKeys { it !in ProfileV3Policy.publicFields && it != "updatedAt" }
+        val beforeLegacy = await(legacy.get(Source.SERVER)).data
+        val beforePreferences = await(preferences.get(Source.SERVER)).data
+        var visitorOpen by mutableStateOf(true)
+        var viewer by mutableStateOf<String?>(visitorUid)
+
+        compose.setContent {
+            DisposableEffect(visitorAuth) {
+                val listener = FirebaseAuth.AuthStateListener { viewer = it.currentUser?.uid }
+                visitorAuth.addAuthStateListener(listener)
+                onDispose { visitorAuth.removeAuthStateListener(listener) }
+            }
+            AtrioTheme {
+                Column {
+                    ProfileV3Editor(owner, uid)
+                    val currentViewer = viewer
+                    if (currentViewer == null) {
+                        Text("Sessão de visualização encerrada")
+                    } else if (visitorOpen) {
+                        PublicMemberProfileScreen(visitor, PublicMemberTarget(uid, name),
+                            onBack = { visitorOpen = false }, onOpenDiscussion = {},
+                            viewerUid = currentViewer)
+                    } else {
+                        Button(onClick = { visitorOpen = true }) { Text("Reabrir perfil do titular") }
+                    }
+                }
+            }
+        }
+
+        waitForText(devotion)
+        assertEquals(saint, await(visitorDocument.get(Source.SERVER)).getString("saint"))
+        recordProfilePhase("conectado_antes_da_retirada")
+        await(visitor.disableNetwork())
+        try {
+            compose.onNodeWithTag("atrio-profile-v3-edit").performClick()
+            waitForEnabled("atrio-profile-v3-save")
+            openConfirmation()
+            compose.onNodeWithTag("atrio-profile-v3-withdraw-confirm").performClick()
+            waitForTag("atrio-profile-v3-status")
+            compose.onNodeWithTag("atrio-profile-v3-status")
+                .assertTextContains("Consentimento retirado.", substring = true)
+
+            assertFalse(await(privateV3.get(Source.SERVER)).exists())
+            assertEquals(beforePublic, await(ownerDocument.get(Source.SERVER)).data.orEmpty()
+                .filterKeys { it != "updatedAt" })
+            val cached = await(visitorDocument.get(Source.CACHE))
+            assertTrue(cached.metadata.isFromCache)
+            val cachedFields = ProfileV3Policy.publicFields.filter { cached.contains(it) }
+            Log.i("AtrioQaProfileV3", "cache_offline_apos_retirada=$cachedFields")
+            waitForText(presentation)
+            recordProfilePhase("offline_apos_retirada")
+        } finally {
+            await(visitor.enableNetwork())
+        }
+
+        assertEquals(beforePublic, await(visitorDocument.get(Source.SERVER)).data.orEmpty()
+            .filterKeys { it != "updatedAt" })
+        waitForTextToDisappear(devotion)
+        assertWithdrawnProfile("reconectado_tela_aberta")
+        reopenVisitorProfile()
+        assertWithdrawnProfile("reaberto_mesma_sessao")
+
+        switchViewerAccount(visitorAuth, ownerEmail, uid)
+        assertWithdrawnProfile("troca_para_titular")
+        reopenVisitorProfile()
+        assertWithdrawnProfile("reaberto_como_titular")
+        switchViewerAccount(visitorAuth, visitorEmail, visitorUid)
+        assertWithdrawnProfile("retorno_ao_visitante")
+        reopenVisitorProfile()
+        assertWithdrawnProfile("reaberto_como_visitante")
+        assertEquals(beforePublic, await(visitorDocument.get(Source.CACHE)).data.orEmpty()
+            .filterKeys { it != "updatedAt" })
+        assertEquals(beforeLegacy, await(legacy.get(Source.SERVER)).data)
+        assertEquals(beforePreferences, await(preferences.get(Source.SERVER)).data)
+    }
+
+    private fun switchViewerAccount(auth: FirebaseAuth, email: String, expectedUid: String) {
+        auth.signOut()
+        waitForText("Sessão de visualização encerrada")
+        compose.onNodeWithTag("atrio-public-profile").assertDoesNotExist()
+        assertEquals(expectedUid, await(auth.signInWithEmailAndPassword(email, fakePassword)).user?.uid)
+        waitForText("Apresentação anterior")
+    }
+
+    private fun assertWithdrawnProfile(phase: String) {
+        waitForText("Apresentação anterior")
+        assertEquals("$phase: campos V3 na tela pública", emptyList<String>(), recordProfilePhase(phase))
+    }
+
+    private fun recordProfilePhase(phase: String): List<String> {
+        val visibleFields = mapOf(
+            "saint" to hasText("Santo de devoção · $saint"),
+            "devotionPhrase" to hasText("“Fazer o simples com amor.”"),
+            "ageBand" to hasText("Faixa etária · 25–34"),
+            "maritalStatus" to hasText("Estado civil · Casado(a)"),
+            "interests" to hasTestTag("atrio-public-profile-interests")
+        ).filterValues { compose.onAllNodes(it).fetchSemanticsNodes().isNotEmpty() }.keys.toList()
+        val presentationVisible = compose.onAllNodes(hasText("Apresentação anterior"))
+            .fetchSemanticsNodes().isNotEmpty()
+        Log.i("AtrioQaProfileV3", "fase=$phase campos_v3=$visibleFields apresentacao=$presentationVisible")
+        return visibleFields
+    }
+
+    private fun changeDevotionVisibility() {
+        compose.onNodeWithTag("atrio-profile-v3-edit").performClick()
+        waitForEnabled("atrio-profile-v3-save")
+        val toggle = "atrio-profile-v3-show-saint"
+        compose.onNodeWithTag("atrio-profile-v3-editor").performScrollToNode(hasTestTag(toggle))
+        compose.onNodeWithTag(toggle).performClick()
+        compose.onNodeWithTag("atrio-profile-v3-save").performClick()
+        compose.waitUntil(15_000) {
+            compose.onAllNodes(hasTestTag("atrio-profile-v3-editor")).fetchSemanticsNodes().isEmpty()
+        }
+    }
+
+    private fun reopenVisitorProfile() {
+        compose.onNodeWithTag("atrio-public-profile-back").performClick()
+        compose.onNodeWithText("Reabrir perfil do titular").performClick()
+        waitForText("Apresentação anterior")
+    }
+
+    private fun waitForTextToDisappear(text: String) = compose.waitUntil(15_000) {
+        compose.onAllNodes(hasText(text)).fetchSemanticsNodes().isEmpty()
     }
 
     private fun createSession(role: String): Pair<FirebaseFirestore, String> {
@@ -168,7 +387,7 @@ class ProfileV3ConsentEmulatorUiTest {
         sessions += auth
         auth.signOut()
         val user = requireNotNull(await(auth.createUserWithEmailAndPassword(
-            "perfil-${UUID.randomUUID()}@qa.invalid", "PerfilFake-2026!"
+            "perfil-${UUID.randomUUID()}@qa.invalid", fakePassword
         )).user)
         return db to user.uid
     }
