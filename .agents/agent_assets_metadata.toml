@@ -28,3 +28,17 @@ mtime_ms = 1795211010497
 storage_uri = "gcs://replit-rams-assets-spock/rams/assets/repl:b188ab47-2941-415c-a3f2-238f55a21312/47887159-4094-4672-a831-07dc3e48cd59/ec1cb8ed-06c1-4a72-bad6-6ce3a3ac0901"
 storage_version_token = "1795211071896033"
 content_type = "video/mp4"
+
+[[outputs]]
+id = "7jhDj0CNgYzRJeozqmIHC"
+uri = "file://generated-artifacts/tiktok/atrio-catolico-tiktok.mp4"
+type = "video"
+title = "Átrio Católico — vídeo para TikTok"
+description = "MP4 vertical 9:16, 1080 × 1920, 10 segundos, com áudio original."
+logical_id = "8365f2cb-c79f-4bd1-af03-fc7b26712506"
+content_hash = "sha256:348ec4b05a5c6b9b0c6b7056879fbfbc153049befc95b90c3ff9d6c11bb9b0a3"
+size = 4352560
+mtime_ms = 1795211290614
+storage_uri = "gcs://replit-rams-assets-spock/rams/assets/repl:b188ab47-2941-415c-a3f2-238f55a21312/8365f2cb-c79f-4bd1-af03-fc7b26712506/fdd8b79f-99ca-460c-983c-6b4354e8f556"
+storage_version_token = "1795211299150252"
+content_type = "video/mp4"
