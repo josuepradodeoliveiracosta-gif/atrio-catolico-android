@@ -25,8 +25,8 @@ defaults:
 env:
   QA_BASE_SHA: '759b61c126580c628f0dfb74559bcc3bc4e37586'
   QA_BASE_TREE: '23fefdc726b4a1c7412351d916601baae05ffcca'
-  QA_SOURCE_SHA: '3d3ab6a4aa813e405dcf6e64ed9e97cbb9c3972d'
-  QA_SOURCE_TREE: 'cab43d6e3bbd41bab2c6762252a9723e691672d8'
+  QA_SOURCE_SHA: '9a99c432baa130ace49bccead5194d807eabf820'
+  QA_SOURCE_TREE: '26700fb9a7723496117694da0b309ce97ef00ffb'
   QA_CANDIDATE_PR: '382'
   QA_ROUTE: '.github/workflows/qa-geral-celular-assinar-42.yml'
 
@@ -174,7 +174,7 @@ jobs:
       github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android' &&
       github.ref == 'refs/heads/main' && github.ref_protected &&
       github.actor == 'josuepradodeoliveiracosta-gif' &&
-      github.run_attempt == 1 && inputs.source_sha == '3d3ab6a4aa813e405dcf6e64ed9e97cbb9c3972d'
+      github.run_attempt == 1 && inputs.source_sha == '9a99c432baa130ace49bccead5194d807eabf820'
     environment: qa-geral-celular-assinatura
     runs-on: ubuntu-latest
     timeout-minutes: 20
