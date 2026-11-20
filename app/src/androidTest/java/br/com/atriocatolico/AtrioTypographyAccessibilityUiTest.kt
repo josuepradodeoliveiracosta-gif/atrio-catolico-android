@@ -16,6 +16,32 @@ import org.junit.Test
 class AtrioTypographyAccessibilityUiTest {
     @get:Rule val compose = createComposeRule()
 
+    @Test fun erroDosAvisosPermiteRetentativaComFonteAmpliada() {
+        var retries = 0
+        compose.setContent {
+            val base = LocalDensity.current
+            CompositionLocalProvider(LocalDensity provides Density(base.density, 2.0f)) {
+                AtrioTheme {
+                    NotificationConnectionStatus(failed = true, stale = false) { retries++ }
+                }
+            }
+        }
+        compose.onNodeWithTag("atrio-notices-load-error").assertExists()
+        compose.onNodeWithTag("atrio-notices-retry").assertIsDisplayed()
+            .assertIsEnabled().performClick()
+        compose.runOnIdle { assertEquals(1, retries) }
+    }
+
+    @Test fun cacheDeAvisosTemEstadoOfflineDistintoDeVazio() {
+        compose.setContent {
+            AtrioTheme {
+                NotificationConnectionStatus(failed = false, stale = true) {}
+            }
+        }
+        compose.onNodeWithTag("atrio-notices-offline").assertExists()
+        compose.onNodeWithText("Tentar novamente").assertDoesNotExist()
+    }
+
     @Test fun campoDeRespostaContinuaAcessivelComFonteDuzentosPorCento() {
         val post = Post(
             id = "qa-tipografia-detalhe", author = "Participante de teste",

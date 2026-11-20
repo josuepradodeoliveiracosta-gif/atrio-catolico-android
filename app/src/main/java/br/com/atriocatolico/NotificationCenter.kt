@@ -15,10 +15,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentSnapshot
+import com.google.firebase.firestore.MetadataChanges
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import java.text.DateFormat
@@ -42,6 +49,8 @@ internal class NotificationInbox(val db: FirebaseFirestore, val uid: String, pri
     var loadingReplies by mutableStateOf(true)
     var loadingReview by mutableStateOf(true)
     var loadingAdmin by mutableStateOf(false)
+    var staleReplies by mutableStateOf(false)
+    var staleReview by mutableStateOf(false)
     var replyError by mutableStateOf(false)
     var reviewError by mutableStateOf(false)
     var reportsError by mutableStateOf(false)
@@ -50,6 +59,9 @@ internal class NotificationInbox(val db: FirebaseFirestore, val uid: String, pri
     var feedback by mutableStateOf("")
 
     fun groups(admin: Boolean): List<NoticeGroup> {
+        if (uid.isBlank() || FirebaseAuth.getInstance(db.app).currentUser?.uid != uid) {
+            return emptyList()
+        }
         val local = (if (enabledReview) listOfNotNull(review) else emptyList()) +
             (if (admin && enabledAdmin) reports + requests else emptyList())
         return groupNotices((if (enabledReplies) replies else emptyList()) +
@@ -60,6 +72,10 @@ internal class NotificationInbox(val db: FirebaseFirestore, val uid: String, pri
         prefs.edit().putBoolean(key, value).apply()
     }
     fun markRead(groups: List<NoticeGroup>, done: () -> Unit = {}) {
+        if (FirebaseAuth.getInstance(db.app).currentUser?.uid != uid) {
+            feedback = "Sessão alterada. Entre novamente para consultar seus avisos."
+            return
+        }
         if (busy) return
         val events = groups.flatMap { it.events }.distinctBy { it.kind.name + it.id }
         val unreadReplies = events.filter { it.kind == NoticeKind.REPLY && !it.read }
@@ -88,6 +104,10 @@ internal class NotificationInbox(val db: FirebaseFirestore, val uid: String, pri
         commit(0)
     }
     fun dismiss(group: NoticeGroup) {
+        if (FirebaseAuth.getInstance(db.app).currentUser?.uid != uid) {
+            feedback = "Sessão alterada. Entre novamente para consultar seus avisos."
+            return
+        }
         if (busy || group.kind != NoticeKind.REPLY) return
         busy = true
         feedback = ""
@@ -123,7 +143,9 @@ internal fun rememberNotificationInbox(db: FirebaseFirestore, uid: String, admin
         inbox.replyError = false
         val listener = db.collection("users").document(uid).collection("notifications")
             .orderBy("createdAt", Query.Direction.DESCENDING).limit(inbox.limit.toLong() + 1)
-            .addSnapshotListener { data, error -> if (active) {
+            .addSnapshotListener(MetadataChanges.INCLUDE) { data, error -> if (active) {
+                inbox.staleReplies = error == null && data != null &&
+                    (data.metadata.isFromCache || data.metadata.hasPendingWrites())
                 inbox.loadingReplies = false
                 inbox.replyError = error != null
                 inbox.replyMore = error == null && (data?.size() ?: 0) > inbox.limit
@@ -132,13 +154,14 @@ internal fun rememberNotificationInbox(db: FirebaseFirestore, uid: String, admin
                     if (post.isBlank() || '/' in post) null else {
                         val mentioned = !it.getString("mentionUid").isNullOrBlank()
                         val direct = !it.getString("replyToId").isNullOrBlank()
+                        val actor = NoticePrivacyPolicy.safeActorName(it.getString("actorName"))
                         val title = when {
-                            mentioned -> "${it.getString("actorName") ?: "Alguém"} mencionou você"
-                            direct -> "${it.getString("actorName") ?: "Alguém"} respondeu ao seu comentário"
-                            else -> "${it.getString("actorName") ?: "Alguém"} respondeu à discussão"
+                            mentioned -> "$actor mencionou você"
+                            direct -> "$actor respondeu ao seu comentário"
+                            else -> "$actor respondeu à discussão"
                         }
                         NoticeEvent(it.id, NoticeKind.REPLY, post, title,
-                            "Toque para abrir a conversa.", it.noticeTime(),
+                            "Toque para abrir a discussão.", it.noticeTime(),
                             it.getBoolean("read") == true,
                             directReply = direct, mentioned = mentioned)
                     }
@@ -150,8 +173,11 @@ internal fun rememberNotificationInbox(db: FirebaseFirestore, uid: String, admin
         var active = true
         inbox.loadingReview = true
         inbox.reviewError = false
-        val listener = db.collection("badge_requests").document(uid).addSnapshotListener { data, error ->
+        val listener = db.collection("badge_requests").document(uid)
+            .addSnapshotListener(MetadataChanges.INCLUDE) { data, error ->
             if (active) {
+                inbox.staleReview = error == null && data != null &&
+                    (data.metadata.isFromCache || data.metadata.hasPendingWrites())
                 inbox.loadingReview = false
                 inbox.reviewError = error != null
                 // Never expose reviewNote, reviewedBy or another member's private profile.
@@ -178,12 +204,17 @@ internal fun rememberNotificationInbox(db: FirebaseFirestore, uid: String, admin
             var requestsLoaded = false
             // Legacy reports omit status; scan paginated records to include those pending reports.
             val reports = db.collection("reports").orderBy("createdAt", Query.Direction.DESCENDING)
-                .limit(inbox.limit.toLong() + 1).addSnapshotListener { data, error -> if (active) {
+                .limit(inbox.limit.toLong() + 1)
+                .addSnapshotListener(MetadataChanges.INCLUDE) { data, error -> if (active) {
                     reportsLoaded = true
                     inbox.loadingAdmin = !requestsLoaded
-                    inbox.reportsError = error != null
-                    inbox.reportsMore = error == null && (data?.size() ?: 0) > inbox.limit
-                    inbox.reports = if (error != null) emptyList() else data?.documents?.take(inbox.limit)
+                    val trusted = error == null && data != null &&
+                        NoticePrivacyPolicy.serverConfirmed(
+                            data.metadata.isFromCache, data.metadata.hasPendingWrites(),
+                            FirebaseAuth.getInstance(db.app).currentUser?.uid == uid)
+                    inbox.reportsError = !trusted
+                    inbox.reportsMore = trusted && (data?.size() ?: 0) > inbox.limit
+                    inbox.reports = if (!trusted) emptyList() else data?.documents?.take(inbox.limit)
                         ?.filter { (it.getString("status") ?: "pending") == "pending" }?.map {
                             NoticeEvent(it.id, NoticeKind.REPORTS, title = "Denúncia pendente", body = "",
                                 at = it.noticeTime(), localToken = it.noticeToken("report"))
@@ -191,12 +222,17 @@ internal fun rememberNotificationInbox(db: FirebaseFirestore, uid: String, admin
                 } }
             // Equality-only query avoids requiring a new composite index.
             val requests = db.collection("badge_requests").whereEqualTo("status", "pending")
-                .limit(inbox.limit.toLong() + 1).addSnapshotListener { data, error -> if (active) {
+                .limit(inbox.limit.toLong() + 1)
+                .addSnapshotListener(MetadataChanges.INCLUDE) { data, error -> if (active) {
                     requestsLoaded = true
                     inbox.loadingAdmin = !reportsLoaded
-                    inbox.requestsError = error != null
-                    inbox.requestsMore = error == null && (data?.size() ?: 0) > inbox.limit
-                    inbox.requests = if (error != null) emptyList() else data?.documents?.take(inbox.limit)?.map {
+                    val trusted = error == null && data != null &&
+                        NoticePrivacyPolicy.serverConfirmed(
+                            data.metadata.isFromCache, data.metadata.hasPendingWrites(),
+                            FirebaseAuth.getInstance(db.app).currentUser?.uid == uid)
+                    inbox.requestsError = !trusted
+                    inbox.requestsMore = trusted && (data?.size() ?: 0) > inbox.limit
+                    inbox.requests = if (!trusted) emptyList() else data?.documents?.take(inbox.limit)?.map {
                         NoticeEvent(it.id, NoticeKind.REQUESTS, title = "Solicitação pendente", body = "",
                             at = it.noticeTime(), localToken = it.noticeToken("request"))
                     } ?: emptyList()
@@ -207,11 +243,45 @@ internal fun rememberNotificationInbox(db: FirebaseFirestore, uid: String, admin
     return inbox
 }
 
+/**
+ * Mensagem de conectividade acessível. Distingue erro de lista realmente vazia
+ * e cache local de confirmação remota, sem exibir payloads privados.
+ */
+@Composable
+internal fun NotificationConnectionStatus(
+    failed: Boolean, stale: Boolean, onRetry: () -> Unit
+) {
+    if (failed) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Alguns avisos não puderam ser consultados. Confira sua conexão e suas permissões.",
+                color = MaterialTheme.colorScheme.error, fontSize = AtrioType.secondary,
+                modifier = Modifier.testTag("atrio-notices-load-error")
+                    .semantics { liveRegion = LiveRegionMode.Polite })
+            OutlinedButton(onClick = onRetry,
+                modifier = Modifier.heightIn(min = 48.dp).testTag("atrio-notices-retry")) {
+                Text("Tentar novamente")
+            }
+        }
+    } else if (stale) {
+        Text("Sem conexão com o servidor. Os avisos salvos neste aparelho podem estar desatualizados.",
+            color = MaterialTheme.colorScheme.error, fontSize = AtrioType.secondary,
+            modifier = Modifier.testTag("atrio-notices-offline")
+                .semantics { liveRegion = LiveRegionMode.Polite })
+    }
+}
+
 @Composable
 internal fun NotificationCenter(
     inbox: NotificationInbox, admin: Boolean, postTitles: Map<String, String>,
     onOpen: (NoticeGroup) -> Unit
 ) {
+    if (FirebaseAuth.getInstance(inbox.db.app).currentUser?.uid != inbox.uid) {
+        Text("Sessão alterada. Entre novamente para consultar seus avisos.",
+            modifier = Modifier.padding(20.dp).semantics {
+                liveRegion = LiveRegionMode.Polite
+            })
+        return
+    }
     var filter by rememberSaveable(inbox.uid) { mutableStateOf("Todas") }
     var preferences by rememberSaveable(inbox.uid) { mutableStateOf(false) }
     var dismissTarget by remember { mutableStateOf<NoticeGroup?>(null) }
@@ -225,11 +295,15 @@ internal fun NotificationCenter(
     val loading = inbox.loadingReplies || inbox.loadingReview || (admin && inbox.loadingAdmin)
     val failed = inbox.replyError || inbox.reviewError || (admin && (inbox.reportsError || inbox.requestsError))
     val more = inbox.replyMore || (admin && (inbox.reportsMore || inbox.requestsMore))
+    val stale = inbox.staleReplies || inbox.staleReview
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
-            SectionTitle("Sua central de avisos")
-            Text("Respostas, verificações e novidades dos seus pedidos, dentro do aplicativo.", color = Muted, fontSize = AtrioType.secondary)
+            SectionTitle("Sua central de avisos",
+                Modifier.semantics { heading() })
+            Text("Respostas a discussões, verificações e novidades dos seus pedidos. " +
+                "O texto de mensagens privadas não aparece nesta central.",
+                color = Muted, fontSize = AtrioType.secondary)
             TextButton(onClick = { preferences = true }) { Text("Preferências de avisos") }
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(listOf("Todas", "Não lidas") + if (admin) listOf("Administração") else emptyList()) { label ->
@@ -244,19 +318,30 @@ internal fun NotificationCenter(
             Text("As pendências continuam abertas até uma decisão. Ler o aviso não conclui a análise. " +
                 "As contagens consideram os registros carregados.", color = Muted, fontSize = AtrioType.secondary)
         }
-        if (failed) item {
-            Text("Alguns avisos não puderam ser consultados. Confira sua conexão e suas permissões.",
-                color = MaterialTheme.colorScheme.error, fontSize = AtrioType.secondary)
-            OutlinedButton(onClick = { inbox.retry++ }) { Text("Tentar novamente") }
+        if (failed || stale) item {
+            NotificationConnectionStatus(failed = failed, stale = stale) {
+                inbox.retry++
+            }
         }
         if (inbox.feedback.isNotBlank()) item { Text(inbox.feedback, color = Wine, fontSize = AtrioType.secondary) }
         if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
         if (shown.isEmpty() && !loading && !failed) item {
-            Text(if (more) "Nenhum aviso neste filtro entre os registros carregados. Busque mais para consultar os anteriores."
-                else "Nenhum aviso neste filtro. Confira também suas preferências.", color = Muted)
+            Text(when {
+                stale -> "Não há avisos carregados neste filtro. Reconecte-se para conferir novos avisos."
+                more -> "Nenhum aviso neste filtro entre os registros carregados. Busque mais para consultar os anteriores."
+                selectedFilter == "Não lidas" -> "Nenhum aviso não lido. Confira novamente mais tarde."
+                else -> "Nenhum aviso neste filtro. Confira também suas preferências."
+            }, color = Muted)
         }
         items(shown, key = { it.id }) { group ->
-            Card(onClick = { if (!inbox.busy) { inbox.markRead(listOf(group)); onOpen(group) } },
+            Card(onClick = {
+                // O callback de navegação também valida a conta no instante do toque.
+                // Não abrir destinos da sessão anterior enquanto o Compose recompõe.
+                if (!inbox.busy &&
+                    FirebaseAuth.getInstance(inbox.db.app).currentUser?.uid == inbox.uid) {
+                    inbox.markRead(listOf(group)); onOpen(group)
+                }
+            },
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = if (group.unread) WineSoft else Color.White)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -310,7 +395,8 @@ internal fun NotificationCenter(
 
 @Composable
 private fun NoticePreference(label: String, value: Boolean, change: (Boolean) -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp),
+        verticalAlignment = Alignment.CenterVertically) {
         Text(label, modifier = Modifier.weight(1f), fontSize = 14.sp)
         Switch(checked = value, onCheckedChange = change)
     }
