@@ -322,6 +322,11 @@ test('mesmos documentos para Rules e Worker de Conversas do piloto DM #199',asyn
     const notice=await worker.fetch(requestNotice(),fixture.env);
     assert.equal(notice.status,503);
     assert.equal((await notice.json()).status,'disabled');
+    for (const action of ['admit','revoke','publish']) {
+      const administrative=new Request('https://qa.invalid/v1/qa/conversations/push/admin/'+action,
+        {method:'POST'});
+      assert.equal((await worker.fetch(administrative,fixture.env)).status,404);
+    }
     assert.deepEqual(fixture.stats(),{reserved:0,sent:0,reads:0,cloudCalls:0});
   });
 
