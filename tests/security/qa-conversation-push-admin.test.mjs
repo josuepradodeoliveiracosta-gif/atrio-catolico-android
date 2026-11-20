@@ -105,6 +105,8 @@ try {
         assert.ok((await message('old').get()).exists,
           'a mensagem original continua armazenada para leitura manual');
       }
+      // Encerrar a pendência adulterada pelo ensaio antes de emitir evento novo.
+      await pending.update({unread:false});
       // Retentativa de uma operação de revogação antiga não pode desfazer readmissão.
       const replayRevoke=await revoke(recipient,'one',firstRecipient.generation);
       assert.equal(replayRevoke.replay,true);
