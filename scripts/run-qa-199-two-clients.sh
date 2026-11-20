@@ -63,8 +63,10 @@ lucia_pid=$!
 for ((attempt=0; attempt<120; attempt++)); do
   if adb -s "$first" logcat -d -s Atrio199QA:I | grep -F 'papel=ALICE cliente_aberto=true' >/dev/null &&
      adb -s "$second" logcat -d -s Atrio199QA:I | grep -F 'papel=LUCIA cliente_aberto=true' >/dev/null; then
-    adb -s "$first" shell touch "$release"
-    adb -s "$second" shell touch "$release"
+    for serial in "$first" "$second"; do
+      adb -s "$serial" shell "printf ready > $release"
+      test "$(adb -s "$serial" shell cat "$release")" = ready
+    done
     echo "Barreira #199 liberada com duas threads visíveis antes do envio"
     break
   fi
@@ -78,7 +80,7 @@ adb -s "$first" logcat -d > "$results/logcat-ALICE.txt"
 adb -s "$second" logcat -d > "$results/logcat-LUCIA.txt"
 grep -h 'Atrio199QA:' "$results"/logcat-*.txt || true
 if [[ "$failed" != 0 ]]; then
-  tail -40 "$results"/instrument-*.txt
+  tail -n 40 "$results"/instrument-*.txt
   exit 1
 fi
 alice_ids="$(grep -Eo 'id_alice=[[:alnum:]]+ id_lucia=[[:alnum:]]+' "$results/logcat-ALICE.txt")"

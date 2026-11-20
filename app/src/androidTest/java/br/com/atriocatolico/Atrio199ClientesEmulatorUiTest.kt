@@ -182,7 +182,7 @@ class Atrio199ClientesEmulatorUiTest {
         var bothClientsOpen = false
         while (!bothClientsOpen && SystemClock.elapsedRealtime() < deadline) {
             val result = instrumentation.uiAutomation.executeShellCommand(
-                "test ! -f /data/local/tmp/atrio-199-both-open || echo ready")
+                "cat /data/local/tmp/atrio-199-both-open")
             bothClientsOpen = ParcelFileDescriptor.AutoCloseInputStream(result)
                 .bufferedReader().use { it.readText().trim() == "ready" }
             if (!bothClientsOpen) Thread.sleep(250)
@@ -195,13 +195,16 @@ class Atrio199ClientesEmulatorUiTest {
             val previous = requireNotNull(await(pair.room.get(Source.SERVER)).getTimestamp("updatedAt"))
             compose.waitUntil(10_000) { System.currentTimeMillis() - previous.toDate().time >= 3_500L }
             send(fromAlice)
-            waitText(fromAlice)
             waitText(fromLucia)
         } else {
             waitText(fromAlice)
             send(fromLucia)
-            waitText(fromLucia)
         }
+        compose.waitUntil(30_000) {
+            messages(pair.room, fromAlice).size == 1 && messages(pair.room, fromLucia).size == 1
+        }
+        waitText(fromAlice)
+        waitText(fromLucia)
         val first = messages(pair.room, fromAlice).single()
         val second = messages(pair.room, fromLucia).single()
         assertEquals(pair.aliceUid, first.getString("uid"))
