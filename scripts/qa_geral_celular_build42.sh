@@ -1,5 +1,51 @@
 #!/usr/bin/env bash
 # Compile under a disposable OS account. Only the unsigned APK leaves its workspace.
+kill_build_processes() {
+    sudo pkill -KILL -u "$1" || true
+    sudo pkill -KILL -U "$1" || true
+}
+
+wait_for_build_exit() {
+    local uid="$1" processes active attempt
+    for attempt in {0..20}; do
+        # ps -e must succeed even when no process belongs to the build account.
+        if ! processes="$(sudo ps -e -o ruid=,euid=,stat=)" ||
+            ! active="$(awk -v uid="$uid" '
+                NF != 3 || $1 !~ /^[0-9]+$/ || $2 !~ /^[0-9]+$/ { invalid = 1; next }
+                ($1 == uid || $2 == uid) && $3 !~ /^Z/ { active = 1 }
+                END {
+                    if (invalid || NR == 0) exit 1
+                    print active + 0
+                }
+            ' <<< "$processes")"; then
+            echo 'Falha ao inspecionar os processos do usuário de build.' >&2
+            return 1
+        fi
+        # Zumbis aguardam coleta do pai e não executam código.
+        if [[ "$active" == 0 ]]; then
+            echo 'Usuário do build sem processos executáveis antes da transferência.'
+            return 0
+        fi
+        if (( attempt < 20 )); then
+            kill_build_processes "$uid"
+            sleep 0.25
+        fi
+    done
+    echo 'Ainda há processos do usuário de build.' >&2
+    return 1
+}
+
+transfer_unsigned_apk() {
+    local uid="$1" input="$2" output="$3"
+    wait_for_build_exit "$uid" || return 1
+    sudo test -f "$input" &&
+        sudo test ! -L "$input" &&
+        sudo install -m 600 -o "$(id -u)" -g "$(id -g)" -- "$input" "$output" || return 1
+    printf 'APK de entrada encaminhado: %s\n' "$(sha256sum < "$output" | cut -d' ' -f1)"
+}
+
+if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then return; fi
+
 set -euo pipefail
 set +x
 umask 077
@@ -18,7 +64,7 @@ builder="qa42-${sandbox##*.}"
 builder_uid=
 cleanup() {
     if [[ -n "$builder_uid" ]]; then
-        sudo pkill -KILL -u "$builder_uid" || true
+        kill_build_processes "$builder_uid"
         sudo userdel "$builder"
     fi
     sudo rm -rf -- "$sandbox"
@@ -76,22 +122,4 @@ sudo -u "$builder" -- env -i \
         rm -- "$HOME/firebase.json"
         bash scripts/qa_geral_celular_manual.sh build-round-42 "$1/out/unsigned.apk"
     ' bash "$sandbox"
-builder_is_active() {
-    # Um processo zumbi aguarda coleta do pai e não executa código.
-    sudo ps -u "$builder_uid" -o stat= | grep -E '^[[:space:]]*[^Z[:space:]]' >/dev/null
-}
-for attempt in {1..20}; do
-    if ! builder_is_active; then break; fi
-    sudo pkill -KILL -u "$builder_uid" || true
-    sleep 0.25
-done
-if builder_is_active; then
-    echo 'Ainda há processos do usuário de build.' >&2
-    exit 1
-fi
-echo 'Usuário do build sem processos executáveis antes da transferência.'
-input="$sandbox/out/unsigned.apk"
-sudo test -f "$input"
-sudo test ! -L "$input"
-sudo install -m 600 -o "$(id -u)" -g "$(id -g)" -- "$input" "$output"
-printf 'APK de entrada encaminhado: %s\n' "$(sha256sum < "$output" | cut -d' ' -f1)"
+transfer_unsigned_apk "$builder_uid" "$sandbox/out/unsigned.apk" "$output"
