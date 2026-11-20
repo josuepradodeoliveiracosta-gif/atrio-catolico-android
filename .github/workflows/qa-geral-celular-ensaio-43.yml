@@ -15,8 +15,11 @@ defaults:
 env:
   QA_BASE_SHA: '71ba0d669795a7705126a2484714564ef2144a7e'
   QA_BASE_TREE: 'cc6c3046ca2595f3bec714b4515da2d69f9a235b'
-  QA_SOURCE_SHA: 'e2e3f9e799b19c8bcc306b762a3ca5ad3cf8b4a4'
-  QA_SOURCE_TREE: '495becb6365e245be9871527d60b2ed1b8b81e64'
+  QA_SOURCE_SHA: '118b34e4474a60ddc16a6e9435d7b8e9e418cad3'
+  QA_SOURCE_TREE: '4d43730a27220173a84a887cf29462a3745f19ee'
+  QA_BUILD_MODE: 'fixture43'
+  QA_COMBINED_SHA: ''
+  QA_COMBINED_TREE: ''
   QA_ROUTE: '.github/workflows/qa-geral-celular-ensaio-43.yml'
   PYTHONDONTWRITEBYTECODE: '1'
 
@@ -49,6 +52,26 @@ jobs:
           printf 'Base %s / %s\n' "$QA_BASE_SHA" "$QA_BASE_TREE"
           printf 'HEAD do workflow %s / %s\n' "$PR_HEAD" "$(git rev-parse 'HEAD^{tree}')"
           git diff --exit-code "$QA_SOURCE_SHA" "$PR_HEAD" -- . ":(exclude)$QA_ROUTE"
+          case "$QA_BUILD_MODE" in
+            fixture43)
+              test -z "$QA_COMBINED_SHA" && test -z "$QA_COMBINED_TREE"
+              ;;
+            notice43)
+              [[ "$QA_COMBINED_SHA" =~ ^[0-9a-f]{40}$ && "$QA_COMBINED_TREE" =~ ^[0-9a-f]{40}$ ]]
+              git fetch --no-tags --depth=1 origin "$QA_COMBINED_SHA"
+              test "$(git rev-parse "$QA_COMBINED_SHA^{tree}")" = "$QA_COMBINED_TREE"
+              printf 'Composição do Chat 6: %s / %s\n' "$QA_COMBINED_SHA" "$QA_COMBINED_TREE"
+              git diff --exit-code "$QA_COMBINED_SHA" "$QA_SOURCE_SHA" -- . \
+                ':(exclude)app/build.gradle.kts' \
+                ':(exclude)scripts/qa_geral_celular_build42.sh' \
+                ':(exclude)scripts/qa_geral_celular_manual.sh' \
+                ':(exclude)scripts/qa_geral_celular_round42.py' \
+                ':(exclude)scripts/qa_geral_celular_round43.py' \
+                ':(exclude)scripts/test_qa_geral_celular_round43.py' \
+                ":(exclude)$QA_ROUTE"
+              ;;
+            *) exit 2 ;;
+          esac
           python3 -m scripts.qa_geral_celular_round42 source candidate "$QA_SOURCE_SHA" "$QA_SOURCE_TREE"
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
@@ -62,12 +85,12 @@ jobs:
           gradle-version: '8.13'
           cache-disabled: true
       - name: Testar os controles de transferência, metadados e assinatura
-        run: python3 -m unittest scripts.test_qa_geral_celular_round42 scripts.test_qa_geral_celular_signature -v
+        run: python3 -m unittest scripts.test_qa_geral_celular_round42 scripts.test_qa_geral_celular_round43 scripts.test_qa_geral_celular_signature -v
       - name: Compilar com configuração fictícia em conta descartável
         id: build
         run: |
           bash scripts/qa_geral_celular_build42.sh candidate "$QA_SOURCE_SHA" "$QA_SOURCE_TREE" \
-            "$RUNNER_TEMP/qa43-unsigned.apk" fixture43
+            "$RUNNER_TEMP/qa43-unsigned.apk" "$QA_BUILD_MODE"
           printf 'sha256=%s\n' "$(sha256sum < "$RUNNER_TEMP/qa43-unsigned.apk" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -92,7 +115,15 @@ jobs:
           printf 'APK sem assinatura recebido: %s\n' "$received_hash"
           tools="$ANDROID_HOME/build-tools/36.0.0"
           verifier=(python3 -m scripts.qa_geral_celular_round43)
-          "${verifier[@]}" metadata "$unsigned" --build-tools "$tools"
+          metadata_args=(--build-tools "$tools")
+          if [[ "$QA_BUILD_MODE" == notice43 ]]; then
+            metadata_args+=(--notice-lab)
+          fi
+          "${verifier[@]}" metadata "$unsigned" "${metadata_args[@]}"
+          if "$tools/apksigner" verify "$unsigned"; then
+            echo 'O APK recebido já tem assinatura.' >&2
+            exit 1
+          fi
           if ! command -v age >/dev/null; then
             sudo apt-get update -qq
             sudo apt-get install -y age
@@ -116,7 +147,7 @@ jobs:
           age --decrypt --identity "$work/identity" --output "$work/recovered.apk" "$work/signed.apk.age"
           proof=("${verifier[@]}" proof .)
           "${proof[@]}" "$QA_SOURCE_SHA" "$QA_SOURCE_TREE" "$apk_hash" "$cert_hash" \
-            "$work/recovered.apk" --build-tools "$tools" | tee "$work/proof"
+            "$work/recovered.apk" "${metadata_args[@]}" | tee "$work/proof"
           reject() {
             local label="$1"
             shift
@@ -129,19 +160,22 @@ jobs:
           wrong_git="$(printf '%040d' 0)"
           wrong_digest="$(printf '%064d' 0)"
           reject "SHA Git" "${proof[@]}" "$wrong_git" "$QA_SOURCE_TREE" "$apk_hash" "$cert_hash" \
-            "$work/recovered.apk" --build-tools "$tools"
+            "$work/recovered.apk" "${metadata_args[@]}"
           reject "árvore Git" "${proof[@]}" "$QA_SOURCE_SHA" "$wrong_git" "$apk_hash" "$cert_hash" \
-            "$work/recovered.apk" --build-tools "$tools"
+            "$work/recovered.apk" "${metadata_args[@]}"
           reject "certificado" "${proof[@]}" "$QA_SOURCE_SHA" "$QA_SOURCE_TREE" "$apk_hash" "$wrong_digest" \
-            "$work/recovered.apk" --build-tools "$tools"
+            "$work/recovered.apk" "${metadata_args[@]}"
           reject "APK sem assinatura" "${proof[@]}" "$QA_SOURCE_SHA" "$QA_SOURCE_TREE" "$received_hash" "$cert_hash" \
-            "$unsigned" --build-tools "$tools"
+            "$unsigned" "${metadata_args[@]}"
           printf 'alteração de bytes' >> "$work/recovered.apk"
           reject "hash do APK" "${proof[@]}" "$QA_SOURCE_SHA" "$QA_SOURCE_TREE" "$apk_hash" "$cert_hash" \
-            "$work/recovered.apk" --build-tools "$tools"
+            "$work/recovered.apk" "${metadata_args[@]}"
           {
             printf '## APK 43 — ensaio com configuração e chave fictícias\n\n'
             printf 'APK sem assinatura recebido: `%s`\n\n' "$received_hash"
+            if [[ "$QA_BUILD_MODE" == notice43 ]]; then
+              printf 'Composição do Chat 6: `%s` / `%s`\n\n' "$QA_COMBINED_SHA" "$QA_COMBINED_TREE"
+            fi
             printf '```json\n'
             tail -n 1 "$work/proof"
             printf '```\n'
