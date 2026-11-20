@@ -81,7 +81,11 @@ chmod -R a+rX,go-w "$sandbox/gradle"
 git -C "$candidate" archive "$sha" -- . ':(exclude)app/google-services.json' |
     tar -x -C "$sandbox/source"
 
+build_action=build-round-42
 case "$mode" in
+    fixture43)
+        build_action=build-round-43-fixture
+        ;;
     fixture)
         python3 - > "$sandbox/home/firebase.json" <<'PY'
 import json
@@ -118,8 +122,10 @@ sudo -u "$builder" -- env -i \
         printf "%s\n" "$version"
         printf "%s\n" "$version" | grep -Fxq "Gradle 8.13"
         cd "$1/source"
-        export ATRIO_QA_CELULAR_GOOGLE_SERVICES_JSON="$(cat "$HOME/firebase.json")"
-        rm -- "$HOME/firebase.json"
-        bash scripts/qa_geral_celular_manual.sh build-round-42 "$1/out/unsigned.apk"
-    ' bash "$sandbox"
+        if [[ "$2" != build-round-43-fixture ]]; then
+            export ATRIO_QA_CELULAR_GOOGLE_SERVICES_JSON="$(cat "$HOME/firebase.json")"
+            rm -- "$HOME/firebase.json"
+        fi
+        bash scripts/qa_geral_celular_manual.sh "$2" "$1/out/unsigned.apk"
+    ' bash "$sandbox" "$build_action"
 transfer_unsigned_apk "$builder_uid" "$sandbox/out/unsigned.apk" "$output"

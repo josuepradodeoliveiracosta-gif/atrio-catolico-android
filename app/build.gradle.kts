@@ -29,10 +29,15 @@ val atrioQaGeralCelularFunctional = System.getenv("ATRIO_QA_GERAL_CELULAR_FUNCIO
 val atrioQaGeralCelularRoundFixture = System.getenv("ATRIO_QA_GERAL_CELULAR_RODADA_FIXTURE") == "1"
 val atrioQaGeralCelularRound41 = System.getenv("ATRIO_QA_GERAL_CELULAR_RODADA") == "1"
 val atrioQaGeralCelularRound42 = System.getenv("ATRIO_QA_GERAL_CELULAR_RODADA42") == "1"
+val atrioQaGeralCelularRound43Fixture = System.getenv("ATRIO_QA_GERAL_CELULAR_RODADA43_FIXTURE") == "1"
 require(!(atrioQaGeralCelularRound41 && atrioQaGeralCelularRound42)) {
     "Escolha somente uma rodada de QA Geral Celular."
 }
 val atrioQaGeralCelularRound = atrioQaGeralCelularRound41 || atrioQaGeralCelularRound42
+require(!atrioQaGeralCelularRound43Fixture ||
+    (atrioQaGeralCelularRoundFixture && !atrioQaGeralCelularRound)) {
+    "A rodada 43 deste ensaio exige a configuração fictícia exclusiva."
+}
 val atrioQaGeralCelularUnsigned = System.getenv("ATRIO_QA_GERAL_CELULAR_UNSIGNED_BUILD") == "1"
 val atrioQaGeralCelularPairCode = System.getenv("ATRIO_QA_GERAL_CELULAR_PAIR_CODE").orEmpty()
 require(atrioQaGeralCelularPairCode.isEmpty() ||
@@ -455,6 +460,7 @@ androidComponents {
             val suffix = if (atrioQaGeralRemote) "qa-geral-celular" else "qa-geral"
             val pairSuffix = if (atrioQaGeralCelularPairCode.isEmpty()) "" else "-$atrioQaGeralCelularPairCode"
             val functionalSuffix = when {
+                atrioQaGeralCelularRound43Fixture -> "-rodada-43"
                 atrioQaGeralCelularRound42 -> "-rodada-42"
                 atrioQaGeralCelularRound || atrioQaGeralCelularRoundFixture -> "-rodada-41"
                 atrioQaGeralCelularFunctional -> "-funcional"
@@ -462,6 +468,7 @@ androidComponents {
             }
             output.versionName.set("$atrioDebugVersionName-$suffix$pairSuffix$functionalSuffix")
             val code = when {
+                atrioQaGeralCelularRound43Fixture -> 43
                 atrioQaGeralCelularRound42 -> 42
                 atrioQaGeralCelularRound || atrioQaGeralCelularRoundFixture -> 41
                 atrioQaGeralCelularFunctional -> 40
