@@ -57,14 +57,21 @@ export function createConversationPushAdminService({
           throw new Error('operation_key_reused');
         if (action==='admit' && millis(previous.expiresAt)!==expiresAt.getTime())
           throw new Error('operation_key_reused');
+        // Uma operação já registrada não pode ser revalidada após mudança de geração.
+        if (!oldAdmission.exists || oldAdmission.data()?.generation!==previous.generation)
+          throw new Error('stale_admission_generation');
         return {generation:previous.generation, replay:true};
       }
       const previous=oldAdmission.exists ? oldAdmission.data() : null;
       if ((previous?.generation ?? null)!==expectedGeneration) throw new Error('stale_admission_generation');
       if (action==='revoke') {
-        const generation=previous?.generation ?? null;
-        if (oldAdmission.exists) tx.update(ref,{status:'revoked'});
-        tx.create(op,{action,roundId:identity.roundId,generation,expectedGeneration,createdAt:serverTimestamp()});
+        // A revogação é também uma barreira de versão: invalida imediatamente
+        // intenções capturadas antes dela, mesmo sem readmissão posterior.
+        const generation=uuid();
+        tx.set(ref,{roundId:identity.roundId,status:'revoked',
+          email:identity.accounts[uid],generation,
+          admittedAt:serverTimestamp(),expiresAt:new Date(0)});
+        tx.create(op,{action,roundId:identity.roundId,generation,expectedGeneration,operatorUid:principal,createdAt:serverTimestamp()});
         return {generation,replay:false};
       }
       const generation=uuid();
@@ -73,7 +80,7 @@ export function createConversationPushAdminService({
         generation,admittedAt:serverTimestamp(),expiresAt,
       };
       tx.set(ref,record);
-      tx.create(op,{action,roundId:identity.roundId,generation,expectedGeneration,expiresAt,
+      tx.create(op,{action,roundId:identity.roundId,generation,expectedGeneration,operatorUid:principal,expiresAt,
         createdAt:serverTimestamp()});
       return {generation,replay:false};
     });
@@ -126,7 +133,7 @@ export function createConversationPushAdminService({
         senderGeneration:left.generation,recipientGeneration:right.generation,
       };
       tx.set(pendingRef,record);
-      tx.create(receiptRef,{roundId:identity.roundId,senderGeneration:left.generation,recipientGeneration:right.generation,expiresAt,createdAt:serverTimestamp()});
+      tx.create(receiptRef,{roundId:identity.roundId,senderGeneration:left.generation,recipientGeneration:right.generation,operatorUid:principal,expiresAt,createdAt:serverTimestamp()});
       return {senderGeneration:left.generation,recipientGeneration:right.generation,replay:false};
     });
   }
