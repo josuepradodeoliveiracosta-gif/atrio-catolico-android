@@ -10,10 +10,11 @@ on:
       - 'app/src/main/java/br/com/atriocatolico/AtrioPushService.kt'
       - 'app/src/main/java/br/com/atriocatolico/MainActivity.kt'
       - 'app/src/main/java/br/com/atriocatolico/OnlineAtrioApp.kt'
-      - 'app/src/qaGeral/AndroidManifest.notices*.xml'
+      - 'app/src/qaGeral/AndroidManifest.*.xml'
       - 'app/src/qaEmulator/res/xml/qa_emulator_network_security.xml'
       - 'app/build.gradle.kts'
       - 'scripts/run-qa-android-emulator.sh'
+      - 'scripts/test_qa_android_variant_isolation.py'
       - 'tests/security/*qa-conversation-notice-android.mjs'
       - 'cloudflare/push-worker/scripts/conversation-push-pilot.mjs'
       - 'tests/security/qa-conversation-push-*.test.mjs'
@@ -53,6 +54,7 @@ jobs:
       - name: Compilar o APK isolado
         run: |
           git rev-parse HEAD HEAD^{tree}
+          python3 scripts/test_qa_android_variant_isolation.py
           rm -f -- app/google-services.json
           bash scripts/qa-android-prebuild.sh start
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4

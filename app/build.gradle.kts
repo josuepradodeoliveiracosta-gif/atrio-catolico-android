@@ -464,8 +464,10 @@ android {
         sourceSets.getByName("qaGeral").manifest.srcFile("src/qaGeral/AndroidManifest.notices.https.xml")
     } else if (atrioQaGeralPush) {
         sourceSets.getByName("qaGeral").manifest.srcFile("src/qaGeral/AndroidManifest.push.xml")
+    } else if (atrioQaGeralRemote) {
+        sourceSets.getByName("qaGeral").manifest.srcFile("src/qaGeral/AndroidManifest.remote.xml")
     }
-    if (atrioQaNoticeOrigin.isEmpty()) {
+    if (!atrioQaGeralRemote) {
         sourceSets.getByName("qaGeral").res.srcDir("src/qaEmulator/res")
     }
     if (atrioQaConversationNoticeLab) {
