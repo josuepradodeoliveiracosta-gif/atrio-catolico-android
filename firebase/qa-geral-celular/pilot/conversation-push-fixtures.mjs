@@ -10,7 +10,7 @@ export const conversationPushPilot = Object.freeze({
   recipientUid: bob.uid,
 });
 
-export function conversationPushPilotDocuments(now = new Date()) {
+export function conversationPushPilotDocuments(now = new Date(), admittedAt = new Date(now.getTime() - 60_000)) {
   const pilot = conversationPushPilot;
   const deadline = new Date(now.getTime() + 4 * 60_000);
   const room = 'chats/' + pilot.conversationId;
@@ -36,7 +36,6 @@ export function conversationPushPilotDocuments(now = new Date()) {
   rows.set(room + '/messages/' + pilot.messageId, {
     uid: alice.uid, kind: 'text', text: 'Mensagem fictícia do teste 08–09', createdAt: now,
   });
-  const admittedAt = new Date(now.getTime() - 60_000);
   const from = createConversationPushAdmission(alice.uid, admittedAt, deadline);
   const to = createConversationPushAdmission(bob.uid, admittedAt, deadline);
   rows.set('users/' + alice.uid + '/chatPushAdmission/current', from);

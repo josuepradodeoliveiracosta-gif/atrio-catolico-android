@@ -52,6 +52,14 @@ aplicar a mesma rotação de geração no servidor.
 [Paridade do Chat 2](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/issues/200#issuecomment-7025224643) ·
 [Auditoria do Chat 4](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/pull/358#pullrequestreview-5985117653)
 
+Para restaurar elegibilidade 18+, grave primeiro a autorização em
+`chatAgeEligibility/current`. A leitura manual volta pelas Rules. O Worker
+exige que a última alteração desse registro para cada participante seja
+estritamente anterior ao `admittedAt` de sua concessão de push. Qualquer
+alteração posterior preserva o bloqueio dos avisos antigos. Uma nova
+concessão explícita de push usa uma geração nova e exige uma mensagem
+posterior à concessão. A consulta e a entrega usam a mesma checagem.
+
 ## Sinal e validação Android
 
 O ensaio JVM modela um sinal somente de dados, com uma chave fixa e

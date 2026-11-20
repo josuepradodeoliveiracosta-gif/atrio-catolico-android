@@ -17,12 +17,23 @@ const qaPilotAccountValid = account => !!account && account.disabled !== true
 const qaPilotFuture = field => typeof field?.timestampValue === 'string'
   && Date.parse(field.timestampValue) > Date.now();
 
-function qaPilotAdmitted(admission, uid) {
+function qaPilotTimestamp(value) {
+  if (typeof value !== 'string' || !Number.isFinite(Date.parse(value))) return null;
+  const parts = /^([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?:[.]([0-9]{1,9}))?Z$/.exec(value);
+  return parts ? parts[1]+'.'+(parts[2] ?? '').padEnd(9,'0')+'Z' : null;
+}
+
+function qaPilotAdmitted(admission, eligibility, uid) {
   const generation = stringField(admission,'generation');
   const admittedAt = timeField(admission,'admittedAt');
+  const grantTime = qaPilotTimestamp(admission?.fields?.admittedAt?.timestampValue);
+  const eligibilityTime = qaPilotTimestamp(eligibility?.updateTime);
+  // Uma versão de elegibilidade posterior exige nova concessão explícita de push.
+  // updateTime é metadado do Firestore, com precisão superior a Date em JavaScript.
   return typeof generation === 'string' &&
     /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(generation)
     && admittedAt > 0 && admittedAt <= Date.now()
+    && grantTime !== null && eligibilityTime !== null && eligibilityTime < grantTime
     && stringField(admission,'status') === 'active'
     && stringField(admission,'roundId') === qaPilot.roundId
     && qaPilotFuture(admission?.fields?.expiresAt)
@@ -49,10 +60,12 @@ async function qaPilotAllowsNotice(token, sender, recipient, event) {
       sender===recipient || event.kind!=='chat_message' || !uidPart(event.chatId) ||
       !uidPart(event.messageId)) return false;
   try {
-    const [settings,from,to,pending,room,mute,message] = await qaReadAuthorizationDocs(token,[
+    const [settings,from,to,fromEligibility,toEligibility,pending,room,mute,message] = await qaReadAuthorizationDocs(token,[
       'app_config/conversations',
       'users/'+enc(sender)+'/chatPushAdmission/current',
       'users/'+enc(recipient)+'/chatPushAdmission/current',
+      'users/'+enc(sender)+'/chatAgeEligibility/current',
+      'users/'+enc(recipient)+'/chatAgeEligibility/current',
       'users/'+enc(recipient)+'/chatPushPending/current',
       'chats/'+enc(event.chatId),
       'users/'+enc(recipient)+'/chatBox/'+enc(event.chatId),
@@ -64,7 +77,8 @@ async function qaPilotAllowsNotice(token, sender, recipient, event) {
         || stringField(round,'ageMode')!==qaPilot.ageMode
         || stringField(round,'roundId')!==qaPilot.roundId
         || !qaPilotFuture(round?.fields?.expiresAt)
-        || !qaPilotAdmitted(from,sender) || !qaPilotAdmitted(to,recipient)) return false;
+        || !qaPilotAdmitted(from,fromEligibility,sender)
+        || !qaPilotAdmitted(to,toEligibility,recipient)) return false;
     const allowedFields=['kind','conversationId','messageId','senderUid','unread','roundId','expiresAt',
       'senderGeneration','recipientGeneration'];
     if (Object.keys(pending?.fields ?? {}).some(field=>!allowedFields.includes(field))

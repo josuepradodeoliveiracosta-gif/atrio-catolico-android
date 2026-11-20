@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {createHash,generateKeyPairSync} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import test from 'node:test';
+import {setTimeout as delay} from 'node:timers/promises';
+import {isDeepStrictEqual} from 'node:util';
 import {assertFails, initializeTestEnvironment} from '@firebase/rules-unit-testing';
 import {collection,deleteDoc,doc,getDocFromServer,getDocsFromServer,limit,query,setDoc,
   where,writeBatch} from 'firebase/firestore';
@@ -14,7 +16,7 @@ import {conversationPushPilot as pilot,conversationPushPilotDocuments}
   from '../../firebase/qa-geral-celular/pilot/conversation-push-fixtures.mjs';
 import {createConversationPushAdmission}
   from '../../firebase/qa-geral-celular/pilot/conversation-push-policy.mjs';
-import {projectId as demoProject} from '../../firebase/qa-geral-celular/pilot/fixtures.mjs';
+import {pilotDocuments, projectId as demoProject} from '../../firebase/qa-geral-celular/pilot/fixtures.mjs';
 
 const emulatorHost=process.env.FIRESTORE_EMULATOR_HOST ?? '';
 assert.match(emulatorHost,/^127\.0\.0\.1:[0-9]{1,5}$/,
@@ -167,7 +169,13 @@ test('mesmos documentos para Rules e Worker de Conversas do piloto DM #199',asyn
   }).firestore();
   async function seed(change=()=>{}) {
     await env.clearFirestore();
-    const rows=new Map(conversationPushPilotDocuments());
+    const proofs=new Map(pilotDocuments(new Date()).filter(([path])=>path===age(sender) || path===age(recipient)));
+    await put(proofs);
+    await delay(5); // Deixar a comprovação 18+ anterior à concessão, inclusive no mesmo relógio de teste.
+    const admittedAt=new Date();
+    await delay(5);
+    const rows=new Map(conversationPushPilotDocuments(new Date(),admittedAt));
+    for (const [path,proof] of proofs) rows.set(path,structuredClone(proof));
     if (reverse) {
       rows.set(room,{...rows.get(room),lastSenderUid:sender,unreadRequester:1,unreadRecipient:0});
       rows.set(event,{...rows.get(event),uid:sender});
@@ -183,7 +191,12 @@ test('mesmos documentos para Rules e Worker de Conversas do piloto DM #199',asyn
       token:'fixture-device-token-for-recipient',updatedAt:new Date(),
     });
     change(rows);
-    await put(rows);
+    const writes=new Map(rows);
+    for (const [path,proof] of proofs) {
+      if (!rows.has(path)) writes.set(path,null);
+      else if (isDeepStrictEqual(rows.get(path),proof)) writes.delete(path);
+    }
+    await put(writes);
     return rows;
   }
   async function put(rows) {
@@ -313,6 +326,53 @@ test('mesmos documentos para Rules e Worker de Conversas do piloto DM #199',asyn
     });
   }
 
+  for (const [role,uid] of [['autor',sender],['destinatário',recipient]]) {
+    for (const removeProof of [false,true]) {
+      const change=removeProof ? 'exclusão' : 'revogação';
+      await t.test('restauração 18+ após '+change+' do '+role+' recupera só a leitura manual',async sub=>{
+        const rows=await seed();
+        const fixture=useExternalFixtures(sub);
+        await assertNotice(fixture);
+        const proofPath=age(uid);
+        const proof=rows.get(proofPath);
+        await put([[proofPath,removeProof ? null : {...proof,status:'revoked'}]]);
+        await assertFails(getDocFromServer(doc(session(uid),event)));
+        await assertNotice(fixture,404);
+
+        await put([[proofPath,proof]]); // Restauração autorizada no contexto privilegiado do Emulator.
+        for (const account of [sender,recipient]) {
+          const manual=await getDocFromServer(doc(session(account),event));
+          assert.equal(manual.get('text'),rows.get(event).text);
+        }
+        // As admissões e a pendência anteriores continuam intactas na fixture.
+        await assertNotice(fixture,404);
+        assert.equal((await worker.fetch(request(),fixture.env)).status,202);
+        assert.equal(fixture.stats().reserved,0);
+        assert.equal(fixture.stats().sent,0);
+
+        const renewed=createConversationPushAdmission(uid,new Date(),rows.get(admission(uid)).expiresAt);
+        await put([[admission(uid),renewed]]);
+        await assertNotice(fixture,404); // A nova concessão também não reabilita a pendência anterior.
+        const renewedPending={...rows.get(pending),
+          [uid===sender ? 'senderGeneration' : 'recipientGeneration']:renewed.generation};
+        await put([[pending,renewedPending]]);
+        await assertNotice(fixture,404); // Nem mesmo após religar o evento antigo à geração nova.
+
+        const newId='mensagem-apos-restauracao';
+        const createdAt=new Date();
+        await put([
+          [room,{...rows.get(room),lastMessageId:newId,updatedAt:createdAt}],
+          [room+'/messages/'+newId,{...rows.get(event),createdAt}],
+          [pending,{...renewedPending,messageId:newId}],
+        ]);
+        await assertNotice(fixture,200,newId);
+        assert.equal((await worker.fetch(request(pilot.projectId,newId),fixture.env)).status,202);
+        assert.equal(fixture.stats().reserved,1);
+        assert.equal(fixture.stats().sent,1);
+      });
+    }
+  }
+
   await t.test('flag de push desligada não autoriza solicitação ao backend',async sub=>{
     const fixture=useExternalFixtures(sub);
     fixture.env.PUSH_ENABLED='false';
@@ -397,5 +457,22 @@ test('mesmos documentos para Rules e Worker de Conversas do piloto DM #199',asyn
     assert.equal((await response.json()).status,'authorization_interrupted');
     assert.equal(fixture.stats().reserved,1);
     assert.equal(fixture.stats().sent,0);
+  });
+
+  await t.test('restaurar 18+ durante a reserva D1 não libera a entrega antiga',async sub=>{
+    const rows=await seed();
+    const proofPath=age(recipient);
+    const proof=rows.get(proofPath);
+    const fixture=useExternalFixtures(sub,{afterReservation:async()=>{
+      await put([[proofPath,{...proof,status:'revoked'}]]);
+      await put([[proofPath,proof]]);
+    }});
+    const response=await worker.fetch(request(),fixture.env);
+    assert.equal(response.status,503);
+    assert.equal((await response.json()).status,'authorization_interrupted');
+    assert.equal(fixture.stats().reserved,1);
+    assert.equal(fixture.stats().sent,0);
+    await assertNotice(fixture,404);
+    assert.equal((await getDocFromServer(doc(session(),event))).get('text'),rows.get(event).text);
   });
 });

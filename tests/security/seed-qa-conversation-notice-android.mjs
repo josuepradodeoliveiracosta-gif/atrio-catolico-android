@@ -47,6 +47,15 @@ try {
   const admissionPath = uid => 'users/' + uid + '/chatPushAdmission/current';
   const pendingPath = 'users/' + bob.uid + '/chatPushPending/current';
   const expiresAt = new Date(Date.now() + 4 * 60_000);
+  const now = new Date();
+  const rows = new Map(conversationPushPilotDocuments(now));
+  const proofBatch = db.batch();
+  for (const {uid} of [alice, bob]) {
+    const path = 'users/' + uid + '/chatAgeEligibility/current';
+    proofBatch.set(db.doc(path), rows.get(path));
+    rows.delete(path);
+  }
+  await proofBatch.commit();
   const grant = async uid => {
     const admission = await db.doc(admissionPath(uid)).get();
     return admin.admit({
@@ -58,8 +67,6 @@ try {
   const [sender, recipient] = await Promise.all([grant(alice.uid), grant(bob.uid)]);
   // O serviço exige que a mensagem seja posterior às duas admissões no relógio do Emulator.
   await delay(10);
-  const now = new Date();
-  const rows = new Map(conversationPushPilotDocuments(now));
   rows.delete(admissionPath(alice.uid));
   rows.delete(admissionPath(bob.uid));
   rows.delete(pendingPath);
