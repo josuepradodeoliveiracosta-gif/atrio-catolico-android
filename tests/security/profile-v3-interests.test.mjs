@@ -29,6 +29,8 @@ const prefsPath = 'users/' + uid + '/private/preferences';
 const linkPath = profilePath + '/interest_discussions/current';
 const postId = 'qa-selected-discussion';
 const title = 'Discussão escolhida para QA';
+const replacementId = 'qa-discussion-2';
+const replacementTitle = 'Outra discussão da mesma categoria';
 const joinedAt = Timestamp.fromMillis(1000);
 const publicBase = {displayName:'Titular QA', bio:'Apresentação anterior', joinedAt};
 const profileBase = {
@@ -115,7 +117,7 @@ try {
       setDoc(doc(db, profilePath), {...publicBase,updatedAt:joinedAt}),
       setDoc(doc(db, 'app_config/email_verification'), {enabled:true,version:'2026-11-v1'}),
       ...[postId,'qa-discussion-2','qa-discussion-3'].map(id => setDoc(doc(db,'posts/' + id), {
-        uid:authorUid, title, authorName:'Autor QA', body:'Texto fictício', category:'Pedidos de oração',
+        uid:authorUid, title:id === replacementId ? replacementTitle : title, authorName:'Autor QA', body:'Texto fictício', category:'Pedidos de oração',
         createdAt:joinedAt,
       })),
     ]);
@@ -173,6 +175,32 @@ try {
   await deleteDoc(doc(visitor,'users/qa-visitor/blockedMembers/' + authorUid));
   console.log('PASS rota Worker com Auth/Firestore Emulator; ID e título somente para leitura confirmada');
 
+
+  const editedQuestion = 'Qual hábito ajuda você a rezar no dia a dia?';
+  await writeInterests(visible,{...threeLinks,oracao:{question:editedQuestion,postId}});
+  assert.deepEqual((await getDoc(doc(visitor,profilePath))).data().interestQuestions,
+    {oracao:editedQuestion,comunidade:threeLinks.comunidade.question});
+  assert.deepEqual((await getDoc(linkRef)).data().postIds,
+    {oracao:postId,formacao:'qa-discussion-2',comunidade:'qa-discussion-3'});
+  assert.deepEqual(await resolve(permitted), {status:'available',postId,title});
+  await writeInterests(visible,{...threeLinks,oracao:{postId}});
+  assert.deepEqual((await getDoc(doc(visitor,profilePath))).data().interestQuestions,
+    {comunidade:threeLinks.comunidade.question});
+  assert.deepEqual(await resolve(permitted), {status:'available',postId,title});
+  console.log('PASS titular edita e apaga a pergunta; visitante vê a revisão e conserva o mesmo vínculo');
+
+  beforePostRead = async () => {
+    beforePostRead = undefined;
+    await writeInterests(visible,{...threeLinks,oracao:{question:editedQuestion,postId:replacementId}});
+  };
+  assert.deepEqual(await resolve(permitted), unavailable);
+  assert.deepEqual(await resolve(permitted),
+    {status:'available',postId:replacementId,title:replacementTitle});
+  assert.deepEqual(await resolve(refused), unavailable);
+  await writeInterests(visible,threeLinks);
+  assert.deepEqual(await resolve(permitted), {status:'available',postId,title});
+  console.log('PASS consulta em andamento descarta o ID antigo; nova consulta confirma somente o novo ID exato');
+
   const prefsBefore = (await getDoc(doc(owner,prefsPath))).data();
   const remaining = {formacao:threeLinks.formacao, comunidade:threeLinks.comunidade};
   await assertFails(writeInterests(['Formação','Comunidade'],remaining,{skipPublic:true}));
@@ -214,6 +242,7 @@ try {
   assert.equal((await getDoc(linkRef)).exists(), false);
   assert.equal((await getDoc(profileRef)).data().interestQuestions, undefined);
   assert.deepEqual((await getDoc(doc(owner,prefsPath))).data(), prefsBefore);
+  assert.deepEqual(await resolve(permitted), unavailable);
   console.log('PASS discussão excluída sem metadados e revogação V3 integral com Cadastro V2 intacto');
 
   await deleteDoc(profileRef);
