@@ -25,8 +25,8 @@ defaults:
 env:
   QA_BASE_SHA: '759b61c126580c628f0dfb74559bcc3bc4e37586'
   QA_BASE_TREE: '23fefdc726b4a1c7412351d916601baae05ffcca'
-  QA_SOURCE_SHA: '9a99c432baa130ace49bccead5194d807eabf820'
-  QA_SOURCE_TREE: '26700fb9a7723496117694da0b309ce97ef00ffb'
+  QA_SOURCE_SHA: 'ff9c990df818de095bbdf1973540e7b6ca611493'
+  QA_SOURCE_TREE: 'df1ee5d9766efceabf4f6587fa15ca88f6bd7ca9'
   QA_CANDIDATE_PR: '382'
   QA_ROUTE: '.github/workflows/qa-geral-celular-assinar-42.yml'
 
@@ -81,9 +81,11 @@ jobs:
         with:
           gradle-version: '8.13'
           cache-disabled: true
+      - name: Verificar recusas antes da transferência do APK
+        run: python3 -m unittest scripts.test_qa_geral_celular_round42.BuildTransferTest -v
       - name: Compilar com configuração sintética em área isolada
         run: |
-          python3 -m unittest scripts.test_qa_geral_celular_round42 scripts.test_qa_geral_celular_signature -v
+          python3 -m unittest scripts.test_qa_geral_celular_round42.Round42Test scripts.test_qa_geral_celular_signature -v
           bash scripts/qa_geral_celular_build42.sh candidate "$QA_SOURCE_SHA" "$QA_SOURCE_TREE" \
             "$RUNNER_TEMP/qa42-unsigned.apk" fixture
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -174,7 +176,7 @@ jobs:
       github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android' &&
       github.ref == 'refs/heads/main' && github.ref_protected &&
       github.actor == 'josuepradodeoliveiracosta-gif' &&
-      github.run_attempt == 1 && inputs.source_sha == '9a99c432baa130ace49bccead5194d807eabf820'
+      github.run_attempt == 1 && inputs.source_sha == 'ff9c990df818de095bbdf1973540e7b6ca611493'
     environment: qa-geral-celular-assinatura
     runs-on: ubuntu-latest
     timeout-minutes: 20
