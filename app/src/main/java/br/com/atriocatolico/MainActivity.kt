@@ -6,6 +6,7 @@ import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.combinedClickable
 import android.content.Context
+import android.content.Intent
 import android.content.SharedPreferences
 import android.os.Bundle
 import android.widget.Toast
@@ -185,6 +186,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        QaConversationNotices.openFrom(this, intent)
         val prefs = getSharedPreferences("atrio-demo", Context.MODE_PRIVATE)
         setContent {
             if ((BuildConfig.ATRIO_QA_GERAL_REMOTE || BuildConfig.ATRIO_QA_GERAL_CELULAR_FICTICIO) &&
@@ -204,7 +206,7 @@ class MainActivity : ComponentActivity() {
                 }
             } else if (OtaQaChannel.active) {
                 OtaQaScreen()
-            } else if (startupState.opening) {
+            } else if (startupState.opening && !QaConversationNotices.enabled(this@MainActivity)) {
                 AtrioTheme {
                     AtrioStartupVideo(this@MainActivity) { startupState.opening = false }
                 }
@@ -214,6 +216,11 @@ class MainActivity : ComponentActivity() {
                 AtrioDemoApp(prefs)
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        QaConversationNotices.openFrom(this, intent)
     }
 }
 

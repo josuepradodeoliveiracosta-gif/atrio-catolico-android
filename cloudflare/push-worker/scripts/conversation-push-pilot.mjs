@@ -1,0 +1,151 @@
+// Variante em memória sobre o Worker de Conversas da #358, para a prova #199.
+// O gerador, banco e flags do candidato histórico continuam separados.
+import {renderQaWorker} from './chat-qa-build.mjs';
+import {conversationPushIdentity as identity}
+  from '../../../firebase/qa-geral-celular/pilot/conversation-push-policy.mjs';
+
+function replaceOnce(content, anchor, replacement) {
+  if (content.split(anchor).length !== 2) throw Error('chat_push_pilot_anchor_changed');
+  return content.replace(anchor, () => replacement);
+}
+
+const pilotChecks = `
+const qaPilot = ${JSON.stringify(identity)};
+const qaPilotAccountValid = account => !!account && account.disabled !== true
+  && Object.hasOwn(qaPilot.accounts, account.localId)
+  && account.emailVerified === true && account.email === qaPilot.accounts[account.localId];
+const qaPilotFuture = field => typeof field?.timestampValue === 'string'
+  && Date.parse(field.timestampValue) > Date.now();
+
+function qaPilotAdmitted(admission, uid) {
+  return stringField(admission,'status') === 'active'
+    && stringField(admission,'roundId') === qaPilot.roundId
+    && qaPilotFuture(admission?.fields?.expiresAt)
+    && stringField(admission,'email') === qaPilot.accounts[uid];
+}
+
+async function qaPilotAccountsValid(token, sender, recipient) {
+  const response = await qaNoRedirectFetch(
+    'https://identitytoolkit.googleapis.com/v1/projects/'+PROJECT+'/accounts:lookup', {
+      method:'POST',
+      headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+      body:JSON.stringify({localId:[sender,recipient]})
+    });
+  if (!response.ok) return false;
+  const {users} = await response.json();
+  return Array.isArray(users) && users.length === 2 &&
+    new Set(users.map(account => account?.localId)).size === 2 &&
+    users.every(account => qaPilotAccountValid(account)
+      && (account.localId===sender || account.localId===recipient));
+}
+
+async function qaPilotAllowsNotice(token, sender, recipient, event) {
+  if (!Object.hasOwn(qaPilot.accounts,sender) || !Object.hasOwn(qaPilot.accounts,recipient) ||
+      sender===recipient || event.kind!=='chat_message' || !uidPart(event.chatId) ||
+      !uidPart(event.messageId)) return false;
+  try {
+    const [settings,from,to,pending,room,mute] = await qaReadAuthorizationDocs(token,[
+      'app_config/conversations',
+      'users/'+enc(sender)+'/chatPushAdmission/current',
+      'users/'+enc(recipient)+'/chatPushAdmission/current',
+      'users/'+enc(recipient)+'/chatPushPending/current',
+      'chats/'+enc(event.chatId),
+      'users/'+enc(recipient)+'/chatBox/'+enc(event.chatId)
+    ]);
+    const round = settings?.fields?.pushPilot?.mapValue;
+    if (!boolField(round,'enabled') || stringField(round,'projectId')!==PROJECT
+        || stringField(round,'databaseId')!==qaPilot.databaseId
+        || stringField(round,'ageMode')!==qaPilot.ageMode
+        || stringField(round,'roundId')!==qaPilot.roundId
+        || !qaPilotFuture(round?.fields?.expiresAt)
+        || !qaPilotAdmitted(from,sender) || !qaPilotAdmitted(to,recipient)) return false;
+    const allowedFields=['kind','conversationId','messageId','senderUid','unread','roundId','expiresAt'];
+    if (Object.keys(pending?.fields ?? {}).some(field=>!allowedFields.includes(field))
+        || stringField(pending,'kind')!=='chat_message' || !boolField(pending,'unread')
+        || stringField(pending,'roundId')!==qaPilot.roundId
+        || stringField(pending,'conversationId')!==event.chatId
+        || stringField(pending,'messageId')!==event.messageId
+        || stringField(pending,'senderUid')!==sender
+        || !qaPilotFuture(pending?.fields?.expiresAt)) return false;
+    const muted=mute?.fields?.muted;
+    if (muted!==undefined && muted.booleanValue!==false) return false;
+    if (stringField(room,'status')!=='accepted'
+        || stringField(room,'lastMessageId')!==event.messageId
+        || stringField(room,'lastSenderUid')!==sender) return false;
+    const participants=room?.fields?.participants?.arrayValue?.values;
+    if (!Array.isArray(participants) || participants.length!==2 ||
+        !participants.some(item=>item?.stringValue===sender) ||
+        !participants.some(item=>item?.stringValue===recipient)) return false;
+    const requester=stringField(room,'requesterUid');
+    const receiver=stringField(room,'recipientUid');
+    const recipientIsRequester=requester===recipient && receiver===sender;
+    if (!recipientIsRequester && !(requester===sender && receiver===recipient)) return false;
+    const unread=room?.fields?.[recipientIsRequester ? 'unreadRequester' : 'unreadRecipient']?.integerValue;
+    return typeof unread==='string' && /^[1-9][0-9]*$/.test(unread) &&
+      await qaPilotAccountsValid(token,sender,recipient);
+  } catch { return false; }
+}
+async function qaConversationNoticeAllowed(token, sender, recipient, event, agePolicy) {
+  return await qaChatPushPreSendAllowed(token,sender,recipient,null,agePolicy)
+    && await qaChatPolicyPreSendAllowed(token,sender,recipient,event)
+    && await qaChatMessagePreSendAllowed(token,sender,event)
+    && await qaPilotAllowsNotice(token,sender,recipient,event);
+}
+
+// O UID vem da sessão autenticada. O cliente não escolhe o aviso nem o destino.
+async function qaReadConversationNotice(request, env, configured) {
+  if (env.PUSH_ENABLED!=='true') return response(503,'disabled');
+  if (!configured) return response(503,'not_configured');
+  try {
+    const recipient=await verifyIdentity(request,env,PROJECT);
+    if (!recipient) return response(401,'unauthorized');
+    const token=await oauth(env,PROJECT);
+    const pending=await firestoreGet(token,'users/'+enc(recipient)+'/chatPushPending/current');
+    const sender=stringField(pending,'senderUid');
+    const event={
+      kind:stringField(pending,'kind'),
+      chatId:stringField(pending,'conversationId'),
+      messageId:stringField(pending,'messageId'),
+    };
+    if (!await qaConversationNoticeAllowed(token,sender,recipient,event,env.ATRIO_QA_AGE_POLICY))
+      return response(404,'no_notice');
+    return Response.json({conversationId:event.chatId,messageId:event.messageId,senderUid:sender},
+      {headers:{'Cache-Control':'no-store'}});
+  } catch { return response(503,'notice_unavailable'); }
+}
+
+`;
+
+export function renderConversationPushPilotWorker(mainWorker) {
+  let code = renderQaWorker(mainWorker, 'atrio-catolico-qa-geral');
+  const replace = (anchor, replacement) => {
+    code = replaceOnce(code, anchor, replacement);
+  };
+  replace("const PROJECT = 'atrio-catolico-qa-geral';",
+    "const PROJECT = '" + identity.projectId + "';\n" + pilotChecks);
+  replace('.bind("atrio-qa-geral").first()', '.bind("atrio-qa-conversations-pilot").first()');
+  replace("!['eligible','declared_18_plus'].includes(env.ATRIO_QA_AGE_POLICY)",
+    "env.ATRIO_QA_AGE_POLICY !== qaPilot.ageMode");
+  replace("!['chat_message','group_message'].includes(data.type)",
+    "data.type !== 'chat_message'");
+  replace("if(!account || account.disabled || !uidPart(account.localId)) return null;",
+    "if(!qaPilotAccountValid(account)) return null;");
+  replace("https://www.googleapis.com/auth/firebase.messaging'",
+    "https://www.googleapis.com/auth/firebase.messaging https://www.googleapis.com/auth/identitytoolkit'");
+  replace("(request.method==='POST' && qaPath==='/event')))",
+    "(request.method==='POST' && qaPath==='/event') || " +
+    "(request.method==='GET' && qaPath==='/notice' && !new URL(request.url).search)))");
+  replace("    const path = new URL(request.url).pathname;",
+    "    if (qaPath==='/notice') return qaReadConversationNotice(request,env,configured);\n" +
+    "    const path = new URL(request.url).pathname;");
+  // Um GET em lote e um lookup do Auth adicionais por rechecagem.
+  replace("const checksPerPass=event.kind==='group_message' ? 4 : 6;", 'const checksPerPass=8;');
+  replace(`await qaChatPushPreSendAllowed(token,uid,recipient,
+            event.kind==='group_message' ? event.groupId : null,env.ATRIO_QA_AGE_POLICY) &&
+          await qaChatPolicyPreSendAllowed(token,uid,recipient,event) &&
+          await qaChatMessagePreSendAllowed(token,uid,event)
+`, 'await qaConversationNoticeAllowed(token,uid,recipient,event,env.ATRIO_QA_AGE_POLICY)\n');
+  replace('token:device, data:{uid,kind,...extras},\n      android:{priority:\'HIGH\',ttl:\'3600s\'},',
+    "token:device, data:{signal:'refresh'},\n      android:{priority:'HIGH',ttl:'60s'},");
+  return code;
+}

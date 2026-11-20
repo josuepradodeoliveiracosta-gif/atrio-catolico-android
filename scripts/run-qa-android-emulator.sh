@@ -38,6 +38,16 @@ fi
 if [[ -n "${ATRIO_QA_SUITE:-}" && "$qa_group" != all ]]; then
   echo "Suite focal e grupo paralelo nao podem ser combinados" >&2; exit 2
 fi
+notice_focal=0
+if [[ "${ATRIO_QA_SUITE:-}" == QaConversationNoticeAndroid ]]; then
+  [[ "$qa_apk" == qaGeral && "${ATRIO_QA_CONVERSATION_NOTICE_LAB:-}" == 1 &&
+     "${ATRIO_QA_GERAL_REMOTE_BUILD:-}" != 1 &&
+     "${ATRIO_QA_GERAL_PUSH_BUILD:-}" != 1 ]] || {
+    echo "Avisos de Conversas exigem opt-in e Firebase Emulator" >&2
+    exit 2
+  }
+  notice_focal=1
+fi
 inbox_focal=0
 if [[ "${ATRIO_QA_SUITE:-}" == AtrioInboxDiscoveryEmulatorUiTest ]]; then
   [[ "$qa_apk" == qaGeral && "${ATRIO_QA_INBOX_DISCOVERY:-}" == 1 &&
@@ -81,8 +91,10 @@ fi
   --project demo-atrio-v11 > ../../qa-firebase-emulators.log 2>&1 &
 FIREBASE_PID=$!
 inbox_pid=
+notice_pid=
 cleanup() {
   if [[ -n "$inbox_pid" ]]; then kill "$inbox_pid" 2>/dev/null || true; fi
+  if [[ -n "$notice_pid" ]]; then kill "$notice_pid" 2>/dev/null || true; fi
   kill "$FIREBASE_PID" 2>/dev/null || true
 }
 trap cleanup EXIT
@@ -216,6 +228,28 @@ if [[ "$inbox_focal" == 1 ]]; then
       grep -F 'QA MESSAGE 200: retry pós-timeout preservou' qa-inbox-discovery-emulator.log
     fi
   fi
+  exit "$qa_failed"
+fi
+if [[ "$notice_focal" == 1 ]]; then
+  # Instalação nova para verificar POST_NOTIFICATIONS negada antes de concedê-la.
+  adb uninstall br.com.atriocatolico.qageral >/dev/null 2>&1 || true
+  (cd tests/security && node seed-qa-conversation-notice-android.mjs)
+  node tests/security/serve-qa-conversation-notice-android.mjs \
+    > qa-conversation-notice-worker.log 2>&1 &
+  notice_pid=$!
+  for attempt in $(seq 1 20); do
+    if curl -fsS --max-time 1 http://127.0.0.1:8092/ready >/dev/null; then break; fi
+    if ! kill -0 "$notice_pid" 2>/dev/null; then break; fi
+    sleep 1
+  done
+  curl -fsS --max-time 2 http://127.0.0.1:8092/ready >/dev/null || {
+    cat qa-conversation-notice-worker.log
+    exit 1
+  }
+  adb reverse tcp:8092 tcp:8092
+  run_suite QaConversationNoticeDeniedAndroidTest
+  (cd tests/security && node seed-qa-conversation-notice-android.mjs --firestore-only)
+  run_suite QaConversationNoticeGrantedAndroidTest
   exit "$qa_failed"
 fi
 if [[ "${ATRIO_QA_GERAL_CELULAR_PILOT:-}" == 1 ]]; then
