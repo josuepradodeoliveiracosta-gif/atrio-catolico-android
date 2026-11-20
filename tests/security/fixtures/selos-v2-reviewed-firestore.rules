@@ -1,0 +1,939 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+    function me(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+    // Provisionamento e revogação somente pelo Console/Admin SDK autorizado.
+    function isAdmin() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+        && get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.enabled == true;
+    }
+    // A configuração de apoio só pode ser escrita pela conta oficial que
+    // também mantém a permissão administrativa ativa.
+    function isFounderAdmin() {
+      return isAdmin()
+        && exists(/databases/$(database)/documents/app_config/founder)
+        && get(/databases/$(database)/documents/app_config/founder).data.uid == request.auth.uid;
+    }
+    // Public, non-sensitive switch; changes only through Console/Admin SDK.
+    match /app_config/opening_video {
+      allow get: if true;
+      allow list, create, update, delete: if false;
+    }
+    // Identifica a conta oficial do fundador; publicação somente via SDK/Console.
+    // O cliente pode consultar o UID, mas nunca apontar para si mesmo.
+    match /app_config/founder {
+      allow get: if signedIn();
+      allow list, create, update, delete: if false;
+    }
+    // Pix/dados bancários opt-in: uma única configuração pública para usuários
+    // autenticados. A UI não é fronteira de segurança; regras validam fundador
+    // E administrador ativo. Nunca expor credenciais de autenticação.
+    match /app_config/developer_support {
+      allow get: if signedIn();
+      allow list, delete: if false;
+      allow create, update: if isFounderAdmin()
+        && request.resource.data.keys().hasOnly([
+          'enabled', 'pixKey', 'bankName', 'agency', 'account',
+          'message', 'updatedBy', 'updatedAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'enabled', 'pixKey', 'bankName', 'agency', 'account',
+          'message', 'updatedBy', 'updatedAt'
+        ])
+        && request.resource.data.enabled is bool
+        && request.resource.data.pixKey is string
+        && request.resource.data.pixKey.size() <= 140
+        && request.resource.data.bankName is string
+        && request.resource.data.bankName.size() <= 80
+        && request.resource.data.agency is string
+        && request.resource.data.agency.size() <= 30
+        && request.resource.data.account is string
+        && request.resource.data.account.size() <= 50
+        && request.resource.data.message is string
+        && request.resource.data.message.size() <= 180
+        && (
+          (request.resource.data.bankName.size() == 0
+            && request.resource.data.agency.size() == 0
+            && request.resource.data.account.size() == 0)
+          || (request.resource.data.bankName.size() > 0
+            && request.resource.data.agency.size() > 0
+            && request.resource.data.account.size() > 0)
+        )
+        && (
+          request.resource.data.enabled == false
+          || request.resource.data.pixKey.size() > 0
+          || request.resource.data.bankName.size() > 0
+        )
+        && (
+          request.resource.data.enabled == true
+          || (
+            request.resource.data.pixKey.size() == 0
+            && request.resource.data.bankName.size() == 0
+            && request.resource.data.agency.size() == 0
+            && request.resource.data.account.size() == 0
+            && request.resource.data.message.size() == 0
+          )
+        )
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.updatedAt == request.time;
+    }
+    // Portão de aceite: a administração ativa via Console apenas depois
+    // de implantar as regras, testar e migrar clientes compatíveis.
+    // Não é possível escrever a configuração pelo APK.
+    match /app_config/community_rules {
+      allow get: if signedIn();
+      allow list, create, update, delete: if false;
+    }
+    // A exigencia de e-mail confirmado so pode ser ativada administrativamente
+    // depois da migracao, nunca por uma conta no aplicativo.
+    match /app_config/email_verification {
+      allow get: if signedIn();
+      allow list, create, update, delete: if false;
+    }
+    // Ativação admin-only após publicação e QA. Negado por padrão.
+    match /app_config/engagement {
+      allow get: if signedIn();
+      allow list, create, update, delete: if false;
+    }
+    match /admins/{uid} {
+      allow get: if me(uid);
+      allow list, create, update, delete: if false;
+    }
+    // BEGIN GENERATED REACTION EMOJI ALLOWLIST (Unicode 17.0, tools/emoji/generate.py)
+    function validReactionKind(kind) {
+      return kind is string && (kind in ['heart', 'prayer', 'light']
+        || (kind.size() <= 32 && (
+          kind.matches('(?:😀|😃|😄|😁|😆|😅|🤣|😂|🙂(?:‍(?:↔️|↕️))?|🙃|🫠|😉|😊|😇|🥰|😍|🤩|😘|😗|☺️|😚|😙|🥲|😋|😛|😜|🤪|😝|🤑|🤗|🤭|🫢|🫣|🤫|🤔|🫡|🤐|🤨|😐|😑|😶(?:‍🌫️)?|🫥|😏|😒|🙄|😬|😮(?:‍💨)?|🤥|🫨|😌|😔|😪|🤤|😴|🫩|😷|🤒|🤕|🤢|🤮|🤧|🥵|🥶|🥴|😵(?:‍💫)?|🤯|🤠|🥳|🥸|😎|🤓|🧐|😕|🫤|😟|🙁|☹️|😯|😲|😳|🫪|🥺|🥹|😦|😧|😨|😰|😥|😢|😭|😱|😖|😣|😞|😓|😩|😫|🥱|😤|😡|😠|🤬|😈|👿|💀|☠️|💩|🤡|👹|👺|👻|👽|👾|🤖|😺|😸|😹|😻|😼|😽|🙀|😿|😾|🙈|🙉|🙊|💌|💘|💝|💖|💗|💓|💞|💕|💟|❣️|💔|❤️(?:‍(?:🔥|🩹))?|🩷|🧡|💛|💚|💙|🩵|💜|🤎|🖤|🩶|🤍|💋|💯|💢|🫯|💥|💫|💦|💨|🕳️|💬|👁️‍🗨️|🗨️|🗯️|💭|💤|👋(?:(?:🏻|🏼|🏽|🏾|🏿))?|🤚(?:(?:🏻|🏼|🏽|🏾|🏿))?|🖐(?:️|🏻|🏼|🏽|🏾|🏿)|✋(?:(?:🏻|🏼|🏽|🏾|🏿))?|🖖(?:(?:🏻|🏼|🏽|🏾|🏿))?|🫱(?:(?:🏻|🏼|🏽|🏾|🏿))?|🫲(?:(?:🏻|🏼|🏽|🏾|🏿))?|🫳(?:(?:🏻|🏼|🏽|🏾|🏿))?|🫴(?:(?:🏻|🏼|🏽|🏾|🏿))?|🫷(?:(?:🏻|🏼|🏽|🏾|🏿))?|🫸(?:(?:🏻|🏼|🏽|🏾|🏿))?|👌(?:(?:🏻|🏼|🏽|🏾|🏿))?|🤌(?:(?:🏻|🏼|🏽|🏾|🏿))?|🤏(?:(?:🏻|🏼|🏽|🏾|🏿))?|✌(?:️|🏻|🏼|🏽|🏾|🏿)|🤞(?:(?:🏻|🏼|🏽|🏾|🏿))?|🫰(?:(?:🏻|🏼|🏽|🏾|🏿))?|🤟(?:(?:🏻|🏼|🏽|🏾|🏿))?|🤘(?:(?:🏻|🏼|🏽|🏾|🏿))?|🤙(?:(?:🏻|🏼|🏽|🏾|🏿))?|👈(?:(?:🏻|🏼|🏽|🏾|🏿))?|👉(?:(?:🏻|🏼|🏽|🏾|🏿))?|👆(?:(?:🏻|🏼|🏽|🏾|🏿))?|🖕(?:(?:🏻|🏼|🏽|🏾|🏿))?|👇(?:(?:🏻|🏼|🏽|🏾|🏿))?|☝(?:️|🏻|🏼|🏽|🏾|🏿)|🫵(?:(?:🏻|🏼|🏽|🏾|🏿))?|👍(?:(?:🏻|🏼|🏽|🏾|🏿))?|👎(?:(?:🏻|🏼|🏽|🏾|🏿))?|✊(?:(?:🏻|🏼|🏽|🏾|🏿))?|👊(?:(?:🏻|🏼|🏽|🏾|🏿))?|🤛(?:(?:🏻|🏼|🏽|🏾|🏿))?|🤜(?:(?:🏻|🏼|🏽|🏾|🏿))?|👏(?:(?:🏻|🏼|🏽|🏾|🏿))?|🙌(?:(?:🏻|🏼|🏽|🏾|🏿))?|🫶(?:(?:🏻|🏼|🏽|🏾|🏿))?|👐(?:(?:🏻|🏼|🏽|🏾|🏿))?|🤲(?:🏻)?)')
+          || kind.matches('(?:🤲(?:🏼|🏽|🏾|🏿)|🤝(?:(?:🏻|🏼|🏽|🏾|🏿))?|🫱(?:🏻‍🫲(?:🏼|🏽|🏾|🏿)|🏼‍🫲(?:🏻|🏽|🏾|🏿)|🏽‍🫲(?:🏻|🏼|🏾|🏿)|🏾‍🫲(?:🏻|🏼|🏽|🏿)|🏿‍🫲(?:🏻|🏼|🏽|🏾))|🙏(?:(?:🏻|🏼|🏽|🏾|🏿))?|✍(?:️|🏻|🏼|🏽|🏾|🏿)|💅(?:(?:🏻|🏼|🏽|🏾|🏿))?|🤳(?:(?:🏻|🏼|🏽|🏾|🏿))?|💪(?:(?:🏻|🏼|🏽|🏾|🏿))?|🦾|🦿|🦵(?:(?:🏻|🏼|🏽|🏾|🏿))?|🦶(?:(?:🏻|🏼|🏽|🏾|🏿))?|👂(?:(?:🏻|🏼|🏽|🏾|🏿))?|🦻(?:(?:🏻|🏼|🏽|🏾|🏿))?|👃(?:(?:🏻|🏼|🏽|🏾|🏿))?|🧠|🫀|🫁|🦷|🦴|👀|👁️|👅|👄|🫦|👶(?:(?:🏻|🏼|🏽|🏾|🏿))?|🧒(?:(?:🏻|🏼|🏽|🏾|🏿))?|👦(?:(?:🏻|🏼|🏽|🏾|🏿))?|👧(?:(?:🏻|🏼|🏽|🏾|🏿))?|🧑(?:(?:🏻(?:‍🦰)?|🏼(?:‍🦰)?|🏽(?:‍🦰)?|🏾(?:‍🦰)?|🏿(?:‍🦰)?|‍🦰))?|👱(?:(?:🏻|🏼|🏽|🏾|🏿))?|👨(?:(?:🏻(?:‍(?:🦰|🦱|🦳|🦲))?|🏼(?:‍(?:🦰|🦱|🦳|🦲))?|🏽(?:‍(?:🦰|🦱|🦳|🦲))?|🏾(?:‍(?:🦰|🦱|🦳|🦲))?|🏿(?:‍(?:🦰|🦱|🦳|🦲))?|‍(?:🦰|🦱|🦳|🦲)))?|🧔(?:(?:🏻(?:‍(?:♂️|♀️))?|🏼(?:‍(?:♂️|♀️))?|🏽(?:‍(?:♂️|♀️))?|🏾(?:‍(?:♂️|♀️))?|🏿(?:‍(?:♂️|♀️))?|‍(?:♂️|♀️)))?|👩(?:(?:🏻(?:‍🦰)?|🏼(?:‍🦰)?|🏽(?:‍🦰)?|🏾(?:‍🦰)?|🏿(?:‍🦰)?|‍(?:🦰|🦱)))?)')
+          || kind.matches('(?:👩(?:🏻‍(?:🦱|🦳|🦲)|🏼‍(?:🦱|🦳|🦲)|🏽‍(?:🦱|🦳|🦲)|🏾‍(?:🦱|🦳|🦲)|🏿‍(?:🦱|🦳|🦲)|‍(?:🦳|🦲))|🧑(?:‍(?:🦱|🦳|🦲)|🏻‍(?:🦱|🦳|🦲)|🏼‍(?:🦱|🦳|🦲)|🏽‍(?:🦱|🦳|🦲)|🏾‍(?:🦱|🦳|🦲)|🏿‍(?:🦱|🦳|🦲))|👱(?:‍(?:♀️|♂️)|🏻‍(?:♀️|♂️)|🏼‍(?:♀️|♂️)|🏽‍(?:♀️|♂️)|🏾‍(?:♀️|♂️)|🏿‍(?:♀️|♂️))|🧓(?:(?:🏻|🏼|🏽|🏾|🏿))?|👴(?:(?:🏻|🏼|🏽|🏾|🏿))?|👵(?:(?:🏻|🏼|🏽|🏾|🏿))?|🙍(?:(?:🏻(?:‍(?:♂️|♀️))?|🏼(?:‍(?:♂️|♀️))?|🏽(?:‍(?:♂️|♀️))?|🏾(?:‍(?:♂️|♀️))?|🏿(?:‍(?:♂️|♀️))?|‍(?:♂️|♀️)))?|🙎(?:(?:🏻(?:‍(?:♂️|♀️))?|🏼(?:‍(?:♂️|♀️))?|🏽(?:‍(?:♂️|♀️))?|🏾(?:‍(?:♂️|♀️))?|🏿(?:‍(?:♂️|♀️))?|‍(?:♂️|♀️)))?|🙅(?:(?:🏻(?:‍(?:♂️|♀️))?|🏼(?:‍(?:♂️|♀️))?|🏽(?:‍(?:♂️|♀️))?|🏾(?:‍(?:♂️|♀️))?|🏿(?:‍(?:♂️|♀️))?|‍(?:♂️|♀️)))?|🙆(?:(?:🏻(?:‍(?:♂️|♀️))?|🏼(?:‍(?:♂️|♀️))?|🏽(?:‍(?:♂️|♀️))?|🏾(?:‍(?:♂️|♀️))?|🏿(?:‍(?:♂️|♀️))?|‍(?:♂️|♀️)))?|💁)')
+          || kind.matches('(?:💁(?:🏻(?:‍(?:♂️|♀️))?|🏼(?:‍(?:♂️|♀️))?|🏽(?:‍(?:♂️|♀️))?|🏾(?:‍(?:♂️|♀️))?|🏿(?:‍(?:♂️|♀️))?|‍(?:♂️|♀️))|🙋(?:(?:🏻(?:‍(?:♂️|♀️))?|🏼(?:‍(?:♂️|♀️))?|🏽(?:‍(?:♂️|♀️))?|🏾(?:‍(?:♂️|♀️))?|🏿(?:‍(?:♂️|♀️))?|‍(?:♂️|♀️)))?|🧏(?:(?:🏻(?:‍(?:♂️|♀️))?|🏼(?:‍(?:♂️|♀️))?|🏽(?:‍(?:♂️|♀️))?|🏾(?:‍(?:♂️|♀️))?|🏿(?:‍(?:♂️|♀️))?|‍(?:♂️|♀️)))?|🙇(?:(?:🏻(?:‍(?:♂️|♀️))?|🏼(?:‍(?:♂️|♀️))?|🏽(?:‍(?:♂️|♀️))?|🏾(?:‍(?:♂️|♀️))?|🏿(?:‍(?:♂️|♀️))?|‍(?:♂️|♀️)))?|🤦(?:(?:🏻(?:‍(?:♂️|♀️))?|🏼(?:‍(?:♂️|♀️))?|🏽(?:‍(?:♂️|♀️))?|🏾(?:‍(?:♂️|♀️))?|🏿(?:‍(?:♂️|♀️))?|‍(?:♂️|♀️)))?|🤷(?:(?:🏻(?:‍(?:♂️|♀️))?|🏼(?:‍(?:♂️|♀️))?|🏽(?:‍(?:♂️|♀️))?|🏾(?:‍(?:♂️|♀️))?|🏿(?:‍(?:♂️|♀️))?|‍(?:♂️|♀️)))?|🧑(?:‍⚕️|🏻‍⚕️|🏼‍⚕️|🏽‍⚕️|🏾‍⚕️|🏿‍⚕️)|👨(?:‍⚕️|🏻‍⚕️|🏼‍⚕️|🏽‍⚕️|🏾‍⚕️|🏿‍⚕️)|👩‍⚕️)')
+          || kind.matches('(?:👩(?:🏻‍(?:⚕️|🎓|🏫|⚖️|🌾|🍳|🔧|🏭|💼|🔬|💻|🎤|🎨|✈️|🚀|🚒)|🏼‍(?:⚕️|🎓|🏫|⚖️|🌾|🍳|🔧|🏭|💼|🔬|💻|🎤|🎨|✈️|🚀|🚒)|🏽‍(?:⚕️|🎓|🏫|⚖️|🌾|🍳|🔧|🏭|💼|🔬|💻|🎤|🎨|✈️|🚀|🚒)|🏾‍(?:⚕️|🎓|🏫|⚖️|🌾|🍳|🔧|🏭|💼|🔬|💻|🎤|🎨|✈️|🚀|🚒)|🏿‍(?:⚕️|🎓|🏫|⚖️|🌾|🍳|🔧|🏭|💼|🔬|💻|🎤|🎨|✈️|🚀|🚒)|‍(?:🎓|🏫|⚖️|🌾|🍳|🔧|🏭|💼|🔬|💻|🎤|🎨|✈️|🚀|🚒))|🧑(?:‍(?:🎓|🏫|⚖️|🌾|🍳|🔧|🏭|💼|🔬|💻|🎤|🎨|✈️|🚀|🚒)|🏻‍(?:🎓|🏫|⚖️|🌾|🍳|🔧|🏭|💼|🔬|💻|🎤|🎨|✈️|🚀|🚒)|🏼‍(?:🎓|🏫|⚖️|🌾|🍳|🔧|🏭|💼|🔬|💻|🎤|🎨|✈️|🚀|🚒)|🏽‍(?:🎓|🏫|⚖️|🌾|🍳|🔧|🏭|💼|🔬|💻|🎤|🎨|✈️|🚀|🚒)|🏾‍(?:🎓|🏫|⚖️|🌾|🍳|🔧|🏭|💼|🔬|💻|🎤|🎨|✈️|🚀|🚒)|🏿‍(?:🎓|🏫|⚖️|🌾|🍳|🔧|🏭|💼|🔬|💻|🎤|🎨|✈️|🚀|🚒))|👨(?:‍(?:🎓|🏫|⚖️|🌾|🍳|🔧|🏭|💼|🔬|💻|🎤|🎨|✈️|🚀|🚒)|🏻‍(?:🎓|🏫|⚖️|🌾|🍳|🔧|🏭|💼|🔬|💻|🎤|🎨|✈️|🚀|🚒)|🏼‍(?:🎓|🏫|⚖️|🌾|🍳|🔧|🏭|💼|🔬|💻|🎤|🎨|✈️|🚀|🚒)|🏽‍(?:🎓|🏫|⚖️|🌾|🍳|🔧|🏭|💼|🔬|💻|🎤|🎨|✈️|🚀|🚒)|🏾‍(?:🎓|🏫|⚖️|🌾|🍳|🔧|🏭|💼|🔬|💻|🎤|🎨|✈️|🚀|🚒)|🏿‍(?:🎓|🏫|⚖️|🌾|🍳|🔧|🏭|💼|🔬|💻|🎤|🎨|✈️|🚀|🚒))|👮(?:(?:🏻(?:‍(?:♂️|♀️))?|🏼(?:‍(?:♂️|♀️))?|🏽(?:‍(?:♂️|♀️))?|🏾(?:‍(?:♂️|♀️))?|🏿(?:‍(?:♂️|♀️))?|‍(?:♂️|♀️)))?|🕵(?:️(?:‍(?:♂️|♀️))?|🏻(?:‍(?:♂️|♀️))?|🏼(?:‍(?:♂️|♀️))?|🏽(?:‍(?:♂️|♀️))?|🏾(?:‍(?:♂️|♀️))?|🏿(?:‍(?:♂️|♀️))?)|💂(?:(?:🏻(?:‍(?:♂️|♀️))?|🏼(?:‍(?:♂️|♀️))?|🏽(?:‍(?:♂️|♀️))?|🏾(?:‍(?:♂️|♀️))?|🏿(?:‍(?:♂️|♀️))?|‍(?:♂️|♀️)))?|🥷(?:(?:🏻|🏼|🏽|🏾|🏿))?|👷(?:(?:🏻(?:‍(?:♂️|♀️))?|🏼(?:‍(?:♂️|♀️))?|🏽(?:‍(?:♂️|♀️))?|🏾(?:‍(?:♂️|♀️))?|🏿(?:‍(?:♂️|♀️))?|‍(?:♂️|♀️)))?|🫅(?:(?:🏻|🏼|🏽|🏾|🏿))?|🤴(?:(?:🏻|🏼|🏽|🏾|🏿))?|👸)')
+          || kind.matches('(?:👸(?:🏻|🏼|🏽|🏾|🏿)|👳(?:(?:🏻(?:‍(?:♂️|♀️))?|🏼(?:‍(?:♂️|♀️))?|🏽(?:‍(?:♂️|♀️))?|🏾(?:‍(?:♂️|♀️))?|🏿(?:‍(?:♂️|♀️))?|‍(?:♂️|♀️)))?|👲(?:(?:🏻|🏼|🏽|🏾|🏿))?|🧕(?:(?:🏻|🏼|🏽|🏾|🏿))?|🤵(?:(?:🏻(?:‍(?:♂️|♀️))?|🏼(?:‍(?:♂️|♀️))?|🏽(?:‍(?:♂️|♀️))?|🏾(?:‍(?:♂️|♀️))?|🏿(?:‍(?:♂️|♀️))?|‍(?:♂️|♀️)))?|👰(?:(?:🏻(?:‍(?:♂️|♀️))?|🏼(?:‍(?:♂️|♀️))?|🏽(?:‍(?:♂️|♀️))?|🏾(?:‍(?:♂️|♀️))?|🏿(?:‍(?:♂️|♀️))?|‍(?:♂️|♀️)))?|🤰(?:(?:🏻|🏼|🏽|🏾|🏿))?|🫃(?:(?:🏻|🏼|🏽|🏾|🏿))?|🫄(?:(?:🏻|🏼|🏽|🏾|🏿))?|🤱(?:(?:🏻|🏼|🏽|🏾|🏿))?|👩(?:‍🍼|🏻‍🍼|🏼‍🍼|🏽‍🍼|🏾‍🍼|🏿‍🍼)|👨(?:‍🍼|🏻‍🍼|🏼‍🍼|🏽‍🍼|🏾‍🍼|🏿‍🍼)|🧑(?:‍(?:🍼|🎄)|🏻‍(?:🍼|🎄)|🏼‍(?:🍼|🎄)|🏽‍(?:🍼|🎄)|🏾‍(?:🍼|🎄)|🏿‍(?:🍼|🎄))|👼(?:(?:🏻|🏼|🏽|🏾|🏿))?|🎅(?:(?:🏻|🏼|🏽|🏾|🏿))?|🤶(?:(?:🏻|🏼|🏽|🏾|🏿))?|🦸(?:(?:🏻(?:‍(?:♂️|♀️))?|🏼(?:‍(?:♂️|♀️))?|🏽(?:‍(?:♂️|♀️))?|🏾(?:‍(?:♂️|♀️))?|🏿(?:‍♂️)?|‍(?:♂️|♀️)))?)')
+          || kind.matches('(?:🦸🏿‍♀️|🦹(?:(?:🏻(?:‍(?:♂️|♀️))?|🏼(?:‍(?:♂️|♀️))?|🏽(?:‍(?:♂️|♀️))?|🏾(?:‍(?:♂️|♀️))?|🏿(?:‍(?:♂️|♀️))?|‍(?:♂️|♀️)))?|🧙(?:(?:🏻(?:‍(?:♂️|♀️))?|🏼(?:‍(?:♂️|♀️))?|🏽(?:‍(?:♂️|♀️))?|🏾(?:‍(?:♂️|♀️))?|🏿(?:‍(?:♂️|♀️))?|‍(?:♂️|♀️)))?|🧚(?:(?:🏻(?:‍(?:♂️|♀️))?|🏼(?:‍(?:♂️|♀️))?|🏽(?:‍(?:♂️|♀️))?|🏾(?:‍(?:♂️|♀️))?|🏿(?:‍(?:♂️|♀️))?|‍(?:♂️|♀️)))?|🧛(?:(?:🏻(?:‍(?:♂️|♀️))?|🏼(?:‍(?:♂️|♀️))?|🏽(?:‍(?:♂️|♀️))?|🏾(?:‍(?:♂️|♀️))?|🏿(?:‍(?:♂️|♀️))?|‍(?:♂️|♀️)))?|🧜(?:(?:🏻(?:‍(?:♂️|♀️))?|🏼(?:‍(?:♂️|♀️))?|🏽(?:‍(?:♂️|♀️))?|🏾(?:‍(?:♂️|♀️))?|🏿(?:‍(?:♂️|♀️))?|‍(?:♂️|♀️)))?|🧝(?:(?:🏻(?:‍(?:♂️|♀️))?|🏼(?:‍(?:♂️|♀️))?|🏽(?:‍(?:♂️|♀️))?|🏾(?:‍(?:♂️|♀️))?|🏿(?:‍(?:♂️|♀️))?|‍(?:♂️|♀️)))?|🧞(?:‍♂️)?)')
+          || kind.matches('(?:🧞‍♀️|🧟(?:‍(?:♂️|♀️))?|🧌|🫈|💆(?:(?:🏻(?:‍(?:♂️|♀️))?|🏼(?:‍(?:♂️|♀️))?|🏽(?:‍(?:♂️|♀️))?|🏾(?:‍(?:♂️|♀️))?|🏿(?:‍(?:♂️|♀️))?|‍(?:♂️|♀️)))?|💇(?:(?:🏻(?:‍(?:♂️|♀️))?|🏼(?:‍(?:♂️|♀️))?|🏽(?:‍(?:♂️|♀️))?|🏾(?:‍(?:♂️|♀️))?|🏿(?:‍(?:♂️|♀️))?|‍(?:♂️|♀️)))?|🚶(?:(?:🏻(?:‍(?:♂️(?:‍➡️)?|♀️(?:‍➡️)?|➡️))?|🏼(?:‍(?:♂️(?:‍➡️)?|♀️(?:‍➡️)?|➡️))?|🏽(?:‍(?:♂️(?:‍➡️)?|♀️(?:‍➡️)?|➡️))?|🏾(?:‍(?:♂️(?:‍➡️)?|♀️(?:‍➡️)?|➡️))?|🏿(?:‍(?:♂️(?:‍➡️)?|♀️(?:‍➡️)?|➡️))?|‍(?:♂️(?:‍➡️)?|♀️(?:‍➡️)?|➡️)))?|🧍(?:(?:🏻(?:‍(?:♂️|♀️))?|🏼(?:‍(?:♂️|♀️))?|🏽(?:‍(?:♂️|♀️))?|🏾(?:‍(?:♂️|♀️))?|🏿(?:‍(?:♂️|♀️))?|‍(?:♂️|♀️)))?|🧎(?:(?:🏻(?:‍(?:♂️|♀️|➡️))?|🏼(?:‍(?:♂️|♀️|➡️))?|🏽(?:‍(?:♂️|♀️|➡️))?|🏾(?:‍(?:♂️|♀️|➡️))?|🏿(?:‍(?:♂️|♀️|➡️))?|‍(?:♂️|♀️|➡️)))?)')
+          || kind.matches('(?:🧎(?:‍(?:♀️‍➡️|♂️‍➡️)|🏻‍(?:♀️‍➡️|♂️‍➡️)|🏼‍(?:♀️‍➡️|♂️‍➡️)|🏽‍(?:♀️‍➡️|♂️‍➡️)|🏾‍(?:♀️‍➡️|♂️‍➡️)|🏿‍(?:♀️‍➡️|♂️‍➡️))|🧑(?:‍(?:🦯(?:‍➡️)?|🦼(?:‍➡️)?|🦽(?:‍➡️)?)|🏻‍(?:🦯(?:‍➡️)?|🦼(?:‍➡️)?|🦽(?:‍➡️)?)|🏼‍(?:🦯(?:‍➡️)?|🦼(?:‍➡️)?|🦽(?:‍➡️)?)|🏽‍(?:🦯(?:‍➡️)?|🦼(?:‍➡️)?|🦽(?:‍➡️)?)|🏾‍(?:🦯(?:‍➡️)?|🦼(?:‍➡️)?|🦽(?:‍➡️)?)|🏿‍(?:🦯(?:‍➡️)?|🦼(?:‍➡️)?|🦽(?:‍➡️)?))|👨(?:‍(?:🦯(?:‍➡️)?|🦼(?:‍➡️)?|🦽(?:‍➡️)?)|🏻‍(?:🦯(?:‍➡️)?|🦼(?:‍➡️)?|🦽(?:‍➡️)?)|🏼‍(?:🦯(?:‍➡️)?|🦼(?:‍➡️)?|🦽(?:‍➡️)?)|🏽‍(?:🦯(?:‍➡️)?|🦼(?:‍➡️)?|🦽(?:‍➡️)?)|🏾‍(?:🦯(?:‍➡️)?|🦼(?:‍➡️)?|🦽(?:‍➡️)?)|🏿‍(?:🦯(?:‍➡️)?|🦼(?:‍➡️)?|🦽(?:‍➡️)?))|👩(?:‍(?:🦯(?:‍➡️)?|🦼(?:‍➡️)?|🦽(?:‍➡️)?)|🏻‍(?:🦯(?:‍➡️)?|🦼(?:‍➡️)?|🦽(?:‍➡️)?)|🏼‍(?:🦯(?:‍➡️)?|🦼(?:‍➡️)?|🦽(?:‍➡️)?)|🏽‍(?:🦯(?:‍➡️)?|🦼(?:‍➡️)?|🦽)|🏾‍(?:🦯(?:‍➡️)?|🦼(?:‍➡️)?|🦽)|🏿‍(?:🦯(?:‍➡️)?|🦼(?:‍➡️)?|🦽)))')
+          || kind.matches('(?:👩(?:🏽‍(?:🦽‍➡️|🐰‍👩(?:🏻|🏼|🏾|🏿))|🏾‍(?:🦽‍➡️|🐰‍👩(?:🏻|🏼|🏽|🏿))|🏿‍(?:🦽‍➡️|🐰‍👩(?:🏻|🏼|🏽|🏾))|🏻‍🐰‍👩(?:🏼|🏽|🏾|🏿)|🏼‍🐰‍👩(?:🏻|🏽|🏾|🏿))|🏃(?:(?:🏻(?:‍(?:♂️(?:‍➡️)?|♀️(?:‍➡️)?|➡️))?|🏼(?:‍(?:♂️(?:‍➡️)?|♀️(?:‍➡️)?|➡️))?|🏽(?:‍(?:♂️(?:‍➡️)?|♀️(?:‍➡️)?|➡️))?|🏾(?:‍(?:♂️(?:‍➡️)?|♀️(?:‍➡️)?|➡️))?|🏿(?:‍(?:♂️(?:‍➡️)?|♀️(?:‍➡️)?|➡️))?|‍(?:♂️(?:‍➡️)?|♀️(?:‍➡️)?|➡️)))?|🧑(?:‍🩰|🏻‍(?:🩰|🐰‍🧑(?:🏼|🏽|🏾|🏿))|🏼‍(?:🩰|🐰‍🧑(?:🏻|🏽|🏾|🏿))|🏽‍(?:🩰|🐰‍🧑(?:🏻|🏼|🏾|🏿))|🏾‍(?:🩰|🐰‍🧑(?:🏻|🏼|🏽|🏿))|🏿‍(?:🩰|🐰‍🧑(?:🏻|🏼|🏽|🏾)))|💃(?:(?:🏻|🏼|🏽|🏾|🏿))?|🕺(?:(?:🏻|🏼|🏽|🏾|🏿))?|🕴(?:️|🏻|🏼|🏽|🏾|🏿)|👯(?:(?:🏻(?:‍(?:♂️|♀️))?|🏼(?:‍(?:♂️|♀️))?|🏽(?:‍(?:♂️|♀️))?|🏾(?:‍(?:♂️|♀️))?|🏿(?:‍(?:♂️|♀️))?|‍(?:♂️|♀️)))?|👨(?:🏻‍🐰‍👨(?:🏼|🏽|🏾|🏿)|🏼‍🐰‍👨(?:🏻|🏽|🏾|🏿)|🏽‍🐰‍👨(?:🏻|🏼|🏾|🏿)|🏾‍🐰‍👨(?:🏻|🏼|🏽|🏿)|🏿‍🐰‍👨(?:🏻|🏼|🏽|🏾))|🧖(?:(?:🏻(?:‍(?:♂️|♀️))?|🏼(?:‍(?:♂️|♀️))?|🏽(?:‍♂️)?|🏾(?:‍♂️)?|🏿(?:‍♂️)?|‍(?:♂️|♀️)))?)')
+          || kind.matches('(?:🧖(?:🏽‍♀️|🏾‍♀️|🏿‍♀️)|🧗(?:(?:🏻(?:‍(?:♂️|♀️))?|🏼(?:‍(?:♂️|♀️))?|🏽(?:‍(?:♂️|♀️))?|🏾(?:‍(?:♂️|♀️))?|🏿(?:‍(?:♂️|♀️))?|‍(?:♂️|♀️)))?|🤺|🏇(?:(?:🏻|🏼|🏽|🏾|🏿))?|⛷️|🏂(?:(?:🏻|🏼|🏽|🏾|🏿))?|🏌(?:️(?:‍(?:♂️|♀️))?|🏻(?:‍(?:♂️|♀️))?|🏼(?:‍(?:♂️|♀️))?|🏽(?:‍(?:♂️|♀️))?|🏾(?:‍(?:♂️|♀️))?|🏿(?:‍(?:♂️|♀️))?)|🏄(?:(?:🏻(?:‍(?:♂️|♀️))?|🏼(?:‍(?:♂️|♀️))?|🏽(?:‍(?:♂️|♀️))?|🏾(?:‍(?:♂️|♀️))?|🏿(?:‍(?:♂️|♀️))?|‍(?:♂️|♀️)))?|🚣(?:(?:🏻(?:‍(?:♂️|♀️))?|🏼(?:‍(?:♂️|♀️))?|🏽(?:‍(?:♂️|♀️))?|🏾(?:‍(?:♂️|♀️))?|🏿(?:‍(?:♂️|♀️))?|‍(?:♂️|♀️)))?|🏊(?:(?:🏻(?:‍(?:♂️|♀️))?|🏼(?:‍(?:♂️|♀️))?|🏽(?:‍(?:♂️|♀️))?|🏾(?:‍(?:♂️|♀️))?|🏿(?:‍(?:♂️|♀️))?|‍(?:♂️|♀️)))?|⛹(?:️(?:‍(?:♂️|♀️))?|🏻(?:‍(?:♂️|♀️))?|🏼(?:‍♂️)?|🏽(?:‍♂️)?|🏾(?:‍♂️)?|🏿(?:‍♂️)?))')
+          || kind.matches('(?:⛹(?:🏼‍♀️|🏽‍♀️|🏾‍♀️|🏿‍♀️)|🏋(?:️(?:‍(?:♂️|♀️))?|🏻(?:‍(?:♂️|♀️))?|🏼(?:‍(?:♂️|♀️))?|🏽(?:‍(?:♂️|♀️))?|🏾(?:‍(?:♂️|♀️))?|🏿(?:‍(?:♂️|♀️))?)|🚴(?:(?:🏻(?:‍(?:♂️|♀️))?|🏼(?:‍(?:♂️|♀️))?|🏽(?:‍(?:♂️|♀️))?|🏾(?:‍(?:♂️|♀️))?|🏿(?:‍(?:♂️|♀️))?|‍(?:♂️|♀️)))?|🚵(?:(?:🏻(?:‍(?:♂️|♀️))?|🏼(?:‍(?:♂️|♀️))?|🏽(?:‍(?:♂️|♀️))?|🏾(?:‍(?:♂️|♀️))?|🏿(?:‍(?:♂️|♀️))?|‍(?:♂️|♀️)))?|🤸(?:(?:🏻(?:‍(?:♂️|♀️))?|🏼(?:‍(?:♂️|♀️))?|🏽(?:‍(?:♂️|♀️))?|🏾(?:‍(?:♂️|♀️))?|🏿(?:‍(?:♂️|♀️))?|‍(?:♂️|♀️)))?|🤼(?:(?:🏻(?:‍(?:♂️|♀️))?|🏼(?:‍(?:♂️|♀️))?|🏽(?:‍(?:♂️|♀️))?|🏾(?:‍(?:♂️|♀️))?|🏿(?:‍(?:♂️|♀️))?|‍(?:♂️|♀️)))?|🧑(?:🏻‍🫯‍🧑(?:🏼|🏽|🏾|🏿)|🏼‍🫯‍🧑(?:🏻|🏽|🏾|🏿)|🏽‍🫯‍🧑(?:🏻|🏼|🏾|🏿)|🏾‍🫯‍🧑(?:🏻|🏼|🏽|🏿)|🏿‍🫯‍🧑(?:🏻|🏼|🏽|🏾))|👨(?:🏻‍🫯‍👨(?:🏼|🏽|🏾|🏿)|🏼‍🫯‍👨(?:🏻|🏽|🏾|🏿)|🏽‍🫯‍👨(?:🏻|🏼|🏾|🏿)|🏾‍🫯‍👨(?:🏻|🏼|🏽|🏿)|🏿‍🫯‍👨(?:🏻|🏼|🏽|🏾))|👩🏻‍🫯‍👩(?:🏼|🏽|🏾|🏿))')
+          || kind.matches('(?:👩(?:🏼‍(?:🫯‍👩(?:🏻|🏽|🏾|🏿)|🤝‍👩(?:🏻|🏽|🏾|🏿))|🏽‍(?:🫯‍👩(?:🏻|🏼|🏾|🏿)|🤝‍👩(?:🏻|🏼|🏾|🏿))|🏾‍(?:🫯‍👩(?:🏻|🏼|🏽|🏿)|🤝‍👩(?:🏻|🏼|🏽|🏿))|🏿‍(?:🫯‍👩(?:🏻|🏼|🏽|🏾)|🤝‍👩(?:🏻|🏼|🏽|🏾))|🏻‍🤝‍👩(?:🏼|🏽|🏾|🏿))|🤽(?:(?:🏻(?:‍(?:♂️|♀️))?|🏼(?:‍(?:♂️|♀️))?|🏽(?:‍(?:♂️|♀️))?|🏾(?:‍(?:♂️|♀️))?|🏿(?:‍(?:♂️|♀️))?|‍(?:♂️|♀️)))?|🤾(?:(?:🏻(?:‍(?:♂️|♀️))?|🏼(?:‍(?:♂️|♀️))?|🏽(?:‍(?:♂️|♀️))?|🏾(?:‍(?:♂️|♀️))?|🏿(?:‍(?:♂️|♀️))?|‍(?:♂️|♀️)))?|🤹(?:(?:🏻(?:‍(?:♂️|♀️))?|🏼(?:‍(?:♂️|♀️))?|🏽(?:‍(?:♂️|♀️))?|🏾(?:‍(?:♂️|♀️))?|🏿(?:‍(?:♂️|♀️))?|‍(?:♂️|♀️)))?|🧘(?:(?:🏻(?:‍(?:♂️|♀️))?|🏼(?:‍(?:♂️|♀️))?|🏽(?:‍(?:♂️|♀️))?|🏾(?:‍(?:♂️|♀️))?|🏿(?:‍(?:♂️|♀️))?|‍(?:♂️|♀️)))?|🛀(?:(?:🏻|🏼|🏽|🏾|🏿))?|🛌(?:(?:🏻|🏼|🏽|🏾|🏿))?|🧑(?:‍🤝‍🧑|🏻‍🤝‍🧑(?:🏻|🏼|🏽|🏾|🏿)|🏼‍🤝‍🧑(?:🏻|🏼|🏽|🏾|🏿)|🏽‍🤝‍🧑(?:🏻|🏼|🏽|🏾|🏿)|🏾‍🤝‍🧑(?:🏻|🏼|🏽|🏾|🏿)|🏿‍🤝‍🧑(?:🏻|🏼|🏽|🏾|🏿))|👭(?:(?:🏻|🏼|🏽|🏾|🏿))?|👫(?:🏻)?)')
+          || kind.matches('(?:👩(?:🏻‍(?:🤝‍👨(?:🏼|🏽|🏾|🏿)|❤️‍(?:💋‍(?:👨(?:🏻|🏼|🏽|🏾|🏿)|👩(?:🏻|🏼|🏽|🏾|🏿))|👨(?:🏻|🏼|🏽|🏾|🏿)))|🏼‍(?:🤝‍👨(?:🏻|🏽|🏾|🏿)|❤️‍(?:💋‍(?:👨(?:🏻|🏼|🏽|🏾|🏿)|👩(?:🏻|🏼|🏽|🏾|🏿))|👨(?:🏻|🏼|🏽|🏾|🏿)))|🏽‍(?:🤝‍👨(?:🏻|🏼|🏾|🏿)|❤️‍(?:💋‍(?:👨(?:🏻|🏼|🏽|🏾|🏿)|👩(?:🏻|🏼|🏽|🏾|🏿))|👨(?:🏻|🏼|🏽|🏾|🏿)))|🏾‍(?:🤝‍👨(?:🏻|🏼|🏽|🏿)|❤️‍(?:💋‍(?:👨(?:🏻|🏼|🏽|🏾|🏿)|👩(?:🏻|🏼|🏽|🏾|🏿))|👨(?:🏻|🏼|🏽|🏾|🏿)))|🏿‍(?:🤝‍👨(?:🏻|🏼|🏽|🏾)|❤️‍(?:💋‍(?:👨(?:🏻|🏼|🏽|🏾|🏿)|👩(?:🏻|🏼|🏽|🏾|🏿))|👨(?:🏻|🏼|🏽|🏾|🏿)))|‍❤️‍(?:💋‍(?:👨|👩)|👨))|👫(?:🏼|🏽|🏾|🏿)|👬(?:(?:🏻|🏼|🏽|🏾|🏿))?|👨(?:🏻‍(?:🤝‍👨(?:🏼|🏽|🏾|🏿)|❤️‍(?:💋‍👨(?:🏻|🏼|🏽|🏾|🏿)|👨🏻))|🏼‍(?:🤝‍👨(?:🏻|🏽|🏾|🏿)|❤️‍💋‍👨(?:🏻|🏼|🏽|🏾|🏿))|🏽‍(?:🤝‍👨(?:🏻|🏼|🏾|🏿)|❤️‍💋‍👨(?:🏻|🏼|🏽|🏾|🏿))|🏾‍(?:🤝‍👨(?:🏻|🏼|🏽|🏿)|❤️‍💋‍👨(?:🏻|🏼|🏽|🏾|🏿))|🏿‍(?:🤝‍👨(?:🏻|🏼|🏽|🏾)|❤️‍💋‍👨(?:🏻|🏼|🏽|🏾|🏿))|‍❤️‍(?:💋‍👨|👨))|💏(?:(?:🏻|🏼|🏽|🏾|🏿))?|🧑(?:🏻‍❤️‍(?:💋‍🧑(?:🏼|🏽|🏾|🏿)|🧑(?:🏼|🏽|🏾|🏿))|🏼‍❤️‍(?:💋‍🧑(?:🏻|🏽|🏾|🏿)|🧑(?:🏻|🏽|🏾|🏿))|🏽‍❤️‍(?:💋‍🧑(?:🏻|🏼|🏾|🏿)|🧑(?:🏻|🏼|🏾|🏿))|🏾‍❤️‍(?:💋‍🧑(?:🏻|🏼|🏽|🏿)|🧑(?:🏻|🏼|🏽|🏿))|🏿‍❤️‍(?:💋‍🧑(?:🏻|🏼|🏽|🏾)|🧑(?:🏻|🏼|🏽|🏾)))|💑(?:(?:🏻|🏼|🏽|🏾|🏿))?)')
+          || kind.matches('(?:👨(?:🏻‍❤️‍👨(?:🏼|🏽|🏾|🏿)|🏼‍❤️‍👨(?:🏻|🏼|🏽|🏾|🏿)|🏽‍❤️‍👨(?:🏻|🏼|🏽|🏾|🏿)|🏾‍❤️‍👨(?:🏻|🏼|🏽|🏾|🏿)|🏿‍❤️‍👨(?:🏻|🏼|🏽|🏾|🏿)|‍(?:👩‍(?:👦(?:‍👦)?|👧(?:‍(?:👦|👧))?)|👨‍(?:👦(?:‍👦)?|👧(?:‍(?:👦|👧))?)|👦(?:‍👦)?|👧(?:‍(?:👦|👧))?))|👩(?:‍(?:❤️‍👩|👩‍(?:👦(?:‍👦)?|👧(?:‍(?:👦|👧))?)|👦(?:‍👦)?|👧(?:‍(?:👦|👧))?)|🏻‍❤️‍👩(?:🏻|🏼|🏽|🏾|🏿)|🏼‍❤️‍👩(?:🏻|🏼|🏽|🏾|🏿)|🏽‍❤️‍👩(?:🏻|🏼|🏽|🏾|🏿)|🏾‍❤️‍👩(?:🏻|🏼|🏽|🏾|🏿)|🏿‍❤️‍👩(?:🏻|🏼|🏽|🏾|🏿))|🗣️|👤|👥|🫂|👪|🧑‍(?:🧑‍🧒(?:‍🧒)?|🧒(?:‍🧒)?)|👣|🫆|🐵|🐒|🦍|🦧|🐶|🐕(?:‍🦺)?|🦮|🐩|🐺|🦊|🦝|🐱|🐈(?:‍⬛)?|🦁|🐯|🐅|🐆|🐴|🫎|🫏|🐎|🦄|🦓|🦌|🦬|🐮|🐂|🐃|🐄|🐷|🐖|🐗|🐽|🐏|🐑|🐐|🐪|🐫|🦙|🦒|🐘|🦣|🦏|🦛|🐭|🐁|🐀|🐹|🐰|🐇|🐿️|🦫|🦔|🦇|🐻(?:‍❄️)?|🐨|🐼|🦥|🦦|🦨|🦘|🦡|🐾|🦃|🐔|🐓|🐣|🐤|🐥|🐦(?:‍(?:⬛|🔥))?|🐧|🕊️|🦅|🦆|🦢|🦉|🦤|🪶|🦩|🦚|🦜|🪽|🪿|🐸|🐊|🐢|🦎|🐍|🐲|🐉|🦕|🦖|🐳|🐋|🐬|🫍|🦭|🐟|🐠|🐡|🦈|🐙|🐚|🪸|🪼|🦀|🦞|🦐|🦑|🦪|🐌|🦋|🐛|🐜|🐝|🪲|🐞|🦗|🪳|🕷️|🕸️|🦂|🦟|🪰|🪱|🦠|💐|🌸|💮|🪷|🏵️|🌹|🥀|🌺|🌻|🌼|🌷|🪻|🌱|🪴|🌲|🌳|🌴|🌵|🌾|🌿|☘️|🍀|🍁|🍂|🍃|🪹|🪺|🍄(?:‍🟫)?|🪾|🍇|🍈|🍉|🍊|🍋(?:‍🟩)?|🍌|🍍|🥭|🍎|🍏|🍐|🍑|🍒|🍓|🫐|🥝|🍅|🫒|🥥|🥑|🍆|🥔|🥕|🌽|🌶️|🫑|🥒|🥬|🥦|🧄|🧅|🥜|🫘|🌰|🫚|🫛|🫜|🍞|🥐|🥖|🫓|🥨|🥯|🥞|🧇|🧀|🍖|🍗|🥩|🥓|🍔|🍟|🍕|🌭|🥪|🌮|🌯|🫔|🥙|🧆|🥚|🍳|🥘|🍲|🫕|🥣|🥗|🍿|🧈|🧂|🥫|🍱|🍘|🍙|🍚|🍛|🍜|🍝|🍠|🍢|🍣|🍤|🍥|🥮|🍡|🥟|🥠|🥡|🍦|🍧|🍨|🍩|🍪|🎂|🍰|🧁|🥧|🍫|🍬|🍭|🍮|🍯|🍼|🥛|☕|🫖|🍵|🍶|🍾|🍷|🍸|🍹|🍺|🍻|🥂|🥃|🫗|🥤|🧋|🧃|🧉|🧊|🥢|🍽️|🍴|🥄|🔪|🫙|🏺|🌍|🌎|🌏|🌐|🗺️|🗾|🧭|🏔️|⛰️|🛘|🌋|🗻|🏕️|🏖️|🏜️|🏝️|🏞️|🏟️|🏛️|🏗️|🧱|🪨|🪵|🛖|🏘️|🏚️|🏠|🏡|🏢|🏣|🏤|🏥|🏦|🏨|🏩|🏪|🏫|🏬|🏭|🏯|🏰|💒|🗼|🗽|⛪|🕌|🛕|🕍|⛩️|🕋|⛲|⛺|🌁|🌃|🏙️|🌄|🌅|🌆|🌇|🌉|♨️|🎠|🛝|🎡|🎢|💈|🎪|🚂|🚃|🚄|🚅|🚆|🚇|🚈|🚉|🚊|🚝|🚞|🚋|🚌|🚍|🚎|🚐|🚑|🚒|🚓|🚔|🚕|🚖|🚗|🚘|🚙|🛻|🚚|🚛|🚜|🏎️|🏍️|🛵|🦽|🦼|🛺|🚲|🛴|🛹|🛼|🚏|🛣️|🛤️|🛢️|⛽|🛞|🚨|🚥|🚦|🛑|🚧|⚓|🛟|⛵|🛶|🚤|🛳️|⛴️|🛥️|🚢|✈️|🛩️|🛫|🛬|🪂|💺|🚁|🚟|🚠|🚡|🛰️|🚀|🛸|🛎️|🧳|⌛|⏳|⌚|⏰|⏱️|⏲️|🕰️|🕛|🕧|🕐|🕜|🕑|🕝|🕒|🕞|🕓|🕟|🕔|🕠|🕕|🕡|🕖|🕢|🕗|🕣|🕘|🕤|🕙|🕥|🕚|🕦|🌑|🌒|🌓|🌔|🌕|🌖|🌗|🌘|🌙|🌚|🌛|🌜|🌡️|☀️|🌝|🌞|🪐|⭐|🌟|🌠|🌌|☁️|⛅|⛈️|🌤️|🌥️|🌦️|🌧️|🌨️)')
+          || kind.matches('(?:🌩️|🌪️|🌫️|🌬️|🌀|🌈|🌂|☂️|☔|⛱️|⚡|❄️|☃️|⛄|☄️|🔥|💧|🌊|🎃|🎄|🎆|🎇|🧨|✨|🎈|🎉|🎊|🎋|🎍|🎎|🎏|🎐|🎑|🧧|🎀|🎁|🎗️|🎟️|🎫|🎖️|🏆|🏅|🥇|🥈|🥉|⚽|⚾|🥎|🏀|🏐|🏈|🏉|🎾|🥏|🎳|🏏|🏑|🏒|🥍|🏓|🏸|🥊|🥋|🥅|⛳|⛸️|🎣|🤿|🎽|🎿|🛷|🥌|🎯|🪀|🪁|🔫|🎱|🔮|🪄|🎮|🕹️|🎰|🎲|🧩|🧸|🪅|🪩|🪆|♠️|♥️|♦️|♣️|♟️|🃏|🀄|🎴|🎭|🖼️|🎨|🧵|🪡|🧶|🪢|👓|🕶️|🥽|🥼|🦺|👔|👕|👖|🧣|🧤|🧥|🧦|👗|👘|🥻|🩱|🩲|🩳|👙|👚|🪭|👛|👜|👝|🛍️|🎒|🩴|👞|👟|🥾|🥿|👠|👡|🩰|👢|🪮|👑|👒|🎩|🎓|🧢|🪖|⛑️|📿|💄|💍|💎|🔇|🔈|🔉|🔊|📢|📣|📯|🔔|🔕|🎼|🎵|🎶|🎙️|🎚️|🎛️|🎤|🎧|📻|🎷|🎺|🪊|🪗|🎸|🎹|🎻|🪕|🥁|🪘|🪇|🪈|🪉|📱|📲|☎️|📞|📟|📠|🔋|🪫|🔌|💻|🖥️|🖨️|⌨️|🖱️|🖲️|💽|💾|💿|📀|🧮|🎥|🎞️|📽️|🎬|📺|📷|📸|📹|📼|🔍|🔎|🕯️|💡|🔦|🏮|🪔|📔|📕|📖|📗|📘|📙|📚|📓|📒|📃|📜|📄|📰|🗞️|📑|🔖|🏷️|🪙|💰|🪎|💴|💵|💶|💷|💸|💳|🧾|💹|✉️|📧|📨|📩|📤|📥|📦|📫|📪|📬|📭|📮|🗳️|✏️|✒️|🖋️|🖊️|🖌️|🖍️|📝|💼|📁|📂|🗂️|📅|📆|🗒️|🗓️|📇|📈|📉|📊|📋|📌|📍|📎|🖇️|📏|📐|✂️|🗃️|🗄️|🗑️|🔒|🔓|🔏|🔐|🔑|🗝️|🔨|🪓|⛏️|⚒️|🛠️|🗡️|⚔️|💣|🪃|🏹|🛡️|🪚|🔧|🪛|🔩|⚙️|🗜️|⚖️|🦯|🔗|⛓️(?:‍💥)?|🪝|🧰|🧲|🪜|🪏|⚗️|🧪|🧫|🧬|🔬|🔭|📡|💉|🩸|💊|🩹|🩼|🩺|🩻|🚪|🛗|🪞|🪟|🛏️|🛋️|🪑|🚽|🪠|🚿|🛁|🪤|🪒|🧴|🧷|🧹|🧺|🧻|🪣|🧼|🫧|🪥|🧽|🧯|🛒|🚬|⚰️|🪦|⚱️|🧿|🪬|🗿|🪧|🪪|🏧|🚮|🚰|♿|🚹|🚺|🚻|🚼|🚾|🛂|🛃|🛄|🛅|⚠️|🚸|⛔|🚫|🚳|🚭|🚯|🚱|🚷|📵|🔞|☢️|☣️|⬆️|↗️|➡️|↘️|⬇️|↙️|⬅️|↖️|↕️|↔️|↩️|↪️|⤴️|⤵️|🔃|🔄|🔙|🔚|🔛|🔜|🔝|🛐|⚛️|🕉️|✡️|☸️|☯️|✝️|☦️|☪️|☮️|🕎|🔯|🪯|♈|♉|♊|♋|♌|♍|♎|♏|♐|♑|♒|♓|⛎|🔀|🔁|🔂|▶️|⏩|⏭️|⏯️|◀️|⏪|⏮️|🔼|⏫|🔽|⏬|⏸️|⏹️|⏺️|⏏️|🎦|🔅|🔆|📶|🛜|📳|📴|♀️|♂️|⚧️|✖️|➕|➖|➗|🟰|♾️|‼️|⁉️|❓|❔|❕|❗|〰️|💱|💲|⚕️|♻️|⚜️|🔱|📛|🔰|⭕|✅|☑️|✔️|❌|❎|➰|➿|〽️|✳️|✴️|❇️|©️|®️|™️|🫟|#️⃣|\\*️⃣|0️⃣|1️⃣|2️⃣|3️⃣|4️⃣|5️⃣|6️⃣|7️⃣|8️⃣|9️⃣|🔟|🔠|🔡|🔢|🔣|🔤|🅰️|🆎|🅱️|🆑|🆒|🆓|ℹ️|🆔|Ⓜ️|🆕|🆖|🅾️|🆗|🅿️|🆘|🆙|🆚|🈁|🈂️|🈷️|🈶|🈯|🉐|🈹|🈚|🈲|🉑|🈸|🈴|🈳|㊗️|㊙️|🈺|🈵|🔴|🟠|🟡|🟢|🔵|🟣|🟤|⚫|⚪|🟥|🟧|🟨|🟩|🟦|🟪|🟫|⬛|⬜|◼️|◻️|◾|◽|▪️|▫️|🔶|🔷|🔸|🔹|🔺|🔻|💠|🔘|🔳|🔲|🏁|🚩|🎌|🏴(?:‍☠️)?|🏳️(?:‍(?:🌈|⚧️))?|🇦(?:🇨|🇩|🇪|🇫|🇬|🇮|🇱|🇲|🇴|🇶|🇷|🇸|🇹|🇺|🇼|🇽|🇿)|🇧(?:🇦|🇧|🇩|🇪|🇫|🇬|🇭|🇮))')
+          || kind.matches('(?:🇧(?:🇯|🇱|🇲|🇳|🇴|🇶|🇷|🇸|🇹|🇻|🇼|🇾|🇿)|🇨(?:🇦|🇨|🇩|🇫|🇬|🇭|🇮|🇰|🇱|🇲|🇳|🇴|🇵|🇶|🇷|🇺|🇻|🇼|🇽|🇾|🇿)|🇩(?:🇪|🇬|🇯|🇰|🇲|🇴|🇿)|🇪(?:🇦|🇨|🇪|🇬|🇭|🇷|🇸|🇹|🇺)|🇫(?:🇮|🇯|🇰|🇲|🇴|🇷)|🇬(?:🇦|🇧|🇩|🇪|🇫|🇬|🇭|🇮|🇱|🇲|🇳|🇵|🇶|🇷|🇸|🇹|🇺|🇼|🇾)|🇭(?:🇰|🇲|🇳|🇷|🇹|🇺)|🇮(?:🇨|🇩|🇪|🇱|🇲|🇳|🇴|🇶|🇷|🇸|🇹)|🇯(?:🇪|🇲|🇴|🇵)|🇰(?:🇪|🇬|🇭|🇮|🇲|🇳|🇵|🇷|🇼|🇾|🇿)|🇱(?:🇦|🇧|🇨|🇮|🇰|🇷|🇸|🇹|🇺|🇻|🇾)|🇲(?:🇦|🇨|🇩|🇪|🇫|🇬|🇭|🇰|🇱|🇲|🇳|🇴|🇵|🇶|🇷|🇸|🇹|🇺|🇻|🇼|🇽|🇾|🇿)|🇳(?:🇦|🇨|🇪|🇫|🇬|🇮|🇱|🇴|🇵|🇷|🇺|🇿)|🇴🇲|🇵(?:🇦|🇪|🇫|🇬|🇭|🇰|🇱|🇲|🇳|🇷|🇸|🇹|🇼|🇾)|🇶🇦|🇷(?:🇪|🇴|🇸|🇺|🇼)|🇸(?:🇦|🇧|🇨|🇩|🇪|🇬|🇭|🇮|🇯|🇰|🇱|🇲|🇳|🇴|🇷|🇸|🇹|🇻|🇽|🇾|🇿)|🇹(?:🇦|🇨|🇩|🇫|🇬|🇭|🇯|🇰|🇱|🇲|🇳|🇴|🇷|🇹|🇻|🇼|🇿)|🇺(?:🇦|🇬|🇲|🇳|🇸|🇾|🇿)|🇻(?:🇦|🇨|🇪|🇬|🇮|🇳|🇺)|🇼(?:🇫|🇸)|🇽🇰|🇾(?:🇪|🇹)|🇿(?:🇦|🇲|🇼)|🏴󠁧󠁢(?:󠁥󠁮󠁧󠁿|󠁳󠁣󠁴󠁿|󠁷󠁬󠁳󠁿))'))));
+    }
+    // END GENERATED REACTION EMOJI ALLOWLIST
+
+    function validText(value, minimum, maximum) {
+      return value is string && value.size() >= minimum && value.size() <= maximum;
+    }
+    function validId(value) {
+      return validText(value, 1, 128) && !value.matches('.*[/].*');
+    }
+    // A decisão de uma resposta não pode apagar nem alterar a publicação principal.
+    function reportParentUnchanged() {
+      let path = /databases/$(database)/documents/posts/$(resource.data.postId);
+      return (exists(path) && existsAfter(path) && get(path).data == getAfter(path).data)
+        || (!exists(path) && !existsAfter(path));
+    }
+    function reportTargetRemoved() {
+      return resource.data.keys().hasAny(['replyId'])
+        ? (exists(/databases/$(database)/documents/posts/$(resource.data.postId)/replies/$(resource.data.replyId))
+          && !existsAfter(/databases/$(database)/documents/posts/$(resource.data.postId)/replies/$(resource.data.replyId))
+          && reportParentUnchanged())
+        : !existsAfter(/databases/$(database)/documents/posts/$(resource.data.postId));
+    }
+    function validReviewTarget() {
+      // Clientes antigos não podem tratar denúncia de resposta como publicação.
+      return resource.data.keys().hasAny(['replyId'])
+        ? request.resource.data.get('reviewTarget', '') == 'reply'
+        : request.resource.data.get('reviewTarget', 'post') == 'post';
+    }
+    function validTime() {
+      return request.resource.data.createdAt == request.time;
+    }
+    // Portao de publicacao no servidor, ativado SOMENTE pelo Console apos rollout.
+    // Na ausencia do documento ou com enabled=false, preserva clientes legados.
+    function communityPublicationAllowed() {
+      let settings = /databases/$(database)/documents/app_config/community_rules;
+      let acceptance = /databases/$(database)/documents/community_consents/$(request.auth.uid);
+      return !exists(settings)
+        || get(settings).data.get('enabled', false) != true
+        || get(settings).data.get('version', '') != '2026-11-v1'
+        || (exists(acceptance)
+          && get(acceptance).data.version == '2026-11-v1');
+    }
+    // Portao do servidor: quando ativo, exige e-mail confirmado para ler ou
+    // interagir com a comunidade (posts, respostas, reacoes, preferencias,
+    // notificacoes e dispositivos push). Cadastro, configuracao e dados
+    // privados da conta permanecem acessiveis para concluir a verificacao.
+    // Flag ausente ou invalida preserva o comportamento legado ate o rollout.
+    // A autoridade e o claim Firebase Auth, nao a UI nem o perfil Firestore.
+    function emailVerificationAllowsCommunityAccess() {
+      let policy = /databases/$(database)/documents/app_config/email_verification;
+      return !exists(policy)
+        || get(policy).data.get('enabled', false) != true
+        || get(policy).data.get('version', '') != '2026-11-v1'
+        || request.auth.token.get('email_verified', false) == true;
+    }
+    function publicNameMatchesProfile() {
+      return request.resource.data.authorName ==
+        get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.displayName;
+    }
+    function validCategory(category) {
+      return category in [
+        'Sagradas Escrituras', 'Apologética', 'Vida espiritual',
+        'História da Igreja', 'Liturgia', 'Santos',
+        'Juventude', 'Pedidos de oração'
+      ];
+    }
+
+    // Atribuição de clero e aprovação devem ocorrer no mesmo batch.
+    // Verificamos estados ANTES e DEPOIS, nunca apenas flags da interface.
+    function approvedClergyGrant(uid, clergy) {
+      let requestPath = /databases/$(database)/documents/badge_requests/$(uid);
+      return isAdmin()
+        && request.auth.uid != uid
+        && exists(requestPath)
+        && get(requestPath).data.status == 'pending'
+        && get(requestPath).data.kind == clergy
+        && getAfter(requestPath).data.status == 'approved'
+        && getAfter(requestPath).data.reviewedBy == request.auth.uid;
+    }
+    function approvedRequestHasGrant(uid) {
+      let badgePath = /databases/$(database)/documents/badges/$(uid);
+      return existsAfter(badgePath)
+        && getAfter(badgePath).data.clergy == resource.data.kind
+        && (!exists(badgePath)
+          || get(badgePath).data.get('clergy', '') != resource.data.kind);
+    }
+
+    // Revogar um selo verificado exige remover o campo no mesmo batch.
+    function revokedVerifiedBadge(uid) {
+      let requestPath = /databases/$(database)/documents/badge_requests/$(uid);
+      return isAdmin()
+        && request.auth.uid != uid
+        && exists(requestPath)
+        && get(requestPath).data.status == 'approved'
+        && get(requestPath).data.kind == resource.data.get('clergy', '')
+        && getAfter(requestPath).data.status == 'revoked'
+        && getAfter(requestPath).data.revokedBy == request.auth.uid
+        && getAfter(requestPath).data.revokedAt == request.time;
+    }
+    function revokedRequestHasBadgeRemoved(uid) {
+      let badgePath = /databases/$(database)/documents/badges/$(uid);
+      return exists(badgePath)
+        && get(badgePath).data.get('clergy', '') == resource.data.kind
+        && getAfter(badgePath).data.get('clergy', '') == '';
+    }
+
+    // Leigos podem autodeclarar; identidade religiosa exige aprovação atômica.
+    match /badges/{uid} {
+      allow get: if signedIn();
+      allow list: if false;
+      allow create: if (me(uid)
+        && request.resource.data.keys().hasOnly(['lay'])
+        && request.resource.data.keys().hasAll(['lay'])
+        && request.resource.data.lay in ['leigo', 'leiga'])
+        || (approvedClergyGrant(uid, request.resource.data.get('clergy', ''))
+          && request.resource.data.keys().hasOnly(['clergy'])
+          && request.resource.data.clergy in ['padre', 'diacono', 'religioso', 'religiosa'])
+        || (isFounderAdmin()
+          && request.auth.uid != uid
+          && request.resource.data.keys().hasOnly(['moderator'])
+          && request.resource.data.moderator == true);
+      allow update: if (me(uid)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lay'])
+        && request.resource.data.keys().hasAll(['lay'])
+        && request.resource.data.lay in ['leigo', 'leiga', ''])
+        || (approvedClergyGrant(uid, request.resource.data.get('clergy', ''))
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['clergy'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasAll(['clergy'])
+          && request.resource.data.clergy in ['padre', 'diacono', 'religioso', 'religiosa'])
+        || (revokedVerifiedBadge(uid)
+          && resource.data.get('clergy', '') in ['padre', 'diacono', 'religioso', 'religiosa']
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['clergy'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasAll(['clergy'])
+          && request.resource.data.get('clergy', '') == '')
+        || (isFounderAdmin()
+          && request.auth.uid != uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['moderator'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasAll(['moderator'])
+          && request.resource.data.moderator is bool);
+      allow delete: if false;
+    }
+
+    // Os pedidos são privados para terceiros e consultáveis por admins ativos.
+    // Rejeitar altera só o pedido; aprovar exige gravar o selo no mesmo batch.
+    match /badge_requests/{uid} {
+      allow get: if me(uid) || isAdmin();
+      allow list: if isAdmin();
+      allow create: if me(uid)
+        && request.resource.data.keys().hasOnly(['kind', 'status', 'createdAt'])
+        && request.resource.data.keys().hasAll(['kind', 'status', 'createdAt'])
+        && request.resource.data.kind in ['padre', 'diacono', 'religioso', 'religiosa']
+        && request.resource.data.status == 'pending'
+        && validTime();
+      allow update: if (me(uid)
+        && resource.data.status in ['rejected', 'dismissed', 'revoked']
+        && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['kind', 'status', 'createdAt'])
+        && request.resource.data.kind in ['padre', 'diacono', 'religioso', 'religiosa']
+        && request.resource.data.status == 'pending'
+        && validTime())
+        || (isAdmin()
+          && request.auth.uid != uid
+          && resource.data.status == 'pending'
+          && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['status', 'reviewedBy', 'reviewedAt', 'reviewNote'])
+          && request.resource.data.keys().hasAll([
+              'status', 'reviewedBy', 'reviewedAt', 'reviewNote'
+            ])
+          && request.resource.data.status in ['approved', 'rejected']
+          && request.resource.data.reviewedBy == request.auth.uid
+          && request.resource.data.reviewedAt == request.time
+          && validText(request.resource.data.reviewNote, 10, 300)
+          && (request.resource.data.status == 'rejected'
+              || approvedRequestHasGrant(uid)))
+        || (isAdmin()
+          && request.auth.uid != uid
+          && resource.data.status == 'approved'
+          && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['status', 'revokedBy', 'revokedAt', 'revokeNote'])
+          && request.resource.data.keys().hasAll([
+              'status', 'revokedBy', 'revokedAt', 'revokeNote'
+            ])
+          && request.resource.data.status == 'revoked'
+          && request.resource.data.revokedBy == request.auth.uid
+          && request.resource.data.revokedAt == request.time
+          && validText(request.resource.data.revokeNote, 10, 300)
+          && revokedRequestHasBadgeRemoved(uid));
+      allow delete: if false;
+    }
+
+    // O evento só nasce durante uma mudança real de estado do pedido.
+    // Impede inserir posteriormente registros que aleguem aprovações/revogações
+    // antigas ou com justificativas diferentes das decisões correspondentes.
+    function badgeEventMatchesTransition(uid, decision, reason) {
+      let path = /databases/$(database)/documents/badge_requests/$(uid);
+      return exists(path)
+        && get(path).data.status == (decision == 'revoked' ? 'approved' : 'pending')
+        && getAfter(path).data.status == decision
+        && (decision == 'revoked'
+          ? (getAfter(path).data.revokedBy == request.auth.uid
+              && getAfter(path).data.revokeNote == reason
+              && getAfter(path).data.revokedAt == request.time)
+          : (getAfter(path).data.reviewedBy == request.auth.uid
+              && getAfter(path).data.reviewNote == reason
+              && getAfter(path).data.reviewedAt == request.time));
+    }
+
+    // Histórico append-only, visível apenas pela administração ativa.
+    match /badge_events/{eventId} {
+      allow get, list: if isAdmin();
+      allow create: if isAdmin()
+        && request.resource.data.keys().hasOnly([
+          'targetUid', 'kind', 'decision', 'actorUid', 'reason', 'createdAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'targetUid', 'kind', 'decision', 'actorUid', 'reason', 'createdAt'
+        ])
+        && validId(request.resource.data.targetUid)
+        && request.resource.data.targetUid != request.auth.uid
+        && request.resource.data.kind in ['padre', 'diacono', 'religioso', 'religiosa']
+        && request.resource.data.decision in ['approved', 'rejected', 'revoked']
+        && request.resource.data.actorUid == request.auth.uid
+        && validText(request.resource.data.reason, 10, 300)
+        && request.resource.data.createdAt == request.time
+        && getAfter(/databases/$(database)/documents/badge_requests/$(request.resource.data.targetUid)).data.kind
+            == request.resource.data.kind
+        && badgeEventMatchesTransition(
+            request.resource.data.targetUid,
+            request.resource.data.decision,
+            request.resource.data.reason
+          )
+        && (request.resource.data.decision == 'rejected'
+          || (request.resource.data.decision == 'approved'
+            && getAfter(/databases/$(database)/documents/badges/$(request.resource.data.targetUid)).data.get('clergy', '')
+                == request.resource.data.kind)
+          || (request.resource.data.decision == 'revoked'
+            && getAfter(/databases/$(database)/documents/badges/$(request.resource.data.targetUid)).data.get('clergy', '') == ''));
+      allow update, delete: if false;
+    }
+
+    // Pedido de exclusão PRIVADO. Operador autorizado executará a limpeza
+    // de Auth, posts, respostas, fotos e subcoleções; clientes não podem marcar
+    // como concluído nem excluir documentos por conta própria.
+    match /account_deletion_requests/{uid} {
+      allow get: if me(uid) || isAdmin();
+      allow list: if isAdmin();
+      allow create: if me(uid)
+        && request.resource.data.keys().hasOnly(['status', 'requestedAt'])
+        && request.resource.data.keys().hasAll(['status', 'requestedAt'])
+        && request.resource.data.status == 'pending'
+        && request.resource.data.requestedAt == request.time;
+      allow update, delete: if false;
+    }
+
+    // Aceite privado e persistente de regras por usuário.
+    // A versão deve mudar quando as regras forem atualizadas.
+    match /community_consents/{uid} {
+      allow get: if me(uid);
+      allow list: if false;
+      allow create: if me(uid)
+        && request.resource.data.keys().hasOnly(['version', 'acceptedAt'])
+        && request.resource.data.keys().hasAll(['version', 'acceptedAt'])
+        && request.resource.data.version == '2026-11-v1'
+        && request.resource.data.acceptedAt == request.time;
+      allow update: if me(uid)
+        && request.resource.data.keys().hasOnly(['version', 'acceptedAt'])
+        && request.resource.data.keys().hasAll(['version', 'acceptedAt'])
+        && request.resource.data.version == '2026-11-v1'
+        && request.resource.data.version != resource.data.version
+        && request.resource.data.acceptedAt == request.time;
+      allow delete: if false;
+    }
+
+    match /profiles/{uid} {
+      // Os perfis não podem ser enumerados, apenas lidos pelo proprietário.
+      allow get: if me(uid);
+      allow list: if false;
+      allow create: if me(uid)
+        && request.resource.data.keys().hasOnly(['displayName', 'createdAt'])
+        && request.resource.data.keys().hasAll(['displayName', 'createdAt'])
+        && validText(request.resource.data.displayName, 2, 35)
+        && validTime();
+      allow update: if me(uid)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'bio'])
+        && validText(request.resource.data.displayName, 2, 35)
+        && request.resource.data.get('bio', '') is string
+        && request.resource.data.get('bio', '').size() <= 180
+        // Se já houve opt-in, impedir que clientes antigos alterem a bio
+        // privada deixando uma cópia pública desatualizada. A edição deve
+        // atualizar ambos os documentos na MESMA transação, ou o usuário
+        // deve primeiro retirar sua apresentação pública.
+        && (!exists(/databases/$(database)/documents/public_profiles/$(uid))
+          || (getAfter(/databases/$(database)/documents/public_profiles/$(uid)).data.displayName
+                == request.resource.data.displayName
+            && getAfter(/databases/$(database)/documents/public_profiles/$(uid)).data.bio
+                == request.resource.data.get('bio', '')
+            && getAfter(/databases/$(database)/documents/public_profiles/$(uid)).data.updatedAt
+                == request.time));
+      allow delete: if false;
+    }
+
+    // Projeção pública voluntária: nunca conceder acesso de terceiros a /profiles.
+    // A biografia só chega aqui após opt-in pelo titular da conta.
+    // Foto pública independente da biografia voluntária; ninguém grava pelo APK.
+    // O Worker autenticado usa IAM do serviço e verifica a moderação antes de publicar.
+    match /profile_photos/{uid} {
+      allow get: if signedIn();
+      allow list: if false;
+      allow create, update, delete: if false;
+    }
+
+    match /public_profiles/{uid} {
+      allow get: if signedIn();
+      allow list: if false;
+      // getAfter valida o perfil privado após a mesma transação de atualização.
+      // APKs antigos devem revogar a publicação antes de editar a bio privada.
+      allow create, update: if me(uid)
+        && exists(/databases/$(database)/documents/profiles/$(uid))
+        && request.resource.data.keys().hasOnly([
+          'displayName', 'bio', 'joinedAt', 'updatedAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'displayName', 'bio', 'joinedAt', 'updatedAt'
+        ])
+        && validText(request.resource.data.displayName, 2, 35)
+        && request.resource.data.displayName ==
+          getAfter(/databases/$(database)/documents/profiles/$(uid)).data.displayName
+        && request.resource.data.bio is string
+        && request.resource.data.bio.size() <= 180
+        && request.resource.data.bio ==
+          getAfter(/databases/$(database)/documents/profiles/$(uid)).data.get('bio', '')
+        && request.resource.data.joinedAt ==
+          getAfter(/databases/$(database)/documents/profiles/$(uid)).data.createdAt
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if me(uid);
+    }
+
+    match /posts/{postId} {
+      allow get, list: if signedIn() && emailVerificationAllowsCommunityAccess();
+      allow create: if signedIn()
+        && communityPublicationAllowed()
+        && emailVerificationAllowsCommunityAccess()
+        && request.resource.data.keys().hasOnly([
+          'uid', 'authorName', 'title', 'body', 'category', 'createdAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'uid', 'authorName', 'title', 'body', 'category', 'createdAt'
+        ])
+        && request.resource.data.uid == request.auth.uid
+        && publicNameMatchesProfile()
+        && validText(request.resource.data.title, 5, 120)
+        && validText(request.resource.data.body, 5, 1200)
+        && validCategory(request.resource.data.category)
+        && validTime();
+      // Aplicativo ainda não publicado: exigir updatedAt em toda edição.
+      // Isso impede edições que não geram evento para o Guardião V2.
+      // Somente para testes até distribuir APK Debug compatível.
+      allow update: if signedIn()
+        && emailVerificationAllowsCommunityAccess()
+        && resource.data.uid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'body', 'updatedAt'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasAll(['updatedAt'])
+        && request.resource.data.updatedAt == request.time
+        && validText(request.resource.data.title, 5, 120)
+        && validText(request.resource.data.body, 5, 1200);
+      allow delete: if signedIn() && emailVerificationAllowsCommunityAccess()
+          && (resource.data.uid == request.auth.uid || isAdmin());
+
+      match /replies/{replyId} {
+        allow get, list: if signedIn() && emailVerificationAllowsCommunityAccess();
+        allow create: if signedIn()
+          && communityPublicationAllowed()
+          && emailVerificationAllowsCommunityAccess()
+          && exists(/databases/$(database)/documents/posts/$(postId))
+          && request.resource.data.keys().hasOnly([
+            'uid', 'authorName', 'body', 'createdAt', 'replyToId', 'replyToUid',
+            'mentionUid', 'mentionReplyId'
+          ])
+          && request.resource.data.keys().hasAll([
+            'uid', 'authorName', 'body', 'createdAt'
+          ])
+          && request.resource.data.uid == request.auth.uid
+          && publicNameMatchesProfile()
+          && validText(request.resource.data.body, 1, 600)
+          && validTime()
+          // Alvo obtido da resposta existente, nunca pela string @nome.
+          && (request.resource.data.keys().hasAny(['replyToId', 'replyToUid'])
+            ? (request.resource.data.keys().hasAll(['replyToId', 'replyToUid'])
+              && !request.resource.data.keys().hasAny(['mentionUid', 'mentionReplyId'])
+              && validId(request.resource.data.replyToId)
+              && validId(request.resource.data.replyToUid)
+              && exists(/databases/$(database)/documents/posts/$(postId)/replies/$(request.resource.data.replyToId))
+              && get(/databases/$(database)/documents/posts/$(postId)/replies/$(request.resource.data.replyToId)).data.uid == request.resource.data.replyToUid)
+            : true)
+          // Uma única menção explícita por resposta, somente a um membro
+          // canônico que já participa desta discussão.
+          && (request.resource.data.keys().hasAny(['mentionUid', 'mentionReplyId'])
+            ? (request.resource.data.keys().hasAll(['mentionUid'])
+              && !request.resource.data.keys().hasAny(['replyToId', 'replyToUid'])
+              && validId(request.resource.data.mentionUid)
+              && request.resource.data.mentionUid != request.auth.uid
+              && (request.resource.data.keys().hasAny(['mentionReplyId'])
+                ? (validId(request.resource.data.mentionReplyId)
+                  && exists(/databases/$(database)/documents/posts/$(postId)/replies/$(request.resource.data.mentionReplyId))
+                  && get(/databases/$(database)/documents/posts/$(postId)/replies/$(request.resource.data.mentionReplyId)).data.uid == request.resource.data.mentionUid)
+                : get(/databases/$(database)/documents/posts/$(postId)).data.uid == request.resource.data.mentionUid))
+            : true);
+        allow update: if false;
+        allow delete: if signedIn() && emailVerificationAllowsCommunityAccess()
+          && (resource.data.uid == request.auth.uid || isAdmin());
+
+        match /reactions/{uid} {
+          allow get, list: if signedIn() && emailVerificationAllowsCommunityAccess();
+          allow create: if me(uid)
+            && emailVerificationAllowsCommunityAccess()
+            && exists(/databases/$(database)/documents/posts/$(postId)/replies/$(replyId))
+            && request.resource.data.keys().hasOnly(['kind', 'createdAt'])
+            && request.resource.data.keys().hasAll(['kind', 'createdAt'])
+            && validReactionKind(request.resource.data.kind)
+            && request.resource.data.createdAt == request.time;
+          allow update: if me(uid)
+            && emailVerificationAllowsCommunityAccess()
+            && exists(/databases/$(database)/documents/posts/$(postId)/replies/$(replyId))
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['kind'])
+            && validReactionKind(request.resource.data.kind);
+          allow delete: if me(uid) && emailVerificationAllowsCommunityAccess();
+        }
+      }
+    }
+
+    // Cadastro V2: apenas metadados privados e mínimos. Não há papéis, selos,
+    // cargos, publicidade automática nem qualquer acesso ao documento de terceiros.
+    // A criação é aditiva: perfis antigos e seus selos não sofrem migração.
+    match /users/{uid}/private/account {
+      allow get: if me(uid);
+      allow list, delete: if false;
+      allow create: if me(uid)
+        && request.resource.data.keys().hasOnly([
+          'onboardingStatus', 'profileVersion', 'noticesOptIn',
+          'communityUpdates', 'updatedAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'onboardingStatus', 'profileVersion', 'noticesOptIn',
+          'communityUpdates', 'updatedAt'
+        ])
+        && request.resource.data.onboardingStatus == 'pending_email'
+        && request.resource.data.profileVersion == 2
+        && request.resource.data.noticesOptIn == false
+        && request.resource.data.communityUpdates == false
+        && request.resource.data.updatedAt == request.time;
+      allow update: if me(uid)
+        && resource.data.onboardingStatus == 'pending_email'
+        && request.auth.token.email_verified == true
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['onboardingStatus', 'updatedAt'])
+        && request.resource.data.onboardingStatus == 'complete'
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    // Informações de fé e paróquia são privadas e exigem consentimento
+    // específico. Não permitir alteração de privilégios ou campos extras.
+    // Exclusão pelo titular é a revogação integral das preferências opcionais.
+    match /users/{uid}/private/preferences {
+      allow get: if me(uid);
+      allow list: if false;
+      allow create, update: if me(uid)
+        && request.resource.data.keys().hasOnly([
+          'interests', 'participation', 'city', 'parish',
+          'consentVersion', 'consentAt', 'updatedAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'interests', 'participation', 'city', 'parish',
+          'consentVersion', 'consentAt', 'updatedAt'
+        ])
+        && request.resource.data.interests is list
+        && request.resource.data.interests.size() <= 4
+        && request.resource.data.interests.hasOnly([
+          'Oração', 'Formação', 'Comunidade', 'Notícias católicas'
+        ])
+        && request.resource.data.participation is string
+        && request.resource.data.participation in [
+          '', 'Leigo(a)', 'Religioso(a)', 'Padre/Diácono'
+        ]
+        && request.resource.data.city is string
+        && request.resource.data.city.size() <= 80
+        && request.resource.data.parish is string
+        && request.resource.data.parish.size() <= 80
+        && request.resource.data.consentVersion == 'cadastro-v2-2026-11'
+        && request.resource.data.consentAt == request.time
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if me(uid);
+    }
+
+    // Bloqueios privados: só o titular lê e altera sua lista. Não criar auto-bloqueio.
+    match /users/{uid}/blockedMembers/{blockedUid} {
+      allow get, list: if me(uid);
+      allow create: if me(uid)
+        && validId(blockedUid)
+        && blockedUid != uid
+        && request.resource.data.keys().hasOnly(['createdAt'])
+        && request.resource.data.keys().hasAll(['createdAt'])
+        && request.resource.data.createdAt == request.time;
+      allow delete: if me(uid);
+      allow update: if false;
+    }
+
+    // Denúncia de usuário (além das denúncias existentes de posts/respostas).
+    // IDs determinísticos impedem denúncias duplicadas do mesmo par.
+    match /user_reports/{reportId} {
+      allow get: if isAdmin() ||
+        (signedIn() && resource.data.reporterUid == request.auth.uid);
+      allow list: if isAdmin();
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['reporterUid', 'targetUid', 'reason', 'createdAt'])
+        && request.resource.data.keys().hasAll(['reporterUid', 'targetUid', 'reason', 'createdAt'])
+        && request.resource.data.reporterUid == request.auth.uid
+        && validId(request.resource.data.targetUid)
+        && request.resource.data.targetUid != request.auth.uid
+        && reportId == request.auth.uid + '__' + request.resource.data.targetUid
+        && validText(request.resource.data.reason, 10, 500)
+        && request.resource.data.createdAt == request.time;
+      allow update: if isAdmin()
+        && resource.data.get('status', 'pending') == 'pending'
+        && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['status', 'reviewedBy', 'reviewedAt'])
+        && request.resource.data.keys().hasAll(['status', 'reviewedBy', 'reviewedAt'])
+        && request.resource.data.status == 'reviewed'
+        && request.resource.data.reviewedBy == request.auth.uid
+        && request.resource.data.reviewedAt == request.time;
+      allow delete: if false;
+    }
+
+    match /users/{uid}/likedPosts/{postId} {
+      allow get, list: if me(uid) && emailVerificationAllowsCommunityAccess();
+      allow create: if me(uid)
+        && emailVerificationAllowsCommunityAccess()
+        && exists(/databases/$(database)/documents/posts/$(postId))
+        && request.resource.data.keys().hasOnly(['createdAt'])
+        && request.resource.data.keys().hasAll(['createdAt'])
+        && validTime();
+      allow delete: if me(uid) && emailVerificationAllowsCommunityAccess();
+      allow update: if false;
+    }
+
+    match /users/{uid}/savedPosts/{postId} {
+      allow get, list: if me(uid) && emailVerificationAllowsCommunityAccess();
+      allow create: if me(uid)
+        && emailVerificationAllowsCommunityAccess()
+        && exists(/databases/$(database)/documents/posts/$(postId))
+        && request.resource.data.keys().hasOnly(['createdAt'])
+        && request.resource.data.keys().hasAll(['createdAt'])
+        && validTime();
+      allow delete: if me(uid) && emailVerificationAllowsCommunityAccess();
+      allow update: if false;
+    }
+
+    // Acompanhamento persistente: somente o próprio usuário pode editar.
+    match /users/{uid}/followedPosts/{postId} {
+      allow get, list: if me(uid) && emailVerificationAllowsCommunityAccess();
+      allow create: if me(uid)
+        && emailVerificationAllowsCommunityAccess()
+        && validId(postId)
+        && exists(/databases/$(database)/documents/posts/$(postId))
+        && request.resource.data.keys().hasOnly(['createdAt'])
+        && request.resource.data.keys().hasAll(['createdAt'])
+        && validTime();
+      allow delete: if me(uid) && emailVerificationAllowsCommunityAccess();
+      allow update: if false;
+    }
+
+    // Tokens de destino FCM privados por conta e dispositivo.
+    // NENHUM cliente pode enviar mensagens FCM ou listar tokens alheios.
+    // O envio exige backend de confianca com credenciais fora do aplicativo.
+    match /users/{uid}/pushDevices/{deviceId} {
+      allow get, list: if me(uid) && emailVerificationAllowsCommunityAccess();
+      allow create, update: if me(uid)
+        && emailVerificationAllowsCommunityAccess()
+        && validId(deviceId)
+        && request.resource.data.keys().hasOnly(['token', 'updatedAt'])
+        && request.resource.data.keys().hasAll(['token', 'updatedAt'])
+        && validText(request.resource.data.token, 20, 4096)
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if me(uid) && emailVerificationAllowsCommunityAccess();
+    }
+
+    match /users/{recipientUid}/notifications/{notificationId} {
+      // Resposta direta: o destinatário é o autor canônico da resposta citada.
+      // Requer criação da nova resposta no MESMO batch.
+      function canonicalDirectRecipient() {
+        let currentPath = /databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(notificationId);
+        let targetId = request.resource.data.get('replyToId', '');
+        return validId(targetId)
+          && existsAfter(currentPath)
+          && getAfter(currentPath).data.get('replyToId', '') == targetId
+          && getAfter(currentPath).data.get('replyToUid', '') == recipientUid
+          && exists(/databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(targetId))
+          && get(/databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(targetId)).data.uid == recipientUid;
+      }
+      // Menção explícita, validada contra a publicação ou resposta
+      // de participante já existente (sem permitir buscar perfis privados).
+      function canonicalMentionRecipient() {
+        let currentPath = /databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(notificationId);
+        let sourceId = request.resource.data.get('mentionReplyId', '');
+        return existsAfter(currentPath)
+          && getAfter(currentPath).data.get('mentionUid', '') == recipientUid
+          && request.resource.data.get('mentionUid', '') == recipientUid
+          && getAfter(currentPath).data.get('mentionReplyId', '') == sourceId
+          && (sourceId == ''
+            ? get(/databases/$(database)/documents/posts/$(request.resource.data.postId)).data.uid == recipientUid
+            : (validId(sourceId)
+              && exists(/databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(sourceId))
+              && get(/databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(sourceId)).data.uid == recipientUid));
+      }
+      // Somente o destinatário consulta, marca como lida ou dispensa notificações.
+      allow get, list: if me(recipientUid) && emailVerificationAllowsCommunityAccess();
+      // O remetente não pode inventar notificações: a resposta relacionada
+      // precisa nascer no mesmo batch, pertencer a ele e ter data atual.
+      allow create: if signedIn()
+        && emailVerificationAllowsCommunityAccess()
+        && request.auth.uid != recipientUid
+        && request.resource.data.keys().hasOnly([
+          'postId', 'replyId', 'actorUid', 'actorName', 'read', 'createdAt', 'replyToId',
+          'mentionUid', 'mentionReplyId'
+        ])
+        && request.resource.data.keys().hasAll([
+          'postId', 'replyId', 'actorUid', 'actorName', 'read', 'createdAt'
+        ])
+        && request.resource.data.actorUid == request.auth.uid
+        && request.resource.data.read == false
+        && notificationId == request.resource.data.replyId
+        && validText(request.resource.data.postId, 1, 128)
+        && validText(request.resource.data.replyId, 1, 128)
+        && request.resource.data.actorName ==
+          get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.displayName
+        && validTime()
+        && (
+          (get(/databases/$(database)/documents/posts/$(request.resource.data.postId)).data.uid == recipientUid
+            && !request.resource.data.keys().hasAny(['replyToId', 'mentionUid', 'mentionReplyId']))
+          || (request.resource.data.keys().hasAny(['replyToId'])
+              && !request.resource.data.keys().hasAny(['mentionUid', 'mentionReplyId'])
+              && canonicalDirectRecipient())
+          || (request.resource.data.keys().hasAny(['mentionUid']) &&
+              !request.resource.data.keys().hasAny(['replyToId']) &&
+              canonicalMentionRecipient())
+        )
+        && getAfter(/databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(notificationId)).data.uid == request.auth.uid
+        && getAfter(/databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(notificationId)).data.authorName == request.resource.data.actorName
+        && getAfter(/databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(notificationId)).data.createdAt == request.time;
+      allow update: if me(recipientUid)
+        && emailVerificationAllowsCommunityAccess()
+        && resource.data.read == false
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])
+        && request.resource.data.read == true;
+      allow delete: if me(recipientUid) && emailVerificationAllowsCommunityAccess();
+    }
+
+    // Guarda privada de conteúdo temporariamente retirado do fórum.
+    // O Worker cria/restaura via credenciais de serviço: nenhum cliente pode
+    // colocar mensagens em quarentena nem se conceder poderes do bot.
+    match /guardiao_quarantine/{caseId} {
+      allow get, list: if isAdmin() || (signedIn() &&
+        resource.data.ownerUid == request.auth.uid);
+      allow create, delete: if false;
+      // Recurso único do autor, sem alterar conteúdo, status ou decisão humana.
+      allow update: if signedIn()
+        && resource.data.ownerUid == request.auth.uid
+        && resource.data.status == 'held'
+        && !resource.data.keys().hasAny(['appealText','appealedAt'])
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['appealText','appealedAt'])
+        && request.resource.data.keys().hasAll(['appealText','appealedAt'])
+        && validText(request.resource.data.appealText, 10, 500)
+        && request.resource.data.appealedAt == request.time;
+    }
+
+    match /reports/{reportId} {
+      // Denúncias são privadas; somente administradores ativos podem consultá-las.
+      allow read: if isAdmin();
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly([
+          'postId', 'replyId', 'reporterUid', 'reason', 'createdAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'postId', 'reporterUid', 'reason', 'createdAt'
+        ])
+        && request.resource.data.reporterUid == request.auth.uid
+        && validId(request.resource.data.postId)
+        // PR #35: somente um registro por denunciante e alvo, inclusive no QA.
+        && exists(/databases/$(database)/documents/posts/$(request.resource.data.postId))
+        && (request.resource.data.keys().hasAny(['replyId'])
+          ? (validId(request.resource.data.replyId)
+            && reportId == request.auth.uid + '_reply_' + request.resource.data.postId + '_' + request.resource.data.replyId
+            && exists(/databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(request.resource.data.replyId)))
+          : reportId == request.auth.uid + '_post_' + request.resource.data.postId)
+        && validText(request.resource.data.reason, 5, 300)
+        && validTime();
+      allow update: if isAdmin()
+        && resource.data.get('status', 'pending') == 'pending'
+        // Um APK antigo não pode encerrar um caso cuja publicação está
+        // retida: restauração/remoção só por decisão atômica do Worker.
+        && !(resource.data.get('source', '') == 'guardiao'
+          && exists(/databases/$(database)/documents/guardiao_quarantine/$(reportId))
+          && get(/databases/$(database)/documents/guardiao_quarantine/$(reportId)).data.status == 'held')
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'reviewedBy', 'reviewedAt', 'reviewNote', 'reviewTarget'])
+        && request.resource.data.keys().hasAll(['status', 'reviewedBy', 'reviewedAt', 'reviewNote'])
+        && request.resource.data.status in ['dismissed', 'removed']
+        && request.resource.data.reviewedBy == request.auth.uid
+        && request.resource.data.reviewedAt == request.time
+        && validText(request.resource.data.reviewNote, 5, 300)
+        && validReviewTarget()
+        && (request.resource.data.status != 'removed'
+          || reportTargetRemoved());
+      allow delete: if false;
+    }
+
+    // Guardião V2: decisões humanas não punitivas, vinculadas a batch
+    // atômico de CASO + AUDITORIA + AVISO. Nunca permite apagar conteúdo.
+    // O gateway Cloudflare não tem identidade privilegiada: as regras
+    // Firestore continuam verificando o UID Firebase do administrador.
+    function recentGuardianReview(t) {
+      return t is timestamp
+        && t <= request.time
+        && t > request.time - duration.value(5, 'm');
+    }
+    function validGuardianOutcome(status) {
+      return status in ['dismissed', 'acknowledged'];
+    }
+    match /guardian_config/{configId} {
+      allow get: if configId == 'policy' && isAdmin();
+      allow list, create, update, delete: if false;
+    }
+    match /guardian_cases/{caseId} {
+      allow get, list: if isAdmin() ||
+        (signedIn() && resource.data.ownerUid == request.auth.uid);
+      allow create, delete: if false;
+      allow update: if isAdmin()
+        && caseId.matches('guard_[a-f0-9]{32}')
+        && resource.data.engine == 'v2'
+        && resource.data.status in ['review','warned']
+        && validGuardianOutcome(request.resource.data.status)
+        && resource.data.ownerUid != request.auth.uid
+        && validId(resource.data.ownerUid)
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status','reviewedBy','reviewNote','reviewedAt'])
+        && request.resource.data.keys()
+          .hasAll(['reviewedBy','reviewNote','reviewedAt'])
+        && request.resource.data.reviewedBy == request.auth.uid
+        && validText(request.resource.data.reviewNote, 5, 300)
+        && recentGuardianReview(request.resource.data.reviewedAt)
+        && existsAfter(/databases/$(database)/documents/guardian_audit/$(caseId + '_' + request.resource.data.status))
+        && getAfter(/databases/$(database)/documents/guardian_audit/$(caseId + '_' + request.resource.data.status)).data.caseId == caseId
+        && getAfter(/databases/$(database)/documents/guardian_audit/$(caseId + '_' + request.resource.data.status)).data.actor == request.auth.uid
+        && getAfter(/databases/$(database)/documents/guardian_audit/$(caseId + '_' + request.resource.data.status)).data.event == request.resource.data.status
+        && getAfter(/databases/$(database)/documents/guardian_audit/$(caseId + '_' + request.resource.data.status)).data.at == request.resource.data.reviewedAt
+        && existsAfter(/databases/$(database)/documents/guardian_notices/$(resource.data.ownerUid)/items/$(caseId + '_resolved'))
+        && getAfter(/databases/$(database)/documents/guardian_notices/$(resource.data.ownerUid)/items/$(caseId + '_resolved')).data.caseId == caseId
+        && getAfter(/databases/$(database)/documents/guardian_notices/$(resource.data.ownerUid)/items/$(caseId + '_resolved')).data.action == request.resource.data.status
+        && getAfter(/databases/$(database)/documents/guardian_notices/$(resource.data.ownerUid)/items/$(caseId + '_resolved')).data.createdAt == request.resource.data.reviewedAt;
+    }
+    match /guardian_audit/{auditId} {
+      allow get, list: if isAdmin();
+      allow update, delete: if false;
+      allow create: if isAdmin()
+        && auditId.matches('guard_[a-f0-9]{32}_(dismissed|acknowledged)')
+        && request.resource.data.keys().hasOnly(['caseId','actor','event','at'])
+        && request.resource.data.keys().hasAll(['caseId','actor','event','at'])
+        && request.resource.data.caseId.matches('guard_[a-f0-9]{32}')
+        && validGuardianOutcome(request.resource.data.event)
+        && auditId == request.resource.data.caseId + '_' + request.resource.data.event
+        && request.resource.data.actor == request.auth.uid
+        && recentGuardianReview(request.resource.data.at)
+        && getAfter(/databases/$(database)/documents/guardian_cases/$(request.resource.data.caseId)).data.reviewedBy == request.auth.uid
+        && getAfter(/databases/$(database)/documents/guardian_cases/$(request.resource.data.caseId)).data.status == request.resource.data.event
+        && getAfter(/databases/$(database)/documents/guardian_cases/$(request.resource.data.caseId)).data.reviewedAt == request.resource.data.at;
+    }
+    match /guardian_notices/{uid} {
+      allow read, write: if false;
+      match /items/{noticeId} {
+        allow get, list: if me(uid);
+        allow update, delete: if false;
+        allow create: if isAdmin()
+          && validId(uid)
+          && noticeId.matches('guard_[a-f0-9]{32}_resolved')
+          && request.resource.data.keys().hasOnly(['title','body','caseId','action','createdAt'])
+          && request.resource.data.keys().hasAll(['title','body','caseId','action','createdAt'])
+          && request.resource.data.caseId.matches('guard_[a-f0-9]{32}')
+          && noticeId == request.resource.data.caseId + '_resolved'
+          && validGuardianOutcome(request.resource.data.action)
+          && request.resource.data.title == 'Átrio Guardião'
+          && request.resource.data.body ==
+            (request.resource.data.action == 'dismissed'
+              ? 'O aviso foi encerrado após análise humana, sem infração confirmada.'
+              : 'A administração concluiu a análise e registrou uma orientação educativa.')
+          && recentGuardianReview(request.resource.data.createdAt)
+          && getAfter(/databases/$(database)/documents/guardian_cases/$(request.resource.data.caseId)).data.ownerUid == uid
+          && getAfter(/databases/$(database)/documents/guardian_cases/$(request.resource.data.caseId)).data.reviewedBy == request.auth.uid
+          && getAfter(/databases/$(database)/documents/guardian_cases/$(request.resource.data.caseId)).data.status == request.resource.data.action
+          && getAfter(/databases/$(database)/documents/guardian_cases/$(request.resource.data.caseId)).data.reviewedAt == request.resource.data.createdAt;
+      }
+    }
+    match /guardian_runtime/{id} {
+      allow get, list: if isAdmin();
+      allow create, update, delete: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

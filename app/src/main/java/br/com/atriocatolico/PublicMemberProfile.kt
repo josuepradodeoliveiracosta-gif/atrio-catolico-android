@@ -19,15 +19,67 @@ import androidx.compose.ui.unit.sp
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.MetadataChanges
 import com.google.firebase.firestore.Query
 import java.text.DateFormat
 
 /** Apenas atributos publicados voluntariamente; nunca lê profiles/{uid} de terceiros. */
 internal data class PublicMemberTarget(val uid: String, val nameFromPublication: String)
-private data class PublicMemberInfo(val name: String, val bio: String, val joinedAt: com.google.firebase.Timestamp?)
+private data class PublicMemberInfo(
+    val name: String,
+    val bio: String,
+    val joinedAt: com.google.firebase.Timestamp?,
+    val saint: String,
+    val devotionPhrase: String,
+    val ageBand: String,
+    val maritalStatus: String,
+    val interests: List<String>
+)
+private fun DocumentSnapshot.toPublicMemberInfo(): PublicMemberInfo? {
+    if (!exists()) return null
+    val confirmed = !metadata.isFromCache && !metadata.hasPendingWrites()
+    return PublicMemberInfo(
+        name = getString("displayName").orEmpty(),
+        bio = getString("bio").orEmpty(),
+        joinedAt = getTimestamp("joinedAt"),
+        saint = if (confirmed) getString("saint").orEmpty() else "",
+        devotionPhrase = if (confirmed) getString("devotionPhrase").orEmpty() else "",
+        ageBand = if (confirmed) getString("ageBand").orEmpty() else "",
+        maritalStatus = if (confirmed) getString("maritalStatus").orEmpty() else "",
+        interests = if (confirmed) (get("interests") as? List<*>)
+            ?.filterIsInstance<String>().orEmpty()
+            .filter { it in RegistrationOptionalPolicy.interests }.take(3) else emptyList()
+    )
+}
+
 private data class PublicMemberDiscussion(
     val id: String, val title: String, val excerpt: String, val category: String, val date: String
 )
+
+private data class ProfileAffinity(val label: String, val category: String)
+
+private fun publicAffinity(primary: PublicMemberInfo?, other: PublicMemberInfo?): Pair<ProfileAffinity?, List<String>> {
+    if (primary == null || other == null) return null to emptyList()
+    val commonSaint = primary.saint.takeIf {
+        it.isNotBlank() && it.equals(other.saint, ignoreCase = true)
+    }
+    val commonInterests = primary.interests.filter { interest ->
+        interest in other.interests && interest in RegistrationOptionalPolicy.interests
+    }
+    val leading = if (commonSaint != null) ProfileAffinity(commonSaint, "Santos")
+    else commonInterests.firstOrNull()?.let { interest ->
+        val category = when (interest) {
+            "Oração" -> "Pedidos de oração"
+            "Formação" -> "Sagradas Escrituras"
+            "Comunidade" -> "Juventude"
+            "Notícias católicas" -> "História da Igreja"
+            else -> return@let null
+        }
+        ProfileAffinity(interest, category)
+    }
+    val secondary = commonInterests.filterNot { it == leading?.label }.take(2)
+    return leading to secondary
+}
 
 /**
  * Lista publicações visíveis com paginação no servidor. Requer índice (uid ASC, createdAt DESC)
@@ -44,9 +96,10 @@ internal fun PublicMemberProfileScreen(
     managedBlocks: AtrioManagedBlocks? = null
 ) {
     val uid = target.uid
-    var info by remember(uid) { mutableStateOf<PublicMemberInfo?>(null) }
-    var infoLoading by remember(uid) { mutableStateOf(true) }
-    var infoError by remember(uid) { mutableStateOf(false) }
+    var info by remember(db, viewerUid, uid) { mutableStateOf<PublicMemberInfo?>(null) }
+    var infoLoading by remember(db, viewerUid, uid) { mutableStateOf(true) }
+    var infoError by remember(db, viewerUid, uid) { mutableStateOf(false) }
+    var viewerInfo by remember(db, viewerUid, uid) { mutableStateOf<PublicMemberInfo?>(null) }
     val entries = remember(uid) { mutableStateListOf<PublicMemberDiscussion>() }
     var last by remember(uid) { mutableStateOf<DocumentSnapshot?>(null) }
     var nextPage by remember(uid) { mutableIntStateOf(0) }
@@ -63,22 +116,22 @@ internal fun PublicMemberProfileScreen(
     var reportMessage by remember(viewerUid, uid) { mutableStateOf("") }
 
     BackHandler(onBack = onBack)
-    DisposableEffect(db, uid) {
-        var active = true
-        db.collection("public_profiles").document(uid).get().addOnCompleteListener { result ->
-            if (!active) return@addOnCompleteListener
-            infoLoading = false
-            infoError = !result.isSuccessful
-            val doc = if (result.isSuccessful) result.result else null
-            info = if (result.isSuccessful && doc != null && doc.exists()) {
-                PublicMemberInfo(
-                    name = doc.getString("displayName").orEmpty(),
-                    bio = doc.getString("bio").orEmpty(),
-                    joinedAt = doc.getTimestamp("joinedAt")
-                )
-            } else null
-        }
-        onDispose { active = false }
+    DisposableEffect(db, viewerUid, uid) {
+        val listener = db.collection("public_profiles").document(uid)
+            .addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, error ->
+                infoLoading = false
+                infoError = error != null
+                info = snapshot?.toPublicMemberInfo()
+            }
+        onDispose { listener.remove() }
+    }
+    DisposableEffect(db, viewerUid, uid) {
+        val listener = if (viewerUid.isBlank() || viewerUid == uid) null
+            else db.collection("public_profiles").document(viewerUid)
+                .addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, _ ->
+                    viewerInfo = snapshot?.toPublicMemberInfo()
+                }
+        onDispose { listener?.remove() }
     }
     DisposableEffect(db, uid, nextPage) {
         var active = true
@@ -137,6 +190,21 @@ internal fun PublicMemberProfileScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodySmall)
                     }
+                    if (info?.saint?.isNotBlank() == true) {
+                        Text("Santo de devoção · ${info!!.saint}",
+                            style = MaterialTheme.typography.bodyMedium, color = Wine)
+                    }
+                    if (info?.devotionPhrase?.isNotBlank() == true) {
+                        Text("“${info!!.devotionPhrase}”",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    if (info?.ageBand?.isNotBlank() == true) {
+                        Text("Faixa etária · ${info!!.ageBand}", style = MaterialTheme.typography.bodySmall)
+                    }
+                    if (info?.maritalStatus?.isNotBlank() == true) {
+                        Text("Estado civil · ${info!!.maritalStatus}", style = MaterialTheme.typography.bodySmall)
+                    }
                     info?.joinedAt?.toDate()?.let { joined ->
                         Text("Na comunidade desde " +
                             DateFormat.getDateInstance(DateFormat.MEDIUM).format(joined),
@@ -146,6 +214,63 @@ internal fun PublicMemberProfileScreen(
                     if (infoError) Text("Apresentação indisponível. Os dados privados permanecem protegidos.",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+        if (viewerUid.isNotBlank() && viewerUid != uid && !blocked) {
+            val (leadingAffinity, otherAffinities) = publicAffinity(info, viewerInfo)
+            if (leadingAffinity != null) item {
+                var relatedPostId by remember(viewerUid, uid, leadingAffinity.category) {
+                    mutableStateOf<String?>(null)
+                }
+                var lookupComplete by remember(viewerUid, uid, leadingAffinity.category) {
+                    mutableStateOf(false)
+                }
+                DisposableEffect(db, viewerUid, uid, leadingAffinity.category) {
+                    var active = true
+                    db.collection("posts")
+                        .whereEqualTo("category", leadingAffinity.category)
+                        .limit(1).get().addOnCompleteListener { result ->
+                            if (active) {
+                                relatedPostId = result.result?.documents?.firstOrNull()?.id
+                                lookupComplete = true
+                            }
+                        }
+                    onDispose { active = false }
+                }
+                Card(
+                    Modifier.fillMaxWidth().testTag("atrio-public-profile-affinity"),
+                    border = BorderStroke(1.dp, Gold),
+                    colors = CardDefaults.cardColors(containerColor = WineSoft),
+                    shape = RoundedCornerShape(AtrioDimensions.CardRadius)
+                ) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Vamos conversar sobre…",
+                            style = MaterialTheme.typography.titleMedium, color = Wine)
+                        Text("Afinidade em comum", style = MaterialTheme.typography.labelMedium, color = Muted)
+                        Text(leadingAffinity.label, style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold, color = Wine)
+                        otherAffinities.forEach { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                        if (lookupComplete && relatedPostId != null) {
+                            OutlinedButton(
+                                onClick = { onOpenDiscussion(relatedPostId!!) },
+                                modifier = Modifier.fillMaxWidth().testTag("atrio-profile-affinity-discussion")
+                            ) { Text("Ver conversa no mural") }
+                        }
+                    }
+                }
+            }
+        }
+        if (info?.interests?.isNotEmpty() == true) item {
+            Card(
+                Modifier.fillMaxWidth().testTag("atrio-public-profile-interests"),
+                border = BorderStroke(1.dp, Line),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                shape = RoundedCornerShape(AtrioDimensions.CardRadius)
+            ) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Vamos conversar sobre…", style = MaterialTheme.typography.titleMedium, color = Wine)
+                    info!!.interests.forEach { Text(it, style = MaterialTheme.typography.bodyMedium) }
                 }
             }
         }
@@ -270,10 +395,10 @@ internal fun PublicMemberProfileScreen(
     }
 }
 
-/** Opt-in: nem a bio privada, nem o e-mail são copiados sem uma ação expressa. */
+/** Opt-in explícito: a projeção contém somente campos autorizados pelo titular. */
 @Composable
 internal fun PublicProfilePublicationSettings(
-    db: FirebaseFirestore, uid: String, displayName: String, privateBio: String
+    db: FirebaseFirestore, uid: String
 ) {
     var published by remember(uid) { mutableStateOf(false) }
     var loading by remember(uid) { mutableStateOf(true) }
@@ -292,7 +417,8 @@ internal fun PublicProfilePublicationSettings(
     }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Apresentação pública", style = MaterialTheme.typography.titleMedium)
-        Text("Sua biografia é privada. Ela só aparecerá para outros participantes se você publicar aqui.",
+        Text("Publique sua apresentação quando quiser. Devoção, faixa etária, estado civil e interesses " +
+            "só aparecem se você os marcar como visíveis no editor.",
             style = MaterialTheme.typography.bodySmall)
         if (message.isNotBlank()) Text(message, style = MaterialTheme.typography.bodySmall, color = Wine)
         if (!loading) {
@@ -304,25 +430,39 @@ internal fun PublicProfilePublicationSettings(
                     if (task.isSuccessful) { published = false; message = "Apresentação retirada da área pública." }
                     else message = "Não foi possível retirar a apresentação."
                 } else {
-                    db.collection("profiles").document(uid).get().addOnCompleteListener { task ->
-                        if (!task.isSuccessful || task.result?.exists() != true) {
-                            busy = false; message = "Perfil privado indisponível."
+                    val privateRef = db.collection("profiles").document(uid)
+                    val v3Ref = db.document("users/$uid/private/profile_v3")
+                    val preferencesRef = db.document("users/$uid/private/preferences")
+                    db.runTransaction { transaction ->
+                        val privateDoc = transaction.get(privateRef)
+                        val v3Doc = transaction.get(v3Ref)
+                        transaction.get(preferencesRef)
+                        val joined = privateDoc.getTimestamp("createdAt")
+                            ?: throw IllegalStateException("Data do perfil público inválida")
+                        val storedName = privateDoc.getString("displayName").orEmpty()
+                        require(storedName.length in 2..35) {
+                            "Não foi possível validar seu cadastro."
+                        }
+                        val values = mutableMapOf<String, Any>(
+                            "displayName" to storedName,
+                            "bio" to privateDoc.getString("bio").orEmpty(),
+                            "joinedAt" to joined,
+                            "updatedAt" to FieldValue.serverTimestamp()
+                        )
+                        if (v3Doc.exists()) {
+                            values.putAll(ProfileV3Policy.projection(ProfileV3Policy.data(v3Doc)))
+                        }
+                        transaction.set(ref, values)
+                        true
+                    }.addOnCompleteListener { result ->
+                        busy = false
+                        if (result.isSuccessful) {
+                            published = true
+                            message = "Apresentação publicada."
+                        } else if (result.exception?.message?.contains("Data do perfil") == true) {
+                            message = "Não foi possível validar seu cadastro."
                         } else {
-                            val privateDoc = task.result!!
-                            val joined = privateDoc.getTimestamp("createdAt")
-                            val storedName = privateDoc.getString("displayName").orEmpty()
-                            if (joined == null || storedName.length !in 2..35) {
-                                busy = false; message = "Não foi possível validar seu cadastro."
-                            } else ref.set(mapOf(
-                                "displayName" to storedName,
-                                "bio" to privateDoc.getString("bio").orEmpty(),
-                                "joinedAt" to joined,
-                                "updatedAt" to FieldValue.serverTimestamp()
-                            )).addOnCompleteListener { result ->
-                                busy = false
-                                if (result.isSuccessful) { published = true; message = "Apresentação publicada." }
-                                else message = "Publicação indisponível até a aprovação das regras."
-                            }
+                            message = "Publicação indisponível até a aprovação das regras."
                         }
                     }
                 }

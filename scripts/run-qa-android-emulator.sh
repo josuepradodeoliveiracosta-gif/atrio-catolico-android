@@ -174,6 +174,15 @@ if [[ "${ATRIO_QA_SUITE:-}" == "GuardianV2UiTest" ]]; then
   echo "QA Android: apenas GuardianV2UiTest; status=$qa_failed"
   exit "$qa_failed"
 fi
+if [[ "${ATRIO_QA_SUITE:-}" == ProfileV3ConsentEmulatorUiTest ]]; then
+  [[ "$qa_apk" == qaGeral && "${ATRIO_QA_GERAL_REMOTE_BUILD:-}" != 1 ]] || {
+    echo "Consentimento V3 exige qaGeral local" >&2; exit 2
+  }
+  run_suite "$ATRIO_QA_SUITE"
+  adb logcat -d -s AtrioQaProfileV3:I '*:S' \
+    > qa-android-suite-results/profile-v3-offline.log
+  exit "$qa_failed"
+fi
 if [[ "$inbox_focal" == 1 ]]; then
   FIRESTORE_EMULATOR_HOST=127.0.0.1:8089 FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 \
     node tests/security/serve-inbox-discovery-android-qa.mjs > qa-inbox-discovery-emulator.log 2>&1 &

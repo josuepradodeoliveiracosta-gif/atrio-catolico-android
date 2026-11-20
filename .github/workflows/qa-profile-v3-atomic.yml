@@ -1,0 +1,101 @@
+name: QA Perfil V3 - projeção e consentimento
+on:
+  pull_request:
+    paths:
+      - 'firestore.rules'
+      - 'tests/security/profile-v3.test.mjs'
+      - 'app/src/main/java/br/com/atriocatolico/ProfileV3.kt'
+      - 'app/src/main/java/br/com/atriocatolico/PublicMemberProfile.kt'
+      - 'app/src/androidTest/java/br/com/atriocatolico/ProfileV3ConsentEmulatorUiTest.kt'
+      - 'app/src/test/java/br/com/atriocatolico/ProfileV3PolicyTest.kt'
+      - 'scripts/run-qa-android-emulator.sh'
+      - '.github/workflows/qa-profile-v3-atomic.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  firestore-emulator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Testar regras V3 com contas fictícias
+        working-directory: tests/security
+        env:
+          CI: 'true'
+        run: |
+          npm ci --ignore-scripts
+          node prepare.mjs
+          npx firebase emulators:exec --only firestore --project demo-atrio-v11 "node profile-v3.test.mjs"
+  android-consent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ATRIO_QA_GERAL_BUILD: '1'
+      ATRIO_QA_APK: qaGeral
+      ATRIO_QA_FIREBASE_PROJECT: demo-atrio-v11
+      ATRIO_QA_SUITE: ProfileV3ConsentEmulatorUiTest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with:
+          gradle-version: '8.13'
+          cache-disabled: ${{ github.event_name == 'pull_request' }}
+      - name: Isolar o checkout e iniciar compilação de QA
+        run: |
+          git rev-parse HEAD HEAD^{tree}
+          rm -f -- app/google-services.json
+          bash scripts/qa-android-prebuild.sh start
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+      - run: npm ci --ignore-scripts --prefix tests/security
+      - name: Preparar aceleração do emulador
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -c /dev/kvm
+          sudo chmod 0666 /dev/kvm
+      - name: Testar retirada do consentimento no Android
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_4
+          disk-size: 2048M
+          ram-size: 2048M
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -accel on -camera-back none
+          script: bash scripts/run-qa-android-emulator.sh
+      - name: Testar a variante qaGeral na JVM
+        run: gradle :app:testQaGeralUnitTest
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qa-profile-v3-consent-${{ github.event.pull_request.head.sha || github.sha }}-${{ github.run_attempt }}
+          path: |
+            qa-android-suite-results
+            qa-firebase-emulators.log
+            qa-android-prebuild.log
+            app/build/test-results/testQaGeralUnitTest
+          retention-days: 7
+          if-no-files-found: warn

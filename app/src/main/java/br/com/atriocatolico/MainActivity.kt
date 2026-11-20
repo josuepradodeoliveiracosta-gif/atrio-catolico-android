@@ -45,6 +45,7 @@ import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.MenuBook
 import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material.icons.outlined.AccountBalance
@@ -384,7 +385,8 @@ private fun WelcomeScreen(onEnter: (String) -> Unit) {
 @Composable
 internal fun AtrioTopBar(
     details: Boolean, onBack: () -> Unit, onSearch: () -> Unit, onNotification: () -> Unit,
-    unreadCount: Int = 0, detailsTitle: String = "Discussão", profileMode: Boolean = false
+    unreadCount: Int = 0, detailsTitle: String = "Discussão", profileMode: Boolean = false,
+    onProfileSettings: (() -> Unit)? = null
 ) {
     val wineHeader = profileMode && !details
     val textTint = if (wineHeader) Color.White else Wine
@@ -418,6 +420,15 @@ internal fun AtrioTopBar(
                         fontWeight = FontWeight.Bold, color = Wine)
                 }
                 Spacer(Modifier.weight(1f))
+                if (profileMode && !details) onProfileSettings?.let { openSettings ->
+                    IconButton(
+                        onClick = openSettings,
+                        modifier = Modifier.testTag("atrio-profile-settings")
+                    ) {
+                        Icon(Icons.Outlined.Settings, contentDescription = "Configurações do perfil",
+                            tint = textTint)
+                    }
+                }
                 IconButton(onClick = onSearch, modifier = Modifier.testTag("atrio-top-search")) {
                     Icon(Icons.Outlined.Search, contentDescription = "Buscar", tint = textTint)
                 }
