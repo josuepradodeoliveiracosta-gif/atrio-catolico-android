@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <!-- Laboratório local dos itens 08 e 09, sem FCM remoto nem instalador OTA. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <application android:label="${atrioQaGeralLabel}"
+        android:allowBackup="false"
+        android:networkSecurityConfig="@xml/qa_emulator_network_security"
+        tools:replace="android:label">
+        <service android:name=".AtrioPushService" tools:node="remove" />
+        <receiver android:name=".QaConversationSignalReceiver" android:exported="false" />
+        <provider android:name="androidx.core.content.FileProvider" tools:node="remove" />
+    </application>
+</manifest>
