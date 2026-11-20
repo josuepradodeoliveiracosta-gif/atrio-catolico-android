@@ -4,6 +4,8 @@ on:
     paths:
       - 'firebase/qa-geral-celular/pilot/conversation-push-admin.mjs'
       - 'firebase/qa-geral-celular/pilot/conversation-push-operator-auth.mjs'
+      - 'firebase/qa-geral-celular/pilot/conversation-push-admin-http.mjs'
+      - 'tests/security/qa-conversation-push-admin-http.test.mjs'
       - 'tests/security/qa-conversation-push-admin.test.mjs'
       - '.github/workflows/qa-conversation-push-admin.yml'
   workflow_dispatch:
@@ -36,4 +38,4 @@ jobs:
           GOOGLE_CLOUD_PROJECT: demo-atrio-v11
         run: |
           node prepare.mjs
-          ./node_modules/.bin/firebase emulators:exec --only firestore --project demo-atrio-v11 'node --test qa-conversation-push-admin.test.mjs'
+          ./node_modules/.bin/firebase emulators:exec --only firestore --project demo-atrio-v11 'node --test qa-conversation-push-admin.test.mjs qa-conversation-push-admin-http.test.mjs'
