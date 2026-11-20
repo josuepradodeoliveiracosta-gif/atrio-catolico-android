@@ -138,6 +138,37 @@ try {
     assert.equal((await send(enabled, 'publish', publish, 'publisher')).status, 403);
     assert.equal((await room.collection('messages').doc(messageId).get()).exists, true);
   });
+
+  await test('quatro HTTP 409: intenção capturada antes da revogação, ambos os papéis e sentidos',async()=>{
+    for(const [direction,participants] of [
+      ['ab',[senderUid,recipientUid]],['ba',[recipientUid,senderUid]],
+    ]) {
+      for(const [role,uid] of [['author',participants[0]],['recipient',participants[1]]]) {
+        const tag=direction+'_'+role;
+        const before=(await admission(uid).get()).data()?.generation??null;
+        const initial=await send(enabled,'admit',grant(uid,before,'focal_initial_'+tag),'operator');
+        assert.equal(initial.status,200,tag+' admissão inicial');
+        const active=(await initial.json()).generation;
+        const queued=grant(uid,active,'focal_queued_'+tag);
+        const revoked=await send(enabled,'revoke',{
+          uid,expectedGeneration:active,operationKey:'focal_revoke_'+tag,
+        },'operator');
+        assert.equal(revoked.status,200,tag+' revogação');
+        const revokedGeneration=(await revoked.json()).generation;
+        assert.notEqual(revokedGeneration,active,tag+' barreira de versão');
+        const late=await send(enabled,'admit',queued,'operator');
+        assert.equal(late.status,409,tag+' intenção antiga');
+        assert.deepEqual(await late.json(),{error:'stale_admission_generation'});
+        assert.equal((await admission(uid).get()).data().status,'revoked');
+        const fresh=await send(enabled,'admit',
+          grant(uid,revokedGeneration,'focal_fresh_'+tag),'operator');
+        assert.equal(fresh.status,200,tag+' nova intenção');
+        const current=await fresh.json();
+        assert.notEqual(current.generation,revokedGeneration);
+        assert.equal((await admission(uid).get()).data().status,'active');
+      }
+    }
+  });
 } finally {
   await deleteApp(app);
 }
