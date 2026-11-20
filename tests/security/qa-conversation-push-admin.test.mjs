@@ -40,7 +40,7 @@ try {
       });
       const publish=async id=>service.publish({
         senderUid:sender,recipientUid:recipient,conversationId:chatId,
-        messageId:id,expiresAt:deadline(),
+        messageId:id,expiresAt:new Date(Date.now()+120000),
       });
       for(const uid of accounts) {
         await admission(uid).delete();
