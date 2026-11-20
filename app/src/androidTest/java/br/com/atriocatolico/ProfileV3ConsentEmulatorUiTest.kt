@@ -71,20 +71,27 @@ class ProfileV3ConsentEmulatorUiTest {
             "consentVersion" to "cadastro-v2-2026-11",
             "consentAt" to FieldValue.serverTimestamp(), "updatedAt" to FieldValue.serverTimestamp()
         )))
+    }
+
+    private fun seedV3(devotionVisible: Boolean = true) {
+        val visibleFields = if (devotionVisible) ProfileV3Policy.visibleFields
+            else ProfileV3Policy.visibleFields.filterNot { it == "saint" }
         await(privateV3.set(mapOf(
             "saint" to saint, "devotionPhrase" to "Fazer o simples com amor.",
             "ageBand" to "25–34", "maritalStatus" to "Casado(a)",
-            "visibleFields" to ProfileV3Policy.visibleFields, "publicInterests" to listOf("Oração"),
+            "visibleFields" to visibleFields, "publicInterests" to listOf("Oração"),
             "consentVersion" to ProfileV3Policy.CONSENT_VERSION,
             "consentAt" to FieldValue.serverTimestamp(), "updatedAt" to FieldValue.serverTimestamp()
         )))
-        await(owner.document(publicProfile.path).set(mapOf(
+        val published = mapOf(
             "displayName" to name, "bio" to "Apresentação anterior",
             "joinedAt" to requireNotNull(await(legacy.get(Source.SERVER)).getTimestamp("createdAt")),
             "updatedAt" to FieldValue.serverTimestamp(), "saint" to saint,
             "devotionPhrase" to "Fazer o simples com amor.", "ageBand" to "25–34",
             "maritalStatus" to "Casado(a)", "interests" to listOf("Oração")
-        )))
+        )
+        await(owner.document(publicProfile.path).set(if (devotionVisible) published
+            else published - setOf("saint", "devotionPhrase")))
     }
 
     @After fun cleanSessions() {
@@ -92,6 +99,7 @@ class ProfileV3ConsentEmulatorUiTest {
     }
 
     @Test fun cancelThenWithdrawPreservesLegacyAndV2ForTheOwnerAndVisitor() {
+        seedV3()
         val beforeV3 = await(privateV3.get(Source.SERVER)).data
         val beforeProfile = await(legacy.get(Source.SERVER)).data
         val beforePreferences = await(preferences.get(Source.SERVER)).data
@@ -126,6 +134,7 @@ class ProfileV3ConsentEmulatorUiTest {
     }
 
     @Test fun openEditorCannotRepublishAfterExternalWithdrawal() {
+        seedV3()
         showEditor()
         withdrawFromOutsideEditor()
         compose.onNodeWithTag("atrio-profile-v3-save").performClick()
@@ -137,6 +146,7 @@ class ProfileV3ConsentEmulatorUiTest {
     }
 
     @Test fun visitorAlreadyOnProfileLosesThePublishedV3Fields() {
+        seedV3()
         compose.setContent {
             AtrioTheme {
                 PublicMemberProfileScreen(visitor, PublicMemberTarget(uid, name),
@@ -153,6 +163,7 @@ class ProfileV3ConsentEmulatorUiTest {
     }
 
     @Test fun publishHideAndWithdrawAcrossOwnerAndVisitor() {
+        seedV3(devotionVisible = false)
         val beforeLegacy = await(legacy.get(Source.SERVER)).data
         val beforePreferences = await(preferences.get(Source.SERVER)).data
         val beforePublic = await(publicProfile.get(Source.SERVER)).data.orEmpty()
@@ -161,16 +172,6 @@ class ProfileV3ConsentEmulatorUiTest {
         }
         val devotion = "Santo de devoção · $saint"
         val age = "Faixa etária · 25–34"
-        val hiddenDevotion = owner.batch()
-        hiddenDevotion.update(privateV3, "visibleFields",
-            ProfileV3Policy.visibleFields.filterNot { it == "saint" }, "updatedAt",
-            FieldValue.serverTimestamp())
-        hiddenDevotion.update(owner.document(publicProfile.path), mapOf(
-            "saint" to FieldValue.delete(),
-            "devotionPhrase" to FieldValue.delete(),
-            "updatedAt" to FieldValue.serverTimestamp()
-        ))
-        await(hiddenDevotion.commit())
 
         var visitorOpen by mutableStateOf(true)
         compose.setContent {
