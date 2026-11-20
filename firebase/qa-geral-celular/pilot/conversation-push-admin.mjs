@@ -117,7 +117,9 @@ export function createConversationPushAdminService({
         return {senderGeneration:left.generation,recipientGeneration:right.generation,replay:true};
       }
       // Não sobrescrever outro aviso ainda pendente; nem reabrir um consumido.
-      if (existing.exists && existing.data()?.unread===true && existing.data()?.messageId!==messageId) throw new Error('pending_notice_exists');
+      if (existing.exists && existing.data()?.unread===true && existing.data()?.messageId!==messageId &&
+          existing.data()?.senderGeneration===left.generation && existing.data()?.recipientGeneration===right.generation &&
+          millis(existing.data()?.expiresAt)>time) throw new Error('pending_notice_exists');
       const record={
         kind:'chat_message',conversationId,messageId,senderUid,unread:true,
         roundId:identity.roundId,expiresAt,
