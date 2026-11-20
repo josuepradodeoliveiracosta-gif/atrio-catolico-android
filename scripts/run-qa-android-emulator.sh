@@ -30,8 +30,9 @@ case "$qa_group" in
   *) echo "Grupo QA desconhecido: $qa_group" >&2; exit 2 ;;
 esac
 if [[ "${ATRIO_QA_GERAL_CELULAR_PILOT:-}" == 1 ]]; then
-  [[ "$qa_apk" == "qaGeral" && "${ATRIO_QA_SUITE:-}" == "AtrioConversasCompostasEmulatorUiTest" ]] || {
-    echo "Piloto QA Celular: somente a suíte de Conversas e Grupos no Emulator" >&2
+  [[ "$qa_apk" == "qaGeral" && ( "${ATRIO_QA_SUITE:-}" == "AtrioConversasCompostasEmulatorUiTest" ||
+     "${ATRIO_QA_SUITE:-}" == "QaConversationNoticeAndroid" ) ]] || {
+    echo "Piloto QA Celular: somente as suítes focais de Conversas no Emulator" >&2
     exit 2
   }
 fi
@@ -41,6 +42,7 @@ fi
 notice_focal=0
 if [[ "${ATRIO_QA_SUITE:-}" == QaConversationNoticeAndroid ]]; then
   [[ "$qa_apk" == qaGeral && "${ATRIO_QA_CONVERSATION_NOTICE_LAB:-}" == 1 &&
+     "${ATRIO_QA_GERAL_CELULAR_PILOT:-}" == 1 &&
      "${ATRIO_QA_GERAL_REMOTE_BUILD:-}" != 1 &&
      "${ATRIO_QA_GERAL_PUSH_BUILD:-}" != 1 ]] || {
     echo "Avisos de Conversas exigem opt-in e Firebase Emulator" >&2
@@ -232,7 +234,7 @@ if [[ "$inbox_focal" == 1 ]]; then
 fi
 if [[ "$notice_focal" == 1 ]]; then
   # Instalação nova para verificar POST_NOTIFICATIONS negada antes de concedê-la.
-  adb uninstall br.com.atriocatolico.qageral >/dev/null 2>&1 || true
+  adb uninstall br.com.atriocatolico.qageral.celular >/dev/null 2>&1 || true
   (cd tests/security && node seed-qa-conversation-notice-android.mjs)
   node tests/security/serve-qa-conversation-notice-android.mjs \
     > qa-conversation-notice-worker.log 2>&1 &
@@ -250,6 +252,8 @@ if [[ "$notice_focal" == 1 ]]; then
   run_suite QaConversationNoticeDeniedAndroidTest
   (cd tests/security && node seed-qa-conversation-notice-android.mjs --firestore-only)
   run_suite QaConversationNoticeGrantedAndroidTest
+  (cd tests/security && node seed-qa-conversation-notice-android.mjs --firestore-only)
+  run_suite QaConversationNoticeSessionAndroidTest
   exit "$qa_failed"
 fi
 if [[ "${ATRIO_QA_GERAL_CELULAR_PILOT:-}" == 1 ]]; then

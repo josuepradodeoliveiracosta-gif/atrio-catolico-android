@@ -5,12 +5,10 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
-import android.os.SystemClock
 import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.FirebaseApp
@@ -18,6 +16,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Source
+import com.google.firebase.messaging.RemoteMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -36,18 +35,7 @@ import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 
-/** Entrada interna do laboratório. O APK local conserva o serviço FCM desligado. */
-class QaConversationSignalReceiver : BroadcastReceiver() {
-    override fun onReceive(context: Context, intent: Intent) {
-        if (!QaConversationNotices.validSignal(context, intent)) return
-        val completion = goAsync()
-        QaConversationNotices.receive(context.applicationContext) { completion.finish() }
-    }
-}
-
 internal object QaConversationNotices {
-    const val SIGNAL = "br.com.atriocatolico.qa.CONVERSATION_REFRESH"
-    const val SIGNAL_TIME = "receivedAtElapsed"
     const val CHANNEL = "atrio_qa_conversation"
     const val TITLE = "Novo aviso do Átrio"
     private const val TAP = "br.com.atriocatolico.qa.CONVERSATION_OPEN"
@@ -61,7 +49,7 @@ internal object QaConversationNotices {
     private data class Notice(val ticket: String, val session: Session, val event: Event)
     private data class Opening(val session: Session, val chat: String)
 
-    // Estado somente no processo do laboratório, acessado na thread principal.
+    // Estado da sessão do laboratório, acessado na thread principal.
     private var auth: FirebaseAuth? = null
     private var user: FirebaseUser? = null
     private var generation = 0L
@@ -74,7 +62,8 @@ internal object QaConversationNotices {
     fun enabled(context: Context): Boolean {
         if (!BuildConfig.ATRIO_QA_CONVERSATION_NOTICE_LAB || !BuildConfig.DEBUG ||
             BuildConfig.ATRIO_QA_GERAL_REMOTE || BuildConfig.ATRIO_QA_GERAL_PUSH ||
-            context.packageName != "br.com.atriocatolico.qageral"
+            !BuildConfig.ATRIO_QA_GERAL_CELULAR_PILOT ||
+            context.packageName != "br.com.atriocatolico.qageral.celular"
         ) return false
         val app = FirebaseApp.getApps(context).firstOrNull { it.name == FirebaseApp.DEFAULT_APP_NAME }
             ?: return false
@@ -85,11 +74,11 @@ internal object QaConversationNotices {
         return settings.host == "127.0.0.1:8089" && !settings.isSslEnabled
     }
 
-    fun validSignal(context: Context, intent: Intent): Boolean {
-        if (!enabled(context) || intent.action != SIGNAL || intent.extras?.keySet() != setOf(SIGNAL_TIME))
-            return false
-        val received = intent.getLongExtra(SIGNAL_TIME, -1L)
-        return received >= 0 && SystemClock.elapsedRealtime() - received in 0L..60_000L
+    private fun validSignal(message: RemoteMessage): Boolean {
+        val ttl = message.ttl
+        val sent = message.sentTime
+        return message.notification == null && message.data == mapOf("signal" to "refresh") &&
+            ttl in 1..60 && sent > 0 && System.currentTimeMillis() - sent in 0..ttl * 1000L
     }
 
     private fun manager(context: Context): NotificationManager =
@@ -141,7 +130,7 @@ internal object QaConversationNotices {
             connection.instanceFollowRedirects = false
             connection.useCaches = false
             connection.connectTimeout = 2_000
-            connection.readTimeout = 2_000
+            connection.readTimeout = 9_000
             connection.setRequestProperty("Authorization", "Bearer $token")
             if (connection.responseCode != HttpURLConnection.HTTP_OK) return@withContext null
             JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
@@ -176,15 +165,17 @@ internal object QaConversationNotices {
         return Event(chat, message, sender)
     }
 
-    fun receive(context: Context, done: () -> Unit) {
-        scope.launch {
+    suspend fun receive(context: Context, message: RemoteMessage) {
+        if (!validSignal(message)) return
+        withContext(Dispatchers.Main.immediate) {
             try {
-                val session = session(context) ?: return@launch
-                if (!canNotify(context)) return@launch
-                val event = read(session) ?: return@launch
-                if (!current(session) || !canNotify(context)) return@launch
+                val session = session(context) ?: return@withContext
+                if (!canNotify(context)) return@withContext
+                val event = read(session) ?: return@withContext
+                if (!current(session) || !canNotify(context) || !validSignal(message))
+                    return@withContext
                 val key = session.user.uid to event
-                if (key in shown) return@launch
+                if (key in shown) return@withContext
                 val ticket = UUID.randomUUID().toString()
                 val destination = Intent(context, MainActivity::class.java).apply {
                     action = TAP
@@ -210,8 +201,6 @@ internal object QaConversationNotices {
                 if (shown.size > 32) shown.remove(shown.first())
             } catch (_: SecurityException) {
                 // A permissão pode ser retirada entre a checagem e o aviso.
-            } finally {
-                done()
             }
         }
     }

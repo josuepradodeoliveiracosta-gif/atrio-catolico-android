@@ -72,7 +72,32 @@ const b64 = value => Buffer.from(JSON.stringify(value)).toString('base64url');
 const bridgePrefix = b64({alg: 'RS256'}) + '.' + b64({
   aud: pilot.projectId, iss: 'https://securetoken.google.com/' + pilot.projectId,
 });
+// Barreira de teste na resposta real do Worker. Nenhuma rota sai do loopback.
+let noticeReads = 0;
+let holdNextNotice = false;
+let releaseNotice;
 createServer(async (incoming, outgoing) => {
+  if (incoming.method === 'GET' && incoming.url === '/test/state') {
+    outgoing.writeHead(200, {'Content-Type': 'application/json'})
+      .end(JSON.stringify({reads: noticeReads, held: !!releaseNotice}));
+    return;
+  }
+  if (incoming.method === 'POST' && incoming.url === '/test/hold') {
+    if (holdNextNotice || releaseNotice) outgoing.writeHead(409).end();
+    else {
+      holdNextNotice = true;
+      outgoing.writeHead(204).end();
+    }
+    return;
+  }
+  if (incoming.method === 'POST' && incoming.url === '/test/release') {
+    if (!releaseNotice) outgoing.writeHead(409).end();
+    else {
+      releaseNotice();
+      outgoing.writeHead(204).end();
+    }
+    return;
+  }
   if (incoming.method === 'GET' && incoming.url === '/ready') {
     outgoing.writeHead(204).end();
     return;
@@ -93,7 +118,25 @@ createServer(async (incoming, outgoing) => {
     const result = await worker.fetch(new Request('https://qa.invalid/notice', {
       headers: {Authorization: 'Bearer ' + bridgeToken},
     }), env);
-    outgoing.writeHead(result.status, Object.fromEntries(result.headers)).end(await result.text());
+    noticeReads++;
+    const body = await result.text();
+    if (holdNextNotice) {
+      holdNextNotice = false;
+      console.log('QA FCM: resposta do GET /notice aguardando liberação.');
+      await new Promise(resolve => {
+        const deadline = setTimeout(() => {
+          releaseNotice = undefined;
+          resolve();
+        }, 8_000);
+        releaseNotice = () => {
+          clearTimeout(deadline);
+          releaseNotice = undefined;
+          console.log('QA FCM: resposta do GET /notice liberada pelo ensaio.');
+          resolve();
+        };
+      });
+    }
+    outgoing.writeHead(result.status, Object.fromEntries(result.headers)).end(body);
   } catch {
     outgoing.writeHead(503).end();
   } finally {

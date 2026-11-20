@@ -5,8 +5,9 @@
 ## Identidade, admissão e versão
 
 O ensaio Android usa o build type local `qaGeral`, pacote
-`br.com.atriocatolico.qageral`, código 37, versão `0.19.10-qa-geral`,
-sem Google Services remoto. A admissão usa Firestore Emulator no
+`br.com.atriocatolico.qageral.celular`, código 37, versão `0.19.10-qa-geral`,
+sem Google Services remoto. Exige `ATRIO_QA_GERAL_CELULAR_PILOT=1` e
+`ATRIO_QA_CONVERSATION_NOTICE_LAB=1`, ambos em rede emulada. A admissão usa Firestore Emulator no
 projeto fictício `demo-atrio-v11`, com `renderClosedPilotRules()`.
 O verificador real do relay existente usa a identidade de projeto
 `atrio-catolico-qa-general` no token sintético. A resposta do Auth é
@@ -65,11 +66,18 @@ A permissão de sistema recusada impede o alerta e preserva a leitura
 manual da mesma mensagem. O protótipo modela essa separação e a matriz
 de Rules comprova a leitura da mensagem fictícia com a conta admitida.
 
-O teste JVM exercita o modelo. A instrumentação do APK local injeta o sinal
-no receptor e usa o mesmo Worker candidato com Auth e Firestore Emulator
-por encaminhamento ADB. O fluxo revalida a pendência no toque antes de navegar.
-O APK de laboratório mantém FCM e Firebase remoto desligados. A versão
-para uma rodada real ainda precisa ser composta e validada com autorização.
+O teste JVM exercita o modelo. Na instrumentação do Celular isolado, o
+binder interno do SDK entrega um `RemoteMessage` ao `AtrioPushService`
+não exportado. A entrada usa exatamente `signal=refresh` com TTL de até
+60 s. O cliente consulta o mesmo Worker candidato com Auth e Firestore
+Emulator por encaminhamento ADB. A fixture retém uma resposta para provar
+que o aviso aguarda a consulta. O teste reconta a consulta no toque e
+verifica o descarte após mudança de conta durante o GET. Com permissão negada,
+o mesmo conteúdo é lido pela navegação manual sem exibir aviso.
+
+O laboratório conserva `POST_NOTIFICATIONS`, desativa auto-init e registro
+de FCM e remove a ponte de mensagens externas do Manifest. A versão para
+uma rodada real ainda precisa ser composta e validada com autorização.
 
 | Item | Evidência complementar |
 | --- | --- |

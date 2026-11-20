@@ -6,6 +6,8 @@ on:
     paths:
       - '.github/workflows/qa-conversation-notices-android.yml'
       - 'app/src/**/QaConversationNotice*.kt'
+      - 'app/src/androidTest/java/com/google/firebase/messaging/QaMessagingInjection.java'
+      - 'app/src/main/java/br/com/atriocatolico/AtrioPushService.kt'
       - 'app/src/main/java/br/com/atriocatolico/MainActivity.kt'
       - 'app/src/main/java/br/com/atriocatolico/OnlineAtrioApp.kt'
       - 'app/src/qaGeral/AndroidManifest.notices.xml'
@@ -30,6 +32,7 @@ jobs:
     env:
       ATRIO_QA_GERAL_BUILD: '1'
       ATRIO_QA_CONVERSATION_NOTICE_LAB: '1'
+      ATRIO_QA_GERAL_CELULAR_PILOT: '1'
       ATRIO_QA_APK: qaGeral
       ATRIO_QA_FIREBASE_PROJECT: demo-atrio-v11
       ATRIO_QA_SUITE: QaConversationNoticeAndroid
@@ -70,7 +73,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
           test -c /dev/kvm
           sudo chmod 0666 /dev/kvm
-      - name: Injetar sinal e conferir aviso, toque e permissão negada
+      - name: Injetar sinal no serviço FCM e conferir aviso, toque, sessão e permissão
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         with:
           api-level: 35
@@ -82,16 +85,21 @@ jobs:
           disable-animations: true
           emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -accel on -camera-back none
           script: bash scripts/run-qa-android-emulator.sh
-      - name: Registrar identificação e SHA-256 do APK
+      - name: Conferir manifesto, pacote e SHA-256 do APK
         if: always()
         run: |
           apk='app/build/outputs/apk/qaGeral/app-qaGeral.apk'
-          if [ -f "$apk" ]; then
-            aapt="$(find "$ANDROID_HOME/build-tools" -type f -name aapt2 | sort -V | tail -n1)"
-            "$aapt" dump badging "$apk" | awk '/^package: / { print }'
-            test "$("$aapt" dump packagename "$apk")" = br.com.atriocatolico.qageral
-            sha256sum "$apk"
-          fi
+          aapt="$(find "$ANDROID_HOME/build-tools" -type f -name aapt2 | sort -V | tail -n1)"
+          "$aapt" dump badging "$apk" | awk '/^package: / { print }'
+          test "$("$aapt" dump packagename "$apk")" = br.com.atriocatolico.qageral.celular
+          manifest=qa-conversation-notices-manifest.txt
+          "$aapt" dump xmltree --file AndroidManifest.xml "$apk" > "$manifest"
+          grep -A1 'android:name.*"br.com.atriocatolico.AtrioPushService"' "$manifest" | grep 'android:exported.*=false'
+          grep -A1 'firebase_messaging_auto_init_enabled' "$manifest" | grep 'android:value.*=false'
+          grep -F 'com.google.firebase.MESSAGING_EVENT' "$manifest"
+          grep -F 'android.permission.POST_NOTIFICATIONS' "$manifest"
+          if grep -Eq 'FirebaseInstanceIdReceiver|QaConversationSignalReceiver' "$manifest"; then exit 1; fi
+          sha256sum "$apk"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -101,5 +109,6 @@ jobs:
             qa-firebase-emulators.log
             qa-android-prebuild.log
             qa-conversation-notice-worker.log
+            qa-conversation-notices-manifest.txt
           retention-days: 7
           if-no-files-found: warn

@@ -8,8 +8,8 @@
         android:allowBackup="false"
         android:networkSecurityConfig="@xml/qa_emulator_network_security"
         tools:replace="android:label">
-        <service android:name=".AtrioPushService" tools:node="remove" />
-        <receiver android:name=".QaConversationSignalReceiver" android:exported="false" />
+        <receiver android:name="com.google.firebase.iid.FirebaseInstanceIdReceiver"
+            tools:node="remove" />
         <provider android:name="androidx.core.content.FileProvider" tools:node="remove" />
     </application>
 </manifest>

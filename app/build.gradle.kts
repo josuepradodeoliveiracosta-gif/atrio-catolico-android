@@ -25,8 +25,8 @@ require(!atrioQaInboxDiscovery || (atrioQaGeralBuild && !atrioQaGeralRemote)) {
 val atrioQaGeralPush = System.getenv("ATRIO_QA_GERAL_PUSH_BUILD") == "1"
 val atrioQaConversationNoticeLab = System.getenv("ATRIO_QA_CONVERSATION_NOTICE_LAB") == "1"
 require(!atrioQaConversationNoticeLab ||
-    (atrioQaGeralBuild && !atrioQaGeralRemote && !atrioQaGeralPush && !atrioQaGeralCelularPilot)) {
-    "Avisos de Conversas exigem o APK QA Geral local com rede emulada."
+    (atrioQaGeralBuild && atrioQaGeralCelularPilot && !atrioQaGeralRemote && !atrioQaGeralPush)) {
+    "Avisos de Conversas exigem o APK QA Geral Celular local com rede emulada."
 }
 val atrioQaGeralCelularFicticio = System.getenv("ATRIO_QA_GERAL_CELULAR_FICTICIO") == "1"
 val atrioQaGeralCelularFunctional = System.getenv("ATRIO_QA_GERAL_CELULAR_FUNCIONAL") == "1"

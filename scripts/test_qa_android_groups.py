@@ -17,6 +17,7 @@ FOCAL_ROUTES = {
     'if [[ "$notice_focal" == 1 ]]; then': (
         "QaConversationNoticeDeniedAndroidTest",
         "QaConversationNoticeGrantedAndroidTest",
+        "QaConversationNoticeSessionAndroidTest",
     ),
 }
 SUITE_CALL = re.compile(r"(?m)^[ \t]*run_suite ([A-Za-z][A-Za-z0-9]+)$")
