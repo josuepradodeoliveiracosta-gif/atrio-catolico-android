@@ -21,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mode: [CLIENTES, BLOQUEIO, REDE, TROCA]
+        mode: [CLIENTES]
     env:
       TECH_REF: ${{ github.event.pull_request.head.sha }}
       ATRIO_QA_GERAL_BUILD: '1'

@@ -6,7 +6,9 @@ second=emulator-5556
 release=/data/local/tmp/atrio-199-both-open
 results=qa-android-suite-results/two-clients
 package=br.com.atriocatolico.qageral
+emulator_binary="${ANDROID_HOME:?Android SDK não configurado}/emulator/emulator"
 mkdir -p "$results"
+test -x "$emulator_binary"
 
 cleanup_second() {
   adb -s "$second" emu kill >/dev/null 2>&1 || true
@@ -15,11 +17,12 @@ cleanup_second() {
 adb -s "$first" shell true
 printf 'no\n' | avdmanager create avd --force --name atrio_qa_199_second \
   --package 'system-images;android-35;google_apis;x86_64' --device pixel_4
-emulator @atrio_qa_199_second -port 5556 -no-window -no-snapshot -noaudio -no-boot-anim \
+"$emulator_binary" @atrio_qa_199_second -port 5556 -no-window -no-snapshot -noaudio -no-boot-anim \
   -gpu swiftshader_indirect -accel on -memory 2048 -camera-back none \
   > "$results/second-emulator.txt" 2>&1 &
 second_pid=$!
 trap cleanup_second EXIT
+kill -0 "$second_pid"
 gradle :app:assembleQaGeral :app:assembleQaGeralAndroidTest --daemon --stacktrace
 
 timeout 180 adb -s "$second" wait-for-device
