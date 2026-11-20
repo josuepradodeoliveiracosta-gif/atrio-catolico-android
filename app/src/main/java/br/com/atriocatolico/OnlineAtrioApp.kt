@@ -814,7 +814,7 @@ private fun OnlineCommunity(
     var conversationsOpen by remember(uid) { mutableStateOf(false) }
     var conversationPeer by remember(uid) { mutableStateOf<PublicMemberTarget?>(null) }
     var noticeChatId by remember(uid) { mutableStateOf<String?>(null) }
-    if (BuildConfig.ATRIO_QA_CONVERSATION_NOTICE_LAB) {
+    if (QaConversationNotices.configured) {
         val notice by QaConversationNotices.destination.collectAsState()
         LaunchedEffect(notice, conversationsQa, visible) {
             if (conversationsQa && visible) {

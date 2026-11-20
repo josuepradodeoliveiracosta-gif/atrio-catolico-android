@@ -6,11 +6,12 @@ on:
     paths:
       - '.github/workflows/qa-conversation-notices-android.yml'
       - 'app/src/**/QaConversationNotice*.kt'
-      - 'app/src/androidTest/java/com/google/firebase/messaging/QaMessagingInjection.java'
+      - 'app/src/noticeLabAndroidTest/java/com/google/firebase/messaging/QaMessagingInjection.java'
       - 'app/src/main/java/br/com/atriocatolico/AtrioPushService.kt'
       - 'app/src/main/java/br/com/atriocatolico/MainActivity.kt'
       - 'app/src/main/java/br/com/atriocatolico/OnlineAtrioApp.kt'
-      - 'app/src/qaGeral/AndroidManifest.notices.xml'
+      - 'app/src/qaGeral/AndroidManifest.notices*.xml'
+      - 'app/src/qaEmulator/res/xml/qa_emulator_network_security.xml'
       - 'app/build.gradle.kts'
       - 'scripts/run-qa-android-emulator.sh'
       - 'tests/security/*qa-conversation-notice-android.mjs'
@@ -73,7 +74,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
           test -c /dev/kvm
           sudo chmod 0666 /dev/kvm
-      - name: Injetar sinal no serviço FCM e conferir aviso, toque, sessão e permissão
+      - name: Injetar sinal no serviço FCM e conferir aviso, toque, sessão, permissão e revogação
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         with:
           api-level: 35
@@ -100,6 +101,48 @@ jobs:
           grep -F 'android.permission.POST_NOTIFICATIONS' "$manifest"
           if grep -Eq 'FirebaseInstanceIdReceiver|QaConversationSignalReceiver' "$manifest"; then exit 1; fi
           sha256sum "$apk"
+      - name: Conferir o empacotamento do candidato HTTPS com identidade fictícia
+        env:
+          ATRIO_QA_CONVERSATION_NOTICE_LAB: '0'
+          ATRIO_QA_GERAL_CELULAR_PILOT: '0'
+          ATRIO_QA_GERAL_REMOTE_BUILD: '1'
+          ATRIO_QA_GERAL_CELULAR_FUNCIONAL: '1'
+          ATRIO_QA_GERAL_CELULAR_RODADA_FIXTURE: '1'
+          ATRIO_QA_GERAL_CELULAR_APP_ID: '1:835727158563:android:0000000000000000000000'
+          ATRIO_QA_CONVERSATION_NOTICE_ORIGIN: 'https://notice-qa.example.invalid'
+        run: |
+          config=app/src/qaGeral/google-services.json
+          test ! -e "$config"
+          trap 'rm -f -- "$config"' EXIT
+          python3 scripts/qa_geral_remote_build_gate.py --write-functional-fixture "$config"
+          gradle :app:testQaGeralUnitTest :app:assembleQaGeral
+          apk='app/build/outputs/apk/qaGeral/app-qaGeral-unsigned.apk'
+          aapt="$(find "$ANDROID_HOME/build-tools" -type f -name aapt2 | sort -V | tail -n1)"
+          test "$("$aapt" dump packagename "$apk")" = br.com.atriocatolico.qageral.celular
+          manifest=qa-conversation-notices-https-manifest.txt
+          "$aapt" dump xmltree --file AndroidManifest.xml "$apk" > "$manifest"
+          "$aapt" dump resources "$apk" > qa-conversation-notices-https-resources.txt
+          grep -F 'android:usesCleartextTraffic' "$manifest" | grep '=false'
+          grep -A1 'android:name.*"br.com.atriocatolico.AtrioPushService"' "$manifest" | grep 'android:exported.*=false'
+          grep -A1 'firebase_messaging_auto_init_enabled' "$manifest" | grep 'android:value.*=false'
+          grep -F 'com.google.firebase.MESSAGING_EVENT' "$manifest"
+          grep -F 'android.permission.POST_NOTIFICATIONS' "$manifest"
+          if grep -Eq 'android:networkSecurityConfig|FirebaseInstanceIdReceiver|QaConversationSignalReceiver' "$manifest"; then exit 1; fi
+          if grep -q qa_emulator_network_security qa-conversation-notices-https-resources.txt; then exit 1; fi
+          python3 - "$apk" <<'PYAPK'
+          import sys
+          import zipfile
+
+          with zipfile.ZipFile(sys.argv[1]) as apk:
+              dex = [apk.read(name) for name in apk.namelist() if name.endswith(".dex")]
+          assert dex
+          assert any(b"https://notice-qa.example.invalid" in part for part in dex)
+          assert not any(marker in part for part in dex for marker in (
+              b"http://127.0.0.1:8092/notice", b"QaMessagingInjection",
+              b"QaConversationNoticeAndroidCase", b"QaConversationSignalReceiver",
+          ))
+          PYAPK
+          sha256sum "$apk"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -110,5 +153,7 @@ jobs:
             qa-android-prebuild.log
             qa-conversation-notice-worker.log
             qa-conversation-notices-manifest.txt
+            qa-conversation-notices-https-manifest.txt
+            app/build/test-results/testQaGeralUnitTest/TEST-br.com.atriocatolico.QaConversationNoticeHttpTest.xml
           retention-days: 7
           if-no-files-found: warn

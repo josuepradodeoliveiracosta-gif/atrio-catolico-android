@@ -26,10 +26,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONException
 import org.json.JSONObject
-import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.Proxy
-import java.net.URL
 import java.util.UUID
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
@@ -41,7 +37,12 @@ internal object QaConversationNotices {
     private const val TAP = "br.com.atriocatolico.qa.CONVERSATION_OPEN"
     private const val TICKET = "qaNoticeTicket"
     private const val NOTICE_ID = 701
-    private const val LAB_NOTICE_URL = "http://127.0.0.1:8092/notice"
+    private val transport = if (BuildConfig.ATRIO_QA_CONVERSATION_NOTICE_LAB) {
+        QaConversationNoticeHttp.loopback(BuildConfig.ATRIO_QA_CONVERSATION_NOTICE_LAB_URL)
+    } else {
+        QaConversationNoticeHttp.https(BuildConfig.ATRIO_QA_CONVERSATION_NOTICE_ORIGIN)
+    }
+    val configured: Boolean get() = transport != null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private data class Session(val user: FirebaseUser, val generation: Long)
@@ -49,7 +50,7 @@ internal object QaConversationNotices {
     private data class Notice(val ticket: String, val session: Session, val event: Event)
     private data class Opening(val session: Session, val chat: String)
 
-    // Estado da sessão do laboratório, acessado na thread principal.
+    // Estado da sessão de avisos, acessado na thread principal.
     private var auth: FirebaseAuth? = null
     private var user: FirebaseUser? = null
     private var generation = 0L
@@ -60,18 +61,23 @@ internal object QaConversationNotices {
     val destination = destinationChange.asStateFlow()
 
     fun enabled(context: Context): Boolean {
-        if (!BuildConfig.ATRIO_QA_CONVERSATION_NOTICE_LAB || !BuildConfig.DEBUG ||
-            BuildConfig.ATRIO_QA_GERAL_REMOTE || BuildConfig.ATRIO_QA_GERAL_PUSH ||
-            !BuildConfig.ATRIO_QA_GERAL_CELULAR_PILOT ||
+        if (!configured || !BuildConfig.DEBUG || BuildConfig.ATRIO_QA_GERAL_PUSH ||
             context.packageName != "br.com.atriocatolico.qageral.celular"
         ) return false
         val app = FirebaseApp.getApps(context).firstOrNull { it.name == FirebaseApp.DEFAULT_APP_NAME }
             ?: return false
-        if (app.options.projectId != "demo-atrio-v11" ||
-            app.options.applicationId != "1:1234567890:android:qa123456"
-        ) return false
         val settings = FirebaseFirestore.getInstance(app).firestoreSettings
-        return settings.host == "127.0.0.1:8089" && !settings.isSslEnabled
+        if (BuildConfig.ATRIO_QA_CONVERSATION_NOTICE_LAB) {
+            return BuildConfig.ATRIO_QA_GERAL_CELULAR_PILOT && !BuildConfig.ATRIO_QA_GERAL_REMOTE &&
+                app.options.projectId == "demo-atrio-v11" &&
+                app.options.applicationId == "1:1234567890:android:qa123456" &&
+                settings.host == "127.0.0.1:8089" && !settings.isSslEnabled
+        }
+        return BuildConfig.ATRIO_QA_GERAL_REMOTE && BuildConfig.ATRIO_QA_GERAL_CELULAR_FUNCIONAL &&
+            BuildConfig.ATRIO_QA_GERAL_CELULAR_RODADA && qaGeralCelularRoundMatches(
+                context.packageName, app.options.projectId, app.options.applicationId,
+                settings.host, settings.isSslEnabled
+            )
     }
 
     private fun validSignal(message: RemoteMessage): Boolean {
@@ -125,21 +131,11 @@ internal object QaConversationNotices {
         }
 
     private suspend fun pending(token: String): JSONObject? = withContext(Dispatchers.IO) {
-        val connection = URL(LAB_NOTICE_URL).openConnection(Proxy.NO_PROXY) as HttpURLConnection
+        val body = transport?.read(token) ?: return@withContext null
         try {
-            connection.instanceFollowRedirects = false
-            connection.useCaches = false
-            connection.connectTimeout = 2_000
-            connection.readTimeout = 9_000
-            connection.setRequestProperty("Authorization", "Bearer $token")
-            if (connection.responseCode != HttpURLConnection.HTTP_OK) return@withContext null
-            JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
-        } catch (_: IOException) {
-            null
+            JSONObject(body)
         } catch (_: JSONException) {
             null
-        } finally {
-            connection.disconnect()
         }
     }
 

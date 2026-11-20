@@ -118,6 +118,17 @@ abstract class QaConversationNoticeAndroidCase {
 
     protected fun serverReads(): Int = requireNotNull(fixture("state")).getInt("reads")
 
+    protected fun revokeNotice() {
+        fixture("revoke", "POST")
+    }
+
+    protected fun waitForRefusedTap(expectedReads: Int) {
+        compose.waitUntil(10_000) {
+            val state = requireNotNull(fixture("state"))
+            state.getInt("reads") == expectedReads && state.getInt("status") == 404
+        }
+    }
+
     protected fun holdServerResponse() {
         fixture("hold", "POST")
     }
@@ -234,5 +245,23 @@ class QaConversationNoticeSessionAndroidTest : QaConversationNoticeAndroidCase()
         signIn("bob")
         finish(signal())
         assertEquals(1, notices().size)
+    }
+}
+
+
+class QaConversationNoticeRevokedAndroidTest : QaConversationNoticeAndroidCase() {
+    @Test fun toqueAposRevogacaoReconsultaESoAbreConversaManualmente() {
+        start(permissionGranted = true)
+        finish(signal())
+        val tap = notices().single().notification.contentIntent
+        val beforeTap = serverReads()
+        revokeNotice()
+        tap.send()
+        waitForRefusedTap(beforeTap + 1)
+        compose.onNodeWithTag("atrio-chat-thread").assertDoesNotExist()
+        assertTrue(notices().isEmpty())
+
+        openManually()
+        verifyMessage()
     }
 }

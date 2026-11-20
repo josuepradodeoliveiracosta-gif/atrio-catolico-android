@@ -1,3 +1,5 @@
+import java.net.URI
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -38,6 +40,20 @@ require(!(atrioQaGeralCelularRound41 && atrioQaGeralCelularRound42)) {
     "Escolha somente uma rodada de QA Geral Celular."
 }
 val atrioQaGeralCelularRound = atrioQaGeralCelularRound41 || atrioQaGeralCelularRound42
+val atrioQaNoticeOrigin = System.getenv("ATRIO_QA_CONVERSATION_NOTICE_ORIGIN").orEmpty()
+if (atrioQaNoticeOrigin.isNotEmpty()) {
+    require(atrioQaGeralBuild && atrioQaGeralCelularFunctional &&
+        (atrioQaGeralCelularRound || atrioQaGeralCelularRoundFixture) && !atrioQaConversationNoticeLab) {
+        "A origem do Worker de avisos exige a rodada funcional do QA Geral Celular."
+    }
+    val host = runCatching { URI(atrioQaNoticeOrigin).host }.getOrNull().orEmpty()
+    require(atrioQaNoticeOrigin == "https://$host" &&
+        host.substringAfterLast('.', "").matches(Regex("[a-z]{2,63}")) &&
+        host != "atrio-push.atrio-catolico.workers.dev" &&
+        !host.endsWith(".local") && !host.endsWith(".localhost") && host == host.lowercase()) {
+        "Informe a origem HTTPS exclusiva da rodada, sem porta, caminho ou parâmetros."
+    }
+}
 val atrioQaGeralCelularUnsigned = System.getenv("ATRIO_QA_GERAL_CELULAR_UNSIGNED_BUILD") == "1"
 val atrioQaGeralCelularPairCode = System.getenv("ATRIO_QA_GERAL_CELULAR_PAIR_CODE").orEmpty()
 require(atrioQaGeralCelularPairCode.isEmpty() ||
@@ -304,6 +320,8 @@ android {
         buildConfigField("boolean", "ATRIO_QA_INBOX_DISCOVERY", "false")
         buildConfigField("boolean", "ATRIO_QA_GERAL_PUSH", "false")
         buildConfigField("boolean", "ATRIO_QA_CONVERSATION_NOTICE_LAB", "false")
+        buildConfigField("String", "ATRIO_QA_CONVERSATION_NOTICE_ORIGIN", "\"\"")
+        buildConfigField("String", "ATRIO_QA_CONVERSATION_NOTICE_LAB_URL", "\"\"")
         buildConfigField("String", "ATRIO_QA_GERAL_PROJECT_ID", "\"\"")
         buildConfigField("String", "ATRIO_QA_GERAL_APP_ID", "\"\"")
         val relayUrl = System.getenv("ATRIO_PUSH_WORKER_URL").orEmpty()
@@ -394,6 +412,10 @@ android {
             }
             buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"$qaName\"")
             buildConfigField("boolean", "ATRIO_QA_CONVERSATION_NOTICE_LAB", atrioQaConversationNoticeLab.toString())
+            buildConfigField("String", "ATRIO_QA_CONVERSATION_NOTICE_ORIGIN", "\"$atrioQaNoticeOrigin\"")
+            if (atrioQaConversationNoticeLab) {
+                buildConfigField("String", "ATRIO_QA_CONVERSATION_NOTICE_LAB_URL", "\"http://127.0.0.1:8092/notice\"")
+            }
             buildConfigField("boolean", "ATRIO_QA_GERAL_CELULAR_PILOT", atrioQaGeralCelularPilot.toString())
             buildConfigField("boolean", "ATRIO_QA_GERAL_CELULAR_RODADA", atrioQaGeralCelularRound.toString())
             if (atrioQaGeralRemote) {
@@ -438,8 +460,16 @@ android {
         sourceSets.getByName("qaGeral").manifest.srcFile("src/qaGeral/AndroidManifest.ficticio.xml")
     } else if (atrioQaConversationNoticeLab) {
         sourceSets.getByName("qaGeral").manifest.srcFile("src/qaGeral/AndroidManifest.notices.xml")
+    } else if (atrioQaNoticeOrigin.isNotEmpty()) {
+        sourceSets.getByName("qaGeral").manifest.srcFile("src/qaGeral/AndroidManifest.notices.https.xml")
     } else if (atrioQaGeralPush) {
         sourceSets.getByName("qaGeral").manifest.srcFile("src/qaGeral/AndroidManifest.push.xml")
+    }
+    if (atrioQaNoticeOrigin.isEmpty()) {
+        sourceSets.getByName("qaGeral").res.srcDir("src/qaEmulator/res")
+    }
+    if (atrioQaConversationNoticeLab) {
+        sourceSets.getByName("androidTest").java.srcDir("src/noticeLabAndroidTest/java")
     }
 
     // Instrumentacao em qaGeral so com opt-in; Debug oficial permanece normal.

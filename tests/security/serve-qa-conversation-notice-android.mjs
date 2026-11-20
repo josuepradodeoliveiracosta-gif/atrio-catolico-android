@@ -74,12 +74,29 @@ const bridgePrefix = b64({alg: 'RS256'}) + '.' + b64({
 });
 // Barreira de teste na resposta real do Worker. Nenhuma rota sai do loopback.
 let noticeReads = 0;
+let noticeStatus = 0;
 let holdNextNotice = false;
 let releaseNotice;
 createServer(async (incoming, outgoing) => {
   if (incoming.method === 'GET' && incoming.url === '/test/state') {
     outgoing.writeHead(200, {'Content-Type': 'application/json'})
-      .end(JSON.stringify({reads: noticeReads, held: !!releaseNotice}));
+      .end(JSON.stringify({reads: noticeReads, status: noticeStatus, held: !!releaseNotice}));
+    return;
+  }
+  if (incoming.method === 'POST' && incoming.url === '/test/revoke') {
+    try {
+      const admission = demoRoot + '/users/qa-nav-bob/chatPushAdmission/current';
+      const updated = await localFetch(firestore + admission + '?updateMask.fieldPaths=status', {
+        method: 'PATCH',
+        headers: {Authorization: 'Bearer owner', 'Content-Type': 'application/json'},
+        body: JSON.stringify({fields: {status: {stringValue: 'revoked'}}}),
+        signal: AbortSignal.timeout(1800),
+      });
+      await updated.text();
+      outgoing.writeHead(updated.ok ? 204 : 500).end();
+    } catch {
+      outgoing.writeHead(503).end();
+    }
     return;
   }
   if (incoming.method === 'POST' && incoming.url === '/test/hold') {
@@ -136,6 +153,7 @@ createServer(async (incoming, outgoing) => {
         };
       });
     }
+    noticeStatus = result.status;
     outgoing.writeHead(result.status, Object.fromEntries(result.headers)).end(body);
   } catch {
     outgoing.writeHead(503).end();

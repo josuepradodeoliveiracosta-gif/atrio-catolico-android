@@ -24,7 +24,7 @@ internal object ThreadPushSubscriptions {
         idPattern.matches(postId) && postId in get(context, uid)
 
     fun track(context: Context, uid: String, postId: String) {
-        if (BuildConfig.ATRIO_QA_CONVERSATION_NOTICE_LAB) return
+        if (QaConversationNotices.configured) return
         if (BuildConfig.ATRIO_QA_GERAL_REMOTE || !idPattern.matches(postId) ||
             FirebaseAuth.getInstance().currentUser?.uid != uid) return
         val before = get(context, uid)

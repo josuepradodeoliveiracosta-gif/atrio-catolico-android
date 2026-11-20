@@ -206,7 +206,9 @@ class MainActivity : ComponentActivity() {
                 }
             } else if (OtaQaChannel.active) {
                 OtaQaScreen()
-            } else if (startupState.opening && !QaConversationNotices.enabled(this@MainActivity)) {
+            } else if (startupState.opening &&
+                !(BuildConfig.ATRIO_QA_CONVERSATION_NOTICE_LAB && QaConversationNotices.enabled(this@MainActivity))
+            ) {
                 AtrioTheme {
                     AtrioStartupVideo(this@MainActivity) { startupState.opening = false }
                 }
