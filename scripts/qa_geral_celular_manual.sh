@@ -5,14 +5,19 @@ umask 077
 tools="${ANDROID_HOME:?ANDROID_HOME ausente}/build-tools/36.0.0"
 
 case "${1:-}" in
-    build|build-functional|build-round)
+    build|build-functional|build-round|build-round-42)
         output="${2:?Caminho do APK sem assinatura ausente}"
         config=app/src/qaGeral/google-services.json
         if [[ "$1" != build ]]; then
             round=0
-            if [[ "$1" == build-round ]]; then
+            round42=0
+            if [[ "$1" == build-round || "$1" == build-round-42 ]]; then
                 [[ -z "${3:-}" ]] || { echo 'A rodada física exige a configuração registrada.' >&2; exit 2; }
-                round=1
+                if [[ "$1" == build-round-42 ]]; then
+                    round42=1
+                else
+                    round=1
+                fi
             fi
             case "${3:-}" in
                 --fixture)
@@ -36,6 +41,7 @@ case "${1:-}" in
                 ATRIO_QA_GERAL_CELULAR_FICTICIO=0 ATRIO_QA_GERAL_CELULAR_UNSIGNED_BUILD=0 \
                 ATRIO_QA_GERAL_CELULAR_FUNCIONAL=1 ATRIO_QA_GERAL_CELULAR_APP_ID="$app_id" \
                 ATRIO_QA_GERAL_CELULAR_RODADA="$round" ATRIO_QA_GERAL_CELULAR_RODADA_FIXTURE=0 \
+                ATRIO_QA_GERAL_CELULAR_RODADA42="$round42" \
                 ATRIO_QA_GERAL_CELULAR_PAIR_CODE= \
                 gradle :app:assembleQaGeral --no-daemon --max-workers=2
         else
@@ -44,6 +50,7 @@ case "${1:-}" in
             ATRIO_QA_GERAL_BUILD=1 ATRIO_QA_GERAL_REMOTE_BUILD=1 ATRIO_QA_GERAL_PUSH_BUILD=0 \
                 ATRIO_QA_GERAL_CELULAR_FICTICIO=1 ATRIO_QA_GERAL_CELULAR_UNSIGNED_BUILD=1 \
                 ATRIO_QA_GERAL_CELULAR_FUNCIONAL=0 ATRIO_QA_GERAL_CELULAR_PAIR_CODE="${3:-}" \
+                ATRIO_QA_GERAL_CELULAR_RODADA42=0 \
                 gradle :app:assembleQaGeral --no-daemon --max-workers=2
         fi
         shopt -s nullglob
@@ -55,6 +62,8 @@ case "${1:-}" in
         if [[ "$1" == build-round ]]; then
             "$tools/aapt" dump badging "${apks[0]}" |
                 grep -F "package: name='br.com.atriocatolico.qageral.celular' versionCode='41' " >/dev/null
+        elif [[ "$1" == build-round-42 ]]; then
+            python3 -m scripts.qa_geral_celular_round42 metadata "${apks[0]}" --build-tools "$tools"
         fi
         "$tools/zipalign" -P 16 4 "${apks[0]}" "$output"
         ;;
@@ -70,7 +79,7 @@ case "${1:-}" in
             --v4-signing-enabled false --out "$signed" "$unsigned"
         ;;
     *)
-        echo 'Use build <saída.apk> [versionCode do par], build-functional <saída.apk>, build-round <saída.apk> ou sign <entrada.apk> <saída.apk> <keystore>.' >&2
+        echo 'Use build, build-functional, build-round (41), build-round-42 ou sign. Nos builds, informe o caminho de saída.' >&2
         exit 2
         ;;
 esac

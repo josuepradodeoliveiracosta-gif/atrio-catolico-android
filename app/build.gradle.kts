@@ -27,7 +27,12 @@ val atrioQaGeralCelularFicticio = System.getenv("ATRIO_QA_GERAL_CELULAR_FICTICIO
 val atrioQaGeralCelularFunctional = System.getenv("ATRIO_QA_GERAL_CELULAR_FUNCIONAL") == "1"
 // O CI confere a identidade da rodada sem usar a configuração do celular nem o fluxo protegido.
 val atrioQaGeralCelularRoundFixture = System.getenv("ATRIO_QA_GERAL_CELULAR_RODADA_FIXTURE") == "1"
-val atrioQaGeralCelularRound = System.getenv("ATRIO_QA_GERAL_CELULAR_RODADA") == "1"
+val atrioQaGeralCelularRound41 = System.getenv("ATRIO_QA_GERAL_CELULAR_RODADA") == "1"
+val atrioQaGeralCelularRound42 = System.getenv("ATRIO_QA_GERAL_CELULAR_RODADA42") == "1"
+require(!(atrioQaGeralCelularRound41 && atrioQaGeralCelularRound42)) {
+    "Escolha somente uma rodada de QA Geral Celular."
+}
+val atrioQaGeralCelularRound = atrioQaGeralCelularRound41 || atrioQaGeralCelularRound42
 val atrioQaGeralCelularUnsigned = System.getenv("ATRIO_QA_GERAL_CELULAR_UNSIGNED_BUILD") == "1"
 val atrioQaGeralCelularPairCode = System.getenv("ATRIO_QA_GERAL_CELULAR_PAIR_CODE").orEmpty()
 require(atrioQaGeralCelularPairCode.isEmpty() ||
@@ -450,12 +455,14 @@ androidComponents {
             val suffix = if (atrioQaGeralRemote) "qa-geral-celular" else "qa-geral"
             val pairSuffix = if (atrioQaGeralCelularPairCode.isEmpty()) "" else "-$atrioQaGeralCelularPairCode"
             val functionalSuffix = when {
+                atrioQaGeralCelularRound42 -> "-rodada-42"
                 atrioQaGeralCelularRound || atrioQaGeralCelularRoundFixture -> "-rodada-41"
                 atrioQaGeralCelularFunctional -> "-funcional"
                 else -> ""
             }
             output.versionName.set("$atrioDebugVersionName-$suffix$pairSuffix$functionalSuffix")
             val code = when {
+                atrioQaGeralCelularRound42 -> 42
                 atrioQaGeralCelularRound || atrioQaGeralCelularRoundFixture -> 41
                 atrioQaGeralCelularFunctional -> 40
                 else -> atrioQaGeralCelularPairCode.toIntOrNull() ?: atrioDebugVersionCode
