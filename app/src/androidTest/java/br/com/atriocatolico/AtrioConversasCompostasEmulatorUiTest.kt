@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
@@ -17,11 +18,13 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
+import androidx.test.platform.app.InstrumentationRegistry
 import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
@@ -298,7 +301,116 @@ class AtrioConversasCompostasEmulatorUiTest {
         if (::auth.isInitialized) auth.signOut()
     }
 
+    private fun groupHistory(group: DocumentReference): Map<String, Pair<String?, String?>> {
+        val result = await(group.collection("messages").get(Source.SERVER))
+        assertEquals(false, result.metadata.isFromCache)
+        assertEquals(false, result.metadata.hasPendingWrites())
+        return result.documents.associate { it.id to (it.getString("uid") to it.getString("text")) }
+    }
+
+    private fun assertClosedGroupUi() {
+        val banner = "Grupo encerrado. O histórico continua disponível"
+        waitForText(banner, substring = true)
+        compose.onNodeWithText(banner, substring = true).assertIsDisplayed()
+        compose.onNodeWithTag("atrio-group-composer").assertIsNotEnabled()
+        compose.onNodeWithTag("atrio-group-send").assertIsNotEnabled()
+        compose.onNodeWithTag("atrio-group-close-open").assertDoesNotExist()
+    }
+
+    private fun assertClosedGroupRejectsSend(group: DocumentReference, uid: String) {
+        assertEquals(uid, auth.currentUser?.uid)
+        val text = "Nova mensagem fictícia em grupo encerrado."
+        val message = group.collection("messages").document()
+        val batch = db.batch()
+        batch.set(message, mapOf("uid" to uid, "text" to text, "kind" to "text",
+            "createdAt" to FieldValue.serverTimestamp()))
+        batch.update(group, mapOf("lastMessageId" to message.id, "lastPreview" to text,
+            "lastSenderUid" to uid, "updatedAt" to FieldValue.serverTimestamp()))
+        assertDenied(batch.commit())
+    }
+
+    private fun verifyGuestSendAndOwnerClose(
+        group: DocumentReference,
+        entry: DocumentReference,
+        openingText: String,
+        owner: String,
+        ownerEmail: String,
+        guest: String,
+        guestEmail: String,
+        role: String,
+    ) {
+        assertEquals(guest, auth.currentUser?.uid)
+        compose.onNodeWithTag("atrio-group-close-open").assertDoesNotExist()
+        assertDenied(group.update(mapOf("status" to "closed", "closedByUid" to guest,
+            "closedAt" to FieldValue.serverTimestamp(), "updatedAt" to FieldValue.serverTimestamp())))
+        val guestText = "Mensagem fictícia do convidado depois do aceite."
+        send("atrio-group-composer", "atrio-group-send", guestText)
+        compose.waitUntil(30_000) {
+            val snapshot = await(group.get(Source.SERVER))
+            snapshot.getString("lastPreview") == guestText &&
+                snapshot.getString("lastSenderUid") == guest && !snapshot.metadata.hasPendingWrites()
+        }
+        val sent = await(group.get(Source.SERVER))
+        val guestMessageId = requireNotNull(sent.getString("lastMessageId"))
+        val expected = mapOf(entry.id to (owner to openingText), guestMessageId to (guest to guestText))
+        assertEquals(expected, groupHistory(group))
+        assertEquals("active", sent.getString("status"))
+        waitForText(guestText)
+        android.util.Log.i("AtrioGrupoQA",
+            "papeis=$role criterio=11 aceite_confirmado=true envio_convidado_ui=true " +
+                "mensagem_e_previa_servidor=true pendente=false")
+
+        assertEquals(owner, login(ownerEmail))
+        show(Screen(owner, groupPeer = guest, groupId = group.id))
+        waitForText(guestText)
+        compose.onNodeWithText(guestText).assertIsDisplayed()
+        assertEquals(expected, groupHistory(group))
+        click("atrio-group-close-open")
+        waitForText("Encerrar este grupo?")
+        click("atrio-group-close-confirm")
+        waitForText("Grupo encerrado. Histórico preservado.")
+        await(db.waitForPendingWrites())
+        val closed = await(group.get(Source.SERVER))
+        assertEquals("closed", closed.getString("status"))
+        assertEquals(owner, closed.getString("closedByUid"))
+        assertEquals(false, closed.metadata.isFromCache)
+        assertEquals(false, closed.metadata.hasPendingWrites())
+        requireNotNull(closed.getTimestamp("closedAt"))
+        assertEquals(setOf(owner, guest), (closed.get("memberUids") as List<*>).toSet())
+        assertClosedGroupUi()
+        click("atrio-group-members")
+        compose.onNodeWithTag("atrio-group-invite-open").assertDoesNotExist()
+        assertClosedGroupRejectsSend(group, owner)
+        assertEquals(expected, groupHistory(group))
+        android.util.Log.i("AtrioGrupoQA",
+            "papeis=$role criterio=12 fechamento_ui=true status_servidor=closed " +
+                "fechado_pelo_criador=true controles_de_envio_e_convite_indisponiveis=true")
+
+        val outsider = login("conversas.lucia@qa.invalid")
+        assertTrue(outsider != owner && outsider != guest)
+        assertDenied(group.get(Source.SERVER))
+        assertDenied(entry.get(Source.SERVER))
+        assertDenied(group.collection("messages").get(Source.SERVER))
+
+        assertEquals(guest, login(guestEmail))
+        show(Screen(guest, groupPeer = owner, groupId = group.id))
+        assertClosedGroupUi()
+        waitForText(openingText)
+        waitForText(guestText)
+        compose.onNodeWithText(openingText).assertIsDisplayed()
+        compose.onNodeWithText(guestText).assertIsDisplayed()
+        assertClosedGroupRejectsSend(group, guest)
+        assertEquals(expected, groupHistory(group))
+        assertEquals(guestMessageId, await(group.get(Source.SERVER)).getString("lastMessageId"))
+        android.util.Log.i("AtrioGrupoQA",
+            "papeis=$role criterio=12 ids_e_textos_preservados=true membro_leu_ui=true " +
+                "envio_criador_e_membro=PERMISSION_DENIED terceiro=PERMISSION_DENIED")
+    }
+
     @Test fun primeiroContatoRecusaAceiteESaidaProtegemHistorico() {
+        val role = InstrumentationRegistry.getArguments().getString("atrioQa199Groups")
+        check(role == null || (!pilot && !BuildConfig.ATRIO_QA_INBOX_DISCOVERY &&
+            role in setOf("ALICE_OWNER", "BOB_OWNER")))
         initializeDemo()
         val alice = login(aliceEmail)
         val bob = login(bobEmail)
@@ -405,7 +517,7 @@ class AtrioConversasCompostasEmulatorUiTest {
         // Na suite regular, exercitar o envio real pela UI com a transacao
         // falhando sem rede. O app deve reutilizar o mesmo ID ao reenviar,
         // e o servidor deve persistir apenas uma mensagem.
-        if (!pilot) {
+        if (!pilot && role == null) {
             val retry = "Reenvio do Android apos reconexao, mensagem unica."
             await(db.disableNetwork())
             try {
@@ -455,14 +567,18 @@ class AtrioConversasCompostasEmulatorUiTest {
             android.util.Log.i("AtrioConversasQA", "reconexao_apos_falha=um_unico_envio_confirmado")
         }
 
-        assertEquals(alice, login(aliceEmail))
-        show(Screen(alice, groupPeer = bob))
+        val owner = if (role == "BOB_OWNER") bob else alice
+        val guest = if (role == "BOB_OWNER") alice else bob
+        val ownerEmail = if (role == "BOB_OWNER") bobEmail else aliceEmail
+        val guestEmail = if (role == "BOB_OWNER") aliceEmail else bobEmail
+        assertEquals(owner, login(ownerEmail))
+        show(Screen(owner, groupPeer = guest))
         click("atrio-group-create-open")
         waitForTag("atrio-group-title")
         compose.onNodeWithTag("atrio-group-title").performTextInput("Grupo de estudo QA")
         click("atrio-group-create")
         waitForTag("atrio-group-thread")
-        val group = await(db.collection("chat_groups").whereArrayContains("memberUids", alice).limit(50)
+        val group = await(db.collection("chat_groups").whereArrayContains("memberUids", owner).limit(50)
             .get(Source.SERVER)).documents.single().reference
         val history = group.collection("messages")
         val message = "Histórico fictício anterior ao ingresso."
@@ -473,18 +589,18 @@ class AtrioConversasCompostasEmulatorUiTest {
             }
         }
         val entry = await(history.get(Source.SERVER)).documents.single().reference
-        val invite = group.collection("atrioGroupInvites").document(bob)
+        val invite = group.collection("atrioGroupInvites").document(guest)
         fun sendInvite() {
             click("atrio-group-members")
             click("atrio-group-invite-open")
-            click("atrio-group-invite-$bob")
+            click("atrio-group-invite-$guest")
             waitForText("Convite enviado. A entrada exige aceite.")
             assertEquals("pending", await(invite.get(Source.SERVER)).getString("status"))
         }
         sendInvite()
 
-        assertEquals(bob, login(bobEmail))
-        show(Screen(bob, groupPeer = alice))
+        assertEquals(guest, login(guestEmail))
+        show(Screen(guest, groupPeer = owner))
         waitForTag("atrio-group-accept-${group.id}")
         assertDenied(entry.get(Source.SERVER))
         waitForText("Recusar")
@@ -494,29 +610,45 @@ class AtrioConversasCompostasEmulatorUiTest {
         assertDenied(group.get(Source.SERVER))
         assertDenied(entry.get(Source.SERVER))
 
-        assertEquals(alice, login(aliceEmail))
-        show(Screen(alice, groupPeer = bob))
+        assertEquals(owner, login(ownerEmail))
+        show(Screen(owner, groupPeer = guest))
         click("atrio-group-${group.id}")
         sendInvite()
 
-        assertEquals(bob, login(bobEmail))
-        show(Screen(bob, groupPeer = alice))
+        assertEquals(guest, login(guestEmail))
+        show(Screen(guest, groupPeer = owner))
         click("atrio-group-accept-${group.id}")
         waitForText(message)
         compose.onNodeWithText(message).assertIsDisplayed()
         // Source.SERVER ainda pode incluir uma gravação local pendente.
         await(db.waitForPendingWrites())
         val acceptedInvite = await(invite.get(Source.SERVER))
-        assertEquals(bob, auth.currentUser?.uid)
+        assertEquals(guest, auth.currentUser?.uid)
         assertEquals("accepted", acceptedInvite.getString("status"))
         assertEquals(false, acceptedInvite.metadata.isFromCache)
         assertEquals(false, acceptedInvite.metadata.hasPendingWrites())
         requireNotNull(acceptedInvite.getTimestamp("updatedAt"))
 
         val acceptedGroup = await(group.get(Source.SERVER))
-        assertTrue((acceptedGroup.get("memberUids") as List<*>).contains(bob))
+        assertTrue((acceptedGroup.get("memberUids") as List<*>).contains(guest))
         assertEquals(false, acceptedGroup.metadata.hasPendingWrites())
         assertEquals(message, await(entry.get(Source.SERVER)).getString("text"))
+        if (role != null) {
+            verifyGuestSendAndOwnerClose(group, entry, message, owner, ownerEmail, guest, guestEmail, role)
+
+            click("atrio-group-members")
+            click("atrio-group-leave")
+            waitForText("Você ainda não participa de grupos.")
+            compose.onNodeWithText("Você ainda não participa de grupos.").assertIsDisplayed()
+            assertDenied(entry.get(Source.SERVER))
+            assertDenied(history.get(Source.SERVER))
+            assertEquals(owner, login(ownerEmail))
+            assertEquals(message, await(entry.get(Source.SERVER)).getString("text"))
+            assertEquals(2, groupHistory(group).size)
+            android.util.Log.i("AtrioGrupoQA",
+                "papeis=$role criterio=12 apos_saida membro=PERMISSION_DENIED criador=historico_preservado")
+            return
+        }
         val report = db.document("chat_group_reports/${bob}__${group.id}__${entry.id}")
         if (pilot) {
             click("atrio-group-report-message")
