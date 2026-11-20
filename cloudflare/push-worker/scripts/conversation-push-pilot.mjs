@@ -18,7 +18,12 @@ const qaPilotFuture = field => typeof field?.timestampValue === 'string'
   && Date.parse(field.timestampValue) > Date.now();
 
 function qaPilotAdmitted(admission, uid) {
-  return stringField(admission,'status') === 'active'
+  const generation = stringField(admission,'generation');
+  const admittedAt = timeField(admission,'admittedAt');
+  return typeof generation === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(generation)
+    && admittedAt > 0 && admittedAt <= Date.now()
+    && stringField(admission,'status') === 'active'
     && stringField(admission,'roundId') === qaPilot.roundId
     && qaPilotFuture(admission?.fields?.expiresAt)
     && stringField(admission,'email') === qaPilot.accounts[uid];
@@ -44,13 +49,14 @@ async function qaPilotAllowsNotice(token, sender, recipient, event) {
       sender===recipient || event.kind!=='chat_message' || !uidPart(event.chatId) ||
       !uidPart(event.messageId)) return false;
   try {
-    const [settings,from,to,pending,room,mute] = await qaReadAuthorizationDocs(token,[
+    const [settings,from,to,pending,room,mute,message] = await qaReadAuthorizationDocs(token,[
       'app_config/conversations',
       'users/'+enc(sender)+'/chatPushAdmission/current',
       'users/'+enc(recipient)+'/chatPushAdmission/current',
       'users/'+enc(recipient)+'/chatPushPending/current',
       'chats/'+enc(event.chatId),
-      'users/'+enc(recipient)+'/chatBox/'+enc(event.chatId)
+      'users/'+enc(recipient)+'/chatBox/'+enc(event.chatId),
+      'chats/'+enc(event.chatId)+'/messages/'+enc(event.messageId)
     ]);
     const round = settings?.fields?.pushPilot?.mapValue;
     if (!boolField(round,'enabled') || stringField(round,'projectId')!==PROJECT
@@ -59,14 +65,21 @@ async function qaPilotAllowsNotice(token, sender, recipient, event) {
         || stringField(round,'roundId')!==qaPilot.roundId
         || !qaPilotFuture(round?.fields?.expiresAt)
         || !qaPilotAdmitted(from,sender) || !qaPilotAdmitted(to,recipient)) return false;
-    const allowedFields=['kind','conversationId','messageId','senderUid','unread','roundId','expiresAt'];
+    const allowedFields=['kind','conversationId','messageId','senderUid','unread','roundId','expiresAt',
+      'senderGeneration','recipientGeneration'];
     if (Object.keys(pending?.fields ?? {}).some(field=>!allowedFields.includes(field))
         || stringField(pending,'kind')!=='chat_message' || !boolField(pending,'unread')
         || stringField(pending,'roundId')!==qaPilot.roundId
         || stringField(pending,'conversationId')!==event.chatId
         || stringField(pending,'messageId')!==event.messageId
         || stringField(pending,'senderUid')!==sender
+        || stringField(pending,'senderGeneration')!==stringField(from,'generation')
+        || stringField(pending,'recipientGeneration')!==stringField(to,'generation')
         || !qaPilotFuture(pending?.fields?.expiresAt)) return false;
+    // Um aviso regravado com gerações novas ainda precisa apontar para uma mensagem nova.
+    const createdAt=timeField(message,'createdAt');
+    if (createdAt<=timeField(from,'admittedAt') || createdAt<=timeField(to,'admittedAt')
+        || Object.hasOwn(message?.fields ?? {},'deletedForAll')) return false;
     const muted=mute?.fields?.muted;
     if (muted!==undefined && muted.booleanValue!==false) return false;
     if (stringField(room,'status')!=='accepted'

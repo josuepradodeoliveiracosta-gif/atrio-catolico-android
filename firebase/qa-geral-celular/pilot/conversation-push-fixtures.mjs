@@ -1,6 +1,6 @@
 // Apenas fixtures da prova offline. Nenhum inicializador de produção importa este módulo.
 import {alice, bob, pilotDocuments, pilotFlags} from './fixtures.mjs';
-import {conversationPushIdentity} from './conversation-push-policy.mjs';
+import {conversationPushIdentity, createConversationPushAdmission} from './conversation-push-policy.mjs';
 
 export const conversationPushPilot = Object.freeze({
   ...conversationPushIdentity,
@@ -36,15 +36,16 @@ export function conversationPushPilotDocuments(now = new Date()) {
   rows.set(room + '/messages/' + pilot.messageId, {
     uid: alice.uid, kind: 'text', text: 'Mensagem fictícia do teste 08–09', createdAt: now,
   });
+  const admittedAt = new Date(now.getTime() - 60_000);
+  const from = createConversationPushAdmission(alice.uid, admittedAt, deadline);
+  const to = createConversationPushAdmission(bob.uid, admittedAt, deadline);
+  rows.set('users/' + alice.uid + '/chatPushAdmission/current', from);
+  rows.set('users/' + bob.uid + '/chatPushAdmission/current', to);
   rows.set('users/' + bob.uid + '/chatPushPending/current', {
     kind: 'chat_message', conversationId: pilot.conversationId,
     messageId: pilot.messageId, senderUid: alice.uid, unread: true,
     roundId: pilot.roundId, expiresAt: deadline,
+    senderGeneration: from.generation, recipientGeneration: to.generation,
   });
-  for (const account of [alice, bob]) {
-    rows.set('users/' + account.uid + '/chatPushAdmission/current', {
-      roundId: pilot.roundId, status: 'active', email: account.email, expiresAt: deadline,
-    });
-  }
   return [...rows];
 }

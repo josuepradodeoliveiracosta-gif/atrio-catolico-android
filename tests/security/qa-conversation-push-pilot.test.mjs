@@ -12,6 +12,8 @@ import {renderConversationPushPilotRules}
   from '../../firebase/qa-geral-celular/pilot/conversation-push-rules.mjs';
 import {conversationPushPilot as pilot,conversationPushPilotDocuments}
   from '../../firebase/qa-geral-celular/pilot/conversation-push-fixtures.mjs';
+import {createConversationPushAdmission}
+  from '../../firebase/qa-geral-celular/pilot/conversation-push-policy.mjs';
 import {projectId as demoProject} from '../../firebase/qa-geral-celular/pilot/fixtures.mjs';
 
 const emulatorHost=process.env.FIRESTORE_EMULATOR_HOST ?? '';
@@ -52,10 +54,10 @@ function fakeToken(project, uid=sender) {
   return b64({alg:'RS256'})+'.'+
     b64({aud:project,iss:'https://securetoken.google.com/'+project,sub:uid})+'.fixture-signature';
 }
-function request(project=pilot.projectId) {
+function request(project=pilot.projectId, messageId=pilot.messageId) {
   return new Request('https://qa.invalid/event',{
     method:'POST',headers:{Authorization:'Bearer '+fakeToken(project)},
-    body:JSON.stringify({type:'chat_message',chatId:pilot.conversationId,messageId:pilot.messageId}),
+    body:JSON.stringify({type:'chat_message',chatId:pilot.conversationId,messageId}),
   });
 }
 
@@ -65,13 +67,13 @@ function requestNotice(project=pilot.projectId, uid=recipient, suffix='') {
   });
 }
 
-async function assertNotice(fixture, expected=200) {
+async function assertNotice(fixture, expected=200, messageId=pilot.messageId) {
   const before=fixture.stats();
   const notice=await worker.fetch(requestNotice(),fixture.env);
   assert.equal(notice.status,expected);
   assert.equal(notice.headers.get('Cache-Control'),'no-store');
   assert.deepEqual(await notice.json(),expected===200 ? {
-    conversationId:pilot.conversationId,messageId:pilot.messageId,senderUid:sender,
+    conversationId:pilot.conversationId,messageId,senderUid:sender,
   } : {status:expected===401 ? 'unauthorized' : 'no_notice'});
   assert.equal(fixture.stats().reserved,before.reserved);
   assert.equal(fixture.stats().sent,before.sent);
@@ -170,17 +172,29 @@ test('mesmos documentos para Rules e Worker de Conversas do piloto DM #199',asyn
       rows.set(room,{...rows.get(room),lastSenderUid:sender,unreadRequester:1,unreadRecipient:0});
       rows.set(event,{...rows.get(event),uid:sender});
       const originalPending='users/'+pilot.recipientUid+'/chatPushPending/current';
-      rows.set(pending,{...rows.get(originalPending),senderUid:sender});
+      rows.set(pending,{
+        ...rows.get(originalPending), senderUid:sender,
+        senderGeneration:rows.get(admission(sender)).generation,
+        recipientGeneration:rows.get(admission(recipient)).generation,
+      });
       rows.delete(originalPending);
     }
     rows.set('users/'+recipient+'/pushDevices/fixture',{
       token:'fixture-device-token-for-recipient',updatedAt:new Date(),
     });
     change(rows);
+    await put(rows);
+    return rows;
+  }
+  async function put(rows) {
     await env.withSecurityRulesDisabled(async context=>{
       const admin=context.firestore();
       const batch=writeBatch(admin);
-      for (const [path,data] of rows) batch.set(doc(admin,path),data);
+      for (const [path,data] of rows) {
+        const ref=doc(admin,path);
+        if (data===null) batch.delete(ref);
+        else batch.set(ref,data);
+      }
       await batch.commit();
     });
   }
@@ -196,6 +210,16 @@ test('mesmos documentos para Rules e Worker de Conversas do piloto DM #199',asyn
     ['credencial do autor expirada',alter(admission(sender),{expiresAt:old}),false],
     ['readmissão de rodada antiga',alter(admission(recipient),{roundId:'rodada-antiga'}),false],
     ['admissão excluída',rows=>rows.delete(admission(recipient)),false],
+    ['admissão legada sem geração',rows=>delete rows.get(admission(sender)).generation,false],
+    ['admissão sem data de concessão',rows=>delete rows.get(admission(recipient)).admittedAt,false],
+    ['aviso legado sem geração',rows=>delete rows.get(pending).senderGeneration,false],
+    ['aviso com gerações invertidas',rows=>{
+      const notice=rows.get(pending);
+      [notice.senderGeneration,notice.recipientGeneration]=[notice.recipientGeneration,notice.senderGeneration];
+    },false],
+    ['mensagem no mesmo milissegundo que a admissão',rows=>{
+      rows.get(admission(sender)).admittedAt=rows.get(event).createdAt;
+    },false],
     ['idade do autor revogada',alter(age(sender),{status:'revoked'}),false],
     ['idade do destinatário expirada',alter(age(recipient),{reviewExpiresAt:old}),false],
     ['idade em formato incorreto',alter(age(recipient),{minimumAge:'18'}),false],
@@ -232,23 +256,62 @@ test('mesmos documentos para Rules e Worker de Conversas do piloto DM #199',asyn
     });
   }
 
-  await t.test('readmissão administrativa explícita restabelece a pendência',async sub=>{
-    await seed(rows=>rows.delete(admission(recipient)));
-    const owner=session();
-    await assertFails(getDocFromServer(doc(owner,pending)));
-    await env.withSecurityRulesDisabled(async context=>{
-      await setDoc(doc(context.firestore(),admission(recipient)),{
-        status:'active',roundId:pilot.roundId,email:pilot.accounts[recipient],
-        expiresAt:new Date(Date.now()+60_000),
-      });
+  for (const [role,uid] of [['autor',sender],['destinatário',recipient]]) {
+    await t.test('readmissão do '+role+' bloqueia aviso antigo e libera mensagem nova',async sub=>{
+      const rows=await seed();
+      const originalMessage=rows.get(event);
+      const originalPending=rows.get(pending);
+      const originalAdmission=rows.get(admission(uid));
+      const fixture=useExternalFixtures(sub);
+      await assertNotice(fixture); // Aviso que pode já estar visível no Android.
+      await put([[admission(uid),{...originalAdmission,status:'revoked'}]]);
+      await assertNotice(fixture,404);
+
+      const admittedAt=new Date(originalMessage.createdAt.getTime()+1);
+      const newAdmission=createConversationPushAdmission(uid,admittedAt,originalAdmission.expiresAt);
+      assert.notEqual(newAdmission.generation,originalAdmission.generation);
+      await put([[admission(uid),newAdmission]]);
+      await assertFails(getDocFromServer(doc(session(),pending)));
+      await assertNotice(fixture,404); // Reconsulta no toque atrasado.
+      for (let retry=0; retry<2; retry++) {
+        assert.equal((await worker.fetch(request(),fixture.env)).status,202);
+      }
+      assert.equal(fixture.stats().reserved,0);
+      assert.equal(fixture.stats().sent,0);
+
+      const renewedPending={
+        ...originalPending,
+        [uid===sender ? 'senderGeneration' : 'recipientGeneration']:newAdmission.generation,
+      };
+      await put([[pending,renewedPending]]);
+      await assertNotice(fixture,404);
+      assert.equal((await worker.fetch(request(),fixture.env)).status,202);
+      assert.equal(fixture.stats().reserved,0);
+      assert.equal(fixture.stats().sent,0);
+
+      const newId='qa-199-mensagem-nova';
+      const createdAt=new Date(admittedAt.getTime()+1);
+      await put([
+        [room,{...rows.get(room),lastMessageId:newId,updatedAt:createdAt}],
+        [room+'/messages/'+newId,{...originalMessage,createdAt,text:'Outra mensagem fictícia'}],
+        [pending,{...renewedPending,messageId:newId}],
+      ]);
+      await assertNotice(fixture,200,newId);
+      assert.equal((await worker.fetch(request(),fixture.env)).status,202);
+      assert.equal(fixture.stats().reserved,0);
+      assert.equal(fixture.stats().sent,0);
+      assert.equal((await worker.fetch(request(pilot.projectId,newId),fixture.env)).status,202);
+      assert.equal(fixture.stats().reserved,1);
+      assert.equal(fixture.stats().sent,1);
+
+      for (const account of [sender,recipient]) {
+        const manual=await getDocFromServer(doc(session(account),event));
+        assert.equal(manual.id,pilot.messageId);
+        assert.equal(manual.get('uid'),sender);
+        assert.equal(manual.get('text'),originalMessage.text);
+      }
     });
-    await assertFails(getDocFromServer(doc(owner,pending)));
-    const fixture=useExternalFixtures(sub);
-    await assertNotice(fixture);
-    assert.equal((await worker.fetch(request(),fixture.env)).status,202);
-    assert.equal(fixture.stats().reserved,1);
-    assert.equal(fixture.stats().sent,1);
-  });
+  }
 
   await t.test('flag de push desligada não autoriza solicitação ao backend',async sub=>{
     const fixture=useExternalFixtures(sub);
@@ -266,8 +329,7 @@ test('mesmos documentos para Rules e Worker de Conversas do piloto DM #199',asyn
     await seed(rows=>rows.delete(admission(recipient)));
     const owner=session();
     await assertFails(setDoc(doc(owner,admission(recipient)),{
-      status:'active',roundId:pilot.roundId,email:pilot.accounts[recipient],
-      expiresAt:new Date(Date.now()+60_000),
+      ...createConversationPushAdmission(recipient,new Date(),new Date(Date.now()+60_000)),
     }));
     await assertFails(setDoc(doc(owner,pending),{unread:true},{merge:true}));
     await assertFails(getDocsFromServer(query(collection(owner,'chats'),

@@ -34,9 +34,19 @@ o Auth atual dos dois participantes, a admissão, o 18+, o bloqueio,
 a rodada e o evento. `GET /notice` e o envio compartilham essa verificação.
 A resposta contém apenas identificadores do evento autorizado, com
 `Cache-Control: no-store`. O caminho manual do chat usa as Rules de
-Conversas e continua sujeito à sua própria autorização. A readmissão
-administrativa de uma conta na mesma rodada ainda pode recuperar um aviso
-vigente. A decisão sobre essa política fica com a revisão de segurança.
+Conversas e segue sua própria autorização.
+
+Cada concessão administrativa registra uma `generation` nova e
+`admittedAt` com hora confiável do servidor. O provisionamento vincula
+a pendência à rodada e às gerações vigentes das duas contas, gravadas
+como `senderGeneration` e `recipientGeneration`. O Worker relê os dois
+registros e exige que o `createdAt` canônico da mensagem seja posterior
+às duas admissões, com precisão de milissegundos. Readmitir uma conta
+invalida o aviso anterior mesmo durante sua validade e impede regravar
+uma pendência para a mensagem antiga. Documentos sem essas referências
+são recusados. O provisionamento deste ensaio é feito pelas fixtures
+administrativas do emulador. O provisionamento da futura rodada deve
+aplicar a mesma rotação de geração no servidor.
 
 [Paridade do Chat 2](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/issues/200#issuecomment-7025224643) ·
 [Auditoria do Chat 4](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/pull/358#pullrequestreview-5985117653)
