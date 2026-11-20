@@ -42,3 +42,17 @@ mtime_ms = 1795211290614
 storage_uri = "gcs://replit-rams-assets-spock/rams/assets/repl:b188ab47-2941-415c-a3f2-238f55a21312/8365f2cb-c79f-4bd1-af03-fc7b26712506/fdd8b79f-99ca-460c-983c-6b4354e8f556"
 storage_version_token = "1795211299150252"
 content_type = "video/mp4"
+
+[[outputs]]
+id = "C6Q2rKa73dQnpqfrxQbas"
+uri = "file://generated-artifacts/tiktok/atrio-catolico-montagem-tiktok.mp4"
+type = "video"
+title = "Montagem do Átrio — versão para TikTok"
+description = "A animação criada para o app, reenquadrada em 1080 × 1920 (9:16), com 10 segundos e áudio."
+logical_id = "9dba2d4a-5fac-4001-bc99-57589ad373d6"
+content_hash = "sha256:5013f3c77a4c98cf369ce5130c32184c3cdf84e7c5bd5da55d00d74b4c811362"
+size = 4057472
+mtime_ms = 1795211358970
+storage_uri = "gcs://replit-rams-assets-spock/rams/assets/repl:b188ab47-2941-415c-a3f2-238f55a21312/9dba2d4a-5fac-4001-bc99-57589ad373d6/368171ff-bb41-491c-9176-12c8a7001c94"
+storage_version_token = "1795211372360259"
+content_type = "video/mp4"
