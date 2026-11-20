@@ -179,6 +179,8 @@ if [[ "${ATRIO_QA_SUITE:-}" == ProfileV3ConsentEmulatorUiTest ]]; then
     echo "Consentimento V3 exige qaGeral local" >&2; exit 2
   }
   run_suite "$ATRIO_QA_SUITE"
+  adb logcat -d -s AtrioQaProfileV3:I '*:S' \
+    > qa-android-suite-results/profile-v3-offline.log
   exit "$qa_failed"
 fi
 if [[ "$inbox_focal" == 1 ]]; then
