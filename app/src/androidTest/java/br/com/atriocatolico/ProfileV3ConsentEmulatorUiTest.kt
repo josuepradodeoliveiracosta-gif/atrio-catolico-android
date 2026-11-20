@@ -35,7 +35,7 @@ import java.util.concurrent.TimeUnit
 
 class ProfileV3ConsentEmulatorUiTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
-    private val clients = mutableListOf<FirebaseApp>()
+    private val sessions = mutableListOf<FirebaseAuth>()
     private lateinit var owner: FirebaseFirestore
     private lateinit var visitor: FirebaseFirestore
     private lateinit var uid: String
@@ -51,10 +51,10 @@ class ProfileV3ConsentEmulatorUiTest {
         check(BuildConfig.APPLICATION_ID == "br.com.atriocatolico.qageral" &&
             BuildConfig.DEBUG && !BuildConfig.ATRIO_QA_GERAL_REMOTE &&
             !BuildConfig.ATRIO_QA_GERAL_PUSH && BuildConfig.PUSH_RELAY_URL.isBlank())
-        val ownerSession = createSession()
+        val ownerSession = createSession("owner")
         owner = ownerSession.first
         uid = ownerSession.second
-        val visitorSession = createSession()
+        val visitorSession = createSession("visitor")
         visitor = visitorSession.first
         visitorUid = visitorSession.second
 
@@ -83,7 +83,7 @@ class ProfileV3ConsentEmulatorUiTest {
     }
 
     @After fun cleanSessions() {
-        clients.forEach { it.delete() }
+        sessions.forEach { it.signOut() }
     }
 
     @Test fun cancelThenWithdrawPreservesLegacyAndV2ForTheOwnerAndVisitor() {
@@ -120,7 +120,7 @@ class ProfileV3ConsentEmulatorUiTest {
         compose.onNodeWithTag("atrio-profile-v3-save").assertIsNotEnabled()
     }
 
-    @Test fun openEditorCannotRepublishAfterOutsideEditorWithdraws() {
+    @Test fun openEditorCannotRepublishAfterExternalWithdrawal() {
         showEditor()
         withdrawFromOutsideEditor()
         compose.onNodeWithTag("atrio-profile-v3-save").performClick()
@@ -147,20 +147,28 @@ class ProfileV3ConsentEmulatorUiTest {
         compose.onNodeWithText("Apresentação anterior").assertExists()
     }
 
-    private fun createSession(): Pair<FirebaseFirestore, String> {
-        val id = UUID.randomUUID().toString()
-        val app = requireNotNull(FirebaseApp.initializeApp(compose.activity, FirebaseOptions.Builder()
-            .setProjectId("demo-atrio-v11")
-            .setApplicationId("1:123456789012:android:0123456789abcdef")
-            .setApiKey("local-emulator-test").build(), "perfil-v3-$id"))
-        clients += app
+    private fun createSession(role: String): Pair<FirebaseFirestore, String> {
+        val appName = "perfil-v3-$role"
+        // O SDK de Auth conserva o roteamento do emulador durante o processo.
+        // Reutilizamos os apps, mas cada cenário recebe contas e documentos novos.
+        val existing = FirebaseApp.getApps(compose.activity).firstOrNull { it.name == appName }
+        val app = existing ?: requireNotNull(FirebaseApp.initializeApp(
+            compose.activity, FirebaseOptions.Builder()
+                .setProjectId("demo-atrio-v11")
+                .setApplicationId("1:123456789012:android:0123456789abcdef")
+                .setApiKey("local-emulator-test-$role").build(), appName
+        ))
         val auth = FirebaseAuth.getInstance(app)
-        auth.useEmulator("127.0.0.1", 9099)
         val db = FirebaseFirestore.getInstance(app)
-        db.useEmulator("127.0.0.1", 8089)
+        if (existing == null) {
+            auth.useEmulator("127.0.0.1", 9099)
+            db.useEmulator("127.0.0.1", 8089)
+        }
         check(db.firestoreSettings.host == "127.0.0.1:8089" && !db.firestoreSettings.isSslEnabled)
+        sessions += auth
+        auth.signOut()
         val user = requireNotNull(await(auth.createUserWithEmailAndPassword(
-            "perfil-$id@qa.invalid", "PerfilFake-2026!"
+            "perfil-${UUID.randomUUID()}@qa.invalid", "PerfilFake-2026!"
         )).user)
         return db to user.uid
     }
