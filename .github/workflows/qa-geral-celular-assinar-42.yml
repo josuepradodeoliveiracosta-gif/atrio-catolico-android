@@ -25,8 +25,8 @@ defaults:
 env:
   QA_BASE_SHA: '759b61c126580c628f0dfb74559bcc3bc4e37586'
   QA_BASE_TREE: '23fefdc726b4a1c7412351d916601baae05ffcca'
-  QA_SOURCE_SHA: '9177be7fdd982e15716807f561322b703e9b9b64'
-  QA_SOURCE_TREE: '7bede6435c6bb4842fe679e884ba359f60e82f82'
+  QA_SOURCE_SHA: 'c5867739864f0b04667da3a50973a9b05267f26f'
+  QA_SOURCE_TREE: 'a986701ffe24402489dad8ca48c01ade063e2b31'
   QA_CANDIDATE_PR: '382'
   QA_ROUTE: '.github/workflows/qa-geral-celular-assinar-42.yml'
 
@@ -40,7 +40,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-          fetch-depth: 3
+          fetch-depth: 5
           persist-credentials: false
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -80,31 +80,35 @@ jobs:
         with:
           gradle-version: '8.13'
           cache-disabled: true
-      - name: Compilar, assinar com chave descartável, cifrar e recuperar
+      - name: Compilar com configuração sintética em área isolada
         run: |
-          set -euo pipefail
-          umask 077
           python3 -m unittest scripts.test_qa_geral_celular_round42 scripts.test_qa_geral_celular_signature -v
+          bash scripts/qa_geral_celular_build42.sh candidate "$QA_SOURCE_SHA" "$QA_SOURCE_TREE" \
+            "$RUNNER_TEMP/qa42-unsigned.apk" fixture
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ env.QA_SOURCE_SHA }}
+          path: qa42-signer
+          persist-credentials: false
+      - name: Assinar com chave descartável, cifrar e recuperar em checkout limpo
+        working-directory: qa42-signer
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          umask 077
+          test "$(git rev-parse HEAD)" = "$QA_SOURCE_SHA"
+          test "$(git rev-parse 'HEAD^{tree}')" = "$QA_SOURCE_TREE"
+          test -z "$(git status --porcelain --ignored)"
+          printf 'Checkout limpo de assinatura: %s / %s / %s\n' "$PWD" "$QA_SOURCE_SHA" "$QA_SOURCE_TREE"
+          test -f "$RUNNER_TEMP/qa42-unsigned.apk"
+          test ! -L "$RUNNER_TEMP/qa42-unsigned.apk"
+          printf 'APK recebido pelo assinador: %s\n' "$(sha256sum < "$RUNNER_TEMP/qa42-unsigned.apk" | cut -d' ' -f1)"
           if ! command -v age >/dev/null; then
             sudo apt-get update -qq
             sudo apt-get install -y age
           fi
           work="$(mktemp -d "$RUNNER_TEMP/qa42-fixture.XXXXXX")"
-          trap 'rm -rf -- "$work"' EXIT
-          mkdir "$work/source"
-          git -C candidate archive "$QA_SOURCE_SHA" -- . ':(exclude)app/google-services.json' | tar -x -C "$work/source"
-          cd "$work/source"
-          export ATRIO_QA_CELULAR_GOOGLE_SERVICES_JSON="$(python3 - <<'PY'
-          import json
-          from scripts.qa_geral_remote_build_gate import QA_PROJECT, REGISTERED_APP_ID, fixture
-          config = fixture(QA_PROJECT, REGISTERED_APP_ID)
-          config["client"][0]["api_key"][0]["current_key"] = "sem-credencial-remota-ensaio-42"
-          print(json.dumps(config))
-          PY
-          )"
-          bash scripts/qa_geral_celular_manual.sh build-round-42 "$work/unsigned.apk"
-          unset ATRIO_QA_CELULAR_GOOGLE_SERVICES_JSON
-
+          trap 'rm -rf -- "$work"; rm -f -- "$RUNNER_TEMP/qa42-unsigned.apk"' EXIT
           export ATRIO_QA_CELULAR_STORE_PASSWORD=fixture-descartavel
           export ATRIO_QA_CELULAR_KEY_PASSWORD="$ATRIO_QA_CELULAR_STORE_PASSWORD"
           export ATRIO_QA_CELULAR_KEY_ALIAS=qa42-fixture
@@ -117,7 +121,7 @@ jobs:
           age-keygen -o "$work/identity" 2>/dev/null
           age-keygen -o "$work/other-identity" 2>/dev/null
           export ATRIO_QA_CELULAR_AGE_RECIPIENT="$(age-keygen -y "$work/identity")"
-          bash scripts/qa_geral_celular_sign42.sh "$work/unsigned.apk" "$work/round42.apk.age" | tee "$work/proof"
+          bash scripts/qa_geral_celular_sign42.sh "$RUNNER_TEMP/qa42-unsigned.apk" "$work/round42.apk.age" | tee "$work/proof"
           unset ATRIO_QA_CELULAR_KEYSTORE_BASE64 ATRIO_QA_CELULAR_KEY_ALIAS
           unset ATRIO_QA_CELULAR_STORE_PASSWORD ATRIO_QA_CELULAR_KEY_PASSWORD
 
@@ -142,8 +146,8 @@ jobs:
           wrong="$(printf '%064d' 0)"
           reject "certificado" "${verifier[@]}" verify "$work/recovered.apk" "$apk_hash" \
             --build-tools "$tools" --certificate "$wrong"
-          unsigned_hash="$(sha256sum < "$work/unsigned.apk" | cut -d' ' -f1)"
-          reject "APK sem assinatura" "${verifier[@]}" verify "$work/unsigned.apk" "$unsigned_hash" \
+          unsigned_hash="$(sha256sum < "$RUNNER_TEMP/qa42-unsigned.apk" | cut -d' ' -f1)"
+          reject "APK sem assinatura" "${verifier[@]}" verify "$RUNNER_TEMP/qa42-unsigned.apk" "$unsigned_hash" \
             --build-tools "$tools" --certificate "$ATRIO_QA_CELULAR_CERT_SHA256"
           reject "hash da cifra" "${verifier[@]}" recover "$work/round42.apk.age" "$wrong" "$work/identity" \
             "$work/should-not-exist.apk" "$apk_hash" --build-tools "$tools" --certificate "$ATRIO_QA_CELULAR_CERT_SHA256"
@@ -169,7 +173,7 @@ jobs:
       github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android' &&
       github.ref == 'refs/heads/main' && github.ref_protected &&
       github.actor == 'josuepradodeoliveiracosta-gif' &&
-      github.run_attempt == 1 && inputs.source_sha == '9177be7fdd982e15716807f561322b703e9b9b64'
+      github.run_attempt == 1 && inputs.source_sha == 'c5867739864f0b04667da3a50973a9b05267f26f'
     environment: qa-geral-celular-assinatura
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -196,9 +200,6 @@ jobs:
           git diff --exit-code "$QA_SOURCE_SHA" "$audited_head" -- . ":(exclude)$QA_ROUTE"
           git diff --exit-code "$audited_head" "$GITHUB_SHA" -- "$QA_ROUTE"
           printf 'QA_AUDITED_HEAD=%s\n' "$audited_head" >> "$GITHUB_ENV"
-          mkdir -m 700 "$RUNNER_TEMP/qa42-source"
-          git -C candidate archive "$QA_SOURCE_SHA" -- . ':(exclude)app/google-services.json' |
-            tar -x -C "$RUNNER_TEMP/qa42-source"
           {
             printf '## Origem do APK QA Geral Celular 42\n\n'
             printf 'Base %s, árvore %s\n\n' "$QA_BASE_SHA" "$QA_BASE_TREE"
@@ -228,20 +229,32 @@ jobs:
             sudo apt-get install -y age
           fi
           mkdir -m 700 "$RUNNER_TEMP/qa42-delivery"
-      - name: Compilar com a configuração registrada de QA
+      - name: Compilar com a configuração registrada em área isolada
         env:
           ATRIO_QA_CELULAR_GOOGLE_SERVICES_JSON: ${{ secrets.ATRIO_QA_CELULAR_GOOGLE_SERVICES_JSON }}
         run: |
-          cd "$RUNNER_TEMP/qa42-source"
-          bash scripts/qa_geral_celular_manual.sh build-round-42 "$RUNNER_TEMP/qa42-unsigned.apk"
-      - name: Reconfirmar a referência antes da assinatura
+          bash scripts/qa_geral_celular_build42.sh candidate "$QA_SOURCE_SHA" "$QA_SOURCE_TREE" \
+            "$RUNNER_TEMP/qa42-unsigned.apk" registered
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ env.QA_SOURCE_SHA }}
+          path: qa42-signer
+          persist-credentials: false
+      - name: Reconfirmar a referência antes de disponibilizar o keystore
         run: |
           test "$(git ls-remote --exit-code origin "refs/pull/$QA_CANDIDATE_PR/head" | cut -f1)" = "$QA_AUDITED_HEAD"
-          python3 -m scripts.qa_geral_celular_round42 source candidate "$QA_SOURCE_SHA" "$QA_SOURCE_TREE"
-          diff -qr --exclude=build --exclude=.gradle --exclude=.kotlin --exclude=google-services.json \
-            "$RUNNER_TEMP/qa42-source/app/src" candidate/app/src
-      - name: Assinar e registrar a identidade do APK
+          cd qa42-signer
+          test "$(git rev-parse HEAD)" = "$QA_SOURCE_SHA"
+          test "$(git rev-parse 'HEAD^{tree}')" = "$QA_SOURCE_TREE"
+          test -z "$(git status --porcelain --ignored)"
+          printf 'Checkout limpo de assinatura: %s / %s / %s\n' "$PWD" "$QA_SOURCE_SHA" "$QA_SOURCE_TREE"
+          test -f "$RUNNER_TEMP/qa42-unsigned.apk"
+          test ! -L "$RUNNER_TEMP/qa42-unsigned.apk"
+          printf 'APK recebido pelo assinador: %s\n' "$(sha256sum < "$RUNNER_TEMP/qa42-unsigned.apk" | cut -d' ' -f1)"
+      - name: Assinar e registrar a identidade a partir do checkout limpo
+        working-directory: qa42-signer
         env:
+          PYTHONDONTWRITEBYTECODE: '1'
           QA_DELIVER_PRIVATE: ${{ inputs.deliver_private }}
           ATRIO_QA_CELULAR_AGE_RECIPIENT: ${{ vars.ATRIO_QA_CELULAR_AGE_RECIPIENT }}
           ATRIO_QA_CELULAR_CERT_SHA256: ${{ vars.ATRIO_QA_CELULAR_CERT_SHA256 }}
@@ -250,13 +263,15 @@ jobs:
           ATRIO_QA_CELULAR_STORE_PASSWORD: ${{ secrets.ATRIO_QA_CELULAR_STORE_PASSWORD }}
           ATRIO_QA_CELULAR_KEY_PASSWORD: ${{ secrets.ATRIO_QA_CELULAR_KEY_PASSWORD }}
         run: |
+          test "$(git rev-parse HEAD)" = "$QA_SOURCE_SHA"
+          test "$(git rev-parse 'HEAD^{tree}')" = "$QA_SOURCE_TREE"
+          test -z "$(git status --porcelain --ignored)"
           test "${ATRIO_QA_CELULAR_CERT_SHA256,,}" = "$QA_APK39_CERT_SHA256"
           output=()
           if [[ "$QA_DELIVER_PRIVATE" == true ]]; then
             test "$ATRIO_QA_CELULAR_AGE_RECIPIENT" = "$QA_FOUNDER_AGE_RECIPIENT"
             output=("$RUNNER_TEMP/qa42-delivery/atrio-qa-geral-celular-42.apk.age")
           fi
-          cd "$RUNNER_TEMP/qa42-source"
           bash scripts/qa_geral_celular_sign42.sh "$RUNNER_TEMP/qa42-unsigned.apk" "${output[@]}" |
             tee -a "$GITHUB_STEP_SUMMARY"
       - name: Disponibilizar apenas o APK cifrado
@@ -272,4 +287,4 @@ jobs:
         if: always()
         run: |
           rm -f -- "$RUNNER_TEMP/qa42-unsigned.apk"
-          rm -rf -- "$RUNNER_TEMP/qa42-source" "$RUNNER_TEMP/qa42-delivery"
+          rm -rf -- "$RUNNER_TEMP/qa42-delivery"
