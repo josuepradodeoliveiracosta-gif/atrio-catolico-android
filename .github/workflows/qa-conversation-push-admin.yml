@@ -38,4 +38,4 @@ jobs:
           GOOGLE_CLOUD_PROJECT: demo-atrio-v11
         run: |
           node prepare.mjs
-          ./node_modules/.bin/firebase emulators:exec --only firestore --project demo-atrio-v11 'node --test qa-conversation-push-admin.test.mjs qa-conversation-push-admin-http.test.mjs'
+          ./node_modules/.bin/firebase emulators:exec --only firestore --project demo-atrio-v11 'node --test --test-concurrency=1 qa-conversation-push-admin.test.mjs qa-conversation-push-admin-http.test.mjs'
