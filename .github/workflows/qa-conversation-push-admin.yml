@@ -1,0 +1,43 @@
+name: QA administrativo de avisos de Conversas
+on:
+  pull_request:
+    paths:
+      - 'firebase/qa-geral-celular/pilot/conversation-push-admin.mjs'
+      - 'firebase/qa-geral-celular/pilot/conversation-push-admin-http.mjs'
+      - 'firebase/qa-geral-celular/pilot/conversation-push-operator-auth.mjs'
+      - 'tests/security/qa-conversation-push-admin.test.mjs'
+      - 'tests/security/qa-conversation-push-admin-http.test.mjs'
+      - '.github/workflows/qa-conversation-push-admin.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  admin-emulator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: tests/security/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Instalar dependências fixadas
+        working-directory: tests/security
+        run: npm ci --ignore-scripts
+      - name: Ensaiar serviço administrativo apenas no Firestore Emulator
+        working-directory: tests/security
+        env:
+          GCLOUD_PROJECT: demo-atrio-v11
+          GOOGLE_CLOUD_PROJECT: demo-atrio-v11
+        run: |
+          git rev-parse HEAD HEAD^{tree}
+          node prepare.mjs
+          ./node_modules/.bin/firebase emulators:exec --only firestore --project demo-atrio-v11 \
+            'node --test qa-conversation-push-admin.test.mjs && node --test qa-conversation-push-admin-http.test.mjs'

@@ -22,6 +22,8 @@ import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import java.util.Locale
 import java.util.UUID
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * FCM e apenas o transportador: nao envia mensagens nem concede autorizacao.
@@ -54,7 +56,8 @@ internal object PushRegistry {
     private fun enabledKey(uid: String) = "enabled_$uid"
 
     fun available(context: Context, uid: String): Boolean =
-        !BuildConfig.ATRIO_QA_GERAL_REMOTE || qaGeralPushSessionReady(context, uid)
+        !QaConversationNotices.configured &&
+            (!BuildConfig.ATRIO_QA_GERAL_REMOTE || qaGeralPushSessionReady(context, uid))
 
     fun enabled(context: Context, uid: String): Boolean =
         uid.isNotBlank() && available(context, uid) &&
@@ -296,6 +299,7 @@ internal object PushRegistry {
 class AtrioPushService : FirebaseMessagingService() {
     override fun onNewToken(token: String) {
         super.onNewToken(token)
+        if (QaConversationNotices.configured) return
         val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
         if (PushRegistry.enabled(applicationContext, uid)) {
             PushRegistry.register(applicationContext, uid, FirebaseFirestore.getInstance())
@@ -304,6 +308,16 @@ class AtrioPushService : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
+        if (QaConversationNotices.configured) {
+            // O callback do SDK roda em worker thread. Concluir o processamento
+            // dentro do seu prazo preserva o ciclo de vida do serviço.
+            runBlocking {
+                withTimeoutOrNull(12_000L) {
+                    QaConversationNotices.receive(applicationContext, message)
+                }
+            }
+            return
+        }
         // Apenas mensagens DATA, com UID correspondente a sessao atual.
         // Nunca use texto fornecido no payload como conteudo da notificacao.
         val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
