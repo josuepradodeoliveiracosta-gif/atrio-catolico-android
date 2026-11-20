@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'firebase/qa-geral-celular/pilot/conversation-push-admin.mjs'
+      - 'firebase/qa-geral-celular/pilot/conversation-push-operator-auth.mjs'
       - 'tests/security/qa-conversation-push-admin.test.mjs'
       - '.github/workflows/qa-conversation-push-admin.yml'
   workflow_dispatch:
