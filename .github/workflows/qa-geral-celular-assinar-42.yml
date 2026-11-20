@@ -25,8 +25,8 @@ defaults:
 env:
   QA_BASE_SHA: '759b61c126580c628f0dfb74559bcc3bc4e37586'
   QA_BASE_TREE: '23fefdc726b4a1c7412351d916601baae05ffcca'
-  QA_SOURCE_SHA: 'c5867739864f0b04667da3a50973a9b05267f26f'
-  QA_SOURCE_TREE: 'a986701ffe24402489dad8ca48c01ade063e2b31'
+  QA_SOURCE_SHA: 'f69eed86367ef2775888ac195fa94a1e8a55b9f1'
+  QA_SOURCE_TREE: 'e8d2d7d04ff21135f49505627db99da827176178'
   QA_CANDIDATE_PR: '382'
   QA_ROUTE: '.github/workflows/qa-geral-celular-assinar-42.yml'
 
@@ -40,7 +40,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-          fetch-depth: 5
+          fetch-depth: 2
           persist-credentials: false
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -55,6 +55,7 @@ jobs:
           test "$PR_NUMBER" = "$QA_CANDIDATE_PR"
           test "$(git rev-parse HEAD)" = "$PR_HEAD"
           printf 'Base: %s / %s\n' "$QA_BASE_SHA" "$QA_BASE_TREE"
+          git fetch --no-tags --depth=1 origin "$QA_BASE_SHA"
           test "$(git rev-parse "$QA_BASE_SHA^{tree}")" = "$QA_BASE_TREE"
           printf 'HEAD do workflow: %s / %s\n' "$PR_HEAD" "$(git rev-parse 'HEAD^{tree}')"
           git diff --exit-code "$QA_SOURCE_SHA" "$PR_HEAD" -- . ":(exclude)$QA_ROUTE"
@@ -173,7 +174,7 @@ jobs:
       github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android' &&
       github.ref == 'refs/heads/main' && github.ref_protected &&
       github.actor == 'josuepradodeoliveiracosta-gif' &&
-      github.run_attempt == 1 && inputs.source_sha == 'c5867739864f0b04667da3a50973a9b05267f26f'
+      github.run_attempt == 1 && inputs.source_sha == 'f69eed86367ef2775888ac195fa94a1e8a55b9f1'
     environment: qa-geral-celular-assinatura
     runs-on: ubuntu-latest
     timeout-minutes: 20
