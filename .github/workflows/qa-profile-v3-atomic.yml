@@ -86,8 +86,8 @@ jobs:
           disable-animations: true
           emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -accel on -camera-back none
           script: bash scripts/run-qa-android-emulator.sh
-      - name: Testar a projeção JVM
-        run: gradle :app:testQaGeralUnitTest --tests br.com.atriocatolico.ProfileV3PolicyTest
+      - name: Testar a variante qaGeral na JVM
+        run: gradle :app:testQaGeralUnitTest
       - uses: actions/upload-artifact@v4
         if: always()
         with:
