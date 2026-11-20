@@ -17,6 +17,7 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -190,6 +191,18 @@ internal fun ProfileV3EditorDialog(
     onSaved: () -> Unit,
     onConsentWithdrawn: () -> Unit
 ) {
+    val auth = remember(db) { FirebaseAuth.getInstance(db.app) }
+    val actor = remember(auth, uid) { auth.currentUser?.takeIf { it.uid == uid } }
+    val close by rememberUpdatedState(onClose)
+    DisposableEffect(auth, actor) {
+        val listener = FirebaseAuth.AuthStateListener {
+            if (actor == null || it.currentUser !== actor) close()
+        }
+        auth.addAuthStateListener(listener)
+        onDispose { auth.removeAuthStateListener(listener) }
+    }
+    if (actor == null || auth.currentUser !== actor) return
+
     var draft by remember(uid) { mutableStateOf(ProfileV3Draft()) }
     var availableInterests by remember(uid) { mutableStateOf<List<String>>(emptyList()) }
     var loading by remember(uid) { mutableStateOf(true) }
@@ -224,6 +237,7 @@ internal fun ProfileV3EditorDialog(
             val preferences = transaction.get(preferencesRef)
             Pair(v3, preferences)
         }.addOnCompleteListener { result ->
+            if (auth.currentUser !== actor) return@addOnCompleteListener
             loading = false
             if (result.isSuccessful) {
                 val snapshots = result.result
@@ -262,6 +276,7 @@ internal fun ProfileV3EditorDialog(
                     enabled = !busy,
                     modifier = Modifier.testTag("atrio-profile-v3-withdraw-confirm"),
                     onClick = {
+                        if (auth.currentUser !== actor) return@TextButton
                         busy = true
                         db.runTransaction { transaction ->
                             val privateV3 = transaction.get(v3Ref)
@@ -277,6 +292,7 @@ internal fun ProfileV3EditorDialog(
                             if (privateV3.exists()) transaction.delete(v3Ref)
                             Unit
                         }.addOnCompleteListener { result ->
+                            if (auth.currentUser !== actor) return@addOnCompleteListener
                             busy = false
                             confirmWithdrawal = false
                             if (result.isSuccessful) {
@@ -303,7 +319,12 @@ internal fun ProfileV3EditorDialog(
         return
     }
 
-    BackHandler { if (picking != null) picking = null else if (!busy) onClose() }
+    BackHandler {
+        if (picking != null) {
+            restoreFocus = picking?.id
+            picking = null
+        } else if (!busy) onClose()
+    }
     picking?.let { interest ->
         ProfileV3DiscussionPicker(
             db = db,
@@ -451,6 +472,8 @@ internal fun ProfileV3EditorDialog(
                             ) else draft.copy(publicInterests = (draft.publicInterests + label).take(3))
                         }
                         if (selected) ProfileV3InterestEditor(
+                            db = db,
+                            actor = actor,
                             interest = interest,
                             detail = detail,
                             enabled = loaded && !busy,
@@ -521,12 +544,13 @@ internal fun ProfileV3EditorDialog(
                 enabled = loaded && !loading && !busy && valid && draft.consentAccepted,
                 modifier = Modifier.testTag("atrio-profile-v3-save"),
                 onClick = {
+                    if (auth.currentUser !== actor) return@TextButton
                     busy = true
                     message = ""
                     val current = draft
                     val original = loadedV3?.data
                     invalidLink = null
-                    db.runTransaction { transaction ->
+                    db.runTransaction<ProfileV3SaveResult> { transaction ->
                         val privateV3 = transaction.get(v3Ref)
                         if (privateV3.data != original) return@runTransaction ProfileV3SaveResult.Stale
                         val privateProfile = transaction.get(profileRef)
@@ -585,6 +609,7 @@ internal fun ProfileV3EditorDialog(
                         }
                         ProfileV3SaveResult.Saved
                     }.addOnCompleteListener { result ->
+                        if (auth.currentUser !== actor) return@addOnCompleteListener
                         busy = false
                         when (val saved = if (result.isSuccessful) result.result else null) {
                             ProfileV3SaveResult.Saved -> onSaved()

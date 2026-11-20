@@ -251,8 +251,18 @@ internal fun PublicMemberProfileScreen(
                             val interest = ProfileV3Interest.forLabel(label) ?: return@forEach
                             key(viewer, uid, interest, publicProfile.revision, resolver) {
                                 PublicProfileV3Interest(
-                                    auth, viewer, uid, interest, publicProfile.interestQuestions[interest.id],
-                                    resolver, onOpenDiscussion
+                                    auth = auth,
+                                    viewer = viewer,
+                                    profileUid = uid,
+                                    interest = interest,
+                                    question = publicProfile.interestQuestions[interest.id],
+                                    resolver = resolver,
+                                    stillVisible = {
+                                        val current = info
+                                        !blocked && current != null && current.revision == publicProfile.revision &&
+                                            label in current.interests
+                                    },
+                                    onOpen = onOpenDiscussion
                                 )
                             }
                         }

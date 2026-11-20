@@ -109,6 +109,7 @@ class ProfileV3ConsentEmulatorUiTest {
         seedV3()
         val postA = createDiscussion("Discussão inicial da prova")
         val postB = createDiscussion("Discussão seguinte da prova")
+        val postRemoved = createDiscussion("Discussão removida da prova")
         val v2 = await(preferences.get(Source.SERVER)).data
         val profile = await(legacy.get(Source.SERVER)).data
         val links = owner.document(publicProfile.path).profileV3Links()
@@ -142,12 +143,35 @@ class ProfileV3ConsentEmulatorUiTest {
 
         openEditorAgain()
         selectDiscussion(postB)
-        await(owner.collection("posts").document(postB).delete())
+        saveEditor()
+        assertEquals(mapOf("oracao" to postB), await(links.get(Source.SERVER)).get("postIds"))
+        assertEquals("Pergunta editada?", await(publicProfile.get(Source.SERVER)).get("interestQuestions.oracao"))
+
+        openEditorAgain()
+        editorControl("atrio-v3-clear-question-oracao").performClick()
+        saveEditor()
+        assertFalse(await(publicProfile.get(Source.SERVER)).contains("interestQuestions"))
+        assertEquals(mapOf("oracao" to postB), await(links.get(Source.SERVER)).get("postIds"))
+
+        openEditorAgain()
+        editorControl("atrio-v3-remove-link-oracao").performClick()
+        editorControl("atrio-v3-question-oracao").performTextReplacement("Pergunta sem discussão?")
+        saveEditor()
+        assertFalse(await(links.get(Source.SERVER)).exists())
+        assertEquals("Pergunta sem discussão?", await(publicProfile.get(Source.SERVER)).get("interestQuestions.oracao"))
+
+        openEditorAgain()
+        selectDiscussion(postRemoved)
+        await(owner.collection("posts").document(postRemoved).delete())
         compose.onNodeWithTag("atrio-profile-v3-save").performClick()
         waitForTag("atrio-profile-v3-message")
         compose.onNodeWithTag("atrio-profile-v3-message").assertTextContains("Troque ou remova", substring = true)
-        assertEquals(mapOf("oracao" to postA), await(links.get(Source.SERVER)).get("postIds"))
+        assertFalse(await(links.get(Source.SERVER)).exists())
 
+        selectDiscussion(postB)
+        saveEditor()
+        assertEquals(mapOf("oracao" to postB), await(links.get(Source.SERVER)).get("postIds"))
+        openEditorAgain()
         editorControl("atrio-profile-v3-interest-0").performClick()
         editorControl("atrio-profile-v3-interest-1").performClick()
         saveEditor()

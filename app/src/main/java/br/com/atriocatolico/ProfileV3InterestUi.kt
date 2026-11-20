@@ -25,6 +25,8 @@ import kotlinx.coroutines.launch
 
 @Composable
 internal fun ProfileV3InterestEditor(
+    db: FirebaseFirestore,
+    actor: FirebaseUser,
     interest: ProfileV3Interest,
     detail: ProfileV3InterestDetail,
     enabled: Boolean,
@@ -56,9 +58,36 @@ internal fun ProfileV3InterestEditor(
         modifier = Modifier.fillMaxWidth().testTag("atrio-v3-question-${interest.id}")
     )
     if (detail.question.isNotEmpty()) {
-        TextButton(enabled = enabled, onClick = { onEdit(detail.copy(question = "")) }) {
+        TextButton(
+            enabled = enabled,
+            onClick = { onEdit(detail.copy(question = "")) },
+            modifier = Modifier.testTag("atrio-v3-clear-question-${interest.id}")
+        ) {
             Text("Apagar pergunta")
         }
+    }
+    detail.postId?.let { id ->
+        val auth = remember(db) { FirebaseAuth.getInstance(db.app) }
+        var linkTitle by remember(auth, actor, id) { mutableStateOf<String?>(null) }
+        DisposableEffect(db, actor, id) {
+            var active = true
+            db.collection("posts").document(id).get(Source.SERVER).addOnSuccessListener { post ->
+                if (!active || auth.currentUser !== actor) return@addOnSuccessListener
+                val author = post.getString("uid")?.takeIf(profileV3DocumentId::matches)
+                    ?: return@addOnSuccessListener
+                val title = post.getString("title")?.takeIf { it.isNotBlank() }
+                    ?: return@addOnSuccessListener
+                db.document("users/${actor.uid}/blockedMembers/$author").get(Source.SERVER)
+                    .addOnSuccessListener { blocked ->
+                        if (active && auth.currentUser === actor && !blocked.exists()) linkTitle = title
+                    }
+            }
+            onDispose { active = false }
+        }
+        Text(
+            linkTitle?.let { "Discussão vinculada · $it" } ?: "Discussão vinculada",
+            style = MaterialTheme.typography.bodyMedium
+        )
     }
     TextButton(
         enabled = enabled,
@@ -68,7 +97,11 @@ internal fun ProfileV3InterestEditor(
         Text(if (detail.postId == null) "Escolher discussão" else "Trocar discussão")
     }
     if (detail.postId != null) {
-        TextButton(enabled = enabled, onClick = { onEdit(detail.copy(postId = null)) }) {
+        TextButton(
+            enabled = enabled,
+            onClick = { onEdit(detail.copy(postId = null)) },
+            modifier = Modifier.testTag("atrio-v3-remove-link-${interest.id}")
+        ) {
             Text("Remover vínculo")
         }
     }
@@ -225,14 +258,16 @@ internal fun PublicProfileV3Interest(
     interest: ProfileV3Interest,
     question: String?,
     resolver: ProfileV3DiscussionResolver,
+    stillVisible: () -> Boolean,
     onOpen: (String) -> Unit
 ) {
     val scope = rememberCoroutineScope()
     val open by rememberUpdatedState(onOpen)
+    val visible by rememberUpdatedState(stillVisible)
     var result by remember { mutableStateOf<ProfileV3Discussion?>(null) }
     LaunchedEffect(resolver) {
         val checked = resolver.resolve(viewer, profileUid, interest)
-        if (auth.currentUser === viewer) result = checked
+        if (auth.currentUser === viewer && visible()) result = checked
     }
     Text(interest.label, fontWeight = FontWeight.SemiBold)
     question?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
@@ -248,10 +283,11 @@ internal fun PublicProfileV3Interest(
             Text(confirmed.title, style = MaterialTheme.typography.bodyMedium)
             OutlinedButton(
                 onClick = {
+                    if (result != confirmed || auth.currentUser !== viewer || !visible()) return@OutlinedButton
                     result = null
                     scope.launch {
                         val checked = resolver.resolve(viewer, profileUid, interest)
-                        if (auth.currentUser !== viewer) return@launch
+                        if (auth.currentUser !== viewer || !visible()) return@launch
                         result = if (checked == ProfileV3Discussion.NoLink) ProfileV3Discussion.Unavailable else checked
                         if (checked is ProfileV3Discussion.Available && checked.postId == confirmed.postId) {
                             open(checked.postId)
