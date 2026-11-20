@@ -64,7 +64,7 @@ export function createConversationPushAdminService({
       if (action==='revoke') {
         const generation=previous?.generation ?? null;
         if (oldAdmission.exists) tx.update(ref,{status:'revoked'});
-        tx.create(op,{action,roundId:identity.roundId,generation,expectedGeneration,createdAt:serverTimestamp()});
+        tx.create(op,{action,roundId:identity.roundId,generation,expectedGeneration,operatorUid:principal,createdAt:serverTimestamp()});
         return {generation,replay:false};
       }
       const generation=uuid();
@@ -73,7 +73,7 @@ export function createConversationPushAdminService({
         generation,admittedAt:serverTimestamp(),expiresAt,
       };
       tx.set(ref,record);
-      tx.create(op,{action,roundId:identity.roundId,generation,expectedGeneration,expiresAt,
+      tx.create(op,{action,roundId:identity.roundId,generation,expectedGeneration,operatorUid:principal,expiresAt,
         createdAt:serverTimestamp()});
       return {generation,replay:false};
     });
@@ -126,7 +126,7 @@ export function createConversationPushAdminService({
         senderGeneration:left.generation,recipientGeneration:right.generation,
       };
       tx.set(pendingRef,record);
-      tx.create(receiptRef,{roundId:identity.roundId,senderGeneration:left.generation,recipientGeneration:right.generation,expiresAt,createdAt:serverTimestamp()});
+      tx.create(receiptRef,{roundId:identity.roundId,senderGeneration:left.generation,recipientGeneration:right.generation,operatorUid:principal,expiresAt,createdAt:serverTimestamp()});
       return {senderGeneration:left.generation,recipientGeneration:right.generation,replay:false};
     });
   }

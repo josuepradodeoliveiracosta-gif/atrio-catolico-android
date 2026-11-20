@@ -5,6 +5,8 @@ import {initializeApp,deleteApp} from 'firebase-admin/app';
 import {getFirestore,FieldValue} from 'firebase-admin/firestore';
 import {createConversationPushAdminService}
   from '../../firebase/qa-geral-celular/pilot/conversation-push-admin.mjs';
+import {createAuthenticatedConversationPushAdmin}
+  from '../../firebase/qa-geral-celular/pilot/conversation-push-operator-auth.mjs';
 import {conversationPushIdentity as identity}
   from '../../firebase/qa-geral-celular/pilot/conversation-push-policy.mjs';
 
@@ -145,6 +147,73 @@ try {
       else assert.equal(final.status,'active');
     });
   }
+
+  await test('autenticação do operador e privilégios mínimos no servidor',async()=>{
+    const [uid]=accounts;
+    const allowedOperators={
+      'qa-admissions-operator':['manage_admissions'],
+      'qa-notice-publisher':['publish_notices'],
+    };
+    const tokens={
+      admission:{uid:'qa-admissions-operator',aud:'atrio-catolico-qa-general',
+        email_verified:true,firebase:{sign_in_provider:'password'},
+        atrioQaPushCapabilities:['manage_admissions']},
+      publisher:{uid:'qa-notice-publisher',aud:'atrio-catolico-qa-general',
+        email_verified:true,firebase:{sign_in_provider:'password'},
+        atrioQaPushCapabilities:['publish_notices']},
+      wrongProject:{uid:'qa-admissions-operator',aud:'outro-projeto',
+        email_verified:true,firebase:{sign_in_provider:'password'},
+        atrioQaPushCapabilities:['manage_admissions']},
+      missingClaim:{uid:'qa-admissions-operator',aud:'atrio-catolico-qa-general',
+        email_verified:true,firebase:{sign_in_provider:'password'},
+        atrioQaPushCapabilities:[]},
+      notAllowed:{uid:'qa-unknown-operator',aud:'atrio-catolico-qa-general',
+        email_verified:true,firebase:{sign_in_provider:'password'},
+        atrioQaPushCapabilities:['manage_admissions']},
+    };
+    const auth={verifyIdToken:async(token,checkRevoked)=>{
+      assert.equal(checkRevoked,true);
+      if(token==='revoked'||!Object.hasOwn(tokens,token))
+        throw new Error('auth/id-token-revoked');
+      return tokens[token];
+    }};
+    const gateway=createAuthenticatedConversationPushAdmin({
+      db,auth,serverTimestamp:()=>FieldValue.serverTimestamp(),
+      projectId:'atrio-catolico-qa-general',allowedOperators,
+    });
+    const admissionRef=db.doc('users/'+uid+'/chatPushAdmission/current');
+    const current=(await admissionRef.get()).data();
+    const request={action:'revoke',payload:{
+      uid,operationKey:'qa_auth_revoke_001',
+      expectedGeneration:current.generation,
+    }};
+    for(const authorization of [undefined,'','Bearer revoked','Bearer invalid','Basic admission',
+      'Bearer wrongProject']) {
+      await assert.rejects(gateway.execute({...request,authorization}),
+        /operator_unauthenticated/);
+    }
+    for(const authorization of ['Bearer publisher','Bearer missingClaim','Bearer notAllowed']) {
+      await assert.rejects(gateway.execute({...request,authorization}),
+        /operator_forbidden/);
+    }
+    await assert.rejects(gateway.execute({
+      authorization:'Bearer admission',action:'publish',
+      payload:{senderUid:uid,recipientUid:accounts[1]},
+    }),/operator_forbidden/);
+    const done=await gateway.execute({...request,authorization:'Bearer admission'});
+    assert.equal(done.replay,false);
+    assert.equal((await admissionRef.get()).data().status,'revoked');
+    // O editor de avisos ultrapassa a autenticação, mas não pode
+    // publicar evento sem as condições canônicas.
+    await assert.rejects(gateway.execute({
+      authorization:'Bearer publisher',action:'publish',
+      payload:{senderUid:uid,recipientUid:accounts[1],
+        conversationId:'qa_invalid',messageId:'missing',
+        expiresAt:new Date(Date.now()+30000),
+        expectedSenderGeneration:current.generation,
+        expectedRecipientGeneration:'missing'},
+    }),/notice_not_authorized/);
+  });
 } finally {
   await deleteApp(app);
 }

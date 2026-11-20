@@ -71,7 +71,7 @@ jobs:
         run: |
           node prepare.mjs
           ./node_modules/.bin/firebase emulators:exec --only firestore --project demo-atrio-v11 \
-            'node --test qa-conversation-push-admin.test.mjs && node --test qa-conversation-push-admission.test.mjs && node --test qa-conversation-push-pilot.test.mjs && ATRIO_383_REVERSE=1 node --test qa-conversation-push-pilot.test.mjs'
+            'node --test qa-conversation-push-admin.test.mjs && node --test qa-conversation-push-admin-http.test.mjs && node --test qa-conversation-push-admission.test.mjs && node --test qa-conversation-push-pilot.test.mjs && ATRIO_383_REVERSE=1 node --test qa-conversation-push-pilot.test.mjs'
       - name: Preparar Android Emulator
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules

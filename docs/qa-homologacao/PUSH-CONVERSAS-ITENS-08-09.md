@@ -60,6 +60,26 @@ alteração posterior preserva o bloqueio dos avisos antigos. Uma nova
 concessão explícita de push usa uma geração nova e exige uma mensagem
 posterior à concessão. A consulta e a entrega usam a mesma checagem.
 
+## Serviço administrativo
+
+O serviço de administração é um handler Fetch separado do Worker. O host
+administrativo deve fornecer a URL HTTPS do transporte verificado, Firebase
+Admin Auth e Firestore do projeto `atrio-catolico-qa-general` no banco
+`(default)`, e a allowlist de UIDs e capacidades somente do servidor.
+O handler vem desativado. O Worker reserva `GET /notice` para o APK.
+
+| Rota administrativa `POST /v1/qa/conversations/push/admin/…` | Corpo JSON | Capacidade |
+| --- | --- | --- |
+| `admit` | `uid`, `operationKey`, `expectedGeneration`, `expiresAt` | `manage_admissions` |
+| `revoke` | `uid`, `operationKey`, `expectedGeneration` | `manage_admissions` |
+| `publish` | `senderUid`, `recipientUid`, `conversationId`, `messageId`, `expectedSenderGeneration`, `expectedRecipientGeneration`, `expiresAt` | `publish_notices` |
+
+Enviar o token do operador em `Authorization: Bearer` e `expiresAt` em ISO 8601
+UTC com milissegundos. A identidade do operador vem da autenticação da #389 e
+fica registrada nas operações e recibos. A publicação administrativa grava a
+pendência no Firestore. A entrega continua sujeita aos gates do Worker, inclusive
+`PUSH_ENABLED=false` durante o piloto fechado.
+
 ## Sinal e validação Android
 
 O ensaio JVM modela um sinal somente de dados, com uma chave fixa e

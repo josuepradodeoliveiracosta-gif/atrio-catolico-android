@@ -6,6 +6,8 @@ import test from 'node:test';
 import {setTimeout as delay} from 'node:timers/promises';
 import {isDeepStrictEqual} from 'node:util';
 import {assertFails, initializeTestEnvironment} from '@firebase/rules-unit-testing';
+import {deleteApp, initializeApp} from 'firebase-admin/app';
+import {FieldValue, getFirestore} from 'firebase-admin/firestore';
 import {collection,deleteDoc,doc,getDocFromServer,getDocsFromServer,limit,query,setDoc,
   where,writeBatch} from 'firebase/firestore';
 import {renderConversationPushPilotWorker}
@@ -16,6 +18,8 @@ import {conversationPushPilot as pilot,conversationPushPilotDocuments}
   from '../../firebase/qa-geral-celular/pilot/conversation-push-fixtures.mjs';
 import {createConversationPushAdmission}
   from '../../firebase/qa-geral-celular/pilot/conversation-push-policy.mjs';
+import {createConversationPushAdminHttpHandler}
+  from '../../firebase/qa-geral-celular/pilot/conversation-push-admin-http.mjs';
 import {pilotDocuments, projectId as demoProject} from '../../firebase/qa-geral-celular/pilot/fixtures.mjs';
 
 const emulatorHost=process.env.FIRESTORE_EMULATOR_HOST ?? '';
@@ -373,6 +377,92 @@ test('mesmos documentos para Rules e Worker de Conversas do piloto DM #199',asyn
     }
   }
 
+  const adminApp=initializeApp({projectId:demoProject},'restoration-integrated');
+  t.after(()=>deleteApp(adminApp));
+  const database=getFirestore(adminApp);
+  const operator='fixture-admission-operator';
+  const publisher='fixture-notice-publisher';
+  const allowedOperators={[operator]:['manage_admissions'],[publisher]:['publish_notices']};
+  const handler=createConversationPushAdminHttpHandler({
+    db:database, enabled:true, allowedOperators, serverTimestamp:()=>FieldValue.serverTimestamp(),
+    auth:{async verifyIdToken(token, checkRevoked) {
+      assert.equal(checkRevoked,true);
+      assert.ok(Object.hasOwn(allowedOperators,token));
+      return {uid:token,aud:pilot.projectId,email_verified:true,
+        firebase:{sign_in_provider:'password'},atrioQaPushCapabilities:allowedOperators[token]};
+    }},
+  });
+  const admin=(action,body,token=operator)=>handler(new Request(
+    'https://admin.qa.invalid/v1/qa/conversations/push/admin/'+action, {
+      method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+      body:JSON.stringify(body),
+    }));
+  const revoke=async(uid,expectedGeneration)=>{
+    const result=await admin('revoke',{uid,operationKey:'revogacao-integrada',expectedGeneration});
+    assert.equal(result.status,200);
+  };
+
+  for (const [role,uid] of [['autor',sender],['destinatário',recipient]]) {
+    await t.test('HTTP administrativo — revogação invalida admissão enfileirada para o '+role,async()=>{
+      const rows=await seed();
+      const oldAdmission=rows.get(admission(uid));
+      const queued={uid,operationKey:'admissao-enfileirada',expectedGeneration:oldAdmission.generation,
+        expiresAt:oldAdmission.expiresAt.toISOString()};
+      await revoke(uid,queued.expectedGeneration);
+      const staleRequest=await admin('admit',queued);
+      assert.equal(staleRequest.status,409,'A revogação deve invalidar a intenção enfileirada antes dela');
+      assert.deepEqual(await staleRequest.json(),{error:'stale_admission_generation'});
+      assert.equal((await database.doc(admission(uid)).get()).data().status,'revoked');
+    });
+
+    await t.test('HTTP administrativo — restauração 18+ do '+role+' e nova concessão',async sub=>{
+      const rows=await seed();
+      const fixture=useExternalFixtures(sub);
+      const oldAdmission=rows.get(admission(uid));
+      await assertNotice(fixture);
+      await revoke(uid,oldAdmission.generation);
+      const revoked=(await database.doc(admission(uid)).get()).data();
+      assert.equal(revoked.status,'revoked');
+
+      const proofPath=age(uid);
+      await put([[proofPath,null]]);
+      await assertFails(getDocFromServer(doc(session(uid),event)));
+      await put([[proofPath,rows.get(proofPath)]]); // Operação privilegiada somente no Emulator.
+      for (const account of [sender,recipient]) {
+        const manual=await getDocFromServer(doc(session(account),event));
+        assert.equal(manual.get('text'),rows.get(event).text);
+      }
+      await assertNotice(fixture,404);
+      assert.equal((await worker.fetch(request(),fixture.env)).status,202);
+      assert.equal(fixture.stats().reserved,0);
+      assert.equal(fixture.stats().sent,0);
+
+      const readmission=await admin('admit',{uid,operationKey:'readmissao-integrada',
+        expectedGeneration:revoked.generation,expiresAt:oldAdmission.expiresAt.toISOString()});
+      assert.equal(readmission.status,200);
+      const {generation}=await readmission.json();
+      assert.notEqual(generation,oldAdmission.generation);
+      const publish={senderUid:sender,recipientUid:recipient,conversationId:pilot.conversationId,
+        messageId:pilot.messageId,expiresAt:rows.get(pending).expiresAt.toISOString(),
+        expectedSenderGeneration:uid===sender ? generation : rows.get(admission(sender)).generation,
+        expectedRecipientGeneration:uid===recipient ? generation : rows.get(admission(recipient)).generation};
+      assert.equal((await admin('publish',publish,publisher)).status,403);
+      await assertNotice(fixture,404);
+
+      await delay(5);
+      const newId='mensagem-integrada-apos-restauracao';
+      const batch=database.batch();
+      batch.update(database.doc(room),{lastMessageId:newId,updatedAt:FieldValue.serverTimestamp()});
+      batch.set(database.doc(room+'/messages/'+newId),{...rows.get(event),createdAt:FieldValue.serverTimestamp()});
+      await batch.commit();
+      assert.equal((await admin('publish',{...publish,messageId:newId},publisher)).status,200);
+      await assertNotice(fixture,200,newId);
+      assert.equal((await worker.fetch(request(pilot.projectId,newId),fixture.env)).status,202);
+      assert.equal(fixture.stats().reserved,1);
+      assert.equal(fixture.stats().sent,1);
+    });
+  }
+
   await t.test('flag de push desligada não autoriza solicitação ao backend',async sub=>{
     const fixture=useExternalFixtures(sub);
     fixture.env.PUSH_ENABLED='false';
@@ -382,6 +472,11 @@ test('mesmos documentos para Rules e Worker de Conversas do piloto DM #199',asyn
     const notice=await worker.fetch(requestNotice(),fixture.env);
     assert.equal(notice.status,503);
     assert.equal((await notice.json()).status,'disabled');
+    for (const action of ['admit','revoke','publish']) {
+      const administrative=new Request('https://qa.invalid/v1/qa/conversations/push/admin/'+action,
+        {method:'POST'});
+      assert.equal((await worker.fetch(administrative,fixture.env)).status,404);
+    }
     assert.deepEqual(fixture.stats(),{reserved:0,sent:0,reads:0,cloudCalls:0});
   });
 
