@@ -1085,7 +1085,9 @@ private fun OnlineCommunity(
     }
     fun toggle(kind: String, id: String, currentlyActive: Boolean) {
         val ref = db.collection("users").document(uid).collection(kind).document(id)
-        val request = if (currentlyActive) ref.delete() else ref.set(mapOf("createdAt" to FieldValue.serverTimestamp()))
+        val likeData = mapOf<String, Any>("createdAt" to FieldValue.serverTimestamp()).toMutableMap()
+            .apply { if (kind == "likedPosts") put("postId", id) }
+        val request = if (currentlyActive) ref.delete() else ref.set(likeData)
         request.addOnFailureListener { message = it.localizedMessage ?: "Não foi possível atualizar." }
     }
     fun canPublishWithCurrentSession(): Boolean {
