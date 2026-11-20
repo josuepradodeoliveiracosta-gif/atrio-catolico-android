@@ -129,6 +129,7 @@ mkdir -p qa-android-suite-results
 qa_failed=0
 run_suite() {
   local suite="$1"
+  shift
   # Modo all preserva a ordem das suites; cada grupo so roda as suas.
   if [[ "$qa_group" != "all" ]]; then
     case "$qa_group:$suite" in
@@ -155,6 +156,7 @@ run_suite() {
   echo "QA Android: iniciando $suite (isolado)"
   if gradle "$test_task" \
     "-Pandroid.testInstrumentationRunnerArguments.class=$full" \
+    "$@" \
     --daemon --stacktrace; then
     echo "QA Android: $suite aprovada"
   else
@@ -230,8 +232,18 @@ if [[ "${ATRIO_QA_SUITE:-}" == AtrioConversasCompostasEmulatorUiTest ]]; then
     exit 2
   }
   node firebase/qa-general/compose-parity-rules.mjs
-  (cd tests/security && node seed-chat-groups-android.mjs)
-  run_suite "$ATRIO_QA_SUITE"
+  case "${ATRIO_QA_199_GROUPS:-}" in
+    ALICE_OWNER|BOB_OWNER)
+      (cd tests/security && node seed-chat-groups-android.mjs --navegacao-perfis)
+      run_suite "$ATRIO_QA_SUITE" \
+        "-Pandroid.testInstrumentationRunnerArguments.atrioQa199Groups=$ATRIO_QA_199_GROUPS"
+      ;;
+    '')
+      (cd tests/security && node seed-chat-groups-android.mjs)
+      run_suite "$ATRIO_QA_SUITE"
+      ;;
+    *) echo "Papéis desconhecidos para o focal de grupos da #199" >&2; exit 2 ;;
+  esac
   exit "$qa_failed"
 fi
 if [[ -n "${ATRIO_QA_SUITE:-}" ]]; then
