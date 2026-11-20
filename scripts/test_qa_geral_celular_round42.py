@@ -11,16 +11,14 @@ class Round42Test(unittest.TestCase):
     def test_requires_the_exact_package_and_both_version_fields(self):
         apk = Path("apk42.apk")
         tools = Path("build-tools")
-        correct = (round42.PACKAGE, "42", round42.VERSION_NAME)
-        for values, valid in (
-            (correct, True),
-            (("br.com.atriocatolico", *correct[1:]), False),
-            ((correct[0], "41", correct[2]), False),
-            ((*correct[:2], "0.19.10-qa-geral-celular-rodada-41"), False),
+        for package, code, name, valid in (
+            (round42.PACKAGE, "42", round42.VERSION_NAME, True),
+            ("br.com.atriocatolico", "42", round42.VERSION_NAME, False),
+            (round42.PACKAGE, "41", round42.VERSION_NAME, False),
+            (round42.PACKAGE, "42", "0.19.10-qa-geral-celular-rodada-41", False),
         ):
-            package, code, name = values
             line = f"package: name='{package}' versionCode='{code}' versionName='{name}'"
-            with self.subTest(values=values), redirect_stdout(io.StringIO()), \
+            with self.subTest(package=package, code=code, name=name), redirect_stdout(io.StringIO()), \
                     patch.object(round42, "command", return_value=line), \
                     patch.object(round42, "verify_functional_variant") as functional:
                 if valid:
