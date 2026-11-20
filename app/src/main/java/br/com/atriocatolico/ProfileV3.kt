@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -30,7 +31,7 @@ internal object ProfileV3Policy {
         "Solteiro(a)", "Casado(a)", "Separado(a)", "Divorciado(a)", "Viúvo(a)"
     )
     val visibleFields = listOf("saint", "ageBand", "maritalStatus")
-    val publicFields = visibleFields + listOf("devotionPhrase", "interests")
+    val publicFields = visibleFields + listOf("devotionPhrase", "interests", "interestQuestions")
 
     fun data(document: DocumentSnapshot?): ProfileV3Draft = ProfileV3Draft(
         saint = document?.getString("saint").orEmpty(),
@@ -42,7 +43,16 @@ internal object ProfileV3Policy {
         publicInterests = (document?.get("publicInterests") as? List<*>)
             ?.filterIsInstance<String>().orEmpty()
             .filter { it in RegistrationOptionalPolicy.interests }.take(3),
-        consentAccepted = document?.getString("consentVersion") == CONSENT_VERSION
+        consentAccepted = document?.getString("consentVersion") == CONSENT_VERSION,
+        interestDetails = (document?.get("interestDetails") as? Map<*, *>)?.let { stored ->
+            ProfileV3Interest.entries.mapNotNull { interest ->
+                val fields = stored[interest.id] as? Map<*, *> ?: return@mapNotNull null
+                interest.id to ProfileV3InterestDetail(
+                    question = fields["question"] as? String ?: "",
+                    postId = (fields["postId"] as? String)?.takeIf(profileV3DocumentId::matches)
+                )
+            }.toMap()
+        }.orEmpty()
     )
 
     fun projection(draft: ProfileV3Draft): Map<String, Any> = buildMap {
@@ -56,6 +66,8 @@ internal object ProfileV3Policy {
             put("maritalStatus", draft.maritalStatus)
         }
         if (draft.publicInterests.isNotEmpty()) put("interests", draft.publicInterests)
+        val questions = draft.interestProjection("question")
+        if (questions.isNotEmpty()) put("interestQuestions", questions)
     }
 }
 
@@ -66,7 +78,8 @@ internal data class ProfileV3Draft(
     val maritalStatus: String = "",
     val visibleFields: Set<String> = emptySet(),
     val publicInterests: List<String> = emptyList(),
-    val consentAccepted: Boolean = false
+    val consentAccepted: Boolean = false,
+    val interestDetails: Map<String, ProfileV3InterestDetail> = emptyMap()
 )
 
 @Composable
@@ -163,6 +176,12 @@ private fun ProfilePrivateSummaryRow(label: String, value: String, visible: Bool
     }
 }
 
+private sealed interface ProfileV3SaveResult {
+    data object Saved : ProfileV3SaveResult
+    data object Stale : ProfileV3SaveResult
+    data class InvalidLink(val interestKey: String) : ProfileV3SaveResult
+}
+
 @Composable
 internal fun ProfileV3EditorDialog(
     db: FirebaseFirestore,
@@ -184,6 +203,19 @@ internal fun ProfileV3EditorDialog(
     val preferencesRef = remember(db, uid) { db.document("users/$uid/private/preferences") }
     val publicRef = remember(db, uid) { db.collection("public_profiles").document(uid) }
     val profileRef = remember(db, uid) { db.collection("profiles").document(uid) }
+    val linksRef = remember(publicRef) { publicRef.profileV3Links() }
+    val editorScroll = rememberLazyListState()
+    var invalidLink by remember(db, uid) { mutableStateOf<String?>(null) }
+    var restoreFocus by remember(db, uid) { mutableStateOf<String?>(null) }
+    var picking by remember(db, uid) { mutableStateOf<ProfileV3Interest?>(null) }
+    var draftPreview by remember(db, uid) { mutableStateOf(false) }
+
+    fun editInterest(interest: ProfileV3Interest, detail: ProfileV3InterestDetail) {
+        if (detail.postId != draft.interestDetails[interest.id]?.postId && invalidLink == interest.id) {
+            invalidLink = null
+        }
+        draft = draft.copy(interestDetails = draft.interestDetails + (interest.id to detail))
+    }
 
     LaunchedEffect(db, uid, loadAttempt) {
         if (loaded) return@LaunchedEffect
@@ -211,6 +243,7 @@ internal fun ProfileV3EditorDialog(
         draft.visibleFields.all { it in ProfileV3Policy.visibleFields } &&
         draft.publicInterests.size <= 3 && draft.publicInterests.distinct().size == draft.publicInterests.size &&
         draft.publicInterests.all { it in availableInterests } &&
+        draft.interestDetails.values.all { it.question.profileV3QuestionLength() <= PROFILE_V3_QUESTION_LIMIT } &&
         ("saint" !in draft.visibleFields || draft.saint.trim().isNotEmpty()) &&
         ("ageBand" !in draft.visibleFields || draft.ageBand.isNotBlank()) &&
         ("maritalStatus" !in draft.visibleFields || draft.maritalStatus.isNotBlank())
@@ -233,12 +266,14 @@ internal fun ProfileV3EditorDialog(
                         db.runTransaction { transaction ->
                             val privateV3 = transaction.get(v3Ref)
                             val publicProfile = transaction.get(publicRef)
+                            val links = transaction.get(linksRef)
                             val fields = ProfileV3Policy.publicFields.filter { publicProfile.contains(it) }
                             if (fields.isNotEmpty()) {
                                 val changes = fields.associateWith { FieldValue.delete() } +
                                     ("updatedAt" to FieldValue.serverTimestamp())
                                 transaction.update(publicRef, changes)
                             }
+                            transaction.syncProfileV3Links(links, emptyMap())
                             if (privateV3.exists()) transaction.delete(v3Ref)
                             Unit
                         }.addOnCompleteListener { result ->
@@ -268,7 +303,24 @@ internal fun ProfileV3EditorDialog(
         return
     }
 
-    BackHandler { if (!busy) onClose() }
+    BackHandler { if (picking != null) picking = null else if (!busy) onClose() }
+    picking?.let { interest ->
+        ProfileV3DiscussionPicker(
+            db = db,
+            uid = uid,
+            interest = interest,
+            current = draft.interestDetails[interest.id]?.postId,
+            onClose = { restoreFocus = interest.id; picking = null },
+            onSelect = { postId ->
+                val detail = draft.interestDetails[interest.id] ?: ProfileV3InterestDetail()
+                editInterest(interest, detail.copy(postId = postId))
+                restoreFocus = interest.id
+                picking = null
+            }
+        )
+        return
+    }
+
     AlertDialog(
         onDismissRequest = { if (!busy) onClose() },
         title = {
@@ -285,6 +337,7 @@ internal fun ProfileV3EditorDialog(
         },
         text = {
             LazyColumn(
+                state = editorScroll,
                 modifier = Modifier.heightIn(max = 520.dp).testTag("atrio-profile-v3-editor"),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
@@ -381,20 +434,53 @@ internal fun ProfileV3EditorDialog(
                     Text("Vamos conversar sobre…", fontWeight = FontWeight.Bold, color = Wine)
                     Text("Selecione até três interesses já informados. Eles ficam privados até você escolhê-los.",
                         style = MaterialTheme.typography.bodySmall, color = Muted)
-                    availableInterests.forEachIndexed { index, interest ->
+                }
+                availableInterests.forEachIndexed { index, label ->
+                    val interest = ProfileV3Interest.forLabel(label) ?: return@forEachIndexed
+                    item(key = interest.id) {
+                        val selected = label in draft.publicInterests
+                        val detail = draft.interestDetails[interest.id] ?: ProfileV3InterestDetail()
                         SelectableProfileOption(
-                            interest, interest in draft.publicInterests, loaded && !busy &&
-                                (interest in draft.publicInterests || draft.publicInterests.size < 3),
+                            label, selected, loaded && !busy && (selected || draft.publicInterests.size < 3),
                             "atrio-profile-v3-interest-$index"
                         ) {
-                            draft = draft.copy(publicInterests =
-                                if (interest in draft.publicInterests) draft.publicInterests - interest
-                                else (draft.publicInterests + interest).take(3))
+                            if (selected && invalidLink == interest.id) invalidLink = null
+                            draft = if (selected) draft.copy(
+                                publicInterests = draft.publicInterests - label,
+                                interestDetails = draft.interestDetails - interest.id
+                            ) else draft.copy(publicInterests = (draft.publicInterests + label).take(3))
                         }
+                        if (selected) ProfileV3InterestEditor(
+                            interest = interest,
+                            detail = detail,
+                            enabled = loaded && !busy,
+                            invalidLink = invalidLink == interest.id,
+                            restoreFocus = restoreFocus == interest.id,
+                            onFocusRestored = { restoreFocus = null },
+                            onEdit = { editInterest(interest, it) },
+                            onPick = { picking = interest }
+                        )
                     }
+                }
+                item {
                     if (availableInterests.isEmpty()) {
                         Text("Adicione interesses em Conta e privacidade antes de publicá-los.",
                             style = MaterialTheme.typography.bodySmall, color = Muted)
+                    }
+                }
+                if (draft.publicInterests.isNotEmpty()) item {
+                    TextButton(onClick = { draftPreview = !draftPreview }, enabled = !busy) {
+                        Text(if (draftPreview) "Fechar prévia" else "Ver como os outros veem")
+                    }
+                    if (draftPreview) {
+                        Text("Prévia · alterações não salvas", style = MaterialTheme.typography.labelMedium)
+                        val questions = draft.interestProjection("question")
+                        draft.publicInterests.forEach { label ->
+                            Text(label, fontWeight = FontWeight.SemiBold)
+                            ProfileV3Interest.forLabel(label)?.let { interest ->
+                                questions[interest.id]?.let { Text(it) }
+                            }
+                        }
                     }
                 }
                 item {
@@ -439,18 +525,33 @@ internal fun ProfileV3EditorDialog(
                     message = ""
                     val current = draft
                     val original = loadedV3?.data
+                    invalidLink = null
                     db.runTransaction { transaction ->
-                        if (transaction.get(v3Ref).data != original) return@runTransaction false
+                        val privateV3 = transaction.get(v3Ref)
+                        if (privateV3.data != original) return@runTransaction ProfileV3SaveResult.Stale
                         val privateProfile = transaction.get(profileRef)
                         val publicProfile = transaction.get(publicRef)
                         val preferences = transaction.get(preferencesRef)
+                        val links = transaction.get(linksRef)
                         val prefsInterests = (preferences.get("interests") as? List<*>)
                             ?.filterIsInstance<String>().orEmpty()
                             .filter { it in RegistrationOptionalPolicy.interests }
                         require(current.publicInterests.all { it in prefsInterests }) {
                             "Os interesses privados foram alterados. Recarregue o perfil."
                         }
-                        val values = mapOf(
+                        val postIds = current.interestProjection("postId")
+                        val previousIds = ProfileV3Policy.data(privateV3).interestProjection("postId")
+                        val publishedIds = links.get("postIds") as? Map<*, *>
+                        for ((key, postId) in postIds) {
+                            if (previousIds[key] == postId &&
+                                (!publicProfile.exists() || publishedIds?.get(key) == postId)) continue
+                            val post = transaction.get(db.collection("posts").document(postId))
+                            val author = post.getString("uid")?.takeIf(profileV3DocumentId::matches)
+                            if (author == null || post.getString("title").isNullOrBlank() ||
+                                transaction.get(db.document("users/$uid/blockedMembers/$author")).exists()
+                            ) return@runTransaction ProfileV3SaveResult.InvalidLink(key)
+                        }
+                        val values = mutableMapOf<String, Any>(
                             "saint" to current.saint.trim(),
                             "devotionPhrase" to current.devotionPhrase.trim(),
                             "ageBand" to current.ageBand,
@@ -461,6 +562,10 @@ internal fun ProfileV3EditorDialog(
                             "consentAt" to FieldValue.serverTimestamp(),
                             "updatedAt" to FieldValue.serverTimestamp()
                         )
+                        val details = current.interestFields()
+                        if (details.isNotEmpty() || privateV3.contains("interestDetails")) {
+                            values["interestDetails"] = details
+                        }
                         transaction.set(v3Ref, values)
                         if (publicProfile.exists()) {
                             require(privateProfile.exists()) { "Perfil privado indisponível." }
@@ -474,17 +579,24 @@ internal fun ProfileV3EditorDialog(
                             )
                             publicValues.putAll(ProfileV3Policy.projection(current))
                             transaction.set(publicRef, publicValues)
+                            transaction.syncProfileV3Links(links, postIds)
+                        } else {
+                            transaction.syncProfileV3Links(links, emptyMap())
                         }
-                        true
+                        ProfileV3SaveResult.Saved
                     }.addOnCompleteListener { result ->
                         busy = false
-                        if (result.isSuccessful && result.result == true) {
-                            onSaved()
-                        } else if (result.isSuccessful) {
-                            draft = ProfileV3Draft()
-                            loadedV3 = null
-                            message = "Os dados do Perfil V3 mudaram. Recarregue antes de salvar."
-                        } else message = "Não foi possível salvar. Confira sua conexão e sua autorização."
+                        when (val saved = if (result.isSuccessful) result.result else null) {
+                            ProfileV3SaveResult.Saved -> onSaved()
+                            ProfileV3SaveResult.Stale -> {
+                                message = "Os dados do Perfil V3 mudaram. Feche e reabra o editor para recarregar."
+                            }
+                            is ProfileV3SaveResult.InvalidLink -> {
+                                invalidLink = saved.interestKey
+                                message = "Uma discussão ficou indisponível. Troque ou remova o vínculo indicado."
+                            }
+                            null -> message = "Não foi possível salvar. Confira sua conexão e sua autorização."
+                        }
                     }
                 }
             ) { Text(if (busy) "Salvando…" else "Salvar") }
@@ -573,7 +685,12 @@ internal fun ProfileV3Preview(
                     color = Wine, fontWeight = FontWeight.Bold)
                 val interests = visible["interests"] as? List<*>
                 if (interests.isNullOrEmpty()) Text("Nenhum interesse escolhido para exibição.", color = Muted)
-                else interests.filterIsInstance<String>().forEach { Text("• $it") }
+                else interests.filterIsInstance<String>().forEach { label ->
+                    Text(label, fontWeight = FontWeight.SemiBold)
+                    ProfileV3Interest.forLabel(label)?.let { interest ->
+                        draft.interestProjection("question")[interest.id]?.let { Text(it) }
+                    }
+                }
             }
             item {
                 Text("Dados privados não mostrados: data de nascimento, cidade, paróquia, " +

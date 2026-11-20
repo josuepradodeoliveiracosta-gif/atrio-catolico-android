@@ -4,7 +4,9 @@ on:
     paths:
       - 'firestore.rules'
       - 'tests/security/profile-v3.test.mjs'
-      - 'app/src/main/java/br/com/atriocatolico/ProfileV3.kt'
+      - 'tests/security/profile-v3-interests.test.mjs'
+      - 'cloudflare/push-worker/src/profile-interest-discussion.js'
+      - 'app/src/main/java/br/com/atriocatolico/ProfileV3*.kt'
       - 'app/src/main/java/br/com/atriocatolico/PublicMemberProfile.kt'
       - 'app/src/androidTest/java/br/com/atriocatolico/ProfileV3ConsentEmulatorUiTest.kt'
       - 'app/src/test/java/br/com/atriocatolico/ProfileV3PolicyTest.kt'
@@ -35,7 +37,7 @@ jobs:
         run: |
           npm ci --ignore-scripts
           node prepare.mjs
-          npx firebase emulators:exec --only firestore --project demo-atrio-v11 "node profile-v3.test.mjs"
+          npx firebase emulators:exec --only auth,firestore --project demo-atrio-v11 "node profile-v3.test.mjs && node profile-v3-interests.test.mjs"
   android-consent:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -74,7 +76,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
           test -c /dev/kvm
           sudo chmod 0666 /dev/kvm
-      - name: Testar retirada do consentimento no Android
+      - name: Testar consentimento e interesses do Perfil V3 no Android
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         with:
           api-level: 35
