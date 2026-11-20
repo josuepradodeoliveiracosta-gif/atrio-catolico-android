@@ -1,6 +1,6 @@
 // Serviço administrativo injetável. Não contém credenciais, deploy ou acesso cliente.
 // Usar somente com Firestore Admin SDK (ou adaptador privilegiado no Emulator).
-import {randomUUID} from 'node:crypto';
+import {randomUUID,createHash} from 'node:crypto';
 import {conversationPushIdentity} from './conversation-push-policy.mjs';
 
 const operationId = value => {
@@ -30,7 +30,10 @@ export function createConversationPushAdminService({
   const admission = uid => db.doc('users/'+uid+'/chatPushAdmission/current');
   const operation = (uid,id) => db.doc('users/'+uid+'/chatPushAdminOperations/'+operationId(id));
   const pending = uid => db.doc('users/'+uid+'/chatPushPending/current');
-  const receipt = (uid,conversationId,messageId) => db.doc('users/'+uid+'/chatPushPublicationReceipts/'+encodeURIComponent(conversationId)+'__'+encodeURIComponent(messageId));
+  const receipt = (uid,conversationId,messageId) => {
+    const eventKey=createHash('sha256').update(JSON.stringify([identity.roundId,conversationId,messageId])).digest('hex');
+    return db.doc('users/'+uid+'/chatPushPublicationReceipts/'+eventKey);
+  };
   const permitted = (principal,capability) => {
     if (!principal || authorize(principal,capability)!==true) throw new Error('operator_forbidden');
   };
