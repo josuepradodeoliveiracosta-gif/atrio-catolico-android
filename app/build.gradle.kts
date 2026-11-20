@@ -23,6 +23,11 @@ require(!atrioQaInboxDiscovery || (atrioQaGeralBuild && !atrioQaGeralRemote)) {
     "A descoberta de Conversas exige o QA Geral local."
 }
 val atrioQaGeralPush = System.getenv("ATRIO_QA_GERAL_PUSH_BUILD") == "1"
+val atrioQaConversationNoticeLab = System.getenv("ATRIO_QA_CONVERSATION_NOTICE_LAB") == "1"
+require(!atrioQaConversationNoticeLab ||
+    (atrioQaGeralBuild && !atrioQaGeralRemote && !atrioQaGeralPush && !atrioQaGeralCelularPilot)) {
+    "Avisos de Conversas exigem o APK QA Geral local com rede emulada."
+}
 val atrioQaGeralCelularFicticio = System.getenv("ATRIO_QA_GERAL_CELULAR_FICTICIO") == "1"
 val atrioQaGeralCelularFunctional = System.getenv("ATRIO_QA_GERAL_CELULAR_FUNCIONAL") == "1"
 // O CI confere a identidade da rodada sem usar a configuração do celular nem o fluxo protegido.
@@ -298,6 +303,7 @@ android {
         buildConfigField("boolean", "ATRIO_QA_GERAL_CELULAR_FUNCIONAL", "false")
         buildConfigField("boolean", "ATRIO_QA_INBOX_DISCOVERY", "false")
         buildConfigField("boolean", "ATRIO_QA_GERAL_PUSH", "false")
+        buildConfigField("boolean", "ATRIO_QA_CONVERSATION_NOTICE_LAB", "false")
         buildConfigField("String", "ATRIO_QA_GERAL_PROJECT_ID", "\"\"")
         buildConfigField("String", "ATRIO_QA_GERAL_APP_ID", "\"\"")
         val relayUrl = System.getenv("ATRIO_PUSH_WORKER_URL").orEmpty()
@@ -387,6 +393,7 @@ android {
                 else -> "Átrio Católico · QA Geral"
             }
             buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"$qaName\"")
+            buildConfigField("boolean", "ATRIO_QA_CONVERSATION_NOTICE_LAB", atrioQaConversationNoticeLab.toString())
             buildConfigField("boolean", "ATRIO_QA_GERAL_CELULAR_PILOT", atrioQaGeralCelularPilot.toString())
             buildConfigField("boolean", "ATRIO_QA_GERAL_CELULAR_RODADA", atrioQaGeralCelularRound.toString())
             if (atrioQaGeralRemote) {
@@ -429,6 +436,8 @@ android {
 
     if (atrioQaGeralCelularFicticio) {
         sourceSets.getByName("qaGeral").manifest.srcFile("src/qaGeral/AndroidManifest.ficticio.xml")
+    } else if (atrioQaConversationNoticeLab) {
+        sourceSets.getByName("qaGeral").manifest.srcFile("src/qaGeral/AndroidManifest.notices.xml")
     } else if (atrioQaGeralPush) {
         sourceSets.getByName("qaGeral").manifest.srcFile("src/qaGeral/AndroidManifest.push.xml")
     }
