@@ -11,11 +11,15 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.MetadataChanges
 
 internal object ProfileV3Policy {
     const val CONSENT_VERSION = "perfil-v3-2026-11"
@@ -26,6 +30,7 @@ internal object ProfileV3Policy {
         "Solteiro(a)", "Casado(a)", "Separado(a)", "Divorciado(a)", "Viúvo(a)"
     )
     val visibleFields = listOf("saint", "ageBand", "maritalStatus")
+    val publicFields = visibleFields + listOf("devotionPhrase", "interests")
 
     fun data(document: DocumentSnapshot?): ProfileV3Draft = ProfileV3Draft(
         saint = document?.getString("saint").orEmpty(),
@@ -41,6 +46,7 @@ internal object ProfileV3Policy {
     )
 
     fun projection(draft: ProfileV3Draft): Map<String, Any> = buildMap {
+        if (!draft.consentAccepted) return@buildMap
         if ("saint" in draft.visibleFields && draft.saint.isNotBlank()) {
             put("saint", draft.saint.trim())
             if (draft.devotionPhrase.isNotBlank()) put("devotionPhrase", draft.devotionPhrase.trim())
@@ -66,22 +72,28 @@ internal data class ProfileV3Draft(
 @Composable
 internal fun ProfileV3Editor(db: FirebaseFirestore, uid: String) {
     var editorOpen by rememberSaveable(uid) { mutableStateOf(false) }
-    var savedMessage by remember(uid) { mutableStateOf(false) }
+    var status by remember(uid) { mutableStateOf<String?>(null) }
     if (editorOpen) ProfileV3EditorDialog(
         db, uid, onClose = { editorOpen = false },
-        onSaved = { editorOpen = false; savedMessage = true }
+        onSaved = {
+            editorOpen = false
+            status = "Informações atualizadas."
+        },
+        onConsentWithdrawn = {
+            editorOpen = false
+            status = "Consentimento retirado. Dados opcionais do Perfil V3 apagados."
+        }
     )
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         OutlinedButton(
-            onClick = { editorOpen = true; savedMessage = false },
+            onClick = { editorOpen = true; status = null },
             modifier = Modifier.fillMaxWidth().testTag("atrio-profile-v3-edit")
         ) { Text("Editar informações e interesses") }
-        if (savedMessage) Text(
-            "Informações atualizadas.",
-            color = Wine,
-            style = MaterialTheme.typography.bodySmall,
-            modifier = Modifier.testTag("atrio-profile-v3-saved")
-        )
+        status?.let {
+            Text(it, color = Wine, style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.testTag("atrio-profile-v3-status")
+                    .semantics { liveRegion = LiveRegionMode.Polite })
+        }
     }
 }
 
@@ -95,17 +107,18 @@ internal fun ProfileV3PreviewButton(onClick: () -> Unit) {
 
 @Composable
 internal fun ProfileV3Summary(db: FirebaseFirestore, uid: String) {
-    var draft by remember(uid) { mutableStateOf(ProfileV3Draft()) }
-    var loading by remember(uid) { mutableStateOf(true) }
-    LaunchedEffect(db, uid) {
-        db.document("users/$uid/private/profile_v3").get().addOnCompleteListener { result ->
-            loading = false
-            if (result.isSuccessful) {
-                draft = ProfileV3Policy.data(result.result?.takeIf { it.exists() })
+    var draft by remember(db, uid) { mutableStateOf(ProfileV3Draft()) }
+    DisposableEffect(db, uid) {
+        val listener = db.document("users/$uid/private/profile_v3")
+            .addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, _ ->
+                if (snapshot == null || snapshot.metadata.isFromCache) {
+                    draft = ProfileV3Draft()
+                } else if (!snapshot.metadata.hasPendingWrites()) {
+                    draft = ProfileV3Policy.data(snapshot)
+                }
             }
-        }
+        onDispose { listener.remove() }
     }
-    if (loading) return
     val hasAbout = draft.saint.isNotBlank() || draft.ageBand.isNotBlank() ||
         draft.maritalStatus.isNotBlank()
     val hasInterests = draft.publicInterests.isNotEmpty()
@@ -155,14 +168,17 @@ internal fun ProfileV3EditorDialog(
     db: FirebaseFirestore,
     uid: String,
     onClose: () -> Unit,
-    onSaved: () -> Unit = onClose
+    onSaved: () -> Unit,
+    onConsentWithdrawn: () -> Unit
 ) {
     var draft by remember(uid) { mutableStateOf(ProfileV3Draft()) }
     var availableInterests by remember(uid) { mutableStateOf<List<String>>(emptyList()) }
     var loading by remember(uid) { mutableStateOf(true) }
     var busy by remember(uid) { mutableStateOf(false) }
     var message by remember(uid) { mutableStateOf("") }
-    var loaded by rememberSaveable(uid) { mutableStateOf(false) }
+    var loadedV3 by remember(db, uid) { mutableStateOf<DocumentSnapshot?>(null) }
+    val loaded = loadedV3 != null
+    var confirmWithdrawal by remember(uid) { mutableStateOf(false) }
     var loadAttempt by remember(uid) { mutableIntStateOf(0) }
     val v3Ref = remember(db, uid) { db.document("users/$uid/private/profile_v3") }
     val preferencesRef = remember(db, uid) { db.document("users/$uid/private/preferences") }
@@ -183,7 +199,7 @@ internal fun ProfileV3EditorDialog(
                 availableInterests = (snapshots.second.get("interests") as? List<*>)
                     ?.filterIsInstance<String>().orEmpty()
                     .filter { it in RegistrationOptionalPolicy.interests }.distinct()
-                loaded = true
+                loadedV3 = snapshots.first
             } else message = "Não foi possível carregar seus dados. Tente novamente."
         }
     }
@@ -199,10 +215,74 @@ internal fun ProfileV3EditorDialog(
         ("ageBand" !in draft.visibleFields || draft.ageBand.isNotBlank()) &&
         ("maritalStatus" !in draft.visibleFields || draft.maritalStatus.isNotBlank())
 
+    if (confirmWithdrawal) {
+        AlertDialog(
+            onDismissRequest = { if (!busy) confirmWithdrawal = false },
+            title = { Text("Retirar consentimento do Perfil V3?") },
+            text = {
+                Text("Os dados opcionais do Perfil V3 serão apagados e deixarão de aparecer " +
+                    "na sua apresentação pública. Seu perfil anterior e os interesses do cadastro " +
+                    "serão preservados.")
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !busy,
+                    modifier = Modifier.testTag("atrio-profile-v3-withdraw-confirm"),
+                    onClick = {
+                        busy = true
+                        db.runTransaction { transaction ->
+                            val privateV3 = transaction.get(v3Ref)
+                            val publicProfile = transaction.get(publicRef)
+                            val fields = ProfileV3Policy.publicFields.filter { publicProfile.contains(it) }
+                            if (fields.isNotEmpty()) {
+                                val changes = fields.associateWith { FieldValue.delete() } +
+                                    ("updatedAt" to FieldValue.serverTimestamp())
+                                transaction.update(publicRef, changes)
+                            }
+                            if (privateV3.exists()) transaction.delete(v3Ref)
+                            Unit
+                        }.addOnCompleteListener { result ->
+                            busy = false
+                            confirmWithdrawal = false
+                            if (result.isSuccessful) {
+                                draft = ProfileV3Draft()
+                                loadedV3 = null
+                                onConsentWithdrawn()
+                            } else {
+                                message = "Não foi possível retirar o consentimento. Confira sua " +
+                                    "conexão e tente novamente."
+                            }
+                        }
+                    }
+                ) {
+                    Text(if (busy) "Retirando…" else "Retirar consentimento",
+                        color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(enabled = !busy, onClick = { confirmWithdrawal = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+        return
+    }
+
     BackHandler { if (!busy) onClose() }
     AlertDialog(
         onDismissRequest = { if (!busy) onClose() },
-        title = { Text("Editar perfil") },
+        title = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Editar perfil")
+                if (message.isNotBlank()) Text(
+                    message,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.testTag("atrio-profile-v3-message")
+                        .semantics { liveRegion = LiveRegionMode.Polite }
+                )
+            }
+        },
         text = {
             LazyColumn(
                 modifier = Modifier.heightIn(max = 520.dp).testTag("atrio-profile-v3-editor"),
@@ -323,7 +403,8 @@ internal fun ProfileV3EditorDialog(
                         Checkbox(
                             checked = draft.consentAccepted,
                             onCheckedChange = { draft = draft.copy(consentAccepted = it) },
-                            enabled = !busy, modifier = Modifier.testTag("atrio-profile-v3-consent")
+                            enabled = loaded && !busy,
+                            modifier = Modifier.testTag("atrio-profile-v3-consent")
                         )
                         Text(
                             "Autorizo guardar estes dados opcionais no meu perfil privado. " +
@@ -334,9 +415,12 @@ internal fun ProfileV3EditorDialog(
                         )
                     }
                 }
-                if (message.isNotBlank()) item {
-                    Text(message, color = if (message.startsWith("Não foi")) MaterialTheme.colorScheme.error else Wine,
-                        modifier = Modifier.testTag("atrio-profile-v3-message"))
+                if (loadedV3?.exists() == true) item {
+                    TextButton(
+                        enabled = !busy,
+                        onClick = { confirmWithdrawal = true; message = "" },
+                        modifier = Modifier.fillMaxWidth().testTag("atrio-profile-v3-withdraw")
+                    ) { Text("Retirar consentimento", color = MaterialTheme.colorScheme.error) }
                 }
                 if (!loading && !loaded) item {
                     OutlinedButton(
@@ -354,7 +438,9 @@ internal fun ProfileV3EditorDialog(
                     busy = true
                     message = ""
                     val current = draft
+                    val original = loadedV3?.data
                     db.runTransaction { transaction ->
+                        if (transaction.get(v3Ref).data != original) return@runTransaction false
                         val privateProfile = transaction.get(profileRef)
                         val publicProfile = transaction.get(publicRef)
                         val preferences = transaction.get(preferencesRef)
@@ -392,9 +478,12 @@ internal fun ProfileV3EditorDialog(
                         true
                     }.addOnCompleteListener { result ->
                         busy = false
-                        if (result.isSuccessful) {
-                            message = "Informações salvas."
+                        if (result.isSuccessful && result.result == true) {
                             onSaved()
+                        } else if (result.isSuccessful) {
+                            draft = ProfileV3Draft()
+                            loadedV3 = null
+                            message = "Os dados do Perfil V3 mudaram. Recarregue antes de salvar."
                         } else message = "Não foi possível salvar. Confira sua conexão e sua autorização."
                     }
                 }

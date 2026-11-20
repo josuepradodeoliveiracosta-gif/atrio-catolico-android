@@ -7,13 +7,14 @@ import org.junit.Test
 
 class ProfileV3PolicyTest {
     @Test
-    fun optionalFieldsAndInterestsArePrivateByDefault() {
+    fun projectionRequiresConsentEvenWithSelectedFieldsAndInterests() {
         val publicFields = ProfileV3Policy.projection(
             ProfileV3Draft(
                 saint = "Santa Teresinha",
                 devotionPhrase = "Fazer o simples com amor.",
                 ageBand = "25–34",
                 maritalStatus = "Casado(a)",
+                visibleFields = setOf("saint", "ageBand", "maritalStatus"),
                 publicInterests = listOf("Oração")
             )
         )
@@ -29,7 +30,8 @@ class ProfileV3PolicyTest {
                 ageBand = "25–34",
                 maritalStatus = "Casado(a)",
                 visibleFields = setOf("saint", "ageBand"),
-                publicInterests = listOf("Oração")
+                publicInterests = listOf("Oração"),
+                consentAccepted = true
             )
         )
         assertEquals(

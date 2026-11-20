@@ -717,11 +717,23 @@ service cloud.firestore {
             .data.keys().hasAny(['interests']));
     }
 
+    function v3WithdrawalPreservesPublicProfile(uid) {
+      let path = /databases/$(database)/documents/public_profiles/$(uid);
+      let v3Fields = ['saint', 'devotionPhrase', 'ageBand', 'maritalStatus', 'interests'];
+      return !exists(path)
+        ? !existsAfter(path)
+        : (existsAfter(path)
+          && !getAfter(path).data.keys().hasAny(v3Fields)
+          && getAfter(path).data.diff(get(path).data).affectedKeys().hasOnly(
+            v3Fields.concat(['updatedAt'])));
+    }
+
     // Dados adicionais do perfil: acesso privado por titular, consentimento
     // específico e projeção pública somente na mesma transação autorizada.
     match /users/{uid}/private/profile_v3 {
       allow get: if me(uid);
-      allow list, delete: if false;
+      allow list: if false;
+      allow delete: if me(uid) && v3WithdrawalPreservesPublicProfile(uid);
       allow create, update: if me(uid)
         && request.resource.data.keys().hasOnly([
           'saint', 'devotionPhrase', 'ageBand', 'maritalStatus',
