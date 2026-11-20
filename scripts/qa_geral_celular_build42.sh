@@ -26,6 +26,12 @@ cleanup() {
 trap cleanup EXIT
 chmod 0711 "$sandbox"
 mkdir "$sandbox/source" "$sandbox/home" "$sandbox/out" "$sandbox/home/tmp"
+gradle_bin="$(readlink -f "$(command -v gradle)")"
+gradle_root="$(dirname "$(dirname "$gradle_bin")")"
+test -f "$gradle_root/lib/gradle-launcher-8.13.jar"
+mkdir "$sandbox/gradle"
+cp -a "$gradle_root/." "$sandbox/gradle/"
+chmod -R a+rX,go-w "$sandbox/gradle"
 git -C "$candidate" archive "$sha" -- . ':(exclude)app/google-services.json' |
     tar -x -C "$sandbox/source"
 
@@ -53,10 +59,12 @@ builder_uid="$(id -u "$builder")"
 sudo chown -R "$builder_uid" "$sandbox/source" "$sandbox/home" "$sandbox/out"
 sudo -u "$builder" -- test ! -w "${GITHUB_WORKSPACE:?Área do workflow ausente}"
 sudo -u "$builder" -- test ! -w "${RUNNER_TEMP:?Área privada do runner ausente}"
+sudo -u "$builder" -- test -x "$sandbox/gradle/bin/gradle"
+sudo -u "$builder" -- test ! -w "$sandbox/gradle/bin/gradle"
 printf 'Build isolado: UID %s, staging %s\n' "$builder_uid" "$sandbox"
-echo 'Usuário do build sem escrita no workspace GitHub e na área privada do runner.'
+echo 'Gradle 8.13 somente leitura. Usuário do build sem escrita no workspace GitHub e na área privada do runner.'
 sudo -u "$builder" -- env -i \
-    HOME="$sandbox/home" PATH="$PATH" TMPDIR="$sandbox/home/tmp" \
+    HOME="$sandbox/home" PATH="$sandbox/gradle/bin:$PATH" TMPDIR="$sandbox/home/tmp" \
     JAVA_HOME="$JAVA_HOME" ANDROID_HOME="$ANDROID_HOME" \
     bash -c '
         set -euo pipefail
