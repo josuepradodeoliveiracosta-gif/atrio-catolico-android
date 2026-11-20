@@ -152,7 +152,7 @@ class QaGeralBotIsolationTests(unittest.TestCase):
             cwd=ROOT, env=env, text=True, capture_output=True, timeout=5,
         )
         self.assertEqual(p.returncode, 2)
-        self.assertIn("somente a suíte de Conversas e Grupos", p.stderr)
+        self.assertIn("somente as suítes focais de Conversas no Emulator", p.stderr)
 
     def test_wrong_project_cannot_run_bots_before_starting_emulators(self):
         env = dict(os.environ)
