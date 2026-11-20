@@ -80,8 +80,10 @@ try {
       assert.equal(original.recipientGeneration,firstRecipient.generation);
       for(const uid of [sender,recipient]) {
         const old=(await admission(uid).get()).data();
-        await revoke(uid,'one',old.generation);
-        const newGrant=await grant(uid,'renewed',old.generation);
+        const revoked=await revoke(uid,'one',old.generation);
+        assert.notEqual(revoked.generation,old.generation);
+        await assert.rejects(grant(uid,'queued_before_revocation',old.generation),/stale_admission_generation/);
+        const newGrant=await grant(uid,'renewed',revoked.generation);
         await assert.rejects(grant(uid,'late_'+uid,old.generation),/stale_admission_generation/);
         await assert.rejects(revoke(uid,'late_'+uid,old.generation),/stale_admission_generation/);
         assert.notEqual(newGrant.generation,old.generation);
@@ -92,7 +94,7 @@ try {
         const repeat=await service.admit({
           uid,operationKey:op('grant',uid,'renewed'),
           expiresAt:snapshot.expiresAt.toDate(),
-          expectedGeneration:old.generation,principal:'admission-operator',
+          expectedGeneration:revoked.generation,principal:'admission-operator',
         });
         assert.equal(repeat.generation,newGrant.generation);
         assert.equal(repeat.replay,true);
@@ -110,8 +112,7 @@ try {
       // Encerrar a pendência adulterada pelo ensaio antes de emitir evento novo.
       await pending.update({unread:false});
       // Retentativa de uma operação de revogação antiga não pode desfazer readmissão.
-      const replayRevoke=await revoke(recipient,'one',firstRecipient.generation);
-      assert.equal(replayRevoke.replay,true);
+      await assert.rejects(revoke(recipient,'one',firstRecipient.generation),/stale_admission_generation/);
       assert.equal((await admission(recipient).get()).data().status,'active');
       await wait();
       await room.update({lastMessageId:'new'});
@@ -203,6 +204,7 @@ try {
     const done=await gateway.execute({...request,authorization:'Bearer admission'});
     assert.equal(done.replay,false);
     assert.equal((await admissionRef.get()).data().status,'revoked');
+    assert.notEqual(done.generation,current.generation);
     // O editor de avisos ultrapassa a autenticação, mas não pode
     // publicar evento sem as condições canônicas.
     await assert.rejects(gateway.execute({
