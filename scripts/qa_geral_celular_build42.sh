@@ -76,11 +76,20 @@ sudo -u "$builder" -- env -i \
         rm -- "$HOME/firebase.json"
         bash scripts/qa_geral_celular_manual.sh build-round-42 "$1/out/unsigned.apk"
     ' bash "$sandbox"
-sudo pkill -KILL -u "$builder_uid" || true
-if sudo pgrep -u "$builder_uid" >/dev/null; then
+builder_is_active() {
+    # Um processo zumbi aguarda coleta do pai e não executa código.
+    sudo ps -u "$builder_uid" -o stat= | grep -E '^[[:space:]]*[^Z[:space:]]' >/dev/null
+}
+for attempt in {1..20}; do
+    if ! builder_is_active; then break; fi
+    sudo pkill -KILL -u "$builder_uid" || true
+    sleep 0.25
+done
+if builder_is_active; then
     echo 'Ainda há processos do usuário de build.' >&2
     exit 1
 fi
+echo 'Usuário do build sem processos executáveis antes da transferência.'
 input="$sandbox/out/unsigned.apk"
 sudo test -f "$input"
 sudo test ! -L "$input"
