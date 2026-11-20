@@ -242,7 +242,8 @@ internal fun RegistrationOptionalPreferences(
                 if (task.isSuccessful) {
                     info = "Preferências privadas salvas."
                     if (firstAccess) onContinue() else editing = false
-                } else info = "Não foi possível salvar. Confira a conexão e as regras de acesso."
+                } else info = "Não foi possível salvar. Se um interesse já aparece no perfil público, " +
+                    "oculte-o no editor antes de removê-lo. Confira também a conexão."
             }
         }, enabled = !busy && loaded && hasData && allowed,
             colors = ButtonDefaults.buttonColors(containerColor = Wine),
@@ -261,7 +262,8 @@ internal fun RegistrationOptionalPreferences(
                         interests = emptyList(); participation = ""; city = ""; parish = ""
                         consent = false; editing = false
                         info = "Preferências removidas."
-                    } else info = "Não foi possível remover. Confira sua conexão."
+                    } else info = "Não foi possível remover. Primeiro oculte os interesses que aparecem " +
+                        "no perfil público; depois tente novamente."
                 }
             }, enabled = !busy, modifier = Modifier.fillMaxWidth()
                 .testTag("atrio-onboarding-delete")) { Text("Apagar minhas preferências") }

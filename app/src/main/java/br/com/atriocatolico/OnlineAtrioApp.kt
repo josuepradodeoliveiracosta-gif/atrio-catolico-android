@@ -772,6 +772,7 @@ private fun OnlineCommunity(
         onDispose { listener.remove() }
     }
     var tab by rememberSaveable(uid) { mutableStateOf(Tab.HOME) }
+    var profileSettingsMenuOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var filter by rememberSaveable(uid) { mutableStateOf("Todos") }
     var search by rememberSaveable(uid) { mutableStateOf("") }
     var searchOpen by rememberSaveable(uid) { mutableStateOf(false) }
@@ -1044,6 +1045,7 @@ private fun OnlineCommunity(
             android.util.Log.d("AtrioQaNavigation", "request_${destination.name}_from_${tab.name}")
         }
         tab = destination; detailId = null; noticesOpen = false
+        profileSettingsMenuOpen = false
         closeConversations()
         publicProfileTarget = null; profilePostOpen = false; previousDetailId = null
         guardiaoAppealsOpen = false
@@ -1358,6 +1360,7 @@ private fun OnlineCommunity(
             publishSuccessVisible = false
         }
     }
+    BackHandler(enabled = profileSettingsMenuOpen) { profileSettingsMenuOpen = false }
     BackHandler(enabled = showConversations || publicProfileTarget != null || detailId != null ||
         noticesOpen || noticeBadgesOpen || guardiaoAppealsOpen) { closeNoticeDestination() }
 
@@ -1378,7 +1381,8 @@ private fun OnlineCommunity(
                 publicProfileTarget = null; profilePostOpen = false; previousDetailId = null
                 detailId = null; noticeBadgesOpen = false; returnToNotices = false
                 noticesOpen = !noticesOpen; searchOpen = false
-            }
+            },
+            onProfileSettings = { profileSettingsMenuOpen = true }
         )
     }, bottomBar = {
         if (!showConversations) AtrioBottomBar(selected = tab, onSelect = ::navigate)
@@ -1548,6 +1552,8 @@ private fun OnlineCommunity(
                 Tab.PROFILE -> {
                     OnlineProfileScreen(
                         db = db, uid = uid, name = name, email = email, biography = biography,
+                        profileSettingsMenuOpen = profileSettingsMenuOpen,
+                        onCloseProfileSettingsMenu = { profileSettingsMenuOpen = false },
                         onSignOut = onSignOut, onModeration = onModeration,
                         onClergyReview = onClergyReview,
                         onOpen = { detailId = it },

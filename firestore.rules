@@ -445,7 +445,8 @@ service cloud.firestore {
       allow create, update: if me(uid)
         && exists(/databases/$(database)/documents/profiles/$(uid))
         && request.resource.data.keys().hasOnly([
-          'displayName', 'bio', 'joinedAt', 'updatedAt'
+          'displayName', 'bio', 'joinedAt', 'updatedAt',
+          'saint', 'devotionPhrase', 'ageBand', 'maritalStatus', 'interests'
         ])
         && request.resource.data.keys().hasAll([
           'displayName', 'bio', 'joinedAt', 'updatedAt'
@@ -459,7 +460,63 @@ service cloud.firestore {
           getAfter(/databases/$(database)/documents/profiles/$(uid)).data.get('bio', '')
         && request.resource.data.joinedAt ==
           getAfter(/databases/$(database)/documents/profiles/$(uid)).data.createdAt
-        && request.resource.data.updatedAt == request.time;
+        && request.resource.data.updatedAt == request.time
+        && (!request.resource.data.keys().hasAny(['saint'])
+          || (
+            existsAfter(/databases/$(database)/documents/users/$(uid)/private/profile_v3)
+            && getAfter(/databases/$(database)/documents/users/$(uid)/private/profile_v3)
+              .data.visibleFields.hasAny(['saint'])
+            && request.resource.data.saint is string
+            && request.resource.data.saint.size() > 0
+            && request.resource.data.saint.size() <= 60
+            && request.resource.data.saint ==
+              getAfter(/databases/$(database)/documents/users/$(uid)/private/profile_v3).data.saint
+          ))
+        && (!request.resource.data.keys().hasAny(['devotionPhrase'])
+          || (
+            request.resource.data.keys().hasAny(['saint'])
+            && request.resource.data.devotionPhrase is string
+            && request.resource.data.devotionPhrase.size() <= 160
+            && request.resource.data.devotionPhrase ==
+              getAfter(/databases/$(database)/documents/users/$(uid)/private/profile_v3).data.devotionPhrase
+          ))
+        && (!request.resource.data.keys().hasAny(['ageBand'])
+          || (
+            existsAfter(/databases/$(database)/documents/users/$(uid)/private/profile_v3)
+            && getAfter(/databases/$(database)/documents/users/$(uid)/private/profile_v3)
+              .data.visibleFields.hasAny(['ageBand'])
+            && request.resource.data.ageBand in [
+              '18–24', '25–34', '35–44', '45–54', '55+'
+            ]
+            && request.resource.data.ageBand ==
+              getAfter(/databases/$(database)/documents/users/$(uid)/private/profile_v3).data.ageBand
+          ))
+        && (!request.resource.data.keys().hasAny(['maritalStatus'])
+          || (
+            existsAfter(/databases/$(database)/documents/users/$(uid)/private/profile_v3)
+            && getAfter(/databases/$(database)/documents/users/$(uid)/private/profile_v3)
+              .data.visibleFields.hasAny(['maritalStatus'])
+            && request.resource.data.maritalStatus in [
+              'Solteiro(a)', 'Casado(a)', 'Separado(a)', 'Divorciado(a)', 'Viúvo(a)'
+            ]
+            && request.resource.data.maritalStatus ==
+              getAfter(/databases/$(database)/documents/users/$(uid)/private/profile_v3)
+                .data.maritalStatus
+          ))
+        && (!request.resource.data.keys().hasAny(['interests'])
+          || (
+            existsAfter(/databases/$(database)/documents/users/$(uid)/private/profile_v3)
+            && existsAfter(/databases/$(database)/documents/users/$(uid)/private/preferences)
+            && request.resource.data.interests is list
+            && request.resource.data.interests.size() <= 3
+            && request.resource.data.interests.hasOnly(
+              getAfter(/databases/$(database)/documents/users/$(uid)/private/preferences)
+                .data.interests
+            )
+            && request.resource.data.interests ==
+              getAfter(/databases/$(database)/documents/users/$(uid)/private/profile_v3)
+                .data.publicInterests
+          ));
       allow delete: if me(uid);
     }
 
@@ -615,8 +672,69 @@ service cloud.firestore {
         && request.resource.data.parish.size() <= 80
         && request.resource.data.consentVersion == 'cadastro-v2-2026-11'
         && request.resource.data.consentAt == request.time
+        && request.resource.data.updatedAt == request.time
+        // Se interesses já são públicos, toda alteração privada precisa
+        // preservar a lista publicada. O titular pode ocultá-los primeiro.
+        && (!exists(/databases/$(database)/documents/public_profiles/$(uid))
+          || !get(/databases/$(database)/documents/public_profiles/$(uid))
+            .data.keys().hasAny(['interests'])
+          || get(/databases/$(database)/documents/public_profiles/$(uid))
+            .data.interests.hasOnly(request.resource.data.interests));
+      allow delete: if me(uid)
+        && (!exists(/databases/$(database)/documents/public_profiles/$(uid))
+          || !get(/databases/$(database)/documents/public_profiles/$(uid))
+            .data.keys().hasAny(['interests']));
+    }
+
+    // Dados adicionais do perfil: acesso privado por titular, consentimento
+    // específico e projeção pública somente na mesma transação autorizada.
+    match /users/{uid}/private/profile_v3 {
+      allow get: if me(uid);
+      allow list, delete: if false;
+      allow create, update: if me(uid)
+        && request.resource.data.keys().hasOnly([
+          'saint', 'devotionPhrase', 'ageBand', 'maritalStatus',
+          'visibleFields', 'publicInterests',
+          'consentVersion', 'consentAt', 'updatedAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'saint', 'devotionPhrase', 'ageBand', 'maritalStatus',
+          'visibleFields', 'publicInterests',
+          'consentVersion', 'consentAt', 'updatedAt'
+        ])
+        && request.resource.data.saint is string
+        && request.resource.data.saint.size() <= 60
+        && request.resource.data.devotionPhrase is string
+        && request.resource.data.devotionPhrase.size() <= 160
+        && request.resource.data.ageBand is string
+        && request.resource.data.ageBand in ['', '18–24', '25–34', '35–44', '45–54', '55+']
+        && request.resource.data.maritalStatus is string
+        && request.resource.data.maritalStatus in [
+          '', 'Solteiro(a)', 'Casado(a)', 'Separado(a)', 'Divorciado(a)', 'Viúvo(a)'
+        ]
+        && request.resource.data.visibleFields is list
+        && request.resource.data.visibleFields.size() <= 3
+        && request.resource.data.visibleFields.hasOnly(['saint', 'ageBand', 'maritalStatus'])
+        && (!request.resource.data.visibleFields.hasAny(['saint'])
+          || request.resource.data.saint.size() > 0)
+        && (!request.resource.data.visibleFields.hasAny(['ageBand'])
+          || request.resource.data.ageBand != '')
+        && (!request.resource.data.visibleFields.hasAny(['maritalStatus'])
+          || request.resource.data.maritalStatus != '')
+        && request.resource.data.publicInterests is list
+        && request.resource.data.publicInterests.size() <= 3
+        && request.resource.data.publicInterests.hasOnly([
+          'Oração', 'Formação', 'Comunidade', 'Notícias católicas'
+        ])
+        && (request.resource.data.publicInterests.size() == 0
+          || (existsAfter(/databases/$(database)/documents/users/$(uid)/private/preferences)
+            && request.resource.data.publicInterests.hasOnly(
+              getAfter(/databases/$(database)/documents/users/$(uid)/private/preferences)
+                .data.interests
+            )))
+        && request.resource.data.consentVersion == 'perfil-v3-2026-11'
+        && request.resource.data.consentAt == request.time
         && request.resource.data.updatedAt == request.time;
-      allow delete: if me(uid);
     }
 
     // Bloqueios privados: só o titular lê e altera sua lista. Não criar auto-bloqueio.

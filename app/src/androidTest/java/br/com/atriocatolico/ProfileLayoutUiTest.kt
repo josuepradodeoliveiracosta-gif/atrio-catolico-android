@@ -19,12 +19,49 @@ import com.google.android.gms.tasks.Tasks
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
 /** Tela conectada real, com UID sintético e Firebase limitado pelo runner ao emulador. */
 class ProfileLayoutUiTest {
     @get:Rule val compose = createComposeRule()
+
+    @Test fun profileToolbarShowsAWorkingSettingsGear() {
+        var opened = false
+        compose.setContent {
+            AtrioTheme {
+                AtrioTopBar(
+                    details = false, onBack = {}, onSearch = {}, onNotification = {},
+                    profileMode = true, onProfileSettings = { opened = true }
+                )
+            }
+        }
+        compose.onNodeWithTag("atrio-profile-settings").assertIsDisplayed().performClick()
+        compose.runOnIdle { assertTrue(opened) }
+    }
+
+    @Test fun settingsMenuOpensAccountAndPrivacyControls() {
+        check(FirebaseApp.getInstance().options.projectId == "demo-atrio-v11")
+        val menuOpen = mutableStateOf(true)
+        compose.setContent {
+            AtrioTheme {
+                OnlineProfileScreen(
+                    db = FirebaseFirestore.getInstance(), uid = "profile-settings-menu",
+                    name = "Maria da Comunidade", email = "maria@example.test",
+                    biography = "", onSignOut = {}, onModeration = null, onClergyReview = null,
+                    onOpen = {}, onNotifications = {}, onReviews = {},
+                    profileSettingsMenuOpen = menuOpen.value,
+                    onCloseProfileSettingsMenu = { menuOpen.value = false }
+                )
+            }
+        }
+        compose.onNodeWithTag("atrio-profile-settings-account").performClick()
+        compose.runOnIdle { assertEquals(false, menuOpen.value) }
+        val list = compose.onNodeWithTag("atrio-profile-list")
+        list.performScrollToNode(hasTestTag("atrio-profile-signout"))
+        compose.onNodeWithTag("atrio-profile-signout").assertIsDisplayed()
+    }
 
     @Test fun sectionsRemainReachableWithLargeText() {
         check(FirebaseApp.getInstance().options.projectId == "demo-atrio-v11")

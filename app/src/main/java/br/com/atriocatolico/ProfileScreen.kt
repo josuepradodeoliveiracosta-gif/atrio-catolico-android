@@ -5,6 +5,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -39,10 +40,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.firebase.firestore.FirebaseFirestore
+import kotlinx.coroutines.launch
 
 @Composable
 internal fun OnlineProfileScreen(
     db: FirebaseFirestore, uid: String, name: String, email: String, biography: String,
+    profileSettingsMenuOpen: Boolean = false,
+    onCloseProfileSettingsMenu: () -> Unit = {},
     onSignOut: () -> Unit, onModeration: (() -> Unit)?, onClergyReview: (() -> Unit)?,
     onOpen: (String) -> Unit, onNotifications: () -> Unit, onReviews: () -> Unit,
     followedRevision: Int = 0,
@@ -58,16 +62,21 @@ internal fun OnlineProfileScreen(
     onInstallUpdate: () -> Unit = {},
     onConversations: (() -> Unit)? = null
 ) {
+    val profileListState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
     var badgesOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var editorOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var discussionsOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var followedOpen by rememberSaveable(uid) { mutableStateOf(false) }
+    var profilePreviewOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var savedMessage by remember(uid) { mutableStateOf(false) }
     var accountExpanded by rememberSaveable(uid) { mutableStateOf(false) }
     var helpExpanded by rememberSaveable(uid) { mutableStateOf(false) }
     BackHandler(enabled = badgesOpen && !editorOpen) { badgesOpen = false }
     BackHandler(enabled = discussionsOpen) { discussionsOpen = false }
     BackHandler(enabled = followedOpen) { followedOpen = false }
+    BackHandler(enabled = profilePreviewOpen) { profilePreviewOpen = false }
+    BackHandler(enabled = profileSettingsMenuOpen, onBack = onCloseProfileSettingsMenu)
 
     if (followedOpen) {
         FollowedDiscussionsScreen(db, uid, followedRevision,
@@ -89,10 +98,15 @@ internal fun OnlineProfileScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { BadgeSettings(uid) }
             }
         }
+    } else if (profilePreviewOpen) {
+        ProfileV3Preview(db, uid, name, biography, onClose = { profilePreviewOpen = false })
     } else {
         val founderCanBroadcast = onModeration != null && onClergyReview != null &&
             LocalFounderUid.current.isNotBlank() && LocalFounderUid.current == uid
-        LazyColumn(Modifier.fillMaxSize().background(Paper).testTag("atrio-profile-list"), contentPadding = PaddingValues(16.dp),
+        LazyColumn(
+            state = profileListState,
+            modifier = Modifier.fillMaxSize().background(Paper).testTag("atrio-profile-list"),
+            contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item {
                 ProfileSectionTitle("Meu perfil")
@@ -111,17 +125,19 @@ internal fun OnlineProfileScreen(
                         Text(biography.ifBlank { "Conte um pouco sobre sua caminhada na fé." },
                             color = Muted, fontSize = AtrioType.reading, lineHeight = AtrioType.readingLine,
                             textAlign = TextAlign.Center)
+                        ProfileV3Summary(db, uid)
                         OutlinedButton(onClick = { savedMessage = false; editorOpen = true },
                             modifier = Modifier.fillMaxWidth().testTag("atrio-profile-edit")) { Text("Editar perfil") }
+                        ProfileV3PreviewButton { profilePreviewOpen = true }
                         ProfilePhotoManager(uid = uid, onChanged = onPhotoChanged)
+                        ProfileV3Editor(db, uid)
                         if (savedMessage) Text("Perfil atualizado.", color = Wine, fontSize = 14.sp,
                             modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                     }
                 }
             }
             item {
-                PublicProfilePublicationSettings(db = db, uid = uid, displayName = name,
-                    privateBio = biography)
+                PublicProfilePublicationSettings(db = db, uid = uid)
             }
             item {
                 Card(onClick = { badgesOpen = true }, modifier = Modifier.fillMaxWidth().testTag("atrio-profile-badges"),
@@ -250,6 +266,53 @@ internal fun OnlineProfileScreen(
     if (editorOpen) ProfileEditor(db, uid, name, biography,
         onClose = { editorOpen = false },
         onSaved = { editorOpen = false; savedMessage = true })
+    if (profileSettingsMenuOpen) {
+        fun closeAndScroll(index: Int, beforeScroll: () -> Unit = {}) {
+            onCloseProfileSettingsMenu()
+            beforeScroll()
+            scope.launch {
+                val lastIndex = (profileListState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)
+                profileListState.animateScrollToItem(index.coerceAtMost(lastIndex))
+            }
+        }
+        AlertDialog(
+            onDismissRequest = onCloseProfileSettingsMenu,
+            title = { Text("Configurações") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Acesso rápido ao perfil, à privacidade e ao suporte.",
+                        style = MaterialTheme.typography.bodySmall, color = Muted)
+                    TextButton(
+                        onClick = { closeAndScroll(1) },
+                        modifier = Modifier.fillMaxWidth().testTag("atrio-profile-settings-public")
+                    ) { Text("Perfil público") }
+                    TextButton(
+                        onClick = { onCloseProfileSettingsMenu(); badgesOpen = true },
+                        modifier = Modifier.fillMaxWidth().testTag("atrio-profile-settings-badges")
+                    ) { Text("Gerenciar selos") }
+                    TextButton(
+                        onClick = { onCloseProfileSettingsMenu(); onNotifications() },
+                        modifier = Modifier.fillMaxWidth().testTag("atrio-profile-settings-notifications")
+                    ) { Text("Notificações") }
+                    TextButton(
+                        onClick = { closeAndScroll(6) },
+                        modifier = Modifier.fillMaxWidth().testTag("atrio-profile-settings-support")
+                    ) { Text("Apoio ao desenvolvimento") }
+                    TextButton(
+                        onClick = { closeAndScroll(7) { accountExpanded = true } },
+                        modifier = Modifier.fillMaxWidth().testTag("atrio-profile-settings-account")
+                    ) { Text("Conta e privacidade") }
+                    TextButton(
+                        onClick = { closeAndScroll(8) { helpExpanded = true } },
+                        modifier = Modifier.fillMaxWidth().testTag("atrio-profile-settings-help")
+                    ) { Text("Ajuda e suporte") }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = onCloseProfileSettingsMenu) { Text("Fechar") }
+            }
+        )
+    }
 }
 
 @Composable
@@ -271,7 +334,7 @@ private fun ProfileEditor(
             if (published.exists()) {
                 val joined = published.getTimestamp("joinedAt")
                     ?: throw IllegalStateException("Data do perfil público inválida")
-                transaction.set(publicRef, mapOf(
+                transaction.update(publicRef, mapOf(
                     "displayName" to newName,
                     "bio" to newBio,
                     "joinedAt" to joined,
