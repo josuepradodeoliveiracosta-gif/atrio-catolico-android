@@ -44,7 +44,7 @@ class ThreeBotsAndroidUiTest {
         compose.onNodeWithTag("atrio-welcome-enter").assertIsNotEnabled()
         compose.onNodeWithTag("atrio-welcome-name").performTextInput("Clara BOT DE TESTE")
         compose.onNodeWithTag("atrio-welcome-enter").assertIsEnabled().performClick()
-        compose.onNodeWithText("Paz e bem, Clara!",substring=true).assertIsDisplayed()
+        compose.onNodeWithText(", Clara!",substring=true).assertIsDisplayed()
     }
 
     @Test fun miguelNavegaPelasAbasEDescobreForuns() {

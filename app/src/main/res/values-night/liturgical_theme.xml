@@ -1,0 +1,10 @@
+<resources>
+    <style name="AtrioWindowTheme" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#191819</item>
+        <item name="android:statusBarColor">#191819</item>
+        <item name="android:navigationBarColor">#191819</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:colorAccent">#F0B9C6</item>
+    </style>
+</resources>

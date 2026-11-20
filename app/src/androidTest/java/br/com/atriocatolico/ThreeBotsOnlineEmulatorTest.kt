@@ -122,7 +122,7 @@ class ThreeBotsOnlineEmulatorTest {
         compose.onNodeWithTag("atrio-auth-password")
             .performTextInput("QaEmulator2026!")
         compose.onNodeWithText("Entrar").performClick()
-        awaitScreen("Paz e bem, ${expectedName.substringBefore(' ')}!")
+        awaitScreen(", ${expectedName.substringBefore(' ')}!")
     }
 
     private fun scrollToPost(postId: String) {

@@ -1,0 +1,11 @@
+<resources>
+    <!-- Before Compose can resolve the civil date, use a neutral, readable window. -->
+    <style name="AtrioWindowTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">#FAF8F5</item>
+        <item name="android:statusBarColor">#FAF8F5</item>
+        <item name="android:navigationBarColor">#FAF8F5</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:colorAccent">#641F32</item>
+    </style>
+</resources>

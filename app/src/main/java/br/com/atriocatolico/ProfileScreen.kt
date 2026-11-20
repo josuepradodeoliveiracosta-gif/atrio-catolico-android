@@ -21,6 +21,7 @@ import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.PersonOutline
 import androidx.compose.material.icons.outlined.NotificationsNone
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material.icons.outlined.VerifiedUser
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.heading
@@ -65,6 +66,7 @@ internal fun OnlineProfileScreen(
     val profileListState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     var badgesOpen by rememberSaveable(uid) { mutableStateOf(false) }
+    var contributionsOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var editorOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var discussionsOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var followedOpen by rememberSaveable(uid) { mutableStateOf(false) }
@@ -73,6 +75,7 @@ internal fun OnlineProfileScreen(
     var accountExpanded by rememberSaveable(uid) { mutableStateOf(false) }
     var helpExpanded by rememberSaveable(uid) { mutableStateOf(false) }
     BackHandler(enabled = badgesOpen && !editorOpen) { badgesOpen = false }
+    BackHandler(enabled = contributionsOpen) { contributionsOpen = false }
     BackHandler(enabled = discussionsOpen) { discussionsOpen = false }
     BackHandler(enabled = followedOpen) { followedOpen = false }
     BackHandler(enabled = profilePreviewOpen) { profilePreviewOpen = false }
@@ -83,6 +86,8 @@ internal fun OnlineProfileScreen(
             onBack = { followedOpen = false }, onOpen = onOpen,
             remoteEnabled = followedRemoteEnabled, remoteIds = followedRemoteIds,
             remoteLoading = followedRemoteLoading, remoteFailed = followedRemoteFailed)
+    } else if (contributionsOpen) {
+        ContributionProgressScreen(db, uid, onBack = { contributionsOpen = false })
     } else if (discussionsOpen) {
         ProfileDiscussionHistory(db, uid, onBack = { discussionsOpen = false }, onOpen = onOpen)
     } else if (badgesOpen) {
@@ -122,6 +127,7 @@ internal fun OnlineProfileScreen(
                         Text(name, fontFamily = FontFamily.Serif, fontSize = 24.sp,
                             fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                         MemberBadgeRow(uid, Modifier.fillMaxWidth(), centered = true)
+                        ContributionPublicBadge(db, uid, Modifier.fillMaxWidth())
                         Text(biography.ifBlank { "Conte um pouco sobre sua caminhada na fé." },
                             color = Muted, fontSize = AtrioType.reading, lineHeight = AtrioType.readingLine,
                             textAlign = TextAlign.Center)
@@ -168,11 +174,18 @@ internal fun OnlineProfileScreen(
                         else "Sua lista pessoal neste aparelho.",
                         Icons.Outlined.BookmarkBorder) { followedOpen = true }
                     HorizontalDivider()
+                    ProfileAction("Insígnias de contribuição",
+                        "Acompanhe as três trilhas e escolha uma para destacar no perfil.",
+                        Icons.Outlined.StarBorder) { contributionsOpen = true }
+                    HorizontalDivider()
                     ProfileAction("Minhas revisões", "Acompanhe suas revisões no Átrio Guardião.",
                         Icons.Outlined.VerifiedUser, onReviews)
                 }
             }
-            item { ProfileSectionTitle("Preferências") }
+            item {
+                ProfileSectionTitle("Preferências")
+                AppearanceSettings(uid)
+            }
             item { PushSettings(uid, db, onNotifications = onNotifications) }
             item { DeveloperSupportPanel(db, uid, founderAdmin = founderCanBroadcast) }
             item {
@@ -282,6 +295,7 @@ internal fun OnlineProfileScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("Acesso rápido ao perfil, à privacidade e ao suporte.",
                         style = MaterialTheme.typography.bodySmall, color = Muted)
+                    TextButton(onClick = { closeAndScroll(4) }) { Text("Aparência") }
                     TextButton(
                         onClick = { closeAndScroll(1) },
                         modifier = Modifier.fillMaxWidth().testTag("atrio-profile-settings-public")

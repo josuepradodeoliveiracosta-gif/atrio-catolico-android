@@ -1,0 +1,1 @@
+- [Validação do QA Geral](qa-geral-build.md) — isolar a compilação local para respeitar o bloqueio de configuração de produção sem remover arquivos do projeto.

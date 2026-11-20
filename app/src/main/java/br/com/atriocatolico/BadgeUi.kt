@@ -50,7 +50,7 @@ internal fun verifiedBadgeLabel(kind: String): String = when (kind) {
     else -> "Identificação religiosa"
 }
 
-private fun listBadges(value: PublicBadges, founder: Boolean): List<BadgeDescription> = buildList {
+private fun listBadges(value: PublicBadges, founder: Boolean, muted: Color): List<BadgeDescription> = buildList {
     // Somente um selo de identidade principal; o cargo Moderador é adicional.
     if (founder) {
         add(BadgeDescription("fundador", "Fundador", "Conta oficial do criador do Átrio Católico.",
@@ -60,7 +60,7 @@ private fun listBadges(value: PublicBadges, founder: Boolean): List<BadgeDescrip
             "Identidade verificada pela administração do Átrio Católico.", Color(0xFF710E22)))
     } else if (value.lay in listOf("leigo", "leiga")) {
         add(BadgeDescription(value.lay, if (value.lay == "leiga") "Leiga" else "Leigo",
-            "Identificação opcional declarada pelo próprio membro.", Muted))
+            "Identificação opcional declarada pelo próprio membro.", muted))
     }
     if (value.moderator) {
         add(BadgeDescription("moderador", "Moderador",
@@ -84,7 +84,7 @@ internal fun MemberBadgeRow(uid: String, modifier: Modifier = Modifier, centered
         }
         onDispose { registration.remove() }
     }
-    val visible = listBadges(badges, founderUid.isNotBlank() && founderUid == uid)
+    val visible = listBadges(badges, founderUid.isNotBlank() && founderUid == uid, Muted)
     if (visible.isNotEmpty()) {
         LazyRow(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(6.dp, if (centered) Alignment.CenterHorizontally else Alignment.Start)) {
             items(visible, key = { it.name }) { badge ->
@@ -94,7 +94,7 @@ internal fun MemberBadgeRow(uid: String, modifier: Modifier = Modifier, centered
                         Row(verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                             MinimalBadgeIcon(badge.kind, Modifier.size(22.dp))
-                            Text(badge.name, color = badge.tint, fontSize = AtrioType.compact)
+                            Text(badge.name, color = if (androidx.compose.foundation.isSystemInDarkTheme()) Ink else badge.tint, fontSize = AtrioType.compact)
                         }
                     }
                 )
