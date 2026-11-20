@@ -10,20 +10,39 @@ GROUPS = {
     "interaction": ["EngagementUiTest","ReactionEmojiUiTest","DiscussionDetailV2UiTest","AtrioTypographyAccessibilityUiTest"],
     "bots": ["ThreeBotsAndroidUiTest","ThreeBotsAuthenticatedAndroidUiTest","ThreeBotsOnlineEmulatorTest","AtrioConversasCompostasEmulatorUiTest","AtrioConversasNavegacaoEmulatorUiTest","AtrioConversasForaDaConfiguracaoEmulatorUiTest","AtrioConversasTrocaContaEmulatorUiTest"],
 }
+FOCAL_ROUTES = {
+    'if [[ "${ATRIO_QA_SUITE:-}" == "GuardianV2UiTest" ]]; then': (
+        "GuardianV2UiTest",
+    ),
+    'if [[ "$notice_focal" == 1 ]]; then': (
+        "QaConversationNoticeDeniedAndroidTest",
+        "QaConversationNoticeGrantedAndroidTest",
+        "QaConversationNoticeSessionAndroidTest",
+        "QaConversationNoticeRevokedAndroidTest",
+    ),
+}
+SUITE_CALL = re.compile(r"(?m)^[ \t]*run_suite ([A-Za-z][A-Za-z0-9]+)$")
 
 class AndroidGroupTests(unittest.TestCase):
     def test_complete_disjoint_partition(self):
         source = (ROOT / "scripts/run-qa-android-emulator.sh").read_text()
-        calls = re.findall(r"(?m)^\s*run_suite ([A-Za-z][A-Za-z0-9]+)$", source)
-        self.assertEqual(len(calls), 19)
+        calls = SUITE_CALL.findall(source)
         self.assertEqual(len(calls), len(set(calls)))
-        self.assertIn("GuardianV2UiTest", calls)
+        matrix = [(group, suite) for group, suites in GROUPS.items() for suite in suites]
+        focal = [suite for suites in FOCAL_ROUTES.values() for suite in suites]
+        self.assertCountEqual(calls, [suite for _, suite in matrix] + focal)
+
         pairs = re.findall(r"(profiles|interaction|bots):([A-Za-z][A-Za-z0-9]+)", source)
-        self.assertEqual(len(pairs), 18)
-        self.assertEqual(len(pairs), len(set(pairs)))
-        for group, suites in GROUPS.items():
-            self.assertEqual({x for g, x in pairs if g == group}, set(suites))
-        self.assertEqual(set(calls) - {"GuardianV2UiTest"}, {x for v in GROUPS.values() for x in v})
+        self.assertCountEqual(pairs, matrix)
+
+    def test_focal_suites_stay_on_their_selected_routes(self):
+        source = (ROOT / "scripts/run-qa-android-emulator.sh").read_text()
+        for guard, suites in FOCAL_ROUTES.items():
+            with self.subTest(guard=guard):
+                block = re.search(rf"(?ms)^{re.escape(guard)}\n(.*?)^fi$", source)
+                self.assertIsNotNone(block, guard)
+                self.assertEqual(SUITE_CALL.findall(block[1]), list(suites))
+                self.assertRegex(block[1], r'(?m)^  exit "\$qa_failed"$')
 
     def test_legacy_and_captures(self):
         source = (ROOT / "scripts/run-qa-android-emulator.sh").read_text()
