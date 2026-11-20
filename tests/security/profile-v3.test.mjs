@@ -4,7 +4,7 @@ import {
   initializeTestEnvironment, assertFails, assertSucceeds
 } from '@firebase/rules-unit-testing';
 import {
-  doc, setDoc, getDoc, updateDoc, deleteDoc, serverTimestamp, writeBatch
+  doc, setDoc, getDoc, updateDoc, deleteDoc, deleteField, serverTimestamp, writeBatch
 } from 'firebase/firestore';
 
 const env = await initializeTestEnvironment({
@@ -151,8 +151,63 @@ try {
     updatedAt: serverTimestamp()
   };
   await assertFails(setDoc(doc(owner, v3Path), noConsent));
+  // Consentimento oculto ainda existe. Republicar de forma coerente para
+  // testar a retirada integral com todos os cinco campos presentes.
+  await assertSucceeds(setDoc(doc(owner, preferencesPath), preferences));
+  const republish = writeBatch(owner);
+  republish.set(doc(owner, v3Path), {...details, visibleFields: [
+    'saint', 'ageBand', 'maritalStatus'
+  ]});
+  republish.set(doc(owner, publicPath), {...visible, maritalStatus: details.maritalStatus});
+  await assertSucceeds(republish.commit());
+  const preservedProfile = (await getDoc(doc(owner, ownerPath))).data();
+  const preservedPreferences = (await getDoc(doc(owner, preferencesPath))).data();
+  const preservedPublic = (await getDoc(doc(visitor, publicPath))).data();
+  await assertFails(deleteDoc(doc(visitor, v3Path)));
   await assertFails(deleteDoc(doc(owner, v3Path)));
-  console.log('PASS PROFILE V3 private fields, consent, projection and revocation');
+  const partialWithdrawal = writeBatch(owner);
+  partialWithdrawal.delete(doc(owner, v3Path));
+  partialWithdrawal.update(doc(owner, publicPath), {
+    saint: deleteField(), updatedAt: serverTimestamp()
+  });
+  await assertFails(partialWithdrawal.commit());
+  const unpublishTogether = writeBatch(owner);
+  unpublishTogether.delete(doc(owner, v3Path));
+  unpublishTogether.delete(doc(owner, publicPath));
+  await assertFails(unpublishTogether.commit());
+  const renameTogether = writeBatch(owner);
+  renameTogether.delete(doc(owner, v3Path));
+  renameTogether.update(doc(owner, ownerPath), {displayName: 'Outro nome'});
+  renameTogether.set(doc(owner, publicPath), {
+    displayName: 'Outro nome', bio: '', joinedAt, updatedAt: serverTimestamp()
+  });
+  await assertFails(renameTogether.commit());
+  assert.deepEqual((await getDoc(doc(visitor, publicPath))).data(), preservedPublic);
+  assert.equal((await getDoc(doc(owner, v3Path))).exists(), true);
+
+  const withdrawal = writeBatch(owner);
+  withdrawal.delete(doc(owner, v3Path));
+  withdrawal.update(doc(owner, publicPath), {
+    saint: deleteField(), devotionPhrase: deleteField(), ageBand: deleteField(),
+    maritalStatus: deleteField(), interests: deleteField(), updatedAt: serverTimestamp()
+  });
+  await assertSucceeds(withdrawal.commit());
+  assert.equal((await getDoc(doc(owner, v3Path))).exists(), false);
+  assert.deepEqual((await getDoc(doc(owner, ownerPath))).data(), preservedProfile);
+  assert.deepEqual((await getDoc(doc(owner, preferencesPath))).data(), preservedPreferences);
+  const {updatedAt, ...publicAfter} = (await getDoc(doc(visitor, publicPath))).data();
+  assert.deepEqual(publicAfter, {displayName: profileData.displayName, bio: '', joinedAt});
+  assert.ok(updatedAt);
+  await assertFails(updateDoc(doc(owner, publicPath), {
+    saint: details.saint, updatedAt: serverTimestamp()
+  }));
+
+  // Um titular que nunca publicou pode excluir o privado sem criar projeção.
+  await assertSucceeds(deleteDoc(doc(owner, publicPath)));
+  await assertSucceeds(setDoc(doc(owner, v3Path), details));
+  await assertSucceeds(deleteDoc(doc(owner, v3Path)));
+  assert.equal((await getDoc(doc(visitor, publicPath))).exists(), false);
+  console.log('PASS PROFILE V3 private fields, consent, projection and atomic withdrawal');
 } finally {
   await env.cleanup();
 }

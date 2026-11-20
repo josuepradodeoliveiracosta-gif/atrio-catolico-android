@@ -16,6 +16,7 @@
 - Os novos dados ficam em `users/{uid}/private/profile_v3`, legíveis e graváveis apenas pela própria conta.
 - A projeção pública contém somente os atributos visíveis selecionados e os interesses escolhidos; cidade, paróquia, e-mail, data de nascimento e interesses restantes não são copiados.
 - Alterações de campos publicados atualizam o documento privado e a projeção pública na mesma transação. Desmarcar um campo o remove da projeção.
+- **Retirar consentimento**, no editor, exige confirmação. Uma transação apaga o documento privado V3 e remove os cinco campos V3 da apresentação pública existente. Os dados legados, os interesses privados do cadastro V2 e a publicação da apresentação são preservados.
 - A retirada integral da apresentação pública continua removendo `public_profiles/{uid}`.
 - Se um interesse estiver público, ele precisa ser ocultado antes de ser removido das preferências privadas.
 

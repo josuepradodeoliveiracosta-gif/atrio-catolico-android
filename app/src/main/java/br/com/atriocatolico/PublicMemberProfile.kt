@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.sp
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.MetadataChanges
 import com.google.firebase.firestore.Query
 import java.text.DateFormat
 
@@ -34,6 +35,23 @@ private data class PublicMemberInfo(
     val maritalStatus: String,
     val interests: List<String>
 )
+private fun DocumentSnapshot.toPublicMemberInfo(): PublicMemberInfo? {
+    if (!exists()) return null
+    val confirmed = !metadata.isFromCache && !metadata.hasPendingWrites()
+    return PublicMemberInfo(
+        name = getString("displayName").orEmpty(),
+        bio = getString("bio").orEmpty(),
+        joinedAt = getTimestamp("joinedAt"),
+        saint = if (confirmed) getString("saint").orEmpty() else "",
+        devotionPhrase = if (confirmed) getString("devotionPhrase").orEmpty() else "",
+        ageBand = if (confirmed) getString("ageBand").orEmpty() else "",
+        maritalStatus = if (confirmed) getString("maritalStatus").orEmpty() else "",
+        interests = if (confirmed) (get("interests") as? List<*>)
+            ?.filterIsInstance<String>().orEmpty()
+            .filter { it in RegistrationOptionalPolicy.interests }.take(3) else emptyList()
+    )
+}
+
 private data class PublicMemberDiscussion(
     val id: String, val title: String, val excerpt: String, val category: String, val date: String
 )
@@ -78,10 +96,10 @@ internal fun PublicMemberProfileScreen(
     managedBlocks: AtrioManagedBlocks? = null
 ) {
     val uid = target.uid
-    var info by remember(uid) { mutableStateOf<PublicMemberInfo?>(null) }
-    var infoLoading by remember(uid) { mutableStateOf(true) }
-    var infoError by remember(uid) { mutableStateOf(false) }
-    var viewerInfo by remember(viewerUid) { mutableStateOf<PublicMemberInfo?>(null) }
+    var info by remember(db, viewerUid, uid) { mutableStateOf<PublicMemberInfo?>(null) }
+    var infoLoading by remember(db, viewerUid, uid) { mutableStateOf(true) }
+    var infoError by remember(db, viewerUid, uid) { mutableStateOf(false) }
+    var viewerInfo by remember(db, viewerUid, uid) { mutableStateOf<PublicMemberInfo?>(null) }
     val entries = remember(uid) { mutableStateListOf<PublicMemberDiscussion>() }
     var last by remember(uid) { mutableStateOf<DocumentSnapshot?>(null) }
     var nextPage by remember(uid) { mutableIntStateOf(0) }
@@ -98,56 +116,22 @@ internal fun PublicMemberProfileScreen(
     var reportMessage by remember(viewerUid, uid) { mutableStateOf("") }
 
     BackHandler(onBack = onBack)
-    DisposableEffect(db, uid) {
-        var active = true
-        db.collection("public_profiles").document(uid).get().addOnCompleteListener { result ->
-            if (!active) return@addOnCompleteListener
-            infoLoading = false
-            infoError = !result.isSuccessful
-            val doc = if (result.isSuccessful) result.result else null
-            info = if (result.isSuccessful && doc != null && doc.exists()) {
-                PublicMemberInfo(
-                    name = doc.getString("displayName").orEmpty(),
-                    bio = doc.getString("bio").orEmpty(),
-                    joinedAt = doc.getTimestamp("joinedAt"),
-                    saint = doc.getString("saint").orEmpty(),
-                    devotionPhrase = doc.getString("devotionPhrase").orEmpty(),
-                    ageBand = doc.getString("ageBand").orEmpty(),
-                    maritalStatus = doc.getString("maritalStatus").orEmpty(),
-                    interests = (doc.get("interests") as? List<*>)
-                        ?.filterIsInstance<String>().orEmpty()
-                        .filter { it in RegistrationOptionalPolicy.interests }.take(3)
-                )
-            } else null
-        }
-        onDispose { active = false }
+    DisposableEffect(db, viewerUid, uid) {
+        val listener = db.collection("public_profiles").document(uid)
+            .addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, error ->
+                infoLoading = false
+                infoError = error != null
+                info = snapshot?.toPublicMemberInfo()
+            }
+        onDispose { listener.remove() }
     }
     DisposableEffect(db, viewerUid, uid) {
-        var active = true
-        if (viewerUid.isBlank() || viewerUid == uid) {
-            viewerInfo = null
-        } else {
-            db.collection("public_profiles").document(viewerUid).get().addOnCompleteListener { result ->
-                if (active) {
-                    val doc = result.result?.takeIf { result.isSuccessful && it.exists() }
-                    viewerInfo = doc?.let {
-                        PublicMemberInfo(
-                            name = it.getString("displayName").orEmpty(),
-                            bio = it.getString("bio").orEmpty(),
-                            joinedAt = it.getTimestamp("joinedAt"),
-                            saint = it.getString("saint").orEmpty(),
-                            devotionPhrase = it.getString("devotionPhrase").orEmpty(),
-                            ageBand = it.getString("ageBand").orEmpty(),
-                            maritalStatus = it.getString("maritalStatus").orEmpty(),
-                            interests = (it.get("interests") as? List<*>)
-                                ?.filterIsInstance<String>().orEmpty()
-                                .filter { interest -> interest in RegistrationOptionalPolicy.interests }.take(3)
-                        )
-                    }
+        val listener = if (viewerUid.isBlank() || viewerUid == uid) null
+            else db.collection("public_profiles").document(viewerUid)
+                .addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, _ ->
+                    viewerInfo = snapshot?.toPublicMemberInfo()
                 }
-            }
-        }
-        onDispose { active = false }
+        onDispose { listener?.remove() }
     }
     DisposableEffect(db, uid, nextPage) {
         var active = true
