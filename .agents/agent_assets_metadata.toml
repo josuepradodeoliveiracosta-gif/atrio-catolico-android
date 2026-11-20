@@ -56,3 +56,17 @@ mtime_ms = 1795211358970
 storage_uri = "gcs://replit-rams-assets-spock/rams/assets/repl:b188ab47-2941-415c-a3f2-238f55a21312/9dba2d4a-5fac-4001-bc99-57589ad373d6/368171ff-bb41-491c-9176-12c8a7001c94"
 storage_version_token = "1795211372360259"
 content_type = "video/mp4"
+
+[[outputs]]
+id = "V-2WGeWHBk3S9u1lxgzLy"
+uri = "file://generated-artifacts/insignias-de-trilha/previa-vitrais.png"
+type = "image"
+title = "Nova arte das insígnias de trilha"
+description = "Prévia dos três desenhos e da evolução do nível 1 ao 5. Não é uma captura de aparelho."
+logical_id = "bb99490c-763b-4275-8984-cbb93418dae9"
+content_hash = "sha256:9376594c4b3910283d6a9577024b38c3b83e008b02a15dbb3693638ac66b4483"
+size = 72509
+mtime_ms = 1795216819070
+storage_uri = "gcs://replit-rams-assets-spock/rams/assets/repl:b188ab47-2941-415c-a3f2-238f55a21312/bb99490c-763b-4275-8984-cbb93418dae9/dcf64aa3-3639-46a9-bfb5-ba60dd8f6660"
+storage_version_token = "1795216849176757"
+content_type = "image/png"

@@ -1,0 +1,27 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="64dp" android:height="64dp"
+    android:viewportWidth="64" android:viewportHeight="64">
+    <path android:fillColor="#203B59" android:strokeColor="#12283D" android:strokeWidth="2.5"
+        android:pathData="M10,54V26C10,15 18,7 32,3C46,7 54,15 54,26V54Q54,57 51,57H13Q10,57 10,54Z" />
+    <path android:fillColor="#48779C"
+        android:pathData="M13,26C13,17 20,10 32,6C44,10 51,17 51,26L39,24L32,16L25,24Z" />
+    <path android:fillColor="#35668E"
+        android:pathData="M13,26L25,24L32,43L23,53H13Z" />
+    <path android:fillColor="#2C547D"
+        android:pathData="M51,26V53H23L32,43L39,24Z" />
+    <path android:fillColor="#5183A9"
+        android:pathData="M51,37V53H40L32,43Z" />
+    <path android:fillColor="#00000000" android:strokeColor="#E6BF76" android:strokeWidth="1.1"
+        android:pathData="M13,53V26C13,17 20,10 32,6C44,10 51,17 51,26V53Z" />
+    <path android:fillColor="#00000000" android:strokeColor="#254965" android:strokeWidth="1.2"
+        android:pathData="M32,6V16L25,24L13,26M32,16L39,24L51,26M51,37L32,43L23,53M32,43L40,53" />
+    <!-- Warm light seen through the arch, with the leaf ajar to the right. -->
+    <path android:fillColor="#FFEBC0" android:strokeColor="#1A3953" android:strokeWidth="1.5" android:strokeLineJoin="round"
+        android:pathData="M21,41V30C21,24 25.5,19 31,17C36.5,19 41,24 41,30V41Z" />
+    <path android:fillColor="#B57844" android:strokeColor="#513526" android:strokeWidth="1.35" android:strokeLineJoin="round"
+        android:pathData="M33,24L41,27V43L33,39Z" />
+    <path android:fillColor="#FFF1C9"
+        android:pathData="M36.6,34.3m-1,0a1,1 0,1 0,2 0a1,1 0,1 0,-2 0" />
+    <path android:fillColor="#00000000" android:strokeColor="#F4D48F" android:strokeWidth="1.5" android:strokeLineCap="round"
+        android:pathData="M19,41H30" />
+</vector>

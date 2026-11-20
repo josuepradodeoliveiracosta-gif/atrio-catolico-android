@@ -1,0 +1,24 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="64dp" android:height="64dp"
+    android:viewportWidth="64" android:viewportHeight="64">
+    <path android:fillColor="#1C4436" android:strokeColor="#0E3028" android:strokeWidth="2.5"
+        android:pathData="M10,54V26C10,15 18,7 32,3C46,7 54,15 54,26V54Q54,57 51,57H13Q10,57 10,54Z" />
+    <path android:fillColor="#418166"
+        android:pathData="M13,26C13,17 20,10 32,6L29,24L13,36Z" />
+    <path android:fillColor="#326D54"
+        android:pathData="M32,6C44,10 51,17 51,26V39L29,24Z" />
+    <path android:fillColor="#32745A"
+        android:pathData="M13,36L29,24L40,38L29,53H13Z" />
+    <path android:fillColor="#4A8868"
+        android:pathData="M51,39V53H29L40,38Z" />
+    <path android:fillColor="#00000000" android:strokeColor="#E6BF76" android:strokeWidth="1.1"
+        android:pathData="M13,53V26C13,17 20,10 32,6C44,10 51,17 51,26V53Z" />
+    <path android:fillColor="#00000000" android:strokeColor="#1A4A3A" android:strokeWidth="1.2"
+        android:pathData="M32,6L29,24L13,36M29,24L40,38L51,39M40,38L29,53" />
+    <!-- Palm, cuff and a small tile of light. -->
+    <path android:fillColor="#F3CE83" android:pathData="M34,18L35.6,21.4L39,23L35.6,24.6L34,28L32.4,24.6L29,23L32.4,21.4Z" />
+    <path android:fillColor="#FFF1C9" android:strokeColor="#194536" android:strokeWidth="1.4" android:strokeLineJoin="round"
+        android:pathData="M19,35L24,30Q25,29 27,29H34Q37,29 37,32Q37,34 34,34H31L34.8,35.7L41.8,30.6Q43.8,29.3 45,31Q46.2,32.5 44.5,34L36.5,40.6Q35.1,41.8 33.5,41.5L24,39.5L22,41Z" />
+    <path android:fillColor="#E5B966" android:strokeColor="#194536" android:strokeWidth="1.2" android:strokeLineJoin="round"
+        android:pathData="M16.5,36L20.1,33.4L25.1,40.5L21.5,43.1Z" />
+</vector>
