@@ -43,6 +43,18 @@ class StartupVideoGateUiTest {
         compose.onNodeWithTag("atrio-opening-skip").assertDoesNotExist()
     }
 
+    @Test fun packagedVideoCompletesAndUnlocksSkip() {
+        val finished = AtomicBoolean(false)
+        compose.setContent {
+            AtrioTheme {
+                AtrioStartupVideo(compose.activity) { finished.set(true) }
+            }
+        }
+        compose.waitUntil(timeoutMillis = 20_000) { finished.get() }
+        assertTrue("O vídeo deve terminar naturalmente, sem cair no erro ou timeout",
+            prefs().getBoolean("watched_to_end", false))
+    }
+
     @Test fun returningViewerCanSkip() {
         check(prefs().edit().putBoolean("watched_to_end", true).commit())
         val finished = AtomicBoolean(false)

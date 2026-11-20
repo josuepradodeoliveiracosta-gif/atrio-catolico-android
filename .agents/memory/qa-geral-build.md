@@ -6,4 +6,4 @@ Para validar o QA Geral offline, use uma árvore de build temporária isolada, c
 
 **Why:** o checkout normal pode conter a configuração oficial; o QA Geral exige que ela esteja ausente. Um erro por SDK ausente não significa que o projeto não possa ser compilado neste ambiente.
 
-**How to apply:** confira os requisitos da variante no projeto atual, aponte para o SDK local e reporte a identidade da variante compilada. Um APK offline para emuladores não comprova instalação ou funcionamento no aparelho.
+**How to apply:** confira os requisitos da variante no projeto atual, aponte para o SDK local e reporte a identidade da variante compilada. O filtro `--tests` depois da tarefa pode ser interpretado pelo bloqueio do QA Geral como tarefa não permitida; rode a suíte aprovada sem esse filtro, sem afrouxar o bloqueio. Um APK offline para emuladores não comprova instalação ou funcionamento no aparelho.

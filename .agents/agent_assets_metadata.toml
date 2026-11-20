@@ -1,0 +1,30 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "BPCTIdmdBAz7-qOXbhEYg"
+uri = "file://app/src/main/res/raw/abertura_atrio.mp4"
+type = "video"
+title = "Abertura do Átrio — retrato"
+description = "Versão de 10 segundos usada no app na orientação vertical."
+logical_id = "5a7116c0-8048-408b-b804-fb3de6de831e"
+content_hash = "sha256:47faf20a1cd5a1c02c7e7a9674f02f919dc49763719f1152335d4255a6bd10ef"
+size = 1336009
+mtime_ms = 1795211010486
+storage_uri = "gcs://replit-rams-assets-spock/rams/assets/repl:b188ab47-2941-415c-a3f2-238f55a21312/5a7116c0-8048-408b-b804-fb3de6de831e/ffe70463-90c0-4210-b69f-c6287e8e131c"
+storage_version_token = "1795211071238699"
+content_type = "video/mp4"
+
+[[outputs]]
+id = "Le80lDFIU1t6oWrA0PV7n"
+uri = "file://app/src/main/res/raw-land/abertura_atrio.mp4"
+type = "video"
+title = "Abertura do Átrio — paisagem"
+description = "A mesma animação adaptada para telas horizontais, com a marca no centro."
+logical_id = "47887159-4094-4672-a831-07dc3e48cd59"
+content_hash = "sha256:da70ca8c54c2c14a595c0b6d71cda32a153f5450ad5ddadf4f691f827143841e"
+size = 1106494
+mtime_ms = 1795211010497
+storage_uri = "gcs://replit-rams-assets-spock/rams/assets/repl:b188ab47-2941-415c-a3f2-238f55a21312/47887159-4094-4672-a831-07dc3e48cd59/ec1cb8ed-06c1-4a72-bad6-6ce3a3ac0901"
+storage_version_token = "1795211071896033"
+content_type = "video/mp4"

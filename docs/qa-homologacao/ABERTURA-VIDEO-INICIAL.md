@@ -1,12 +1,12 @@
 # Abertura em tela cheia — vídeo de inicialização
 
-**Estado:** abertura fullscreen da PR #116, novo vídeo da PR #118, áudio da PR #119 e abertura sem pulo da PR #120 já integrados à `main`. Esta alteração torna o vídeo obrigatório somente até sua **primeira reprodução completa**, oferecendo **Pular** nos próximos lançamentos. Código integrado não significa APK oficial publicado ou instalado.
+**Estado:** a proposta em revisão usa o vídeo `Atrio_Catolico_Tela_Cheia_9x16` como base da nova abertura. Preserva a regra anterior: vídeo obrigatório até a **primeira reprodução completa**, com **Pular** nos próximos lançamentos. Código em revisão não significa APK oficial publicado ou instalado.
 
 ## Comportamento previsto
 
 - `MainActivity` exibe `AtrioStartupVideo` antes da autenticação ou da demonstração em **toda nova instância** do aplicativo, inclusive após processo encerrado e restaurado. Um `ViewModel` não persistido mantém a conclusão em alterações de configuração e retornos do segundo plano na mesma instância, mas é renovado após fechar e abrir o app.
-- A apresentação ocupa a área toda, esconde temporariamente as barras de sistema e **preserva a proporção do vídeo** (sem cortar conteúdo). Em telas com outra proporção podem existir faixas na cor do fundo.
-- **Primeiro uso com dados locais novos:** o vídeo de ~10 segundos é obrigatório e não existe botão **Pular**. Somente a conclusão natural (`VideoView.setOnCompletionListener`) grava `watched_to_end=true` em `SharedPreferences` locais (`atrio-startup-video`).
+- A apresentação ocupa a área toda e esconde temporariamente as barras de sistema. O vídeo preenche a tela com recorte central, sem esticar nem adicionar faixas. A montagem horizontal usa laterais desfocadas a partir do próprio vídeo para manter a marca no centro da tela.
+- **Primeiro uso com dados locais novos:** o vídeo de cerca de 10 segundos é obrigatório e não existe botão **Pular**. Somente a conclusão natural do `MediaPlayer` grava `watched_to_end=true` em `SharedPreferences` locais (`atrio-startup-video`).
 - **Próximos lançamentos:** o vídeo aparece novamente, agora com o botão acessível **Pular** no canto inferior direito. O usuário pode concluir o vídeo com áudio ou tocar em **Pular** para entrar diretamente.
 - A tecla **Voltar** encerra a Activity sem liberar a comunidade (tanto na primeira quanto nas demais aberturas). Erro de decodificação ou timeout de 15 segundos permite continuar sem travar o app, **mas não registra o vídeo como concluído**; a próxima tentativa continua obrigatória até reprodução completa.
 - Atualizar o app preserva a preferência. Limpar os dados ou reinstalar o aplicativo com backup desabilitado restaura a exigência. O estado da visualização não depende do Firebase ou da conta do usuário.
@@ -29,17 +29,19 @@
 **Integridade confirmada na PR #116:** o blob da branch para `app/src/main/res/raw/abertura_atrio.mp4` agora é `3d8fe939b612492014b35b2f5e727d4d128900c4` — idêntico ao SHA-1 calculado do arquivo enviado. O código usa `R.raw.abertura_atrio`; reprodução offline, sem hospedagem remota e sem introduzir dependência nova.
 
 
-## Mídia atual e alteração de áudio
+## Nova mídia
 
-- Vídeo atual `1000088162.mp4`, recompactado para o APK em `app/src/main/res/raw/abertura_atrio.mp4` na PR #118.
-- Resolução 1080 × 1920, duração 10,054 segundos, H.264/AAC, 2.306.457 bytes; SHA-256 da mídia otimizada `75522c6bf7a8c6e7e0052964a450068e6febc0c8963412d610e0699e76dea22d`.
-- O código da abertura altera apenas a regulagem de volume `MediaPlayer.setVolume(0f, 0f)` para `setVolume(1f, 1f)`; o volume de mídia efetivo continua controlado pelo Android e pelo usuário.
-- Sem alterações no vídeo, Firebase, Cloudflare, assinatura, versionCode, backup ou publicação.
+- Retrato: `app/src/main/res/raw/abertura_atrio.mp4`, 720 × 1280 (9:16), com a cruz, o terço e a transição para o céu do vídeo enviado.
+- Paisagem: `app/src/main/res/raw-land/abertura_atrio.mp4`, 1024 × 576 (16:9), com a montagem horizontal da mesma animação. O Android seleciona o arquivo pela orientação.
+- As duas versões são H.264/AAC de cerca de 10 segundos e usam a trilha fornecida, respeitando o volume de mídia do aparelho. A reprodução usa `TextureView` e arquivos do próprio APK, sem internet ou novas dependências.
+- A abertura é exibida no fluxo normal de `MainActivity`. Variantes técnicas que abrem diretamente a tela de atualização ou o piloto isolado de perfil mantêm seus fluxos.
 
 ## Homologação da abertura e do áudio
 
-- [x] MP4 otimizado da PR #118 preservado (SHA-256 informado na seção da mídia atual); não foi alterado nesta PR.
-- [ ] Compilação Android de testes e verificações de segurança/versão/Firestore aprovadas no **head atualizado** (conferir após último commit documental).
+- [x] APK QA Geral local compilado com as duas mídias. Os três testes unitários de enquadramento passaram; o teste `ProfileV3PolicyTest.optionalFieldsAndInterestsArePrivateByDefault` repetiu a falha registrada antes da alteração (152/153 na suíte).
+- [x] MP4s decodificados e recortes inspecionados em retrato alto e paisagem larga. Isso não substitui o teste do player em Android.
+- [ ] Em aparelho, verificar o preenchimento sem faixas em retrato e paisagem e confirmar que o logotipo e o título continuam visíveis.
+- [x] APK dos testes instrumentados compilado; esses testes não foram executados em aparelho ou emulador.
 - [ ] Em aparelho Android: iniciar sem internet, com volume de mídia audível, e conferir o vídeo completo (~10 segundos), com trilha sonora sincronizada e nenhuma tela de login à frente.
 - [ ] Conferir ausência de som com volume de mídia no mínimo, controle de volume durante o vídeo e interrupção da trilha ao encerrar o aplicativo com Voltar.
 - [ ] Limpar os dados do app **de testes** ou usar instalação limpa: confirmar ausência de **Pular** no primeiro acesso.

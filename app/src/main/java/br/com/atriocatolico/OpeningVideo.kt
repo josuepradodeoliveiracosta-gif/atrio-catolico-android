@@ -1,22 +1,21 @@
 package br.com.atriocatolico
 
 import android.content.Context
-import android.media.MediaPlayer
-import android.net.Uri
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import android.widget.VideoView
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -26,9 +25,11 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
@@ -40,13 +41,14 @@ private const val WATCHED_TO_END_KEY = "watched_to_end"
 
 /**
  * Full-screen, offline opening shown on every new MainActivity launch.
- * The 9:16 movie uses VideoView's aspect-preserving fit; never crop its content.
+ * Center-crop covers the viewport without distortion. A separate landscape edit
+ * keeps the logo and title visible when the available space is wider than it is tall.
  *
  * The startup movie includes audio and is not a Firebase loading indicator.
  * The first successful viewing is mandatory. Later launches show a Skip button.
  * Authentication and the community UI start after playback, on a permitted skip,
  * or on media failure/timeout (which must not count as a completed viewing).
- * The bundled asset can be replaced independently at res/raw/abertura_atrio.mp4.
+ * The portrait and landscape edits share the same Android resource ID.
  */
 @Composable
 internal fun AtrioStartupVideo(activity: ComponentActivity, onFinished: () -> Unit) {
@@ -67,40 +69,46 @@ internal fun AtrioStartupVideo(activity: ComponentActivity, onFinished: () -> Un
         }
     }
 
-    val videoView = remember(activity) { VideoView(activity) }
+    val videoView = remember(activity) { OpeningVideoTexture(activity) }
     // Voltar fecha o aplicativo; não dispensa a primeira visualização.
     // Uma nova abertura cria uma nova Activity e reinicia a apresentação.
     BackHandler(enabled = !finished) { activity.finish() }
 
     // Keep system bars hidden only during the video. Restore them for login/feed.
     DisposableEffect(activity) {
-        val bars = WindowInsetsControllerCompat(activity.window, activity.window.decorView)
+        val window = activity.window
+        val bars = WindowInsetsControllerCompat(window, window.decorView)
+        val previousBehavior = bars.systemBarsBehavior
+        val previousCutout = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            window.attributes.layoutInDisplayCutoutMode.also {
+                window.attributes = window.attributes.apply {
+                    layoutInDisplayCutoutMode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                    } else {
+                        WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                    }
+                }
+            }
+        } else null
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         bars.systemBarsBehavior =
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         bars.hide(WindowInsetsCompat.Type.systemBars())
-        onDispose { bars.show(WindowInsetsCompat.Type.systemBars()) }
+        onDispose {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && previousCutout != null) {
+                window.attributes = window.attributes.apply { layoutInDisplayCutoutMode = previousCutout }
+            }
+            WindowCompat.setDecorFitsSystemWindows(window, true)
+            bars.systemBarsBehavior = previousBehavior
+            bars.show(WindowInsetsCompat.Type.systemBars())
+        }
     }
 
     DisposableEffect(videoView, activity) {
         val handler = Handler(Looper.getMainLooper())
         val watchdog = Runnable { finishOnce() }
-        var prepared = false
-        var disposed = false
-
-        videoView.setOnPreparedListener { media: MediaPlayer ->
-            if (!disposed) {
-                prepared = true
-                media.isLooping = false
-                // Reproduz a trilha do MP4 respeitando o volume de mídia do aparelho.
-                // O ganho do player não aumenta nem altera o volume do sistema.
-                media.setVolume(1f, 1f)
-                if (activity.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
-                    videoView.start()
-                }
-            }
-        }
-        videoView.setOnCompletionListener {
-            if (!disposed && !finished) {
+        videoView.onPlaybackComplete = {
+            if (!finished) {
                 // Registrar apenas o término natural: Pular, erro, timeout e
                 // fechamento do app nunca marcam o primeiro vídeo como visto.
                 // commit() confirma a gravação antes de navegar para o app.
@@ -108,59 +116,46 @@ internal fun AtrioStartupVideo(activity: ComponentActivity, onFinished: () -> Un
                 finishOnce()
             }
         }
-        videoView.setOnErrorListener { _, _, _ ->
-            if (!disposed) finishOnce()
-            true
-        }
+        videoView.onPlaybackError = finishOnce
 
         val lifecycleObserver = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_RESUME -> {
                     handler.removeCallbacks(watchdog)
                     handler.postDelayed(watchdog, MAX_OPENING_DURATION_MS)
-                    if (prepared) videoView.start()
+                    videoView.setPlaying(true)
                 }
                 Lifecycle.Event.ON_PAUSE -> {
                     handler.removeCallbacks(watchdog)
-                    if (prepared) videoView.pause()
+                    videoView.setPlaying(false)
                 }
                 else -> Unit
             }
         }
         activity.lifecycle.addObserver(lifecycleObserver)
-        // Local resource: works without internet, network permissions or a Worker.
-        videoView.setVideoURI(
-            Uri.parse("android.resource://${activity.packageName}/${R.raw.abertura_atrio}")
-        )
-        if (activity.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
-            handler.postDelayed(watchdog, MAX_OPENING_DURATION_MS)
-        }
-
         onDispose {
-            disposed = true
             handler.removeCallbacks(watchdog)
             activity.lifecycle.removeObserver(lifecycleObserver)
-            videoView.setOnPreparedListener(null)
-            videoView.setOnCompletionListener(null)
-            videoView.setOnErrorListener(null)
-            videoView.stopPlayback()
+            videoView.dispose()
         }
     }
 
-    Box(Modifier.fillMaxSize().background(Paper).testTag("atrio-opening-fullscreen")) {
+    Box(Modifier.fillMaxSize().background(Color(0xFF182830)).testTag("atrio-opening-fullscreen")) {
         AndroidView(
             factory = { videoView },
             modifier = Modifier.fillMaxSize().testTag("atrio-opening-video")
         )
         if (canSkip) {
-            TextButton(
+            FilledTonalButton(
                 onClick = finishOnce,
                 modifier = Modifier.align(Alignment.BottomEnd)
-                    .navigationBarsPadding()
+                    .safeDrawingPadding()
                     .padding(16.dp)
                     .heightIn(min = 48.dp)
                     .testTag("atrio-opening-skip"),
-                colors = ButtonDefaults.textButtonColors(contentColor = Wine)
+                colors = ButtonDefaults.filledTonalButtonColors(
+                    containerColor = Color(0xFF182830), contentColor = Color(0xFFFFEBC0)
+                )
             ) {
                 Text("Pular")
             }
