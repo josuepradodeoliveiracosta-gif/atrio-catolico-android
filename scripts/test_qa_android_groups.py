@@ -18,6 +18,7 @@ FOCAL_ROUTES = {
         "QaConversationNoticeDeniedAndroidTest",
         "QaConversationNoticeGrantedAndroidTest",
         "QaConversationNoticeSessionAndroidTest",
+        "QaConversationNoticeRevokedAndroidTest",
     ),
 }
 SUITE_CALL = re.compile(r"(?m)^[ \t]*run_suite ([A-Za-z][A-Za-z0-9]+)$")

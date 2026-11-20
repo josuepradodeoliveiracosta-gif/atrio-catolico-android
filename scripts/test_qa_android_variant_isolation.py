@@ -93,7 +93,7 @@ class QaGeralBotIsolationTests(unittest.TestCase):
         self.assertNotIn(android_ns + "usesCleartextTraffic", app.attrib)
 
         qa_config = ET.fromstring(
-            source("app/src/qaGeral/res/xml/qa_emulator_network_security.xml")
+            source("app/src/qaEmulator/res/xml/qa_emulator_network_security.xml")
         )
         self.assertEqual(qa_config.tag, "network-security-config")
         self.assertEqual(len(qa_config), 2)
@@ -130,6 +130,15 @@ class QaGeralBotIsolationTests(unittest.TestCase):
         self.assertNotIn("networkSecurityConfig",
                          source("app/src/chatQa/AndroidManifest.xml"))
 
+    def test_qa_geral_celular_manifests_keep_cleartext_closed(self):
+        android_ns = "{http://schemas.android.com/apk/res/android}"
+        for variant in ("remote", "notices.https", "push"):
+            with self.subTest(variant=variant):
+                manifest = ET.fromstring(source(f"app/src/qaGeral/AndroidManifest.{variant}.xml"))
+                app = manifest.find("application")
+                self.assertEqual(app.attrib.get(android_ns + "usesCleartextTraffic"), "false")
+                self.assertNotIn(android_ns + "networkSecurityConfig", app.attrib)
+
     def test_debug_cannot_run_bots_before_starting_emulators(self):
         env = dict(os.environ)
         env.update(ATRIO_QA_APK="debug", ATRIO_QA_SUITE_GROUP="bots")
@@ -152,7 +161,7 @@ class QaGeralBotIsolationTests(unittest.TestCase):
             cwd=ROOT, env=env, text=True, capture_output=True, timeout=5,
         )
         self.assertEqual(p.returncode, 2)
-        self.assertIn("somente as suítes focais de Conversas no Emulator", p.stderr)
+        self.assertIn("somente as suítes focais de Conversas", p.stderr)
 
     def test_wrong_project_cannot_run_bots_before_starting_emulators(self):
         env = dict(os.environ)

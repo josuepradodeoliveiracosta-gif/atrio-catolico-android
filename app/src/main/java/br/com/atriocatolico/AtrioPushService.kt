@@ -56,7 +56,7 @@ internal object PushRegistry {
     private fun enabledKey(uid: String) = "enabled_$uid"
 
     fun available(context: Context, uid: String): Boolean =
-        !BuildConfig.ATRIO_QA_CONVERSATION_NOTICE_LAB &&
+        !QaConversationNotices.configured &&
             (!BuildConfig.ATRIO_QA_GERAL_REMOTE || qaGeralPushSessionReady(context, uid))
 
     fun enabled(context: Context, uid: String): Boolean =
@@ -299,7 +299,7 @@ internal object PushRegistry {
 class AtrioPushService : FirebaseMessagingService() {
     override fun onNewToken(token: String) {
         super.onNewToken(token)
-        if (BuildConfig.ATRIO_QA_CONVERSATION_NOTICE_LAB) return
+        if (QaConversationNotices.configured) return
         val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
         if (PushRegistry.enabled(applicationContext, uid)) {
             PushRegistry.register(applicationContext, uid, FirebaseFirestore.getInstance())
@@ -308,7 +308,7 @@ class AtrioPushService : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
-        if (BuildConfig.ATRIO_QA_CONVERSATION_NOTICE_LAB) {
+        if (QaConversationNotices.configured) {
             // O callback do SDK roda em worker thread. Concluir o processamento
             // dentro do seu prazo preserva o ciclo de vida do serviço.
             runBlocking {
