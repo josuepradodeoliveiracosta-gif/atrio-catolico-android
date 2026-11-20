@@ -1,6 +1,5 @@
 package br.com.atriocatolico
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -9,14 +8,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.semantics
@@ -76,119 +69,14 @@ internal fun ContributionBadgeIcon(
 ) {
     val definition = contributionTracks.firstOrNull { it.key == track } ?: contributionTracks.first()
     val safeLevel = level.coerceIn(1, 5)
-    Canvas(modifier.semantics {
-        contentDescription = if (earned)
-            "${definition.title}, nível $safeLevel"
-        else "Insígnia de ${definition.title}, ainda não conquistada"
-    }) {
-        val width = size.width
-        val height = size.height
-        val inset = minOf(width, height) * 0.1f
-        val shape = Path()
-        when (safeLevel) {
-            1 -> shape.addOval(
-                androidx.compose.ui.geometry.Rect(inset, inset, width - inset, height - inset)
-            )
-            2 -> {
-                shape.moveTo(width * .5f, inset)
-                shape.lineTo(width - inset, height * .28f)
-                shape.lineTo(width * .82f, height * .72f)
-                shape.lineTo(width * .5f, height - inset)
-                shape.lineTo(width * .18f, height * .72f)
-                shape.lineTo(inset, height * .28f)
-                shape.close()
-            }
-            3 -> {
-                shape.moveTo(width * .25f, inset)
-                shape.lineTo(width * .75f, inset)
-                shape.lineTo(width - inset, height * .5f)
-                shape.lineTo(width * .75f, height - inset)
-                shape.lineTo(width * .25f, height - inset)
-                shape.lineTo(inset, height * .5f)
-                shape.close()
-            }
-            4 -> {
-                shape.moveTo(inset, height - inset)
-                shape.lineTo(inset, height * .46f)
-                shape.cubicTo(inset, height * .14f, width - inset, height * .14f,
-                    width - inset, height * .46f)
-                shape.lineTo(width - inset, height - inset)
-                shape.close()
-            }
-            else -> {
-                val center = Offset(width * .5f, height * .5f)
-                val outer = minOf(width, height) * .42f
-                val inner = outer * .78f
-                for (point in 0 until 20) {
-                    val angle = Math.PI * point / 10.0 - Math.PI / 2.0
-                    val radius = if (point % 2 == 0) outer else inner
-                    val x = center.x + kotlin.math.cos(angle).toFloat() * radius
-                    val y = center.y + kotlin.math.sin(angle).toFloat() * radius
-                    if (point == 0) shape.moveTo(x, y) else shape.lineTo(x, y)
-                }
-                shape.close()
-            }
-        }
-        val tint = if (earned) definition.color else Color(0xFF8C8C8C)
-        drawPath(shape, tint.copy(alpha = if (earned) .96f else .16f))
-        drawPath(shape, Gold.copy(alpha = if (earned) .95f else .65f), style = Stroke(width = 2.dp.toPx()))
-        drawPath(shape, Color.White.copy(alpha = if (earned) .14f else .2f),
-            style = Stroke(width = 1.dp.toPx()))
-
-        val metal = Gold.copy(alpha = if (earned) 1f else .55f)
-        when (track) {
-            "conversation" -> {
-                val left = width * .31f
-                val top = height * .35f
-                val boxWidth = width * .38f
-                val boxHeight = height * .27f
-                drawRoundRect(
-                    metal, Offset(left, top), Size(boxWidth, boxHeight),
-                    cornerRadius = CornerRadius(width * .045f),
-                    style = Stroke(width = 2.dp.toPx())
-                )
-                val tail = Path().apply {
-                    moveTo(width * .4f, top + boxHeight)
-                    lineTo(width * .36f, height * .68f)
-                    lineTo(width * .49f, top + boxHeight)
-                }
-                drawPath(tail, metal, style = Stroke(width = 2.dp.toPx()))
-            }
-            "helpful" -> {
-                val hand = Path().apply {
-                    moveTo(width * .3f, height * .59f)
-                    lineTo(width * .42f, height * .7f)
-                    lineTo(width * .65f, height * .7f)
-                    cubicTo(width * .72f, height * .7f, width * .75f, height * .62f,
-                        width * .68f, height * .59f)
-                    lineTo(width * .56f, height * .59f)
-                    lineTo(width * .66f, height * .47f)
-                    cubicTo(width * .71f, height * .39f, width * .65f, height * .35f,
-                        width * .6f, height * .42f)
-                    lineTo(width * .5f, height * .52f)
-                    lineTo(width * .43f, height * .46f)
-                    lineTo(width * .3f, height * .46f)
-                    close()
-                }
-                drawPath(hand, metal, style = Stroke(width = 2.2.dp.toPx()))
-                drawLine(metal, Offset(width * .36f, height * .48f),
-                    Offset(width * .36f, height * .59f), 2.dp.toPx())
-            }
-            else -> {
-                val doorway = Path().apply {
-                    moveTo(width * .32f, height * .69f)
-                    lineTo(width * .32f, height * .45f)
-                    cubicTo(width * .32f, height * .28f, width * .68f, height * .28f,
-                        width * .68f, height * .45f)
-                    lineTo(width * .68f, height * .69f)
-                }
-                drawPath(doorway, metal, style = Stroke(width = 2.2.dp.toPx()))
-                drawLine(metal, Offset(width * .57f, height * .42f),
-                    Offset(width * .57f, height * .69f), 1.8.dp.toPx())
-                drawCircle(metal, radius = width * .018f, center = Offset(width * .62f, height * .56f))
-            }
-        }
-    }
+    ContributionBadgeArtwork(
+        track = definition.key,
+        level = safeLevel,
+        earned = earned,
+        description = if (earned) "${definition.title}, nível $safeLevel"
+            else "Insígnia de ${definition.title}, ainda não conquistada",
+        modifier = modifier
+    )
 }
 
 @Composable
