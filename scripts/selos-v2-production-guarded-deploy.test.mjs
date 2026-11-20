@@ -5,7 +5,10 @@ import {createHash} from 'node:crypto';
 import {verifyBadgeDeployment, SELLOS_V2_RULES} from './selos-v2-production-guarded-deploy.mjs';
 
 const sha256 = str => createHash('sha256').update(str, 'utf8').digest('hex');
-const rulesText = await readFile(new URL('../firestore.rules', import.meta.url), 'utf8');
+// firestore.rules de 71ba0d669795a7705126a2484714564ef2144a7e, alvo auditado de Selos V2.
+const rulesText = await readFile(new URL(
+  '../tests/security/fixtures/selos-v2-reviewed-firestore.rules', import.meta.url
+), 'utf8');
 const oldFixture = rulesText + '\n// Fixture historica ficticia, nao producao';
 const pins = {
   project: SELLOS_V2_RULES.project,
@@ -76,10 +79,21 @@ const makeFixture = ({
   })};
 };
 
-test('fingerprint real do arquivo versionado coincide com o selo V2 fixado', () => {
+test('fingerprint da versão histórica coincide com o alvo fixado de Selos V2', () => {
   assert.equal(sha256(rulesText), SELLOS_V2_RULES.targetSha256);
   assert.match(SELLOS_V2_RULES.previousSha256, /^[0-9a-f]{64}$/);
   assert.notEqual(SELLOS_V2_RULES.previousSha256, SELLOS_V2_RULES.targetSha256);
+});
+
+test('guard de produção recusa as regras do Perfil V3 antes de token, rede ou CLI', async() => {
+  const currentRules = await readFile(new URL('../firestore.rules', import.meta.url), 'utf8');
+  const f = makeFixture({usePins: SELLOS_V2_RULES});
+  for (const apply of [false, true]) {
+    await assert.rejects(verifyBadgeDeployment({...f.opts, rulesText:currentRules, apply}),
+      /atrio_selos_guard_repository_rules_changed/);
+  }
+  const {deployed, requests, tokenReads} = f.stats();
+  assert.deepEqual({deployed, requests, tokenReads}, {deployed:0, requests:0, tokenReads:0});
 });
 
 test('sem argumentos faz apenas GET e nunca chama Firebase CLI', async() => {
