@@ -1,4 +1,4 @@
-// Somente servidor administrativo QA; nenhuma credencial ou rota pública.
+// Somente servidor administrativo QA; nenhuma credencial ou acesso cliente.
 // Transações Firestore serializam consumo/revogação, inclusive sob concorrência.
 import {randomUUID} from 'node:crypto';
 const POLICY='2026-11-18plus-qa-v1';
@@ -46,11 +46,11 @@ export function createQaAge18Restoration({
     return db.runTransaction(async tx=>{
       const [ticket,state]=await Promise.all([tx.get(tokenRef(tokenId)),tx.get(stateRef(uid))]);
       const data=ticket.data();
+      const time=now();
       if(!ticket.exists||data.uid!==uid||data.policyVersion!==POLICY||
-        data.status!=='issued'||ms(data.expiresAt)<=now()||
+        data.status!=='issued'||!(ms(data.expiresAt)>time)||!(ms(data.reviewExpiresAt)>time)||
         data.epoch!==(state.data()?.epoch??null))
         throw Error('age18_authorization_unavailable');
-      if(ms(data.reviewExpiresAt)<=now()) throw Error('age18_authorization_unavailable');
       tx.update(tokenRef(tokenId),{
         status:'consumed',consumedBy:principal,consumedAt:serverTimestamp(),
       });
@@ -60,6 +60,7 @@ export function createQaAge18Restoration({
       });
       tx.set(stateRef(uid),{
         epoch:uuid(),lastTokenId:tokenId,lastStatus:'consumed',
+        restoredByTokenId:tokenId,
         updatedAt:serverTimestamp(),
       });
       return {restored:true};
@@ -76,6 +77,10 @@ export function createQaAge18Restoration({
       if(!ticket.exists||ticket.data().uid!==uid) throw Error('age18_authorization_unavailable');
       const old=ticket.data();
       if(old.status==='revoked') return {revoked:true,replay:true};
+      const current=state.data();
+      const restoredBy=Object.hasOwn(current ?? {},'restoredByTokenId') ? current.restoredByTokenId :
+        current?.lastStatus==='consumed' ? current.lastTokenId : null;
+      const revokeRestoration=old.status==='consumed'&&restoredBy===tokenId;
       // Mesmo se o consumo vencer a corrida, a revogação subsequente
       // derruba a elegibilidade restaurada por ESTE token.
       tx.update(tokenRef(tokenId),{
@@ -84,10 +89,10 @@ export function createQaAge18Restoration({
       const generation=uuid();
       tx.set(stateRef(uid),{
         epoch:generation,lastTokenId:tokenId,lastStatus:'revoked',
+        restoredByTokenId:revokeRestoration ? null : restoredBy,
         updatedAt:serverTimestamp(),
       });
-      if(old.status==='consumed'&&state.data()?.lastTokenId===tokenId&&
-         proof.data()?.status==='eligible')
+      if(revokeRestoration&&proof.data()?.status==='eligible')
         tx.set(proofRef(uid),{
           status:'revoked',minimumAge:18,policyVersion:POLICY,
           reviewExpiresAt:new Date(0),

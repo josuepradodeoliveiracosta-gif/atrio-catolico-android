@@ -75,6 +75,15 @@ try {
     assert.equal((await agePath(b).get()).data().status,'revoked');
     assert.equal((await statePath(b).get()).data().lastStatus,'revoked');
   });
+  await test('revogar outra autorização preserva a referência à restauração ativa',async()=>{
+    const active=await issue(b);
+    const other=await issue(b);
+    await consume(b,active.tokenId);
+    await revoke(b,other.tokenId);
+    assert.equal((await agePath(b).get()).data().status,'eligible');
+    await revoke(b,active.tokenId);
+    assert.equal((await agePath(b).get()).data().status,'revoked');
+  });
 } finally {
   await deleteApp(app);
 }
