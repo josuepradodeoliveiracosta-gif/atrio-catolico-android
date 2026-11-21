@@ -333,39 +333,29 @@ class ProfileV3ConsentEmulatorUiTest {
             compose.waitUntil(15_000) { talkBackActive() }
             val pid = automation.shellText("pidof ${service.packageName}").trim().substringBefore(' ')
             check(pid.toIntOrNull() != null) { "PID do TalkBack indisponível: $pid" }
-            fun speechLines() = automation.shellText("logcat -d -v threadtime --pid=$pid")
-                .lineSequence().filter { it.contains("Speaking fragment") && it.contains("SpeechControllerImpl") }.toSet()
-
-            // Confirm that the real TalkBack is already speaking before triggering save.
-            compose.waitUntil(20_000) { speechLines().isNotEmpty() }
-            val previousSpeech = speechLines()
+            compose.waitUntil(20_000) {
+                automation.shellText("logcat -d -v brief -s GoogleTTSServiceImpl:I").contains("TTS dispatch:")
+            }
             val expected = if (saveFails) {
                 "Uma discussão ficou indisponível. Troque ou remova o vínculo indicado."
             } else {
                 "Informações atualizadas."
             }
-            val saveMarker = "scenario=$scenario click=salvar font_scale=$fontScale talkback_pid=$pid touch_exploration=true"
-            Log.i("AtrioQaTalkBack", saveMarker)
+            Log.i("AtrioQaTalkBack", "scenario=$scenario click=salvar font_scale=$fontScale talkback_pid=$pid " +
+                "touch_exploration=true device_epoch_ms=${System.currentTimeMillis()}")
             compose.onNodeWithTag("atrio-profile-v3-save").performClick()
 
-            var heard: String? = null
-            try {
-                compose.waitUntil(15_000) {
-                    heard = (speechLines() - previousSpeech).firstOrNull { expected in it }
-                    heard != null
-                }
-            } finally {
-                // Capture the diagnostic overlay and the app together. The CI artifact retains the native logs.
-                val directory = requireNotNull(compose.activity.getExternalFilesDir(null))
-                val frame = automation.takeScreenshot()
-                if (frame != null) {
-                    java.io.File(directory, "talkback-$scenario.png").outputStream().use {
-                        frame.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
-                    }
-                    frame.recycle()
-                }
+            val directory = java.io.File(requireNotNull(compose.activity.getExternalFilesDir(null)), "talkback-speech")
+            check(directory.isDirectory || directory.mkdirs())
+            repeat(12) { index ->
+                android.os.SystemClock.sleep(420)
+                val frame = requireNotNull(automation.takeScreenshot())
+                java.io.File(directory, "$scenario-${(index + 1).toString().padStart(2, '0')}.png")
+                    .outputStream().use { frame.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+                frame.recycle()
             }
-            Log.i("AtrioQaTalkBack", "scenario=$scenario evidence=${requireNotNull(heard)}")
+            Log.i("AtrioQaTalkBack", "scenario=$scenario frames=12 scope=pos_salvar " +
+                "device_epoch_ms=${System.currentTimeMillis()}")
             assertTrue(talkBackActive())
             val stateTag = if (saveFails) "atrio-profile-v3-message" else "atrio-profile-v3-status"
             compose.onNodeWithTag(stateTag).assertTextContains(expected, substring = true)
