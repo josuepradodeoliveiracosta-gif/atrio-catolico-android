@@ -160,7 +160,7 @@ run_suite() {
         exit 2
       } ;;
   esac
-  local full="br.com.atriocatolico.$suite"
+  local full="${ATRIO_QA_INSTRUMENTATION_CLASS:-br.com.atriocatolico.$suite}"
   echo "QA Android: iniciando $suite (isolado)"
   if gradle "$test_task" \
     "-Pandroid.testInstrumentationRunnerArguments.class=$full" "$@" \
@@ -187,6 +187,70 @@ if [[ "${ATRIO_QA_SUITE:-}" == ProfileV3ConsentEmulatorUiTest ]]; then
   [[ "$qa_apk" == qaGeral && "${ATRIO_QA_GERAL_REMOTE_BUILD:-}" != 1 ]] || {
     echo "Consentimento V3 exige qaGeral local" >&2; exit 2
   }
+  if [[ "${ATRIO_QA_PROFILE_V3_TALKBACK_SPEECH:-}" == 1 ]]; then
+    adb root
+    adb wait-for-device
+    [[ "$(adb shell id -u)" == 0 ]] || { echo "O AVD de QA recusou a configuração diagnóstica do TalkBack"; exit 2; }
+    # Restarting adbd removes the port mappings set during Firebase QA startup.
+    adb reverse tcp:9099 tcp:9099
+    adb reverse tcp:8089 tcp:8089
+    adb reverse --list
+    talkback_package=com.google.android.marvin.talkback
+    adb shell pm path "$talkback_package"
+    adb shell am force-stop "$talkback_package"
+    adb shell pm grant "$talkback_package" android.permission.POST_NOTIFICATIONS
+    adb shell settings put system font_scale 1.5
+    adb shell setprop log.tag.talkback VERBOSE
+    adb shell setprop log.tag.SpeechControllerImpl VERBOSE
+    adb shell setprop log.tag.FailoverTextToSpeech VERBOSE
+    prefs_xml="$(mktemp)"
+    for storage in /data/user_de/0 /data/user/0; do
+      prefs_root="$storage/$talkback_package"
+      prefs="$prefs_root/shared_prefs/$talkback_package""_preferences.xml"
+      adb shell "test -d '$prefs_root'"
+      adb shell "if test -f '$prefs'; then cat '$prefs'; fi" > "$prefs_xml"
+      python3 - "$prefs_xml" <<'PY'
+import os
+import sys
+import xml.etree.ElementTree as ET
+
+path = sys.argv[1]
+root = ET.parse(path).getroot() if os.path.getsize(path) else ET.Element("map")
+for entry in list(root):
+    if entry.get("name") in {"pref_log_level", "pref_tts_overlay", "pref_diagnosis_mode"}:
+        root.remove(entry)
+ET.SubElement(root, "string", name="pref_log_level").text = "2"
+ET.SubElement(root, "boolean", name="pref_tts_overlay", value="true")
+ET.SubElement(root, "boolean", name="pref_diagnosis_mode", value="true")
+ET.ElementTree(root).write(path, encoding="utf-8", xml_declaration=True)
+PY
+      adb push "$prefs_xml" /data/local/tmp/atrio-talkback-prefs.xml
+      app_owner="$(adb shell stat -c '%u:%g' "$prefs_root")"
+      adb shell "mkdir -p '$prefs_root/shared_prefs' && cp /data/local/tmp/atrio-talkback-prefs.xml '$prefs' &&
+        chown '$app_owner' '$prefs_root/shared_prefs' '$prefs' &&
+        chmod 770 '$prefs_root/shared_prefs' && chmod 660 '$prefs' &&
+        restorecon -RF '$prefs_root/shared_prefs'"
+    done
+    rm -f "$prefs_xml"
+    adb shell rm -f /data/local/tmp/atrio-talkback-prefs.xml
+    adb logcat -G 16M
+    adb logcat -c
+    qa_video=/data/local/tmp/atrio-qa-talkback.mp4
+    date +%s.%N > qa-android-suite-results/talkback-video-start.txt
+    adb shell screenrecord --bugreport --size 864x1920 --bit-rate 3500000 --time-limit 180 "$qa_video" \
+      > qa-android-suite-results/talkback-recorder.log 2>&1 &
+    qa_video_pid=$!
+    qa_class="br.com.atriocatolico.$ATRIO_QA_SUITE"
+    ATRIO_QA_INSTRUMENTATION_CLASS="$qa_class#talkBackAnnouncesSaveSuccessAt150Percent,$qa_class#talkBackAnnouncesSaveErrorAt150Percent" \
+      run_suite "$ATRIO_QA_SUITE"
+    adb shell pkill -INT -x screenrecord || true
+    wait "$qa_video_pid" || true
+    adb logcat -d -v threadtime | awk '/AtrioQaTalkBack:|SpeechControllerImpl:|GoogleTTSServiceImpl: TTS dispatch|talkback: (Pipeline|Actors):.*speech/' \
+      > qa-android-suite-results/talkback-speech.log
+    adb pull "$qa_video" qa-android-suite-results/talkback-screen.mp4
+    test -s qa-android-suite-results/talkback-screen.mp4
+    exit "$qa_failed"
+  fi
   run_suite "$ATRIO_QA_SUITE"
   adb logcat -d -s AtrioQaProfileV3:I '*:S' \
     > qa-android-suite-results/profile-v3-offline.log
