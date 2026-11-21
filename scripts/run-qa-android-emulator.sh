@@ -191,6 +191,10 @@ if [[ "${ATRIO_QA_SUITE:-}" == ProfileV3ConsentEmulatorUiTest ]]; then
     adb root
     adb wait-for-device
     [[ "$(adb shell id -u)" == 0 ]] || { echo "O AVD de QA recusou a configuração diagnóstica do TalkBack"; exit 2; }
+    # Restarting adbd removes the port mappings set during Firebase QA startup.
+    adb reverse tcp:9099 tcp:9099
+    adb reverse tcp:8089 tcp:8089
+    adb reverse --list
     talkback_package=com.google.android.marvin.talkback
     adb shell pm path "$talkback_package"
     adb shell am force-stop "$talkback_package"
