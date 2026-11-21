@@ -148,7 +148,7 @@ internal fun ProfileV3PreviewButton(onClick: () -> Unit) {
 }
 
 @Composable
-internal fun ProfileV3Summary(db: FirebaseFirestore, uid: String) {
+internal fun ProfileV3Summary(db: FirebaseFirestore, uid: String, modifier: Modifier = Modifier) {
     var draft by remember(db, uid) { mutableStateOf(ProfileV3Draft()) }
     DisposableEffect(db, uid) {
         val listener = db.document("users/$uid/private/profile_v3")
@@ -166,7 +166,7 @@ internal fun ProfileV3Summary(db: FirebaseFirestore, uid: String) {
     val hasInterests = draft.publicInterests.isNotEmpty()
     if (!hasAbout && !hasInterests) return
     Column(
-        Modifier.fillMaxWidth().testTag("atrio-profile-v3-summary"),
+        modifier.fillMaxWidth().testTag("atrio-profile-v3-summary"),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         if (hasAbout) {
@@ -191,7 +191,16 @@ internal fun ProfileV3Summary(db: FirebaseFirestore, uid: String) {
         if (hasInterests) {
             Text("Vamos conversar sobre…", fontWeight = FontWeight.Bold, color = Wine,
                 modifier = Modifier.padding(top = 4.dp))
-            Text(draft.publicInterests.joinToString(" · "), color = Ink)
+            for (label in draft.publicInterests) {
+                val detail = ProfileV3Interest.forLabel(label)?.let { draft.interestDetails[it.id] }
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(label, color = Ink, style = MaterialTheme.typography.titleSmall)
+                    detail?.question?.takeIf { it.isNotBlank() }?.let { Text(it, color = Ink) }
+                    if (detail?.postId != null) {
+                        Text("Discussão vinculada", color = Muted, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
         }
     }
 }
@@ -200,7 +209,7 @@ internal fun ProfileV3Summary(db: FirebaseFirestore, uid: String) {
 private fun ProfilePrivateSummaryRow(label: String, value: String, visible: Boolean) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         Text("$label · $value", modifier = Modifier.weight(1f), color = Ink)
-        Text(if (visible) "Visível" else "Oculto",
+        Text(if (visible) "Visível no perfil" else "Só você vê",
             style = MaterialTheme.typography.labelSmall, color = if (visible) Wine else Muted)
     }
 }
