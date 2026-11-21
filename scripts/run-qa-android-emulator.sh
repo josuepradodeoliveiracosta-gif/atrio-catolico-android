@@ -306,6 +306,15 @@ if [[ "$notice_focal" == 1 ]]; then
   }
   adb reverse tcp:8092 tcp:8092
   run_suite QaConversationNoticeDeniedAndroidTest
+  # A fixture com permissão negada deve alcançar onMessageReceived e registrar só o hash.
+  receipt_hash=26a30ede0faca3e21c7ca013220274be554ccc8e65e729b6ebef500079528584
+  receipt_log=qa-android-suite-results/fcm-receipt-denied.log
+  if ! adb logcat -d -v epoch -s AtrioQaFcmReceipt:I '*:S' |
+    grep -E "event=fcm_received utc=[0-9T:.Z-]+Z fcm_message_id_sha256=${receipt_hash}$" > "$receipt_log"; then
+    echo "QA Android: recibo FCM fictício ausente com permissão negada" >&2
+    qa_failed=1
+  fi
+  cat "$receipt_log"
   (cd tests/security && node seed-qa-conversation-notice-android.mjs --firestore-only)
   run_suite QaConversationNoticeGrantedAndroidTest
   (cd tests/security && node seed-qa-conversation-notice-android.mjs --firestore-only)

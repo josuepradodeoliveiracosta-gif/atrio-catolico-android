@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.util.Log
 import androidx.core.app.NotificationManagerCompat
 import com.google.android.gms.common.ConnectionResult
 import com.google.android.gms.common.GoogleApiAvailability
@@ -20,6 +21,8 @@ import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
+import java.security.MessageDigest
+import java.time.Instant
 import java.util.Locale
 import java.util.UUID
 import kotlinx.coroutines.runBlocking
@@ -323,6 +326,17 @@ class AtrioPushService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
         if (QaConversationNotices.configured) {
+            if (message.data["signal"] == "refresh") {
+                val receivedAt = Instant.now()
+                val messageId = message.messageId
+                val hash = if (messageId.isNullOrEmpty()) {
+                    "missing"
+                } else {
+                    MessageDigest.getInstance("SHA-256").digest(messageId.toByteArray(Charsets.UTF_8))
+                        .joinToString("") { byte -> (byte.toInt() and 0xff).toString(16).padStart(2, '0') }
+                }
+                Log.i("AtrioQaFcmReceipt", "event=fcm_received utc=$receivedAt fcm_message_id_sha256=$hash")
+            }
             // O callback do SDK roda em worker thread. Concluir o processamento
             // dentro do seu prazo preserva o ciclo de vida do serviço.
             runBlocking {
