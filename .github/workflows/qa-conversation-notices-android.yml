@@ -139,7 +139,9 @@ jobs:
           grep -F 'android.permission.POST_NOTIFICATIONS' "$manifest"
           if grep -Eq 'android:networkSecurityConfig|QaConversationSignalReceiver' "$manifest"; then exit 1; fi
           if grep -q qa_emulator_network_security qa-conversation-notices-https-resources.txt; then exit 1; fi
-          python3 - "$manifest" <<'PYMANIFEST'
+          apk_manifest=qa-conversation-notices-https-android-manifest.xml
+          "$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" manifest print "$apk" > "$apk_manifest"
+          python3 - "$apk_manifest" <<'PYMANIFEST'
           import sys
           from pathlib import Path
           from scripts.qa_geral_celular_round43 import verify_notice_manifest
@@ -170,6 +172,7 @@ jobs:
             qa-conversation-notice-worker.log
             qa-conversation-notices-manifest.txt
             qa-conversation-notices-https-manifest.txt
+            qa-conversation-notices-https-android-manifest.xml
             app/build/test-results/testQaGeralUnitTest/TEST-br.com.atriocatolico.QaConversationNoticeHttpTest.xml
           retention-days: 7
           if-no-files-found: warn
