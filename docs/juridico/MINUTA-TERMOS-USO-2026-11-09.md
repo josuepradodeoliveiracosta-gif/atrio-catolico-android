@@ -20,7 +20,9 @@ Para criar uma conta, o aplicativo pode solicitar **nome público, e-mail e senh
 
 A conta é pessoal. Não é permitido passar-se por outras pessoas, sacerdotes, diáconos, moderadores, administradores ou representantes oficiais do projeto. A simples autodeclaração de pertencimento religioso não concede selo, autoridade, condição clerical nem poderes de moderação.
 
-**Público-alvo e idade mínima:** [PENDENTE — definir classificação etária, regras de menores e cuidados especiais antes de lançamento público; não presumir que o serviço seja voltado a crianças].
+**Público-alvo e idade mínima — minuta:** o Átrio pretende exigir **18 anos ou mais para criar e usar qualquer área do serviço**. Para o teste fechado, a proposta é pedir data de nascimento informada pela própria pessoa e uma autodeclaração expressa de maioridade, calculada localmente e sem persistir a data. Esse método não comprova a idade de forma independente. A regra, o tratamento de respostas negativas e a forma de verificação dependem de revisão jurídica/privacidade e aprovação; não estão vigentes nem implementados no cadastro atual.
+
+Consulte a [Minuta de Política Etária 18+](MINUTA-POLITICA-ETARIA-18-2026-11-20.md). Não apresentar este parágrafo como Termos aprovados até a publicação da versão final e a integração de aceite versionado.
 
 ## 3. Regras de convivência
 

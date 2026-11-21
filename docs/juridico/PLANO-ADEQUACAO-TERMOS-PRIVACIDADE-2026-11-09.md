@@ -21,7 +21,8 @@
 | **P0** | Definir retenção e eliminação real por categoria | Dados de conta, posts, respostas, fotos, push, denúncias, backups, logs e retenções legais | **Bloqueado** |
 | **P0** | Construir e homologar exclusão de conta e dados e canal externo | O app só registra pedido; [PR #98](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/pull/98) segue **draft e não integrada**; não lançar sem procedimento seguro | **Bloqueado** |
 | **P0** | Garantir mecanismo de atendimento a titulares LGPD | Canal público, processo para acesso/correção/revogação/eliminação e verificação razoável de identidade | **Pendente** |
-| **P0** | Definir idade, regras de menores e segurança de UGC | Termos, canal de denúncias, resposta operacional, moderação real, proteção infantil quando aplicável | **Pendente** |
+| **P0** | Aprovar política 18+ e método de verificação etária | [Minuta interna](MINUTA-POLITICA-ETARIA-18-2026-11-20.md): teste fechado por data informada localmente + autodeclaração; não é prova independente; revisar privacidade/jurídica, recusa, recurso, retenção e aplicação antes de lançamento | **Minuta preparada; aprovação pendente** |
+| **P0** | Definir tratamento de menores e segurança de UGC | Termos, canal de denúncias, resposta operacional, moderação real, proteção infantil quando aplicável | **Pendente** |
 | **P1** | Revisar direitos autorais e licenças de conteúdos de usuários/mídias | Fontes, fotos, vídeo, trilha, nomes e biografias | **Pendente** |
 | **P1** | Publicar versão definitiva em URL HTTPS acessível sem login | Acesso mundial, sem PDF e consistente com o que o app exibe; não presumir que esta minuta GitHub seja a política oficial | **Pendente** |
 | **P1** | Registrar aceite versionado e acessível | `community_consents` registra versão das regras; os checkboxes atuais de termos/privacidade são prévias, não prova de aceite de texto final | **Pendente** |
@@ -36,6 +37,7 @@
 4. [AccountSecurityPanel.kt](../../app/src/main/java/br/com/atriocatolico/AccountSecurityPanel.kt) registra uma solicitação de exclusão, **sem excluir** imediatamente os dados da conta.
 5. [Documentação de cadastro/Play](../publicacao-play-store/CADASTRO-SEGURANCA-E-PRIVACIDADE.md) já identifica lacunas de eliminação, contato, moderação e política jurídica.
 6. [PR #71](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/pull/71) é referente à preparação do **AAB/Google Play**, não é a PR consolidada de privacidade; esta última é a [PR #98](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/pull/98).
+7. A [minuta de política etária 18+](MINUTA-POLITICA-ETARIA-18-2026-11-20.md) documenta a decisão e o método provisório para o teste fechado; cadastro, verificação real e aprovação jurídica continuam pendentes.
 
 ## Referências oficiais
 

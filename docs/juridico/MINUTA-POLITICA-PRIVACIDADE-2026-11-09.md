@@ -96,11 +96,21 @@ A pessoa poderá exercer os direitos previstos nos arts. 18 e seguintes da LGPD,
 
 A execução do atendimento pode exigir confirmação razoável da identidade e análise de retenções legalmente obrigatórias; não se deve impor obstáculos desnecessários.
 
-## 8. Crianças, adolescentes e dados sensíveis
+## 8. Idade mínima, menores e dados sensíveis
 
-O código examinado não comprova uma política etária definitiva nem controles completos de identificação de menores. **Antes de receber ou direcionar serviços a menores, definir regras e proteção adequadas** à LGPD, ao ECA e às políticas do canal de distribuição, observando o melhor interesse de crianças e adolescentes.
+**Proposta interna:** idade mínima de **18 anos para criar e usar qualquer área do Átrio**, conforme a decisão de produto registrada pelo responsável. Esta regra ainda não foi aprovada juridicamente, publicada ou aplicada em todo o aplicativo.
 
-O contexto religioso demanda cautela com interesses de fé, filiação religiosa, paróquia, autodeclarações de condição clerical e possíveis inferências a partir do conteúdo.
+Para o teste fechado, a proposta operacional é a pessoa informar a data de nascimento e confirmar expressamente que tem 18 anos ou mais. O cálculo seria local, sem enviar nem guardar a data de nascimento. Esse método é uma autodeclaração e **não comprova a idade de forma independente**. Se a data for inválida ou indicar menos de 18 anos, ou se a pessoa não confirmar a maioridade, o acesso deve ser bloqueado sem criar uma conta comunitária.
+
+Se o backend precisar registrar uma decisão de elegibilidade, a proposta é guardar apenas o resultado, a idade mínima e a versão da política em documento privado, com escrita controlada pelo backend. A necessidade, a base legal e o prazo de retenção desse registro ainda estão pendentes de revisão. Não coletar documento, selfie ou biometria sem nova avaliação de necessidade, proporcionalidade e segurança.
+
+**Estado técnico atual:** o cadastro em `OnlineAtrioApp.kt` não implementa campo de nascimento nem declaração 18+. `firebase/qa-general/age18-gate.mjs` é um fragmento exclusivo de QA offline; suas fixtures não comprovam idade real nem autorizam implantação. A política não deve ser apresentada como vigente até que texto, controles, Termos, aceite versionado e atendimento sejam revisados e aprovados.
+
+Em caso de suspeita confiável de acesso por menor, o fluxo de suspensão, revisão humana, contestação, eliminação e retenção mínima ainda precisa ser definido. Antes de inscrições abertas ou lançamento público, reavaliar se a autodeclaração é adequada; eventual fornecedor externo exige revisão própria, sem presumir que a adoção de uma ferramenta esteja aprovada.
+
+O contexto religioso continua demandando cautela com interesses de fé, filiação religiosa, paróquia, autodeclarações de condição clerical e possíveis inferências a partir do conteúdo.
+
+Ver a [Minuta de Política Etária 18+](MINUTA-POLITICA-ETARIA-18-2026-11-20.md), que detalha os controles propostos e a lista de revisão profissional. Este texto permanece uma minuta e não constitui aconselhamento jurídico.
 
 ## 9. Armazenamento local e permissões do dispositivo
 
@@ -120,7 +130,7 @@ Somente após aprovação, o documento deverá indicar controlador, contatos, ve
 2. Validar o inventário de dados de **produção**, processadores e subprocessadores, logs, distribuição e transferência internacional.
 3. Aprovar finalidades e bases legais, com tratamento reforçado para dados **religiosos sensíveis**, de preferência sob revisão jurídica.
 4. Definir retenção, rotinas reais de exclusão e procedimento para solicitações, inclusive endpoint/canal externo HTTPS.
-5. Definir público-alvo, tratamento de menores e moderação efetiva de conteúdo gerado por usuários.
+5. Aprovar a política 18+ e o método de verificação, com revisão de privacidade/jurídica; validar o tratamento de menores e a moderação efetiva de conteúdo gerado por usuários.
 6. Disponibilizar versão final clara no aplicativo, em URL HTTPS pública e estável sem login, e garantir consistência com as declarações `Data safety` da Play Console.
 7. Conferir o aceite registrado: `community_consents` guarda **Regras da Comunidade**, mas os checkboxes da prévia legal vistos no cadastro não comprovam armazenamento de versão de Termos e Política como documentos finais.
 8. Homologar fluxos e só então marcar a política como vigente; não fazer alterações retroativas fictícias em consentimentos.
