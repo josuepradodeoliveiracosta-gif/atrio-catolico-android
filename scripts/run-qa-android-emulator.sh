@@ -217,10 +217,11 @@ import xml.etree.ElementTree as ET
 path = sys.argv[1]
 root = ET.parse(path).getroot() if os.path.getsize(path) else ET.Element("map")
 for entry in list(root):
-    if entry.get("name") in {"pref_log_level", "pref_tts_overlay"}:
+    if entry.get("name") in {"pref_log_level", "pref_tts_overlay", "pref_diagnosis_mode"}:
         root.remove(entry)
 ET.SubElement(root, "string", name="pref_log_level").text = "2"
 ET.SubElement(root, "boolean", name="pref_tts_overlay", value="true")
+ET.SubElement(root, "boolean", name="pref_diagnosis_mode", value="true")
 ET.ElementTree(root).write(path, encoding="utf-8", xml_declaration=True)
 PY
       adb push "$prefs_xml" /data/local/tmp/atrio-talkback-prefs.xml
@@ -232,28 +233,22 @@ PY
     done
     rm -f "$prefs_xml"
     adb shell rm -f /data/local/tmp/atrio-talkback-prefs.xml
+    adb logcat -G 16M
     adb logcat -c
-    qa_audio_pid=""
-    if [[ "${ATRIO_QA_CAPTURE_AUDIO:-}" == 1 ]]; then
-      date +%s.%N > qa-android-suite-results/talkback-audio-start.txt
-      ffmpeg -nostdin -hide_banner -loglevel warning -f pulse -i atrio_qa_speech.monitor \
-        -ac 1 -ar 24000 -y qa-android-suite-results/talkback-audio.wav \
-        > qa-android-suite-results/talkback-audio-recorder.log 2>&1 &
-      qa_audio_pid=$!
-    fi
+    qa_video=/data/local/tmp/atrio-qa-talkback.mp4
+    date +%s.%N > qa-android-suite-results/talkback-video-start.txt
+    adb shell screenrecord --bugreport --size 864x1920 --bit-rate 3500000 --time-limit 180 "$qa_video" \
+      > qa-android-suite-results/talkback-recorder.log 2>&1 &
+    qa_video_pid=$!
     qa_class="br.com.atriocatolico.$ATRIO_QA_SUITE"
     ATRIO_QA_INSTRUMENTATION_CLASS="$qa_class#talkBackAnnouncesSaveSuccessAt150Percent,$qa_class#talkBackAnnouncesSaveErrorAt150Percent" \
       run_suite "$ATRIO_QA_SUITE"
-    if [[ -n "$qa_audio_pid" ]]; then
-      kill -INT "$qa_audio_pid" 2>/dev/null || true
-      wait "$qa_audio_pid" || true
-    fi
-    adb logcat -d -v threadtime | awk '/AtrioQaTalkBack:|SpeechControllerImpl:.*Speaking fragment|GoogleTTSServiceImpl: TTS dispatch|TTS is not ready/' \
+    adb shell pkill -INT -x screenrecord || true
+    wait "$qa_video_pid" || true
+    adb logcat -d -v threadtime | awk '/AtrioQaTalkBack:|SpeechControllerImpl:|GoogleTTSServiceImpl: TTS dispatch|talkback: (Pipeline|Actors):.*speech/' \
       > qa-android-suite-results/talkback-speech.log
-    adb pull /data/local/tmp/atrio-talkback-speech qa-android-suite-results/
-    for outcome in sucesso erro; do
-      test -s "qa-android-suite-results/atrio-talkback-speech/$outcome-12.png"
-    done
+    adb pull "$qa_video" qa-android-suite-results/talkback-screen.mp4
+    test -s qa-android-suite-results/talkback-screen.mp4
     exit "$qa_failed"
   fi
   run_suite "$ATRIO_QA_SUITE"
