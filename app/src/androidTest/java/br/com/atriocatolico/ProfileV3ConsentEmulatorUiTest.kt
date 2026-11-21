@@ -10,6 +10,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasTestTag
@@ -23,6 +25,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performTextReplacement
 import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.FirebaseApp
@@ -38,6 +41,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import kotlinx.coroutines.CompletableDeferred
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
@@ -100,6 +105,189 @@ class ProfileV3ConsentEmulatorUiTest {
 
     @After fun cleanSessions() {
         sessions.forEach { it.signOut() }
+    }
+
+    @Test fun editsQuestionAndDiscussionTogetherAndHidingClearsBothProjections() {
+        seedV3()
+        val postA = createDiscussion("Discussão inicial da prova")
+        val postB = createDiscussion("Discussão seguinte da prova")
+        val postRemoved = createDiscussion("Discussão removida da prova")
+        val v2 = await(preferences.get(Source.SERVER)).data
+        val profile = await(legacy.get(Source.SERVER)).data
+        val links = owner.document(publicProfile.path).profileV3Links()
+        val question = "🕊".repeat(140)
+
+        showEditor()
+        editorControl("atrio-v3-question-oracao").performTextReplacement(question + "x")
+        compose.onNodeWithTag("atrio-profile-v3-save").assertIsNotEnabled()
+        editorControl("atrio-v3-question-oracao").performTextReplacement("  $question  ")
+        selectDiscussion(postA)
+        saveEditor()
+        assertEquals(mapOf("oracao" to question), await(publicProfile.get(Source.SERVER)).get("interestQuestions"))
+        assertEquals(mapOf("oracao" to postA), await(links.get(Source.SERVER)).get("postIds"))
+        assertEquals(mapOf("question" to question, "postId" to postA),
+            await(privateV3.get(Source.SERVER)).get("interestDetails.oracao"))
+
+        openEditorAgain()
+        editorControl("atrio-v3-pick-oracao").performClick()
+        waitForTag("atrio-v3-candidate-$postB")
+        compose.onNodeWithTag("atrio-v3-candidate-$postB").performClick()
+        compose.onNodeWithText("Cancelar").performClick()
+        editorControl("atrio-v3-question-oracao").performTextReplacement("  Pergunta editada? ")
+        saveEditor()
+        assertEquals(mapOf("oracao" to postA), await(links.get(Source.SERVER)).get("postIds"))
+        assertEquals("Pergunta editada?", await(publicProfile.get(Source.SERVER)).get("interestQuestions.oracao"))
+
+        openEditorAgain()
+        editorControl("atrio-profile-v3-interest-0").performClick().assertIsOff()
+        compose.onNodeWithText("Fechar").performClick()
+        assertEquals("Pergunta editada?", await(publicProfile.get(Source.SERVER)).get("interestQuestions.oracao"))
+
+        openEditorAgain()
+        selectDiscussion(postB)
+        saveEditor()
+        assertEquals(mapOf("oracao" to postB), await(links.get(Source.SERVER)).get("postIds"))
+        assertEquals("Pergunta editada?", await(publicProfile.get(Source.SERVER)).get("interestQuestions.oracao"))
+
+        openEditorAgain()
+        editorControl("atrio-v3-clear-question-oracao").performClick()
+        saveEditor()
+        assertFalse(await(publicProfile.get(Source.SERVER)).contains("interestQuestions"))
+        assertEquals(mapOf("oracao" to postB), await(links.get(Source.SERVER)).get("postIds"))
+
+        openEditorAgain()
+        editorControl("atrio-v3-remove-link-oracao").performClick()
+        editorControl("atrio-v3-question-oracao").performTextReplacement("Pergunta sem discussão?")
+        saveEditor()
+        assertFalse(await(links.get(Source.SERVER)).exists())
+        assertEquals("Pergunta sem discussão?", await(publicProfile.get(Source.SERVER)).get("interestQuestions.oracao"))
+
+        openEditorAgain()
+        selectDiscussion(postRemoved)
+        await(owner.collection("posts").document(postRemoved).delete())
+        compose.onNodeWithTag("atrio-profile-v3-save").performClick()
+        waitForTag("atrio-profile-v3-message")
+        compose.onNodeWithTag("atrio-profile-v3-message").assertTextContains("Troque ou remova", substring = true)
+        assertFalse(await(links.get(Source.SERVER)).exists())
+
+        selectDiscussion(postB)
+        saveEditor()
+        assertEquals(mapOf("oracao" to postB), await(links.get(Source.SERVER)).get("postIds"))
+        openEditorAgain()
+        editorControl("atrio-profile-v3-interest-0").performClick().assertIsOff()
+        editorControl("atrio-profile-v3-interest-1").performClick().assertIsOn()
+        saveEditor()
+        assertEquals(emptyMap<String, Any>(), await(privateV3.get(Source.SERVER)).get("interestDetails"))
+        assertEquals(listOf("Formação"), await(publicProfile.get(Source.SERVER)).get("interests"))
+        assertFalse(await(publicProfile.get(Source.SERVER)).contains("interestQuestions"))
+        assertFalse(await(links.get(Source.SERVER)).exists())
+        assertEquals(v2, await(preferences.get(Source.SERVER)).data)
+        assertEquals(profile, await(legacy.get(Source.SERVER)).data)
+        assertTrue(await(owner.collection("posts").document(postA).get(Source.SERVER)).exists())
+
+        openEditorAgain()
+        editorControl("atrio-profile-v3-interest-0").performClick().assertIsOn()
+        editorControl("atrio-v3-question-oracao")
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString("")))
+        editorControl("atrio-v3-pick-oracao").assertTextContains("Escolher discussão")
+    }
+
+    @Test fun tappingRequiresFreshAccessAndTheSameDestination() {
+        seedV3(devotionVisible = false)
+        val responses = ConcurrentLinkedQueue<ProfileV3Discussion>().apply {
+            add(ProfileV3Discussion.Available("original", "Discussão original fictícia"))
+            add(ProfileV3Discussion.Available("trocada", "Outra discussão fictícia"))
+            add(ProfileV3Discussion.Unavailable)
+        }
+        val opened = ConcurrentLinkedQueue<String>()
+        var screenOpen by mutableStateOf(true)
+        val lateResponse = CompletableDeferred<ProfileV3Discussion>()
+        var waitForOldAccount = false
+        var viewerAccount by mutableStateOf(visitorUid)
+        val resolver = ProfileV3DiscussionResolver { viewer, id, interest ->
+            assertEquals(uid, id)
+            assertEquals(ProfileV3Interest.PRAYER, interest)
+            if (viewer.uid != visitorUid) ProfileV3Discussion.NoLink
+            else responses.poll() ?: if (waitForOldAccount) lateResponse.await()
+            else ProfileV3Discussion.Available("confirmada", "Discussão confirmada fictícia")
+        }
+        compose.setContent {
+            AtrioTheme {
+                if (screenOpen) PublicMemberProfileScreen(
+                    visitor, PublicMemberTarget(uid, name), onBack = {}, onOpenDiscussion = { opened.add(it) },
+                    viewerUid = viewerAccount, discussionResolver = resolver
+                )
+            }
+        }
+        waitForText("Discussão original fictícia")
+        compose.onNodeWithTag("atrio-v3-open-oracao").performClick()
+        waitForText("Outra discussão fictícia")
+        assertTrue(opened.isEmpty())
+        compose.onNodeWithTag("atrio-v3-open-oracao").performClick()
+        waitForText("Discussão indisponível")
+        compose.onNodeWithTag("atrio-v3-open-oracao").assertDoesNotExist()
+        compose.onNodeWithText("Outra discussão fictícia").assertDoesNotExist()
+        assertTrue(opened.isEmpty())
+
+        compose.runOnIdle { screenOpen = false }
+        compose.waitForIdle()
+        compose.runOnIdle { screenOpen = true }
+        waitForText("Discussão confirmada fictícia")
+        compose.onNodeWithTag("atrio-v3-open-oracao").performClick()
+        compose.waitUntil(15_000) { opened.peek() == "confirmada" }
+
+        compose.runOnIdle { waitForOldAccount = true }
+        compose.onNodeWithTag("atrio-v3-open-oracao").performClick()
+        waitForText("Consultando discussão…")
+        val replacement = requireNotNull(await(FirebaseAuth.getInstance(visitor.app).createUserWithEmailAndPassword(
+            "perfil-${UUID.randomUUID()}@qa.invalid", fakePassword
+        )).user)
+        compose.runOnIdle { viewerAccount = replacement.uid }
+        waitForText("Oração")
+        lateResponse.complete(ProfileV3Discussion.Available("confirmada", "Título da sessão anterior"))
+        compose.waitForIdle()
+        compose.onNodeWithText("Título da sessão anterior").assertDoesNotExist()
+        compose.onNodeWithTag("atrio-v3-open-oracao").assertDoesNotExist()
+        assertEquals(listOf("confirmada"), opened.toList())
+    }
+
+    private fun createDiscussion(title: String): String {
+        val post = owner.collection("posts").document()
+        await(post.set(mapOf(
+            "uid" to uid, "title" to title, "body" to "Conteúdo fictício para o QA.",
+            "authorName" to name, "category" to "Pedidos de oração",
+            "createdAt" to FieldValue.serverTimestamp()
+        )))
+        return post.id
+    }
+
+    private fun editorControl(tag: String): androidx.compose.ui.test.SemanticsNodeInteraction {
+        compose.onNodeWithTag("atrio-profile-v3-editor").performScrollToNode(hasTestTag(tag))
+        return compose.onNodeWithTag(tag)
+    }
+
+    private fun selectDiscussion(postId: String) {
+        editorControl("atrio-v3-pick-oracao").performClick()
+        waitForTag("atrio-v3-candidate-$postId")
+        compose.onNodeWithTag("atrio-v3-candidate-$postId").performClick()
+        compose.onNodeWithTag("atrio-v3-link-confirm").performClick()
+        waitForTag("atrio-profile-v3-save")
+    }
+
+    private fun saveEditor() {
+        waitForEnabled("atrio-profile-v3-save")
+        compose.onNodeWithTag("atrio-profile-v3-save").performClick()
+        compose.waitUntil(15_000) {
+            compose.onAllNodes(hasTestTag("atrio-profile-v3-save")).fetchSemanticsNodes().isEmpty() ||
+                compose.onAllNodes(hasTestTag("atrio-profile-v3-message")).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("atrio-profile-v3-message").assertDoesNotExist()
+        compose.onNodeWithTag("atrio-profile-v3-save").assertDoesNotExist()
+    }
+
+    private fun openEditorAgain() {
+        compose.onNodeWithTag("atrio-profile-v3-edit").performClick()
+        waitForEnabled("atrio-profile-v3-save")
     }
 
     @Test fun cancelThenWithdrawPreservesLegacyAndV2ForTheOwnerAndVisitor() {
