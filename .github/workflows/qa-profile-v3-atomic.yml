@@ -78,6 +78,18 @@ jobs:
           sudo udevadm trigger --name-match=kvm
           test -c /dev/kvm
           sudo chmod 0666 /dev/kvm
+      - name: Preparar gravação de áudio do emulador de QA
+        run: |
+          if ! command -v pulseaudio || ! command -v pactl || ! command -v ffmpeg; then
+            sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends pulseaudio pulseaudio-utils ffmpeg || true
+          fi
+          if command -v pulseaudio && command -v pactl && command -v ffmpeg; then
+            pulseaudio --start --exit-idle-time=-1
+            pactl load-module module-null-sink sink_name=atrio_qa_speech
+            pactl set-default-sink atrio_qa_speech
+            echo "QEMU_AUDIO_DRV=pa" >> "$GITHUB_ENV"
+            echo "ATRIO_QA_CAPTURE_AUDIO=1" >> "$GITHUB_ENV"
+          fi
       - name: Testar Perfil V3 no Android virtual e no Worker local
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         with:
@@ -88,7 +100,7 @@ jobs:
           ram-size: 2048M
           target: google_apis
           disable-animations: true
-          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -accel on -camera-back none
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -no-boot-anim -accel on -camera-back none
           script: bash scripts/run-qa-android-emulator.sh
       - name: Testar a variante qaGeral na JVM
         run: gradle :app:testQaGeralUnitTest
