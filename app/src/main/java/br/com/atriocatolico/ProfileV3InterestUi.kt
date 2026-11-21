@@ -1,18 +1,24 @@
 package br.com.atriocatolico
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.google.firebase.auth.FirebaseAuth
@@ -21,6 +27,7 @@ import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.Source
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 @Composable
@@ -37,11 +44,14 @@ internal fun ProfileV3InterestEditor(
     onPick: () -> Unit
 ) {
     val pickerFocus = remember { FocusRequester() }
-    LaunchedEffect(restoreFocus) {
-        if (restoreFocus) {
-            pickerFocus.requestFocus()
-            onFocusRestored()
-        }
+    val revealPicker = remember { BringIntoViewRequester() }
+    val window = LocalWindowInfo.current
+    LaunchedEffect(restoreFocus, enabled) {
+        if (!restoreFocus || !enabled) return@LaunchedEffect
+        snapshotFlow { window.isWindowFocused }.first { it }
+        revealPicker.bringIntoView()
+        withFrameNanos { }
+        if (pickerFocus.requestFocus(FocusDirection.Enter)) onFocusRestored()
     }
     val length = detail.question.profileV3QuestionLength()
     OutlinedTextField(
@@ -92,7 +102,12 @@ internal fun ProfileV3InterestEditor(
     TextButton(
         enabled = enabled,
         onClick = onPick,
-        modifier = Modifier.focusRequester(pickerFocus).testTag("atrio-v3-pick-${interest.id}")
+        modifier = Modifier
+            .bringIntoViewRequester(revealPicker)
+            .focusRequester(pickerFocus)
+            .focusProperties { canFocus = enabled }
+            .testTag("atrio-v3-pick-${interest.id}")
+            .semantics { testTagsAsResourceId = true }
     ) {
         Text(if (detail.postId == null) "Escolher discussão" else "Trocar discussão")
     }

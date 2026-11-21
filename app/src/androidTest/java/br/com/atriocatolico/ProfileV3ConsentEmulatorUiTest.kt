@@ -1,15 +1,27 @@
 package br.com.atriocatolico
 
+import android.accessibilityservice.AccessibilityServiceInfo
+import android.content.Context
+import android.app.UiAutomation
+import android.os.ParcelFileDescriptor
 import android.util.Log
+import android.view.accessibility.AccessibilityManager
+import android.view.accessibility.AccessibilityNodeInfo
+import androidx.test.platform.app.InstrumentationRegistry
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -23,7 +35,9 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextReplacement
 import com.google.android.gms.tasks.Task
@@ -105,6 +119,188 @@ class ProfileV3ConsentEmulatorUiTest {
 
     @After fun cleanSessions() {
         sessions.forEach { it.signOut() }
+    }
+
+    @Test fun interestAccessibilityWithLargeText() {
+        seedV3()
+        val linkedTitle = "Oração em comunidade"
+        val linked = createDiscussion(linkedTitle)
+        val removed = createDiscussion("Discussão retirada")
+        val question = "Como rezar em comunidade?"
+        val fieldTag = "atrio-v3-question-oracao"
+        val pickerTag = "atrio-v3-pick-oracao"
+        val counter = "${question.length}/140"
+        val a11y = compose.activity.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
+        val talkBackInstalled = a11y.installedAccessibilityServiceList.any {
+            it.resolveInfo.serviceInfo.name.endsWith("TalkBackService")
+        }
+        val talkBackActive = a11y.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_SPOKEN).any {
+            it.resolveInfo.serviceInfo.name.endsWith("TalkBackService")
+        }
+        Log.i("AtrioQaProfileV3", "a11y_font_scale=1.5 talkback_installed=$talkBackInstalled talkback_active=$talkBackActive")
+
+        showEditor(fontScale = 1.5f)
+        editorControl(fieldTag).performTextReplacement("🕊".repeat(141))
+        compose.onNodeWithText("141/140 · Limite excedido", useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag("atrio-profile-v3-save").assertIsNotEnabled()
+        editorControl(fieldTag).performTextReplacement(question)
+        compose.onNodeWithText("Pergunta opcional · Oração", useUnmergedTree = true).assertExists()
+        compose.onNodeWithText(counter, useUnmergedTree = true).assertExists()
+        editorControl(pickerTag).assertTextContains("Escolher discussão")
+        selectDiscussion(linked)
+        val linkLabel = "Discussão vinculada · $linkedTitle"
+        waitForText(linkLabel)
+
+        val order = listOf(
+            hasTestTag("atrio-profile-v3-interest-0"),
+            hasTestTag(fieldTag),
+            hasText(counter),
+            hasText(linkLabel),
+            hasTestTag(pickerTag),
+            hasTestTag("atrio-v3-remove-link-oracao")
+        )
+        val expectedIds = order.map { compose.onNode(it, useUnmergedTree = true).fetchSemanticsNode().id }
+        val ids = compose.onAllNodes(order.reduce { a, b -> a or b }, useUnmergedTree = true)
+            .fetchSemanticsNodes().map { it.id }
+        assertEquals(expectedIds, ids)
+        editorControl(pickerTag).assertTextContains("Trocar discussão")
+        editorControl("atrio-v3-remove-link-oracao").assertTextContains("Remover vínculo")
+        compose.onNodeWithText("Ao ocultar este interesse e salvar, a pergunta e o vínculo serão apagados.",
+            useUnmergedTree = true).assertExists()
+        Log.i("AtrioQaProfileV3", "a11y_semantics=interesse,pergunta,contador,discussao,trocar,remover")
+
+        saveEditor()
+        waitForTag("atrio-profile-v3-status")
+        compose.onNodeWithTag("atrio-profile-v3-status")
+            .assertTextContains("Informações atualizadas.")
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite))
+
+        openEditorAgain()
+        selectDiscussion(removed)
+        await(owner.collection("posts").document(removed).delete())
+        compose.onNodeWithTag("atrio-profile-v3-save").performClick()
+        waitForTag("atrio-profile-v3-message")
+        compose.onNodeWithTag("atrio-profile-v3-message")
+            .assertTextContains("Troque ou remova", substring = true)
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite))
+        editorControl(fieldTag)
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString(question)))
+        assertEquals(question, await(publicProfile.get(Source.SERVER)).get("interestQuestions.oracao"))
+        Log.i("AtrioQaProfileV3", "a11y_feedback=sucesso_polite,erro_polite,rascunho_preservado")
+    }
+
+    @Test fun talkBackReturnsAccessibilityFocusWithLargeText() {
+        seedV3()
+        val linked = createDiscussion("Oração em comunidade")
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val automation = instrumentation.getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES)
+        val manager = compose.activity.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
+        val talkBack = manager.installedAccessibilityServiceList.single {
+            it.resolveInfo.serviceInfo.name.endsWith("TalkBackService")
+        }
+        val service = talkBack.resolveInfo.serviceInfo
+        val component = android.content.ComponentName(service.packageName, service.name)
+            .flattenToShortString()
+        val oldServices = automation.shellText("settings get secure enabled_accessibility_services")
+        val oldEnabled = automation.shellText("settings get secure accessibility_enabled")
+        val enabledServices = listOf(oldServices.takeUnless { it == "null" || it.isBlank() }, component)
+            .filterNotNull().distinct().joinToString(":")
+        try {
+            automation.shellText("settings put secure enabled_accessibility_services $enabledServices")
+            automation.shellText("settings put secure accessibility_enabled 1")
+            fun talkBackIsActive() = manager.isTouchExplorationEnabled &&
+                manager.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_SPOKEN)
+                    .any { it.id == talkBack.id }
+            compose.waitUntil(15_000) { talkBackIsActive() }
+            Log.i("AtrioQaProfileV3", "a11y_talkback=ativo exploracao_por_toque=true")
+            if (automation.rootInActiveWindow?.packageName?.toString() == service.packageName) {
+                automation.shellText("input keyevent KEYCODE_BACK")
+            }
+
+            showEditor(fontScale = 1.5f)
+            val pickerTag = "atrio-v3-pick-oracao"
+            editorControl(pickerTag)
+            var opener: AccessibilityNodeInfo? = null
+            compose.waitUntil(15_000) {
+                opener = automation.rootInActiveWindow?.findVisibleNode(pickerTag)
+                opener != null
+            }
+
+            fun focusedPickerLabel(): String? {
+                val focused = automation.rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_ACCESSIBILITY)
+                return focused?.takeIf { it.viewIdResourceName == pickerTag && it.isVisibleToUser }
+                    ?.text?.toString()
+            }
+            val button = requireNotNull(opener)
+            assertTrue(button.isAccessibilityFocused || button.performAction(AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS))
+            compose.waitUntil(15_000) { focusedPickerLabel() == "Escolher discussão" }
+            assertTrue(button.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            waitForTag("atrio-v3-candidate-$linked")
+            compose.onNodeWithText("Cancelar").performClick()
+            waitForPickerDismissal()
+            compose.waitUntil(15_000) { focusedPickerLabel() == "Escolher discussão" }
+            assertTrue(talkBackIsActive())
+            Log.i("AtrioQaProfileV3", "a11y_talkback_picker_focus=cancelar action=escolher")
+
+            val afterCancel = requireNotNull(automation.rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_ACCESSIBILITY))
+            assertTrue(afterCancel.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            waitForTag("atrio-v3-candidate-$linked")
+            compose.onNodeWithTag("atrio-v3-candidate-$linked").performClick()
+            compose.onNodeWithTag("atrio-v3-link-confirm").performClick()
+            waitForPickerDismissal()
+            compose.waitUntil(15_000) { focusedPickerLabel() == "Trocar discussão" }
+            assertTrue(talkBackIsActive())
+            Log.i("AtrioQaProfileV3", "a11y_talkback_picker_focus=confirmar action=trocar")
+        } finally {
+            restoreSecureSetting(automation, "enabled_accessibility_services", oldServices)
+            restoreSecureSetting(automation, "accessibility_enabled", oldEnabled)
+        }
+    }
+
+    private fun AccessibilityNodeInfo.findVisibleNode(tag: String): AccessibilityNodeInfo? {
+        if (isVisibleToUser && viewIdResourceName == tag) return this
+        for (index in 0 until childCount) {
+            getChild(index)?.findVisibleNode(tag)?.let { return it }
+        }
+        return null
+    }
+
+    private fun UiAutomation.shellText(command: String): String =
+        ParcelFileDescriptor.AutoCloseInputStream(executeShellCommand(command))
+            .bufferedReader().use { it.readText().trim() }
+
+    private fun restoreSecureSetting(automation: UiAutomation, name: String, value: String) {
+        automation.shellText(
+            if (value == "null" || value.isBlank()) "settings delete secure $name"
+            else "settings put secure $name $value"
+        )
+    }
+
+    @Test fun interestPickerReturnsInputFocusWithLargeText() {
+        seedV3()
+        val linked = createDiscussion("Oração em comunidade")
+        showEditor(fontScale = 1.5f)
+        editorControl("atrio-v3-pick-oracao").performTouchInput { click() }
+        waitForTag("atrio-v3-candidate-$linked")
+        compose.onNodeWithText("Cancelar").performTouchInput { click() }
+        waitForRestoredPickerFocus("Escolher discussão")
+        Log.i("AtrioQaProfileV3", "a11y_picker_focus=cancelar")
+        selectDiscussion(linked)
+        waitForRestoredPickerFocus("Trocar discussão")
+        Log.i("AtrioQaProfileV3", "a11y_picker_focus=confirmar")
+    }
+
+    private fun waitForRestoredPickerFocus(label: String) {
+        waitForPickerDismissal()
+        val picker = compose.onNodeWithTag("atrio-v3-pick-oracao")
+        compose.waitUntil(15_000) { runCatching { picker.assertIsFocused() }.isSuccess }
+        picker.assertTextContains(label)
+    }
+
+    private fun waitForPickerDismissal() {
+        compose.waitUntil(15_000) {
+            compose.onAllNodes(hasTestTag("atrio-v3-link-confirm")).fetchSemanticsNodes().isEmpty()
+        }
     }
 
     @Test fun editsQuestionAndDiscussionTogetherAndHidingClearsBothProjections() {
@@ -271,7 +467,7 @@ class ProfileV3ConsentEmulatorUiTest {
         waitForTag("atrio-v3-candidate-$postId")
         compose.onNodeWithTag("atrio-v3-candidate-$postId").performClick()
         compose.onNodeWithTag("atrio-v3-link-confirm").performClick()
-        waitForTag("atrio-profile-v3-save")
+        waitForPickerDismissal()
     }
 
     private fun saveEditor() {
@@ -580,12 +776,16 @@ class ProfileV3ConsentEmulatorUiTest {
         return db to user.uid
     }
 
-    private fun showEditor() {
+    private fun showEditor(fontScale: Float? = null) {
         compose.setContent {
-            AtrioTheme {
-                Column {
-                    ProfileV3Summary(owner, uid)
-                    ProfileV3Editor(owner, uid)
+            val density = LocalDensity.current
+            val scaledDensity = fontScale?.let { Density(density.density, it) } ?: density
+            CompositionLocalProvider(LocalDensity provides scaledDensity) {
+                AtrioTheme {
+                    Column {
+                        ProfileV3Summary(owner, uid)
+                        ProfileV3Editor(owner, uid)
+                    }
                 }
             }
         }

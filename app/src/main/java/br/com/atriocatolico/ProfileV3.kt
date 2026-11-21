@@ -321,31 +321,14 @@ internal fun ProfileV3EditorDialog(
         return
     }
 
-    BackHandler {
-        if (picking != null) {
-            restoreFocus = picking?.id
-            picking = null
-        } else if (!busy) onClose()
-    }
-    picking?.let { interest ->
-        ProfileV3DiscussionPicker(
-            db = db,
-            uid = uid,
-            interest = interest,
-            current = draft.interestDetails[interest.id]?.postId,
-            onClose = { restoreFocus = interest.id; picking = null },
-            onSelect = { postId ->
-                val detail = draft.interestDetails[interest.id] ?: ProfileV3InterestDetail()
-                editInterest(interest, detail.copy(postId = postId))
-                restoreFocus = interest.id
-                picking = null
-            }
-        )
-        return
+    fun closePicker(interest: ProfileV3Interest) {
+        picking = null
+        restoreFocus = interest.id
     }
 
+    BackHandler(enabled = picking == null && !busy, onBack = onClose)
     AlertDialog(
-        onDismissRequest = { if (!busy) onClose() },
+        onDismissRequest = { if (!busy && picking == null) onClose() },
         title = {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("Editar perfil")
@@ -483,7 +466,10 @@ internal fun ProfileV3EditorDialog(
                             restoreFocus = restoreFocus == interest.id,
                             onFocusRestored = { restoreFocus = null },
                             onEdit = { editInterest(interest, it) },
-                            onPick = { picking = interest }
+                            onPick = {
+                                restoreFocus = null
+                                picking = interest
+                            }
                         )
                     }
                 }
@@ -632,6 +618,21 @@ internal fun ProfileV3EditorDialog(
             TextButton(enabled = !busy, onClick = onClose) { Text("Fechar") }
         }
     )
+    // Preserve o botão e a posição da lista na janela sob o seletor.
+    picking?.let { interest ->
+        ProfileV3DiscussionPicker(
+            db = db,
+            uid = uid,
+            interest = interest,
+            current = draft.interestDetails[interest.id]?.postId,
+            onClose = { closePicker(interest) },
+            onSelect = { postId ->
+                val detail = draft.interestDetails[interest.id] ?: ProfileV3InterestDetail()
+                editInterest(interest, detail.copy(postId = postId))
+                closePicker(interest)
+            }
+        )
+    }
 }
 
 @Composable
