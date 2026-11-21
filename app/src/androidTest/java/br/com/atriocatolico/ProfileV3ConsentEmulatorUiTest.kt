@@ -4,6 +4,7 @@ import android.Manifest
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.Context
 import android.content.pm.PackageManager
+import android.graphics.Rect
 import android.os.Build
 import android.app.UiAutomation
 import android.os.ParcelFileDescriptor
@@ -192,7 +193,15 @@ class ProfileV3ConsentEmulatorUiTest {
         Log.i("AtrioQaProfileV3", "a11y_feedback=sucesso_polite,erro_polite,rascunho_preservado")
     }
 
-    @Test fun talkBackReturnsAccessibilityFocusWithLargeText() {
+    @Test fun talkBackReturnsAccessibilityFocusAfterCancelWithLargeText() {
+        verifyTalkBackPickerFocus(confirm = false)
+    }
+
+    @Test fun talkBackReturnsAccessibilityFocusAfterConfirmWithLargeText() {
+        verifyTalkBackPickerFocus(confirm = true)
+    }
+
+    private fun verifyTalkBackPickerFocus(confirm: Boolean) {
         seedV3()
         val linked = createDiscussion("Oração em comunidade")
         val instrumentation = InstrumentationRegistry.getInstrumentation()
@@ -228,39 +237,48 @@ class ProfileV3ConsentEmulatorUiTest {
                     .any { it.id == talkBack.id }
             compose.waitUntil(15_000) { talkBackIsActive() }
             Log.i("AtrioQaProfileV3", "a11y_talkback=ativo exploracao_por_toque=true")
-            fun visiblePicker() = automation.rootInActiveWindow?.findVisibleNode(pickerTag)
-            fun waitForAccessibilityFocus(label: String): AccessibilityNodeInfo {
-                var focused: AccessibilityNodeInfo? = null
-                compose.waitUntil(15_000) {
-                    focused = visiblePicker()?.takeIf { it.isAccessibilityFocused }
-                    focused != null
-                }
-                compose.onNodeWithTag(pickerTag).assertTextContains(label)
-                return requireNotNull(focused)
-            }
+            val action = if (confirm) "confirmar" else "cancelar"
+            fun visiblePicker() = automation.rootInActiveWindow
+                ?.takeIf { it.packageName?.toString() == BuildConfig.APPLICATION_ID }
+                ?.findVisibleNode(pickerTag)
+
             var opener: AccessibilityNodeInfo? = null
             compose.waitUntil(15_000) { visiblePicker()?.let { opener = it } != null }
             val button = requireNotNull(opener)
             assertTrue(button.isAccessibilityFocused || button.performAction(AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS))
-            val beforeCancel = waitForAccessibilityFocus("Escolher discussão")
-            assertTrue(beforeCancel.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            compose.waitUntil(15_000) { visiblePicker()?.isAccessibilityFocused == true }
+            val editorWindowId = button.windowId
+            assertTrue(button.performAction(AccessibilityNodeInfo.ACTION_CLICK))
             waitForTag("atrio-v3-candidate-$linked")
-            compose.waitUntil(15_000) { visiblePicker() == null }
-            compose.onNodeWithText("Cancelar").performClick()
-            waitForPickerDismissal()
-            val afterCancel = waitForAccessibilityFocus("Escolher discussão")
-            assertTrue(talkBackIsActive())
-            Log.i("AtrioQaProfileV3", "a11y_talkback_picker_focus=cancelar action=escolher")
+            compose.waitUntil(15_000) {
+                val root = automation.rootInActiveWindow
+                root != null && root.packageName?.toString() == BuildConfig.APPLICATION_ID &&
+                    root.windowId != editorWindowId
+            }
 
-            assertTrue(afterCancel.performAction(AccessibilityNodeInfo.ACTION_CLICK))
-            waitForTag("atrio-v3-candidate-$linked")
-            compose.waitUntil(15_000) { visiblePicker() == null }
-            compose.onNodeWithTag("atrio-v3-candidate-$linked").performClick()
-            compose.onNodeWithTag("atrio-v3-link-confirm").performClick()
+            if (confirm) {
+                compose.onNodeWithTag("atrio-v3-candidate-$linked").performClick()
+                compose.onNodeWithTag("atrio-v3-link-confirm").performClick()
+            } else {
+                compose.onNodeWithText("Cancelar").performClick()
+            }
             waitForPickerDismissal()
-            waitForAccessibilityFocus("Trocar discussão")
+            try {
+                compose.waitUntil(15_000) { visiblePicker()?.windowId == editorWindowId }
+            } finally {
+                val node = visiblePicker()
+                val bounds = Rect().also { node?.getBoundsInScreen(it) }
+                Log.i("AtrioQaProfileV3", "a11y_opener_after_close=$action visible=${node != null} " +
+                    "active_window=${automation.rootInActiveWindow?.windowId} editor_window=$editorWindowId " +
+                    "bounds=${bounds.toShortString()} accessibility_focused=${node?.isAccessibilityFocused}")
+            }
+            compose.onNodeWithTag(pickerTag)
+                .assertTextContains(if (confirm) "Trocar discussão" else "Escolher discussão")
+            compose.waitUntil(15_000) {
+                visiblePicker()?.let { it.windowId == editorWindowId && it.isAccessibilityFocused } == true
+            }
             assertTrue(talkBackIsActive())
-            Log.i("AtrioQaProfileV3", "a11y_talkback_picker_focus=confirmar action=trocar")
+            Log.i("AtrioQaProfileV3", "a11y_talkback_picker_focus=$action")
         } finally {
             restoreSecureSetting(automation, "enabled_accessibility_services", oldServices)
             restoreSecureSetting(automation, "accessibility_enabled", oldEnabled)

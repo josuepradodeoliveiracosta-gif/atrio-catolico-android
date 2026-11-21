@@ -37,6 +37,7 @@ import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.Source
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 @Composable
 internal fun ProfileV3InterestEditor(
@@ -60,11 +61,18 @@ internal fun ProfileV3InterestEditor(
         if (!restoreFocus || !enabled) return@LaunchedEffect
         snapshotFlow { window.isWindowFocused }.first { it }
         revealPicker.bringIntoView()
-        withFrameNanos { }
-        if (!pickerFocus.requestFocus(FocusDirection.Enter)) return@LaunchedEffect
-        withFrameNanos { }
-        view.restorePickerAccessibilityFocus(pickerTag)
-        onFocusRestored()
+        val restored = withTimeoutOrNull(750L) {
+            var inputFocused = false
+            var accessibilityFocused = false
+            while (!inputFocused || !accessibilityFocused) {
+                withFrameNanos { }
+                if (!view.hasWindowFocus()) continue
+                if (!inputFocused) inputFocused = pickerFocus.requestFocus(FocusDirection.Enter)
+                if (inputFocused) accessibilityFocused = view.restorePickerAccessibilityFocus(pickerTag)
+            }
+            true
+        }
+        if (restored == true) onFocusRestored()
     }
     val length = detail.question.profileV3QuestionLength()
     OutlinedTextField(
@@ -147,14 +155,17 @@ internal fun ProfileV3InterestEditor(
     }
 }
 
-private fun View.restorePickerAccessibilityFocus(pickerTag: String) {
+private fun View.restorePickerAccessibilityFocus(pickerTag: String): Boolean {
     val access = context.getSystemService(AccessibilityManager::class.java)
-    if (!hasWindowFocus() || access?.isTouchExplorationEnabled != true) return
-    // Compose publica a ação como um nó virtual. O foco de entrada não o seleciona no TalkBack.
+    if (access?.isTouchExplorationEnabled != true) return true
+    // Compose publica a ação como um nó virtual. Aguarde que ela reapareça na janela ativa.
     val semanticsId = (this as? RootForTest)?.semanticsOwner
         ?.getAllSemanticsNodes(mergingEnabled = false)
-        ?.firstOrNull { it.config.getOrNull(SemanticsProperties.TestTag) == pickerTag }?.id ?: return
-    accessibilityNodeProvider?.performAction(
+        ?.firstOrNull { it.config.getOrNull(SemanticsProperties.TestTag) == pickerTag }?.id ?: return false
+    val provider = accessibilityNodeProvider ?: return false
+    val action = provider.createAccessibilityNodeInfo(semanticsId) ?: return false
+    if (!action.isVisibleToUser) return false
+    return action.isAccessibilityFocused || provider.performAction(
         semanticsId, AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS, null
     )
 }
