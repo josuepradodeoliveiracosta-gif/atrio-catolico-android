@@ -5,6 +5,8 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.*
@@ -12,6 +14,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
@@ -24,6 +27,7 @@ import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.MetadataChanges
+import kotlinx.coroutines.flow.first
 
 internal object ProfileV3Policy {
     const val CONSENT_VERSION = "perfil-v3-2026-11"
@@ -89,27 +93,49 @@ internal data class ProfileV3Draft(
 internal fun ProfileV3Editor(db: FirebaseFirestore, uid: String) {
     var editorOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var status by remember(uid) { mutableStateOf<String?>(null) }
+    var saveFeedbackPending by remember(uid) { mutableStateOf(false) }
+    val window = LocalWindowInfo.current
+    val revealStatus = remember { BringIntoViewRequester() }
     if (editorOpen) ProfileV3EditorDialog(
         db, uid, onClose = { editorOpen = false },
         onSaved = {
             editorOpen = false
-            status = "Informações atualizadas."
+            saveFeedbackPending = true
         },
         onConsentWithdrawn = {
             editorOpen = false
             status = "Consentimento retirado. Dados opcionais do Perfil V3 apagados."
         }
     )
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    LaunchedEffect(uid, editorOpen, saveFeedbackPending) {
+        if (editorOpen || !saveFeedbackPending) return@LaunchedEffect
+        // O texto muda em uma região já presente depois que o diálogo devolve a janela.
+        snapshotFlow { window.isWindowFocused }.first { it }
+        revealStatus.bringIntoView()
+        withFrameNanos { }
+        status = "Informações atualizadas."
+        saveFeedbackPending = false
+    }
+    Column {
         OutlinedButton(
-            onClick = { editorOpen = true; status = null },
+            onClick = {
+                saveFeedbackPending = false
+                status = null
+                editorOpen = true
+            },
             modifier = Modifier.fillMaxWidth().testTag("atrio-profile-v3-edit")
         ) { Text("Editar informações e interesses") }
-        status?.let {
-            Text(it, color = Wine, style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.testTag("atrio-profile-v3-status")
-                    .semantics { liveRegion = LiveRegionMode.Polite })
-        }
+        val feedback = status
+        Text(
+            text = feedback.orEmpty(),
+            color = Wine,
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.fillMaxWidth()
+                .bringIntoViewRequester(revealStatus)
+                .then(if (feedback == null) Modifier.height(1.dp) else Modifier.padding(top = 4.dp))
+                .testTag(if (feedback == null) "atrio-profile-v3-status-region" else "atrio-profile-v3-status")
+                .semantics { liveRegion = LiveRegionMode.Polite }
+        )
     }
 }
 

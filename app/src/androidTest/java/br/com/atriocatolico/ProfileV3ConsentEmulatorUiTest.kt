@@ -173,9 +173,13 @@ class ProfileV3ConsentEmulatorUiTest {
             useUnmergedTree = true).assertExists()
         Log.i("AtrioQaProfileV3", "a11y_semantics=interesse,pergunta,contador,discussao,trocar,remover")
 
+        val originalRegionId = compose.onNodeWithTag("atrio-profile-v3-status-region")
+            .fetchSemanticsNode().id
         saveEditor()
         waitForTag("atrio-profile-v3-status")
-        compose.onNodeWithTag("atrio-profile-v3-status")
+        val statusRegion = compose.onNodeWithTag("atrio-profile-v3-status")
+        assertEquals(originalRegionId, statusRegion.fetchSemanticsNode().id)
+        statusRegion
             .assertTextContains("Informações atualizadas.")
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite))
 
