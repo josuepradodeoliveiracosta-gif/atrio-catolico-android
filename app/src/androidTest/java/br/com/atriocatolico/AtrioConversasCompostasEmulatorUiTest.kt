@@ -1,6 +1,7 @@
 package br.com.atriocatolico
 
 import android.content.Context
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -296,6 +297,97 @@ class AtrioConversasCompostasEmulatorUiTest {
 
     @After fun cleanSession() {
         if (::auth.isInitialized) auth.signOut()
+    }
+
+    @Test fun miguelSolicitaClaraAceitaNoMesmoIdComLuciaRecusada() {
+        assertTrue("O focal exige QA Geral local", !pilot && !BuildConfig.ATRIO_QA_GERAL_REMOTE &&
+            !BuildConfig.ATRIO_QA_GERAL_PUSH)
+        initializeDemo()
+        val miguelEmail = "pedido.inverso.miguel@qa.invalid"
+        val claraEmail = "pedido.inverso.clara@qa.invalid"
+        val luciaEmail = "pedido.inverso.lucia@qa.invalid"
+        val clara = login(claraEmail)
+        val miguel = login(miguelEmail)
+        val claraTarget = PublicMemberTarget(clara, "Clara QA")
+        val miguelTarget = PublicMemberTarget(miguel, "Miguel QA")
+        val chatId = AtrioChatPolicy.id(miguel, clara)
+        val chat = db.document("chats/$chatId")
+        val first = "Clara, podemos conversar sobre a leitura?"
+        val claraReply = "Miguel, vamos conversar sobre a leitura."
+        val miguelReply = "Clara, começo pela primeira passagem."
+
+        assertChatNotCreated(chatId)
+        show(Screen(miguel, peer = claraTarget))
+        send("atrio-chat-composer", "atrio-chat-send", first)
+        waitForText("Solicitação enviada.")
+        fun assertChat(status: String) = await(chat.get(Source.SERVER)).also { snapshot ->
+            assertEquals(chatId, snapshot.id)
+            assertEquals(status, snapshot.getString("status"))
+            assertEquals(miguel, snapshot.getString("requesterUid"))
+            assertEquals(clara, snapshot.getString("recipientUid"))
+            assertTrue(!snapshot.metadata.hasPendingWrites() && !snapshot.metadata.isFromCache)
+        }
+        val pending = assertChat("pending")
+        val initialId = requireNotNull(pending.getString("initialId"))
+        val initial = chat.collection("messages").document(initialId)
+        // Simula unicamente o índice administrativo local, como no outro sentido.
+        materializePeerIndex(miguel, clara, chatId, "pending", first)
+        materializePeerIndex(clara, miguel, chatId, "pending", first)
+        waitForText("Aguardando aceite do destinatário.")
+        Log.i("AtrioQaDm0103", "stage=solicitar id=$chatId status=pending requester=Miguel recipient=Clara")
+
+        assertEquals(clara, login(claraEmail))
+        show(Screen(clara, peer = miguelTarget, chatId = chatId))
+        waitForText(first)
+        waitForText("Aceitar")
+        compose.onNodeWithTag("atrio-chat-composer").assertDoesNotExist()
+        assertChat("pending")
+        Log.i("AtrioQaDm0103", "stage=abrir id=$chatId status=pending actor=Clara")
+
+        assertEquals(miguel, login(miguelEmail))
+        show(Screen(miguel, peer = claraTarget, chatId = chatId))
+        waitForText("Aguardando aceite do destinatário.")
+        assertChat("pending")
+        Log.i("AtrioQaDm0103", "stage=aguardar id=$chatId status=pending actor=Miguel")
+
+        val lucia = login(luciaEmail)
+        assertTrue(lucia != clara && lucia != miguel)
+        show(Screen(lucia, chatId = chatId))
+        waitForText("Conversa indisponível para esta conta.")
+        compose.onNodeWithText(first).assertDoesNotExist()
+        compose.onNodeWithTag("atrio-chat-composer").assertDoesNotExist()
+        assertDenied(chat.get(Source.SERVER))
+        assertDenied(initial.get(Source.SERVER))
+        Log.i("AtrioQaDm0103", "stage=recusa id=$chatId actor=Lucia chat=PERMISSION_DENIED mensagem=PERMISSION_DENIED")
+
+        assertEquals(clara, login(claraEmail))
+        show(Screen(clara, peer = miguelTarget, chatId = chatId))
+        waitForText("Aceitar")
+        assertChat("pending")
+        compose.onNodeWithText("Aceitar").assertIsEnabled().performClick()
+        compose.waitUntil(30_000) { await(chat.get(Source.SERVER)).getString("status") == "accepted" }
+        assertChat("accepted")
+        Log.i("AtrioQaDm0103", "stage=aceitar id=$chatId status=accepted actor=Clara")
+        materializePeerIndex(miguel, clara, chatId, "accepted", first)
+        materializePeerIndex(clara, miguel, chatId, "accepted", first)
+
+        send("atrio-chat-composer", "atrio-chat-send", claraReply)
+        waitForText(claraReply)
+        assertEquals(miguel, login(miguelEmail))
+        show(Screen(miguel, peer = claraTarget, chatId = chatId))
+        waitForText(claraReply)
+        val receivedByMiguel = await(chat.collection("messages").get(Source.SERVER))
+        assertTrue(receivedByMiguel.documents.any { it.getString("text") == claraReply && it.getString("uid") == clara })
+        send("atrio-chat-composer", "atrio-chat-send", miguelReply)
+        waitForText(miguelReply)
+
+        assertEquals(clara, login(claraEmail))
+        show(Screen(clara, peer = miguelTarget, chatId = chatId))
+        waitForText(miguelReply)
+        val receivedByClara = await(chat.collection("messages").get(Source.SERVER))
+        assertTrue(receivedByClara.documents.any { it.getString("text") == miguelReply && it.getString("uid") == miguel })
+        assertChat("accepted")
+        Log.i("AtrioQaDm0103", "stage=mensagens id=$chatId status=accepted ClaraParaMiguel=lida MiguelParaClara=lida")
     }
 
     @Test fun primeiroContatoRecusaAceiteESaidaProtegemHistorico() {
