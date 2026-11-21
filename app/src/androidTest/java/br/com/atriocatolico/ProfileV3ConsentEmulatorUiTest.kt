@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -23,7 +24,9 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextReplacement
 import com.google.android.gms.tasks.Task
@@ -110,14 +113,28 @@ class ProfileV3ConsentEmulatorUiTest {
     @Test fun editsQuestionAndDiscussionTogetherAndHidingClearsBothProjections() {
         seedV3()
         val postA = createDiscussion("Discussão inicial da prova")
-        val postB = createDiscussion("Discussão seguinte da prova")
+        val postBTitle = "Discussão seguinte da prova"
+        val postB = createDiscussion(postBTitle)
         val postRemoved = createDiscussion("Discussão removida da prova")
         val v2 = await(preferences.get(Source.SERVER)).data
         val profile = await(legacy.get(Source.SERVER)).data
         val links = owner.document(publicProfile.path).profileV3Links()
         val question = "🕊".repeat(140)
+        var showVisitor by mutableStateOf(false)
+        val opened = ConcurrentLinkedQueue<String>()
+        val resolver = ProfileV3DiscussionResolver { viewer, profileUid, interest ->
+            assertEquals(visitorUid, viewer.uid)
+            assertEquals(uid, profileUid)
+            if (interest == ProfileV3Interest.PRAYER) ProfileV3Discussion.Available(postB, postBTitle)
+            else ProfileV3Discussion.NoLink
+        }
 
-        showEditor()
+        showEditor {
+            if (showVisitor) PublicMemberProfileScreen(
+                visitor, PublicMemberTarget(uid, name), onBack = {}, onOpenDiscussion = { opened.add(it) },
+                viewerUid = visitorUid, discussionResolver = resolver
+            )
+        }
         editorControl("atrio-v3-question-oracao").performTextReplacement(question + "x")
         compose.onNodeWithTag("atrio-profile-v3-save").assertIsNotEnabled()
         editorControl("atrio-v3-question-oracao").performTextReplacement("  $question  ")
@@ -173,8 +190,21 @@ class ProfileV3ConsentEmulatorUiTest {
         selectDiscussion(postB)
         saveEditor()
         assertEquals(mapOf("oracao" to postB), await(links.get(Source.SERVER)).get("postIds"))
+        compose.runOnIdle { showVisitor = true }
+        waitForText("Apresentação anterior")
+        val visitorList = compose.onNodeWithTag("atrio-public-profile")
+        compose.waitUntil(15_000) {
+            runCatching {
+                visitorList.performScrollToNode(hasTestTag("atrio-v3-open-oracao"))
+            }.isSuccess
+        }
+        compose.onNodeWithText("Pergunta sem discussão?").assertExists()
+        compose.onNodeWithTag("atrio-v3-open-oracao").performClick()
+        compose.waitUntil(15_000) { opened.toList() == listOf(postB) }
+
         openEditorAgain()
-        editorControl("atrio-profile-v3-interest-0").performClick().assertIsOff()
+        editorControl("atrio-profile-v3-interest-0")
+            .performTouchInput { click(center) }.assertIsOff()
         editorControl("atrio-profile-v3-interest-1").performClick().assertIsOn()
         saveEditor()
         assertEquals(emptyMap<String, Any>(), await(privateV3.get(Source.SERVER)).get("interestDetails"))
@@ -184,18 +214,26 @@ class ProfileV3ConsentEmulatorUiTest {
         assertEquals(v2, await(preferences.get(Source.SERVER)).data)
         assertEquals(profile, await(legacy.get(Source.SERVER)).data)
         assertTrue(await(owner.collection("posts").document(postA).get(Source.SERVER)).exists())
+        compose.waitUntil(15_000) {
+            runCatching {
+                visitorList.performScrollToNode(hasText("Formação"))
+            }.isSuccess
+        }
+        compose.onNodeWithText("Pergunta sem discussão?").assertDoesNotExist()
+        compose.onNodeWithTag("atrio-v3-open-oracao").assertDoesNotExist()
 
         openEditorAgain()
         editorControl("atrio-profile-v3-interest-0").performClick().assertIsOn()
         editorControl("atrio-v3-question-oracao")
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString("")))
-        compose.onNodeWithText("Escolher discussão").assertExists()
+        editorControl("atrio-v3-pick-oracao").assertTextContains("Escolher discussão")
     }
 
     @Test fun tappingRequiresFreshAccessAndTheSameDestination() {
         seedV3(devotionVisible = false)
         val responses = ConcurrentLinkedQueue<ProfileV3Discussion>().apply {
             add(ProfileV3Discussion.Available("original", "Discussão original fictícia"))
+            add(ProfileV3Discussion.Available("trocada", "Outra discussão fictícia"))
             add(ProfileV3Discussion.Available("trocada", "Outra discussão fictícia"))
             add(ProfileV3Discussion.Unavailable)
         }
@@ -224,17 +262,19 @@ class ProfileV3ConsentEmulatorUiTest {
         waitForText("Outra discussão fictícia")
         assertTrue(opened.isEmpty())
         compose.onNodeWithTag("atrio-v3-open-oracao").performClick()
+        compose.waitUntil(15_000) { opened.toList() == listOf("trocada") }
+        compose.onNodeWithTag("atrio-v3-open-oracao").performClick()
         waitForText("Discussão indisponível")
         compose.onNodeWithTag("atrio-v3-open-oracao").assertDoesNotExist()
         compose.onNodeWithText("Outra discussão fictícia").assertDoesNotExist()
-        assertTrue(opened.isEmpty())
+        assertEquals(listOf("trocada"), opened.toList())
 
         compose.runOnIdle { screenOpen = false }
         compose.waitForIdle()
         compose.runOnIdle { screenOpen = true }
         waitForText("Discussão confirmada fictícia")
         compose.onNodeWithTag("atrio-v3-open-oracao").performClick()
-        compose.waitUntil(15_000) { opened.peek() == "confirmada" }
+        compose.waitUntil(15_000) { opened.toList() == listOf("trocada", "confirmada") }
 
         compose.runOnIdle { waitForOldAccount = true }
         compose.onNodeWithTag("atrio-v3-open-oracao").performClick()
@@ -248,7 +288,7 @@ class ProfileV3ConsentEmulatorUiTest {
         compose.waitForIdle()
         compose.onNodeWithText("Título da sessão anterior").assertDoesNotExist()
         compose.onNodeWithTag("atrio-v3-open-oracao").assertDoesNotExist()
-        assertEquals(listOf("confirmada"), opened.toList())
+        assertEquals(listOf("trocada", "confirmada"), opened.toList())
     }
 
     private fun createDiscussion(title: String): String {
@@ -580,12 +620,13 @@ class ProfileV3ConsentEmulatorUiTest {
         return db to user.uid
     }
 
-    private fun showEditor() {
+    private fun showEditor(extra: @Composable () -> Unit = {}) {
         compose.setContent {
             AtrioTheme {
                 Column {
                     ProfileV3Summary(owner, uid)
                     ProfileV3Editor(owner, uid)
+                    extra()
                 }
             }
         }
