@@ -288,6 +288,100 @@ class ProfileV3ConsentEmulatorUiTest {
         }
     }
 
+    @Test fun talkBackAnnouncesSaveSuccessAt150Percent() {
+        verifyTalkBackSaveAnnouncement(saveFails = false)
+    }
+
+    @Test fun talkBackAnnouncesSaveErrorAt150Percent() {
+        verifyTalkBackSaveAnnouncement(saveFails = true)
+    }
+
+    private fun verifyTalkBackSaveAnnouncement(saveFails: Boolean) {
+        seedV3()
+        val scenario = if (saveFails) "erro" else "sucesso"
+        val fieldTag = "atrio-v3-question-oracao"
+        val publishedBefore = await(publicProfile.get(Source.SERVER)).get("interestQuestions.oracao")
+        val question = "Como cultivar a oração em comunidade?"
+        val discussion = createDiscussion("Discussão fictícia da prova de fala")
+        showEditor(fontScale = 1.5f)
+        editorControl(fieldTag).performTextReplacement(question)
+        selectDiscussion(discussion)
+        if (saveFails) {
+            await(owner.collection("posts").document(discussion).delete())
+        }
+
+        val automation = InstrumentationRegistry.getInstrumentation()
+            .getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES)
+        val manager = compose.activity.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
+        val talkBack = manager.installedAccessibilityServiceList.single {
+            it.resolveInfo.serviceInfo.name.endsWith("TalkBackService")
+        }
+        val service = talkBack.resolveInfo.serviceInfo
+        val component = android.content.ComponentName(service.packageName, service.name).flattenToShortString()
+        val oldServices = automation.shellText("settings get secure enabled_accessibility_services")
+        val oldEnabled = automation.shellText("settings get secure accessibility_enabled")
+        val activeServices = listOfNotNull(oldServices.takeUnless { it.isBlank() || it == "null" }, component)
+            .distinct().joinToString(":")
+        val fontScale = automation.shellText("settings get system font_scale").toFloat()
+        assertEquals(1.5f, fontScale, 0.01f)
+
+        try {
+            automation.shellText("settings put secure enabled_accessibility_services $activeServices")
+            automation.shellText("settings put secure accessibility_enabled 1")
+            fun talkBackActive() = manager.isTouchExplorationEnabled &&
+                manager.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_SPOKEN).any { it.id == talkBack.id }
+            compose.waitUntil(15_000) { talkBackActive() }
+            val pid = automation.shellText("pidof ${service.packageName}").trim().substringBefore(' ')
+            check(pid.toIntOrNull() != null) { "PID do TalkBack indisponível: $pid" }
+            compose.waitUntil(20_000) {
+                automation.shellText("logcat -d -v brief -s GoogleTTSServiceImpl:I").contains("TTS dispatch:")
+            }
+            val expected = if (saveFails) {
+                "Uma discussão ficou indisponível. Troque ou remova o vínculo indicado."
+            } else {
+                "Informações atualizadas."
+            }
+            fun speechLines() = automation.shellText("logcat -d -v threadtime --pid=$pid")
+                .lineSequence().filter { it.contains("SpeechControllerImpl: Speaking fragment") }.toSet()
+
+            val baseline = speechLines()
+            Log.i("AtrioQaTalkBack", "scenario=$scenario click=salvar font_scale=$fontScale talkback_pid=$pid " +
+                "touch_exploration=true device_epoch_ms=${System.currentTimeMillis()}")
+            compose.onNodeWithTag("atrio-profile-v3-save").performClick()
+
+            val stateTag = if (saveFails) "atrio-profile-v3-message" else "atrio-profile-v3-status"
+            waitForTag(stateTag)
+            compose.onNodeWithTag(stateTag).assertTextContains(expected, substring = true)
+            assertTrue(talkBackActive())
+            Log.i("AtrioQaTalkBack", "scenario=$scenario scope=resultado_na_tela " +
+                "device_epoch_ms=${System.currentTimeMillis()}")
+
+            if (saveFails) {
+                editorControl(fieldTag).assert(
+                    SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString(question))
+                )
+                assertEquals(publishedBefore, await(publicProfile.get(Source.SERVER)).get("interestQuestions.oracao"))
+            } else {
+                assertEquals(question, await(publicProfile.get(Source.SERVER)).get("interestQuestions.oracao"))
+            }
+            var speech: String? = null
+            try {
+                compose.waitUntil(15_000) {
+                    speech = (speechLines() - baseline).firstOrNull { expected in it }
+                    speech != null
+                }
+                Log.i("AtrioQaTalkBack", "scenario=$scenario locucao=${requireNotNull(speech)}")
+                android.os.SystemClock.sleep(3_000)
+            } finally {
+                Log.i("AtrioQaTalkBack", "scenario=$scenario scope=locucao final=${speech != null} " +
+                    "device_epoch_ms=${System.currentTimeMillis()}")
+            }
+        } finally {
+            restoreSecureSetting(automation, "enabled_accessibility_services", oldServices)
+            restoreSecureSetting(automation, "accessibility_enabled", oldEnabled)
+        }
+    }
+
     private fun AccessibilityNodeInfo.findVisibleNode(tag: String): AccessibilityNodeInfo? {
         if (isVisibleToUser && viewIdResourceName == tag) return this
         for (index in 0 until childCount) {
