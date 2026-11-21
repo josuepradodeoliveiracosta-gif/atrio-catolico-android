@@ -17,6 +17,16 @@ LAB_MANIFEST = """\
 </manifest>
 """
 
+HTTPS_MANIFEST = LAB_MANIFEST.replace(
+    'android:allowBackup="false"', 'android:allowBackup="false" android:usesCleartextTraffic="false"'
+).replace(
+    '</application>',
+    '''<receiver android:name="com.google.firebase.iid.FirebaseInstanceIdReceiver"
+        android:exported="true" android:permission="com.google.android.c2dm.permission.SEND">
+        <intent-filter><action android:name="com.google.android.c2dm.intent.RECEIVE" /></intent-filter>
+    </receiver></application>''',
+)
+
 
 class NoticeManifestTest(unittest.TestCase):
     def test_accepts_the_private_service_and_manual_lab_entry(self):
@@ -35,6 +45,31 @@ class NoticeManifestTest(unittest.TestCase):
         for original, changed in cases:
             with self.subTest(changed=changed), self.assertRaises(PreflightError):
                 verify_notice_manifest(LAB_MANIFEST.replace(original, changed))
+
+    def test_https_requires_the_protected_sdk_entry_and_keeps_lab_closed(self):
+        verify_notice_manifest(HTTPS_MANIFEST, https=True)
+        with self.assertRaises(PreflightError):
+            verify_notice_manifest(HTTPS_MANIFEST)
+        with self.assertRaises(PreflightError):
+            verify_notice_manifest(LAB_MANIFEST.replace(
+                'android:allowBackup="false"',
+                'android:allowBackup="false" android:usesCleartextTraffic="false"',
+            ), https=True)
+
+    def test_https_rejects_unprotected_entry_and_lab_network(self):
+        cases = (
+            ('android:permission="com.google.android.c2dm.permission.SEND"', ''),
+            ('android:exported="true"', 'android:exported="false"'),
+            ('com.google.android.c2dm.intent.RECEIVE', 'evento.divergente'),
+            ('android:usesCleartextTraffic="false"', 'android:usesCleartextTraffic="true"'),
+            ('android:usesCleartextTraffic="false"',
+             'android:usesCleartextTraffic="false" android:networkSecurityConfig="@xml/loopback"'),
+            ('</application>', '<receiver android:name=".QaConversationSignalReceiver" /></application>'),
+            ('</application>', '<provider android:name="androidx.core.content.FileProvider" /></application>'),
+        )
+        for original, changed in cases:
+            with self.subTest(changed=changed), self.assertRaises(PreflightError):
+                verify_notice_manifest(HTTPS_MANIFEST.replace(original, changed), https=True)
 
 
 if __name__ == "__main__":

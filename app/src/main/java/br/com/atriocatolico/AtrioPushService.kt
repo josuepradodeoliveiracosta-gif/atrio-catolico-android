@@ -56,11 +56,12 @@ internal object PushRegistry {
     private fun enabledKey(uid: String) = "enabled_$uid"
 
     fun available(context: Context, uid: String): Boolean =
-        !QaConversationNotices.configured &&
-            (!BuildConfig.ATRIO_QA_GERAL_REMOTE || qaGeralPushSessionReady(context, uid))
+        if (QaConversationNotices.configured) QaConversationPushRegistration.available(context, uid)
+        else !BuildConfig.ATRIO_QA_GERAL_REMOTE || qaGeralPushSessionReady(context, uid)
 
     fun enabled(context: Context, uid: String): Boolean =
-        uid.isNotBlank() && available(context, uid) &&
+        if (QaConversationNotices.configured) QaConversationPushRegistration.enabled(context, uid)
+        else uid.isNotBlank() && available(context, uid) &&
             prefs(context).getBoolean(enabledKey(uid), false)
 
     private fun acceptsDatabase(db: FirebaseFirestore): Boolean =
@@ -87,6 +88,12 @@ internal object PushRegistry {
         db: FirebaseFirestore,
         done: (Boolean, PushRegistrationProblem?) -> Unit = { _, _ -> }
     ) {
+        if (QaConversationNotices.configured) {
+            if (QaConversationPushRegistration.enabled(context, uid)) {
+                QaConversationPushRegistration.register(context, uid, db, done = done)
+            } else done(false, PushRegistrationProblem.SESSION_CHANGED)
+            return
+        }
         if (FirebaseAuth.getInstance().currentUser?.uid != uid ||
             !enabled(context, uid) || !acceptsDatabase(db)) {
             done(false, PushRegistrationProblem.SESSION_CHANGED)
@@ -157,6 +164,10 @@ internal object PushRegistry {
         db: FirebaseFirestore,
         done: (Boolean, PushRegistrationProblem?) -> Unit
     ) {
+        if (QaConversationNotices.configured) {
+            QaConversationPushRegistration.register(context, uid, db, optInNow = true, done = done)
+            return
+        }
         if (FirebaseAuth.getInstance().currentUser?.uid != uid) {
             done(false, PushRegistrationProblem.SESSION_CHANGED)
             return
@@ -180,6 +191,10 @@ internal object PushRegistry {
     }
 
     fun deactivate(context: Context, uid: String, db: FirebaseFirestore) {
+        if (QaConversationNotices.configured) {
+            QaConversationPushRegistration.deactivate(context, uid, db)
+            return
+        }
         if (uid.isBlank() || !available(context, uid) || !acceptsDatabase(db)) return
         prefs(context).edit().putBoolean(enabledKey(uid), false).apply()
         FirebaseMessaging.getInstance().isAutoInitEnabled = false
@@ -299,7 +314,6 @@ internal object PushRegistry {
 class AtrioPushService : FirebaseMessagingService() {
     override fun onNewToken(token: String) {
         super.onNewToken(token)
-        if (QaConversationNotices.configured) return
         val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
         if (PushRegistry.enabled(applicationContext, uid)) {
             PushRegistry.register(applicationContext, uid, FirebaseFirestore.getInstance())

@@ -1,4 +1,4 @@
-"""Confere e registra a proveniência do APK 43 do ensaio fictício."""
+"""Confere e registra a proveniência dos perfis do APK QA 43."""
 
 import argparse
 from hashlib import sha256
@@ -12,14 +12,14 @@ from scripts.qa_geral_celular_approve import PACKAGE
 from scripts.qa_geral_celular_round42 import verify_metadata, verify_package_version, verify_source
 from scripts.qa_geral_celular_round_delivery import check_sha256
 from scripts.qa_geral_celular_signature import verify_signature
-from scripts.qa_geral_remote_build_gate import FUNCTIONAL_FIXTURE_APP_ID
+from scripts.qa_geral_remote_build_gate import FUNCTIONAL_FIXTURE_APP_ID, QA_PROJECT, REGISTERED_APP_ID
 
 VERSION_CODE = 43
 VERSION_NAME = "0.19.10-qa-geral-celular-rodada-43"
 ANDROID = "{http://schemas.android.com/apk/res/android}"
 
 
-def verify_notice_manifest(text):
+def verify_notice_manifest(text, *, https=False):
     try:
         manifest = ElementTree.fromstring(text)
     except ElementTree.ParseError as exc:
@@ -44,33 +44,54 @@ def verify_notice_manifest(text):
         node.get(ANDROID + "value") for node in application.findall("meta-data")
         if node.get(name) == "firebase_messaging_auto_init_enabled"
     ]
-    receivers = {node.get(name, "").rsplit(".", 1)[-1] for node in application.findall("receiver")}
-    if auto_init != ["false"] or receivers.intersection(
-            {"FirebaseInstanceIdReceiver", "QaConversationSignalReceiver"}):
-        raise PreflightError("O manifesto permite entrada externa ou auto-init FCM no laboratório.")
+    receivers = application.findall("receiver")
+    names = {node.get(name, "").rsplit(".", 1)[-1] for node in receivers}
+    if auto_init != ["false"] or "QaConversationSignalReceiver" in names:
+        raise PreflightError("O manifesto permite injeção do laboratório ou auto-init FCM.")
+    if not https:
+        if "FirebaseInstanceIdReceiver" in names:
+            raise PreflightError("O laboratório não pode receber FCM externo.")
+        return
+    if (application.get(ANDROID + "usesCleartextTraffic") != "false"
+            or application.get(ANDROID + "networkSecurityConfig") is not None
+            or any(node.get(name) == "androidx.core.content.FileProvider"
+                   for node in application.findall("provider"))):
+        raise PreflightError("O perfil HTTPS não pode usar rede de laboratório, OTA ou HTTP.")
+    entry = [node for node in receivers
+             if node.get(name, "").rsplit(".", 1)[-1] == "FirebaseInstanceIdReceiver"]
+    if (len(entry) != 1 or entry[0].get(name) != "com.google.firebase.iid.FirebaseInstanceIdReceiver"
+            or entry[0].get(ANDROID + "exported") != "true"
+            or entry[0].get(ANDROID + "permission") != "com.google.android.c2dm.permission.SEND"
+            or [action.get(name) for action in entry[0].findall("intent-filter/action")]
+            != ["com.google.android.c2dm.intent.RECEIVE"]):
+        raise PreflightError("A entrada FCM protegida do SDK está ausente ou diverge.")
 
 
-def verify_fixture_metadata(apk, tools, *, notice_lab=False):
-    if notice_lab:
+def verify_fixture_metadata(apk, tools, *, notice_lab=False, notice_https=False):
+    if notice_lab or notice_https:
         verify_package_version(apk, tools, VERSION_CODE, VERSION_NAME)
         analyzer = tools.parent.parent / "cmdline-tools/latest/bin/apkanalyzer"
         manifest = command([str(analyzer), "manifest", "print", str(apk.resolve())])
-        verify_notice_manifest(manifest)
+        verify_notice_manifest(manifest, https=notice_https)
+        if notice_https:
+            resources = command([str(tools / "aapt"), "dump", "--values", "resources", str(apk.resolve())])
+            if QA_PROJECT not in resources or REGISTERED_APP_ID not in resources:
+                raise PreflightError("O perfil HTTPS exige a identidade Firebase registrada do QA Celular.")
         digest = sha256(manifest.encode()).hexdigest()
         print(f"APK verificado: {PACKAGE}, versionCode={VERSION_CODE}, versionName={VERSION_NAME}")
-        print(f"Manifesto do laboratório de avisos aprovado: SHA-256={digest}")
+        print(f"Manifesto de avisos aprovado: SHA-256={digest}")
         return digest
     verify_metadata(apk, tools, version_code=VERSION_CODE, version_name=VERSION_NAME,
                     firebase_app_id=FUNCTIONAL_FIXTURE_APP_ID)
 
 
-def record_proof(repo, sha, tree, apk, apk_hash, certificate, tools, *, notice_lab=False):
+def record_proof(repo, sha, tree, apk, apk_hash, certificate, tools, *, notice_lab=False, notice_https=False):
     verify_source(repo, sha, tree)
     actual_hash = check_sha256(apk, apk_hash)
     verify_signature(apk, tools / "apksigner", certificate)
-    manifest_digest = verify_fixture_metadata(apk, tools, notice_lab=notice_lab)
+    manifest_digest = verify_fixture_metadata(apk, tools, notice_lab=notice_lab, notice_https=notice_https)
     receipt = {
-        "environment": "notice-lab" if notice_lab else "fixture",
+        "environment": "notice-https" if notice_https else "notice-lab" if notice_lab else "fixture",
         "git_sha": sha,
         "git_tree": tree,
         "package": PACKAGE,
@@ -97,15 +118,18 @@ def main():
     for mode in (metadata, proof):
         mode.add_argument("apk", type=Path)
         mode.add_argument("--build-tools", required=True, type=Path)
-        mode.add_argument("--notice-lab", action="store_true")
+        profile = mode.add_mutually_exclusive_group()
+        profile.add_argument("--notice-lab", action="store_true")
+        profile.add_argument("--notice-https", action="store_true")
     args = parser.parse_args()
     try:
         if args.mode == "metadata":
-            verify_fixture_metadata(args.apk, args.build_tools, notice_lab=args.notice_lab)
+            verify_fixture_metadata(args.apk, args.build_tools, notice_lab=args.notice_lab,
+                                    notice_https=args.notice_https)
         else:
             receipt = record_proof(args.repo, args.sha, args.tree, args.apk, args.apk_sha256,
                                    args.certificate_sha256, args.build_tools,
-                                   notice_lab=args.notice_lab)
+                                   notice_lab=args.notice_lab, notice_https=args.notice_https)
             print(json.dumps(receipt, sort_keys=True))
     except (PreflightError, OSError) as exc:
         print(f"Recusado: {exc}", file=sys.stderr)

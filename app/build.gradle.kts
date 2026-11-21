@@ -36,16 +36,19 @@ val atrioQaGeralCelularFunctional = System.getenv("ATRIO_QA_GERAL_CELULAR_FUNCIO
 val atrioQaGeralCelularRoundFixture = System.getenv("ATRIO_QA_GERAL_CELULAR_RODADA_FIXTURE") == "1"
 val atrioQaGeralCelularRound41 = System.getenv("ATRIO_QA_GERAL_CELULAR_RODADA") == "1"
 val atrioQaGeralCelularRound42 = System.getenv("ATRIO_QA_GERAL_CELULAR_RODADA42") == "1"
+val atrioQaGeralCelularRound43 = System.getenv("ATRIO_QA_GERAL_CELULAR_RODADA43") == "1"
 val atrioQaGeralCelularRound43Fixture = System.getenv("ATRIO_QA_GERAL_CELULAR_RODADA43_FIXTURE") == "1"
 val atrioQaGeralCelularRound43NoticeLab = System.getenv("ATRIO_QA_GERAL_CELULAR_RODADA43_NOTICE_LAB") == "1"
-require(!(atrioQaGeralCelularRound41 && atrioQaGeralCelularRound42)) {
+require(listOf(atrioQaGeralCelularRound41, atrioQaGeralCelularRound42,
+    atrioQaGeralCelularRound43).count { it } <= 1) {
     "Escolha somente uma rodada de QA Geral Celular."
 }
-val atrioQaGeralCelularRound = atrioQaGeralCelularRound41 || atrioQaGeralCelularRound42
+val atrioQaGeralCelularRound =
+    atrioQaGeralCelularRound41 || atrioQaGeralCelularRound42 || atrioQaGeralCelularRound43
 val atrioQaNoticeOrigin = System.getenv("ATRIO_QA_CONVERSATION_NOTICE_ORIGIN").orEmpty()
 if (atrioQaNoticeOrigin.isNotEmpty()) {
     require(atrioQaGeralBuild && atrioQaGeralCelularFunctional &&
-        (atrioQaGeralCelularRound || atrioQaGeralCelularRoundFixture) && !atrioQaConversationNoticeLab) {
+        (atrioQaGeralCelularRound43 || atrioQaGeralCelularRound43Fixture) && !atrioQaConversationNoticeLab) {
         "A origem do Worker de avisos exige a rodada funcional do QA Geral Celular."
     }
     val host = runCatching { URI(atrioQaNoticeOrigin).host }.getOrNull().orEmpty()
@@ -55,6 +58,10 @@ if (atrioQaNoticeOrigin.isNotEmpty()) {
         !host.endsWith(".local") && !host.endsWith(".localhost") && host == host.lowercase()) {
         "Informe a origem HTTPS exclusiva da rodada, sem porta, caminho ou parâmetros."
     }
+}
+require(!atrioQaGeralCelularRound43 || (atrioQaNoticeOrigin.isNotEmpty() &&
+    !atrioQaNoticeOrigin.endsWith(".invalid"))) {
+    "A rodada física 43 exige a origem HTTPS real e exclusiva do QA."
 }
 require(!atrioQaGeralCelularRound43Fixture ||
     (atrioQaGeralCelularRoundFixture && !atrioQaGeralCelularRound)) {
@@ -510,7 +517,8 @@ androidComponents {
                 "qa-geral-celular" else "qa-geral"
             val pairSuffix = if (atrioQaGeralCelularPairCode.isEmpty()) "" else "-$atrioQaGeralCelularPairCode"
             val functionalSuffix = when {
-                atrioQaGeralCelularRound43Fixture || atrioQaGeralCelularRound43NoticeLab -> "-rodada-43"
+                atrioQaGeralCelularRound43 || atrioQaGeralCelularRound43Fixture ||
+                    atrioQaGeralCelularRound43NoticeLab -> "-rodada-43"
                 atrioQaGeralCelularRound42 -> "-rodada-42"
                 atrioQaGeralCelularRound || atrioQaGeralCelularRoundFixture -> "-rodada-41"
                 atrioQaGeralCelularFunctional -> "-funcional"
@@ -518,7 +526,8 @@ androidComponents {
             }
             output.versionName.set("$atrioDebugVersionName-$suffix$pairSuffix$functionalSuffix")
             val code = when {
-                atrioQaGeralCelularRound43Fixture || atrioQaGeralCelularRound43NoticeLab -> 43
+                atrioQaGeralCelularRound43 || atrioQaGeralCelularRound43Fixture ||
+                    atrioQaGeralCelularRound43NoticeLab -> 43
                 atrioQaGeralCelularRound42 -> 42
                 atrioQaGeralCelularRound || atrioQaGeralCelularRoundFixture -> 41
                 atrioQaGeralCelularFunctional -> 40

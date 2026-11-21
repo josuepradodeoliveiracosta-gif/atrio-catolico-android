@@ -79,6 +79,42 @@ O laboratório conserva `POST_NOTIFICATIONS`, desativa auto-init e registro
 de FCM e remove a ponte de mensagens externas do Manifest. A versão para
 uma rodada real ainda precisa ser composta e validada com autorização.
 
+### Pré-voo do perfil HTTPS (dois Androids)
+
+O perfil `ATRIO_QA_GERAL_CELULAR_RODADA43=1` exige a identidade registrada
+do QA Geral Celular e a origem HTTPS aprovada da rodada. O ensaio
+`ATRIO_QA_GERAL_CELULAR_RODADA43_FIXTURE=1` tem identidade fictícia e não
+pode cadastrar um aparelho. O perfil HTTPS mantém apenas a entrada do SDK
+protegida por `com.google.android.c2dm.permission.SEND` para receber FCM. O
+serviço do aplicativo não é exportado; auto-init, tópicos e injeção do
+laboratório permanecem desativados. O verificador do APK usa
+`python3 -m scripts.qa_geral_celular_round43 metadata --notice-https` para
+conferir identidade e manifesto e `proof --notice-https` para conferir
+também assinatura, hashes e origem Git.
+
+Com a conta fictícia verificada, o operador do aparelho habilita
+**Receber avisos neste aparelho**. O app registra o token no documento
+privado do próprio usuário, usando as Rules de QA já existentes. O token
+é atualizado ao voltar ao app ou por callback do SDK; trocar de conta
+exige invalidar o token anterior antes de cadastrá-lo para outra conta.
+Ao tocar num aviso após o Android recriar o processo, o app usa um
+comprovante local de uso único apenas para comparar a mensagem que o
+servidor acabou de confirmar. Nenhum texto ou destino navegável fica no
+comprovante. Um aviso expirado, de outra conta ou sem autorização é
+ignorado.
+
+Somente na janela autorizada, registrar em ambos os Androids o mesmo
+APK assinado, versão, Android e estado do piloto. Para o item 08, usar
+uma mensagem fictícia inédita por cenário: segundo plano, tarefa
+removida dos Recentes e tela bloqueada. Remover dos Recentes não equivale
+a **Forçar parada** nas configurações do Android. Para o item 09, manter
+o cadastro do aparelho e negar somente a permissão do Android; constatar
+a ausência de aviso durante a janela combinada e abrir manualmente a
+mesma mensagem. Para cada caso, anotar separadamente o resultado do
+FCM, a apresentação no telefone e a navegação. Sem prova de transporte,
+não contar o silêncio como aprovação do item 09. Não guardar tokens,
+credenciais ou conteúdo das mensagens nos registros.
+
 | Item | Evidência complementar |
 | --- | --- |
 | 08 · Permissão concedida | Após a integração em QA, testar aviso genérico e toque com conta certa no Android. Na janela autorizada de entrega real, registrar a correlação de mensagem fictícia e alerta em segundo plano, app fechado e tela bloqueada, descrevendo o estado exato do processo. Comprovar a conversa correta e a rechecagem do acesso ao tocar. |

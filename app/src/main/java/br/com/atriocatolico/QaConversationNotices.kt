@@ -17,6 +17,7 @@ import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Source
 import com.google.firebase.messaging.RemoteMessage
+import java.security.MessageDigest
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -37,6 +38,7 @@ internal object QaConversationNotices {
     private const val TAP = "br.com.atriocatolico.qa.CONVERSATION_OPEN"
     private const val TICKET = "qaNoticeTicket"
     private const val NOTICE_ID = 701
+    private const val MAX_TAP_AGE_MS = 10 * 60_000L
     private val transport = if (BuildConfig.ATRIO_QA_CONVERSATION_NOTICE_LAB) {
         QaConversationNoticeHttp.loopback(BuildConfig.ATRIO_QA_CONVERSATION_NOTICE_LAB_URL)
     } else {
@@ -47,14 +49,12 @@ internal object QaConversationNotices {
 
     private data class Session(val user: FirebaseUser, val generation: Long)
     private data class Event(val chat: String, val message: String, val sender: String)
-    private data class Notice(val ticket: String, val session: Session, val event: Event)
     private data class Opening(val session: Session, val chat: String)
 
     // Estado da sessão de avisos, acessado na thread principal.
     private var auth: FirebaseAuth? = null
     private var user: FirebaseUser? = null
     private var generation = 0L
-    private var notice: Notice? = null
     private var opening: Opening? = null
     private val shown = linkedSetOf<Pair<String, Event>>()
     private val destinationChange = MutableStateFlow(0L)
@@ -90,6 +90,21 @@ internal object QaConversationNotices {
     private fun manager(context: Context): NotificationManager =
         context.getSystemService(NotificationManager::class.java)
 
+    private fun ticketStore(context: Context) =
+        context.getSharedPreferences("atrio_qa_conversation_ticket", Context.MODE_PRIVATE)
+
+    // Store a comparison key, not content or a route that could skip a server read.
+    private fun eventKey(uid: String, event: Event): String =
+        MessageDigest.getInstance("SHA-256")
+            .digest(listOf(uid, event.chat, event.message, event.sender).joinToString("\u0000").toByteArray())
+            .joinToString("") { "%02x".format(it) }
+
+    fun clear(context: Context) {
+        ticketStore(context).edit().clear().commit()
+        opening = null
+        manager(context).cancel(NOTICE_ID)
+    }
+
     private fun canNotify(context: Context): Boolean =
         (Build.VERSION.SDK_INT < 33 ||
             context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
@@ -113,9 +128,7 @@ internal object QaConversationNotices {
         if (current === user) return
         user = current
         generation++
-        notice = null
-        opening = null
-        manager(context).cancel(NOTICE_ID)
+        clear(context)
     }
 
     private fun current(session: Session) =
@@ -166,9 +179,11 @@ internal object QaConversationNotices {
         withContext(Dispatchers.Main.immediate) {
             try {
                 val session = session(context) ?: return@withContext
-                if (!canNotify(context)) return@withContext
+                if (!canNotify(context) ||
+                    !QaConversationPushRegistration.mayPresent(context, session.user.uid)) return@withContext
                 val event = read(session) ?: return@withContext
-                if (!current(session) || !canNotify(context) || !validSignal(message))
+                if (!current(session) || !canNotify(context) || !validSignal(message) ||
+                    !QaConversationPushRegistration.mayPresent(context, session.user.uid))
                     return@withContext
                 val key = session.user.uid to event
                 if (key in shown) return@withContext
@@ -191,8 +206,12 @@ internal object QaConversationNotices {
                     .setContentIntent(tap)
                     .setAutoCancel(true)
                     .build()
+                if (!ticketStore(context).edit()
+                        .putString(TICKET, ticket)
+                        .putString("event", eventKey(session.user.uid, event))
+                        .putLong("created", System.currentTimeMillis())
+                        .commit()) return@withContext
                 manager(context).notify(NOTICE_ID, alert)
-                notice = Notice(ticket, session, event)
                 shown.add(key)
                 if (shown.size > 32) shown.remove(shown.first())
             } catch (_: SecurityException) {
@@ -207,13 +226,18 @@ internal object QaConversationNotices {
         intent.removeExtra(TICKET)
         val application = context.applicationContext
         scope.launch {
-            session(application) ?: return@launch
-            val previous = notice?.takeIf { it.ticket == ticket && current(it.session) } ?: return@launch
-            notice = null
-            manager(application).cancel(NOTICE_ID)
-            val event = read(previous.session)
-            if (event == previous.event && current(previous.session)) {
-                opening = Opening(previous.session, event.chat)
+            val active = session(application) ?: return@launch
+            val saved = ticketStore(application)
+            if (saved.getString(TICKET, null) != ticket) return@launch
+            val expected = saved.getString("event", null)
+            val createdAt = saved.getLong("created", 0L)
+            clear(application)
+            if (expected == null || System.currentTimeMillis() - createdAt !in 0..MAX_TAP_AGE_MS ||
+                !QaConversationPushRegistration.mayPresent(application, active.user.uid)) return@launch
+            val event = read(active)
+            if (event != null && eventKey(active.user.uid, event) == expected && current(active) &&
+                QaConversationPushRegistration.mayPresent(application, active.user.uid)) {
+                opening = Opening(active, event.chat)
                 destinationChange.value++
             }
         }
