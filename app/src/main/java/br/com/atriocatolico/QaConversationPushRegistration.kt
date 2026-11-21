@@ -113,6 +113,9 @@ internal object QaConversationPushRegistration {
             }
         } catch (_: TimeoutException) {
             return PushRegistrationProblem.TOKEN_SERVICE_UNAVAILABLE
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            return PushRegistrationProblem.TOKEN_SERVICE_UNAVAILABLE
         }
     }
 
@@ -133,6 +136,8 @@ internal object QaConversationPushRegistration {
                         // The retained owner forces rotation before enabling another account.
                     } catch (_: TimeoutException) {
                         // Do not transfer ownership on an unconfirmed deletion.
+                    } catch (_: InterruptedException) {
+                        Thread.currentThread().interrupt()
                     }
                 }
             }
