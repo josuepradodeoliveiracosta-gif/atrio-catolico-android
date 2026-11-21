@@ -605,10 +605,9 @@ class ProfileV3ConsentEmulatorUiTest {
                 save.performAction(AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS))
             compose.waitUntil(15_000) { visibleSave()?.isAccessibilityFocused == true }
             val expected = "Informações atualizadas."
-            val event = automation.executeAndWaitForEvent({
-                check(requireNotNull(visibleSave()).performAction(AccessibilityNodeInfo.ACTION_CLICK))
-            }, { candidate ->
-                candidate.packageName?.toString() == BuildConfig.APPLICATION_ID &&
+            val eventType = java.util.concurrent.atomic.AtomicInteger()
+            automation.setOnAccessibilityEventListener { candidate ->
+                if (candidate.packageName?.toString() == BuildConfig.APPLICATION_ID &&
                     candidate.eventType in setOf(
                         AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
                         AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED,
@@ -616,12 +615,20 @@ class ProfileV3ConsentEmulatorUiTest {
                     ) &&
                     (candidate.text.any { expected in it } ||
                         candidate.source?.text?.contains(expected) == true)
-            }, 15_000)
-            waitForTag("atrio-profile-v3-status")
-            compose.onNodeWithTag("atrio-profile-v3-status").assertTextContains(expected)
-                .assert(SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite))
-            assertTrue(talkBackIsActive())
-            Log.i("AtrioQaProfileV3", "a11y_unified_save=evento_android tipo=${event.eventType} fonte=150%")
+                ) eventType.compareAndSet(0, candidate.eventType)
+            }
+            try {
+                check(requireNotNull(visibleSave()).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                // Deixe o relógio de teste do Compose avançar enquanto o Android entrega o evento.
+                waitForTag("atrio-profile-v3-status")
+                compose.onNodeWithTag("atrio-profile-v3-status").assertTextContains(expected)
+                    .assert(SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite))
+                assertTrue(talkBackIsActive())
+                compose.waitUntil(15_000) { eventType.get() != 0 }
+                Log.i("AtrioQaProfileV3", "a11y_unified_save=evento_android tipo=${eventType.get()} fonte=150%")
+            } finally {
+                automation.setOnAccessibilityEventListener(null)
+            }
         }
 
         val saved = await(publicProfile.get(Source.SERVER))
