@@ -79,14 +79,12 @@ internal fun OnlineProfileScreen(
     val profileListState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     var badgesOpen by rememberSaveable(uid) { mutableStateOf(false) }
-    var editorOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var discussionsOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var followedOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var profilePreviewOpen by rememberSaveable(uid) { mutableStateOf(false) }
-    var savedMessage by remember(uid) { mutableStateOf(false) }
     var accountExpanded by rememberSaveable(uid) { mutableStateOf(false) }
     var helpExpanded by rememberSaveable(uid) { mutableStateOf(false) }
-    BackHandler(enabled = badgesOpen && !editorOpen) { badgesOpen = false }
+    BackHandler(enabled = badgesOpen) { badgesOpen = false }
     BackHandler(enabled = discussionsOpen) { discussionsOpen = false }
     BackHandler(enabled = followedOpen) { followedOpen = false }
     BackHandler(enabled = profilePreviewOpen) { profilePreviewOpen = false }
@@ -141,13 +139,8 @@ internal fun OnlineProfileScreen(
                                 Text(biography.ifBlank { "Conte um pouco sobre sua caminhada na fé." },
                                     color = Muted, fontSize = AtrioType.reading, lineHeight = AtrioType.readingLine,
                                     textAlign = TextAlign.Center)
-                                Button(onClick = { savedMessage = false; editorOpen = true },
-                                    modifier = Modifier.fillMaxWidth().testTag("atrio-profile-edit")) { Text("Editar perfil") }
+                                ProfileV3Editor(db, uid, ProfileIdentity(name, biography), onPhotoChanged)
                                 ProfileV3PreviewButton { profilePreviewOpen = true }
-                                ProfilePhotoManager(uid = uid, onChanged = onPhotoChanged)
-                                ProfileV3Editor(db, uid)
-                                if (savedMessage) Text("Perfil atualizado.", color = Wine, fontSize = 14.sp,
-                                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                             }
                         }
                         ProfileV3Summary(db, uid, modifier = Modifier.padding(top = 16.dp))
@@ -281,9 +274,6 @@ internal fun OnlineProfileScreen(
             }
         }
     }
-    if (editorOpen) ProfileEditor(db, uid, name, biography,
-        onClose = { editorOpen = false },
-        onSaved = { editorOpen = false; savedMessage = true })
     if (profileSettingsMenuOpen) {
         fun closeAndScroll(section: ProfileSection, beforeScroll: () -> Unit = {}) {
             onCloseProfileSettingsMenu()
@@ -340,37 +330,6 @@ internal fun OnlineProfileScreen(
             }
         )
     }
-}
-
-@Composable
-private fun ProfileEditor(
-    db: FirebaseFirestore, uid: String, name: String, biography: String,
-    onClose: () -> Unit, onSaved: () -> Unit
-) {
-    ProfileEditorDialog(uid, name, biography, onClose, onSaved = onSaved, onSave = { newName, newBio, complete ->
-        val privateRef = db.collection("profiles").document(uid)
-        val publicRef = db.collection("public_profiles").document(uid)
-        // Salvar ambos na MESMA transação: não deixar a biografia pública
-        // desatualizada se a segunda gravação falhar. Se a apresentação tiver
-        // sido retirada, a transação não poderá recriá-la por acidente.
-        db.runTransaction { transaction ->
-            val published = transaction.get(publicRef) // todas as leituras antes das escritas
-            transaction.update(privateRef, mapOf(
-                "displayName" to newName, "bio" to newBio
-            ))
-            if (published.exists()) {
-                val joined = published.getTimestamp("joinedAt")
-                    ?: throw IllegalStateException("Data do perfil público inválida")
-                transaction.update(publicRef, mapOf(
-                    "displayName" to newName,
-                    "bio" to newBio,
-                    "joinedAt" to joined,
-                    "updatedAt" to com.google.firebase.firestore.FieldValue.serverTimestamp()
-                ))
-            }
-            true
-        }.addOnCompleteListener { result -> complete(result.isSuccessful) }
-    })
 }
 
 @Composable

@@ -10,11 +10,14 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
+import com.google.android.gms.tasks.Tasks
 import com.google.firebase.FirebaseApp
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import org.junit.Assert.*
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.util.concurrent.TimeUnit
 import org.junit.Rule
 import org.junit.Test
 
@@ -84,39 +87,46 @@ class ProfilePhotoUiTest {
 
     @Test fun photoPreviewAndPrivacyNoticeAppearInRealProfile() {
         check(FirebaseApp.getInstance().options.projectId == "demo-atrio-v11")
-        val uid = "qa-photo-owner-only"
-        val photo = Bitmap.createBitmap(400, 400, Bitmap.Config.ARGB_8888).apply {
-            eraseColor(Color.rgb(99, 45, 57))
-        }
-        compose.setContent {
-            CompositionLocalProvider(
-                LocalProfileAvatar provides LocalAvatarState(uid, photo.asImageBitmap())
-            ) {
-                AtrioTheme {
-                    OnlineProfileScreen(
-                        db = FirebaseFirestore.getInstance(), uid = uid,
-                        name = "Maria da Comunidade", email = "maria@example.test",
-                        biography = "Minha fé e minha comunidade",
-                        onSignOut = {}, onModeration = null, onClergyReview = null,
-                        onOpen = {}, onNotifications = {}, onReviews = {}
-                    )
+        val auth = FirebaseAuth.getInstance()
+        auth.signOut()
+        val uid = requireNotNull(Tasks.await(auth.signInAnonymously(), 15, TimeUnit.SECONDS).user).uid
+        try {
+            val photo = Bitmap.createBitmap(400, 400, Bitmap.Config.ARGB_8888).apply {
+                eraseColor(Color.rgb(99, 45, 57))
+            }
+            compose.setContent {
+                CompositionLocalProvider(
+                    LocalProfileAvatar provides LocalAvatarState(uid, photo.asImageBitmap())
+                ) {
+                    AtrioTheme {
+                        OnlineProfileScreen(
+                            db = FirebaseFirestore.getInstance(), uid = uid,
+                            name = "Maria da Comunidade", email = "maria@example.test",
+                            biography = "Minha fé e minha comunidade",
+                            onSignOut = {}, onModeration = null, onClergyReview = null,
+                            onOpen = {}, onNotifications = {}, onReviews = {}
+                        )
+                    }
                 }
             }
+            compose.onNodeWithTag("atrio-profile-avatar").assertExists()
+            capture("06-foto-perfil-sintetica")
+            compose.onNodeWithTag("atrio-profile-edit").performClick()
+            compose.onNodeWithTag("atrio-profile-v3-editor")
+                .performScrollToNode(hasTestTag("atrio-profile-photo-manage"))
+            compose.onNodeWithTag("atrio-profile-photo-manage").performClick()
+            compose.onNodeWithText("Escolher foto da galeria").assertIsDisplayed()
+            compose.onNodeWithText("Remover foto deste aparelho").assertIsDisplayed()
+            // O APK de QA sem ATRIO_AVATAR_WORKER_URL mantém as fotos somente locais.
+            assertFalse(CloudinaryAvatarClient.enabled)
+            compose.onNodeWithText(
+                "A foto fica apenas neste aparelho. O serviço de fotos públicas ainda não está configurado."
+            ).assertExists()
+            capture("07-gerenciar-foto")
+            compose.onNodeWithText("Fechar").performClick()
+        } finally {
+            auth.signOut()
         }
-        compose.onNodeWithTag("atrio-profile-avatar").assertExists()
-        capture("06-foto-perfil-sintetica")
-        compose.onNodeWithTag("atrio-profile-list")
-            .performScrollToNode(hasTestTag("atrio-profile-photo-manage"))
-        compose.onNodeWithTag("atrio-profile-photo-manage").performClick()
-        compose.onNodeWithText("Escolher foto da galeria").assertIsDisplayed()
-        compose.onNodeWithText("Remover foto deste aparelho").assertIsDisplayed()
-        // O APK de QA sem ATRIO_AVATAR_WORKER_URL mantém as fotos somente locais.
-        assertFalse(CloudinaryAvatarClient.enabled)
-        compose.onNodeWithText(
-            "A foto fica apenas neste aparelho. O serviço de fotos públicas ainda não está configurado."
-        ).assertExists()
-        capture("07-gerenciar-foto")
-        compose.onNodeWithText("Fechar").performClick()
     }
 
     private fun capture(name: String) {

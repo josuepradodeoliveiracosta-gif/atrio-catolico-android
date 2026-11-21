@@ -562,6 +562,35 @@ class ProfileV3ConsentEmulatorUiTest {
         compose.onNodeWithTag("atrio-profile-v3-save").assertIsNotEnabled()
     }
 
+    @Test fun unifiedEditorUpdatesIdentityAndVisibilityTogether() {
+        seedV3()
+        val beforePreferences = await(preferences.get(Source.SERVER)).data
+        compose.setContent {
+            AtrioTheme {
+                ProfileV3Editor(owner, uid, ProfileIdentity(name, "Apresentação anterior"))
+            }
+        }
+        compose.onNodeWithTag("atrio-profile-edit").performClick()
+        waitForTag("atrio-profile-v3-editor")
+        editorControl("atrio-profile-bio").performTextReplacement("Nova apresentação")
+        editorControl("atrio-profile-v3-show-saint")
+        waitForEnabled("atrio-profile-v3-show-saint")
+        compose.onNodeWithTag("atrio-profile-v3-show-saint").performClick()
+        editorControl("atrio-profile-draft-preview").performClick()
+        compose.onNodeWithTag("atrio-profile-draft-preview-bio").assertTextContains("Nova apresentação")
+        compose.onNodeWithText("Devoção · $saint").assertDoesNotExist()
+        compose.onNodeWithText("Fechar prévia").performClick()
+        compose.onNodeWithTag("atrio-profile-v3-save").assertIsEnabled().performClick()
+        waitForTag("atrio-profile-v3-status")
+
+        val saved = await(publicProfile.get(Source.SERVER))
+        assertEquals("Nova apresentação", saved.getString("bio"))
+        assertEquals("Nova apresentação", await(legacy.get(Source.SERVER)).getString("bio"))
+        assertFalse(saved.contains("saint"))
+        assertFalse(saved.contains("devotionPhrase"))
+        assertEquals(beforePreferences, await(preferences.get(Source.SERVER)).data)
+    }
+
     @Test fun openEditorCannotRepublishAfterExternalWithdrawal() {
         seedV3()
         showEditor()
