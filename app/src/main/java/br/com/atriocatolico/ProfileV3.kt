@@ -22,6 +22,7 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.google.firebase.auth.FirebaseAuth
@@ -404,6 +405,7 @@ internal fun ProfileV3EditorDialog(
     BackHandler(enabled = picking == null && !busy, onBack = ::closeEditor)
     AlertDialog(
         onDismissRequest = ::closeEditor,
+        modifier = Modifier.semantics { testTagsAsResourceId = true },
         title = {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("Editar perfil")

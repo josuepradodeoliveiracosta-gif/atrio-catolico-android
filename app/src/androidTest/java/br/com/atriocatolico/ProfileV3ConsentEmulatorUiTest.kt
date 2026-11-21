@@ -10,6 +10,7 @@ import android.app.UiAutomation
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import android.view.accessibility.AccessibilityManager
+import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.activity.ComponentActivity
@@ -212,39 +213,11 @@ class ProfileV3ConsentEmulatorUiTest {
     private fun verifyTalkBackPickerFocus(confirm: Boolean) {
         seedV3()
         val linked = createDiscussion("Oração em comunidade")
-        val instrumentation = InstrumentationRegistry.getInstrumentation()
-        val automation = instrumentation.getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES)
-        val manager = compose.activity.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
-        val talkBack = manager.installedAccessibilityServiceList.single {
-            it.resolveInfo.serviceInfo.name.endsWith("TalkBackService")
-        }
-        val service = talkBack.resolveInfo.serviceInfo
-        val notificationPermission = Manifest.permission.POST_NOTIFICATIONS
-        val grantNotifications = Build.VERSION.SDK_INT >= 33 &&
-            compose.activity.packageManager.checkPermission(notificationPermission, service.packageName) !=
-                PackageManager.PERMISSION_GRANTED
-        val component = android.content.ComponentName(service.packageName, service.name)
-            .flattenToShortString()
-        val oldServices = automation.shellText("settings get secure enabled_accessibility_services")
-        val oldEnabled = automation.shellText("settings get secure accessibility_enabled")
-        val enabledServices = listOf(oldServices.takeUnless { it == "null" || it.isBlank() }, component)
-            .filterNotNull().distinct().joinToString(":")
         showEditor(fontScale = 1.5f)
         val pickerTag = "atrio-v3-pick-oracao"
         editorControl(pickerTag)
 
-        try {
-            // A permissão inicial do leitor abriria uma janela do sistema sobre a Activity de QA.
-            if (grantNotifications) {
-                automation.shellText("pm grant ${service.packageName} $notificationPermission")
-            }
-            automation.shellText("settings put secure enabled_accessibility_services $enabledServices")
-            automation.shellText("settings put secure accessibility_enabled 1")
-            fun talkBackIsActive() = manager.isTouchExplorationEnabled &&
-                manager.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_SPOKEN)
-                    .any { it.id == talkBack.id }
-            compose.waitUntil(15_000) { talkBackIsActive() }
-            Log.i("AtrioQaProfileV3", "a11y_talkback=ativo exploracao_por_toque=true")
+        withTalkBack { automation, talkBackIsActive ->
             val action = if (confirm) "confirmar" else "cancelar"
             fun visiblePicker() = automation.rootInActiveWindow
                 ?.takeIf { it.packageName?.toString() == BuildConfig.APPLICATION_ID }
@@ -287,6 +260,40 @@ class ProfileV3ConsentEmulatorUiTest {
             }
             assertTrue(talkBackIsActive())
             Log.i("AtrioQaProfileV3", "a11y_talkback_picker_focus=$action")
+        }
+    }
+
+    private fun withTalkBack(block: (UiAutomation, () -> Boolean) -> Unit) {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val automation = instrumentation.getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES)
+        val manager = compose.activity.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
+        val talkBack = manager.installedAccessibilityServiceList.single {
+            it.resolveInfo.serviceInfo.name.endsWith("TalkBackService")
+        }
+        val service = talkBack.resolveInfo.serviceInfo
+        val notificationPermission = Manifest.permission.POST_NOTIFICATIONS
+        val grantNotifications = Build.VERSION.SDK_INT >= 33 &&
+            compose.activity.packageManager.checkPermission(notificationPermission, service.packageName) !=
+                PackageManager.PERMISSION_GRANTED
+        val component = android.content.ComponentName(service.packageName, service.name)
+            .flattenToShortString()
+        val oldServices = automation.shellText("settings get secure enabled_accessibility_services")
+        val oldEnabled = automation.shellText("settings get secure accessibility_enabled")
+        val enabledServices = listOf(oldServices.takeUnless { it == "null" || it.isBlank() }, component)
+            .filterNotNull().distinct().joinToString(":")
+        try {
+            // A permissão inicial do leitor abriria uma janela do sistema sobre a Activity de QA.
+            if (grantNotifications) {
+                automation.shellText("pm grant ${service.packageName} $notificationPermission")
+            }
+            automation.shellText("settings put secure enabled_accessibility_services $enabledServices")
+            automation.shellText("settings put secure accessibility_enabled 1")
+            fun talkBackIsActive() = manager.isTouchExplorationEnabled &&
+                manager.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_SPOKEN)
+                    .any { it.id == talkBack.id }
+            compose.waitUntil(15_000) { talkBackIsActive() }
+            Log.i("AtrioQaProfileV3", "a11y_talkback=ativo exploracao_por_toque=true")
+            block(automation, ::talkBackIsActive)
         } finally {
             restoreSecureSetting(automation, "enabled_accessibility_services", oldServices)
             restoreSecureSetting(automation, "accessibility_enabled", oldEnabled)
@@ -566,12 +573,15 @@ class ProfileV3ConsentEmulatorUiTest {
         compose.onNodeWithTag("atrio-profile-v3-save").assertIsNotEnabled()
     }
 
-    @Test fun unifiedEditorUpdatesIdentityAndVisibilityTogether() {
+    @Test fun unifiedEditorSavesWithTalkBackAt150Percent() {
         seedV3()
         val beforePreferences = await(preferences.get(Source.SERVER)).data
         compose.setContent {
-            AtrioTheme {
-                ProfileV3Editor(owner, uid, ProfileIdentity(name, "Apresentação anterior"))
+            val density = LocalDensity.current.density
+            CompositionLocalProvider(LocalDensity provides Density(density, 1.5f)) {
+                AtrioTheme {
+                    ProfileV3Editor(owner, uid, ProfileIdentity(name, "Apresentação anterior"))
+                }
             }
         }
         compose.onNodeWithTag("atrio-profile-edit").performClick()
@@ -584,8 +594,35 @@ class ProfileV3ConsentEmulatorUiTest {
         compose.onNodeWithTag("atrio-profile-draft-preview-bio").assertTextContains("Nova apresentação")
         compose.onNodeWithText("Devoção · $saint").assertDoesNotExist()
         compose.onNodeWithText("Fechar prévia").performClick()
-        compose.onNodeWithTag("atrio-profile-save").assertIsEnabled().performClick()
-        waitForTag("atrio-profile-v3-status")
+        withTalkBack { automation, talkBackIsActive ->
+            val saveTag = "atrio-profile-save"
+            fun visibleSave() = automation.rootInActiveWindow
+                ?.takeIf { it.packageName?.toString() == BuildConfig.APPLICATION_ID }
+                ?.findVisibleNode(saveTag)
+            compose.waitUntil(15_000) { visibleSave()?.isEnabled == true }
+            val save = requireNotNull(visibleSave())
+            assertTrue(save.isAccessibilityFocused ||
+                save.performAction(AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS))
+            compose.waitUntil(15_000) { visibleSave()?.isAccessibilityFocused == true }
+            val expected = "Informações atualizadas."
+            val event = automation.executeAndWaitForEvent({
+                check(requireNotNull(visibleSave()).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            }, { candidate ->
+                candidate.packageName?.toString() == BuildConfig.APPLICATION_ID &&
+                    candidate.eventType in setOf(
+                        AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
+                        AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED,
+                        AccessibilityEvent.TYPE_ANNOUNCEMENT
+                    ) &&
+                    (candidate.text.any { expected in it } ||
+                        candidate.source?.text?.contains(expected) == true)
+            }, 15_000)
+            waitForTag("atrio-profile-v3-status")
+            compose.onNodeWithTag("atrio-profile-v3-status").assertTextContains(expected)
+                .assert(SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite))
+            assertTrue(talkBackIsActive())
+            Log.i("AtrioQaProfileV3", "a11y_unified_save=evento_android tipo=${event.eventType} fonte=150%")
+        }
 
         val saved = await(publicProfile.get(Source.SERVER))
         assertEquals("Nova apresentação", saved.getString("bio"))
