@@ -23,6 +23,7 @@ import com.google.android.gms.tasks.Tasks
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
@@ -320,14 +321,31 @@ class AtrioConversasCompostasEmulatorUiTest {
         show(Screen(miguel, peer = claraTarget))
         send("atrio-chat-composer", "atrio-chat-send", first)
         waitForText("Solicitação enviada.")
-        fun assertChat(status: String) = await(chat.get(Source.SERVER)).also { snapshot ->
-            assertEquals(chatId, snapshot.id)
-            assertEquals(status, snapshot.getString("status"))
-            assertEquals(miguel, snapshot.getString("requesterUid"))
-            assertEquals(clara, snapshot.getString("recipientUid"))
-            assertTrue(!snapshot.metadata.hasPendingWrites() && !snapshot.metadata.isFromCache)
+        fun assertChat(checkpoint: String, status: String): DocumentSnapshot {
+            fun read(phase: String): DocumentSnapshot {
+                val snapshot = await(chat.get(Source.SERVER))
+                Log.i("AtrioQaDm0103", "checkpoint=$checkpoint phase=$phase id=${snapshot.id} " +
+                    "status=${snapshot.getString("status")} isFromCache=${snapshot.metadata.isFromCache} " +
+                    "hasPendingWrites=${snapshot.metadata.hasPendingWrites()}")
+                assertEquals("$checkpoint/$phase: leitura do cache", false, snapshot.metadata.isFromCache)
+                return snapshot
+            }
+
+            val firstRead = read("inicial")
+            val confirmed = if (firstRead.metadata.hasPendingWrites()) {
+                await(db.waitForPendingWrites())
+                read("apos-confirmacao")
+            } else {
+                firstRead
+            }
+            assertEquals("$checkpoint: escrita local pendente", false, confirmed.metadata.hasPendingWrites())
+            assertEquals(chatId, confirmed.id)
+            assertEquals(status, confirmed.getString("status"))
+            assertEquals(miguel, confirmed.getString("requesterUid"))
+            assertEquals(clara, confirmed.getString("recipientUid"))
+            return confirmed
         }
-        val pending = assertChat("pending")
+        val pending = assertChat("solicitar", "pending")
         val initialId = requireNotNull(pending.getString("initialId"))
         val initial = chat.collection("messages").document(initialId)
         // Simula unicamente o índice administrativo local, como no outro sentido.
@@ -341,13 +359,13 @@ class AtrioConversasCompostasEmulatorUiTest {
         waitForText(first)
         waitForText("Aceitar")
         compose.onNodeWithTag("atrio-chat-composer").assertDoesNotExist()
-        assertChat("pending")
+        assertChat("abrir", "pending")
         Log.i("AtrioQaDm0103", "stage=abrir id=$chatId status=pending actor=Clara")
 
         assertEquals(miguel, login(miguelEmail))
         show(Screen(miguel, peer = claraTarget, chatId = chatId))
         waitForText("Aguardando aceite do destinatário.")
-        assertChat("pending")
+        assertChat("aguardar", "pending")
         Log.i("AtrioQaDm0103", "stage=aguardar id=$chatId status=pending actor=Miguel")
 
         val lucia = login(luciaEmail)
@@ -363,16 +381,17 @@ class AtrioConversasCompostasEmulatorUiTest {
         assertEquals(clara, login(claraEmail))
         show(Screen(clara, peer = miguelTarget, chatId = chatId))
         waitForText("Aceitar")
-        assertChat("pending")
+        assertChat("antes-do-aceite", "pending")
         compose.onNodeWithText("Aceitar").assertIsEnabled().performClick()
         compose.waitUntil(30_000) { await(chat.get(Source.SERVER)).getString("status") == "accepted" }
-        assertChat("accepted")
+        assertChat("aceitar", "accepted")
         Log.i("AtrioQaDm0103", "stage=aceitar id=$chatId status=accepted actor=Clara")
         materializePeerIndex(miguel, clara, chatId, "accepted", first)
         materializePeerIndex(clara, miguel, chatId, "accepted", first)
 
         send("atrio-chat-composer", "atrio-chat-send", claraReply)
         waitForText(claraReply)
+        await(db.waitForPendingWrites())
         assertEquals(miguel, login(miguelEmail))
         show(Screen(miguel, peer = claraTarget, chatId = chatId))
         waitForText(claraReply)
@@ -380,13 +399,14 @@ class AtrioConversasCompostasEmulatorUiTest {
         assertTrue(receivedByMiguel.documents.any { it.getString("text") == claraReply && it.getString("uid") == clara })
         send("atrio-chat-composer", "atrio-chat-send", miguelReply)
         waitForText(miguelReply)
+        await(db.waitForPendingWrites())
 
         assertEquals(clara, login(claraEmail))
         show(Screen(clara, peer = miguelTarget, chatId = chatId))
         waitForText(miguelReply)
         val receivedByClara = await(chat.collection("messages").get(Source.SERVER))
         assertTrue(receivedByClara.documents.any { it.getString("text") == miguelReply && it.getString("uid") == miguel })
-        assertChat("accepted")
+        assertChat("mensagens", "accepted")
         Log.i("AtrioQaDm0103", "stage=mensagens id=$chatId status=accepted ClaraParaMiguel=lida MiguelParaClara=lida")
     }
 
