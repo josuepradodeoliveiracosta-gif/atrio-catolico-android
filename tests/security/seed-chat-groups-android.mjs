@@ -5,6 +5,8 @@ import {doc,setDoc,serverTimestamp,Timestamp} from 'firebase/firestore';
 const project = 'demo-atrio-v11';
 const auth = 'http://127.0.0.1:9099/identitytoolkit.googleapis.com/v1';
 const navigationFixtures = process.argv.includes('--navegacao-perfis');
+const reverseRequest = process.argv.includes('--pedido-inverso');
+if (navigationFixtures && reverseRequest) throw new Error('Use uma única fixture por execução.');
 const rules = readFileSync('qa-parity.generated.rules', 'utf8');
 if (!rules.includes('BEGIN QA PARITY ADDITIVE')) {
   throw new Error('As regras compostas são obrigatórias.');
@@ -21,7 +23,11 @@ async function authRequest(path, body, headers = {}) {
   return response.json();
 }
 
-const accounts = [
+const accounts = reverseRequest ? [
+  {email: 'pedido.inverso.miguel@qa.invalid', name: 'Miguel QA', requests: 'all'},
+  {email: 'pedido.inverso.clara@qa.invalid', name: 'Clara QA', requests: 'all'},
+  {email: 'pedido.inverso.lucia@qa.invalid', name: 'Lúcia QA', requests: 'all'}
+] : [
   {email: 'conversas.alice@qa.invalid', name: 'Alice QA', requests: 'none'},
   {email: 'conversas.bob@qa.invalid', name: 'Bob QA', requests: 'all'},
   ...(navigationFixtures ? [{email: 'conversas.lucia@qa.invalid', name: 'Lúcia QA', requests: 'all'}] : [])
@@ -116,7 +122,7 @@ try {
       });
     }
   });
-  console.log('Conversas QA: regras compostas e duas contas fictícias verificadas no emulador local.');
+  console.log('Conversas QA: regras compostas e ' + accounts.length + ' contas fictícias verificadas no emulador local.');
 } finally {
   await env.cleanup();
 }
