@@ -995,7 +995,8 @@ private fun AtrioChatThread(
                         else "Ver mensagens ocultadas (" + hiddenMessageIds.size + ")")
                 }
             }
-            LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(12.dp),
+            LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("atrio-chat-history"),
+                contentPadding = PaddingValues(12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (messages.size >= limit) item {
                     TextButton(onClick = { limit += 40 }) { Text("Carregar anteriores") }
@@ -1006,7 +1007,7 @@ private fun AtrioChatThread(
                     key = { it.id }
                 ) { msg ->
                     val isHidden = msg.id in hiddenMessageIds
-                    Column(Modifier.fillMaxWidth(),
+                    Column(Modifier.fillMaxWidth().testTag("atrio-chat-message-${msg.id}"),
                         horizontalAlignment = if (msg.uid == uid) Alignment.End else Alignment.Start) {
                         Surface(shape = RoundedCornerShape(14.dp),
                             color = if (msg.uid == uid) WineSoft else MaterialTheme.colorScheme.surface,
@@ -1347,13 +1348,15 @@ private fun AtrioChatThread(
     if (!accessDenied && report != null && chat != null) {
         val selectedMessage = report!!
         AlertDialog(onDismissRequest = { if (!saving) report = null },
+            modifier = Modifier.testTag("atrio-chat-report-dialog"),
             title = { Text("Denunciar mensagem") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("A moderação recebe apenas esta mensagem e o motivo informado.")
                     Text(selectedMessage.text, maxLines = 3, overflow = TextOverflow.Ellipsis)
                     OutlinedTextField(reason, { reason = it.take(300) },
-                        label = { Text("Motivo") }, maxLines = 4)
+                        label = { Text("Motivo") }, maxLines = 4,
+                        modifier = Modifier.testTag("atrio-chat-report-reason"))
                 }
             },
             confirmButton = {

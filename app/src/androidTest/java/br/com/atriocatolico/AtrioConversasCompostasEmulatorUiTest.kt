@@ -12,6 +12,8 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
@@ -22,6 +24,7 @@ import com.google.android.gms.tasks.Tasks
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
@@ -244,6 +247,63 @@ class AtrioConversasCompostasEmulatorUiTest {
         }
     }
 
+    private fun checkDirectMessageReport(
+        chat: DocumentReference, reporter: String, selectedText: String, otherText: String
+    ) {
+        val history = chat.collection("messages")
+        val messages = await(history.get(Source.SERVER)).documents
+        val selected = messages.single { it.getString("text") == selectedText }.reference
+        val other = messages.single { it.getString("text") == otherText }.reference
+
+        val row = hasTestTag("atrio-chat-message-${selected.id}")
+        compose.onNodeWithTag("atrio-chat-history").performScrollToNode(row)
+        compose.onNode(hasTestTag("atrio-chat-more-message") and hasAnyAncestor(row))
+            .assertIsDisplayed().performClick()
+        waitForText("Denunciar mensagem")
+        compose.onNodeWithText("Denunciar mensagem").performClick()
+
+        val dialog = hasAnyAncestor(hasTestTag("atrio-chat-report-dialog"))
+        waitForTag("atrio-chat-report-reason")
+        compose.onNode(hasText(selectedText) and dialog, useUnmergedTree = true).assertIsDisplayed()
+        compose.onNode(hasText(otherText) and dialog, useUnmergedTree = true).assertDoesNotExist()
+        val reason = "Relato fictício sobre a mensagem selecionada."
+        compose.onNodeWithTag("atrio-chat-report-reason").performTextInput(reason)
+        compose.onNodeWithText("Enviar denúncia").performClick()
+        waitForText("Denúncia registrada.")
+
+        val report = db.document("chat_reports/${reporter}__${chat.id}__${selected.id}")
+        val moderator = login("moderador.navegacao@qa.invalid", eligible = false)
+        assertEquals("qa-nav-moderador", moderator)
+        val received = await(report.get(Source.SERVER))
+        assertEquals(false, received.metadata.isFromCache)
+        assertEquals(false, received.metadata.hasPendingWrites())
+        assertEquals(setOf("chatId", "messageId", "reporterUid", "reason", "reportedText", "createdAt"),
+            received.data?.keys)
+        assertEquals(chat.id, received.getString("chatId"))
+        assertEquals(selected.id, received.getString("messageId"))
+        assertEquals(reporter, received.getString("reporterUid"))
+        assertEquals(reason, received.getString("reason"))
+        assertEquals(selectedText, received.getString("reportedText"))
+        requireNotNull(received.getTimestamp("createdAt"))
+        assertDenied(chat.get(Source.SERVER))
+        assertDenied(history.limit(20).get(Source.SERVER))
+        assertDenied(selected.get(Source.SERVER))
+        assertDenied(other.get(Source.SERVER))
+
+        val role = "admins/$moderator"
+        fixtureField(role, "enabled", "booleanValue", false)
+        try {
+            assertDenied(report.get(Source.SERVER))
+        } finally {
+            fixtureField(role, "enabled", "booleanValue", true)
+        }
+        login("fora@qa.invalid", eligible = false)
+        assertDenied(report.get(Source.SERVER))
+        android.util.Log.i("AtrioConversasQA",
+            "denuncia_dm=confirmada trecho_selecionado=confirmado historico_moderador=PERMISSION_DENIED " +
+                "protocolo_moderador_revogado_e_terceiro=PERMISSION_DENIED")
+    }
+
     private fun checkDirectRevocation(alice: String, bob: String, chatId: String, history: String) {
         assertEquals(bob, login(bobEmail))
         val destination = Screen(bob, chatId = chatId)
@@ -402,6 +462,8 @@ class AtrioConversasCompostasEmulatorUiTest {
         }
 
         materializeBoth("accepted", reply)
+        if (pilot) checkDirectMessageReport(chat, bob, first, reply)
+
         // Na suite regular, exercitar o envio real pela UI com a transacao
         // falhando sem rede. O app deve reutilizar o mesmo ID ao reenviar,
         // e o servidor deve persistir apenas uma mensagem.
