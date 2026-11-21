@@ -189,7 +189,7 @@ class ProfileV3ConsentEmulatorUiTest {
         editorControl("atrio-profile-v3-interest-0").performClick().assertIsOn()
         editorControl("atrio-v3-question-oracao")
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString("")))
-        compose.onNodeWithText("Escolher discussão").assertExists()
+        editorControl("atrio-v3-pick-oracao").assertTextContains("Escolher discussão")
     }
 
     @Test fun tappingRequiresFreshAccessAndTheSameDestination() {
