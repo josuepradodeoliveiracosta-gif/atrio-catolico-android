@@ -345,13 +345,17 @@ class ProfileV3ConsentEmulatorUiTest {
                 "touch_exploration=true device_epoch_ms=${System.currentTimeMillis()}")
             compose.onNodeWithTag("atrio-profile-v3-save").performClick()
 
-            val directory = java.io.File(requireNotNull(compose.activity.getExternalFilesDir(null)), "talkback-speech")
-            check(directory.isDirectory || directory.mkdirs())
+            val directory = "/data/local/tmp/atrio-talkback-speech"
+            check(automation.shellText("mkdir -p $directory && echo ok") == "ok")
             repeat(12) { index ->
                 android.os.SystemClock.sleep(420)
                 val frame = requireNotNull(automation.takeScreenshot())
-                java.io.File(directory, "$scenario-${(index + 1).toString().padStart(2, '0')}.png")
-                    .outputStream().use { frame.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+                val suffix = (index + 1).toString().padStart(2, '0')
+                val pipes = automation.executeShellCommandRw("cat > $directory/$scenario-$suffix.png")
+                ParcelFileDescriptor.AutoCloseOutputStream(pipes[1]).use {
+                    check(frame.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it))
+                }
+                ParcelFileDescriptor.AutoCloseInputStream(pipes[0]).use { it.readBytes() }
                 frame.recycle()
             }
             Log.i("AtrioQaTalkBack", "scenario=$scenario frames=12 scope=pos_salvar " +
