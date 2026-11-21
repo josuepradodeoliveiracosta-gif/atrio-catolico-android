@@ -1,5 +1,8 @@
 package br.com.atriocatolico
 
+import android.view.View
+import android.view.accessibility.AccessibilityManager
+import android.view.accessibility.AccessibilityNodeInfo
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
@@ -13,9 +16,14 @@ import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.node.RootForTest
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getAllSemanticsNodes
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
@@ -46,12 +54,17 @@ internal fun ProfileV3InterestEditor(
     val pickerFocus = remember { FocusRequester() }
     val revealPicker = remember { BringIntoViewRequester() }
     val window = LocalWindowInfo.current
+    val view = LocalView.current
+    val pickerTag = "atrio-v3-pick-${interest.id}"
     LaunchedEffect(restoreFocus, enabled) {
         if (!restoreFocus || !enabled) return@LaunchedEffect
         snapshotFlow { window.isWindowFocused }.first { it }
         revealPicker.bringIntoView()
         withFrameNanos { }
-        if (pickerFocus.requestFocus(FocusDirection.Enter)) onFocusRestored()
+        if (!pickerFocus.requestFocus(FocusDirection.Enter)) return@LaunchedEffect
+        withFrameNanos { }
+        view.restorePickerAccessibilityFocus(pickerTag)
+        onFocusRestored()
     }
     val length = detail.question.profileV3QuestionLength()
     OutlinedTextField(
@@ -106,7 +119,7 @@ internal fun ProfileV3InterestEditor(
             .bringIntoViewRequester(revealPicker)
             .focusRequester(pickerFocus)
             .focusProperties { canFocus = enabled }
-            .testTag("atrio-v3-pick-${interest.id}")
+            .testTag(pickerTag)
             .semantics { testTagsAsResourceId = true }
     ) {
         Text(if (detail.postId == null) "Escolher discussão" else "Trocar discussão")
@@ -132,6 +145,18 @@ internal fun ProfileV3InterestEditor(
         Text("Ao ocultar este interesse e salvar, a pergunta e o vínculo serão apagados.",
             style = MaterialTheme.typography.bodySmall, color = Muted)
     }
+}
+
+private fun View.restorePickerAccessibilityFocus(pickerTag: String) {
+    val access = context.getSystemService(AccessibilityManager::class.java)
+    if (!hasWindowFocus() || access?.isTouchExplorationEnabled != true) return
+    // Compose publica a ação como um nó virtual. O foco de entrada não o seleciona no TalkBack.
+    val semanticsId = (this as? RootForTest)?.semanticsOwner
+        ?.getAllSemanticsNodes(mergingEnabled = false)
+        ?.firstOrNull { it.config.getOrNull(SemanticsProperties.TestTag) == pickerTag }?.id ?: return
+    accessibilityNodeProvider?.performAction(
+        semanticsId, AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS, null
+    )
 }
 
 private data class PickableDiscussion(val id: String, val title: String, val category: String)
