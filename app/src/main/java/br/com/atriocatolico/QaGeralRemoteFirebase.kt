@@ -45,11 +45,15 @@ internal fun qaGeralPushSessionReady(context: Context, uid: String): Boolean {
         BuildConfig.ATRIO_QA_GERAL_CELULAR_FUNCIONAL
     ) return false
     if (!qaGeralRemoteFirebaseReady(context)) return false
+    val user = FirebaseAuth.getInstance().currentUser ?: return false
+    return user.uid == uid && qaGeralPushIdentityMatches(uid, user.email, user.isEmailVerified)
+}
+
+internal fun qaGeralPushIdentityMatches(uid: String, email: String?, verified: Boolean): Boolean {
     val expectedEmail = when (uid) {
         "qa-nav-alice" -> "alice.navegacao@qa.invalid"
         "qa-nav-bob" -> "bob.navegacao@qa.invalid"
         else -> return false
     }
-    val user = FirebaseAuth.getInstance().currentUser ?: return false
-    return user.uid == uid && user.email == expectedEmail && user.isEmailVerified
+    return verified && email == expectedEmail
 }
