@@ -1,7 +1,10 @@
 package br.com.atriocatolico
 
+import android.Manifest
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
 import android.app.UiAutomation
 import android.os.ParcelFileDescriptor
 import android.util.Log
@@ -199,13 +202,25 @@ class ProfileV3ConsentEmulatorUiTest {
             it.resolveInfo.serviceInfo.name.endsWith("TalkBackService")
         }
         val service = talkBack.resolveInfo.serviceInfo
+        val notificationPermission = Manifest.permission.POST_NOTIFICATIONS
+        val grantNotifications = Build.VERSION.SDK_INT >= 33 &&
+            compose.activity.packageManager.checkPermission(notificationPermission, service.packageName) !=
+                PackageManager.PERMISSION_GRANTED
         val component = android.content.ComponentName(service.packageName, service.name)
             .flattenToShortString()
         val oldServices = automation.shellText("settings get secure enabled_accessibility_services")
         val oldEnabled = automation.shellText("settings get secure accessibility_enabled")
         val enabledServices = listOf(oldServices.takeUnless { it == "null" || it.isBlank() }, component)
             .filterNotNull().distinct().joinToString(":")
+        showEditor(fontScale = 1.5f)
+        val pickerTag = "atrio-v3-pick-oracao"
+        editorControl(pickerTag)
+
         try {
+            // A permissão inicial do leitor abriria uma janela do sistema sobre a Activity de QA.
+            if (grantNotifications) {
+                automation.shellText("pm grant ${service.packageName} $notificationPermission")
+            }
             automation.shellText("settings put secure enabled_accessibility_services $enabledServices")
             automation.shellText("settings put secure accessibility_enabled 1")
             fun talkBackIsActive() = manager.isTouchExplorationEnabled &&
@@ -213,13 +228,6 @@ class ProfileV3ConsentEmulatorUiTest {
                     .any { it.id == talkBack.id }
             compose.waitUntil(15_000) { talkBackIsActive() }
             Log.i("AtrioQaProfileV3", "a11y_talkback=ativo exploracao_por_toque=true")
-            if (automation.rootInActiveWindow?.packageName?.toString() == service.packageName) {
-                automation.shellText("input keyevent KEYCODE_BACK")
-            }
-
-            showEditor(fontScale = 1.5f)
-            val pickerTag = "atrio-v3-pick-oracao"
-            editorControl(pickerTag)
             var opener: AccessibilityNodeInfo? = null
             compose.waitUntil(15_000) {
                 opener = automation.rootInActiveWindow?.findVisibleNode(pickerTag)
@@ -254,6 +262,9 @@ class ProfileV3ConsentEmulatorUiTest {
         } finally {
             restoreSecureSetting(automation, "enabled_accessibility_services", oldServices)
             restoreSecureSetting(automation, "accessibility_enabled", oldEnabled)
+            if (grantNotifications) {
+                automation.shellText("pm revoke ${service.packageName} $notificationPermission")
+            }
         }
     }
 
