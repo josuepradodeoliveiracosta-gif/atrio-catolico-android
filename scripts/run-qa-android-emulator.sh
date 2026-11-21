@@ -250,8 +250,10 @@ PY
     fi
     adb logcat -d -v threadtime | awk '/AtrioQaTalkBack:|SpeechControllerImpl:.*Speaking fragment|GoogleTTSServiceImpl: TTS dispatch|TTS is not ready/' \
       > qa-android-suite-results/talkback-speech.log
-    adb pull /sdcard/Android/data/br.com.atriocatolico.qageral/files/talkback-speech \
-      qa-android-suite-results/ || true
+    adb pull /data/local/tmp/atrio-talkback-speech qa-android-suite-results/
+    for outcome in sucesso erro; do
+      test -s "qa-android-suite-results/atrio-talkback-speech/$outcome-12.png"
+    done
     exit "$qa_failed"
   fi
   run_suite "$ATRIO_QA_SUITE"
