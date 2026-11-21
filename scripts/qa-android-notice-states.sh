@@ -45,8 +45,14 @@ for serial in "$first" "$second"; do
     device shell settings get global airplane_mode_on | tr -d '\r' | tee "$evidence/airplane-mode.txt"
     grep -qx '1' "$evidence/airplane-mode.txt"
 
+    # Fresh Google APIs AVDs can intercept the Home key during provisioning.
+    device shell settings put global device_provisioned 1
+    device shell settings put secure user_setup_complete 1
     device shell input keyevent KEYCODE_WAKEUP
     device shell wm dismiss-keyguard
+    device shell settings put global window_animation_scale 0
+    device shell settings put global transition_animation_scale 0
+    device shell settings put global animator_duration_scale 0
     device shell wm size 720x1520
     device shell wm density 320
     device install "$apk"
@@ -56,12 +62,16 @@ for serial in "$first" "$second"; do
     device shell am start -W -n "$activity" | tee "$evidence/launch.txt"
     device shell dumpsys activity activities | grep -F 'topResumedActivity' > "$evidence/foreground.txt"
     grep -F "$package/" "$evidence/foreground.txt"
-    device shell input keyevent KEYCODE_HOME
-    sleep 2
-    device shell dumpsys activity activities | grep -F 'topResumedActivity' > "$evidence/background.txt"
-    if grep -Fq "$package/" "$evidence/background.txt"; then exit 1; fi
-    device shell dumpsys activity recents | grep -F 'Recent #' > "$evidence/background-recents.txt"
-    grep -F "$package" "$evidence/background-recents.txt"
+    device shell am start -W -a android.intent.action.MAIN -c android.intent.category.HOME \
+        | tee "$evidence/home-launch.txt"
+    for attempt in $(seq 1 10); do
+        device shell dumpsys activity activities > "$evidence/background.txt"
+        if grep -F 'topResumedActivity' "$evidence/background.txt" | grep -Ev "$package/|null"; then break; fi
+        sleep 2
+    done
+    grep -F 'topResumedActivity' "$evidence/background.txt" | grep -Ev "$package/|null"
+    device shell dumpsys activity recents > "$evidence/background-recents.txt"
+    grep 'Recent #' "$evidence/background-recents.txt" | grep -F "$package"
     printf '%s background=PASS\n' "$serial"
 
     device shell input keyevent KEYCODE_APP_SWITCH
