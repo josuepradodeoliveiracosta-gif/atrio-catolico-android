@@ -2,8 +2,13 @@ package br.com.atriocatolico
 
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.Context
+import android.app.UiAutomation
+import android.os.ParcelFileDescriptor
 import android.util.Log
 import android.view.accessibility.AccessibilityManager
+import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
+import androidx.test.platform.app.InstrumentationRegistry
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.Button
@@ -181,6 +186,85 @@ class ProfileV3ConsentEmulatorUiTest {
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString(question)))
         assertEquals(question, await(publicProfile.get(Source.SERVER)).get("interestQuestions.oracao"))
         Log.i("AtrioQaProfileV3", "a11y_feedback=sucesso_polite,erro_polite,rascunho_preservado")
+    }
+
+    @Test fun talkBackFocusEventsWithLargeText() {
+        seedV3()
+        val linked = createDiscussion("Oração em comunidade")
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val automation = instrumentation.getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES)
+        val manager = compose.activity.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
+        val talkBack = manager.installedAccessibilityServiceList.single {
+            it.resolveInfo.serviceInfo.name.endsWith("TalkBackService")
+        }
+        val service = talkBack.resolveInfo.serviceInfo
+        val component = android.content.ComponentName(service.packageName, service.name)
+            .flattenToShortString()
+        val oldServices = automation.shellText("settings get secure enabled_accessibility_services")
+        val oldEnabled = automation.shellText("settings get secure accessibility_enabled")
+        val appPackage = compose.activity.packageName
+        val enabledServices = listOf(oldServices.takeUnless { it == "null" || it.isBlank() }, component)
+            .filterNotNull().distinct().joinToString(":")
+        try {
+            automation.shellText("settings put secure enabled_accessibility_services $enabledServices")
+            automation.shellText("settings put secure accessibility_enabled 1")
+            compose.waitUntil(15_000) {
+                manager.isTouchExplorationEnabled &&
+                    manager.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_SPOKEN)
+                        .any { it.id == talkBack.id }
+            }
+            Log.i("AtrioQaProfileV3", "a11y_talkback=ativo exploracao_por_toque=true")
+            if (automation.rootInActiveWindow?.packageName?.toString() == service.packageName) {
+                automation.shellText("input keyevent KEYCODE_BACK")
+            }
+
+            showEditor(fontScale = 1.5f)
+            editorControl("atrio-v3-question-oracao").performTextReplacement("Qual é a sua oração?")
+            selectDiscussion(linked)
+            editorControl("atrio-v3-question-oracao")
+            val label = "Pergunta opcional · Oração"
+            val field = requireNotNull(
+                automation.rootInActiveWindow?.findAccessibilityNodeInfosByText(label)
+                    ?.firstOrNull { it.isVisibleToUser }
+            ) { "O rótulo da pergunta não apareceu na árvore de acessibilidade." }
+            val eventFilter = { event: AccessibilityEvent ->
+                event.eventType == AccessibilityEvent.TYPE_VIEW_ACCESSIBILITY_FOCUSED &&
+                    event.packageName?.toString() == appPackage
+            }
+            if (!field.isAccessibilityFocused) {
+                automation.executeAndWaitForEvent({
+                    assertTrue(field.performAction(AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS))
+                }, eventFilter, 5_000)
+            }
+            Log.i("AtrioQaProfileV3", "a11y_talkback_focus_inicio=$label")
+            val metrics = compose.activity.resources.displayMetrics
+            val start = metrics.widthPixels / 4
+            val end = metrics.widthPixels * 3 / 4
+            val y = metrics.heightPixels / 2
+            repeat(5) {
+                val event = automation.executeAndWaitForEvent({
+                    automation.shellText("input swipe $start $y $end $y 180")
+                }, eventFilter, 5_000)
+                val focused = event.source
+                val description = listOfNotNull(focused?.text, focused?.contentDescription)
+                    .joinToString(" | ").ifBlank { event.text.joinToString(" | ") }
+                Log.i("AtrioQaProfileV3", "a11y_talkback_foco_${it + 1}=$description")
+            }
+        } finally {
+            restoreSecureSetting(automation, "enabled_accessibility_services", oldServices)
+            restoreSecureSetting(automation, "accessibility_enabled", oldEnabled)
+        }
+    }
+
+    private fun UiAutomation.shellText(command: String): String =
+        ParcelFileDescriptor.AutoCloseInputStream(executeShellCommand(command))
+            .bufferedReader().use { it.readText().trim() }
+
+    private fun restoreSecureSetting(automation: UiAutomation, name: String, value: String) {
+        automation.shellText(
+            if (value == "null" || value.isBlank()) "settings delete secure $name"
+            else "settings put secure $name $value"
+        )
     }
 
     @Test fun interestPickerReturnsInputFocusWithLargeText() {
