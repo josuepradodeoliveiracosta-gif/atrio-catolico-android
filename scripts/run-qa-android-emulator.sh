@@ -233,15 +233,25 @@ PY
     rm -f "$prefs_xml"
     adb shell rm -f /data/local/tmp/atrio-talkback-prefs.xml
     adb logcat -c
+    qa_audio_pid=""
+    if [[ "${ATRIO_QA_CAPTURE_AUDIO:-}" == 1 ]]; then
+      date +%s.%N > qa-android-suite-results/talkback-audio-start.txt
+      ffmpeg -nostdin -hide_banner -loglevel warning -f pulse -i atrio_qa_speech.monitor \
+        -ac 1 -ar 24000 -y qa-android-suite-results/talkback-audio.wav \
+        > qa-android-suite-results/talkback-audio-recorder.log 2>&1 &
+      qa_audio_pid=$!
+    fi
     qa_class="br.com.atriocatolico.$ATRIO_QA_SUITE"
     ATRIO_QA_INSTRUMENTATION_CLASS="$qa_class#talkBackAnnouncesSaveSuccessAt150Percent,$qa_class#talkBackAnnouncesSaveErrorAt150Percent" \
       run_suite "$ATRIO_QA_SUITE"
-    adb logcat -d -v threadtime | awk '/AtrioQaTalkBack:|SpeechControllerImpl:.*Speaking fragment|FailoverTextToSpeech:.*(Speak call|Initialized|failed)|TTS is not ready/' \
+    if [[ -n "$qa_audio_pid" ]]; then
+      kill -INT "$qa_audio_pid" 2>/dev/null || true
+      wait "$qa_audio_pid" || true
+    fi
+    adb logcat -d -v threadtime | awk '/AtrioQaTalkBack:|SpeechControllerImpl:.*Speaking fragment|GoogleTTSServiceImpl: TTS dispatch|TTS is not ready/' \
       > qa-android-suite-results/talkback-speech.log
-    for outcome in sucesso erro; do
-      adb pull "/sdcard/Android/data/br.com.atriocatolico.qageral/files/talkback-$outcome.png" \
-        "qa-android-suite-results/talkback-$outcome.png" || true
-    done
+    adb pull /sdcard/Android/data/br.com.atriocatolico.qageral/files/talkback-speech \
+      qa-android-suite-results/ || true
     exit "$qa_failed"
   fi
   run_suite "$ATRIO_QA_SUITE"
