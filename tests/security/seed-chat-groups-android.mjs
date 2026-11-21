@@ -5,6 +5,10 @@ import {doc,setDoc,serverTimestamp,Timestamp} from 'firebase/firestore';
 const project = 'demo-atrio-v11';
 const auth = 'http://127.0.0.1:9099/identitytoolkit.googleapis.com/v1';
 const navigationFixtures = process.argv.includes('--navegacao-perfis');
+const clients199 = process.argv.includes('--clientes-199');
+if (clients199 && !navigationFixtures) {
+  throw new Error('O QA de clientes da #199 requer perfis de navegação.');
+}
 const rules = readFileSync('qa-parity.generated.rules', 'utf8');
 if (!rules.includes('BEGIN QA PARITY ADDITIVE')) {
   throw new Error('As regras compostas são obrigatórias.');
@@ -114,6 +118,44 @@ try {
         body: 'Perfil sintético de Lúcia para verificar troca de conta.',
         category: 'Vida espiritual', createdAt: serverTimestamp()
       });
+      if (clients199) {
+        await setDoc(doc(db, 'posts', 'qa-nav-alice-profile'), {
+          uid: alice.uid, authorName: alice.name,
+          title: 'Publicação fictícia de Alice para o segundo cliente',
+          body: 'Perfil de controle para a sessão de Lúcia.',
+          category: 'Vida espiritual', createdAt: serverTimestamp()
+        });
+        for (const [suffix, order, description] of [['a', 0, 'primeiro'], ['b', 1, 'segundo']]) {
+          const postId = 'qa-199-post-' + suffix;
+          const noticeId = 'qa-199-notice-' + suffix;
+          const body = 'Destino exato do ' + description + ' aviso de Alice QA';
+          const at = Timestamp.fromMillis(Date.now() - order * 1_000);
+          await setDoc(doc(db, 'posts', postId), {
+            uid: alice.uid, authorName: alice.name, title: body,
+            body: 'Discussão sintética acessível pelo aviso da conta de teste.',
+            category: 'Vida espiritual', createdAt: at
+          });
+          await setDoc(doc(db, 'posts', postId, 'replies', noticeId), {
+            uid: lucia.uid, authorName: lucia.name, body: 'Resposta fictícia de Lúcia.',
+            createdAt: at
+          });
+          await setDoc(doc(db, 'users', alice.uid, 'notifications', noticeId), {
+            postId, replyId: noticeId, actorUid: lucia.uid,
+            actorName: 'Lúcia QA ' + description + ' aviso', read: false, createdAt: at
+          });
+        }
+        const groupId = 'qa-199-conta-alice';
+        const groupName = 'Convite privado de Alice QA';
+        await setDoc(doc(db, 'chat_groups', groupId), {
+          name: groupName, category: 'study', ownerUid: lucia.uid, memberUids: [lucia.uid],
+          adminUids: [lucia.uid], status: 'active', createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(), lastMessageId: '', lastPreview: '', lastSenderUid: ''
+        });
+        await setDoc(doc(db, 'chat_groups', groupId, 'atrioGroupInvites', alice.uid), {
+          inviteeUid: alice.uid, inviterUid: lucia.uid, groupName, contactChatId: id,
+          status: 'pending', createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+        });
+      }
     }
   });
   console.log('Conversas QA: regras compostas e duas contas fictícias verificadas no emulador local.');

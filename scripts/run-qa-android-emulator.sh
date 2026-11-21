@@ -279,6 +279,23 @@ if [[ "${ATRIO_QA_GERAL_CELULAR_PILOT:-}" == 1 ]]; then
   run_suite "$ATRIO_QA_SUITE"
   exit "$qa_failed"
 fi
+if [[ "${ATRIO_QA_SUITE:-}" == Atrio199ClientesEmulatorUiTest ]]; then
+  [[ "$qa_apk" == qaGeral && "${ATRIO_QA_GERAL_REMOTE_BUILD:-}" != 1 &&
+     "${ATRIO_QA_INBOX_DISCOVERY:-}" != 1 ]] || {
+    echo "Focais de clientes da #199 exigem qaGeral local" >&2
+    exit 2
+  }
+  node firebase/qa-general/compose-parity-rules.mjs
+  (cd tests/security && node seed-chat-groups-android.mjs --navegacao-perfis --clientes-199)
+  case "${ATRIO_QA_199_CLIENTS:-}" in
+    CLIENTES) bash scripts/run-qa-199-two-clients.sh ;;
+    BLOQUEIO) run_suite 'Atrio199ClientesEmulatorUiTest#bloqueioPersisteDepoisDeReconectar' ;;
+    REDE) run_suite 'Atrio199ClientesEmulatorUiTest#duasInterrupcoesPreservamRascunhoEIdUnico' ;;
+    TROCA) run_suite 'Atrio199ClientesEmulatorUiTest#trocaContaIsolaBadgeCentralConviteEDestino' ;;
+    *) echo "Focal de clientes da #199 desconhecido" >&2; exit 2 ;;
+  esac
+  exit "$qa_failed"
+fi
 if [[ "${ATRIO_QA_SUITE:-}" == AtrioConversasCompostasEmulatorUiTest ]]; then
   [[ "$qa_apk" == qaGeral && "${ATRIO_QA_GERAL_REMOTE_BUILD:-}" != 1 &&
      "${ATRIO_QA_INBOX_DISCOVERY:-}" != 1 ]] || {
