@@ -16,6 +16,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -33,7 +34,9 @@ private data class PublicMemberInfo(
     val devotionPhrase: String,
     val ageBand: String,
     val maritalStatus: String,
-    val interests: List<String>
+    val interests: List<String>,
+    val interestQuestions: Map<String, String>,
+    val revision: com.google.firebase.Timestamp?
 )
 private fun DocumentSnapshot.toPublicMemberInfo(): PublicMemberInfo? {
     if (!exists()) return null
@@ -48,38 +51,22 @@ private fun DocumentSnapshot.toPublicMemberInfo(): PublicMemberInfo? {
         maritalStatus = if (confirmed) getString("maritalStatus").orEmpty() else "",
         interests = if (confirmed) (get("interests") as? List<*>)
             ?.filterIsInstance<String>().orEmpty()
-            .filter { it in RegistrationOptionalPolicy.interests }.take(3) else emptyList()
+            .filter { it in RegistrationOptionalPolicy.interests }.take(3) else emptyList(),
+        interestQuestions = if (confirmed) {
+            val raw = get("interestQuestions") as? Map<*, *>
+            ProfileV3Interest.entries.mapNotNull { interest ->
+                (raw?.get(interest.id) as? String)?.takeIf {
+                    it.isNotBlank() && it.profileV3QuestionLength() <= PROFILE_V3_QUESTION_LIMIT
+                }?.let { interest.id to it }
+            }.toMap()
+        } else emptyMap(),
+        revision = if (confirmed) getTimestamp("updatedAt") else null
     )
 }
 
 private data class PublicMemberDiscussion(
     val id: String, val title: String, val excerpt: String, val category: String, val date: String
 )
-
-private data class ProfileAffinity(val label: String, val category: String)
-
-private fun publicAffinity(primary: PublicMemberInfo?, other: PublicMemberInfo?): Pair<ProfileAffinity?, List<String>> {
-    if (primary == null || other == null) return null to emptyList()
-    val commonSaint = primary.saint.takeIf {
-        it.isNotBlank() && it.equals(other.saint, ignoreCase = true)
-    }
-    val commonInterests = primary.interests.filter { interest ->
-        interest in other.interests && interest in RegistrationOptionalPolicy.interests
-    }
-    val leading = if (commonSaint != null) ProfileAffinity(commonSaint, "Santos")
-    else commonInterests.firstOrNull()?.let { interest ->
-        val category = when (interest) {
-            "Oração" -> "Pedidos de oração"
-            "Formação" -> "Sagradas Escrituras"
-            "Comunidade" -> "Juventude"
-            "Notícias católicas" -> "História da Igreja"
-            else -> return@let null
-        }
-        ProfileAffinity(interest, category)
-    }
-    val secondary = commonInterests.filterNot { it == leading?.label }.take(2)
-    return leading to secondary
-}
 
 /**
  * Lista publicações visíveis com paginação no servidor. Requer índice (uid ASC, createdAt DESC)
@@ -93,13 +80,23 @@ internal fun PublicMemberProfileScreen(
     onOpenDiscussion: (String) -> Unit,
     viewerUid: String = "",
     onConverse: (() -> Unit)? = null,
-    managedBlocks: AtrioManagedBlocks? = null
+    managedBlocks: AtrioManagedBlocks? = null,
+    discussionResolver: ProfileV3DiscussionResolver? = null
 ) {
     val uid = target.uid
-    var info by remember(db, viewerUid, uid) { mutableStateOf<PublicMemberInfo?>(null) }
+    val auth = remember(db) { FirebaseAuth.getInstance(db.app) }
+    var session by remember(auth) { mutableStateOf(auth.currentUser, referentialEqualityPolicy()) }
+    DisposableEffect(auth) {
+        val listener = FirebaseAuth.AuthStateListener { session = it.currentUser }
+        auth.addAuthStateListener(listener)
+        onDispose { auth.removeAuthStateListener(listener) }
+    }
+    val viewer = session?.takeIf { it.uid == viewerUid && auth.currentUser === it }
+    val resolver = discussionResolver ?: remember(auth) { ProfileV3DiscussionClient(auth) }
+    var info by remember(db, viewer, viewerUid, uid) { mutableStateOf<PublicMemberInfo?>(null) }
     var infoLoading by remember(db, viewerUid, uid) { mutableStateOf(true) }
     var infoError by remember(db, viewerUid, uid) { mutableStateOf(false) }
-    var viewerInfo by remember(db, viewerUid, uid) { mutableStateOf<PublicMemberInfo?>(null) }
+    var viewerInfo by remember(db, viewer, viewerUid, uid) { mutableStateOf<PublicMemberInfo?>(null) }
     val entries = remember(uid) { mutableStateListOf<PublicMemberDiscussion>() }
     var last by remember(uid) { mutableStateOf<DocumentSnapshot?>(null) }
     var nextPage by remember(uid) { mutableIntStateOf(0) }
@@ -116,22 +113,25 @@ internal fun PublicMemberProfileScreen(
     var reportMessage by remember(viewerUid, uid) { mutableStateOf("") }
 
     BackHandler(onBack = onBack)
-    DisposableEffect(db, viewerUid, uid) {
+    DisposableEffect(db, viewer, viewerUid, uid) {
+        var active = true
         val listener = db.collection("public_profiles").document(uid)
             .addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, error ->
+                if (!active) return@addSnapshotListener
                 infoLoading = false
                 infoError = error != null
                 info = snapshot?.toPublicMemberInfo()
             }
-        onDispose { listener.remove() }
+        onDispose { active = false; listener.remove() }
     }
-    DisposableEffect(db, viewerUid, uid) {
-        val listener = if (viewerUid.isBlank() || viewerUid == uid) null
+    DisposableEffect(db, viewer, viewerUid, uid) {
+        var active = true
+        val listener = if (viewer == null || viewerUid == uid) null
             else db.collection("public_profiles").document(viewerUid)
                 .addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, _ ->
-                    viewerInfo = snapshot?.toPublicMemberInfo()
+                    if (active && auth.currentUser === viewer) viewerInfo = snapshot?.toPublicMemberInfo()
                 }
-        onDispose { listener?.remove() }
+        onDispose { active = false; listener?.remove() }
     }
     DisposableEffect(db, uid, nextPage) {
         var active = true
@@ -217,27 +217,14 @@ internal fun PublicMemberProfileScreen(
                 }
             }
         }
-        if (viewerUid.isNotBlank() && viewerUid != uid && !blocked) {
-            val (leadingAffinity, otherAffinities) = publicAffinity(info, viewerInfo)
-            if (leadingAffinity != null) item {
-                var relatedPostId by remember(viewerUid, uid, leadingAffinity.category) {
-                    mutableStateOf<String?>(null)
-                }
-                var lookupComplete by remember(viewerUid, uid, leadingAffinity.category) {
-                    mutableStateOf(false)
-                }
-                DisposableEffect(db, viewerUid, uid, leadingAffinity.category) {
-                    var active = true
-                    db.collection("posts")
-                        .whereEqualTo("category", leadingAffinity.category)
-                        .limit(1).get().addOnCompleteListener { result ->
-                            if (active) {
-                                relatedPostId = result.result?.documents?.firstOrNull()?.id
-                                lookupComplete = true
-                            }
-                        }
-                    onDispose { active = false }
-                }
+        val publicProfile = info
+        if (!blocked && viewer != null && publicProfile != null) {
+            val common = viewerInfo?.interests.orEmpty().toSet()
+            val devotion = publicProfile.saint.takeIf {
+                viewerUid != uid && it.isNotBlank() && it.equals(viewerInfo?.saint, ignoreCase = true)
+            }
+            val affinity = devotion ?: publicProfile.interests.firstOrNull { it in common }
+            if (affinity != null) item {
                 Card(
                     Modifier.fillMaxWidth().testTag("atrio-public-profile-affinity"),
                     border = BorderStroke(1.dp, Gold),
@@ -245,32 +232,41 @@ internal fun PublicMemberProfileScreen(
                     shape = RoundedCornerShape(AtrioDimensions.CardRadius)
                 ) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Vamos conversar sobre…",
-                            style = MaterialTheme.typography.titleMedium, color = Wine)
                         Text("Afinidade em comum", style = MaterialTheme.typography.labelMedium, color = Muted)
-                        Text(leadingAffinity.label, style = MaterialTheme.typography.titleLarge,
+                        Text(affinity, style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold, color = Wine)
-                        otherAffinities.forEach { Text(it, style = MaterialTheme.typography.bodyMedium) }
-                        if (lookupComplete && relatedPostId != null) {
-                            OutlinedButton(
-                                onClick = { onOpenDiscussion(relatedPostId!!) },
-                                modifier = Modifier.fillMaxWidth().testTag("atrio-profile-affinity-discussion")
-                            ) { Text("Ver conversa no mural") }
-                        }
                     }
                 }
             }
-        }
-        if (info?.interests?.isNotEmpty() == true) item {
-            Card(
-                Modifier.fillMaxWidth().testTag("atrio-public-profile-interests"),
-                border = BorderStroke(1.dp, Line),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                shape = RoundedCornerShape(AtrioDimensions.CardRadius)
-            ) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Vamos conversar sobre…", style = MaterialTheme.typography.titleMedium, color = Wine)
-                    info!!.interests.forEach { Text(it, style = MaterialTheme.typography.bodyMedium) }
+            if (publicProfile.interests.isNotEmpty()) item {
+                Card(
+                    Modifier.fillMaxWidth().testTag("atrio-public-profile-interests"),
+                    border = BorderStroke(1.dp, Line),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    shape = RoundedCornerShape(AtrioDimensions.CardRadius)
+                ) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Vamos conversar sobre…", style = MaterialTheme.typography.titleMedium, color = Wine)
+                        publicProfile.interests.sortedBy { it !in common }.forEach { label ->
+                            val interest = ProfileV3Interest.forLabel(label) ?: return@forEach
+                            key(viewer, uid, interest, publicProfile.revision, resolver) {
+                                PublicProfileV3Interest(
+                                    auth = auth,
+                                    viewer = viewer,
+                                    profileUid = uid,
+                                    interest = interest,
+                                    question = publicProfile.interestQuestions[interest.id],
+                                    resolver = resolver,
+                                    stillVisible = {
+                                        val current = info
+                                        !blocked && current != null && current.revision == publicProfile.revision &&
+                                            label in current.interests
+                                    },
+                                    onOpen = onOpenDiscussion
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -425,7 +421,14 @@ internal fun PublicProfilePublicationSettings(
             OutlinedButton(enabled = !busy, onClick = {
                 busy = true; message = ""
                 val ref = db.collection("public_profiles").document(uid)
-                if (published) ref.delete().addOnCompleteListener { task ->
+                val linksRef = ref.profileV3Links()
+                if (published) db.runTransaction { transaction ->
+                    transaction.get(ref)
+                    val links = transaction.get(linksRef)
+                    transaction.delete(ref)
+                    transaction.syncProfileV3Links(links, emptyMap())
+                    Unit
+                }.addOnCompleteListener { task ->
                     busy = false
                     if (task.isSuccessful) { published = false; message = "Apresentação retirada da área pública." }
                     else message = "Não foi possível retirar a apresentação."
@@ -437,6 +440,8 @@ internal fun PublicProfilePublicationSettings(
                         val privateDoc = transaction.get(privateRef)
                         val v3Doc = transaction.get(v3Ref)
                         transaction.get(preferencesRef)
+                        transaction.get(ref)
+                        val links = transaction.get(linksRef)
                         val joined = privateDoc.getTimestamp("createdAt")
                             ?: throw IllegalStateException("Data do perfil público inválida")
                         val storedName = privateDoc.getString("displayName").orEmpty()
@@ -449,10 +454,11 @@ internal fun PublicProfilePublicationSettings(
                             "joinedAt" to joined,
                             "updatedAt" to FieldValue.serverTimestamp()
                         )
-                        if (v3Doc.exists()) {
-                            values.putAll(ProfileV3Policy.projection(ProfileV3Policy.data(v3Doc)))
-                        }
+                        val draft = ProfileV3Policy.data(v3Doc)
+                        values.putAll(ProfileV3Policy.projection(draft))
                         transaction.set(ref, values)
+                        val ids = if (draft.consentAccepted) draft.interestProjection("postId") else emptyMap()
+                        transaction.syncProfileV3Links(links, ids)
                         true
                     }.addOnCompleteListener { result ->
                         busy = false

@@ -81,8 +81,16 @@ fi
   --project demo-atrio-v11 > ../../qa-firebase-emulators.log 2>&1 &
 FIREBASE_PID=$!
 inbox_pid=
+profile_worker_pid=
+profile_tls_dir=
 cleanup() {
   if [[ -n "$inbox_pid" ]]; then kill "$inbox_pid" 2>/dev/null || true; fi
+  if [[ -n "$profile_worker_pid" ]]; then kill "$profile_worker_pid" 2>/dev/null || true; fi
+  if [[ -n "$profile_tls_dir" ]]; then
+    adb reverse --remove tcp:8094 >/dev/null 2>&1 || true
+    rm -f -- "$profile_tls_dir/key.pem" "$profile_tls_dir/cert.pem"
+    rmdir -- "$profile_tls_dir"
+  fi
   kill "$FIREBASE_PID" 2>/dev/null || true
 }
 trap cleanup EXIT
@@ -129,6 +137,7 @@ mkdir -p qa-android-suite-results
 qa_failed=0
 run_suite() {
   local suite="$1"
+  shift
   # Modo all preserva a ordem das suites; cada grupo so roda as suas.
   if [[ "$qa_group" != "all" ]]; then
     case "$qa_group:$suite" in
@@ -154,7 +163,7 @@ run_suite() {
   local full="br.com.atriocatolico.$suite"
   echo "QA Android: iniciando $suite (isolado)"
   if gradle "$test_task" \
-    "-Pandroid.testInstrumentationRunnerArguments.class=$full" \
+    "-Pandroid.testInstrumentationRunnerArguments.class=$full" "$@" \
     --daemon --stacktrace; then
     echo "QA Android: $suite aprovada"
   else
@@ -181,6 +190,44 @@ if [[ "${ATRIO_QA_SUITE:-}" == ProfileV3ConsentEmulatorUiTest ]]; then
   run_suite "$ATRIO_QA_SUITE"
   adb logcat -d -s AtrioQaProfileV3:I '*:S' \
     > qa-android-suite-results/profile-v3-offline.log
+  if [[ "${ATRIO_QA_PROFILE_V3_DISCUSSIONS_HTTP:-}" == 1 ]]; then
+    profile_tls_dir="$(mktemp -d)"
+    (umask 077; openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+      -subj '/CN=127.0.0.1' -addext 'subjectAltName=IP:127.0.0.1' \
+      -keyout "$profile_tls_dir/key.pem" -out "$profile_tls_dir/cert.pem" 2>/dev/null)
+    worker_log="qa-android-suite-results/profile-v3-worker.log"
+    FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 FIRESTORE_EMULATOR_HOST=127.0.0.1:8089 \
+      node tests/security/serve-profile-v3-discussion-android-qa.mjs \
+        "$profile_tls_dir/key.pem" "$profile_tls_dir/cert.pem" > "$worker_log" 2>&1 &
+    profile_worker_pid=$!
+    ready=0
+    for attempt in $(seq 1 45); do
+      if ! kill -0 "$profile_worker_pid" 2>/dev/null; then break; fi
+      if curl --noproxy '*' --cacert "$profile_tls_dir/cert.pem" \
+        -fsS --max-time 1 https://127.0.0.1:8094/health >/dev/null; then
+        ready=1
+        break
+      fi
+      sleep 1
+    done
+    if [[ "$ready" != 1 ]]; then
+      tail -30 "$worker_log" >&2
+      exit 1
+    fi
+    adb reverse tcp:8094 tcp:8094
+    worker_cert="$(openssl x509 -in "$profile_tls_dir/cert.pem" -outform DER | base64 -w0)"
+    run_suite ProfileV3DiscussionHttpEmulatorUiTest \
+      "-Pandroid.testInstrumentationRunnerArguments.profileV3WorkerCert=$worker_cert"
+    # A confirmação negativa exige 403 das Rules, não indisponibilidade do transporte.
+    cat "$worker_log"
+    authorized_reads="$(grep -c '^visitor=authorized firestore=200 result=available exact_id=qa-v3-http-z-escolhida$' "$worker_log" || true)"
+    if [[ "$authorized_reads" -lt 2 ]] ||
+      ! grep -qx 'visitor=denied firestore=403 result=unavailable without_metadata' "$worker_log" ||
+      grep -qE '^Unexpected|failed' "$worker_log"; then
+      echo "O Worker não comprovou autorização inicial, revalidação no toque e recusa sem metadados." >&2
+      qa_failed=1
+    fi
+  fi
   exit "$qa_failed"
 fi
 if [[ "$inbox_focal" == 1 ]]; then
