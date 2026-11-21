@@ -341,16 +341,21 @@ class ProfileV3ConsentEmulatorUiTest {
             } else {
                 "Informações atualizadas."
             }
+            fun speechLines() = automation.shellText("logcat -d -v threadtime --pid=$pid")
+                .lineSequence().filter { it.contains("SpeechControllerImpl: Speaking fragment") }.toSet()
+
+            val baseline = speechLines()
             Log.i("AtrioQaTalkBack", "scenario=$scenario click=salvar font_scale=$fontScale talkback_pid=$pid " +
                 "touch_exploration=true device_epoch_ms=${System.currentTimeMillis()}")
             compose.onNodeWithTag("atrio-profile-v3-save").performClick()
 
-            android.os.SystemClock.sleep(7_000)
-            Log.i("AtrioQaTalkBack", "scenario=$scenario scope=pos_salvar " +
-                "device_epoch_ms=${System.currentTimeMillis()}")
-            assertTrue(talkBackActive())
             val stateTag = if (saveFails) "atrio-profile-v3-message" else "atrio-profile-v3-status"
+            waitForTag(stateTag)
             compose.onNodeWithTag(stateTag).assertTextContains(expected, substring = true)
+            assertTrue(talkBackActive())
+            Log.i("AtrioQaTalkBack", "scenario=$scenario scope=resultado_na_tela " +
+                "device_epoch_ms=${System.currentTimeMillis()}")
+
             if (saveFails) {
                 editorControl(fieldTag).assert(
                     SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString(question))
@@ -358,6 +363,18 @@ class ProfileV3ConsentEmulatorUiTest {
                 assertEquals(publishedBefore, await(publicProfile.get(Source.SERVER)).get("interestQuestions.oracao"))
             } else {
                 assertEquals(question, await(publicProfile.get(Source.SERVER)).get("interestQuestions.oracao"))
+            }
+            var speech: String? = null
+            try {
+                compose.waitUntil(15_000) {
+                    speech = (speechLines() - baseline).firstOrNull { expected in it }
+                    speech != null
+                }
+                Log.i("AtrioQaTalkBack", "scenario=$scenario locucao=${requireNotNull(speech)}")
+                android.os.SystemClock.sleep(3_000)
+            } finally {
+                Log.i("AtrioQaTalkBack", "scenario=$scenario scope=locucao final=${speech != null} " +
+                    "device_epoch_ms=${System.currentTimeMillis()}")
             }
         } finally {
             restoreSecureSetting(automation, "enabled_accessibility_services", oldServices)
