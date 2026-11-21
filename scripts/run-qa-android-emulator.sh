@@ -187,7 +187,58 @@ if [[ "${ATRIO_QA_SUITE:-}" == ProfileV3ConsentEmulatorUiTest ]]; then
   [[ "$qa_apk" == qaGeral && "${ATRIO_QA_GERAL_REMOTE_BUILD:-}" != 1 ]] || {
     echo "Consentimento V3 exige qaGeral local" >&2; exit 2
   }
-  run_suite "$ATRIO_QA_SUITE"
+  if [[ "${ATRIO_QA_PROFILE_V3_TALKBACK_SPEECH:-}" == 1 ]]; then
+    adb root
+    adb wait-for-device
+    [[ "$(adb shell id -u)" == 0 ]] || { echo "O AVD de QA recusou a configuração diagnóstica do TalkBack"; exit 2; }
+    # Restarting adbd removes the port mappings set during Firebase QA startup.
+    adb reverse tcp:9099 tcp:9099
+    adb reverse tcp:8089 tcp:8089
+    adb reverse --list
+    talkback_package=com.google.android.marvin.talkback
+    adb shell pm path "$talkback_package"
+    adb shell am force-stop "$talkback_package"
+    adb shell pm grant "$talkback_package" android.permission.POST_NOTIFICATIONS
+    adb shell setprop log.tag.talkback VERBOSE
+    adb shell setprop log.tag.SpeechControllerImpl VERBOSE
+    adb shell setprop log.tag.FailoverTextToSpeech VERBOSE
+    prefs_xml="$(mktemp)"
+    for storage in /data/user_de/0 /data/user/0; do
+      prefs_root="$storage/$talkback_package"
+      prefs="$prefs_root/shared_prefs/$talkback_package""_preferences.xml"
+      adb shell "test -d '$prefs_root'"
+      adb shell "if test -f '$prefs'; then cat '$prefs'; fi" > "$prefs_xml"
+      python3 - "$prefs_xml" <<'PY'
+import os
+import sys
+import xml.etree.ElementTree as ET
+
+path = sys.argv[1]
+root = ET.parse(path).getroot() if os.path.getsize(path) else ET.Element("map")
+for entry in list(root):
+    if entry.get("name") in {"pref_log_level", "pref_tts_overlay", "pref_diagnosis_mode"}:
+        root.remove(entry)
+ET.SubElement(root, "string", name="pref_log_level").text = "2"
+ET.SubElement(root, "boolean", name="pref_tts_overlay", value="true")
+ET.SubElement(root, "boolean", name="pref_diagnosis_mode", value="true")
+ET.ElementTree(root).write(path, encoding="utf-8", xml_declaration=True)
+PY
+      adb push "$prefs_xml" /data/local/tmp/atrio-talkback-prefs.xml
+      app_owner="$(adb shell stat -c '%u:%g' "$prefs_root")"
+      adb shell "mkdir -p '$prefs_root/shared_prefs' && cp /data/local/tmp/atrio-talkback-prefs.xml '$prefs' &&
+        chown '$app_owner' '$prefs_root/shared_prefs' '$prefs' &&
+        chmod 770 '$prefs_root/shared_prefs' && chmod 660 '$prefs' &&
+        restorecon -RF '$prefs_root/shared_prefs'"
+    done
+    rm -f "$prefs_xml"
+    adb shell rm -f /data/local/tmp/atrio-talkback-prefs.xml
+    adb logcat -G 16M
+    run_suite "$ATRIO_QA_SUITE" -Pandroid.testInstrumentationRunnerArguments.atrioVerifyTalkBackSpeech=true
+    adb logcat -d -v threadtime | awk '/SpeechControllerImpl:|GoogleTTSServiceImpl: TTS dispatch|a11y_unified_save/' \
+      > qa-android-suite-results/talkback-speech.log
+  else
+    run_suite "$ATRIO_QA_SUITE"
+  fi
   adb logcat -d -s AtrioQaProfileV3:I '*:S' \
     > qa-android-suite-results/profile-v3-offline.log
   if [[ "${ATRIO_QA_PROFILE_V3_DISCUSSIONS_HTTP:-}" == 1 ]]; then

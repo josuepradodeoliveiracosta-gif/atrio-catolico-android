@@ -594,6 +594,13 @@ class ProfileV3ConsentEmulatorUiTest {
         compose.onNodeWithTag("atrio-profile-draft-preview-bio").assertTextContains("Nova apresentação")
         compose.onNodeWithText("Devoção · $saint").assertDoesNotExist()
         compose.onNodeWithText("Fechar prévia").performClick()
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val verifySpeech = InstrumentationRegistry.getArguments()
+            .getString("atrioVerifyTalkBackSpeech") == "true"
+        fun logcat() = instrumentation.getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES)
+            .shellText("logcat -d -v threadtime -s talkback:V GoogleTTSServiceImpl:I")
+            .lineSequence().toSet()
+        val beforeActivation = if (verifySpeech) logcat() else emptySet()
         withTalkBack { automation, talkBackIsActive ->
             val saveTag = "atrio-profile-save"
             fun visibleSave() = automation.rootInActiveWindow
@@ -604,6 +611,10 @@ class ProfileV3ConsentEmulatorUiTest {
             assertTrue(save.isAccessibilityFocused ||
                 save.performAction(AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS))
             compose.waitUntil(15_000) { visibleSave()?.isAccessibilityFocused == true }
+            if (verifySpeech) compose.waitUntil(20_000) {
+                (logcat() - beforeActivation).any { "TTS dispatch:" in it }
+            }
+            val beforeSave = if (verifySpeech) logcat() else emptySet()
             val expected = "Informações atualizadas."
             val eventType = java.util.concurrent.atomic.AtomicInteger()
             automation.setOnAccessibilityEventListener { candidate ->
@@ -625,6 +636,16 @@ class ProfileV3ConsentEmulatorUiTest {
                     .assert(SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite))
                 assertTrue(talkBackIsActive())
                 compose.waitUntil(15_000) { eventType.get() != 0 }
+                if (verifySpeech) {
+                    var spoken: String? = null
+                    compose.waitUntil(20_000) {
+                        spoken = (logcat() - beforeSave).firstOrNull {
+                            "SpeechControllerImpl: Speaking fragment" in it && expected in it
+                        }
+                        spoken != null
+                    }
+                    Log.i("AtrioQaProfileV3", "a11y_unified_save=talkback_tts ${requireNotNull(spoken)}")
+                }
                 Log.i("AtrioQaProfileV3", "a11y_unified_save=evento_android tipo=${eventType.get()} fonte=150%")
             } finally {
                 automation.setOnAccessibilityEventListener(null)
