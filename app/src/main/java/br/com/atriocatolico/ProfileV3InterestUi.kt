@@ -310,6 +310,7 @@ internal fun PublicProfileV3Interest(
     profileUid: String,
     interest: ProfileV3Interest,
     question: String?,
+    inCommon: Boolean,
     resolver: ProfileV3DiscussionResolver,
     stillVisible: () -> Boolean,
     onOpen: (String) -> Unit
@@ -322,7 +323,15 @@ internal fun PublicProfileV3Interest(
         val checked = resolver.resolve(viewer, profileUid, interest)
         if (auth.currentUser === viewer && visible()) result = checked
     }
-    Text(interest.label, fontWeight = FontWeight.SemiBold)
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(interest.label, fontWeight = FontWeight.SemiBold)
+        if (inCommon) Text(
+            "Interesse em comum",
+            style = MaterialTheme.typography.labelSmall,
+            color = Wine,
+            modifier = Modifier.testTag("atrio-public-profile-common-${interest.id}")
+        )
+    }
     question?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
     when (val confirmed = result) {
         null -> Text("Consultando discussão…", style = MaterialTheme.typography.bodySmall, color = Muted)

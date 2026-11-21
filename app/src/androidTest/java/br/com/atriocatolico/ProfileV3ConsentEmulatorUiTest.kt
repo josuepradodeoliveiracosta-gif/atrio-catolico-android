@@ -30,6 +30,7 @@ import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.SemanticsMatcher
@@ -100,13 +101,16 @@ class ProfileV3ConsentEmulatorUiTest {
         )))
     }
 
-    private fun seedV3(devotionVisible: Boolean = true) {
+    private fun seedV3(
+        devotionVisible: Boolean = true,
+        interests: List<String> = listOf("Oração")
+    ) {
         val visibleFields = if (devotionVisible) ProfileV3Policy.visibleFields
             else ProfileV3Policy.visibleFields.filterNot { it == "saint" }
         await(privateV3.set(mapOf(
             "saint" to saint, "devotionPhrase" to "Fazer o simples com amor.",
             "ageBand" to "25–34", "maritalStatus" to "Casado(a)",
-            "visibleFields" to visibleFields, "publicInterests" to listOf("Oração"),
+            "visibleFields" to visibleFields, "publicInterests" to interests,
             "consentVersion" to ProfileV3Policy.CONSENT_VERSION,
             "consentAt" to FieldValue.serverTimestamp(), "updatedAt" to FieldValue.serverTimestamp()
         )))
@@ -115,7 +119,7 @@ class ProfileV3ConsentEmulatorUiTest {
             "joinedAt" to requireNotNull(await(legacy.get(Source.SERVER)).getTimestamp("createdAt")),
             "updatedAt" to FieldValue.serverTimestamp(), "saint" to saint,
             "devotionPhrase" to "Fazer o simples com amor.", "ageBand" to "25–34",
-            "maritalStatus" to "Casado(a)", "interests" to listOf("Oração")
+            "maritalStatus" to "Casado(a)", "interests" to interests
         )
         await(owner.document(publicProfile.path).set(if (devotionVisible) published
             else published - setOf("saint", "devotionPhrase")))
@@ -580,7 +584,7 @@ class ProfileV3ConsentEmulatorUiTest {
         compose.onNodeWithTag("atrio-profile-draft-preview-bio").assertTextContains("Nova apresentação")
         compose.onNodeWithText("Devoção · $saint").assertDoesNotExist()
         compose.onNodeWithText("Fechar prévia").performClick()
-        compose.onNodeWithTag("atrio-profile-v3-save").assertIsEnabled().performClick()
+        compose.onNodeWithTag("atrio-profile-save").assertIsEnabled().performClick()
         waitForTag("atrio-profile-v3-status")
 
         val saved = await(publicProfile.get(Source.SERVER))
@@ -601,6 +605,52 @@ class ProfileV3ConsentEmulatorUiTest {
             .assertTextContains("Os dados do Perfil V3 mudaram.", substring = true)
         assertFalse(await(privateV3.get(Source.SERVER)).exists())
         assertFalse(await(publicProfile.get(Source.SERVER)).contains("saint"))
+    }
+
+    @Test fun visitHighlightsOnlyPublishedCommonInterests() {
+        seedV3(interests = listOf("Oração", "Formação"))
+        val visitorLegacy = visitor.document("profiles/$visitorUid")
+        await(visitorLegacy.set(mapOf(
+            "displayName" to "Pessoa visitante", "createdAt" to FieldValue.serverTimestamp()
+        )))
+        val visitorPreferences = requireNotNull(await(preferences.get(Source.SERVER)).data)
+        await(visitor.document("users/$visitorUid/private/preferences").set(visitorPreferences +
+            mapOf("consentAt" to FieldValue.serverTimestamp(), "updatedAt" to FieldValue.serverTimestamp())))
+        val visitorDraft = requireNotNull(await(privateV3.get(Source.SERVER)).data)
+        await(visitor.document("users/$visitorUid/private/profile_v3").set(visitorDraft + mapOf(
+            "publicInterests" to listOf("Formação"),
+            "consentAt" to FieldValue.serverTimestamp(),
+            "updatedAt" to FieldValue.serverTimestamp()
+        )))
+        compose.setContent {
+            AtrioTheme {
+                PublicMemberProfileScreen(visitor, PublicMemberTarget(uid, name),
+                    onBack = {}, onOpenDiscussion = {}, viewerUid = visitorUid,
+                    discussionResolver = { _, _, _ -> ProfileV3Discussion.NoLink })
+            }
+        }
+        waitForText("Santo de devoção · $saint")
+        val list = compose.onNodeWithTag("atrio-public-profile")
+        list.performScrollToNode(hasTestTag("atrio-public-profile-interests"))
+        compose.onNodeWithTag("atrio-public-profile-affinity").assertDoesNotExist()
+        compose.onNodeWithTag("atrio-public-profile-common-formacao").assertDoesNotExist()
+
+        await(visitor.document("public_profiles/$visitorUid").set(mapOf(
+            "displayName" to "Pessoa visitante", "bio" to "",
+            "joinedAt" to requireNotNull(await(visitorLegacy.get(Source.SERVER)).getTimestamp("createdAt")),
+            "updatedAt" to FieldValue.serverTimestamp(),
+            "saint" to saint, "devotionPhrase" to "Fazer o simples com amor.",
+            "ageBand" to "25–34", "maritalStatus" to "Casado(a)",
+            "interests" to listOf("Formação")
+        )))
+        waitForTag("atrio-public-profile-affinity")
+        compose.onNode(hasAnyAncestor(hasTestTag("atrio-public-profile-affinity")) and hasText(saint))
+            .assertExists()
+        list.performScrollToNode(hasTestTag("atrio-public-profile-common-formacao"))
+        compose.onNodeWithTag("atrio-public-profile-common-oracao").assertDoesNotExist()
+        val formation = compose.onNodeWithText("Formação").fetchSemanticsNode().boundsInRoot
+        val prayer = compose.onNodeWithText("Oração").fetchSemanticsNode().boundsInRoot
+        assertTrue(formation.top < prayer.top)
     }
 
     @Test fun visitorAlreadyOnProfileLosesThePublishedV3Fields() {

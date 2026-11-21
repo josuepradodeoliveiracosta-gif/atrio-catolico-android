@@ -627,7 +627,7 @@ internal fun ProfileV3EditorDialog(
         confirmButton = {
             TextButton(
                 enabled = !busy && canSave && (!saveOptional || valid),
-                modifier = Modifier.testTag("atrio-profile-v3-save"),
+                modifier = Modifier.testTag(if (identity == null) "atrio-profile-v3-save" else "atrio-profile-save"),
                 onClick = {
                     if (auth.currentUser !== actor) return@TextButton
                     busy = true
