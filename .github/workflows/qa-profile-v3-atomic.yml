@@ -87,6 +87,10 @@ jobs:
             pulseaudio --start --exit-idle-time=-1
             pactl load-module module-null-sink sink_name=atrio_qa_speech
             pactl set-default-sink atrio_qa_speech
+            pulse_socket="$(LC_ALL=C pactl info | awk -F ': ' '/^Server String:/{print $2}')"
+            test -S "$pulse_socket"
+            echo "PULSE_SERVER=unix:$pulse_socket" >> "$GITHUB_ENV"
+            echo "QEMU_PA_SERVER=unix:$pulse_socket" >> "$GITHUB_ENV"
             echo "QEMU_AUDIO_DRV=pa" >> "$GITHUB_ENV"
             echo "ATRIO_QA_CAPTURE_AUDIO=1" >> "$GITHUB_ENV"
           fi
