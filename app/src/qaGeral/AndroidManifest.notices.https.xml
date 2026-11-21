@@ -1,15 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
-    <!-- Consulta HTTPS dos itens 08 e 09 com o recebimento remoto de FCM fechado. -->
+    <!-- A entrada FCM é a do SDK, protegida por com.google.android.c2dm.permission.SEND.
+         O serviço do app continua privado e o cadastro depende do opt-in de QA. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" tools:node="remove" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <application android:label="${atrioQaGeralLabel}"
         android:allowBackup="false"
         android:usesCleartextTraffic="false"
         tools:replace="android:label">
-        <receiver android:name="com.google.firebase.iid.FirebaseInstanceIdReceiver"
-            tools:node="remove" />
         <provider android:name="androidx.core.content.FileProvider" tools:node="remove" />
     </application>
 </manifest>
