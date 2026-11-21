@@ -22,6 +22,8 @@ import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import java.util.Locale
 import java.util.UUID
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * FCM e apenas o transportador: nao envia mensagens nem concede autorizacao.
@@ -54,10 +56,12 @@ internal object PushRegistry {
     private fun enabledKey(uid: String) = "enabled_$uid"
 
     fun available(context: Context, uid: String): Boolean =
-        !BuildConfig.ATRIO_QA_GERAL_REMOTE || qaGeralPushSessionReady(context, uid)
+        if (QaConversationNotices.configured) QaConversationPushRegistration.available(context, uid)
+        else !BuildConfig.ATRIO_QA_GERAL_REMOTE || qaGeralPushSessionReady(context, uid)
 
     fun enabled(context: Context, uid: String): Boolean =
-        uid.isNotBlank() && available(context, uid) &&
+        if (QaConversationNotices.configured) QaConversationPushRegistration.enabled(context, uid)
+        else uid.isNotBlank() && available(context, uid) &&
             prefs(context).getBoolean(enabledKey(uid), false)
 
     private fun acceptsDatabase(db: FirebaseFirestore): Boolean =
@@ -84,6 +88,12 @@ internal object PushRegistry {
         db: FirebaseFirestore,
         done: (Boolean, PushRegistrationProblem?) -> Unit = { _, _ -> }
     ) {
+        if (QaConversationNotices.configured) {
+            if (QaConversationPushRegistration.enabled(context, uid)) {
+                QaConversationPushRegistration.register(context, uid, db, done = done)
+            } else done(false, PushRegistrationProblem.SESSION_CHANGED)
+            return
+        }
         if (FirebaseAuth.getInstance().currentUser?.uid != uid ||
             !enabled(context, uid) || !acceptsDatabase(db)) {
             done(false, PushRegistrationProblem.SESSION_CHANGED)
@@ -154,6 +164,10 @@ internal object PushRegistry {
         db: FirebaseFirestore,
         done: (Boolean, PushRegistrationProblem?) -> Unit
     ) {
+        if (QaConversationNotices.configured) {
+            QaConversationPushRegistration.register(context, uid, db, optInNow = true, done = done)
+            return
+        }
         if (FirebaseAuth.getInstance().currentUser?.uid != uid) {
             done(false, PushRegistrationProblem.SESSION_CHANGED)
             return
@@ -177,6 +191,10 @@ internal object PushRegistry {
     }
 
     fun deactivate(context: Context, uid: String, db: FirebaseFirestore) {
+        if (QaConversationNotices.configured) {
+            QaConversationPushRegistration.deactivate(context, uid, db)
+            return
+        }
         if (uid.isBlank() || !available(context, uid) || !acceptsDatabase(db)) return
         prefs(context).edit().putBoolean(enabledKey(uid), false).apply()
         FirebaseMessaging.getInstance().isAutoInitEnabled = false
@@ -304,6 +322,16 @@ class AtrioPushService : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
+        if (QaConversationNotices.configured) {
+            // O callback do SDK roda em worker thread. Concluir o processamento
+            // dentro do seu prazo preserva o ciclo de vida do serviço.
+            runBlocking {
+                withTimeoutOrNull(12_000L) {
+                    QaConversationNotices.receive(applicationContext, message)
+                }
+            }
+            return
+        }
         // Apenas mensagens DATA, com UID correspondente a sessao atual.
         // Nunca use texto fornecido no payload como conteudo da notificacao.
         val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
