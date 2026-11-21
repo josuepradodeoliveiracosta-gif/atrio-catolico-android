@@ -10,6 +10,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasTestTag
@@ -137,7 +139,7 @@ class ProfileV3ConsentEmulatorUiTest {
         assertEquals("Pergunta editada?", await(publicProfile.get(Source.SERVER)).get("interestQuestions.oracao"))
 
         openEditorAgain()
-        editorControl("atrio-profile-v3-interest-0").performClick()
+        editorControl("atrio-profile-v3-interest-0").performClick().assertIsOff()
         compose.onNodeWithText("Fechar").performClick()
         assertEquals("Pergunta editada?", await(publicProfile.get(Source.SERVER)).get("interestQuestions.oracao"))
 
@@ -172,8 +174,8 @@ class ProfileV3ConsentEmulatorUiTest {
         saveEditor()
         assertEquals(mapOf("oracao" to postB), await(links.get(Source.SERVER)).get("postIds"))
         openEditorAgain()
-        editorControl("atrio-profile-v3-interest-0").performClick()
-        editorControl("atrio-profile-v3-interest-1").performClick()
+        editorControl("atrio-profile-v3-interest-0").performClick().assertIsOff()
+        editorControl("atrio-profile-v3-interest-1").performClick().assertIsOn()
         saveEditor()
         assertEquals(emptyMap<String, Any>(), await(privateV3.get(Source.SERVER)).get("interestDetails"))
         assertEquals(listOf("Formação"), await(publicProfile.get(Source.SERVER)).get("interests"))
@@ -184,7 +186,7 @@ class ProfileV3ConsentEmulatorUiTest {
         assertTrue(await(owner.collection("posts").document(postA).get(Source.SERVER)).exists())
 
         openEditorAgain()
-        editorControl("atrio-profile-v3-interest-0").performClick()
+        editorControl("atrio-profile-v3-interest-0").performClick().assertIsOn()
         editorControl("atrio-v3-question-oracao")
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString("")))
         compose.onNodeWithText("Escolher discussão").assertExists()
@@ -276,8 +278,11 @@ class ProfileV3ConsentEmulatorUiTest {
         waitForEnabled("atrio-profile-v3-save")
         compose.onNodeWithTag("atrio-profile-v3-save").performClick()
         compose.waitUntil(15_000) {
-            compose.onAllNodes(hasTestTag("atrio-profile-v3-save")).fetchSemanticsNodes().isEmpty()
+            compose.onAllNodes(hasTestTag("atrio-profile-v3-save")).fetchSemanticsNodes().isEmpty() ||
+                compose.onAllNodes(hasTestTag("atrio-profile-v3-message")).fetchSemanticsNodes().isNotEmpty()
         }
+        compose.onNodeWithTag("atrio-profile-v3-message").assertDoesNotExist()
+        compose.onNodeWithTag("atrio-profile-v3-save").assertDoesNotExist()
     }
 
     private fun openEditorAgain() {

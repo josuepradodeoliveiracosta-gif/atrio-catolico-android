@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -13,6 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -735,10 +737,11 @@ private fun SelectableProfileOption(
     onClick: () -> Unit
 ) {
     Row(
-        Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag(tag),
+        Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag(tag)
+            .toggleable(value = selected, enabled = enabled, role = Role.Checkbox, onValueChange = { onClick() }),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Checkbox(selected, onCheckedChange = { onClick() }, enabled = enabled)
+        Checkbox(selected, onCheckedChange = null, enabled = enabled)
         Text(label, modifier = Modifier.padding(start = 6.dp))
     }
 }
