@@ -249,7 +249,7 @@ class ProfileV3ConsentEmulatorUiTest {
             compose.waitUntil(15_000) { visiblePicker()?.isAccessibilityFocused == true }
             val editorWindowId = button.windowId
             assertTrue(button.performAction(AccessibilityNodeInfo.ACTION_CLICK))
-            waitForTag("atrio-v3-candidate-$linked")
+            waitForTag("atrio-v3-discussion-candidates")
             compose.waitUntil(15_000) {
                 val root = automation.rootInActiveWindow
                 root != null && root.packageName?.toString() == BuildConfig.APPLICATION_ID &&
@@ -257,7 +257,7 @@ class ProfileV3ConsentEmulatorUiTest {
             }
 
             if (confirm) {
-                compose.onNodeWithTag("atrio-v3-candidate-$linked").performClick()
+                pickDiscussionCandidate(linked)
                 compose.onNodeWithTag("atrio-v3-link-confirm").performClick()
             } else {
                 compose.onNodeWithText("Cancelar").performClick()
@@ -312,7 +312,7 @@ class ProfileV3ConsentEmulatorUiTest {
         val linked = createDiscussion("Oração em comunidade")
         showEditor(fontScale = 1.5f)
         editorControl("atrio-v3-pick-oracao").performTouchInput { click() }
-        waitForTag("atrio-v3-candidate-$linked")
+        waitForTag("atrio-v3-discussion-candidates")
         compose.onNodeWithText("Cancelar").performTouchInput { click() }
         waitForRestoredPickerFocus("Escolher discussão")
         Log.i("AtrioQaProfileV3", "a11y_picker_focus=cancelar")
@@ -357,8 +357,7 @@ class ProfileV3ConsentEmulatorUiTest {
 
         openEditorAgain()
         editorControl("atrio-v3-pick-oracao").performClick()
-        waitForTag("atrio-v3-candidate-$postB")
-        compose.onNodeWithTag("atrio-v3-candidate-$postB").performClick()
+        pickDiscussionCandidate(postB)
         compose.onNodeWithText("Cancelar").performClick()
         editorControl("atrio-v3-question-oracao").performTextReplacement("  Pergunta editada? ")
         saveEditor()
@@ -495,10 +494,17 @@ class ProfileV3ConsentEmulatorUiTest {
 
     private fun selectDiscussion(postId: String) {
         editorControl("atrio-v3-pick-oracao").performClick()
-        waitForTag("atrio-v3-candidate-$postId")
-        compose.onNodeWithTag("atrio-v3-candidate-$postId").performClick()
+        pickDiscussionCandidate(postId)
         compose.onNodeWithTag("atrio-v3-link-confirm").performClick()
         waitForPickerDismissal()
+    }
+
+    private fun pickDiscussionCandidate(postId: String) {
+        val listTag = "atrio-v3-discussion-candidates"
+        val candidateTag = "atrio-v3-candidate-$postId"
+        waitForTag(listTag)
+        compose.onNodeWithTag(listTag).performScrollToNode(hasTestTag(candidateTag))
+        compose.onNodeWithTag(candidateTag).performClick()
     }
 
     private fun saveEditor() {

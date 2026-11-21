@@ -264,7 +264,9 @@ internal fun ProfileV3DiscussionPicker(
                         Text("Não foi possível consultar o mural.")
                         TextButton(onClick = { retry++ }) { Text("Tentar novamente") }
                     }
-                    else -> LazyColumn(Modifier.heightIn(max = 280.dp)) {
+                    else -> LazyColumn(
+                        Modifier.heightIn(max = 280.dp).testTag("atrio-v3-discussion-candidates")
+                    ) {
                         if (posts.isEmpty()) item { Text("Nenhuma discussão disponível nesta página.") }
                         items(posts, key = { it.id }) { post ->
                             Row(verticalAlignment = Alignment.CenterVertically) {
