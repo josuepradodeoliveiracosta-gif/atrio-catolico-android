@@ -307,18 +307,33 @@ class ProfileV3ConsentEmulatorUiTest {
         )
     }
 
-    @Test fun interestPickerReturnsInputFocusWithLargeText() {
+    @Test fun interestPickerReturnsInputFocusAfterCancelWithLargeText() {
+        verifyInputPickerFocus(confirm = false)
+    }
+
+    @Test fun interestPickerReturnsInputFocusAfterConfirmWithLargeText() {
+        verifyInputPickerFocus(confirm = true)
+    }
+
+    private fun verifyInputPickerFocus(confirm: Boolean) {
         seedV3()
         val linked = createDiscussion("Oração em comunidade")
         showEditor(fontScale = 1.5f)
         editorControl("atrio-v3-pick-oracao").performTouchInput { click() }
-        waitForTag("atrio-v3-discussion-candidates")
-        compose.onNodeWithText("Cancelar").performTouchInput { click() }
-        waitForRestoredPickerFocus("Escolher discussão")
-        Log.i("AtrioQaProfileV3", "a11y_picker_focus=cancelar")
-        selectDiscussion(linked)
-        waitForRestoredPickerFocus("Trocar discussão")
-        Log.i("AtrioQaProfileV3", "a11y_picker_focus=confirmar")
+        waitForTag("atrio-v3-candidate-$linked")
+        closePicker(linked, confirm)
+        waitForRestoredPickerFocus(if (confirm) "Trocar discussão" else "Escolher discussão")
+        Log.i("AtrioQaProfileV3", if (confirm) "a11y_picker_focus=confirmar" else "a11y_picker_focus=cancelar")
+    }
+
+    private fun closePicker(linked: String, confirm: Boolean, touchCancel: Boolean = true) {
+        if (confirm) {
+            compose.onNodeWithTag("atrio-v3-candidate-$linked").performClick()
+            compose.onNodeWithTag("atrio-v3-link-confirm").performClick()
+        } else {
+            val cancel = compose.onNodeWithText("Cancelar")
+            if (touchCancel) cancel.performTouchInput { click() } else cancel.performClick()
+        }
     }
 
     private fun waitForRestoredPickerFocus(label: String) {
