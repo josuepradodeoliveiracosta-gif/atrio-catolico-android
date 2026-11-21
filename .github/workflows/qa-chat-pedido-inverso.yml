@@ -1,0 +1,79 @@
+name: QA foco Android - pedido inverso 01 e 03
+
+on:
+  pull_request:
+    branches: [qa/chat7-199-composicao-08-09]
+    paths:
+      - 'app/src/androidTest/java/br/com/atriocatolico/AtrioConversasCompostasEmulatorUiTest.kt'
+      - 'tests/security/seed-chat-groups-android.mjs'
+      - '.github/workflows/qa-chat-pedido-inverso.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  android-pedido-inverso:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ATRIO_QA_GERAL_BUILD: '1'
+      ATRIO_QA_APK: qaGeral
+      ATRIO_QA_FIREBASE_PROJECT: demo-atrio-v11
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          java-version: '17'
+          distribution: temurin
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with:
+          gradle-version: '8.13'
+          cache-disabled: true
+      - name: Isolar o checkout e iniciar compilação de QA
+        run: |
+          git rev-parse HEAD HEAD^{tree}
+          test -z "${GOOGLE_APPLICATION_CREDENTIALS:-}${ATRIO_PUSH_WORKER_URL:-}"
+          for config in app/src/qaGeral/google-services.json app/src/chatQa/google-services.json app/src/perfilQa/google-services.json; do
+            test ! -e "$config"
+          done
+          rm -f -- app/google-services.json
+          bash scripts/qa-android-prebuild.sh start
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+      - run: npm ci --ignore-scripts --prefix tests/security
+      - name: Preparar aceleração do emulador
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -c /dev/kvm
+          sudo chmod 0666 /dev/kvm
+      - name: Executar somente o focal Miguel, Clara e Lúcia
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_4
+          disk-size: 2048M
+          ram-size: 2048M
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -accel on -camera-back none
+          script: |
+            cd tests/security && node prepare.mjs && node ../../firebase/qa-general/compose-parity-rules.mjs && cp qa-parity.generated.rules firestore.rules && sha256sum firestore.rules && (result=0; ./node_modules/.bin/firebase emulators:exec --only auth,firestore --project demo-atrio-v11 'node seed-chat-groups-android.mjs --pedido-inverso && cd ../.. && adb reverse tcp:9099 tcp:9099 && adb reverse tcp:8089 tcp:8089 && bash scripts/qa-android-prebuild.sh await && gradle :app:connectedQaGeralAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=br.com.atriocatolico.AtrioConversasCompostasEmulatorUiTest#miguelSolicitaClaraAceitaNoMesmoIdComLuciaRecusada --daemon --stacktrace' || result=$?; adb logcat -d -s AtrioQaDm0103:I '*:S' > ../../qa-dm-0103.log; exit "$result")
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qa-dm-0103-${{ github.event.pull_request.head.sha }}-${{ github.run_attempt }}
+          path: |
+            app/build/outputs/androidTest-results/connected/qaGeral
+            qa-dm-0103.log
+            qa-android-prebuild.log
+            tests/security/firestore-debug.log
+          retention-days: 7
+          if-no-files-found: warn

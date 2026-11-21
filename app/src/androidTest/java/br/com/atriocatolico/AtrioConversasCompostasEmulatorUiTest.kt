@@ -1,6 +1,7 @@
 package br.com.atriocatolico
 
 import android.content.Context
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -22,6 +23,7 @@ import com.google.android.gms.tasks.Tasks
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
@@ -296,6 +298,138 @@ class AtrioConversasCompostasEmulatorUiTest {
 
     @After fun cleanSession() {
         if (::auth.isInitialized) auth.signOut()
+    }
+
+    @Test fun miguelSolicitaClaraAceitaNoMesmoIdComLuciaRecusada() {
+        assertTrue("O focal exige QA Geral local", !pilot && !BuildConfig.ATRIO_QA_GERAL_REMOTE &&
+            !BuildConfig.ATRIO_QA_GERAL_PUSH)
+        initializeDemo()
+        val miguelEmail = "pedido.inverso.miguel@qa.invalid"
+        val claraEmail = "pedido.inverso.clara@qa.invalid"
+        val luciaEmail = "pedido.inverso.lucia@qa.invalid"
+        val clara = login(claraEmail)
+        val miguel = login(miguelEmail)
+        val claraTarget = PublicMemberTarget(clara, "Clara QA")
+        val miguelTarget = PublicMemberTarget(miguel, "Miguel QA")
+        val chatId = AtrioChatPolicy.id(miguel, clara)
+        val chat = db.document("chats/$chatId")
+        val first = "Clara, podemos conversar sobre a leitura?"
+        val claraReply = "Miguel, vamos conversar sobre a leitura."
+        val miguelReply = "Clara, começo pela primeira passagem."
+
+        assertChatNotCreated(chatId)
+        show(Screen(miguel, peer = claraTarget))
+        send("atrio-chat-composer", "atrio-chat-send", first)
+        waitForText("Solicitação enviada.")
+        fun assertChat(checkpoint: String, status: String): DocumentSnapshot {
+            fun read(phase: String): DocumentSnapshot {
+                val snapshot = await(chat.get(Source.SERVER))
+                Log.i("AtrioQaDm0103", "checkpoint=$checkpoint phase=$phase id=${snapshot.id} " +
+                    "status=${snapshot.getString("status")} isFromCache=${snapshot.metadata.isFromCache} " +
+                    "hasPendingWrites=${snapshot.metadata.hasPendingWrites()}")
+                assertEquals("$checkpoint/$phase: leitura do cache", false, snapshot.metadata.isFromCache)
+                return snapshot
+            }
+
+            val firstRead = read("inicial")
+            val confirmed = if (firstRead.metadata.hasPendingWrites()) {
+                await(db.waitForPendingWrites())
+                read("apos-confirmacao")
+            } else {
+                firstRead
+            }
+            assertEquals("$checkpoint: escrita local pendente", false, confirmed.metadata.hasPendingWrites())
+            assertEquals(chatId, confirmed.id)
+            assertEquals(status, confirmed.getString("status"))
+            assertEquals(miguel, confirmed.getString("requesterUid"))
+            assertEquals(clara, confirmed.getString("recipientUid"))
+            return confirmed
+        }
+        val pending = assertChat("solicitar", "pending")
+        val initialId = requireNotNull(pending.getString("initialId"))
+        val initial = chat.collection("messages").document(initialId)
+        // Simula unicamente o índice administrativo local, como no outro sentido.
+        materializePeerIndex(miguel, clara, chatId, "pending", first)
+        materializePeerIndex(clara, miguel, chatId, "pending", first)
+        waitForText("Aguardando aceite do destinatário.")
+        Log.i("AtrioQaDm0103", "stage=solicitar id=$chatId status=pending requester=Miguel recipient=Clara")
+
+        assertEquals(clara, login(claraEmail))
+        show(Screen(clara, peer = miguelTarget, chatId = chatId))
+        waitForText(first)
+        waitForText("Aceitar")
+        compose.onNodeWithTag("atrio-chat-composer").assertDoesNotExist()
+        assertChat("abrir", "pending")
+        Log.i("AtrioQaDm0103", "stage=abrir id=$chatId status=pending actor=Clara")
+
+        assertEquals(miguel, login(miguelEmail))
+        show(Screen(miguel, peer = claraTarget, chatId = chatId))
+        waitForText("Aguardando aceite do destinatário.")
+        assertChat("aguardar", "pending")
+        Log.i("AtrioQaDm0103", "stage=aguardar id=$chatId status=pending actor=Miguel")
+
+        val lucia = login(luciaEmail)
+        assertTrue(lucia != clara && lucia != miguel)
+        show(Screen(lucia, chatId = chatId))
+        waitForText("Conversa indisponível para esta conta.")
+        compose.onNodeWithText(first).assertDoesNotExist()
+        compose.onNodeWithTag("atrio-chat-composer").assertDoesNotExist()
+        assertDenied(chat.get(Source.SERVER))
+        assertDenied(initial.get(Source.SERVER))
+        Log.i("AtrioQaDm0103", "stage=recusa id=$chatId actor=Lucia chat=PERMISSION_DENIED mensagem=PERMISSION_DENIED")
+
+        assertEquals(clara, login(claraEmail))
+        show(Screen(clara, peer = miguelTarget, chatId = chatId))
+        waitForText("Aceitar")
+        assertChat("antes-do-aceite", "pending")
+        compose.onNodeWithText("Aceitar").assertIsEnabled().performClick()
+        compose.waitUntil(30_000) { await(chat.get(Source.SERVER)).getString("status") == "accepted" }
+        assertChat("aceitar", "accepted")
+        Log.i("AtrioQaDm0103", "stage=aceitar id=$chatId status=accepted actor=Clara")
+        materializePeerIndex(miguel, clara, chatId, "accepted", first)
+        materializePeerIndex(clara, miguel, chatId, "accepted", first)
+
+        fun confirmSent(body: String, sender: String, direction: String): String {
+            compose.waitUntil(30_000) {
+                val snapshot = await(chat.get(Source.SERVER))
+                snapshot.getString("lastPreview") == body &&
+                    snapshot.getString("lastSenderUid") == sender &&
+                    !snapshot.metadata.isFromCache && !snapshot.metadata.hasPendingWrites()
+            }
+            val confirmed = assertChat("enviar-$direction", "accepted")
+            assertEquals(body, confirmed.getString("lastPreview"))
+            assertEquals(sender, confirmed.getString("lastSenderUid"))
+            val messageId = requireNotNull(confirmed.getString("lastMessageId"))
+            Log.i("AtrioQaDm0103", "stage=enviar id=$chatId messageId=$messageId direction=$direction servidor=confirmado")
+            return messageId
+        }
+
+        fun confirmReceived(messageId: String, body: String, sender: String, direction: String) {
+            val message = await(chat.collection("messages").document(messageId).get(Source.SERVER))
+            assertEquals("$direction: leitura do cache", false, message.metadata.isFromCache)
+            assertEquals("$direction: escrita local pendente", false, message.metadata.hasPendingWrites())
+            assertEquals(body, message.getString("text"))
+            assertEquals(sender, message.getString("uid"))
+            Log.i("AtrioQaDm0103", "stage=receber id=$chatId messageId=$messageId direction=$direction servidor=confirmado")
+            waitForText(body)
+            compose.onNodeWithText(body).assertIsDisplayed()
+            Log.i("AtrioQaDm0103", "stage=exibir id=$chatId messageId=$messageId direction=$direction tela=exibida")
+        }
+
+        send("atrio-chat-composer", "atrio-chat-send", claraReply)
+        val claraMessageId = confirmSent(claraReply, clara, "ClaraParaMiguel")
+        assertEquals(miguel, login(miguelEmail))
+        show(Screen(miguel, peer = claraTarget, chatId = chatId))
+        confirmReceived(claraMessageId, claraReply, clara, "ClaraParaMiguel")
+
+        send("atrio-chat-composer", "atrio-chat-send", miguelReply)
+        val miguelMessageId = confirmSent(miguelReply, miguel, "MiguelParaClara")
+        assertTrue(claraMessageId != miguelMessageId)
+        assertEquals(clara, login(claraEmail))
+        show(Screen(clara, peer = miguelTarget, chatId = chatId))
+        confirmReceived(miguelMessageId, miguelReply, miguel, "MiguelParaClara")
+        assertChat("mensagens", "accepted")
+        Log.i("AtrioQaDm0103", "stage=mensagens id=$chatId status=accepted ClaraParaMiguel=lida MiguelParaClara=lida")
     }
 
     @Test fun primeiroContatoRecusaAceiteESaidaProtegemHistorico() {
