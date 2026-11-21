@@ -1,1 +1,2 @@
 - [Validação do QA Geral](qa-geral-build.md) — isolar a compilação local para respeitar o bloqueio de configuração de produção sem remover arquivos do projeto.
+- [Testes do emulador Firestore](firestore-emulator-tests.md) — os testes locais exigem JDK 21 e usam o SDK modular para evitar incompatibilidade do adaptador compat.

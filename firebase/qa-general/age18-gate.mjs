@@ -2,7 +2,8 @@
  * GATE DE IDADE EXCLUSIVO DO CANDIDATO QA OFFLINE; NAO IMPLANTAR.
  * 18 anos = idade minima para chat atualizada em 10/11/2026.
  * Fixture criada via contexto administrativo do emulador: nao comprova idade real.
- * Fluxo de afericao, restricao para menores de 18 e politica #200 seguem pendentes.
+ * A declaracao de idade da politica geral foi implementada separadamente na fonte,
+ * mas ainda nao implantada; esta fixture nao substitui a funcao nem prova idade real.
  */
 export const QA_AGE18_GATE=`
     function qaChatAge18Eligible(uid) {

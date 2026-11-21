@@ -211,7 +211,29 @@ class MainActivity : ComponentActivity() {
             } else if (com.google.firebase.FirebaseApp.getApps(this).isNotEmpty()) {
                 OnlineAtrioApp(this@MainActivity)
             } else {
-                AtrioDemoApp(prefs)
+                AtrioDemoAgeGate(prefs)
+            }
+        }
+    }
+}
+
+@Composable
+private fun AtrioDemoAgeGate(prefs: SharedPreferences) {
+    var ageAccess by remember { mutableStateOf(AgeEligibilityAccess.REQUIRED) }
+    when (ageAccess) {
+        AgeEligibilityAccess.ELIGIBLE -> AtrioDemoApp(prefs)
+        AgeEligibilityAccess.INELIGIBLE -> AgeEligibilityStatusScreen(
+            state = ageAccess,
+            onRetry = {},
+            onReviewAge = { ageAccess = AgeEligibilityAccess.REQUIRED },
+        )
+        else -> AgeEligibilityScreen { isEligible ->
+            // O modo de demonstração não usa Auth/Firebase; só mantém o resultado
+            // em memória e nunca persiste a data digitada.
+            ageAccess = if (isEligible) {
+                AgeEligibilityAccess.ELIGIBLE
+            } else {
+                AgeEligibilityAccess.INELIGIBLE
             }
         }
     }

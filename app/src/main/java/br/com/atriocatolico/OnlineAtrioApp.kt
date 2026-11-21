@@ -50,6 +50,7 @@ import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.UserProfileChangeRequest
+import com.google.firebase.functions.FirebaseFunctions
 import androidx.compose.ui.graphics.asImageBitmap
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.DocumentSnapshot
@@ -76,6 +77,7 @@ internal fun OnlineAtrioApp(
 ) {
     val auth = remember { FirebaseAuth.getInstance() }
     val db = remember { FirebaseFirestore.getInstance() }
+    val functions = remember { FirebaseFunctions.getInstance() }
     var signedUser by remember { mutableStateOf(auth.currentUser) }
     // Escopo local: somente contas NOVAS criadas neste fluxo de cadastro V2.
     // Nunca impor onboarding retroativamente aos UIDs existentes.
@@ -86,24 +88,126 @@ internal fun OnlineAtrioApp(
     var pendingRegistrationUid by remember {
         mutableStateOf(registrationPrefs.getString("pendingUid", null))
     }
+    var ageAccess by remember {
+        mutableStateOf(
+            if (auth.currentUser == null) AgeEligibilityAccess.REQUIRED
+            else AgeEligibilityAccess.CHECKING
+        )
+    }
+    var ageRetry by remember { mutableIntStateOf(0) }
+    var pendingAgeAttestation by remember { mutableStateOf<Boolean?>(null) }
+    var preAuthAgeAccepted by remember { mutableStateOf(false) }
 
     DisposableEffect(auth) {
-        val listener = FirebaseAuth.AuthStateListener { signedUser = it.currentUser }
+        val listener = FirebaseAuth.AuthStateListener {
+            signedUser = it.currentUser
+            if (it.currentUser == null) {
+                ageAccess = AgeEligibilityAccess.REQUIRED
+                pendingAgeAttestation = null
+                preAuthAgeAccepted = false
+            } else {
+                ageAccess = AgeEligibilityAccess.CHECKING
+            }
+        }
         auth.addAuthStateListener(listener)
         onDispose { auth.removeAuthStateListener(listener) }
     }
 
     AtrioTheme {
         val user = signedUser
+        DisposableEffect(db, functions, user?.uid, ageRetry, preAuthAgeAccepted) {
+            var active = true
+            if (user == null) {
+                if (preAuthAgeAccepted) ageAccess = AgeEligibilityAccess.ELIGIBLE
+                else if (ageAccess == AgeEligibilityAccess.CHECKING) {
+                    ageAccess = AgeEligibilityAccess.REQUIRED
+                }
+            } else if (preAuthAgeAccepted) {
+                // A declaração foi feita antes de criar/entrar na conta. O
+                // servidor recebe somente o resultado, nunca a data informada.
+                ageAccess = AgeEligibilityAccess.SUBMITTING
+                AgeEligibilityRepository.attest(functions, true) { result ->
+                    if (active) {
+                        ageAccess = result
+                        if (result != AgeEligibilityAccess.UNAVAILABLE) {
+                            pendingAgeAttestation = true
+                        }
+                    }
+                }
+            } else {
+                ageAccess = AgeEligibilityAccess.CHECKING
+                AgeEligibilityRepository.read(db, user.uid) { result ->
+                    if (active) ageAccess = result
+                }
+            }
+            onDispose { active = false }
+        }
+        val submitAge: (Boolean) -> Unit = { eligible ->
+            if (user == null) {
+                if (eligible) {
+                    preAuthAgeAccepted = true
+                    ageAccess = AgeEligibilityAccess.ELIGIBLE
+                } else {
+                    ageAccess = AgeEligibilityAccess.INELIGIBLE
+                }
+            } else {
+                pendingAgeAttestation = eligible
+                ageAccess = AgeEligibilityAccess.SUBMITTING
+                AgeEligibilityRepository.attest(functions, eligible) { result ->
+                    ageAccess = result
+                }
+            }
+        }
+        val retryAge: () -> Unit = {
+            val current = signedUser
+            if (current == null) {
+                ageAccess = AgeEligibilityAccess.REQUIRED
+            } else {
+                val decision = pendingAgeAttestation
+                if (decision == null) {
+                    ageAccess = AgeEligibilityAccess.CHECKING
+                    AgeEligibilityRepository.read(db, current.uid) { result ->
+                        ageAccess = result
+                    }
+                } else {
+                    ageAccess = AgeEligibilityAccess.SUBMITTING
+                    AgeEligibilityRepository.attest(functions, decision) { result ->
+                        ageAccess = result
+                    }
+                }
+            }
+        }
         if (user == null) {
-            OnlineAuthScreen(auth = auth, db = db,
-                onRegistrationStarted = { registrationStarted = true },
-                onRegistrationCreated = { uid ->
-                    pendingRegistrationUid = uid
-                    registrationPrefs.edit().putString("pendingUid", uid).apply()
-                },
-                onRegistrationFailed = { registrationStarted = false })
-        } else {
+            when {
+                preAuthAgeAccepted -> OnlineAuthScreen(
+                    auth = auth,
+                    db = db,
+                    functions = functions,
+                    age18Confirmed = preAuthAgeAccepted,
+                    onRegistrationStarted = { registrationStarted = true },
+                    onRegistrationCreated = { uid ->
+                        pendingRegistrationUid = uid
+                        registrationPrefs.edit().putString("pendingUid", uid).apply()
+                    },
+                    onRegistrationFailed = { registrationStarted = false },
+                )
+                ageAccess == AgeEligibilityAccess.INELIGIBLE ->
+                    AgeEligibilityStatusScreen(
+                        state = ageAccess,
+                        onRetry = retryAge,
+                        onReviewAge = { ageAccess = AgeEligibilityAccess.REQUIRED },
+                    )
+                ageAccess == AgeEligibilityAccess.UNAVAILABLE ||
+                    ageAccess == AgeEligibilityAccess.SUBMITTING ||
+                    ageAccess == AgeEligibilityAccess.CHECKING ->
+                    AgeEligibilityStatusScreen(
+                        state = ageAccess,
+                        onRetry = retryAge,
+                        onReviewAge = { ageAccess = AgeEligibilityAccess.REQUIRED },
+                    )
+                else -> AgeEligibilityScreen(onSubmit = submitAge)
+            }
+        } else if (ageAccess == AgeEligibilityAccess.ELIGIBLE) {
             key(user.uid) {
                 // Seguranca de entrada: o cliente deve conhecer a politica do
                 // servidor antes de apresentar a comunidade a uma conta nao verificada.
@@ -204,12 +308,25 @@ internal fun OnlineAtrioApp(
                     )
                 }
             }
+        } else if (ageAccess == AgeEligibilityAccess.REQUIRED) {
+            AgeEligibilityScreen(onSubmit = submitAge)
+        } else {
+            AgeEligibilityStatusScreen(
+                state = ageAccess,
+                onRetry = retryAge,
+                onReviewAge = {
+                    pendingAgeAttestation = null
+                    ageAccess = AgeEligibilityAccess.REQUIRED
+                },
+                onSignOut = { auth.signOut() },
+            )
         }
         // Keep session state outside the login branch and user key.
         // O laboratório isolado de instrumentação não deve abrir vídeo,
         // cujo ciclo de vida atrapalharia os toques no Android virtual.
         // O projeto oficial mantém a abertura normal (inclusive em builds debug).
-        if (!(BuildConfig.DEBUG &&
+        if (ageAccess == AgeEligibilityAccess.ELIGIBLE &&
+            !(BuildConfig.DEBUG &&
                 com.google.firebase.FirebaseApp.getInstance().options.projectId == "demo-atrio-v11")) {
             OpeningVideo(activity, authenticated = user != null)
         }
@@ -218,7 +335,10 @@ internal fun OnlineAtrioApp(
 
 @Composable
 private fun OnlineAuthScreen(
-    auth: FirebaseAuth, db: FirebaseFirestore,
+    auth: FirebaseAuth,
+    db: FirebaseFirestore,
+    functions: FirebaseFunctions,
+    age18Confirmed: Boolean,
     onRegistrationStarted: () -> Unit = {},
     onRegistrationCreated: (String) -> Unit = {},
     onRegistrationFailed: () -> Unit = {}
@@ -261,7 +381,8 @@ private fun OnlineAuthScreen(
         RegistrationPolicy.confirmProblem(password, confirmation) else null
     val ready = if (registering) {
         RegistrationPolicy.ready(displayName, email, password, confirmation,
-            acceptedRules && (isIsolatedQa || (acceptedTerms && acknowledgedPrivacy)))
+            acceptedRules && (isIsolatedQa || (acceptedTerms && acknowledgedPrivacy)),
+            age18Confirmed)
     } else emailValid && password.length >= 6 // Não bloquear senhas antigas no login.
 
     Column(
@@ -400,42 +521,54 @@ private fun OnlineAuthScreen(
                                         error = "Não foi possível concluir o cadastro. Tente novamente."
                                     } else {
                                         onRegistrationCreated(created.uid)
-                                        // Registro mínimo no esquema V2; as Rules novas
-                                        // precisam de deploy separado antes de produção.
-                                        db.document("users/${created.uid}/private/account")
-                                            .set(mapOf(
-                                                "onboardingStatus" to "pending_email",
-                                                "profileVersion" to 2,
-                                                "noticesOptIn" to false,
-                                                "communityUpdates" to false,
-                                                "updatedAt" to FieldValue.serverTimestamp()
-                                            ))
-                                        // E-mail enviado após a criação. O backend deve ser configurado
-                                        // para impedir UGC não verificado antes de ativar exigência global.
-                                        created.sendEmailVerification().addOnFailureListener {
-                                            android.util.Log.w("AtrioAuth", "email_verification_delivery_failed")
-                                        }
-                                        // A aceitação do cadastro é guardada na conta,
-                                        // para não obrigar o mesmo usuário a aceitar outra vez.
-                                        db.collection("community_consents").document(created.uid)
-                                            .set(mapOf(
-                                                "version" to CommunityRulesPolicy.VERSION,
-                                                "acceptedAt" to FieldValue.serverTimestamp()
-                                            )).addOnFailureListener {
-                                                android.util.Log.w("AtrioAuth", "community_consent_write_failed")
-                                            }
-                                        db.collection("profiles").document(created.uid).set(mapOf(
-                                            "displayName" to publicName,
-                                            "createdAt" to FieldValue.serverTimestamp()
-                                        )).addOnSuccessListener {
-                                            val update = UserProfileChangeRequest.Builder()
+                                        created.updateProfile(
+                                            UserProfileChangeRequest.Builder()
                                                 .setDisplayName(publicName).build()
-                                            created.updateProfile(update)
-                                            busy = false
-                                        }.addOnFailureListener {
-                                            busy = false
-                                            error = "Sua conta foi criada, mas o perfil ainda não foi salvo. " +
-                                                "Conclua o perfil após entrar novamente."
+                                        )
+                                        // As gravações protegidas só começam depois de o
+                                        // backend registrar a declaração mínima 18+.
+                                        AgeEligibilityRepository.attest(functions, true) { ageResult ->
+                                            if (ageResult != AgeEligibilityAccess.ELIGIBLE) {
+                                                onRegistrationFailed()
+                                                busy = false
+                                                error = "A conta foi criada, mas não foi possível registrar " +
+                                                    "a declaração 18+ no servidor. Entre novamente para tentar."
+                                            } else {
+                                                db.document("users/${created.uid}/private/account")
+                                                    .set(mapOf(
+                                                        "onboardingStatus" to "pending_email",
+                                                        "profileVersion" to 2,
+                                                        "noticesOptIn" to false,
+                                                        "communityUpdates" to false,
+                                                        "updatedAt" to FieldValue.serverTimestamp()
+                                                    ))
+                                                created.sendEmailVerification().addOnFailureListener {
+                                                    android.util.Log.w(
+                                                        "AtrioAuth", "email_verification_delivery_failed"
+                                                    )
+                                                }
+                                                db.collection("community_consents")
+                                                    .document(created.uid)
+                                                    .set(mapOf(
+                                                        "version" to CommunityRulesPolicy.VERSION,
+                                                        "acceptedAt" to FieldValue.serverTimestamp()
+                                                    )).addOnFailureListener {
+                                                        android.util.Log.w(
+                                                            "AtrioAuth", "community_consent_write_failed"
+                                                        )
+                                                    }
+                                                db.collection("profiles").document(created.uid)
+                                                    .set(mapOf(
+                                                        "displayName" to publicName,
+                                                        "createdAt" to FieldValue.serverTimestamp()
+                                                    )).addOnSuccessListener {
+                                                        busy = false
+                                                    }.addOnFailureListener {
+                                                        busy = false
+                                                        error = "Sua conta foi criada, mas o perfil ainda não foi salvo. " +
+                                                            "Conclua o perfil após entrar novamente."
+                                                    }
+                                            }
                                         }
                                     }
                                 }.addOnFailureListener { failure ->

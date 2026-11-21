@@ -6,8 +6,8 @@
     "node": "22"
   },
   "scripts": {
-    "check": "node --check index.js && node --check contribution-core.cjs",
-    "test": "node --test contribution-core.test.cjs"
+    "check": "node --check index.js && node --check contribution-core.cjs && node --check age-eligibility.cjs && node --check age-eligibility.test.cjs",
+    "test": "node --test contribution-core.test.cjs age-eligibility.test.cjs"
   },
   "dependencies": {
     "firebase-admin": "13.10.0",

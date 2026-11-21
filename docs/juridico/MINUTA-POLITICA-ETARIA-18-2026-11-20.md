@@ -56,14 +56,16 @@ Antes de ampliar o público, o responsável deve reavaliar se a autodeclaração
 
 Se um fornecedor vier a ser escolhido, priorizar uma resposta de limiar etário — “18+” — sem que o Átrio receba ou retenha documento, imagem facial ou data de nascimento. A escolha de fornecedor, custo e compartilhamento não estão aprovados por esta minuta.
 
-## 6. Lacuna entre a proposta e o app atual
+## 6. Implementação e limites atuais
 
-- A tela atual de cadastro não implementa campo de nascimento nem autodeclaração 18+.
-- `firebase/qa-general/age18-gate.mjs` é explicitamente um fragmento para candidato de QA offline. A elegibilidade ali é uma fixture administrativa do emulador; não comprova idade real e não pode ser implantada como verificação de produção.
-- As regras `firestore.rules` e o fluxo de cadastro devem ser revisados e testados antes de qualquer afirmação de que a política está tecnicamente aplicada.
-- As prévias de Termos e Privacidade no cadastro não são a política final nem um aceite versionado desses documentos.
+- O código Android agora coleta a data apenas na tela de entrada, calcula a idade localmente e exige a confirmação 18+. A data não é gravada em preferências, Firestore ou logs.
+- Após autenticação, `recordAgeEligibility` grava somente o resultado, a idade mínima, a versão, o método e o horário da autodeclaração em documento privado.
+- As regras de `firestore.rules` exigem a elegibilidade quando `app_config/age_policy.enabled` for ativado por administração. O controle fica desligado por padrão no repositório para permitir migração coordenada de APK, função e regras.
+- Como o método é autodeclaração, uma pessoa pode falsificar a data ou chamar a função sem usar a tela. **O fluxo não comprova idade de forma independente.**
+- `firebase/qa-general/age18-gate.mjs` continua sendo somente uma fixture de QA offline; ela não comprova idade real nem substitui a função ou as regras da política geral.
+- As prévias de Termos e Privacidade continuam sem ser documentos finais ou aceite versionado.
 
-Portanto, esta minuta **não altera o comportamento do aplicativo**, não aprova lançamento e não autoriza implantação no Firebase.
+O código está implementado na fonte, mas não houve implantação da função, das regras ou da configuração de ativação. Isso não aprova o texto, não libera produção e não comprova que a política esteja ativa no Firebase.
 
 ## 7. Itens para revisão de privacidade/jurídica e aprovação
 

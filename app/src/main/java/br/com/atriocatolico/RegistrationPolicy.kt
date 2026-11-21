@@ -44,8 +44,15 @@ internal object RegistrationPolicy {
     fun confirmProblem(password: String, confirmation: String): String? =
         if (confirmation != password) "As senhas não coincidem." else null
 
-    fun ready(name: String, email: String, password: String, confirmation: String, accepted: Boolean): Boolean =
+    fun ready(
+        name: String,
+        email: String,
+        password: String,
+        confirmation: String,
+        accepted: Boolean,
+        age18Confirmed: Boolean,
+    ): Boolean =
         validName(name) && validEmail(email) &&
             passwordProblem(password, email, name) == null &&
-            confirmProblem(password, confirmation) == null && accepted
+            confirmProblem(password, confirmation) == null && accepted && age18Confirmed
 }

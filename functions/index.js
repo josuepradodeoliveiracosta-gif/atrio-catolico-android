@@ -8,13 +8,39 @@ const {
   onDocumentDeleted,
   onDocumentWritten,
 } = require("firebase-functions/v2/firestore");
+const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const logger = require("firebase-functions/logger");
 const { deriveAwards, millis, progressForPoints } = require("./contribution-core.cjs");
+const { normalizeAgeAttestation } = require("./age-eligibility.cjs");
 
 admin.initializeApp();
 const db = getFirestore();
 const PAGE_SIZE = 80;
 const TRACK_NAMES = ["conversation", "helpful", "welcome"];
+
+exports.recordAgeEligibility = onCall(async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) throw new HttpsError("unauthenticated", "Entre para registrar a declaração.");
+
+  let proof;
+  try {
+    // O cliente envia somente a declaração e a versão. Nunca enviar data de
+    // nascimento, documento, imagem ou biometria a esta função.
+    proof = normalizeAgeAttestation(request.data);
+  } catch {
+    throw new HttpsError("invalid-argument", "Declaração de idade inválida.");
+  }
+
+  await db.doc(`users/${uid}/private/age_eligibility`).set({
+    ...proof,
+    attestedAt: FieldValue.serverTimestamp(),
+  });
+  return {
+    status: proof.status,
+    minimumAge: proof.minimumAge,
+    policyVersion: proof.policyVersion,
+  };
+});
 
 function eventTime(event) {
   const parsed = Date.parse(event.time || "");

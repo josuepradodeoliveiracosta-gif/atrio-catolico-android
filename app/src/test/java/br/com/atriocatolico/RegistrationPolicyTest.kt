@@ -15,11 +15,13 @@ class RegistrationPolicyTest {
             RegistrationPolicy.passwordProblem("Senha123!", email, name))
         assertNull(RegistrationPolicy.passwordProblem("Caminho do vento no bosque", email, name))
         assertTrue(RegistrationPolicy.ready(name, email, "Caminho do vento no bosque",
-            "Caminho do vento no bosque", true))
+            "Caminho do vento no bosque", true, true))
         assertFalse(RegistrationPolicy.ready(name, email, "Caminho do vento no bosque",
-            "Caminho do vento", true))
+            "Caminho do vento", true, true))
         assertFalse(RegistrationPolicy.ready(name, email, "Caminho do vento no bosque",
-            "Caminho do vento no bosque", false))
+            "Caminho do vento no bosque", false, true))
+        assertFalse(RegistrationPolicy.ready(name, email, "Caminho do vento no bosque",
+            "Caminho do vento no bosque", true, false))
     }
 
     @Test fun emailNameAndObviousPasswordsAreRejected() {

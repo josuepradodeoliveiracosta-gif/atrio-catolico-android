@@ -1,8 +1,30 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // O bloqueio etário fica desligado até a migração coordenada de APK,
+    // Callable Function e regras ser validada e ativada pelo responsável.
+    function age18GateEnabled() {
+      let settings = /databases/$(database)/documents/app_config/age_policy;
+      return exists(settings) && get(settings).data.get('enabled', false) == true;
+    }
+    function hasAge18Eligibility(uid) {
+      let proof = /databases/$(database)/documents/users/$(uid)/private/age_eligibility;
+      return exists(proof)
+        && get(proof).data.keys().hasAll([
+          'status', 'minimumAge', 'policyVersion', 'method', 'attestedAt'
+        ])
+        && get(proof).data.keys().hasOnly([
+          'status', 'minimumAge', 'policyVersion', 'method', 'attestedAt'
+        ])
+        && get(proof).data.status == 'eligible'
+        && get(proof).data.minimumAge == 18
+        && get(proof).data.policyVersion == '2026-11-18plus-v1'
+        && get(proof).data.method == 'local_birthdate_self_declaration'
+        && get(proof).data.attestedAt is timestamp;
+    }
     function signedIn() {
-      return request.auth != null;
+      return request.auth != null
+        && (!age18GateEnabled() || hasAge18Eligibility(request.auth.uid));
     }
     function me(uid) {
       return signedIn() && request.auth.uid == uid;
@@ -23,6 +45,12 @@ service cloud.firestore {
     // Public, non-sensitive switch; changes only through Console/Admin SDK.
     match /app_config/opening_video {
       allow get: if true;
+      allow list, create, update, delete: if false;
+    }
+    // Texto de política público para clientes autenticados; ativação somente
+    // por Console/Admin SDK e sem substituir o gate de elegibilidade.
+    match /app_config/age_policy {
+      allow get: if request.auth != null;
       allow list, create, update, delete: if false;
     }
     // Identifica a conta oficial do fundador; publicação somente via SDK/Console.
@@ -640,6 +668,13 @@ service cloud.firestore {
           .hasOnly(['onboardingStatus', 'updatedAt'])
         && request.resource.data.onboardingStatus == 'complete'
         && request.resource.data.updatedAt == request.time;
+    }
+
+    // A prova contém somente resultado e versão, sem data de nascimento.
+    // Apenas a Callable Function com Admin SDK pode criá-la ou alterá-la.
+    match /users/{uid}/private/age_eligibility {
+      allow get: if request.auth != null && request.auth.uid == uid;
+      allow list, create, update, delete: if false;
     }
 
     // Informações de fé e paróquia são privadas e exigem consentimento
