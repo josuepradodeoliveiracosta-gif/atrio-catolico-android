@@ -10,6 +10,7 @@ import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import javax.net.ssl.HttpsURLConnection
+import javax.net.ssl.SSLSocketFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONException
@@ -25,22 +26,27 @@ internal fun interface ProfileV3DiscussionResolver {
     suspend fun resolve(viewer: FirebaseUser, profileUid: String, interest: ProfileV3Interest): ProfileV3Discussion
 }
 
-internal class ProfileV3DiscussionClient(
+internal class ProfileV3DiscussionClient private constructor(
     private val auth: FirebaseAuth,
-    private val origin: String = BuildConfig.PUSH_RELAY_URL
+    private val endpoint: URL?,
+    private val localTls: SSLSocketFactory?
 ) : ProfileV3DiscussionResolver {
+    constructor(auth: FirebaseAuth, origin: String = BuildConfig.PUSH_RELAY_URL) : this(
+        auth, origin.takeIf(trustedOrigin::matches)?.let { URL("$it$discussionPath") }, null
+    )
+
     override suspend fun resolve(
         viewer: FirebaseUser, profileUid: String, interest: ProfileV3Interest
     ): ProfileV3Discussion = withContext(Dispatchers.IO) {
         val unavailable = ProfileV3Discussion.Unavailable
         if (auth.currentUser !== viewer || !profileV3DocumentId.matches(profileUid) ||
-            !trustedOrigin.matches(origin)) return@withContext unavailable
+            endpoint == null) return@withContext unavailable
         try {
             val token = Tasks.await(viewer.getIdToken(false), 5, TimeUnit.SECONDS).token
             if (token.isNullOrBlank() || auth.currentUser !== viewer) return@withContext unavailable
-            val connection = URL("$origin/profile-v3/interest-discussion")
-                .openConnection(Proxy.NO_PROXY) as HttpsURLConnection
+            val connection = endpoint.openConnection(Proxy.NO_PROXY) as HttpsURLConnection
             try {
+                if (localTls != null) connection.sslSocketFactory = localTls
                 connection.instanceFollowRedirects = false
                 connection.useCaches = false
                 connection.connectTimeout = 4_000
@@ -70,8 +76,16 @@ internal class ProfileV3DiscussionClient(
         }
     }
 
-    private companion object {
-        val trustedOrigin = Regex("^https://[a-zA-Z0-9-]+\\.[a-zA-Z0-9-]+\\.workers\\.dev$")
+    companion object {
+        private const val discussionPath = "/profile-v3/interest-discussion"
+        private val trustedOrigin = Regex("^https://[a-zA-Z0-9-]+\\.[a-zA-Z0-9-]+\\.workers\\.dev$")
+
+        // Certificado efêmero fornecido pela instrumentação. Host e porta são fixos.
+        fun forLocalQa(auth: FirebaseAuth, localTls: SSLSocketFactory): ProfileV3DiscussionClient {
+            check(BuildConfig.DEBUG && BuildConfig.APPLICATION_ID == "br.com.atriocatolico.qageral" &&
+                !BuildConfig.ATRIO_QA_GERAL_REMOTE && BuildConfig.PUSH_RELAY_URL.isBlank())
+            return ProfileV3DiscussionClient(auth, URL("https://127.0.0.1:8094$discussionPath"), localTls)
+        }
     }
 }
 
