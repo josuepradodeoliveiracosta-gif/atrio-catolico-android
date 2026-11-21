@@ -115,12 +115,21 @@ for serial in "$first" "$second"; do
         if grep -Fq 'Select text and images' "$evidence/recents-before.xml"; then
             capture recents-launcher-tip
             device shell input tap 670 850
+            sleep 1
+            device shell input keyevent KEYCODE_APP_SWITCH
+        elif grep -Fq ':id/workspace' "$evidence/recents-before.xml"; then
+            device shell input keyevent KEYCODE_APP_SWITCH
         fi
         sleep 2
     done
     capture recents-before
+    if [[ -z "$card" ]]; then
+        printf '%s removed-from-recents=FAIL task=%s reason=card-not-visible\n' "$serial" "$task_id" \
+            | tee "$evidence/recents-result.txt"
+        result=1
+        continue
+    fi
     read -r left top right bottom <<< "$card"
-    test -n "$bottom"
     x=$(( (left + right) / 2 ))
     y=$(( bottom - (bottom - top) / 5 ))
 
