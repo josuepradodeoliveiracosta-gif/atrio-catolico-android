@@ -109,8 +109,16 @@ for serial in "$first" "$second"; do
     device shell settings put global window_animation_scale 1
     device shell input keyevent KEYCODE_APP_SWITCH
     sleep 4
+    for attempt in $(seq 1 8); do
+        card="$(overview_bounds "$evidence/recents-before.xml" snapshot)" || card=
+        if [[ -n "$card" ]]; then break; fi
+        if grep -Fq 'Select text and images' "$evidence/recents-before.xml"; then
+            capture recents-launcher-tip
+            device shell input tap 670 850
+        fi
+        sleep 2
+    done
     capture recents-before
-    card="$(overview_bounds "$evidence/recents-before.xml" snapshot)"
     read -r left top right bottom <<< "$card"
     test -n "$bottom"
     x=$(( (left + right) / 2 ))
