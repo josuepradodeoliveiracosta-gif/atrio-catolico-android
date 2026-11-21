@@ -28,6 +28,7 @@ done
 booted "$first"
 booted "$second"
 adb devices -l | tee "$out/devices.txt"
+result=0
 
 for serial in "$first" "$second"; do
     mkdir -p "$out/$serial"
@@ -48,6 +49,7 @@ for serial in "$first" "$second"; do
     # Fresh Google APIs AVDs can intercept the Home key during provisioning.
     device shell settings put global device_provisioned 1
     device shell settings put secure user_setup_complete 1
+    device shell settings put secure immersive_mode_confirmations confirmed
     device shell input keyevent KEYCODE_WAKEUP
     device shell wm dismiss-keyguard
     device shell settings put global window_animation_scale 0
@@ -77,13 +79,41 @@ for serial in "$first" "$second"; do
     device shell input keyevent KEYCODE_APP_SWITCH
     sleep 2
     capture recents-before
-    device shell input swipe 360 730 360 100 320
-    sleep 2
+    for attempt in $(seq 1 5); do
+        device shell input swipe 360 730 360 100 320
+        sleep 3
+        device shell dumpsys activity recents > "$evidence/recents-after.txt"
+        if ! grep 'Recent #' "$evidence/recents-after.txt" | grep -Fq "$package"; then break; fi
+        # If first-run help or a busy launcher intercepted the swipe, dismiss
+        # its dialog by text before retrying the removal on the same card.
+        device shell uiautomator dump /data/local/tmp/qa-notice-recent.xml >/dev/null || continue
+        device exec-out cat /data/local/tmp/qa-notice-recent.xml > "$evidence/recents-ui.xml"
+        position="$(python3 - "$evidence/recents-ui.xml" <<'PYUI'
+import re
+import sys
+import xml.etree.ElementTree as ET
+
+for node in ET.parse(sys.argv[1]).iter("node"):
+    if node.get("text") in {"Wait", "Got it"}:
+        left, top, right, bottom = map(int, re.findall(r"\d+", node.attrib["bounds"]))
+        print((left + right) // 2, (top + bottom) // 2)
+        break
+PYUI
+)"
+        if [[ -n "$position" ]]; then
+            read -r x y <<< "$position"
+            device shell input tap "$x" "$y"
+            sleep 2
+        fi
+    done
     capture recents-after
-    device shell dumpsys activity recents > "$evidence/recents-after.txt"
-    if grep 'Recent #' "$evidence/recents-after.txt" | grep -Fq "$package"; then exit 1; fi
-    device shell dumpsys package "$package" | grep -F 'stopped=false' > "$evidence/package-not-stopped.txt"
-    printf '%s removed-from-recents=PASS\n' "$serial"
+    if grep 'Recent #' "$evidence/recents-after.txt" | grep -Fq "$package"; then
+        printf '%s removed-from-recents=FAIL\n' "$serial"
+        result=1
+    else
+        device shell dumpsys package "$package" | grep -F 'stopped=false' > "$evidence/package-not-stopped.txt"
+        printf '%s removed-from-recents=PASS\n' "$serial"
+    fi
 
     device shell pm revoke "$package" "$permission"
     device shell dumpsys package "$package" | grep "$permission: granted=false" > "$evidence/permission-denied.txt"
@@ -100,7 +130,12 @@ for serial in "$first" "$second"; do
     sleep 2
     capture lockscreen
     device shell dumpsys window policy > "$evidence/lockscreen-policy.txt"
-    grep -E '^[[:space:]]+showing=true' "$evidence/lockscreen-policy.txt"
-    grep -E '^[[:space:]]+secure=true' "$evidence/lockscreen-policy.txt"
-    printf '%s lockscreen=PASS\n' "$serial"
+    if grep -E '^[[:space:]]+showing=true' "$evidence/lockscreen-policy.txt" &&
+        grep -E '^[[:space:]]+secure=true' "$evidence/lockscreen-policy.txt"; then
+        printf '%s lockscreen=PASS\n' "$serial"
+    else
+        printf '%s lockscreen=FAIL\n' "$serial"
+        result=1
+    fi
 done
+exit "$result"
