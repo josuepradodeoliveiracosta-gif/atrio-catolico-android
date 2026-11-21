@@ -53,7 +53,7 @@ jobs:
           "$aapt" dump badging "$apk" > qa-notice-states/apk.txt
           grep -F android.permission.POST_NOTIFICATIONS qa-notice-states/apk.txt
           sha256sum "$apk" | tee qa-notice-states/apk-sha256.txt
-      - name: Verificar estados nas duas instâncias
+      - name: Retestar somente a remoção de Recentes nos dois AVDs
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         with:
           api-level: 35
@@ -64,7 +64,7 @@ jobs:
           target: google_apis
           disable-animations: true
           emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -accel on -camera-back none
-          script: bash scripts/qa-android-notice-states.sh
+          script: bash scripts/qa-android-notice-states.sh recents
       - uses: actions/upload-artifact@v4
         if: always()
         with:

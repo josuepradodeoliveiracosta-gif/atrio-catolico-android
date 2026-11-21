@@ -29,6 +29,28 @@ booted "$first"
 booted "$second"
 adb devices -l | tee "$out/devices.txt"
 result=0
+only_recents="${1:-}"
+[[ -z "$only_recents" || "$only_recents" == recents ]]
+
+overview_bounds() {
+    local snapshot="$1" resource="$2"
+    device shell uiautomator dump /data/local/tmp/qa-notice-recent.xml >/dev/null
+    device exec-out cat /data/local/tmp/qa-notice-recent.xml > "$snapshot"
+    python3 - "$snapshot" "$resource" <<'PYUI'
+import re
+import sys
+import xml.etree.ElementTree as ET
+
+for node in ET.parse(sys.argv[1]).iter("node"):
+    if node.get("resource-id", "").endswith(":id/" + sys.argv[2]):
+        print(*map(int, re.findall(r"\d+", node.attrib["bounds"])))
+        break
+PYUI
+}
+
+recent_task_present() {
+    grep -Eq "Recent #[0-9]+: Task\{[^ ]+ #$task_id([[:space:]}])" "$1"
+}
 
 for serial in "$first" "$second"; do
     mkdir -p "$out/$serial"
@@ -74,46 +96,67 @@ for serial in "$first" "$second"; do
     grep -F 'topResumedActivity' "$evidence/background.txt" | grep -Ev "$package/|null"
     device shell dumpsys activity recents > "$evidence/background-recents.txt"
     grep 'Recent #' "$evidence/background-recents.txt" | grep -F "$package"
-    printf '%s background=PASS\n' "$serial"
+    if [[ -z "$only_recents" ]]; then printf '%s background=PASS\n' "$serial"; fi
 
+    task_id="$(sed -nE '/Recent #[0-9]+:.*br\.com\.atriocatolico\.qageral\.celular/ s/.*Task\{[^ ]+ #([0-9]+) .*/\1/p' "$evidence/background-recents.txt")"
+    [[ "$task_id" =~ ^[0-9]+$ ]]
+    recent_task_present "$evidence/background-recents.txt"
+
+    # Quickstep animates the card dismissal. Use normal animation timing
+    # while exercising the launcher, including its first-run tooltip.
+    device shell settings put global animator_duration_scale 1
+    device shell settings put global transition_animation_scale 1
+    device shell settings put global window_animation_scale 1
     device shell input keyevent KEYCODE_APP_SWITCH
-    sleep 2
+    sleep 4
     capture recents-before
-    for attempt in $(seq 1 5); do
-        device shell input swipe 360 730 360 100 320
-        sleep 3
-        device shell dumpsys activity recents > "$evidence/recents-after.txt"
-        if ! grep 'Recent #' "$evidence/recents-after.txt" | grep -Fq "$package"; then break; fi
-        # If first-run help or a busy launcher intercepted the swipe, dismiss
-        # its dialog by text before retrying the removal on the same card.
-        device shell uiautomator dump /data/local/tmp/qa-notice-recent.xml >/dev/null || continue
-        device exec-out cat /data/local/tmp/qa-notice-recent.xml > "$evidence/recents-ui.xml"
-        position="$(python3 - "$evidence/recents-ui.xml" <<'PYUI'
-import re
-import sys
-import xml.etree.ElementTree as ET
+    card="$(overview_bounds "$evidence/recents-before.xml" snapshot)"
+    read -r left top right bottom <<< "$card"
+    test -n "$bottom"
+    x=$(( (left + right) / 2 ))
+    y=$(( bottom - (bottom - top) / 5 ))
 
-for node in ET.parse(sys.argv[1]).iter("node"):
-    if node.get("text") in {"Wait", "Got it"}:
-        left, top, right, bottom = map(int, re.findall(r"\d+", node.attrib["bounds"]))
-        print((left + right) // 2, (top + bottom) // 2)
-        break
-PYUI
-)"
-        if [[ -n "$position" ]]; then
-            read -r x y <<< "$position"
-            device shell input tap "$x" "$y"
+    device shell input swipe "$x" "$y" "$x" 65 180
+    sleep 3
+    device shell dumpsys activity recents > "$evidence/recents-after.txt"
+    action=card-swipe
+    if recent_task_present "$evidence/recents-after.txt"; then
+        # Clear all is the native Recent apps UI, used only if the target
+        # was the sole visible task on this disposable emulator.
+        test "$(grep -c 'RecentTaskInfo #' "$evidence/background-recents.txt")" -eq 1
+        grep -Eq "^[[:space:]]+id=$task_id userId=0 hasTask=true" "$evidence/background-recents.txt"
+        action=clear-all
+        for attempt in $(seq 1 3); do
+            device shell input swipe 150 700 675 700 240
             sleep 2
+            button="$(overview_bounds "$evidence/recents-clear-all.xml" clear_all)"
+            if [[ -n "$button" ]]; then break; fi
+        done
+        if [[ -n "$button" ]]; then
+            read -r left top right bottom <<< "$button"
+            capture recents-clear-all
+            device shell input tap "$(( (left + right) / 2 ))" "$(( (top + bottom) / 2 ))"
         fi
+    fi
+
+    for attempt in $(seq 1 10); do
+        device shell dumpsys activity recents > "$evidence/recents-after.txt"
+        if ! recent_task_present "$evidence/recents-after.txt"; then break; fi
+        sleep 1
     done
     capture recents-after
-    if grep 'Recent #' "$evidence/recents-after.txt" | grep -Fq "$package"; then
-        printf '%s removed-from-recents=FAIL\n' "$serial"
-        result=1
+    device shell dumpsys package "$package" > "$evidence/package-after.txt"
+    if ! recent_task_present "$evidence/recents-after.txt" &&
+        ! grep -Eq "^[[:space:]]+id=$task_id userId=0 hasTask=" "$evidence/recents-after.txt" &&
+        grep -Eq '^[[:space:]]*User 0:.*[[:space:]]stopped=false([[:space:]]|$)' "$evidence/package-after.txt"; then
+        printf '%s removed-from-recents=PASS task=%s action=%s stopped=false\n' "$serial" "$task_id" "$action" \
+            | tee "$evidence/recents-result.txt"
     else
-        device shell dumpsys package "$package" | grep -F 'stopped=false' > "$evidence/package-not-stopped.txt"
-        printf '%s removed-from-recents=PASS\n' "$serial"
+        printf '%s removed-from-recents=FAIL task=%s action=%s\n' "$serial" "$task_id" "$action" \
+            | tee "$evidence/recents-result.txt"
+        result=1
     fi
+    if [[ "$only_recents" == recents ]]; then continue; fi
 
     device shell pm revoke "$package" "$permission"
     device shell dumpsys package "$package" | grep "$permission: granted=false" > "$evidence/permission-denied.txt"
