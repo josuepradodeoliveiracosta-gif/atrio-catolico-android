@@ -6,6 +6,9 @@ on:
     paths:
       - '.github/workflows/qa-conversation-notices-android.yml'
       - 'app/src/**/QaConversationNotice*.kt'
+      - 'app/src/main/java/br/com/atriocatolico/QaConversationPushRegistration.kt'
+      - 'app/src/main/java/br/com/atriocatolico/QaGeralRemoteFirebase.kt'
+      - 'app/src/test/java/br/com/atriocatolico/QaGeralCelularIdentityTest.kt'
       - 'app/src/noticeLabAndroidTest/java/com/google/firebase/messaging/QaMessagingInjection.java'
       - 'app/src/main/java/br/com/atriocatolico/AtrioPushService.kt'
       - 'app/src/main/java/br/com/atriocatolico/MainActivity.kt'
@@ -15,6 +18,8 @@ on:
       - 'app/build.gradle.kts'
       - 'scripts/run-qa-android-emulator.sh'
       - 'scripts/test_qa_android_variant_isolation.py'
+      - 'scripts/qa_geral_celular_round43.py'
+      - 'scripts/test_qa_geral_celular_round43.py'
       - 'tests/security/*qa-conversation-notice-android.mjs'
       - 'cloudflare/push-worker/scripts/conversation-push-pilot.mjs'
       - 'tests/security/qa-conversation-push-*.test.mjs'
@@ -132,8 +137,14 @@ jobs:
           grep -A1 'firebase_messaging_auto_init_enabled' "$manifest" | grep 'android:value.*=false'
           grep -F 'com.google.firebase.MESSAGING_EVENT' "$manifest"
           grep -F 'android.permission.POST_NOTIFICATIONS' "$manifest"
-          if grep -Eq 'android:networkSecurityConfig|FirebaseInstanceIdReceiver|QaConversationSignalReceiver' "$manifest"; then exit 1; fi
+          if grep -Eq 'android:networkSecurityConfig|QaConversationSignalReceiver' "$manifest"; then exit 1; fi
           if grep -q qa_emulator_network_security qa-conversation-notices-https-resources.txt; then exit 1; fi
+          python3 - "$manifest" <<'PYMANIFEST'
+          import sys
+          from pathlib import Path
+          from scripts.qa_geral_celular_round43 import verify_notice_manifest
+          verify_notice_manifest(Path(sys.argv[1]).read_text(), https=True)
+          PYMANIFEST
           python3 - "$apk" <<'PYAPK'
           import sys
           import zipfile
