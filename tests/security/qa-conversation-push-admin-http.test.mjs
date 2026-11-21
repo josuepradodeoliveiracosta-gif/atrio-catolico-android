@@ -20,6 +20,8 @@ const admission = uid => db.doc(`users/${uid}/chatPushAdmission/current`);
 const pending = db.doc(`users/${recipientUid}/chatPushPending/current`);
 const operator = 'fixture-admission-operator';
 const publisher = 'fixture-notice-publisher';
+const reviewer = 'fixture-age-reviewer';
+const consumer = 'fixture-age-consumer';
 const operatorClaims = {
   aud: conversationPushIdentity.projectId, email_verified: true,
   firebase: {sign_in_provider: 'password'},
@@ -27,6 +29,10 @@ const operatorClaims = {
 const tokens = new Map([
   ['operator', {...operatorClaims, uid: operator, atrioQaPushCapabilities: ['manage_admissions']}],
   ['publisher', {...operatorClaims, uid: publisher, atrioQaPushCapabilities: ['publish_notices']}],
+  ['reviewer', {...operatorClaims, uid: reviewer, atrioQaPushCapabilities: ['manage_age18_restoration']}],
+  ['consumer', {...operatorClaims, uid: consumer, atrioQaPushCapabilities: ['consume_age18_restoration']}],
+  ['age_claim_only', {...operatorClaims, uid: senderUid, atrioQaPushCapabilities: ['consume_age18_restoration']}],
+  ['age_allowlist_only', {...operatorClaims, uid: consumer}],
   ['ordinary', {...operatorClaims, uid: senderUid, atrioQaPushCapabilities: ['manage_admissions']}],
   ['unclaimed', {...operatorClaims, uid: operator}],
   ['wrong_project', {...operatorClaims, aud: 'another-project', uid: operator,
@@ -41,9 +47,12 @@ const auth = {
     return tokens.get(token);
   },
 };
+let restorableAt;
 const enabled = createConversationPushAdminHttpHandler({
   db, auth, serverTimestamp: () => FieldValue.serverTimestamp(), enabled: true,
-  allowedOperators: {[operator]: ['manage_admissions'], [publisher]: ['publish_notices']},
+  now: () => restorableAt ?? Date.now(),
+  allowedOperators: {[operator]: ['manage_admissions'], [publisher]: ['publish_notices'],
+    [reviewer]: ['manage_age18_restoration'], [consumer]: ['consume_age18_restoration']},
 });
 const closed = createConversationPushAdminHttpHandler();
 const send = (handler, action, payload, token, options = {}) => {
@@ -58,6 +67,21 @@ const expires = duration => new Date(Date.now() + duration).toISOString();
 const grant = (uid, expectedGeneration, operationKey) => ({
   uid, expectedGeneration, operationKey, expiresAt: expires(180_000),
 });
+const age = (action, payload, token, handler = enabled, options = {}) => send(handler,
+  action, payload, token, {url: origin + '/v1/qa/conversations/age18/admin/' + action, ...options});
+const ageProof = uid => db.doc(`users/${uid}/chatAgeEligibility/current`);
+const authorization = tokenId => db.doc('qaAge18RestorationAuthorizations/' + tokenId);
+const ageExpiry = duration => new Date((restorableAt ?? Date.now()) + duration).toISOString();
+const issueAge = async (uid, expiresAt = ageExpiry(60_000), reviewExpiresAt = ageExpiry(120_000)) => {
+  const response = await age('issue', {uid, expiresAt, reviewExpiresAt}, 'reviewer');
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('Cache-Control'), 'no-store');
+  return (await response.json()).tokenId;
+};
+const unavailable = async response => {
+  assert.equal(response.status, 409);
+  assert.deepEqual(await response.json(), {error: 'age18_authorization_unavailable'});
+};
 
 try {
   await test('superfície fechada ou indevida não autentica, altera admissão ou publica aviso', async () => {
@@ -168,6 +192,67 @@ try {
         assert.equal((await admission(uid).get()).data().status,'active');
       }
     }
+  });
+
+  await test('HTTP 18+ permanece fechado por padrão e exige as duas capacidades separadas', async () => {
+    const uid = senderUid;
+    const payload = {uid, expiresAt: ageExpiry(60_000), reviewExpiresAt: ageExpiry(120_000)};
+    const before = tokenChecks;
+    for (const action of ['issue', 'consume', 'revoke']) {
+      assert.equal((await age(action, payload, 'reviewer', closed)).status, 503);
+    }
+    assert.equal(tokenChecks, before);
+    assert.equal((await age('issue', payload, 'reviewer', enabled, {
+      url: 'http://admin.qa.invalid/v1/qa/conversations/age18/admin/issue',
+    })).status, 400);
+    assert.equal((await age('issue', {...payload, reviewExpiresAt: '2026-02-30T00:00:00.000Z'},
+      'reviewer')).status, 400);
+    assert.equal((await age('issue', {...payload, principal: reviewer}, 'reviewer')).status, 400);
+    assert.equal((await age('issue', payload, 'consumer')).status, 403);
+    assert.equal((await age('issue', payload, 'operator')).status, 403);
+    assert.equal((await age('issue', payload, 'revoked')).status, 401);
+    const tokenId = await issueAge(uid);
+    for (const token of ['reviewer', 'age_claim_only', 'age_allowlist_only'])
+      assert.equal((await age('consume', {uid, tokenId}, token)).status, 403);
+    assert.equal((await age('revoke', {uid, tokenId}, 'consumer')).status, 403);
+    await unavailable(await age('consume', {uid: recipientUid, tokenId}, 'consumer'));
+    assert.equal((await authorization(tokenId).get()).data().status, 'issued');
+    assert.deepEqual(await (await age('consume', {uid, tokenId}, 'consumer')).json(), {restored: true});
+    assert.equal((await ageProof(uid).get()).data().status, 'eligible');
+    const consumed = (await authorization(tokenId).get()).data();
+    assert.equal(consumed.issuedBy, reviewer);
+    assert.equal(consumed.consumedBy, consumer);
+    await unavailable(await age('consume', {uid, tokenId}, 'consumer'));
+    assert.equal((await ageProof(uid).get()).data().status, 'eligible');
+  });
+
+  await test('HTTP 18+ recusa no instante da expiração do token ou da revisão', async () => {
+    const uid = recipientUid;
+    await ageProof(uid).delete();
+    restorableAt = Date.now();
+    for (const [tokenDuration, reviewDuration] of [[1_000, 2_000], [2_000, 1_000]]) {
+      const tokenId = await issueAge(uid, ageExpiry(tokenDuration), ageExpiry(reviewDuration));
+      restorableAt += 1_000;
+      await unavailable(await age('consume', {uid, tokenId}, 'consumer'));
+      assert.equal((await authorization(tokenId).get()).data().status, 'issued');
+      assert.equal((await ageProof(uid).get()).exists, false);
+    }
+  });
+
+  await test('HTTP 18+ encerra a corrida de consumo e revogação sem elegibilidade residual', async () => {
+    const uid = recipientUid;
+    const tokenId = await issueAge(uid);
+    const request = {uid, tokenId};
+    const [consume, revoke] = await Promise.all([
+      age('consume', request, 'consumer'), age('revoke', request, 'reviewer'),
+    ]);
+    assert.equal(revoke.status, 200);
+    assert.deepEqual(await revoke.json(), {revoked: true, replay: false});
+    if (consume.status === 200) assert.deepEqual(await consume.json(), {restored: true});
+    else await unavailable(consume);
+    assert.equal((await authorization(tokenId).get()).data().status, 'revoked');
+    assert.notEqual((await ageProof(uid).get()).data()?.status, 'eligible');
+    await unavailable(await age('consume', request, 'consumer'));
   });
 } finally {
   await deleteApp(app);
