@@ -191,6 +191,11 @@ class ProfileV3ConsentEmulatorUiTest {
     @Test fun talkBackFocusEventsWithLargeText() {
         seedV3()
         val linked = createDiscussion("Oração em comunidade")
+        showEditor(fontScale = 1.5f)
+        editorControl("atrio-v3-question-oracao").performTextReplacement("Qual é a sua oração?")
+        selectDiscussion(linked)
+        editorControl("atrio-v3-question-oracao")
+
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val automation = instrumentation.getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES)
         val manager = compose.activity.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
@@ -214,15 +219,16 @@ class ProfileV3ConsentEmulatorUiTest {
                         .any { it.id == talkBack.id }
             }
             Log.i("AtrioQaProfileV3", "a11y_talkback=ativo exploracao_por_toque=true")
-            if (automation.rootInActiveWindow?.packageName?.toString() == service.packageName) {
+            val resumed = automation.shellText(
+                "dumpsys activity activities | grep -E 'topResumedActivity|mResumedActivity'"
+            )
+            if (resumed.lineSequence().any { it.contains(" ${service.packageName}/") }) {
                 automation.shellText("input keyevent KEYCODE_BACK")
             }
-
-            showEditor(fontScale = 1.5f)
-            editorControl("atrio-v3-question-oracao").performTextReplacement("Qual é a sua oração?")
-            selectDiscussion(linked)
-            editorControl("atrio-v3-question-oracao")
             val label = "Pergunta opcional · Oração"
+            compose.waitUntil(15_000) {
+                automation.rootInActiveWindow?.packageName?.toString() == appPackage
+            }
             val field = requireNotNull(
                 automation.rootInActiveWindow?.findAccessibilityNodeInfosByText(label)
                     ?.firstOrNull { it.isVisibleToUser }
