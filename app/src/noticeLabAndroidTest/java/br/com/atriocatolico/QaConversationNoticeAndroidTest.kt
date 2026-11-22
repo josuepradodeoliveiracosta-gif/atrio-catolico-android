@@ -79,11 +79,12 @@ abstract class QaConversationNoticeAndroidCase {
         assertEquals(true, user?.isEmailVerified)
     }
 
-    protected fun signal(extra: Boolean = false, ageMs: Long = 0): Task<Void> {
+    protected fun signal(extra: Boolean = false, ageMs: Long = 0, fcmId: String? = null): Task<Void> {
         val input = Intent("com.google.android.c2dm.intent.RECEIVE").apply {
             putExtra("google.sent_time", System.currentTimeMillis() - ageMs)
             putExtra("google.ttl", 60)
             putExtra("signal", "refresh")
+            if (fcmId != null) putExtra("google.message_id", fcmId)
             if (extra) putExtra("messageId", "extra-recusado")
         }
         return QaMessagingInjection.deliver(binder, input)
@@ -187,7 +188,7 @@ class QaConversationNoticeDeniedAndroidTest : QaConversationNoticeAndroidCase() 
     @Test fun permissaoNegadaMantemAMesmaMensagemAcessivel() {
         start(permissionGranted = false)
         val reads = serverReads()
-        finish(signal())
+        finish(signal(fcmId = "0:1700000000000000%3AbC0123"))
         assertTrue(notices().isEmpty())
         assertEquals(reads, serverReads())
         openManually()
