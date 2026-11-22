@@ -43,7 +43,7 @@ jobs:
         uses: actions/setup-java@v6
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '17'
       - name: Instalar dependencias dos testes
         working-directory: tests/security
         run: npm ci
@@ -55,6 +55,11 @@ jobs:
       - name: Instalar dependencias das Cloud Functions
         working-directory: functions
         run: npm install --no-audit --no-fund
+      - name: Preparar Java 21 para o emulador de Functions
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
       - name: Testar pontuacao e estornos no emulador de Functions
         working-directory: tests/security
         run: |
