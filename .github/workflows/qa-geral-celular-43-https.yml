@@ -6,8 +6,8 @@ permissions:
   contents: read
 
 env:
-  CANDIDATE_SHA: 55df47c6a913f7f8f8cfa576fc9b5992b199c966
-  CANDIDATE_TREE: 29c18a0dd43385fc949a46a3bfa88fc804acaddd
+  CANDIDATE_SHA: 587dc41efed0d171aaacd0bda48fb7bff1a9fb58
+  CANDIDATE_TREE: 3263fd3640de1c6f8e128dcf384129fde03596cf
   QA_ORIGIN: https://atrio-push-qa-general.atrio-catolico.workers.dev
 
 jobs:
