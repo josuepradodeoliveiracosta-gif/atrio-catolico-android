@@ -109,7 +109,12 @@ internal fun LiturgicalTheme(content: @Composable () -> Unit) {
     val view = LocalView.current
     SideEffect {
         if (window != null && !view.isInEditMode) {
-            window.statusBarColor = scheme.background.toArgb(); window.navigationBarColor = scheme.surface.toArgb()
+            if (android.os.Build.VERSION.SDK_INT < 35) {
+                @Suppress("DEPRECATION")
+                window.statusBarColor = scheme.background.toArgb()
+                @Suppress("DEPRECATION")
+                window.navigationBarColor = scheme.surface.toArgb()
+            }
             WindowCompat.getInsetsController(window, view).apply {
                 isAppearanceLightStatusBars = !dark; isAppearanceLightNavigationBars = !dark
             }
