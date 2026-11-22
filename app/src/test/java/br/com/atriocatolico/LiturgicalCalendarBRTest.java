@@ -7,13 +7,14 @@ import java.time.*;
 
 public class LiturgicalCalendarBRTest {
     private Day d(String date) {return day(LocalDate.parse(date));}
-    @Test public void publishedCoverageHasExactlyOneSeasonForEveryDay() {
-        LocalDate first=LocalDate.parse("2026-11-18"), last=LocalDate.parse("2027-12-31");
-        for(LocalDate date=first;!date.isAfter(last);date=date.plusDays(1)) {
-            int count=0; for(Span s:TABLE) if(!date.isBefore(s.start) && !date.isAfter(s.end)) count++;
-            assertEquals(date.toString(),1,count); assertNotEquals(Season.ATRIO,day(date).season);
-        }
-        assertEquals(Season.ATRIO,day(first.minusDays(1)).season); assertEquals(Season.ATRIO,day(last.plusDays(1)).season);
+    @Test public void renewsAcrossCivilYearsWithoutInterruptingChristmas() {
+        assertEquals(Season.CHRISTMAS, d("2028-01-01").season);
+        assertEquals("Batismo do Senhor", d("2028-01-09").feast);
+        assertEquals("Quarta-feira de Cinzas", d("2028-03-01").feast);
+        assertEquals("Domingo da Ressurreição", d("2028-04-16").feast);
+        assertEquals("Ascensão do Senhor", d("2028-05-28").feast);
+        assertEquals(1, d("2028-12-03").candles);
+        assertEquals(Season.CHRISTMAS, d("2029-01-01").season);
     }
     @Test public void boundariesInLocalTime() {
         String[] starts={"2026-11-29","2026-12-25","2027-01-11","2027-02-10","2027-03-26","2027-03-28","2027-05-17","2027-11-28","2027-12-25"};
@@ -34,11 +35,6 @@ public class LiturgicalCalendarBRTest {
         assertEquals("Anunciação do Senhor",d("2027-04-05").feast); assertEquals("",d("2027-05-06").feast);
         assertEquals("Ascensão do Senhor",d("2027-05-09").feast); assertTrue(d("2027-05-16").red); assertEquals(Season.EASTER,d("2027-05-16").season);
         assertEquals("Epifania do Senhor",d("2027-01-03").feast); assertEquals("Batismo do Senhor",d("2027-01-10").feast);
-    }
-    @Test public void ambiguousOrMissingSeasonFailsClosedButUnknownFeastKeepsSeason() {
-        LocalDate date=LocalDate.parse("2027-02-11"); Span a=new Span(date.toString(),date.toString(),Season.ADVENT), b=new Span(date.toString(),date.toString(),Season.LENT);
-        assertEquals(Season.ATRIO,day(date,new Span[]{a,b}).season); assertEquals(Season.ATRIO,day(date,new Span[]{}).season);
-        assertEquals(Season.LENT,day(date).season); assertEquals("",day(date).feast);
     }
     @Test public void greetingsAndWreath() {
         assertEquals("Boa noite",greeting(4)); assertEquals("Bom dia",greeting(5)); assertEquals("Bom dia",greeting(11));

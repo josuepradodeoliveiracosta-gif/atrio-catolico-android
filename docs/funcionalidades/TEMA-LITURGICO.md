@@ -1,10 +1,10 @@
 # Tema litúrgico — Contemplação
 
-## Calendário embarcado
+## Calendário temático anual
 
-Brasil, rito romano; revisão documental de 18/11/2026, cobertura inclusiva de 18/11/2026 a 31/12/2027. As faixas e datas observadas em `LiturgicalCalendarBR` transcrevem as páginas 12–13 do Plano Tema Litúrgico Átrio Católico. Para 2026 o plano cita o Calendário litúrgico do Brasil e o Folheto Povo de Deus (Arquidiocese de São Paulo); para 2027, GCatholic Brasil e SeuTom. **Não é uma edição homologada pela CNBB**: falta conferir a íntegra do Diretório da CNBB 2027. Não se extrapolam datas para outros anos ou dioceses. Não se aplicou a opção facultativa de acento rosa.
+O aplicativo calcula offline os tempos do rito romano brasileiro para cada ano civil. O Natal iniciado em dezembro continua em janeiro até o Batismo do Senhor. O ciclo litúrgico recomeça no primeiro domingo do Advento.
 
-As faixas inclusivas representam todos os dias, não apenas suas datas iniciais. Sem festa confirmada, vale o tempo; sem tempo conhecido ou com conflito, vale a aparência institucional. Quinta-feira Santa segue a Quaresma, sábado permanece recolhido até o fim da data civil e a mudança pascal ocorre à meia-noite local. As prévias da Ceia e da Vigília ficam em Aparência no QA Geral, sem alterar o calendário real. As ilustrações locais são os seis vitrais das páginas 3–5 do PDF, comprimidos em WebP.
+A Páscoa segue o cômputo gregoriano. O cálculo inclui as transferências brasileiras da Epifania e da Ascensão e a transferência da Anunciação quando coincide com a Semana Santa ou a Oitava da Páscoa. A aparência segue o calendário geral adotado nesta PR. A Quinta-feira Santa mantém a paleta quaresmal e a mudança para a paleta pascal ocorre à meia-noite local de domingo. As seis ilustrações continuam disponíveis offline.
 
 ## Inventário da integração
 
@@ -28,7 +28,7 @@ Registrar SHA do build efetivamente instalado, variante, revisão do calendário
 1. Digitar no chat às 23h59 de 27/03/2027 e mover o cursor. Às 00h00 conferir Páscoa, texto, seleção, foco e rolagem.
 2. Passar para segundo plano e mudar de fuso atravessando a data. Conferir o tema imediatamente ao voltar.
 3. Ocultar na conta A, mudar para B às 11h59, conferir “Boa tarde” sem trocar a paleta e voltar a A.
-4. Abrir 01/01/2028 (institucional), 06/05/2027 (pascal sem festa) e 09/05/2027 (Ascensão). Conferir recuperação no Início e em Aparência.
+4. Abrir 01/01/2028 (Natal, continuidade entre anos), 06/05/2027 (pascal sem festa) e 09/05/2027 (Ascensão). Conferir recuperação no Início e em Aparência.
 
 Comparar inicialização e renderização com a versão anterior no mesmo aparelho. Compilar o APK ou passar nos testes JVM não substitui esses ensaios.
 
