@@ -576,11 +576,23 @@ internal fun HomeScreen(name: String, posts: List<Post>, filter: String, search:
     welcomeUid: String = "",
     listState: LazyListState = rememberLazyListState()
 ) {
+    var shopOpen by rememberSaveable { mutableStateOf(false) }
+    if (BuildConfig.BUILD_TYPE == "qaGeral" && !BuildConfig.ATRIO_QA_GERAL_REMOTE && shopOpen) {
+        QaShopScreen(onClose = { shopOpen = false })
+        return
+    }
     val shown = posts.filter { (filter == "Todos" || it.category == filter) &&
         (search.isBlank() || listOf(it.title, it.body, it.category, it.author).any { s -> s.contains(search, ignoreCase = true) }) }
     val showWelcome by welcomePreference(welcomeUid)
     LazyColumn(Modifier.fillMaxSize().testTag("atrio-home-feed"), state = listState, contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (showWelcome) item(key = "liturgical-welcome") { LiturgicalWelcome(name) }
+        if (BuildConfig.BUILD_TYPE == "qaGeral" && !BuildConfig.ATRIO_QA_GERAL_REMOTE && !searchOpen) {
+            item(key = "qa-shop") {
+                OutlinedButton(onClick = { shopOpen = true }, modifier = Modifier.testTag("atrio-qa-shop-open")) {
+                    Text("Loja")
+                }
+            }
+        }
         item {
             Surface(onClick = onCreate, color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, Line)) {
                 Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {

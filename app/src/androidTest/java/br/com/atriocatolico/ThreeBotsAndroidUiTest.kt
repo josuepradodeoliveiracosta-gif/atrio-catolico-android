@@ -1,6 +1,13 @@
 package br.com.atriocatolico
 
 import android.content.Context
+import android.os.ParcelFileDescriptor
+import androidx.test.platform.app.InstrumentationRegistry
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -15,6 +22,8 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
+import kotlinx.coroutines.CompletableDeferred
+import java.io.IOException
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -63,6 +72,134 @@ class ThreeBotsAndroidUiTest {
 
         compose.onNodeWithTag("atrio-tab-profile").performClick()
         compose.onNodeWithText("Membro da comunidade Átrio").assertIsDisplayed()
+    }
+
+    @Test fun miguelAbreLojaFiltraCategoriaEVoltaAoInicioComFonteAmpliada() {
+        prefs.edit().putString("name", "Miguel BOT DE TESTE").commit()
+        compose.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, 1.5f)) {
+                AtrioDemoApp(prefs)
+            }
+        }
+
+        val home = compose.onNodeWithTag("atrio-home-feed")
+        val shopEntry = "atrio-qa-shop-open"
+        home.performScrollToNode(hasTestTag(shopEntry))
+        compose.onNodeWithTag(shopEntry).performClick()
+
+        val catalog = compose.onNodeWithTag("atrio-qa-shop-catalog")
+        catalog.assertIsDisplayed()
+        catalog.performScrollToNode(hasText("Medalhas"))
+        compose.onNodeWithText("Medalhas").performClick()
+
+        val medal = "atrio-qa-shop-product-medalha"
+        catalog.performScrollToNode(hasTestTag(medal))
+        compose.onNodeWithTag(medal).performClick()
+        compose.onNodeWithTag("atrio-qa-shop-product").assertIsDisplayed()
+        compose.onNodeWithText("Medalha de São Bento").assertIsDisplayed()
+        compose.onNodeWithText("Voltar ao catálogo").performClick()
+
+        catalog.performScrollToNode(hasTestTag(medal))
+        compose.onNodeWithTag(medal).assertIsDisplayed()
+        compose.onNodeWithTag("atrio-qa-shop-product-terco").assertDoesNotExist()
+        catalog.performScrollToNode(hasText("Voltar ao Início"))
+        compose.onNodeWithText("Voltar ao Início").performClick()
+        home.assertIsDisplayed()
+    }
+
+    @Test fun lojaAbreSomenteDestinoHttpsDeTesteEPreservaProduto() {
+        val opened = mutableListOf<String>()
+        val browser = object : UriHandler {
+            override fun openUri(uri: String) { opened.add(uri) }
+        }
+        compose.setContent {
+            AtrioTheme {
+                CompositionLocalProvider(LocalUriHandler provides browser) {
+                    QaShopScreen(onClose = {})
+                }
+            }
+        }
+
+        val catalog = compose.onNodeWithTag("atrio-qa-shop-catalog")
+        val medal = "atrio-qa-shop-product-medalha"
+        catalog.performScrollToNode(hasTestTag(medal))
+        compose.onNodeWithTag(medal).performClick()
+        val details = compose.onNodeWithTag("atrio-qa-shop-product")
+        details.performScrollToNode(hasText("Abrir página de teste"))
+        compose.onNodeWithText("Abrir página de teste").performClick()
+        compose.runOnIdle {
+            org.junit.Assert.assertEquals(listOf("https://example.com/"), opened)
+        }
+        compose.onNodeWithText("Medalha de São Bento").assertIsDisplayed()
+        compose.onNodeWithText("Voltar ao catálogo").performClick()
+        catalog.assertIsDisplayed()
+    }
+
+    @Test fun lojaRetornaAoMesmoProdutoDoNavegadorAndroid() {
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        fun shell(command: String): String =
+            ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand(command))
+                .bufferedReader().use { it.readText().trim() }
+
+        val browser = shell(
+            "cmd package resolve-activity --brief -a android.intent.action.VIEW " +
+                "-c android.intent.category.BROWSABLE -d https://example.com/"
+        ).lineSequence().last().substringBefore('/')
+        check(browser.isNotBlank() && browser != "android" &&
+            browser != BuildConfig.APPLICATION_ID && browser.none(Char::isWhitespace)) {
+            "O emulador precisa de um navegador padrão para abrir a página de QA."
+        }
+
+        compose.setContent { AtrioTheme { QaShopScreen(onClose = {}) } }
+        val medal = "atrio-qa-shop-product-medalha"
+        compose.onNodeWithTag("atrio-qa-shop-catalog").performScrollToNode(hasTestTag(medal))
+        compose.onNodeWithTag(medal).performClick()
+        compose.onNodeWithTag("atrio-qa-shop-product").performScrollToNode(hasText("Abrir página de teste"))
+        compose.onNodeWithText("Abrir página de teste").performClick()
+        try {
+            compose.waitUntil(15_000) {
+                automation.rootInActiveWindow?.packageName?.toString() == browser
+            }
+        } finally {
+            shell("input keyevent KEYCODE_BACK")
+        }
+        compose.waitUntil(15_000) {
+            automation.rootInActiveWindow?.packageName?.toString() == BuildConfig.APPLICATION_ID
+        }
+        compose.onNodeWithText("Medalha de São Bento").assertIsDisplayed()
+    }
+
+    @Test fun lojaMostraCarregamentoErroETentaNovamente() {
+        val firstRequest = CompletableDeferred<Unit>()
+        var requests = 0
+        compose.setContent {
+            AtrioTheme {
+                QaShopScreen(
+                    loadCatalog = {
+                        if (++requests == 1) {
+                            firstRequest.await()
+                            throw IOException("Falha fictícia")
+                        }
+                        emptyList()
+                    },
+                    onClose = {}
+                )
+            }
+        }
+
+        compose.onNodeWithTag("atrio-qa-shop-loading").assertIsDisplayed()
+        firstRequest.complete(Unit)
+        compose.waitUntil(5_000) {
+            compose.onAllNodes(hasText("Não foi possível carregar o catálogo."))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText("Tentar novamente").performClick()
+        compose.waitUntil(5_000) {
+            compose.onAllNodes(hasText("Nenhum produto disponível."))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText("Nenhum produto disponível.").assertIsDisplayed()
+        compose.onNodeWithTag("atrio-qa-shop-loading").assertDoesNotExist()
     }
 
     @Test fun luciaConfirmaToqueNoBotaoPublicar() {
