@@ -614,7 +614,17 @@ class ProfileV3ConsentEmulatorUiTest {
             if (verifySpeech) compose.waitUntil(20_000) {
                 (logcat() - beforeActivation).any { "TTS dispatch:" in it }
             }
-            val beforeSave = if (verifySpeech) logcat() else emptySet()
+            val talkBackPid = if (verifySpeech) {
+                val manager = compose.activity.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
+                val service = manager.installedAccessibilityServiceList.single {
+                    it.resolveInfo.serviceInfo.name.endsWith("TalkBackService")
+                }.resolveInfo.serviceInfo
+                requireNotNull(automation.shellText("pidof ${service.packageName}")
+                    .substringBefore(' ').toIntOrNull()) { "PID do TalkBack indisponível" }
+            } else null
+            fun speechLines() = automation.shellText("logcat -d -v threadtime --pid=${requireNotNull(talkBackPid)}")
+                .lineSequence().filter { "SpeechControllerImpl: Speaking fragment" in it }.toSet()
+            val beforeSave = if (verifySpeech) speechLines() else emptySet()
             val expected = "Informações atualizadas."
             val eventType = java.util.concurrent.atomic.AtomicInteger()
             automation.setOnAccessibilityEventListener { candidate ->
@@ -639,9 +649,7 @@ class ProfileV3ConsentEmulatorUiTest {
                 if (verifySpeech) {
                     var spoken: String? = null
                     compose.waitUntil(20_000) {
-                        spoken = (logcat() - beforeSave).firstOrNull {
-                            "SpeechControllerImpl: Speaking fragment" in it && expected in it
-                        }
+                        spoken = (speechLines() - beforeSave).firstOrNull { expected in it }
                         spoken != null
                     }
                     Log.i("AtrioQaProfileV3", "a11y_unified_save=talkback_tts ${requireNotNull(spoken)}")
