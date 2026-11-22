@@ -92,6 +92,16 @@ jobs:
           emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -accel on -camera-back none
           script: |
             bash scripts/run-qa-android-emulator.sh
+            original_font_scale=$(adb shell settings get system font_scale | tr -d '\r')
+            restore_font_scale() {
+              if [ "$original_font_scale" = null ]; then
+                adb shell settings delete system font_scale
+              else
+                adb shell settings put system font_scale "$original_font_scale"
+              fi
+            }
+            trap restore_font_scale EXIT
+            adb shell settings put system font_scale 1.5
             gradle :app:connectedQaGeralAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=br.com.atriocatolico.LiturgicalWelcomeUiTest
       - name: Guardar APK QA Geral usado na homologação visual
         uses: actions/upload-artifact@v4
