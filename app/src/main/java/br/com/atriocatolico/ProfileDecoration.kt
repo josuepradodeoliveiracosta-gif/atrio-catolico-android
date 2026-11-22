@@ -17,12 +17,12 @@ import androidx.compose.ui.unit.dp
  */
 @Composable
 internal fun ProfileBasilicaFooter() {
+    val wineTint = Wine.copy(alpha = 0.90f)
     Canvas(Modifier.fillMaxWidth().height(90.dp)) {
         val w = size.width
         val h = size.height
         val center = w * 0.78f
         val goldTint = Gold.copy(alpha = 0.40f)
-        val wineTint = Wine.copy(alpha = 0.90f)
         val base = h * 0.82f
 
         // Cúpula e lanterna.

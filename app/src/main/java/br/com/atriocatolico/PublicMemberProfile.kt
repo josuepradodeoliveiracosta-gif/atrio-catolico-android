@@ -182,6 +182,7 @@ internal fun PublicMemberProfileScreen(
                     Text(displayName, fontFamily = FontFamily.Serif, fontSize = 25.sp,
                         fontWeight = FontWeight.Bold, modifier = Modifier.testTag("atrio-public-profile-name"))
                     MemberBadgeRow(uid, Modifier.fillMaxWidth(), centered = true)
+                    ContributionPublicBadge(db, uid, Modifier.fillMaxWidth())
                     if (infoLoading) CircularProgressIndicator(Modifier.size(20.dp))
                     if (info?.bio?.isNotBlank() == true) {
                         Text(info!!.bio, style = MaterialTheme.typography.bodyMedium)

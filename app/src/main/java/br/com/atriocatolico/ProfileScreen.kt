@@ -1,5 +1,6 @@
 package br.com.atriocatolico
 
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -78,12 +79,14 @@ internal fun OnlineProfileScreen(
 ) {
     val profileListState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    var contributionsOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var badgesOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var discussionsOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var followedOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var profilePreviewOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var accountExpanded by rememberSaveable(uid) { mutableStateOf(false) }
     var helpExpanded by rememberSaveable(uid) { mutableStateOf(false) }
+    BackHandler(enabled = contributionsOpen) { contributionsOpen = false }
     BackHandler(enabled = badgesOpen) { badgesOpen = false }
     BackHandler(enabled = discussionsOpen) { discussionsOpen = false }
     BackHandler(enabled = followedOpen) { followedOpen = false }
@@ -95,6 +98,8 @@ internal fun OnlineProfileScreen(
             onBack = { followedOpen = false }, onOpen = onOpen,
             remoteEnabled = followedRemoteEnabled, remoteIds = followedRemoteIds,
             remoteLoading = followedRemoteLoading, remoteFailed = followedRemoteFailed)
+    } else if (contributionsOpen) {
+        ContributionProgressScreen(db, uid, onBack = { contributionsOpen = false })
     } else if (discussionsOpen) {
         ProfileDiscussionHistory(db, uid, onBack = { discussionsOpen = false }, onOpen = onOpen)
     } else if (badgesOpen) {
@@ -136,6 +141,7 @@ internal fun OnlineProfileScreen(
                                 Text(name, fontFamily = FontFamily.Serif, fontSize = 24.sp,
                                     fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                                 MemberBadgeRow(uid, Modifier.fillMaxWidth(), centered = true)
+                                ContributionPublicBadge(db, uid, Modifier.fillMaxWidth())
                                 Text(biography.ifBlank { "Conte um pouco sobre sua caminhada na fé." },
                                     color = Muted, fontSize = AtrioType.reading, lineHeight = AtrioType.readingLine,
                                     textAlign = TextAlign.Center)
@@ -163,6 +169,10 @@ internal fun OnlineProfileScreen(
                                 else "Sua lista pessoal neste aparelho.",
                                 Icons.Outlined.BookmarkBorder) { followedOpen = true }
                             HorizontalDivider()
+                            ProfileAction("Insígnias de contribuição",
+                                "Acompanhe as três trilhas e escolha uma para destacar no perfil.",
+                                Icons.Outlined.StarBorder) { contributionsOpen = true }
+                            HorizontalDivider()
                             ProfileAction("Minhas revisões", "Acompanhe suas revisões no Átrio Guardião.",
                                 Icons.Outlined.VerifiedUser, onReviews)
                         }
@@ -181,7 +191,10 @@ internal fun OnlineProfileScreen(
                             }
                         }
                     }
-                    ProfileSection.Preferences -> { ProfileSectionTitle("Preferências") }
+                    ProfileSection.Preferences -> {
+                        ProfileSectionTitle("Preferências")
+                        AppearanceSettings(uid)
+                    }
                     ProfileSection.Notifications -> { PushSettings(uid, db, onNotifications = onNotifications) }
                     ProfileSection.Support -> { DeveloperSupportPanel(db, uid, founderAdmin = founderCanBroadcast) }
                     ProfileSection.Account -> {
@@ -290,6 +303,7 @@ internal fun OnlineProfileScreen(
                     modifier = Modifier.verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
+                    TextButton(onClick = { closeAndScroll(ProfileSection.Preferences) }) { Text("Aparência") }
                     Text("Meu perfil", style = MaterialTheme.typography.titleSmall, color = Wine)
                     TextButton(
                         onClick = { closeAndScroll(ProfileSection.Publication) },

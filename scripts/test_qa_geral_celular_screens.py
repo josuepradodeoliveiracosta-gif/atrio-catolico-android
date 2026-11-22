@@ -16,6 +16,7 @@ def adb(*args, timeout=30):
 
 def wait_screen(label):
     deadline = monotonic() + 75
+    recovered_launcher = False
     visible = {}
     device_xml = "/data/local/tmp/atrio-celular-ui.xml"
     while monotonic() < deadline:
@@ -27,6 +28,16 @@ def wait_screen(label):
             sleep(1)
             continue
         visible = {node.get("text"): node for node in root.iter("node") if node.get("text")}
+        if "Pixel Launcher isn't responding" in visible and not recovered_launcher:
+            close = root.find(".//node[@resource-id='android:id/aerr_close']")
+            if close is not None:
+                bounds = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", close.get("bounds", ""))
+                if bounds:
+                    left, top, right, bottom = map(int, bounds.groups())
+                    adb("shell", "input", "tap", str((left + right) // 2), str((top + bottom) // 2))
+                    adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/br.com.atriocatolico.MainActivity")
+                    recovered_launcher = True
+                    continue
         if label in visible:
             return visible
         sleep(1)

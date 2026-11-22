@@ -928,8 +928,10 @@ service cloud.firestore {
       allow create: if me(uid)
         && emailVerificationAllowsCommunityAccess()
         && exists(/databases/$(database)/documents/posts/$(postId))
-        && request.resource.data.keys().hasOnly(['createdAt'])
+        && request.resource.data.keys().hasOnly(['createdAt', 'postId'])
         && request.resource.data.keys().hasAll(['createdAt'])
+        && (!request.resource.data.keys().hasAny(['postId'])
+          || request.resource.data.postId == postId)
         && validTime();
       allow delete: if me(uid) && emailVerificationAllowsCommunityAccess();
       allow update: if false;
@@ -1192,6 +1194,54 @@ service cloud.firestore {
           && getAfter(/databases/$(database)/documents/guardian_cases/$(request.resource.data.caseId)).data.reviewedAt == request.resource.data.createdAt;
       }
     }
+    function contributionTrackUnlocked(uid, track) {
+      let progressPath = /databases/$(database)/documents/contribution_progress/$(uid);
+      return exists(progressPath)
+        && ((track == 'conversation'
+              && get(progressPath).data.get('points', {}).get('conversation', 0) >= 15)
+          || (track == 'helpful'
+              && get(progressPath).data.get('points', {}).get('helpful', 0) >= 15)
+          || (track == 'welcome'
+              && get(progressPath).data.get('points', {}).get('welcome', 0) >= 10));
+    }
+
+    // Pontuação e projeção pública só são gravadas pelo backend de eventos.
+    match /contribution_progress/{uid} {
+      allow get: if me(uid) && emailVerificationAllowsCommunityAccess();
+      allow list, create, update, delete: if false;
+    }
+    match /contribution_highlight_settings/{uid} {
+      allow get: if me(uid) && emailVerificationAllowsCommunityAccess();
+      allow list: if false;
+      allow create, update: if me(uid)
+        && emailVerificationAllowsCommunityAccess()
+        && request.resource.data.keys().hasOnly(['track', 'updatedAt'])
+        && request.resource.data.keys().hasAll(['track', 'updatedAt'])
+        && request.resource.data.track in ['conversation', 'helpful', 'welcome']
+        && contributionTrackUnlocked(uid, request.resource.data.track)
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if me(uid) && emailVerificationAllowsCommunityAccess();
+    }
+    match /contribution_public/{uid} {
+      allow get: if signedIn() && emailVerificationAllowsCommunityAccess();
+      allow list, create, update, delete: if false;
+    }
+    match /contribution_ledger/{id} {
+      allow read, write: if false;
+    }
+    match /contribution_post_likes/{postId}/actors/{actorId} {
+      allow read, write: if false;
+    }
+    match /contribution_first_posts/{uid} {
+      allow read, write: if false;
+    }
+    match /contribution_config/{id} {
+      allow read, write: if false;
+    }
+    match /contribution_reconciliation/{id} {
+      allow read, write: if false;
+    }
+
     match /guardian_runtime/{id} {
       allow get, list: if isAdmin();
       allow create, update, delete: if false;

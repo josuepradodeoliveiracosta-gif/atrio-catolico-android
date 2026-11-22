@@ -47,9 +47,24 @@ jobs:
       - name: Instalar dependencias dos testes
         working-directory: tests/security
         run: npm ci
+      - name: Testar cálculo das trilhas de contribuição
+        run: node --test functions/contribution-core.test.cjs
       - name: Testar regras do Firestore no emulador (sem acessar producao)
         working-directory: tests/security
         run: npm test
+      - name: Instalar dependencias das Cloud Functions
+        working-directory: functions
+        run: npm install --no-audit --no-fund
+      - name: Preparar Java 21 para o emulador de Functions
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Testar pontuacao e estornos no emulador de Functions
+        working-directory: tests/security
+        run: |
+          npm install --prefix "$RUNNER_TEMP/contribution-cli" --no-audit --no-fund firebase-tools@15.1.0
+          "$RUNNER_TEMP/contribution-cli/node_modules/.bin/firebase" --config ../../firebase.json emulators:exec --only firestore,functions --project demo-atrio-v11 "node ../../functions/contribution-emulator.test.cjs"
       - name: Testar preflight dos selos V2 em modo totalmente offline
         # Mocks locais: não usa login Firebase nem acessa o projeto real.
         run: node --test scripts/selos-v2-production-preflight.test.mjs

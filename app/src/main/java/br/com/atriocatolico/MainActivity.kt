@@ -74,14 +74,13 @@ import androidx.compose.ui.unit.sp
 import org.json.JSONArray
 import org.json.JSONObject
 
-internal val Wine = Color(0xFF641F32)
-internal val WineSoft = Color(0xFFF3E8EB)
+internal val Wine: Color @Composable get() = MaterialTheme.colorScheme.primary
+internal val WineSoft: Color @Composable get() = MaterialTheme.colorScheme.primaryContainer
 internal val Gold = Color(0xFFB49352)
-internal val GoldTextOnWine = Color(0xFFF4DCA8) // contraste reforçado para texto pequeno
-internal val Paper = Color(0xFFF7F3EA)
-internal val Ink = Color(0xFF29262A)
-internal val Muted = Color(0xFF5C5558)
-internal val Line = Color(0xFFEEE8E3)
+internal val Paper: Color @Composable get() = MaterialTheme.colorScheme.background
+internal val Ink: Color @Composable get() = MaterialTheme.colorScheme.onSurface
+internal val Muted: Color @Composable get() = MaterialTheme.colorScheme.onSurfaceVariant
+internal val Line: Color @Composable get() = MaterialTheme.colorScheme.outlineVariant
 
 internal data class Reply(
     val author: String,
@@ -220,13 +219,7 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 internal fun AtrioTheme(content: @Composable () -> Unit) {
-    MaterialTheme(
-        colorScheme = lightColorScheme(
-            primary = Wine, onPrimary = Color.White, secondary = Gold,
-            background = Paper, onBackground = Ink, surface = Color.White,
-            onSurface = Ink, surfaceVariant = WineSoft
-        ), typography = AtrioMaterialTypography, content = content
-    )
+    LiturgicalTheme(content)
 }
 
 @Composable
@@ -345,7 +338,7 @@ internal fun AtrioDemoApp(prefs: SharedPreferences) {
 private fun WelcomeScreen(onEnter: (String) -> Unit) {
     var nickname by remember { mutableStateOf("") }
     Column(
-        Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Wine, Color(0xFF864453))))
+        Modifier.fillMaxSize().background(Wine)
             .statusBarsPadding().padding(horizontal = 26.dp, vertical = 40.dp),
         verticalArrangement = Arrangement.SpaceBetween
     ) {
@@ -354,14 +347,14 @@ private fun WelcomeScreen(onEnter: (String) -> Unit) {
                 Text("✝", fontSize = 40.sp, color = Gold, fontFamily = FontFamily.Serif)
             }
             Spacer(Modifier.height(36.dp))
-            Text("BEM-VINDO AO ÁTRIO CATÓLICO", color = GoldTextOnWine, fontSize = AtrioType.compact, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+            Text("BEM-VINDO AO ÁTRIO CATÓLICO", color = MaterialTheme.colorScheme.onPrimary, fontSize = AtrioType.compact, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
             Spacer(Modifier.height(14.dp))
-            Text("Uma comunidade.\nUma só fé.", color = Color.White, fontSize = 39.sp, lineHeight = 45.sp, fontFamily = FontFamily.Serif)
+            Text("Uma comunidade.\nUma só fé.", color = MaterialTheme.colorScheme.onPrimary, fontSize = 39.sp, lineHeight = 45.sp, fontFamily = FontFamily.Serif)
             Spacer(Modifier.height(20.dp))
-            Text("Converse sobre a fé católica, encontre novos amigos e aprofunde seus conhecimentos.", color = Color(0xFFF5DDE5), fontSize = 15.sp, lineHeight = 24.sp)
+            Text("Converse sobre a fé católica, encontre novos amigos e aprofunde seus conhecimentos.", color = MaterialTheme.colorScheme.onPrimary, fontSize = 15.sp, lineHeight = 24.sp)
             Spacer(Modifier.height(28.dp))
             Text("“Onde dois ou três estiverem reunidos em meu nome, aí estou eu no meio deles.”\n— Mateus 18,20",
-                color = Color(0xFFEFCFDC), fontFamily = FontFamily.Serif, lineHeight = 24.sp)
+                color = MaterialTheme.colorScheme.onPrimary, fontFamily = FontFamily.Serif, lineHeight = 24.sp)
         }
         Card(colors = CardDefaults.cardColors(containerColor = Paper), shape = RoundedCornerShape(20.dp)) {
             Column(Modifier.padding(20.dp)) {
@@ -389,7 +382,7 @@ internal fun AtrioTopBar(
     onProfileSettings: (() -> Unit)? = null
 ) {
     val wineHeader = profileMode && !details
-    val textTint = if (wineHeader) Color.White else Wine
+    val textTint = if (wineHeader) MaterialTheme.colorScheme.onPrimary else Wine
     Surface(color = if (wineHeader) Wine else Paper, modifier = Modifier.statusBarsPadding()) {
         Column {
             Row(Modifier.fillMaxWidth().heightIn(min = if (wineHeader) 82.dp else 68.dp)
@@ -406,14 +399,14 @@ internal fun AtrioTopBar(
                         .background(if (wineHeader) Gold else Wine),
                         contentAlignment = Alignment.Center) {
                         Text("✝", fontSize = 25.sp, fontFamily = FontFamily.Serif,
-                            color = if (wineHeader) Wine else Gold)
+                            color = if (wineHeader) Color(0xFF641F32) else MaterialTheme.colorScheme.onPrimary)
                     }
                     Spacer(Modifier.width(10.dp))
                     if (wineHeader) {
                         Column {
                             Text("Átrio", fontSize = 28.sp, fontFamily = FontFamily.Serif,
-                                fontWeight = FontWeight.Bold, color = Color.White)
-                            Text("CATÓLICO", color = Gold, fontWeight = FontWeight.SemiBold,
+                                fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
+                            Text("CATÓLICO", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.SemiBold,
                                 letterSpacing = 2.sp, fontSize = 10.sp)
                         }
                     } else Text("Átrio", fontSize = 26.sp, fontFamily = FontFamily.Serif,
@@ -451,7 +444,7 @@ internal fun AtrioTopBar(
 @Composable
 internal fun AtrioBottomBar(selected: Tab, onSelect: (Tab) -> Unit) {
     val reduceMotion = AtrioMotion.reduced()
-    NavigationBar(containerColor = Color.White, tonalElevation = 0.dp) {
+    NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
         Tab.entries.forEach { tab ->
             val opacity by animateFloatAsState(
                 targetValue = if (selected == tab) 1f else 0.8f,
@@ -470,7 +463,7 @@ internal fun AtrioBottomBar(selected: Tab, onSelect: (Tab) -> Unit) {
                 modifier = Modifier.testTag("atrio-tab-${tab.name.lowercase()}"),
                 icon = { Icon(icon, contentDescription = null, modifier = Modifier.graphicsLayer { alpha = opacity }) }, label = { Text(tab.label, fontSize = AtrioType.compact) },
                 colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = if (tab == Tab.PROFILE) Color.White else Wine,
+                    selectedIconColor = if (tab == Tab.PROFILE) MaterialTheme.colorScheme.onPrimary else Wine,
                     selectedTextColor = Wine,
                     indicatorColor = if (tab == Tab.PROFILE) Wine else WineSoft
                 )
@@ -481,7 +474,7 @@ internal fun AtrioBottomBar(selected: Tab, onSelect: (Tab) -> Unit) {
 
 @Composable
 internal fun Avatar(name: String, modifier: Modifier = Modifier) {
-    Box(modifier.size(40.dp).clip(CircleShape).background(Color(0xFFF1DFE6)), contentAlignment = Alignment.Center) {
+    Box(modifier.size(40.dp).clip(CircleShape).background(WineSoft), contentAlignment = Alignment.Center) {
         Text(name.firstOrNull()?.uppercase() ?: "A", fontSize = 18.sp, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold, color = Wine)
     }
 }
@@ -504,7 +497,7 @@ internal fun DiscussionCard(post: Post, onOpen: (String) -> Unit, onLike: (Strin
     Card(
         onClick = { onOpen(post.id) },
         modifier = Modifier.fillMaxWidth().testTag("atrio-post-${post.id}"),
-        shape = RoundedCornerShape(17.dp), colors = CardDefaults.cardColors(containerColor = Color.White),
+        shape = RoundedCornerShape(17.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = BorderStroke(1.dp, Line), elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(Modifier.padding(16.dp)) {
@@ -523,7 +516,7 @@ internal fun DiscussionCard(post: Post, onOpen: (String) -> Unit, onLike: (Strin
             Spacer(Modifier.height(14.dp))
             Text(post.title, fontSize = 18.sp, lineHeight = 25.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(7.dp))
-            Text(post.body, color = Color(0xFF68625E), fontSize = AtrioType.reading, lineHeight = AtrioType.readingLine, maxLines = if (fullText) Int.MAX_VALUE else 5, overflow = TextOverflow.Ellipsis)
+            Text(post.body, color = Muted, fontSize = AtrioType.reading, lineHeight = AtrioType.readingLine, maxLines = if (fullText) Int.MAX_VALUE else 5, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(10.dp))
             Surface(color = WineSoft, shape = RoundedCornerShape(7.dp)) { Text(post.category, color = Wine, fontSize = AtrioType.compact, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) }
             Spacer(Modifier.height(13.dp))
@@ -580,24 +573,16 @@ internal fun HomeScreen(name: String, posts: List<Post>, filter: String, search:
     footer: @Composable () -> Unit = {},
     onOpenProfile: (String, String) -> Unit = { _, _ -> },
     loading: Boolean = false, loadError: Boolean = false, onRetry: () -> Unit = {},
+    welcomeUid: String = "",
     listState: LazyListState = rememberLazyListState()
 ) {
     val shown = posts.filter { (filter == "Todos" || it.category == filter) &&
         (search.isBlank() || listOf(it.title, it.body, it.category, it.author).any { s -> s.contains(search, ignoreCase = true) }) }
+    val showWelcome by welcomePreference(welcomeUid)
     LazyColumn(Modifier.fillMaxSize().testTag("atrio-home-feed"), state = listState, contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (showWelcome) item(key = "liturgical-welcome") { LiturgicalWelcome(name) }
         item {
-            Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Brush.horizontalGradient(listOf(Wine, Color(0xFF824657)))).padding(24.dp)) {
-                Column {
-                    Text("COMUNIDADE CATÓLICA", color = Color.White, fontWeight = FontWeight.Bold, fontSize = AtrioType.compact, letterSpacing = 1.5.sp)
-                    Spacer(Modifier.height(9.dp))
-                    Text("Paz e bem, ${name.substringBefore(' ')}!", color = Color.White, fontFamily = FontFamily.Serif, fontSize = 27.sp)
-                    Spacer(Modifier.height(7.dp))
-                    Text("Um lugar para ouvir, aprender e crescer juntos na fé.", color = Color(0xFFF4DCE4), fontSize = AtrioType.secondary, lineHeight = AtrioType.secondaryLine)
-                }
-            }
-        }
-        item {
-            Surface(onClick = onCreate, color = Color.White, shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, Line)) {
+            Surface(onClick = onCreate, color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, Line)) {
                 Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                     Avatar(name); Spacer(Modifier.width(12.dp))
                     Text("O que você gostaria de compartilhar?", color = Muted, fontSize = AtrioType.secondary, modifier = Modifier.weight(1f))
@@ -692,7 +677,7 @@ internal fun CommunityScreen(posts: List<Post>, onChoose: (String) -> Unit) {
                         scaleY = scale
                     }.testTag("atrio-forum-${categories.indexOfFirst { it.first == cat }}"),
                     shape = RoundedCornerShape(AtrioDimensions.CardRadius),
-                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     border = BorderStroke(1.dp, Line)
                 ) {
                     Column(
@@ -752,7 +737,7 @@ internal fun PublishScreen(publishing: Boolean = false, onPublish: (String, Stri
         Button(onClick = { onPublish(title.trim(), body.trim(), category) },
             enabled = !publishing && title.trim().length >= 5 && body.trim().length >= 5,
             modifier = Modifier.fillMaxWidth().heightIn(min = AtrioDimensions.TouchTarget).testTag("atrio-publish-submit"), shape = RoundedCornerShape(12.dp)) {
-            if (publishing) CircularProgressIndicator(Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+            if (publishing) CircularProgressIndicator(Modifier.size(18.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
             Text(if (publishing) "Publicando…" else "Publicar discussão")
         }
     }
@@ -794,7 +779,7 @@ private fun ProfileScreen(name: String, posts: List<Post>, onRename: () -> Unit,
             }
         }
         item {
-            Card(colors = CardDefaults.cardColors(containerColor = Color.White), border = BorderStroke(1.dp, Line)) {
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), border = BorderStroke(1.dp, Line)) {
                 Row(Modifier.fillMaxWidth().padding(vertical = 17.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
                     Statistic("${mine.size}", "Publicações")
                     Statistic("${posts.count { it.saved }}", "Salvos")
@@ -802,6 +787,7 @@ private fun ProfileScreen(name: String, posts: List<Post>, onRename: () -> Unit,
                 }
             }
         }
+        item { AppearanceSettings("") }
         item { SectionTitle("Minhas publicações") }
         if (mine.isEmpty()) item { EmptyState("✍️", "Sua voz faz diferença", "Compartilhe uma dúvida ou reflexão com a comunidade.", "Escrever agora", onCreate) }
         items(mine, key = { it.id }) { p -> DiscussionCard(p, onOpen, onLike, onSave) }

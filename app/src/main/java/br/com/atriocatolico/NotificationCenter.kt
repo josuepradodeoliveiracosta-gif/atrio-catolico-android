@@ -258,7 +258,7 @@ internal fun NotificationCenter(
         items(shown, key = { it.id }) { group ->
             Card(onClick = { if (!inbox.busy) { inbox.markRead(listOf(group)); onOpen(group) } },
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = if (group.unread) WineSoft else Color.White)) {
+                colors = CardDefaults.cardColors(containerColor = if (group.unread) WineSoft else MaterialTheme.colorScheme.surface)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(when (group.kind) {
