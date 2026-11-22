@@ -68,7 +68,7 @@ jobs:
           distribution: temurin
           java-version: '17'
       - name: Preparar Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '20'
           # Só push ou disparo manual pode ler e gravar o cache compartilhado.
@@ -150,7 +150,7 @@ jobs:
       - name: Iniciar compilacao APK QA Geral enquanto o emulador inicializa
         run: bash scripts/qa-android-prebuild.sh start
       - name: Preparar Node.js para Firebase Emulator Suite
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '20'
           # Só push ou disparo manual pode ler e gravar o cache compartilhado.
