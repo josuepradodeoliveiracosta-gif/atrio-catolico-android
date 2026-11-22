@@ -141,54 +141,71 @@ class ProfileLayoutUiTest {
     @Test fun badgesAndEditorRemainUsableWithLargeText() {
         // Acessibilidade e navegação testadas apenas no projeto demo isolado.
         check(FirebaseApp.getInstance().options.projectId == "demo-atrio-v11")
-        compose.setContent {
-            val density = LocalDensity.current.density
-            CompositionLocalProvider(LocalDensity provides Density(density, 1.5f)) {
-                AtrioTheme {
-                    OnlineProfileScreen(
-                        db = FirebaseFirestore.getInstance(), uid = "profile-layout-only",
-                        name = "Maria da Comunidade", email = "maria@example.test",
-                        biography = "Uma caminhada de fé e comunidade.",
-                        onSignOut = {},
-                        onModeration = null, onClergyReview = null,
-                        onOpen = {},
-                        onNotifications = {}, onReviews = {}
-                    )
+        val auth = FirebaseAuth.getInstance()
+        auth.signOut()
+        val uid = requireNotNull(Tasks.await(auth.signInAnonymously(), 15, TimeUnit.SECONDS).user).uid
+        try {
+            compose.setContent {
+                val density = LocalDensity.current.density
+                CompositionLocalProvider(LocalDensity provides Density(density, 1.5f)) {
+                    AtrioTheme {
+                        OnlineProfileScreen(
+                            db = FirebaseFirestore.getInstance(), uid = uid,
+                            name = "Maria da Comunidade", email = "maria@example.test",
+                            biography = "Uma caminhada de fé e comunidade.",
+                            onSignOut = {},
+                            onModeration = null, onClergyReview = null,
+                            onOpen = {},
+                            onNotifications = {}, onReviews = {}
+                        )
+                    }
                 }
             }
+
+            val list = compose.onNodeWithTag("atrio-profile-list")
+            list.performScrollToNode(hasTestTag("atrio-profile-badges"))
+            compose.onNodeWithTag("atrio-profile-badges").performClick()
+            compose.onNodeWithText("Gerenciar selos").assertIsDisplayed()
+            screenshot("04-selos-fonte-ampliada")
+            compose.onNodeWithText("Voltar ao perfil").performClick()
+
+            list.performScrollToNode(hasTestTag("atrio-profile-edit"))
+            compose.onNodeWithTag("atrio-profile-edit").performClick()
+            compose.onNodeWithTag("atrio-profile-name").assertIsDisplayed()
+            val editor = compose.onNodeWithTag("atrio-profile-v3-editor")
+            editor.performScrollToNode(hasTestTag("atrio-profile-bio"))
+            compose.onNodeWithTag("atrio-profile-bio").performTextInput("Rascunho de apresentação")
+            screenshot("05-editor-fonte-ampliada")
+            editor.performScrollToNode(hasTestTag("atrio-profile-draft-preview"))
+            compose.onNodeWithTag("atrio-profile-draft-preview").performClick()
+            compose.onNodeWithText("Prévia · alterações não salvas").assertIsDisplayed()
+            compose.onNodeWithTag("atrio-profile-draft-preview-bio")
+                .assertTextContains("Rascunho de apresentação", substring = true)
+            compose.onNodeWithText("Fechar prévia").performClick()
+            editor.performScrollToNode(hasTestTag("atrio-profile-bio"))
+
+
+            // A saída do editor não pode descartar silenciosamente um rascunho.
+            compose.onNodeWithText("Cancelar").performClick()
+            compose.onNodeWithText("Descartar alterações?").assertIsDisplayed()
+            compose.onNodeWithText("Continuar editando").performClick()
+            // O OutlinedTextField expõe rótulo/contador em Text e o rascunho em
+            // EditableText. assertTextContains priorizava o rótulo, apesar de o
+            // relatório provar que o rascunho estava preservado em EditableText.
+            compose.onNodeWithTag("atrio-profile-bio").assert(
+                SemanticsMatcher("rascunho permanece no campo editável") { node ->
+                    runCatching {
+                        node.config[SemanticsProperties.EditableText].text
+                            .contains("Rascunho de apresentação")
+                    }.getOrDefault(false)
+                }
+            )
+            compose.onNodeWithText("Cancelar").performClick()
+            compose.onNodeWithText("Descartar").performClick()
+            compose.onNodeWithTag("atrio-profile-edit").assertExists()
+        } finally {
+            auth.signOut()
         }
-
-        val list = compose.onNodeWithTag("atrio-profile-list")
-        list.performScrollToNode(hasTestTag("atrio-profile-badges"))
-        compose.onNodeWithTag("atrio-profile-badges").performClick()
-        compose.onNodeWithText("Gerenciar selos").assertIsDisplayed()
-        screenshot("04-selos-fonte-ampliada")
-        compose.onNodeWithText("Voltar ao perfil").performClick()
-
-        list.performScrollToNode(hasTestTag("atrio-profile-edit"))
-        compose.onNodeWithTag("atrio-profile-edit").performClick()
-        compose.onNodeWithTag("atrio-profile-name").assertIsDisplayed()
-        compose.onNodeWithTag("atrio-profile-bio").performTextInput("Rascunho de apresentação")
-        screenshot("05-editor-fonte-ampliada")
-
-        // A saída do editor não pode descartar silenciosamente um rascunho.
-        compose.onNodeWithText("Cancelar").performClick()
-        compose.onNodeWithText("Descartar alterações?").assertIsDisplayed()
-        compose.onNodeWithText("Continuar editando").performClick()
-        // O OutlinedTextField expõe rótulo/contador em Text e o rascunho em
-        // EditableText. assertTextContains priorizava o rótulo, apesar de o
-        // relatório provar que o rascunho estava preservado em EditableText.
-        compose.onNodeWithTag("atrio-profile-bio").assert(
-            SemanticsMatcher("rascunho permanece no campo editável") { node ->
-                runCatching {
-                    node.config[SemanticsProperties.EditableText].text
-                        .contains("Rascunho de apresentação")
-                }.getOrDefault(false)
-            }
-        )
-        compose.onNodeWithText("Cancelar").performClick()
-        compose.onNodeWithText("Descartar").performClick()
-        compose.onNodeWithTag("atrio-profile-edit").assertExists()
     }
 
     @Test fun registrationWelcomeKeepsBothDestinationsAvailable() {

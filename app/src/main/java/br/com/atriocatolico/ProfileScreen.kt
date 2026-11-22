@@ -1,10 +1,12 @@
 package br.com.atriocatolico
 
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -21,7 +23,6 @@ import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.PersonOutline
 import androidx.compose.material.icons.outlined.NotificationsNone
-import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material.icons.outlined.VerifiedUser
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.heading
@@ -42,6 +43,19 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.launch
+
+private enum class ProfileSection {
+    Identity,
+    Participation,
+    Publication,
+    Badges,
+    Preferences,
+    Notifications,
+    Support,
+    Account,
+    Help,
+    Footer
+}
 
 @Composable
 internal fun OnlineProfileScreen(
@@ -65,17 +79,15 @@ internal fun OnlineProfileScreen(
 ) {
     val profileListState = rememberLazyListState()
     val scope = rememberCoroutineScope()
-    var badgesOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var contributionsOpen by rememberSaveable(uid) { mutableStateOf(false) }
-    var editorOpen by rememberSaveable(uid) { mutableStateOf(false) }
+    var badgesOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var discussionsOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var followedOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var profilePreviewOpen by rememberSaveable(uid) { mutableStateOf(false) }
-    var savedMessage by remember(uid) { mutableStateOf(false) }
     var accountExpanded by rememberSaveable(uid) { mutableStateOf(false) }
     var helpExpanded by rememberSaveable(uid) { mutableStateOf(false) }
-    BackHandler(enabled = badgesOpen && !editorOpen) { badgesOpen = false }
     BackHandler(enabled = contributionsOpen) { contributionsOpen = false }
+    BackHandler(enabled = badgesOpen) { badgesOpen = false }
     BackHandler(enabled = discussionsOpen) { discussionsOpen = false }
     BackHandler(enabled = followedOpen) { followedOpen = false }
     BackHandler(enabled = profilePreviewOpen) { profilePreviewOpen = false }
@@ -113,213 +125,218 @@ internal fun OnlineProfileScreen(
             modifier = Modifier.fillMaxSize().background(Paper).testTag("atrio-profile-list"),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            item {
-                ProfileSectionTitle("Meu perfil")
-                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    shape = RoundedCornerShape(AtrioDimensions.CardRadius), border = BorderStroke(1.dp, Line)) {
-                    Column(Modifier.fillMaxWidth().padding(20.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        MemberAvatar(name, uid, Modifier.size(80.dp).testTag("atrio-profile-avatar"))
-                        if (LocalFounderUid.current.isNotBlank() && LocalFounderUid.current == uid) {
-                            FounderBadgeArt(Modifier.size(58.dp), compact = true)
+            items(ProfileSection.entries, key = { it.name }) { section ->
+                when (section) {
+                    ProfileSection.Identity -> {
+                        ProfileSectionTitle("Meu perfil")
+                        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            shape = RoundedCornerShape(AtrioDimensions.CardRadius), border = BorderStroke(1.dp, Line)) {
+                            Column(Modifier.fillMaxWidth().padding(20.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                MemberAvatar(name, uid, Modifier.size(80.dp).testTag("atrio-profile-avatar"))
+                                if (LocalFounderUid.current.isNotBlank() && LocalFounderUid.current == uid) {
+                                    FounderBadgeArt(Modifier.size(58.dp), compact = true)
+                                }
+                                Text(name, fontFamily = FontFamily.Serif, fontSize = 24.sp,
+                                    fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                                MemberBadgeRow(uid, Modifier.fillMaxWidth(), centered = true)
+                                ContributionPublicBadge(db, uid, Modifier.fillMaxWidth())
+                                Text(biography.ifBlank { "Conte um pouco sobre sua caminhada na fé." },
+                                    color = Muted, fontSize = AtrioType.reading, lineHeight = AtrioType.readingLine,
+                                    textAlign = TextAlign.Center)
+                                ProfileV3Editor(db, uid, ProfileIdentity(name, biography), onPhotoChanged)
+                                ProfileV3PreviewButton { profilePreviewOpen = true }
+                            }
                         }
-                        Text(name, fontFamily = FontFamily.Serif, fontSize = 24.sp,
-                            fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-                        MemberBadgeRow(uid, Modifier.fillMaxWidth(), centered = true)
-                        ContributionPublicBadge(db, uid, Modifier.fillMaxWidth())
-                        Text(biography.ifBlank { "Conte um pouco sobre sua caminhada na fé." },
-                            color = Muted, fontSize = AtrioType.reading, lineHeight = AtrioType.readingLine,
-                            textAlign = TextAlign.Center)
-                        ProfileV3Summary(db, uid)
-                        OutlinedButton(onClick = { savedMessage = false; editorOpen = true },
-                            modifier = Modifier.fillMaxWidth().testTag("atrio-profile-edit")) { Text("Editar perfil") }
-                        ProfileV3PreviewButton { profilePreviewOpen = true }
-                        ProfilePhotoManager(uid = uid, onChanged = onPhotoChanged)
-                        ProfileV3Editor(db, uid)
-                        if (savedMessage) Text("Perfil atualizado.", color = Wine, fontSize = 14.sp,
-                            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                        ProfileV3Summary(db, uid, modifier = Modifier.padding(top = 16.dp))
                     }
-                }
-            }
-            item {
-                PublicProfilePublicationSettings(db = db, uid = uid)
-            }
-            item {
-                Card(onClick = { badgesOpen = true }, modifier = Modifier.fillMaxWidth().testTag("atrio-profile-badges"),
-                    colors = CardDefaults.cardColors(containerColor = WineSoft),
-                    shape = RoundedCornerShape(AtrioDimensions.CardRadius)) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("Meus selos", color = Wine, fontWeight = FontWeight.Bold)
-                        Text("Escolha sua identificação e acompanhe verificações.", color = Muted, fontSize = AtrioType.secondary)
-                        Text("Gerenciar selos →", color = Wine, fontSize = AtrioType.secondary)
+                    ProfileSection.Participation -> {
+                        ProfileSectionTitle("Minha participação")
+                        Card(Modifier.fillMaxWidth(), border = BorderStroke(1.dp, Line),
+                            shape = RoundedCornerShape(18.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                            if (onConversations != null) {
+                                ProfileAction("Conversas", "Mensagens privadas, solicitações e privacidade.",
+                                    Icons.Outlined.Forum, onConversations)
+                                HorizontalDivider()
+                            }
+                            ProfileAction("Minhas discussões", "Veja as discussões mais recentes e carregue outras quando desejar.",
+                                Icons.Outlined.Forum) { discussionsOpen = true }
+                            HorizontalDivider()
+                            ProfileAction("Discussões acompanhadas",
+                                if (followedRemoteEnabled) "Lista sincronizada na sua conta."
+                                else "Sua lista pessoal neste aparelho.",
+                                Icons.Outlined.BookmarkBorder) { followedOpen = true }
+                            HorizontalDivider()
+                            ProfileAction("Insígnias de contribuição",
+                                "Acompanhe as três trilhas e escolha uma para destacar no perfil.",
+                                Icons.Outlined.StarBorder) { contributionsOpen = true }
+                            HorizontalDivider()
+                            ProfileAction("Minhas revisões", "Acompanhe suas revisões no Átrio Guardião.",
+                                Icons.Outlined.VerifiedUser, onReviews)
+                        }
                     }
-                }
-            }
-            item {
-                ProfileSectionTitle("Minha participação")
-                Card(Modifier.fillMaxWidth(), border = BorderStroke(1.dp, Line),
-                    shape = RoundedCornerShape(18.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-                    if (onConversations != null) {
-                        ProfileAction("Conversas", "Mensagens privadas, solicitações e privacidade.",
-                            Icons.Outlined.Forum, onConversations)
-                        HorizontalDivider()
+                    ProfileSection.Publication -> {
+                        PublicProfilePublicationSettings(db = db, uid = uid)
                     }
-                    ProfileAction("Minhas discussões", "Veja as discussões mais recentes e carregue outras quando desejar.",
-                        Icons.Outlined.Forum) { discussionsOpen = true }
-                    HorizontalDivider()
-                    ProfileAction("Discussões acompanhadas",
-                        if (followedRemoteEnabled) "Lista sincronizada na sua conta."
-                        else "Sua lista pessoal neste aparelho.",
-                        Icons.Outlined.BookmarkBorder) { followedOpen = true }
-                    HorizontalDivider()
-                    ProfileAction("Insígnias de contribuição",
-                        "Acompanhe as três trilhas e escolha uma para destacar no perfil.",
-                        Icons.Outlined.StarBorder) { contributionsOpen = true }
-                    HorizontalDivider()
-                    ProfileAction("Minhas revisões", "Acompanhe suas revisões no Átrio Guardião.",
-                        Icons.Outlined.VerifiedUser, onReviews)
-                }
-            }
-            item {
-                ProfileSectionTitle("Preferências")
-                AppearanceSettings(uid)
-            }
-            item { PushSettings(uid, db, onNotifications = onNotifications) }
-            item { DeveloperSupportPanel(db, uid, founderAdmin = founderCanBroadcast) }
-            item {
-                ProfileSectionTitle("Conta e privacidade")
-                Card(Modifier.fillMaxWidth(), border = BorderStroke(1.dp, Line),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-                    Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Surface(onClick = { accountExpanded = !accountExpanded },
-                            color = MaterialTheme.colorScheme.surface,
-                            modifier = Modifier.fillMaxWidth().testTag("atrio-account-toggle")) {
-                            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Outlined.PersonOutline, contentDescription = null, tint = Wine)
-                                Spacer(Modifier.width(12.dp))
-                                Text("Gerenciar conta", modifier = Modifier.weight(1f), color = Ink,
+                    ProfileSection.Badges -> {
+                        Card(onClick = { badgesOpen = true }, modifier = Modifier.fillMaxWidth().testTag("atrio-profile-badges"),
+                            colors = CardDefaults.cardColors(containerColor = WineSoft),
+                            shape = RoundedCornerShape(AtrioDimensions.CardRadius)) {
+                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("Meus selos", color = Wine, fontWeight = FontWeight.Bold)
+                                Text("Escolha sua identificação e acompanhe verificações.", color = Muted, fontSize = AtrioType.secondary)
+                                Text("Gerenciar selos →", color = Wine, fontSize = AtrioType.secondary)
+                            }
+                        }
+                    }
+                    ProfileSection.Preferences -> {
+                        ProfileSectionTitle("Preferências")
+                        AppearanceSettings(uid)
+                    }
+                    ProfileSection.Notifications -> { PushSettings(uid, db, onNotifications = onNotifications) }
+                    ProfileSection.Support -> { DeveloperSupportPanel(db, uid, founderAdmin = founderCanBroadcast) }
+                    ProfileSection.Account -> {
+                        ProfileSectionTitle("Conta e privacidade")
+                        Card(Modifier.fillMaxWidth(), border = BorderStroke(1.dp, Line),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                            Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Surface(onClick = { accountExpanded = !accountExpanded },
+                                    color = MaterialTheme.colorScheme.surface,
+                                    modifier = Modifier.fillMaxWidth().testTag("atrio-account-toggle")) {
+                                    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Outlined.PersonOutline, contentDescription = null, tint = Wine)
+                                        Spacer(Modifier.width(12.dp))
+                                        Text("Gerenciar conta", modifier = Modifier.weight(1f), color = Ink,
+                                            style = MaterialTheme.typography.titleMedium)
+                                        Icon(if (accountExpanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                                            contentDescription = if (accountExpanded) "Recolher conta" else "Expandir conta",
+                                            tint = Wine)
+                                    }
+                                }
+                                if (accountExpanded) {
+                                    HorizontalDivider(color = Line)
+                                Text(email.ifBlank { "Conta autenticada" }, style = MaterialTheme.typography.bodyLarge)
+                                Text("Seu e-mail é privado. Sua apresentação só fica pública após sua autorização.",
+                                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                EmailVerificationPanel(uid)
+                                Text("Personalização opcional", color = Wine,
                                     style = MaterialTheme.typography.titleMedium)
-                                Icon(if (accountExpanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
-                                    contentDescription = if (accountExpanded) "Recolher conta" else "Expandir conta",
-                                    tint = Wine)
-                            }
-                        }
-                        if (accountExpanded) {
-                            HorizontalDivider(color = Line)
-                        Text(email.ifBlank { "Conta autenticada" }, style = MaterialTheme.typography.bodyLarge)
-                        Text("Seu e-mail é privado. Sua apresentação só fica pública após sua autorização.",
-                            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        EmailVerificationPanel(uid)
-                        Text("Personalização opcional", color = Wine,
-                            style = MaterialTheme.typography.titleMedium)
-                        RegistrationOptionalPreferences(db = db, uid = uid, firstAccess = false)
-                        OutlinedButton(onClick = onSignOut,
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                                .testTag("atrio-profile-signout")) {
-                            Text("Sair da conta")
-                        }
-                        HorizontalDivider()
-                        AccountDeletionRequestPanel(db, uid)
-                        }
-                    }
-                }
-            }
-            item {
-                ProfileSectionTitle("Ajuda e suporte")
-                Card(Modifier.fillMaxWidth(), border = BorderStroke(1.dp, Line),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-                    Column(Modifier.fillMaxWidth().padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("Átrio Católico · ${BuildConfig.ATRIO_VISIBLE_VERSION}",
-                            style = MaterialTheme.typography.labelMedium, color = Muted)
-                        Text("Encontre atualizações, orientações e recursos para resolver dificuldades.",
-                            color = Muted, style = MaterialTheme.typography.bodyMedium)
-                        OutlinedButton(onClick = { helpExpanded = !helpExpanded },
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                                .testTag("atrio-help-toggle")) {
-                            Text(if (helpExpanded) "Recolher ajuda e ferramentas" else "Ver ajuda e ferramentas")
-                            Spacer(Modifier.width(8.dp))
-                            Icon(if (helpExpanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
-                                contentDescription = if (helpExpanded) "Recolher ajuda" else "Expandir ajuda",
-                                tint = Wine)
-                        }
-                        if (helpExpanded) {
-                            HorizontalDivider(color = Line)
-                            Text("Atualizações e instalação",
-                                color = Wine, style = MaterialTheme.typography.titleMedium)
-                            OtaUpdatesSection(otaStatus, onRefreshUpdates, otaDownload, otaInstallMessage,
-                                onDownloadUpdate, onCancelUpdateDownload, onInstallUpdate)
-                            HorizontalDivider(color = Line)
-                            PushSettings(uid, db, advancedOnly = true)
-                            if (onModeration != null || onClergyReview != null) {
-                                HorizontalDivider(color = Line)
-                                Text("Administração", fontWeight = FontWeight.Bold, color = Wine)
-                                onModeration?.let { action ->
-                                    OutlinedButton(onClick = action, modifier = Modifier.fillMaxWidth()) {
-                                        Text("Moderação de conteúdo e fotos")
-                                    }
+                                RegistrationOptionalPreferences(db = db, uid = uid, firstAccess = false)
+                                OutlinedButton(onClick = onSignOut,
+                                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                                        .testTag("atrio-profile-signout")) {
+                                    Text("Sair da conta")
                                 }
-                                onClergyReview?.let { action ->
-                                    OutlinedButton(onClick = action, modifier = Modifier.fillMaxWidth()) {
-                                        Text("Solicitações de selos")
-                                    }
+                                HorizontalDivider()
+                                AccountDeletionRequestPanel(db, uid)
                                 }
                             }
-                            if (founderCanBroadcast) AdminBroadcastPanel()
                         }
                     }
+                    ProfileSection.Help -> {
+                        ProfileSectionTitle("Ajuda e suporte")
+                        Card(Modifier.fillMaxWidth(), border = BorderStroke(1.dp, Line),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                            Column(Modifier.fillMaxWidth().padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Text("Átrio Católico · ${BuildConfig.ATRIO_VISIBLE_VERSION}",
+                                    style = MaterialTheme.typography.labelMedium, color = Muted)
+                                Text("Encontre atualizações, orientações e recursos para resolver dificuldades.",
+                                    color = Muted, style = MaterialTheme.typography.bodyMedium)
+                                OutlinedButton(onClick = { helpExpanded = !helpExpanded },
+                                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                                        .testTag("atrio-help-toggle")) {
+                                    Text(if (helpExpanded) "Recolher ajuda e ferramentas" else "Ver ajuda e ferramentas")
+                                    Spacer(Modifier.width(8.dp))
+                                    Icon(if (helpExpanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                                        contentDescription = if (helpExpanded) "Recolher ajuda" else "Expandir ajuda",
+                                        tint = Wine)
+                                }
+                                if (helpExpanded) {
+                                    HorizontalDivider(color = Line)
+                                    Text("Atualizações e instalação",
+                                        color = Wine, style = MaterialTheme.typography.titleMedium)
+                                    OtaUpdatesSection(otaStatus, onRefreshUpdates, otaDownload, otaInstallMessage,
+                                        onDownloadUpdate, onCancelUpdateDownload, onInstallUpdate)
+                                    HorizontalDivider(color = Line)
+                                    PushSettings(uid, db, advancedOnly = true)
+                                    if (onModeration != null || onClergyReview != null) {
+                                        HorizontalDivider(color = Line)
+                                        Text("Administração", fontWeight = FontWeight.Bold, color = Wine)
+                                        onModeration?.let { action ->
+                                            OutlinedButton(onClick = action, modifier = Modifier.fillMaxWidth()) {
+                                                Text("Moderação de conteúdo e fotos")
+                                            }
+                                        }
+                                        onClergyReview?.let { action ->
+                                            OutlinedButton(onClick = action, modifier = Modifier.fillMaxWidth()) {
+                                                Text("Solicitações de selos")
+                                            }
+                                        }
+                                    }
+                                    if (founderCanBroadcast) AdminBroadcastPanel()
+                                }
+                            }
+                        }
+                    }
+                    ProfileSection.Footer -> { ProfileBasilicaFooter() }
                 }
             }
-            item { ProfileBasilicaFooter() }
         }
     }
-    if (editorOpen) ProfileEditor(db, uid, name, biography,
-        onClose = { editorOpen = false },
-        onSaved = { editorOpen = false; savedMessage = true })
     if (profileSettingsMenuOpen) {
-        fun closeAndScroll(index: Int, beforeScroll: () -> Unit = {}) {
+        fun closeAndScroll(section: ProfileSection, beforeScroll: () -> Unit = {}) {
             onCloseProfileSettingsMenu()
             beforeScroll()
             scope.launch {
-                val lastIndex = (profileListState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)
-                profileListState.animateScrollToItem(index.coerceAtMost(lastIndex))
+                profileListState.animateScrollToItem(section.ordinal)
             }
         }
         AlertDialog(
             onDismissRequest = onCloseProfileSettingsMenu,
             title = { Text("Configurações") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Acesso rápido ao perfil, à privacidade e ao suporte.",
-                        style = MaterialTheme.typography.bodySmall, color = Muted)
-                    TextButton(onClick = { closeAndScroll(4) }) { Text("Aparência") }
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    TextButton(onClick = { closeAndScroll(ProfileSection.Preferences) }) { Text("Aparência") }
+                    Text("Meu perfil", style = MaterialTheme.typography.titleSmall, color = Wine)
                     TextButton(
-                        onClick = { closeAndScroll(1) },
+                        onClick = { closeAndScroll(ProfileSection.Publication) },
                         modifier = Modifier.fillMaxWidth().testTag("atrio-profile-settings-public")
                     ) { Text("Perfil público") }
                     TextButton(
                         onClick = { onCloseProfileSettingsMenu(); badgesOpen = true },
                         modifier = Modifier.fillMaxWidth().testTag("atrio-profile-settings-badges")
                     ) { Text("Gerenciar selos") }
+                    HorizontalDivider()
+                    Text("Conta e preferências", style = MaterialTheme.typography.titleSmall, color = Wine)
+                    TextButton(
+                        onClick = { closeAndScroll(ProfileSection.Account) { accountExpanded = true } },
+                        modifier = Modifier.fillMaxWidth().testTag("atrio-profile-settings-account")
+                    ) { Text("Conta e privacidade") }
                     TextButton(
                         onClick = { onCloseProfileSettingsMenu(); onNotifications() },
                         modifier = Modifier.fillMaxWidth().testTag("atrio-profile-settings-notifications")
                     ) { Text("Notificações") }
+                    HorizontalDivider()
+                    Text("Ajuda e apoio", style = MaterialTheme.typography.titleSmall, color = Wine)
                     TextButton(
-                        onClick = { closeAndScroll(6) },
-                        modifier = Modifier.fillMaxWidth().testTag("atrio-profile-settings-support")
-                    ) { Text("Apoio ao desenvolvimento") }
-                    TextButton(
-                        onClick = { closeAndScroll(7) { accountExpanded = true } },
-                        modifier = Modifier.fillMaxWidth().testTag("atrio-profile-settings-account")
-                    ) { Text("Conta e privacidade") }
-                    TextButton(
-                        onClick = { closeAndScroll(8) { helpExpanded = true } },
+                        onClick = { closeAndScroll(ProfileSection.Help) { helpExpanded = true } },
                         modifier = Modifier.fillMaxWidth().testTag("atrio-profile-settings-help")
                     ) { Text("Ajuda e suporte") }
+                    TextButton(
+                        onClick = { closeAndScroll(ProfileSection.Help) { helpExpanded = true } },
+                        modifier = Modifier.fillMaxWidth().testTag("atrio-profile-settings-updates")
+                    ) { Text("Atualizações e instalação") }
+                    TextButton(
+                        onClick = { closeAndScroll(ProfileSection.Support) },
+                        modifier = Modifier.fillMaxWidth().testTag("atrio-profile-settings-support")
+                    ) { Text("Apoio ao desenvolvimento") }
                 }
             },
             confirmButton = {
@@ -327,37 +344,6 @@ internal fun OnlineProfileScreen(
             }
         )
     }
-}
-
-@Composable
-private fun ProfileEditor(
-    db: FirebaseFirestore, uid: String, name: String, biography: String,
-    onClose: () -> Unit, onSaved: () -> Unit
-) {
-    ProfileEditorDialog(uid, name, biography, onClose, onSaved = onSaved, onSave = { newName, newBio, complete ->
-        val privateRef = db.collection("profiles").document(uid)
-        val publicRef = db.collection("public_profiles").document(uid)
-        // Salvar ambos na MESMA transação: não deixar a biografia pública
-        // desatualizada se a segunda gravação falhar. Se a apresentação tiver
-        // sido retirada, a transação não poderá recriá-la por acidente.
-        db.runTransaction { transaction ->
-            val published = transaction.get(publicRef) // todas as leituras antes das escritas
-            transaction.update(privateRef, mapOf(
-                "displayName" to newName, "bio" to newBio
-            ))
-            if (published.exists()) {
-                val joined = published.getTimestamp("joinedAt")
-                    ?: throw IllegalStateException("Data do perfil público inválida")
-                transaction.update(publicRef, mapOf(
-                    "displayName" to newName,
-                    "bio" to newBio,
-                    "joinedAt" to joined,
-                    "updatedAt" to com.google.firebase.firestore.FieldValue.serverTimestamp()
-                ))
-            }
-            true
-        }.addOnCompleteListener { result -> complete(result.isSuccessful) }
-    })
 }
 
 @Composable

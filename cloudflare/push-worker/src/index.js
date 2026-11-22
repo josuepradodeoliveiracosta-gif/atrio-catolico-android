@@ -1,4 +1,5 @@
 import {executeQaCommand} from './qa-manual.js';
+import {handleProfileInterestDiscussion} from './profile-interest-discussion.js';
 import {emailAllowsCommunity} from '../../email-verification-policy.mjs';
 // Emissor FCM para Cloudflare Workers Free. Credenciais SOMENTE em Worker Secrets.
 // Recebe eventos autenticados pelo Firebase, confere documentos no Firestore,
@@ -120,19 +121,27 @@ function matchesQaTokenProject(token) {
   }
 }
 
-export async function verifyIdentity(req,env,project = PROJECT) {
+function firebaseBearer(req) {
   const auth = req.headers.get('Authorization') || '';
-  const match = /^Bearer ([A-Za-z0-9._-]{100,5000})$/.exec(auth);
-  if (!match || (project === QA_PROJECT && !matchesQaTokenProject(match[1]))) return null;
+  return /^Bearer ([A-Za-z0-9._-]{100,5000})$/.exec(auth)?.[1];
+}
+
+async function lookupFirebaseAccount(token, env, project = PROJECT) {
+  if (!token || (project === QA_PROJECT && !matchesQaTokenProject(token))) return null;
   const validated = await fetch('https://identitytoolkit.googleapis.com/v1/accounts:lookup?key='+
     enc(env.FIREBASE_WEB_API_KEY),{
     method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({idToken:match[1]}),
+    body:JSON.stringify({idToken:token}),
   });
   if (!validated.ok) return null;
   const data = await validated.json();
   const account = data.users?.[0];
-  if(!account || account.disabled || !uidPart(account.localId)) return null;
+  return account && !account.disabled && uidPart(account.localId) ? account : null;
+}
+
+export async function verifyIdentity(req,env,project = PROJECT) {
+  const account = await lookupFirebaseAccount(firebaseBearer(req), env, project);
+  if (!account) return null;
   if (project === QA_PROJECT) {
     const expectedEmail = QA_EMAILS.get(account.localId);
     return expectedEmail && account.emailVerified === true && account.email === expectedEmail
@@ -785,6 +794,24 @@ export default {
     if(request.method==='GET' && new URL(request.url).pathname==='/health')
       return response(200, env.PUSH_ENABLED==='true' && configured ? 'configured' : 'disabled');
     const path = new URL(request.url).pathname;
+    if (request.method === 'POST' && path === '/profile-v3/interest-discussion') {
+      if (env.PROFILE_V3_DISCUSSIONS_ENABLED !== 'true'
+        || !env.FIREBASE_WEB_API_KEY || !env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+        return response(503,'unavailable');
+      }
+      return handleProfileInterestDiscussion(request, {
+        readBody: readEventBody,
+        async verifyViewer(req) {
+          const token = firebaseBearer(req);
+          const account = await lookupFirebaseAccount(token, env);
+          return account ? {uid:account.localId, token} : null;
+        },
+        readAsVisitor: firestoreGet,
+        async readProtected(linkPath) {
+          return firestoreGet(await oauth(env), linkPath);
+        },
+      });
+    }
     if (request.method === 'POST' && path === '/broadcast')
       return handleBroadcast(request,env);
     if (request.method === 'POST' && path === '/moderation/event')

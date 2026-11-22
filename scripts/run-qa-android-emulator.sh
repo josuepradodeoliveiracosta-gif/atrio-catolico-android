@@ -81,8 +81,16 @@ fi
   --project demo-atrio-v11 > ../../qa-firebase-emulators.log 2>&1 &
 FIREBASE_PID=$!
 inbox_pid=
+profile_worker_pid=
+profile_tls_dir=
 cleanup() {
   if [[ -n "$inbox_pid" ]]; then kill "$inbox_pid" 2>/dev/null || true; fi
+  if [[ -n "$profile_worker_pid" ]]; then kill "$profile_worker_pid" 2>/dev/null || true; fi
+  if [[ -n "$profile_tls_dir" ]]; then
+    adb reverse --remove tcp:8094 >/dev/null 2>&1 || true
+    rm -f -- "$profile_tls_dir/key.pem" "$profile_tls_dir/cert.pem"
+    rmdir -- "$profile_tls_dir"
+  fi
   kill "$FIREBASE_PID" 2>/dev/null || true
 }
 trap cleanup EXIT
@@ -129,6 +137,7 @@ mkdir -p qa-android-suite-results
 qa_failed=0
 run_suite() {
   local suite="$1"
+  shift
   # Modo all preserva a ordem das suites; cada grupo so roda as suas.
   if [[ "$qa_group" != "all" ]]; then
     case "$qa_group:$suite" in
@@ -154,7 +163,7 @@ run_suite() {
   local full="br.com.atriocatolico.$suite"
   echo "QA Android: iniciando $suite (isolado)"
   if gradle "$test_task" \
-    "-Pandroid.testInstrumentationRunnerArguments.class=$full" \
+    "-Pandroid.testInstrumentationRunnerArguments.class=$full" "$@" \
     --daemon --stacktrace; then
     echo "QA Android: $suite aprovada"
   else
@@ -172,6 +181,104 @@ run_suite() {
 if [[ "${ATRIO_QA_SUITE:-}" == "GuardianV2UiTest" ]]; then
   run_suite GuardianV2UiTest
   echo "QA Android: apenas GuardianV2UiTest; status=$qa_failed"
+  exit "$qa_failed"
+fi
+if [[ "${ATRIO_QA_SUITE:-}" == ProfileV3ConsentEmulatorUiTest ]]; then
+  [[ "$qa_apk" == qaGeral && "${ATRIO_QA_GERAL_REMOTE_BUILD:-}" != 1 ]] || {
+    echo "Consentimento V3 exige qaGeral local" >&2; exit 2
+  }
+  if [[ "${ATRIO_QA_PROFILE_V3_TALKBACK_SPEECH:-}" == 1 ]]; then
+    adb root
+    adb wait-for-device
+    [[ "$(adb shell id -u)" == 0 ]] || { echo "O AVD de QA recusou a configuração diagnóstica do TalkBack"; exit 2; }
+    # Restarting adbd removes the port mappings set during Firebase QA startup.
+    adb reverse tcp:9099 tcp:9099
+    adb reverse tcp:8089 tcp:8089
+    adb reverse --list
+    talkback_package=com.google.android.marvin.talkback
+    adb shell pm path "$talkback_package"
+    adb shell am force-stop "$talkback_package"
+    adb shell pm grant "$talkback_package" android.permission.POST_NOTIFICATIONS
+    adb shell setprop log.tag.talkback VERBOSE
+    adb shell setprop log.tag.SpeechControllerImpl VERBOSE
+    adb shell setprop log.tag.FailoverTextToSpeech VERBOSE
+    prefs_xml="$(mktemp)"
+    for storage in /data/user_de/0 /data/user/0; do
+      prefs_root="$storage/$talkback_package"
+      prefs="$prefs_root/shared_prefs/$talkback_package""_preferences.xml"
+      adb shell "test -d '$prefs_root'"
+      adb shell "if test -f '$prefs'; then cat '$prefs'; fi" > "$prefs_xml"
+      python3 - "$prefs_xml" <<'PY'
+import os
+import sys
+import xml.etree.ElementTree as ET
+
+path = sys.argv[1]
+root = ET.parse(path).getroot() if os.path.getsize(path) else ET.Element("map")
+for entry in list(root):
+    if entry.get("name") in {"pref_log_level", "pref_tts_overlay", "pref_diagnosis_mode"}:
+        root.remove(entry)
+ET.SubElement(root, "string", name="pref_log_level").text = "2"
+ET.SubElement(root, "boolean", name="pref_tts_overlay", value="true")
+ET.SubElement(root, "boolean", name="pref_diagnosis_mode", value="true")
+ET.ElementTree(root).write(path, encoding="utf-8", xml_declaration=True)
+PY
+      adb push "$prefs_xml" /data/local/tmp/atrio-talkback-prefs.xml
+      app_owner="$(adb shell stat -c '%u:%g' "$prefs_root")"
+      adb shell "mkdir -p '$prefs_root/shared_prefs' && cp /data/local/tmp/atrio-talkback-prefs.xml '$prefs' &&
+        chown '$app_owner' '$prefs_root/shared_prefs' '$prefs' &&
+        chmod 770 '$prefs_root/shared_prefs' && chmod 660 '$prefs' &&
+        restorecon -RF '$prefs_root/shared_prefs'"
+    done
+    rm -f "$prefs_xml"
+    adb shell rm -f /data/local/tmp/atrio-talkback-prefs.xml
+    adb logcat -G 16M
+    run_suite "$ATRIO_QA_SUITE" -Pandroid.testInstrumentationRunnerArguments.atrioVerifyTalkBackSpeech=true
+    adb logcat -d -v threadtime | awk '/SpeechControllerImpl:|GoogleTTSServiceImpl: TTS dispatch|a11y_unified_save/' \
+      > qa-android-suite-results/talkback-speech.log
+  else
+    run_suite "$ATRIO_QA_SUITE"
+  fi
+  adb logcat -d -s AtrioQaProfileV3:I '*:S' \
+    > qa-android-suite-results/profile-v3-offline.log
+  if [[ "${ATRIO_QA_PROFILE_V3_DISCUSSIONS_HTTP:-}" == 1 ]]; then
+    profile_tls_dir="$(mktemp -d)"
+    (umask 077; openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+      -subj '/CN=127.0.0.1' -addext 'subjectAltName=IP:127.0.0.1' \
+      -keyout "$profile_tls_dir/key.pem" -out "$profile_tls_dir/cert.pem" 2>/dev/null)
+    worker_log="qa-android-suite-results/profile-v3-worker.log"
+    FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 FIRESTORE_EMULATOR_HOST=127.0.0.1:8089 \
+      node tests/security/serve-profile-v3-discussion-android-qa.mjs \
+        "$profile_tls_dir/key.pem" "$profile_tls_dir/cert.pem" > "$worker_log" 2>&1 &
+    profile_worker_pid=$!
+    ready=0
+    for attempt in $(seq 1 45); do
+      if ! kill -0 "$profile_worker_pid" 2>/dev/null; then break; fi
+      if curl --noproxy '*' --cacert "$profile_tls_dir/cert.pem" \
+        -fsS --max-time 1 https://127.0.0.1:8094/health >/dev/null; then
+        ready=1
+        break
+      fi
+      sleep 1
+    done
+    if [[ "$ready" != 1 ]]; then
+      tail -30 "$worker_log" >&2
+      exit 1
+    fi
+    adb reverse tcp:8094 tcp:8094
+    worker_cert="$(openssl x509 -in "$profile_tls_dir/cert.pem" -outform DER | base64 -w0)"
+    run_suite ProfileV3DiscussionHttpEmulatorUiTest \
+      "-Pandroid.testInstrumentationRunnerArguments.profileV3WorkerCert=$worker_cert"
+    # A confirmação negativa exige 403 das Rules, não indisponibilidade do transporte.
+    cat "$worker_log"
+    authorized_reads="$(grep -c '^visitor=authorized firestore=200 result=available exact_id=qa-v3-http-z-escolhida$' "$worker_log" || true)"
+    if [[ "$authorized_reads" -lt 2 ]] ||
+      ! grep -qx 'visitor=denied firestore=403 result=unavailable without_metadata' "$worker_log" ||
+      grep -qE '^Unexpected|failed' "$worker_log"; then
+      echo "O Worker não comprovou autorização inicial, revalidação no toque e recusa sem metadados." >&2
+      qa_failed=1
+    fi
+  fi
   exit "$qa_failed"
 fi
 if [[ "$inbox_focal" == 1 ]]; then

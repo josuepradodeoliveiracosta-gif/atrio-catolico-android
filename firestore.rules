@@ -437,6 +437,104 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
+    function v3InterestKeys() {
+      return ['oracao', 'formacao', 'comunidade', 'noticias_catolicas'];
+    }
+
+    function v3InterestDetailValid(details, visible, key, label) {
+      let entry = details.get(key, {});
+      return !details.keys().hasAny([key])
+        || (visible.hasAny([label])
+          && entry is map
+          && entry.size() > 0
+          && entry.keys().hasOnly(['question', 'postId'])
+          && (!entry.keys().hasAny(['question'])
+            || (entry.question is string
+              && entry.question.matches('(?s)[^\\s\\p{Z}\\x{000B}\\x{FEFF}](?:.{0,138}[^\\s\\p{Z}\\x{000B}\\x{FEFF}])?')))
+          && (!entry.keys().hasAny(['postId'])
+            || (entry.postId is string && entry.postId.matches('^[A-Za-z0-9_-]{1,128}$'))));
+    }
+
+    function v3InterestDetailsValid(data) {
+      let details = data.get('interestDetails', {});
+      let visible = data.publicInterests;
+      return details is map && details.keys().hasOnly(v3InterestKeys())
+        && v3InterestDetailValid(details, visible, 'oracao', 'Oração')
+        && v3InterestDetailValid(details, visible, 'formacao', 'Formação')
+        && v3InterestDetailValid(details, visible, 'comunidade', 'Comunidade')
+        && v3InterestDetailValid(details, visible, 'noticias_catolicas', 'Notícias católicas');
+    }
+
+    function v3InterestProjectionMatches(details, projection, field) {
+      return projection is map && projection.keys().hasOnly(v3InterestKeys())
+        && !projection.values().hasAny([''])
+        && projection.get('oracao', '') == details.get('oracao', {}).get(field, '')
+        && projection.get('formacao', '') == details.get('formacao', {}).get(field, '')
+        && projection.get('comunidade', '') == details.get('comunidade', {}).get(field, '')
+        && projection.get('noticias_catolicas', '') == details.get('noticias_catolicas', {}).get(field, '');
+    }
+
+    function v3InterestLinksPath(uid) {
+      return /databases/$(database)/documents/public_profiles/$(uid)/interest_discussions/current;
+    }
+
+    function v3InterestLinksMatch(uid, details) {
+      let path = v3InterestLinksPath(uid);
+      return v3InterestProjectionMatches(details,
+        existsAfter(path) ? getAfter(path).data.postIds : {}, 'postId');
+    }
+
+    function v3InterestPostId(data, key, privateDetails) {
+      return privateDetails ? data.get(key, {}).get('postId', '') : data.get(key, '');
+    }
+
+    function v3NewInterestLinkAllowed(uid, key, next, previous, privateDetails) {
+      let nextId = v3InterestPostId(next, key, privateDetails);
+      let post = /databases/$(database)/documents/posts/$(nextId);
+      return nextId == '' || nextId == v3InterestPostId(previous, key, privateDetails)
+        || (emailVerificationAllowsCommunityAccess() && existsAfter(post)
+          && validId(getAfter(post).data.uid)
+          && !existsAfter(/databases/$(database)/documents/users/$(uid)/blockedMembers/$(getAfter(post).data.uid)));
+    }
+
+    function v3NewInterestLinksAllowed(uid, next, previous, privateDetails) {
+      return v3NewInterestLinkAllowed(uid, 'oracao', next, previous, privateDetails)
+        && v3NewInterestLinkAllowed(uid, 'formacao', next, previous, privateDetails)
+        && v3NewInterestLinkAllowed(uid, 'comunidade', next, previous, privateDetails)
+        && v3NewInterestLinkAllowed(uid, 'noticias_catolicas', next, previous, privateDetails);
+    }
+
+    // Perfil V3: a projeção deve corresponder integralmente ao estado privado
+    // após o mesmo commit. Impede ocultação privada com valor público residual.
+    function v3ProjectionMatches(uid, privateData, publicData) {
+      return
+        (privateData.visibleFields.hasAny(['saint'])
+          ? (publicData.keys().hasAny(['saint'])
+            && publicData.saint == privateData.saint)
+          : !publicData.keys().hasAny(['saint']))
+        && (privateData.visibleFields.hasAny(['saint'])
+            && privateData.devotionPhrase.size() > 0
+          ? (publicData.keys().hasAny(['devotionPhrase'])
+            && publicData.devotionPhrase == privateData.devotionPhrase)
+          : !publicData.keys().hasAny(['devotionPhrase']))
+        && (privateData.visibleFields.hasAny(['ageBand'])
+          ? (publicData.keys().hasAny(['ageBand'])
+            && publicData.ageBand == privateData.ageBand)
+          : !publicData.keys().hasAny(['ageBand']))
+        && (privateData.visibleFields.hasAny(['maritalStatus'])
+          ? (publicData.keys().hasAny(['maritalStatus'])
+            && publicData.maritalStatus == privateData.maritalStatus)
+          : !publicData.keys().hasAny(['maritalStatus']))
+        && (privateData.publicInterests.size() > 0
+          ? (publicData.keys().hasAny(['interests'])
+            && publicData.interests == privateData.publicInterests)
+          : !publicData.keys().hasAny(['interests']))
+        && v3InterestProjectionMatches(privateData.get('interestDetails', {}),
+          publicData.get('interestQuestions', {}), 'question')
+        && (!publicData.keys().hasAny(['interestQuestions']) || publicData.interestQuestions.size() > 0)
+        && v3InterestLinksMatch(uid, privateData.get('interestDetails', {}));
+    }
+
     match /public_profiles/{uid} {
       allow get: if signedIn();
       allow list: if false;
@@ -446,7 +544,7 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/profiles/$(uid))
         && request.resource.data.keys().hasOnly([
           'displayName', 'bio', 'joinedAt', 'updatedAt',
-          'saint', 'devotionPhrase', 'ageBand', 'maritalStatus', 'interests'
+          'saint', 'devotionPhrase', 'ageBand', 'maritalStatus', 'interests', 'interestQuestions'
         ])
         && request.resource.data.keys().hasAll([
           'displayName', 'bio', 'joinedAt', 'updatedAt'
@@ -461,6 +559,12 @@ service cloud.firestore {
         && request.resource.data.joinedAt ==
           getAfter(/databases/$(database)/documents/profiles/$(uid)).data.createdAt
         && request.resource.data.updatedAt == request.time
+        && (existsAfter(/databases/$(database)/documents/users/$(uid)/private/profile_v3)
+          ? v3ProjectionMatches(uid,
+            getAfter(/databases/$(database)/documents/users/$(uid)/private/profile_v3).data,
+            request.resource.data)
+          : (!request.resource.data.keys().hasAny(['interestQuestions'])
+            && !existsAfter(v3InterestLinksPath(uid))))
         && (!request.resource.data.keys().hasAny(['saint'])
           || (
             existsAfter(/databases/$(database)/documents/users/$(uid)/private/profile_v3)
@@ -517,7 +621,29 @@ service cloud.firestore {
               getAfter(/databases/$(database)/documents/users/$(uid)/private/profile_v3)
                 .data.publicInterests
           ));
-      allow delete: if me(uid);
+      allow delete: if me(uid) && !existsAfter(v3InterestLinksPath(uid));
+
+      match /interest_discussions/current {
+        // O editor do titular lê para transacionar. Visitantes usam o resolvedor.
+        allow get: if me(uid);
+        allow list: if false;
+        allow create, update: if me(uid)
+          && existsAfter(/databases/$(database)/documents/public_profiles/$(uid))
+          && existsAfter(/databases/$(database)/documents/users/$(uid)/private/profile_v3)
+          && request.resource.data.keys().hasOnly(['postIds'])
+          && v3InterestProjectionMatches(
+            getAfter(/databases/$(database)/documents/users/$(uid)/private/profile_v3)
+              .data.get('interestDetails', {}), request.resource.data.postIds, 'postId')
+          && request.resource.data.postIds.size() > 0
+          && v3NewInterestLinksAllowed(uid, request.resource.data.postIds,
+            resource == null ? {} : resource.data.postIds, false);
+        allow delete: if me(uid)
+          && (!existsAfter(/databases/$(database)/documents/public_profiles/$(uid))
+            || !existsAfter(/databases/$(database)/documents/users/$(uid)/private/profile_v3)
+            || v3InterestProjectionMatches(
+              getAfter(/databases/$(database)/documents/users/$(uid)/private/profile_v3)
+                .data.get('interestDetails', {}), {}, 'postId'));
+      }
     }
 
     match /posts/{postId} {
@@ -686,15 +812,26 @@ service cloud.firestore {
             .data.keys().hasAny(['interests']));
     }
 
+    function v3WithdrawalPreservesPublicProfile(uid) {
+      let path = /databases/$(database)/documents/public_profiles/$(uid);
+      let v3Fields = ['saint', 'devotionPhrase', 'ageBand', 'maritalStatus', 'interests', 'interestQuestions'];
+      return !existsAfter(v3InterestLinksPath(uid))
+        && (!exists(path) ? !existsAfter(path) : (existsAfter(path)
+          && !getAfter(path).data.keys().hasAny(v3Fields)
+          && getAfter(path).data.diff(get(path).data).affectedKeys().hasOnly(
+            v3Fields.concat(['updatedAt']))));
+    }
+
     // Dados adicionais do perfil: acesso privado por titular, consentimento
     // específico e projeção pública somente na mesma transação autorizada.
     match /users/{uid}/private/profile_v3 {
       allow get: if me(uid);
-      allow list, delete: if false;
+      allow list: if false;
+      allow delete: if me(uid) && v3WithdrawalPreservesPublicProfile(uid);
       allow create, update: if me(uid)
         && request.resource.data.keys().hasOnly([
           'saint', 'devotionPhrase', 'ageBand', 'maritalStatus',
-          'visibleFields', 'publicInterests',
+          'visibleFields', 'publicInterests', 'interestDetails',
           'consentVersion', 'consentAt', 'updatedAt'
         ])
         && request.resource.data.keys().hasAll([
@@ -726,12 +863,22 @@ service cloud.firestore {
         && request.resource.data.publicInterests.hasOnly([
           'Oração', 'Formação', 'Comunidade', 'Notícias católicas'
         ])
+        && v3InterestDetailsValid(request.resource.data)
+        && (request.resource.data.keys().hasAny(['interestDetails'])
+          || resource == null || !resource.data.keys().hasAny(['interestDetails']))
         && (request.resource.data.publicInterests.size() == 0
           || (existsAfter(/databases/$(database)/documents/users/$(uid)/private/preferences)
             && request.resource.data.publicInterests.hasOnly(
               getAfter(/databases/$(database)/documents/users/$(uid)/private/preferences)
                 .data.interests
             )))
+        && (existsAfter(/databases/$(database)/documents/public_profiles/$(uid))
+          ? v3ProjectionMatches(uid, request.resource.data,
+            getAfter(/databases/$(database)/documents/public_profiles/$(uid)).data)
+          : (!exists(/databases/$(database)/documents/public_profiles/$(uid))
+            && !existsAfter(v3InterestLinksPath(uid))
+            && v3NewInterestLinksAllowed(uid, request.resource.data.get('interestDetails', {}),
+              resource == null ? {} : resource.data.get('interestDetails', {}), true)))
         && request.resource.data.consentVersion == 'perfil-v3-2026-11'
         && request.resource.data.consentAt == request.time
         && request.resource.data.updatedAt == request.time;

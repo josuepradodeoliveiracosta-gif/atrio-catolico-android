@@ -11,7 +11,7 @@ import {fileURLToPath} from 'node:url';
 import {QA_AGE18_GATE,strengthenAge18Contacts} from './age18-gate.mjs';
 
 const ROOT=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
-const BASE_BLOB_SHA='526b8a1e7ff09aca79a4a539ee1681a6c0a76f77';
+const BASE_BLOB_SHA='59386c24c1188cf7bd5865e42a0c84982f340bc3';
 const TAIL=[
   '    match /{document=**} {',
   '      allow read, write: if false;',

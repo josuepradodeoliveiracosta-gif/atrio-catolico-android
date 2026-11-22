@@ -15,7 +15,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parent.parent
 MAX_BLOB = 1_000_000
-MAX_HISTORICAL_BLOBS = 25_000
+HISTORY_BATCH_SIZE = 40
 
 PATTERNS = {
     # Um cabeçalho isolado é normal em código que processa PEM; exigimos
@@ -84,34 +84,46 @@ def scan_history() -> tuple[int, int]:
             continue
         seen.add(oid)
         objects.append((oid, parts[1] if len(parts) == 2 else ""))
-    if len(objects) > MAX_HISTORICAL_BLOBS:
-        raise RuntimeError("history too large to scan completely; use dedicated historical scanner")
     violations = 0
     blobs = 0
-    for offset in range(0, len(objects), 40):
-        chunk = objects[offset:offset+40]
-        raw_batch = git("cat-file", "--batch",
-                        input_data=("".join(oid + "\n" for oid, _ in chunk)).encode())
-        stream = io.BytesIO(raw_batch)
-        for oid, path in chunk:
-            hdr = stream.readline().strip().split(b" ")
-            if len(hdr) != 3 or hdr[0].decode() != oid:
-                raise RuntimeError("unrecognized git batch response")
-            kind, size = hdr[1], int(hdr[2])
-            payload = stream.read(size)
-            if len(payload) != size or stream.read(1) != b"\n":
-                raise RuntimeError("incomplete git batch data")
+    for offset in range(0, len(objects), HISTORY_BATCH_SIZE):
+        chunk = objects[offset:offset + HISTORY_BATCH_SIZE]
+        metadata = git("cat-file", "--batch-check",
+                       input_data=("".join(oid + "\n" for oid, _ in chunk)).encode())
+        contents = []
+        for (oid, path), header in zip(chunk, metadata.splitlines(), strict=True):
+            fields = header.split(b" ")
+            if len(fields) != 3 or fields[0] != oid.encode():
+                raise RuntimeError("unrecognized git object metadata")
+            kind, size = fields[1], int(fields[2])
+            if size < 0 or kind not in {b"blob", b"commit", b"tag", b"tree"}:
+                raise RuntimeError("invalid git object metadata")
             if kind != b"blob":
                 continue
             blobs += 1
             if path and blocked_filename(path):
                 print(f"SECURITY: sensitive filename in reachable history: {path} (object {oid[:12]})")
                 violations += 1
-            if size > MAX_BLOB:
-                continue
+            if size <= MAX_BLOB:
+                contents.append((oid, path, size))
+        if not contents:
+            continue
+
+        # Bound the batch payload without limiting how many objects can be scanned.
+        raw_batch = git("cat-file", "--batch",
+                        input_data=("".join(oid + "\n" for oid, _, _ in contents)).encode())
+        stream = io.BytesIO(raw_batch)
+        for oid, path, size in contents:
+            if stream.readline() != f"{oid} blob {size}\n".encode():
+                raise RuntimeError("unrecognized git batch response")
+            payload = stream.read(size)
+            if len(payload) != size or stream.read(1) != b"\n":
+                raise RuntimeError("incomplete git batch data")
             for label in find_risks(payload):
                 print(f"SECURITY: {label} in Git history (object {oid[:12]}; file {path or '[unknown]'})")
                 violations += 1
+        if stream.read(1):
+            raise RuntimeError("unexpected trailing git batch data")
     return blobs, violations
 
 def main() -> int:
