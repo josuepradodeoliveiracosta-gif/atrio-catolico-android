@@ -605,15 +605,22 @@ class ProfileV3ConsentEmulatorUiTest {
                 .lineSequence().filter { "SpeechControllerImpl: Speaking fragment" in it }.toSet()
             fun badge() = automation.rootInActiveWindow?.findVisibleNode(tag)
             compose.waitUntil(15_000) { badge()?.contentDescription?.toString() == expected }
-            val beforeFocus = speechLines()
             val node = requireNotNull(badge())
-            assertTrue(node.performAction(AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS))
+            if (node.isAccessibilityFocused) {
+                node.performAction(AccessibilityNodeInfo.ACTION_CLEAR_ACCESSIBILITY_FOCUS)
+                compose.waitUntil(15_000) { badge()?.isAccessibilityFocused == false }
+            }
+            val beforeFocus = speechLines()
+            compose.waitUntil(15_000) {
+                badge()?.let { it.isAccessibilityFocused ||
+                    it.performAction(AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS) } == true
+            }
             compose.waitUntil(20_000) {
                 (speechLines() - beforeFocus).any { expected in it }
             }
             assertTrue(talkBackIsActive())
             automation.shellText("screencap -p /data/local/tmp/qa-contribution-talkback.png")
-            assertTrue(automation.shellText("test -s /data/local/tmp/qa-contribution-talkback.png && echo ok") == "ok")
+            assertTrue("Captura ausente no emulador", automation.shellText("stat -c %s /data/local/tmp/qa-contribution-talkback.png").toLongOrNull()?.let { it > 0 } == true)
         }
     }
 
