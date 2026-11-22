@@ -3,6 +3,8 @@ package br.com.atriocatolico
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.relocation.BringIntoViewRequester
@@ -20,6 +22,7 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.google.firebase.auth.FirebaseAuth
@@ -89,13 +92,25 @@ internal data class ProfileV3Draft(
     val interestDetails: Map<String, ProfileV3InterestDetail> = emptyMap()
 )
 
+internal data class ProfileIdentity(val name: String, val biography: String)
+
 @Composable
-internal fun ProfileV3Editor(db: FirebaseFirestore, uid: String) {
+internal fun ProfileV3Editor(
+    db: FirebaseFirestore,
+    uid: String,
+    identity: ProfileIdentity? = null,
+    onPhotoChanged: () -> Unit = {}
+) {
     var editorOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var status by remember(uid) { mutableStateOf<String?>(null) }
     var saveFeedbackPending by remember(uid) { mutableStateOf(false) }
     val window = LocalWindowInfo.current
     val revealStatus = remember { BringIntoViewRequester() }
+    val openEditor = {
+        saveFeedbackPending = false
+        status = null
+        editorOpen = true
+    }
     if (editorOpen) ProfileV3EditorDialog(
         db, uid, onClose = { editorOpen = false },
         onSaved = {
@@ -105,7 +120,9 @@ internal fun ProfileV3Editor(db: FirebaseFirestore, uid: String) {
         onConsentWithdrawn = {
             editorOpen = false
             status = "Consentimento retirado. Dados opcionais do Perfil V3 apagados."
-        }
+        },
+        identity = identity,
+        onPhotoChanged = onPhotoChanged
     )
     LaunchedEffect(uid, editorOpen, saveFeedbackPending) {
         if (editorOpen || !saveFeedbackPending) return@LaunchedEffect
@@ -117,14 +134,16 @@ internal fun ProfileV3Editor(db: FirebaseFirestore, uid: String) {
         saveFeedbackPending = false
     }
     Column {
-        OutlinedButton(
-            onClick = {
-                saveFeedbackPending = false
-                status = null
-                editorOpen = true
-            },
-            modifier = Modifier.fillMaxWidth().testTag("atrio-profile-v3-edit")
-        ) { Text("Editar informações e interesses") }
+        if (identity != null) {
+            Button(onClick = openEditor, modifier = Modifier.fillMaxWidth().testTag("atrio-profile-edit")) {
+                Text("Editar perfil")
+            }
+        } else {
+            OutlinedButton(onClick = openEditor,
+                modifier = Modifier.fillMaxWidth().testTag("atrio-profile-v3-edit")) {
+                Text("Editar informações e interesses")
+            }
+        }
         val feedback = status
         Text(
             text = feedback.orEmpty(),
@@ -148,7 +167,7 @@ internal fun ProfileV3PreviewButton(onClick: () -> Unit) {
 }
 
 @Composable
-internal fun ProfileV3Summary(db: FirebaseFirestore, uid: String) {
+internal fun ProfileV3Summary(db: FirebaseFirestore, uid: String, modifier: Modifier = Modifier) {
     var draft by remember(db, uid) { mutableStateOf(ProfileV3Draft()) }
     DisposableEffect(db, uid) {
         val listener = db.document("users/$uid/private/profile_v3")
@@ -166,7 +185,7 @@ internal fun ProfileV3Summary(db: FirebaseFirestore, uid: String) {
     val hasInterests = draft.publicInterests.isNotEmpty()
     if (!hasAbout && !hasInterests) return
     Column(
-        Modifier.fillMaxWidth().testTag("atrio-profile-v3-summary"),
+        modifier.fillMaxWidth().testTag("atrio-profile-v3-summary"),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         if (hasAbout) {
@@ -191,7 +210,16 @@ internal fun ProfileV3Summary(db: FirebaseFirestore, uid: String) {
         if (hasInterests) {
             Text("Vamos conversar sobre…", fontWeight = FontWeight.Bold, color = Wine,
                 modifier = Modifier.padding(top = 4.dp))
-            Text(draft.publicInterests.joinToString(" · "), color = Ink)
+            for (label in draft.publicInterests) {
+                val detail = ProfileV3Interest.forLabel(label)?.let { draft.interestDetails[it.id] }
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(label, color = Ink, style = MaterialTheme.typography.titleSmall)
+                    detail?.question?.takeIf { it.isNotBlank() }?.let { Text(it, color = Ink) }
+                    if (detail?.postId != null) {
+                        Text("Discussão vinculada", color = Muted, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
         }
     }
 }
@@ -200,7 +228,7 @@ internal fun ProfileV3Summary(db: FirebaseFirestore, uid: String) {
 private fun ProfilePrivateSummaryRow(label: String, value: String, visible: Boolean) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         Text("$label · $value", modifier = Modifier.weight(1f), color = Ink)
-        Text(if (visible) "Visível" else "Oculto",
+        Text(if (visible) "Visível no perfil" else "Só você vê",
             style = MaterialTheme.typography.labelSmall, color = if (visible) Wine else Muted)
     }
 }
@@ -217,7 +245,9 @@ internal fun ProfileV3EditorDialog(
     uid: String,
     onClose: () -> Unit,
     onSaved: () -> Unit,
-    onConsentWithdrawn: () -> Unit
+    onConsentWithdrawn: () -> Unit,
+    identity: ProfileIdentity? = null,
+    onPhotoChanged: () -> Unit = {}
 ) {
     val auth = remember(db) { FirebaseAuth.getInstance(db.app) }
     val actor = remember(auth, uid) { auth.currentUser?.takeIf { it.uid == uid } }
@@ -250,6 +280,26 @@ internal fun ProfileV3EditorDialog(
     var restoreFocus by remember(db, uid) { mutableStateOf<String?>(null) }
     var picking by remember(db, uid) { mutableStateOf<ProfileV3Interest?>(null) }
     var draftPreview by remember(db, uid) { mutableStateOf(false) }
+    val originalIdentity = remember(db, uid) { identity }
+    var draftName by rememberSaveable(uid) { mutableStateOf(identity?.name.orEmpty()) }
+    var draftBio by rememberSaveable(uid) { mutableStateOf(identity?.biography.orEmpty()) }
+    var confirmDiscard by remember(uid) { mutableStateOf(false) }
+    val editedIdentity = ProfileIdentity(draftName.trim(), draftBio.trim())
+    val identityChanged = originalIdentity != null && editedIdentity != originalIdentity
+    val originalDraft = loadedV3?.let { ProfileV3Policy.data(it.takeIf { it.exists() }) }
+    val optionalChanged = originalDraft != null && draft != originalDraft
+    val saveOptional = loaded && draft.consentAccepted && (identity == null || optionalChanged)
+    val canSave = if (identity == null) saveOptional else
+        editedIdentity.name.length in 2..35 && (identityChanged || saveOptional) &&
+            (!optionalChanged || saveOptional)
+    fun closeEditor() {
+        when {
+            busy || picking != null -> Unit
+            draftPreview -> draftPreview = false
+            identity != null && (identityChanged || optionalChanged) -> confirmDiscard = true
+            else -> onClose()
+        }
+    }
 
     fun editInterest(interest: ProfileV3Interest, detail: ProfileV3InterestDetail) {
         if (detail.postId != draft.interestDetails[interest.id]?.postId && invalidLink == interest.id) {
@@ -352,9 +402,10 @@ internal fun ProfileV3EditorDialog(
         restoreFocus = interest.id
     }
 
-    BackHandler(enabled = picking == null && !busy, onBack = onClose)
+    BackHandler(enabled = picking == null && !busy, onBack = ::closeEditor)
     AlertDialog(
-        onDismissRequest = { if (!busy && picking == null) onClose() },
+        onDismissRequest = ::closeEditor,
+        modifier = Modifier.semantics { testTagsAsResourceId = true },
         title = {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("Editar perfil")
@@ -373,6 +424,31 @@ internal fun ProfileV3EditorDialog(
                 modifier = Modifier.heightIn(max = 520.dp).testTag("atrio-profile-v3-editor"),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                if (identity != null) item(key = "identity") {
+                    Text("Identidade", fontWeight = FontWeight.Bold, color = Wine)
+                    OutlinedTextField(draftName, { draftName = it.take(35) },
+                        enabled = !busy, singleLine = true,
+                        label = { Text("Nome público") },
+                        modifier = Modifier.fillMaxWidth().testTag("atrio-profile-name"),
+                        supportingText = { Text("${draftName.trim().length}/35 · mínimo de 2 caracteres") })
+                    OutlinedTextField(draftBio, { draftBio = it.take(180) },
+                        enabled = !busy, minLines = 2, maxLines = 4,
+                        label = { Text("Apresentação (opcional)") },
+                        modifier = Modifier.fillMaxWidth().testTag("atrio-profile-bio"),
+                        supportingText = { Text("${draftBio.length}/180 caracteres") })
+                    Text("Sua apresentação só fica pública com sua autorização.",
+                        style = MaterialTheme.typography.bodySmall, color = Muted)
+                }
+                if (identity != null) item(key = "photo") {
+                    if (!busy) ProfilePhotoManager(uid, onPhotoChanged)
+                }
+                if (identity != null) item(key = "preview") {
+                    TextButton(
+                        onClick = { draftPreview = true },
+                        enabled = !busy,
+                        modifier = Modifier.testTag("atrio-profile-draft-preview")
+                    ) { Text("Ver prévia") }
+                }
                 if (loading) item {
                     LinearProgressIndicator(Modifier.fillMaxWidth())
                     Text("Carregando informações privadas…")
@@ -482,6 +558,13 @@ internal fun ProfileV3EditorDialog(
                                 interestDetails = draft.interestDetails - interest.id
                             ) else draft.copy(publicInterests = (draft.publicInterests + label).take(3))
                         }
+                        if (!selected && originalDraft?.publicInterests?.contains(label) == true) {
+                            Text(
+                                "Ao salvar, o interesse será ocultado e sua pergunta e vínculo serão removidos.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Muted
+                            )
+                        }
                         if (selected) ProfileV3InterestEditor(
                             db = db,
                             actor = actor,
@@ -505,19 +588,9 @@ internal fun ProfileV3EditorDialog(
                             style = MaterialTheme.typography.bodySmall, color = Muted)
                     }
                 }
-                if (draft.publicInterests.isNotEmpty()) item {
-                    TextButton(onClick = { draftPreview = !draftPreview }, enabled = !busy) {
-                        Text(if (draftPreview) "Fechar prévia" else "Ver como os outros veem")
-                    }
-                    if (draftPreview) {
-                        Text("Prévia · alterações não salvas", style = MaterialTheme.typography.labelMedium)
-                        val questions = draft.interestProjection("question")
-                        draft.publicInterests.forEach { label ->
-                            Text(label, fontWeight = FontWeight.SemiBold)
-                            ProfileV3Interest.forLabel(label)?.let { interest ->
-                                questions[interest.id]?.let { Text(it) }
-                            }
-                        }
+                if (identity == null && draft.publicInterests.isNotEmpty()) item {
+                    TextButton(onClick = { draftPreview = true }, enabled = !busy) {
+                        Text("Ver como os outros veem")
                     }
                 }
                 item {
@@ -555,20 +628,38 @@ internal fun ProfileV3EditorDialog(
         },
         confirmButton = {
             TextButton(
-                enabled = loaded && !loading && !busy && valid && draft.consentAccepted,
-                modifier = Modifier.testTag("atrio-profile-v3-save"),
+                enabled = !busy && canSave && (!saveOptional || valid),
+                modifier = Modifier.testTag(if (identity == null) "atrio-profile-v3-save" else "atrio-profile-save"),
                 onClick = {
                     if (auth.currentUser !== actor) return@TextButton
                     busy = true
                     message = ""
                     val current = draft
                     val original = loadedV3?.data
+                    val newIdentity = editedIdentity.takeIf { identityChanged }
                     invalidLink = null
                     db.runTransaction<ProfileV3SaveResult> { transaction ->
-                        val privateV3 = transaction.get(v3Ref)
-                        if (privateV3.data != original) return@runTransaction ProfileV3SaveResult.Stale
                         val privateProfile = transaction.get(profileRef)
                         val publicProfile = transaction.get(publicRef)
+                        if (newIdentity != null && ProfileIdentity(
+                                privateProfile.getString("displayName").orEmpty(),
+                                privateProfile.getString("bio").orEmpty()
+                            ) != originalIdentity
+                        ) return@runTransaction ProfileV3SaveResult.Stale
+                        val identityValues = newIdentity?.let {
+                            mapOf("displayName" to it.name, "bio" to it.biography)
+                        }
+                        if (!saveOptional) {
+                            requireNotNull(identityValues)
+                            transaction.update(profileRef, identityValues)
+                            if (publicProfile.exists()) {
+                                transaction.update(publicRef, identityValues +
+                                    ("updatedAt" to FieldValue.serverTimestamp()))
+                            }
+                            return@runTransaction ProfileV3SaveResult.Saved
+                        }
+                        val privateV3 = transaction.get(v3Ref)
+                        if (privateV3.data != original) return@runTransaction ProfileV3SaveResult.Stale
                         val preferences = transaction.get(preferencesRef)
                         val links = transaction.get(linksRef)
                         val prefsInterests = (preferences.get("interests") as? List<*>)
@@ -604,14 +695,15 @@ internal fun ProfileV3EditorDialog(
                         if (details.isNotEmpty() || privateV3.contains("interestDetails")) {
                             values["interestDetails"] = details
                         }
+                        if (identityValues != null) transaction.update(profileRef, identityValues)
                         transaction.set(v3Ref, values)
                         if (publicProfile.exists()) {
                             require(privateProfile.exists()) { "Perfil privado indisponível." }
                             val joinedAt = privateProfile.getTimestamp("createdAt")
                                 ?: throw IllegalStateException("Data do perfil público inválida")
                             val publicValues = mutableMapOf<String, Any>(
-                                "displayName" to privateProfile.getString("displayName").orEmpty(),
-                                "bio" to privateProfile.getString("bio").orEmpty(),
+                                "displayName" to (newIdentity?.name ?: privateProfile.getString("displayName").orEmpty()),
+                                "bio" to (newIdentity?.biography ?: privateProfile.getString("bio").orEmpty()),
                                 "joinedAt" to joinedAt,
                                 "updatedAt" to FieldValue.serverTimestamp()
                             )
@@ -638,12 +730,59 @@ internal fun ProfileV3EditorDialog(
                         }
                     }
                 }
-            ) { Text(if (busy) "Salvando…" else "Salvar") }
+            ) { Text(if (busy) "Salvando…" else if (identity != null) "Salvar perfil" else "Salvar") }
         },
         dismissButton = {
-            TextButton(enabled = !busy, onClick = onClose) { Text("Fechar") }
+            TextButton(enabled = !busy, onClick = ::closeEditor) { Text(if (identity != null) "Cancelar" else "Fechar") }
         }
     )
+    if (draftPreview) {
+        val visible = ProfileV3Policy.projection(draft)
+        AlertDialog(
+            onDismissRequest = { draftPreview = false },
+            title = { Text("Prévia · alterações não salvas") },
+            text = {
+                Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (identity != null) {
+                        MemberAvatar(editedIdentity.name, uid, Modifier.size(64.dp))
+                        Text(editedIdentity.name, style = MaterialTheme.typography.titleMedium)
+                        if (editedIdentity.biography.isNotBlank()) Text(
+                            editedIdentity.biography,
+                            modifier = Modifier.testTag("atrio-profile-draft-preview-bio")
+                        )
+                    }
+                    visible["saint"]?.let { Text("Devoção · $it") }
+                    visible["devotionPhrase"]?.let { Text("“$it”") }
+                    visible["ageBand"]?.let { Text("Faixa etária · $it") }
+                    visible["maritalStatus"]?.let { Text("Estado civil · $it") }
+                    if (draft.consentAccepted) {
+                        val questions = draft.interestProjection("question")
+                        draft.publicInterests.forEach { label ->
+                            Text(label, fontWeight = FontWeight.SemiBold)
+                            ProfileV3Interest.forLabel(label)?.let { interest ->
+                                questions[interest.id]?.let { Text(it) }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { draftPreview = false }) { Text("Fechar prévia") }
+            }
+        )
+    }
+
+    if (confirmDiscard) AlertDialog(
+        onDismissRequest = { confirmDiscard = false },
+        title = { Text("Descartar alterações?") },
+        text = { Text("As alterações ainda não foram salvas.") },
+        confirmButton = { TextButton(onClick = onClose) { Text("Descartar") } },
+        dismissButton = {
+            TextButton(onClick = { confirmDiscard = false }) { Text("Continuar editando") }
+        }
+    )
+
     // Preserve o botão e a posição da lista na janela sob o seletor.
     picking?.let { interest ->
         ProfileV3DiscussionPicker(

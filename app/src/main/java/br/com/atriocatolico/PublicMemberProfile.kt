@@ -219,7 +219,7 @@ internal fun PublicMemberProfileScreen(
         }
         val publicProfile = info
         if (!blocked && viewer != null && publicProfile != null) {
-            val common = viewerInfo?.interests.orEmpty().toSet()
+            val common = publicProfile.interests.intersect(viewerInfo?.interests.orEmpty().toSet())
             val devotion = publicProfile.saint.takeIf {
                 viewerUid != uid && it.isNotBlank() && it.equals(viewerInfo?.saint, ignoreCase = true)
             }
@@ -256,6 +256,7 @@ internal fun PublicMemberProfileScreen(
                                     profileUid = uid,
                                     interest = interest,
                                     question = publicProfile.interestQuestions[interest.id],
+                                    inCommon = label in common,
                                     resolver = resolver,
                                     stillVisible = {
                                         val current = info
