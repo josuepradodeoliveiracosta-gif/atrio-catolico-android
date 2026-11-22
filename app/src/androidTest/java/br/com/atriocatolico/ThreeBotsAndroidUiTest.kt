@@ -1,6 +1,8 @@
 package br.com.atriocatolico
 
 import android.content.Context
+import android.os.ParcelFileDescriptor
+import androidx.test.platform.app.InstrumentationRegistry
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.UriHandler
@@ -125,6 +127,40 @@ class ThreeBotsAndroidUiTest {
         compose.onNodeWithText("Medalha de São Bento").assertIsDisplayed()
         compose.onNodeWithText("Voltar ao catálogo").performClick()
         catalog.assertIsDisplayed()
+    }
+
+    @Test fun lojaRetornaAoMesmoProdutoDoNavegadorAndroid() {
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        fun shell(command: String): String =
+            ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand(command))
+                .bufferedReader().use { it.readText().trim() }
+
+        val browser = shell(
+            "cmd package resolve-activity --brief -a android.intent.action.VIEW " +
+                "-c android.intent.category.BROWSABLE -d https://example.com/"
+        ).lineSequence().last().substringBefore('/')
+        check(browser.isNotBlank() && browser != "android" &&
+            browser != BuildConfig.APPLICATION_ID && browser.none(Char::isWhitespace)) {
+            "O emulador precisa de um navegador padrão para abrir a página de QA."
+        }
+
+        compose.setContent { AtrioTheme { QaShopScreen(onClose = {}) } }
+        val medal = "atrio-qa-shop-product-medalha"
+        compose.onNodeWithTag("atrio-qa-shop-catalog").performScrollToNode(hasTestTag(medal))
+        compose.onNodeWithTag(medal).performClick()
+        compose.onNodeWithTag("atrio-qa-shop-product").performScrollToNode(hasText("Abrir página de teste"))
+        compose.onNodeWithText("Abrir página de teste").performClick()
+        try {
+            compose.waitUntil(15_000) {
+                automation.rootInActiveWindow?.packageName?.toString() == browser
+            }
+        } finally {
+            shell("input keyevent KEYCODE_BACK")
+        }
+        compose.waitUntil(15_000) {
+            automation.rootInActiveWindow?.packageName?.toString() == BuildConfig.APPLICATION_ID
+        }
+        compose.onNodeWithText("Medalha de São Bento").assertIsDisplayed()
     }
 
     @Test fun lojaMostraCarregamentoErroETentaNovamente() {
