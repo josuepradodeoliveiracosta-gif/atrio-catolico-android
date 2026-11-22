@@ -4,7 +4,9 @@ import android.content.Context
 import android.os.ParcelFileDescriptor
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
@@ -72,9 +74,13 @@ class ThreeBotsAndroidUiTest {
         compose.onNodeWithText("Membro da comunidade Átrio").assertIsDisplayed()
     }
 
-    @Test fun miguelAbreLojaFiltraCategoriaEVoltaAoInicio() {
+    @Test fun miguelAbreLojaFiltraCategoriaEVoltaAoInicioComFonteAmpliada() {
         prefs.edit().putString("name", "Miguel BOT DE TESTE").commit()
-        compose.setContent { AtrioDemoApp(prefs) }
+        compose.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, 1.5f)) {
+                AtrioDemoApp(prefs)
+            }
+        }
 
         val home = compose.onNodeWithTag("atrio-home-feed")
         val shopEntry = "atrio-qa-shop-open"
