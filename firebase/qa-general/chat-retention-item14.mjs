@@ -75,7 +75,7 @@ function pruneDerived(state) {
 
 function pruneChatMemberships({data, control}) {
   for (const chat of Object.values(data.chats)) {
-    chat.members = chat.members.filter(uid => !control.deleted[uid]);
+    chat.members = chat.members.filter(uid => Object.hasOwn(data.accounts, uid) && !control.deleted[uid]);
   }
 }
 

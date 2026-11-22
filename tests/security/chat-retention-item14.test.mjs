@@ -61,6 +61,14 @@ function assertMinimumEvidence(value) {
   assert.deepEqual(value, {protocol:'Protocolo fictício',excerpt:'Trecho mínimo de Clara'});
 }
 
+async function updateLegacyFixture(caseId, collection, ...updates) {
+  assert.equal(process.env.FIRESTORE_EMULATOR_HOST, '127.0.0.1:8089');
+  const db = new Firestore({projectId:'demo-atrio-v11',host:'127.0.0.1:8089',ssl:false});
+  try {
+    await db.collection(collection).doc(caseId).update(...updates);
+  } finally { await db.terminate(); }
+}
+
 const qa = (number, title, run) => {
   if (step && step !== number) return;
   test(number + ' ' + title, async t => {
@@ -319,12 +327,8 @@ qa('14.6', 'restauração interrompida, revogação e fronteira da última cópi
   at(81);
   await service.takeCopy('qa-backup-b','backup');
   // Cópia legada em que o UID ainda consta nos vínculos, mas falta a conta.
-  assert.equal(process.env.FIRESTORE_EMULATOR_HOST, '127.0.0.1:8089');
-  const db = new Firestore({projectId:'demo-atrio-v11',host:'127.0.0.1:8089',ssl:false});
-  try {
-    await db.collection('qa_item14_copies').doc(caseId)
-      .update(new FieldPath('qa-backup-b','data','accounts',clara), FieldValue.delete());
-  } finally { await db.terminate(); }
+  await updateLegacyFixture(caseId, 'qa_item14_copies',
+    new FieldPath('qa-backup-b','data','accounts',clara), FieldValue.delete());
   const legacyCopy = (await service.inspect()).copies['qa-backup-b'].data;
   assert.equal(legacyCopy.accounts[clara], undefined);
   assert.ok(legacyCopy.chats[direct].members.includes(clara));
@@ -402,4 +406,14 @@ qa('14.6', 'restauração interrompida, revogação e fronteira da última cópi
   assert.equal(await resumed.declare18(session(lucia)), false);
   assert.equal(await resumed.read(session(clara),'account'), null);
   assert.equal(await resumed.deliverNotice('qa-antigo',replay), false);
+
+  // Resíduo persistido por um executor anterior, depois de vencer o marcador.
+  await updateLegacyFixture(caseId, 'qa_item14_data',
+    new FieldPath('chats', direct, 'members'), [clara, miguel],
+    new FieldPath('chats', group, 'members'), [clara, miguel]);
+  await resumed.sweep();
+  assertClaraUnlinked(await resumed.inspect());
+  assert.deepEqual(Object.keys((await resumed.read(session(miguel),'chat',direct)).messages), ['qa-manter']);
+  assert.deepEqual(Object.keys((await resumed.read(session(miguel),'chat',group)).messages), ['qa-manter-no-grupo']);
+  assertMinimumEvidence(await resumed.read(session(assigned),'report','qa-caso'));
 });
