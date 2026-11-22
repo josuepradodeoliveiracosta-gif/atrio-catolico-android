@@ -586,7 +586,7 @@ internal fun HomeScreen(name: String, posts: List<Post>, filter: String, search:
     val showWelcome by welcomePreference(welcomeUid)
     LazyColumn(Modifier.fillMaxSize().testTag("atrio-home-feed"), state = listState, contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (showWelcome) item(key = "liturgical-welcome") { LiturgicalWelcome(name) }
-        if (BuildConfig.BUILD_TYPE == "qaGeral" && !BuildConfig.ATRIO_QA_GERAL_REMOTE) {
+        if (BuildConfig.BUILD_TYPE == "qaGeral" && !BuildConfig.ATRIO_QA_GERAL_REMOTE && !searchOpen) {
             item(key = "qa-shop") {
                 OutlinedButton(onClick = { shopOpen = true }, modifier = Modifier.testTag("atrio-qa-shop-open")) {
                     Text("Loja")
