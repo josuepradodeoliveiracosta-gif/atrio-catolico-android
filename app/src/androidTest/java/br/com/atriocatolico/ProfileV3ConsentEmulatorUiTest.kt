@@ -15,6 +15,13 @@ import android.view.accessibility.AccessibilityNodeInfo
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.CompositionLocalProvider
@@ -571,6 +578,48 @@ class ProfileV3ConsentEmulatorUiTest {
             SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString(""))
         )
         compose.onNodeWithTag("atrio-profile-v3-save").assertIsNotEnabled()
+    }
+
+    @OptIn(ExperimentalComposeUiApi::class)
+    @Test fun contributionBadgeAnnouncesTrackAndLevelWithTalkBack() {
+        val tag = "atrio-qa-contribution-art"
+        val expected = "Portas abertas, nível 5"
+        compose.setContent {
+            val density = LocalDensity.current.density
+            CompositionLocalProvider(LocalDensity provides Density(density, 1.5f)) {
+                AtrioTheme {
+                    Column(Modifier.semantics { testTagsAsResourceId = true }) {
+                        ContributionBadgeIcon("welcome", 5, Modifier.size(52.dp).testTag(tag))
+                    }
+                }
+            }
+        }
+        withTalkBack { automation, talkBackIsActive ->
+            val manager = compose.activity.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
+            val service = manager.installedAccessibilityServiceList.single {
+                it.resolveInfo.serviceInfo.name.endsWith("TalkBackService")
+            }.resolveInfo.serviceInfo
+            val pid = requireNotNull(automation.shellText("pidof ${service.packageName}")
+                .substringBefore(' ').toIntOrNull())
+            fun speechLines() = automation.shellText("logcat -d -v threadtime --pid=$pid")
+                .lineSequence().filter { "SpeechControllerImpl: Speaking fragment" in it }.toSet()
+            fun badge() = automation.rootInActiveWindow?.findVisibleNode(tag)
+            compose.waitUntil(15_000) { badge()?.contentDescription?.toString() == expected }
+            val beforeFocus = speechLines()
+            val node = requireNotNull(badge())
+            assertTrue(node.performAction(AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS))
+            compose.waitUntil(20_000) {
+                (speechLines() - beforeFocus).any { expected in it }
+            }
+            assertTrue(talkBackIsActive())
+            checkNotNull(automation.takeScreenshot()).useForContributionEvidence()
+        }
+    }
+
+    private fun android.graphics.Bitmap.useForContributionEvidence() {
+        val file = java.io.File(compose.activity.getExternalFilesDir(null), "qa-contribution-talkback.png")
+        file.outputStream().use { check(compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)) }
+        recycle()
     }
 
     @Test fun unifiedEditorSavesWithTalkBackAt150Percent() {
