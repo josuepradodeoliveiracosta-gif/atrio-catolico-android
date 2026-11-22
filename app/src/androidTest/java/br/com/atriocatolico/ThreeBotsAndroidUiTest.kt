@@ -1,6 +1,9 @@
 package br.com.atriocatolico
 
 import android.content.Context
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -94,6 +97,34 @@ class ThreeBotsAndroidUiTest {
         catalog.performScrollToNode(hasText("Voltar ao Início"))
         compose.onNodeWithText("Voltar ao Início").performClick()
         home.assertIsDisplayed()
+    }
+
+    @Test fun lojaAbreSomenteDestinoHttpsDeTesteEPreservaProduto() {
+        val opened = mutableListOf<String>()
+        val browser = object : UriHandler {
+            override fun openUri(uri: String) { opened.add(uri) }
+        }
+        compose.setContent {
+            AtrioTheme {
+                CompositionLocalProvider(LocalUriHandler provides browser) {
+                    QaShopScreen(onClose = {})
+                }
+            }
+        }
+
+        val catalog = compose.onNodeWithTag("atrio-qa-shop-catalog")
+        val medal = "atrio-qa-shop-product-medalha"
+        catalog.performScrollToNode(hasTestTag(medal))
+        compose.onNodeWithTag(medal).performClick()
+        val details = compose.onNodeWithTag("atrio-qa-shop-product")
+        details.performScrollToNode(hasText("Abrir página de teste"))
+        compose.onNodeWithText("Abrir página de teste").performClick()
+        compose.runOnIdle {
+            org.junit.Assert.assertEquals(listOf("https://example.com/"), opened)
+        }
+        compose.onNodeWithText("Medalha de São Bento").assertIsDisplayed()
+        compose.onNodeWithText("Voltar ao catálogo").performClick()
+        catalog.assertIsDisplayed()
     }
 
     @Test fun lojaMostraCarregamentoErroETentaNovamente() {
