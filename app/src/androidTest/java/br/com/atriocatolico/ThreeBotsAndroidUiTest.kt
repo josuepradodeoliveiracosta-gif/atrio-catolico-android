@@ -169,6 +169,47 @@ class ThreeBotsAndroidUiTest {
         compose.onNodeWithText("Medalha de São Bento").assertIsDisplayed()
     }
 
+    @Test fun lojaAtualizaPrecoEBloqueiaEstoqueIndisponivel() {
+        compose.setContent { AtrioTheme { QaShopScreen(onClose = {}) } }
+
+        val catalog = compose.onNodeWithTag("atrio-qa-shop-catalog")
+        val details = compose.onNodeWithTag("atrio-qa-shop-product")
+        fun openProduct(id: String) {
+            val tag = "atrio-qa-shop-product-$id"
+            catalog.performScrollToNode(hasTestTag(tag))
+            compose.onNodeWithTag(tag).performClick()
+        }
+        fun showText(label: String) {
+            details.performScrollToNode(hasText(label, substring = true))
+            compose.onNodeWithText(label, substring = true).assertIsDisplayed()
+        }
+        fun checkout() = compose.onNodeWithText("Abrir página de teste").also {
+            details.performScrollToNode(hasText("Abrir página de teste"))
+        }
+        fun backToCatalog() {
+            details.performScrollToNode(hasText("Voltar ao catálogo"))
+            compose.onNodeWithText("Voltar ao catálogo").performClick()
+        }
+
+        openProduct("medalha")
+        showText("19,90")
+        checkout().assertIsEnabled()
+        backToCatalog()
+        catalog.performScrollToNode(hasText("Atualizar catálogo"))
+        compose.onNodeWithText("Atualizar catálogo").performClick()
+        openProduct("medalha")
+        showText("24,90")
+        details.performScrollToNode(hasText("Dourada"))
+        compose.onNodeWithText("Dourada").performClick()
+        showText("Esgotado")
+        checkout().assertIsNotEnabled()
+        backToCatalog()
+
+        openProduct("oratorio")
+        showText("Estoque não confirmado")
+        checkout().assertIsNotEnabled()
+    }
+
     @Test fun lojaMostraCarregamentoErroETentaNovamente() {
         val firstRequest = CompletableDeferred<Unit>()
         var requests = 0
