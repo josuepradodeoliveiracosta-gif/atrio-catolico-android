@@ -1,3 +1,5 @@
+import java.net.URI
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -23,16 +25,54 @@ require(!atrioQaInboxDiscovery || (atrioQaGeralBuild && !atrioQaGeralRemote)) {
     "A descoberta de Conversas exige o QA Geral local."
 }
 val atrioQaGeralPush = System.getenv("ATRIO_QA_GERAL_PUSH_BUILD") == "1"
+val atrioQaConversationNoticeLab = System.getenv("ATRIO_QA_CONVERSATION_NOTICE_LAB") == "1"
+require(!atrioQaConversationNoticeLab ||
+    (atrioQaGeralBuild && atrioQaGeralCelularPilot && !atrioQaGeralRemote && !atrioQaGeralPush)) {
+    "Avisos de Conversas exigem o APK QA Geral Celular local com rede emulada."
+}
 val atrioQaGeralCelularFicticio = System.getenv("ATRIO_QA_GERAL_CELULAR_FICTICIO") == "1"
 val atrioQaGeralCelularFunctional = System.getenv("ATRIO_QA_GERAL_CELULAR_FUNCIONAL") == "1"
 // O CI confere a identidade da rodada sem usar a configuração do celular nem o fluxo protegido.
 val atrioQaGeralCelularRoundFixture = System.getenv("ATRIO_QA_GERAL_CELULAR_RODADA_FIXTURE") == "1"
 val atrioQaGeralCelularRound41 = System.getenv("ATRIO_QA_GERAL_CELULAR_RODADA") == "1"
 val atrioQaGeralCelularRound42 = System.getenv("ATRIO_QA_GERAL_CELULAR_RODADA42") == "1"
-require(!(atrioQaGeralCelularRound41 && atrioQaGeralCelularRound42)) {
+val atrioQaGeralCelularRound43 = System.getenv("ATRIO_QA_GERAL_CELULAR_RODADA43") == "1"
+val atrioQaGeralCelularRound43Fixture = System.getenv("ATRIO_QA_GERAL_CELULAR_RODADA43_FIXTURE") == "1"
+val atrioQaGeralCelularRound43NoticeLab = System.getenv("ATRIO_QA_GERAL_CELULAR_RODADA43_NOTICE_LAB") == "1"
+require(listOf(atrioQaGeralCelularRound41, atrioQaGeralCelularRound42,
+    atrioQaGeralCelularRound43).count { it } <= 1) {
     "Escolha somente uma rodada de QA Geral Celular."
 }
-val atrioQaGeralCelularRound = atrioQaGeralCelularRound41 || atrioQaGeralCelularRound42
+val atrioQaGeralCelularRound =
+    atrioQaGeralCelularRound41 || atrioQaGeralCelularRound42 || atrioQaGeralCelularRound43
+val atrioQaNoticeOrigin = System.getenv("ATRIO_QA_CONVERSATION_NOTICE_ORIGIN").orEmpty()
+if (atrioQaNoticeOrigin.isNotEmpty()) {
+    require(atrioQaGeralBuild && atrioQaGeralCelularFunctional &&
+        (atrioQaGeralCelularRound43 || atrioQaGeralCelularRound43Fixture) && !atrioQaConversationNoticeLab) {
+        "A origem do Worker de avisos exige a rodada funcional do QA Geral Celular."
+    }
+    val host = runCatching { URI(atrioQaNoticeOrigin).host }.getOrNull().orEmpty()
+    require(atrioQaNoticeOrigin == "https://$host" &&
+        host.substringAfterLast('.', "").matches(Regex("[a-z]{2,63}")) &&
+        host != "atrio-push.atrio-catolico.workers.dev" &&
+        !host.endsWith(".local") && !host.endsWith(".localhost") && host == host.lowercase()) {
+        "Informe a origem HTTPS exclusiva da rodada, sem porta, caminho ou parâmetros."
+    }
+}
+require(!atrioQaGeralCelularRound43 || (atrioQaNoticeOrigin.isNotEmpty() &&
+    !atrioQaNoticeOrigin.endsWith(".invalid"))) {
+    "A rodada física 43 exige a origem HTTPS real e exclusiva do QA."
+}
+require(!atrioQaGeralCelularRound43Fixture ||
+    (atrioQaGeralCelularRoundFixture && !atrioQaGeralCelularRound)) {
+    "A rodada 43 deste ensaio exige a configuração fictícia exclusiva."
+}
+require(!atrioQaGeralCelularRound43NoticeLab ||
+    (atrioQaGeralBuild && atrioQaGeralCelularPilot && !atrioQaGeralRemote && !atrioQaGeralPush &&
+        !atrioQaGeralCelularRound43Fixture && !atrioQaGeralCelularRound &&
+        atrioQaConversationNoticeLab)) {
+    "O ensaio 43 de avisos só aceita o laboratório Celular local, sem Firebase remoto ou push."
+}
 val atrioQaGeralCelularUnsigned = System.getenv("ATRIO_QA_GERAL_CELULAR_UNSIGNED_BUILD") == "1"
 val atrioQaGeralCelularPairCode = System.getenv("ATRIO_QA_GERAL_CELULAR_PAIR_CODE").orEmpty()
 require(atrioQaGeralCelularPairCode.isEmpty() ||
@@ -298,6 +338,9 @@ android {
         buildConfigField("boolean", "ATRIO_QA_GERAL_CELULAR_FUNCIONAL", "false")
         buildConfigField("boolean", "ATRIO_QA_INBOX_DISCOVERY", "false")
         buildConfigField("boolean", "ATRIO_QA_GERAL_PUSH", "false")
+        buildConfigField("boolean", "ATRIO_QA_CONVERSATION_NOTICE_LAB", "false")
+        buildConfigField("String", "ATRIO_QA_CONVERSATION_NOTICE_ORIGIN", "\"\"")
+        buildConfigField("String", "ATRIO_QA_CONVERSATION_NOTICE_LAB_URL", "\"\"")
         buildConfigField("String", "ATRIO_QA_GERAL_PROJECT_ID", "\"\"")
         buildConfigField("String", "ATRIO_QA_GERAL_APP_ID", "\"\"")
         val relayUrl = System.getenv("ATRIO_PUSH_WORKER_URL").orEmpty()
@@ -371,7 +414,8 @@ android {
         }
         create("qaGeral") {
             initWith(getByName("debug"))
-            if (atrioQaGeralCelularUnsigned || atrioQaGeralCelularFunctional) signingConfig = null
+            if (atrioQaGeralCelularUnsigned || atrioQaGeralCelularFunctional ||
+                atrioQaGeralCelularRound43NoticeLab) signingConfig = null
             applicationIdSuffix = atrioQaGeralPackageSuffix
             matchingFallbacks += listOf("debug")
             isDebuggable = true
@@ -387,6 +431,11 @@ android {
                 else -> "Átrio Católico · QA Geral"
             }
             buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"$qaName\"")
+            buildConfigField("boolean", "ATRIO_QA_CONVERSATION_NOTICE_LAB", atrioQaConversationNoticeLab.toString())
+            buildConfigField("String", "ATRIO_QA_CONVERSATION_NOTICE_ORIGIN", "\"$atrioQaNoticeOrigin\"")
+            if (atrioQaConversationNoticeLab) {
+                buildConfigField("String", "ATRIO_QA_CONVERSATION_NOTICE_LAB_URL", "\"http://127.0.0.1:8092/notice\"")
+            }
             buildConfigField("boolean", "ATRIO_QA_GERAL_CELULAR_PILOT", atrioQaGeralCelularPilot.toString())
             buildConfigField("boolean", "ATRIO_QA_GERAL_CELULAR_RODADA", atrioQaGeralCelularRound.toString())
             if (atrioQaGeralRemote) {
@@ -429,8 +478,20 @@ android {
 
     if (atrioQaGeralCelularFicticio) {
         sourceSets.getByName("qaGeral").manifest.srcFile("src/qaGeral/AndroidManifest.ficticio.xml")
+    } else if (atrioQaConversationNoticeLab) {
+        sourceSets.getByName("qaGeral").manifest.srcFile("src/qaGeral/AndroidManifest.notices.xml")
+    } else if (atrioQaNoticeOrigin.isNotEmpty()) {
+        sourceSets.getByName("qaGeral").manifest.srcFile("src/qaGeral/AndroidManifest.notices.https.xml")
     } else if (atrioQaGeralPush) {
         sourceSets.getByName("qaGeral").manifest.srcFile("src/qaGeral/AndroidManifest.push.xml")
+    } else if (atrioQaGeralRemote) {
+        sourceSets.getByName("qaGeral").manifest.srcFile("src/qaGeral/AndroidManifest.remote.xml")
+    }
+    if (!atrioQaGeralRemote) {
+        sourceSets.getByName("qaGeral").res.srcDir("src/qaEmulator/res")
+    }
+    if (atrioQaConversationNoticeLab) {
+        sourceSets.getByName("androidTest").java.srcDir("src/noticeLabAndroidTest/java")
     }
 
     // Instrumentacao em qaGeral so com opt-in; Debug oficial permanece normal.
@@ -452,9 +513,12 @@ androidComponents {
     }
     onVariants(selector().withBuildType("qaGeral")) { variant ->
         variant.outputs.forEach { output ->
-            val suffix = if (atrioQaGeralRemote) "qa-geral-celular" else "qa-geral"
+            val suffix = if (atrioQaGeralRemote || atrioQaGeralCelularRound43NoticeLab)
+                "qa-geral-celular" else "qa-geral"
             val pairSuffix = if (atrioQaGeralCelularPairCode.isEmpty()) "" else "-$atrioQaGeralCelularPairCode"
             val functionalSuffix = when {
+                atrioQaGeralCelularRound43 || atrioQaGeralCelularRound43Fixture ||
+                    atrioQaGeralCelularRound43NoticeLab -> "-rodada-43"
                 atrioQaGeralCelularRound42 -> "-rodada-42"
                 atrioQaGeralCelularRound || atrioQaGeralCelularRoundFixture -> "-rodada-41"
                 atrioQaGeralCelularFunctional -> "-funcional"
@@ -462,6 +526,8 @@ androidComponents {
             }
             output.versionName.set("$atrioDebugVersionName-$suffix$pairSuffix$functionalSuffix")
             val code = when {
+                atrioQaGeralCelularRound43 || atrioQaGeralCelularRound43Fixture ||
+                    atrioQaGeralCelularRound43NoticeLab -> 43
                 atrioQaGeralCelularRound42 -> 42
                 atrioQaGeralCelularRound || atrioQaGeralCelularRoundFixture -> 41
                 atrioQaGeralCelularFunctional -> 40

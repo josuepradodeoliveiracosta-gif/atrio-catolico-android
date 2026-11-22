@@ -5,7 +5,7 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" tools:node="remove" />
     <application android:label="${atrioQaGeralLabel}"
         android:allowBackup="false"
-        android:networkSecurityConfig="@xml/qa_emulator_network_security"
+        android:usesCleartextTraffic="false"
         tools:replace="android:label">
         <provider android:name="androidx.core.content.FileProvider" tools:node="remove" />
     </application>
