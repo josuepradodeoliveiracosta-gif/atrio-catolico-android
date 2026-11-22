@@ -1,0 +1,145 @@
+name: QA Geral Celular — APK 43 funcional
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CANDIDATE_SHA: 55df47c6a913f7f8f8cfa576fc9b5992b199c966
+  CANDIDATE_TREE: 29c18a0dd43385fc949a46a3bfa88fc804acaddd
+  QA_ORIGIN: https://atrio-push-qa-general.atrio-catolico.workers.dev
+
+jobs:
+  build:
+    if: github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android' && github.ref == 'refs/heads/main' && github.ref_protected && github.run_attempt == 1 && github.actor == 'josuepradodeoliveiracosta-gif'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    outputs:
+      apk_sha256: ${{ steps.compile.outputs.apk_sha256 }}
+    environment: qa-geral-celular-assinatura
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd
+        with:
+          packages: platform-tools platforms;android-36 build-tools;36.0.0
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a
+        with:
+          gradle-version: '8.13'
+          cache-disabled: true
+      - name: Compilar candidato fixado
+        id: compile
+        shell: bash
+        env:
+          QA_FIREBASE_CONFIG: ${{ secrets.ATRIO_QA_CELULAR_GOOGLE_SERVICES_JSON }}
+          QA_TRANSFER_RECIPIENT: ${{ vars.ATRIO_QA_CELULAR_BUILD_RECIPIENT }}
+        run: |
+          umask 077
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test "$(git rev-parse 'HEAD^{tree}')" = "$CANDIDATE_TREE"
+          test ! -e app/google-services.json
+          config=app/src/qaGeral/google-services.json
+          test ! -e "$config" && test ! -L "$config"
+          trap 'rm -f -- "$config"' EXIT
+          : "${QA_FIREBASE_CONFIG:?Configuração Firebase de QA ausente}"
+          : "${QA_TRANSFER_RECIPIENT:?Destinatário de transferência ausente}"
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends age
+          age -r "$QA_TRANSFER_RECIPIENT" /dev/null >/dev/null
+          (set -o noclobber; printf '%s' "$QA_FIREBASE_CONFIG" > "$config")
+          unset QA_FIREBASE_CONFIG
+          python3 scripts/qa_geral_remote_build_gate.py --registered "$config"
+          app_id="$(python3 -c 'from scripts.qa_geral_remote_build_gate import REGISTERED_APP_ID; print(REGISTERED_APP_ID)')"
+          ATRIO_QA_GERAL_BUILD=1 ATRIO_QA_GERAL_REMOTE_BUILD=1 \
+            ATRIO_QA_GERAL_CELULAR_FUNCIONAL=1 ATRIO_QA_GERAL_CELULAR_RODADA43=1 \
+            ATRIO_QA_GERAL_CELULAR_APP_ID="$app_id" ATRIO_QA_CONVERSATION_NOTICE_ORIGIN="$QA_ORIGIN" \
+            gradle :app:assembleQaGeral --no-daemon --max-workers=2
+          shopt -s nullglob
+          apks=(app/build/outputs/apk/qaGeral/*.apk)
+          test "${#apks[@]}" -eq 1
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          "$tools/zipalign" -P 16 4 "${apks[0]}" "$RUNNER_TEMP/qa43.apk"
+          python3 -m scripts.qa_geral_celular_round43 metadata "$RUNNER_TEMP/qa43.apk" --build-tools "$tools" --notice-https
+          age -r "$QA_TRANSFER_RECIPIENT" -o "$RUNNER_TEMP/qa43.apk.age" "$RUNNER_TEMP/qa43.apk"
+          printf 'apk_sha256=%s\n' "$(sha256sum < "$RUNNER_TEMP/qa43.apk" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: qa43-transfer-cifrada
+          path: ${{ runner.temp }}/qa43.apk.age
+          retention-days: 1
+          if-no-files-found: error
+
+  sign:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: qa-geral-celular-assinatura
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd
+        with:
+          packages: platform-tools platforms;android-36 build-tools;36.0.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: qa43-transfer-cifrada
+          path: ${{ runner.temp }}/qa43-transfer
+      - name: Verificar e assinar no checkout protegido
+        shell: bash
+        env:
+          QA_EXPECTED_APK_SHA256: ${{ needs.build.outputs.apk_sha256 }}
+          QA_TRANSFER_IDENTITY: ${{ secrets.ATRIO_QA_CELULAR_BUILD_IDENTITY }}
+          QA_DELIVERY_RECIPIENT: ${{ vars.ATRIO_QA_CELULAR_AGE_RECIPIENT }}
+          ATRIO_QA_CELULAR_KEYSTORE_BASE64: ${{ secrets.ATRIO_QA_CELULAR_KEYSTORE_BASE64 }}
+          ATRIO_QA_CELULAR_KEY_ALIAS: ${{ secrets.ATRIO_QA_CELULAR_KEY_ALIAS }}
+          ATRIO_QA_CELULAR_STORE_PASSWORD: ${{ secrets.ATRIO_QA_CELULAR_STORE_PASSWORD }}
+          ATRIO_QA_CELULAR_KEY_PASSWORD: ${{ secrets.ATRIO_QA_CELULAR_KEY_PASSWORD }}
+        run: |
+          umask 077
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends age
+          work="$(mktemp -d)"
+          trap 'rm -rf -- "$work"' EXIT
+          : "${QA_TRANSFER_IDENTITY:?Identidade de transferência ausente}"
+          : "${QA_DELIVERY_RECIPIENT:?Destinatário da entrega ausente}"
+          : "${ATRIO_QA_CELULAR_KEYSTORE_BASE64:?Keystore de QA ausente}"
+          printf '%s\n' "$QA_TRANSFER_IDENTITY" > "$work/identity"
+          age -d -i "$work/identity" -o "$work/unsigned.apk" "$RUNNER_TEMP/qa43-transfer/qa43.apk.age"
+          rm -f -- "$work/identity"
+          unset QA_TRANSFER_IDENTITY
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          [[ "$QA_EXPECTED_APK_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          printf '%s  %s\n' "$QA_EXPECTED_APK_SHA256" "$work/unsigned.apk" | sha256sum -c -
+          "$tools/zipalign" -c -P 16 4 "$work/unsigned.apk"
+          "$tools/aapt" dump badging "$work/unsigned.apk" > "$work/badging"
+          grep -F "package: name='br.com.atriocatolico.qageral.celular' versionCode='43' " "$work/badging" >/dev/null
+          printf '%s' "$ATRIO_QA_CELULAR_KEYSTORE_BASE64" | base64 --decode > "$work/qa.keystore"
+          unset ATRIO_QA_CELULAR_KEYSTORE_BASE64
+          bash scripts/qa_geral_celular_manual.sh sign "$work/unsigned.apk" "$work/atrio-qa43.apk" "$work/qa.keystore"
+          rm -f -- "$work/qa.keystore"
+          python3 - "$work/atrio-qa43.apk" "$tools" <<'PY'
+          from pathlib import Path
+          import sys
+          from scripts.qa_geral_celular_approve import verified_version_code
+          apk, tools = map(Path, sys.argv[1:])
+          if verified_version_code(apk, tools, "63b26756491bb0103e44e561d63c5481c0d9a6e7374b322ff4e97e1cd5629e57") != 43:
+              raise SystemExit("APK funcional 43 esperado")
+          PY
+          sha256sum "$work/atrio-qa43.apk" | tee -a "$GITHUB_STEP_SUMMARY"
+          age -r "$QA_DELIVERY_RECIPIENT" -o "$RUNNER_TEMP/atrio-qa43.apk.age" "$work/atrio-qa43.apk"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: atrio-qa43-funcional-cifrado
+          path: ${{ runner.temp }}/atrio-qa43.apk.age
+          retention-days: 1
+          if-no-files-found: error
