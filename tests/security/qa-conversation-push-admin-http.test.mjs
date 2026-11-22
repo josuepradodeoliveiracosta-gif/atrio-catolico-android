@@ -232,10 +232,14 @@ try {
     restorableAt = Date.now();
     for (const [tokenDuration, reviewDuration] of [[1_000, 2_000], [2_000, 1_000]]) {
       const tokenId = await issueAge(uid, ageExpiry(tokenDuration), ageExpiry(reviewDuration));
+      const before = await ageProof(uid).get();
+      assert.equal(before.data().status, 'revoked');
       restorableAt += 1_000;
       await unavailable(await age('consume', {uid, tokenId}, 'consumer'));
       assert.equal((await authorization(tokenId).get()).data().status, 'issued');
-      assert.equal((await ageProof(uid).get()).exists, false);
+      const after = await ageProof(uid).get();
+      assert.deepEqual(after.data(), before.data());
+      assert.ok(after.updateTime.isEqual(before.updateTime));
     }
   });
 
