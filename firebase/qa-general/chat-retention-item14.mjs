@@ -73,8 +73,15 @@ function pruneDerived(state) {
   data.indexes = select(data.indexes, (_, id) => occupied.has(id));
 }
 
+function pruneChatMemberships({data, control}) {
+  for (const chat of Object.values(data.chats)) {
+    chat.members = chat.members.filter(uid => !control.deleted[uid]);
+  }
+}
+
 function pruneLive(state, now) {
   const {data, control} = state;
+  pruneChatMemberships(state);
   data.messages = select(data.messages, message => messageIsLive(state, message, now));
   pruneDerived(state);
   data.accounts = select(data.accounts, (_, uid) => !control.deleted[uid]);
@@ -236,6 +243,8 @@ export function createItem14Qa({Firestore, caseId, clock}) {
       const uid = sessionAccount(state, token);
       if (!uid || !validId(id) || !memberCanRead(state, uid, chatId)
           || groupClosedAt(state, chatId) !== null || state.data.messages[id]) return false;
+      const chat = state.data.chats[chatId];
+      if (chat.kind === 'direct' && chat.members.length < 2) return false;
       state.data.messages[id] = {chatId, author: uid, sentAt: now, text};
       state.data.indexes[chatId] = true;
       return true;
@@ -297,7 +306,8 @@ export function createItem14Qa({Firestore, caseId, clock}) {
       if (prior) return prior.uid === uid ? prior : null;
       if (!uid || !accountActive(state, uid)) return null;
       state.control.deleted[uid] = {operationId, keepUntil: lastCopyDeadline(state,
-        data => !!data.accounts[uid], now)};
+        data => !!data.accounts[uid] || Object.values(data.chats).some(chat => chat.members.includes(uid)), now)};
+      pruneChatMemberships(state);
       state.control.jobs[operationId] = {uid, phase: 'messages', confirmedAt: now, dueAt: now + ACCOUNT_TARGET};
       return state.control.jobs[operationId];
     }),
@@ -327,6 +337,7 @@ export function createItem14Qa({Firestore, caseId, clock}) {
       if (!copy || !before(now, copy.expiresAt)) return false;
       state.control.restore = {copyId: id, startedAt: now};
       state.data = {...structuredClone(copy.data), blocks: state.data.blocks};
+      pruneChatMemberships(state);
       return true;
     }, true),
     finishRestore: () => change((state, now) => {

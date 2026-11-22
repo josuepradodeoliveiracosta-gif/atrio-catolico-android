@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import {test} from 'node:test';
-import {Firestore} from '@google-cloud/firestore';
+import {FieldPath, FieldValue, Firestore} from '@google-cloud/firestore';
 import {assertFails, initializeTestEnvironment} from '@firebase/rules-unit-testing';
 import {doc, getDoc} from 'firebase/firestore';
 import {createItem14Qa, DAY} from '../../firebase/qa-general/chat-retention-item14.mjs';
@@ -52,6 +52,15 @@ const report = (status, details = {}) => ({
   subjectUid: clara, reviewers: [assigned, revokedMod], ...details,
 });
 const moderators = {[assigned]: true, [outside]: true, [revokedMod]: false};
+function assertClaraUnlinked({data}) {
+  assert.deepEqual(data.chats[direct].members, [miguel], 'vínculo ativo na DM');
+  assert.deepEqual(data.chats[group].members, [miguel], 'vínculo ativo no grupo');
+}
+
+function assertMinimumEvidence(value) {
+  assert.deepEqual(value, {protocol:'Protocolo fictício',excerpt:'Trecho mínimo de Clara'});
+}
+
 const qa = (number, title, run) => {
   if (step && step !== number) return;
   test(number + ' ' + title, async t => {
@@ -244,8 +253,10 @@ qa('14.5', 'revogação imediata, limpeza com checkpoint e auditoria mínima', a
   await service.createFixture(data,{reports:{'qa-caso':report('open')},moderators});
   const receipt = await service.confirmDeletion(session(clara), operation);
   assert.equal(receipt.dueAt, T0 + 30 * DAY);
+  assertClaraUnlinked(await service.inspect());
   assert.equal(await service.read(session(clara),'account'), null);
   assert.equal(await service.send(session(clara),direct,'qa-sessao-antiga','Recusar'), false);
+  assert.equal(await service.send(session(miguel),direct,'qa-dm-sem-par','Recusar'), false);
   assert.deepEqual(await service.confirmDeletion(session(clara), operation), receipt);
   assert.ok(!(await service.read(session(miguel),'chat',direct)).messages['qa-clara-dm']);
   assert.deepEqual(Object.keys((await service.read(session(miguel),'chat',direct)).derived), ['qa-previa-do-miguel']);
@@ -264,6 +275,7 @@ qa('14.5', 'revogação imediata, limpeza com checkpoint e auditoria mínima', a
   assert.equal(done.withinTarget, true);
   at(30, 1);
   const settled = await resumed.inspect();
+  assertClaraUnlinked(settled);
   assert.deepEqual(await resumed.stepDeletion(operation), done);
   assert.equal(await resumed.confirmDeletion(session(clara), operation), null);
   assert.deepEqual((await resumed.inspect()).data, settled.data);
@@ -272,7 +284,12 @@ qa('14.5', 'revogação imediata, limpeza com checkpoint e auditoria mínima', a
   assert.deepEqual(settled.data.blocks,{});
   assert.deepEqual(Object.keys(settled.data.messages).sort(), ['qa-miguel-dm','qa-miguel-grupo']);
   assert.deepEqual(Object.keys(settled.data.derived), ['qa-previa-do-miguel']);
-  assert.ok(await resumed.read(session(assigned),'report','qa-caso'));
+  assert.deepEqual(Object.keys((await resumed.read(session(miguel),'chat',direct)).messages), ['qa-miguel-dm']);
+  assert.deepEqual(Object.keys((await resumed.read(session(miguel),'chat',group)).messages), ['qa-miguel-grupo']);
+  assertMinimumEvidence(await resumed.read(session(assigned),'report','qa-caso'));
+  assert.equal(await resumed.read(session(assigned),'chat',direct), null);
+  assert.equal(await resumed.read(session(assigned),'chat',group), null);
+  assert.equal(await resumed.read(session(outside),'report','qa-caso'), null);
   at(210, -1);
   await resumed.sweep();
   assert.ok((await resumed.inspect()).control.jobs[operation]);
@@ -283,12 +300,14 @@ qa('14.5', 'revogação imediata, limpeza com checkpoint e auditoria mínima', a
   assert.ok(await resumed.read(session(assigned),'report','qa-caso'));
 });
 
-qa('14.6', 'restauração interrompida, revogação e fronteira da última cópia', async ({service, at, restart}) => {
+qa('14.6', 'restauração interrompida, revogação e fronteira da última cópia', async ({service, at, restart, caseId}) => {
   const data = fixture();
   data.chats['qa-dm-bloqueada'] = {kind:'direct',members:[miguel,outside]};
   seedMessage(data,'qa-vence-na-restauracao',direct,miguel);
   seedMessage(data,'qa-manter',direct,miguel,T0+60*DAY);
   seedMessage(data,'qa-apagar',direct,clara,T0+60*DAY);
+  seedMessage(data,'qa-manter-no-grupo',group,miguel,T0+60*DAY);
+  seedMessage(data,'qa-apagar-no-grupo',group,clara,T0+60*DAY);
   seedMessage(data,'qa-bloquear','qa-dm-bloqueada',outside,T0+60*DAY);
   seedCopy(data,'qa-derivada','qa-apagar');
   data.notices['qa-antigo'] = {actor:lucia,recipient:miguel,expiresAt:T0+92*DAY};
@@ -299,6 +318,17 @@ qa('14.6', 'restauração interrompida, revogação e fronteira da última cópi
   await service.takeCopy('qa-exportacao','export');
   at(81);
   await service.takeCopy('qa-backup-b','backup');
+  // Cópia legada em que o UID ainda consta nos vínculos, mas falta a conta.
+  assert.equal(process.env.FIRESTORE_EMULATOR_HOST, '127.0.0.1:8089');
+  const db = new Firestore({projectId:'demo-atrio-v11',host:'127.0.0.1:8089',ssl:false});
+  try {
+    await db.collection('qa_item14_copies').doc(caseId)
+      .update(new FieldPath('qa-backup-b','data','accounts',clara), FieldValue.delete());
+  } finally { await db.terminate(); }
+  const legacyCopy = (await service.inspect()).copies['qa-backup-b'].data;
+  assert.equal(legacyCopy.accounts[clara], undefined);
+  assert.ok(legacyCopy.chats[direct].members.includes(clara));
+  assert.ok(legacyCopy.chats[group].members.includes(clara));
   at(82);
   assert.equal(await service.answerInvite(session(outside),'qa-resolvido','accepted'), true);
   assert.equal(await service.block(session(miguel),outside), true);
@@ -307,6 +337,7 @@ qa('14.6', 'restauração interrompida, revogação e fronteira da última cópi
   await service.confirmDeletion(session(clara),operation);
   await service.stepDeletion(operation);
   await service.stepDeletion(operation);
+  assertClaraUnlinked(await service.inspect());
   assert.equal(await service.read(session(miguel),'notice','qa-antigo'), null);
   const replay = data.notices['qa-antigo'];
   assert.equal(await service.deliverNotice('qa-antigo',replay), false);
@@ -314,6 +345,7 @@ qa('14.6', 'restauração interrompida, revogação e fronteira da última cópi
   at(87, -1);
   assert.equal(await service.startRestore('qa-exportacao'), true);
   const resumed = await restart();
+  assertClaraUnlinked(await resumed.inspect());
   assert.equal(await resumed.read(session(miguel),'chat',direct), null);
   assert.equal(await resumed.read(session(assigned),'report','qa-caso'), null);
   await assert.rejects(resumed.declare18(session(lucia)), /item14_restore_in_progress/);
@@ -323,19 +355,25 @@ qa('14.6', 'restauração interrompida, revogação e fronteira da última cópi
   at(87, 1);
   assert.equal(await resumed.startRestore('qa-exportacao'), false);
   assert.equal(await resumed.startRestore('qa-backup-b'), true);
+  assertClaraUnlinked(await resumed.inspect());
   assert.equal(await resumed.finishRestore(), true);
   assert.equal((await resumed.inspect()).data.invites['qa-resolvido'].status, 'accepted');
   assert.equal(await resumed.answerInvite(session(outside),'qa-resolvido','declined'), false);
   assert.equal(await resumed.startRestore('qa-backup-b'), true);
   at(90);
   assert.equal(await resumed.finishRestore(), true);
+  assertClaraUnlinked(await resumed.inspect());
   assert.deepEqual(Object.keys((await resumed.read(session(miguel),'chat',direct)).messages), ['qa-manter']);
+  assert.deepEqual(Object.keys((await resumed.read(session(miguel),'chat',group)).messages), ['qa-manter-no-grupo']);
   assert.deepEqual((await resumed.read(session(miguel),'chat',direct)).derived, {});
   assert.equal(await resumed.read(session(miguel),'chat','qa-dm-bloqueada'), null);
   assert.equal(await resumed.read(session(clara),'chat',direct), null);
+  assert.equal(await resumed.read(session(clara),'chat',group), null);
   assert.equal(await resumed.read(session(miguel),'notice','qa-antigo'), null);
   assert.equal(await resumed.declare18(session(lucia)), false);
-  assert.ok(await resumed.read(session(assigned),'report','qa-caso'));
+  assertMinimumEvidence(await resumed.read(session(assigned),'report','qa-caso'));
+  assert.equal(await resumed.read(session(assigned),'chat',direct), null);
+  assert.equal(await resumed.read(session(assigned),'chat',group), null);
   assert.equal(await resumed.read(session(outside),'report','qa-caso'), null);
 
   at(110, -1);
@@ -349,11 +387,13 @@ qa('14.6', 'restauração interrompida, revogação e fronteira da última cópi
   at(111, -1);
   await resumed.sweep();
   let state = await resumed.inspect();
+  assertClaraUnlinked(state);
   assert.equal(state.control.deleted[clara].keepUntil, T0+111*DAY);
   assert.ok(state.control.revoked[lucia]);
   at(111);
   await resumed.sweep();
   state = await resumed.inspect();
+  assertClaraUnlinked(state);
   assert.deepEqual(state.copies,{});
   assert.deepEqual(state.control.deleted,{});
   assert.deepEqual(state.control.revoked,{});
