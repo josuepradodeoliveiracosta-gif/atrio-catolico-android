@@ -65,6 +65,35 @@ class ThreeBotsAndroidUiTest {
         compose.onNodeWithText("Membro da comunidade Átrio").assertIsDisplayed()
     }
 
+    @Test fun miguelAbreLojaFiltraCategoriaEVoltaAoInicio() {
+        prefs.edit().putString("name", "Miguel BOT DE TESTE").commit()
+        compose.setContent { AtrioDemoApp(prefs) }
+
+        val home = compose.onNodeWithTag("atrio-home-feed")
+        val shopEntry = "atrio-qa-shop-open"
+        home.performScrollToNode(hasTestTag(shopEntry))
+        compose.onNodeWithTag(shopEntry).performClick()
+
+        val catalog = compose.onNodeWithTag("atrio-qa-shop-catalog")
+        catalog.assertIsDisplayed()
+        catalog.performScrollToNode(hasText("Medalhas"))
+        compose.onNodeWithText("Medalhas").performClick()
+
+        val medal = "atrio-qa-shop-product-medalha"
+        catalog.performScrollToNode(hasTestTag(medal))
+        compose.onNodeWithTag(medal).performClick()
+        compose.onNodeWithTag("atrio-qa-shop-product").assertIsDisplayed()
+        compose.onNodeWithText("Medalha de São Bento").assertIsDisplayed()
+        compose.onNodeWithText("Voltar ao catálogo").performClick()
+
+        catalog.performScrollToNode(hasTestTag(medal))
+        compose.onNodeWithTag(medal).assertIsDisplayed()
+        compose.onNodeWithTag("atrio-qa-shop-product-terco").assertDoesNotExist()
+        catalog.performScrollToNode(hasText("Voltar ao Início"))
+        compose.onNodeWithText("Voltar ao Início").performClick()
+        home.assertIsDisplayed()
+    }
+
     @Test fun luciaConfirmaToqueNoBotaoPublicar() {
         var sent: Triple<String, String, String>? = null
         compose.setContent {
