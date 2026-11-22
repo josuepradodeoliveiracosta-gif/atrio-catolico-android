@@ -15,6 +15,8 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
+import kotlinx.coroutines.CompletableDeferred
+import java.io.IOException
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -92,6 +94,39 @@ class ThreeBotsAndroidUiTest {
         catalog.performScrollToNode(hasText("Voltar ao Início"))
         compose.onNodeWithText("Voltar ao Início").performClick()
         home.assertIsDisplayed()
+    }
+
+    @Test fun lojaMostraCarregamentoErroETentaNovamente() {
+        val firstRequest = CompletableDeferred<Unit>()
+        var requests = 0
+        compose.setContent {
+            AtrioTheme {
+                QaShopScreen(
+                    loadCatalog = {
+                        if (++requests == 1) {
+                            firstRequest.await()
+                            throw IOException("Falha fictícia")
+                        }
+                        emptyList()
+                    },
+                    onClose = {}
+                )
+            }
+        }
+
+        compose.onNodeWithTag("atrio-qa-shop-loading").assertIsDisplayed()
+        firstRequest.complete(Unit)
+        compose.waitUntil(5_000) {
+            compose.onAllNodes(hasText("Não foi possível carregar o catálogo."))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText("Tentar novamente").performClick()
+        compose.waitUntil(5_000) {
+            compose.onAllNodes(hasText("Nenhum produto disponível."))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText("Nenhum produto disponível.").assertIsDisplayed()
+        compose.onNodeWithTag("atrio-qa-shop-loading").assertDoesNotExist()
     }
 
     @Test fun luciaConfirmaToqueNoBotaoPublicar() {
