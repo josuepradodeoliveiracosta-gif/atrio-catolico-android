@@ -70,7 +70,7 @@ jobs:
       ATRIO_OTA_E2E_TESTED: ${{ vars.ATRIO_OTA_E2E_TESTED || 'false' }}
       ATRIO_OTA_RELEASE_APPROVED: ${{ vars.ATRIO_OTA_RELEASE_APPROVED || 'false' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -249,7 +249,7 @@ jobs:
       ATRIO_GUARDIAN_V2_RELEASE_APPROVED: ${{ vars.ATRIO_GUARDIAN_V2_RELEASE_APPROVED || 'false' }}
       ATRIO_GUARDIAN_V2_WORKER_URL: ${{ vars.ATRIO_GUARDIAN_V2_WORKER_URL || 'https://atrio-guardian-v2.atrio-catolico.workers.dev' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: actions/download-artifact@v4

@@ -21,7 +21,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout somente leitura
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Confirmar Dependabot existente e contrato do review
@@ -38,7 +38,7 @@ jobs:
     timeout-minutes: 12
     steps:
       - name: Checkout somente leitura
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: GitHub Dependency Review
@@ -54,7 +54,7 @@ jobs:
     timeout-minutes: 12
     steps:
       - name: Checkout completo somente leitura para comparar com main
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false

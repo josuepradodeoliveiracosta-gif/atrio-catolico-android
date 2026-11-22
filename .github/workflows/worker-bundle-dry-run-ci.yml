@@ -27,7 +27,7 @@ jobs:
     timeout-minutes: 12
     steps:
       - name: Obter codigo sem persistir credenciais
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
           fetch-depth: 0

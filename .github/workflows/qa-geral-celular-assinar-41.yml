@@ -31,10 +31,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 18
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: 94e94b85a0fbc43d7a51c5874dc2fa6928b41053
           path: candidate
@@ -155,10 +155,10 @@ jobs:
       QA_APK39_CERT_SHA256: 63b26756491bb0103e44e561d63c5481c0d9a6e7374b322ff4e97e1cd5629e57
       QA_FOUNDER_AGE_RECIPIENT: age1aww8m2zr2p85engnrj5yfecpuraveueh6845aepa5jpzywsm2dcszyxmhh
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: 94e94b85a0fbc43d7a51c5874dc2fa6928b41053
           path: candidate
