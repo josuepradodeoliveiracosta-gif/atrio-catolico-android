@@ -31,6 +31,10 @@ const issue=uid=>service.issue({
 });
 const consume=(uid,tokenId)=>service.consume({uid,tokenId,principal:consumer});
 const revoke=(uid,tokenId)=>service.revoke({uid,tokenId,principal});
+const eligibleProof=()=>({
+  status:'eligible',minimumAge:18,policyVersion:'2026-11-18plus-qa-v1',
+  reviewExpiresAt:new Date(time+120000),
+});
 try {
   await test('credencial sem capacidade não emite, consome nem revoga',async()=>{
     await assert.rejects(service.issue({uid:a,principal:consumer,expiresAt:new Date(time+60000),reviewExpiresAt:new Date(time+120000)}),/operator_forbidden/);
@@ -83,6 +87,56 @@ try {
     assert.equal((await agePath(b).get()).data().status,'eligible');
     await revoke(b,active.tokenId);
     assert.equal((await agePath(b).get()).data().status,'revoked');
+  });
+  for (const [label,change] of [
+    ['revogação direta', ref=>ref.update({status:'revoked',reviewExpiresAt:new Date(0)})],
+    ['exclusão direta', ref=>ref.delete()],
+    ['exclusão seguida de recriação idêntica', async(ref,proof)=>{
+      await ref.delete();
+      await ref.set(proof);
+    }],
+  ]) {
+    await test(label+' invalida a autorização emitida antes da mudança',async()=>{
+      const ref=agePath(a), proof=eligibleProof();
+      await ref.set(proof);
+      const stale=await issue(a);
+      await change(ref,proof);
+      const current=await ref.get();
+      await assert.rejects(consume(a,stale.tokenId),/age18_authorization_unavailable/);
+      assert.equal((await tokenPath(stale.tokenId).get()).data().status,'issued');
+      assert.deepEqual((await ref.get()).data(),current.data());
+      const fresh=await issue(a);
+      assert.deepEqual(await consume(a,fresh.tokenId),{restored:true});
+      assert.equal((await ref.get()).data().status,'eligible');
+    });
+  }
+  await test('autorização emitida na ausência do registro perde validade após recriação e exclusão',async()=>{
+    const ref=agePath(a);
+    await ref.delete();
+    const stale=await issue(a);
+    assert.equal((await ref.get()).data()?.status,'revoked');
+    await ref.set(eligibleProof());
+    await ref.delete();
+    await assert.rejects(consume(a,stale.tokenId),/age18_authorization_unavailable/);
+    assert.equal((await ref.get()).exists,false);
+  });
+  await test('autorização legada sem revisão da elegibilidade precisa ser reemitida',async()=>{
+    await agePath(a).set(eligibleProof());
+    const {tokenId}=await issue(a);
+    await tokenPath(tokenId).update({proofUpdateTime:FieldValue.delete()});
+    await assert.rejects(consume(a,tokenId),/age18_authorization_unavailable/);
+    assert.equal((await tokenPath(tokenId).get()).data().status,'issued');
+  });
+  await test('exclusão direta concorrente ao consumo deixa a elegibilidade ausente',async()=>{
+    const ref=agePath(a);
+    await ref.set(eligibleProof());
+    const {tokenId}=await issue(a);
+    const [consumption,deletion]=await Promise.allSettled([consume(a,tokenId),ref.delete()]);
+    assert.equal(deletion.status,'fulfilled');
+    if(consumption.status==='rejected')
+      assert.match(consumption.reason.message,/age18_authorization_unavailable/);
+    assert.equal((await ref.get()).exists,false);
+    await assert.rejects(consume(a,tokenId),/age18_authorization_unavailable/);
   });
 } finally {
   await deleteApp(app);

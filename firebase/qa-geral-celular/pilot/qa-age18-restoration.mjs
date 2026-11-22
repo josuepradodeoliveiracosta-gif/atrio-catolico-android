@@ -4,6 +4,9 @@ import {randomUUID} from 'node:crypto';
 const POLICY='2026-11-18plus-qa-v1';
 const ms=v=>v?.toMillis?.()??(v instanceof Date?v.getTime():NaN);
 const id=v=>typeof v==='string' && /^[A-Za-z0-9_-]{8,128}$/.test(v);
+const revokedProof=()=>({
+  status:'revoked',minimumAge:18,policyVersion:POLICY,reviewExpiresAt:new Date(0),
+});
 export function createQaAge18Restoration({
   db,serverTimestamp,authorize,identity,now=()=>Date.now(),uuid=randomUUID,
 }) {
@@ -29,14 +32,23 @@ export function createQaAge18Restoration({
     checkUid(uid);expiry(expiresAt);expiry(reviewExpiresAt);
     const tokenId=uuid();
     if(!id(tokenId)) throw Error('invalid_authorization_id');
-    await db.runTransaction(async tx=>{
-      const state=await tx.get(stateRef(uid));
+    const bindToProof=allowInitialize=>db.runTransaction(async tx=>{
+      const [state,proof]=await Promise.all([tx.get(stateRef(uid)),tx.get(proofRef(uid))]);
+      // Uma ausência não tem revisão. Persistir uma negativa primeiro
+      // permite detectar inclusive uma recriação seguida de exclusão.
+      if(!proof.exists&&allowInitialize) {
+        tx.create(proofRef(uid),revokedProof());
+        return false;
+      }
+      if(!proof.updateTime) throw Error('age18_authorization_unavailable');
       tx.create(tokenRef(tokenId),{
         uid,status:'issued',policyVersion:POLICY,issuedBy:principal,
         expiresAt,reviewExpiresAt,
-        epoch:state.data()?.epoch??null,createdAt:serverTimestamp(),
+        epoch:state.data()?.epoch??null,proofUpdateTime:proof.updateTime,createdAt:serverTimestamp(),
       });
+      return true;
     });
+    if(!await bindToProof(true)) await bindToProof(false);
     return {tokenId};
   }
   async function consume({uid,tokenId,principal}) {
@@ -44,12 +56,15 @@ export function createQaAge18Restoration({
     checkUid(uid);
     if(!id(tokenId)) throw Error('invalid_authorization_id');
     return db.runTransaction(async tx=>{
-      const [ticket,state]=await Promise.all([tx.get(tokenRef(tokenId)),tx.get(stateRef(uid))]);
+      const [ticket,state,proof]=await Promise.all([
+        tx.get(tokenRef(tokenId)),tx.get(stateRef(uid)),tx.get(proofRef(uid)),
+      ]);
       const data=ticket.data();
       const time=now();
       if(!ticket.exists||data.uid!==uid||data.policyVersion!==POLICY||
         data.status!=='issued'||!(ms(data.expiresAt)>time)||!(ms(data.reviewExpiresAt)>time)||
-        data.epoch!==(state.data()?.epoch??null))
+        data.epoch!==(state.data()?.epoch??null)||!proof.updateTime||
+        typeof data.proofUpdateTime?.isEqual!=='function'||!data.proofUpdateTime.isEqual(proof.updateTime))
         throw Error('age18_authorization_unavailable');
       tx.update(tokenRef(tokenId),{
         status:'consumed',consumedBy:principal,consumedAt:serverTimestamp(),
@@ -93,10 +108,7 @@ export function createQaAge18Restoration({
         updatedAt:serverTimestamp(),
       });
       if(revokeRestoration&&proof.data()?.status==='eligible')
-        tx.set(proofRef(uid),{
-          status:'revoked',minimumAge:18,policyVersion:POLICY,
-          reviewExpiresAt:new Date(0),
-        });
+        tx.set(proofRef(uid),revokedProof());
       return {revoked:true,replay:false};
     });
   }

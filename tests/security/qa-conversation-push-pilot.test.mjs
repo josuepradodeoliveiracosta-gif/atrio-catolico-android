@@ -420,6 +420,30 @@ test('mesmos documentos para Rules e Worker de Conversas do piloto DM #199',asyn
       assert.equal((await database.doc(admission(uid)).get()).data().status,'revoked');
     });
 
+    const change=uid===recipient?'exclusão':'revogação';
+    await t.test('HTTP administrativo — '+change+' direta de 18+ após emissão para o '+role,async sub=>{
+      const rows=await seed();
+      const proofPath=age(uid);
+      const proof=rows.get(proofPath);
+      const fixture=useExternalFixtures(sub);
+      const issued=await admin('issue',{uid,expiresAt:new Date(Date.now()+60_000).toISOString(),
+        reviewExpiresAt:proof.reviewExpiresAt.toISOString()},reviewer,'age18');
+      assert.equal(issued.status,200);
+      const {tokenId}=await issued.json();
+      const removed=uid===recipient;
+      await put([[proofPath,removed ? null : {...proof,status:'revoked'}]]);
+      const refused=await admin('consume',{uid,tokenId},consumer,'age18');
+      assert.equal(refused.status,409);
+      assert.deepEqual(await refused.json(),{error:'age18_authorization_unavailable'});
+      const current=await database.doc(proofPath).get();
+      assert.equal(current.exists,!removed);
+      assert.notEqual(current.data()?.status,'eligible');
+      await assertFails(getDocFromServer(doc(session(uid),event)));
+      await assertNotice(fixture,404);
+      assert.equal(fixture.stats().reserved,0);
+      assert.equal(fixture.stats().sent,0);
+    });
+
     await t.test('HTTP administrativo — autorização 18+ de uso único para '+role+' e novo aviso',async sub=>{
       const rows=await seed();
       const fixture=useExternalFixtures(sub);
