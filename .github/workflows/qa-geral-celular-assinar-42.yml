@@ -37,12 +37,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 2
           persist-credentials: false
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.QA_SOURCE_SHA }}
           path: candidate
@@ -88,7 +88,7 @@ jobs:
           python3 -m unittest scripts.test_qa_geral_celular_round42.Round42Test scripts.test_qa_geral_celular_signature -v
           bash scripts/qa_geral_celular_build42.sh candidate "$QA_SOURCE_SHA" "$QA_SOURCE_TREE" \
             "$RUNNER_TEMP/qa42-unsigned.apk" fixture
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.QA_SOURCE_SHA }}
           path: qa42-signer
@@ -184,10 +184,10 @@ jobs:
       QA_APK39_CERT_SHA256: 63b26756491bb0103e44e561d63c5481c0d9a6e7374b322ff4e97e1cd5629e57
       QA_FOUNDER_AGE_RECIPIENT: age1aww8m2zr2p85engnrj5yfecpuraveueh6845aepa5jpzywsm2dcszyxmhh
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.QA_SOURCE_SHA }}
           path: candidate
@@ -238,7 +238,7 @@ jobs:
         run: |
           bash scripts/qa_geral_celular_build42.sh candidate "$QA_SOURCE_SHA" "$QA_SOURCE_TREE" \
             "$RUNNER_TEMP/qa42-unsigned.apk" registered
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.QA_SOURCE_SHA }}
           path: qa42-signer
