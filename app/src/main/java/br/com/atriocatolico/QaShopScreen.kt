@@ -21,6 +21,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
@@ -31,6 +32,8 @@ internal data class QaShopProduct(
     val name: String,
     val description: String
 )
+
+private const val QA_CHECKOUT_URL = "https://example.com/"
 
 private val qaShopProducts = listOf(
     QaShopProduct("terco", "Terços", "Terço de madeira", "Contas de madeira com crucifixo."),
@@ -43,6 +46,8 @@ internal fun QaShopScreen(
     loadCatalog: suspend () -> List<QaShopProduct> = { qaShopProducts },
     onClose: () -> Unit
 ) {
+    val uriHandler = LocalUriHandler.current
+    var checkoutError by rememberSaveable { mutableStateOf(false) }
     var attempt by rememberSaveable { mutableStateOf(0) }
     val catalog by produceState<Result<List<QaShopProduct>>?>(null, attempt) {
         value = null
@@ -59,7 +64,10 @@ internal fun QaShopScreen(
     var productId by rememberSaveable { mutableStateOf<String?>(null) }
     val product = products.firstOrNull { it.id == productId }
     val catalogState = rememberLazyListState()
-    val goBack: () -> Unit = { if (product == null) onClose() else productId = null }
+    val goBack: () -> Unit = {
+        checkoutError = false
+        if (product == null) onClose() else productId = null
+    }
 
     BackHandler(onBack = goBack)
     if (product != null) {
@@ -72,6 +80,17 @@ internal fun QaShopScreen(
             item { SectionTitle(product.name) }
             item { Text(product.description) }
             item { Text("Produto fictício para testes de QA.") }
+            item {
+                TextButton(onClick = {
+                    checkoutError = false
+                    try {
+                        uriHandler.openUri(QA_CHECKOUT_URL)
+                    } catch (_: IllegalArgumentException) {
+                        checkoutError = true
+                    }
+                }) { Text("Abrir página de teste") }
+            }
+            if (checkoutError) item { Text("Não foi possível abrir a página de teste.") }
         }
     } else {
         LazyColumn(
