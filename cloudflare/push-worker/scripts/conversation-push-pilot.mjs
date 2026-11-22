@@ -119,6 +119,24 @@ async function qaConversationNoticeAllowed(token, sender, recipient, event, ageP
     && await qaPilotAllowsNotice(token,sender,recipient,event);
 }
 
+async function qaLogFcmSendResponse(status, messageId) {
+  try {
+    let hash = 'missing';
+    if (messageId && !messageId.includes('/')) {
+      const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(messageId));
+      hash = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+    }
+    console.info({
+      event: 'fcm_send_response',
+      utc: new Date().toISOString(),
+      fcm_http_status: status,
+      fcm_message_id_sha256: hash,
+    });
+  } catch {
+    // A coleta de diagnóstico não muda o resultado nem a reserva de envio.
+  }
+}
+
 // O UID vem da sessão autenticada. O cliente não escolhe o aviso nem o destino.
 async function qaReadConversationNotice(request, env, configured) {
   if (env.PUSH_ENABLED!=='true') return response(503,'disabled');
@@ -174,5 +192,17 @@ export function renderConversationPushPilotWorker(mainWorker) {
 `, 'await qaConversationNoticeAllowed(token,uid,recipient,event,env.ATRIO_QA_AGE_POLICY)\n');
   replace('token:device, data:{uid,kind,...extras},\n      android:{priority:\'HIGH\',ttl:\'3600s\'},',
     "token:device, data:{signal:'refresh'},\n      android:{priority:'HIGH',ttl:'60s'},");
+  const receiptOutcome = `              transportFailure=true;
+              break;
+            }
+            accepted++;
+          } else {`;
+  replace(receiptOutcome, `              await qaLogFcmSendResponse(result.status);
+              transportFailure=true;
+              break;
+            }
+            accepted++;
+            await qaLogFcmSendResponse(result.status, receipt.name.slice(prefix.length));
+          } else {`);
   return code;
 }

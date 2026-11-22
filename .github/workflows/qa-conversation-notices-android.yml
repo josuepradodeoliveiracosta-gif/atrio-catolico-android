@@ -2,7 +2,7 @@ name: Avisos de Conversas no Android Emulator
 
 on:
   pull_request:
-    branches: [main, qa/chat5-199-ensaio-apk-43]
+    branches: [main, qa/chat5-199-ensaio-apk-43, qa/chat7-199-composicao-08-09]
     paths:
       - '.github/workflows/qa-conversation-notices-android.yml'
       - 'app/src/**/QaConversationNotice*.kt'
