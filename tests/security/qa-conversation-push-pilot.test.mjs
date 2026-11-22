@@ -52,6 +52,8 @@ const config='app_config/conversations';
 const block=(a,b)=>'users/'+a+'/blockedMembers/'+b;
 const mute='users/'+recipient+'/chatBox/'+pilot.conversationId;
 const wrongProject='atrio-catolico-qa-geral';
+const androidFcmMessageId='0:1700000000000000%3AbC0123'; // Mesmo vetor do Android na #426.
+const androidFcmHash='26a30ede0faca3e21c7ca013220274be554ccc8e65e729b6ebef500079528584';
 const sha=value=>createHash('sha256').update(value).digest('hex');
 console.log('qa_push_pilot_rules_sha256='+sha(rules)+' worker_sha256='+sha(workerSource));
 
@@ -85,10 +87,13 @@ async function assertNotice(fixture, expected=200, messageId=pilot.messageId) {
   assert.equal(fixture.stats().sent,before.sent);
 }
 
-function useExternalFixtures(t,{changeAuth=()=>{},afterReservation=async()=>{}}={}) {
+function useExternalFixtures(t,{changeAuth=()=>{},afterReservation=async()=>{},
+  fcmResponse=()=>Response.json({name:'projects/'+pilot.projectId+'/messages/'+androidFcmMessageId}),
+}={}) {
   const accounts=Object.fromEntries(Object.entries(pilot.accounts).map(([uid,email])=>
     [uid,{localId:uid,email,emailVerified:true}]));
   changeAuth(accounts);
+  const fcmLog=t.mock.method(console,'info',()=>{});
   let reserved=0,sent=0,reads=0,cloudCalls=0;
   const database={
     prepare(sql) {
@@ -140,7 +145,7 @@ function useExternalFixtures(t,{changeAuth=()=>{},afterReservation=async()=>{}}=
         android:{priority:'HIGH',ttl:'60s'},
       }});
       sent++;
-      return Response.json({name:'projects/'+pilot.projectId+'/messages/fixture'});
+      return fcmResponse();
     }
     assert.equal(url.origin,'https://firestore.googleapis.com');
     assert.ok(url.pathname.startsWith('/v1/'+remoteRoot));
@@ -160,7 +165,7 @@ function useExternalFixtures(t,{changeAuth=()=>{},afterReservation=async()=>{}}=
     ATRIO_QA_AGE_POLICY:pilot.ageMode,PUSH_ENABLED:'true',
     FIREBASE_WEB_API_KEY:'fixture',FIREBASE_SERVICE_ACCOUNT_JSON:secret,PUSH_DB:database,
   };
-  return {env, network, accounts, stats:()=>({reserved,sent,reads,cloudCalls})};
+  return {env, network, accounts, fcmLog, stats:()=>({reserved,sent,reads,cloudCalls})};
 }
 
 test('mesmos documentos para Rules e Worker de Conversas do piloto DM #199',async t=>{
@@ -215,6 +220,48 @@ test('mesmos documentos para Rules e Worker de Conversas do piloto DM #199',asyn
       await batch.commit();
     });
   }
+
+  await t.test('recibo FCM do emissor produz o mesmo SHA-256 da #426 sem expor o ID',async sub=>{
+    await seed();
+    const fixture=useExternalFixtures(sub);
+    await assertNotice(fixture);
+    assert.equal(fixture.fcmLog.mock.callCount(),0);
+    const response=await worker.fetch(request(),fixture.env);
+    assert.equal(response.status,202);
+    assert.equal((await response.json()).status,'accepted_by_fcm');
+    assert.equal(fixture.stats().reserved,1);
+    assert.equal(fixture.stats().sent,1);
+    assert.equal(fixture.fcmLog.mock.callCount(),1);
+    const [{utc,...marker}]=fixture.fcmLog.mock.calls[0].arguments;
+    assert.equal(new Date(utc).toISOString(),utc);
+    assert.deepEqual(marker,{
+      event:'fcm_send_response',fcm_http_status:200,fcm_message_id_sha256:androidFcmHash,
+    });
+    console.log(JSON.stringify({utc,...marker}));
+  });
+
+  await t.test('recibo FCM ausente ou de outro projeto fica sem correlação',async sub=>{
+    for (const [label,body] of [
+      ['ausente',{}],
+      ['outro projeto',{name:'projects/'+wrongProject+'/messages/'+androidFcmMessageId}],
+    ]) {
+      await sub.test(label,async receiptTest=>{
+        await seed();
+        const fixture=useExternalFixtures(receiptTest,{fcmResponse:()=>Response.json(body)});
+        const response=await worker.fetch(request(),fixture.env);
+        assert.equal(response.status,503);
+        assert.equal((await response.json()).status,'delivery_transport_unknown');
+        assert.equal(fixture.stats().reserved,1);
+        assert.equal(fixture.stats().sent,1);
+        assert.equal(fixture.fcmLog.mock.callCount(),1);
+        const [{utc,...marker}]=fixture.fcmLog.mock.calls[0].arguments;
+        assert.equal(new Date(utc).toISOString(),utc);
+        assert.deepEqual(marker,{
+          event:'fcm_send_response',fcm_http_status:200,fcm_message_id_sha256:'missing',
+        });
+      });
+    }
+  });
 
   const alter=(path,fields)=>rows=>rows.set(path,{...rows.get(path),...fields});
   const blocked=(a,b)=>alter(block(a,b),{createdAt:new Date()});
@@ -478,6 +525,7 @@ test('mesmos documentos para Rules e Worker de Conversas do piloto DM #199',asyn
       assert.equal((await worker.fetch(administrative,fixture.env)).status,404);
     }
     assert.deepEqual(fixture.stats(),{reserved:0,sent:0,reads:0,cloudCalls:0});
+    assert.equal(fixture.fcmLog.mock.callCount(),0);
   });
 
   await t.test('Rules impedem recriação de admissão e listagem de chats',async()=>{
