@@ -25,25 +25,61 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
+import java.math.BigDecimal
+import java.text.NumberFormat
+import java.util.Locale
+
+internal enum class QaShopAvailability(val label: String) {
+    IN_STOCK("Em estoque"),
+    OUT_OF_STOCK("Esgotado"),
+    UNKNOWN("Estoque não confirmado")
+}
+
+internal data class QaShopVariant(
+    val id: String,
+    val sku: String,
+    val label: String,
+    val unitPriceMinor: Long,
+    val availability: QaShopAvailability,
+    val currency: String = "BRL"
+)
 
 internal data class QaShopProduct(
     val id: String,
+    val categoryId: String,
     val category: String,
     val name: String,
-    val description: String
+    val description: String,
+    val variants: List<QaShopVariant>
 )
 
 private const val QA_CHECKOUT_URL = "https://example.com/"
 
-private val qaShopProducts = listOf(
-    QaShopProduct("terco", "Terços", "Terço de madeira", "Contas de madeira com crucifixo."),
-    QaShopProduct("medalha", "Medalhas", "Medalha de São Bento", "Medalha devocional em metal."),
-    QaShopProduct("oratorio", "Artigos para o lar", "Oratório de mesa", "Oratório pequeno para uso doméstico.")
-)
+private object SimulatedQaShopSupplier {
+    fun load(revisedOffer: Boolean): List<QaShopProduct> = listOf(
+        QaShopProduct("terco", "tercos", "Terços", "Terço de madeira", "Contas de madeira com crucifixo.", listOf(
+            QaShopVariant("terco-natural", "TRC-NAT", "Madeira natural", 2990, QaShopAvailability.OUT_OF_STOCK)
+        )),
+        QaShopProduct("medalha", "medalhas", "Medalhas", "Medalha de São Bento", "Medalha devocional em metal.", listOf(
+            QaShopVariant("medalha-prateada", "MED-PRA", "Prateada",
+                if (revisedOffer) 2490 else 1990, QaShopAvailability.IN_STOCK),
+            QaShopVariant("medalha-dourada", "MED-DOU", "Dourada", 2290,
+                if (revisedOffer) QaShopAvailability.OUT_OF_STOCK else QaShopAvailability.IN_STOCK)
+        )),
+        QaShopProduct("oratorio", "lar", "Artigos para o lar", "Oratório de mesa", "Oratório pequeno para uso doméstico.", listOf(
+            QaShopVariant("oratorio-natural", "ORA-NAT", "Madeira natural", 4990, QaShopAvailability.UNKNOWN)
+        ))
+    )
+}
+
+private fun QaShopVariant.displayPrice(): String =
+    NumberFormat.getCurrencyInstance(Locale.forLanguageTag("pt-BR")).apply {
+        currency = java.util.Currency.getInstance(this@displayPrice.currency)
+    }.format(BigDecimal.valueOf(unitPriceMinor, 2))
 
 @Composable
 internal fun QaShopScreen(
-    loadCatalog: suspend () -> List<QaShopProduct> = { qaShopProducts },
+    loadCatalog: (suspend () -> List<QaShopProduct>)? = null,
     onClose: () -> Unit
 ) {
     val uriHandler = LocalUriHandler.current
@@ -52,7 +88,7 @@ internal fun QaShopScreen(
     val catalog by produceState<Result<List<QaShopProduct>>?>(null, attempt) {
         value = null
         value = try {
-            Result.success(loadCatalog())
+            Result.success(loadCatalog?.invoke() ?: SimulatedQaShopSupplier.load(revisedOffer = attempt > 0))
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
@@ -63,6 +99,10 @@ internal fun QaShopScreen(
     var category by rememberSaveable { mutableStateOf<String?>(null) }
     var productId by rememberSaveable { mutableStateOf<String?>(null) }
     val product = products.firstOrNull { it.id == productId }
+    var selectedVariantId by rememberSaveable(productId) { mutableStateOf<String?>(null) }
+    val selectedVariant = product?.variants?.let { variants ->
+        variants.firstOrNull { it.id == selectedVariantId } ?: variants.firstOrNull()
+    }
     val catalogState = rememberLazyListState()
     val goBack: () -> Unit = {
         checkoutError = false
@@ -79,9 +119,24 @@ internal fun QaShopScreen(
             item { TextButton(onClick = goBack) { Text("Voltar ao catálogo") } }
             item { SectionTitle(product.name) }
             item { Text(product.description) }
-            item { Text("Produto fictício para testes de QA.") }
+            if (product.variants.size > 1) {
+                items(product.variants, key = { it.id }) { variant ->
+                    FilterChip(
+                        selected = selectedVariant == variant,
+                        onClick = {
+                            selectedVariantId = variant.id
+                            checkoutError = false
+                        },
+                        label = { Text(variant.label) }
+                    )
+                }
+            }
+            selectedVariant?.let { variant ->
+                item { Text(variant.displayPrice(), Modifier.testTag("atrio-qa-shop-price")) }
+                item { Text(variant.availability.label, Modifier.testTag("atrio-qa-shop-stock")) }
+            }
             item {
-                TextButton(onClick = {
+                TextButton(enabled = selectedVariant?.availability == QaShopAvailability.IN_STOCK, onClick = {
                     checkoutError = false
                     try {
                         uriHandler.openUri(QA_CHECKOUT_URL)
@@ -114,8 +169,9 @@ internal fun QaShopScreen(
                 }
                 products.isEmpty() -> item { Text("Nenhum produto disponível.") }
                 else -> {
-                    val categories = products.map { it.category }.distinct()
-                    val selectedCategory = category?.takeIf { it in categories }
+                    val categories = products.distinctBy { it.categoryId }
+                    val selectedCategory = category?.takeIf { id -> categories.any { it.categoryId == id } }
+                    item { TextButton(onClick = { attempt++ }) { Text("Atualizar catálogo") } }
                     item {
                         FilterChip(
                             selected = selectedCategory == null,
@@ -125,12 +181,12 @@ internal fun QaShopScreen(
                     }
                     items(categories) { option ->
                         FilterChip(
-                            selected = selectedCategory == option,
-                            onClick = { category = option },
-                            label = { Text(option) }
+                            selected = selectedCategory == option.categoryId,
+                            onClick = { category = option.categoryId },
+                            label = { Text(option.category) }
                         )
                     }
-                    items(products.filter { selectedCategory == null || it.category == selectedCategory }, key = { it.id }) { item ->
+                    items(products.filter { selectedCategory == null || it.categoryId == selectedCategory }, key = { it.id }) { item ->
                         OutlinedCard(
                             onClick = { productId = item.id },
                             modifier = Modifier.fillMaxWidth().testTag("atrio-qa-shop-product-${item.id}")
