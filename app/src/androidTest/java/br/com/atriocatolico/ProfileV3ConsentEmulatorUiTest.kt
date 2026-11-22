@@ -612,14 +612,9 @@ class ProfileV3ConsentEmulatorUiTest {
                 (speechLines() - beforeFocus).any { expected in it }
             }
             assertTrue(talkBackIsActive())
-            checkNotNull(automation.takeScreenshot()).useForContributionEvidence()
+            automation.shellText("screencap -p /data/local/tmp/qa-contribution-talkback.png")
+            assertTrue(automation.shellText("test -s /data/local/tmp/qa-contribution-talkback.png && echo ok") == "ok")
         }
-    }
-
-    private fun android.graphics.Bitmap.useForContributionEvidence() {
-        val file = java.io.File(compose.activity.getExternalFilesDir(null), "qa-contribution-talkback.png")
-        file.outputStream().use { check(compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)) }
-        recycle()
     }
 
     @Test fun unifiedEditorSavesWithTalkBackAt150Percent() {
