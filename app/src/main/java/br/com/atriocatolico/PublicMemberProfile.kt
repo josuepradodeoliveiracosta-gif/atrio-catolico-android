@@ -312,6 +312,9 @@ internal fun PublicMemberProfileScreen(
                     style = MaterialTheme.typography.bodySmall, color = Muted)
             }
         }
+        if (viewer != null && !blocked && viewerUid != uid) {
+            item { ProfileTimeline(db, ownerUid = uid, viewerUid = viewerUid) }
+        }
         item {
             Text("Discussões", style = MaterialTheme.typography.titleLarge)
             Text("${entries.size} discussões carregadas · lista paginada",
