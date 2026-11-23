@@ -149,7 +149,8 @@ try {
   await assertFails(getDoc(doc(moderator,chatMessage)));
   await assertFails(getDoc(doc(moderator,groupMessage)));
 
-  // Moderador le apenas protocolos, nunca DMs ou grupos por ser moderador.
+  // O SDK do moderador nao le protocolos; apenas atendimento via backend
+  // com atribuicao por caso, revogacao e auditoria transacional (#199).
   // Denunciante acessa seu protocolo; outro membro nao pode le-lo nem listar.
   await assertSucceeds(getDoc(doc(alice,chatReport)));
   await assertSucceeds(getDoc(doc(alice,groupReport)));
@@ -157,10 +158,10 @@ try {
   await assertFails(getDoc(doc(bob,groupReport)));
   await assertFails(getDocs(collection(alice,'chat_reports')));
   await assertFails(getDocs(collection(alice,'chat_group_reports')));
-  await assertSucceeds(getDoc(doc(moderator,chatReport)));
-  await assertSucceeds(getDoc(doc(moderator,groupReport)));
-  await assertSucceeds(getDocs(collection(moderator,'chat_reports')));
-  await assertSucceeds(getDocs(collection(moderator,'chat_group_reports')));
+  await assertFails(getDoc(doc(moderator,chatReport)));
+  await assertFails(getDoc(doc(moderator,groupReport)));
+  await assertFails(getDocs(collection(moderator,'chat_reports')));
+  await assertFails(getDocs(collection(moderator,'chat_group_reports')));
 
   // Portoes administrativos nao podem ser reabertos por clientes, mesmo
   // quando o fragmento QA e a base legada coexistem na mesma Rules.
