@@ -116,6 +116,8 @@ test("ledger transitions are idempotent and reverse only active points", () => {
   assert.equal(ledgerPointDelta({ active: false, points: 3 }, null), 0);
 });
 
+const feedKey = (...parts) => `feed:${JSON.stringify(parts)}`;
+
 const feedComment = (id, authorUid, parentId = "", createdAtMs = 2_000) =>
   ({id, authorUid, parentId, createdAtMs});
 
@@ -136,13 +138,13 @@ test("feed credits direct interactions once without touching legacy ledger keys"
       comments,
     });
     assert.deepEqual([...awards].map(([id, {points}]) => [id, points]), [
-      ["feed:conversation:first:host", 3],
-      ["feed:helpful:first:welcome:newcomer", 2],
-      ["feed:helpful:first:welcome:visitor", 2],
-      ["feed:welcome:newcomer:host", 2],
-      ["feed:welcome-return:newcomer:host", 3],
+      [feedKey("conversation", "first", "host"), 3],
+      [feedKey("helpful", "first", "welcome", "newcomer"), 2],
+      [feedKey("helpful", "first", "welcome", "visitor"), 2],
+      [feedKey("welcome", "newcomer", "host"), 2],
+      [feedKey("welcome-return", "newcomer", "host"), 3],
     ]);
-    const welcomeReturn = awards.get("feed:welcome-return:newcomer:host");
+    const welcomeReturn = awards.get(feedKey("welcome-return", "newcomer", "host"));
     assert.equal(welcomeReturn.scopePostId, "feed:first");
     assert.equal(welcomeReturn.targetPath, "feed_posts/first/comments/welcome");
     assert.equal(welcomeReturn.sourcePath, "feed_posts/first/comments/return");
@@ -155,8 +157,54 @@ test("feed excludes tombstones, orphaned replies and inherited forum newcomers",
   const reply = feedComment("reply", "owner", "root");
   const derive = (options) => deriveFeedAwards({postId: "p", post, ...options});
 
-  assert.equal(derive({comments: [root, reply]}).has("feed:welcome:owner:host"), false);
+  assert.equal(derive({comments: [root, reply]}).has(feedKey("welcome", "owner", "host")), false);
   assert.equal(derive({comments: [{...root, removed: true}, reply]}).size, 0);
   assert.equal(derive({post: {...post, published: false}, comments: [root, reply]}).size, 0);
   assert.equal(derive({firstFeedPublicationId: "p", rolloutAtMs: 2_001, comments: [root, reply]}).size, 0);
+});
+
+test("feed ledger keys distinguish IDs containing separators", () => {
+  const post = {authorUid: "owner", destination: "channel", published: true};
+  const helpfulEntry = (postId, rootId, recipient) => {
+    const awards = deriveFeedAwards({
+      postId,
+      post,
+      comments: [
+        feedComment(rootId, recipient),
+        feedComment("reply", "visitor", rootId, 2_001),
+      ],
+    });
+    return [...awards.values()].find((award) => award.track === "helpful");
+  };
+  const first = helpfulEntry("article", "part:root", "host-one");
+  const second = helpfulEntry("article:part", "root", "host-two");
+  assert.notEqual(first.actionKey, second.actionKey);
+  assert.equal(first.recipientUid, "host-one");
+  assert.equal(second.recipientUid, "host-two");
+});
+
+test("feed chooses first eligible interactions and keeps historical reply targets", () => {
+  const post = {authorUid: "owner", destination: "timeline", published: true};
+  const awards = deriveFeedAwards({
+    postId: "p",
+    post,
+    firstFeedPublicationId: "p",
+    rolloutAtMs: 2_000,
+    comments: [
+      feedComment("old-root", "host", "", 1_900),
+      feedComment("old-response", "owner", "old-root", 1_950),
+      feedComment("new-root", "host", "", 2_001),
+      feedComment("new-response", "owner", "old-root", 2_002),
+      feedComment("repeated-response", "owner", "old-root", 2_003),
+    ],
+  });
+  for (const track of ["conversation", "welcome"]) {
+    const ids = track === "conversation" ? ["p", "host"] : ["owner", "host"];
+    assert.equal(awards.get(feedKey(track, ...ids)).sourcePath, "feed_posts/p/comments/new-root");
+  }
+  assert.equal(awards.get(feedKey("helpful", "p", "old-root", "owner")).sourcePath,
+    "feed_posts/p/comments/new-response");
+  assert.equal(awards.get(feedKey("welcome-return", "owner", "host")).sourcePath,
+    "feed_posts/p/comments/new-response");
+  assert.equal(awards.size, 4);
 });

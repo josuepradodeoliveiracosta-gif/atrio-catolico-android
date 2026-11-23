@@ -67,10 +67,13 @@ function deriveAwards({
   const orderedReplies = oldestFirst(replies);
   const eligible = (interaction) =>
     millis(interaction.createdAtMs ?? interaction.createdAt) >= rolloutAtMs;
+  // Old comments can receive new replies, but do not occupy the first
+  // eligible place in any feed track.
+  const candidates = feed ? orderedReplies.filter(eligible) : orderedReplies;
+  const awardKey = (...parts) => feed ? `feed:${JSON.stringify(parts)}` : parts.join(":");
   const add = (actionKey, actorUid, recipientUid, track, points, sourcePath, targetPath,
     allowActorCredit = false) => {
     if (!actorUid || !recipientUid || (!allowActorCredit && actorUid === recipientUid)) return;
-    if (feed) actionKey = `feed:${actionKey}`;
     awards.set(actionKey, {
       actionKey,
       actorUid,
@@ -85,24 +88,24 @@ function deriveAwards({
 
   // One first reply by each member to a discussion credits its author.
   const firstReplyByMember = new Map();
-  for (const reply of orderedReplies) {
+  for (const reply of candidates) {
     if (reply.uid && (!feed || !reply.replyToId) && !firstReplyByMember.has(reply.uid)) {
       firstReplyByMember.set(reply.uid, reply);
     }
   }
   for (const [actorUid, reply] of firstReplyByMember) {
-    const actionKey = `conversation:${postId}:${actorUid}`;
+    const actionKey = awardKey("conversation", postId, actorUid);
     if (eligible(reply)) add(actionKey, actorUid, postOwnerUid, "conversation", 3,
       reply.sourcePath, postPath);
   }
 
   // One first direct reply from each member to a reply credits that reply's author.
   const firstDirectReply = new Map();
-  for (const reply of orderedReplies) {
+  for (const reply of candidates) {
     const targetId = reply.replyToId;
     const target = targetId ? replyById.get(targetId) : null;
     if (!target || !reply.uid || target.uid !== reply.replyToUid || reply.uid === target.uid) continue;
-    const actionKey = `helpful:${postId}:${targetId}:${reply.uid}`;
+    const actionKey = awardKey("helpful", postId, targetId, reply.uid);
     if (!firstDirectReply.has(actionKey)) firstDirectReply.set(actionKey, { reply, target });
   }
   for (const [actionKey, { reply, target }] of firstDirectReply) {
@@ -114,12 +117,12 @@ function deriveAwards({
   if (firstPostId === postId) {
     // The host earns two points for their first top-level welcome to this newcomer.
     const firstWelcomeByHost = new Map();
-    for (const reply of orderedReplies) {
+    for (const reply of candidates) {
       if (!reply.uid || reply.uid === postOwnerUid || reply.replyToId) continue;
       if (!firstWelcomeByHost.has(reply.uid)) firstWelcomeByHost.set(reply.uid, reply);
     }
     for (const [hostUid, reply] of firstWelcomeByHost) {
-      const actionKey = `welcome:${postOwnerUid}:${hostUid}`;
+      const actionKey = awardKey("welcome", postOwnerUid, hostUid);
       if (eligible(reply)) add(actionKey, hostUid, hostUid, "welcome", 2,
         reply.sourcePath, postPath, true);
     }
@@ -127,7 +130,7 @@ function deriveAwards({
     // A direct reply from the newcomer to a host's top-level reply earns three points
     // for that host. This intentionally overlaps with the helpful-reply track.
     const firstReturnByHost = new Map();
-    for (const reply of orderedReplies) {
+    for (const reply of candidates) {
       if (reply.uid !== postOwnerUid || !reply.replyToId) continue;
       const target = replyById.get(reply.replyToId);
       if (!target || target.replyToId || target.uid !== reply.replyToUid ||
@@ -135,7 +138,7 @@ function deriveAwards({
       if (!firstReturnByHost.has(target.uid)) firstReturnByHost.set(target.uid, { reply, target });
     }
     for (const [hostUid, { reply, target }] of firstReturnByHost) {
-      const actionKey = `welcome-return:${postOwnerUid}:${hostUid}`;
+      const actionKey = awardKey("welcome-return", postOwnerUid, hostUid);
       if (eligible(reply)) add(actionKey, postOwnerUid, hostUid, "welcome", 3,
         reply.sourcePath, replyPath(target.id));
     }
@@ -144,7 +147,7 @@ function deriveAwards({
   for (const reaction of replyReactions) {
     const target = replyById.get(reaction.replyId);
     if (!target || !reaction.actorUid || reaction.actorUid === target.uid || !eligible(reaction)) continue;
-    const actionKey = `reply-reaction:${postId}:${reaction.replyId}:${reaction.actorUid}`;
+    const actionKey = awardKey("reply-reaction", postId, reaction.replyId, reaction.actorUid);
     awards.set(actionKey, {
       actionKey,
       actorUid: reaction.actorUid,
@@ -152,14 +155,14 @@ function deriveAwards({
       track: "helpful",
       points: 1,
       sourcePath: reaction.sourcePath,
-      targetPath: `posts/${postId}/replies/${target.id}`,
-      scopePostId: postId,
+      targetPath: replyPath(target.id),
+      scopePostId: feed ? `feed:${postId}` : postId,
     });
   }
 
   for (const like of postLikes) {
     if (!like.actorUid || like.actorUid === postOwnerUid || !eligible(like)) continue;
-    const actionKey = `post-reaction:${postId}:${like.actorUid}`;
+    const actionKey = awardKey("post-reaction", postId, like.actorUid);
     awards.set(actionKey, {
       actionKey,
       actorUid: like.actorUid,
@@ -167,8 +170,8 @@ function deriveAwards({
       track: "conversation",
       points: 1,
       sourcePath: like.sourcePath,
-      targetPath: `posts/${postId}`,
-      scopePostId: postId,
+      targetPath: postPath,
+      scopePostId: feed ? `feed:${postId}` : postId,
     });
   }
 
