@@ -114,6 +114,35 @@ try {
     .commit());
   await assertSucceeds(read(alice, noticePath));
   await assertFails(read(bob, noticePath));
+  const thirdReply = timeline + '/comments/feed-two-notices';
+  await assertFails(writeBatch(carol)
+    .set(doc(carol, thirdReply), {
+      authorUid: 'feed-carol', parentId: 'root', body: 'Sem acesso',
+      createdAt: serverTimestamp(),
+    })
+    .set(doc(carol, 'feed_notices/feed-alice/items/feed-two-notices'), notice)
+    .commit());
+  const channelReply = channel + '/comments/feed-channel-reply';
+  await assertSucceeds(setDoc(doc(bob, channel + '/comments/feed-root-bob'), {
+    authorUid: 'feed-bob', parentId: '', body: 'Comentário no canal', createdAt: serverTimestamp(),
+  }));
+  const authorNotice = 'feed_notices/feed-alice/items/feed-channel-reply';
+  const parentNotice = 'feed_notices/feed-bob/items/feed-channel-reply';
+  await assertSucceeds(writeBatch(carol)
+    .set(doc(carol, channelReply), {
+      authorUid: 'feed-carol', parentId: 'feed-root-bob', body: 'Resposta no canal',
+      createdAt: serverTimestamp(),
+    })
+    .set(doc(carol, authorNotice), {...notice, postId: 'feed-channel', kind: 'comment'})
+    .set(doc(carol, parentNotice), {...notice, postId: 'feed-channel'})
+    .commit());
+  await assertSucceeds(read(alice, authorNotice));
+  await assertSucceeds(read(bob, parentNotice));
+  // O autor não pode gerar um aviso atrasado para um comentário já salvo.
+  await assertFails(setDoc(doc(bob, 'feed_notices/feed-alice/items/feed-root-bob'), {
+    ...notice, postId: 'feed-channel', kind: 'comment',
+  }));
+
   await assertFails(setDoc(doc(bob, timeline + '/comments/feed-too-deep'), {
     authorUid: 'feed-bob', parentId: 'feed-reply', body: 'Segundo nível',
     createdAt: serverTimestamp(),

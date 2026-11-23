@@ -1254,9 +1254,9 @@ service cloud.firestore {
     }
 
     function communityFeedOpen() {
-      let config = /databases/$(database)/documents/app_config/community_feed;
-      return exists(config) && (get(config).data.get('enabled', false) == true
-        || get(config).data.get('forumRetired', false) == true);
+      let config = get(/databases/$(database)/documents/app_config/community_feed);
+      return config != null && (config.data.get('enabled', false) == true
+        || config.data.get('forumRetired', false) == true);
     }
 
     // A amizade só existe após a aceitação da outra pessoa. Remover o
@@ -1359,16 +1359,18 @@ service cloud.firestore {
     }
     match /feed_notices/{recipientUid}/items/{commentId} {
       function validFeedNotice(data) {
-        let comment = getAfter(feedCommentPath(data.postId, commentId)).data;
-        let post = get(feedPostPath(data.postId)).data;
-        return feedPostReadable(post)
-          && comment.authorUid == request.auth.uid && comment.createdAt == request.time
-          && (data.kind == 'comment' && post.authorUid == recipientUid
+        let path = feedCommentPath(data.postId, commentId);
+        let comment = getAfter(path).data;
+        // A criação no mesmo lote já autoriza o acesso ao post e à conversa.
+        // Repetir esse controle por destinatário excede o limite de leituras.
+        return !exists(path) && comment.authorUid == request.auth.uid && comment.createdAt == request.time
+          && (data.kind == 'comment'
+              && get(feedPostPath(data.postId)).data.authorUid == recipientUid
             || data.kind == 'reply' && validId(comment.parentId)
               && get(feedCommentPath(data.postId, comment.parentId)).data.authorUid == recipientUid);
       }
       allow get, list: if communityFeedOpen() && me(recipientUid) && emailVerificationAllowsCommunityAccess();
-      allow create: if communityFeedOpen() && signedIn() && !me(recipientUid)
+      allow create: if signedIn() && !me(recipientUid)
         && request.resource.data.keys().hasOnly(['postId', 'kind', 'createdAt', 'read'])
         && validId(request.resource.data.postId)
         && request.resource.data.createdAt == request.time && request.resource.data.read == false
