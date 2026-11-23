@@ -159,7 +159,7 @@ internal fun RegistrationOptionalPreferences(
             Text("Interesses e dados opcionais", fontWeight = FontWeight.Bold,
                 color = Wine, style = MaterialTheme.typography.titleMedium)
         }
-        Text("Interesses", style = MaterialTheme.typography.titleSmall, color = Ink)
+        Text("Interesses (opcional)", style = MaterialTheme.typography.titleSmall, color = Ink)
         RegistrationOptionalPolicy.interests.forEachIndexed { i, option ->
             Row(
                 Modifier.fillMaxWidth().heightIn(min = 48.dp),
@@ -176,7 +176,7 @@ internal fun RegistrationOptionalPreferences(
                 Text(option, color = Ink, modifier = Modifier.padding(start = 6.dp))
             }
         }
-        Text("Como você se apresenta? (autodeclaração, sem selo)",
+        Text("Como você se apresenta? (opcional)",
             style = MaterialTheme.typography.titleSmall, color = Ink)
         RegistrationOptionalPolicy.participations.forEachIndexed { i, option ->
             Row(Modifier.fillMaxWidth().heightIn(min = 48.dp),
