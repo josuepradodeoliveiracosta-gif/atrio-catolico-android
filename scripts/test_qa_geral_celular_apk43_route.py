@@ -52,6 +52,14 @@ class IsolatedBuildRouteTest(unittest.TestCase):
         data = ROUTE.read_text()
         signing = data.split("  sign:", 1)[1]
         before_key = signing.split("base64 --decode", 1)[0]
+        verify_step = signing.split("      - name: Revalidar sem qualquer segredo de assinatura", 1)[1].split(
+            "      - name: Assinar somente o APK validado", 1
+        )[0]
+        self.assertNotIn("ATRIO_QA_CELULAR_KEYSTORE_BASE64", verify_step)
+        self.assertNotIn("ATRIO_QA_CELULAR_STORE_PASSWORD", verify_step)
+        self.assertNotIn("ATRIO_QA_CELULAR_KEY_PASSWORD", verify_step)
+        self.assertIn("id: verify", verify_step)
+        self.assertIn("steps.verify.outputs.apk_sha256", signing)
         self.assertIn("sha256sum -c -", before_key)
         self.assertIn('metadata "$work/unsigned.apk"', before_key)
         self.assertIn("--notice-https", before_key)
