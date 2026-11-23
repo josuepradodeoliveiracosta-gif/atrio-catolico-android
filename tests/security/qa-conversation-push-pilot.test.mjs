@@ -429,7 +429,12 @@ test('mesmos documentos para Rules e Worker de Conversas do piloto DM #199',asyn
   const database=getFirestore(adminApp);
   const operator='fixture-admission-operator';
   const publisher='fixture-notice-publisher';
-  const allowedOperators={[operator]:['manage_admissions'],[publisher]:['publish_notices']};
+  const reviewer='fixture-age-reviewer';
+  const consumer='fixture-age-consumer';
+  const allowedOperators={
+    [operator]:['manage_admissions'],[publisher]:['publish_notices'],
+    [reviewer]:['manage_age18_restoration'],[consumer]:['consume_age18_restoration'],
+  };
   const handler=createConversationPushAdminHttpHandler({
     db:database, enabled:true, allowedOperators, serverTimestamp:()=>FieldValue.serverTimestamp(),
     auth:{async verifyIdToken(token, checkRevoked) {
@@ -439,8 +444,8 @@ test('mesmos documentos para Rules e Worker de Conversas do piloto DM #199',asyn
         firebase:{sign_in_provider:'password'},atrioQaPushCapabilities:allowedOperators[token]};
     }},
   });
-  const admin=(action,body,token=operator)=>handler(new Request(
-    'https://admin.qa.invalid/v1/qa/conversations/push/admin/'+action, {
+  const admin=(action,body,token=operator,scope='push')=>handler(new Request(
+    'https://admin.qa.invalid/v1/qa/conversations/'+scope+'/admin/'+action, {
       method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
       body:JSON.stringify(body),
     }));
@@ -462,51 +467,113 @@ test('mesmos documentos para Rules e Worker de Conversas do piloto DM #199',asyn
       assert.equal((await database.doc(admission(uid)).get()).data().status,'revoked');
     });
 
-    await t.test('HTTP administrativo — restauração 18+ do '+role+' e nova concessão',async sub=>{
+    const change=uid===recipient?'exclusão':'revogação';
+    await t.test('HTTP administrativo — '+change+' direta de 18+ após emissão para o '+role,async sub=>{
+      const rows=await seed();
+      const proofPath=age(uid);
+      const proof=rows.get(proofPath);
+      const fixture=useExternalFixtures(sub);
+      const issued=await admin('issue',{uid,expiresAt:new Date(Date.now()+60_000).toISOString(),
+        reviewExpiresAt:proof.reviewExpiresAt.toISOString()},reviewer,'age18');
+      assert.equal(issued.status,200);
+      const {tokenId}=await issued.json();
+      const removed=uid===recipient;
+      await put([[proofPath,removed ? null : {...proof,status:'revoked'}]]);
+      const refused=await admin('consume',{uid,tokenId},consumer,'age18');
+      assert.equal(refused.status,409);
+      assert.deepEqual(await refused.json(),{error:'age18_authorization_unavailable'});
+      const current=await database.doc(proofPath).get();
+      assert.equal(current.exists,!removed);
+      assert.notEqual(current.data()?.status,'eligible');
+      await assertFails(getDocFromServer(doc(session(uid),event)));
+      await assertNotice(fixture,404);
+      assert.equal(fixture.stats().reserved,0);
+      assert.equal(fixture.stats().sent,0);
+    });
+
+    await t.test('HTTP administrativo — autorização 18+ de uso único para '+role+' e novo aviso',async sub=>{
       const rows=await seed();
       const fixture=useExternalFixtures(sub);
       const oldAdmission=rows.get(admission(uid));
       await assertNotice(fixture);
-      await revoke(uid,oldAdmission.generation);
-      const revoked=(await database.doc(admission(uid)).get()).data();
-      assert.equal(revoked.status,'revoked');
 
       const proofPath=age(uid);
-      await put([[proofPath,null]]);
+      const previousProof=rows.get(proofPath);
+      await put([[proofPath,uid===recipient ? null : {...previousProof,status:'revoked'}]]);
       await assertFails(getDocFromServer(doc(session(uid),event)));
-      await put([[proofPath,rows.get(proofPath)]]); // Operação privilegiada somente no Emulator.
+      await assertNotice(fixture,404);
+
+      const issued=await admin('issue',{uid,expiresAt:new Date(Date.now()+60_000).toISOString(),
+        reviewExpiresAt:previousProof.reviewExpiresAt.toISOString()},reviewer,'age18');
+      assert.equal(issued.status,200);
+      const {tokenId}=await issued.json();
+      const ticket='qaAge18RestorationAuthorizations/'+tokenId;
+      await assertFails(getDocFromServer(doc(session(uid),ticket)));
+      await assertFails(setDoc(doc(session(uid),ticket),{status:'issued'}));
+      await assertFails(getDocFromServer(doc(session(uid),event)));
+      const consumed=await admin('consume',{uid,tokenId},consumer,'age18');
+      assert.equal(consumed.status,200);
+      assert.deepEqual(await consumed.json(),{restored:true});
+      assert.equal((await admin('consume',{uid,tokenId},consumer,'age18')).status,409);
       for (const account of [sender,recipient]) {
         const manual=await getDocFromServer(doc(session(account),event));
         assert.equal(manual.get('text'),rows.get(event).text);
       }
+      // A restauração por si só invalida a admissão anterior para o Worker.
+      assert.equal((await database.doc(admission(uid)).get()).data().generation,oldAdmission.generation);
+      assert.equal((await database.doc(pending).get()).data().messageId,pilot.messageId);
       await assertNotice(fixture,404);
       assert.equal((await worker.fetch(request(),fixture.env)).status,202);
       assert.equal(fixture.stats().reserved,0);
       assert.equal(fixture.stats().sent,0);
+
+      await revoke(uid,oldAdmission.generation);
+      const revoked=(await database.doc(admission(uid)).get()).data();
+      assert.equal(revoked.status,'revoked');
+      const writeMessage=async messageId=>{
+        const batch=database.batch();
+        batch.update(database.doc(room),{lastMessageId:messageId,updatedAt:FieldValue.serverTimestamp()});
+        batch.set(database.doc(room+'/messages/'+messageId),
+          {...rows.get(event),createdAt:FieldValue.serverTimestamp()});
+        await batch.commit();
+      };
+      const publication=(messageId,generation)=>({
+        senderUid:sender,recipientUid:recipient,conversationId:pilot.conversationId,messageId,
+        expiresAt:rows.get(pending).expiresAt.toISOString(),
+        expectedSenderGeneration:uid===sender ? generation : rows.get(admission(sender)).generation,
+        expectedRecipientGeneration:uid===recipient ? generation : rows.get(admission(recipient)).generation,
+      });
+      const preAdmissionId='mensagem-antes-da-nova-admissao';
+      await writeMessage(preAdmissionId);
+      assert.equal((await admin('publish',publication(preAdmissionId,revoked.generation),publisher)).status,403);
+      await assertNotice(fixture,404);
 
       const readmission=await admin('admit',{uid,operationKey:'readmissao-integrada',
         expectedGeneration:revoked.generation,expiresAt:oldAdmission.expiresAt.toISOString()});
       assert.equal(readmission.status,200);
       const {generation}=await readmission.json();
       assert.notEqual(generation,oldAdmission.generation);
-      const publish={senderUid:sender,recipientUid:recipient,conversationId:pilot.conversationId,
-        messageId:pilot.messageId,expiresAt:rows.get(pending).expiresAt.toISOString(),
-        expectedSenderGeneration:uid===sender ? generation : rows.get(admission(sender)).generation,
-        expectedRecipientGeneration:uid===recipient ? generation : rows.get(admission(recipient)).generation};
-      assert.equal((await admin('publish',publish,publisher)).status,403);
+      assert.equal((await admin('publish',publication(preAdmissionId,generation),publisher)).status,403);
+      assert.equal((await admin('publish',publication(pilot.messageId,generation),publisher)).status,403);
       await assertNotice(fixture,404);
+      assert.equal((await worker.fetch(request(),fixture.env)).status,202);
+      assert.equal(fixture.stats().reserved,0);
+      assert.equal(fixture.stats().sent,0);
 
       await delay(5);
       const newId='mensagem-integrada-apos-restauracao';
-      const batch=database.batch();
-      batch.update(database.doc(room),{lastMessageId:newId,updatedAt:FieldValue.serverTimestamp()});
-      batch.set(database.doc(room+'/messages/'+newId),{...rows.get(event),createdAt:FieldValue.serverTimestamp()});
-      await batch.commit();
-      assert.equal((await admin('publish',{...publish,messageId:newId},publisher)).status,200);
+      await writeMessage(newId);
+      assert.equal((await admin('publish',publication(newId,generation),publisher)).status,200);
       await assertNotice(fixture,200,newId);
       assert.equal((await worker.fetch(request(pilot.projectId,newId),fixture.env)).status,202);
       assert.equal(fixture.stats().reserved,1);
       assert.equal(fixture.stats().sent,1);
+
+      const revokeRestoration=await admin('revoke',{uid,tokenId},reviewer,'age18');
+      assert.equal(revokeRestoration.status,200);
+      await assertFails(getDocFromServer(doc(session(uid),event)));
+      await assertNotice(fixture,404);
+      assert.equal((await admin('consume',{uid,tokenId},consumer,'age18')).status,409);
     });
   }
 
@@ -519,13 +586,13 @@ test('mesmos documentos para Rules e Worker de Conversas do piloto DM #199',asyn
     const notice=await worker.fetch(requestNotice(),fixture.env);
     assert.equal(notice.status,503);
     assert.equal((await notice.json()).status,'disabled');
-    for (const action of ['admit','revoke','publish']) {
-      const administrative=new Request('https://qa.invalid/v1/qa/conversations/push/admin/'+action,
+    for (const route of ['push/admin/admit','push/admin/revoke','push/admin/publish',
+      'age18/admin/issue','age18/admin/consume','age18/admin/revoke']) {
+      const administrative=new Request('https://qa.invalid/v1/qa/conversations/'+route,
         {method:'POST'});
       assert.equal((await worker.fetch(administrative,fixture.env)).status,404);
     }
     assert.deepEqual(fixture.stats(),{reserved:0,sent:0,reads:0,cloudCalls:0});
-    assert.equal(fixture.fcmLog.mock.callCount(),0);
   });
 
   await t.test('Rules impedem recriação de admissão e listagem de chats',async()=>{

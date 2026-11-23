@@ -2,17 +2,22 @@
 // O endpoint que invocar execute() deve usar HTTPS, não aceitar proxy de identidade
 // e injetar Firebase Admin Auth do projeto QA, com allowlist somente no servidor.
 import {createConversationPushAdminService} from './conversation-push-admin.mjs';
+import {conversationPushIdentity} from './conversation-push-policy.mjs';
+import {createQaAge18Restoration} from './qa-age18-restoration.mjs';
 
-const CAPABILITIES=new Set(['manage_admissions','publish_notices']);
 const ACTIONS=Object.freeze({
   admit:'manage_admissions',
   revoke:'manage_admissions',
   publish:'publish_notices',
+  issueAge18:'manage_age18_restoration',
+  consumeAge18:'consume_age18_restoration',
+  revokeAge18:'manage_age18_restoration',
 });
+const CAPABILITIES=new Set(Object.values(ACTIONS));
 const uidValid=uid=>typeof uid==='string' && /^[A-Za-z0-9_-]{1,128}$/.test(uid);
 
 export function createAuthenticatedConversationPushAdmin({
-  db,auth,serverTimestamp,projectId,allowedOperators,identity,now,
+  db,auth,serverTimestamp,projectId,allowedOperators,identity=conversationPushIdentity,now,
 }) {
   if (!auth || typeof auth.verifyIdToken!=='function' ||
       typeof projectId!=='string' || !/^atrio-catolico-qa-[a-z-]+$/.test(projectId) ||
@@ -28,16 +33,22 @@ export function createAuthenticatedConversationPushAdmin({
   }
   // Serviço privado: nenhum chamador externo recebe o Admin SDK ou uma
   // referência ao serviço com privilégios elevados.
-  const service=createConversationPushAdminService({
+  const dependencies={
     db,serverTimestamp,identity,now,
     authorize:(principal,capability)=>
       typeof principal==='string' && allowed.get(principal)?.has(capability)===true,
-  });
+  };
+  const push=createConversationPushAdminService(dependencies);
+  const age18=createQaAge18Restoration(dependencies);
+  const operations={
+    admit:push.admit, revoke:push.revoke, publish:push.publish,
+    issueAge18:age18.issue, consumeAge18:age18.consume, revokeAge18:age18.revoke,
+  };
 
   async function execute({authorization,action,payload}) {
-    const capability=ACTIONS[action];
-    if (!capability || !payload || typeof payload!=='object' ||
+    if (!Object.hasOwn(ACTIONS,action) || !payload || typeof payload!=='object' ||
         Array.isArray(payload)) throw new Error('invalid_admin_request');
+    const capability=ACTIONS[action];
     if (typeof authorization!=='string' ||
         !/^Bearer [A-Za-z0-9_.-]+$/.test(authorization))
       throw new Error('operator_unauthenticated');
@@ -58,7 +69,7 @@ export function createAuthenticatedConversationPushAdmin({
       throw new Error('operator_forbidden');
     // Não permitir que o payload controle a identidade do operador.
     const {principal:_ignored,...data}=payload;
-    return service[action]({...data,principal:token.uid});
+    return operations[action]({...data,principal:token.uid});
   }
   return Object.freeze({execute});
 }
