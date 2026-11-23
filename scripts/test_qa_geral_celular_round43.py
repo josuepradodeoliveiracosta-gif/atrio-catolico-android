@@ -223,33 +223,61 @@ class NoticeManifestTest(unittest.TestCase):
         )
 
     def test_https_preserves_exact_exported_qa_and_firebase_auth_activities(self):
-        names = (
-            "androidx.activity.ComponentActivity",
-            "com.google.firebase.auth.internal.GenericIdpActivity",
-            "com.google.firebase.auth.internal.RecaptchaActivity",
-        )
-        additional = "".join(
-            '<activity android:name="' + name + '" android:exported="true" />'
-            for name in names
-        )
-        verify_notice_manifest(
-            HTTPS_MANIFEST.replace("</application>", additional + "</application>"),
-            https=True,
-        )
-        for component in names:
-            exposed = ('<activity android:name="' + component + '" '
-                       'android:exported="true" />')
-            unsafe = (
-                exposed.replace('android:exported="true"',
-                                'android:exported="true" android:permission="android.permission.INTERNET"'),
-                exposed.replace('/>', '>'
-                    '<intent-filter><action android:name="android.intent.action.VIEW" /></intent-filter>'
-                    '</activity>'),
+        def component(name, scheme=None):
+            if scheme is None:
+                return '<activity android:name="' + name + '" android:exported="true" />'
+            return (
+                '<activity android:name="' + name + '" android:exported="true">'
+                '<intent-filter><action android:name="android.intent.action.VIEW" />'
+                '<category android:name="android.intent.category.DEFAULT" />'
+                '<category android:name="android.intent.category.BROWSABLE" />'
+                '<data android:scheme="' + scheme + '" android:host="firebase.auth" '
+                'android:path="/" /></intent-filter></activity>'
             )
-            for mutated in unsafe:
-                with self.subTest(component=component, mutated=mutated), self.assertRaises(PreflightError):
+
+        qa = component("androidx.activity.ComponentActivity")
+        auth = (
+            component("com.google.firebase.auth.internal.GenericIdpActivity", "genericidp"),
+            component("com.google.firebase.auth.internal.RecaptchaActivity", "recaptcha"),
+        )
+        valid = HTTPS_MANIFEST.replace("</application>", qa + "".join(auth) + "</application>")
+        verify_notice_manifest(valid, https=True)
+
+        with self.assertRaises(PreflightError):
+            verify_notice_manifest(HTTPS_MANIFEST.replace(
+                "</application>",
+                qa.replace("/>", '><intent-filter><action android:name="android.intent.action.VIEW" />'
+                           '</intent-filter></activity>') + "</application>",
+            ), https=True)
+
+        for sdk in auth:
+            tampered = (
+                sdk.replace('android:host="firebase.auth"', 'android:host="attacker.invalid"'),
+                sdk.replace('android:path="/"', 'android:path="/ota"'),
+                sdk.replace('android:scheme="genericidp"', 'android:scheme="recaptcha"')
+                if "genericidp" in sdk else sdk.replace(
+                    'android:scheme="recaptcha"', 'android:scheme="genericidp"'),
+                sdk.replace('android.intent.action.VIEW', 'android.intent.action.INSTALL_PACKAGE'),
+                sdk.replace('android.intent.category.BROWSABLE', 'android.intent.category.LAUNCHER'),
+                sdk.replace(
+                    '<data android:scheme=',
+                    '<data android:port="443" /><data android:scheme=',
+                ),
+                sdk.replace(
+                    'android:exported="true"', 'android:exported="true" '
+                    'android:permission="android.permission.INTERNET"',
+                ),
+                sdk.replace("<intent-filter>", "<intent-filter><action android:name="
+                            '"android.intent.action.MAIN" />'),
+                sdk.replace("</intent-filter>", '</intent-filter>'
+                    '<intent-filter><action android:name="android.intent.action.MAIN" />'
+                    '</intent-filter>'),
+                sdk.split("<intent-filter>")[0] + "</activity>",
+            )
+            for invalid in tampered:
+                with self.subTest(invalid=invalid), self.assertRaises(PreflightError):
                     verify_notice_manifest(
-                        HTTPS_MANIFEST.replace("</application>", mutated + "</application>"),
+                        HTTPS_MANIFEST.replace("</application>", invalid + "</application>"),
                         https=True,
                     )
 
