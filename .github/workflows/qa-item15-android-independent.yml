@@ -115,6 +115,16 @@ jobs:
           disable-animations: true
           emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -accel on -camera-back none
           script: bash scripts/run-qa-android-emulator.sh
+      - name: Diagnosticar prebuild de instrumentação se o AVD falhar
+        if: failure()
+        shell: bash
+        run: |
+          if [[ -f qa-android-prebuild.log ]]; then
+            grep -E '(^| )e: |error:|Unresolved reference|Compilation error|^> Task .*FAILED|^FAILURE:|BUILD FAILED' qa-android-prebuild.log | tail -65 || true
+          fi
+          if [[ -f qa-android-suite-results/age18-fixture.log ]]; then
+            tail -35 qa-android-suite-results/age18-fixture.log
+          fi
       - name: Conferir manifesto, pacote e SHA-256 do APK
         if: always()
         run: |
