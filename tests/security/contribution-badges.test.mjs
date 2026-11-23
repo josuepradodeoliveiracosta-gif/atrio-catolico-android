@@ -86,6 +86,17 @@ try {
   }));
   await assertFails(getDoc(doc(owner, 'contribution_ledger/private-ledger-entry')));
   await assertFails(getDoc(doc(owner, 'contribution_first_posts/contribution-owner')));
+  await assertFails(getDoc(doc(owner, 'contribution_first_posts/contribution-owner/feed/first')));
+  await env.withSecurityRulesDisabled(context => setDoc(
+    doc(context.firestore(), 'contribution_config/feed_rollout'), {startedAt: serverTimestamp()},
+  ));
+  const feedConfig = await assertSucceeds(getDoc(doc(owner, 'contribution_config/feed_rollout')));
+  assert.deepEqual(Object.keys(feedConfig.data()), ['startedAt']);
+  await assertFails(getDoc(doc(anon, 'contribution_config/feed_rollout')));
+  await assertFails(getDoc(doc(owner, 'contribution_config/rollout')));
+  await assertFails(getDocs(collection(owner, 'contribution_config')));
+  await assertFails(setDoc(doc(owner, 'contribution_config/feed_rollout'), {startedAt: serverTimestamp()}));
+
   await assertFails(getDoc(doc(owner,
     'contribution_post_likes/contribution-post/actors/private-actor')));
 

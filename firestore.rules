@@ -1241,6 +1241,10 @@ service cloud.firestore {
     match /contribution_first_posts/{uid} {
       allow read, write: if false;
     }
+    match /contribution_config/feed_rollout {
+      allow get: if signedIn() && emailVerificationAllowsCommunityAccess();
+      allow list, write: if false;
+    }
     match /contribution_config/{id} {
       allow read, write: if false;
     }

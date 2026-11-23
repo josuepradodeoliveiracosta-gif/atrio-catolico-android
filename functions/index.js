@@ -9,7 +9,7 @@ const {
   onDocumentWritten,
 } = require("firebase-functions/v2/firestore");
 const logger = require("firebase-functions/logger");
-const { deriveAwards, millis, progressForPoints } = require("./contribution-core.cjs");
+const { deriveAwards, deriveFeedAwards, millis, progressForPoints } = require("./contribution-core.cjs");
 
 admin.initializeApp();
 const db = getFirestore();
@@ -134,8 +134,14 @@ function awardDocumentId(actionKey) {
   return crypto.createHash("sha256").update(actionKey).digest("hex");
 }
 
-async function nextPostGeneration(postId) {
-  const generationRef = db.doc(`contribution_reconciliation/${postId}`);
+function postGenerationRef(postId, feed) {
+  return db.doc(feed
+    ? `contribution_reconciliation/feed/scopes/${postId}`
+    : `contribution_reconciliation/${postId}`);
+}
+
+async function nextPostGeneration(postId, feed = false) {
+  const generationRef = postGenerationRef(postId, feed);
   return db.runTransaction(async (transaction) => {
     const current = await transaction.get(generationRef);
     const next = (Number(current.get("generation")) || 0) + 1;
@@ -154,7 +160,7 @@ function groupProgressDelta(deltaByUser, uid, track, points) {
   deltaByUser.set(uid, userDelta);
 }
 
-async function applyAwards(postId, generation, desiredAwards, existingEntries) {
+async function applyAwards(postId, generation, desiredAwards, existingEntries, feed = false, firstAuthorUid = "") {
   const byActionKey = new Map(desiredAwards);
   for (const [actionKey] of existingEntries) {
     if (!byActionKey.has(actionKey)) byActionKey.set(actionKey, null);
@@ -163,9 +169,17 @@ async function applyAwards(postId, generation, desiredAwards, existingEntries) {
   for (let offset = 0; offset < entries.length; offset += PAGE_SIZE) {
     const chunk = entries.slice(offset, offset + PAGE_SIZE);
     const completed = await db.runTransaction(async (transaction) => {
-      const generationRef = db.doc(`contribution_reconciliation/${postId}`);
+      const generationRef = postGenerationRef(postId, feed);
       const generationSnapshot = await transaction.get(generationRef);
       if (generationSnapshot.get("generation") !== generation) return false;
+
+      if (firstAuthorUid) {
+        const [first, legacy] = await transaction.getAll(
+          feedFirstMarker(firstAuthorUid),
+          db.doc(`contribution_first_posts/${firstAuthorUid}`),
+        );
+        if (first.get("postId") !== postId || first.get("legacyAuthor") || legacy.get("postId")) return false;
+      }
 
       const ledgerRefs = chunk.map(([actionKey]) =>
         db.doc(`contribution_ledger/${awardDocumentId(actionKey)}`));
@@ -177,6 +191,9 @@ async function applyAwards(postId, generation, desiredAwards, existingEntries) {
         const [actionKey, desired] = chunk[index];
         const snapshot = ledgerSnapshots[index];
         const previous = snapshot.exists ? snapshot.data() : null;
+        // The welcome key is per pair of people and may have moved to an
+        // earlier publication since this scope last read its ledger.
+        if (feed && !desired && previous?.feedPostId !== postId) continue;
         const previousPoints = previous?.active === true
           ? Math.max(0, Number(previous.points) || 0) : 0;
         const nextPoints = desired ? Math.max(0, Number(desired.points) || 0) : 0;
@@ -202,7 +219,7 @@ async function applyAwards(postId, generation, desiredAwards, existingEntries) {
               points: nextPoints,
               sourcePath: desired.sourcePath,
               targetPath: desired.targetPath,
-              scopePostId: postId,
+              ...(feed ? { feedPostId: postId } : { scopePostId: postId }),
               active: true,
               createdAt: previous?.createdAt || FieldValue.serverTimestamp(),
               updatedAt: FieldValue.serverTimestamp(),
@@ -524,6 +541,117 @@ async function handleContributionEvent(event, postId, happenedAt = eventTime(eve
   }
 }
 
+function feedFirstMarker(uid) {
+  return db.doc(`contribution_first_posts/${uid}/feed/first`);
+}
+
+async function rememberFeedFirstPublication(uid, candidate) {
+  const markerRef = feedFirstMarker(uid);
+  const legacyRef = db.doc(`contribution_first_posts/${uid}`);
+  return db.runTransaction(async (transaction) => {
+    const [marker, legacy] = await transaction.getAll(markerRef, legacyRef);
+    const previous = marker.exists
+      ? { id: marker.get("postId"), createdAt: marker.get("createdAt") }
+      : null;
+    let first = earlierPost(previous, candidate);
+    let legacyAuthor = marker.get("legacyAuthor") === true || Boolean(legacy.get("postId"));
+    if (!marker.exists) {
+      if (!legacyAuthor) {
+        const legacyPosts = await transaction.get(db.collection("posts")
+          .where("uid", "==", uid).limit(1));
+        legacyAuthor = !legacyPosts.empty;
+      }
+      // Include unpublished records so removing a first post cannot restart
+      // a member's welcome cycle. Creation events cover documents later deleted.
+      const snapshots = await transaction.get(db.collection("feed_posts")
+        .where("authorUid", "==", uid).orderBy("createdAt", "asc").limit(1));
+      const earliest = snapshots.docs[0];
+      if (earliest) first = earlierPost(first, {id: earliest.id, createdAt: earliest.get("createdAt")});
+    }
+    const superseded = new Set(marker.get("supersededPostIds") || []);
+    if (previous?.id && previous.id !== first?.id) superseded.add(previous.id);
+    if (first && (previous?.id !== first.id || marker.get("legacyAuthor") !== legacyAuthor)) {
+      transaction.set(markerRef, {
+        postId: first.id,
+        createdAt: first.createdAt,
+        legacyAuthor,
+        supersededPostIds: [...superseded],
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    }
+    return {first, supersededPostIds: [...superseded], legacyAuthor};
+  });
+}
+
+async function recordFeedPublication(snapshot) {
+  const uid = snapshot?.get("authorUid");
+  const createdAt = snapshot?.get("createdAt") || snapshot?.createTime;
+  if (!uid || !createdAt || !["timeline", "channel"].includes(snapshot.get("destination"))) return;
+  const {supersededPostIds} = await rememberFeedFirstPublication(uid, {
+    id: snapshot.id,
+    createdAt,
+  });
+  for (const postId of supersededPostIds) {
+    await reconcileFeedPost(postId);
+    await feedFirstMarker(uid).update({supersededPostIds: FieldValue.arrayRemove(postId)});
+  }
+}
+
+async function reconcileFeedPost(postId) {
+  // Reprocess deliveries against the same server-controlled cutoff. Historical
+  // forum awards and interactions preceding the feed rollout are left intact.
+  const rollout = await db.doc("contribution_config/feed_rollout").get();
+  const rolloutAtMs = millis(rollout.get("startedAt"));
+  if (!rolloutAtMs) return;
+
+  const generation = await nextPostGeneration(postId, true);
+  const postRef = db.doc(`feed_posts/${postId}`);
+  const [post, ledger] = await Promise.all([
+    postRef.get(),
+    db.collection("contribution_ledger").where("feedPostId", "==", postId).get(),
+  ]);
+  const existing = new Map(ledger.docs.map((entry) => [entry.get("actionKey"), entry.data()]));
+  const published = post.exists && post.get("published") === true;
+  const comments = published ? (await postRef.collection("comments").get()).docs.map((comment) => ({
+    ...comment.data(),
+    id: comment.id,
+  })) : [];
+  const uid = post.get("authorUid");
+  const member = published && uid ? await rememberFeedFirstPublication(uid) : null;
+  const firstFeedPublicationId = member && !member.legacyAuthor &&
+      millis(member.first?.createdAt) >= rolloutAtMs
+    ? member.first.id : "";
+  const desired = deriveFeedAwards({
+    postId, post: post.data(), comments, rolloutAtMs, firstFeedPublicationId,
+  });
+  const hasWelcome = [...desired.values()].some((award) => award.track === "welcome");
+  await applyAwards(postId, generation, desired, existing, true, hasWelcome ? uid : "");
+}
+
+exports.contributionFeedCommentWritten = onDocumentWritten(
+  { document: "feed_posts/{postId}/comments/{commentId}", retry: true },
+  (event) => reconcileFeedPost(event.params.postId),
+);
+
+exports.contributionFeedPublicationChanged = onDocumentWritten(
+  { document: "feed_posts/{postId}", retry: true },
+  async (event) => {
+    const before = event.data?.before;
+    const after = event.data?.after;
+    if (!before?.exists && after?.exists) {
+      await recordFeedPublication(after);
+      await reconcileFeedPost(event.params.postId);
+      return;
+    }
+    if (!before?.exists) return;
+    if (!after?.exists) await recordFeedPublication(before);
+    const fields = ["published", "authorUid", "destination"];
+    if (!after?.exists || fields.some((field) => before.get(field) !== after.get(field))) {
+      await reconcileFeedPost(event.params.postId);
+    }
+  },
+);
+
 async function forumRetired() {
   return (await db.doc("app_config/community_feed").get()).get("forumRetired") === true;
 }
@@ -543,6 +671,12 @@ exports.contributionPostCreated = onDocumentCreated(
       await handleContributionEvent(event, first.previousPostId, happenedAt);
     }
     await handleContributionEvent(event, event.params.postId, happenedAt);
+    if (uid) {
+      const feedFirst = await feedFirstMarker(uid).get();
+      if (feedFirst.get("postId")) {
+        await reconcileFeedPost(feedFirst.get("postId"));
+      }
+    }
   },
 );
 
