@@ -117,6 +117,7 @@ internal fun QaShopScreen(
     val uriHandler = LocalUriHandler.current
     var orderId by rememberSaveable { mutableStateOf<String?>(null) }
     var orderSummary by rememberSaveable { mutableStateOf("") }
+    var supplierSubmission by rememberSaveable { mutableStateOf<String?>(null) }
     var orderStage by rememberSaveable { mutableStateOf(QaShopOrderStage.PENDING) }
     var showOrder by rememberSaveable { mutableStateOf(false) }
     var checkoutMessage by rememberSaveable { mutableStateOf<String?>(null) }
@@ -157,8 +158,13 @@ internal fun QaShopScreen(
     if (showOrder && currentOrderId != null) {
         val closeOrder = { showOrder = false }
         BackHandler(onBack = closeOrder)
-        QaShopOrderScreen(currentOrderId, orderSummary, orderStage, closeOrder) { next ->
-            orderStage = next
+        QaShopOrderScreen(orderSummary, orderStage, supplierSubmission, closeOrder) { expected, next ->
+            if (orderId == currentOrderId && orderStage == expected) {
+                if (next == QaShopOrderStage.SUBMITTED && supplierSubmission == null) {
+                    supplierSubmission = "QA-$currentOrderId"
+                }
+                orderStage = next
+            }
         }
         return
     }
@@ -226,6 +232,7 @@ internal fun QaShopScreen(
                             if (orderId == null || orderStage.isClosed) {
                                 orderId = java.util.UUID.randomUUID().toString()
                                 orderStage = QaShopOrderStage.PENDING
+                                supplierSubmission = null
                                 orderSummary = "${product.name} · ${formatQaShopPrice(acceptedQuote.totalMinor, acceptedQuote.currency)}"
                             }
                         } catch (cancelled: CancellationException) {
@@ -302,11 +309,11 @@ internal fun QaShopScreen(
 
 @Composable
 private fun QaShopOrderScreen(
-    orderId: String,
     summary: String,
     stage: QaShopOrderStage,
+    supplierSubmission: String?,
     onClose: () -> Unit,
-    onStageChange: (QaShopOrderStage) -> Unit
+    onStageChange: (QaShopOrderStage, QaShopOrderStage) -> Unit
 ) {
     val actions = when (stage) {
         QaShopOrderStage.PENDING -> listOf(
@@ -331,12 +338,25 @@ private fun QaShopOrderScreen(
         item { SectionTitle("Pedido simulado") }
         item { Text(summary) }
         item { Text(stage.label, Modifier.testTag("atrio-qa-shop-order-status")) }
+        item {
+            Text(
+                if (supplierSubmission == null) "Envios simulados: 0" else "Envios simulados: 1",
+                Modifier.testTag("atrio-qa-shop-submission-count")
+            )
+        }
+        if (supplierSubmission != null && stage == QaShopOrderStage.SUBMITTED) {
+            item {
+                TextButton(onClick = {
+                    onStageChange(QaShopOrderStage.PENDING, QaShopOrderStage.SUBMITTED)
+                }) { Text("Repetir confirmação de pagamento") }
+            }
+        }
         if (stage in setOf(QaShopOrderStage.SHIPPED, QaShopOrderStage.DELIVERED,
                 QaShopOrderStage.RETURN_REQUESTED, QaShopOrderStage.REFUNDED)) {
-            item { Text("Rastreio fictício: QA-${orderId.take(8)}") }
+            supplierSubmission?.let { reference -> item { Text("Rastreio fictício: $reference") } }
         }
         items(actions, key = { it.first }) { (label, next) ->
-            TextButton(onClick = { onStageChange(next) }) { Text(label) }
+            TextButton(onClick = { onStageChange(stage, next) }) { Text(label) }
         }
     }
 }
