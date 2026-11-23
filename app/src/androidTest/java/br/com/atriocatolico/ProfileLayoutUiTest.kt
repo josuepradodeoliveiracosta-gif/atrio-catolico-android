@@ -1,6 +1,7 @@
 package br.com.atriocatolico
 
 import android.graphics.Bitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -221,7 +222,10 @@ class ProfileLayoutUiTest {
         compose.onNodeWithTag("atrio-welcome-vitral").assertExists()
         compose.onNodeWithText("Boas-vindas!").assertExists()
         compose.waitForIdle()
-        screenshot("boas-vindas-vitral")
+        screenshot(
+            "boas-vindas-vitral",
+            compose.onNodeWithTag("atrio-signup-welcome").captureToImage().asAndroidBitmap()
+        )
         compose.onNodeWithTag("atrio-welcome-create").assertExists().performClick()
         compose.runOnIdle { assertEquals("create", selected) }
         compose.onNodeWithTag("atrio-welcome-login").assertExists().performClick()
@@ -485,7 +489,7 @@ class ProfileLayoutUiTest {
         compose.onNodeWithTag("perfilqa-name").assertDoesNotExist()
     }
 
-    private fun screenshot(name: String) {
+    private fun screenshot(name: String, composableBitmap: Bitmap? = null) {
         // O Gradle pode desinstalar o APK ao terminar a suíte. Guardar a captura
         // no diretório do shell de QA evita perdê-la junto com os dados do app.
         if (Build.VERSION.SDK_INT < 31) return
@@ -496,7 +500,7 @@ class ProfileLayoutUiTest {
         ).use { it.readBytes() }
         // Captura pela automação Android: inclui diálogos, superfícies e selos
         // sem depender da captura Compose, que pode falhar no emulador de CI.
-        val bitmap = automation.takeScreenshot()
+        val bitmap = composableBitmap ?: automation.takeScreenshot()
             ?: error("O emulador Android não conseguiu capturar a tela")
         val pipes = automation.executeShellCommandRw("dd of=/data/local/tmp/atrio-profile-preview/$name.png")
         ParcelFileDescriptor.AutoCloseInputStream(pipes[0]).use { output ->
