@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -76,6 +78,79 @@ internal fun RegistrationWelcomeScreen(onCreate: () -> Unit, onLogin: () -> Unit
                 border = BorderStroke(1.dp, outlineColor),
                 shape = RoundedCornerShape(14.dp)
             ) { Text("Entrar", color = titleColor) }
+        }
+    }
+}
+
+@Composable
+internal fun RegistrationCompactHeader(
+    titleColor: Color,
+    outlineColor: Color,
+    onBack: () -> Unit,
+    enabled: Boolean = true
+) {
+    Box(Modifier.widthIn(max = 440.dp).fillMaxWidth()) {
+        IconButton(
+            onClick = onBack,
+            enabled = enabled,
+            modifier = Modifier.align(Alignment.TopStart).testTag("atrio-auth-back")
+        ) {
+            Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Voltar", tint = titleColor)
+        }
+        Column(
+            Modifier.align(Alignment.Center).padding(horizontal = 48.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Image(
+                painterResource(R.drawable.atrio_boas_vindas_vitral),
+                contentDescription = null,
+                modifier = Modifier.size(72.dp).testTag("atrio-auth-vitral")
+            )
+            Text(
+                "Átrio Católico", color = titleColor, fontFamily = FontFamily.Serif,
+                fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
+                style = MaterialTheme.typography.titleLarge
+            )
+        }
+    }
+    HorizontalDivider(
+        Modifier.widthIn(max = 440.dp).fillMaxWidth().padding(top = 12.dp),
+        color = outlineColor
+    )
+}
+
+@Composable
+internal fun RegistrationParticipationScreen(onContinue: () -> Unit, onBack: () -> Unit) {
+    val dark = isSystemInDarkTheme()
+    val background = if (dark) Color(0xFF20171A) else Color(0xFFFAF5ED)
+    val titleColor = if (dark) Color(0xFFFFB2C6) else Color(0xFF701333)
+    val outlineColor = if (dark) Color(0xFFE8BA62) else Color(0xFFA57926)
+    Column(
+        Modifier.fillMaxSize().background(background).statusBarsPadding().navigationBarsPadding()
+            .verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        RegistrationCompactHeader(titleColor, outlineColor, onBack)
+        Text(
+            "Como você quer participar?",
+            modifier = Modifier.widthIn(max = 440.dp).fillMaxWidth(),
+            color = titleColor, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center, style = MaterialTheme.typography.headlineSmall
+        )
+        for (label in listOf(
+            "Sou católico(a)",
+            "Quero conhecer melhor a fé católica",
+            "Nenhuma das opções se aplica a mim"
+        )) {
+            Button(
+                onClick = onContinue,
+                modifier = Modifier.widthIn(max = 440.dp).fillMaxWidth().heightIn(min = 48.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF701333), contentColor = Color.White
+                ),
+                shape = RoundedCornerShape(14.dp)
+            ) { Text(label, textAlign = TextAlign.Center) }
         }
     }
 }

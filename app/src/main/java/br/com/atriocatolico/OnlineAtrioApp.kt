@@ -8,7 +8,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -19,7 +18,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.Logout
 import androidx.compose.material3.*
@@ -32,7 +30,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.autofill.ContentType
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
@@ -235,18 +232,24 @@ internal fun OnlineAtrioApp(
     }
 }
 
+private enum class AuthPage { WELCOME, PARTICIPATION, REGISTER, LOGIN }
+
 @Composable
-private fun OnlineAuthScreen(
+internal fun OnlineAuthScreen(
     auth: FirebaseAuth, db: FirebaseFirestore,
     onRegistrationStarted: () -> Unit = {},
     onRegistrationCreated: (String) -> Unit = {},
     onVerificationSent: (String, Boolean) -> Unit = { _, _ -> },
-    onRegistrationFailed: () -> Unit = {}
+    onRegistrationFailed: () -> Unit = {},
+    showWelcomeInIsolatedQa: Boolean = false
 ) {
     val isIsolatedQa = BuildConfig.DEBUG &&
         com.google.firebase.FirebaseApp.getInstance().options.projectId == "demo-atrio-v11"
-    var entranceChosen by rememberSaveable { mutableStateOf(isIsolatedQa) }
-    var registering by remember { mutableStateOf(false) }
+    val startAtLogin = isIsolatedQa && !showWelcomeInIsolatedQa
+    var page by rememberSaveable {
+        mutableStateOf(if (startAtLogin) AuthPage.LOGIN else AuthPage.WELCOME)
+    }
+    val registering = page == AuthPage.REGISTER
     var displayName by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -273,21 +276,35 @@ private fun OnlineAuthScreen(
         showConfirmation = false
     }
 
-    fun returnToWelcome() {
+    fun goBack() {
         clearFormState()
-        entranceChosen = false
+        page = when {
+            startAtLogin -> AuthPage.LOGIN
+            page == AuthPage.REGISTER -> AuthPage.PARTICIPATION
+            else -> AuthPage.WELCOME
+        }
     }
 
-    BackHandler(enabled = entranceChosen && !isIsolatedQa && !busy) {
-        returnToWelcome()
+    BackHandler(enabled = page != AuthPage.WELCOME && !startAtLogin && !busy) {
+        goBack()
     }
 
-    if (!entranceChosen) {
-        RegistrationWelcomeScreen(
-            onCreate = { registering = true; entranceChosen = true },
-            onLogin = { registering = false; entranceChosen = true }
-        )
-        return
+    when (page) {
+        AuthPage.WELCOME -> {
+            RegistrationWelcomeScreen(
+                onCreate = { page = AuthPage.PARTICIPATION },
+                onLogin = { page = AuthPage.LOGIN }
+            )
+            return
+        }
+        AuthPage.PARTICIPATION -> {
+            RegistrationParticipationScreen(
+                onContinue = { page = AuthPage.REGISTER },
+                onBack = { goBack() }
+            )
+            return
+        }
+        AuthPage.REGISTER, AuthPage.LOGIN -> Unit
     }
 
     val emailValid = RegistrationPolicy.validEmail(email)
@@ -327,37 +344,12 @@ private fun OnlineAuthScreen(
         horizontalAlignment = if (registering) Alignment.CenterHorizontally else Alignment.Start
     ) {
         if (registering) {
-            Box(Modifier.widthIn(max = 440.dp).fillMaxWidth()) {
-                IconButton(
-                    onClick = {
-                        if (isIsolatedQa) {
-                            clearFormState()
-                            registering = false
-                        } else {
-                            returnToWelcome()
-                        }
-                    },
-                    enabled = !busy,
-                    modifier = Modifier.align(Alignment.TopStart).testTag("atrio-auth-back")
-                ) {
-                    Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Voltar", tint = formHeading)
-                }
-                Column(
-                    Modifier.align(Alignment.Center).padding(horizontal = 48.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Image(
-                        painterResource(R.drawable.atrio_boas_vindas_vitral),
-                        contentDescription = null,
-                        modifier = Modifier.size(72.dp).testTag("atrio-auth-vitral")
-                    )
-                    Text("Átrio Católico", color = formHeading, fontFamily = FontFamily.Serif,
-                        fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
-                        style = MaterialTheme.typography.titleLarge)
-                }
-            }
-            HorizontalDivider(Modifier.widthIn(max = 440.dp).fillMaxWidth().padding(top = 12.dp),
-                color = formOutline)
+            RegistrationCompactHeader(
+                titleColor = formHeading,
+                outlineColor = formOutline,
+                onBack = { goBack() },
+                enabled = !busy
+            )
         } else {
             Text("✝", fontFamily = FontFamily.Serif, fontSize = 52.sp, color = Gold)
             Text("Átrio Católico", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
@@ -577,10 +569,14 @@ private fun OnlineAuthScreen(
                         }
                     }
                 ) { Text(if (busy) "Aguarde..." else if (registering) "Criar conta" else "Entrar") }
-                if (!registering || isIsolatedQa) {
+                if (!registering || startAtLogin) {
                     TextButton(onClick = {
                         clearFormState()
-                        registering = !registering
+                        page = when {
+                            registering -> AuthPage.LOGIN
+                            startAtLogin -> AuthPage.REGISTER
+                            else -> AuthPage.PARTICIPATION
+                        }
                     }, enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("atrio-auth-toggle")) {
                         Text(if (registering) "Já tenho conta" else "Ainda não tenho conta")
                     }

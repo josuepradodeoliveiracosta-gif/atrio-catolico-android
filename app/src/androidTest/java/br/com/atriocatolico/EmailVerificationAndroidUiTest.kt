@@ -7,6 +7,7 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -117,6 +118,35 @@ class EmailVerificationAndroidUiTest {
             compose.onAllNodesWithTag(tag, useUnmergedTree = true)
                 .fetchSemanticsNodes().isNotEmpty()
         }
+    }
+
+    @Test fun tresOpcoesDeParticipacaoAbremOCadastroEVoltamParaAEscolha() {
+        val app = FirebaseApp.getInstance()
+        check(BuildConfig.DEBUG && app.options.projectId == project)
+        compose.setContent {
+            AtrioTheme {
+                OnlineAuthScreen(
+                    auth = FirebaseAuth.getInstance(app),
+                    db = com.google.firebase.firestore.FirebaseFirestore.getInstance(app),
+                    showWelcomeInIsolatedQa = true
+                )
+            }
+        }
+        compose.onNodeWithTag("atrio-welcome-create").performScrollTo().performClick()
+        for (option in listOf(
+            "Sou católico(a)",
+            "Quero conhecer melhor a fé católica",
+            "Nenhuma das opções se aplica a mim"
+        )) {
+            compose.onNodeWithText("Como você quer participar?").assertExists()
+            compose.onNodeWithText(option).performScrollTo().performClick()
+            compose.onNodeWithTag("atrio-auth-name").assertExists()
+            compose.onNodeWithTag("atrio-auth-back").performScrollTo().performClick()
+        }
+        compose.onNodeWithTag("atrio-auth-back").performScrollTo().performClick()
+        compose.onNodeWithTag("atrio-welcome-login").performScrollTo().performClick()
+        compose.onNodeWithText("Entrar na comunidade").assertExists()
+        compose.onNodeWithTag("atrio-auth-name").assertDoesNotExist()
     }
 
     @Test fun cadastroReenvioConfirmacaoEAtualizacaoDoToken() {
