@@ -42,10 +42,10 @@ private fun feedPage(query: Query, retry: Int): FeedPage {
     var page by remember(query, retry) { mutableStateOf(FeedPage(emptyList(), true, false)) }
     DisposableEffect(query, retry) {
         val registration = query.addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, error ->
-            val confirmed = snapshot != null && !snapshot.metadata.isFromCache
+            val confirmedSnapshot = snapshot?.takeUnless { it.metadata.isFromCache }
             page = FeedPage(
-                documents = if (confirmed) snapshot?.documents.orEmpty() else emptyList(),
-                loading = !confirmed && error == null,
+                documents = confirmedSnapshot?.documents.orEmpty(),
+                loading = confirmedSnapshot == null && error == null,
                 failed = error != null,
             )
         }

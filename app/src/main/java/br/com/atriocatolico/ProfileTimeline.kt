@@ -140,9 +140,9 @@ internal fun ProfilePublications(
             .orderBy("createdAt", Query.Direction.DESCENDING)
             .limit(limit)
             .addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, failure ->
-                val serverConfirmed = snapshot != null && !snapshot.metadata.isFromCache
-                entries = if (serverConfirmed) snapshot?.documents.orEmpty() else emptyList()
-                loading = !serverConfirmed && failure == null
+                val confirmedSnapshot = snapshot?.takeUnless { it.metadata.isFromCache }
+                entries = confirmedSnapshot?.documents.orEmpty()
+                loading = confirmedSnapshot == null && failure == null
                 failed = failure != null
             }
         onDispose { listener.remove() }
