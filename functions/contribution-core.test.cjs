@@ -4,6 +4,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
   deriveAwards,
+  deriveFeedAwards,
   ledgerPointDelta,
   levelForPoints,
   progressForPoints,
@@ -113,4 +114,49 @@ test("ledger transitions are idempotent and reverse only active points", () => {
   assert.equal(ledgerPointDelta({ active: true, points: 3 }, { points: 3 }), 0);
   assert.equal(ledgerPointDelta({ active: true, points: 3 }, null), -3);
   assert.equal(ledgerPointDelta({ active: false, points: 3 }, null), 0);
+});
+
+const feedComment = (id, authorUid, parentId = "", createdAtMs = 2_000) =>
+  ({id, authorUid, parentId, createdAtMs});
+
+test("feed credits direct interactions once without touching legacy ledger keys", () => {
+  const comments = [
+    feedComment("welcome", "host"),
+    feedComment("again", "host", "", 2_001),
+    feedComment("self", "newcomer"),
+    feedComment("return", "newcomer", "welcome", 2_002),
+    feedComment("return2", "newcomer", "welcome", 2_003),
+    feedComment("nested", "visitor", "welcome", 2_004),
+  ];
+  for (const destination of ["timeline", "channel"]) {
+    const awards = deriveFeedAwards({
+      postId: "first",
+      post: {authorUid: "newcomer", destination, published: true},
+      firstFeedPublicationId: "first",
+      comments,
+    });
+    assert.deepEqual([...awards].map(([id, {points}]) => [id, points]), [
+      ["feed:conversation:first:host", 3],
+      ["feed:helpful:first:welcome:newcomer", 2],
+      ["feed:helpful:first:welcome:visitor", 2],
+      ["feed:welcome:newcomer:host", 2],
+      ["feed:welcome-return:newcomer:host", 3],
+    ]);
+    const welcomeReturn = awards.get("feed:welcome-return:newcomer:host");
+    assert.equal(welcomeReturn.scopePostId, "feed:first");
+    assert.equal(welcomeReturn.targetPath, "feed_posts/first/comments/welcome");
+    assert.equal(welcomeReturn.sourcePath, "feed_posts/first/comments/return");
+  }
+});
+
+test("feed excludes tombstones, orphaned replies and inherited forum newcomers", () => {
+  const post = {authorUid: "owner", destination: "channel", published: true};
+  const root = feedComment("root", "host");
+  const reply = feedComment("reply", "owner", "root");
+  const derive = (options) => deriveFeedAwards({postId: "p", post, ...options});
+
+  assert.equal(derive({comments: [root, reply]}).has("feed:welcome:owner:host"), false);
+  assert.equal(derive({comments: [{...root, removed: true}, reply]}).size, 0);
+  assert.equal(derive({post: {...post, published: false}, comments: [root, reply]}).size, 0);
+  assert.equal(derive({firstFeedPublicationId: "p", rolloutAtMs: 2_001, comments: [root, reply]}).size, 0);
 });

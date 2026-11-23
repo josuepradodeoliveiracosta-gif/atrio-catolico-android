@@ -58,7 +58,10 @@ function deriveAwards({
   replyReactions = [],
   postLikes = [],
   rolloutAtMs = 0,
+  feed = false,
 }) {
+  const postPath = `${feed ? "feed_posts" : "posts"}/${postId}`;
+  const replyPath = (replyId) => `${postPath}/${feed ? "comments" : "replies"}/${replyId}`;
   const awards = new Map();
   const replyById = new Map(replies.map((reply) => [reply.id, reply]));
   const orderedReplies = oldestFirst(replies);
@@ -67,6 +70,7 @@ function deriveAwards({
   const add = (actionKey, actorUid, recipientUid, track, points, sourcePath, targetPath,
     allowActorCredit = false) => {
     if (!actorUid || !recipientUid || (!allowActorCredit && actorUid === recipientUid)) return;
+    if (feed) actionKey = `feed:${actionKey}`;
     awards.set(actionKey, {
       actionKey,
       actorUid,
@@ -75,19 +79,21 @@ function deriveAwards({
       points,
       sourcePath,
       targetPath,
-      scopePostId: postId,
+      scopePostId: feed ? `feed:${postId}` : postId,
     });
   };
 
   // One first reply by each member to a discussion credits its author.
   const firstReplyByMember = new Map();
   for (const reply of orderedReplies) {
-    if (reply.uid && !firstReplyByMember.has(reply.uid)) firstReplyByMember.set(reply.uid, reply);
+    if (reply.uid && (!feed || !reply.replyToId) && !firstReplyByMember.has(reply.uid)) {
+      firstReplyByMember.set(reply.uid, reply);
+    }
   }
   for (const [actorUid, reply] of firstReplyByMember) {
     const actionKey = `conversation:${postId}:${actorUid}`;
     if (eligible(reply)) add(actionKey, actorUid, postOwnerUid, "conversation", 3,
-      reply.sourcePath, `posts/${postId}`);
+      reply.sourcePath, postPath);
   }
 
   // One first direct reply from each member to a reply credits that reply's author.
@@ -101,7 +107,7 @@ function deriveAwards({
   }
   for (const [actionKey, { reply, target }] of firstDirectReply) {
     if (eligible(reply)) add(actionKey, reply.uid, target.uid, "helpful", 2,
-      reply.sourcePath, `posts/${postId}/replies/${target.id}`);
+      reply.sourcePath, replyPath(target.id));
   }
 
   const firstPostId = firstPostIdByUid.get(postOwnerUid) ?? "";
@@ -115,7 +121,7 @@ function deriveAwards({
     for (const [hostUid, reply] of firstWelcomeByHost) {
       const actionKey = `welcome:${postOwnerUid}:${hostUid}`;
       if (eligible(reply)) add(actionKey, hostUid, hostUid, "welcome", 2,
-        reply.sourcePath, `posts/${postId}`, true);
+        reply.sourcePath, postPath, true);
     }
 
     // A direct reply from the newcomer to a host's top-level reply earns three points
@@ -131,7 +137,7 @@ function deriveAwards({
     for (const [hostUid, { reply, target }] of firstReturnByHost) {
       const actionKey = `welcome-return:${postOwnerUid}:${hostUid}`;
       if (eligible(reply)) add(actionKey, postOwnerUid, hostUid, "welcome", 3,
-        reply.sourcePath, `posts/${postId}/replies/${target.id}`);
+        reply.sourcePath, replyPath(target.id));
     }
   }
 
@@ -169,6 +175,35 @@ function deriveAwards({
   return awards;
 }
 
+// Normalize the feed's canonical fields and keep its ledger separate from the
+// historical forum. The caller resolves the first publication across both sources.
+function deriveFeedAwards({postId, post, comments = [], firstFeedPublicationId = "", rolloutAtMs = 0}) {
+  if (post?.published !== true || !post.authorUid ||
+      !["timeline", "channel"].includes(post.destination)) return new Map();
+
+  const visible = comments.filter((comment) => comment.removed !== true);
+  const roots = new Map(visible.filter((comment) => comment.parentId === "")
+    .map((comment) => [comment.id, comment.authorUid]));
+  const replies = visible.filter((comment) =>
+    comment.parentId === "" || roots.has(comment.parentId))
+    .map((comment) => ({
+      ...comment,
+      uid: comment.authorUid,
+      replyToId: comment.parentId,
+      replyToUid: roots.get(comment.parentId),
+      sourcePath: `feed_posts/${postId}/comments/${comment.id}`,
+    }));
+
+  return deriveAwards({
+    postId,
+    postOwnerUid: post.authorUid,
+    firstPostIdByUid: new Map([[post.authorUid, firstFeedPublicationId]]),
+    replies,
+    rolloutAtMs,
+    feed: true,
+  });
+}
+
 function ledgerPointDelta(existing, desired) {
   const previous = existing?.active === true ? Math.max(0, Number(existing.points) || 0) : 0;
   const next = desired ? Math.max(0, Number(desired.points) || 0) : 0;
@@ -180,6 +215,7 @@ module.exports = {
   levelForPoints,
   progressForPoints,
   deriveAwards,
+  deriveFeedAwards,
   ledgerPointDelta,
   millis,
   oldestFirst,
