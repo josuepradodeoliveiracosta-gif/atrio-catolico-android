@@ -305,6 +305,30 @@ if [[ "$notice_focal" == 1 ]]; then
     exit 1
   }
   adb reverse tcp:8092 tcp:8092
+  # Rodadas independentes: baseline de #444 já comprovada no mesmo blob de
+  # produção; no item 15 cada grupo usa outro AVD efêmero e novo Auth Emulator.
+  case "${ATRIO_QA_ITEM15_CASE:-}" in
+    age18)
+      run_suite QaConversationNoticeAge18RestoredAndroidTest
+      (cd tests/security && node seed-qa-conversation-notice-android.mjs --firestore-only)
+      run_suite QaConversationNoticeAge18ReRevokedAndroidTest
+      (cd tests/security && node seed-qa-conversation-notice-android.mjs --firestore-only)
+      run_suite QaConversationNoticeAge18ReverseAndroidTest
+      if [[ "$qa_failed" != 0 ]]; then
+        grep -F 'QA idade 18+ fixture:' qa-conversation-notice-worker.log | tail -20 || true
+      fi
+      exit "$qa_failed"
+      ;;
+    lucia)
+      run_suite QaConversationNoticeThirdBotAndroidTest
+      if [[ "$qa_failed" != 0 ]]; then
+        timeout 6s adb logcat -d -v brief -s AndroidRuntime:E '*:S' | tail -60 || true
+      fi
+      exit "$qa_failed"
+      ;;
+    "") ;;
+    *) echo "Cenário item 15 desconhecido" >&2; exit 2 ;;
+  esac
   run_suite QaConversationNoticeDeniedAndroidTest
   # A fixture com permissão negada deve alcançar onMessageReceived e registrar só o hash.
   receipt_hash=26a30ede0faca3e21c7ca013220274be554ccc8e65e729b6ebef500079528584
@@ -321,6 +345,16 @@ if [[ "$notice_focal" == 1 ]]; then
   run_suite QaConversationNoticeSessionAndroidTest
   (cd tests/security && node seed-qa-conversation-notice-android.mjs --firestore-only)
   run_suite QaConversationNoticeRevokedAndroidTest
+  # Item 15: cada classe reinicializa somente os dados fictícios do Firestore,
+  # mantendo o Auth Emulator e o mesmo AVD Android local.
+  (cd tests/security && node seed-qa-conversation-notice-android.mjs --firestore-only)
+  run_suite QaConversationNoticeAge18RestoredAndroidTest
+  (cd tests/security && node seed-qa-conversation-notice-android.mjs --firestore-only)
+  run_suite QaConversationNoticeAge18ReRevokedAndroidTest
+  (cd tests/security && node seed-qa-conversation-notice-android.mjs --firestore-only)
+  run_suite QaConversationNoticeAge18ReverseAndroidTest
+  (cd tests/security && node seed-qa-conversation-notice-android.mjs --firestore-only)
+  run_suite QaConversationNoticeThirdBotAndroidTest
   exit "$qa_failed"
 fi
 if [[ "${ATRIO_QA_GERAL_CELULAR_PILOT:-}" == 1 ]]; then

@@ -1,0 +1,271 @@
+name: Item 15 — três bots, restauração 18+ e avisos no Android Emulator
+
+on:
+  pull_request:
+    branches: [qa/chat7-199-item15-integracao-435-433]
+    paths:
+      - '.github/workflows/qa-item15-android-independent.yml'
+      - 'app/src/noticeLabAndroidTest/java/br/com/atriocatolico/QaConversationAge18AndroidTest.kt'
+      - 'tests/security/seed-qa-conversation-notice-android.mjs'
+      - 'tests/security/serve-qa-conversation-notice-android.mjs'
+      - 'scripts/run-qa-android-emulator.sh'
+      - 'scripts/qa-item15-fixture-smoke.sh'
+      - 'app/src/**/QaConversationNotice*.kt'
+      - 'app/src/main/java/br/com/atriocatolico/QaConversationPushRegistration.kt'
+      - 'app/src/main/java/br/com/atriocatolico/QaGeralRemoteFirebase.kt'
+      - 'app/src/test/java/br/com/atriocatolico/QaGeralCelularIdentityTest.kt'
+      - 'app/src/noticeLabAndroidTest/java/com/google/firebase/messaging/QaMessagingInjection.java'
+      - 'app/src/main/java/br/com/atriocatolico/AtrioPushService.kt'
+      - 'app/src/main/java/br/com/atriocatolico/MainActivity.kt'
+      - 'app/src/main/java/br/com/atriocatolico/OnlineAtrioApp.kt'
+      - 'app/src/qaGeral/AndroidManifest.*.xml'
+      - 'app/src/qaEmulator/res/xml/qa_emulator_network_security.xml'
+      - 'app/build.gradle.kts'
+      - 'scripts/run-qa-android-emulator.sh'
+      - 'scripts/test_qa_android_variant_isolation.py'
+      - 'scripts/qa_geral_celular_round43.py'
+      - 'scripts/test_qa_geral_celular_round43.py'
+      - 'tests/security/*qa-conversation-notice-android.mjs'
+      - 'cloudflare/push-worker/scripts/conversation-push-pilot.mjs'
+      - 'tests/security/qa-conversation-push-*.test.mjs'
+      - 'firebase/qa-geral-celular/pilot/conversation-push-*.mjs'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qa-item15-android-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  fixture:
+    name: 'Contrato de restauração 18+ em Firebase Emulator'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Instalar dependências fixadas
+        run: npm ci --prefix tests/security --ignore-scripts
+      - name: Verificar sequência administrativa apenas no Firestore/Auth Emulator
+        working-directory: tests/security
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./node_modules/.bin/firebase emulators:exec --only firestore,auth \
+            --project demo-atrio-v11 'bash ../../scripts/qa-item15-fixture-smoke.sh'
+      - name: Diagnóstico seguro da fixture
+        if: failure()
+        shell: bash
+        run: |
+          if [[ -f qa-item15-fixture-smoke.log ]]; then
+            grep -F 'QA idade 18+ fixture:' qa-item15-fixture-smoke.log | tail -20 || true
+          fi
+  android:
+    needs: fixture
+    name: 'QA Android item 15 — ${{ matrix.scenario }}'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [age18, lucia]
+    timeout-minutes: 30
+    env:
+      ATRIO_QA_ITEM15_CASE: ${{ matrix.scenario }}
+      ATRIO_QA_GERAL_BUILD: '1'
+      ATRIO_QA_CONVERSATION_NOTICE_LAB: '1'
+      ATRIO_QA_GERAL_CELULAR_PILOT: '1'
+      ATRIO_QA_APK: qaGeral
+      ATRIO_QA_FIREBASE_PROJECT: demo-atrio-v11
+      ATRIO_QA_SUITE: QaConversationNoticeAndroid
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Garantir a composição exata da #443 sem alterar o backend
+        shell: bash
+        env:
+          SOURCE_SHA: 7b996255ebab19ed8743b57f3f2866c428462c27
+          SOURCE_TREE: 0700ccd943ad65e888050698be49aa7888b9e8f2
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse "$SOURCE_SHA^{tree}")" = "$SOURCE_TREE"
+          for path in \
+            firebase/qa-geral-celular/pilot/qa-age18-restoration.mjs \
+            firebase/qa-geral-celular/pilot/conversation-push-admin.mjs \
+            firebase/qa-geral-celular/pilot/conversation-push-admin-http.mjs \
+            firebase/qa-geral-celular/pilot/conversation-push-operator-auth.mjs \
+            tests/security/qa-age18-single-use.test.mjs \
+            tests/security/qa-conversation-push-pilot.test.mjs \
+            app/src/main/java/br/com/atriocatolico/QaConversationNotices.kt; do
+            test "$(git rev-parse "HEAD:$path")" = "$(git rev-parse "$SOURCE_SHA:$path")"
+          done
+          echo "Item 15: executor, policy e Android de produção idênticos ao SHA #443; somente QA foi acrescido."
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with:
+          gradle-version: '8.13'
+      - name: Compilar o APK isolado
+        run: |
+          git rev-parse HEAD HEAD^{tree}
+          python3 scripts/test_qa_android_variant_isolation.py
+          rm -f -- app/google-services.json
+          bash scripts/qa-android-prebuild.sh start
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: tests/security/package-lock.json
+      - run: npm ci --prefix tests/security
+      - name: Reutilizar prova de backend exclusivamente no SHA de origem
+        run: |
+          echo 'Composição #443: backend 149/149; executar Android no checkout filho com mesmos blobs.'
+          git rev-parse HEAD HEAD^{tree}
+      - name: Preparar Android Emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -c /dev/kvm
+          sudo chmod 0666 /dev/kvm
+      - name: Injetar sinal no serviço FCM e conferir aviso, toque, sessão, permissão e revogação
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_4
+          disk-size: 2048M
+          ram-size: 2048M
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -accel on -camera-back none
+          script: bash scripts/run-qa-android-emulator.sh
+      - name: Diagnosticar falhas JUnit em testes Android, sem tokens ou dados reais
+        if: failure()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from xml.etree import ElementTree
+          for path in Path('qa-android-suite-results').rglob('*.xml'):
+              if 'Age18' not in str(path) and 'ThirdBot' not in str(path):
+                  continue
+              try:
+                  root = ElementTree.parse(path).getroot()
+              except ElementTree.ParseError:
+                  continue
+              for test in root.iter('testcase'):
+                  for tag in ('failure','error'):
+                      for failure in test.findall(tag):
+                          print('QA ITEM15 JUNIT',test.get('classname'),test.get('name'))
+                          print('QA ITEM15 MESSAGE',failure.get('message','')[:240])
+                          # O trecho é sintético e não inclui segredos de autenticação.
+                          print((failure.text or '')[:3500])
+          PY
+      - name: Diagnosticar prebuild de instrumentação se o AVD falhar
+        if: failure()
+        shell: bash
+        run: |
+          if [[ -f qa-android-prebuild.log ]]; then
+            grep -E '(^| )e: |error:|Unresolved reference|Compilation error|^> Task .*FAILED|^FAILURE:|BUILD FAILED' qa-android-prebuild.log | tail -65 || true
+          fi
+          if [[ -f qa-conversation-notice-worker.log ]]; then
+            grep -F 'QA idade 18+ fixture:' qa-conversation-notice-worker.log | tail -20 || true
+          fi
+          timeout 6s adb logcat -d -v brief -s AndroidRuntime:E '*:S' | tail -45 || true
+      - name: Conferir manifesto, pacote e SHA-256 do APK
+        if: always()
+        run: |
+          apk='app/build/outputs/apk/qaGeral/app-qaGeral.apk'
+          aapt="$(find "$ANDROID_HOME/build-tools" -type f -name aapt2 | sort -V | tail -n1)"
+          "$aapt" dump badging "$apk" | awk '/^package: / { print }'
+          test "$("$aapt" dump packagename "$apk")" = br.com.atriocatolico.qageral.celular
+          manifest=qa-conversation-notices-manifest.txt
+          "$aapt" dump xmltree --file AndroidManifest.xml "$apk" > "$manifest"
+          grep -A1 'android:name.*"br.com.atriocatolico.AtrioPushService"' "$manifest" | grep 'android:exported.*=false'
+          grep -A1 'firebase_messaging_auto_init_enabled' "$manifest" | grep 'android:value.*=false'
+          grep -F 'com.google.firebase.MESSAGING_EVENT' "$manifest"
+          grep -F 'android.permission.POST_NOTIFICATIONS' "$manifest"
+          if grep -Eq 'FirebaseInstanceIdReceiver|QaConversationSignalReceiver' "$manifest"; then exit 1; fi
+          sha256sum "$apk"
+      - name: Conferir o empacotamento do candidato HTTPS com identidade fictícia
+        env:
+          ATRIO_QA_CONVERSATION_NOTICE_LAB: '0'
+          ATRIO_QA_GERAL_CELULAR_PILOT: '0'
+          ATRIO_QA_GERAL_REMOTE_BUILD: '1'
+          ATRIO_QA_GERAL_CELULAR_FUNCIONAL: '1'
+          ATRIO_QA_GERAL_CELULAR_RODADA_FIXTURE: '1'
+          ATRIO_QA_GERAL_CELULAR_RODADA43_FIXTURE: '1'
+          ATRIO_QA_GERAL_CELULAR_APP_ID: '1:835727158563:android:0000000000000000000000'
+          ATRIO_QA_CONVERSATION_NOTICE_ORIGIN: 'https://notice-qa.example.invalid'
+        run: |
+          config=app/src/qaGeral/google-services.json
+          test ! -e "$config"
+          trap 'rm -f -- "$config"' EXIT
+          python3 scripts/qa_geral_remote_build_gate.py --write-functional-fixture "$config"
+          gradle :app:testQaGeralUnitTest :app:assembleQaGeral
+          apk='app/build/outputs/apk/qaGeral/app-qaGeral-unsigned.apk'
+          aapt="$(find "$ANDROID_HOME/build-tools" -type f -name aapt2 | sort -V | tail -n1)"
+          test "$("$aapt" dump packagename "$apk")" = br.com.atriocatolico.qageral.celular
+          manifest=qa-conversation-notices-https-manifest.txt
+          "$aapt" dump xmltree --file AndroidManifest.xml "$apk" > "$manifest"
+          "$aapt" dump resources "$apk" > qa-conversation-notices-https-resources.txt
+          grep -F 'android:usesCleartextTraffic' "$manifest" | grep '=false'
+          grep -A1 'android:name.*"br.com.atriocatolico.AtrioPushService"' "$manifest" | grep 'android:exported.*=false'
+          grep -A1 'firebase_messaging_auto_init_enabled' "$manifest" | grep 'android:value.*=false'
+          grep -F 'com.google.firebase.MESSAGING_EVENT' "$manifest"
+          grep -F 'android.permission.POST_NOTIFICATIONS' "$manifest"
+          if grep -Eq 'android:networkSecurityConfig|QaConversationSignalReceiver' "$manifest"; then exit 1; fi
+          if grep -q qa_emulator_network_security qa-conversation-notices-https-resources.txt; then exit 1; fi
+          apk_manifest=qa-conversation-notices-https-android-manifest.xml
+          "$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" manifest print "$apk" > "$apk_manifest"
+          python3 - "$apk_manifest" <<'PYMANIFEST'
+          import sys
+          from pathlib import Path
+          from scripts.qa_geral_celular_round43 import verify_notice_manifest
+          verify_notice_manifest(Path(sys.argv[1]).read_text(), https=True)
+          PYMANIFEST
+          python3 - "$apk" <<'PYAPK'
+          import sys
+          import zipfile
+
+          with zipfile.ZipFile(sys.argv[1]) as apk:
+              dex = [apk.read(name) for name in apk.namelist() if name.endswith(".dex")]
+          assert dex
+          assert any(b"https://notice-qa.example.invalid" in part for part in dex)
+          assert not any(marker in part for part in dex for marker in (
+              b"http://127.0.0.1:8092/notice", b"QaMessagingInjection",
+              b"QaConversationNoticeAndroidCase", b"QaConversationSignalReceiver",
+          ))
+          PYAPK
+          sha256sum "$apk"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qa-item15-${{ matrix.scenario }}-${{ github.event.pull_request.head.sha }}
+          path: |
+            qa-android-suite-results
+            qa-firebase-emulators.log
+            qa-android-prebuild.log
+            qa-conversation-notice-worker.log
+            qa-conversation-notices-manifest.txt
+            qa-conversation-notices-https-manifest.txt
+            qa-conversation-notices-https-android-manifest.xml
+            app/build/test-results/testQaGeralUnitTest/TEST-br.com.atriocatolico.QaConversationNoticeHttpTest.xml
+          retention-days: 7
+          if-no-files-found: warn

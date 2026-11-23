@@ -17,7 +17,9 @@ assert.equal(projectId, 'demo-atrio-v11');
 assert.ok(!process.env.GOOGLE_APPLICATION_CREDENTIALS);
 process.env.FIRESTORE_EMULATOR_HOST = '127.0.0.1:8089';
 const password = 'GrupoQa2026!Emulador'; // Exclusivo do Auth Emulator.
-const users = [alice, bob].map(({uid, email, name}) => ({
+const lucia = {uid:'qa-nav-lucia',email:'lucia.navegacao@qa.invalid',name:'Lúcia — fora da admissão'};
+// Clara=Alice e Miguel=Bob são os titulares da conversa; Lúcia é controle negativo.
+const users = [alice, bob, lucia].map(({uid, email, name}) => ({
   localId: uid, email, emailVerified: true, displayName: name, rawPassword: password
 }));
 if (!process.argv.includes('--firestore-only')) {
@@ -81,12 +83,36 @@ try {
     body: 'Publicação de QA para abrir o perfil e a conversa manualmente.',
     category: 'Vida espiritual', createdAt: now
   });
+  // Documento privado realmente existente para prova negativa de Lúcia.
+  const group = 'chat_groups/qa-199-item15-private';
+  rows.set(group,{
+    name:'Grupo privado de QA',category:'study',ownerUid:alice.uid,
+    memberUids:[alice.uid,bob.uid],adminUids:[alice.uid],status:'active',
+    createdAt:now,updatedAt:now,lastMessageId:'qa-199-group-private',
+    lastPreview:'Mensagem restrita de QA',lastSenderUid:alice.uid,
+  });
+  rows.set(group+'/messages/qa-199-group-private',{
+    uid:alice.uid,kind:'text',text:'Mensagem restrita de QA',createdAt:now,
+  });
   const batch = db.batch();
   for (const [path, data] of rows) batch.set(db.doc(path), data);
   // Cada classe Android repete a mesma mensagem da fixture em um cenário independente.
   const receipt = createHash('sha256').update(JSON.stringify([roundId, chatId, messageId])).digest('hex');
   batch.delete(db.doc('users/' + bob.uid + '/chatPushPublicationReceipts/' + receipt));
+  // Repetir cada classe sobre o mesmo Firestore Emulator deve descartar
+  // somente recibos da fixture, nunca enfraquecer stale_publication_generation.
+  const newReceipt = createHash('sha256')
+    .update(JSON.stringify([roundId,chatId,'qa-199-item15-nova-mensagem']))
+    .digest('hex');
+  const reverseReceipt = createHash('sha256')
+    .update(JSON.stringify([roundId,chatId,'qa-199-inverse-initial']))
+    .digest('hex');
+  for (const recipient of [alice.uid,bob.uid]) {
+    batch.delete(db.doc('users/'+recipient+'/chatPushPublicationReceipts/'+newReceipt));
+    batch.delete(db.doc('users/'+recipient+'/chatPushPublicationReceipts/'+reverseReceipt));
+  }
   batch.delete(db.doc(pendingPath));
+  batch.delete(db.doc('users/' + alice.uid + '/chatPushPending/current'));
   await batch.commit();
   const publication = await admin.publish({
     senderUid: alice.uid, recipientUid: bob.uid, conversationId: chatId, messageId, expiresAt,
