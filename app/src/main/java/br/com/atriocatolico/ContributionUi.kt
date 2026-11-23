@@ -12,22 +12,21 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.MetadataChanges
 
 private data class ContributionTrack(
     val key: String,
     val title: String,
     val description: String,
-    val color: Color,
+    val feedDescription: String,
     val thresholds: List<Int>
 )
 
@@ -35,17 +34,20 @@ private val contributionTracks = listOf(
     ContributionTrack(
         "conversation", "Conversas que acolhem",
         "Reconhece discussões que recebem reações e respostas de outras pessoas.",
-        Color(0xFF761B31), listOf(15, 45, 100, 220, 450)
+        "+3 pontos pelo primeiro comentário de cada outra pessoa em uma publicação ou pergunta sua.",
+        listOf(15, 45, 100, 220, 450)
     ),
     ContributionTrack(
         "helpful", "Pessoa prestativa",
         "Reconhece respostas que recebem reações e conversas diretas.",
-        Color(0xFF386B45), listOf(15, 45, 100, 220, 450)
+        "+2 pontos pela primeira resposta direta de cada outra pessoa a um comentário seu.",
+        listOf(15, 45, 100, 220, 450)
     ),
     ContributionTrack(
         "welcome", "Portas abertas",
         "Reconhece quem acolhe pessoas em sua primeira publicação.",
-        Color(0xFF315F91), listOf(10, 30, 65, 120, 200)
+        "+2 pontos ao comentar na primeira publicação elegível de alguém e +3 se essa pessoa responder.",
+        listOf(10, 30, 65, 120, 200)
     )
 )
 
@@ -56,10 +58,6 @@ private data class ContributionBadge(
 
 internal fun contributionTrackTitle(track: String): String =
     contributionTracks.firstOrNull { it.key == track }?.title ?: "Insígnia de contribuição"
-
-private fun contributionTrackDescription(track: String): String =
-    contributionTracks.firstOrNull { it.key == track }?.description
-        ?: "Esta insígnia reconhece a participação na comunidade do Átrio."
 
 private fun Map<*, *>?.points(track: String): Int =
     ((this?.get(track) as? Number)?.toInt() ?: 0).coerceAtLeast(0)
@@ -114,7 +112,8 @@ internal fun ContributionBadgeIcon(
 internal fun ContributionProgressScreen(
     db: FirebaseFirestore,
     uid: String,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    feedEnabled: Boolean = false,
 ) {
     var points by remember(uid) { mutableStateOf<Map<*, *>?>(null) }
     var progressLoading by remember(uid) { mutableStateOf(true) }
@@ -124,6 +123,21 @@ internal fun ContributionProgressScreen(
     var saving by remember(uid) { mutableStateOf(false) }
     var feedback by remember(uid) { mutableStateOf("") }
     var retry by remember(uid) { mutableIntStateOf(0) }
+    var feedScoring by remember(db, uid, feedEnabled) { mutableStateOf<Boolean?>(null) }
+
+    DisposableEffect(db, uid, feedEnabled, retry) {
+        feedScoring = null
+        if (!feedEnabled) onDispose {}
+        else {
+            val registration = db.document("contribution_config/feed_rollout")
+                .addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, error ->
+                    feedScoring = if (error == null && snapshot != null && !snapshot.metadata.isFromCache) {
+                        snapshot.getTimestamp("startedAt")?.toDate()?.time?.let { it > 0 } == true
+                    } else null
+                }
+            onDispose { registration.remove() }
+        }
+    }
 
     DisposableEffect(db, uid, retry) {
         var active = true
@@ -156,10 +170,20 @@ internal fun ContributionProgressScreen(
             TextButton(onClick = onBack, modifier = Modifier.testTag("atrio-contribution-back")) {
                 Text("Voltar ao perfil")
             }
-            Text("Minha participação", style = MaterialTheme.typography.headlineSmall,
-                color = Wine, fontWeight = FontWeight.Bold)
-            Text("Acompanhe cada trilha separadamente. Não existe placar geral.",
-                color = Muted, style = MaterialTheme.typography.bodyMedium)
+            Text("Insígnias de contribuição", style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+            if (feedEnabled) {
+                Text(
+                    when (feedScoring) {
+                        true -> "A pontuação reúne seu histórico e as contribuições na Linha do tempo e nos Canais."
+                        false -> "Seus pontos conquistados continuam no perfil. A pontuação da Linha do tempo e dos Canais aguarda ativação."
+                        null -> "Seus pontos conquistados continuam no perfil. O status da pontuação do feed está indisponível."
+                    },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.testTag("atrio-contribution-feed-status"),
+                )
+            }
         }
         if (progressLoading) item {
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -174,14 +198,15 @@ internal fun ContributionProgressScreen(
         if (!progressLoading && !progressFailed) {
             val currentPoints = points
             if (contributionTracks.all { currentPoints.points(it.key) == 0 }) item {
-                Text("Sua participação pontuável ainda não apareceu. As ações começam a contar após a ativação das insígnias.",
-                    color = Muted, style = MaterialTheme.typography.bodySmall,
+                Text("Você ainda não recebeu pontos nestas trilhas.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.testTag("atrio-contribution-empty"))
             }
             items(contributionTracks.size) { index ->
                 val track = contributionTracks[index]
                 ContributionTrackCard(
                     track = track,
+                    description = if (feedEnabled) track.feedDescription else track.description,
                     points = currentPoints.points(track.key),
                     selected = selectedTrack == track.key,
                     saving = saving,
@@ -190,7 +215,8 @@ internal fun ContributionProgressScreen(
                             saving = true
                             feedback = ""
                             val ref = db.collection("contribution_highlight_settings").document(uid)
-                            val request = if (selectedTrack == track.key) ref.delete()
+                            val removing = selectedTrack == track.key
+                            val request = if (removing) ref.delete()
                             else ref.set(mapOf(
                                 "track" to track.key,
                                 "updatedAt" to FieldValue.serverTimestamp()
@@ -198,7 +224,7 @@ internal fun ContributionProgressScreen(
                             request.addOnCompleteListener { result ->
                                 saving = false
                                 if (result.isSuccessful) {
-                                    feedback = if (selectedTrack == track.key)
+                                    feedback = if (removing)
                                         "Destaque removido do seu perfil."
                                     else "Insígnia selecionada para destaque."
                                 } else {
@@ -211,7 +237,7 @@ internal fun ContributionProgressScreen(
             }
             if (saving) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
             if (feedback.isNotBlank()) item {
-                Text(feedback, color = if (feedback.startsWith("Não foi")) MaterialTheme.colorScheme.error else Wine,
+                Text(feedback, color = if (feedback.startsWith("Não foi")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                     modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
             }
             if (selectionFailed) item {
@@ -220,8 +246,8 @@ internal fun ContributionProgressScreen(
                     modifier = Modifier.testTag("atrio-contribution-selection-error"))
             }
             item {
-                Text("Créditos são únicos por pessoa e interação. Auto-interações não pontuam; remoções e decisões de moderação podem estornar pontos.",
-                    color = Muted, style = MaterialTheme.typography.bodySmall)
+                Text("A mesma pessoa conta uma vez por interação elegível. Remover uma contribuição pode reverter os pontos.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
             }
         }
     }
@@ -230,6 +256,7 @@ internal fun ContributionProgressScreen(
 @Composable
 private fun ContributionTrackCard(
     track: ContributionTrack,
+    description: String,
     points: Int,
     selected: Boolean,
     saving: Boolean,
@@ -245,7 +272,7 @@ private fun ContributionTrackCard(
     Card(
         modifier = Modifier.fillMaxWidth().testTag("atrio-contribution-track-${track.key}"),
         shape = RoundedCornerShape(AtrioDimensions.CardRadius),
-        border = BorderStroke(1.dp, Line),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column(Modifier.fillMaxWidth().padding(16.dp),
@@ -254,12 +281,12 @@ private fun ContributionTrackCard(
                 horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 ContributionBadgeIcon(track.key, level.coerceAtLeast(1), Modifier.size(58.dp), earned = level > 0)
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(track.title, color = if (androidx.compose.foundation.isSystemInDarkTheme()) Ink else track.color, fontWeight = FontWeight.Bold)
+                    Text(track.title, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                     Text("${points} pontos · Nível $level",
-                        style = MaterialTheme.typography.bodySmall, color = Muted)
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            Text(track.description, style = MaterialTheme.typography.bodySmall)
+            Text(description, style = MaterialTheme.typography.bodySmall)
             LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
             Text(
                 if (nextThreshold == null) "Nível máximo alcançado"
@@ -278,7 +305,7 @@ private fun ContributionTrackCard(
                 )
                 if (selected && level == 0) {
                     Text("A insígnia ficará oculta até recuperar o nível 1.",
-                        style = MaterialTheme.typography.labelSmall, color = Muted)
+                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
@@ -317,37 +344,33 @@ internal fun ContributionPublicBadge(
         loading -> LinearProgressIndicator(modifier.fillMaxWidth().testTag("atrio-contribution-public-loading"))
         failed -> Text("Insígnia de contribuição indisponível.",
             modifier = modifier.testTag("atrio-contribution-public-error"),
-            style = MaterialTheme.typography.labelSmall, color = Muted)
+            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         badge == null -> Text("Nenhuma insígnia de contribuição destacada.",
             modifier = modifier.testTag("atrio-contribution-public-empty"),
-            style = MaterialTheme.typography.labelSmall, color = Muted)
+            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         else -> {
             val current = badge!!
             Card(
                 onClick = { detailsOpen = true },
                 modifier = modifier.fillMaxWidth().testTag("atrio-contribution-public-badge"),
                 shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(1.dp, Gold),
-                colors = CardDefaults.cardColors(containerColor = WineSoft)
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
             ) {
                 Row(Modifier.fillMaxWidth().padding(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     ContributionBadgeIcon(current.track, current.level, Modifier.size(52.dp))
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text("Contribuição na comunidade", color = Wine,
-                            style = MaterialTheme.typography.labelMedium)
                         Text("${contributionTrackTitle(current.track)} · Nível ${current.level}",
-                            fontWeight = FontWeight.Bold, color = Wine)
-                        Text("Sobre esta insígnia", style = MaterialTheme.typography.labelSmall, color = Muted)
+                            fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
             if (detailsOpen) AlertDialog(
                 onDismissRequest = { detailsOpen = false },
                 title = { Text(contributionTrackTitle(current.track)) },
-                text = { Text(contributionTrackDescription(current.track) +
-                    "\n\nNível ${current.level}. A pontuação fica apenas nesta trilha e não participa de um placar geral.") },
+                text = { Text("Nível ${current.level} de 5 na trilha de contribuição.") },
                 confirmButton = {
                     TextButton(onClick = { detailsOpen = false }) { Text("Entendi") }
                 }

@@ -103,7 +103,7 @@ internal fun OnlineProfileScreen(
             remoteEnabled = followedRemoteEnabled, remoteIds = followedRemoteIds,
             remoteLoading = followedRemoteLoading, remoteFailed = followedRemoteFailed)
     } else if (contributionsOpen) {
-        ContributionProgressScreen(db, uid, onBack = { contributionsOpen = false })
+        ContributionProgressScreen(db, uid, onBack = { contributionsOpen = false }, feedEnabled = feedEnabled)
     } else if (discussionsOpen && !forumRetired) {
         ProfileDiscussionHistory(db, uid, onBack = { discussionsOpen = false }, onOpen = onOpen)
     } else if (badgesOpen) {

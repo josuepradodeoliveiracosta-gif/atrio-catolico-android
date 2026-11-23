@@ -587,6 +587,26 @@ class ProfileV3ConsentEmulatorUiTest {
     }
 
     @OptIn(ExperimentalComposeUiApi::class)
+    @Test fun contributionTrailsExplainFeedPointsBeforeActivation() {
+        compose.setContent {
+            AtrioTheme {
+                ContributionProgressScreen(owner, uid, onBack = {}, feedEnabled = true)
+            }
+        }
+        val status = compose.onNodeWithTag("atrio-contribution-feed-status")
+        compose.waitUntil(15_000) {
+            runCatching { status.assertTextContains(
+                "Seus pontos conquistados continuam no perfil. A pontuação da Linha do tempo e dos Canais aguarda ativação."
+            ) }.isSuccess
+        }
+        val list = compose.onNodeWithTag("atrio-contribution-progress")
+        for (track in listOf("conversation", "helpful", "welcome")) {
+            val tag = "atrio-contribution-track-$track"
+            list.performScrollToNode(hasTestTag(tag))
+            compose.onNodeWithTag("atrio-contribution-highlight-$track").assertIsNotEnabled()
+        }
+    }
+
     @Test fun contributionBadgeAnnouncesTrackAndLevelWithTalkBack() {
         val tag = "atrio-qa-contribution-art"
         val expected = "Portas abertas, nível 5"
