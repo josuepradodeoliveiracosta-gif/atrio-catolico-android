@@ -93,7 +93,7 @@ class QaConversationNoticeAge18ReRevokedAndroidTest : QaConversationNoticeAndroi
 }
 
 class QaConversationNoticeThirdBotAndroidTest : QaConversationNoticeAndroidCase() {
-    @Test fun luciaForaDaAdmissaoNaoRecebeAvisoNemAbreConversaEPermissaoNegadaPrevalece() {
+    @Test fun luciaForaDaAdmissaoNaoRecebeAvisoNemAbreConversa() {
         start(permissionGranted = true)
         auth.signOut()
         signIn("lucia")
