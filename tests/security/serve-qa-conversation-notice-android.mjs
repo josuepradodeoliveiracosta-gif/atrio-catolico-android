@@ -24,10 +24,13 @@ assert.ok(!process.env.GOOGLE_APPLICATION_CREDENTIALS);
 process.env.FIRESTORE_EMULATOR_HOST = host + ':8089';
 const db = getFirestore(initializeApp({projectId: demoProject}, 'qa-notice-worker'));
 const fixtureOperator = 'android-fixture-admission-operator';
+const fixturePublisher = 'android-fixture-notice-publisher';
 const admin = createConversationPushAdminService({
   db,
   serverTimestamp: () => FieldValue.serverTimestamp(),
-  authorize: (principal, capability) => principal === fixtureOperator && capability === 'manage_admissions',
+  authorize: (principal, capability) =>
+    (principal === fixtureOperator && capability === 'manage_admissions') ||
+    (principal === fixturePublisher && capability === 'publish_notices'),
 });
 const ageService = createQaAge18Restoration({
   db, serverTimestamp: () => FieldValue.serverTimestamp(),
@@ -89,7 +92,7 @@ async function publishAfterReadmission() {
     senderUid:alice.uid,recipientUid:bob.uid,conversationId,messageId:newMessageId,
     expiresAt:resultExpire(),expectedSenderGeneration:sender.generation,
     expectedRecipientGeneration:resumed.generation,
-    principal:'fixture-notice-publisher',
+    principal:fixturePublisher,
   });
   assert.equal(result.replay,false);
   authNewNotice.sent = true;
