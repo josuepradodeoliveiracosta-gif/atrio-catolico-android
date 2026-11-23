@@ -524,9 +524,14 @@ async function handleContributionEvent(event, postId, happenedAt = eventTime(eve
   }
 }
 
+async function forumRetired() {
+  return (await db.doc("app_config/community_feed").get()).get("forumRetired") === true;
+}
+
 exports.contributionPostCreated = onDocumentCreated(
   { document: "posts/{postId}", retry: true },
   async (event) => {
+    if (await forumRetired()) return;
     const snapshot = event.data;
     const uid = snapshot?.get("uid") || "";
     const first = await rememberFirstPost(uid, snapshot ? {
@@ -543,12 +548,15 @@ exports.contributionPostCreated = onDocumentCreated(
 
 exports.contributionPostDeleted = onDocumentDeleted(
   { document: "posts/{postId}", retry: true },
-  (event) => handleContributionEvent(event, event.params.postId),
+  async (event) => {
+    if (!await forumRetired()) await handleContributionEvent(event, event.params.postId);
+  },
 );
 
 exports.contributionReplyCreated = onDocumentCreated(
   { document: "posts/{postId}/replies/{replyId}", retry: true },
   async (event) => {
+    if (await forumRetired()) return;
     const happenedAt = event.data?.createTime?.toMillis?.() || eventTime(event);
     await reconcileReplyAwards(event.params.postId, happenedAt);
     await reconcileReactionsForReply(event.params.postId, event.params.replyId, happenedAt);
@@ -558,6 +566,7 @@ exports.contributionReplyCreated = onDocumentCreated(
 exports.contributionReplyDeleted = onDocumentDeleted(
   { document: "posts/{postId}/replies/{replyId}", retry: true },
   async (event) => {
+    if (await forumRetired()) return;
     const happenedAt = eventTime(event);
     await reconcileReplyAwards(event.params.postId, happenedAt);
     await reconcileReactionsForReply(event.params.postId, event.params.replyId, happenedAt);
@@ -566,20 +575,25 @@ exports.contributionReplyDeleted = onDocumentDeleted(
 
 exports.contributionReplyReactionCreated = onDocumentCreated(
   { document: "posts/{postId}/replies/{replyId}/reactions/{actorUid}", retry: true },
-  (event) => reconcileReplyReaction(
-    event.params.postId, event.params.replyId, event.params.actorUid,
-    event.data?.createTime?.toMillis?.() || eventTime(event)),
+  async (event) => {
+    if (!await forumRetired()) await reconcileReplyReaction(
+      event.params.postId, event.params.replyId, event.params.actorUid,
+      event.data?.createTime?.toMillis?.() || eventTime(event));
+  },
 );
 
 exports.contributionReplyReactionDeleted = onDocumentDeleted(
   { document: "posts/{postId}/replies/{replyId}/reactions/{actorUid}", retry: true },
-  (event) => reconcileReplyReaction(
-    event.params.postId, event.params.replyId, event.params.actorUid, eventTime(event)),
+  async (event) => {
+    if (!await forumRetired()) await reconcileReplyReaction(
+      event.params.postId, event.params.replyId, event.params.actorUid, eventTime(event));
+  },
 );
 
 exports.contributionPostLikeCreated = onDocumentCreated(
   { document: "users/{actorUid}/likedPosts/{postId}", retry: true },
   async (event) => {
+    if (await forumRetired()) return;
     await syncPostLikeMirror(event.params.postId, event.params.actorUid);
     await reconcilePostLike(event.params.postId, event.params.actorUid,
       event.data?.createTime?.toMillis?.() || eventTime(event));
@@ -589,6 +603,7 @@ exports.contributionPostLikeCreated = onDocumentCreated(
 exports.contributionPostLikeDeleted = onDocumentDeleted(
   { document: "users/{actorUid}/likedPosts/{postId}", retry: true },
   async (event) => {
+    if (await forumRetired()) return;
     await syncPostLikeMirror(event.params.postId, event.params.actorUid);
     await reconcilePostLike(event.params.postId, event.params.actorUid, eventTime(event));
   },

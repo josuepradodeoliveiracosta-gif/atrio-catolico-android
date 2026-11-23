@@ -170,6 +170,9 @@ async function firestoreGet(token, path, project = PROJECT) {
   if (!res.ok) throw Error('Firestore indisponível');
   return res.json();
 }
+async function forumRetired(token, project = PROJECT) {
+  return boolField(await firestoreGet(token, 'app_config/community_feed', project), 'forumRetired');
+}
 async function firestoreList(token, path, max, project = PROJECT) {
   const res = await fetch(firestoreRoot(project)+'/'+path+'?pageSize='+max,
     {headers:{Authorization:'Bearer '+token}});
@@ -582,6 +585,7 @@ export async function handleGuardiaoEvent(request,env) {
     const actor=await verifyIdentity(request,env);
     if(!actor) return response(401,'unauthorized');
     const service=await oauth(env);
+    if(await forumRetired(service)) return response(202,'ignored');
     const path='posts/'+enc(data.postId)+(data.type==='reply'?'/replies/'+enc(data.replyId):'');
     const doc=await firestoreGet(service,path);
     if(!doc||stringField(doc,'uid')!==actor||!recent(timeField(doc,'createdAt')))
@@ -735,6 +739,7 @@ export async function handleGuardiaoReview(request,env) {
       !guard.fields?.originalFields?.mapValue?.fields) return response(409,'invalid_archive');
     const writes=[];
     if(input.action==='restore') {
+      if(await forumRetired(service)) return response(409,'forum_retired');
       if(type==='reply'&&!await firestoreGet(service,'posts/'+enc(postId)))
         return response(409,'parent_missing');
       writes.push({update:{name:target,
@@ -840,6 +845,7 @@ async function handlePushEvent(request, env, configured, project) {
     const uid=await verifyIdentity(request,env,project);
     if(!uid) return response(401,'unauthorized');
     const token=await oauth(env,project);
+    if(['reply','report'].includes(data.type) && await forumRetired(token,project)) return response(202,'ignored');
     const event=await resolveEvent(data,uid,token,project);
     if(!event) {
       await auditDelivery(env,data.type,'ignored');

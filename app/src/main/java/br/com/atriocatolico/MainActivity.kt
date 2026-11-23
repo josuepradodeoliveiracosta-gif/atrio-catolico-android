@@ -442,10 +442,10 @@ internal fun AtrioTopBar(
 }
 
 @Composable
-internal fun AtrioBottomBar(selected: Tab, onSelect: (Tab) -> Unit) {
+internal fun AtrioBottomBar(selected: Tab, onSelect: (Tab) -> Unit, forumRetired: Boolean = false) {
     val reduceMotion = AtrioMotion.reduced()
     NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
-        Tab.entries.forEach { tab ->
+        Tab.entries.filterNot { forumRetired && it in listOf(Tab.COMMUNITIES, Tab.SAVED) }.forEach { tab ->
             val opacity by animateFloatAsState(
                 targetValue = if (selected == tab) 1f else 0.8f,
                 animationSpec = if (reduceMotion) snap() else tween(AtrioMotion.TAB_MS),

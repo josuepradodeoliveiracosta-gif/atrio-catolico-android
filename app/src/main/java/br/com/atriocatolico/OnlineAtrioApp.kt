@@ -860,7 +860,6 @@ private fun OnlineCommunity(
     var saveOverrides by remember(uid) { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
     val notificationAdmin = onModeration != null && onClergyReview != null
     val advancedEngagement = rememberAdvancedEngagementEnabled(db, uid)
-    val inbox = rememberNotificationInbox(db, uid, notificationAdmin)
     var noticeBadgesOpen by remember(uid) { mutableStateOf(false) }
     var guardiaoAppealsOpen by remember(uid) { mutableStateOf(false) }
     var returnToNotices by remember(uid) { mutableStateOf(false) }
@@ -880,16 +879,30 @@ private fun OnlineCommunity(
         onDispose { listener.remove() }
     }
     var communityFeedEnabled by remember(db, uid) { mutableStateOf(false) }
+    var forumRetired by rememberSaveable(uid) {
+        mutableStateOf(ThreadPushSubscriptions.isRetired(context, uid))
+    }
+    val inbox = rememberNotificationInbox(db, uid, notificationAdmin, forumRetired = forumRetired)
+    LaunchedEffect(forumRetired) {
+        ThreadPushSubscriptions.setRetired(context, uid, forumRetired)
+    }
     DisposableEffect(db, uid) {
         val listener = db.document("app_config/community_feed")
             .addSnapshotListener(MetadataChanges.INCLUDE) { config, error ->
-                communityFeedEnabled = error == null && config != null &&
-                    !config.metadata.isFromCache && !config.metadata.hasPendingWrites() &&
-                    config.getBoolean("enabled") == true
+                if (error == null && config != null && !config.metadata.hasPendingWrites()) {
+                    if (config.getBoolean("forumRetired") == true) forumRetired = true
+                    else if (!config.metadata.isFromCache) forumRetired = false
+                    if (!config.metadata.isFromCache) {
+                        communityFeedEnabled = config.getBoolean("enabled") == true
+                    }
+                }
             }
         onDispose { listener.remove() }
     }
     var tab by rememberSaveable(uid) { mutableStateOf(Tab.HOME) }
+    LaunchedEffect(forumRetired) {
+        if (forumRetired && tab in listOf(Tab.COMMUNITIES, Tab.SAVED)) tab = Tab.HOME
+    }
     var profileSettingsMenuOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var filter by rememberSaveable(uid) { mutableStateOf("Todos") }
     var search by rememberSaveable(uid) { mutableStateOf("") }
@@ -994,7 +1007,7 @@ private fun OnlineCommunity(
     var savesError by remember(uid) { mutableStateOf(false) }
     var savedRetry by remember(uid) { mutableStateOf(0) }
     var followedRevision by remember(uid) { mutableIntStateOf(0) }
-    val syncedFollow = rememberSyncedFollowedDiscussions(db, uid, advancedEngagement)
+    val syncedFollow = rememberSyncedFollowedDiscussions(db, uid, advancedEngagement && !forumRetired)
     val followedIds = if (advancedEngagement) syncedFollow.ids
         else remember(uid, followedRevision) { LocalFollowedDiscussions.ids(context, uid) }
     var followBusy by remember(uid, detailId) { mutableStateOf(false) }
@@ -1023,11 +1036,11 @@ private fun OnlineCommunity(
         )
     }
 
-    DisposableEffect(db, uid, feedLimit, feedRetry) {
+    DisposableEffect(db, uid, feedLimit, feedRetry, forumRetired) {
         var active = true
         feedLoading = true
         feedError = false
-        val feed = db.collection("posts").orderBy("createdAt", Query.Direction.DESCENDING)
+        val feed = if (forumRetired) null else db.collection("posts").orderBy("createdAt", Query.Direction.DESCENDING)
             .limit(feedLimit.toLong() + 1).addSnapshotListener { data, failure ->
                 if (active) {
                     feedLoading = false
@@ -1039,17 +1052,17 @@ private fun OnlineCommunity(
                     }
                 }
             }
-        onDispose { active = false; feed.remove() }
+        onDispose { active = false; feed?.remove() }
     }
-    DisposableEffect(db, uid, savedRetry) {
+    DisposableEffect(db, uid, savedRetry, forumRetired) {
         savesLoading = true
         savesError = false
-        val likes = db.collection("users").document(uid).collection("likedPosts")
+        val likes = if (forumRetired) null else db.collection("users").document(uid).collection("likedPosts")
             .addSnapshotListener { data, failure ->
                 if (failure != null) message = "Curtidas indisponíveis: ${failure.localizedMessage}"
                 else likedIds = data?.documents?.map { it.id }?.toSet() ?: emptySet()
             }
-        val saves = db.collection("users").document(uid).collection("savedPosts")
+        val saves = if (forumRetired) null else db.collection("users").document(uid).collection("savedPosts")
             .orderBy("createdAt", Query.Direction.DESCENDING).addSnapshotListener { data, failure ->
                 savesLoading = false
                 savesError = failure != null
@@ -1059,10 +1072,10 @@ private fun OnlineCommunity(
                     savedIds = savedOrder.toSet()
                 }
             }
-        onDispose { likes.remove(); saves.remove() }
+        onDispose { likes?.remove(); saves?.remove() }
     }
     // Os salvos carregam os documentos por ID, sem depender do feed.
-    val visibleSavedIds = if (tab == Tab.SAVED && detailId == null && !noticesOpen)
+    val visibleSavedIds = if (!forumRetired && tab == Tab.SAVED && detailId == null && !noticesOpen)
         savedOrder.take(savedLimit) else emptyList()
     DisposableEffect(db, uid, visibleSavedIds, savedRetry) {
         var active = true
@@ -1084,11 +1097,11 @@ private fun OnlineCommunity(
         }
         onDispose { active = false; registrations.forEach { it.remove() } }
     }
-    DisposableEffect(db, uid, detailId, detailRetry) {
+    DisposableEffect(db, uid, detailId, detailRetry, forumRetired) {
         var active = true
         detailLoading = true
         detailError = false
-        val registration = detailId?.let { id ->
+        val registration = detailId?.takeUnless { forumRetired }?.let { id ->
             db.collection("posts").document(id).addSnapshotListener { snapshot, failure ->
                 if (active) {
                     detailLoading = false
@@ -1099,11 +1112,11 @@ private fun OnlineCommunity(
         }
         onDispose { active = false; registration?.remove() }
     }
-    DisposableEffect(db, uid, detailId, replyLimit, repliesRetry, replyNewestFirst) {
+    DisposableEffect(db, uid, detailId, replyLimit, repliesRetry, replyNewestFirst, forumRetired) {
         var active = true
         repliesLoading = true
         repliesError = false
-        val registration = detailId?.let { id ->
+        val registration = detailId?.takeUnless { forumRetired }?.let { id ->
             db.collection("posts").document(id).collection("replies")
                 .orderBy("createdAt", if (replyNewestFirst) Query.Direction.DESCENDING else Query.Direction.ASCENDING)
                 .limit(replyLimit.toLong() + 1)
@@ -1132,9 +1145,9 @@ private fun OnlineCommunity(
     }
     // Usuários que já participavam antes desta atualização passam a receber
     // novos avisos ao reabrir uma discussão da qual são autores/comentaristas.
-    LaunchedEffect(uid, detailId, openedPost?.ownerUid, detailReplies.any { it.mine }) {
+    LaunchedEffect(uid, detailId, openedPost?.ownerUid, forumRetired, detailReplies.any { it.mine }) {
         val id = detailId
-        if (id != null && id == openedPost?.id &&
+        if (!forumRetired && id != null && id == openedPost?.id &&
             (openedPost?.ownerUid == uid || detailReplies.any { it.mine }))
             ThreadPushSubscriptions.track(context, uid, id)
     }
@@ -1501,13 +1514,14 @@ private fun OnlineCommunity(
             onNotification = {
                 closeConversations()
                 publicProfileTarget = null; profilePostOpen = false; previousDetailId = null
+                feedNoticePost = null
                 detailId = null; noticeBadgesOpen = false; returnToNotices = false
                 noticesOpen = !noticesOpen; searchOpen = false
             },
             onProfileSettings = { profileSettingsMenuOpen = true }
         )
     }, bottomBar = {
-        if (!showConversations) AtrioBottomBar(selected = tab, onSelect = ::navigate)
+        if (!showConversations) AtrioBottomBar(selected = tab, onSelect = ::navigate, forumRetired = forumRetired)
     }) { inset ->
         Box(Modifier.padding(inset)) {
             val detail = openedPost?.takeUnless { it.ownerUid in blockedMembers }
@@ -1520,10 +1534,13 @@ private fun OnlineCommunity(
                     initialPeer = conversationPeer, blockedPeers = blockedMembers,
                     managedBlocks = managedBlocks, managedMessages = managedMessages
                 )
+            } else if (forumRetired && detailId != null) {
+                EmptyState("📖", "Publicação indisponível", "Esta publicação não está mais disponível.",
+                    "Ir para o início", { navigate(Tab.HOME) })
             } else if (publicProfileTarget != null && !profilePostOpen) {
                 PublicMemberProfileScreen(
                     db = db, target = publicProfileTarget!!, viewerUid = uid,
-                    managedBlocks = managedBlocks, onBack = ::closeNoticeDestination,
+                    managedBlocks = managedBlocks, onBack = ::closeNoticeDestination, forumRetired = forumRetired,
                     onOpenDiscussion = { postId -> profilePostOpen = true; detailId = postId },
                     onConverse = if (conversationsQa) ({
                         conversationPeer = publicProfileTarget
@@ -1538,7 +1555,7 @@ private fun OnlineCommunity(
                     item { MemberBadgeRow(uid, Modifier.fillMaxWidth(), centered = true) }
                     item { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { BadgeSettings(uid) } }
                 }
-            } else if (noticesOpen && feedNoticePost != null && communityFeedEnabled) {
+            } else if (noticesOpen && feedNoticePost != null && (communityFeedEnabled || forumRetired)) {
                 val selected = feedDocument(db, "feed_posts", feedNoticePost!!)
                 LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp)) {
                     item {
@@ -1553,7 +1570,8 @@ private fun OnlineCommunity(
                 }
             } else if (noticesOpen) {
                 NotificationCenter(inbox, notificationAdmin, posts.associate { it.id to it.title },
-                    feedNotices = if (communityFeedEnabled) { unreadOnly ->
+                    forumRetired = forumRetired,
+                    feedNotices = if (communityFeedEnabled || forumRetired) { unreadOnly ->
                         FeedNotices(db, uid, unreadOnly, onOpen = { feedNoticePost = it })
                     } else null,
                     onOpen = { notice ->
@@ -1648,10 +1666,10 @@ private fun OnlineCommunity(
                     }
                 )
             } else when (tab) {
-                Tab.HOME -> if (communityFeedEnabled) {
+                Tab.HOME -> if (communityFeedEnabled || forumRetired) {
                     draftStateHolder.SaveableStateProvider("$uid:community-feed") {
                         CommunityNewsFeed(
-                            db = db, uid = uid, blockedMembers = blockedMembers,
+                            db = db, uid = uid, memberName = name, blockedMembers = blockedMembers,
                             searchOpen = searchOpen, search = search, onTextSearch = { search = it },
                             onPublish = { navigate(Tab.PUBLISH) }, onAuthor = ::openMemberProfile,
                         )
@@ -1671,8 +1689,11 @@ private fun OnlineCommunity(
                             if (feedError) feedRetry++ else feedLimit += 30
                         }
                     })
-                Tab.COMMUNITIES -> CommunityScreen(posts) { category -> navigate(Tab.HOME); filter = category }
-                Tab.PUBLISH -> if (communityFeedEnabled) {
+                Tab.COMMUNITIES -> if (forumRetired) {
+                    EmptyState("📖", "Publicação indisponível", "As publicações estão no feed da aba inicial.",
+                        "Ir para o início", { navigate(Tab.HOME) })
+                } else CommunityScreen(posts) { category -> navigate(Tab.HOME); filter = category }
+                Tab.PUBLISH -> if (communityFeedEnabled || forumRetired) {
                     draftStateHolder.SaveableStateProvider("$uid:community-feed-editor") {
                         Column(
                             Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
@@ -1707,6 +1728,7 @@ private fun OnlineCommunity(
                     })
                 Tab.PROFILE -> {
                     OnlineProfileScreen(
+                        forumRetired = forumRetired,
                         db = db, uid = uid, name = name, email = email, biography = biography,
                         profileSettingsMenuOpen = profileSettingsMenuOpen,
                         onCloseProfileSettingsMenu = { profileSettingsMenuOpen = false },
@@ -1758,7 +1780,7 @@ private fun OnlineCommunity(
     }
     // A autoria é verificada também nas regras do Firestore, não apenas nos botões.
     val editablePost = allPosts.firstOrNull { it.id == editingPostId && it.mine }
-    if (editablePost != null) {
+    if (!forumRetired && editablePost != null) {
         var editedTitle by remember(editablePost.id) { mutableStateOf(editablePost.title) }
         var editedBody by remember(editablePost.id) { mutableStateOf(editablePost.body) }
         AlertDialog(
@@ -1804,7 +1826,7 @@ private fun OnlineCommunity(
             }
         )
     }
-    if (deletingPostId != null) {
+    if (!forumRetired && deletingPostId != null) {
         val postId = deletingPostId!!
         // Se a publicação sumir enquanto o diálogo estiver aberto, o servidor ainda valida o proprietário.
         AlertDialog(
@@ -1830,7 +1852,7 @@ private fun OnlineCommunity(
             }
         )
     }
-    if (deletingReplyId != null && detailId != null) {
+    if (!forumRetired && deletingReplyId != null && detailId != null) {
         val replyId = deletingReplyId!!
         val postId = detailId!!
         AlertDialog(
@@ -1862,7 +1884,7 @@ private fun OnlineCommunity(
                 onSuccess = { reportReply = null; message = "Denúncia da resposta enviada para análise." })
         }
     }
-    if (reportPost != null) {
+    if (!forumRetired && reportPost != null) {
         var reason by remember { mutableStateOf("") }
         var sendingReport by remember(reportPost) { mutableStateOf(false) }
         val id = reportPost!!

@@ -154,6 +154,41 @@ try {
   await assertSucceeds(updateDoc(doc(alice, timeline), {published: false}));
   await assertFails(read(alice, image));
   await assertFails(updateDoc(doc(alice, timeline), {published: true}));
+  const oldPost = 'posts/feed-legacy-example';
+  const oldReply = oldPost + '/replies/legacy-reply';
+  const oldNotice = 'users/feed-bob/notifications/legacy-reply';
+  const oldSaved = 'users/feed-bob/savedPosts/feed-legacy-example';
+  const seed = ctx => Promise.all([
+    setDoc(doc(ctx.firestore(), oldPost), {title: 'Fórum antigo'}),
+    setDoc(doc(ctx.firestore(), oldReply), {body: 'Resposta antiga'}),
+    setDoc(doc(ctx.firestore(), oldNotice), {postId: 'feed-legacy-example'}),
+    setDoc(doc(ctx.firestore(), oldSaved), {createdAt: serverTimestamp()}),
+    setDoc(doc(ctx.firestore(), 'profiles/feed-bob'), {displayName: 'Conta de QA'}),
+  ]);
+  await env.withSecurityRulesDisabled(seed);
+  for (const path of [oldPost, oldReply, oldNotice, oldSaved]) {
+    await assertSucceeds(read(bob, path));
+  }
+  const oldDraft = () => ({
+    uid: 'feed-bob', authorName: 'Conta de QA', title: 'Tópico de teste',
+    body: 'Publicação fictícia', category: 'Sagradas Escrituras', createdAt: serverTimestamp(),
+  });
+  await assertSucceeds(setDoc(doc(bob, 'posts/before-retirement'), oldDraft()));
+  await assertFails(setDoc(doc(bob, 'app_config/community_feed'), {forumRetired: true}));
+  await env.withSecurityRulesDisabled(ctx => setDoc(
+    doc(ctx.firestore(), 'app_config/community_feed'), {forumRetired: true},
+  ));
+  for (const path of [oldPost, oldReply, oldNotice, oldSaved]) {
+    await assertFails(read(bob, path));
+  }
+  await assertFails(getDocsFromServer(collection(bob, 'posts')));
+  await assertFails(setDoc(doc(bob, 'posts/legacy-write'), oldDraft()));
+  await assertFails(deleteDoc(doc(admin, oldPost)));
+  await assertSucceeds(read(bob, channel));
+  await assertSucceeds(read(bob, 'app_config/community_feed'));
+  await env.withSecurityRulesDisabled(async ctx => {
+    assert.equal((await read(ctx.firestore(), oldPost)).exists(), true);
+  });
   console.log('Publicações: acesso por amizade, revogação, imagem, comentários e canal validados.');
 } finally {
   await env.cleanup();

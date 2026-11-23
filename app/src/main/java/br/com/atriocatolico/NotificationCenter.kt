@@ -113,15 +113,20 @@ private fun DocumentSnapshot.noticeToken(prefix: String, field: String = "create
 }
 
 @Composable
-internal fun rememberNotificationInbox(db: FirebaseFirestore, uid: String, admin: Boolean): NotificationInbox {
+internal fun rememberNotificationInbox(db: FirebaseFirestore, uid: String, admin: Boolean, forumRetired: Boolean = false): NotificationInbox {
     val context = LocalContext.current.applicationContext
     val inbox = remember(db, uid) { NotificationInbox(db, uid,
         context.getSharedPreferences("atrio_notices_$uid", Context.MODE_PRIVATE)) }
-    DisposableEffect(db, uid, inbox.limit, inbox.retry) {
+    DisposableEffect(db, uid, inbox.limit, inbox.retry, forumRetired) {
         var active = true
         inbox.loadingReplies = true
         inbox.replyError = false
-        val listener = db.collection("users").document(uid).collection("notifications")
+        if (forumRetired) {
+            inbox.replies = emptyList()
+            inbox.loadingReplies = false
+            inbox.replyMore = false
+        }
+        val listener = if (forumRetired) null else db.collection("users").document(uid).collection("notifications")
             .orderBy("createdAt", Query.Direction.DESCENDING).limit(inbox.limit.toLong() + 1)
             .addSnapshotListener { data, error -> if (active) {
                 inbox.loadingReplies = false
@@ -144,7 +149,7 @@ internal fun rememberNotificationInbox(db: FirebaseFirestore, uid: String, admin
                     }
                 } ?: emptyList()
             } }
-        onDispose { active = false; listener.remove() }
+        onDispose { active = false; listener?.remove() }
     }
     DisposableEffect(db, uid, inbox.retry) {
         var active = true
@@ -211,6 +216,7 @@ internal fun rememberNotificationInbox(db: FirebaseFirestore, uid: String, admin
 internal fun NotificationCenter(
     inbox: NotificationInbox, admin: Boolean, postTitles: Map<String, String>,
     feedNotices: (@Composable (Boolean) -> Unit)? = null,
+    forumRetired: Boolean = false,
     onOpen: (NoticeGroup) -> Unit
 ) {
     var filter by rememberSaveable(inbox.uid) { mutableStateOf("Todas") }
@@ -297,7 +303,7 @@ internal fun NotificationCenter(
         title = { Text("Preferências de avisos") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                NoticePreference("Respostas às minhas discussões", inbox.enabledReplies) { inbox.preference("replies", it) }
+                if (!forumRetired) NoticePreference("Respostas às minhas discussões", inbox.enabledReplies) { inbox.preference("replies", it) }
                 NoticePreference("Resultado da verificação de selo", inbox.enabledReview) { inbox.preference("review", it) }
                 if (admin) NoticePreference("Pendências administrativas", inbox.enabledAdmin) { inbox.preference("admin", it) }
                 Text("Estas opções controlam os avisos exibidos na central e no sino. Não apagam pedidos nem denúncias.", fontSize = AtrioType.secondary, color = Muted)

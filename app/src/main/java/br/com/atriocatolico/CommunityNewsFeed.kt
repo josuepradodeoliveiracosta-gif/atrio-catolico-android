@@ -58,6 +58,7 @@ private fun feedPage(query: Query, retry: Int): FeedPage {
 internal fun CommunityNewsFeed(
     db: FirebaseFirestore,
     uid: String,
+    memberName: String,
     blockedMembers: Set<String>,
     searchOpen: Boolean,
     onTextSearch: (String) -> Unit,
@@ -137,11 +138,13 @@ internal fun CommunityNewsFeed(
         return
     }
 
+    val showWelcome by welcomePreference(uid)
     LazyColumn(
         Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).testTag("atrio-community-feed"),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        if (showWelcome) item { LiturgicalWelcome(memberName) }
         item {
             Text("Feed de notícias", style = MaterialTheme.typography.headlineSmall)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

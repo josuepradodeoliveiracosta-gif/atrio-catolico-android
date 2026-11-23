@@ -227,6 +227,8 @@ export async function handleRequest(request,env) {
       return json(200,decision);
     }
     if(!input||Object.keys(input).sort().join(',')!=='action,caseId,note'||!/^guard_[a-f0-9]{32}$/.test(input.caseId||'')||!['restore','confirm'].includes(input.action)||typeof input.note!=='string'||input.note.trim().length<5||input.note.length>300)return json(400,'invalid_review');
+    if(input.action==='restore' && bool(await db.get('app_config/community_feed'),'forumRetired'))
+      return json(409,'forum_retired');
     const decision=await reviewCase(db,uid,input);
     return json(200,decision);
   }catch(e){return json([400,403,409,412].includes(e.status)?(e.status===412?409:e.status):503,'operation_unavailable');}
@@ -279,6 +281,7 @@ export default {
     }
     if(env.GUARDIAN_V2_ENABLED!=='true')return;
     ctx.waitUntil((async()=>{try{const db=new Firestore(await token(env),env.GUARDIAN_FIREBASE_PROJECT_ID);const config=await db.get('guardian_config/policy');
+      if(bool(await db.get('app_config/community_feed'),'forumRetired'))return;
       const metrics=await scanOnce(db,settingsOf(config,env));
       if(metrics.status!=='disabled'){
         const current=await db.get('guardian_runtime/last_scan');

@@ -646,9 +646,15 @@ service cloud.firestore {
       }
     }
 
+    // Configuração administrativa única para o corte, inclusive em clientes antigos.
+    function legacyForumOpen() {
+      let config = /databases/$(database)/documents/app_config/community_feed;
+      return !exists(config) || get(config).data.get('forumRetired', false) != true;
+    }
+
     match /posts/{postId} {
-      allow get, list: if signedIn() && emailVerificationAllowsCommunityAccess();
-      allow create: if signedIn()
+      allow get, list: if legacyForumOpen() && signedIn() && emailVerificationAllowsCommunityAccess();
+      allow create: if legacyForumOpen() && signedIn()
         && communityPublicationAllowed()
         && emailVerificationAllowsCommunityAccess()
         && request.resource.data.keys().hasOnly([
@@ -666,7 +672,7 @@ service cloud.firestore {
       // Aplicativo ainda não publicado: exigir updatedAt em toda edição.
       // Isso impede edições que não geram evento para o Guardião V2.
       // Somente para testes até distribuir APK Debug compatível.
-      allow update: if signedIn()
+      allow update: if legacyForumOpen() && signedIn()
         && emailVerificationAllowsCommunityAccess()
         && resource.data.uid == request.auth.uid
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'body', 'updatedAt'])
@@ -674,12 +680,12 @@ service cloud.firestore {
         && request.resource.data.updatedAt == request.time
         && validText(request.resource.data.title, 5, 120)
         && validText(request.resource.data.body, 5, 1200);
-      allow delete: if signedIn() && emailVerificationAllowsCommunityAccess()
+      allow delete: if legacyForumOpen() && signedIn() && emailVerificationAllowsCommunityAccess()
           && (resource.data.uid == request.auth.uid || isAdmin());
 
       match /replies/{replyId} {
-        allow get, list: if signedIn() && emailVerificationAllowsCommunityAccess();
-        allow create: if signedIn()
+        allow get, list: if legacyForumOpen() && signedIn() && emailVerificationAllowsCommunityAccess();
+        allow create: if legacyForumOpen() && signedIn()
           && communityPublicationAllowed()
           && emailVerificationAllowsCommunityAccess()
           && exists(/databases/$(database)/documents/posts/$(postId))
@@ -717,24 +723,24 @@ service cloud.firestore {
                 : get(/databases/$(database)/documents/posts/$(postId)).data.uid == request.resource.data.mentionUid))
             : true);
         allow update: if false;
-        allow delete: if signedIn() && emailVerificationAllowsCommunityAccess()
+        allow delete: if legacyForumOpen() && signedIn() && emailVerificationAllowsCommunityAccess()
           && (resource.data.uid == request.auth.uid || isAdmin());
 
         match /reactions/{uid} {
-          allow get, list: if signedIn() && emailVerificationAllowsCommunityAccess();
-          allow create: if me(uid)
+          allow get, list: if legacyForumOpen() && signedIn() && emailVerificationAllowsCommunityAccess();
+          allow create: if legacyForumOpen() && me(uid)
             && emailVerificationAllowsCommunityAccess()
             && exists(/databases/$(database)/documents/posts/$(postId)/replies/$(replyId))
             && request.resource.data.keys().hasOnly(['kind', 'createdAt'])
             && request.resource.data.keys().hasAll(['kind', 'createdAt'])
             && validReactionKind(request.resource.data.kind)
             && request.resource.data.createdAt == request.time;
-          allow update: if me(uid)
+          allow update: if legacyForumOpen() && me(uid)
             && emailVerificationAllowsCommunityAccess()
             && exists(/databases/$(database)/documents/posts/$(postId)/replies/$(replyId))
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['kind'])
             && validReactionKind(request.resource.data.kind);
-          allow delete: if me(uid) && emailVerificationAllowsCommunityAccess();
+          allow delete: if legacyForumOpen() && me(uid) && emailVerificationAllowsCommunityAccess();
         }
       }
     }
@@ -924,8 +930,8 @@ service cloud.firestore {
     }
 
     match /users/{uid}/likedPosts/{postId} {
-      allow get, list: if me(uid) && emailVerificationAllowsCommunityAccess();
-      allow create: if me(uid)
+      allow get, list: if legacyForumOpen() && me(uid) && emailVerificationAllowsCommunityAccess();
+      allow create: if legacyForumOpen() && me(uid)
         && emailVerificationAllowsCommunityAccess()
         && exists(/databases/$(database)/documents/posts/$(postId))
         && request.resource.data.keys().hasOnly(['createdAt', 'postId'])
@@ -933,33 +939,33 @@ service cloud.firestore {
         && (!request.resource.data.keys().hasAny(['postId'])
           || request.resource.data.postId == postId)
         && validTime();
-      allow delete: if me(uid) && emailVerificationAllowsCommunityAccess();
+      allow delete: if legacyForumOpen() && me(uid) && emailVerificationAllowsCommunityAccess();
       allow update: if false;
     }
 
     match /users/{uid}/savedPosts/{postId} {
-      allow get, list: if me(uid) && emailVerificationAllowsCommunityAccess();
-      allow create: if me(uid)
+      allow get, list: if legacyForumOpen() && me(uid) && emailVerificationAllowsCommunityAccess();
+      allow create: if legacyForumOpen() && me(uid)
         && emailVerificationAllowsCommunityAccess()
         && exists(/databases/$(database)/documents/posts/$(postId))
         && request.resource.data.keys().hasOnly(['createdAt'])
         && request.resource.data.keys().hasAll(['createdAt'])
         && validTime();
-      allow delete: if me(uid) && emailVerificationAllowsCommunityAccess();
+      allow delete: if legacyForumOpen() && me(uid) && emailVerificationAllowsCommunityAccess();
       allow update: if false;
     }
 
     // Acompanhamento persistente: somente o próprio usuário pode editar.
     match /users/{uid}/followedPosts/{postId} {
-      allow get, list: if me(uid) && emailVerificationAllowsCommunityAccess();
-      allow create: if me(uid)
+      allow get, list: if legacyForumOpen() && me(uid) && emailVerificationAllowsCommunityAccess();
+      allow create: if legacyForumOpen() && me(uid)
         && emailVerificationAllowsCommunityAccess()
         && validId(postId)
         && exists(/databases/$(database)/documents/posts/$(postId))
         && request.resource.data.keys().hasOnly(['createdAt'])
         && request.resource.data.keys().hasAll(['createdAt'])
         && validTime();
-      allow delete: if me(uid) && emailVerificationAllowsCommunityAccess();
+      allow delete: if legacyForumOpen() && me(uid) && emailVerificationAllowsCommunityAccess();
       allow update: if false;
     }
 
@@ -1007,10 +1013,10 @@ service cloud.firestore {
               && get(/databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(sourceId)).data.uid == recipientUid));
       }
       // Somente o destinatário consulta, marca como lida ou dispensa notificações.
-      allow get, list: if me(recipientUid) && emailVerificationAllowsCommunityAccess();
+      allow get, list: if legacyForumOpen() && me(recipientUid) && emailVerificationAllowsCommunityAccess();
       // O remetente não pode inventar notificações: a resposta relacionada
       // precisa nascer no mesmo batch, pertencer a ele e ter data atual.
-      allow create: if signedIn()
+      allow create: if legacyForumOpen() && signedIn()
         && emailVerificationAllowsCommunityAccess()
         && request.auth.uid != recipientUid
         && request.resource.data.keys().hasOnly([
@@ -1041,12 +1047,12 @@ service cloud.firestore {
         && getAfter(/databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(notificationId)).data.uid == request.auth.uid
         && getAfter(/databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(notificationId)).data.authorName == request.resource.data.actorName
         && getAfter(/databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(notificationId)).data.createdAt == request.time;
-      allow update: if me(recipientUid)
+      allow update: if legacyForumOpen() && me(recipientUid)
         && emailVerificationAllowsCommunityAccess()
         && resource.data.read == false
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])
         && request.resource.data.read == true;
-      allow delete: if me(recipientUid) && emailVerificationAllowsCommunityAccess();
+      allow delete: if legacyForumOpen() && me(recipientUid) && emailVerificationAllowsCommunityAccess();
     }
 
     // Guarda privada de conteúdo temporariamente retirado do fórum.

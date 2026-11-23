@@ -23,8 +23,17 @@ internal object ThreadPushSubscriptions {
     fun contains(context: Context, uid: String, postId: String): Boolean =
         idPattern.matches(postId) && postId in get(context, uid)
 
+    fun isRetired(context: Context, uid: String): Boolean =
+        prefs(context).getBoolean("retired_$uid", false)
+
+    fun setRetired(context: Context, uid: String, retired: Boolean) {
+        if (isRetired(context, uid) == retired) return
+        prefs(context).edit().putBoolean("retired_$uid", retired).apply()
+        if (retired) unsubscribeAll(context, uid) else sync(context, uid)
+    }
+
     fun track(context: Context, uid: String, postId: String) {
-        if (BuildConfig.ATRIO_QA_GERAL_REMOTE || !idPattern.matches(postId) ||
+        if (isRetired(context, uid) || BuildConfig.ATRIO_QA_GERAL_REMOTE || !idPattern.matches(postId) ||
             FirebaseAuth.getInstance().currentUser?.uid != uid) return
         val before = get(context, uid)
         if (postId in before) return
@@ -39,7 +48,7 @@ internal object ThreadPushSubscriptions {
     }
 
     fun sync(context: Context, uid: String) {
-        if (!PushRegistry.enabled(context, uid) ||
+        if (isRetired(context, uid) || !PushRegistry.enabled(context, uid) ||
             FirebaseAuth.getInstance().currentUser?.uid != uid) return
         get(context, uid).forEach {
             if (idPattern.matches(it))

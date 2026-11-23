@@ -77,7 +77,8 @@ internal fun OnlineProfileScreen(
     onDownloadUpdate: (OtaApkOffer) -> Unit = {},
     onCancelUpdateDownload: () -> Unit = {},
     onInstallUpdate: () -> Unit = {},
-    onConversations: (() -> Unit)? = null
+    onConversations: (() -> Unit)? = null,
+    forumRetired: Boolean = false
 ) {
     val profileListState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -95,14 +96,14 @@ internal fun OnlineProfileScreen(
     BackHandler(enabled = profilePreviewOpen) { profilePreviewOpen = false }
     BackHandler(enabled = profileSettingsMenuOpen, onBack = onCloseProfileSettingsMenu)
 
-    if (followedOpen) {
+    if (followedOpen && !forumRetired) {
         FollowedDiscussionsScreen(db, uid, followedRevision,
             onBack = { followedOpen = false }, onOpen = onOpen,
             remoteEnabled = followedRemoteEnabled, remoteIds = followedRemoteIds,
             remoteLoading = followedRemoteLoading, remoteFailed = followedRemoteFailed)
     } else if (contributionsOpen) {
         ContributionProgressScreen(db, uid, onBack = { contributionsOpen = false })
-    } else if (discussionsOpen) {
+    } else if (discussionsOpen && !forumRetired) {
         ProfileDiscussionHistory(db, uid, onBack = { discussionsOpen = false }, onOpen = onOpen)
     } else if (badgesOpen) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
@@ -165,14 +166,16 @@ internal fun OnlineProfileScreen(
                                     Icons.Outlined.Forum, onConversations)
                                 HorizontalDivider()
                             }
-                            ProfileAction("Minhas discussões", "Veja as discussões mais recentes e carregue outras quando desejar.",
-                                Icons.Outlined.Forum) { discussionsOpen = true }
-                            HorizontalDivider()
-                            ProfileAction("Discussões acompanhadas",
-                                if (followedRemoteEnabled) "Lista sincronizada na sua conta."
-                                else "Sua lista pessoal neste aparelho.",
-                                Icons.Outlined.BookmarkBorder) { followedOpen = true }
-                            HorizontalDivider()
+                            if (!forumRetired) {
+                                ProfileAction("Minhas discussões", "Veja as discussões mais recentes e carregue outras quando desejar.",
+                                    Icons.Outlined.Forum) { discussionsOpen = true }
+                                HorizontalDivider()
+                                ProfileAction("Discussões acompanhadas",
+                                    if (followedRemoteEnabled) "Lista sincronizada na sua conta."
+                                    else "Sua lista pessoal neste aparelho.",
+                                    Icons.Outlined.BookmarkBorder) { followedOpen = true }
+                                HorizontalDivider()
+                            }
                             ProfileAction("Insígnias de contribuição",
                                 "Acompanhe as três trilhas e escolha uma para destacar no perfil.",
                                 Icons.Outlined.StarBorder) { contributionsOpen = true }
