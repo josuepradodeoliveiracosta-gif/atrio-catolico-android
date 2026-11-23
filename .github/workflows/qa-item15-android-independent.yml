@@ -131,7 +131,7 @@ jobs:
           if [[ -f qa-conversation-notice-worker.log ]]; then
             grep -F 'QA idade 18+ fixture:' qa-conversation-notice-worker.log | tail -20 || true
           fi
-          adb logcat -d -v brief -s AndroidRuntime:E '*:S' | tail -45 || true
+          timeout 6s adb logcat -d -v brief -s AndroidRuntime:E '*:S' | tail -45 || true
       - name: Conferir manifesto, pacote e SHA-256 do APK
         if: always()
         run: |
