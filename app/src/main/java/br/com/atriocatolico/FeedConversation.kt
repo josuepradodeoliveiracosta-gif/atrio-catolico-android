@@ -33,6 +33,7 @@ internal fun FeedConversation(
     post: DocumentSnapshot,
     uid: String,
 ) {
+    val confirmSend = rememberFeedSendConfirmation()
     val comments = remember(post.reference) { post.reference.collection("comments") }
     var entries by remember(comments, uid) { mutableStateOf<List<DocumentSnapshot>>(emptyList()) }
     var limit by rememberSaveable(post.id, uid) { mutableStateOf(30L) }
@@ -77,28 +78,30 @@ internal fun FeedConversation(
             label = { Text(if (parent == null) "Escreva um comentário" else "Escreva uma resposta") },
             modifier = Modifier.fillMaxWidth())
         Button(enabled = !busy && body.isNotBlank() && (parentId == null || parent != null), onClick = {
-            busy = true
-            feedback = ""
-            val ref = comments.document()
-            val batch = db.batch().set(ref, mapOf(
-                "authorUid" to uid, "parentId" to parent?.id.orEmpty(),
-                "body" to body.trim(), "createdAt" to FieldValue.serverTimestamp(),
-            ))
-            val recipients = mutableMapOf<String, String>()
-            post.getString("authorUid")?.takeUnless { it == uid }?.let { recipients[it] = "comment" }
-            parent?.getString("authorUid")?.takeUnless { it == uid }?.let { recipients[it] = "reply" }
-            for ((recipient, kind) in recipients) {
-                batch.set(db.document("feed_notices/$recipient/items/${ref.id}"), mapOf(
-                    "postId" to post.id, "kind" to kind, "read" to false,
-                    "createdAt" to FieldValue.serverTimestamp(),
+            confirmSend(body) {
+                busy = true
+                feedback = ""
+                val ref = comments.document()
+                val batch = db.batch().set(ref, mapOf(
+                    "authorUid" to uid, "parentId" to parent?.id.orEmpty(),
+                    "body" to body.trim(), "createdAt" to FieldValue.serverTimestamp(),
                 ))
-            }
-            batch.commit().addOnCompleteListener {
-                busy = false
-                if (it.isSuccessful) {
-                    body = ""
-                    parentId = null
-                } else feedback = "Não foi possível enviar. Seu texto foi preservado."
+                val recipients = mutableMapOf<String, String>()
+                post.getString("authorUid")?.takeUnless { it == uid }?.let { recipients[it] = "comment" }
+                parent?.getString("authorUid")?.takeUnless { it == uid }?.let { recipients[it] = "reply" }
+                for ((recipient, kind) in recipients) {
+                    batch.set(db.document("feed_notices/$recipient/items/${ref.id}"), mapOf(
+                        "postId" to post.id, "kind" to kind, "read" to false,
+                        "createdAt" to FieldValue.serverTimestamp(),
+                    ))
+                }
+                batch.commit().addOnCompleteListener {
+                    busy = false
+                    if (it.isSuccessful) {
+                        body = ""
+                        parentId = null
+                    } else feedback = "Não foi possível enviar. Seu texto foi preservado."
+                }
             }
         }) { Text(if (parent == null) "Comentar" else "Responder") }
         if (feedback.isNotBlank()) Text(feedback, color = MaterialTheme.colorScheme.error)

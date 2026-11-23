@@ -80,6 +80,7 @@ import java.util.concurrent.TimeUnit
 class ProfileV3ConsentEmulatorUiTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
     private val sessions = mutableListOf<FirebaseAuth>()
+    private var feedSeeded = false
     private lateinit var owner: FirebaseFirestore
     private lateinit var visitor: FirebaseFirestore
     private lateinit var uid: String
@@ -138,6 +139,7 @@ class ProfileV3ConsentEmulatorUiTest {
     }
 
     @After fun cleanSessions() {
+        if (feedSeeded) setQaFeedEnabled(false)
         sessions.forEach { it.signOut() }
     }
 
@@ -657,8 +659,31 @@ class ProfileV3ConsentEmulatorUiTest {
         }
     }
 
+    private fun setQaFeedEnabled(enabled: Boolean) {
+        check(owner.app.options.projectId == "demo-atrio-v11" &&
+            owner.firestoreSettings.host == "127.0.0.1:8089" && !owner.firestoreSettings.isSslEnabled)
+        val endpoint = "http://127.0.0.1:8089/v1/projects/demo-atrio-v11/databases/(default)/documents/app_config/community_feed"
+        val connection = java.net.URL(endpoint).openConnection() as java.net.HttpURLConnection
+        try {
+            connection.requestMethod = if (enabled) "PATCH" else "DELETE"
+            connection.connectTimeout = 5000
+            connection.readTimeout = 5000
+            connection.setRequestProperty("Authorization", "Bearer owner")
+            if (enabled) {
+                connection.doOutput = true
+                connection.setRequestProperty("Content-Type", "application/json")
+                connection.outputStream.use { it.write("""{"fields":{"enabled":{"booleanValue":true}}}""".toByteArray()) }
+            }
+            check(connection.responseCode in 200..299)
+        } finally {
+            connection.disconnect()
+        }
+    }
+
     @OptIn(ExperimentalComposeUiApi::class)
     @Test fun feedKeepsNavigationAccessibleAcrossLiturgicalThemes() {
+        feedSeeded = true
+        setQaFeedEnabled(true)
         val title = "Pergunta de QA ${UUID.randomUUID()}"
         await(owner.document("feed_channels/$uid").set(mapOf(
             "name" to "Canal de homologação", "updatedAt" to FieldValue.serverTimestamp(),

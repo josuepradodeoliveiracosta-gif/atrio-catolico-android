@@ -1253,6 +1253,12 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
+    function communityFeedOpen() {
+      let config = /databases/$(database)/documents/app_config/community_feed;
+      return exists(config) && (get(config).data.get('enabled', false) == true
+        || get(config).data.get('forumRetired', false) == true);
+    }
+
     // A amizade só existe após a aceitação da outra pessoa. Remover o
     // documento revoga o acesso das duas partes, inclusive por link direto.
     function feedFriendshipAccepted(firstUid, secondUid) {
@@ -1264,8 +1270,8 @@ service cloud.firestore {
         && !exists(/databases/$(database)/documents/users/$(secondUid)/blockedMembers/$(firstUid));
     }
     match /feed_friendships/{senderUid}/feed_friendship_edges/{recipientUid} {
-      allow get: if me(senderUid) || me(recipientUid);
-      allow create: if me(senderUid) && validId(recipientUid) && senderUid != recipientUid
+      allow get: if communityFeedOpen() && (me(senderUid) || me(recipientUid));
+      allow create: if communityFeedOpen() && me(senderUid) && validId(recipientUid) && senderUid != recipientUid
         && emailVerificationAllowsCommunityAccess()
         && feedPairUnblocked(senderUid, recipientUid)
         && !existsAfter(/databases/$(database)/documents/feed_friendships/$(recipientUid)/feed_friendship_edges/$(senderUid))
@@ -1274,18 +1280,18 @@ service cloud.firestore {
         && request.resource.data.recipientUid == recipientUid
         && request.resource.data.status == 'pending'
         && request.resource.data.createdAt == request.time;
-      allow update: if me(recipientUid) && emailVerificationAllowsCommunityAccess()
+      allow update: if communityFeedOpen() && me(recipientUid) && emailVerificationAllowsCommunityAccess()
         && feedPairUnblocked(senderUid, recipientUid)
         && resource.data.status == 'pending'
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
         && request.resource.data.status == 'accepted';
-      allow delete: if me(senderUid) || me(recipientUid);
+      allow delete: if communityFeedOpen() && (me(senderUid) || me(recipientUid));
       allow list: if false;
     }
 
     // Consultas por participante, inclusive para convites recebidos.
     match /{path=**}/feed_friendship_edges/{edgeId} {
-      allow list: if me(resource.data.senderUid) || me(resource.data.recipientUid);
+      allow list: if communityFeedOpen() && (me(resource.data.senderUid) || me(resource.data.recipientUid));
     }
 
     match /app_config/community_feed {
@@ -1295,8 +1301,8 @@ service cloud.firestore {
 
     // Um canal por responsável. O UID do documento vincula o canal ao autor.
     match /feed_channels/{ownerUid} {
-      allow get: if signedIn() && emailVerificationAllowsCommunityAccess();
-      allow create, update: if me(ownerUid) && emailVerificationAllowsCommunityAccess()
+      allow get: if communityFeedOpen() && signedIn() && emailVerificationAllowsCommunityAccess();
+      allow create, update: if communityFeedOpen() && me(ownerUid) && emailVerificationAllowsCommunityAccess()
         && communityPublicationAllowed()
         && request.resource.data.keys().hasOnly(['name', 'description', 'imageJpeg', 'updatedAt'])
         && (!request.resource.data.keys().hasAny(['imageJpeg'])
@@ -1310,13 +1316,13 @@ service cloud.firestore {
     }
 
     match /feed_following/{viewerUid}/channels/{ownerUid} {
-      allow get, list: if me(viewerUid) && emailVerificationAllowsCommunityAccess();
-      allow create: if me(viewerUid) && viewerUid != ownerUid
+      allow get, list: if communityFeedOpen() && me(viewerUid) && emailVerificationAllowsCommunityAccess();
+      allow create: if communityFeedOpen() && me(viewerUid) && viewerUid != ownerUid
         && emailVerificationAllowsCommunityAccess()
         && exists(/databases/$(database)/documents/feed_channels/$(ownerUid))
         && request.resource.data.keys().hasOnly(['createdAt'])
         && request.resource.data.createdAt == request.time;
-      allow delete: if me(viewerUid);
+      allow delete: if communityFeedOpen() && me(viewerUid);
       allow update: if false;
     }
 
@@ -1361,16 +1367,16 @@ service cloud.firestore {
             || data.kind == 'reply' && validId(comment.parentId)
               && get(feedCommentPath(data.postId, comment.parentId)).data.authorUid == recipientUid);
       }
-      allow get, list: if me(recipientUid) && emailVerificationAllowsCommunityAccess();
-      allow create: if signedIn() && !me(recipientUid)
+      allow get, list: if communityFeedOpen() && me(recipientUid) && emailVerificationAllowsCommunityAccess();
+      allow create: if communityFeedOpen() && signedIn() && !me(recipientUid)
         && request.resource.data.keys().hasOnly(['postId', 'kind', 'createdAt', 'read'])
         && validId(request.resource.data.postId)
         && request.resource.data.createdAt == request.time && request.resource.data.read == false
         && validFeedNotice(request.resource.data);
-      allow update: if me(recipientUid) && emailVerificationAllowsCommunityAccess()
+      allow update: if communityFeedOpen() && me(recipientUid) && emailVerificationAllowsCommunityAccess()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])
         && request.resource.data.read == true;
-      allow delete: if me(recipientUid);
+      allow delete: if communityFeedOpen() && me(recipientUid);
     }
 
     match /feed_reports/{reportId} {
@@ -1388,9 +1394,9 @@ service cloud.firestore {
         return data.targetId == data.targetUid && data.commentId == ''
           && channel.name == data.title && channel.get('description', '') == data.body;
       }
-      allow get: if isAdmin() || me(resource.data.reporterUid);
-      allow list: if isAdmin();
-      allow create: if signedIn() && emailVerificationAllowsCommunityAccess()
+      allow get: if communityFeedOpen() && (isAdmin() || me(resource.data.reporterUid));
+      allow list: if communityFeedOpen() && isAdmin();
+      allow create: if communityFeedOpen() && signedIn() && emailVerificationAllowsCommunityAccess()
         && request.resource.data.keys().hasOnly([
           'reporterUid', 'targetUid', 'targetId', 'targetType', 'commentId',
           'title', 'body', 'reason', 'status', 'createdAt'
@@ -1404,7 +1410,7 @@ service cloud.firestore {
         && request.resource.data.status == 'pending' && request.resource.data.createdAt == request.time
         && (request.resource.data.targetType == 'channel' ? matchesChannel(request.resource.data)
           : matchesPost(request.resource.data));
-      allow update: if isAdmin() && resource.data.status == 'pending'
+      allow update: if communityFeedOpen() && isAdmin() && resource.data.status == 'pending'
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'reviewedAt', 'reviewedBy'])
         && request.resource.data.status == 'reviewed' && request.resource.data.reviewedAt == request.time
         && me(request.resource.data.reviewedBy);
@@ -1414,19 +1420,19 @@ service cloud.firestore {
     match /feed_posts/{postId} {
       // As consultas precisam declarar published e destination. Para linhas
       // do tempo, consultar por autor e combinar os resultados no feed.
-      allow get, list: if feedPostReadable(resource.data);
-      allow create: if signedIn() && emailVerificationAllowsCommunityAccess()
+      allow get, list: if communityFeedOpen() && feedPostReadable(resource.data);
+      allow create: if communityFeedOpen() && signedIn() && emailVerificationAllowsCommunityAccess()
         && communityPublicationAllowed() && validFeedPost(request.resource.data, postId);
       // Reter a referência impede reutilizar o ID com comentários ou imagem antigos.
-      allow update: if me(resource.data.authorUid)
+      allow update: if communityFeedOpen() && me(resource.data.authorUid)
         && resource.data.published == true && request.resource.data.published == false
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['published']);
       allow delete: if false;
 
       // Imagem compactada em documento protegido, sem URL pública permanente.
       match /media/{mediaId} {
-        allow get: if mediaId == 'image' && feedPostReadable(get(feedPostPath(postId)).data);
-        allow create: if mediaId == 'image' && signedIn()
+        allow get: if communityFeedOpen() && mediaId == 'image' && feedPostReadable(get(feedPostPath(postId)).data);
+        allow create: if communityFeedOpen() && mediaId == 'image' && signedIn()
           && emailVerificationAllowsCommunityAccess() && communityPublicationAllowed()
           && me(getAfter(feedPostPath(postId)).data.authorUid)
           && getAfter(feedPostPath(postId)).data.published == true
@@ -1443,8 +1449,8 @@ service cloud.firestore {
           && get(/databases/$(database)/documents/feed_posts/$(postId)/comments/$(parentId)).data.parentId == '');
       }
       match /comments/{commentId} {
-        allow get, list: if feedPostReadable(get(feedPostPath(postId)).data);
-        allow create: if feedPostReadable(get(feedPostPath(postId)).data)
+        allow get, list: if communityFeedOpen() && feedPostReadable(get(feedPostPath(postId)).data);
+        allow create: if communityFeedOpen() && feedPostReadable(get(feedPostPath(postId)).data)
           && communityPublicationAllowed()
           && request.resource.data.keys().hasOnly(['authorUid', 'parentId', 'body', 'createdAt'])
           && me(request.resource.data.authorUid)
@@ -1452,7 +1458,7 @@ service cloud.firestore {
           && validText(request.resource.data.body, 1, 2000)
           && request.resource.data.createdAt == request.time;
         // Conservar o comentário raiz para que as respostas permaneçam legíveis.
-        allow update: if me(resource.data.authorUid)
+        allow update: if communityFeedOpen() && me(resource.data.authorUid)
           && feedPostReadable(get(feedPostPath(postId)).data)
           && resource.data.get('removed', false) == false
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['removed', 'body'])

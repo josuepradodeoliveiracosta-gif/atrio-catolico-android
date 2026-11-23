@@ -78,7 +78,8 @@ internal fun OnlineProfileScreen(
     onCancelUpdateDownload: () -> Unit = {},
     onInstallUpdate: () -> Unit = {},
     onConversations: (() -> Unit)? = null,
-    forumRetired: Boolean = false
+    forumRetired: Boolean = false,
+    feedEnabled: Boolean = false
 ) {
     val profileListState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -154,8 +155,8 @@ internal fun OnlineProfileScreen(
                         }
                         ProfileV3Summary(db, uid, modifier = Modifier.padding(top = 16.dp))
                     }
-                    ProfileSection.Timeline -> ProfileTimeline(db, ownerUid = uid, viewerUid = uid)
-                    ProfileSection.Channel -> ProfileChannel(db, ownerUid = uid, viewerUid = uid, ownerName = name)
+                    ProfileSection.Timeline -> if (feedEnabled) ProfileTimeline(db, ownerUid = uid, viewerUid = uid) else Unit
+                    ProfileSection.Channel -> if (feedEnabled) ProfileChannel(db, ownerUid = uid, viewerUid = uid, ownerName = name) else Unit
                     ProfileSection.Participation -> {
                         ProfileSectionTitle("Minha participação")
                         Card(Modifier.fillMaxWidth(), border = BorderStroke(1.dp, Line),

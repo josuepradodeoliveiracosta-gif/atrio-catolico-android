@@ -82,7 +82,8 @@ internal fun PublicMemberProfileScreen(
     onConverse: (() -> Unit)? = null,
     managedBlocks: AtrioManagedBlocks? = null,
     discussionResolver: ProfileV3DiscussionResolver? = null,
-    forumRetired: Boolean = false
+    forumRetired: Boolean = false,
+    feedEnabled: Boolean = false
 ) {
     val uid = target.uid
     val auth = remember(db) { FirebaseAuth.getInstance(db.app) }
@@ -318,7 +319,7 @@ internal fun PublicMemberProfileScreen(
                     style = MaterialTheme.typography.bodySmall, color = Muted)
             }
         }
-        if (viewer != null && !blocked && viewerUid != uid) {
+        if (feedEnabled && viewer != null && !blocked && viewerUid != uid) {
             item { ProfileTimeline(db, ownerUid = uid, viewerUid = viewerUid) }
             item {
                 ProfileChannel(db, ownerUid = uid, viewerUid = viewerUid,

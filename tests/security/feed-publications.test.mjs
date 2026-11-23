@@ -43,6 +43,12 @@ const recent = (db, destination, extra = []) => getDocsFromServer(query(
 ));
 
 try {
+  await assertFails(setDoc(doc(alice, timeline), post('timeline')));
+  await assertFails(setDoc(doc(alice, 'feed_channels/feed-alice'),
+    {name: 'Canal', updatedAt: serverTimestamp()}));
+  await env.withSecurityRulesDisabled(ctx => setDoc(
+    doc(ctx.firestore(), 'app_config/community_feed'), {enabled: true},
+  ));
   await assertSucceeds(setDoc(doc(alice, timeline), post('timeline')));
   await assertFails(setDoc(doc(bob, channel), post('timeline')));
   await assertFails(setDoc(doc(alice, channel), post('channel')));
@@ -175,6 +181,12 @@ try {
   });
   await assertSucceeds(setDoc(doc(bob, 'posts/before-retirement'), oldDraft()));
   await assertFails(setDoc(doc(bob, 'app_config/community_feed'), {forumRetired: true}));
+  await env.withSecurityRulesDisabled(ctx => setDoc(
+    doc(ctx.firestore(), 'app_config/community_feed'), {enabled: false},
+  ));
+  await assertFails(read(bob, channel));
+  await assertFails(getDocsFromServer(collection(bob, 'feed_following/feed-bob/channels')));
+
   await env.withSecurityRulesDisabled(ctx => setDoc(
     doc(ctx.firestore(), 'app_config/community_feed'), {forumRetired: true},
   ));

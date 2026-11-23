@@ -60,6 +60,7 @@ internal fun ProfilePublicationComposer(
         return
     }
 
+    val confirmSend = rememberFeedSendConfirmation()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val channel = remember(db, uid) { db.document("feed_channels/$uid") }
@@ -140,53 +141,55 @@ internal fun ProfilePublicationComposer(
 
         Button(enabled = canPublish && !busy && if (question) title.isNotBlank() else body.isNotBlank(),
             onClick = {
-                val posts = db.collection("feed_posts")
-                val ref = draftId?.let(posts::document) ?: posts.document()
-                val attachment = image
-                val data = mapOf(
-                    "authorUid" to uid,
-                    "destination" to target,
-                    "format" to if (question) "question" else "post",
-                    "title" to title.trim(),
-                    "body" to body.trim(),
-                    "published" to true,
-                    "hasImage" to (attachment != null),
-                )
-                draftId = ref.id
-                busy = true
-                notice = ""
-                val media = ref.collection("media").document("image")
-                val batch = db.batch().set(ref, data + ("createdAt" to FieldValue.serverTimestamp()))
-                if (attachment != null) {
-                    batch.set(media, mapOf("contentType" to "image/jpeg", "bytes" to attachment))
-                }
-                fun finish(saved: Boolean) {
-                    busy = false
-                    notice = if (saved) "Publicação enviada." else "Não foi possível publicar. Seu rascunho foi preservado."
-                    if (saved) {
-                        draftId = null
-                        title = ""
-                        body = ""
-                        image = null
-                        open = false
+                confirmSend(title + "\n" + body) {
+                    val posts = db.collection("feed_posts")
+                    val ref = draftId?.let(posts::document) ?: posts.document()
+                    val attachment = image
+                    val data = mapOf(
+                        "authorUid" to uid,
+                        "destination" to target,
+                        "format" to if (question) "question" else "post",
+                        "title" to title.trim(),
+                        "body" to body.trim(),
+                        "published" to true,
+                        "hasImage" to (attachment != null),
+                    )
+                    draftId = ref.id
+                    busy = true
+                    notice = ""
+                    val media = ref.collection("media").document("image")
+                    val batch = db.batch().set(ref, data + ("createdAt" to FieldValue.serverTimestamp()))
+                    if (attachment != null) {
+                        batch.set(media, mapOf("contentType" to "image/jpeg", "bytes" to attachment))
                     }
-                }
-                batch.commit().addOnCompleteListener { result ->
-                    if (result.isSuccessful) finish(true)
-                    else ref.get(Source.SERVER).addOnCompleteListener { read ->
-                        val previous = if (read.isSuccessful) read.result else null
-                        if (previous?.exists() != true) finish(false)
-                        else if (data.any { (field, value) -> previous.get(field) != value }) {
+                    fun finish(saved: Boolean) {
+                        busy = false
+                        notice = if (saved) "Publicação enviada." else "Não foi possível publicar. Seu rascunho foi preservado."
+                        if (saved) {
                             draftId = null
-                            finish(false)
-                            notice = "O envio anterior já foi publicado. Seu rascunho atual foi preservado."
-                        } else if (attachment == null) finish(true)
-                        else media.get(Source.SERVER).addOnCompleteListener { check ->
-                            val existingImage = if (check.isSuccessful) check.result?.getBlob("bytes") else null
-                            finish(existingImage == attachment)
-                            if (existingImage != null && existingImage != attachment) {
+                            title = ""
+                            body = ""
+                            image = null
+                            open = false
+                        }
+                    }
+                    batch.commit().addOnCompleteListener { result ->
+                        if (result.isSuccessful) finish(true)
+                        else ref.get(Source.SERVER).addOnCompleteListener { read ->
+                            val previous = if (read.isSuccessful) read.result else null
+                            if (previous?.exists() != true) finish(false)
+                            else if (data.any { (field, value) -> previous.get(field) != value }) {
                                 draftId = null
-                                notice = "A imagem anterior já foi publicada. Seu rascunho atual foi preservado."
+                                finish(false)
+                                notice = "O envio anterior já foi publicado. Seu rascunho atual foi preservado."
+                            } else if (attachment == null) finish(true)
+                            else media.get(Source.SERVER).addOnCompleteListener { check ->
+                                val existingImage = if (check.isSuccessful) check.result?.getBlob("bytes") else null
+                                finish(existingImage == attachment)
+                                if (existingImage != null && existingImage != attachment) {
+                                    draftId = null
+                                    notice = "A imagem anterior já foi publicada. Seu rascunho atual foi preservado."
+                                }
                             }
                         }
                     }

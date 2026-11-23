@@ -1541,6 +1541,7 @@ private fun OnlineCommunity(
                 PublicMemberProfileScreen(
                     db = db, target = publicProfileTarget!!, viewerUid = uid,
                     managedBlocks = managedBlocks, onBack = ::closeNoticeDestination, forumRetired = forumRetired,
+                    feedEnabled = communityFeedEnabled || forumRetired,
                     onOpenDiscussion = { postId -> profilePostOpen = true; detailId = postId },
                     onConverse = if (conversationsQa) ({
                         conversationPeer = publicProfileTarget
@@ -1729,6 +1730,7 @@ private fun OnlineCommunity(
                 Tab.PROFILE -> {
                     OnlineProfileScreen(
                         forumRetired = forumRetired,
+                        feedEnabled = communityFeedEnabled || forumRetired,
                         db = db, uid = uid, name = name, email = email, biography = biography,
                         profileSettingsMenuOpen = profileSettingsMenuOpen,
                         onCloseProfileSettingsMenu = { profileSettingsMenuOpen = false },
