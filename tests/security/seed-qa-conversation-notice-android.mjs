@@ -17,7 +17,9 @@ assert.equal(projectId, 'demo-atrio-v11');
 assert.ok(!process.env.GOOGLE_APPLICATION_CREDENTIALS);
 process.env.FIRESTORE_EMULATOR_HOST = '127.0.0.1:8089';
 const password = 'GrupoQa2026!Emulador'; // Exclusivo do Auth Emulator.
-const users = [alice, bob].map(({uid, email, name}) => ({
+const lucia = {uid:'qa-nav-lucia',email:'lucia.navegacao@qa.invalid',name:'Lúcia — fora da admissão'};
+// Clara=Alice e Miguel=Bob são os titulares da conversa; Lúcia é controle negativo.
+const users = [alice, bob, lucia].map(({uid, email, name}) => ({
   localId: uid, email, emailVerified: true, displayName: name, rawPassword: password
 }));
 if (!process.argv.includes('--firestore-only')) {
