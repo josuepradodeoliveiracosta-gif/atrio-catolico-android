@@ -123,7 +123,8 @@ test('item 13: escopo por caso e trilha sem acesso ao histórico',async t=>{
       const report=await assertSucceeds(getDocFromServer(doc(owner,c.path)));
       assert.equal(report.get('reportedText'),c.excerpt);
       assert.equal(Object.keys(report.data()).sort().join('|'),
-        'createdAt|'+c.kind+'|messageId|reason|reportedText|reporterUid');
+        [c.kind,'createdAt','messageId','reason','reportedText','reporterUid']
+          .sort().join('|'));
       assert.equal(report.get('messageId'),c.messageId);
       await assertFails(getDocFromServer(doc(
         c.reporter===alice.uid?miguel:clara,c.path)));
