@@ -2,6 +2,8 @@ package br.com.atriocatolico
 
 import android.content.Context
 import androidx.activity.ComponentActivity
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -135,12 +137,15 @@ class EmailVerificationAndroidUiTest {
         waitForTag("atrio-auth-toggle")
         compose.onNodeWithTag("atrio-auth-toggle").performClick()
         waitForTag("atrio-auth-name")
+        compose.onNodeWithTag("atrio-auth-vitral").assertExists()
+        compose.onNodeWithTag("atrio-auth-privacy").assertExists()
         compose.onNodeWithTag("atrio-auth-name").performTextInput("Maria QA")
         compose.onNodeWithTag("atrio-auth-email").performTextInput(email)
         compose.onNodeWithTag("atrio-auth-password").performTextInput(password)
         compose.onNodeWithTag("atrio-auth-confirm").performTextInput(password)
+        compose.onNodeWithTag("atrio-auth-submit").assertIsNotEnabled()
         compose.onNodeWithTag("atrio-auth-rules").performScrollTo().performClick()
-        compose.onNodeWithTag("atrio-auth-submit").performScrollTo().performClick()
+        compose.onNodeWithTag("atrio-auth-submit").performScrollTo().assertIsEnabled().performClick()
 
         compose.waitUntil(45000) { auth.currentUser != null }
         assertFalse("Conta nova nao pode iniciar com email verificado",

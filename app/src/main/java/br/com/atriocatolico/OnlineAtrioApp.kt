@@ -8,6 +8,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -17,6 +19,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.Logout
 import androidx.compose.material3.*
@@ -29,9 +32,11 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.autofill.ContentType
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.contentType
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.text.KeyboardOptions
@@ -41,9 +46,15 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.firebase.Timestamp
@@ -232,7 +243,6 @@ private fun OnlineAuthScreen(
     var password by remember { mutableStateOf("") }
     var confirmation by remember { mutableStateOf("") }
     var acceptedRules by remember { mutableStateOf(false) }
-    var acceptedTerms by remember { mutableStateOf(false) }
     var acknowledgedPrivacy by remember { mutableStateOf(false) }
     var legalDocument by remember { mutableStateOf("") }
     var showRules by remember { mutableStateOf(false) }
@@ -241,9 +251,26 @@ private fun OnlineAuthScreen(
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
     var resetInfo by remember { mutableStateOf("") }
-    BackHandler(enabled = entranceChosen && !isIsolatedQa && !busy) {
-        entranceChosen = false
+    fun clearFormState() {
+        password = ""
+        confirmation = ""
+        acceptedRules = false
+        acknowledgedPrivacy = false
+        legalDocument = ""
+        showRules = false
         error = ""
+        resetInfo = ""
+        showPassword = false
+        showConfirmation = false
+    }
+
+    fun returnToWelcome() {
+        clearFormState()
+        entranceChosen = false
+    }
+
+    BackHandler(enabled = entranceChosen && !isIsolatedQa && !busy) {
+        returnToWelcome()
     }
 
     if (!entranceChosen) {
@@ -261,40 +288,111 @@ private fun OnlineAuthScreen(
         RegistrationPolicy.confirmProblem(password, confirmation) else null
     val ready = if (registering) {
         RegistrationPolicy.ready(displayName, email, password, confirmation,
-            acceptedRules && (isIsolatedQa || (acceptedTerms && acknowledgedPrivacy)))
+            acceptedRules && (isIsolatedQa || acknowledgedPrivacy))
     } else emailValid && password.length >= 6 // Não bloquear senhas antigas no login.
 
+    val dark = isSystemInDarkTheme()
+    val formBackground = if (dark) Color(0xFF20171A) else Color(0xFFFAF5ED)
+    val formHeading = if (dark) Color(0xFFFFB2C6) else Color(0xFF701333)
+    val formText = if (dark) Color(0xFFF8E8ED) else Color(0xFF31272A)
+    val formOutline = if (dark) Color(0xFFE8BA62) else Color(0xFFA57926)
+    val fieldColors = if (registering) OutlinedTextFieldDefaults.colors(
+        focusedTextColor = formText,
+        unfocusedTextColor = formText,
+        focusedLabelColor = formHeading,
+        unfocusedLabelColor = formHeading,
+        focusedBorderColor = formHeading,
+        unfocusedBorderColor = formOutline,
+        cursorColor = formHeading,
+        focusedTrailingIconColor = formHeading,
+        unfocusedTrailingIconColor = formHeading,
+        focusedSupportingTextColor = formText,
+        unfocusedSupportingTextColor = formText
+    ) else OutlinedTextFieldDefaults.colors()
+
     Column(
-        Modifier.fillMaxSize().background(Wine)
-            .statusBarsPadding().verticalScroll(rememberScrollState())
-            .padding(horizontal = 24.dp, vertical = 26.dp)
+        Modifier.fillMaxSize().background(if (registering) formBackground else Wine)
+            .statusBarsPadding().navigationBarsPadding().imePadding()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp, vertical = 24.dp),
+        horizontalAlignment = if (registering) Alignment.CenterHorizontally else Alignment.Start
     ) {
-        Text("✝", fontFamily = FontFamily.Serif, fontSize = 52.sp, color = Gold)
-        Text("Átrio Católico", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
-            fontSize = 33.sp, color = MaterialTheme.colorScheme.onPrimary)
-        Spacer(Modifier.height(10.dp))
-        Text("Um lugar para aprender e compartilhar a fé.", color = MaterialTheme.colorScheme.onPrimary, fontSize = 15.sp)
-        Spacer(Modifier.height(26.dp))
-        Card(colors = CardDefaults.cardColors(containerColor = Paper), shape = RoundedCornerShape(20.dp)) {
-            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(if (registering) "Criar sua conta" else "Entrar na comunidade",
-                    fontSize = 22.sp, fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold)
-                if (registering) Text(
-                    "Passo 1 de 3 · Depois você confirmará seu e-mail. A personalização é opcional.",
-                    fontSize = AtrioType.secondary, color = Muted
+        if (registering) {
+            Box(Modifier.widthIn(max = 440.dp).fillMaxWidth()) {
+                IconButton(
+                    onClick = {
+                        if (isIsolatedQa) {
+                            clearFormState()
+                            registering = false
+                        } else {
+                            returnToWelcome()
+                        }
+                    },
+                    enabled = !busy,
+                    modifier = Modifier.align(Alignment.TopStart).testTag("atrio-auth-back")
+                ) {
+                    Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Voltar", tint = formHeading)
+                }
+                Column(
+                    Modifier.align(Alignment.Center).padding(horizontal = 48.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Image(
+                        painterResource(R.drawable.atrio_boas_vindas_vitral),
+                        contentDescription = null,
+                        modifier = Modifier.size(72.dp).testTag("atrio-auth-vitral")
+                    )
+                    Text("Átrio Católico", color = formHeading, fontFamily = FontFamily.Serif,
+                        fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.titleLarge)
+                }
+            }
+            HorizontalDivider(Modifier.widthIn(max = 440.dp).fillMaxWidth().padding(top = 12.dp),
+                color = formOutline)
+        } else {
+            Text("✝", fontFamily = FontFamily.Serif, fontSize = 52.sp, color = Gold)
+            Text("Átrio Católico", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
+                fontSize = 33.sp, color = MaterialTheme.colorScheme.onPrimary)
+            Spacer(Modifier.height(10.dp))
+            Text("Um lugar para aprender e compartilhar a fé.",
+                color = MaterialTheme.colorScheme.onPrimary, fontSize = 15.sp)
+            Spacer(Modifier.height(26.dp))
+        }
+        Card(
+            modifier = if (registering) Modifier.widthIn(max = 440.dp).fillMaxWidth() else Modifier,
+            colors = if (registering) {
+                CardDefaults.cardColors(containerColor = formBackground, contentColor = formText)
+            } else CardDefaults.cardColors(containerColor = Paper),
+            shape = RoundedCornerShape(20.dp)
+        ) {
+            Column(
+                Modifier.padding(if (registering) 0.dp else 20.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    if (registering) "Criar conta" else "Entrar na comunidade",
+                    modifier = if (registering) Modifier.fillMaxWidth().padding(top = 12.dp) else Modifier,
+                    color = if (registering) formHeading else Color.Unspecified,
+                    textAlign = if (registering) TextAlign.Center else TextAlign.Unspecified,
+                    fontSize = if (registering) 28.sp else 22.sp,
+                    fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold
                 )
                 if (registering) {
                     OutlinedTextField(displayName, { displayName = it.take(35) },
                         modifier = Modifier.fillMaxWidth().testTag("atrio-auth-name"),
-                        label = { Text("Nome público") }, singleLine = true, enabled = !busy,
+                        label = { Text("Nome público") }, singleLine = true, enabled = !busy, colors = fieldColors,
                         isError = displayName.isNotBlank() && !RegistrationPolicy.validName(displayName),
-                        supportingText = { Text("De 2 a 35 caracteres. Será exibido nas publicações.") },
+                        supportingText = {
+                            Text(if (displayName.isNotBlank() && !RegistrationPolicy.validName(displayName))
+                                "Informe um nome público de 2 a 35 caracteres."
+                            else "É o nome que outras pessoas verão na comunidade.")
+                        },
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next))
                 }
                 OutlinedTextField(email, { email = it.take(150) },
                     modifier = Modifier.fillMaxWidth().testTag("atrio-auth-email")
                         .semantics { contentType = ContentType.EmailAddress },
-                    label = { Text("E-mail") }, singleLine = true, enabled = !busy,
+                    label = { Text("E-mail") }, singleLine = true, enabled = !busy, colors = fieldColors,
                     isError = email.isNotBlank() && !emailValid,
                     supportingText = if (email.isNotBlank() && !emailValid) {
                         { Text("Confira o formato do e-mail.") }
@@ -305,7 +403,7 @@ private fun OnlineAuthScreen(
                         .semantics {
                             contentType = if (registering) ContentType.NewPassword else ContentType.Password
                         },
-                    label = { Text(if (registering) "Senha (15 caracteres ou mais)" else "Senha") },
+                    label = { Text("Senha") }, colors = fieldColors,
                     singleLine = true, enabled = !busy, isError = passwordIssue != null,
                     visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password,
@@ -317,14 +415,13 @@ private fun OnlineAuthScreen(
                         }
                     },
                     supportingText = if (registering) {
-                        { Text(passwordIssue ?: "Use uma frase-senha ou um gerenciador. " +
-                            password.length + "/128 caracteres.") }
+                        { Text(passwordIssue ?: "Use pelo menos 15 caracteres.") }
                     } else null)
                 if (registering) {
                     OutlinedTextField(confirmation, { confirmation = it.take(RegistrationPolicy.MAX_PASSWORD) },
                         modifier = Modifier.fillMaxWidth().testTag("atrio-auth-confirm")
                             .semantics { contentType = ContentType.NewPassword },
-                        label = { Text("Confirmar senha") }, singleLine = true, enabled = !busy,
+                        label = { Text("Confirme a senha") }, singleLine = true, enabled = !busy, colors = fieldColors,
                         isError = confirmationIssue != null,
                         visualTransformation = if (showConfirmation) VisualTransformation.None else PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
@@ -337,44 +434,55 @@ private fun OnlineAuthScreen(
                         supportingText = if (confirmationIssue != null) {
                             { Text(confirmationIssue) }
                         } else null)
+                    val linkStyles = TextLinkStyles(style = SpanStyle(
+                        color = formHeading,
+                        fontWeight = FontWeight.SemiBold,
+                        textDecoration = TextDecoration.Underline
+                    ))
+                    val checkboxColors = CheckboxDefaults.colors(
+                        checkedColor = formHeading,
+                        uncheckedColor = formOutline,
+                        checkmarkColor = formBackground
+                    )
+                    val communityLabel = "Aceito os Termos de Uso e me comprometo a seguir as Regras da Comunidade."
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(checked = acceptedRules,
+                        Checkbox(
+                            checked = acceptedRules,
                             onCheckedChange = { acceptedRules = it },
-                            modifier = Modifier.testTag("atrio-auth-rules"),
-                            enabled = !busy)
-                        Text("Li e aceito as Regras da Comunidade.", fontSize = AtrioType.secondary)
+                            modifier = Modifier.testTag("atrio-auth-rules")
+                                .semantics { contentDescription = communityLabel },
+                            enabled = !busy,
+                            colors = checkboxColors
+                        )
+                        Text(buildAnnotatedString {
+                            append("Aceito os ")
+                            withLink(LinkAnnotation.Clickable("terms", linkStyles) { legalDocument = "terms" }) {
+                                append("Termos de Uso")
+                            }
+                            append(" e me comprometo a seguir as ")
+                            withLink(LinkAnnotation.Clickable("rules", linkStyles) { showRules = true }) {
+                                append("Regras da Comunidade")
+                            }
+                            append(".")
+                        }, style = MaterialTheme.typography.bodyMedium)
                     }
-                    TextButton(onClick = { showRules = true }, enabled = !busy,
-                        modifier = Modifier.testTag("atrio-auth-read-rules")) {
-                        Text("Ler as Regras da Comunidade")
-                    }
-                    // Documentos legais devem ser aprovados antes do Release.
-                    // A prévia serve ao teste do fluxo, não é declaração de
-                    // conformidade LGPD nem substitui parecer jurídico.
-                    TextButton(
-                        onClick = { legalDocument = "terms" },
-                        modifier = Modifier.fillMaxWidth().testTag("atrio-auth-read-terms")
-                    ) { Text("Ler condições de uso (prévia)") }
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(checked = acceptedTerms,
-                            onCheckedChange = { acceptedTerms = it },
-                            enabled = !busy, modifier = Modifier.testTag("atrio-auth-terms"))
-                        Text("Li e concordo com as condições de uso apresentadas.",
-                            fontSize = AtrioType.secondary)
-                    }
-                    TextButton(
-                        onClick = { legalDocument = "privacy" },
-                        modifier = Modifier.fillMaxWidth().testTag("atrio-auth-read-privacy")
-                    ) { Text("Ler a Política de Privacidade (prévia)") }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(checked = acknowledgedPrivacy,
+                        Checkbox(
+                            checked = acknowledgedPrivacy,
                             onCheckedChange = { acknowledgedPrivacy = it },
-                            enabled = !busy, modifier = Modifier.testTag("atrio-auth-privacy"))
-                        Text("Li a prévia da Política de Privacidade.", fontSize = AtrioType.secondary)
+                            enabled = !busy,
+                            colors = checkboxColors,
+                            modifier = Modifier.testTag("atrio-auth-privacy")
+                                .semantics { contentDescription = "Li a Política de Privacidade." }
+                        )
+                        Text(buildAnnotatedString {
+                            append("Li a ")
+                            withLink(LinkAnnotation.Clickable("privacy", linkStyles) { legalDocument = "privacy" }) {
+                                append("Política de Privacidade")
+                            }
+                            append(".")
+                        }, style = MaterialTheme.typography.bodyMedium)
                     }
-                    Text("As políticas completas, retenção de dados e bases legais ainda requerem " +
-                        "revisão antes do lançamento oficial. Preferências religiosas serão opcionais.",
-                        fontSize = AtrioType.secondary, color = Muted, lineHeight = AtrioType.secondaryLine)
                 }
                 if (error.isNotBlank()) {
                     Text(error, modifier = Modifier.testTag("atrio-auth-error"),
@@ -382,7 +490,10 @@ private fun OnlineAuthScreen(
                 }
                 if (resetInfo.isNotBlank()) Text(resetInfo, color = Wine, fontSize = AtrioType.secondary)
                 Button(
-                    modifier = Modifier.fillMaxWidth().testTag("atrio-auth-submit"),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("atrio-auth-submit"),
+                    colors = if (registering) ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF701333), contentColor = Color.White
+                    ) else ButtonDefaults.buttonColors(),
                     enabled = !busy && ready,
                     onClick = {
                         busy = true
@@ -453,21 +564,14 @@ private fun OnlineAuthScreen(
                                 }
                         }
                     }
-                ) { Text(if (busy) "Aguarde..." else if (registering) "Criar minha conta" else "Entrar") }
-                TextButton(onClick = {
-                    registering = !registering
-                    password = ""
-                    confirmation = ""
-                    acceptedRules = false
-                    acceptedTerms = false
-                    acknowledgedPrivacy = false
-                    legalDocument = ""
-                    error = ""
-                    resetInfo = ""
-                    showPassword = false
-                    showConfirmation = false
-                }, enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("atrio-auth-toggle")) {
-                    Text(if (registering) "Já tenho conta" else "Ainda não tenho conta")
+                ) { Text(if (busy) "Aguarde..." else if (registering) "Criar conta" else "Entrar") }
+                if (!registering || isIsolatedQa) {
+                    TextButton(onClick = {
+                        clearFormState()
+                        registering = !registering
+                    }, enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("atrio-auth-toggle")) {
+                        Text(if (registering) "Já tenho conta" else "Ainda não tenho conta")
+                    }
                 }
                 if (!registering) {
                     TextButton(onClick = {
@@ -485,7 +589,7 @@ private fun OnlineAuthScreen(
                         Text("Esqueci minha senha")
                     }
                 }
-                Text("Cadastro por e-mail · Discussões compartilhadas · Respeito em primeiro lugar",
+                if (!registering) Text("Cadastro por e-mail · Discussões compartilhadas · Respeito em primeiro lugar",
                     fontSize = AtrioType.secondary, color = Muted, lineHeight = AtrioType.secondaryLine, textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth())
             }
@@ -495,7 +599,7 @@ private fun OnlineAuthScreen(
         AlertDialog(
             onDismissRequest = { legalDocument = "" },
             title = {
-                Text(if (legalDocument == "terms") "Condições de uso — prévia"
+                Text(if (legalDocument == "terms") "Termos de Uso — prévia"
                     else "Política de Privacidade — prévia")
             },
             text = {
@@ -532,12 +636,7 @@ private fun OnlineAuthScreen(
             title = { Text("Regras da Comunidade") },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
-                    Text("O Átrio Católico é um espaço para diálogo respeitoso sobre a fé. " +
-                        "Não são permitidos assédio, ameaças, discursos de ódio, exploração sexual, " +
-                        "exposição de dados privados, fraudes, spam ou divulgação de conteúdo ilegal. " +
-                        "É proibido se passar por padres, diáconos, moderadores ou administradores. " +
-                        "Publicações e respostas podem ser denunciadas e moderadas. " +
-                        "Não compartilhe informações sensíveis de outras pessoas.",
+                    Text(CommunityRulesPolicy.RULES,
                         style = MaterialTheme.typography.bodyMedium)
                 }
             },
