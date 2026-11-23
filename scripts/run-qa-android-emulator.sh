@@ -312,10 +312,16 @@ if [[ "$notice_focal" == 1 ]]; then
       run_suite QaConversationNoticeAge18RestoredAndroidTest
       (cd tests/security && node seed-qa-conversation-notice-android.mjs --firestore-only)
       run_suite QaConversationNoticeAge18ReRevokedAndroidTest
+      if [[ "$qa_failed" != 0 ]]; then
+        grep -F 'QA idade 18+ fixture:' qa-conversation-notice-worker.log | tail -20 || true
+      fi
       exit "$qa_failed"
       ;;
     lucia)
       run_suite QaConversationNoticeThirdBotAndroidTest
+      if [[ "$qa_failed" != 0 ]]; then
+        timeout 6s adb logcat -d -v brief -s AndroidRuntime:E '*:S' | tail -60 || true
+      fi
       exit "$qa_failed"
       ;;
     "") ;;
