@@ -245,6 +245,15 @@ class NoticeManifestTest(unittest.TestCase):
                     "</application>", component + "</application>"
                 ), https=True)
 
+    def test_https_rejects_secondary_action_on_private_fcm_service(self):
+        injected = HTTPS_MANIFEST.replace(
+            'android:name="com.google.firebase.MESSAGING_EVENT" />',
+            'android:name="com.google.firebase.MESSAGING_EVENT" />'
+            '<action android:name="android.intent.action.INSTALL_PACKAGE" />',
+        )
+        with self.assertRaises(PreflightError):
+            verify_notice_manifest(injected, https=True)
+
     def test_https_rejects_main_activity_launcher_drift(self):
         replacements = (
             ('android.intent.action.MAIN', 'android.intent.action.VIEW'),
@@ -278,7 +287,8 @@ class NoticeManifestTest(unittest.TestCase):
                 '<data android:scheme="package" />',
             ),
             HTTPS_MANIFEST.replace(
-                '</intent-filter>',
+                '<category android:name="android.intent.category.LAUNCHER" />',
+                '<category android:name="android.intent.category.LAUNCHER" />'
                 '</intent-filter><intent-filter><action android:name="android.intent.action.INSTALL_PACKAGE" />'
                 '</intent-filter>',
                 1,
