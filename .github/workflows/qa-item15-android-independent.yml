@@ -38,9 +38,15 @@ concurrency:
 
 jobs:
   android:
+    name: 'QA Android item 15 — ${{ matrix.scenario }}'
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [age18, lucia]
     timeout-minutes: 30
     env:
+      ATRIO_QA_ITEM15_CASE: ${{ matrix.scenario }}
       ATRIO_QA_GERAL_BUILD: '1'
       ATRIO_QA_CONVERSATION_NOTICE_LAB: '1'
       ATRIO_QA_GERAL_CELULAR_PILOT: '1'
@@ -122,9 +128,10 @@ jobs:
           if [[ -f qa-android-prebuild.log ]]; then
             grep -E '(^| )e: |error:|Unresolved reference|Compilation error|^> Task .*FAILED|^FAILURE:|BUILD FAILED' qa-android-prebuild.log | tail -65 || true
           fi
-          if [[ -f qa-android-suite-results/age18-fixture.log ]]; then
-            tail -35 qa-android-suite-results/age18-fixture.log
+          if [[ -f qa-conversation-notice-worker.log ]]; then
+            grep -F 'QA idade 18+ fixture:' qa-conversation-notice-worker.log | tail -20 || true
           fi
+          adb logcat -d -v brief -s AndroidRuntime:E '*:S' | tail -45 || true
       - name: Conferir manifesto, pacote e SHA-256 do APK
         if: always()
         run: |
@@ -194,7 +201,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: qa-item15-android-${{ github.event.pull_request.head.sha }}
+          name: qa-item15-${{ matrix.scenario }}-${{ github.event.pull_request.head.sha }}
           path: |
             qa-android-suite-results
             qa-firebase-emulators.log
