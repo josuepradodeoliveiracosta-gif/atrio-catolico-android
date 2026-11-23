@@ -72,5 +72,110 @@ class NoticeManifestTest(unittest.TestCase):
                 verify_notice_manifest(HTTPS_MANIFEST.replace(original, changed), https=True)
 
 
+    def test_https_rejects_arbitrary_exported_receivers_services_and_providers(self):
+        additions = (
+            '<receiver android:name="br.com.atriocatolico.DebugInjectedReceiver" android:exported="true" />',
+            '<receiver android:name="br.com.atriocatolico.UnexpectedReceiver" android:exported="true" />',
+            '<receiver android:name="br.com.atriocatolico.UnexpectedReceiver" android:exported="true" '
+            'android:permission="com.google.android.c2dm.permission.SEND">'
+            '<intent-filter><action android:name="com.google.android.c2dm.intent.RECEIVE" /></intent-filter>'
+            '</receiver>',
+            '<service android:name="br.com.atriocatolico.ForeignService" android:exported="true" />',
+            '<service android:name="com.google.firebase.messaging.FirebaseMessagingService" '
+            'android:exported="true" />',
+            '<provider android:name="br.com.atriocatolico.UnexpectedProvider" android:exported="true" />',
+            '<receiver android:name="br.com.atriocatolico.QaConversationSignalReceiver" '
+            'android:exported="false" />',
+            '<service android:name="br.com.atriocatolico.LabPushService" android:exported="false" />',
+            '<provider android:name="androidx.core.content.FileProvider" android:exported="false" />',
+        )
+        for component in additions:
+            with self.subTest(component=component), self.assertRaises(PreflightError):
+                verify_notice_manifest(HTTPS_MANIFEST.replace(
+                    '</application>', component + '</application>'
+                ), https=True)
+
+    def test_https_rejects_sensitive_unexpected_permissions(self):
+        unexpected = (
+            "android.permission.READ_SMS",
+            "android.permission.RECEIVE_SMS",
+            "android.permission.SEND_SMS",
+            "android.permission.READ_CONTACTS",
+            "android.permission.READ_CALL_LOG",
+            "android.permission.CAMERA",
+            "android.permission.RECORD_AUDIO",
+            "android.permission.ACCESS_FINE_LOCATION",
+            "android.permission.QUERY_ALL_PACKAGES",
+            "android.permission.REQUEST_INSTALL_PACKAGES",
+            "android.permission.FOREGROUND_SERVICE_CAMERA",
+            "com.vendor.arbitrary.PRIVILEGED",
+        )
+        for permission in unexpected:
+            with self.subTest(permission=permission), self.assertRaises(PreflightError):
+                verify_notice_manifest(HTTPS_MANIFEST.replace(
+                    '<application',
+                    '<uses-permission android:name="' + permission + '" /><application',
+                ), https=True)
+
+    def test_https_preserves_firebase_and_androidx_protected_components(self):
+        sdk = '''
+        <service android:name="com.google.firebase.components.ComponentDiscoveryService"
+            android:exported="false" />
+        <service android:name="com.google.firebase.messaging.FirebaseMessagingService"
+            android:exported="false" />
+        <service android:name="androidx.work.impl.background.systemjob.SystemJobService"
+            android:exported="true" android:permission="android.permission.BIND_JOB_SERVICE" />
+        <receiver android:name="androidx.work.impl.diagnostics.DiagnosticsReceiver"
+            android:exported="true" android:permission="android.permission.DUMP">
+            <intent-filter><action android:name="androidx.work.diagnostics.REQUEST_DIAGNOSTICS" /></intent-filter>
+        </receiver>
+        <receiver android:name="androidx.profileinstaller.ProfileInstallReceiver"
+            android:exported="true" android:permission="android.permission.DUMP">
+            <intent-filter><action android:name="androidx.profileinstaller.action.INSTALL_PROFILE" /></intent-filter>
+        </receiver>
+        '''
+        manifest = HTTPS_MANIFEST.replace('</application>', sdk + '</application>')
+        for permission in (
+            "android.permission.INTERNET",
+            "android.permission.ACCESS_NETWORK_STATE",
+            "android.permission.WAKE_LOCK",
+            "android.permission.RECEIVE_BOOT_COMPLETED",
+            "android.permission.FOREGROUND_SERVICE",
+            "com.google.android.c2dm.permission.RECEIVE",
+        ):
+            manifest = manifest.replace(
+                '<application', '<uses-permission android:name="' + permission + '" /><application'
+            )
+        verify_notice_manifest(manifest, https=True)
+
+    def test_https_rejects_exported_contract_bypass(self):
+        cases = (
+            ('com.google.android.c2dm.permission.SEND', 'android.permission.DUMP'),
+            ('androidx.work.impl.diagnostics.DiagnosticsReceiver',
+             'br.com.atriocatolico.DiagnosticsReceiver'),
+            ('android.permission.BIND_JOB_SERVICE', 'android.permission.INTERNET'),
+            ('androidx.work.diagnostics.REQUEST_DIAGNOSTICS', 'arbitrary.action.INJECT'),
+        )
+        base = HTTPS_MANIFEST.replace(
+            '</application>',
+            '''<service android:name="androidx.work.impl.background.systemjob.SystemJobService"
+                android:exported="true" android:permission="android.permission.BIND_JOB_SERVICE" />
+               <receiver android:name="androidx.work.impl.diagnostics.DiagnosticsReceiver"
+                android:exported="true" android:permission="android.permission.DUMP">
+                <intent-filter><action android:name="androidx.work.diagnostics.REQUEST_DIAGNOSTICS" /></intent-filter>
+               </receiver></application>''',
+        )
+        verify_notice_manifest(base, https=True)
+        for old, new in cases:
+            with self.subTest(new=new), self.assertRaises(PreflightError):
+                verify_notice_manifest(base.replace(old, new), https=True)
+        injection = '''<intent-filter><action android:name="arbitrary.action.INJECT" /></intent-filter>'''
+        fcm = base.replace(
+            '</receiver>', injection + '</receiver>', 1,
+        )
+        with self.assertRaises(PreflightError):
+            verify_notice_manifest(fcm, https=True)
+
+
 if __name__ == "__main__":
     unittest.main()
