@@ -151,9 +151,9 @@ internal fun RegistrationOptionalPreferences(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         if (firstAccess) {
-            Text("Personalize se desejar", fontFamily = FontFamily.Serif, fontSize = 24.sp,
+            Text("Personalize seu perfil", fontFamily = FontFamily.Serif, fontSize = 24.sp,
                 fontWeight = FontWeight.Bold, color = Wine)
-            Text("Passo opcional · Você já pode participar sem informar estes dados.",
+            Text("Todos os campos são opcionais.",
                 color = Muted, style = MaterialTheme.typography.bodySmall)
         } else {
             Text("Interesses e dados opcionais", fontWeight = FontWeight.Bold,
@@ -176,30 +176,32 @@ internal fun RegistrationOptionalPreferences(
                 Text(option, color = Ink, modifier = Modifier.padding(start = 6.dp))
             }
         }
-        Text("Como você se apresenta? (opcional)",
-            style = MaterialTheme.typography.titleSmall, color = Ink)
-        RegistrationOptionalPolicy.participations.forEachIndexed { i, option ->
-            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                verticalAlignment = Alignment.CenterVertically) {
-                RadioButton(selected = participation == option,
-                    enabled = !busy, onClick = {
-                        participation = if (participation == option) "" else option
-                    }, modifier = Modifier.testTag("atrio-onboarding-role-$i"))
-                Text(option, modifier = Modifier.padding(start = 6.dp), color = Ink)
+        if (!firstAccess) {
+            Text("Como você se apresenta? (opcional)",
+                style = MaterialTheme.typography.titleSmall, color = Ink)
+            RegistrationOptionalPolicy.participations.forEachIndexed { i, option ->
+                Row(Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    RadioButton(selected = participation == option,
+                        enabled = !busy, onClick = {
+                            participation = if (participation == option) "" else option
+                        }, modifier = Modifier.testTag("atrio-onboarding-role-$i"))
+                    Text(option, modifier = Modifier.padding(start = 6.dp), color = Ink)
+                }
             }
+            Text("Padre, Diácono, Religioso(a) exigem verificação administrativa. " +
+                "Esta escolha não concede selo nem privilégios.",
+                color = Muted, style = MaterialTheme.typography.bodySmall)
         }
-        Text("Padre, Diácono, Religioso(a) exigem verificação administrativa. " +
-            "Esta escolha não concede selo nem privilégios.",
-            color = Muted, style = MaterialTheme.typography.bodySmall)
-        OutlinedTextField(
-            city, { city = it.take(80) }, label = { Text("Cidade (opcional)") },
-            enabled = !busy, singleLine = true, modifier = Modifier.fillMaxWidth()
-                .testTag("atrio-onboarding-city")
-        )
         OutlinedTextField(
             parish, { parish = it.take(80) }, label = { Text("Paróquia (opcional)") },
             enabled = !busy, singleLine = true, modifier = Modifier.fillMaxWidth()
                 .testTag("atrio-onboarding-parish")
+        )
+        OutlinedTextField(
+            city, { city = it.take(80) }, label = { Text("Cidade (opcional)") },
+            enabled = !busy, singleLine = true, modifier = Modifier.fillMaxWidth()
+                .testTag("atrio-onboarding-city")
         )
         Text("Esses dados permanecem privados e podem ser apagados no perfil. " +
             "Não são publicados na comunidade.", color = Muted,
@@ -251,11 +253,11 @@ internal fun RegistrationOptionalPreferences(
         }, enabled = !busy && loaded && hasData && allowed,
             colors = ButtonDefaults.buttonColors(containerColor = Wine),
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                .testTag("atrio-onboarding-save")) { Text(if (busy) "Salvando..." else "Salvar preferências") }
+                .testTag("atrio-onboarding-save")) { Text(if (busy) "Salvando..." else if (firstAccess) "Salvar e continuar" else "Salvar preferências") }
         if (firstAccess) {
             OutlinedButton(onClick = onContinue, enabled = !busy,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                    .testTag("atrio-onboarding-skip")) { Text("Pular e entrar no Átrio") }
+                    .testTag("atrio-onboarding-skip")) { Text("Pular por agora") }
         } else {
             OutlinedButton(onClick = {
                 busy = true

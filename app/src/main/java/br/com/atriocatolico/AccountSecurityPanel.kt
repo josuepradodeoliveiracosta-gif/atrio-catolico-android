@@ -38,8 +38,13 @@ import com.google.firebase.firestore.FirebaseFirestore
  */
 @Composable
 internal fun MandatoryEmailVerificationGate(
-    uid: String, onVerified: () -> Unit, onSignOut: () -> Unit
+    uid: String,
+    onVerified: () -> Unit,
+    onSignOut: () -> Unit,
+    registrationEmail: String? = null,
+    initialSendResult: Boolean? = null
 ) {
+    var resent by remember(uid) { mutableStateOf(false) }
     Column(
         Modifier.fillMaxSize().background(Wine)
             .verticalScroll(rememberScrollState())
@@ -54,15 +59,29 @@ internal fun MandatoryEmailVerificationGate(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
-                    "Confirmação de e-mail obrigatória",
+                    if (registrationEmail == null) "Confirmação de e-mail obrigatória"
+                    else "Confirme seu e-mail",
                     style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.testTag("atrio-email-verification-required-title")
                 )
                 Text(
-                    "Para entrar na comunidade, confirme o endereço usado no cadastro. " +
-                        "Abra o link recebido e depois volte a esta tela."
+                    when {
+                        registrationEmail == null ->
+                            "Para entrar na comunidade, confirme o endereço usado no cadastro. " +
+                                "Abra o link recebido e depois volte a esta tela."
+                        resent || initialSendResult == true -> "Abra o link que enviamos para $registrationEmail."
+                        initialSendResult == false ->
+                            "Não foi possível enviar o link para $registrationEmail. Solicite um novo link."
+                        else -> "Abra o link de confirmação no e-mail $registrationEmail. " +
+                            "Se não o recebeu, solicite um novo link."
+                    }
                 )
-                EmailVerificationPanel(uid = uid, onVerified = onVerified)
+                EmailVerificationPanel(
+                    uid = uid,
+                    onVerified = onVerified,
+                    showInstructions = registrationEmail == null,
+                    onResent = { resent = true }
+                )
                 OutlinedButton(
                     onClick = onSignOut,
                     modifier = Modifier.fillMaxWidth().testTag("atrio-email-verification-signout")
@@ -125,7 +144,12 @@ internal fun EmailVerificationPolicyStatusScreen(
 
 /** A verificação enviada na inscrição é revalidada pelo servidor quando solicitada. */
 @Composable
-internal fun EmailVerificationPanel(uid: String, onVerified: (() -> Unit)? = null) {
+internal fun EmailVerificationPanel(
+    uid: String,
+    onVerified: (() -> Unit)? = null,
+    showInstructions: Boolean = true,
+    onResent: () -> Unit = {}
+) {
     val auth = remember { FirebaseAuth.getInstance() }
     var verified by remember(uid) { mutableStateOf(auth.currentUser?.isEmailVerified == true) }
     var busy by remember(uid) { mutableStateOf(false) }
@@ -136,10 +160,11 @@ internal fun EmailVerificationPanel(uid: String, onVerified: (() -> Unit)? = nul
     if (verified) return
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("E-mail ainda não confirmado",
-            style = androidx.compose.material3.MaterialTheme.typography.titleSmall)
-        Text("Para proteger sua conta, confirme o endereço pelo link enviado ao cadastrar. " +
-            "Se não o encontrou, solicite um novo link.")
+        if (showInstructions) {
+            Text("E-mail ainda não confirmado", style = MaterialTheme.typography.titleSmall)
+            Text("Para proteger sua conta, confirme o endereço pelo link enviado ao cadastrar. " +
+                "Se não o encontrou, solicite um novo link.")
+        }
         OutlinedButton(
             enabled = !busy,
             modifier = Modifier.fillMaxWidth().testTag("atrio-auth-resend-verification"),
@@ -155,14 +180,17 @@ internal fun EmailVerificationPanel(uid: String, onVerified: (() -> Unit)? = nul
                         busy = true
                         user.sendEmailVerification().addOnCompleteListener { task ->
                             busy = false
-                            if (task.isSuccessful) lastResendElapsed = now
+                            if (task.isSuccessful) {
+                                lastResendElapsed = now
+                                onResent()
+                            }
                             info = if (task.isSuccessful) "Enviamos um link de confirmação."
                                 else "Não foi possível enviar o link. Tente novamente."
                         }
                     }
                 }
             }
-        ) { Text("Reenviar confirmação") }
+        ) { Text(if (showInstructions) "Reenviar confirmação" else "Reenviar e-mail") }
         TextButton(
             enabled = !busy,
             modifier = Modifier.fillMaxWidth().testTag("atrio-auth-check-verification"),

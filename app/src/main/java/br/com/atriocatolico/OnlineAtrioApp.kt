@@ -94,6 +94,7 @@ internal fun OnlineAtrioApp(
         activity.getSharedPreferences("atrio-registration-v2", android.content.Context.MODE_PRIVATE)
     }
     var registrationStarted by rememberSaveable { mutableStateOf(false) }
+    var verificationSendResult by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
     var pendingRegistrationUid by remember {
         mutableStateOf(registrationPrefs.getString("pendingUid", null))
     }
@@ -108,11 +109,15 @@ internal fun OnlineAtrioApp(
         val user = signedUser
         if (user == null) {
             OnlineAuthScreen(auth = auth, db = db,
-                onRegistrationStarted = { registrationStarted = true },
+                onRegistrationStarted = {
+                    verificationSendResult = null
+                    registrationStarted = true
+                },
                 onRegistrationCreated = { uid ->
                     pendingRegistrationUid = uid
                     registrationPrefs.edit().putString("pendingUid", uid).apply()
                 },
+                onVerificationSent = { uid, sent -> verificationSendResult = uid to sent },
                 onRegistrationFailed = { registrationStarted = false })
         } else {
             key(user.uid) {
@@ -193,7 +198,10 @@ internal fun OnlineAtrioApp(
                     MandatoryEmailVerificationGate(
                         uid = user.uid,
                         onVerified = { verifiedThisSession = true },
-                        onSignOut = onGateSignOut
+                        onSignOut = onGateSignOut,
+                        registrationEmail = user.email,
+                        initialSendResult = verificationSendResult
+                            ?.takeIf { (uid, _) -> uid == user.uid }?.second
                     )
                 } else if (canEnterAtrioCommunity(verifiedThisSession, verificationPolicy)) {
                     OnlineUserScreen(auth = auth, db = db, user = user,
@@ -232,6 +240,7 @@ private fun OnlineAuthScreen(
     auth: FirebaseAuth, db: FirebaseFirestore,
     onRegistrationStarted: () -> Unit = {},
     onRegistrationCreated: (String) -> Unit = {},
+    onVerificationSent: (String, Boolean) -> Unit = { _, _ -> },
     onRegistrationFailed: () -> Unit = {}
 ) {
     val isIsolatedQa = BuildConfig.DEBUG &&
@@ -523,8 +532,11 @@ private fun OnlineAuthScreen(
                                             ))
                                         // E-mail enviado após a criação. O backend deve ser configurado
                                         // para impedir UGC não verificado antes de ativar exigência global.
-                                        created.sendEmailVerification().addOnFailureListener {
-                                            android.util.Log.w("AtrioAuth", "email_verification_delivery_failed")
+                                        created.sendEmailVerification().addOnCompleteListener { delivery ->
+                                            onVerificationSent(created.uid, delivery.isSuccessful)
+                                            if (!delivery.isSuccessful) {
+                                                android.util.Log.w("AtrioAuth", "email_verification_delivery_failed")
+                                            }
                                         }
                                         // A aceitação do cadastro é guardada na conta,
                                         // para não obrigar o mesmo usuário a aceitar outra vez.
