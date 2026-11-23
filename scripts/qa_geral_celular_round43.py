@@ -215,8 +215,10 @@ def verify_notice_manifest(text, *, https=False):
         if node.get(name) in (".AtrioPushService", "br.com.atriocatolico.AtrioPushService")
     ]
     if (len(service) != 1 or service[0].get(ANDROID + "exported") != "false" or
-            not any(action.get(name) == "com.google.firebase.MESSAGING_EVENT"
-                    for action in service[0].findall("intent-filter/action"))):
+            len(service[0].findall("intent-filter")) != 1
+            or [action.get(name) for action in service[0].findall("intent-filter/action")]
+            != ["com.google.firebase.MESSAGING_EVENT"]
+            or len(service[0].find("intent-filter")) != 1):
         raise PreflightError("Serviço privado de avisos ou ação FCM ausente no manifesto.")
     auto_init = [
         node.get(ANDROID + "value") for node in application.findall("meta-data")
