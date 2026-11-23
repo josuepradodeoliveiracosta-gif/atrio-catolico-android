@@ -3,7 +3,7 @@ import {readFileSync} from 'node:fs';
 import {assertFails, assertSucceeds, initializeTestEnvironment} from '@firebase/rules-unit-testing';
 import {
   Bytes, collection, deleteDoc, doc, getDocFromServer, getDocsFromServer,
-  orderBy, query, serverTimestamp, setDoc, updateDoc, where,
+  orderBy, query, serverTimestamp, setDoc, updateDoc, where, writeBatch,
 } from 'firebase/firestore';
 
 const env = await initializeTestEnvironment({
@@ -47,6 +47,18 @@ try {
   await assertFails(setDoc(doc(bob, 'feed_channels/feed-alice'), {name: 'Outro', updatedAt: serverTimestamp()}));
   await assertSucceeds(setDoc(doc(alice, 'feed_channels/feed-alice'), {name: 'Canal', updatedAt: serverTimestamp()}));
   await assertSucceeds(setDoc(doc(alice, channel), post('channel')));
+  const questionRef = doc(alice, 'feed_posts/feed-question');
+  const question = {...post('channel'), format: 'question', title: 'Como participar?', body: '', hasImage: true};
+  await assertFails(setDoc(questionRef, question));
+  await assertFails(setDoc(questionRef, {...question, title: '', hasImage: false}));
+  const upload = writeBatch(alice).set(questionRef, question)
+    .set(doc(questionRef, 'media', 'image'), {
+      contentType: 'image/jpeg', bytes: Bytes.fromUint8Array(new Uint8Array([255, 216, 255, 217])),
+    });
+  await assertSucceeds(upload.commit());
+  await assertFails(setDoc(questionRef, {...question, body: 'Outro conteúdo'}));
+  await assertSucceeds(read(carol, 'feed_posts/feed-question/media/image'));
+
 
   await assertSucceeds(setDoc(doc(alice, image), {
     contentType: 'image/webp', bytes: Bytes.fromUint8Array(new Uint8Array([1, 2, 3])),
@@ -55,7 +67,7 @@ try {
     authorUid: 'feed-alice', parentId: '', body: 'Comentário', createdAt: serverTimestamp(),
   }));
   await assertFails(read(guest, channel));
-  assert.equal((await assertSucceeds(recent(carol, 'channel'))).size, 1);
+  assert.equal((await assertSucceeds(recent(carol, 'channel'))).size, 2);
   await assertFails(setDoc(doc(bob, follow), {createdAt: serverTimestamp()}));
   await assertFails(setDoc(doc(carol, 'feed_following/feed-carol/channels/feed-bob'),
     {createdAt: serverTimestamp()}));
@@ -65,7 +77,7 @@ try {
     collection(carol, 'feed_following/feed-carol/channels'),
   ))).size, 1);
   await assertSucceeds(deleteDoc(doc(carol, follow)));
-  assert.equal((await assertSucceeds(recent(carol, 'channel'))).size, 1);
+  assert.equal((await assertSucceeds(recent(carol, 'channel'))).size, 2);
   await assertSucceeds(updateDoc(doc(alice, 'feed_channels/feed-alice'), {
     imageJpeg: Bytes.fromUint8Array(new Uint8Array([255, 216, 255, 217])),
     updatedAt: serverTimestamp(),

@@ -77,7 +77,7 @@ internal fun ProfileChannel(
             own && editing -> ChannelEditor(channel, current, onClose = { editing = false })
             !current.exists() -> Button(onClick = { editing = true }) { Text("Criar canal") }
             else -> {
-                ChannelImage(current.getBlob("imageJpeg"))
+                FeedThumbnail(current.getBlob("imageJpeg"))
                 Text(current.getString("name").orEmpty(), style = MaterialTheme.typography.titleMedium)
                 if (ownerName.isNotBlank()) Text("Responsável: $ownerName",
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -95,7 +95,7 @@ internal fun ProfileChannel(
 }
 
 @Composable
-private fun ChannelEditor(ref: DocumentReference, initial: DocumentSnapshot, onClose: () -> Unit) {
+internal fun ChannelEditor(ref: DocumentReference, initial: DocumentSnapshot, onClose: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var name by rememberSaveable(ref.path) { mutableStateOf(initial.getString("name").orEmpty()) }
@@ -128,7 +128,7 @@ private fun ChannelEditor(ref: DocumentReference, initial: DocumentSnapshot, onC
         singleLine = true, enabled = !busy, modifier = Modifier.fillMaxWidth())
     OutlinedTextField(description, { description = it.take(500) },
         label = { Text("Descrição opcional") }, enabled = !busy, modifier = Modifier.fillMaxWidth())
-    ChannelImage(image)
+    FeedThumbnail(image)
     OutlinedButton(enabled = !busy, onClick = {
         picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
     }) { Text("Escolher imagem") }
@@ -155,7 +155,7 @@ private fun ChannelEditor(ref: DocumentReference, initial: DocumentSnapshot, onC
 }
 
 @Composable
-private fun ChannelImage(image: Blob?) {
+internal fun FeedThumbnail(image: Blob?) {
     if (image == null) return
     var bitmap by remember(image) { mutableStateOf<android.graphics.Bitmap?>(null) }
     LaunchedEffect(image) {

@@ -8,7 +8,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -18,14 +17,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.MetadataChanges
 import com.google.firebase.firestore.Query
-import com.google.firebase.firestore.Source
 
 @Composable
 internal fun ProfileTimeline(db: FirebaseFirestore, ownerUid: String, viewerUid: String) {
@@ -148,6 +145,9 @@ internal fun ProfilePublications(
     for (entry in entries) {
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (entry.getBoolean("hasImage") == true) {
+                    FeedPublicationImage(entry, viewerUid)
+                }
                 if (entry.getString("format") == "question") {
                     Text("Pergunta", style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.primary)
@@ -179,58 +179,18 @@ internal fun ProfilePublications(
 }
 
 @Composable
-internal fun ProfilePublicationComposer(
-    db: FirebaseFirestore,
-    uid: String,
-    destination: String = "timeline",
-) {
-    var body by rememberSaveable(uid, destination) { mutableStateOf("") }
-    var draftId by rememberSaveable(uid, destination) { mutableStateOf<String?>(null) }
-    var sending by remember(db, uid, destination) { mutableStateOf(false) }
-    var failed by remember(db, uid, destination) { mutableStateOf(false) }
-    OutlinedTextField(
-        value = body,
-        onValueChange = { body = it.take(8000); failed = false },
-        enabled = !sending,
-        label = { Text("Escreva uma publicação") },
-        supportingText = { Text(if (destination == "timeline") "Visível para seus amigos." else "Visível para todos no Átrio.") },
-        modifier = Modifier.fillMaxWidth().testTag("atrio-$destination-draft"),
-    )
-    Button(
-        enabled = body.isNotBlank() && !sending,
-        onClick = {
-            val posts = db.collection("feed_posts")
-            val ref = draftId?.let(posts::document) ?: posts.document()
-            draftId = ref.id
-            val content = body.trim()
-            sending = true
-            failed = false
-            fun finish(sent: Boolean) {
-                sending = false
-                failed = !sent
-                if (sent) {
-                    body = ""
-                    draftId = null
-                }
+private fun FeedPublicationImage(entry: DocumentSnapshot, viewerUid: String) {
+    var image by remember(entry.reference, viewerUid) {
+        mutableStateOf<com.google.firebase.firestore.Blob?>(null)
+    }
+    DisposableEffect(entry.reference, viewerUid) {
+        var active = true
+        val listener = entry.reference.collection("media").document("image")
+            .addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, error ->
+                if (active) image = if (error == null && snapshot != null && !snapshot.metadata.isFromCache)
+                    snapshot.getBlob("bytes") else null
             }
-            ref.set(mapOf(
-                "authorUid" to uid,
-                "destination" to destination,
-                "format" to "post",
-                "body" to content,
-                "published" to true,
-                "createdAt" to FieldValue.serverTimestamp(),
-            )).addOnCompleteListener { result ->
-                if (result.isSuccessful) finish(true)
-                else ref.get(Source.SERVER).addOnCompleteListener { read ->
-                    val saved = if (read.isSuccessful) read.result else null
-                    finish(saved != null && saved.getString("authorUid") == uid
-                        && saved.getString("destination") == destination && saved.getString("body") == content)
-                }
-            }
-        },
-        modifier = Modifier.testTag("atrio-$destination-publish"),
-    ) { Text(if (sending) "Publicando…" else if (destination == "timeline") "Publicar na linha do tempo" else "Publicar no canal") }
-    if (failed) Text("Não foi possível publicar. Seu texto foi preservado.",
-        color = MaterialTheme.colorScheme.error)
+        onDispose { active = false; listener.remove() }
+    }
+    FeedThumbnail(image)
 }

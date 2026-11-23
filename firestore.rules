@@ -1315,14 +1315,17 @@ service cloud.firestore {
     function feedPostPath(postId) {
       return /databases/$(database)/documents/feed_posts/$(postId);
     }
-    function validFeedPost(post) {
+    function validFeedPost(post, postId) {
       return post.keys().hasOnly([
-          'authorUid', 'destination', 'format', 'title', 'body', 'published', 'createdAt'
+          'authorUid', 'destination', 'format', 'title', 'body', 'published', 'hasImage', 'createdAt'
         ])
         && me(post.authorUid)
         && (post.destination == 'timeline' || (post.destination == 'channel'
           && exists(/databases/$(database)/documents/feed_channels/$(request.auth.uid))))
         && post.format in ['post', 'question']
+        && post.get('hasImage', false) is bool
+        && (!post.get('hasImage', false)
+          || existsAfter(/databases/$(database)/documents/feed_posts/$(postId)/media/image))
         && validText(post.get('title', ''), post.format == 'question' ? 1 : 0, 140)
         && validText(post.get('body', ''), post.format == 'post' ? 1 : 0, 8000)
         && post.published == true && post.createdAt == request.time;
@@ -1332,7 +1335,7 @@ service cloud.firestore {
       // do tempo, consultar por autor e combinar os resultados no feed.
       allow get, list: if feedPostReadable(resource.data);
       allow create: if signedIn() && emailVerificationAllowsCommunityAccess()
-        && communityPublicationAllowed() && validFeedPost(request.resource.data);
+        && communityPublicationAllowed() && validFeedPost(request.resource.data, postId);
       // Reter a referência impede reutilizar o ID com comentários ou imagem antigos.
       allow update: if me(resource.data.authorUid)
         && resource.data.published == true && request.resource.data.published == false
