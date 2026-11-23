@@ -71,6 +71,7 @@ HTTPS_USES_PERMISSIONS = frozenset({
     "android.permission.FOREGROUND_SERVICE",
     "android.permission.FOREGROUND_SERVICE_DATA_SYNC",
     "com.google.android.c2dm.permission.RECEIVE",
+    "com.google.android.providers.gsf.permission.READ_GSERVICES",  # Google Play Services
 })
 LAB_COMPONENT_PREFIXES = (
     "qa", "debug", "test", "mock", "fake", "fixture", "lab",
