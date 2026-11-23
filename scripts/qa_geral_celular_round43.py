@@ -31,6 +31,116 @@ def verify_package_version(apk, tools, version_code, version_name):
         raise PreflightError("Pacote ou versão do APK 43 divergente.")
 
 
+# Contrato estrito dos componentes exportados no APK 43 HTTPS de QA.
+# O SDK FCM precisa de uma única entrada protegida; AndroidX WorkManager e
+# ProfileInstaller podem registrar entradas exclusivamente com permissão
+# reservada ao sistema Android, nunca expostas a aplicações comuns.
+EXPORTED_RECEIVER_CONTRACTS = {
+    "com.google.firebase.iid.FirebaseInstanceIdReceiver": (
+        "com.google.android.c2dm.permission.SEND",
+        frozenset({"com.google.android.c2dm.intent.RECEIVE"}),
+    ),
+    "androidx.work.impl.diagnostics.DiagnosticsReceiver": (
+        "android.permission.DUMP",
+        frozenset({"androidx.work.diagnostics.REQUEST_DIAGNOSTICS"}),
+    ),
+    "androidx.profileinstaller.ProfileInstallReceiver": (
+        "android.permission.DUMP",
+        frozenset({
+            "androidx.profileinstaller.action.INSTALL_PROFILE",
+            "androidx.profileinstaller.action.SKIP_FILE",
+            "androidx.profileinstaller.action.SAVE_PROFILE",
+            "androidx.profileinstaller.action.BENCHMARK_OPERATION",
+        }),
+    ),
+}
+EXPORTED_SERVICE_CONTRACTS = {
+    "androidx.work.impl.background.systemjob.SystemJobService":
+        "android.permission.BIND_JOB_SERVICE",
+}
+# Permissões demandadas diretamente pelo app e por Firebase Messaging/WorkManager.
+# Rejeita permissões Android adicionais (inclusive sensíveis) e privilégios
+# arbitrários de terceiros: qualquer ampliação exige revisão explícita.
+HTTPS_USES_PERMISSIONS = frozenset({
+    "android.permission.INTERNET",
+    "android.permission.ACCESS_NETWORK_STATE",
+    "android.permission.WAKE_LOCK",
+    "android.permission.VIBRATE",
+    "android.permission.POST_NOTIFICATIONS",
+    "android.permission.RECEIVE_BOOT_COMPLETED",
+    "android.permission.FOREGROUND_SERVICE",
+    "android.permission.FOREGROUND_SERVICE_DATA_SYNC",
+    "com.google.android.c2dm.permission.RECEIVE",
+})
+LAB_COMPONENT_PREFIXES = (
+    "qa", "debug", "test", "mock", "fake", "fixture", "lab",
+    "inject", "ota", "updater", "update",
+)
+
+
+def _component_name(node):
+    return (node.get(ANDROID + "name") or "").strip()
+
+
+def _intent_actions(node):
+    return [action.get(ANDROID + "name") for action in node.findall("intent-filter/action")]
+
+
+def _check_component_contract(application):
+    for kind in ("receiver", "service", "provider"):
+        for node in application.findall(kind):
+            component = _component_name(node)
+            short = component.rsplit(".", 1)[-1].lstrip(".").lower()
+            if not component or short.startswith(LAB_COMPONENT_PREFIXES) or (
+                component == "androidx.core.content.FileProvider"
+            ):
+                raise PreflightError(f"Componente de laboratório/OTA/sem nome recusado: {component}")
+            exported = node.get(ANDROID + "exported")
+            if exported not in (None, "true", "false"):
+                raise PreflightError(f"android:exported inválido: {component}")
+            if exported is None and node.find("intent-filter") is not None:
+                raise PreflightError(f"Componente com intent-filter sem exported explícito: {component}")
+            if exported != "true":
+                continue
+            if kind == "provider":
+                raise PreflightError(f"Provider exportado não autorizado: {component}")
+            if kind == "receiver":
+                contract = EXPORTED_RECEIVER_CONTRACTS.get(component)
+                if contract is None:
+                    raise PreflightError(f"Receiver exportado não autorizado: {component}")
+                system_permission, permitted_actions = contract
+                actions = _intent_actions(node)
+                if (node.get(ANDROID + "permission") != system_permission
+                        or not actions or set(actions) - permitted_actions
+                        or any(not value for value in actions)):
+                    raise PreflightError(f"Receiver protegido divergente: {component}")
+                # Não permitir intent-filters adicionais sem ação.
+                if any(not filt.findall("action") for filt in node.findall("intent-filter")):
+                    raise PreflightError(f"Receiver com filtro vazio: {component}")
+            elif kind == "service":
+                system_permission = EXPORTED_SERVICE_CONTRACTS.get(component)
+                if (system_permission is None
+                        or node.get(ANDROID + "permission") != system_permission
+                        or node.findall("intent-filter")):
+                    raise PreflightError(f"Service exportado não autorizado: {component}")
+
+
+def _check_https_permissions(manifest):
+    for element in manifest:
+        if element.tag == "permission":
+            # Permission declaration is not a grant; protected SDK/AppCompat
+            # declarations are preserved. Untrusted requests are checked below.
+            continue
+        if element.tag.startswith("uses-permission"):
+            requested = element.get(ANDROID + "name")
+            # AndroidX Core may declare only the package-scoped dynamic receiver
+            # permission; no arbitrary custom permission is allowed.
+            dynamic = (
+                requested == PACKAGE + ".DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+            )
+            if requested not in HTTPS_USES_PERMISSIONS and not dynamic:
+                raise PreflightError(f"Permissão não autorizada no APK HTTPS: {requested}")
+
 def verify_notice_manifest(text, *, https=False):
     try:
         manifest = ElementTree.fromstring(text)
@@ -64,6 +174,8 @@ def verify_notice_manifest(text, *, https=False):
         if "FirebaseInstanceIdReceiver" in names:
             raise PreflightError("O laboratório não pode receber FCM externo.")
         return
+    _check_https_permissions(manifest)
+    _check_component_contract(application)
     if (application.get(ANDROID + "usesCleartextTraffic") != "false"
             or application.get(ANDROID + "networkSecurityConfig") is not None
             or any(node.get(name) == "androidx.core.content.FileProvider"
