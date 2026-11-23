@@ -72,10 +72,24 @@ private object SimulatedQaShopSupplier {
     )
 }
 
-private fun QaShopVariant.displayPrice(): String =
+private data class QaShopQuote(
+    val unitPriceMinor: Long,
+    val shippingMinor: Long,
+    val currency: String,
+    val deliveryDays: Int
+) {
+    val totalMinor: Long get() = unitPriceMinor + shippingMinor
+}
+
+private fun formatQaShopPrice(amountMinor: Long, currencyCode: String): String =
     NumberFormat.getCurrencyInstance(Locale.forLanguageTag("pt-BR")).apply {
-        currency = java.util.Currency.getInstance(this@displayPrice.currency)
-    }.format(BigDecimal.valueOf(unitPriceMinor, 2))
+        currency = java.util.Currency.getInstance(currencyCode)
+    }.format(BigDecimal.valueOf(amountMinor, 2))
+
+private fun QaShopVariant.testQuote(): QaShopQuote? =
+    if (availability == QaShopAvailability.IN_STOCK) {
+        QaShopQuote(unitPriceMinor, shippingMinor = 890, currency = currency, deliveryDays = 5)
+    } else null
 
 @Composable
 internal fun QaShopScreen(
@@ -103,6 +117,7 @@ internal fun QaShopScreen(
     val selectedVariant = product?.variants?.let { variants ->
         variants.firstOrNull { it.id == selectedVariantId } ?: variants.firstOrNull()
     }
+    val quote = selectedVariant?.testQuote()
     val catalogState = rememberLazyListState()
     val goBack: () -> Unit = {
         checkoutError = false
@@ -132,11 +147,21 @@ internal fun QaShopScreen(
                 }
             }
             selectedVariant?.let { variant ->
-                item { Text(variant.displayPrice(), Modifier.testTag("atrio-qa-shop-price")) }
+                item { Text(formatQaShopPrice(variant.unitPriceMinor, variant.currency), Modifier.testTag("atrio-qa-shop-price")) }
                 item { Text(variant.availability.label, Modifier.testTag("atrio-qa-shop-stock")) }
             }
+            quote?.let { current ->
+                item {
+                    Text("Frete simulado: ${formatQaShopPrice(current.shippingMinor, current.currency)}")
+                }
+                item {
+                    Text("Total simulado: ${formatQaShopPrice(current.totalMinor, current.currency)}",
+                        Modifier.testTag("atrio-qa-shop-quote-total"))
+                }
+                item { Text("Prazo estimado: ${current.deliveryDays} dias úteis") }
+            }
             item {
-                TextButton(enabled = selectedVariant?.availability == QaShopAvailability.IN_STOCK, onClick = {
+                TextButton(enabled = quote != null, onClick = {
                     checkoutError = false
                     try {
                         uriHandler.openUri(QA_CHECKOUT_URL)
