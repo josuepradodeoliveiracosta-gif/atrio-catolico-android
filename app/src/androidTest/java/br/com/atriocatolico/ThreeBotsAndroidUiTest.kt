@@ -300,6 +300,8 @@ class ThreeBotsAndroidUiTest {
         openOrder()
         clickIn(order, "Simular pagamento recusado")
         compose.onNodeWithText("Pagamento recusado").assertIsDisplayed()
+        order.performScrollToNode(hasText("Envios simulados: 0"))
+        compose.onNodeWithText("Envios simulados: 0").assertIsDisplayed()
         compose.onNodeWithText("Simular despacho").assertDoesNotExist()
         clickIn(order, "Voltar à Loja")
 
@@ -311,6 +313,11 @@ class ThreeBotsAndroidUiTest {
 
         openOrder()
         clickIn(order, "Simular pagamento aprovado")
+        order.performScrollToNode(hasText("Envios simulados: 1"))
+        compose.onNodeWithText("Envios simulados: 1").assertIsDisplayed()
+        repeat(2) { clickIn(order, "Repetir confirmação de pagamento") }
+        order.performScrollToNode(hasText("Envios simulados: 1"))
+        compose.onNodeWithText("Envios simulados: 1").assertIsDisplayed()
         clickIn(order, "Simular despacho")
         compose.onNodeWithText("Rastreio fictício:", substring = true).assertIsDisplayed()
         clickIn(order, "Simular entrega")
