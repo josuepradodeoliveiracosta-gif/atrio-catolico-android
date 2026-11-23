@@ -305,6 +305,22 @@ if [[ "$notice_focal" == 1 ]]; then
     exit 1
   }
   adb reverse tcp:8092 tcp:8092
+  # Rodadas independentes: baseline de #444 já comprovada no mesmo blob de
+  # produção; no item 15 cada grupo usa outro AVD efêmero e novo Auth Emulator.
+  case "${ATRIO_QA_ITEM15_CASE:-}" in
+    age18)
+      run_suite QaConversationNoticeAge18RestoredAndroidTest
+      (cd tests/security && node seed-qa-conversation-notice-android.mjs --firestore-only)
+      run_suite QaConversationNoticeAge18ReRevokedAndroidTest
+      exit "$qa_failed"
+      ;;
+    lucia)
+      run_suite QaConversationNoticeThirdBotAndroidTest
+      exit "$qa_failed"
+      ;;
+    "") ;;
+    *) echo "Cenário item 15 desconhecido" >&2; exit 2 ;;
+  esac
   run_suite QaConversationNoticeDeniedAndroidTest
   # A fixture com permissão negada deve alcançar onMessageReceived e registrar só o hash.
   receipt_hash=26a30ede0faca3e21c7ca013220274be554ccc8e65e729b6ebef500079528584
