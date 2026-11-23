@@ -222,6 +222,37 @@ class NoticeManifestTest(unittest.TestCase):
             HTTPS_MANIFEST.replace("</application>", private + "</application>"), https=True
         )
 
+    def test_https_preserves_exact_exported_qa_and_firebase_auth_activities(self):
+        names = (
+            "androidx.activity.ComponentActivity",
+            "com.google.firebase.auth.internal.GenericIdpActivity",
+            "com.google.firebase.auth.internal.RecaptchaActivity",
+        )
+        additional = "".join(
+            '<activity android:name="' + name + '" android:exported="true" />'
+            for name in names
+        )
+        verify_notice_manifest(
+            HTTPS_MANIFEST.replace("</application>", additional + "</application>"),
+            https=True,
+        )
+        for component in names:
+            exposed = ('<activity android:name="' + component + '" '
+                       'android:exported="true" />')
+            unsafe = (
+                exposed.replace('android:exported="true"',
+                                'android:exported="true" android:permission="android.permission.INTERNET"'),
+                exposed.replace('/>', '>'
+                    '<intent-filter><action android:name="android.intent.action.VIEW" /></intent-filter>'
+                    '</activity>'),
+            )
+            for mutated in unsafe:
+                with self.subTest(component=component, mutated=mutated), self.assertRaises(PreflightError):
+                    verify_notice_manifest(
+                        HTTPS_MANIFEST.replace("</application>", mutated + "</application>"),
+                        https=True,
+                    )
+
     def test_https_rejects_exported_activity_or_any_alias_including_main_target(self):
         unexpected = (
             '<activity android:name="br.com.atriocatolico.InjectedActivity" android:exported="true" />',
