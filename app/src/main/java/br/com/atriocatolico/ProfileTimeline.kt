@@ -41,10 +41,10 @@ internal fun ProfileTimeline(db: FirebaseFirestore, ownerUid: String, viewerUid:
 @Composable
 private fun TimelineFriendship(db: FirebaseFirestore, ownerUid: String, viewerUid: String) {
     val outgoing = remember(db, ownerUid, viewerUid) {
-        db.document("feed_friendships/$viewerUid/peers/$ownerUid")
+        db.document("feed_friendships/$viewerUid/feed_friendship_edges/$ownerUid")
     }
     val incoming = remember(db, ownerUid, viewerUid) {
-        db.document("feed_friendships/$ownerUid/peers/$viewerUid")
+        db.document("feed_friendships/$ownerUid/feed_friendship_edges/$viewerUid")
     }
     var sent by remember(outgoing) { mutableStateOf<String?>(null) }
     var received by remember(incoming) { mutableStateOf<String?>(null) }
@@ -88,7 +88,10 @@ private fun TimelineFriendship(db: FirebaseFirestore, ownerUid: String, viewerUi
                     sent == "accepted" || sent == "pending" -> outgoing.delete()
                     received == "accepted" -> incoming.delete()
                     received == "pending" -> incoming.update("status", "accepted")
-                    else -> outgoing.set(mapOf("status" to "pending", "createdAt" to FieldValue.serverTimestamp()))
+                    else -> outgoing.set(mapOf(
+                        "status" to "pending", "createdAt" to FieldValue.serverTimestamp(),
+                        "senderUid" to viewerUid, "recipientUid" to ownerUid,
+                    ))
                 }
                 task.addOnCompleteListener {
                     busy = false
@@ -179,7 +182,7 @@ internal fun ProfilePublications(
 }
 
 @Composable
-private fun FeedPublicationImage(entry: DocumentSnapshot, viewerUid: String) {
+internal fun FeedPublicationImage(entry: DocumentSnapshot, viewerUid: String) {
     var image by remember(entry.reference, viewerUid) {
         mutableStateOf<com.google.firebase.firestore.Blob?>(null)
     }

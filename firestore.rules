@@ -1250,20 +1250,22 @@ service cloud.firestore {
     // A amizade só existe após a aceitação da outra pessoa. Remover o
     // documento revoga o acesso das duas partes, inclusive por link direto.
     function feedFriendshipAccepted(firstUid, secondUid) {
-      let path = /databases/$(database)/documents/feed_friendships/$(firstUid)/peers/$(secondUid);
+      let path = /databases/$(database)/documents/feed_friendships/$(firstUid)/feed_friendship_edges/$(secondUid);
       return exists(path) && get(path).data.status == 'accepted';
     }
     function feedPairUnblocked(firstUid, secondUid) {
       return !exists(/databases/$(database)/documents/users/$(firstUid)/blockedMembers/$(secondUid))
         && !exists(/databases/$(database)/documents/users/$(secondUid)/blockedMembers/$(firstUid));
     }
-    match /feed_friendships/{senderUid}/peers/{recipientUid} {
+    match /feed_friendships/{senderUid}/feed_friendship_edges/{recipientUid} {
       allow get: if me(senderUid) || me(recipientUid);
       allow create: if me(senderUid) && validId(recipientUid) && senderUid != recipientUid
         && emailVerificationAllowsCommunityAccess()
         && feedPairUnblocked(senderUid, recipientUid)
-        && !existsAfter(/databases/$(database)/documents/feed_friendships/$(recipientUid)/peers/$(senderUid))
-        && request.resource.data.keys().hasOnly(['status', 'createdAt'])
+        && !existsAfter(/databases/$(database)/documents/feed_friendships/$(recipientUid)/feed_friendship_edges/$(senderUid))
+        && request.resource.data.keys().hasOnly(['status', 'createdAt', 'senderUid', 'recipientUid'])
+        && request.resource.data.senderUid == senderUid
+        && request.resource.data.recipientUid == recipientUid
         && request.resource.data.status == 'pending'
         && request.resource.data.createdAt == request.time;
       allow update: if me(recipientUid) && emailVerificationAllowsCommunityAccess()
@@ -1273,6 +1275,16 @@ service cloud.firestore {
         && request.resource.data.status == 'accepted';
       allow delete: if me(senderUid) || me(recipientUid);
       allow list: if false;
+    }
+
+    // Consultas por participante, inclusive para convites recebidos.
+    match /{path=**}/feed_friendship_edges/{edgeId} {
+      allow list: if me(resource.data.senderUid) || me(resource.data.recipientUid);
+    }
+
+    match /app_config/community_feed {
+      allow get: if signedIn();
+      allow list, write: if false;
     }
 
     // Um canal por responsável. O UID do documento vincula o canal ao autor.

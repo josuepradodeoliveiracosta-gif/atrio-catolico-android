@@ -39,8 +39,9 @@ internal fun ProfilePublicationComposer(
     db: FirebaseFirestore,
     uid: String,
     destination: String = "timeline",
+    initiallyOpen: Boolean = false,
 ) {
-    var open by rememberSaveable(uid, destination) { mutableStateOf(false) }
+    var open by rememberSaveable(uid, destination) { mutableStateOf(initiallyOpen) }
     var target by rememberSaveable(uid, destination) { mutableStateOf(destination) }
     var question by rememberSaveable(uid, destination) { mutableStateOf(false) }
     var title by rememberSaveable(uid, destination) { mutableStateOf("") }

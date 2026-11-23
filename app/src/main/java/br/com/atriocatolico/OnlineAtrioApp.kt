@@ -878,6 +878,16 @@ private fun OnlineCommunity(
             }
         onDispose { listener.remove() }
     }
+    var communityFeedEnabled by remember(db, uid) { mutableStateOf(false) }
+    DisposableEffect(db, uid) {
+        val listener = db.document("app_config/community_feed")
+            .addSnapshotListener(MetadataChanges.INCLUDE) { config, error ->
+                communityFeedEnabled = error == null && config != null &&
+                    !config.metadata.isFromCache && !config.metadata.hasPendingWrites() &&
+                    config.getBoolean("enabled") == true
+            }
+        onDispose { listener.remove() }
+    }
     var tab by rememberSaveable(uid) { mutableStateOf(Tab.HOME) }
     var profileSettingsMenuOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var filter by rememberSaveable(uid) { mutableStateOf("Todos") }
@@ -1619,7 +1629,15 @@ private fun OnlineCommunity(
                     }
                 )
             } else when (tab) {
-                Tab.HOME -> HomeScreen(name, posts, filter, search, searchOpen, welcomeUid = uid,
+                Tab.HOME -> if (communityFeedEnabled) {
+                    draftStateHolder.SaveableStateProvider("$uid:community-feed") {
+                        CommunityNewsFeed(
+                            db = db, uid = uid, blockedMembers = blockedMembers,
+                            searchOpen = searchOpen, search = search, onTextSearch = { search = it },
+                            onPublish = { navigate(Tab.PUBLISH) }, onAuthor = ::openMemberProfile,
+                        )
+                    }
+                } else HomeScreen(name, posts, filter, search, searchOpen, welcomeUid = uid,
                     onSearch = { search = it; otaScope.launch { homeListState.scrollToItem(0) } },
                     onFilter = { filter = it; otaScope.launch { homeListState.scrollToItem(0) } },
                     loading = feedLoading, loadError = feedError,
@@ -1635,7 +1653,17 @@ private fun OnlineCommunity(
                         }
                     })
                 Tab.COMMUNITIES -> CommunityScreen(posts) { category -> navigate(Tab.HOME); filter = category }
-                Tab.PUBLISH -> draftStateHolder.SaveableStateProvider("$uid:publish:$publishDraftEpoch") {
+                Tab.PUBLISH -> if (communityFeedEnabled) {
+                    draftStateHolder.SaveableStateProvider("$uid:community-feed-editor") {
+                        Column(
+                            Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
+                                .verticalScroll(rememberScrollState()).padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            ProfilePublicationComposer(db, uid, initiallyOpen = true)
+                        }
+                    }
+                } else draftStateHolder.SaveableStateProvider("$uid:publish:$publishDraftEpoch") {
                     PublishScreen(publishing = working) { title, body, category ->
                         confirmGuardianBeforeSend(title + "\n" + body) {
                             publish(title, body, category)

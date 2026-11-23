@@ -126,6 +126,26 @@
       "collectionGroup": "feed_channels",
       "fieldPath": "imageJpeg",
       "indexes": []
+    },
+    {
+      "collectionGroup": "feed_friendship_edges",
+      "fieldPath": "senderUid",
+      "indexes": [
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION_GROUP"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "feed_friendship_edges",
+      "fieldPath": "recipientUid",
+      "indexes": [
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION_GROUP"
+        }
+      ]
     }
   ]
 }

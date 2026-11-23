@@ -2,7 +2,7 @@ import {strict as assert} from 'node:assert';
 import {readFileSync} from 'node:fs';
 import {assertFails, assertSucceeds, initializeTestEnvironment} from '@firebase/rules-unit-testing';
 import {
-  Bytes, collection, deleteDoc, doc, getDocFromServer, getDocsFromServer,
+  Bytes, collection, collectionGroup, deleteDoc, doc, getDocFromServer, getDocsFromServer,
   orderBy, query, serverTimestamp, setDoc, updateDoc, where, writeBatch,
 } from 'firebase/firestore';
 
@@ -18,8 +18,8 @@ const alice = env.authenticatedContext('feed-alice').firestore();
 const bob = env.authenticatedContext('feed-bob').firestore();
 const carol = env.authenticatedContext('feed-carol').firestore();
 const guest = env.unauthenticatedContext().firestore();
-const friendship = 'feed_friendships/feed-alice/peers/feed-bob';
-const reverse = 'feed_friendships/feed-bob/peers/feed-alice';
+const friendship = 'feed_friendships/feed-alice/feed_friendship_edges/feed-bob';
+const reverse = 'feed_friendships/feed-bob/feed_friendship_edges/feed-alice';
 const timeline = 'feed_posts/feed-timeline';
 const channel = 'feed_posts/feed-channel';
 const follow = 'feed_following/feed-carol/channels/feed-alice';
@@ -30,7 +30,9 @@ const post = (destination, authorUid = 'feed-alice') => ({
   authorUid, destination, published: true, format: 'post',
   body: 'Uma publicação de exemplo', createdAt: serverTimestamp(),
 });
-const invite = () => ({status: 'pending', createdAt: serverTimestamp()});
+const invite = (senderUid = 'feed-alice', recipientUid = 'feed-bob') => ({
+  status: 'pending', createdAt: serverTimestamp(), senderUid, recipientUid,
+});
 const read = (db, path) => getDocFromServer(doc(db, path));
 const recent = (db, destination, extra = []) => getDocsFromServer(query(
   collection(db, 'feed_posts'),
@@ -89,10 +91,16 @@ try {
   for (const path of [timeline, image, comment]) await assertFails(read(carol, path));
 
   await assertSucceeds(setDoc(doc(alice, friendship), invite()));
-  await assertFails(setDoc(doc(bob, reverse), invite()));
+  await assertFails(setDoc(doc(bob, reverse), invite('feed-bob', 'feed-alice')));
   await assertFails(updateDoc(doc(alice, friendship), {status: 'accepted'}));
   await assertFails(read(bob, timeline));
   await assertSucceeds(updateDoc(doc(bob, friendship), {status: 'accepted'}));
+  const incoming = db => query(collectionGroup(db, 'feed_friendship_edges'),
+    where('recipientUid', '==', 'feed-bob'));
+  assert.equal((await assertSucceeds(getDocsFromServer(incoming(bob)))).size, 1);
+  await assertFails(getDocsFromServer(incoming(carol)));
+  await assertFails(getDocsFromServer(collectionGroup(bob, 'feed_friendship_edges')));
+
   for (const path of [timeline, image, comment]) await assertSucceeds(read(bob, path));
   const author = [where('authorUid', '==', 'feed-alice')];
   assert.equal((await assertSucceeds(recent(bob, 'timeline', author))).size, 1);
