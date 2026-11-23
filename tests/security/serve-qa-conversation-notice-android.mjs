@@ -88,9 +88,18 @@ async function publishAfterReadmission() {
     lastPreview:'Mensagem nova após restauração 18+',
   });
   await batch.commit();
+  // O aviso nunca pode vencer depois da MENOR das duas admissões.
+  // Usar resultExpire() novamente ultrapassava a readmissão em milissegundos.
+  const recipient = (await admissionRef(bob.uid).get()).data();
+  assert.equal(recipient?.generation,resumed.generation);
+  const expiryMs = value => value?.toMillis?.() ?? value?.getTime?.();
+  const deadline = new Date(Math.min(
+    expiryMs(sender.expiresAt), expiryMs(recipient.expiresAt)
+  ) - 10_000);
+  assert.ok(deadline.getTime() > Date.now() + 1_000);
   const result = await admin.publish({
     senderUid:alice.uid,recipientUid:bob.uid,conversationId,messageId:newMessageId,
-    expiresAt:resultExpire(),expectedSenderGeneration:sender.generation,
+    expiresAt:deadline,expectedSenderGeneration:sender.generation,
     expectedRecipientGeneration:resumed.generation,
     principal:fixturePublisher,
   });
