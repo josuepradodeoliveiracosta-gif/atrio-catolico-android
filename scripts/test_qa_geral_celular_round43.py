@@ -21,7 +21,13 @@ HTTPS_MANIFEST = LAB_MANIFEST.replace(
     'android:allowBackup="false"', 'android:allowBackup="false" android:usesCleartextTraffic="false"'
 ).replace(
     '</application>',
-    '''<receiver android:name="com.google.firebase.iid.FirebaseInstanceIdReceiver"
+    '''<activity android:name="br.com.atriocatolico.MainActivity" android:exported="true">
+        <intent-filter>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent-filter>
+    </activity>
+    <receiver android:name="com.google.firebase.iid.FirebaseInstanceIdReceiver"
         android:exported="true" android:permission="com.google.android.c2dm.permission.SEND">
         <intent-filter><action android:name="com.google.android.c2dm.intent.RECEIVE" /></intent-filter>
     </receiver></application>''',
@@ -204,6 +210,108 @@ class NoticeManifestTest(unittest.TestCase):
         for candidate in tampered:
             with self.subTest(candidate=candidate), self.assertRaises(PreflightError):
                 verify_notice_manifest(candidate, https=True)
+
+
+    def test_https_accepts_only_the_original_launcher_and_private_support_activities(self):
+        # No extra exported entrypoints. Firebase/Google support UIs may be
+        # present but are not allowed to gain new public intent filters.
+        verify_notice_manifest(HTTPS_MANIFEST, https=True)
+        private = '''<activity android:name="com.google.android.gms.common.api.GoogleApiActivity"
+            android:exported="false" />'''
+        verify_notice_manifest(
+            HTTPS_MANIFEST.replace("</application>", private + "</application>"), https=True
+        )
+
+    def test_https_rejects_exported_activity_or_any_alias_including_main_target(self):
+        unexpected = (
+            '<activity android:name="br.com.atriocatolico.InjectedActivity" android:exported="true" />',
+            '<activity android:name="br.com.atriocatolico.OtaInstallerActivity" android:exported="true" />',
+            '<activity android:name="com.example.inject.ExportedActivity" android:exported="true" '
+            'android:permission="com.google.android.c2dm.permission.SEND" />',
+            '<activity-alias android:name="br.com.atriocatolico.InjectedAlias" '
+            'android:targetActivity="br.com.atriocatolico.MainActivity" android:exported="true" />',
+            '<activity-alias android:name="br.com.atriocatolico.OtaShortcut" '
+            'android:targetActivity="br.com.atriocatolico.MainActivity" android:exported="true">'
+            '<intent-filter><action android:name="android.intent.action.MAIN" />'
+            '<category android:name="android.intent.category.LAUNCHER" /></intent-filter>'
+            '</activity-alias>',
+            '<activity-alias android:name="br.com.atriocatolico.PrivateAlias" '
+            'android:targetActivity="br.com.atriocatolico.MainActivity" android:exported="false" />',
+            '<activity android:name="br.com.atriocatolico.LabActivity" android:exported="false" />',
+        )
+        for component in unexpected:
+            with self.subTest(component=component), self.assertRaises(PreflightError):
+                verify_notice_manifest(HTTPS_MANIFEST.replace(
+                    "</application>", component + "</application>"
+                ), https=True)
+
+    def test_https_rejects_main_activity_launcher_drift(self):
+        replacements = (
+            ('android.intent.action.MAIN', 'android.intent.action.VIEW'),
+            ('android.intent.category.LAUNCHER', 'android.intent.category.BROWSABLE'),
+            ('android.intent.category.LAUNCHER', 'android.intent.category.DEFAULT'),
+            ('android:exported="true"', 'android:exported="false"'),
+            ('<activity android:name="br.com.atriocatolico.MainActivity"',
+             '<activity android:name="br.com.atriocatolico.InjectedLauncher"'),
+        )
+        for previous, changed in replacements:
+            with self.subTest(changed=changed), self.assertRaises(PreflightError):
+                verify_notice_manifest(HTTPS_MANIFEST.replace(previous, changed, 1), https=True)
+        main = '''<activity android:name="br.com.atriocatolico.MainActivity" android:exported="true">
+        <intent-filter>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent-filter>
+    </activity>'''
+        self.assertIn(main, HTTPS_MANIFEST)
+        tampered = (
+            HTTPS_MANIFEST.replace(main, ""),  # no launcher
+            HTTPS_MANIFEST.replace("</application>", main + "</application>"),  # duplicate
+            HTTPS_MANIFEST.replace(
+                '<category android:name="android.intent.category.LAUNCHER" />',
+                '<category android:name="android.intent.category.LAUNCHER" />'
+                '<category android:name="android.intent.category.BROWSABLE" />',
+            ),
+            HTTPS_MANIFEST.replace(
+                '<category android:name="android.intent.category.LAUNCHER" />',
+                '<category android:name="android.intent.category.LAUNCHER" />'
+                '<data android:scheme="package" />',
+            ),
+            HTTPS_MANIFEST.replace(
+                '</intent-filter>',
+                '</intent-filter><intent-filter><action android:name="android.intent.action.INSTALL_PACKAGE" />'
+                '</intent-filter>',
+                1,
+            ),
+            HTTPS_MANIFEST.replace(
+                'android:name="br.com.atriocatolico.MainActivity" android:exported="true"',
+                'android:name="br.com.atriocatolico.MainActivity" android:exported="true" '
+                'android:permission="com.google.android.c2dm.permission.SEND"',
+            ),
+        )
+        for candidate in tampered:
+            with self.subTest(candidate=candidate), self.assertRaises(PreflightError):
+                verify_notice_manifest(candidate, https=True)
+
+    def test_https_rejects_nonexported_activity_with_ota_or_injection_filter(self):
+        components = (
+            '<activity android:name="com.example.HiddenInstaller" android:exported="false">'
+            '<intent-filter><action android:name="android.intent.action.INSTALL_PACKAGE" /></intent-filter>'
+            '</activity>',
+            '<activity android:name="com.example.HiddenDeepLink" android:exported="false">'
+            '<intent-filter><action android:name="android.intent.action.VIEW" /></intent-filter>'
+            '</activity>',
+            '<activity android:name="com.example.HiddenDeepLink">'
+            '<intent-filter><action android:name="android.intent.action.VIEW" /></intent-filter>'
+            '</activity>',
+            '<activity android:name="br.com.atriocatolico.DebugShortcut" android:exported="false" />',
+        )
+        for component in components:
+            with self.subTest(component=component), self.assertRaises(PreflightError):
+                verify_notice_manifest(
+                    HTTPS_MANIFEST.replace("</application>", component + "</application>"),
+                    https=True,
+                )
 
 
 if __name__ == "__main__":
