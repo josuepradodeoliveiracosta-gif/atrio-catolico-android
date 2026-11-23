@@ -14,6 +14,7 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.activity.ComponentActivity
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Modifier
@@ -621,6 +622,35 @@ class ProfileV3ConsentEmulatorUiTest {
             assertTrue(talkBackIsActive())
             automation.shellText("screencap -p /data/local/tmp/qa-contribution-talkback.png")
             assertTrue("Captura ausente no emulador", automation.shellText("stat -c %s /data/local/tmp/qa-contribution-talkback.png").toLongOrNull()?.let { it > 0 } == true)
+        }
+    }
+
+    @OptIn(ExperimentalComposeUiApi::class)
+    @Test fun welcomeAllowsFocusOnBothActionsWithTalkBack() {
+        compose.setContent {
+            val density = LocalDensity.current.density
+            CompositionLocalProvider(LocalDensity provides Density(density, 1.5f)) {
+                AtrioTheme {
+                    Box(Modifier.semantics { testTagsAsResourceId = true }) {
+                        RegistrationWelcomeScreen(onCreate = {}, onLogin = {})
+                    }
+                }
+            }
+        }
+        val vitral = compose.onNodeWithTag("atrio-welcome-vitral", useUnmergedTree = true)
+        assertFalse(vitral.fetchSemanticsNode().config.contains(SemanticsProperties.ContentDescription))
+        withTalkBack { automation, talkBackIsActive ->
+            for (tag in listOf("atrio-welcome-create", "atrio-welcome-login")) {
+                fun visibleAction() = automation.rootInActiveWindow
+                    ?.takeIf { it.packageName?.toString() == BuildConfig.APPLICATION_ID }
+                    ?.findVisibleNode(tag)
+                compose.waitUntil(15_000) { visibleAction()?.isEnabled == true }
+                val action = requireNotNull(visibleAction())
+                assertTrue(action.isAccessibilityFocused ||
+                    action.performAction(AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS))
+                compose.waitUntil(15_000) { visibleAction()?.isAccessibilityFocused == true }
+            }
+            assertTrue(talkBackIsActive())
         }
     }
 

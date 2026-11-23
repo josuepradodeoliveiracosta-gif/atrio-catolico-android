@@ -1,6 +1,11 @@
 package br.com.atriocatolico
 
 import android.graphics.Bitmap
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -218,9 +223,44 @@ class ProfileLayoutUiTest {
                 )
             }
         }
+        compose.onNodeWithTag("atrio-welcome-vitral").assertExists()
+        compose.onNodeWithText("Boas-vindas!").assertExists()
+        compose.waitForIdle()
+        screenshot(
+            "boas-vindas-vitral",
+            compose.onNodeWithTag("atrio-signup-welcome").captureToImage().asAndroidBitmap()
+        )
         compose.onNodeWithTag("atrio-welcome-create").assertExists().performClick()
         compose.runOnIdle { assertEquals("create", selected) }
         compose.onNodeWithTag("atrio-welcome-login").assertExists().performClick()
+        compose.runOnIdle { assertEquals("login", selected) }
+    }
+
+    @Test fun registrationWelcomeKeepsActionsReachableOnCompactScreenWithLargeText() {
+        var selected = ""
+        compose.setContent {
+            val density = LocalDensity.current.density
+            CompositionLocalProvider(LocalDensity provides Density(density, 1.5f)) {
+                AtrioTheme {
+                    Box(Modifier.size(width = 320.dp, height = 420.dp)) {
+                        RegistrationWelcomeScreen(
+                            onCreate = { selected = "create" },
+                            onLogin = { selected = "login" }
+                        )
+                    }
+                }
+            }
+        }
+        compose.onNodeWithTag("atrio-welcome-vitral").assertIsDisplayed()
+        val create = compose.onNodeWithTag("atrio-welcome-create")
+        create.performScrollTo().assertIsDisplayed()
+        assertEquals(create.getUnclippedBoundsInRoot(), create.getBoundsInRoot())
+        create.performTouchInput { click() }
+        compose.runOnIdle { assertEquals("create", selected) }
+        val login = compose.onNodeWithTag("atrio-welcome-login")
+        login.performScrollTo().assertIsDisplayed()
+        assertEquals(login.getUnclippedBoundsInRoot(), login.getBoundsInRoot())
+        login.performTouchInput { click() }
         compose.runOnIdle { assertEquals("login", selected) }
     }
 
@@ -245,6 +285,9 @@ class ProfileLayoutUiTest {
         )
         compose.onNodeWithTag("atrio-onboarding-save").assertIsNotEnabled()
 
+        compose.onNodeWithText("E-mail confirmado · Passo 3 de 3").assertExists()
+        compose.onNodeWithText("Interesses (opcional)").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Como você se apresenta? (opcional)").performScrollTo().assertIsDisplayed()
         val skip = compose.onNodeWithTag("atrio-onboarding-skip")
         skip.performScrollTo().assertIsDisplayed().assertIsEnabled()
         assertEquals(skip.getUnclippedBoundsInRoot(), skip.getBoundsInRoot())
@@ -481,7 +524,7 @@ class ProfileLayoutUiTest {
         compose.onNodeWithTag("perfilqa-name").assertDoesNotExist()
     }
 
-    private fun screenshot(name: String) {
+    private fun screenshot(name: String, composableBitmap: Bitmap? = null) {
         // O Gradle pode desinstalar o APK ao terminar a suíte. Guardar a captura
         // no diretório do shell de QA evita perdê-la junto com os dados do app.
         if (Build.VERSION.SDK_INT < 31) return
@@ -492,7 +535,7 @@ class ProfileLayoutUiTest {
         ).use { it.readBytes() }
         // Captura pela automação Android: inclui diálogos, superfícies e selos
         // sem depender da captura Compose, que pode falhar no emulador de CI.
-        val bitmap = automation.takeScreenshot()
+        val bitmap = composableBitmap ?: automation.takeScreenshot()
             ?: error("O emulador Android não conseguiu capturar a tela")
         val pipes = automation.executeShellCommandRw("dd of=/data/local/tmp/atrio-profile-preview/$name.png")
         ParcelFileDescriptor.AutoCloseInputStream(pipes[0]).use { output ->

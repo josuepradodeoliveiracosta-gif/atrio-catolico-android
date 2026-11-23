@@ -365,12 +365,12 @@ private fun OnlineAuthScreen(
                     TextButton(
                         onClick = { legalDocument = "privacy" },
                         modifier = Modifier.fillMaxWidth().testTag("atrio-auth-read-privacy")
-                    ) { Text("Ler informações de privacidade (prévia)") }
+                    ) { Text("Ler a Política de Privacidade (prévia)") }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(checked = acknowledgedPrivacy,
                             onCheckedChange = { acknowledgedPrivacy = it },
                             enabled = !busy, modifier = Modifier.testTag("atrio-auth-privacy"))
-                        Text("Li as informações de privacidade.", fontSize = AtrioType.secondary)
+                        Text("Li a prévia da Política de Privacidade.", fontSize = AtrioType.secondary)
                     }
                     Text("As políticas completas, retenção de dados e bases legais ainda requerem " +
                         "revisão antes do lançamento oficial. Preferências religiosas serão opcionais.",
@@ -496,7 +496,7 @@ private fun OnlineAuthScreen(
             onDismissRequest = { legalDocument = "" },
             title = {
                 Text(if (legalDocument == "terms") "Condições de uso — prévia"
-                    else "Privacidade — prévia")
+                    else "Política de Privacidade — prévia")
             },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
