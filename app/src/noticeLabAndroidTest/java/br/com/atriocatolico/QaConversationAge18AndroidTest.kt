@@ -5,7 +5,6 @@ package br.com.atriocatolico
 // Não chama FCM remoto nem serviço de assinatura.
 import android.Manifest
 import android.content.pm.PackageManager
-import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
