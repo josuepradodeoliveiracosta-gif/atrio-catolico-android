@@ -141,6 +141,11 @@ class ThreeBotsAndroidUiTest {
             ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand(command))
                 .bufferedReader().use { it.readText().trim() }
 
+        fun isForeground(packageName: String): Boolean =
+            shell("dumpsys activity activities").lineSequence().any { line ->
+                "topResumedActivity" in line && " $packageName/" in line
+            }
+
         val browser = shell(
             "cmd package resolve-activity --brief -a android.intent.action.VIEW " +
                 "-c android.intent.category.BROWSABLE -d https://example.com/"
@@ -158,13 +163,13 @@ class ThreeBotsAndroidUiTest {
         compose.onNodeWithText("Abrir página de teste").performClick()
         try {
             compose.waitUntil(15_000) {
-                automation.rootInActiveWindow?.packageName?.toString() == browser
+                isForeground(browser)
             }
         } finally {
             shell("input keyevent KEYCODE_BACK")
         }
         compose.waitUntil(15_000) {
-            automation.rootInActiveWindow?.packageName?.toString() == BuildConfig.APPLICATION_ID
+            isForeground(BuildConfig.APPLICATION_ID)
         }
         compose.onNodeWithText("Medalha de São Bento").assertIsDisplayed()
     }
@@ -265,6 +270,53 @@ class ThreeBotsAndroidUiTest {
         details.performScrollToNode(hasText(buttonLabel))
         button.assertIsNotEnabled()
         compose.runOnIdle { org.junit.Assert.assertTrue(opened.isEmpty()) }
+    }
+
+    @Test fun lojaSimulaPagamentoRastreioCancelamentoEDevolucao() {
+        val browser = object : UriHandler {
+            override fun openUri(uri: String) = Unit
+        }
+        compose.setContent {
+            AtrioTheme {
+                CompositionLocalProvider(LocalUriHandler provides browser) {
+                    QaShopScreen(onClose = {})
+                }
+            }
+        }
+        val medal = "atrio-qa-shop-product-medalha"
+        compose.onNodeWithTag("atrio-qa-shop-catalog").performScrollToNode(hasTestTag(medal))
+        compose.onNodeWithTag(medal).performClick()
+        val details = compose.onNodeWithTag("atrio-qa-shop-product")
+        val order = compose.onNodeWithTag("atrio-qa-shop-order")
+        fun clickIn(list: androidx.compose.ui.test.SemanticsNodeInteraction, label: String) {
+            list.performScrollToNode(hasText(label))
+            compose.onNodeWithText(label).performClick()
+        }
+        fun openOrder() {
+            clickIn(details, "Abrir página de teste")
+            clickIn(details, "Ver pedido simulado")
+        }
+
+        openOrder()
+        clickIn(order, "Simular pagamento recusado")
+        compose.onNodeWithText("Pagamento recusado").assertIsDisplayed()
+        compose.onNodeWithText("Simular despacho").assertDoesNotExist()
+        clickIn(order, "Voltar à Loja")
+
+        openOrder()
+        clickIn(order, "Simular pagamento aprovado")
+        clickIn(order, "Simular cancelamento com estorno")
+        compose.onNodeWithText("Cancelado · pagamento estornado").assertIsDisplayed()
+        clickIn(order, "Voltar à Loja")
+
+        openOrder()
+        clickIn(order, "Simular pagamento aprovado")
+        clickIn(order, "Simular despacho")
+        compose.onNodeWithText("Rastreio fictício:", substring = true).assertIsDisplayed()
+        clickIn(order, "Simular entrega")
+        clickIn(order, "Solicitar devolução de teste")
+        clickIn(order, "Concluir devolução com estorno")
+        compose.onNodeWithText("Devolução concluída · pagamento estornado").assertIsDisplayed()
     }
 
     @Test fun lojaMostraCarregamentoErroETentaNovamente() {
