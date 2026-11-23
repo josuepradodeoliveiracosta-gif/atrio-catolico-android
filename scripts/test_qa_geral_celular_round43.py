@@ -178,5 +178,33 @@ class NoticeManifestTest(unittest.TestCase):
             verify_notice_manifest(fcm, https=True)
 
 
+    def test_https_preserves_only_protected_google_signin_revocation(self):
+        signed = '''<service
+            android:name="com.google.android.gms.auth.api.signin.RevocationBoundService"
+            android:exported="true"
+            android:permission="com.google.android.gms.auth.api.signin.permission.REVOCATION_NOTIFICATION">
+            <intent-filter><action android:name="com.google.android.gms.auth.api.signin.service.START" /></intent-filter>
+        </service>'''
+        manifest = HTTPS_MANIFEST.replace('</application>', signed + '</application>')
+        verify_notice_manifest(manifest, https=True)
+        tampered = (
+            manifest.replace(
+                "com.google.android.gms.auth.api.signin.permission.REVOCATION_NOTIFICATION",
+                "android.permission.INTERNET",
+            ),
+            manifest.replace(
+                "com.google.android.gms.auth.api.signin.service.START",
+                "br.com.atriocatolico.DEBUG_START",
+            ),
+            manifest.replace(
+                'android:name="com.google.android.gms.auth.api.signin.RevocationBoundService"',
+                'android:name="br.com.atriocatolico.UnexpectedService"',
+            ),
+        )
+        for candidate in tampered:
+            with self.subTest(candidate=candidate), self.assertRaises(PreflightError):
+                verify_notice_manifest(candidate, https=True)
+
+
 if __name__ == "__main__":
     unittest.main()
