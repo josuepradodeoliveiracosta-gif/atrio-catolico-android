@@ -83,6 +83,50 @@ LAB_COMPONENT_PREFIXES = (
     "inject", "ota", "updater", "update",
 )
 
+# O único launcher exportado pelo projeto é a MainActivity, sem atalhos nem
+# aliases secundários. Qualquer Activity exportada pelo SDK precisará de um
+# contrato de nome/filtro avaliado explicitamente após inventário do APK.
+MAIN_ACTIVITY = "br.com.atriocatolico.MainActivity"
+LAUNCH_ACTION = "android.intent.action.MAIN"
+LAUNCH_CATEGORY = "android.intent.category.LAUNCHER"
+
+
+def _check_activity_contract(application):
+    activities = application.findall("activity")
+    aliases = application.findall("activity-alias")
+    if aliases:
+        raise PreflightError("Activity-alias não previsto no APK 43 HTTPS.")
+    main = [node for node in activities if _component_name(node) == MAIN_ACTIVITY]
+    if len(main) != 1:
+        raise PreflightError("APK HTTPS exige uma única MainActivity legítima.")
+    for activity in activities:
+        component = _component_name(activity)
+        short = component.rsplit(".", 1)[-1].lstrip(".").lower()
+        if not component or short.startswith(LAB_COMPONENT_PREFIXES):
+            raise PreflightError(f"Activity de laboratório, OTA ou sem nome: {component}")
+        exported = activity.get(ANDROID + "exported")
+        if exported not in (None, "true", "false"):
+            raise PreflightError(f"Activity com android:exported inválido: {component}")
+        filters = activity.findall("intent-filter")
+        if component == MAIN_ACTIVITY:
+            if (exported != "true" or activity.get(ANDROID + "permission") is not None
+                    or len(filters) != 1):
+                raise PreflightError("MainActivity sem contrato de launcher protegido.")
+            launcher = filters[0]
+            actions = [node.get(ANDROID + "name") for node in launcher.findall("action")]
+            categories = [node.get(ANDROID + "name") for node in launcher.findall("category")]
+            if (actions != [LAUNCH_ACTION] or categories != [LAUNCH_CATEGORY]
+                    or len(launcher) != 2):
+                raise PreflightError("MainActivity com filtros extras ou sem launcher legítimo.")
+        elif exported == "true":
+            raise PreflightError(f"Activity exportada não autorizada: {component}")
+        elif filters:
+            # Nenhuma Activity não exportada deve ser usada como trampoline
+            # para instalar APK, OTA, UI de depuração ou sinal alternativo.
+            raise PreflightError(f"Activity adicional com intent-filter não autorizado: {component}")
+
+
+
 
 def _component_name(node):
     return (node.get(ANDROID + "name") or "").strip()
@@ -188,6 +232,7 @@ def verify_notice_manifest(text, *, https=False):
         return
     _check_https_permissions(manifest)
     _check_component_contract(application)
+    _check_activity_contract(application)
     if (application.get(ANDROID + "usesCleartextTraffic") != "false"
             or application.get(ANDROID + "networkSecurityConfig") is not None
             or any(node.get(name) == "androidx.core.content.FileProvider"
