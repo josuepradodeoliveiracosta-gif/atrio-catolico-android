@@ -142,6 +142,7 @@ class NoticeManifestTest(unittest.TestCase):
             "android.permission.RECEIVE_BOOT_COMPLETED",
             "android.permission.FOREGROUND_SERVICE",
             "com.google.android.c2dm.permission.RECEIVE",
+            "com.google.android.providers.gsf.permission.READ_GSERVICES",
         ):
             manifest = manifest.replace(
                 '<application', '<uses-permission android:name="' + permission + '" /><application'
