@@ -210,6 +210,63 @@ class ThreeBotsAndroidUiTest {
         checkout().assertIsNotEnabled()
     }
 
+    @Test fun lojaExigeNovaConfirmacaoERecusaEstoquePerdidoNoCheckout() {
+        val opened = mutableListOf<String>()
+        var reads = 0
+        val browser = object : UriHandler {
+            override fun openUri(uri: String) { opened.add(uri) }
+        }
+        compose.setContent {
+            AtrioTheme {
+                CompositionLocalProvider(LocalUriHandler provides browser) {
+                    QaShopScreen(
+                        loadCatalog = {
+                            reads++
+                            val variant = QaShopVariant(
+                                id = "medalha-prateada",
+                                sku = "MED-PRA",
+                                label = "Prateada",
+                                unitPriceMinor = if (reads == 1) 1990 else 2490,
+                                availability = if (reads < 3) QaShopAvailability.IN_STOCK
+                                    else QaShopAvailability.OUT_OF_STOCK
+                            )
+                            listOf(QaShopProduct(
+                                "medalha", "medalhas", "Medalhas", "Medalha de teste",
+                                "Oferta do fornecedor simulado", listOf(variant)
+                            ))
+                        },
+                        onClose = {}
+                    )
+                }
+            }
+        }
+        val entry = "atrio-qa-shop-product-medalha"
+        compose.onNodeWithTag("atrio-qa-shop-catalog").performScrollToNode(hasTestTag(entry))
+        compose.onNodeWithTag(entry).performClick()
+
+        val details = compose.onNodeWithTag("atrio-qa-shop-product")
+        val buttonLabel = "Abrir página de teste"
+        val button = compose.onNodeWithText(buttonLabel)
+        fun showText(text: String) {
+            details.performScrollToNode(hasText(text, substring = true))
+            compose.onNodeWithText(text, substring = true).assertIsDisplayed()
+        }
+
+        showText("28,80")
+        details.performScrollToNode(hasText(buttonLabel))
+        button.performClick()
+        showText("A cotação mudou.")
+        showText("33,80")
+        compose.runOnIdle { org.junit.Assert.assertTrue(opened.isEmpty()) }
+
+        details.performScrollToNode(hasText(buttonLabel))
+        button.performClick()
+        showText("A variante selecionada ficou indisponível.")
+        details.performScrollToNode(hasText(buttonLabel))
+        button.assertIsNotEnabled()
+        compose.runOnIdle { org.junit.Assert.assertTrue(opened.isEmpty()) }
+    }
+
     @Test fun lojaMostraCarregamentoErroETentaNovamente() {
         val firstRequest = CompletableDeferred<Unit>()
         var requests = 0
