@@ -63,6 +63,31 @@ jobs:
             bash scripts/qa_geral_celular_build43_https.sh candidate "$CANDIDATE_SHA" \
               "$CANDIDATE_TREE" "$RUNNER_TEMP/qa43-unsigned.apk" "$QA_ORIGIN"
           unset fixture
+          # Inventário somente de nomes públicos do manifesto já mesclado.
+          # Não imprime recursos Firebase, tokens ou conteúdos privados.
+          python3 - "$RUNNER_TEMP/qa43-unsigned.apk" "$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" <<'PY'
+          import sys
+          from xml.etree import ElementTree
+          from scripts.ota_apk_preflight import command
+
+          manifest = ElementTree.fromstring(
+              command([sys.argv[2], "manifest", "print", sys.argv[1]])
+          )
+          android = "{http://schemas.android.com/apk/res/android}"
+          permissions = sorted({
+              element.get(android + "name", "") for element in manifest
+              if element.tag.startswith("uses-permission")
+          })
+          print("QA43 permissões solicitadas:", permissions)
+          application = manifest.find("application")
+          for kind in ("receiver", "service", "provider"):
+              entries = sorted(
+                  (node.get(android + "name", ""), node.get(android + "exported", "não declarado"),
+                   node.get(android + "permission", ""))
+                  for node in application.findall(kind)
+              )
+              print(f"QA43 {kind}: (nome, exported, proteção)", entries)
+          PY
           tools="$ANDROID_HOME/build-tools/36.0.0"
           python3 -m scripts.qa_geral_celular_round43 metadata "$RUNNER_TEMP/qa43-unsigned.apk" \
             --build-tools "$tools" --notice-https
