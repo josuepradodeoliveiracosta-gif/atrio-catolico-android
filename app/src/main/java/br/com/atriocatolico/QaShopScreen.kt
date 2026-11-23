@@ -16,6 +16,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -25,48 +27,146 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import java.math.BigDecimal
+import java.text.NumberFormat
+import java.util.Locale
+
+internal enum class QaShopAvailability(val label: String) {
+    IN_STOCK("Em estoque"),
+    OUT_OF_STOCK("Esgotado"),
+    UNKNOWN("Estoque não confirmado")
+}
+
+internal data class QaShopVariant(
+    val id: String,
+    val sku: String,
+    val label: String,
+    val unitPriceMinor: Long,
+    val availability: QaShopAvailability,
+    val currency: String = "BRL"
+)
 
 internal data class QaShopProduct(
     val id: String,
+    val categoryId: String,
     val category: String,
     val name: String,
-    val description: String
+    val description: String,
+    val variants: List<QaShopVariant>
 )
 
 private const val QA_CHECKOUT_URL = "https://example.com/"
 
-private val qaShopProducts = listOf(
-    QaShopProduct("terco", "Terços", "Terço de madeira", "Contas de madeira com crucifixo."),
-    QaShopProduct("medalha", "Medalhas", "Medalha de São Bento", "Medalha devocional em metal."),
-    QaShopProduct("oratorio", "Artigos para o lar", "Oratório de mesa", "Oratório pequeno para uso doméstico.")
-)
+private object SimulatedQaShopSupplier {
+    fun load(revisedOffer: Boolean): List<QaShopProduct> = listOf(
+        QaShopProduct("terco", "tercos", "Terços", "Terço de madeira", "Contas de madeira com crucifixo.", listOf(
+            QaShopVariant("terco-natural", "TRC-NAT", "Madeira natural", 2990, QaShopAvailability.OUT_OF_STOCK)
+        )),
+        QaShopProduct("medalha", "medalhas", "Medalhas", "Medalha de São Bento", "Medalha devocional em metal.", listOf(
+            QaShopVariant("medalha-prateada", "MED-PRA", "Prateada",
+                if (revisedOffer) 2490 else 1990, QaShopAvailability.IN_STOCK),
+            QaShopVariant("medalha-dourada", "MED-DOU", "Dourada", 2290,
+                if (revisedOffer) QaShopAvailability.OUT_OF_STOCK else QaShopAvailability.IN_STOCK)
+        )),
+        QaShopProduct("oratorio", "lar", "Artigos para o lar", "Oratório de mesa", "Oratório pequeno para uso doméstico.", listOf(
+            QaShopVariant("oratorio-natural", "ORA-NAT", "Madeira natural", 4990, QaShopAvailability.UNKNOWN)
+        ))
+    )
+}
+
+private data class QaShopQuote(
+    val unitPriceMinor: Long,
+    val shippingMinor: Long,
+    val currency: String,
+    val deliveryDays: Int
+) {
+    val totalMinor: Long get() = unitPriceMinor + shippingMinor
+}
+
+private fun formatQaShopPrice(amountMinor: Long, currencyCode: String): String =
+    NumberFormat.getCurrencyInstance(Locale.forLanguageTag("pt-BR")).apply {
+        currency = java.util.Currency.getInstance(currencyCode)
+    }.format(BigDecimal.valueOf(amountMinor, 2))
+
+private fun QaShopVariant.testQuote(): QaShopQuote? =
+    if (availability == QaShopAvailability.IN_STOCK) {
+        QaShopQuote(unitPriceMinor, shippingMinor = 890, currency = currency, deliveryDays = 5)
+    } else null
+
+private enum class QaShopOrderStage(val label: String) {
+    PENDING("Aguardando pagamento"),
+    REFUSED("Pagamento recusado"),
+    SUBMITTED("Pagamento aprovado · enviado ao fornecedor"),
+    SHIPPED("Em transporte"),
+    DELIVERED("Entregue"),
+    CANCELLED("Cancelado · pagamento estornado"),
+    RETURN_REQUESTED("Devolução solicitada"),
+    REFUNDED("Devolução concluída · pagamento estornado");
+
+    val isClosed: Boolean
+        get() = this in setOf(REFUSED, CANCELLED, REFUNDED)
+}
 
 @Composable
 internal fun QaShopScreen(
-    loadCatalog: suspend () -> List<QaShopProduct> = { qaShopProducts },
+    loadCatalog: (suspend () -> List<QaShopProduct>)? = null,
     onClose: () -> Unit
 ) {
     val uriHandler = LocalUriHandler.current
-    var checkoutError by rememberSaveable { mutableStateOf(false) }
+    var orderId by rememberSaveable { mutableStateOf<String?>(null) }
+    var orderSummary by rememberSaveable { mutableStateOf("") }
+    var supplierSubmission by rememberSaveable { mutableStateOf<String?>(null) }
+    var orderStage by rememberSaveable { mutableStateOf(QaShopOrderStage.PENDING) }
+    var showOrder by rememberSaveable { mutableStateOf(false) }
+    var checkoutMessage by rememberSaveable { mutableStateOf<String?>(null) }
+    val checkoutScope = rememberCoroutineScope()
+    var confirmation by remember { mutableStateOf<Job?>(null) }
+    var confirming by remember { mutableStateOf(false) }
     var attempt by rememberSaveable { mutableStateOf(0) }
+    val readCatalog: suspend () -> List<QaShopProduct> = loadCatalog ?: { SimulatedQaShopSupplier.load(revisedOffer = attempt > 0) }
+    var refreshedProducts by remember(attempt) { mutableStateOf<List<QaShopProduct>?>(null) }
     val catalog by produceState<Result<List<QaShopProduct>>?>(null, attempt) {
         value = null
         value = try {
-            Result.success(loadCatalog())
+            Result.success(readCatalog())
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
             Result.failure(error)
         }
     }
-    val products = catalog?.getOrNull().orEmpty()
+    val products = refreshedProducts ?: catalog?.getOrNull().orEmpty()
     var category by rememberSaveable { mutableStateOf<String?>(null) }
     var productId by rememberSaveable { mutableStateOf<String?>(null) }
     val product = products.firstOrNull { it.id == productId }
+    var selectedVariantId by rememberSaveable(productId) { mutableStateOf<String?>(null) }
+    val selectedVariant = product?.variants?.let { variants ->
+        variants.firstOrNull { it.id == selectedVariantId } ?: variants.firstOrNull()
+    }
+    val quote = selectedVariant?.testQuote()
     val catalogState = rememberLazyListState()
     val goBack: () -> Unit = {
-        checkoutError = false
+        confirmation?.cancel()
+        confirming = false
+        checkoutMessage = null
         if (product == null) onClose() else productId = null
+    }
+
+    val currentOrderId = orderId
+    if (showOrder && currentOrderId != null) {
+        val closeOrder = { showOrder = false }
+        BackHandler(onBack = closeOrder)
+        QaShopOrderScreen(orderSummary, orderStage, supplierSubmission, closeOrder) { expected, next ->
+            if (orderId == currentOrderId && orderStage == expected) {
+                if (next == QaShopOrderStage.SUBMITTED && supplierSubmission == null) {
+                    supplierSubmission = "QA-$currentOrderId"
+                }
+                orderStage = next
+            }
+        }
+        return
     }
 
     BackHandler(onBack = goBack)
@@ -79,18 +179,77 @@ internal fun QaShopScreen(
             item { TextButton(onClick = goBack) { Text("Voltar ao catálogo") } }
             item { SectionTitle(product.name) }
             item { Text(product.description) }
-            item { Text("Produto fictício para testes de QA.") }
+            if (product.variants.size > 1) {
+                items(product.variants, key = { it.id }) { variant ->
+                    FilterChip(
+                        selected = selectedVariant == variant,
+                        enabled = !confirming,
+                        onClick = {
+                            selectedVariantId = variant.id
+                            checkoutMessage = null
+                        },
+                        label = { Text(variant.label) }
+                    )
+                }
+            }
+            selectedVariant?.let { variant ->
+                item { Text(formatQaShopPrice(variant.unitPriceMinor, variant.currency), Modifier.testTag("atrio-qa-shop-price")) }
+                item { Text(variant.availability.label, Modifier.testTag("atrio-qa-shop-stock")) }
+            }
+            quote?.let { current ->
+                item {
+                    Text("Frete simulado: ${formatQaShopPrice(current.shippingMinor, current.currency)}")
+                }
+                item {
+                    Text("Total simulado: ${formatQaShopPrice(current.totalMinor, current.currency)}",
+                        Modifier.testTag("atrio-qa-shop-quote-total"))
+                }
+                item { Text("Prazo estimado: ${current.deliveryDays} dias úteis") }
+            }
             item {
-                TextButton(onClick = {
-                    checkoutError = false
-                    try {
-                        uriHandler.openUri(QA_CHECKOUT_URL)
-                    } catch (_: IllegalArgumentException) {
-                        checkoutError = true
+                TextButton(enabled = quote != null && !confirming, onClick = {
+                    val acceptedQuote = quote ?: return@TextButton
+                    val variantId = selectedVariant?.id ?: return@TextButton
+                    if (confirming) return@TextButton
+                    confirming = true
+                    checkoutMessage = null
+                    confirmation = checkoutScope.launch {
+                        try {
+                            val freshProducts = readCatalog()
+                            val freshVariant = freshProducts.firstOrNull { it.id == product.id }
+                                ?.variants?.firstOrNull { it.id == variantId }
+                            val freshQuote = freshVariant?.testQuote()
+                            if (freshQuote != acceptedQuote) {
+                                refreshedProducts = freshProducts
+                                checkoutMessage = if (freshQuote == null) {
+                                    "A variante selecionada ficou indisponível."
+                                } else {
+                                    "A cotação mudou. Confira os valores e confirme novamente."
+                                }
+                                return@launch
+                            }
+                            uriHandler.openUri(QA_CHECKOUT_URL)
+                            if (orderId == null || orderStage.isClosed) {
+                                orderId = java.util.UUID.randomUUID().toString()
+                                orderStage = QaShopOrderStage.PENDING
+                                supplierSubmission = null
+                                orderSummary = "${product.name} · ${formatQaShopPrice(acceptedQuote.totalMinor, acceptedQuote.currency)}"
+                            }
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            checkoutMessage = "Não foi possível confirmar a cotação ou abrir a página de teste."
+                        } finally {
+                            confirming = false
+                        }
                     }
                 }) { Text("Abrir página de teste") }
             }
-            if (checkoutError) item { Text("Não foi possível abrir a página de teste.") }
+            if (currentOrderId != null) item {
+                TextButton(onClick = { showOrder = true }) { Text("Ver pedido simulado") }
+            }
+            if (confirming) item { Text("Conferindo disponibilidade e preço…") }
+            checkoutMessage?.let { message -> item { Text(message) } }
         }
     } else {
         LazyColumn(
@@ -102,6 +261,9 @@ internal fun QaShopScreen(
             item { TextButton(onClick = goBack) { Text("Voltar ao Início") } }
             item { SectionTitle("Átrio Loja") }
             item { Text("Catálogo fictício para QA") }
+            if (currentOrderId != null) item {
+                TextButton(onClick = { showOrder = true }) { Text("Ver pedido simulado") }
+            }
             val currentCatalog = catalog
             when {
                 currentCatalog == null -> item {
@@ -114,8 +276,9 @@ internal fun QaShopScreen(
                 }
                 products.isEmpty() -> item { Text("Nenhum produto disponível.") }
                 else -> {
-                    val categories = products.map { it.category }.distinct()
-                    val selectedCategory = category?.takeIf { it in categories }
+                    val categories = products.distinctBy { it.categoryId }
+                    val selectedCategory = category?.takeIf { id -> categories.any { it.categoryId == id } }
+                    item { TextButton(onClick = { attempt++ }) { Text("Atualizar catálogo") } }
                     item {
                         FilterChip(
                             selected = selectedCategory == null,
@@ -125,12 +288,12 @@ internal fun QaShopScreen(
                     }
                     items(categories) { option ->
                         FilterChip(
-                            selected = selectedCategory == option,
-                            onClick = { category = option },
-                            label = { Text(option) }
+                            selected = selectedCategory == option.categoryId,
+                            onClick = { category = option.categoryId },
+                            label = { Text(option.category) }
                         )
                     }
-                    items(products.filter { selectedCategory == null || it.category == selectedCategory }, key = { it.id }) { item ->
+                    items(products.filter { selectedCategory == null || it.categoryId == selectedCategory }, key = { it.id }) { item ->
                         OutlinedCard(
                             onClick = { productId = item.id },
                             modifier = Modifier.fillMaxWidth().testTag("atrio-qa-shop-product-${item.id}")
@@ -140,6 +303,60 @@ internal fun QaShopScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun QaShopOrderScreen(
+    summary: String,
+    stage: QaShopOrderStage,
+    supplierSubmission: String?,
+    onClose: () -> Unit,
+    onStageChange: (QaShopOrderStage, QaShopOrderStage) -> Unit
+) {
+    val actions = when (stage) {
+        QaShopOrderStage.PENDING -> listOf(
+            "Simular pagamento aprovado" to QaShopOrderStage.SUBMITTED,
+            "Simular pagamento recusado" to QaShopOrderStage.REFUSED
+        )
+        QaShopOrderStage.SUBMITTED -> listOf(
+            "Simular despacho" to QaShopOrderStage.SHIPPED,
+            "Simular cancelamento com estorno" to QaShopOrderStage.CANCELLED
+        )
+        QaShopOrderStage.SHIPPED -> listOf("Simular entrega" to QaShopOrderStage.DELIVERED)
+        QaShopOrderStage.DELIVERED -> listOf("Solicitar devolução de teste" to QaShopOrderStage.RETURN_REQUESTED)
+        QaShopOrderStage.RETURN_REQUESTED -> listOf("Concluir devolução com estorno" to QaShopOrderStage.REFUNDED)
+        QaShopOrderStage.REFUSED, QaShopOrderStage.CANCELLED, QaShopOrderStage.REFUNDED -> emptyList()
+    }
+    LazyColumn(
+        Modifier.fillMaxSize().testTag("atrio-qa-shop-order"),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item { TextButton(onClick = onClose) { Text("Voltar à Loja") } }
+        item { SectionTitle("Pedido simulado") }
+        item { Text(summary) }
+        item { Text(stage.label, Modifier.testTag("atrio-qa-shop-order-status")) }
+        item {
+            Text(
+                if (supplierSubmission == null) "Envios simulados: 0" else "Envios simulados: 1",
+                Modifier.testTag("atrio-qa-shop-submission-count")
+            )
+        }
+        if (supplierSubmission != null && stage == QaShopOrderStage.SUBMITTED) {
+            item {
+                TextButton(onClick = {
+                    onStageChange(QaShopOrderStage.PENDING, QaShopOrderStage.SUBMITTED)
+                }) { Text("Repetir confirmação de pagamento") }
+            }
+        }
+        if (stage in setOf(QaShopOrderStage.SHIPPED, QaShopOrderStage.DELIVERED,
+                QaShopOrderStage.RETURN_REQUESTED, QaShopOrderStage.REFUNDED)) {
+            supplierSubmission?.let { reference -> item { Text("Rastreio fictício: $reference") } }
+        }
+        items(actions, key = { it.first }) { (label, next) ->
+            TextButton(onClick = { onStageChange(stage, next) }) { Text(label) }
         }
     }
 }

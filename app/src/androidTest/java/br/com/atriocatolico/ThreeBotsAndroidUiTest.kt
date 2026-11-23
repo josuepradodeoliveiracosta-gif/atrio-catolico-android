@@ -141,6 +141,11 @@ class ThreeBotsAndroidUiTest {
             ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand(command))
                 .bufferedReader().use { it.readText().trim() }
 
+        fun isForeground(packageName: String): Boolean =
+            shell("dumpsys activity activities").lineSequence().any { line ->
+                "topResumedActivity" in line && " $packageName/" in line
+            }
+
         val browser = shell(
             "cmd package resolve-activity --brief -a android.intent.action.VIEW " +
                 "-c android.intent.category.BROWSABLE -d https://example.com/"
@@ -158,15 +163,167 @@ class ThreeBotsAndroidUiTest {
         compose.onNodeWithText("Abrir página de teste").performClick()
         try {
             compose.waitUntil(15_000) {
-                automation.rootInActiveWindow?.packageName?.toString() == browser
+                isForeground(browser)
             }
         } finally {
             shell("input keyevent KEYCODE_BACK")
         }
         compose.waitUntil(15_000) {
-            automation.rootInActiveWindow?.packageName?.toString() == BuildConfig.APPLICATION_ID
+            isForeground(BuildConfig.APPLICATION_ID)
         }
         compose.onNodeWithText("Medalha de São Bento").assertIsDisplayed()
+    }
+
+    @Test fun lojaAtualizaPrecoEBloqueiaEstoqueIndisponivel() {
+        compose.setContent { AtrioTheme { QaShopScreen(onClose = {}) } }
+
+        val catalog = compose.onNodeWithTag("atrio-qa-shop-catalog")
+        val details = compose.onNodeWithTag("atrio-qa-shop-product")
+        fun openProduct(id: String) {
+            val tag = "atrio-qa-shop-product-$id"
+            catalog.performScrollToNode(hasTestTag(tag))
+            compose.onNodeWithTag(tag).performClick()
+        }
+        fun showText(label: String) {
+            details.performScrollToNode(hasText(label, substring = true))
+            compose.onNodeWithText(label, substring = true).assertIsDisplayed()
+        }
+        fun checkout() = compose.onNodeWithText("Abrir página de teste").also {
+            details.performScrollToNode(hasText("Abrir página de teste"))
+        }
+        fun backToCatalog() {
+            details.performScrollToNode(hasText("Voltar ao catálogo"))
+            compose.onNodeWithText("Voltar ao catálogo").performClick()
+        }
+
+        openProduct("medalha")
+        showText("19,90")
+        checkout().assertIsEnabled()
+        backToCatalog()
+        catalog.performScrollToNode(hasText("Atualizar catálogo"))
+        compose.onNodeWithText("Atualizar catálogo").performClick()
+        openProduct("medalha")
+        showText("24,90")
+        details.performScrollToNode(hasText("Dourada"))
+        compose.onNodeWithText("Dourada").performClick()
+        showText("Esgotado")
+        checkout().assertIsNotEnabled()
+        backToCatalog()
+
+        openProduct("oratorio")
+        showText("Estoque não confirmado")
+        checkout().assertIsNotEnabled()
+    }
+
+    @Test fun lojaExigeNovaConfirmacaoERecusaEstoquePerdidoNoCheckout() {
+        val opened = mutableListOf<String>()
+        var reads = 0
+        val browser = object : UriHandler {
+            override fun openUri(uri: String) { opened.add(uri) }
+        }
+        compose.setContent {
+            AtrioTheme {
+                CompositionLocalProvider(LocalUriHandler provides browser) {
+                    QaShopScreen(
+                        loadCatalog = {
+                            reads++
+                            val variant = QaShopVariant(
+                                id = "medalha-prateada",
+                                sku = "MED-PRA",
+                                label = "Prateada",
+                                unitPriceMinor = if (reads == 1) 1990 else 2490,
+                                availability = if (reads < 3) QaShopAvailability.IN_STOCK
+                                    else QaShopAvailability.OUT_OF_STOCK
+                            )
+                            listOf(QaShopProduct(
+                                "medalha", "medalhas", "Medalhas", "Medalha de teste",
+                                "Oferta do fornecedor simulado", listOf(variant)
+                            ))
+                        },
+                        onClose = {}
+                    )
+                }
+            }
+        }
+        val entry = "atrio-qa-shop-product-medalha"
+        compose.onNodeWithTag("atrio-qa-shop-catalog").performScrollToNode(hasTestTag(entry))
+        compose.onNodeWithTag(entry).performClick()
+
+        val details = compose.onNodeWithTag("atrio-qa-shop-product")
+        val buttonLabel = "Abrir página de teste"
+        val button = compose.onNodeWithText(buttonLabel)
+        fun showText(text: String) {
+            details.performScrollToNode(hasText(text, substring = true))
+            compose.onNodeWithText(text, substring = true).assertIsDisplayed()
+        }
+
+        showText("28,80")
+        details.performScrollToNode(hasText(buttonLabel))
+        button.performClick()
+        showText("A cotação mudou.")
+        showText("33,80")
+        compose.runOnIdle { org.junit.Assert.assertTrue(opened.isEmpty()) }
+
+        details.performScrollToNode(hasText(buttonLabel))
+        button.performClick()
+        showText("A variante selecionada ficou indisponível.")
+        details.performScrollToNode(hasText(buttonLabel))
+        button.assertIsNotEnabled()
+        compose.runOnIdle { org.junit.Assert.assertTrue(opened.isEmpty()) }
+    }
+
+    @Test fun lojaSimulaPagamentoRastreioCancelamentoEDevolucao() {
+        val browser = object : UriHandler {
+            override fun openUri(uri: String) = Unit
+        }
+        compose.setContent {
+            AtrioTheme {
+                CompositionLocalProvider(LocalUriHandler provides browser) {
+                    QaShopScreen(onClose = {})
+                }
+            }
+        }
+        val medal = "atrio-qa-shop-product-medalha"
+        compose.onNodeWithTag("atrio-qa-shop-catalog").performScrollToNode(hasTestTag(medal))
+        compose.onNodeWithTag(medal).performClick()
+        val details = compose.onNodeWithTag("atrio-qa-shop-product")
+        val order = compose.onNodeWithTag("atrio-qa-shop-order")
+        fun clickIn(list: androidx.compose.ui.test.SemanticsNodeInteraction, label: String) {
+            list.performScrollToNode(hasText(label))
+            compose.onNodeWithText(label).performClick()
+        }
+        fun openOrder() {
+            clickIn(details, "Abrir página de teste")
+            clickIn(details, "Ver pedido simulado")
+        }
+
+        openOrder()
+        clickIn(order, "Simular pagamento recusado")
+        compose.onNodeWithText("Pagamento recusado").assertIsDisplayed()
+        order.performScrollToNode(hasText("Envios simulados: 0"))
+        compose.onNodeWithText("Envios simulados: 0").assertIsDisplayed()
+        compose.onNodeWithText("Simular despacho").assertDoesNotExist()
+        clickIn(order, "Voltar à Loja")
+
+        openOrder()
+        clickIn(order, "Simular pagamento aprovado")
+        clickIn(order, "Simular cancelamento com estorno")
+        compose.onNodeWithText("Cancelado · pagamento estornado").assertIsDisplayed()
+        clickIn(order, "Voltar à Loja")
+
+        openOrder()
+        clickIn(order, "Simular pagamento aprovado")
+        order.performScrollToNode(hasText("Envios simulados: 1"))
+        compose.onNodeWithText("Envios simulados: 1").assertIsDisplayed()
+        repeat(2) { clickIn(order, "Repetir confirmação de pagamento") }
+        order.performScrollToNode(hasText("Envios simulados: 1"))
+        compose.onNodeWithText("Envios simulados: 1").assertIsDisplayed()
+        clickIn(order, "Simular despacho")
+        compose.onNodeWithText("Rastreio fictício:", substring = true).assertIsDisplayed()
+        clickIn(order, "Simular entrega")
+        clickIn(order, "Solicitar devolução de teste")
+        clickIn(order, "Concluir devolução com estorno")
+        compose.onNodeWithText("Devolução concluída · pagamento estornado").assertIsDisplayed()
     }
 
     @Test fun lojaMostraCarregamentoErroETentaNovamente() {
