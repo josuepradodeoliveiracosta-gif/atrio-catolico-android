@@ -87,6 +87,14 @@ LAB_COMPONENT_PREFIXES = (
 # aliases secundários. Qualquer Activity exportada pelo SDK precisará de um
 # contrato de nome/filtro avaliado explicitamente após inventário do APK.
 MAIN_ACTIVITY = "br.com.atriocatolico.MainActivity"
+# Componentes efetivamente observados no APK QA 43 compilado. As três
+# entradas exportadas auxiliares não recebem filtros públicos novos.
+# ComponentActivity vem de ui-test-manifest, exclusivo da variante QA.
+AUXILIARY_EXPORTED_ACTIVITIES = frozenset({
+    "androidx.activity.ComponentActivity",
+    "com.google.firebase.auth.internal.GenericIdpActivity",
+    "com.google.firebase.auth.internal.RecaptchaActivity",
+})
 LAUNCH_ACTION = "android.intent.action.MAIN"
 LAUNCH_CATEGORY = "android.intent.category.LAUNCHER"
 
@@ -119,7 +127,10 @@ def _check_activity_contract(application):
                     or len(launcher) != 2):
                 raise PreflightError("MainActivity com filtros extras ou sem launcher legítimo.")
         elif exported == "true":
-            raise PreflightError(f"Activity exportada não autorizada: {component}")
+            if (component not in AUXILIARY_EXPORTED_ACTIVITIES
+                    or activity.get(ANDROID + "permission") is not None
+                    or filters):
+                raise PreflightError(f"Activity exportada não autorizada: {component}")
         elif filters:
             # Nenhuma Activity não exportada deve ser usada como trampoline
             # para instalar APK, OTA, UI de depuração ou sinal alternativo.
