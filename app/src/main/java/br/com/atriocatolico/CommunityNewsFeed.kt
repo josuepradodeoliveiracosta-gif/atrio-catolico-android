@@ -149,12 +149,13 @@ internal fun CommunityNewsFeed(
             Text("Feed de notícias", style = MaterialTheme.typography.headlineSmall)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(selected = !following, onClick = { following = false; visibleCount = 20 },
-                    label = { Text("Recentes") })
+                    modifier = Modifier.testTag("atrio-feed-recentes"), label = { Text("Recentes") })
                 FilterChip(selected = following, onClick = { following = true; visibleCount = 20 },
-                    label = { Text("Seguindo") })
+                    modifier = Modifier.testTag("atrio-feed-seguindo"), label = { Text("Seguindo") })
             }
             if (!following) FilterChip(selected = questions,
-                onClick = { questions = !questions; visibleCount = 20 }, label = { Text("Perguntas") })
+                onClick = { questions = !questions; visibleCount = 20 },
+                modifier = Modifier.testTag("atrio-feed-perguntas"), label = { Text("Perguntas") })
             if (searchOpen) OutlinedTextField(search, onTextSearch, label = { Text("Buscar no feed") },
                 singleLine = true, modifier = Modifier.fillMaxWidth())
             OutlinedButton(onClick = onPublish) { Text("Publicar") }

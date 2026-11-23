@@ -11,3 +11,11 @@ O controle de encerramento fica em `app_config/community_feed`. O valor `enabled
 5. Depois do corte validado, revisar as dependências operacionais dos índices de `posts` e `replies` e dos gatilhos exclusivos do fórum antes de removê-los da infraestrutura. Conservar os registros históricos e as cópias até decisão específica sobre retenção.
 
 As regras bloqueiam acessos futuros ao servidor em APKs antigos. Conteúdo já armazenado em cache nesses aparelhos depende da atualização do APK. O cliente novo interrompe o uso da navegação, das assinaturas e dos avisos legados ao receber a configuração de encerramento.
+
+
+## Critérios para a estreia
+
+- Conferir no Android uma pergunta de canal em Recentes antes de seguir o canal. Depois de segui-lo, conferir a mesma pergunta em Seguindo. Validar linha do tempo com duas contas amigas, uma conta externa e a revogação da amizade.
+- Conferir Recentes, Seguindo e Perguntas em tela compacta com fonte a 150%, TalkBack e paletas litúrgicas nos modos claro e escuro.
+- Preparar textos e perguntas iniciais e identificar os autores que autorizaram a publicação. O conteúdo fictício do emulador serve para validação.
+- Medir a proporção de perguntas que recebem pelo menos um comentário e a mediana do tempo até o primeiro comentário, considerando apenas publicações do canal ou da linha do tempo dentro da janela observada. Usar as datas do servidor e apresentar separadamente as perguntas de canais recém-criados.
