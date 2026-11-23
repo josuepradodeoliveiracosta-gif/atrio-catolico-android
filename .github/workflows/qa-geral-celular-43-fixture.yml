@@ -87,18 +87,18 @@ jobs:
                   for node in application.findall(kind)
               )
               print(f"QA43 {kind}: (nome, exported, proteção)", entries)
-          if kind in ("activity", "activity-alias"):
-              for node in application.findall(kind):
-                  filters = [
-                      (
-                          tuple(a.get(android + "name", "") for a in flt.findall("action")),
-                          tuple(c.get(android + "name", "") for c in flt.findall("category")),
-                          tuple(d.attrib.get(android + "scheme", "") for d in flt.findall("data")),
-                      )
-                      for flt in node.findall("intent-filter")
-                  ]
-                  print("QA43 rota de Activity:", node.get(android + "name", ""),
-                        node.get(android + "targetActivity", ""), filters)
+              if kind in ("activity", "activity-alias"):
+                  for node in application.findall(kind):
+                      filters = [
+                          (
+                              tuple(a.get(android + "name", "") for a in flt.findall("action")),
+                              tuple(c.get(android + "name", "") for c in flt.findall("category")),
+                              tuple(d.attrib.get(android + "scheme", "") for d in flt.findall("data")),
+                          )
+                          for flt in node.findall("intent-filter")
+                      ]
+                      print("QA43 rota de Activity:", node.get(android + "name", ""),
+                            node.get(android + "targetActivity", ""), filters)
           PY
           tools="$ANDROID_HOME/build-tools/36.0.0"
           python3 -m scripts.qa_geral_celular_round43 metadata "$RUNNER_TEMP/qa43-unsigned.apk" \
