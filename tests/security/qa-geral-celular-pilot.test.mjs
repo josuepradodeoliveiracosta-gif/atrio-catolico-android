@@ -205,17 +205,17 @@ test('convite e ingresso de grupo exigem aceite do destinatário sem bloqueio', 
   assert.equal((await groupHistory(b)).docs[0].get('text'), groupText);
 });
 
-test('denúncias são consultadas pelo autor do protocolo e pelo moderador ativo', async () => {
+test('denúncias são consultadas pelo autor; moderador usa backend de caso', async () => {
   for (const [path, data] of [[directReport, directData], [groupReport, groupData]]) {
     await setDoc(doc(b, path), data);
     assert.equal((await getDoc(doc(b, path))).get('reportedText'), data.reportedText);
-    assert.equal((await getDoc(doc(admin, path))).get('reporterUid'), bob.uid);
+    await assertFails(getDoc(doc(admin, path)));
     for (const db of [a, session(outsider), session(bob, false), guest]) {
       await assertFails(getDoc(doc(db, path)));
     }
     const collectionName = path.split('/')[0];
     await assertFails(getDocs(collection(b, collectionName)));
-    assert.equal((await getDocs(collection(admin, collectionName))).size, 1);
+    await assertFails(getDocs(collection(admin, collectionName)));
     await assertFails(updateDoc(doc(b, path), {reason: 'Edição posterior da evidência.'}));
     await assertFails(deleteDoc(doc(admin, path)));
   }
@@ -255,7 +255,7 @@ test('remoção e saída retiram acesso ao histórico sem apagar o protocolo ant
   await assertFails(groupHistory(b));
   await assertFails(setDoc(doc(b, lateReport), lateData));
   assert.equal((await getDoc(doc(b, groupReport))).exists(), true);
-  assert.equal((await getDoc(doc(admin, groupReport))).exists(), true);
+  await assertFails(getDoc(doc(admin, groupReport)));
 });
 
 test('revogar o moderador fecha a fila e desligar o piloto oculta históricos existentes', async () => {
