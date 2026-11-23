@@ -1247,6 +1247,115 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
+    // A amizade só existe após a aceitação da outra pessoa. Remover o
+    // documento revoga o acesso das duas partes, inclusive por link direto.
+    function feedFriendshipAccepted(firstUid, secondUid) {
+      let path = /databases/$(database)/documents/feed_friendships/$(firstUid)/peers/$(secondUid);
+      return exists(path) && get(path).data.status == 'accepted';
+    }
+    function feedPairUnblocked(firstUid, secondUid) {
+      return !exists(/databases/$(database)/documents/users/$(firstUid)/blockedMembers/$(secondUid))
+        && !exists(/databases/$(database)/documents/users/$(secondUid)/blockedMembers/$(firstUid));
+    }
+    match /feed_friendships/{senderUid}/peers/{recipientUid} {
+      allow get: if me(senderUid) || me(recipientUid);
+      allow create: if me(senderUid) && validId(recipientUid) && senderUid != recipientUid
+        && emailVerificationAllowsCommunityAccess()
+        && feedPairUnblocked(senderUid, recipientUid)
+        && !existsAfter(/databases/$(database)/documents/feed_friendships/$(recipientUid)/peers/$(senderUid))
+        && request.resource.data.keys().hasOnly(['status', 'createdAt'])
+        && request.resource.data.status == 'pending'
+        && request.resource.data.createdAt == request.time;
+      allow update: if me(recipientUid) && emailVerificationAllowsCommunityAccess()
+        && feedPairUnblocked(senderUid, recipientUid)
+        && resource.data.status == 'pending'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+        && request.resource.data.status == 'accepted';
+      allow delete: if me(senderUid) || me(recipientUid);
+      allow list: if false;
+    }
+
+    // Um canal por responsável. O UID do documento vincula o canal ao autor.
+    match /feed_channels/{ownerUid} {
+      allow get: if signedIn() && emailVerificationAllowsCommunityAccess();
+      allow create, update: if me(ownerUid) && emailVerificationAllowsCommunityAccess()
+        && communityPublicationAllowed()
+        && request.resource.data.keys().hasOnly(['name', 'description', 'updatedAt'])
+        && validText(request.resource.data.name, 1, 80)
+        && validText(request.resource.data.get('description', ''), 0, 500)
+        && request.resource.data.updatedAt == request.time;
+      allow list, delete: if false;
+    }
+
+    function feedPostReadable(post) {
+      return signedIn() && emailVerificationAllowsCommunityAccess()
+        && post.published == true
+        && (post.destination == 'channel'
+          || (post.destination == 'timeline'
+            && (me(post.authorUid)
+              || (feedPairUnblocked(post.authorUid, request.auth.uid)
+                && (feedFriendshipAccepted(post.authorUid, request.auth.uid)
+                  || feedFriendshipAccepted(request.auth.uid, post.authorUid))))));
+    }
+    function feedPostPath(postId) {
+      return /databases/$(database)/documents/feed_posts/$(postId);
+    }
+    function validFeedPost(post) {
+      return post.keys().hasOnly([
+          'authorUid', 'destination', 'format', 'title', 'body', 'published', 'createdAt'
+        ])
+        && me(post.authorUid)
+        && (post.destination == 'timeline' || (post.destination == 'channel'
+          && exists(/databases/$(database)/documents/feed_channels/$(request.auth.uid))))
+        && post.format in ['post', 'question']
+        && validText(post.get('title', ''), post.format == 'question' ? 1 : 0, 140)
+        && validText(post.get('body', ''), post.format == 'post' ? 1 : 0, 8000)
+        && post.published == true && post.createdAt == request.time;
+    }
+    match /feed_posts/{postId} {
+      // As consultas precisam declarar published e destination. Para linhas
+      // do tempo, consultar por autor e combinar os resultados no feed.
+      allow get, list: if feedPostReadable(resource.data);
+      allow create: if signedIn() && emailVerificationAllowsCommunityAccess()
+        && communityPublicationAllowed() && validFeedPost(request.resource.data);
+      // Reter a referência impede reutilizar o ID com comentários ou imagem antigos.
+      allow update: if me(resource.data.authorUid)
+        && resource.data.published == true && request.resource.data.published == false
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['published']);
+      allow delete: if false;
+
+      // Imagem compactada em documento protegido, sem URL pública permanente.
+      match /media/{mediaId} {
+        allow get: if mediaId == 'image' && feedPostReadable(get(feedPostPath(postId)).data);
+        allow create: if mediaId == 'image' && signedIn()
+          && emailVerificationAllowsCommunityAccess() && communityPublicationAllowed()
+          && me(getAfter(feedPostPath(postId)).data.authorUid)
+          && getAfter(feedPostPath(postId)).data.published == true
+          && request.resource.data.keys().hasOnly(['contentType', 'bytes'])
+          && request.resource.data.contentType in ['image/webp', 'image/jpeg', 'image/png']
+          && request.resource.data.bytes is bytes
+          && request.resource.data.bytes.size() > 0
+          && request.resource.data.bytes.size() <= 524288;
+        allow list, update, delete: if false;
+      }
+
+      function feedReplyParentIsRoot(parentId) {
+        return parentId == '' || (validId(parentId)
+          && get(/databases/$(database)/documents/feed_posts/$(postId)/comments/$(parentId)).data.parentId == '');
+      }
+      match /comments/{commentId} {
+        allow get, list: if feedPostReadable(get(feedPostPath(postId)).data);
+        allow create: if feedPostReadable(get(feedPostPath(postId)).data)
+          && communityPublicationAllowed()
+          && request.resource.data.keys().hasOnly(['authorUid', 'parentId', 'body', 'createdAt'])
+          && me(request.resource.data.authorUid)
+          && feedReplyParentIsRoot(request.resource.data.parentId)
+          && validText(request.resource.data.body, 1, 2000)
+          && request.resource.data.createdAt == request.time;
+        allow update, delete: if false;
+      }
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }
