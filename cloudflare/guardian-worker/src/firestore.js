@@ -100,7 +100,7 @@ export class Firestore {
   }
   // Cursor por timestamp + nome evita saltos em empates de createdAt.
   async scanPage(group,{since,until,after=null,max=30,field='createdAt'}={}){
-    if(!['posts','replies','reports'].includes(group) ||
+    if(!['posts','replies','reports','feed_posts','comments'].includes(group) ||
       !['createdAt','updatedAt'].includes(field) ||
       (field==='updatedAt'&&group!=='posts') ||
       !Number.isInteger(max)||max<1||max>(group==='reports'?15:30))
@@ -112,12 +112,13 @@ export class Firestore {
     const prefix=this.resource+'/';
     const pathMatches=path=>group==='replies'?
       /^posts\/[A-Za-z0-9_-]{1,128}\/replies\/[A-Za-z0-9_-]{1,128}$/.test(path):
+      group==='comments' ? /^feed_posts\/[A-Za-z0-9_-]{1,128}\/comments\/[A-Za-z0-9_-]{1,128}$/.test(path):
       new RegExp('^'+group+'/[A-Za-z0-9_-]{1,128}$').test(path);
     const rel=after?.name?.startsWith(prefix)?after.name.slice(prefix.length):'';
     if(after!==null && (!iso(after?.time)||!pathMatches(rel)||
        Date.parse(after.time)<Date.parse(since)||Date.parse(after.time)>Date.parse(until)))
       throw Error('invalid_scan_cursor');
-    const query={from:[{collectionId:group,allDescendants:group==='replies'}],
+    const query={from:[{collectionId:group,allDescendants:group==='replies'||group==='comments'}],
       where:{compositeFilter:{op:'AND',filters:[
         {fieldFilter:{field:{fieldPath:field},op:'GREATER_THAN_OR_EQUAL',value:timestamp(since)}},
         {fieldFilter:{field:{fieldPath:field},op:'LESS_THAN_OR_EQUAL',value:timestamp(until)}}

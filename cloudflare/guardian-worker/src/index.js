@@ -8,6 +8,7 @@ import {runQaPolicyHeartbeat} from './qa-policy-heartbeat.js';
 import {qaFixtureRequest} from './qa-user-firestore-bridge.js';
 const json=(status,code)=>new Response(JSON.stringify({status:code}),{status,headers:{'content-type':'application/json','cache-control':'no-store'}});
 const MASK=/^posts\/[A-Za-z0-9_-]{1,128}(?:\/replies\/[A-Za-z0-9_-]{1,128})?$/;
+const FEED_MASK=/^feed_posts\/[A-Za-z0-9_-]{1,128}(?:\/comments\/[A-Za-z0-9_-]{1,128})?$/;
 export function settingsOf(doc,env) {
   // Três autorizações independentes: configuração do servidor, identidade validada
   // e autorização explícita de produção. Em QA o motor permanece desligado.
@@ -21,18 +22,23 @@ export function settingsOf(doc,env) {
     && env.GUARDIAN_V2_HOLD_APPROVED==='true'&&bool(doc,'allowHold')};
 }
 function cleanItem(document) {
-  const path=pathOf(document);if(!MASK.test(path)||!document.updateTime)return null;
-  const parts=path.split('/'),owner=string(document,'uid');
-  if(!VALID_ID.test(owner))return null;
-  return {path,parts,owner,text:(parts.length===2?string(document,'title')+' ':'')+string(document,'body'),doc:document,kind:parts.length===2?'post':'reply'};
+  const path=pathOf(document),feed=FEED_MASK.test(path);
+  if((!feed&&!MASK.test(path))||!document.updateTime)return null;
+  const parts=path.split('/'),owner=string(document,feed?'authorUid':'uid');
+  if(!VALID_ID.test(owner)||feed&&(parts.length===2 ? !bool(document,'published') : bool(document,'removed')))return null;
+  return {path,parts,owner,feed,text:(parts.length===2?string(document,'title')+' ':'')+string(document,'body'),doc:document,kind:parts.length===2?'post':'reply'};
 }
 function caseFields(item,finding,now,action) {
-  return {engine:str('v2'),ownerUid:str(item.owner),targetPath:str(item.path),targetType:str(item.kind),postId:str(item.parts[1]),...(item.kind==='reply'?{replyId:str(item.parts[3])}:{}),ruleCode:str(finding.rule),sourceUpdateTime:str(item.doc.updateTime),reason:str('Possível violação: '+finding.rule),status:str(action==='hold'?'held':action==='warn'?'warned':'review'),source:str('guardiao'),createdAt:timestamp(now)};
+  return {engine:str('v2'),...(item.feed?{evidencePreview:str([...item.text.trim()].slice(0,800).join(''))}:{}),ownerUid:str(item.owner),targetPath:str(item.path),targetType:str(item.kind),postId:str(item.parts[1]),...(item.kind==='reply'?{replyId:str(item.parts[3])}:{}),ruleCode:str(finding.rule),sourceUpdateTime:str(item.doc.updateTime),reason:str('Possível violação: '+finding.rule),status:str(action==='hold'?'held':action==='warn'?'warned':'review'),source:str('guardiao'),createdAt:timestamp(now)};
 }
 // Atua por eventos backend com polling agendado limitado. Não depende do app.
 export async function processDocument(db,document,settings,now=new Date().toISOString()) {
   if(!settings.enabled)return 'disabled';
   const item=cleanItem(document);if(!item)return 'invalid';
+  if(item.feed) {
+    if(!settings.feedEnabled)return 'ignored';
+    if(item.kind==='reply'&&!bool(await db.get('feed_posts/'+item.parts[1]),'published'))return 'ignored';
+  } else if(settings.forumRetired)return 'ignored';
   const root=db.resource||ROOT;
   const finding=classify(item.text,settings.context||{}),policy=decide(finding);
   if(policy==='clear')return 'clear';
@@ -45,7 +51,7 @@ export async function processDocument(db,document,settings,now=new Date().toISOS
     return 'duplicate_or_changed';
   const id=previous?await caseId(item.path+'@'+item.doc.updateTime):primaryId;
   // Nunca retirar um post com subcoleções de respostas de maneira automática.
-  const hold=policy==='review'&&finding.level==='hold_candidate'&&settings.allowHold&&item.kind==='reply';
+  const hold=policy==='review'&&finding.level==='hold_candidate'&&settings.allowHold&&item.kind==='reply'&&!item.feed;
   const action=hold?'hold':policy;
   const notice=safeNotice(finding.rule,action);
   const fields=caseFields(item,finding,now,action);
@@ -178,10 +184,11 @@ export async function resolveReviewCase(db,uid,input,now=new Date().toISOString(
       !['review','warned'].includes(string(c,'status')))throw denial(409,'not_pending');
   const owner=string(c,'ownerUid'),target=string(c,'targetPath');
   if(!VALID_ID.test(owner)||owner===uid)throw denial(owner===uid?403:409,'invalid_owner');
-  if(!MASK.test(target))throw denial(409,'invalid_target');
+  const feed=FEED_MASK.test(target);
+  if(!feed&&!MASK.test(target))throw denial(409,'invalid_target');
   const source=await db.get(target),original=string(c,'sourceUpdateTime');
   if(!original||!source?.updateTime||source.updateTime!==original||
-      string(source,'uid')!==owner)throw denial(409,'source_changed');
+      string(source,feed?'authorUid':'uid')!==owner)throw denial(409,'source_changed');
   const action=input.action,status=action==='dismiss'?'dismissed':'acknowledged';
   const at=timestamp(now),fields={
     status:str(status),reviewedBy:str(uid),reviewNote:str(input.note.trim()),reviewedAt:at
@@ -227,6 +234,8 @@ export async function handleRequest(request,env) {
       return json(200,decision);
     }
     if(!input||Object.keys(input).sort().join(',')!=='action,caseId,note'||!/^guard_[a-f0-9]{32}$/.test(input.caseId||'')||!['restore','confirm'].includes(input.action)||typeof input.note!=='string'||input.note.trim().length<5||input.note.length>300)return json(400,'invalid_review');
+    if(input.action==='restore' && bool(await db.get('app_config/community_feed'),'forumRetired'))
+      return json(409,'forum_retired');
     const decision=await reviewCase(db,uid,input);
     return json(200,decision);
   }catch(e){return json([400,403,409,412].includes(e.status)?(e.status===412?409:e.status):503,'operation_unavailable');}
@@ -279,7 +288,10 @@ export default {
     }
     if(env.GUARDIAN_V2_ENABLED!=='true')return;
     ctx.waitUntil((async()=>{try{const db=new Firestore(await token(env),env.GUARDIAN_FIREBASE_PROJECT_ID);const config=await db.get('guardian_config/policy');
-      const metrics=await scanOnce(db,settingsOf(config,env));
+      const feed=await db.get('app_config/community_feed');
+      const forumRetired=bool(feed,'forumRetired');
+      const metrics=await scanOnce(db,{...settingsOf(config,env),
+        forumRetired,feedEnabled:forumRetired||bool(feed,'enabled')});
       if(metrics.status!=='disabled'){
         const current=await db.get('guardian_runtime/last_scan');
         const fields={scannedAt:timestamp(new Date().toISOString()),

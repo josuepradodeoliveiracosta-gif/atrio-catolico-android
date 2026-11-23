@@ -46,6 +46,8 @@ import kotlinx.coroutines.launch
 
 private enum class ProfileSection {
     Identity,
+    Timeline,
+    Channel,
     Participation,
     Publication,
     Badges,
@@ -75,7 +77,9 @@ internal fun OnlineProfileScreen(
     onDownloadUpdate: (OtaApkOffer) -> Unit = {},
     onCancelUpdateDownload: () -> Unit = {},
     onInstallUpdate: () -> Unit = {},
-    onConversations: (() -> Unit)? = null
+    onConversations: (() -> Unit)? = null,
+    forumRetired: Boolean = false,
+    feedEnabled: Boolean = false
 ) {
     val profileListState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -93,14 +97,14 @@ internal fun OnlineProfileScreen(
     BackHandler(enabled = profilePreviewOpen) { profilePreviewOpen = false }
     BackHandler(enabled = profileSettingsMenuOpen, onBack = onCloseProfileSettingsMenu)
 
-    if (followedOpen) {
+    if (followedOpen && !forumRetired) {
         FollowedDiscussionsScreen(db, uid, followedRevision,
             onBack = { followedOpen = false }, onOpen = onOpen,
             remoteEnabled = followedRemoteEnabled, remoteIds = followedRemoteIds,
             remoteLoading = followedRemoteLoading, remoteFailed = followedRemoteFailed)
     } else if (contributionsOpen) {
         ContributionProgressScreen(db, uid, onBack = { contributionsOpen = false })
-    } else if (discussionsOpen) {
+    } else if (discussionsOpen && !forumRetired) {
         ProfileDiscussionHistory(db, uid, onBack = { discussionsOpen = false }, onOpen = onOpen)
     } else if (badgesOpen) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
@@ -151,6 +155,8 @@ internal fun OnlineProfileScreen(
                         }
                         ProfileV3Summary(db, uid, modifier = Modifier.padding(top = 16.dp))
                     }
+                    ProfileSection.Timeline -> if (feedEnabled) ProfileTimeline(db, ownerUid = uid, viewerUid = uid) else Unit
+                    ProfileSection.Channel -> if (feedEnabled) ProfileChannel(db, ownerUid = uid, viewerUid = uid, ownerName = name) else Unit
                     ProfileSection.Participation -> {
                         ProfileSectionTitle("Minha participação")
                         Card(Modifier.fillMaxWidth(), border = BorderStroke(1.dp, Line),
@@ -161,14 +167,16 @@ internal fun OnlineProfileScreen(
                                     Icons.Outlined.Forum, onConversations)
                                 HorizontalDivider()
                             }
-                            ProfileAction("Minhas discussões", "Veja as discussões mais recentes e carregue outras quando desejar.",
-                                Icons.Outlined.Forum) { discussionsOpen = true }
-                            HorizontalDivider()
-                            ProfileAction("Discussões acompanhadas",
-                                if (followedRemoteEnabled) "Lista sincronizada na sua conta."
-                                else "Sua lista pessoal neste aparelho.",
-                                Icons.Outlined.BookmarkBorder) { followedOpen = true }
-                            HorizontalDivider()
+                            if (!forumRetired) {
+                                ProfileAction("Minhas discussões", "Veja as discussões mais recentes e carregue outras quando desejar.",
+                                    Icons.Outlined.Forum) { discussionsOpen = true }
+                                HorizontalDivider()
+                                ProfileAction("Discussões acompanhadas",
+                                    if (followedRemoteEnabled) "Lista sincronizada na sua conta."
+                                    else "Sua lista pessoal neste aparelho.",
+                                    Icons.Outlined.BookmarkBorder) { followedOpen = true }
+                                HorizontalDivider()
+                            }
                             ProfileAction("Insígnias de contribuição",
                                 "Acompanhe as três trilhas e escolha uma para destacar no perfil.",
                                 Icons.Outlined.StarBorder) { contributionsOpen = true }

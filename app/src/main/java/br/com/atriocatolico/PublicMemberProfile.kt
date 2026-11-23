@@ -81,7 +81,9 @@ internal fun PublicMemberProfileScreen(
     viewerUid: String = "",
     onConverse: (() -> Unit)? = null,
     managedBlocks: AtrioManagedBlocks? = null,
-    discussionResolver: ProfileV3DiscussionResolver? = null
+    discussionResolver: ProfileV3DiscussionResolver? = null,
+    forumRetired: Boolean = false,
+    feedEnabled: Boolean = false
 ) {
     val uid = target.uid
     val auth = remember(db) { FirebaseAuth.getInstance(db.app) }
@@ -133,14 +135,14 @@ internal fun PublicMemberProfileScreen(
                 }
         onDispose { active = false; listener?.remove() }
     }
-    DisposableEffect(db, uid, nextPage) {
+    DisposableEffect(db, uid, nextPage, forumRetired) {
         var active = true
         loading = true
         failed = false
         val query = db.collection("posts").whereEqualTo("uid", uid)
             .orderBy("createdAt", Query.Direction.DESCENDING).limit(20)
         val page = if (last == null) query else query.startAfter(last!!)
-        page.get().addOnCompleteListener { task ->
+        if (!forumRetired) page.get().addOnCompleteListener { task ->
             if (!active) return@addOnCompleteListener
             loading = false
             failed = !task.isSuccessful
@@ -247,8 +249,13 @@ internal fun PublicMemberProfileScreen(
                     shape = RoundedCornerShape(AtrioDimensions.CardRadius)
                 ) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Vamos conversar sobre…", style = MaterialTheme.typography.titleMedium, color = Wine)
+                        Text(if (forumRetired) "Interesses" else "Vamos conversar sobre…",
+                            style = MaterialTheme.typography.titleMedium, color = Wine)
                         publicProfile.interests.sortedBy { it !in common }.forEach { label ->
+                            if (forumRetired) {
+                                Text(label)
+                                return@forEach
+                            }
                             val interest = ProfileV3Interest.forLabel(label) ?: return@forEach
                             key(viewer, uid, interest, publicProfile.revision, resolver) {
                                 PublicProfileV3Interest(
@@ -312,13 +319,20 @@ internal fun PublicMemberProfileScreen(
                     style = MaterialTheme.typography.bodySmall, color = Muted)
             }
         }
-        item {
+        if (feedEnabled && viewer != null && !blocked && viewerUid != uid) {
+            item { ProfileTimeline(db, ownerUid = uid, viewerUid = viewerUid) }
+            item {
+                ProfileChannel(db, ownerUid = uid, viewerUid = viewerUid,
+                    ownerName = info?.name ?: target.nameFromPublication)
+            }
+        }
+        if (!forumRetired) item {
             Text("Discussões", style = MaterialTheme.typography.titleLarge)
             Text("${entries.size} discussões carregadas · lista paginada",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        if (!blocked) items(entries, key = { "public-post-${it.id}" }) { post ->
+        if (!forumRetired && !blocked) items(entries, key = { "public-post-${it.id}" }) { post ->
             Card(onClick = { onOpenDiscussion(post.id) }, modifier = Modifier.fillMaxWidth()
                 .testTag("atrio-public-post-${post.id}")) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -330,16 +344,16 @@ internal fun PublicMemberProfileScreen(
                 }
             }
         }
-        if (loading) item { CircularProgressIndicator(Modifier.testTag("atrio-public-posts-loading")) }
-        if (failed) item {
+        if (!forumRetired && loading) item { CircularProgressIndicator(Modifier.testTag("atrio-public-posts-loading")) }
+        if (!forumRetired && failed) item {
             Text("Não foi possível carregar as discussões. Confira a conexão ou o índice necessário.",
                 color = MaterialTheme.colorScheme.error)
             OutlinedButton(onClick = { nextPage++ }) { Text("Tentar novamente") }
         }
-        if (!blocked && !loading && !failed && entries.isEmpty()) item {
+        if (!forumRetired && !blocked && !loading && !failed && entries.isEmpty()) item {
             Text("Este participante ainda não publicou discussões disponíveis.")
         }
-        if (!blocked && !loading && !failed && more) item {
+        if (!forumRetired && !blocked && !loading && !failed && more) item {
             OutlinedButton(onClick = { nextPage++ }, modifier = Modifier.fillMaxWidth()
                 .testTag("atrio-public-load-more")) { Text("Carregar mais discussões") }
         }

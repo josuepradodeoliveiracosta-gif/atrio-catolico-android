@@ -646,9 +646,15 @@ service cloud.firestore {
       }
     }
 
+    // Configuração administrativa única para o corte, inclusive em clientes antigos.
+    function legacyForumOpen() {
+      let config = /databases/$(database)/documents/app_config/community_feed;
+      return !exists(config) || get(config).data.get('forumRetired', false) != true;
+    }
+
     match /posts/{postId} {
-      allow get, list: if signedIn() && emailVerificationAllowsCommunityAccess();
-      allow create: if signedIn()
+      allow get, list: if legacyForumOpen() && signedIn() && emailVerificationAllowsCommunityAccess();
+      allow create: if legacyForumOpen() && signedIn()
         && communityPublicationAllowed()
         && emailVerificationAllowsCommunityAccess()
         && request.resource.data.keys().hasOnly([
@@ -666,7 +672,7 @@ service cloud.firestore {
       // Aplicativo ainda não publicado: exigir updatedAt em toda edição.
       // Isso impede edições que não geram evento para o Guardião V2.
       // Somente para testes até distribuir APK Debug compatível.
-      allow update: if signedIn()
+      allow update: if legacyForumOpen() && signedIn()
         && emailVerificationAllowsCommunityAccess()
         && resource.data.uid == request.auth.uid
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'body', 'updatedAt'])
@@ -674,12 +680,12 @@ service cloud.firestore {
         && request.resource.data.updatedAt == request.time
         && validText(request.resource.data.title, 5, 120)
         && validText(request.resource.data.body, 5, 1200);
-      allow delete: if signedIn() && emailVerificationAllowsCommunityAccess()
+      allow delete: if legacyForumOpen() && signedIn() && emailVerificationAllowsCommunityAccess()
           && (resource.data.uid == request.auth.uid || isAdmin());
 
       match /replies/{replyId} {
-        allow get, list: if signedIn() && emailVerificationAllowsCommunityAccess();
-        allow create: if signedIn()
+        allow get, list: if legacyForumOpen() && signedIn() && emailVerificationAllowsCommunityAccess();
+        allow create: if legacyForumOpen() && signedIn()
           && communityPublicationAllowed()
           && emailVerificationAllowsCommunityAccess()
           && exists(/databases/$(database)/documents/posts/$(postId))
@@ -717,24 +723,24 @@ service cloud.firestore {
                 : get(/databases/$(database)/documents/posts/$(postId)).data.uid == request.resource.data.mentionUid))
             : true);
         allow update: if false;
-        allow delete: if signedIn() && emailVerificationAllowsCommunityAccess()
+        allow delete: if legacyForumOpen() && signedIn() && emailVerificationAllowsCommunityAccess()
           && (resource.data.uid == request.auth.uid || isAdmin());
 
         match /reactions/{uid} {
-          allow get, list: if signedIn() && emailVerificationAllowsCommunityAccess();
-          allow create: if me(uid)
+          allow get, list: if legacyForumOpen() && signedIn() && emailVerificationAllowsCommunityAccess();
+          allow create: if legacyForumOpen() && me(uid)
             && emailVerificationAllowsCommunityAccess()
             && exists(/databases/$(database)/documents/posts/$(postId)/replies/$(replyId))
             && request.resource.data.keys().hasOnly(['kind', 'createdAt'])
             && request.resource.data.keys().hasAll(['kind', 'createdAt'])
             && validReactionKind(request.resource.data.kind)
             && request.resource.data.createdAt == request.time;
-          allow update: if me(uid)
+          allow update: if legacyForumOpen() && me(uid)
             && emailVerificationAllowsCommunityAccess()
             && exists(/databases/$(database)/documents/posts/$(postId)/replies/$(replyId))
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['kind'])
             && validReactionKind(request.resource.data.kind);
-          allow delete: if me(uid) && emailVerificationAllowsCommunityAccess();
+          allow delete: if legacyForumOpen() && me(uid) && emailVerificationAllowsCommunityAccess();
         }
       }
     }
@@ -924,8 +930,8 @@ service cloud.firestore {
     }
 
     match /users/{uid}/likedPosts/{postId} {
-      allow get, list: if me(uid) && emailVerificationAllowsCommunityAccess();
-      allow create: if me(uid)
+      allow get, list: if legacyForumOpen() && me(uid) && emailVerificationAllowsCommunityAccess();
+      allow create: if legacyForumOpen() && me(uid)
         && emailVerificationAllowsCommunityAccess()
         && exists(/databases/$(database)/documents/posts/$(postId))
         && request.resource.data.keys().hasOnly(['createdAt', 'postId'])
@@ -933,33 +939,33 @@ service cloud.firestore {
         && (!request.resource.data.keys().hasAny(['postId'])
           || request.resource.data.postId == postId)
         && validTime();
-      allow delete: if me(uid) && emailVerificationAllowsCommunityAccess();
+      allow delete: if legacyForumOpen() && me(uid) && emailVerificationAllowsCommunityAccess();
       allow update: if false;
     }
 
     match /users/{uid}/savedPosts/{postId} {
-      allow get, list: if me(uid) && emailVerificationAllowsCommunityAccess();
-      allow create: if me(uid)
+      allow get, list: if legacyForumOpen() && me(uid) && emailVerificationAllowsCommunityAccess();
+      allow create: if legacyForumOpen() && me(uid)
         && emailVerificationAllowsCommunityAccess()
         && exists(/databases/$(database)/documents/posts/$(postId))
         && request.resource.data.keys().hasOnly(['createdAt'])
         && request.resource.data.keys().hasAll(['createdAt'])
         && validTime();
-      allow delete: if me(uid) && emailVerificationAllowsCommunityAccess();
+      allow delete: if legacyForumOpen() && me(uid) && emailVerificationAllowsCommunityAccess();
       allow update: if false;
     }
 
     // Acompanhamento persistente: somente o próprio usuário pode editar.
     match /users/{uid}/followedPosts/{postId} {
-      allow get, list: if me(uid) && emailVerificationAllowsCommunityAccess();
-      allow create: if me(uid)
+      allow get, list: if legacyForumOpen() && me(uid) && emailVerificationAllowsCommunityAccess();
+      allow create: if legacyForumOpen() && me(uid)
         && emailVerificationAllowsCommunityAccess()
         && validId(postId)
         && exists(/databases/$(database)/documents/posts/$(postId))
         && request.resource.data.keys().hasOnly(['createdAt'])
         && request.resource.data.keys().hasAll(['createdAt'])
         && validTime();
-      allow delete: if me(uid) && emailVerificationAllowsCommunityAccess();
+      allow delete: if legacyForumOpen() && me(uid) && emailVerificationAllowsCommunityAccess();
       allow update: if false;
     }
 
@@ -1007,10 +1013,10 @@ service cloud.firestore {
               && get(/databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(sourceId)).data.uid == recipientUid));
       }
       // Somente o destinatário consulta, marca como lida ou dispensa notificações.
-      allow get, list: if me(recipientUid) && emailVerificationAllowsCommunityAccess();
+      allow get, list: if legacyForumOpen() && me(recipientUid) && emailVerificationAllowsCommunityAccess();
       // O remetente não pode inventar notificações: a resposta relacionada
       // precisa nascer no mesmo batch, pertencer a ele e ter data atual.
-      allow create: if signedIn()
+      allow create: if legacyForumOpen() && signedIn()
         && emailVerificationAllowsCommunityAccess()
         && request.auth.uid != recipientUid
         && request.resource.data.keys().hasOnly([
@@ -1041,12 +1047,12 @@ service cloud.firestore {
         && getAfter(/databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(notificationId)).data.uid == request.auth.uid
         && getAfter(/databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(notificationId)).data.authorName == request.resource.data.actorName
         && getAfter(/databases/$(database)/documents/posts/$(request.resource.data.postId)/replies/$(notificationId)).data.createdAt == request.time;
-      allow update: if me(recipientUid)
+      allow update: if legacyForumOpen() && me(recipientUid)
         && emailVerificationAllowsCommunityAccess()
         && resource.data.read == false
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])
         && request.resource.data.read == true;
-      allow delete: if me(recipientUid) && emailVerificationAllowsCommunityAccess();
+      allow delete: if legacyForumOpen() && me(recipientUid) && emailVerificationAllowsCommunityAccess();
     }
 
     // Guarda privada de conteúdo temporariamente retirado do fórum.
@@ -1245,6 +1251,222 @@ service cloud.firestore {
     match /guardian_runtime/{id} {
       allow get, list: if isAdmin();
       allow create, update, delete: if false;
+    }
+
+    function communityFeedOpen() {
+      let config = get(/databases/$(database)/documents/app_config/community_feed);
+      return config != null && (config.data.get('enabled', false) == true
+        || config.data.get('forumRetired', false) == true);
+    }
+
+    // A amizade só existe após a aceitação da outra pessoa. Remover o
+    // documento revoga o acesso das duas partes, inclusive por link direto.
+    function feedFriendshipAccepted(firstUid, secondUid) {
+      let path = /databases/$(database)/documents/feed_friendships/$(firstUid)/feed_friendship_edges/$(secondUid);
+      return exists(path) && get(path).data.status == 'accepted';
+    }
+    function feedPairUnblocked(firstUid, secondUid) {
+      return !exists(/databases/$(database)/documents/users/$(firstUid)/blockedMembers/$(secondUid))
+        && !exists(/databases/$(database)/documents/users/$(secondUid)/blockedMembers/$(firstUid));
+    }
+    match /feed_friendships/{senderUid}/feed_friendship_edges/{recipientUid} {
+      allow get: if communityFeedOpen() && (me(senderUid) || me(recipientUid));
+      allow create: if communityFeedOpen() && me(senderUid) && validId(recipientUid) && senderUid != recipientUid
+        && emailVerificationAllowsCommunityAccess()
+        && feedPairUnblocked(senderUid, recipientUid)
+        && !existsAfter(/databases/$(database)/documents/feed_friendships/$(recipientUid)/feed_friendship_edges/$(senderUid))
+        && request.resource.data.keys().hasOnly(['status', 'createdAt', 'senderUid', 'recipientUid'])
+        && request.resource.data.senderUid == senderUid
+        && request.resource.data.recipientUid == recipientUid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.createdAt == request.time;
+      allow update: if communityFeedOpen() && me(recipientUid) && emailVerificationAllowsCommunityAccess()
+        && feedPairUnblocked(senderUid, recipientUid)
+        && resource.data.status == 'pending'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+        && request.resource.data.status == 'accepted';
+      allow delete: if communityFeedOpen() && (me(senderUid) || me(recipientUid));
+      allow list: if false;
+    }
+
+    // Consultas por participante, inclusive para convites recebidos.
+    match /{path=**}/feed_friendship_edges/{edgeId} {
+      allow list: if communityFeedOpen() && (me(resource.data.senderUid) || me(resource.data.recipientUid));
+    }
+
+    match /app_config/community_feed {
+      allow get: if signedIn();
+      allow list, write: if false;
+    }
+
+    // Um canal por responsável. O UID do documento vincula o canal ao autor.
+    match /feed_channels/{ownerUid} {
+      allow get: if communityFeedOpen() && signedIn() && emailVerificationAllowsCommunityAccess();
+      allow create, update: if communityFeedOpen() && me(ownerUid) && emailVerificationAllowsCommunityAccess()
+        && communityPublicationAllowed()
+        && request.resource.data.keys().hasOnly(['name', 'description', 'imageJpeg', 'updatedAt'])
+        && (!request.resource.data.keys().hasAny(['imageJpeg'])
+          || (request.resource.data.imageJpeg is bytes
+            && request.resource.data.imageJpeg.size() > 0
+            && request.resource.data.imageJpeg.size() <= 184320))
+        && validText(request.resource.data.name, 1, 80)
+        && validText(request.resource.data.get('description', ''), 0, 500)
+        && request.resource.data.updatedAt == request.time;
+      allow list, delete: if false;
+    }
+
+    match /feed_following/{viewerUid}/channels/{ownerUid} {
+      allow get, list: if communityFeedOpen() && me(viewerUid) && emailVerificationAllowsCommunityAccess();
+      allow create: if communityFeedOpen() && me(viewerUid) && viewerUid != ownerUid
+        && emailVerificationAllowsCommunityAccess()
+        && exists(/databases/$(database)/documents/feed_channels/$(ownerUid))
+        && request.resource.data.keys().hasOnly(['createdAt'])
+        && request.resource.data.createdAt == request.time;
+      allow delete: if communityFeedOpen() && me(viewerUid);
+      allow update: if false;
+    }
+
+    function feedPostReadable(post) {
+      return signedIn() && emailVerificationAllowsCommunityAccess()
+        && post.published == true
+        && (post.destination == 'channel'
+          || (post.destination == 'timeline'
+            && (me(post.authorUid)
+              || (feedPairUnblocked(post.authorUid, request.auth.uid)
+                && (feedFriendshipAccepted(post.authorUid, request.auth.uid)
+                  || feedFriendshipAccepted(request.auth.uid, post.authorUid))))));
+    }
+    function feedPostPath(postId) {
+      return /databases/$(database)/documents/feed_posts/$(postId);
+    }
+    function validFeedPost(post, postId) {
+      return post.keys().hasOnly([
+          'authorUid', 'destination', 'format', 'title', 'body', 'published', 'hasImage', 'createdAt'
+        ])
+        && me(post.authorUid)
+        && (post.destination == 'timeline' || (post.destination == 'channel'
+          && exists(/databases/$(database)/documents/feed_channels/$(request.auth.uid))))
+        && post.format in ['post', 'question']
+        && post.get('hasImage', false) is bool
+        && (!post.get('hasImage', false)
+          || existsAfter(/databases/$(database)/documents/feed_posts/$(postId)/media/image))
+        && validText(post.get('title', ''), post.format == 'question' ? 1 : 0, 140)
+        && validText(post.get('body', ''), post.format == 'post' ? 1 : 0, 8000)
+        && post.published == true && post.createdAt == request.time;
+    }
+    function feedCommentPath(postId, commentId) {
+      return /databases/$(database)/documents/feed_posts/$(postId)/comments/$(commentId);
+    }
+    match /feed_notices/{recipientUid}/items/{commentId} {
+      function validFeedNotice(data) {
+        let path = feedCommentPath(data.postId, commentId);
+        let comment = getAfter(path).data;
+        // A criação no mesmo lote já autoriza o acesso ao post e à conversa.
+        // Repetir esse controle por destinatário excede o limite de leituras.
+        return !exists(path) && comment.authorUid == request.auth.uid && comment.createdAt == request.time
+          && (data.kind == 'comment'
+              && get(feedPostPath(data.postId)).data.authorUid == recipientUid
+            || data.kind == 'reply' && validId(comment.parentId)
+              && get(feedCommentPath(data.postId, comment.parentId)).data.authorUid == recipientUid);
+      }
+      allow get, list: if communityFeedOpen() && me(recipientUid) && emailVerificationAllowsCommunityAccess();
+      allow create: if signedIn() && !me(recipientUid)
+        && request.resource.data.keys().hasOnly(['postId', 'kind', 'createdAt', 'read'])
+        && validId(request.resource.data.postId)
+        && request.resource.data.createdAt == request.time && request.resource.data.read == false
+        && validFeedNotice(request.resource.data);
+      allow update: if communityFeedOpen() && me(recipientUid) && emailVerificationAllowsCommunityAccess()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])
+        && request.resource.data.read == true;
+      allow delete: if communityFeedOpen() && me(recipientUid);
+    }
+
+    match /feed_reports/{reportId} {
+      function matchesPost(data) {
+        let post = get(feedPostPath(data.targetId)).data;
+        return feedPostReadable(post)
+          && (data.targetType == 'post' && data.commentId == '' && post.authorUid == data.targetUid
+              && post.get('title', '') == data.title && post.get('body', '') == data.body
+            || data.targetType == 'comment' && validId(data.commentId) && data.title == ''
+              && get(feedCommentPath(data.targetId, data.commentId)).data.authorUid == data.targetUid
+              && get(feedCommentPath(data.targetId, data.commentId)).data.body == data.body);
+      }
+      function matchesChannel(data) {
+        let channel = get(/databases/$(database)/documents/feed_channels/$(data.targetId)).data;
+        return data.targetId == data.targetUid && data.commentId == ''
+          && channel.name == data.title && channel.get('description', '') == data.body;
+      }
+      allow get: if communityFeedOpen() && (isAdmin() || me(resource.data.reporterUid));
+      allow list: if communityFeedOpen() && isAdmin();
+      allow create: if communityFeedOpen() && signedIn() && emailVerificationAllowsCommunityAccess()
+        && request.resource.data.keys().hasOnly([
+          'reporterUid', 'targetUid', 'targetId', 'targetType', 'commentId',
+          'title', 'body', 'reason', 'status', 'createdAt'
+        ])
+        && me(request.resource.data.reporterUid)
+        && validId(request.resource.data.targetId) && validId(request.resource.data.targetUid)
+        && !me(request.resource.data.targetUid)
+        && validText(request.resource.data.title, 0, 140)
+        && validText(request.resource.data.body, 0, 8000)
+        && validText(request.resource.data.reason, 5, 500)
+        && request.resource.data.status == 'pending' && request.resource.data.createdAt == request.time
+        && (request.resource.data.targetType == 'channel' ? matchesChannel(request.resource.data)
+          : matchesPost(request.resource.data));
+      allow update: if communityFeedOpen() && isAdmin() && resource.data.status == 'pending'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'reviewedAt', 'reviewedBy'])
+        && request.resource.data.status == 'reviewed' && request.resource.data.reviewedAt == request.time
+        && me(request.resource.data.reviewedBy);
+      allow delete: if false;
+    }
+
+    match /feed_posts/{postId} {
+      // As consultas precisam declarar published e destination. Para linhas
+      // do tempo, consultar por autor e combinar os resultados no feed.
+      allow get, list: if communityFeedOpen() && feedPostReadable(resource.data);
+      allow create: if communityFeedOpen() && signedIn() && emailVerificationAllowsCommunityAccess()
+        && communityPublicationAllowed() && validFeedPost(request.resource.data, postId);
+      // Reter a referência impede reutilizar o ID com comentários ou imagem antigos.
+      allow update: if communityFeedOpen() && me(resource.data.authorUid)
+        && resource.data.published == true && request.resource.data.published == false
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['published']);
+      allow delete: if false;
+
+      // Imagem compactada em documento protegido, sem URL pública permanente.
+      match /media/{mediaId} {
+        allow get: if communityFeedOpen() && mediaId == 'image' && feedPostReadable(get(feedPostPath(postId)).data);
+        allow create: if communityFeedOpen() && mediaId == 'image' && signedIn()
+          && emailVerificationAllowsCommunityAccess() && communityPublicationAllowed()
+          && me(getAfter(feedPostPath(postId)).data.authorUid)
+          && getAfter(feedPostPath(postId)).data.published == true
+          && request.resource.data.keys().hasOnly(['contentType', 'bytes'])
+          && request.resource.data.contentType in ['image/webp', 'image/jpeg', 'image/png']
+          && request.resource.data.bytes is bytes
+          && request.resource.data.bytes.size() > 0
+          && request.resource.data.bytes.size() <= 524288;
+        allow list, update, delete: if false;
+      }
+
+      function feedReplyParentIsRoot(parentId) {
+        return parentId == '' || (validId(parentId)
+          && get(/databases/$(database)/documents/feed_posts/$(postId)/comments/$(parentId)).data.parentId == '');
+      }
+      match /comments/{commentId} {
+        allow get, list: if communityFeedOpen() && feedPostReadable(get(feedPostPath(postId)).data);
+        allow create: if communityFeedOpen() && feedPostReadable(get(feedPostPath(postId)).data)
+          && communityPublicationAllowed()
+          && request.resource.data.keys().hasOnly(['authorUid', 'parentId', 'body', 'createdAt'])
+          && me(request.resource.data.authorUid)
+          && feedReplyParentIsRoot(request.resource.data.parentId)
+          && validText(request.resource.data.body, 1, 2000)
+          && request.resource.data.createdAt == request.time;
+        // Conservar o comentário raiz para que as respostas permaneçam legíveis.
+        allow update: if communityFeedOpen() && me(resource.data.authorUid)
+          && feedPostReadable(get(feedPostPath(postId)).data)
+          && resource.data.get('removed', false) == false
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['removed', 'body'])
+          && request.resource.data.removed == true && request.resource.data.body == '';
+        allow delete: if false;
+      }
     }
 
     match /{document=**} {

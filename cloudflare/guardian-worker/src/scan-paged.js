@@ -8,6 +8,10 @@ const SCANS=[
   // Replies are not editable in the Android app or client Firestore Rules.
   {id:'post_edits',group:'posts',field:'updatedAt',max:15}
 ];
+const FEED_SCANS=[
+  {id:'feed_posts',group:'feed_posts',field:'createdAt',max:30},
+  {id:'feed_comments',group:'comments',field:'createdAt',max:30},
+];
 const BATCH_PAGES=2;
 const iso=v=>typeof v==='string'&&Number.isFinite(Date.parse(v))&&/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(v);
 const str=v=>({stringValue:v});
@@ -44,7 +48,8 @@ export async function scanPagedCycle(db,settings,{onDocument,onReport},now=new D
  const counters={clear:0,review:0,warn:0,hold:0,invalid:0,
    duplicate_or_changed:0,changed:0,ignored:0,missing:0,error:0,
    pages:0,backlogGroups:0,pausedGroups:0};
- for(const task of SCANS){
+ const tasks=[...(settings.forumRetired?[]:SCANS),...(settings.feedEnabled?FEED_SCANS:[])];
+ for(const task of tasks){
    const {id,group,field,max}=task;
    const path='guardian_runtime/scan_'+id;
    try{

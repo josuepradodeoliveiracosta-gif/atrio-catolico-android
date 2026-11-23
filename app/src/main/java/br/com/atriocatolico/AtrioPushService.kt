@@ -225,7 +225,7 @@ internal object PushRegistry {
 
     fun showDiscussionReply(context: Context, uid: String, postId: String,
                             replyId: String, actorUid: String, topicDelivery: Boolean) {
-        if (!enabled(context, uid) ||
+        if (ThreadPushSubscriptions.isRetired(context, uid) || !enabled(context, uid) ||
             FirebaseAuth.getInstance().currentUser?.uid != uid ||
             actorUid == uid || actorUid.isBlank() ||
             !postId.matches(Regex("^[A-Za-z0-9_-]{1,128}$")) ||
@@ -309,6 +309,8 @@ class AtrioPushService : FirebaseMessagingService() {
         val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
         if (BuildConfig.ATRIO_QA_GERAL_REMOTE &&
             (message.data["uid"] != uid || message.data["kind"] !in setOf("reply", "review", "admin"))) return
+        if (message.data["kind"] in setOf("reply", "discussion_reply") &&
+            ThreadPushSubscriptions.isRetired(applicationContext, uid)) return
         if (message.data["kind"] == "broadcast") {
             PushRegistry.showBroadcast(applicationContext, uid,
                 message.data["title"].orEmpty(), message.data["body"].orEmpty())

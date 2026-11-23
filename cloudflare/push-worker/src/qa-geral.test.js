@@ -81,6 +81,7 @@ test('resposta gera FCM apenas ao dispositivo de Bob, no projeto QA', async t =>
   const string = stringValue => ({stringValue});
   const doc = fields => Response.json({fields});
   const fcm = [];
+  let retired = false;
   const access = t.mock.method(globalThis, 'fetch', async (target, options) => {
     const url = new URL(target);
     if (url.hostname === 'identitytoolkit.googleapis.com') {
@@ -104,6 +105,8 @@ test('resposta gera FCM apenas ao dispositivo de Bob, no projeto QA', async t =>
     const prefix = '/v1/projects/' + qaProject + '/databases/(default)/documents/';
     assert.ok(url.pathname.startsWith(prefix), 'Todo acesso lê somente o Firestore de QA');
     switch (url.pathname.slice(prefix.length)) {
+    case 'app_config/community_feed':
+      return retired ? doc({forumRetired:{booleanValue:true}}) : new Response(null,{status:404});
     case 'posts/qa-post':
       return doc({uid:string(bob)});
     case 'posts/qa-post/replies/qa-reply':
@@ -135,4 +138,10 @@ test('resposta gera FCM apenas ao dispositivo de Bob, no projeto QA', async t =>
   const repeated = await qaWorker.fetch(replyRequest(),env);
   assert.deepEqual(await repeated.json(), {status:'no_devices_or_duplicate'});
   assert.equal(fcm.length, 1);
+  retired = true;
+  const stopped = await qaWorker.fetch(replyRequest(),env);
+  assert.equal(stopped.status,202);
+  assert.deepEqual(await stopped.json(), {status:'ignored'});
+  assert.equal(fcm.length,1);
+
 });

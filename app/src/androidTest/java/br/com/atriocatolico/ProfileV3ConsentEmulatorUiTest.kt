@@ -24,6 +24,9 @@ import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.material3.Text
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -77,6 +80,7 @@ import java.util.concurrent.TimeUnit
 class ProfileV3ConsentEmulatorUiTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
     private val sessions = mutableListOf<FirebaseAuth>()
+    private var feedSeeded = false
     private lateinit var owner: FirebaseFirestore
     private lateinit var visitor: FirebaseFirestore
     private lateinit var uid: String
@@ -135,6 +139,7 @@ class ProfileV3ConsentEmulatorUiTest {
     }
 
     @After fun cleanSessions() {
+        if (feedSeeded) setQaFeedEnabled(false)
         sessions.forEach { it.signOut() }
     }
 
@@ -652,6 +657,108 @@ class ProfileV3ConsentEmulatorUiTest {
             }
             assertTrue(talkBackIsActive())
         }
+    }
+
+    private fun setQaFeedEnabled(enabled: Boolean) {
+        check(owner.app.options.projectId == "demo-atrio-v11" &&
+            owner.firestoreSettings.host == "127.0.0.1:8089" && !owner.firestoreSettings.isSslEnabled)
+        val endpoint = "http://127.0.0.1:8089/v1/projects/demo-atrio-v11/databases/(default)/documents/app_config/community_feed"
+        val connection = java.net.URL(endpoint).openConnection() as java.net.HttpURLConnection
+        try {
+            connection.requestMethod = if (enabled) "PATCH" else "DELETE"
+            connection.connectTimeout = 5000
+            connection.readTimeout = 5000
+            connection.setRequestProperty("Authorization", "Bearer owner")
+            if (enabled) {
+                connection.doOutput = true
+                connection.setRequestProperty("Content-Type", "application/json")
+                connection.outputStream.use { it.write("""{"fields":{"enabled":{"booleanValue":true}}}""".toByteArray()) }
+            }
+            check(connection.responseCode in 200..299)
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    @OptIn(ExperimentalComposeUiApi::class)
+    @Test fun feedKeepsNavigationAccessibleAcrossLiturgicalThemes() {
+        feedSeeded = true
+        setQaFeedEnabled(true)
+        val title = "Pergunta de QA ${UUID.randomUUID()}"
+        await(owner.document("feed_channels/$uid").set(mapOf(
+            "name" to "Canal de homologação", "updatedAt" to FieldValue.serverTimestamp(),
+        )))
+        await(owner.collection("feed_posts").document().set(mapOf(
+            "authorUid" to uid, "destination" to "channel", "format" to "question",
+            "title" to title, "body" to "", "published" to true,
+            "createdAt" to FieldValue.serverTimestamp(),
+        )))
+
+        val seasons = LiturgicalCalendarBR.Season.values()
+        var season by mutableStateOf(seasons.first())
+        var dark by mutableStateOf(false)
+        fun contrast(first: Color, second: Color): Float {
+            val light = maxOf(first.luminance(), second.luminance())
+            val shade = minOf(first.luminance(), second.luminance())
+            return (light + 0.05f) / (shade + 0.05f)
+        }
+        compose.setContent {
+            val density = LocalDensity.current.density
+            val day = LiturgicalCalendarBR.Day(season, "", false, 0)
+            CompositionLocalProvider(LocalDensity provides Density(density, 1.5f)) {
+                MaterialTheme(colorScheme = liturgicalColors(day, dark)) {
+                    Box(Modifier.size(320.dp, 420.dp).semantics { testTagsAsResourceId = true }) {
+                        CommunityNewsFeed(
+                            db = visitor, uid = visitorUid, memberName = "Visitante",
+                            blockedMembers = emptySet(), searchOpen = false, search = "",
+                            onTextSearch = {}, onPublish = {}, onAuthor = { _, _ -> },
+                        )
+                    }
+                }
+            }
+        }
+        val list = compose.onNodeWithTag("atrio-community-feed")
+        for (mode in listOf(false, true)) {
+            for (value in seasons) {
+                val scheme = liturgicalColors(LiturgicalCalendarBR.Day(value, "", false, 0), mode)
+                assertTrue(contrast(scheme.onPrimary, scheme.primary) >= 4.5f)
+                assertTrue(contrast(scheme.onSurface, scheme.surface) >= 4.5f)
+                assertTrue(contrast(scheme.onSecondaryContainer, scheme.secondaryContainer) >= 4.5f)
+                compose.runOnIdle { season = value; dark = mode }
+                list.performScrollToNode(hasTestTag("atrio-feed-perguntas"))
+                compose.onNodeWithTag("atrio-feed-perguntas").assertIsEnabled()
+            }
+        }
+        withTalkBack { automation, talkBackIsActive ->
+            for (tag in listOf("atrio-feed-recentes", "atrio-feed-seguindo", "atrio-feed-perguntas")) {
+                list.performScrollToNode(hasTestTag(tag))
+                fun visibleControl() = automation.rootInActiveWindow
+                    ?.takeIf { it.packageName?.toString() == BuildConfig.APPLICATION_ID }
+                    ?.findVisibleNode(tag)
+                compose.waitUntil(15_000) { visibleControl()?.isEnabled == true }
+                val node = requireNotNull(visibleControl())
+                assertTrue(node.isAccessibilityFocused ||
+                    node.performAction(AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS))
+                compose.waitUntil(15_000) { visibleControl()?.isAccessibilityFocused == true }
+            }
+            assertTrue(talkBackIsActive())
+        }
+        list.performScrollToNode(hasTestTag("atrio-feed-perguntas"))
+        compose.onNodeWithTag("atrio-feed-perguntas").performClick()
+        fun waitForFeedText(text: String) {
+            compose.waitUntil(15_000) {
+                runCatching { list.performScrollToNode(hasText(text)) }.isSuccess
+            }
+            compose.onNodeWithText(text).assertExists()
+        }
+        // Conta visitante não segue o canal e ainda encontra a pergunta em Recentes.
+        waitForFeedText(title)
+        list.performScrollToNode(hasTestTag("atrio-feed-seguindo"))
+        compose.onNodeWithTag("atrio-feed-seguindo").performClick()
+        compose.onNodeWithText(title).assertDoesNotExist()
+        await(visitor.document("feed_following/$visitorUid/channels/$uid")
+            .set(mapOf("createdAt" to FieldValue.serverTimestamp())))
+        waitForFeedText(title)
     }
 
     @Test fun unifiedEditorSavesWithTalkBackAt150Percent() {

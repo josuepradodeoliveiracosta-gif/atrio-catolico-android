@@ -201,3 +201,9 @@ test('edição concorrente na primeira página preserva checkpoint inicial',asyn
  assert.equal(second.clear,5);
  assert.equal(db.states.get('guardian_runtime/scan_posts').fields.mode.stringValue,'complete');
 });
+
+test('após encerrar o fórum só são varridos posts e comentários do feed ativo',async()=>{
+ const db=new CheckpointDb();
+ await scanPagedCycle(db,{enabled:true,forumRetired:true,feedEnabled:true},callbacks,now);
+ assert.deepEqual(db.queries.map(task=>task.group),['feed_posts','comments']);
+});

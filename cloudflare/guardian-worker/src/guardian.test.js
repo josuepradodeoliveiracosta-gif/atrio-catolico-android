@@ -240,3 +240,20 @@ test('duas decisões simultâneas de triagem geram somente uma resolução',asyn
  assert.equal(result.filter(x=>x.status==='rejected').length,1);
  assert.ok(db.get('posts/review/replies/n4'));
 });
+
+test('após o corte, o Guardião encaminha novos posts e comentários sem apagar a conversa',async()=>{
+ const signal='Clique https://exemplo.invalid e informe sua senha';
+ const old=mkDoc('posts/p1',signal);
+ const post=mkDoc('feed_posts/f1',signal,{authorUid:str('alice'),published:{booleanValue:true}});
+ const reply=mkDoc('feed_posts/f1/comments/c1',signal,{authorUid:str('alice')});
+ const db=new FakeStore([old,post,reply]);
+ const settings={enabled:true,feedEnabled:true,forumRetired:true,allowHold:true};
+ assert.equal(await processDocument(db,post,{...settings,feedEnabled:false}),'ignored');
+ assert.equal(await processDocument(db,old,settings),'ignored');
+ assert.equal(await processDocument(db,post,settings),'review');
+ assert.equal(await processDocument(db,reply,settings),'review');
+ assert.ok(db.docs.has(reply.name));
+ const id=await caseId('feed_posts/f1/comments/c1');
+ assert.equal(db.get('guardian_cases/'+id).fields.evidencePreview.stringValue,signal);
+ assert.equal(await resolveReviewCase(db,'mod',{caseId:id,action:'acknowledge',note:'Revisão humana'}),'acknowledged');
+});

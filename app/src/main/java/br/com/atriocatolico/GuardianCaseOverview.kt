@@ -11,7 +11,7 @@ import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.Source
 
 private data class GuardianCaseSummary(
-    val id: String, val status: String, val rule: String, val targetPath: String
+    val id: String, val status: String, val rule: String, val targetPath: String, val evidence: String?
 )
 
 /** O moderador vê as provas antes de encerrar um sinal V2, sem punir o autor. */
@@ -43,7 +43,7 @@ internal fun GuardianCaseOverview(db: FirebaseFirestore, uid: String) {
                             GuardianCaseSummary(
                                 it.id, it.getString("status").orEmpty(),
                                 it.getString("ruleCode").orEmpty(),
-                                it.getString("targetPath").orEmpty()
+                                it.getString("targetPath").orEmpty(), it.getString("evidencePreview")
                             )
                         }.orEmpty() else emptyList()
                     }
@@ -73,8 +73,8 @@ internal fun GuardianCaseOverview(db: FirebaseFirestore, uid: String) {
                     Text(entry.status + " · " + entry.rule + " · " + entry.id.take(18),
                         style = MaterialTheme.typography.bodySmall)
                     if (entry.status in setOf("review", "warned") &&
-                        Regex("^posts/[A-Za-z0-9_-]{1,128}(/replies/[A-Za-z0-9_-]{1,128})?$")
-                            .matches(entry.targetPath)) {
+                        (Regex("^posts/[A-Za-z0-9_-]{1,128}(/replies/[A-Za-z0-9_-]{1,128})?$")
+                            .matches(entry.targetPath) || entry.evidence != null)) {
                         if (GuardianV2ReviewClient.configured()) {
                             TextButton(onClick = { selectedId = entry.id }) {
                                 Text("Revisar alerta V2")
@@ -97,7 +97,10 @@ internal fun GuardianCaseOverview(db: FirebaseFirestore, uid: String) {
         var busy by remember(selected.id) { mutableStateOf(false) }
         DisposableEffect(db, selected.id, observedUid) {
             var active = true
-            if (GuardianUiPolicy.sameSession(uid, observedUid)) {
+            if (GuardianUiPolicy.sameSession(uid, observedUid) && selected.evidence != null) {
+                evidence = selected.evidence
+                loaded = true
+            } else if (GuardianUiPolicy.sameSession(uid, observedUid)) {
                 db.document(selected.targetPath).get(Source.SERVER)
                     .addOnSuccessListener { snap ->
                         if (active && GuardianUiPolicy.sameSession(

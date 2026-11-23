@@ -627,6 +627,7 @@ test('moderador automático autentica e cria uma única denúncia com título se
       return new Response(JSON.stringify({users:[{localId:actor,disabled:false,emailVerified:true}]}),{status:200});
     if(url==='https://oauth2.googleapis.com/token')
       return new Response(JSON.stringify({access_token:'fake-oauth',expires_in:3600}),{status:200});
+    if(url.endsWith('/documents/app_config/community_feed')) return new Response(null,{status:404});
     if(url.endsWith('/documents/posts/p1'))
       return new Response(JSON.stringify(doc({uid:'maria',title:'Discussão',
         body:'Eu vou te matar amanhã.',createdAt:iso()})),{status:200});
@@ -671,7 +672,7 @@ test('moderador automático autentica e cria uma única denúncia com título se
 // ou exclusão de posts/respostas. Cada cenário isola estado e chamadas de rede.
 async function guardiaoScenario({payload={type:'reply',postId:'p1',replyId:'r1'},
   actor='maria', disabled=false, parent=true, content=true, age=2000,
-  body='Eu vou te matar amanhã.', push=false, queueStatus=200, failPush=false, ai=false}={}) {
+  body='Eu vou te matar amanhã.', push=false, queueStatus=200, failPush=false, ai=false, retired=false}={}) {
   const writes=[], requests=[];
   globalThis.fetch=async(input,options={})=>{
     const url=new URL(String(input));
@@ -680,6 +681,9 @@ async function guardiaoScenario({payload={type:'reply',postId:'p1',replyId:'r1'}
       return Response.json({users:[{localId:actor,disabled,emailVerified:true}]});
     if(url.hostname==='oauth2.googleapis.com')
       return Response.json({access_token:'fake-oauth',expires_in:3600});
+    if(url.pathname.endsWith('/app_config/community_feed'))
+      return retired ? Response.json({fields:{forumRetired:{booleanValue:true}}})
+        : new Response(null,{status:404});
     if(url.pathname.endsWith('/posts/p1/replies/r1'))
       return Response.json(content?doc({uid:'maria',body,
         createdAt:new Date(Date.now()-age).toISOString()}):{}, {status:content?200:404});
@@ -725,6 +729,14 @@ async function guardiaoScenario({payload={type:'reply',postId:'p1',replyId:'r1'}
   assert.ok(requests.filter(r=>r.method==='PATCH').every(r=>r.url.includes('/reports/guard_')));
   return {status:result.status,result:await result.json(),writes,requests,aiCalls};
 }
+
+test('Encerramento ignora eventos legados antes de ler o conteúdo',async()=>{
+  const {status,result,writes,requests}=await guardiaoScenario({retired:true,push:true});
+  assert.equal(status,202);
+  assert.deepEqual(result,{status:'ignored'});
+  assert.equal(writes.length,0);
+  assert.ok(requests.every(request=>!request.url.includes('/posts/')));
+});
 
 test('Guardião com push desligado mantém fila, sem consultar administradores ou FCM',async()=>{
   const {result,writes,requests}=await guardiaoScenario();
