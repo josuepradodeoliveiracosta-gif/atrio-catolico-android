@@ -121,6 +121,11 @@
           "queryScope": "COLLECTION_GROUP"
         }
       ]
+    },
+    {
+      "collectionGroup": "feed_channels",
+      "fieldPath": "imageJpeg",
+      "indexes": []
     }
   ]
 }

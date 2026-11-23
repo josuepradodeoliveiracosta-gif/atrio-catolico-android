@@ -47,6 +47,7 @@ import kotlinx.coroutines.launch
 private enum class ProfileSection {
     Identity,
     Timeline,
+    Channel,
     Participation,
     Publication,
     Badges,
@@ -153,6 +154,7 @@ internal fun OnlineProfileScreen(
                         ProfileV3Summary(db, uid, modifier = Modifier.padding(top = 16.dp))
                     }
                     ProfileSection.Timeline -> ProfileTimeline(db, ownerUid = uid, viewerUid = uid)
+                    ProfileSection.Channel -> ProfileChannel(db, ownerUid = uid, viewerUid = uid, ownerName = name)
                     ProfileSection.Participation -> {
                         ProfileSectionTitle("Minha participação")
                         Card(Modifier.fillMaxWidth(), border = BorderStroke(1.dp, Line),

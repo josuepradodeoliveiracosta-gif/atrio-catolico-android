@@ -33,8 +33,8 @@ internal fun ProfileTimeline(db: FirebaseFirestore, ownerUid: String, viewerUid:
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Linha do tempo", style = MaterialTheme.typography.titleLarge)
         if (own) {
-            TimelineComposer(db, ownerUid)
-            TimelinePublications(db, ownerUid, viewerUid)
+            ProfilePublicationComposer(db, ownerUid)
+            ProfilePublications(db, ownerUid, viewerUid)
         } else {
             TimelineFriendship(db, ownerUid, viewerUid)
         }
@@ -77,7 +77,7 @@ private fun TimelineFriendship(db: FirebaseFirestore, ownerUid: String, viewerUi
     }
 
     val accepted = sent == "accepted" || received == "accepted"
-    if (accepted) TimelinePublications(db, ownerUid, viewerUid)
+    if (accepted) ProfilePublications(db, ownerUid, viewerUid)
     else Text("As publicações da linha do tempo são visíveis aos amigos.",
         color = MaterialTheme.colorScheme.onSurfaceVariant)
 
@@ -117,18 +117,23 @@ private fun TimelineFriendship(db: FirebaseFirestore, ownerUid: String, viewerUi
 }
 
 @Composable
-private fun TimelinePublications(db: FirebaseFirestore, ownerUid: String, viewerUid: String) {
-    var entries by remember(db, ownerUid, viewerUid) { mutableStateOf<List<DocumentSnapshot>>(emptyList()) }
-    var loading by remember(db, ownerUid, viewerUid) { mutableStateOf(true) }
-    var failed by remember(db, ownerUid, viewerUid) { mutableStateOf(false) }
-    var limit by rememberSaveable(ownerUid, viewerUid) { mutableStateOf(10L) }
-    var attempt by remember(db, ownerUid, viewerUid) { mutableStateOf(0) }
-    DisposableEffect(db, ownerUid, viewerUid, limit, attempt) {
+internal fun ProfilePublications(
+    db: FirebaseFirestore,
+    ownerUid: String,
+    viewerUid: String,
+    destination: String = "timeline",
+) {
+    var entries by remember(db, ownerUid, viewerUid, destination) { mutableStateOf<List<DocumentSnapshot>>(emptyList()) }
+    var loading by remember(db, ownerUid, viewerUid, destination) { mutableStateOf(true) }
+    var failed by remember(db, ownerUid, viewerUid, destination) { mutableStateOf(false) }
+    var limit by rememberSaveable(ownerUid, viewerUid, destination) { mutableStateOf(10L) }
+    var attempt by remember(db, ownerUid, viewerUid, destination) { mutableStateOf(0) }
+    DisposableEffect(db, ownerUid, viewerUid, destination, limit, attempt) {
         loading = true
         failed = false
         val listener = db.collection("feed_posts")
             .whereEqualTo("published", true)
-            .whereEqualTo("destination", "timeline")
+            .whereEqualTo("destination", destination)
             .whereEqualTo("authorUid", ownerUid)
             .orderBy("createdAt", Query.Direction.DESCENDING)
             .limit(limit)
@@ -158,11 +163,15 @@ private fun TimelinePublications(db: FirebaseFirestore, ownerUid: String, viewer
     }
     when {
         failed -> {
-            Text("Não foi possível carregar a linha do tempo.", color = MaterialTheme.colorScheme.error)
+            Text("Não foi possível carregar as publicações.", color = MaterialTheme.colorScheme.error)
             OutlinedButton(onClick = { attempt++ }) { Text("Tentar novamente") }
         }
         loading -> Text("Carregando publicações…")
-        entries.isEmpty() -> Text("Ainda não há publicações na linha do tempo.")
+        entries.isEmpty() -> Text(
+            if (destination == "timeline") "Ainda não há publicações na linha do tempo."
+            else if (ownerUid == viewerUid) "Crie sua primeira publicação no canal."
+            else "Este canal ainda não publicou."
+        )
         entries.size.toLong() >= limit -> OutlinedButton(onClick = { limit += 10 }) {
             Text("Carregar mais publicações")
         }
@@ -170,18 +179,22 @@ private fun TimelinePublications(db: FirebaseFirestore, ownerUid: String, viewer
 }
 
 @Composable
-private fun TimelineComposer(db: FirebaseFirestore, uid: String) {
-    var body by rememberSaveable(uid) { mutableStateOf("") }
-    var draftId by rememberSaveable(uid) { mutableStateOf<String?>(null) }
-    var sending by remember(db, uid) { mutableStateOf(false) }
-    var failed by remember(db, uid) { mutableStateOf(false) }
+internal fun ProfilePublicationComposer(
+    db: FirebaseFirestore,
+    uid: String,
+    destination: String = "timeline",
+) {
+    var body by rememberSaveable(uid, destination) { mutableStateOf("") }
+    var draftId by rememberSaveable(uid, destination) { mutableStateOf<String?>(null) }
+    var sending by remember(db, uid, destination) { mutableStateOf(false) }
+    var failed by remember(db, uid, destination) { mutableStateOf(false) }
     OutlinedTextField(
         value = body,
         onValueChange = { body = it.take(8000); failed = false },
         enabled = !sending,
         label = { Text("Escreva uma publicação") },
-        supportingText = { Text("Visível para seus amigos.") },
-        modifier = Modifier.fillMaxWidth().testTag("atrio-timeline-draft"),
+        supportingText = { Text(if (destination == "timeline") "Visível para seus amigos." else "Visível para todos no Átrio.") },
+        modifier = Modifier.fillMaxWidth().testTag("atrio-$destination-draft"),
     )
     Button(
         enabled = body.isNotBlank() && !sending,
@@ -202,7 +215,7 @@ private fun TimelineComposer(db: FirebaseFirestore, uid: String) {
             }
             ref.set(mapOf(
                 "authorUid" to uid,
-                "destination" to "timeline",
+                "destination" to destination,
                 "format" to "post",
                 "body" to content,
                 "published" to true,
@@ -211,12 +224,13 @@ private fun TimelineComposer(db: FirebaseFirestore, uid: String) {
                 if (result.isSuccessful) finish(true)
                 else ref.get(Source.SERVER).addOnCompleteListener { read ->
                     val saved = if (read.isSuccessful) read.result else null
-                    finish(saved != null && saved.getString("authorUid") == uid && saved.getString("body") == content)
+                    finish(saved != null && saved.getString("authorUid") == uid
+                        && saved.getString("destination") == destination && saved.getString("body") == content)
                 }
             }
         },
-        modifier = Modifier.testTag("atrio-timeline-publish"),
-    ) { Text(if (sending) "Publicando…" else "Publicar na linha do tempo") }
+        modifier = Modifier.testTag("atrio-$destination-publish"),
+    ) { Text(if (sending) "Publicando…" else if (destination == "timeline") "Publicar na linha do tempo" else "Publicar no canal") }
     if (failed) Text("Não foi possível publicar. Seu texto foi preservado.",
         color = MaterialTheme.colorScheme.error)
 }

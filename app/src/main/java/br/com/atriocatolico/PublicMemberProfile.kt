@@ -314,6 +314,10 @@ internal fun PublicMemberProfileScreen(
         }
         if (viewer != null && !blocked && viewerUid != uid) {
             item { ProfileTimeline(db, ownerUid = uid, viewerUid = viewerUid) }
+            item {
+                ProfileChannel(db, ownerUid = uid, viewerUid = viewerUid,
+                    ownerName = info?.name ?: target.nameFromPublication)
+            }
         }
         item {
             Text("Discussões", style = MaterialTheme.typography.titleLarge)

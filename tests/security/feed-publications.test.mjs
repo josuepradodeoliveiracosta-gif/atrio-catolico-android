@@ -22,6 +22,7 @@ const friendship = 'feed_friendships/feed-alice/peers/feed-bob';
 const reverse = 'feed_friendships/feed-bob/peers/feed-alice';
 const timeline = 'feed_posts/feed-timeline';
 const channel = 'feed_posts/feed-channel';
+const follow = 'feed_following/feed-carol/channels/feed-alice';
 const image = timeline + '/media/image';
 const comment = timeline + '/comments/root';
 
@@ -55,6 +56,24 @@ try {
   }));
   await assertFails(read(guest, channel));
   assert.equal((await assertSucceeds(recent(carol, 'channel'))).size, 1);
+  await assertFails(setDoc(doc(bob, follow), {createdAt: serverTimestamp()}));
+  await assertFails(setDoc(doc(carol, 'feed_following/feed-carol/channels/feed-bob'),
+    {createdAt: serverTimestamp()}));
+  await assertSucceeds(setDoc(doc(carol, follow), {createdAt: serverTimestamp()}));
+  await assertFails(read(bob, follow));
+  assert.equal((await assertSucceeds(getDocsFromServer(
+    collection(carol, 'feed_following/feed-carol/channels'),
+  ))).size, 1);
+  await assertSucceeds(deleteDoc(doc(carol, follow)));
+  assert.equal((await assertSucceeds(recent(carol, 'channel'))).size, 1);
+  await assertSucceeds(updateDoc(doc(alice, 'feed_channels/feed-alice'), {
+    imageJpeg: Bytes.fromUint8Array(new Uint8Array([255, 216, 255, 217])),
+    updatedAt: serverTimestamp(),
+  }));
+  await assertFails(updateDoc(doc(carol, 'feed_channels/feed-alice'), {
+    name: 'Canal alheio', updatedAt: serverTimestamp(),
+  }));
+
   for (const path of [timeline, image, comment]) await assertFails(read(carol, path));
 
   await assertSucceeds(setDoc(doc(alice, friendship), invite()));

@@ -1280,11 +1280,26 @@ service cloud.firestore {
       allow get: if signedIn() && emailVerificationAllowsCommunityAccess();
       allow create, update: if me(ownerUid) && emailVerificationAllowsCommunityAccess()
         && communityPublicationAllowed()
-        && request.resource.data.keys().hasOnly(['name', 'description', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['name', 'description', 'imageJpeg', 'updatedAt'])
+        && (!request.resource.data.keys().hasAny(['imageJpeg'])
+          || (request.resource.data.imageJpeg is bytes
+            && request.resource.data.imageJpeg.size() > 0
+            && request.resource.data.imageJpeg.size() <= 184320))
         && validText(request.resource.data.name, 1, 80)
         && validText(request.resource.data.get('description', ''), 0, 500)
         && request.resource.data.updatedAt == request.time;
       allow list, delete: if false;
+    }
+
+    match /feed_following/{viewerUid}/channels/{ownerUid} {
+      allow get, list: if me(viewerUid) && emailVerificationAllowsCommunityAccess();
+      allow create: if me(viewerUid) && viewerUid != ownerUid
+        && emailVerificationAllowsCommunityAccess()
+        && exists(/databases/$(database)/documents/feed_channels/$(ownerUid))
+        && request.resource.data.keys().hasOnly(['createdAt'])
+        && request.resource.data.createdAt == request.time;
+      allow delete: if me(viewerUid);
+      allow update: if false;
     }
 
     function feedPostReadable(post) {
