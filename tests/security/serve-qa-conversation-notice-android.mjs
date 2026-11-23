@@ -39,44 +39,84 @@ const ageService = createQaAge18Restoration({
     (principal === 'fixture-age-consumer' && capability === 'consume_age18_restoration')
   ),
 });
-const proofRef = db.doc('users/' + bob.uid + '/chatAgeEligibility/current');
+const proofRef = uid => db.doc('users/' + uid + '/chatAgeEligibility/current');
 const admissionRef = uid => db.doc('users/' + uid + '/chatPushAdmission/current');
 const newMessageId = 'qa-199-item15-nova-mensagem';
 const authNewNotice = {sent: false, restoredToken: null};
+let activeSender = alice.uid;
+let activeRecipient = bob.uid;
+let activeInitialMessageId = conversationPushPilot.messageId;
 const resultExpire = () => new Date(Date.now() + 3 * 60_000);
+// Somente fixture offline: inverte o emissor e o destino da mensagem.
+async function setupReversePilot() {
+  const {conversationId} = conversationPushPilot;
+  const messageId = 'qa-199-inverse-initial';
+  const from = (await admissionRef(bob.uid).get()).data();
+  const to = (await admissionRef(alice.uid).get()).data();
+  assert.ok(from?.generation && to?.generation);
+  await new Promise(resolve => setTimeout(resolve,18));
+  const batch = db.batch();
+  batch.set(db.doc('chats/'+conversationId+'/messages/'+messageId),{
+    uid:bob.uid,kind:'text',text:'Mensagem inversa antes da revogação 18+',
+    createdAt:FieldValue.serverTimestamp(),
+  });
+  batch.update(db.doc('chats/'+conversationId),{
+    lastMessageId:messageId,lastSenderUid:bob.uid,
+    unreadRequester:1,unreadRecipient:0,
+    lastPreview:'Mensagem inversa antes da revogação 18+',
+    updatedAt:FieldValue.serverTimestamp(),
+  });
+  await batch.commit();
+  const ms = v => v?.toMillis?.() ?? v?.getTime?.();
+  const deadline = new Date(Math.min(ms(from.expiresAt),ms(to.expiresAt))-10_000);
+  assert.ok(deadline.getTime()>Date.now()+1_000);
+  const published=await admin.publish({
+    senderUid:bob.uid,recipientUid:alice.uid,conversationId,messageId,expiresAt:deadline,
+    expectedSenderGeneration:from.generation,expectedRecipientGeneration:to.generation,
+    principal:fixturePublisher,
+  });
+  assert.equal(published.replay,false);
+  activeSender=bob.uid;
+  activeRecipient=alice.uid;
+  activeInitialMessageId=messageId;
+  authNewNotice.restoredToken=null;
+  authNewNotice.sent=false;
+}
+
 async function revokeAgeEligibility() {
-  await proofRef.update({status: 'revoked'});
+  await proofRef(activeRecipient).update({status: 'revoked'});
   authNewNotice.restoredToken = null;
   authNewNotice.sent = false;
 }
 async function restoreAgeEligibility() {
   const issued = await ageService.issue({
-    uid: bob.uid,principal: 'fixture-age-reviewer',
+    uid: activeRecipient,principal: 'fixture-age-reviewer',
     expiresAt: resultExpire(), reviewExpiresAt: resultExpire(),
   });
   const done = await ageService.consume({
-    uid: bob.uid,tokenId:issued.tokenId,principal:'fixture-age-consumer',
+    uid: activeRecipient,tokenId:issued.tokenId,principal:'fixture-age-consumer',
   });
   assert.equal(done.restored,true);
   authNewNotice.restoredToken = issued.tokenId;
 }
 async function publishAfterReadmission() {
-  const previous = (await admissionRef(bob.uid).get()).data();
+  const previous = (await admissionRef(activeRecipient).get()).data();
   assert.ok(previous?.generation);
   const revoked = await admin.revoke({
-    uid:bob.uid,operationKey:randomUUID(),expectedGeneration:previous.generation,
+    uid:activeRecipient,operationKey:randomUUID(),expectedGeneration:previous.generation,
     principal:fixtureOperator,
   });
   const resumed = await admin.admit({
-    uid:bob.uid,operationKey:randomUUID(),expectedGeneration:revoked.generation,
+    uid:activeRecipient,operationKey:randomUUID(),expectedGeneration:revoked.generation,
     expiresAt:resultExpire(),principal:fixtureOperator,
   });
-  const sender = (await admissionRef(alice.uid).get()).data();
+  const sender = (await admissionRef(activeSender).get()).data();
   assert.ok(sender?.generation);
-  const {conversationId, messageId} = conversationPushPilot;
+  const {conversationId} = conversationPushPilot;
+  const messageId=activeInitialMessageId;
   const messageRef = db.doc('chats/' + conversationId + '/messages/' + messageId);
   const original = (await messageRef.get()).data();
-  assert.ok(original?.uid === alice.uid);
+  assert.ok(original?.uid === activeSender);
   await new Promise(resolve => setTimeout(resolve, 18));
   const batch = db.batch();
   batch.set(db.doc('chats/' + conversationId + '/messages/' + newMessageId), {
@@ -84,13 +124,13 @@ async function publishAfterReadmission() {
     createdAt: FieldValue.serverTimestamp(),
   });
   batch.update(db.doc('chats/' + conversationId), {
-    lastMessageId:newMessageId,lastSenderUid:alice.uid,updatedAt:FieldValue.serverTimestamp(),
+    lastMessageId:newMessageId,lastSenderUid:activeSender,updatedAt:FieldValue.serverTimestamp(),
     lastPreview:'Mensagem nova após restauração 18+',
   });
   await batch.commit();
   // O aviso nunca pode vencer depois da MENOR das duas admissões.
   // Usar resultExpire() novamente ultrapassava a readmissão em milissegundos.
-  const recipient = (await admissionRef(bob.uid).get()).data();
+  const recipient = (await admissionRef(activeRecipient).get()).data();
   assert.equal(recipient?.generation,resumed.generation);
   const expiryMs = value => value?.toMillis?.() ?? value?.getTime?.();
   const deadline = new Date(Math.min(
@@ -98,7 +138,7 @@ async function publishAfterReadmission() {
   ) - 10_000);
   assert.ok(deadline.getTime() > Date.now() + 1_000);
   const result = await admin.publish({
-    senderUid:alice.uid,recipientUid:bob.uid,conversationId,messageId:newMessageId,
+    senderUid:activeSender,recipientUid:activeRecipient,conversationId,messageId:newMessageId,
     expiresAt:deadline,expectedSenderGeneration:sender.generation,
     expectedRecipientGeneration:resumed.generation,
     principal:fixturePublisher,
@@ -109,7 +149,7 @@ async function publishAfterReadmission() {
 async function revokeRestoredTicket() {
   assert.ok(authNewNotice.restoredToken);
   const result = await ageService.revoke({
-    uid:bob.uid,tokenId:authNewNotice.restoredToken,principal:'fixture-age-reviewer',
+    uid:activeRecipient,tokenId:authNewNotice.restoredToken,principal:'fixture-age-reviewer',
   });
   assert.equal(result.revoked,true);
 }
@@ -182,6 +222,7 @@ createServer(async (incoming, outgoing) => {
   // Somente servidor de fixture em loopback. Nenhuma rota administrativa
   // aparece no APK, no Worker remoto ou na implantação Cloudflare.
   const ageRoutes = new Map([
+    ['/test/age18/reverse-setup', setupReversePilot],
     ['/test/age18/revoke', revokeAgeEligibility],
     ['/test/age18/restore', restoreAgeEligibility],
     ['/test/age18/new-notice', publishAfterReadmission],

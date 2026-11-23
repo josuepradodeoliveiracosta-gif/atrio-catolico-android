@@ -10,13 +10,19 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithTag
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import com.google.android.gms.tasks.Tasks
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreException
+import com.google.firebase.firestore.Source
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.TimeUnit
 import org.junit.Test
 import java.net.HttpURLConnection
 import java.net.Proxy
 import java.net.URL
 
 private fun postAge18Fixture(action: String) {
-    check(action in setOf("revoke", "restore", "new-notice", "revoke-restoration"))
+    check(action in setOf("revoke", "restore", "new-notice", "revoke-restoration", "reverse-setup"))
     val request = URL("http://127.0.0.1:8092/test/age18/$action")
         .openConnection(Proxy.NO_PROXY) as HttpURLConnection
     try {
@@ -30,6 +36,34 @@ private fun postAge18Fixture(action: String) {
     }
 }
 
+private const val ITEM15_CHAT = "qa-nav-alice__qa-nav-bob"
+private const val ITEM15_DM = "chats/$ITEM15_CHAT/messages/qa-199-mensagem"
+private const val ITEM15_GROUP = "chat_groups/qa-199-item15-private/messages/qa-199-group-private"
+
+// Autorizações devem ser demonstradas na rede: leituras de cache não contam.
+private fun sourceServerReadable(path: String) {
+    val snap = Tasks.await(
+        FirebaseFirestore.getInstance().document(path).get(Source.SERVER),
+        15, TimeUnit.SECONDS
+    )
+    assertTrue("Controle positivo deve existir: $path", snap.exists())
+    assertTrue("O documento não pode ser obtido do cache: $path", !snap.metadata.isFromCache)
+    assertTrue("Não pode haver escrita pendente: $path", !snap.metadata.hasPendingWrites())
+}
+private fun sourceServerDenied(path: String) {
+    val reason = try {
+        Tasks.await(
+            FirebaseFirestore.getInstance().document(path).get(Source.SERVER),
+            15, TimeUnit.SECONDS
+        )
+        null
+    } catch (failure: ExecutionException) {
+        failure.cause
+    }
+    assertTrue("Lúcia deve receber PERMISSION_DENIED em vez de documento/erro de rede: $path",
+        reason is FirebaseFirestoreException &&
+            reason.code == FirebaseFirestoreException.Code.PERMISSION_DENIED)
+}
 class QaConversationNoticeAge18RestoredAndroidTest : QaConversationNoticeAndroidCase() {
     @Test fun miguelRecuperaLeituraMasAvisoAntigoPermaneceBloqueadoAteNovaAdmissao() {
         start(permissionGranted = true)
@@ -41,17 +75,18 @@ class QaConversationNoticeAge18RestoredAndroidTest : QaConversationNoticeAndroid
         staleTap.send()
         waitForRefusedTap(priorReads + 1)
         compose.onNodeWithTag("atrio-chat-thread").assertDoesNotExist()
-        assertTrue(notices().isEmpty())
+        compose.waitUntil(10_000) { notices().isEmpty() }
 
         // Consumo de ticket de uso único no serviço administrativo local.
         postAge18Fixture("restore")
+        sourceServerReadable(ITEM15_DM)
         openManually()
         verifyMessage()
         val afterManual = serverReads()
         finish(signal())
         // Restaurar 18+ NÃO torna o aviso velho reutilizável.
         assertEquals(afterManual + 1, serverReads())
-        assertTrue(notices().isEmpty())
+        compose.waitUntil(10_000) { notices().isEmpty() }
 
         // Só outra admissão + mensagem canônica nova permitem novo aviso.
         postAge18Fixture("new-notice")
@@ -93,20 +128,57 @@ class QaConversationNoticeAge18ReRevokedAndroidTest : QaConversationNoticeAndroi
 }
 
 class QaConversationNoticeThirdBotAndroidTest : QaConversationNoticeAndroidCase() {
-    @Test fun luciaForaDaAdmissaoNaoRecebeAvisoNemAbreConversa() {
+    @Test fun luciaNaoLeDmNemGrupoMesmoDepoisDaRestauracao() {
         start(permissionGranted = true)
+        postAge18Fixture("revoke")
+        postAge18Fixture("restore")
+        // Controles positivos excluem falso sucesso por documento inexistente.
+        sourceServerReadable(ITEM15_DM)
+        sourceServerReadable(ITEM15_GROUP)
         auth.signOut()
         signIn("lucia")
+        sourceServerDenied(ITEM15_DM)
+        sourceServerDenied(ITEM15_GROUP)
         finish(signal())
-        assertTrue("Lúcia sem elegibilidade não deve receber aviso", notices().isEmpty())
+        assertTrue("Lúcia não pode receber notificação", notices().isEmpty())
         compose.onNodeWithTag("atrio-chat-thread").assertDoesNotExist()
-        // A recusa de POST_NOTIFICATIONS é comprovada na suíte específica
-        // QaConversationNoticeDeniedAndroidTest, no mesmo código de produção.
-        // Revogar a permissão em pleno processo causa encerramento do app no
-        // Android e não acrescenta prova da elegibilidade de Lúcia.
-        val reads = serverReads()
+        // Permissão negada pertence à suíte isolada específica: revogá-la em
+        // tempo de execução força kill do processo pelo Android.
+    }
+}
+
+class QaConversationNoticeAge18ReverseAndroidTest : QaConversationNoticeAndroidCase() {
+    @Test fun restauraClaraComoDestinoDeMensagemDeMiguel() {
+        start(permissionGranted = true)
+        postAge18Fixture("reverse-setup")
+        auth.signOut()
+        signIn("alice")
         finish(signal())
-        assertTrue(serverReads() >= reads)
-        assertTrue(notices().isEmpty())
+        compose.waitUntil(12_000) { notices().size == 1 }
+        val old = notices().single().notification.contentIntent
+        postAge18Fixture("revoke")
+        val beforeOldTap = serverReads()
+        old.send()
+        waitForRefusedTap(beforeOldTap + 1)
+        compose.waitUntil(10_000) { notices().isEmpty() }
+        postAge18Fixture("restore")
+        sourceServerReadable("chats/$ITEM15_CHAT/messages/qa-199-inverse-initial")
+        val oldReads = serverReads()
+        finish(signal())
+        assertEquals(oldReads + 1, serverReads())
+        compose.waitUntil(10_000) { notices().isEmpty() }
+        postAge18Fixture("new-notice")
+        finish(signal())
+        compose.waitUntil(12_000) { notices().size == 1 }
+        val tap = notices().single().notification.contentIntent
+        val beforeTap = serverReads()
+        tap.send()
+        compose.waitUntil(30_000) {
+            compose.onAllNodes(
+                hasText("Mensagem nova após restauração 18+") and
+                    hasAnyAncestor(hasTestTag("atrio-chat-thread"))
+            ).fetchSemanticsNodes().isNotEmpty()
+        }
+        assertEquals(beforeTap + 1, serverReads())
     }
 }

@@ -83,6 +83,17 @@ try {
     body: 'Publicação de QA para abrir o perfil e a conversa manualmente.',
     category: 'Vida espiritual', createdAt: now
   });
+  // Documento privado realmente existente para prova negativa de Lúcia.
+  const group = 'chat_groups/qa-199-item15-private';
+  rows.set(group,{
+    name:'Grupo privado de QA',category:'study',ownerUid:alice.uid,
+    memberUids:[alice.uid,bob.uid],adminUids:[alice.uid],status:'active',
+    createdAt:now,updatedAt:now,lastMessageId:'qa-199-group-private',
+    lastPreview:'Mensagem restrita de QA',lastSenderUid:alice.uid,
+  });
+  rows.set(group+'/messages/qa-199-group-private',{
+    uid:alice.uid,kind:'text',text:'Mensagem restrita de QA',createdAt:now,
+  });
   const batch = db.batch();
   for (const [path, data] of rows) batch.set(db.doc(path), data);
   // Cada classe Android repete a mesma mensagem da fixture em um cenário independente.

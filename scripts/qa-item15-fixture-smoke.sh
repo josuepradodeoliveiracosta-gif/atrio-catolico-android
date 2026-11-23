@@ -33,4 +33,15 @@ for action in revoke restore new-notice revoke-restoration; do
     exit 1
   fi
 done
-echo 'Fixture local item 15 aprovada sem FCM remoto.'
+# Reconstitui apenas o Firestore Emulator e ensaia também Miguel → Clara.
+node seed-qa-conversation-notice-android.mjs --firestore-only
+for action in reverse-setup revoke restore new-notice revoke-restoration; do
+  code="$(curl --noproxy '*' -sS --max-time 12 -o /dev/null -w '%{http_code}' \
+    -X POST "http://127.0.0.1:8092/test/age18/$action")"
+  printf 'Fixture inversa item 15: %s HTTP %s\n' "$action" "$code"
+  if [[ "$code" != 204 ]]; then
+    grep -F 'QA idade 18+ fixture:' ../../qa-item15-fixture-smoke.log | tail -12 >&2 || true
+    exit 1
+  fi
+done
+echo 'Fixture local item 15 aprovada A→B e B→A sem FCM remoto.'
