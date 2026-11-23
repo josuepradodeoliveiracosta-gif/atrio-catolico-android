@@ -129,6 +129,50 @@ async function run() {
   await waitFor("withdrawn public highlight", async () =>
     !(await db.doc(`contribution_public/${highlightUid}`).get()).exists);
 
+  // Reuse the historical ID on purpose. Feed estornos must only affect its
+  // own ledger entries, and the same member can comment in both destinations.
+  const feedOwner = `feed-owner-${suffix}`;
+  const feedHost = `feed-host-${suffix}`;
+  const feedPost = db.doc(`feed_posts/${postId}`);
+  const feedRoot = feedPost.collection("comments").doc("root");
+  const feedRepeated = feedPost.collection("comments").doc("duplicate");
+  const feedReply = feedPost.collection("comments").doc("response");
+  const feedRollout = db.doc("contribution_config/feed_rollout");
+  const baseComment = {
+    authorUid: feedHost, parentId: "", body: "Comentário inicial",
+    createdAt: FieldValue.serverTimestamp(),
+  };
+
+  await db.doc(`contribution_progress/${feedOwner}`).set({points: {conversation: 15}});
+  await feedPost.set({
+    authorUid: feedOwner, destination: "timeline", format: "post", published: true,
+    body: "Conteúdo da linha do tempo", createdAt: FieldValue.serverTimestamp(),
+  });
+  // A later reconciliation must skip interactions created before the cutoff.
+  await feedPost.collection("comments").doc("before-rollout").set({
+    ...baseComment, authorUid: `early-${suffix}`,
+  });
+  await feedRollout.set({startedAt: FieldValue.serverTimestamp()});
+
+  await feedRoot.set(baseComment);
+  await feedRepeated.set({...baseComment, body: "Comentário repetido"});
+  await waitForPoints(feedOwner, {conversation: 18, welcome: 0});
+  await feedReply.set({
+    authorUid: feedOwner, parentId: "root", body: "Resposta direta",
+    createdAt: FieldValue.serverTimestamp(),
+  });
+  await waitForPoints(feedHost, {helpful: 2, welcome: 0});
+  await feedRoot.update({removed: true, body: ""});
+  await waitForPoints(feedHost, {helpful: 0, welcome: 0});
+  await waitForPoints(feedOwner, {conversation: 18});
+  await feedPost.update({published: false});
+  await waitForPoints(feedOwner, {conversation: 15});
+
+  const feedLedger = await db.collection("contribution_ledger").where("feedPostId", "==", postId).get();
+  assert.ok(feedLedger.size > 0);
+  assert.ok(feedLedger.docs.every((entry) => entry.get("active") === false && !entry.get("scopePostId")));
+  console.log("OK feed: comentário, resposta, remoção, estorno e preservação do saldo anterior.");
+
   console.log("OK funções: três trilhas, reações, respostas diretas, destaque e estornos.");
 }
 

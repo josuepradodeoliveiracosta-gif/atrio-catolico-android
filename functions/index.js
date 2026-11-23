@@ -9,7 +9,7 @@ const {
   onDocumentWritten,
 } = require("firebase-functions/v2/firestore");
 const logger = require("firebase-functions/logger");
-const { deriveAwards, millis, progressForPoints } = require("./contribution-core.cjs");
+const { deriveAwards, deriveFeedAwards, millis, progressForPoints } = require("./contribution-core.cjs");
 
 admin.initializeApp();
 const db = getFirestore();
@@ -134,8 +134,14 @@ function awardDocumentId(actionKey) {
   return crypto.createHash("sha256").update(actionKey).digest("hex");
 }
 
-async function nextPostGeneration(postId) {
-  const generationRef = db.doc(`contribution_reconciliation/${postId}`);
+function postGenerationRef(postId, feed) {
+  return db.doc(feed
+    ? `contribution_reconciliation/feed/scopes/${postId}`
+    : `contribution_reconciliation/${postId}`);
+}
+
+async function nextPostGeneration(postId, feed = false) {
+  const generationRef = postGenerationRef(postId, feed);
   return db.runTransaction(async (transaction) => {
     const current = await transaction.get(generationRef);
     const next = (Number(current.get("generation")) || 0) + 1;
@@ -154,7 +160,7 @@ function groupProgressDelta(deltaByUser, uid, track, points) {
   deltaByUser.set(uid, userDelta);
 }
 
-async function applyAwards(postId, generation, desiredAwards, existingEntries) {
+async function applyAwards(postId, generation, desiredAwards, existingEntries, feed = false) {
   const byActionKey = new Map(desiredAwards);
   for (const [actionKey] of existingEntries) {
     if (!byActionKey.has(actionKey)) byActionKey.set(actionKey, null);
@@ -163,7 +169,7 @@ async function applyAwards(postId, generation, desiredAwards, existingEntries) {
   for (let offset = 0; offset < entries.length; offset += PAGE_SIZE) {
     const chunk = entries.slice(offset, offset + PAGE_SIZE);
     const completed = await db.runTransaction(async (transaction) => {
-      const generationRef = db.doc(`contribution_reconciliation/${postId}`);
+      const generationRef = postGenerationRef(postId, feed);
       const generationSnapshot = await transaction.get(generationRef);
       if (generationSnapshot.get("generation") !== generation) return false;
 
@@ -202,7 +208,7 @@ async function applyAwards(postId, generation, desiredAwards, existingEntries) {
               points: nextPoints,
               sourcePath: desired.sourcePath,
               targetPath: desired.targetPath,
-              scopePostId: postId,
+              ...(feed ? { feedPostId: postId } : { scopePostId: postId }),
               active: true,
               createdAt: previous?.createdAt || FieldValue.serverTimestamp(),
               updatedAt: FieldValue.serverTimestamp(),
@@ -523,6 +529,47 @@ async function handleContributionEvent(event, postId, happenedAt = eventTime(eve
     throw error;
   }
 }
+
+async function reconcileFeedPost(postId) {
+  // Reprocess deliveries against the same server-controlled cutoff. Historical
+  // forum awards and interactions preceding the feed rollout are left intact.
+  const rollout = await db.doc("contribution_config/feed_rollout").get();
+  const rolloutAtMs = millis(rollout.get("startedAt"));
+  if (!rolloutAtMs) return;
+
+  const generation = await nextPostGeneration(postId, true);
+  const postRef = db.doc(`feed_posts/${postId}`);
+  const [post, ledger] = await Promise.all([
+    postRef.get(),
+    db.collection("contribution_ledger").where("feedPostId", "==", postId).get(),
+  ]);
+  const existing = new Map(ledger.docs.map((entry) => [entry.get("actionKey"), entry.data()]));
+  const published = post.exists && post.get("published") === true;
+  const comments = published ? (await postRef.collection("comments").get()).docs.map((comment) => ({
+    ...comment.data(),
+    id: comment.id,
+  })) : [];
+  const desired = deriveFeedAwards({ postId, post: post.data(), comments, rolloutAtMs });
+  await applyAwards(postId, generation, desired, existing, true);
+}
+
+exports.contributionFeedCommentWritten = onDocumentWritten(
+  { document: "feed_posts/{postId}/comments/{commentId}", retry: true },
+  (event) => reconcileFeedPost(event.params.postId),
+);
+
+exports.contributionFeedPublicationChanged = onDocumentWritten(
+  { document: "feed_posts/{postId}", retry: true },
+  async (event) => {
+    const before = event.data?.before;
+    const after = event.data?.after;
+    if (!before?.exists) return;
+    const fields = ["published", "authorUid", "destination"];
+    if (!after?.exists || fields.some((field) => before.get(field) !== after.get(field))) {
+      await reconcileFeedPost(event.params.postId);
+    }
+  },
+);
 
 async function forumRetired() {
   return (await db.doc("app_config/community_feed").get()).get("forumRetired") === true;
