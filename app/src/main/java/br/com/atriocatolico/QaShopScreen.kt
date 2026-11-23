@@ -16,6 +16,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -25,6 +27,8 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import java.math.BigDecimal
 import java.text.NumberFormat
 import java.util.Locale
@@ -97,19 +101,24 @@ internal fun QaShopScreen(
     onClose: () -> Unit
 ) {
     val uriHandler = LocalUriHandler.current
-    var checkoutError by rememberSaveable { mutableStateOf(false) }
+    var checkoutMessage by rememberSaveable { mutableStateOf<String?>(null) }
+    val checkoutScope = rememberCoroutineScope()
+    var confirmation by remember { mutableStateOf<Job?>(null) }
+    var confirming by remember { mutableStateOf(false) }
     var attempt by rememberSaveable { mutableStateOf(0) }
+    val readCatalog: suspend () -> List<QaShopProduct> = loadCatalog ?: { SimulatedQaShopSupplier.load(revisedOffer = attempt > 0) }
+    var refreshedProducts by remember(attempt) { mutableStateOf<List<QaShopProduct>?>(null) }
     val catalog by produceState<Result<List<QaShopProduct>>?>(null, attempt) {
         value = null
         value = try {
-            Result.success(loadCatalog?.invoke() ?: SimulatedQaShopSupplier.load(revisedOffer = attempt > 0))
+            Result.success(readCatalog())
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
             Result.failure(error)
         }
     }
-    val products = catalog?.getOrNull().orEmpty()
+    val products = refreshedProducts ?: catalog?.getOrNull().orEmpty()
     var category by rememberSaveable { mutableStateOf<String?>(null) }
     var productId by rememberSaveable { mutableStateOf<String?>(null) }
     val product = products.firstOrNull { it.id == productId }
@@ -120,7 +129,9 @@ internal fun QaShopScreen(
     val quote = selectedVariant?.testQuote()
     val catalogState = rememberLazyListState()
     val goBack: () -> Unit = {
-        checkoutError = false
+        confirmation?.cancel()
+        confirming = false
+        checkoutMessage = null
         if (product == null) onClose() else productId = null
     }
 
@@ -138,9 +149,10 @@ internal fun QaShopScreen(
                 items(product.variants, key = { it.id }) { variant ->
                     FilterChip(
                         selected = selectedVariant == variant,
+                        enabled = !confirming,
                         onClick = {
                             selectedVariantId = variant.id
-                            checkoutError = false
+                            checkoutMessage = null
                         },
                         label = { Text(variant.label) }
                     )
@@ -161,16 +173,40 @@ internal fun QaShopScreen(
                 item { Text("Prazo estimado: ${current.deliveryDays} dias úteis") }
             }
             item {
-                TextButton(enabled = quote != null, onClick = {
-                    checkoutError = false
-                    try {
-                        uriHandler.openUri(QA_CHECKOUT_URL)
-                    } catch (_: IllegalArgumentException) {
-                        checkoutError = true
+                TextButton(enabled = quote != null && !confirming, onClick = {
+                    val acceptedQuote = quote ?: return@TextButton
+                    val variantId = selectedVariant?.id ?: return@TextButton
+                    if (confirming) return@TextButton
+                    confirming = true
+                    checkoutMessage = null
+                    confirmation = checkoutScope.launch {
+                        try {
+                            val freshProducts = readCatalog()
+                            val freshVariant = freshProducts.firstOrNull { it.id == product.id }
+                                ?.variants?.firstOrNull { it.id == variantId }
+                            val freshQuote = freshVariant?.testQuote()
+                            if (freshQuote != acceptedQuote) {
+                                refreshedProducts = freshProducts
+                                checkoutMessage = if (freshQuote == null) {
+                                    "A variante selecionada ficou indisponível."
+                                } else {
+                                    "A cotação mudou. Confira os valores e confirme novamente."
+                                }
+                                return@launch
+                            }
+                            uriHandler.openUri(QA_CHECKOUT_URL)
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            checkoutMessage = "Não foi possível confirmar a cotação ou abrir a página de teste."
+                        } finally {
+                            confirming = false
+                        }
                     }
                 }) { Text("Abrir página de teste") }
             }
-            if (checkoutError) item { Text("Não foi possível abrir a página de teste.") }
+            if (confirming) item { Text("Conferindo disponibilidade e preço…") }
+            checkoutMessage?.let { message -> item { Text(message) } }
         }
     } else {
         LazyColumn(
