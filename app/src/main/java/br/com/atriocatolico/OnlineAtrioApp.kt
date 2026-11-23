@@ -865,6 +865,7 @@ private fun OnlineCommunity(
     var guardiaoAppealsOpen by remember(uid) { mutableStateOf(false) }
     var returnToNotices by remember(uid) { mutableStateOf(false) }
     var noticesOpen by remember(uid) { mutableStateOf(false) }
+    var feedNoticePost by remember(uid) { mutableStateOf<String?>(null) }
     var message by remember(uid) { mutableStateOf("") }
     var emailVerificationRequired by remember(uid) { mutableStateOf(false) }
     DisposableEffect(db, uid) {
@@ -1161,7 +1162,7 @@ private fun OnlineCommunity(
             com.google.firebase.FirebaseApp.getInstance().options.projectId == "demo-atrio-v11") {
             android.util.Log.d("AtrioQaNavigation", "request_${destination.name}_from_${tab.name}")
         }
-        tab = destination; detailId = null; noticesOpen = false
+        tab = destination; detailId = null; noticesOpen = false; feedNoticePost = null
         profileSettingsMenuOpen = false
         closeConversations()
         publicProfileTarget = null; profilePostOpen = false; previousDetailId = null
@@ -1453,7 +1454,9 @@ private fun OnlineCommunity(
             }
     }
     fun closeNoticeDestination() {
-        if (showConversations) {
+        if (feedNoticePost != null) {
+            feedNoticePost = null
+        } else if (showConversations) {
             closeConversations()
         } else if (profilePostOpen && publicProfileTarget != null) {
             profilePostOpen = false
@@ -1535,8 +1538,24 @@ private fun OnlineCommunity(
                     item { MemberBadgeRow(uid, Modifier.fillMaxWidth(), centered = true) }
                     item { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { BadgeSettings(uid) } }
                 }
+            } else if (noticesOpen && feedNoticePost != null && communityFeedEnabled) {
+                val selected = feedDocument(db, "feed_posts", feedNoticePost!!)
+                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp)) {
+                    item {
+                        TextButton(onClick = { feedNoticePost = null }) { Text("Voltar aos avisos") }
+                        if (selected == null || selected.getString("authorUid") in blockedMembers) {
+                            Text("Publicação indisponível.")
+                        } else {
+                            FeedPublicationBody(selected, uid)
+                            FeedConversation(db, selected, uid)
+                        }
+                    }
+                }
             } else if (noticesOpen) {
                 NotificationCenter(inbox, notificationAdmin, posts.associate { it.id to it.title },
+                    feedNotices = if (communityFeedEnabled) { unreadOnly ->
+                        FeedNotices(db, uid, unreadOnly, onOpen = { feedNoticePost = it })
+                    } else null,
                     onOpen = { notice ->
                         when (notice.kind) {
                             NoticeKind.REPLY -> {

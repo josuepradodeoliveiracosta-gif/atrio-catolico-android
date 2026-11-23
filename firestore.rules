@@ -1342,6 +1342,69 @@ service cloud.firestore {
         && validText(post.get('body', ''), post.format == 'post' ? 1 : 0, 8000)
         && post.published == true && post.createdAt == request.time;
     }
+    function feedCommentPath(postId, commentId) {
+      return /databases/$(database)/documents/feed_posts/$(postId)/comments/$(commentId);
+    }
+    match /feed_notices/{recipientUid}/items/{commentId} {
+      function validFeedNotice(data) {
+        let comment = getAfter(feedCommentPath(data.postId, commentId)).data;
+        let post = get(feedPostPath(data.postId)).data;
+        return feedPostReadable(post)
+          && comment.authorUid == request.auth.uid && comment.createdAt == request.time
+          && (data.kind == 'comment' && post.authorUid == recipientUid
+            || data.kind == 'reply' && validId(comment.parentId)
+              && get(feedCommentPath(data.postId, comment.parentId)).data.authorUid == recipientUid);
+      }
+      allow get, list: if me(recipientUid) && emailVerificationAllowsCommunityAccess();
+      allow create: if signedIn() && !me(recipientUid)
+        && request.resource.data.keys().hasOnly(['postId', 'kind', 'createdAt', 'read'])
+        && validId(request.resource.data.postId)
+        && request.resource.data.createdAt == request.time && request.resource.data.read == false
+        && validFeedNotice(request.resource.data);
+      allow update: if me(recipientUid) && emailVerificationAllowsCommunityAccess()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])
+        && request.resource.data.read == true;
+      allow delete: if me(recipientUid);
+    }
+
+    match /feed_reports/{reportId} {
+      function matchesPost(data) {
+        let post = get(feedPostPath(data.targetId)).data;
+        return feedPostReadable(post)
+          && (data.targetType == 'post' && data.commentId == '' && post.authorUid == data.targetUid
+              && post.get('title', '') == data.title && post.get('body', '') == data.body
+            || data.targetType == 'comment' && validId(data.commentId) && data.title == ''
+              && get(feedCommentPath(data.targetId, data.commentId)).data.authorUid == data.targetUid
+              && get(feedCommentPath(data.targetId, data.commentId)).data.body == data.body);
+      }
+      function matchesChannel(data) {
+        let channel = get(/databases/$(database)/documents/feed_channels/$(data.targetId)).data;
+        return data.targetId == data.targetUid && data.commentId == ''
+          && channel.name == data.title && channel.get('description', '') == data.body;
+      }
+      allow get: if isAdmin() || me(resource.data.reporterUid);
+      allow list: if isAdmin();
+      allow create: if signedIn() && emailVerificationAllowsCommunityAccess()
+        && request.resource.data.keys().hasOnly([
+          'reporterUid', 'targetUid', 'targetId', 'targetType', 'commentId',
+          'title', 'body', 'reason', 'status', 'createdAt'
+        ])
+        && me(request.resource.data.reporterUid)
+        && validId(request.resource.data.targetId) && validId(request.resource.data.targetUid)
+        && !me(request.resource.data.targetUid)
+        && validText(request.resource.data.title, 0, 140)
+        && validText(request.resource.data.body, 0, 8000)
+        && validText(request.resource.data.reason, 5, 500)
+        && request.resource.data.status == 'pending' && request.resource.data.createdAt == request.time
+        && (request.resource.data.targetType == 'channel' ? matchesChannel(request.resource.data)
+          : matchesPost(request.resource.data));
+      allow update: if isAdmin() && resource.data.status == 'pending'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'reviewedAt', 'reviewedBy'])
+        && request.resource.data.status == 'reviewed' && request.resource.data.reviewedAt == request.time
+        && me(request.resource.data.reviewedBy);
+      allow delete: if false;
+    }
+
     match /feed_posts/{postId} {
       // As consultas precisam declarar published e destination. Para linhas
       // do tempo, consultar por autor e combinar os resultados no feed.
@@ -1382,7 +1445,13 @@ service cloud.firestore {
           && feedReplyParentIsRoot(request.resource.data.parentId)
           && validText(request.resource.data.body, 1, 2000)
           && request.resource.data.createdAt == request.time;
-        allow update, delete: if false;
+        // Conservar o comentário raiz para que as respostas permaneçam legíveis.
+        allow update: if me(resource.data.authorUid)
+          && feedPostReadable(get(feedPostPath(postId)).data)
+          && resource.data.get('removed', false) == false
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['removed', 'body'])
+          && request.resource.data.removed == true && request.resource.data.body == '';
+        allow delete: if false;
       }
     }
 

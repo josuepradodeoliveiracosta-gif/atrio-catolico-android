@@ -95,6 +95,44 @@ try {
   await assertFails(updateDoc(doc(alice, friendship), {status: 'accepted'}));
   await assertFails(read(bob, timeline));
   await assertSucceeds(updateDoc(doc(bob, friendship), {status: 'accepted'}));
+  const replyPath = timeline + '/comments/feed-reply';
+  const noticePath = 'feed_notices/feed-alice/items/feed-reply';
+  const notice = {postId: 'feed-timeline', kind: 'reply', read: false, createdAt: serverTimestamp()};
+  await assertFails(setDoc(doc(bob, noticePath), notice));
+  await assertSucceeds(writeBatch(bob)
+    .set(doc(bob, replyPath), {
+      authorUid: 'feed-bob', parentId: 'root', body: 'Resposta',
+      createdAt: serverTimestamp(),
+    })
+    .set(doc(bob, noticePath), notice)
+    .commit());
+  await assertSucceeds(read(alice, noticePath));
+  await assertFails(read(bob, noticePath));
+  await assertFails(setDoc(doc(bob, timeline + '/comments/feed-too-deep'), {
+    authorUid: 'feed-bob', parentId: 'feed-reply', body: 'Segundo nível',
+    createdAt: serverTimestamp(),
+  }));
+  const report = {
+    reporterUid: 'feed-bob', targetUid: 'feed-alice', targetId: 'feed-timeline',
+    targetType: 'comment', commentId: 'root', title: '', body: 'Comentário',
+    reason: 'Contexto para revisão', status: 'pending', createdAt: serverTimestamp(),
+  };
+  const reportPath = 'feed_reports/feed-test-report';
+  await assertFails(setDoc(doc(bob, reportPath), {...report, body: 'Contexto inventado'}));
+  await assertSucceeds(setDoc(doc(bob, reportPath), report));
+  await assertFails(read(carol, reportPath));
+  await assertSucceeds(updateDoc(doc(alice, comment), {removed: true, body: ''}));
+  assert.equal((await assertSucceeds(read(bob, comment))).get('body'), '');
+  await assertSucceeds(read(bob, replyPath));
+  await env.withSecurityRulesDisabled(async ctx => {
+    await setDoc(doc(ctx.firestore(), 'admins/feed-admin'), {enabled: true});
+  });
+  const admin = env.authenticatedContext('feed-admin').firestore();
+  assert.equal((await assertSucceeds(read(admin, reportPath))).get('body'), 'Comentário');
+  await assertSucceeds(updateDoc(doc(admin, reportPath), {
+    status: 'reviewed', reviewedBy: 'feed-admin', reviewedAt: serverTimestamp(),
+  }));
+
   const incoming = db => query(collectionGroup(db, 'feed_friendship_edges'),
     where('recipientUid', '==', 'feed-bob'));
   assert.equal((await assertSucceeds(getDocsFromServer(incoming(bob)))).size, 1);

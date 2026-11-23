@@ -1,5 +1,6 @@
 package br.com.atriocatolico
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -9,6 +10,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -145,8 +147,19 @@ internal fun ProfilePublications(
             }
         onDispose { listener.remove() }
     }
+    var opened by rememberSaveable(ownerUid, viewerUid, destination) { mutableStateOf<String?>(null) }
+    BackHandler(enabled = opened != null) { opened = null }
+    if (opened != null) {
+        TextButton(onClick = { opened = null }) { Text("Voltar às publicações") }
+        val selected = feedDocument(db, "feed_posts", opened!!)
+        if (selected != null && selected.getBoolean("published") == true) {
+            FeedPublicationBody(selected, viewerUid)
+            FeedConversation(db, selected, viewerUid)
+        } else Text("Publicação indisponível.")
+        return
+    }
     for (entry in entries) {
-        Card(Modifier.fillMaxWidth()) {
+        Card(onClick = { opened = entry.id }, modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 if (entry.getBoolean("hasImage") == true) {
                     FeedPublicationImage(entry, viewerUid)

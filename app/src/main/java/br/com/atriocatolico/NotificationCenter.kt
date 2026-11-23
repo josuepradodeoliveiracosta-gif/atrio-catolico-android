@@ -210,6 +210,7 @@ internal fun rememberNotificationInbox(db: FirebaseFirestore, uid: String, admin
 @Composable
 internal fun NotificationCenter(
     inbox: NotificationInbox, admin: Boolean, postTitles: Map<String, String>,
+    feedNotices: (@Composable (Boolean) -> Unit)? = null,
     onOpen: (NoticeGroup) -> Unit
 ) {
     var filter by rememberSaveable(inbox.uid) { mutableStateOf("Todas") }
@@ -240,6 +241,9 @@ internal fun NotificationCenter(
                 inbox.markRead(groups) { inbox.feedback = "Avisos carregados marcados como lidos." }
             }) { Text(if (inbox.busy) "Aguarde..." else "Marcar todas as carregadas como lidas") }
         }
+        if (feedNotices != null && selectedFilter != "Administração") item {
+            feedNotices(selectedFilter == "Não lidas")
+        }
         if (admin && inbox.enabledAdmin) item {
             Text("As pendências continuam abertas até uma decisão. Ler o aviso não conclui a análise. " +
                 "As contagens consideram os registros carregados.", color = Muted, fontSize = AtrioType.secondary)
@@ -251,7 +255,7 @@ internal fun NotificationCenter(
         }
         if (inbox.feedback.isNotBlank()) item { Text(inbox.feedback, color = Wine, fontSize = AtrioType.secondary) }
         if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
-        if (shown.isEmpty() && !loading && !failed) item {
+        if (shown.isEmpty() && !loading && !failed && feedNotices == null) item {
             Text(if (more) "Nenhum aviso neste filtro entre os registros carregados. Busque mais para consultar os anteriores."
                 else "Nenhum aviso neste filtro. Confira também suas preferências.", color = Muted)
         }

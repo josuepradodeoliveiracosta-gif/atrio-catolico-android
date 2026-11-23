@@ -87,6 +87,7 @@ internal fun ProfileChannel(
                     ProfilePublicationComposer(db, uid = ownerUid, destination = "channel")
                 } else {
                     FollowChannel(db, viewerUid, ownerUid)
+                    FeedReportButton(db, viewerUid, current, "channel")
                 }
                 ProfilePublications(db, ownerUid, viewerUid, destination = "channel")
             }

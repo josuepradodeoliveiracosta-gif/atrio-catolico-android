@@ -196,7 +196,7 @@ internal fun CommunityNewsFeed(
 }
 
 @Composable
-private fun feedAuthorName(db: FirebaseFirestore, uid: String): String =
+internal fun feedAuthorName(db: FirebaseFirestore, uid: String): String =
     feedDocument(db, "public_profiles", uid)?.getString("displayName")?.takeIf { it.isNotBlank() }
         ?: "Participante do Átrio"
 
@@ -205,7 +205,7 @@ private fun feedChannelName(db: FirebaseFirestore, uid: String): String? =
     feedDocument(db, "feed_channels", uid)?.getString("name")
 
 @Composable
-private fun feedDocument(db: FirebaseFirestore, collection: String, id: String): DocumentSnapshot? {
+internal fun feedDocument(db: FirebaseFirestore, collection: String, id: String): DocumentSnapshot? {
     var document by remember(db, collection, id) { mutableStateOf<DocumentSnapshot?>(null) }
     DisposableEffect(db, collection, id) {
         if (id.isBlank()) onDispose {}
@@ -236,14 +236,16 @@ private fun FeedPublicationDetail(
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp)) {
         item { TextButton(onClick = onBack) { Text("Voltar ao feed") } }
         item {
-            if (post != null && visible) FeedPublicationBody(post, uid)
-            else Text("Publicação indisponível.")
+            if (post != null && visible) {
+                FeedPublicationBody(post, uid)
+                FeedConversation(db, post, uid)
+            } else Text("Publicação indisponível.")
         }
     }
 }
 
 @Composable
-private fun FeedPublicationBody(post: DocumentSnapshot, uid: String) {
+internal fun FeedPublicationBody(post: DocumentSnapshot, uid: String) {
     if (post.getString("format") == "question") Text("Pergunta",
         style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
     post.getString("title")?.takeIf { it.isNotBlank() }?.let {
