@@ -218,6 +218,10 @@ class ProfileLayoutUiTest {
                 )
             }
         }
+        compose.onNodeWithTag("atrio-welcome-vitral").assertExists()
+        compose.onNodeWithText("Boas-vindas!").assertExists()
+        compose.waitForIdle()
+        screenshot("boas-vindas-vitral")
         compose.onNodeWithTag("atrio-welcome-create").assertExists().performClick()
         compose.runOnIdle { assertEquals("create", selected) }
         compose.onNodeWithTag("atrio-welcome-login").assertExists().performClick()
