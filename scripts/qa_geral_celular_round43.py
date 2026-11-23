@@ -87,14 +87,14 @@ LAB_COMPONENT_PREFIXES = (
 # aliases secundários. Qualquer Activity exportada pelo SDK precisará de um
 # contrato de nome/filtro avaliado explicitamente após inventário do APK.
 MAIN_ACTIVITY = "br.com.atriocatolico.MainActivity"
-# Componentes efetivamente observados no APK QA 43 compilado. As três
-# entradas exportadas auxiliares não recebem filtros públicos novos.
-# ComponentActivity vem de ui-test-manifest, exclusivo da variante QA.
-AUXILIARY_EXPORTED_ACTIVITIES = frozenset({
-    "androidx.activity.ComponentActivity",
-    "com.google.firebase.auth.internal.GenericIdpActivity",
-    "com.google.firebase.auth.internal.RecaptchaActivity",
-})
+# Componentes identificados no APK real da fixture. A Activity sintética
+# de Compose QA não declara filtros; Firebase Auth exige redirecionamentos
+# públicos específicos, com esquema próprio, host e caminho fixos.
+AUXILIARY_EXPORTED_ACTIVITIES = frozenset({"androidx.activity.ComponentActivity"})
+FIREBASE_AUTH_REDIRECT_SCHEMES = {
+    "com.google.firebase.auth.internal.GenericIdpActivity": "genericidp",
+    "com.google.firebase.auth.internal.RecaptchaActivity": "recaptcha",
+}
 LAUNCH_ACTION = "android.intent.action.MAIN"
 LAUNCH_CATEGORY = "android.intent.category.LAUNCHER"
 
@@ -127,9 +127,32 @@ def _check_activity_contract(application):
                     or len(launcher) != 2):
                 raise PreflightError("MainActivity com filtros extras ou sem launcher legítimo.")
         elif exported == "true":
-            if (component not in AUXILIARY_EXPORTED_ACTIVITIES
-                    or activity.get(ANDROID + "permission") is not None
-                    or filters):
+            if activity.get(ANDROID + "permission") is not None:
+                raise PreflightError(f"Activity exportada com permissão divergente: {component}")
+            if component in AUXILIARY_EXPORTED_ACTIVITIES:
+                if filters:
+                    raise PreflightError(f"Activity QA sem filtro ganhou entrada pública: {component}")
+            elif component in FIREBASE_AUTH_REDIRECT_SCHEMES:
+                if len(filters) != 1:
+                    raise PreflightError(f"Redirecionamento Firebase Auth divergente: {component}")
+                redirect = filters[0]
+                actions = [node.get(ANDROID + "name") for node in redirect.findall("action")]
+                categories = [node.get(ANDROID + "name") for node in redirect.findall("category")]
+                data = redirect.findall("data")
+                required_data = {
+                    ANDROID + "scheme": FIREBASE_AUTH_REDIRECT_SCHEMES[component],
+                    ANDROID + "host": "firebase.auth",
+                    ANDROID + "path": "/",
+                }
+                if (actions != ["android.intent.action.VIEW"]
+                        or categories != [
+                            "android.intent.category.DEFAULT",
+                            "android.intent.category.BROWSABLE",
+                        ]
+                        or len(data) != 1 or data[0].attrib != required_data
+                        or len(redirect) != 4):
+                    raise PreflightError(f"Filtro Firebase Auth não autorizado: {component}")
+            else:
                 raise PreflightError(f"Activity exportada não autorizada: {component}")
         elif filters:
             # Nenhuma Activity não exportada deve ser usada como trampoline
