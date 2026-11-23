@@ -11,7 +11,10 @@ import {createConversationPushAdminService}
   from '../../firebase/qa-geral-celular/pilot/conversation-push-admin.mjs';
 import {conversationPushIdentity as pilot}
   from '../../firebase/qa-geral-celular/pilot/conversation-push-policy.mjs';
-import {bob, projectId as demoProject} from '../../firebase/qa-geral-celular/pilot/fixtures.mjs';
+import {alice, bob, projectId as demoProject} from '../../firebase/qa-geral-celular/pilot/fixtures.mjs';
+import {conversationPushPilot} from '../../firebase/qa-geral-celular/pilot/conversation-push-fixtures.mjs';
+import {createQaAge18Restoration}
+  from '../../firebase/qa-geral-celular/pilot/qa-age18-restoration.mjs';
 
 const host = '127.0.0.1';
 const auth = 'http://' + host + ':9099/identitytoolkit.googleapis.com/v1';
@@ -26,6 +29,78 @@ const admin = createConversationPushAdminService({
   serverTimestamp: () => FieldValue.serverTimestamp(),
   authorize: (principal, capability) => principal === fixtureOperator && capability === 'manage_admissions',
 });
+const ageService = createQaAge18Restoration({
+  db, serverTimestamp: () => FieldValue.serverTimestamp(),
+  identity: pilot, authorize: (principal, capability) => (
+    (principal === 'fixture-age-reviewer' && capability === 'manage_age18_restoration') ||
+    (principal === 'fixture-age-consumer' && capability === 'consume_age18_restoration')
+  ),
+});
+const proofRef = db.doc('users/' + bob.uid + '/chatAgeEligibility/current');
+const admissionRef = uid => db.doc('users/' + uid + '/chatPushAdmission/current');
+const newMessageId = 'qa-199-item15-nova-mensagem';
+const authNewNotice = {sent: false, restoredToken: null};
+const resultExpire = () => new Date(Date.now() + 3 * 60_000);
+async function revokeAgeEligibility() {
+  await proofRef.update({status: 'revoked'});
+  authNewNotice.restoredToken = null;
+  authNewNotice.sent = false;
+}
+async function restoreAgeEligibility() {
+  const issued = await ageService.issue({
+    uid: bob.uid,principal: 'fixture-age-reviewer',
+    expiresAt: resultExpire(), reviewExpiresAt: resultExpire(),
+  });
+  const done = await ageService.consume({
+    uid: bob.uid,tokenId:issued.tokenId,principal:'fixture-age-consumer',
+  });
+  assert.equal(done.restored,true);
+  authNewNotice.restoredToken = issued.tokenId;
+}
+async function publishAfterReadmission() {
+  const previous = (await admissionRef(bob.uid).get()).data();
+  assert.ok(previous?.generation);
+  const revoked = await admin.revoke({
+    uid:bob.uid,operationKey:randomUUID(),expectedGeneration:previous.generation,
+    principal:fixtureOperator,
+  });
+  const resumed = await admin.admit({
+    uid:bob.uid,operationKey:randomUUID(),expectedGeneration:revoked.generation,
+    expiresAt:resultExpire(),principal:fixtureOperator,
+  });
+  const sender = (await admissionRef(alice.uid).get()).data();
+  assert.ok(sender?.generation);
+  const {conversationId, messageId} = conversationPushPilot;
+  const messageRef = db.doc('chats/' + conversationId + '/messages/' + messageId);
+  const original = (await messageRef.get()).data();
+  assert.ok(original?.uid === alice.uid);
+  await new Promise(resolve => setTimeout(resolve, 18));
+  const batch = db.batch();
+  batch.set(db.doc('chats/' + conversationId + '/messages/' + newMessageId), {
+    ...original,text:'Mensagem nova após restauração 18+',
+    createdAt: FieldValue.serverTimestamp(),
+  });
+  batch.update(db.doc('chats/' + conversationId), {
+    lastMessageId:newMessageId,lastSenderUid:alice.uid,updatedAt:FieldValue.serverTimestamp(),
+    lastPreview:'Mensagem nova após restauração 18+',
+  });
+  await batch.commit();
+  const result = await admin.publish({
+    senderUid:alice.uid,recipientUid:bob.uid,conversationId,messageId:newMessageId,
+    expiresAt:resultExpire(),expectedSenderGeneration:sender.generation,
+    expectedRecipientGeneration:resumed.generation,
+    principal:'fixture-notice-publisher',
+  });
+  assert.equal(result.replay,false);
+  authNewNotice.sent = true;
+}
+async function revokeRestoredTicket() {
+  assert.ok(authNewNotice.restoredToken);
+  const result = await ageService.revoke({
+    uid:bob.uid,tokenId:authNewNotice.restoredToken,principal:'fixture-age-reviewer',
+  });
+  assert.equal(result.revoked,true);
+}
 const root = '/v1/projects/' + pilot.projectId + '/databases/(default)/documents';
 const demoRoot = root.replace(pilot.projectId, demoProject);
 const source = renderConversationPushPilotWorker(readFileSync(
@@ -92,6 +167,24 @@ let noticeStatus = 0;
 let holdNextNotice = false;
 let releaseNotice;
 createServer(async (incoming, outgoing) => {
+  // Somente servidor de fixture em loopback. Nenhuma rota administrativa
+  // aparece no APK, no Worker remoto ou na implantação Cloudflare.
+  const ageRoutes = new Map([
+    ['/test/age18/revoke', revokeAgeEligibility],
+    ['/test/age18/restore', restoreAgeEligibility],
+    ['/test/age18/new-notice', publishAfterReadmission],
+    ['/test/age18/revoke-restoration', revokeRestoredTicket],
+  ]);
+  if (incoming.method === 'POST' && ageRoutes.has(incoming.url)) {
+    try {
+      await ageRoutes.get(incoming.url)();
+      outgoing.writeHead(204).end();
+    } catch (error) {
+      console.log('QA idade 18+ fixture:', incoming.url, String(error.message));
+      outgoing.writeHead(503).end();
+    }
+    return;
+  }
   if (incoming.method === 'GET' && incoming.url === '/test/state') {
     outgoing.writeHead(200, {'Content-Type': 'application/json'})
       .end(JSON.stringify({reads: noticeReads, status: noticeStatus, held: !!releaseNotice}));
