@@ -55,8 +55,15 @@ EXPORTED_RECEIVER_CONTRACTS = {
     ),
 }
 EXPORTED_SERVICE_CONTRACTS = {
-    "androidx.work.impl.background.systemjob.SystemJobService":
+    "androidx.work.impl.background.systemjob.SystemJobService": (
         "android.permission.BIND_JOB_SERVICE",
+        frozenset(),
+    ),
+    # Google Sign-In / Firebase Auth: revogação protegida pelo próprio SDK.
+    "com.google.android.gms.auth.api.signin.RevocationBoundService": (
+        "com.google.android.gms.auth.api.signin.permission.REVOCATION_NOTIFICATION",
+        frozenset({"com.google.android.gms.auth.api.signin.service.START"}),
+    ),
 }
 # Permissões demandadas diretamente pelo app e por Firebase Messaging/WorkManager.
 # Rejeita permissões Android adicionais (inclusive sensíveis) e privilégios
@@ -65,11 +72,9 @@ HTTPS_USES_PERMISSIONS = frozenset({
     "android.permission.INTERNET",
     "android.permission.ACCESS_NETWORK_STATE",
     "android.permission.WAKE_LOCK",
-    "android.permission.VIBRATE",
     "android.permission.POST_NOTIFICATIONS",
     "android.permission.RECEIVE_BOOT_COMPLETED",
     "android.permission.FOREGROUND_SERVICE",
-    "android.permission.FOREGROUND_SERVICE_DATA_SYNC",
     "com.google.android.c2dm.permission.RECEIVE",
     "com.google.android.providers.gsf.permission.READ_GSERVICES",  # Google Play Services
 })
@@ -119,11 +124,17 @@ def _check_component_contract(application):
                 if any(not filt.findall("action") for filt in node.findall("intent-filter")):
                     raise PreflightError(f"Receiver com filtro vazio: {component}")
             elif kind == "service":
-                system_permission = EXPORTED_SERVICE_CONTRACTS.get(component)
-                if (system_permission is None
-                        or node.get(ANDROID + "permission") != system_permission
-                        or node.findall("intent-filter")):
+                contract = EXPORTED_SERVICE_CONTRACTS.get(component)
+                if contract is None:
                     raise PreflightError(f"Service exportado não autorizado: {component}")
+                system_permission, permitted_actions = contract
+                actions = _intent_actions(node)
+                if (node.get(ANDROID + "permission") != system_permission
+                        or set(actions) - permitted_actions
+                        or any(not value for value in actions)
+                        or any(not filt.findall("action")
+                               for filt in node.findall("intent-filter"))):
+                    raise PreflightError(f"Service protegido divergente: {component}")
 
 
 def _check_https_permissions(manifest):
