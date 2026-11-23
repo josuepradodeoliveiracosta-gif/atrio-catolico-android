@@ -433,8 +433,11 @@
       }
     }
     match /chat_reports/{reportId} {
-      allow get: if isAdmin() || (signedIn() && resource.data.reporterUid == request.auth.uid);
-      allow list: if isAdmin();
+      // Moderacao de caso passa exclusivamente pelo backend confiavel com
+      // identidade, atribuicao e trilha validadas na mesma transacao (#199).
+      // A permissao global isAdmin() nunca autoriza consulta pelo APK.
+      allow get: if signedIn() && resource.data.reporterUid == request.auth.uid;
+      allow list: if false;
       allow create: if chatEnabled()
         && request.resource.data.keys().hasOnly([
           'chatId','messageId','reporterUid','reason','reportedText','createdAt'
