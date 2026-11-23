@@ -2,6 +2,7 @@ package br.com.atriocatolico
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -12,6 +13,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
@@ -29,8 +31,13 @@ import com.google.firebase.firestore.Source
  */
 @Composable
 internal fun RegistrationWelcomeScreen(onCreate: () -> Unit, onLogin: () -> Unit) {
+    val dark = isSystemInDarkTheme()
+    val background = if (dark) Color(0xFF20171A) else Color(0xFFFAF5ED)
+    val titleColor = if (dark) Color(0xFFFFB2C6) else Color(0xFF701333)
+    val bodyColor = if (dark) Color(0xFFF8E8ED) else Color(0xFF31272A)
+    val outlineColor = if (dark) Color(0xFFE8BA62) else Color(0xFFA57926)
     BoxWithConstraints(
-        Modifier.fillMaxSize().background(Paper).testTag("atrio-signup-welcome"),
+        Modifier.fillMaxSize().background(background).testTag("atrio-signup-welcome"),
         contentAlignment = Alignment.TopCenter
     ) {
         val glassHeight = (maxHeight * 0.34f).coerceIn(104.dp, 240.dp)
@@ -47,28 +54,28 @@ internal fun RegistrationWelcomeScreen(onCreate: () -> Unit, onLogin: () -> Unit
             )
             Text(
                 "Átrio Católico", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
-                color = Wine, textAlign = TextAlign.Center, style = MaterialTheme.typography.headlineLarge
+                color = titleColor, textAlign = TextAlign.Center, style = MaterialTheme.typography.headlineLarge
             )
             Text(
-                "Boas-vindas!", color = Wine, fontWeight = FontWeight.SemiBold,
+                "Boas-vindas!", color = titleColor, fontWeight = FontWeight.SemiBold,
                 textAlign = TextAlign.Center, style = MaterialTheme.typography.headlineSmall
             )
             Text(
                 "Aprenda mais sobre a fé católica, converse com respeito e viva a comunhão em comunidade.",
-                color = Ink, textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyLarge
+                color = bodyColor, textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyLarge
             )
             Button(
                 onClick = onCreate, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                     .testTag("atrio-welcome-create"),
-                colors = ButtonDefaults.buttonColors(containerColor = Wine),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF701333), contentColor = Color.White),
                 shape = RoundedCornerShape(14.dp)
             ) { Text("Criar conta") }
             OutlinedButton(
                 onClick = onLogin, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                     .testTag("atrio-welcome-login"),
-                border = BorderStroke(1.dp, Gold),
+                border = BorderStroke(1.dp, outlineColor),
                 shape = RoundedCornerShape(14.dp)
-            ) { Text("Entrar", color = Wine) }
+            ) { Text("Entrar", color = titleColor) }
         }
     }
 }
