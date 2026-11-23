@@ -1,6 +1,7 @@
 package br.com.atriocatolico
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -12,6 +13,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -27,53 +29,47 @@ import com.google.firebase.firestore.Source
  */
 @Composable
 internal fun RegistrationWelcomeScreen(onCreate: () -> Unit, onLogin: () -> Unit) {
-    Column(
-        Modifier.fillMaxSize().background(Paper).verticalScroll(rememberScrollState())
-            .padding(horizontal = 24.dp, vertical = 32.dp).testTag("atrio-signup-welcome"),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+    BoxWithConstraints(
+        Modifier.fillMaxSize().background(Paper).testTag("atrio-signup-welcome"),
+        contentAlignment = Alignment.TopCenter
     ) {
-        Spacer(Modifier.height(20.dp))
-        Text("✝", fontFamily = FontFamily.Serif, color = Gold, fontSize = 48.sp)
-        Text("Átrio Católico", fontFamily = FontFamily.Serif,
-            fontWeight = FontWeight.Bold, fontSize = 32.sp, color = Wine)
-        Text("Seja bem-vindo(a)!", color = Wine, fontSize = 24.sp,
-            fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
-        Text(
-            "Uma comunidade de formação e comunhão, para conversar sobre a fé " +
-                "católica com respeito e fraternidade.",
-            color = Ink, textAlign = TextAlign.Center,
-            style = MaterialTheme.typography.bodyLarge
-        )
-        Card(
-            border = BorderStroke(1.dp, Line),
-            shape = RoundedCornerShape(AtrioDimensions.CardRadius),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        val glassHeight = (maxHeight * 0.34f).coerceIn(104.dp, 240.dp)
+        Column(
+            Modifier.widthIn(max = 440.dp).fillMaxWidth()
+                .verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Seu primeiro passo", color = Wine,
-                    style = MaterialTheme.typography.titleMedium)
-                Text("Crie uma conta com nome, e-mail e senha. " +
-                    "Depois, confirme seu e-mail. Seus interesses e sua apresentação são opcionais.",
-                    style = MaterialTheme.typography.bodyMedium, color = Ink)
-                Text("Quem já participa pode continuar usando a mesma conta.",
-                    style = MaterialTheme.typography.bodySmall, color = Muted)
-            }
+            Image(
+                painter = painterResource(R.drawable.atrio_boas_vindas_vitral),
+                contentDescription = null,
+                modifier = Modifier.height(glassHeight).fillMaxWidth().testTag("atrio-welcome-vitral")
+            )
+            Text(
+                "Átrio Católico", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
+                color = Wine, textAlign = TextAlign.Center, style = MaterialTheme.typography.headlineLarge
+            )
+            Text(
+                "Boas-vindas!", color = Wine, fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center, style = MaterialTheme.typography.headlineSmall
+            )
+            Text(
+                "Aprenda mais sobre a fé católica, converse com respeito e viva a comunhão em comunidade.",
+                color = Ink, textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyLarge
+            )
+            Button(
+                onClick = onCreate, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                    .testTag("atrio-welcome-create"),
+                colors = ButtonDefaults.buttonColors(containerColor = Wine),
+                shape = RoundedCornerShape(14.dp)
+            ) { Text("Criar conta") }
+            OutlinedButton(
+                onClick = onLogin, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                    .testTag("atrio-welcome-login"),
+                border = BorderStroke(1.dp, Gold),
+                shape = RoundedCornerShape(14.dp)
+            ) { Text("Entrar", color = Wine) }
         }
-        Button(
-            onClick = onCreate, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                .testTag("atrio-welcome-create"),
-            colors = ButtonDefaults.buttonColors(containerColor = Wine),
-            shape = RoundedCornerShape(14.dp)
-        ) { Text("Criar conta") }
-        OutlinedButton(
-            onClick = onLogin, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                .testTag("atrio-welcome-login"),
-            border = BorderStroke(1.dp, Gold),
-            shape = RoundedCornerShape(14.dp)
-        ) { Text("Entrar", color = Wine) }
-        Text("Seus dados e sua participação são protegidos pelas regras da comunidade.",
-            textAlign = TextAlign.Center, style = MaterialTheme.typography.bodySmall, color = Muted)
     }
 }
 
