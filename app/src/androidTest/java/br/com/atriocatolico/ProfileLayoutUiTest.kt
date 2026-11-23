@@ -264,6 +264,26 @@ class ProfileLayoutUiTest {
         compose.runOnIdle { assertEquals("login", selected) }
     }
 
+    @Test fun registrationEmailShowsAddressAndOnlyClaimsSendOnSuccess() {
+        var sent by mutableStateOf(false)
+        compose.setContent {
+            AtrioTheme {
+                MandatoryEmailVerificationGate(
+                    uid = "qa-registration-email",
+                    onVerified = {},
+                    onSignOut = {},
+                    registrationEmail = "cadastro@qa.invalid",
+                    initialSendResult = sent
+                )
+            }
+        }
+        compose.onNodeWithText("Confirme seu e-mail").assertExists()
+        compose.onNodeWithText("Não foi possível enviar o link para cadastro@qa.invalid. Solicite um novo link.")
+            .assertExists()
+        compose.runOnIdle { sent = true }
+        compose.onNodeWithText("Abra o link que enviamos para cadastro@qa.invalid.").assertExists()
+    }
+
     @Test fun optionalOnboardingCanBeSkippedWithoutChoosingReligion() {
         check(BuildConfig.DEBUG && FirebaseApp.getInstance().options.projectId == "demo-atrio-v11")
         FirebaseAuth.getInstance().signOut()
@@ -287,7 +307,11 @@ class ProfileLayoutUiTest {
 
         compose.onNodeWithText("E-mail confirmado · Passo 3 de 3").assertExists()
         compose.onNodeWithText("Interesses (opcional)").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("Como você se apresenta? (opcional)").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Personalize seu perfil").assertExists()
+        compose.onNodeWithText("Como você se apresenta? (opcional)").assertDoesNotExist()
+        compose.onNodeWithTag("atrio-onboarding-parish").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("atrio-onboarding-city").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Pular por agora").assertExists()
         val skip = compose.onNodeWithTag("atrio-onboarding-skip")
         skip.performScrollTo().assertIsDisplayed().assertIsEnabled()
         assertEquals(skip.getUnclippedBoundsInRoot(), skip.getBoundsInRoot())
