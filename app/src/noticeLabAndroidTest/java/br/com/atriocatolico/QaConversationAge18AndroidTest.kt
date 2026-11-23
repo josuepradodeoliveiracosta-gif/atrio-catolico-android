@@ -8,6 +8,7 @@ import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performClick
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import com.google.android.gms.tasks.Tasks
@@ -82,6 +83,15 @@ class QaConversationNoticeAge18RestoredAndroidTest : QaConversationNoticeAndroid
         sourceServerReadable(ITEM15_DM)
         openManually()
         verifyMessage()
+        // Sair da thread evita que a leitura ativa marque a mensagem nova
+        // como lida antes de injetar o aviso seguinte.
+        compose.onNode(
+            hasText("Voltar") and hasAnyAncestor(hasTestTag("atrio-chat-thread"))
+        ).performClick()
+        compose.waitUntil(10_000) {
+            compose.onAllNodes(hasTestTag("atrio-chat-thread"))
+                .fetchSemanticsNodes().isEmpty()
+        }
         val afterManual = serverReads()
         finish(signal())
         // Restaurar 18+ NÃO torna o aviso velho reutilizável.

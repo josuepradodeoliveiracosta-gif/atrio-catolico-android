@@ -99,7 +99,20 @@ try {
   // Cada classe Android repete a mesma mensagem da fixture em um cenário independente.
   const receipt = createHash('sha256').update(JSON.stringify([roundId, chatId, messageId])).digest('hex');
   batch.delete(db.doc('users/' + bob.uid + '/chatPushPublicationReceipts/' + receipt));
+  // Repetir cada classe sobre o mesmo Firestore Emulator deve descartar
+  // somente recibos da fixture, nunca enfraquecer stale_publication_generation.
+  const newReceipt = createHash('sha256')
+    .update(JSON.stringify([roundId,chatId,'qa-199-item15-nova-mensagem']))
+    .digest('hex');
+  const reverseReceipt = createHash('sha256')
+    .update(JSON.stringify([roundId,chatId,'qa-199-inverse-initial']))
+    .digest('hex');
+  for (const recipient of [alice.uid,bob.uid]) {
+    batch.delete(db.doc('users/'+recipient+'/chatPushPublicationReceipts/'+newReceipt));
+    batch.delete(db.doc('users/'+recipient+'/chatPushPublicationReceipts/'+reverseReceipt));
+  }
   batch.delete(db.doc(pendingPath));
+  batch.delete(db.doc('users/' + alice.uid + '/chatPushPending/current'));
   await batch.commit();
   const publication = await admin.publish({
     senderUid: alice.uid, recipientUid: bob.uid, conversationId: chatId, messageId, expiresAt,

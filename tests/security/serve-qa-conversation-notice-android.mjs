@@ -66,6 +66,13 @@ async function setupReversePilot() {
     lastPreview:'Mensagem inversa antes da revogação 18+',
     updatedAt:FieldValue.serverTimestamp(),
   });
+  // A abertura pelo toque depende do índice privado do titular Clara.
+  // O índice padrão no seed cobre somente Miguel→Clara no sentido original.
+  batch.set(db.doc('users/'+alice.uid+'/chatInboxByPeer/'+bob.uid+
+      '/entries/'+conversationId),{
+    ownerUid:alice.uid,peerUid:bob.uid,chatId:conversationId,status:'accepted',
+    lastPreview:'Mensagem inversa antes da revogação 18+',updatedAt:new Date(),
+  });
   await batch.commit();
   const ms = v => v?.toMillis?.() ?? v?.getTime?.();
   const deadline = new Date(Math.min(ms(from.expiresAt),ms(to.expiresAt))-10_000);
@@ -126,6 +133,10 @@ async function publishAfterReadmission() {
   batch.update(db.doc('chats/' + conversationId), {
     lastMessageId:newMessageId,lastSenderUid:activeSender,updatedAt:FieldValue.serverTimestamp(),
     lastPreview:'Mensagem nova após restauração 18+',
+    // Uma leitura manual anterior zera unread; a nova mensagem precisa
+    // recolocar o contador do destinatário antes da consulta /notice.
+    unreadRequester:activeRecipient===alice.uid ? 1 : 0,
+    unreadRecipient:activeRecipient===bob.uid ? 1 : 0,
   });
   await batch.commit();
   // O aviso nunca pode vencer depois da MENOR das duas admissões.
