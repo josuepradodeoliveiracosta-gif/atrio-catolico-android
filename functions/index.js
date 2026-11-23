@@ -160,7 +160,7 @@ function groupProgressDelta(deltaByUser, uid, track, points) {
   deltaByUser.set(uid, userDelta);
 }
 
-async function applyAwards(postId, generation, desiredAwards, existingEntries, feed = false) {
+async function applyAwards(postId, generation, desiredAwards, existingEntries, feed = false, firstAuthorUid = "") {
   const byActionKey = new Map(desiredAwards);
   for (const [actionKey] of existingEntries) {
     if (!byActionKey.has(actionKey)) byActionKey.set(actionKey, null);
@@ -173,6 +173,14 @@ async function applyAwards(postId, generation, desiredAwards, existingEntries, f
       const generationSnapshot = await transaction.get(generationRef);
       if (generationSnapshot.get("generation") !== generation) return false;
 
+      if (firstAuthorUid) {
+        const [first, legacy] = await transaction.getAll(
+          feedFirstMarker(firstAuthorUid),
+          db.doc(`contribution_first_posts/${firstAuthorUid}`),
+        );
+        if (first.get("postId") !== postId || first.get("legacyAuthor") || legacy.get("postId")) return false;
+      }
+
       const ledgerRefs = chunk.map(([actionKey]) =>
         db.doc(`contribution_ledger/${awardDocumentId(actionKey)}`));
       const ledgerSnapshots = await Promise.all(ledgerRefs.map((ref) => transaction.get(ref)));
@@ -183,6 +191,9 @@ async function applyAwards(postId, generation, desiredAwards, existingEntries, f
         const [actionKey, desired] = chunk[index];
         const snapshot = ledgerSnapshots[index];
         const previous = snapshot.exists ? snapshot.data() : null;
+        // The welcome key is per pair of people and may have moved to an
+        // earlier publication since this scope last read its ledger.
+        if (feed && !desired && previous?.feedPostId !== postId) continue;
         const previousPoints = previous?.active === true
           ? Math.max(0, Number(previous.points) || 0) : 0;
         const nextPoints = desired ? Math.max(0, Number(desired.points) || 0) : 0;
@@ -530,6 +541,62 @@ async function handleContributionEvent(event, postId, happenedAt = eventTime(eve
   }
 }
 
+function feedFirstMarker(uid) {
+  return db.doc(`contribution_first_posts/${uid}/feed/first`);
+}
+
+async function rememberFeedFirstPublication(uid, candidate) {
+  const markerRef = feedFirstMarker(uid);
+  const legacyRef = db.doc(`contribution_first_posts/${uid}`);
+  return db.runTransaction(async (transaction) => {
+    const [marker, legacy] = await transaction.getAll(markerRef, legacyRef);
+    const previous = marker.exists
+      ? { id: marker.get("postId"), createdAt: marker.get("createdAt") }
+      : null;
+    let first = earlierPost(previous, candidate);
+    let legacyAuthor = marker.get("legacyAuthor") === true || Boolean(legacy.get("postId"));
+    if (!marker.exists) {
+      if (!legacyAuthor) {
+        const legacyPosts = await transaction.get(db.collection("posts")
+          .where("uid", "==", uid).limit(1));
+        legacyAuthor = !legacyPosts.empty;
+      }
+      // Include unpublished records so removing a first post cannot restart
+      // a member's welcome cycle. Creation events cover documents later deleted.
+      const snapshots = await transaction.get(db.collection("feed_posts")
+        .where("authorUid", "==", uid).orderBy("createdAt", "asc").limit(1));
+      const earliest = snapshots.docs[0];
+      if (earliest) first = earlierPost(first, {id: earliest.id, createdAt: earliest.get("createdAt")});
+    }
+    const superseded = new Set(marker.get("supersededPostIds") || []);
+    if (previous?.id && previous.id !== first?.id) superseded.add(previous.id);
+    if (first && (previous?.id !== first.id || marker.get("legacyAuthor") !== legacyAuthor)) {
+      transaction.set(markerRef, {
+        postId: first.id,
+        createdAt: first.createdAt,
+        legacyAuthor,
+        supersededPostIds: [...superseded],
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    }
+    return {first, supersededPostIds: [...superseded], legacyAuthor};
+  });
+}
+
+async function recordFeedPublication(snapshot) {
+  const uid = snapshot?.get("authorUid");
+  const createdAt = snapshot?.get("createdAt") || snapshot?.createTime;
+  if (!uid || !createdAt || !["timeline", "channel"].includes(snapshot.get("destination"))) return;
+  const {supersededPostIds} = await rememberFeedFirstPublication(uid, {
+    id: snapshot.id,
+    createdAt,
+  });
+  for (const postId of supersededPostIds) {
+    await reconcileFeedPost(postId);
+    await feedFirstMarker(uid).update({supersededPostIds: FieldValue.arrayRemove(postId)});
+  }
+}
+
 async function reconcileFeedPost(postId) {
   // Reprocess deliveries against the same server-controlled cutoff. Historical
   // forum awards and interactions preceding the feed rollout are left intact.
@@ -549,8 +616,16 @@ async function reconcileFeedPost(postId) {
     ...comment.data(),
     id: comment.id,
   })) : [];
-  const desired = deriveFeedAwards({ postId, post: post.data(), comments, rolloutAtMs });
-  await applyAwards(postId, generation, desired, existing, true);
+  const uid = post.get("authorUid");
+  const member = published && uid ? await rememberFeedFirstPublication(uid) : null;
+  const firstFeedPublicationId = member && !member.legacyAuthor &&
+      millis(member.first?.createdAt) >= rolloutAtMs
+    ? member.first.id : "";
+  const desired = deriveFeedAwards({
+    postId, post: post.data(), comments, rolloutAtMs, firstFeedPublicationId,
+  });
+  const hasWelcome = [...desired.values()].some((award) => award.track === "welcome");
+  await applyAwards(postId, generation, desired, existing, true, hasWelcome ? uid : "");
 }
 
 exports.contributionFeedCommentWritten = onDocumentWritten(
@@ -563,7 +638,13 @@ exports.contributionFeedPublicationChanged = onDocumentWritten(
   async (event) => {
     const before = event.data?.before;
     const after = event.data?.after;
+    if (!before?.exists && after?.exists) {
+      await recordFeedPublication(after);
+      await reconcileFeedPost(event.params.postId);
+      return;
+    }
     if (!before?.exists) return;
+    if (!after?.exists) await recordFeedPublication(before);
     const fields = ["published", "authorUid", "destination"];
     if (!after?.exists || fields.some((field) => before.get(field) !== after.get(field))) {
       await reconcileFeedPost(event.params.postId);
@@ -590,6 +671,12 @@ exports.contributionPostCreated = onDocumentCreated(
       await handleContributionEvent(event, first.previousPostId, happenedAt);
     }
     await handleContributionEvent(event, event.params.postId, happenedAt);
+    if (uid) {
+      const feedFirst = await feedFirstMarker(uid).get();
+      if (feedFirst.get("postId")) {
+        await reconcileFeedPost(feedFirst.get("postId"));
+      }
+    }
   },
 );
 
