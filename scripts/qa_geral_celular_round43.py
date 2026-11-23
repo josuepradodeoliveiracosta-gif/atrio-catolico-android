@@ -3,13 +3,14 @@
 import argparse
 from hashlib import sha256
 import json
+import re
 from pathlib import Path
 import sys
 from xml.etree import ElementTree
 
 from scripts.ota_apk_preflight import PreflightError, command
-from scripts.qa_geral_celular_approve import PACKAGE
-from scripts.qa_geral_celular_round42 import verify_metadata, verify_package_version, verify_source
+from scripts.qa_geral_celular_approve import PACKAGE, verify_functional_variant
+from scripts.qa_geral_celular_round42 import verify_source
 from scripts.qa_geral_celular_round_delivery import check_sha256
 from scripts.qa_geral_celular_signature import verify_signature
 from scripts.qa_geral_remote_build_gate import FUNCTIONAL_FIXTURE_APP_ID, QA_PROJECT, REGISTERED_APP_ID
@@ -17,6 +18,17 @@ from scripts.qa_geral_remote_build_gate import FUNCTIONAL_FIXTURE_APP_ID, QA_PRO
 VERSION_CODE = 43
 VERSION_NAME = "0.19.10-qa-geral-celular-rodada-43"
 ANDROID = "{http://schemas.android.com/apk/res/android}"
+
+
+def verify_package_version(apk, tools, version_code, version_name):
+    badging = command([str(tools / "aapt"), "dump", "badging", str(apk)])
+    match = re.search(
+        r"^package: name='([^']+)' versionCode='([0-9]+)' versionName='([^']+)'(?: |$)",
+        badging,
+        re.MULTILINE,
+    )
+    if match is None or match.groups() != (PACKAGE, str(version_code), version_name):
+        raise PreflightError("Pacote ou versão do APK 43 divergente.")
 
 
 def verify_notice_manifest(text, *, https=False):
@@ -81,8 +93,9 @@ def verify_fixture_metadata(apk, tools, *, notice_lab=False, notice_https=False)
         print(f"APK verificado: {PACKAGE}, versionCode={VERSION_CODE}, versionName={VERSION_NAME}")
         print(f"Manifesto de avisos aprovado: SHA-256={digest}")
         return digest
-    verify_metadata(apk, tools, version_code=VERSION_CODE, version_name=VERSION_NAME,
-                    firebase_app_id=FUNCTIONAL_FIXTURE_APP_ID)
+    verify_package_version(apk, tools, VERSION_CODE, VERSION_NAME)
+    verify_functional_variant(apk, tools, VERSION_CODE, FUNCTIONAL_FIXTURE_APP_ID,
+                              expected_code=VERSION_CODE)
 
 
 def record_proof(repo, sha, tree, apk, apk_hash, certificate, tools, *, notice_lab=False, notice_https=False):
