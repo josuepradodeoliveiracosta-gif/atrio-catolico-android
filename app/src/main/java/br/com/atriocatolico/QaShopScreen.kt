@@ -95,12 +95,30 @@ private fun QaShopVariant.testQuote(): QaShopQuote? =
         QaShopQuote(unitPriceMinor, shippingMinor = 890, currency = currency, deliveryDays = 5)
     } else null
 
+private enum class QaShopOrderStage(val label: String) {
+    PENDING("Aguardando pagamento"),
+    REFUSED("Pagamento recusado"),
+    SUBMITTED("Pagamento aprovado · enviado ao fornecedor"),
+    SHIPPED("Em transporte"),
+    DELIVERED("Entregue"),
+    CANCELLED("Cancelado · pagamento estornado"),
+    RETURN_REQUESTED("Devolução solicitada"),
+    REFUNDED("Devolução concluída · pagamento estornado");
+
+    val isClosed: Boolean
+        get() = this in setOf(REFUSED, CANCELLED, REFUNDED)
+}
+
 @Composable
 internal fun QaShopScreen(
     loadCatalog: (suspend () -> List<QaShopProduct>)? = null,
     onClose: () -> Unit
 ) {
     val uriHandler = LocalUriHandler.current
+    var orderId by rememberSaveable { mutableStateOf<String?>(null) }
+    var orderSummary by rememberSaveable { mutableStateOf("") }
+    var orderStage by rememberSaveable { mutableStateOf(QaShopOrderStage.PENDING) }
+    var showOrder by rememberSaveable { mutableStateOf(false) }
     var checkoutMessage by rememberSaveable { mutableStateOf<String?>(null) }
     val checkoutScope = rememberCoroutineScope()
     var confirmation by remember { mutableStateOf<Job?>(null) }
@@ -133,6 +151,16 @@ internal fun QaShopScreen(
         confirming = false
         checkoutMessage = null
         if (product == null) onClose() else productId = null
+    }
+
+    val currentOrderId = orderId
+    if (showOrder && currentOrderId != null) {
+        val closeOrder = { showOrder = false }
+        BackHandler(onBack = closeOrder)
+        QaShopOrderScreen(currentOrderId, orderSummary, orderStage, closeOrder) { next ->
+            orderStage = next
+        }
+        return
     }
 
     BackHandler(onBack = goBack)
@@ -195,6 +223,11 @@ internal fun QaShopScreen(
                                 return@launch
                             }
                             uriHandler.openUri(QA_CHECKOUT_URL)
+                            if (orderId == null || orderStage.isClosed) {
+                                orderId = java.util.UUID.randomUUID().toString()
+                                orderStage = QaShopOrderStage.PENDING
+                                orderSummary = "${product.name} · ${formatQaShopPrice(acceptedQuote.totalMinor, acceptedQuote.currency)}"
+                            }
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (_: Exception) {
@@ -204,6 +237,9 @@ internal fun QaShopScreen(
                         }
                     }
                 }) { Text("Abrir página de teste") }
+            }
+            if (currentOrderId != null) item {
+                TextButton(onClick = { showOrder = true }) { Text("Ver pedido simulado") }
             }
             if (confirming) item { Text("Conferindo disponibilidade e preço…") }
             checkoutMessage?.let { message -> item { Text(message) } }
@@ -218,6 +254,9 @@ internal fun QaShopScreen(
             item { TextButton(onClick = goBack) { Text("Voltar ao Início") } }
             item { SectionTitle("Átrio Loja") }
             item { Text("Catálogo fictício para QA") }
+            if (currentOrderId != null) item {
+                TextButton(onClick = { showOrder = true }) { Text("Ver pedido simulado") }
+            }
             val currentCatalog = catalog
             when {
                 currentCatalog == null -> item {
@@ -257,6 +296,47 @@ internal fun QaShopScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun QaShopOrderScreen(
+    orderId: String,
+    summary: String,
+    stage: QaShopOrderStage,
+    onClose: () -> Unit,
+    onStageChange: (QaShopOrderStage) -> Unit
+) {
+    val actions = when (stage) {
+        QaShopOrderStage.PENDING -> listOf(
+            "Simular pagamento aprovado" to QaShopOrderStage.SUBMITTED,
+            "Simular pagamento recusado" to QaShopOrderStage.REFUSED
+        )
+        QaShopOrderStage.SUBMITTED -> listOf(
+            "Simular despacho" to QaShopOrderStage.SHIPPED,
+            "Simular cancelamento com estorno" to QaShopOrderStage.CANCELLED
+        )
+        QaShopOrderStage.SHIPPED -> listOf("Simular entrega" to QaShopOrderStage.DELIVERED)
+        QaShopOrderStage.DELIVERED -> listOf("Solicitar devolução de teste" to QaShopOrderStage.RETURN_REQUESTED)
+        QaShopOrderStage.RETURN_REQUESTED -> listOf("Concluir devolução com estorno" to QaShopOrderStage.REFUNDED)
+        QaShopOrderStage.REFUSED, QaShopOrderStage.CANCELLED, QaShopOrderStage.REFUNDED -> emptyList()
+    }
+    LazyColumn(
+        Modifier.fillMaxSize().testTag("atrio-qa-shop-order"),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item { TextButton(onClick = onClose) { Text("Voltar à Loja") } }
+        item { SectionTitle("Pedido simulado") }
+        item { Text(summary) }
+        item { Text(stage.label, Modifier.testTag("atrio-qa-shop-order-status")) }
+        if (stage in setOf(QaShopOrderStage.SHIPPED, QaShopOrderStage.DELIVERED,
+                QaShopOrderStage.RETURN_REQUESTED, QaShopOrderStage.REFUNDED)) {
+            item { Text("Rastreio fictício: QA-${orderId.take(8)}") }
+        }
+        items(actions, key = { it.first }) { (label, next) ->
+            TextButton(onClick = { onStageChange(next) }) { Text(label) }
         }
     }
 }
