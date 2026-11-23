@@ -37,18 +37,19 @@ function withoutLegacyChatReads(base) {
 // Revisão candidata de encerramento, ensaiada separadamente da abertura.
 // Conserva protocolos existentes, com a mesma autorização de leitura do piloto.
 export function renderPilotShutdownRules() {
-  const evidence = `    function pilotEvidenceReadable() {
-      return qaModerator() || (qaTester() && resource.data.reporterUid == request.auth.uid);
+  const evidence = `    // Encerramento do piloto nao amplia acesso a evidencias por papel.
+    function pilotEvidenceReadable() {
+      return qaTester() && resource.data.reporterUid == request.auth.uid;
     }
 
     match /chat_reports/{reportId} {
       allow get: if pilotEvidenceReadable();
-      allow list: if qaModerator();
+      allow list: if false;
     }
 
     match /chat_group_reports/{reportId} {
       allow get: if pilotEvidenceReadable();
-      allow list: if qaModerator();
+      allow list: if false;
     }
 
 `;
