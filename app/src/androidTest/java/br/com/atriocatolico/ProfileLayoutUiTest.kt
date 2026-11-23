@@ -1,6 +1,10 @@
 package br.com.atriocatolico
 
 import android.graphics.Bitmap
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalDensity
@@ -232,6 +236,34 @@ class ProfileLayoutUiTest {
         compose.runOnIdle { assertEquals("login", selected) }
     }
 
+    @Test fun registrationWelcomeKeepsActionsReachableOnCompactScreenWithLargeText() {
+        var selected = ""
+        compose.setContent {
+            val density = LocalDensity.current.density
+            CompositionLocalProvider(LocalDensity provides Density(density, 1.5f)) {
+                AtrioTheme {
+                    Box(Modifier.size(width = 320.dp, height = 420.dp)) {
+                        RegistrationWelcomeScreen(
+                            onCreate = { selected = "create" },
+                            onLogin = { selected = "login" }
+                        )
+                    }
+                }
+            }
+        }
+        compose.onNodeWithTag("atrio-welcome-vitral").assertIsDisplayed()
+        val create = compose.onNodeWithTag("atrio-welcome-create")
+        create.performScrollTo().assertIsDisplayed()
+        assertEquals(create.getUnclippedBoundsInRoot(), create.getBoundsInRoot())
+        create.performTouchInput { click() }
+        compose.runOnIdle { assertEquals("create", selected) }
+        val login = compose.onNodeWithTag("atrio-welcome-login")
+        login.performScrollTo().assertIsDisplayed()
+        assertEquals(login.getUnclippedBoundsInRoot(), login.getBoundsInRoot())
+        login.performTouchInput { click() }
+        compose.runOnIdle { assertEquals("login", selected) }
+    }
+
     @Test fun optionalOnboardingCanBeSkippedWithoutChoosingReligion() {
         check(BuildConfig.DEBUG && FirebaseApp.getInstance().options.projectId == "demo-atrio-v11")
         FirebaseAuth.getInstance().signOut()
@@ -253,6 +285,9 @@ class ProfileLayoutUiTest {
         )
         compose.onNodeWithTag("atrio-onboarding-save").assertIsNotEnabled()
 
+        compose.onNodeWithText("E-mail confirmado · Passo 3 de 3").assertExists()
+        compose.onNodeWithText("Interesses (opcional)").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Como você se apresenta? (opcional)").performScrollTo().assertIsDisplayed()
         val skip = compose.onNodeWithTag("atrio-onboarding-skip")
         skip.performScrollTo().assertIsDisplayed().assertIsEnabled()
         assertEquals(skip.getUnclippedBoundsInRoot(), skip.getBoundsInRoot())
