@@ -179,6 +179,10 @@ async function serve(){
       process.exitCode=1;
     }
   });
+  if(mode==='reject'){
+    server.on('connection',()=>console.log('tcp_connection'));
+    server.on('secureConnection',()=>console.log('tls_handshake_completed'));
+  }
   server.on('tlsClientError',()=>console.log('tls_client_error'));
   server.listen(port,host,()=>console.log('listen '+mode+' loopback_only'));
 }

@@ -95,10 +95,10 @@ run)
   sha256sum "$apk" >> "$out/identity.txt"
   "$aapt" dump xmltree --file AndroidManifest.xml "$apk" | grep 'android:networkSecurityConfig' >> "$out/identity.txt"
   sanitize_xml() {
-    python3 - "$1" "$out" <<'PY'
+    python3 - "$1" "$out" "$2" <<'PY'
 from pathlib import Path
 import sys,xml.etree.ElementTree as E,re,hashlib
-label,out=sys.argv[1],Path(sys.argv[2])
+label,out,method=sys.argv[1],Path(sys.argv[2]),sys.argv[3]
 files=list(Path('app/build/outputs/androidTest-results/connected/qaGeral').rglob('TEST-*.xml'))
 assert len(files)==1, 'expected one JUnit XML'
 p=files[0]; raw=p.read_bytes(); root=E.fromstring(raw)
@@ -118,7 +118,7 @@ for t in cases:
             item.text=('exception='+typ if re.fullmatch(r'[\w.$]+',typ) else 'exception=redacted')+' '+','.join(lines)
 E.ElementTree(clean).write(out/(label+'.xml'),encoding='utf-8',xml_declaration=True)
 print(label,attrs)
-assert len(cases)==1 and int(attrs['tests'])==1 and all(int(attrs[k])==0 for k in ('failures','errors','skipped'))
+assert len(cases)==1 and cases[0].get('name')==method and int(attrs['tests'])==1 and all(int(attrs[k])==0 for k in ('failures','errors','skipped'))
 PY
   }
   start_server() {
@@ -140,21 +140,29 @@ PY
     gradle :app:connectedQaGeralAndroidTest \
       "-Pandroid.testInstrumentationRunnerArguments.class=br.com.atriocatolico.ScopedCaseHttpsE2eAndroidTest#$method" \
       --daemon --stacktrace > "$tls/$label-gradle.log" 2>&1 || result=$?
-    sanitize_xml "$label"
+    sanitize_xml "$label" "$method"
     [[ "$result" == 0 ]]
   }
   for cert in untrusted wrong; do
     start_server reject "$cert" "$cert"
     run_test "$cert" invalidTlsIsRejectedByBothRealClients
-    grep -qx tls_client_error "$out/$cert-host.log"
-    ! grep -q unexpected_http_request "$out/$cert-host.log"
+    # A verificação de hostname pode recusar DEPOIS do handshake criptográfico.
+    # Exigir conexões reais dos dois clientes e zero tráfego HTTP autenticado.
+    connections="$(grep -c '^tcp_connection$' "$out/$cert-host.log" || true)"
+    [[ "$connections" -ge 2 ]]
+    grep -Eq '^(tls_client_error|tls_handshake_completed)$' "$out/$cert-host.log"
+    if [[ "$cert" == untrusted ]]; then grep -qx tls_client_error "$out/$cert-host.log"; fi
+    if grep -q unexpected_http_request "$out/$cert-host.log"; then
+      echo 'FAIL: HTTP atravessou certificado rejeitado'
+      exit 1
+    fi
     stop_server
   done
   start_server serve trusted good
   curl --noproxy '*' --cacert "$tls/ca.pem" -fsS --max-time 5 https://127.0.0.1:8095/health >/dev/null
   run_test trusted realWorkflowDmAndGroupWithAccountSwitchAndRevocation
   node tests/security/serve-item13-android-https-qa.mjs verify | tee "$out/firestore-verification.log"
-  ! grep -qE 'harness_error|unexpected_http_request' "$out/trusted-host.log"
+  if grep -qE 'harness_error|unexpected_http_request' "$out/trusted-host.log"; then exit 1; fi
   for channel in direct group; do
     for route in open state action appeal; do
       grep -Eq "^https channel=$channel route=$route status=200 tls=TLSv1\.[23] auth_checked=true no_store=true$" "$out/trusted-host.log"
