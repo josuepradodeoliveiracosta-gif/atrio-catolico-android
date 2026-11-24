@@ -1,0 +1,65 @@
+name: Item 13 - moderação de casos no Firestore Emulator
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/qa-chat-moderation-item13.yml'
+      - 'firebase/atrio-conversas-v1.rules.fragment'
+      - 'firebase/atrio-grupos-v1.rules.fragment'
+      - 'firebase/qa-general/chat-moderation-item13.mjs'
+      - 'firebase/qa-geral-celular/pilot/rules.mjs'
+      - 'tests/security/*item13*'
+      - 'tests/security/atrio-conversas.test.mjs'
+      - 'tests/security/atrio-grupos.test.mjs'
+      - 'tests/security/qa-parity-firestore.test.mjs'
+      - 'tests/security/qa-geral-celular-pilot.test.mjs'
+      - 'tests/security/qa-geral-celular-pilot-shutdown.test.mjs'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qa-chat-moderation-item13-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  firestore-case-moderation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GCLOUD_PROJECT: demo-atrio-v11
+      GOOGLE_CLOUD_PROJECT: demo-atrio-v11
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: tests/security/package-lock.json
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Registrar referencia e barrar credenciais externas
+        run: |
+          git rev-parse HEAD HEAD^{tree}
+          test ! -n "${GOOGLE_APPLICATION_CREDENTIALS:-}"
+          git diff --check HEAD^ HEAD
+      - name: Instalar somente dependencias versionadas
+        run: npm ci --prefix tests/security --ignore-scripts
+      - name: Preparar Rules QA fixadas em memoria
+        run: |
+          (cd tests/security && node prepare.mjs)
+          node firebase/qa-general/compose-parity-rules.mjs
+          node --check firebase/qa-general/chat-moderation-item13.mjs
+          node --check tests/security/chat-moderation-item13.test.mjs
+      - name: Executar caso atribuido, recusas e regressao no Emulator
+        working-directory: tests/security
+        run: |
+          ./node_modules/.bin/firebase emulators:exec --only firestore --project demo-atrio-v11 \
+            "node atrio-conversas.test.mjs && node atrio-grupos.test.mjs && node qa-parity-firestore.test.mjs && node qa-geral-celular-pilot.test.mjs && node --test qa-geral-celular-pilot-shutdown.test.mjs && node --test chat-moderation-item13.test.mjs"

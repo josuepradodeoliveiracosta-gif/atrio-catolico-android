@@ -37,18 +37,19 @@ function withoutLegacyChatReads(base) {
 // Revisão candidata de encerramento, ensaiada separadamente da abertura.
 // Conserva protocolos existentes, com a mesma autorização de leitura do piloto.
 export function renderPilotShutdownRules() {
-  const evidence = `    function pilotEvidenceReadable() {
-      return qaModerator() || (qaTester() && resource.data.reporterUid == request.auth.uid);
+  const evidence = `    // Encerramento do piloto nao amplia acesso a evidencias por papel.
+    function pilotEvidenceReadable() {
+      return qaTester() && resource.data.reporterUid == request.auth.uid;
     }
 
     match /chat_reports/{reportId} {
       allow get: if pilotEvidenceReadable();
-      allow list: if qaModerator();
+      allow list: if false;
     }
 
     match /chat_group_reports/{reportId} {
       allow get: if pilotEvidenceReadable();
-      allow list: if qaModerator();
+      allow list: if false;
     }
 
 `;
@@ -75,12 +76,12 @@ export function renderClosedPilotRules() {
   // Nunca implantar: a Rules base nega a listagem global (#355).
   // Este ensaio especial ja revoga o par na propria pilotDirectEnabled().
   fragments = replaceChecked(fragments,
-    'allow list: if false;\\n      allow create: if chatEnabled()'.replace('\\n','\n'),
+    'allow list: if false;\\n      allow create: if chatEnabled()\\n        && qaInboxLegacySourceWrites()'.replaceAll('\\n','\n'),
     ('allow list: if pilotDirectEnabled() && signedIn()\\n'
       + '        && qaInboxLegacySourceWrites()\\n'
       + '        && request.query.limit != null && request.query.limit <= 100\\n'
       + '        && request.auth.uid in resource.data.participants;\\n'
-      + '      allow create: if chatEnabled()').replaceAll('\\n','\n'));
+      + '      allow create: if chatEnabled()\\n        && qaInboxLegacySourceWrites()').replaceAll('\\n','\n'));
   fragments = replaceChecked(fragments, 'allow get, list: if chatEnabled()\n          && exists(/databases/$(database)/documents/chats/$(chatId))',
     'allow get, list: if pilotDirectEnabled()\n          && exists(/databases/$(database)/documents/chats/$(chatId))');
   const reportMatch = '    match /chat_reports/{reportId} {';
