@@ -1,0 +1,62 @@
+name: Item 13 — triagem, decisão e recurso (Firestore Emulator)
+
+on:
+  pull_request:
+    branches: [qa/chat3-199-item13-ui-por-caso, main]
+    paths:
+      - '.github/workflows/qa-chat2-item13-workflow.yml'
+      - 'firebase/qa-general/chat-moderation-item13-workflow.mjs'
+      - 'tests/security/chat-moderation-item13-workflow.test.mjs'
+      - 'tests/security/chat-moderation-item13-auth-emulator.test.mjs'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qa-chat2-item13-workflow-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  case-workflow:
+    name: 'Casos atribuídos e recurso — QA fechado'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GCLOUD_PROJECT: demo-atrio-v11
+      GOOGLE_CLOUD_PROJECT: demo-atrio-v11
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Confirmar SHA, diff e ausência de credenciais externas
+        run: |
+          set -euo pipefail
+          git rev-parse HEAD HEAD^{tree}
+          git diff --check HEAD^ HEAD
+          test -z "${GOOGLE_APPLICATION_CREDENTIALS:-}"
+          test -z "${ATRIO_QA_MODERATION_CASE_ORIGIN:-}"
+          test -z "${ATRIO_QA_MODERATION_CASE_LAB:-}"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: tests/security/package-lock.json
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Dependências fixadas e sintaxe
+        run: |
+          npm ci --prefix tests/security --ignore-scripts
+          node --check firebase/qa-general/chat-moderation-item13-workflow.mjs
+          node --check tests/security/chat-moderation-item13-workflow.test.mjs
+          node --check tests/security/chat-moderation-item13-auth-emulator.test.mjs
+      - name: Executar Firestore Emulator (DM, grupo, atribuição, recurso, auditoria)
+        working-directory: tests/security
+        run: |
+          node prepare.mjs
+          node ../../firebase/qa-general/compose-parity-rules.mjs
+          ./node_modules/.bin/firebase emulators:exec --only firestore,auth --project demo-atrio-v11 \
+            "node --test chat-moderation-item13-workflow.test.mjs && node --test chat-moderation-item13.test.mjs && node --test chat-moderation-item13-auth-emulator.test.mjs"
