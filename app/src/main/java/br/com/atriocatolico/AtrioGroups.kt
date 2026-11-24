@@ -497,6 +497,7 @@ private fun AtrioGroupThread(
     var error by remember(uid,room.id) { mutableStateOf("") }
     var reporting by remember(uid,room.id) { mutableStateOf<AtrioGroupMessage?>(null) }
     var reportReason by remember(uid,room.id) { mutableStateOf("") }
+    var lastReportedCaseId by remember(uid,room.id) { mutableStateOf<String?>(null) }
     val isAdmin=uid in room.adminUids
     val isOwner=uid==room.owner
     val isClosed=room.status=="closed"
@@ -669,6 +670,10 @@ private fun AtrioGroupThread(
                 "mas não é possível enviar mensagens nem convidar pessoas.",
                 modifier=Modifier.padding(horizontal=14.dp,vertical=8.dp),
                 fontSize=13.sp,color=Muted)
+        }
+        if(BuildConfig.ATRIO_QA_GERAL_CELULAR_PILOT && !BuildConfig.ATRIO_QA_GERAL_REMOTE){
+            ScopedCaseAppealPanel(uid,rememberGuardianAuthUid(),"group",lastReportedCaseId,
+                remember { QaScopedCaseWorkflowHttpGateway(BuildConfig.ATRIO_QA_SCOPED_CASE_ORIGIN) })
         }
         HorizontalDivider(color=Line)
         if(error.isNotBlank()) Text(error,Modifier.padding(12.dp),
@@ -871,6 +876,8 @@ private fun AtrioGroupThread(
                             if(result.isSuccessful) {
                                 reporting=null
                                 error="Denúncia registrada para análise."
+                                if(com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid == uid)
+                                    lastReportedCaseId=uid+"__"+room.id+"__"+selected.id
                             } else error="Denúncia não confirmada ou já registrada."
                         }
                 }) {Text("Enviar denúncia")}
