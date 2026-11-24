@@ -199,12 +199,16 @@ internal fun ScopedModerationWorkflowControls(
                 Text(if(isDecision)"Registrar decisão" else "Registrar revisão")
             }
         }
-    }
-    if(confirm!=null)AlertDialog(
-        onDismissRequest={confirm=null},
-        title={Text("Confirmar atendimento deste caso?")},
-        text={Text("A ação será auditada. Nenhuma sanção será aplicada automaticamente.")},
-        confirmButton={TextButton(onClick={
+        if(confirm!=null) Card(Modifier.fillMaxWidth().testTag("scoped-workflow-confirmation")) {
+            Column(Modifier.fillMaxWidth().padding(12.dp),
+                verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                Text("Confirmar atendimento deste caso?",
+                    style=MaterialTheme.typography.titleSmall)
+                Text("A ação será auditada. Nenhuma sanção será aplicada automaticamente.")
+                Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick={confirm=null},
+                        modifier=Modifier.testTag("scoped-workflow-cancel")) { Text("Cancelar") }
+                    TextButton(onClick={
             val operation=confirm ?: return@TextButton
             val selected=if(operation=="triage")null else decision
             val justification=if(operation=="triage")null else note.trim()
@@ -227,10 +231,12 @@ internal fun ScopedModerationWorkflowControls(
                 } else blocked.value(if(checked is ScopedWorkflowReply.Stage)
                     ScopedWorkflowReply.Error else checked)
             }
-        },modifier=Modifier.testTag("scoped-workflow-confirm")) { Text("Confirmar") } },
-        dismissButton={TextButton(onClick={confirm=null},
-            modifier=Modifier.testTag("scoped-workflow-cancel")) { Text("Cancelar") } }
-    )
+                    }, modifier=Modifier.testTag("scoped-workflow-confirm")) { Text("Confirmar") }
+                }
+            }
+        }
+    }
+
 }
 
 /** Recurso do DENUNCIANTE; estado não consultável pelo autor no contrato da #450. */

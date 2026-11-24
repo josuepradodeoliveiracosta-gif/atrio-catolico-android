@@ -173,10 +173,10 @@ class ScopedConversationModerationEmulatorUiTest {
             androidx.compose.ui.test.hasTestTag("scoped-workflow-triage"))
             .fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("scoped-workflow-triage").performClick()
-        compose.onNodeWithTag("scoped-workflow-cancel").performClick()
+        compose.onNodeWithTag("scoped-workflow-cancel").performScrollTo().performClick()
         assertEquals(0,calls)
         compose.onNodeWithTag("scoped-workflow-triage").performClick()
-        compose.onNodeWithTag("scoped-workflow-confirm").performClick()
+        compose.onNodeWithTag("scoped-workflow-confirm").performScrollTo().performClick()
         compose.waitUntil(10_000) { compose.onAllNodes(
             androidx.compose.ui.test.hasTestTag("scoped-workflow-choice-action_recommended"))
             .fetchSemanticsNodes().isNotEmpty() }
@@ -184,7 +184,7 @@ class ScopedConversationModerationEmulatorUiTest {
         compose.onNodeWithTag("scoped-workflow-note").performTextInput(
             "Justificativa fictícia de laboratório sem remoção.")
         compose.onNodeWithTag("scoped-workflow-decide").performScrollTo().performClick()
-        compose.onNodeWithTag("scoped-workflow-confirm").performClick()
+        compose.onNodeWithTag("scoped-workflow-confirm").performScrollTo().performClick()
         compose.waitUntil(10_000) { compose.onAllNodes(
             androidx.compose.ui.test.hasTestTag("scoped-workflow-status"))
             .fetchSemanticsNodes().isNotEmpty() }
@@ -292,7 +292,7 @@ class ScopedConversationModerationEmulatorUiTest {
         compose.onNodeWithTag("scoped-workflow-note").performTextInput(
             "Revisão por moderador distinto no laboratório.")
         compose.onNodeWithTag("scoped-workflow-decide").performScrollTo().performClick()
-        compose.onNodeWithTag("scoped-workflow-confirm").performClick()
+        compose.onNodeWithTag("scoped-workflow-confirm").performScrollTo().performClick()
         compose.waitUntil(10_000) { compose.onAllNodes(
             androidx.compose.ui.test.hasTestTag("scoped-workflow-status"))
             .fetchSemanticsNodes().isNotEmpty() }
