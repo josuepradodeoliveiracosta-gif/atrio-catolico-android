@@ -14,3 +14,8 @@ QA_PUSH_ENABLED = "false"
 binding = "QA_PUSH_DB"
 database_name = "atrio-push-qa-general-delivery"
 database_id = "00000000-0000-4000-8000-000000000000"
+
+# Add after the isolated Conversations service is deployed in QA.
+# [[services]]
+# binding = "QA_CONVERSATION_PUSH"
+# service = "atrio-push-qa-conversations"
