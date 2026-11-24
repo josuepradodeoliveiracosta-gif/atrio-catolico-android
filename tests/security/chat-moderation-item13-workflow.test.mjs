@@ -5,10 +5,10 @@ import {initializeApp,deleteApp} from 'firebase-admin/app';
 import {FieldValue,Timestamp,getFirestore} from 'firebase-admin/firestore';
 import {assertFails,assertSucceeds,initializeTestEnvironment}
   from '@firebase/rules-unit-testing';
-import {collection,doc,getDocFromServer,getDocsFromServer,setDoc}
+import {collection,doc,getDocFromServer,getDocsFromServer,setDoc,writeBatch}
   from 'firebase/firestore';
 import {renderClosedPilotRules} from '../../firebase/qa-geral-celular/pilot/rules.mjs';
-import {alice,bob,moderator,projectId}
+import {alice,bob,moderator,pilotDocuments,pilotFlags,projectId}
   from '../../firebase/qa-geral-celular/pilot/fixtures.mjs';
 import {createScopedModerationService} from '../../firebase/qa-general/chat-moderation-item13.mjs';
 import {createCaseReviewWorkflow,createCaseReviewWorkflowHttpHandler}
@@ -59,6 +59,14 @@ test('item 13: ciclo de atendimento humano limitado ao caso e com trilha',async 
   const db=getFirestore(app);
   t.after(async()=>{await deleteApp(app);await env.cleanup();});
   await env.clearFirestore();
+  // A leitura positiva do denunciante exige flags e papéis sintéticos do piloto.
+  await env.withSecurityRulesDisabled(async context=>{
+    const seeded=context.firestore();
+    const fixture=writeBatch(seeded);
+    for(const [path,data] of [...pilotDocuments(now),...pilotFlags(true)])
+      fixture.set(doc(seeded,path),data);
+    await fixture.commit();
+  });
   const batch=db.batch();
   for(const {uid} of [moderator,other])batch.set(db.doc('admins/'+uid),{enabled:true});
   for(let i=0;i<sample.length;i++){
@@ -137,7 +145,7 @@ test('item 13: ciclo de atendimento humano limitado ao caso e com trilha',async 
 
   await t.test('decisão com justificativa, sem remover conteúdo ou acessar conversa',async()=>{
     await deny(send(direct,'decide','lucia',{decision:'removed',note}));
-    await deny(send(direct,'decide','lucia',{decision:'dismissed',note:'curto'}));
+    await deny(send(direct,'decide','lucia',{decision:'dismissed',note:'cur'}));
     await ok(send(direct,'decide','lucia',{decision:'dismissed',note}),'decided');
     await ok(send(group,'decide','lucia',{decision:'action_recommended',note}),
       'decided');
