@@ -98,13 +98,14 @@ test('item 13: Auth Emulator confirma papel, atribuição e revogação de sess�
     return data;
   };
   await t.test('token real verificado e papel atribuído abrem somente prova mínima',async()=>{
+    const before=(await db.collection('chatModerationAccessEvents').get()).size;
     const proof=await read.open({idToken:tokens.moderator,channel,caseId});
     assert.deepEqual(Object.keys(proof).sort(),
       ['caseId','channel','excerpt','reason','reportedAt']);
     assert.equal(proof.excerpt,'Apenas a prova mínima autorizada em QA');
     assert.equal(await read.open({idToken:tokens.other,channel,caseId}),null);
     assert.equal(await read.open({idToken:tokens.unverified,channel,caseId}),null);
-    assert.equal((await db.collection('chatModerationAccessEvents').get()).size,1);
+    assert.equal((await db.collection('chatModerationAccessEvents').get()).size,before+1);
   });
 
   await t.test('triagem e decisão autenticadas são transações por caso',async()=>{
