@@ -63,7 +63,8 @@ function parsePayload(action, value) {
   const payload = {...value};
   for (const field of fields) {
     const item = value[field];
-    if (field === 'expectedGeneration' && item === null) continue;
+    if (item === null && (field === 'expectedGeneration' ||
+        (action === 'admit' && field === 'expiresAt'))) continue;
     if (typeof item !== 'string' || !item.length || item.length > 160) return null;
     if (field === 'expiresAt' || field === 'reviewExpiresAt') {
       const date = new Date(item);
