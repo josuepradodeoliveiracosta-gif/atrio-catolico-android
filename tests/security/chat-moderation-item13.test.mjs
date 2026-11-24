@@ -179,7 +179,7 @@ test('item 13: escopo por caso e trilha sem acesso ao histórico',async t=>{
     const ref=db.doc('chatModerationAssignments/'+selected.channel+'/cases/'+selected.caseId);
     await ref.update({status:'revoked'});
     await denied(await send(selected));
-    await ref.update({status:'active',reviewExpiresAt:Timestamp.fromDate(new Date(clock+4000))});
+    await ref.update({status:'active',reviewExpiresAt:new Date(clock+4000)});
     assert.equal((await send(selected)).status,200);
     await db.doc('admins/'+lucia.uid).update({enabled:false});
     await denied(await send(selected));
@@ -214,7 +214,7 @@ test('item 13: escopo por caso e trilha sem acesso ao histórico',async t=>{
       headers:{'Content-Type':'application/json',Authorization:'Bearer lucia-session'},
       body:JSON.stringify({channel:cases[0].channel,caseId:cases[0].caseId})});
     assert.equal((await disabled(request)).status,503);
-    assert.equal((await http(new Request(endpoint.replace('/case','/queue'),{
+    assert.equal((await http(new Request(endpoint.replace(/\/case$/, '/queue'),{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({channel:'direct',caseId:cases[0].caseId})
     }))).status,400);
