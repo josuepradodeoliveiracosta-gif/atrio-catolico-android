@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.util.Log
 import androidx.core.app.NotificationManagerCompat
 import com.google.android.gms.common.ConnectionResult
 import com.google.android.gms.common.GoogleApiAvailability
@@ -20,8 +21,12 @@ import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
+import java.security.MessageDigest
+import java.time.Instant
 import java.util.Locale
 import java.util.UUID
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * FCM e apenas o transportador: nao envia mensagens nem concede autorizacao.
@@ -54,10 +59,12 @@ internal object PushRegistry {
     private fun enabledKey(uid: String) = "enabled_$uid"
 
     fun available(context: Context, uid: String): Boolean =
-        !BuildConfig.ATRIO_QA_GERAL_REMOTE || qaGeralPushSessionReady(context, uid)
+        if (QaConversationNotices.configured) QaConversationPushRegistration.available(context, uid)
+        else !BuildConfig.ATRIO_QA_GERAL_REMOTE || qaGeralPushSessionReady(context, uid)
 
     fun enabled(context: Context, uid: String): Boolean =
-        uid.isNotBlank() && available(context, uid) &&
+        if (QaConversationNotices.configured) QaConversationPushRegistration.enabled(context, uid)
+        else uid.isNotBlank() && available(context, uid) &&
             prefs(context).getBoolean(enabledKey(uid), false)
 
     private fun acceptsDatabase(db: FirebaseFirestore): Boolean =
@@ -84,6 +91,12 @@ internal object PushRegistry {
         db: FirebaseFirestore,
         done: (Boolean, PushRegistrationProblem?) -> Unit = { _, _ -> }
     ) {
+        if (QaConversationNotices.configured) {
+            if (QaConversationPushRegistration.enabled(context, uid)) {
+                QaConversationPushRegistration.register(context, uid, db, done = done)
+            } else done(false, PushRegistrationProblem.SESSION_CHANGED)
+            return
+        }
         if (FirebaseAuth.getInstance().currentUser?.uid != uid ||
             !enabled(context, uid) || !acceptsDatabase(db)) {
             done(false, PushRegistrationProblem.SESSION_CHANGED)
@@ -154,6 +167,10 @@ internal object PushRegistry {
         db: FirebaseFirestore,
         done: (Boolean, PushRegistrationProblem?) -> Unit
     ) {
+        if (QaConversationNotices.configured) {
+            QaConversationPushRegistration.register(context, uid, db, optInNow = true, done = done)
+            return
+        }
         if (FirebaseAuth.getInstance().currentUser?.uid != uid) {
             done(false, PushRegistrationProblem.SESSION_CHANGED)
             return
@@ -177,6 +194,10 @@ internal object PushRegistry {
     }
 
     fun deactivate(context: Context, uid: String, db: FirebaseFirestore) {
+        if (QaConversationNotices.configured) {
+            QaConversationPushRegistration.deactivate(context, uid, db)
+            return
+        }
         if (uid.isBlank() || !available(context, uid) || !acceptsDatabase(db)) return
         prefs(context).edit().putBoolean(enabledKey(uid), false).apply()
         FirebaseMessaging.getInstance().isAutoInitEnabled = false
@@ -304,6 +325,27 @@ class AtrioPushService : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
+        if (QaConversationNotices.configured) {
+            if (message.data["signal"] == "refresh") {
+                val receivedAt = Instant.now()
+                val messageId = message.messageId
+                val hash = if (messageId.isNullOrEmpty()) {
+                    "missing"
+                } else {
+                    MessageDigest.getInstance("SHA-256").digest(messageId.toByteArray(Charsets.UTF_8))
+                        .joinToString("") { byte -> (byte.toInt() and 0xff).toString(16).padStart(2, '0') }
+                }
+                Log.i("AtrioQaFcmReceipt", "event=fcm_received utc=$receivedAt fcm_message_id_sha256=$hash")
+            }
+            // O callback do SDK roda em worker thread. Concluir o processamento
+            // dentro do seu prazo preserva o ciclo de vida do serviço.
+            runBlocking {
+                withTimeoutOrNull(12_000L) {
+                    QaConversationNotices.receive(applicationContext, message)
+                }
+            }
+            return
+        }
         // Apenas mensagens DATA, com UID correspondente a sessao atual.
         // Nunca use texto fornecido no payload como conteudo da notificacao.
         val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return

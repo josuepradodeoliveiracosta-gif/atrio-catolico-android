@@ -30,13 +30,25 @@ case "$qa_group" in
   *) echo "Grupo QA desconhecido: $qa_group" >&2; exit 2 ;;
 esac
 if [[ "${ATRIO_QA_GERAL_CELULAR_PILOT:-}" == 1 ]]; then
-  [[ "$qa_apk" == "qaGeral" && "${ATRIO_QA_SUITE:-}" == "AtrioConversasCompostasEmulatorUiTest" ]] || {
-    echo "Piloto QA Celular: somente a suíte de Conversas e Grupos no Emulator" >&2
+  [[ "$qa_apk" == "qaGeral" && ( "${ATRIO_QA_SUITE:-}" == "AtrioConversasCompostasEmulatorUiTest" ||
+     "${ATRIO_QA_SUITE:-}" == "QaConversationNoticeAndroid" ) ]] || {
+    echo "Piloto QA Celular: somente as suítes focais de Conversas no Emulator" >&2
     exit 2
   }
 fi
 if [[ -n "${ATRIO_QA_SUITE:-}" && "$qa_group" != all ]]; then
   echo "Suite focal e grupo paralelo nao podem ser combinados" >&2; exit 2
+fi
+notice_focal=0
+if [[ "${ATRIO_QA_SUITE:-}" == QaConversationNoticeAndroid ]]; then
+  [[ "$qa_apk" == qaGeral && "${ATRIO_QA_CONVERSATION_NOTICE_LAB:-}" == 1 &&
+     "${ATRIO_QA_GERAL_CELULAR_PILOT:-}" == 1 &&
+     "${ATRIO_QA_GERAL_REMOTE_BUILD:-}" != 1 &&
+     "${ATRIO_QA_GERAL_PUSH_BUILD:-}" != 1 ]] || {
+    echo "Avisos de Conversas exigem opt-in e Firebase Emulator" >&2
+    exit 2
+  }
+  notice_focal=1
 fi
 inbox_focal=0
 if [[ "${ATRIO_QA_SUITE:-}" == AtrioInboxDiscoveryEmulatorUiTest ]]; then
@@ -81,10 +93,12 @@ fi
   --project demo-atrio-v11 > ../../qa-firebase-emulators.log 2>&1 &
 FIREBASE_PID=$!
 inbox_pid=
+notice_pid=
 profile_worker_pid=
 profile_tls_dir=
 cleanup() {
   if [[ -n "$inbox_pid" ]]; then kill "$inbox_pid" 2>/dev/null || true; fi
+  if [[ -n "$notice_pid" ]]; then kill "$notice_pid" 2>/dev/null || true; fi
   if [[ -n "$profile_worker_pid" ]]; then kill "$profile_worker_pid" 2>/dev/null || true; fi
   if [[ -n "$profile_tls_dir" ]]; then
     adb reverse --remove tcp:8094 >/dev/null 2>&1 || true
@@ -323,6 +337,65 @@ if [[ "$inbox_focal" == 1 ]]; then
       grep -F 'QA MESSAGE 200: retry pós-timeout preservou' qa-inbox-discovery-emulator.log
     fi
   fi
+  exit "$qa_failed"
+fi
+if [[ "$notice_focal" == 1 ]]; then
+  # Instalação nova para verificar POST_NOTIFICATIONS negada antes de concedê-la.
+  adb uninstall br.com.atriocatolico.qageral.celular >/dev/null 2>&1 || true
+  (cd tests/security && node seed-qa-conversation-notice-android.mjs)
+  node tests/security/serve-qa-conversation-notice-android.mjs \
+    > qa-conversation-notice-worker.log 2>&1 &
+  notice_pid=$!
+  for attempt in $(seq 1 20); do
+    if curl -fsS --max-time 1 http://127.0.0.1:8092/ready >/dev/null; then break; fi
+    if ! kill -0 "$notice_pid" 2>/dev/null; then break; fi
+    sleep 1
+  done
+  curl -fsS --max-time 2 http://127.0.0.1:8092/ready >/dev/null || {
+    cat qa-conversation-notice-worker.log
+    exit 1
+  }
+  adb reverse tcp:8092 tcp:8092
+  # Rodadas independentes: baseline de #444 já comprovada no mesmo blob de
+  # produção; no item 15 cada grupo usa outro AVD efêmero e novo Auth Emulator.
+  case "${ATRIO_QA_ITEM15_CASE:-}" in
+    age18)
+      run_suite QaConversationNoticeAge18RestoredAndroidTest
+      (cd tests/security && node seed-qa-conversation-notice-android.mjs --firestore-only)
+      run_suite QaConversationNoticeAge18ReRevokedAndroidTest
+      (cd tests/security && node seed-qa-conversation-notice-android.mjs --firestore-only)
+      run_suite QaConversationNoticeAge18ReverseAndroidTest
+      if [[ "$qa_failed" != 0 ]]; then
+        grep -F 'QA idade 18+ fixture:' qa-conversation-notice-worker.log | tail -20 || true
+      fi
+      exit "$qa_failed"
+      ;;
+    lucia)
+      run_suite QaConversationNoticeThirdBotAndroidTest
+      if [[ "$qa_failed" != 0 ]]; then
+        timeout 6s adb logcat -d -v brief -s AndroidRuntime:E '*:S' | tail -60 || true
+      fi
+      exit "$qa_failed"
+      ;;
+    "") ;;
+    *) echo "Cenário item 15 desconhecido" >&2; exit 2 ;;
+  esac
+  run_suite QaConversationNoticeDeniedAndroidTest
+  # A fixture com permissão negada deve alcançar onMessageReceived e registrar só o hash.
+  receipt_hash=26a30ede0faca3e21c7ca013220274be554ccc8e65e729b6ebef500079528584
+  receipt_log=qa-android-suite-results/fcm-receipt-denied.log
+  if ! adb logcat -d -v epoch -s AtrioQaFcmReceipt:I '*:S' |
+    grep -E "event=fcm_received utc=[0-9T:.Z-]+Z fcm_message_id_sha256=${receipt_hash}$" > "$receipt_log"; then
+    echo "QA Android: recibo FCM fictício ausente com permissão negada" >&2
+    qa_failed=1
+  fi
+  cat "$receipt_log"
+  (cd tests/security && node seed-qa-conversation-notice-android.mjs --firestore-only)
+  run_suite QaConversationNoticeGrantedAndroidTest
+  (cd tests/security && node seed-qa-conversation-notice-android.mjs --firestore-only)
+  run_suite QaConversationNoticeSessionAndroidTest
+  (cd tests/security && node seed-qa-conversation-notice-android.mjs --firestore-only)
+  run_suite QaConversationNoticeRevokedAndroidTest
   exit "$qa_failed"
 fi
 if [[ "${ATRIO_QA_GERAL_CELULAR_PILOT:-}" == 1 ]]; then

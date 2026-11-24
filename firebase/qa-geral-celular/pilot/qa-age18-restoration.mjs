@@ -1,0 +1,116 @@
+// Somente servidor administrativo QA; nenhuma credencial ou acesso cliente.
+// Transações Firestore serializam consumo/revogação, inclusive sob concorrência.
+import {randomUUID} from 'node:crypto';
+const POLICY='2026-11-18plus-qa-v1';
+const ms=v=>v?.toMillis?.()??(v instanceof Date?v.getTime():NaN);
+const id=v=>typeof v==='string' && /^[A-Za-z0-9_-]{8,128}$/.test(v);
+const revokedProof=()=>({
+  status:'revoked',minimumAge:18,policyVersion:POLICY,reviewExpiresAt:new Date(0),
+});
+export function createQaAge18Restoration({
+  db,serverTimestamp,authorize,identity,now=()=>Date.now(),uuid=randomUUID,
+}) {
+  if(!db?.runTransaction||typeof serverTimestamp!=='function'||
+     typeof authorize!=='function'||!identity?.accounts)
+    throw Error('age18_service_configuration_required');
+  const allowed=(principal,capability)=>{
+    if(typeof principal!=='string'||authorize(principal,capability)!==true)
+      throw Error('operator_forbidden');
+  };
+  const checkUid=uid=>{
+    if(!Object.hasOwn(identity.accounts,uid)) throw Error('uid_not_allowed');
+  };
+  const tokenRef=tokenId=>db.doc('qaAge18RestorationAuthorizations/'+tokenId);
+  const proofRef=uid=>db.doc('users/'+uid+'/chatAgeEligibility/current');
+  const stateRef=uid=>db.doc('users/'+uid+'/chatAgeRestorationState/current');
+  const expiry=value=>{
+    if(!(value instanceof Date)||!Number.isFinite(value.getTime())||value.getTime()<=now())
+      throw Error('invalid_expiry');
+  };
+  async function issue({uid,principal,expiresAt,reviewExpiresAt}) {
+    allowed(principal,'manage_age18_restoration');
+    checkUid(uid);expiry(expiresAt);expiry(reviewExpiresAt);
+    const tokenId=uuid();
+    if(!id(tokenId)) throw Error('invalid_authorization_id');
+    const bindToProof=allowInitialize=>db.runTransaction(async tx=>{
+      const [state,proof]=await Promise.all([tx.get(stateRef(uid)),tx.get(proofRef(uid))]);
+      // Uma ausência não tem revisão. Persistir uma negativa primeiro
+      // permite detectar inclusive uma recriação seguida de exclusão.
+      if(!proof.exists&&allowInitialize) {
+        tx.create(proofRef(uid),revokedProof());
+        return false;
+      }
+      if(!proof.updateTime) throw Error('age18_authorization_unavailable');
+      tx.create(tokenRef(tokenId),{
+        uid,status:'issued',policyVersion:POLICY,issuedBy:principal,
+        expiresAt,reviewExpiresAt,
+        epoch:state.data()?.epoch??null,proofUpdateTime:proof.updateTime,createdAt:serverTimestamp(),
+      });
+      return true;
+    });
+    if(!await bindToProof(true)) await bindToProof(false);
+    return {tokenId};
+  }
+  async function consume({uid,tokenId,principal}) {
+    allowed(principal,'consume_age18_restoration');
+    checkUid(uid);
+    if(!id(tokenId)) throw Error('invalid_authorization_id');
+    return db.runTransaction(async tx=>{
+      const [ticket,state,proof]=await Promise.all([
+        tx.get(tokenRef(tokenId)),tx.get(stateRef(uid)),tx.get(proofRef(uid)),
+      ]);
+      const data=ticket.data();
+      const time=now();
+      if(!ticket.exists||data.uid!==uid||data.policyVersion!==POLICY||
+        data.status!=='issued'||!(ms(data.expiresAt)>time)||!(ms(data.reviewExpiresAt)>time)||
+        data.epoch!==(state.data()?.epoch??null)||!proof.updateTime||
+        typeof data.proofUpdateTime?.isEqual!=='function'||!data.proofUpdateTime.isEqual(proof.updateTime))
+        throw Error('age18_authorization_unavailable');
+      tx.update(tokenRef(tokenId),{
+        status:'consumed',consumedBy:principal,consumedAt:serverTimestamp(),
+      });
+      tx.set(proofRef(uid),{
+        status:'eligible',minimumAge:18,policyVersion:POLICY,
+        reviewExpiresAt:data.reviewExpiresAt,
+      });
+      tx.set(stateRef(uid),{
+        epoch:uuid(),lastTokenId:tokenId,lastStatus:'consumed',
+        restoredByTokenId:tokenId,
+        updatedAt:serverTimestamp(),
+      });
+      return {restored:true};
+    });
+  }
+  async function revoke({uid,tokenId,principal}) {
+    allowed(principal,'manage_age18_restoration');
+    checkUid(uid);
+    if(!id(tokenId)) throw Error('invalid_authorization_id');
+    return db.runTransaction(async tx=>{
+      const [ticket,state,proof]=await Promise.all([
+        tx.get(tokenRef(tokenId)),tx.get(stateRef(uid)),tx.get(proofRef(uid)),
+      ]);
+      if(!ticket.exists||ticket.data().uid!==uid) throw Error('age18_authorization_unavailable');
+      const old=ticket.data();
+      if(old.status==='revoked') return {revoked:true,replay:true};
+      const current=state.data();
+      const restoredBy=Object.hasOwn(current ?? {},'restoredByTokenId') ? current.restoredByTokenId :
+        current?.lastStatus==='consumed' ? current.lastTokenId : null;
+      const revokeRestoration=old.status==='consumed'&&restoredBy===tokenId;
+      // Mesmo se o consumo vencer a corrida, a revogação subsequente
+      // derruba a elegibilidade restaurada por ESTE token.
+      tx.update(tokenRef(tokenId),{
+        status:'revoked',revokedBy:principal,revokedAt:serverTimestamp(),
+      });
+      const generation=uuid();
+      tx.set(stateRef(uid),{
+        epoch:generation,lastTokenId:tokenId,lastStatus:'revoked',
+        restoredByTokenId:revokeRestoration ? null : restoredBy,
+        updatedAt:serverTimestamp(),
+      });
+      if(revokeRestoration&&proof.data()?.status==='eligible')
+        tx.set(proofRef(uid),revokedProof());
+      return {revoked:true,replay:false};
+    });
+  }
+  return Object.freeze({issue,consume,revoke});
+}

@@ -10,20 +10,63 @@ GROUPS = {
     "interaction": ["EngagementUiTest","ReactionEmojiUiTest","DiscussionDetailV2UiTest","AtrioTypographyAccessibilityUiTest"],
     "bots": ["ThreeBotsAndroidUiTest","ThreeBotsAuthenticatedAndroidUiTest","ThreeBotsOnlineEmulatorTest","AtrioConversasCompostasEmulatorUiTest","AtrioConversasNavegacaoEmulatorUiTest","AtrioConversasForaDaConfiguracaoEmulatorUiTest","AtrioConversasTrocaContaEmulatorUiTest"],
 }
+FOCAL_ROUTES = {
+    'if [[ "${ATRIO_QA_SUITE:-}" == "GuardianV2UiTest" ]]; then': (
+        "GuardianV2UiTest",
+    ),
+    'if [[ "$notice_focal" == 1 ]]; then': (
+        "QaConversationNoticeDeniedAndroidTest",
+        "QaConversationNoticeGrantedAndroidTest",
+        "QaConversationNoticeSessionAndroidTest",
+        "QaConversationNoticeRevokedAndroidTest",
+    ),
+}
+ITEM15_ROUTES = {
+    "age18": (
+        "QaConversationNoticeAge18RestoredAndroidTest",
+        "QaConversationNoticeAge18ReRevokedAndroidTest",
+        "QaConversationNoticeAge18ReverseAndroidTest",
+    ),
+    "lucia": ("QaConversationNoticeThirdBotAndroidTest",),
+}
+SUITE_CALL = re.compile(r"(?m)^[ \t]*run_suite ([A-Za-z][A-Za-z0-9]+)$")
 
 class AndroidGroupTests(unittest.TestCase):
     def test_complete_disjoint_partition(self):
         source = (ROOT / "scripts/run-qa-android-emulator.sh").read_text()
-        calls = re.findall(r"(?m)^\s*run_suite ([A-Za-z][A-Za-z0-9]+)$", source)
-        self.assertEqual(len(calls), 19)
+        calls = SUITE_CALL.findall(source)
         self.assertEqual(len(calls), len(set(calls)))
-        self.assertIn("GuardianV2UiTest", calls)
+        matrix = [(group, suite) for group, suites in GROUPS.items() for suite in suites]
+        focal = [suite for suites in FOCAL_ROUTES.values() for suite in suites]
+        item15 = [suite for suites in ITEM15_ROUTES.values() for suite in suites]
+        self.assertCountEqual(calls, [suite for _, suite in matrix] + focal + item15)
+
         pairs = re.findall(r"(profiles|interaction|bots):([A-Za-z][A-Za-z0-9]+)", source)
-        self.assertEqual(len(pairs), 18)
-        self.assertEqual(len(pairs), len(set(pairs)))
-        for group, suites in GROUPS.items():
-            self.assertEqual({x for g, x in pairs if g == group}, set(suites))
-        self.assertEqual(set(calls) - {"GuardianV2UiTest"}, {x for v in GROUPS.values() for x in v})
+        self.assertCountEqual(pairs, matrix)
+
+    def test_focal_suites_stay_on_their_selected_routes(self):
+        source = (ROOT / "scripts/run-qa-android-emulator.sh").read_text()
+        for guard, suites in FOCAL_ROUTES.items():
+            with self.subTest(guard=guard):
+                block = re.search(rf"(?ms)^{re.escape(guard)}\n(.*?)^fi$", source)
+                self.assertIsNotNone(block, guard)
+                found = SUITE_CALL.findall(block[1])
+                if "notice_focal" in guard:
+                    item15_all = [s for suites in ITEM15_ROUTES.values() for s in suites]
+                    routing_marker = '  case "${ATRIO_QA_ITEM15_CASE:-}" in'
+                    self.assertIn(routing_marker, block[1])
+                    routing = block[1].split(routing_marker, 1)[1].split("  esac", 1)[0]
+                    self.assertCountEqual([s for s in found if s in item15_all], item15_all)
+                    for name, expected in ITEM15_ROUTES.items():
+                        scenario = re.search(
+                            rf'(?ms)^    {name}\)\n(.*?)^      ;;$',
+                            routing,
+                        )
+                        self.assertIsNotNone(scenario, name)
+                        self.assertEqual(SUITE_CALL.findall(scenario[1]), list(expected))
+                    found = [s for s in found if s not in item15_all]
+                self.assertEqual(found, list(suites))
+                self.assertRegex(block[1], r'(?m)^  exit "\$qa_failed"$')
 
     def test_legacy_and_captures(self):
         source = (ROOT / "scripts/run-qa-android-emulator.sh").read_text()

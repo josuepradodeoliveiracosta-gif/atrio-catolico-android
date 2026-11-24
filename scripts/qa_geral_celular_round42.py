@@ -33,19 +33,24 @@ def verify_source(repo, expected_sha, expected_tree):
     print(f"Candidato verificado: SHA={expected_sha} árvore={expected_tree}")
 
 
-def verify_metadata(apk, tools):
+def verify_package_version(apk, tools, version_code, version_name):
     badging = command([str(tools / "aapt"), "dump", "badging", str(apk)])
     package_line = re.search(
         r"^package: name='([^']+)' versionCode='([0-9]+)' versionName='([^']+)'(?: |$)",
         badging,
         re.MULTILINE,
     )
-    expected = (PACKAGE, str(VERSION_CODE), VERSION_NAME)
+    expected = (PACKAGE, str(version_code), version_name)
     if package_line is None or package_line.groups() != expected:
-        raise PreflightError("Pacote ou versão do APK diverge da rodada 42.")
-    verify_functional_variant(apk, tools, VERSION_CODE, REGISTERED_APP_ID,
-                              expected_code=VERSION_CODE)
-    print(f"APK verificado: {PACKAGE}, versionCode={VERSION_CODE}, versionName={VERSION_NAME}")
+        raise PreflightError(f"Pacote ou versão do APK diverge da rodada {version_code}.")
+
+
+def verify_metadata(apk, tools, *, version_code=VERSION_CODE, version_name=VERSION_NAME,
+                    firebase_app_id=REGISTERED_APP_ID):
+    verify_package_version(apk, tools, version_code, version_name)
+    verify_functional_variant(apk, tools, version_code, firebase_app_id,
+                              expected_code=version_code)
+    print(f"APK verificado: {PACKAGE}, versionCode={version_code}, versionName={version_name}")
     print(f"Projeto Firebase no APK: {QA_PROJECT}")
 
 

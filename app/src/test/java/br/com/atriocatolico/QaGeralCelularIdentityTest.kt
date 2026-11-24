@@ -106,4 +106,26 @@ class QaGeralCelularIdentityTest {
             assertFalse(BuildConfig.ATRIO_QA_GERAL_CELULAR_RODADA)
         }
     }
+
+    @Test
+    fun cadastroPushFisicoSoAceitaAsDuasContasDeTesteVerificadas() {
+        assertTrue(qaGeralPushIdentityMatches(
+            "qa-nav-alice", "alice.navegacao@qa.invalid", true
+        ))
+        assertTrue(qaGeralPushIdentityMatches(
+            "qa-nav-bob", "bob.navegacao@qa.invalid", true
+        ))
+        assertFalse(qaGeralPushIdentityMatches(
+            "qa-nav-alice", "bob.navegacao@qa.invalid", true
+        ))
+        assertFalse(qaGeralPushIdentityMatches(
+            "qa-nav-alice", "alice.navegacao@qa.invalid", false
+        ))
+        assertFalse(qaGeralPushIdentityMatches(
+            "conta-de-fora", "pessoa@example.invalid", true
+        ))
+        assertFalse(qaGeralPushIdentityMatches(
+            "qa-nav-bob", null, true
+        ))
+    }
 }
