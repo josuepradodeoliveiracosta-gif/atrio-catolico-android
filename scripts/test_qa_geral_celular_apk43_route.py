@@ -74,8 +74,8 @@ class IsolatedBuildRouteTest(unittest.TestCase):
     def test_route_builds_pinned_candidate_without_inheriting_signing_secrets(self):
         data = ROUTE.read_text()
         build = data.split("  build:", 1)[1].split("  sign:", 1)[0]
-        self.assertIn("CANDIDATE_SHA: 587dc41efed0d171aaacd0bda48fb7bff1a9fb58", data)
-        self.assertIn("CANDIDATE_TREE: 3263fd3640de1c6f8e128dcf384129fde03596cf", data)
+        self.assertIn("CANDIDATE_SHA: 80ebe572be0f77132a85ae7e912e6e2372cf08c0", data)
+        self.assertIn("CANDIDATE_TREE: e12596d51a8fa4288c632b87445e909e53f9889b", data)
         self.assertIn('build43_https.sh candidate', build)
         self.assertIn('sha256sum < "$RUNNER_TEMP/qa43.apk"', build)
         self.assertNotIn("ATRIO_QA_CELULAR_KEYSTORE", build)
