@@ -188,6 +188,9 @@ internal fun ModerationScreen(db: FirebaseFirestore, uid: String, onBack: () -> 
                     uid = uid, observedUid = observedUid, enabled = true,
                     gateway = remember {
                         QaScopedCaseHttpGateway(BuildConfig.ATRIO_QA_SCOPED_CASE_ORIGIN)
+                    },
+                    workflowGateway = remember {
+                        QaScopedCaseWorkflowHttpGateway(BuildConfig.ATRIO_QA_SCOPED_CASE_ORIGIN)
                     }
                 )
             }
