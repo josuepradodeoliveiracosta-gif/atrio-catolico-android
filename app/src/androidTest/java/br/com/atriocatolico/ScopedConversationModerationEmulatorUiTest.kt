@@ -9,6 +9,9 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import android.content.Context
+import android.view.inputmethod.InputMethodManager
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.CompletableDeferred
@@ -130,6 +133,219 @@ class ScopedConversationModerationEmulatorUiTest {
     @Test fun withoutQaEndpointTheRealHttpClientFailsClosed() = runBlocking {
         assertEquals(ScopedCaseResult.Closed,
             QaScopedCaseHttpGateway("").open("qa-moderador", "direct", caseId))
+    }
+
+
+    @Test fun moderatorTriageDecisionAndReappealReviewRequireConfirmedCaseStage() {
+        var stage="open"
+        var calls=0
+        val workflow=object:ScopedCaseWorkflowGateway {
+            override suspend fun state(uid:String,channel:String,caseId:String):ScopedWorkflowReply =
+                ScopedWorkflowReply.Stage(stage)
+            override suspend fun action(uid:String,channel:String,caseId:String,
+                action:String,decision:String?,note:String?):ScopedWorkflowReply {
+                calls++
+                stage=when(action) {
+                    "triage" -> { assertEquals("open",stage);assertEquals(null,decision);"triaged" }
+                    "decide" -> {
+                        assertEquals("triaged",stage)
+                        assertEquals("action_recommended",decision)
+                        assertTrue(validScopedWorkflowNote(note.orEmpty()))
+                        "decided"
+                    }
+                    "review_appeal" -> {
+                        assertEquals("appealed",stage);assertEquals("revised",decision)
+                        assertTrue(validScopedWorkflowNote(note.orEmpty()))
+                        "appeal_reviewed"
+                    }
+                    else -> throw AssertionError("Operação fora do contrato")
+                }
+                return ScopedWorkflowReply.Stage(stage)
+            }
+            override suspend fun appeal(uid:String,channel:String,caseId:String,
+                reason:String):ScopedWorkflowReply = ScopedWorkflowReply.Error
+        }
+        val reader=ScopedCaseGateway { _, _, _ -> allowed("direct",caseId) }
+        compose.setContent { MaterialTheme {
+            ScopedConversationModerationPanel("qa-moderador","qa-moderador",true,reader,workflow)
+        }}
+        compose.onNodeWithTag("scoped-case-id").performTextInput(caseId)
+        compose.onNodeWithTag("scoped-case-open").performClick()
+        compose.waitUntil(10_000) { compose.onAllNodes(
+            androidx.compose.ui.test.hasTestTag("scoped-workflow-triage"))
+            .fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("scoped-workflow-triage").performScrollTo().performClick()
+        compose.waitUntil(10_000) { compose.onAllNodes(
+            androidx.compose.ui.test.hasTestTag("scoped-workflow-confirmation"))
+            .fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("scoped-workflow-cancel").performScrollTo().performClick()
+        assertEquals(0,calls)
+        compose.onNodeWithTag("scoped-workflow-triage").performScrollTo().performClick()
+        compose.onNodeWithTag("scoped-workflow-confirm").performScrollTo().performClick()
+        compose.waitUntil(10_000) { compose.onAllNodes(
+            androidx.compose.ui.test.hasTestTag("scoped-workflow-choice-action_recommended"))
+            .fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("scoped-workflow-choice-action_recommended").performScrollTo().performClick()
+        assertEquals(true, compose.onNodeWithTag("scoped-workflow-choice-action_recommended")
+            .fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.Selected])
+        compose.onNodeWithTag("scoped-workflow-note").performTextInput(
+            "Justificativa fictícia de laboratório sem remoção.")
+        compose.runOnUiThread {
+            (compose.activity.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
+                .hideSoftInputFromWindow(compose.activity.window.decorView.windowToken, 0)
+        }
+        compose.waitForIdle()
+        assertTrue(!compose.onNodeWithTag("scoped-workflow-decide").fetchSemanticsNode()
+            .config.contains(androidx.compose.ui.semantics.SemanticsProperties.Disabled))
+        compose.onNodeWithTag("scoped-workflow-decide").performScrollTo().performClick()
+        compose.onNodeWithTag("scoped-workflow-confirm").performScrollTo().performClick()
+        compose.waitUntil(10_000) { compose.onAllNodes(
+            androidx.compose.ui.test.hasTestTag("scoped-workflow-status"))
+            .fetchSemanticsNodes().isNotEmpty() }
+        assertEquals("decided",stage)
+        assertEquals(2,calls)
+        compose.onNodeWithTag("scoped-workflow-triage").assertDoesNotExist()
+        compose.onNodeWithTag("scoped-workflow-decide").assertDoesNotExist()
+        // Agora a atribuição muda para OUTRO moderador. Neste mesmo painel,
+        // resposta 404 do estado deve retirar a prova em vez de permitir revisão.
+        stage="appealed"
+        // O teste de revisão com outro moderador é separado, sem reutilizar
+        // sessão e atribuição do decisor original.
+    }
+
+    @Test fun workflowRefusalClearsEvidenceAndOldCaseNeverBecomesVisible() {
+        val workflow=object:ScopedCaseWorkflowGateway {
+            override suspend fun state(uid:String,channel:String,caseId:String) =
+                ScopedWorkflowReply.Unavailable
+            override suspend fun action(uid:String,channel:String,caseId:String,
+                action:String,decision:String?,note:String?)=ScopedWorkflowReply.Error
+            override suspend fun appeal(uid:String,channel:String,caseId:String,reason:String) =
+                ScopedWorkflowReply.Error
+        }
+        compose.setContent { MaterialTheme {
+            ScopedConversationModerationPanel("qa-moderador","qa-moderador",true,
+                ScopedCaseGateway{_,_,_->allowed("direct",caseId)},workflow)
+        }}
+        compose.onNodeWithTag("scoped-case-id").performTextInput(caseId)
+        compose.onNodeWithTag("scoped-case-open").performClick()
+        compose.waitUntil(10_000) { compose.onAllNodes(
+            androidx.compose.ui.test.hasTestTag("scoped-case-unavailable"))
+            .fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("scoped-case-excerpt").assertDoesNotExist()
+        compose.onNodeWithTag("scoped-workflow-controls").assertDoesNotExist()
+    }
+
+    @Test fun reporterCanSubmitSingleAppealAfterDecisionViaExplicitConfirmation() {
+        var sent=""
+        var count=0
+        val workflow=object:ScopedCaseWorkflowGateway {
+            override suspend fun state(uid:String,channel:String,caseId:String)=ScopedWorkflowReply.Error
+            override suspend fun action(uid:String,channel:String,caseId:String,
+                action:String,decision:String?,note:String?)=ScopedWorkflowReply.Error
+            override suspend fun appeal(uid:String,channel:String,caseId:String,
+                reason:String):ScopedWorkflowReply {
+                assertEquals("qa-clara",uid)
+                assertEquals("direct",channel)
+                assertTrue(caseId.startsWith(uid+"__"))
+                assertTrue(validScopedWorkflowNote(reason))
+                sent=reason;count++
+                return ScopedWorkflowReply.Stage("appealed")
+            }
+        }
+        compose.setContent { MaterialTheme {
+            ScopedCaseAppealPanel("qa-clara","qa-clara","direct",
+                "qa-clara__dm01__m01",workflow)
+        }}
+        compose.onNodeWithTag("scoped-appeal-toggle").performClick()
+        compose.onNodeWithTag("scoped-appeal-reason").performTextInput(
+            " Solicito revisão por outro moderador. ")
+        compose.onNodeWithTag("scoped-appeal-submit").performClick()
+        compose.onNodeWithText("Cancelar").performClick()
+        assertEquals(0,count)
+        compose.onNodeWithTag("scoped-appeal-submit").performClick()
+        compose.onNodeWithTag("scoped-appeal-confirm").performClick()
+        compose.waitUntil(10_000) { compose.onAllNodes(
+            androidx.compose.ui.test.hasTestTag("scoped-appeal-result"))
+            .fetchSemanticsNodes().isNotEmpty() }
+        assertEquals("Solicito revisão por outro moderador.",sent)
+        assertEquals(1,count)
+        compose.onNodeWithTag("scoped-case-excerpt").assertDoesNotExist()
+    }
+
+
+    @Test fun separateReviewerMayReviewAppealAndDenialClearsEvidence() {
+        var state:ScopedWorkflowReply=ScopedWorkflowReply.Stage("appealed")
+        var reviews=0
+        val gate=object:ScopedCaseWorkflowGateway {
+            override suspend fun state(uid:String,channel:String,caseId:String)=state
+            override suspend fun action(uid:String,channel:String,caseId:String,
+                action:String,decision:String?,note:String?):ScopedWorkflowReply {
+                assertEquals("qa-outro-moderador",uid)
+                assertEquals("group",channel)
+                assertEquals("review_appeal",action)
+                assertEquals("revised",decision)
+                assertTrue(validScopedWorkflowNote(note.orEmpty()))
+                reviews++
+                state=ScopedWorkflowReply.Stage("appeal_reviewed")
+                return state
+            }
+            override suspend fun appeal(uid:String,channel:String,caseId:String,reason:String)=
+                ScopedWorkflowReply.Error
+        }
+        compose.setContent { MaterialTheme {
+            ScopedConversationModerationPanel("qa-outro-moderador","qa-outro-moderador",
+                true,ScopedCaseGateway{_,_,_->allowed("group",caseId)},gate)
+        }}
+        compose.onNodeWithTag("scoped-case-group").performClick()
+        compose.onNodeWithTag("scoped-case-id").performTextInput(caseId)
+        compose.onNodeWithTag("scoped-case-open").performClick()
+        compose.waitUntil(10_000) { compose.onAllNodes(
+            androidx.compose.ui.test.hasTestTag("scoped-workflow-choice-revised"))
+            .fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("scoped-workflow-choice-revised").performScrollTo().performClick()
+        assertEquals(true, compose.onNodeWithTag("scoped-workflow-choice-revised")
+            .fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.Selected])
+        compose.onNodeWithTag("scoped-workflow-note").performTextInput(
+            "Revisão por moderador distinto no laboratório.")
+        compose.runOnUiThread {
+            (compose.activity.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
+                .hideSoftInputFromWindow(compose.activity.window.decorView.windowToken, 0)
+        }
+        compose.waitForIdle()
+        assertTrue(!compose.onNodeWithTag("scoped-workflow-decide").fetchSemanticsNode()
+            .config.contains(androidx.compose.ui.semantics.SemanticsProperties.Disabled))
+        compose.onNodeWithTag("scoped-workflow-decide").performScrollTo().performClick()
+        compose.onNodeWithTag("scoped-workflow-confirm").performScrollTo().performClick()
+        compose.waitUntil(10_000) { compose.onAllNodes(
+            androidx.compose.ui.test.hasTestTag("scoped-workflow-status"))
+            .fetchSemanticsNodes().isNotEmpty() }
+        assertEquals(1,reviews)
+        assertEquals(ScopedWorkflowReply.Stage("appeal_reviewed"),state)
+        state=ScopedWorkflowReply.Unavailable
+        compose.onNodeWithTag("scoped-case-open").performClick()
+        compose.waitUntil(10_000) { compose.onAllNodes(
+            androidx.compose.ui.test.hasTestTag("scoped-case-unavailable"))
+            .fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("scoped-case-excerpt").assertDoesNotExist()
+    }
+
+    @Test fun workflowParserAndLocalGatewayRejectUnexpectedPayload() = runBlocking {
+        val available="""{"status":"available","stage":"triaged"}"""
+        assertEquals(ScopedWorkflowReply.Stage("triaged"),
+            decodeScopedWorkflowReply(available,"state"))
+        assertEquals(ScopedWorkflowReply.Error,
+            decodeScopedWorkflowReply("""{"status":"accepted","stage":"decided","privateHistory":1}""",
+                "action","decide"))
+        assertEquals(ScopedWorkflowReply.Error,
+            decodeScopedWorkflowReply(available,"action","triage"))
+        assertEquals(ScopedWorkflowReply.Error,
+            decodeScopedWorkflowReply("""{"status":"accepted","stage":"appealed"}""",
+                "action","decide"))
+        assertEquals(ScopedWorkflowReply.Closed,
+            QaScopedCaseWorkflowHttpGateway("").state("qa-clara","direct",caseId))
+        assertEquals(ScopedWorkflowReply.Closed,
+            QaScopedCaseWorkflowHttpGateway("").appeal("qa-clara","direct",caseId,
+                "Motivo de teste legítimo."))
     }
 
     private fun allowed(channel: String, id: String): ScopedCaseResult =

@@ -5,6 +5,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
@@ -156,7 +160,8 @@ internal fun ScopedConversationModerationPanel(
     uid: String,
     observedUid: String?,
     enabled: Boolean,
-    gateway: ScopedCaseGateway
+    gateway: ScopedCaseGateway,
+    workflowGateway: ScopedCaseWorkflowGateway? = null
 ) {
     var channel by remember(uid) { mutableStateOf("direct") }
     var caseId by remember(uid) { mutableStateOf("") }
@@ -176,7 +181,10 @@ internal fun ScopedConversationModerationPanel(
 
     if (!enabled) return
     Card(Modifier.fillMaxWidth().testTag("scoped-case-panel")) {
-        Column(Modifier.fillMaxWidth().padding(16.dp),
+        // Altura limitada: este cartão também é filho de uma LazyColumn na moderação.
+        // Área rolável acessível ao TalkBack e às ações abaixo do teclado.
+        Column(Modifier.fillMaxWidth().imePadding().heightIn(max = 520.dp)
+            .verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Denúncias de conversas · QA", style = MaterialTheme.typography.titleMedium)
             Text("Somente atendimento de caso previamente atribuído. " +
@@ -251,6 +259,23 @@ internal fun ScopedConversationModerationPanel(
                     Text("Registrada em: " + result.evidence.reportedAt)
                     Text("A prova exibida não concede acesso à conversa nem a outras mensagens.",
                         style = MaterialTheme.typography.bodySmall)
+                    if (workflowGateway != null) {
+                        ScopedModerationWorkflowControls(
+                            uid = uid, observedUid = observedUid,
+                            channel = result.evidence.channel, caseId = result.evidence.caseId,
+                            gateway = workflowGateway,
+                            onDenied = { answer ->
+                                requestSerial++
+                                current = when (answer) {
+                                    ScopedWorkflowReply.Unavailable -> ScopedCaseResult.Unavailable
+                                    ScopedWorkflowReply.Closed -> ScopedCaseResult.Closed
+                                    else -> ScopedCaseResult.Error
+                                }
+                                caseId = ""
+                                loading = false
+                            }
+                        )
+                    }
                 }
                 ScopedCaseResult.Unavailable -> Text(
                     "Denúncia indisponível. O acesso pode ter expirado ou sido revogado.",
