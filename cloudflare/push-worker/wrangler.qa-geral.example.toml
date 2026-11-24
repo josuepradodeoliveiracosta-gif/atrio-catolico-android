@@ -1,6 +1,5 @@
 name = "atrio-push-qa-general"
-# Generate the entry with scripts/build-conversation-push-pilot.mjs before packaging.
-main = ".wrangler/conversations/entry.mjs"
+main = "src/qa-geral.js"
 compatibility_date = "2026-10-26"
 workers_dev = false
 preview_urls = false
