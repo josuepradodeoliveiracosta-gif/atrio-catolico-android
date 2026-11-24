@@ -20,7 +20,6 @@ assert.ok(!process.env.GOOGLE_APPLICATION_CREDENTIALS);
 const [host,port]=process.env.FIRESTORE_EMULATOR_HOST.split(':');
 const base='https://item13.qa.invalid/v1/qa/conversations/moderation/case';
 const other={uid:'qa-reviewer-appeal',email:'reviewer@qa.invalid'};
-const outside={uid:'qa-item13-fora',email:'fora@qa.invalid'};
 const now=new Date();
 const end=new Date(now.getTime()+86400000);
 const tokenClaims={
