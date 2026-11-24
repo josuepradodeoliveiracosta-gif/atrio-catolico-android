@@ -377,10 +377,9 @@ try {
   });
   await env.withSecurityRulesDisabled(async ctx=>
     setDoc(doc(ctx.firestore(),'admins/chat-qa-reviewer'),{enabled:true}));
-  await check('moderador vê denúncia, não o histórico privado de chats',async()=>{
-    const reports=await assertSucceeds(getDocs(collection(reviewer,'chat_reports')));
-    assert.equal(reports.docs.length,1);
-    assert.equal(reports.docs[0].data().messageId,'m2');
+  await check('moderador não consulta protocolos por SDK nem histórico privado de chats',async()=>{
+    await assertFails(getDocs(collection(reviewer,'chat_reports')));
+    await assertFails(getDoc(doc(reviewer,'chat_reports/chat-bob__'+chatId+'__m2')));
     await assertFails(getDoc(doc(reviewer,room)));
     await assertFails(getDoc(doc(reviewer,room+'/messages/m2')));
     await assertFails(deleteDoc(doc(reviewer,
@@ -527,10 +526,10 @@ try {
     await assertFails(getDoc(doc(alice,room)));
     await assertFails(getDoc(doc(bob,room+'/messages/m2')));
   });
-  await check('suspender chats preserva denúncias para titular e revisor',async()=>{
+  await check('suspender chats preserva denúncia do titular sem abrir SDK ao revisor',async()=>{
     const report='chat_reports/chat-bob__'+chatId+'__m2';
     await assertSucceeds(getDoc(doc(bob,report)));
-    await assertSucceeds(getDoc(doc(reviewer,report)));
+    await assertFails(getDoc(doc(reviewer,report)));
     await assertFails(getDoc(doc(stranger,report)));
   });
   await env.withSecurityRulesDisabled(async ctx=>

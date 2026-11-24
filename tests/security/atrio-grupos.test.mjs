@@ -340,10 +340,9 @@ try {
   });
   await env.withSecurityRulesDisabled(async ctx=>
     setDoc(doc(ctx.firestore(),'admins/group-qa-reviewer'),{enabled:true}));
-  await check('revisor vê a denúncia, nunca o histórico privado do grupo',async()=>{
-    const reports=await assertSucceeds(getDocs(collection(reviewer,'chat_group_reports')));
-    assert.equal(reports.docs.length,1);
-    assert.equal(reports.docs[0].data().messageId,'msg1');
+  await check('revisor não consulta denúncia diretamente nem histórico privado do grupo',async()=>{
+    await assertFails(getDocs(collection(reviewer,'chat_group_reports')));
+    await assertFails(getDoc(doc(reviewer,'chat_group_reports/group-a__'+groupId+'__msg1')));
     await assertFails(getDoc(doc(reviewer,group)));
     await assertFails(getDoc(doc(reviewer,group+'/messages/msg1')));
     await assertFails(deleteDoc(doc(reviewer,
@@ -581,10 +580,10 @@ try {
     await assertFails(getDoc(doc(b,group+'/atrioGroupInvites/group-b')));
     await assertFails(getDoc(doc(a,group+'/messages/msg1')));
   });
-  await check('suspensão de grupos preserva protocolo e auditoria de denúncia',async()=>{
+  await check('suspensão preserva protocolo do autor e impede leitura direta do revisor',async()=>{
     const report='chat_group_reports/group-a__'+groupId+'__msg1';
     await assertSucceeds(getDoc(doc(a,report)));
-    await assertSucceeds(getDoc(doc(reviewer,report)));
+    await assertFails(getDoc(doc(reviewer,report)));
     await assertFails(getDoc(doc(stranger,report)));
   });
   console.log('GROUP SECURITY TESTS:',passed,'OK');
