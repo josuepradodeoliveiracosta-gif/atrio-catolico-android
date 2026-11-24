@@ -227,9 +227,9 @@ internal fun ScopedModerationWorkflowControls(
                 } else blocked.value(if(checked is ScopedWorkflowReply.Stage)
                     ScopedWorkflowReply.Error else checked)
             }
-        },modifier=Modifier.testTag("scoped-workflow-confirm")){Text("Confirmar")},
+        },modifier=Modifier.testTag("scoped-workflow-confirm")) { Text("Confirmar") } },
         dismissButton={TextButton(onClick={confirm=null},
-            modifier=Modifier.testTag("scoped-workflow-cancel")){Text("Cancelar")}
+            modifier=Modifier.testTag("scoped-workflow-cancel")) { Text("Cancelar") } }
     )
 }
 
@@ -305,7 +305,7 @@ internal fun ScopedCaseAppealPanel(
                     ScopedWorkflowReply.Error -> "Não foi possível enviar. Tente novamente."
                 }
             }
-        },modifier=Modifier.testTag("scoped-appeal-confirm")){Text("Confirmar envio")},
-        dismissButton={TextButton(onClick={confirming=false}){Text("Cancelar")}
+        },modifier=Modifier.testTag("scoped-appeal-confirm")) { Text("Confirmar envio") } },
+        dismissButton={TextButton(onClick={confirming=false}) { Text("Cancelar") } }
     )
 }
