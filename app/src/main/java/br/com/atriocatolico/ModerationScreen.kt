@@ -181,6 +181,16 @@ internal fun ModerationScreen(db: FirebaseFirestore, uid: String, onBack: () -> 
                 }
             }
             if (!loading && !loadError) item { GuardianCaseOverview(db, uid) }
+            // Denúncias privadas nunca entram na listagem de posts ou nas coleções globais.
+            // O painel por caso existe somente em QA Geral local.
+            if (BuildConfig.ATRIO_QA_GERAL_CELULAR_PILOT && !BuildConfig.ATRIO_QA_GERAL_REMOTE) item {
+                ScopedConversationModerationPanel(
+                    uid = uid, observedUid = observedUid, enabled = true,
+                    gateway = remember {
+                        QaScopedCaseHttpGateway(BuildConfig.ATRIO_QA_SCOPED_CASE_ORIGIN)
+                    }
+                )
+            }
             item { UserReportsAdminPanel(db, uid) }
             item { FeedReportsAdminPanel(db, uid) }
             if (CloudinaryAvatarClient.enabled && !loading && !loadError) item {
