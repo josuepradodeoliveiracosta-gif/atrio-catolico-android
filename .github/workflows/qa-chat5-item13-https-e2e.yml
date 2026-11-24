@@ -1,0 +1,93 @@
+name: Chat 5 — Item 13 HTTPS E2E independente
+
+on:
+  pull_request:
+    branches: [qa/chat7-199-item13-main-post448]
+    paths:
+      - '.github/workflows/qa-chat5-item13-https-e2e.yml'
+      - 'scripts/qa-item13-https-e2e.sh'
+      - 'tests/security/serve-item13-android-https-qa.mjs'
+      - 'app/src/androidTest/java/br/com/atriocatolico/ScopedCaseHttpsE2eAndroidTest.kt'
+permissions:
+  contents: read
+
+concurrency:
+  group: qa-chat5-item13-https-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  android-https-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      ATRIO_ITEM13_HTTPS_QA: '1'
+      ATRIO_QA_GERAL_BUILD: '1'
+      ATRIO_QA_GERAL_CELULAR_PILOT: '1'
+      ATRIO_QA_APK: qaGeral
+      ATRIO_QA_FIREBASE_PROJECT: demo-atrio-v11
+      ATRIO_QA_MODERATION_CASE_LAB: '1'
+      ATRIO_QA_MODERATION_CASE_ORIGIN: https://127.0.0.1:8095
+      SOURCE_SHA: d52048b841287e52d6d2346c80c0f303f4ae0f23
+      SOURCE_TREE: e12596d51a8fa4288c632b87445e909e53f9889b
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Provar igualdade dos insumos da PR 454
+        run: |
+          set -euo pipefail
+          git rev-parse HEAD HEAD^{tree}
+          test "$(git rev-parse "$SOURCE_SHA^{tree}")" = "$SOURCE_TREE"
+          git merge-base --is-ancestor "$SOURCE_SHA" HEAD
+          git diff --check "$SOURCE_SHA" HEAD
+          expected="$(printf '%s\n' '.github/workflows/qa-chat5-item13-https-e2e.yml' 'app/src/androidTest/java/br/com/atriocatolico/ScopedCaseHttpsE2eAndroidTest.kt' 'scripts/qa-item13-https-e2e.sh' 'tests/security/serve-item13-android-https-qa.mjs' | LC_ALL=C sort)"
+          actual="$(git diff --name-only "$SOURCE_SHA" HEAD | LC_ALL=C sort)"
+          test "$expected" = "$actual"
+          test -z "$(git diff --diff-filter=DMRT "$SOURCE_SHA" HEAD --)"
+          test -z "${GOOGLE_APPLICATION_CREDENTIALS:-}"
+          test -z "${ATRIO_PUSH_WORKER_URL:-}"
+          bash -n scripts/qa-item13-https-e2e.sh
+          node --check tests/security/serve-item13-android-https-qa.mjs
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a
+        with:
+          gradle-version: '8.13'
+      - name: Certificados efêmeros e prebuild exclusivo QA
+        run: bash scripts/qa-item13-https-e2e.sh prepare
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: tests/security/package-lock.json
+      - run: npm ci --prefix tests/security
+      - name: Preparar KVM efêmero
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -c /dev/kvm
+          sudo chmod 0666 /dev/kvm
+      - name: Negativas TLS e fluxo Android real por HTTPS
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_4
+          disk-size: 2048M
+          ram-size: 2048M
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -accel on -camera-back none
+          script: bash scripts/qa-item13-https-e2e.sh run
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qa-item13-https-e2e-${{ github.event.pull_request.head.sha }}
+          path: qa-item13-https-evidence
+          retention-days: 7
+          if-no-files-found: error
