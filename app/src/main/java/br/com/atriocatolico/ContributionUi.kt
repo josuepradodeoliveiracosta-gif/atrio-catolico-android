@@ -186,7 +186,8 @@ internal fun ContributionProgressScreen(
             }
         }
         if (progressLoading) item {
-            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Box(Modifier.fillMaxWidth().testTag("atrio-contribution-loading"),
+                contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
         }

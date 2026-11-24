@@ -149,7 +149,8 @@ try {
   await assertFails(getDoc(doc(moderator,chatMessage)));
   await assertFails(getDoc(doc(moderator,groupMessage)));
 
-  // Moderador le apenas protocolos, nunca DMs ou grupos por ser moderador.
+  // O SDK do moderador nao le protocolos; apenas atendimento via backend
+  // com atribuicao por caso, revogacao e auditoria transacional (#199).
   // Denunciante acessa seu protocolo; outro membro nao pode le-lo nem listar.
   await assertSucceeds(getDoc(doc(alice,chatReport)));
   await assertSucceeds(getDoc(doc(alice,groupReport)));
@@ -157,10 +158,10 @@ try {
   await assertFails(getDoc(doc(bob,groupReport)));
   await assertFails(getDocs(collection(alice,'chat_reports')));
   await assertFails(getDocs(collection(alice,'chat_group_reports')));
-  await assertSucceeds(getDoc(doc(moderator,chatReport)));
-  await assertSucceeds(getDoc(doc(moderator,groupReport)));
-  await assertSucceeds(getDocs(collection(moderator,'chat_reports')));
-  await assertSucceeds(getDocs(collection(moderator,'chat_group_reports')));
+  await assertFails(getDoc(doc(moderator,chatReport)));
+  await assertFails(getDoc(doc(moderator,groupReport)));
+  await assertFails(getDocs(collection(moderator,'chat_reports')));
+  await assertFails(getDocs(collection(moderator,'chat_group_reports')));
 
   // Portoes administrativos nao podem ser reabertos por clientes, mesmo
   // quando o fragmento QA e a base legada coexistem na mesma Rules.
@@ -239,7 +240,7 @@ try {
   // O mesmo ex-integrante NAO pode criar outro protocolo apos a retirada,
   // embora a mensagem denunciada permaneça no banco ficticio.
   await assertSucceeds(getDoc(doc(alice,groupReport)));
-  await assertSucceeds(getDoc(doc(moderator,groupReport)));
+  await assertFails(getDoc(doc(moderator,groupReport)));
   await assertFails(getDoc(doc(bob,groupReport)));
   await assertFails(setDoc(doc(alice,newGroupReport),reportPayload));
   await env.withSecurityRulesDisabled(async ctx=>{
@@ -262,8 +263,8 @@ try {
   // Denuncias existentes devem sobreviver ao bloqueio do chat/grupo.
   await assertSucceeds(getDoc(doc(alice,chatReport)));
   await assertSucceeds(getDoc(doc(alice,groupReport)));
-  await assertSucceeds(getDoc(doc(moderator,chatReport)));
-  await assertSucceeds(getDoc(doc(moderator,groupReport)));
+  await assertFails(getDoc(doc(moderator,chatReport)));
+  await assertFails(getDoc(doc(moderator,groupReport)));
   // A rota pública legada continua legível: não é um falso negativo global.
   await assertSucceeds(getDoc(doc(guest,'app_config/opening_video')));
   console.log('Paridade QA: legado, revogacao, ex-membros e protocolos privados OK (EMULATOR).');

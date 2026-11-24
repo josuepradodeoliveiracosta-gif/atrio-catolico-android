@@ -353,9 +353,10 @@
     // A moderação central recebe somente mensagens denunciadas; não tem
     // autorização genérica para ler os grupos privados.
     match /chat_group_reports/{reportId} {
-      allow get: if isAdmin()
-        || (signedIn() && resource.data.reporterUid == request.auth.uid);
-      allow list: if isAdmin();
+      // Atribuicao individual e acesso auditado sao verificados apenas pelo
+      // backend confiavel; nunca conceder leitura global por isAdmin().
+      allow get: if signedIn() && resource.data.reporterUid == request.auth.uid;
+      allow list: if false;
       allow create: if atrioGroupsEnabled() && signedIn()
         && atrioGroupEligible(request.auth.uid)
         && request.resource.data.keys().hasOnly([

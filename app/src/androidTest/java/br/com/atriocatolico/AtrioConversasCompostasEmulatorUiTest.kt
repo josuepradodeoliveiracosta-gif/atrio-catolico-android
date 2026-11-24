@@ -563,7 +563,14 @@ class AtrioConversasCompostasEmulatorUiTest {
             assertDenied(report.get(Source.SERVER))
             val moderatorUid = login("moderador.navegacao@qa.invalid", eligible = false)
             assertEquals("qa-nav-moderador", moderatorUid)
-            assertEquals(bob, await(report.get(Source.SERVER)).getString("reporterUid"))
+            // Item 13: Lúcia não recebe acesso SDK irrestrito ao protocolo,
+            // ainda que o papel de moderadora esteja ativo. Somente o serviço
+            // confiável abre o CASO atribuído e grava a trilha de auditoria.
+            assertDenied(report.get(Source.SERVER))
+            assertDenied(db.collection("chat_reports").get(Source.SERVER))
+            assertDenied(db.collection("chat_group_reports").get(Source.SERVER))
+            assertDenied(db.document("chats/$chatId").get(Source.SERVER))
+            assertDenied(group.get(Source.SERVER))
             assertDenied(entry.get(Source.SERVER))
             fixtureField("admins/$moderatorUid", "enabled", "booleanValue", false)
             assertDenied(report.get(Source.SERVER))

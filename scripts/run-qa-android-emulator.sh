@@ -31,7 +31,8 @@ case "$qa_group" in
 esac
 if [[ "${ATRIO_QA_GERAL_CELULAR_PILOT:-}" == 1 ]]; then
   [[ "$qa_apk" == "qaGeral" && ( "${ATRIO_QA_SUITE:-}" == "AtrioConversasCompostasEmulatorUiTest" ||
-     "${ATRIO_QA_SUITE:-}" == "QaConversationNoticeAndroid" ) ]] || {
+     "${ATRIO_QA_SUITE:-}" == "QaConversationNoticeAndroid" ||
+     "${ATRIO_QA_SUITE:-}" == "ScopedConversationModerationEmulatorUiTest" ) ]] || {
     echo "Piloto QA Celular: somente as suítes focais de Conversas no Emulator" >&2
     exit 2
   }
@@ -396,6 +397,15 @@ if [[ "$notice_focal" == 1 ]]; then
   run_suite QaConversationNoticeSessionAndroidTest
   (cd tests/security && node seed-qa-conversation-notice-android.mjs --firestore-only)
   run_suite QaConversationNoticeRevokedAndroidTest
+  exit "$qa_failed"
+fi
+# O focal UI por caso exercita respostas injetadas e não prepara denúncias globais.
+if [[ "${ATRIO_QA_SUITE:-}" == ScopedConversationModerationEmulatorUiTest ]]; then
+  [[ "$qa_apk" == qaGeral && "${ATRIO_QA_GERAL_CELULAR_PILOT:-}" == 1 &&
+     "${ATRIO_QA_GERAL_REMOTE_BUILD:-}" != 1 ]] || {
+    echo "Atendimento por caso: somente QA Geral local" >&2; exit 2
+  }
+  run_suite "$ATRIO_QA_SUITE"
   exit "$qa_failed"
 fi
 if [[ "${ATRIO_QA_GERAL_CELULAR_PILOT:-}" == 1 ]]; then

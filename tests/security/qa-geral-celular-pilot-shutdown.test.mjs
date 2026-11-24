@@ -177,7 +177,8 @@ test('o encerramento preserva os dados fictícios, mas fecha todas as superfíci
       const mod = client(closed, moderator);
       for (const [path] of reports) {
         assert.ok((await getDocFromServer(doc(b, path))).exists());
-        assert.ok((await getDocFromServer(doc(mod, path))).exists());
+        // Atendimento autorizado por caso usa backend e auditoria, nao SDK.
+        await assertFails(getDocFromServer(doc(mod, path)));
         await assertFails(getDocFromServer(doc(a, path)));
         await assertFails(getDocsFromServer(collection(b, path.split('/')[0])));
         await assertFails(updateDoc(doc(mod, path), {reason: 'Alteração fora do protocolo.'}));

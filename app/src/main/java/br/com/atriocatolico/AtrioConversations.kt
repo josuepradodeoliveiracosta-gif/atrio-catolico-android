@@ -623,6 +623,7 @@ private fun AtrioChatThread(
     var editDraft by remember(uid, chatId) { mutableStateOf("") }
     var deletingMessage by remember(uid, chatId) { mutableStateOf<ChatItem?>(null) }
     var report by remember(uid, chatId) { mutableStateOf<ChatItem?>(null) }
+    var lastReportedCaseId by remember(uid, chatId) { mutableStateOf<String?>(null) }
     var reason by remember(uid, chatId) { mutableStateOf("") }
     val peerUid = chat?.peer(uid) ?: initialPeer?.uid
         ?: if (legacyWrites) "" else preview?.peer(uid).orEmpty()
@@ -935,6 +936,10 @@ private fun AtrioChatThread(
                 Text(peerName, color = Wine, fontWeight = FontWeight.Bold, fontSize = 17.sp)
                 if (peerUid.isNotBlank()) MemberBadgeRow(peerUid, Modifier.fillMaxWidth())
             }
+        }
+        if (BuildConfig.ATRIO_QA_GERAL_CELULAR_PILOT && !BuildConfig.ATRIO_QA_GERAL_REMOTE) {
+            ScopedCaseAppealPanel(uid, rememberGuardianAuthUid(), "direct", lastReportedCaseId,
+                remember { QaScopedCaseWorkflowHttpGateway(BuildConfig.ATRIO_QA_SCOPED_CASE_ORIGIN) })
         }
         HorizontalDivider(color = Line)
         if (!loaded) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -1370,7 +1375,12 @@ private fun AtrioChatThread(
                             saving = false
                             info = if (response.isSuccessful) "Denúncia registrada."
                                 else "Não foi possível denunciar."
-                            if (response.isSuccessful) report = null
+                            if (response.isSuccessful) {
+                                report = null
+                                if (FirebaseAuth.getInstance().currentUser?.uid == uid) {
+                                    lastReportedCaseId = uid + "__" + chatId + "__" + selectedMessage.id
+                                }
+                            }
                         }
                 }) { Text("Enviar denúncia") }
             },
