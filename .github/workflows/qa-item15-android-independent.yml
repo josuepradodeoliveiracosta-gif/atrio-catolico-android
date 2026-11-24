@@ -97,9 +97,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          expected_main=d1169839ad9f5b33c104d7f7e9e4772df3f304f7
+          expected_main=d04391254e8ef7334836fb3a9960e5c6d584b50e
           git cat-file -e "${expected_main}^{commit}"
           test "$(git merge-base HEAD "$expected_main")" = "$expected_main"
+          # A composição não pode substituir os cinco blobs QA do item 14.
+          # Este compare é por conteúdo Git, independente do histórico de merge.
+          for path in \
+            .github/workflows/qa-item14-independent.yml \
+            firebase/qa-general/chat-retention-item14.mjs \
+            tests/security/chat-retention-item14-independent.test.mjs \
+            tests/security/chat-retention-item14.test.mjs \
+            tests/security/package.json; do
+            test "$(git rev-parse "HEAD:$path")" = "$(git rev-parse "$expected_main:$path")"
+          done
+          echo 'QA item14 da main pós-#446 preservado integralmente no item15.'
       - name: Garantir a composição exata da #443 sem alterar o backend
         shell: bash
         env:
