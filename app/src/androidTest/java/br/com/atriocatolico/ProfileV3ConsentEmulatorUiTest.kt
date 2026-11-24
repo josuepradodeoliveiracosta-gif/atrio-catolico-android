@@ -599,6 +599,13 @@ class ProfileV3ConsentEmulatorUiTest {
                 "Seus pontos conquistados continuam no perfil. A pontuação da Linha do tempo e dos Canais aguarda ativação."
             ) }.isSuccess
         }
+        // O status do feed é outra assinatura Firestore. Espere TAMBÉM a carga
+        // de contribution_progress antes de buscar itens virtuais do LazyColumn.
+        compose.waitUntil(15_000) {
+            compose.onAllNodes(hasTestTag("atrio-contribution-loading"))
+                .fetchSemanticsNodes().isEmpty()
+        }
+        compose.onNodeWithTag("atrio-contribution-error").assertDoesNotExist()
         val list = compose.onNodeWithTag("atrio-contribution-progress")
         for (track in listOf("conversation", "helpful", "welcome")) {
             val tag = "atrio-contribution-track-$track"

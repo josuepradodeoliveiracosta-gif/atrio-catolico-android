@@ -156,7 +156,8 @@ internal fun ScopedConversationModerationPanel(
     uid: String,
     observedUid: String?,
     enabled: Boolean,
-    gateway: ScopedCaseGateway
+    gateway: ScopedCaseGateway,
+    workflowGateway: ScopedCaseWorkflowGateway? = null
 ) {
     var channel by remember(uid) { mutableStateOf("direct") }
     var caseId by remember(uid) { mutableStateOf("") }
@@ -251,6 +252,23 @@ internal fun ScopedConversationModerationPanel(
                     Text("Registrada em: " + result.evidence.reportedAt)
                     Text("A prova exibida não concede acesso à conversa nem a outras mensagens.",
                         style = MaterialTheme.typography.bodySmall)
+                    if (workflowGateway != null) {
+                        ScopedModerationWorkflowControls(
+                            uid = uid, observedUid = observedUid,
+                            channel = result.evidence.channel, caseId = result.evidence.caseId,
+                            gateway = workflowGateway,
+                            onDenied = { answer ->
+                                requestSerial++
+                                current = when (answer) {
+                                    ScopedWorkflowReply.Unavailable -> ScopedCaseResult.Unavailable
+                                    ScopedWorkflowReply.Closed -> ScopedCaseResult.Closed
+                                    else -> ScopedCaseResult.Error
+                                }
+                                caseId = ""
+                                loading = false
+                            }
+                        )
+                    }
                 }
                 ScopedCaseResult.Unavailable -> Text(
                     "Denúncia indisponível. O acesso pode ter expirado ou sido revogado.",
