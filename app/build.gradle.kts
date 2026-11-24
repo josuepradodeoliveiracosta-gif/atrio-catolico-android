@@ -18,6 +18,14 @@ val atrioOtaPilotEnabled = atrioOtaReleasePilot || atrioOtaPilotCompileOnly
 val atrioQaGeralBuild = System.getenv("ATRIO_QA_GERAL_BUILD") == "1"
 val atrioQaGeralCelularPilot = System.getenv("ATRIO_QA_GERAL_CELULAR_PILOT") == "1"
 val atrioQaGeralRemote = System.getenv("ATRIO_QA_GERAL_REMOTE_BUILD") == "1"
+val atrioQaScopedCaseLab = System.getenv("ATRIO_QA_MODERATION_CASE_LAB") == "1"
+val atrioQaScopedCaseOrigin = System.getenv("ATRIO_QA_MODERATION_CASE_ORIGIN").orEmpty()
+require((!atrioQaScopedCaseLab && atrioQaScopedCaseOrigin.isBlank()) ||
+    (atrioQaScopedCaseLab && atrioQaGeralBuild && atrioQaGeralCelularPilot &&
+        !atrioQaGeralRemote && atrioQaScopedCaseOrigin == "https://127.0.0.1:8095")) {
+    "Atendimento de caso exige QA Geral local e HTTPS no loopback; integração remota fechada."
+}
+
 val atrioQaInboxDiscovery = System.getenv("ATRIO_QA_INBOX_DISCOVERY") == "1"
 require(!atrioQaInboxDiscovery || (atrioQaGeralBuild && !atrioQaGeralRemote)) {
     "A descoberta de Conversas exige o QA Geral local."
@@ -293,6 +301,7 @@ android {
         buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"0.20.4\"")
         buildConfigField("boolean", "ATRIO_QA_GERAL_REMOTE", "false")
         buildConfigField("boolean", "ATRIO_QA_GERAL_CELULAR_PILOT", "false")
+        buildConfigField("String", "ATRIO_QA_SCOPED_CASE_ORIGIN", "\"\"")
         buildConfigField("boolean", "ATRIO_QA_GERAL_CELULAR_RODADA", "false")
         buildConfigField("boolean", "ATRIO_QA_GERAL_CELULAR_FICTICIO", "false")
         buildConfigField("boolean", "ATRIO_QA_GERAL_CELULAR_FUNCIONAL", "false")
@@ -388,6 +397,7 @@ android {
             }
             buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"$qaName\"")
             buildConfigField("boolean", "ATRIO_QA_GERAL_CELULAR_PILOT", atrioQaGeralCelularPilot.toString())
+            buildConfigField("String", "ATRIO_QA_SCOPED_CASE_ORIGIN", "\"" + (if (atrioQaScopedCaseLab) atrioQaScopedCaseOrigin else "") + "\"")
             buildConfigField("boolean", "ATRIO_QA_GERAL_CELULAR_RODADA", atrioQaGeralCelularRound.toString())
             if (atrioQaGeralRemote) {
                 buildConfigField("boolean", "ATRIO_QA_GERAL_REMOTE", "true")

@@ -30,7 +30,8 @@ case "$qa_group" in
   *) echo "Grupo QA desconhecido: $qa_group" >&2; exit 2 ;;
 esac
 if [[ "${ATRIO_QA_GERAL_CELULAR_PILOT:-}" == 1 ]]; then
-  [[ "$qa_apk" == "qaGeral" && "${ATRIO_QA_SUITE:-}" == "AtrioConversasCompostasEmulatorUiTest" ]] || {
+  [[ "$qa_apk" == "qaGeral" && ( "${ATRIO_QA_SUITE:-}" == "AtrioConversasCompostasEmulatorUiTest" ||
+    "${ATRIO_QA_SUITE:-}" == "ScopedConversationModerationEmulatorUiTest" ) ]] || {
     echo "Piloto QA Celular: somente a suíte de Conversas e Grupos no Emulator" >&2
     exit 2
   }
@@ -323,6 +324,15 @@ if [[ "$inbox_focal" == 1 ]]; then
       grep -F 'QA MESSAGE 200: retry pós-timeout preservou' qa-inbox-discovery-emulator.log
     fi
   fi
+  exit "$qa_failed"
+fi
+# O focal UI por caso exercita respostas injetadas e não prepara denúncias globais.
+if [[ "${ATRIO_QA_SUITE:-}" == ScopedConversationModerationEmulatorUiTest ]]; then
+  [[ "$qa_apk" == qaGeral && "${ATRIO_QA_GERAL_CELULAR_PILOT:-}" == 1 &&
+     "${ATRIO_QA_GERAL_REMOTE_BUILD:-}" != 1 ]] || {
+    echo "Atendimento por caso: somente QA Geral local" >&2; exit 2
+  }
+  run_suite "$ATRIO_QA_SUITE"
   exit "$qa_failed"
 fi
 if [[ "${ATRIO_QA_GERAL_CELULAR_PILOT:-}" == 1 ]]; then
