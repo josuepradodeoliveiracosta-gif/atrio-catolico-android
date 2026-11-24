@@ -33,6 +33,7 @@ internal object ThreadPushSubscriptions {
     }
 
     fun track(context: Context, uid: String, postId: String) {
+        if (QaConversationNotices.configured) return
         if (isRetired(context, uid) || BuildConfig.ATRIO_QA_GERAL_REMOTE || !idPattern.matches(postId) ||
             FirebaseAuth.getInstance().currentUser?.uid != uid) return
         val before = get(context, uid)

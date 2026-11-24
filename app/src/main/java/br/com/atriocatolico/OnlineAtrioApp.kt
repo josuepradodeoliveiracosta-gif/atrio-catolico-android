@@ -945,9 +945,22 @@ private fun OnlineCommunity(
     }
     var conversationsOpen by remember(uid) { mutableStateOf(false) }
     var conversationPeer by remember(uid) { mutableStateOf<PublicMemberTarget?>(null) }
+    var noticeChatId by remember(uid) { mutableStateOf<String?>(null) }
+    if (QaConversationNotices.configured) {
+        val notice by QaConversationNotices.destination.collectAsState()
+        LaunchedEffect(notice, conversationsQa, visible) {
+            if (conversationsQa && visible) {
+                val chatId = QaConversationNotices.consumeDestination(uid) ?: return@LaunchedEffect
+                conversationPeer = null
+                noticeChatId = chatId
+                conversationsOpen = true
+            }
+        }
+    }
     fun closeConversations() {
         conversationsOpen = false
         conversationPeer = null
+        noticeChatId = null
     }
     LaunchedEffect(roundIdentity, conversationsQa) {
         if (roundIdentity && !conversationsQa) closeConversations()
@@ -1531,7 +1544,8 @@ private fun OnlineCommunity(
             if (showConversations) {
                 AtrioConversationsScreen(
                     db = db, uid = uid, onBack = ::closeConversations,
-                    initialPeer = conversationPeer, blockedPeers = blockedMembers,
+                    initialPeer = conversationPeer, initialChatId = noticeChatId,
+                    blockedPeers = blockedMembers,
                     managedBlocks = managedBlocks, managedMessages = managedMessages
                 )
             } else if (forumRetired && detailId != null) {
@@ -1544,6 +1558,7 @@ private fun OnlineCommunity(
                     feedEnabled = communityFeedEnabled || forumRetired,
                     onOpenDiscussion = { postId -> profilePostOpen = true; detailId = postId },
                     onConverse = if (conversationsQa) ({
+                        noticeChatId = null
                         conversationPeer = publicProfileTarget
                         conversationsOpen = true
                     }) else null
@@ -1740,6 +1755,7 @@ private fun OnlineCommunity(
                         onNotifications = { noticesOpen = true; returnToNotices = false },
                         onReviews = { guardiaoAppealsOpen = true },
                         onConversations = if (conversationsQa) ({
+                            noticeChatId = null
                             conversationPeer = null
                             conversationsOpen = true
                         }) else null,
