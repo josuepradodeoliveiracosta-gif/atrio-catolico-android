@@ -201,8 +201,8 @@ test('item 13: ciclo de atendimento humano limitado ao caso e com trilha',async 
   });
 
   await t.test('cliente comum ou moderador não lê/escreve histórico nem estados brutos',async()=>{
-    const user=env.authenticatedContext(alice.uid,{email_verified:true}).firestore();
-    const mod=env.authenticatedContext(moderator.uid,{email_verified:true}).firestore();
+    const user=env.authenticatedContext(alice.uid,{email:alice.email,email_verified:true}).firestore();
+    const mod=env.authenticatedContext(moderator.uid,{email:moderator.email,email_verified:true}).firestore();
     for(const c of sample){
       await assertFails(getDocFromServer(doc(mod,c.report)));
       await assertFails(getDocFromServer(doc(mod,statePath(c))));
