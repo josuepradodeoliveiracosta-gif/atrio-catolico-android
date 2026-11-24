@@ -14,6 +14,7 @@ on:
       - 'tests/security/atrio-grupos.test.mjs'
       - 'tests/security/qa-parity-firestore.test.mjs'
       - 'tests/security/qa-geral-celular-pilot.test.mjs'
+      - 'tests/security/qa-geral-celular-pilot-shutdown.test.mjs'
 
 permissions:
   contents: read
@@ -61,4 +62,4 @@ jobs:
         working-directory: tests/security
         run: |
           ./node_modules/.bin/firebase emulators:exec --only firestore --project demo-atrio-v11 \
-            "node atrio-conversas.test.mjs && node atrio-grupos.test.mjs && node qa-parity-firestore.test.mjs && node qa-geral-celular-pilot.test.mjs && node --test chat-moderation-item13.test.mjs"
+            "node atrio-conversas.test.mjs && node atrio-grupos.test.mjs && node qa-parity-firestore.test.mjs && node qa-geral-celular-pilot.test.mjs && node --test qa-geral-celular-pilot-shutdown.test.mjs && node --test chat-moderation-item13.test.mjs"
