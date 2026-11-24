@@ -9,6 +9,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.CompletableDeferred
@@ -182,7 +183,7 @@ class ScopedConversationModerationEmulatorUiTest {
         compose.onNodeWithTag("scoped-workflow-choice-action_recommended").performClick()
         compose.onNodeWithTag("scoped-workflow-note").performTextInput(
             "Justificativa fictícia de laboratório sem remoção.")
-        compose.onNodeWithTag("scoped-workflow-decide").performClick()
+        compose.onNodeWithTag("scoped-workflow-decide").performScrollTo().performClick()
         compose.onNodeWithTag("scoped-workflow-confirm").performClick()
         compose.waitUntil(10_000) { compose.onAllNodes(
             androidx.compose.ui.test.hasTestTag("scoped-workflow-status"))
@@ -290,7 +291,7 @@ class ScopedConversationModerationEmulatorUiTest {
         compose.onNodeWithTag("scoped-workflow-choice-revised").performClick()
         compose.onNodeWithTag("scoped-workflow-note").performTextInput(
             "Revisão por moderador distinto no laboratório.")
-        compose.onNodeWithTag("scoped-workflow-decide").performClick()
+        compose.onNodeWithTag("scoped-workflow-decide").performScrollTo().performClick()
         compose.onNodeWithTag("scoped-workflow-confirm").performClick()
         compose.waitUntil(10_000) { compose.onAllNodes(
             androidx.compose.ui.test.hasTestTag("scoped-workflow-status"))

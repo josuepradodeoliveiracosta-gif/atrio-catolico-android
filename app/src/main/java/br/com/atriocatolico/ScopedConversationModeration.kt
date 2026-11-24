@@ -5,6 +5,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
@@ -177,7 +181,10 @@ internal fun ScopedConversationModerationPanel(
 
     if (!enabled) return
     Card(Modifier.fillMaxWidth().testTag("scoped-case-panel")) {
-        Column(Modifier.fillMaxWidth().padding(16.dp),
+        // Altura limitada: este cartão também é filho de uma LazyColumn na moderação.
+        // Área rolável acessível ao TalkBack e às ações abaixo do teclado.
+        Column(Modifier.fillMaxWidth().imePadding().heightIn(max = 520.dp)
+            .verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Denúncias de conversas · QA", style = MaterialTheme.typography.titleMedium)
             Text("Somente atendimento de caso previamente atribuído. " +
