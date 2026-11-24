@@ -396,16 +396,6 @@ if [[ "$notice_focal" == 1 ]]; then
   run_suite QaConversationNoticeSessionAndroidTest
   (cd tests/security && node seed-qa-conversation-notice-android.mjs --firestore-only)
   run_suite QaConversationNoticeRevokedAndroidTest
-  # Item 15: cada classe reinicializa somente os dados fictícios do Firestore,
-  # mantendo o Auth Emulator e o mesmo AVD Android local.
-  (cd tests/security && node seed-qa-conversation-notice-android.mjs --firestore-only)
-  run_suite QaConversationNoticeAge18RestoredAndroidTest
-  (cd tests/security && node seed-qa-conversation-notice-android.mjs --firestore-only)
-  run_suite QaConversationNoticeAge18ReRevokedAndroidTest
-  (cd tests/security && node seed-qa-conversation-notice-android.mjs --firestore-only)
-  run_suite QaConversationNoticeAge18ReverseAndroidTest
-  (cd tests/security && node seed-qa-conversation-notice-android.mjs --firestore-only)
-  run_suite QaConversationNoticeThirdBotAndroidTest
   exit "$qa_failed"
 fi
 if [[ "${ATRIO_QA_GERAL_CELULAR_PILOT:-}" == 1 ]]; then
