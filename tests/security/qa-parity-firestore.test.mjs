@@ -240,7 +240,7 @@ try {
   // O mesmo ex-integrante NAO pode criar outro protocolo apos a retirada,
   // embora a mensagem denunciada permaneça no banco ficticio.
   await assertSucceeds(getDoc(doc(alice,groupReport)));
-  await assertSucceeds(getDoc(doc(moderator,groupReport)));
+  await assertFails(getDoc(doc(moderator,groupReport)));
   await assertFails(getDoc(doc(bob,groupReport)));
   await assertFails(setDoc(doc(alice,newGroupReport),reportPayload));
   await env.withSecurityRulesDisabled(async ctx=>{
@@ -263,8 +263,8 @@ try {
   // Denuncias existentes devem sobreviver ao bloqueio do chat/grupo.
   await assertSucceeds(getDoc(doc(alice,chatReport)));
   await assertSucceeds(getDoc(doc(alice,groupReport)));
-  await assertSucceeds(getDoc(doc(moderator,chatReport)));
-  await assertSucceeds(getDoc(doc(moderator,groupReport)));
+  await assertFails(getDoc(doc(moderator,chatReport)));
+  await assertFails(getDoc(doc(moderator,groupReport)));
   // A rota pública legada continua legível: não é um falso negativo global.
   await assertSucceeds(getDoc(doc(guest,'app_config/opening_video')));
   console.log('Paridade QA: legado, revogacao, ex-membros e protocolos privados OK (EMULATOR).');
