@@ -13,6 +13,12 @@
 
 Essas etapas são **convenções de trabalho** e não representam um GitHub Project já criado.
 
+## Encerramento do fluxo dos agentes numerados
+
+O fluxo de desenvolvimento do Átrio por meio dos **agentes 1, 2, 3, 4, 5, 6 e 7 está encerrado**. Esses agentes não serão mais usados para desenvolver o projeto; novas tarefas não devem ser encaminhadas a eles nem depender de repasses entre esses números.
+
+As menções a “Agente 1” até “Agente 7” em documentos e registros anteriores descrevem o processo histórico daquele momento. Elas não indicam agentes ativos, responsáveis atuais ou etapas necessárias para trabalhos novos. O desenvolvimento deve seguir o fluxo vigente desta documentação, com escopo, Issue, branch/PR, critérios de aceite e evidências identificáveis.
+
 ## Modelo de cada tarefa
 
 ```text
