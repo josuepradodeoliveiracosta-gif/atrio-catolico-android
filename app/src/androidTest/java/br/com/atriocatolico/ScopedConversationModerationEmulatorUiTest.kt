@@ -10,6 +10,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.test.espresso.Espresso
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.CompletableDeferred
@@ -172,17 +173,25 @@ class ScopedConversationModerationEmulatorUiTest {
         compose.waitUntil(10_000) { compose.onAllNodes(
             androidx.compose.ui.test.hasTestTag("scoped-workflow-triage"))
             .fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithTag("scoped-workflow-triage").performClick()
+        compose.onNodeWithTag("scoped-workflow-triage").performScrollTo().performClick()
+        compose.waitUntil(10_000) { compose.onAllNodes(
+            androidx.compose.ui.test.hasTestTag("scoped-workflow-confirmation"))
+            .fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("scoped-workflow-cancel").performScrollTo().performClick()
         assertEquals(0,calls)
-        compose.onNodeWithTag("scoped-workflow-triage").performClick()
+        compose.onNodeWithTag("scoped-workflow-triage").performScrollTo().performClick()
         compose.onNodeWithTag("scoped-workflow-confirm").performScrollTo().performClick()
         compose.waitUntil(10_000) { compose.onAllNodes(
             androidx.compose.ui.test.hasTestTag("scoped-workflow-choice-action_recommended"))
             .fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithTag("scoped-workflow-choice-action_recommended").performClick()
+        compose.onNodeWithTag("scoped-workflow-choice-action_recommended").performScrollTo().performClick()
+        compose.onNodeWithTag("scoped-workflow-choice-action_recommended").assert(
+            androidx.compose.ui.test.SemanticsMatcher.expectValue(
+                androidx.compose.ui.semantics.SemanticsProperties.Selected, true))
         compose.onNodeWithTag("scoped-workflow-note").performTextInput(
             "Justificativa fictícia de laboratório sem remoção.")
+        Espresso.closeSoftKeyboard()
+        compose.onNodeWithTag("scoped-workflow-decide").assertIsEnabled()
         compose.onNodeWithTag("scoped-workflow-decide").performScrollTo().performClick()
         compose.onNodeWithTag("scoped-workflow-confirm").performScrollTo().performClick()
         compose.waitUntil(10_000) { compose.onAllNodes(
@@ -288,9 +297,14 @@ class ScopedConversationModerationEmulatorUiTest {
         compose.waitUntil(10_000) { compose.onAllNodes(
             androidx.compose.ui.test.hasTestTag("scoped-workflow-choice-revised"))
             .fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithTag("scoped-workflow-choice-revised").performClick()
+        compose.onNodeWithTag("scoped-workflow-choice-revised").performScrollTo().performClick()
+        compose.onNodeWithTag("scoped-workflow-choice-revised").assert(
+            androidx.compose.ui.test.SemanticsMatcher.expectValue(
+                androidx.compose.ui.semantics.SemanticsProperties.Selected, true))
         compose.onNodeWithTag("scoped-workflow-note").performTextInput(
             "Revisão por moderador distinto no laboratório.")
+        Espresso.closeSoftKeyboard()
+        compose.onNodeWithTag("scoped-workflow-decide").assertIsEnabled()
         compose.onNodeWithTag("scoped-workflow-decide").performScrollTo().performClick()
         compose.onNodeWithTag("scoped-workflow-confirm").performScrollTo().performClick()
         compose.waitUntil(10_000) { compose.onAllNodes(
