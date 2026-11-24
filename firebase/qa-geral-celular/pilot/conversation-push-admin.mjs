@@ -13,13 +13,15 @@ const uidAllowed = (identity, uid) => {
 };
 const millis = value => value?.toMillis?.() ??
   (value instanceof Date ? value.getTime() : NaN);
+// Only an explicit null grants continuous access. Missing or malformed dates fail closed.
+const admissionDeadline = record => record?.expiresAt === null ? Infinity : millis(record?.expiresAt);
 const live = (record,identity,uid,at) =>
   record?.status === 'active' && record.roundId === identity.roundId &&
   record.email === identity.accounts[uid] &&
   typeof record.generation === 'string' &&
   Number.isFinite(millis(record.admittedAt)) &&
   millis(record.admittedAt) <= at &&
-  millis(record.expiresAt) > at;
+  admissionDeadline(record) > at;
 
 export function createConversationPushAdminService({
   db, serverTimestamp, identity=conversationPushIdentity,
@@ -45,7 +47,7 @@ export function createConversationPushAdminService({
     if (expectedGeneration!==null && (typeof expectedGeneration!=='string' || !expectedGeneration)) throw new Error('expected_generation_required');
     uidAllowed(identity,uid);
     if (!['admit','revoke'].includes(action)) throw new Error('invalid_action');
-    if (action==='admit' && (!(expiresAt instanceof Date) ||
+    if (action==='admit' && expiresAt!==null && (!(expiresAt instanceof Date) ||
       !Number.isFinite(expiresAt.getTime()) || expiresAt.getTime() <= now()))
       throw new Error('invalid_expiry');
     const op=operation(uid,operationKey), ref=admission(uid);
@@ -55,7 +57,7 @@ export function createConversationPushAdminService({
         const previous=oldOp.data();
         if (previous.action!==action || previous.roundId!==identity.roundId || previous.expectedGeneration!==expectedGeneration)
           throw new Error('operation_key_reused');
-        if (action==='admit' && millis(previous.expiresAt)!==expiresAt.getTime())
+        if (action==='admit' && admissionDeadline(previous)!==admissionDeadline({expiresAt}))
           throw new Error('operation_key_reused');
         // Uma operação já registrada não pode ser revalidada após mudança de geração.
         if (!oldAdmission.exists || oldAdmission.data()?.generation!==previous.generation)
@@ -107,7 +109,7 @@ export function createConversationPushAdminService({
           left?.generation!==expectedSenderGeneration || right?.generation!==expectedRecipientGeneration ||
           !live(left,identity,senderUid,time) || !live(right,identity,recipientUid,time) ||
           expiresAt.getTime() <= time ||
-          expiresAt.getTime() > Math.min(millis(left.expiresAt),millis(right.expiresAt)) ||
+          expiresAt.getTime() > Math.min(admissionDeadline(left),admissionDeadline(right)) ||
           event?.uid!==senderUid || event?.deletedForAll!==undefined ||
           !Number.isFinite(millis(event?.createdAt)) ||
           millis(event.createdAt)<=millis(left.admittedAt) ||

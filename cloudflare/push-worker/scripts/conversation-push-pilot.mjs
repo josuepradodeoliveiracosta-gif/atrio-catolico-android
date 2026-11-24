@@ -17,6 +17,9 @@ const qaPilotAccountValid = account => !!account && account.disabled !== true
 const qaPilotFuture = field => typeof field?.timestampValue === 'string'
   && Date.parse(field.timestampValue) > Date.now();
 
+// Firestore represents an explicit null with nullValue; missing fields remain closed.
+const qaPilotContinuousOrFuture = field => field?.nullValue === null || qaPilotFuture(field);
+
 function qaPilotTimestamp(value) {
   if (typeof value !== 'string' || !Number.isFinite(Date.parse(value))) return null;
   const parts = /^([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?:[.]([0-9]{1,9}))?Z$/.exec(value);
@@ -36,7 +39,7 @@ function qaPilotAdmitted(admission, eligibility, uid) {
     && grantTime !== null && eligibilityTime !== null && eligibilityTime < grantTime
     && stringField(admission,'status') === 'active'
     && stringField(admission,'roundId') === qaPilot.roundId
-    && qaPilotFuture(admission?.fields?.expiresAt)
+    && qaPilotContinuousOrFuture(admission?.fields?.expiresAt)
     && stringField(admission,'email') === qaPilot.accounts[uid];
 }
 
@@ -76,7 +79,7 @@ async function qaPilotAllowsNotice(token, sender, recipient, event) {
         || stringField(round,'databaseId')!==qaPilot.databaseId
         || stringField(round,'ageMode')!==qaPilot.ageMode
         || stringField(round,'roundId')!==qaPilot.roundId
-        || !qaPilotFuture(round?.fields?.expiresAt)
+        || !qaPilotContinuousOrFuture(round?.fields?.expiresAt)
         || !qaPilotAdmitted(from,fromEligibility,sender)
         || !qaPilotAdmitted(to,toEligibility,recipient)) return false;
     const allowedFields=['kind','conversationId','messageId','senderUid','unread','roundId','expiresAt',

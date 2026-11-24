@@ -111,25 +111,29 @@ jobs:
             test "$(git rev-parse "HEAD:$path")" = "$(git rev-parse "$expected_main:$path")"
           done
           echo 'QA item14 da main pós-#446 preservado integralmente no item15.'
-      - name: Garantir a composição exata da #443 sem alterar o backend
+      - name: Conferir composição do item 15 e extensão de admissão QA
         shell: bash
         env:
           SOURCE_SHA: 7b996255ebab19ed8743b57f3f2866c428462c27
           SOURCE_TREE: 0700ccd943ad65e888050698be49aa7888b9e8f2
+          QA_ADMISSION_SHA: 50ec7908cfe14dfb3de87107caee2e04834a0c00
         run: |
           set -euo pipefail
           test "$(git rev-parse "$SOURCE_SHA^{tree}")" = "$SOURCE_TREE"
           for path in \
             firebase/qa-geral-celular/pilot/qa-age18-restoration.mjs \
-            firebase/qa-geral-celular/pilot/conversation-push-admin.mjs \
-            firebase/qa-geral-celular/pilot/conversation-push-admin-http.mjs \
             firebase/qa-geral-celular/pilot/conversation-push-operator-auth.mjs \
             tests/security/qa-age18-single-use.test.mjs \
             tests/security/qa-conversation-push-pilot.test.mjs \
             app/src/main/java/br/com/atriocatolico/QaConversationNotices.kt; do
             test "$(git rev-parse "HEAD:$path")" = "$(git rev-parse "$SOURCE_SHA:$path")"
           done
-          echo "Item 15: executor, policy e Android de produção idênticos ao SHA #443; somente QA foi acrescido."
+          for path in \
+            firebase/qa-geral-celular/pilot/conversation-push-admin.mjs \
+            firebase/qa-geral-celular/pilot/conversation-push-admin-http.mjs; do
+            test "$(git rev-parse "HEAD:$path")" = "$(git rev-parse "$QA_ADMISSION_SHA:$path")"
+          done
+          echo 'Item 15: composição histórica preservada nos componentes restantes e extensão QA fixada por SHA.'
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
@@ -150,9 +154,9 @@ jobs:
           cache: npm
           cache-dependency-path: tests/security/package-lock.json
       - run: npm ci --prefix tests/security
-      - name: Reutilizar prova de backend exclusivamente no SHA de origem
+      - name: Identificar composição do backend para o ensaio Android
         run: |
-          echo 'Composição #443: backend 149/149; executar Android no checkout filho com mesmos blobs.'
+          echo 'O resultado histórico 149/149 pertence à #443. Esta execução usa a composição com a extensão de admissão QA.'
           git rev-parse HEAD HEAD^{tree}
       - name: Preparar Android Emulator
         run: |
