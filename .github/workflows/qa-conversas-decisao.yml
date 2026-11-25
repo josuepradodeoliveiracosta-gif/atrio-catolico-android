@@ -70,4 +70,4 @@ jobs:
           gradle-version: '8.13'
           cache-disabled: true
       - run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
-      - run: gradle :app:testDebugUnitTest --tests br.com.atriocatolico.AtrioInboxMessageHttpTest --no-daemon
+      - run: gradle :app:testDebugUnitTest --tests br.com.atriocatolico.AtrioInboxMessageHttpTest --tests br.com.atriocatolico.AtrioSimpleDirectQaTest --no-daemon

@@ -153,6 +153,7 @@ private fun AtrioConversationsForSession(
     val uid = user.uid
     var enabled by remember(uid) { mutableStateOf(false) }
     var loadedConfig by remember(uid) { mutableStateOf(false) }
+    var simpleDirect by remember(uid) { mutableStateOf(false) }
     var editingEnabled by remember(uid) { mutableStateOf(false) }
     var deletingEnabled by remember(uid) { mutableStateOf(false) }
     var editWindowMinutes by remember(uid) { mutableIntStateOf(0) }
@@ -174,16 +175,19 @@ private fun AtrioConversationsForSession(
     }
     // O índice por par serve aos perfis e links exatos. A caixa geral usa a
     // descoberta HTTP quando habilitada no emulador.
-    val peerUid = remember(uid, initialPeer?.uid, initialChatId) {
+    val peerUid = remember(uid, initialPeer?.uid, initialChatId, simpleDirect) {
         initialPeer?.uid?.takeIf {
             AtrioPeerInboxPolicy.validPeer(uid, it) &&
                 (initialChatId == null || AtrioChatPolicy.id(uid, it) == initialChatId)
         } ?: AtrioPeerInboxPolicy.peerFromChatId(uid, initialChatId)
+            ?: if (simpleDirect && initialPeer == null && initialChatId == null)
+                AtrioSimpleDirectQa.peer(uid) else null
     }
     val knownPeer = peerUid != null
+    val directPeer = simpleDirect && peerUid != null && peerUid == AtrioSimpleDirectQa.peer(uid)
     var retryInbox by remember(uid, peerUid) { mutableIntStateOf(0) }
     val ownSession = authentication.currentUser === user
-    val useDiscovery = isAtrioManagedInboxQa(db) && initialPeer == null && initialChatId == null
+    val useDiscovery = !simpleDirect && isAtrioManagedInboxQa(db) && initialPeer == null && initialChatId == null
     var selectedDiscoveryRoom by remember { mutableStateOf<ChatRoom?>(null) }
     val chosen = selectedDiscoveryRoom?.takeIf { it.id == selected && it.peer(uid) !in blockedPeers }
         ?: rooms.firstOrNull { it.id == selected }
@@ -230,6 +234,7 @@ private fun AtrioConversationsForSession(
         if (!ownSession) {
             enabled = false
             loadedConfig = false
+            simpleDirect = false
             rooms = emptyList()
             prefs = emptyMap()
             requestPolicy = "none"
@@ -239,6 +244,11 @@ private fun AtrioConversationsForSession(
             .addSnapshotListener(atrioChatMetadataChanges) { doc, failure ->
             loadedConfig = failure != null || atrioChatSnapshotUsable(doc)
             enabled = failure == null && atrioConversationConfigEnabled(doc)
+            val direct = enabled && doc?.metadata?.hasPendingWrites() == false &&
+                doc.getBoolean("qaSimpleDirectEnabled") == true &&
+                atrioSimpleDirectIdentity(db, user)
+            if (direct != simpleDirect) { rooms = emptyList(); prefs = emptyMap() }
+            simpleDirect = direct
             editWindowMinutes = (doc?.getLong("editWindowMinutes") ?: 0L)
                 .coerceIn(0L, 1440L).toInt()
             deleteWindowMinutes = (doc?.getLong("deleteWindowMinutes") ?: 0L)
@@ -300,23 +310,50 @@ private fun AtrioConversationsForSession(
             ) managedMessages.reconcile(peer)
         }
     }
-    LaunchedEffect(db, uid, inbox, enabled, ownSession, ownBlockedPeer, retryInbox) {
+    LaunchedEffect(db, uid, inbox, enabled, ownSession, ownBlockedPeer, retryInbox, simpleDirect, directPeer) {
         // Ao trocar de conta, offline ou revogar acesso: eliminar previews de
         // memória imediatamente. Não usar cache como fallback visual.
         rooms = emptyList()
         error = if (ownBlockedPeer) "Conversa indisponível por bloqueio." else ""
         loaded = inbox == null || !enabled || !ownSession || ownBlockedPeer
-        if (inbox != null && enabled && ownSession && !ownBlockedPeer) {
+        if (directPeer && enabled && ownSession && !ownBlockedPeer) {
+            val target = db.collection("chats").document(AtrioSimpleDirectQa.CHAT_ID)
+            pollAtrioPilotServer({ target.get(Source.SERVER) }, { snapshot, failure ->
+                loaded = true
+                val fresh = failure == null && snapshot != null &&
+                    AtrioPeerInboxPolicy.freshServer(snapshot.metadata.isFromCache,
+                        snapshot.metadata.hasPendingWrites(), authentication.currentUser === user)
+                val room = if (fresh && snapshot?.exists() == true) snapshot.chatRoom() else null
+                val verified = room?.takeIf { it.id == AtrioSimpleDirectQa.CHAT_ID &&
+                    AtrioPeerInboxPolicy.roomMatches(uid, it.id, it.requester, it.recipient, it.status) &&
+                    it.peer(uid) == peerUid }
+                rooms = listOfNotNull(verified)
+                error = if (!fresh || (snapshot?.exists() == true && verified == null))
+                    "Não foi possível confirmar esta conversa no servidor." else ""
+            }, intervalMs = 2_000L)
+        } else if (!simpleDirect && inbox != null && enabled && ownSession && !ownBlockedPeer) {
             pollAtrioPilotServer({ inbox.get(Source.SERVER) },
                 { snapshot, failure -> updateInbox(snapshot, failure) },
                 intervalMs = 10_000L)
         }
     }
     val discoveryChatIds = page?.items.orEmpty().map { it.chatId }
-    DisposableEffect(db, uid, enabled, ownSession, useDiscovery, discoveryChatIds) {
+    DisposableEffect(db, uid, enabled, ownSession, useDiscovery, discoveryChatIds, simpleDirect, directPeer) {
         if (useDiscovery) prefs = emptyMap()
         if (!enabled || !ownSession || (useDiscovery && discoveryChatIds.isEmpty())) onDispose {}
-        else {
+        else if (simpleDirect) {
+            if (!directPeer) onDispose {} else {
+                val listener = db.document("users/$uid/chatBox/${AtrioSimpleDirectQa.CHAT_ID}")
+                    .addSnapshotListener(atrioChatMetadataChanges) { snapshot, failure ->
+                        prefs = if (failure == null && snapshot?.exists() == true &&
+                            !snapshot.metadata.hasPendingWrites() && atrioChatSnapshotUsable(snapshot) &&
+                            authentication.currentUser === user) mapOf(snapshot.id to ChatPrefs(
+                                snapshot.getBoolean("muted") == true, snapshot.getBoolean("pinned") == true,
+                                snapshot.getBoolean("archived") == true)) else emptyMap()
+                    }
+                onDispose { listener.remove() }
+            }
+        } else {
             val settings = db.collection("users").document(uid).collection("chatBox")
             val query = if (useDiscovery) settings.whereIn(FieldPath.documentId(), discoveryChatIds)
                 else settings.limit(100)
@@ -355,7 +392,7 @@ private fun AtrioConversationsForSession(
                     "A implantação exige aprovação das regras e política de proteção de menores.")
                 OutlinedButton(onClick = onBack) { Text("Voltar") }
             }
-        } else if (groupsOpen) {
+        } else if (groupsOpen && !simpleDirect) {
             AtrioGroupsScreen(db,uid,
                 knownPeers = rooms.filter { it.status == "accepted" }
                     .map { it.peer(uid) }.distinct(),
@@ -402,7 +439,7 @@ private fun AtrioConversationsForSession(
                 verticalAlignment=Alignment.CenterVertically) {
                 Text("Átrio Conversas",fontWeight=FontWeight.SemiBold,
                     color=Wine,modifier=Modifier.weight(1f))
-                TextButton(onClick={groupsOpen=true},
+                if (!simpleDirect) TextButton(onClick={groupsOpen=true},
                     modifier=Modifier.testTag("atrio-open-groups")) {
                     Text("Grupos")
                 }
@@ -421,6 +458,8 @@ private fun AtrioConversationsForSession(
                     Modifier.fillMaxWidth().padding(16.dp)
                         .testTag("atrio-peer-discovery-unavailable"),
                     color = MaterialTheme.colorScheme.onSurface)
+            } else if (simpleDirect && directPeer) {
+                Text("Homologação QA: somente Alice e Bob.", Modifier.padding(16.dp))
             } else if (knownPeer) {
                 Text("Mostrando apenas o contato aberto pelo perfil ou por um " +
                     "destino conhecido. A caixa completa ainda não está disponível.",

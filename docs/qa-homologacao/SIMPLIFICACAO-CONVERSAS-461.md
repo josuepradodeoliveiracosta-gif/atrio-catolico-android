@@ -8,7 +8,7 @@ O candidato offline `simple-direct-rules.mjs` combina a captura publicada já fi
 
 - [x] Delimitar escopo, invariantes e congelar base publicada.
 - [x] Compor candidato funcional restrito e escrever testes.
-- [ ] Validar pedido, aceite, envio, revogação e negativas no emulador.
+- [x] Validar pedido, aceite, envio, revogação e negativas no emulador (b37de7e, run 45680297178; alterações posteriores exigem revalidação).
 - [ ] Preparar APK/Worker e verificar o caminho de emissão real; D1, Auth/IAM e publicação da pendência.
 - [ ] Aprovar e aplicar composição QA com rollback e conferência da release.
 - [ ] Restaurar 18+ por autorização de uso único; readmitir ambas as contas sem expiração da admissão e desativar operador temporário.
@@ -16,3 +16,5 @@ O candidato offline `simple-direct-rules.mjs` combina a captura publicada já fi
 - [ ] Confirmar FCM aceito, chegada, aviso, toque e negativos de sessão, permissão e bloqueio.
 
 A composição não altera firebase.json, não faz deploy e não substitui a autorização de publicação. A janela de revisão 18+ permanece finita; admissão permanente não elimina esse controle. Sem prova de entrega real até a última etapa. A barra é por marcos, não por tempo ou linhas de código.
+
+Candidato Android: modo direto exige `qaSimpleDirectEnabled: true` na configuração publicada, identidade QA física exata e ausência da descoberta gerenciada. Consulta somente o documento canônico, com Source.SERVER; preferências por documento, sem listagem geral. A flag vem ausente/fechada por padrão. Não ativar antes de revalidar as Rules e o APK. A publicação da pendência e emissão FCM continuam etapas distintas.

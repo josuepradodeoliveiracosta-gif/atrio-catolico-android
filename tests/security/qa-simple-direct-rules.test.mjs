@@ -15,7 +15,7 @@ test('QA direct: request, recipient decision, atomic send, bounded path, revocat
  const config='app_config/conversations',privacy=u=>'users/'+u+'/chatSettings/privacy';
  const future=Timestamp.fromMillis(Date.now()+3600000);
  const proof={status:'eligible',minimumAge:18,policyVersion:'2026-11-18plus-qa-v1',reviewExpiresAt:future};
- const cfg={enabled:true,minorPolicyApproved:true,version:'2026-11-v1',safetyReviewVersion:'2026-11-safety-v1',
+ const cfg={enabled:true,minorPolicyApproved:true,qaSimpleDirectEnabled:true,version:'2026-11-v1',safetyReviewVersion:'2026-11-safety-v1',
  pushPilot:{enabled:true,projectId:'atrio-catolico-qa-general',databaseId:'(default)',roundId:'qa-199-push-isolado',ageMode:'eligible',expiresAt:null}};
  const seed=async rows=>env.withSecurityRulesDisabled(async c=>{for(const [p,v] of rows){if(v===null)await deleteDoc(doc(c.firestore(),p));else await setDoc(doc(c.firestore(),p),v)}});
  const session=(uid,email,verified=true)=>env.authenticatedContext(uid,{email,email_verified:verified}).firestore();
@@ -29,6 +29,11 @@ test('QA direct: request, recipient decision, atomic send, bounded path, revocat
    ['admins/qa-nav-moderador',{enabled:true}],['chat_reports/old',{reporterUid:a}],
    ['chat_groups/fixture',{memberUids:[a,b]}]]);
   await assertSucceeds(getDoc(op(A,'users/'+a+'/chatLimits/requests')));
+  assert.equal((await assertSucceeds(getDoc(op(A,room)))).exists(),false);
+  await assertFails(getDoc(op(A,'chats/other')));
+  await seed([[config,{...cfg,qaSimpleDirectEnabled:false}]]);
+  await assertFails(getDoc(op(A,room)));
+  await seed([[config,cfg]]);
   const first=writeBatch(A);
   first.set(op(A,'users/'+a+'/chatLimits/requests'),{count:1,windowStart:serverTimestamp(),updatedAt:serverTimestamp(),lastChatId:id});
   first.set(op(A,room),{participants:[a,b],requesterUid:a,recipientUid:b,status:'pending',initialId:'m1',

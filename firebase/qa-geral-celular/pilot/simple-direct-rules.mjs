@@ -20,7 +20,8 @@ export function renderSimpleDirectRules(snapshot){
   if(blob!==pinned)throw Error('qa_simple_fragment_unreviewed');
   const head=between(raw,'    function chatEnabled() {','    match /app_config/conversations {');
   let functions=once(head,between(head,'    function chatEnabled() {','    function chatNoBlock(a, b) {'),
-    '    function chatEnabled() { return qaPushReceiverEnabled(); }\n');
+    '    function chatEnabled() { return qaPushReceiverEnabled()\n'+
+    "      && get(/databases/$(database)/documents/app_config/conversations).data.get('qaSimpleDirectEnabled',false) == true; }\n");
   functions=once(functions,between(functions,'    function chatMember(data) {','    function chatMessagePath(chatId, messageId) {'),
     "    function chatMember(data) {\n"+
     "      return signedIn() && data.participants is list && data.participants.size() == 2\n"+
@@ -33,6 +34,8 @@ export function renderSimpleDirectRules(snapshot){
   // Restrição de caminho no próprio allow, inclusive nas subcoleções.
   const restrict=(s)=>s.replace(/(allow [^:\n]+: if chatEnabled\(\))/g,"$1 && chatId == '"+canonical+"'");
   direct=restrict(direct);
+  direct=once(direct,"      allow get: if chatEnabled() && chatId == '"+canonical+"' && chatMember(resource.data)\n        && chatNoBlock(resource.data.requesterUid, resource.data.recipientUid);",
+    "      allow get: if chatEnabled() && chatId == '"+canonical+"'\n        && (resource == null || (chatMember(resource.data)\n          && chatNoBlock(resource.data.requesterUid, resource.data.recipientUid)));");
   direct=once(direct,'        && validId(request.resource.data.recipientUid)',
     '        && qaMemberUid(request.resource.data.recipientUid)');
   // Listar só mensagens da conversa fixa, nunca a coleção global chats.
