@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {generateKeyPairSync} from 'node:crypto';
-import qaWorker from './qa-geral.js';
+import qaWorker, {createQaRelay} from './qa-geral.js';
 
 const qaProject = 'atrio-catolico-qa-general';
 const qaService = 'atrio-qa-general-push@' + qaProject + '.iam.gserviceaccount.com';
@@ -144,4 +144,33 @@ test('resposta gera FCM apenas ao dispositivo de Bob, no projeto QA', async t =>
   assert.deepEqual(await stopped.json(), {status:'ignored'});
   assert.equal(fcm.length,1);
 
+});
+
+test('rota de decisão fechada por padrão e restrita a identidade QA verificada', async t => {
+  const route='/v1/qa/conversations/chats/qa-nav-alice__qa-nav-bob/decision';
+  const request=project=>new Request('https://qa.invalid'+route,{
+    method:'POST',headers:{Authorization:'Bearer '+jwt(project)}
+  });
+  let account={...alice,emailVerified:false};
+  const auth=t.mock.method(globalThis,'fetch',async()=>Response.json({users:[account]}));
+  let forwarded=0;
+  const relay=createQaRelay(null,{async fetch(req,context){
+    forwarded++;
+    assert.equal(new URL(req.url).pathname,route);
+    assert.equal(context.uid,alice.localId);
+    assert.equal(context.project,qaProject);
+    return Response.json({committed:true});
+  }});
+  assert.equal((await relay.fetch(request(qaProject),qaConfig)).status,503);
+  assert.equal(auth.mock.callCount(),0);
+  const env={...qaConfig,QA_CONVERSATIONS_API_ENABLED:'true'};
+  assert.equal((await relay.fetch(request('atrio-catolico'),env)).status,403);
+  assert.equal(auth.mock.callCount(),0);
+  assert.equal((await relay.fetch(request(qaProject),env)).status,403);
+  assert.equal(forwarded,0);
+  account={...alice};
+  const allowed=await relay.fetch(request(qaProject),env);
+  assert.equal(allowed.status,200);
+  assert.match(allowed.headers.get('cache-control'),/no-store/);
+  assert.equal(forwarded,1);
 });
