@@ -28,11 +28,17 @@ function replaceOnce(code,from,to) {
 }
 export function adaptCurrentMainToQaBase(source) {
   if (typeof source!=='string') throw Error('chat_qa_invalid_source');
-  // SHA do blob de src/index.js: nao substituir silenciosamente seguranca da main.
-  const blob=createHash('sha1')
-    .update('blob '+Buffer.byteLength(source,'utf8')+String.fromCharCode(0)+source,'utf8')
+  // O relay QA usa um export mínimo para o OAuth já existente.
+  // Aceitar somente os dois blobs auditados, nunca alterações arbitrárias.
+  const hash=input=>createHash('sha1')
+    .update('blob '+Buffer.byteLength(input,'utf8')+String.fromCharCode(0)+input,'utf8')
     .digest('hex');
-  if (blob!==EXPECTED_MAIN_BLOB) throw Error('chat_qa_main_blob_changed');
+  const blob=hash(source);
+  if(blob==='1260dc611394fab043209e887044bd81fdc0b602') {
+    source=replaceOnce(source,
+      "export function getQaFirestoreAccessToken(env) {\n  return oauth(env, QA_PROJECT);\n}\n\n",'');
+  }
+  if(hash(source)!==EXPECTED_MAIN_BLOB) throw Error('chat_qa_main_blob_changed');
   if (typeof source!=='string' ||
       source.split("const PROJECT = 'atrio-catolico';").length!==2 ||
       !source.includes("const QA_PROJECT = 'atrio-catolico-qa-general';") ||

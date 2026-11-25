@@ -3,6 +3,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test src/index.test.js src/qa-manual.test.js src/qa-real-auth.test.js src/qa-geral.test.js src/qa-inbox-store.test.js"
+    "test": "node --test src/index.test.js src/qa-manual.test.js src/qa-real-auth.test.js src/qa-geral.test.js src/qa-inbox-store.test.js src/qa-main-adapter.test.js"
   }
 }
