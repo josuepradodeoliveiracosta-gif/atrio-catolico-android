@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {Timestamp} from 'firebase-admin/firestore';
 import {project,operator,baseline,candidate,candidateHash,hash,prepare,classifyRules,assertNoEmulator,
- assertOperator,validAge,validAdmission,closeOperator,withOperator} from './qa-simple-direct-admin-core.mjs';
+ assertOperator,validAge,validAdmission,closeOperator,withOperator,googleHeaders,operatorUserinfoUrl} from './qa-simple-direct-admin-core.mjs';
 test('offline preparation and exact target, no deploy permission',()=>{
  const root=mkdtempSync(join(tmpdir(),'atrio-prep-'));
  try{
@@ -43,4 +43,11 @@ test('operator refuses mismatched principal; failed sign-in always closes operat
  await assert.rejects(withOperator({auth,db:{},principal,apiKey:'fixture',signIn:async()=>{throw Error('denied')},
   capabilities:['manage_admissions']},()=>{throw Error('must_not_run')}),/denied/);
  assert.equal(u.disabled,true);assert.deepEqual(u.customClaims,{});assert.equal(revoked,true);
+});
+
+test('OAuth userinfo omits project quota header; Firebase calls retain it',()=>{
+ assert.deepEqual(googleHeaders(operatorUserinfoUrl,'fixture'),{Authorization:'Bearer fixture'});
+ for(const url of ['https://firebaserules.googleapis.com/v1/projects/'+project+'/releases/cloud.firestore','https://identitytoolkit.googleapis.com/admin/v2/projects/'+project+'/config','https://firebase.googleapis.com/v1beta1/projects/'+project+'/androidApps']){
+  assert.deepEqual(googleHeaders(url,'fixture'),{Authorization:'Bearer fixture','x-goog-user-project':project});
+ }
 });

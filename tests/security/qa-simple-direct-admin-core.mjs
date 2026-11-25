@@ -9,6 +9,13 @@ import {renderSimpleDirectRules} from '../../firebase/qa-geral-celular/pilot/sim
 import {createAuthenticatedConversationPushAdmin} from '../../firebase/qa-geral-celular/pilot/conversation-push-operator-auth.mjs';
 
 export const project=identity.projectId;
+export const operatorUserinfoUrl='https://www.googleapis.com/oauth2/v2/userinfo';
+// Userinfo is an OAuth identity endpoint, not a project-billed Firebase API.
+export function googleHeaders(url,access){
+ const headers={Authorization:'Bearer '+access};
+ if(url!==operatorUserinfoUrl)headers['x-goog-user-project']=project;
+ return headers;
+}
 export const operator='qa-push-operator-local';
 export const chatId='qa-nav-alice__qa-nav-bob';
 export const uids=Object.keys(identity.accounts);

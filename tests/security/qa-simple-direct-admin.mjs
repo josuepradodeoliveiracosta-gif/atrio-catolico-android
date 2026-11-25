@@ -3,7 +3,8 @@ import {initializeApp,applicationDefault,deleteApp} from 'firebase-admin/app';
 import {getAuth} from 'firebase-admin/auth';
 import {initializeFirestore,FieldValue} from 'firebase-admin/firestore';
 import {project,operator,chatId,uids,appId,packageName,prepare,classifyRules,validConfig,
- validAge,validAdmission,assertNoEmulator,assertOperator,closeOperator,withOperator,restorePair}
+ validAge,validAdmission,assertNoEmulator,assertOperator,closeOperator,withOperator,restorePair,
+ googleHeaders,operatorUserinfoUrl}
  from './qa-simple-direct-admin-core.mjs';
 import {conversationPushIdentity as identity} from '../../firebase/qa-geral-celular/pilot/conversation-push-policy.mjs';
 const fail=(ok,code)=>{if(!ok)throw Error(code)};
@@ -21,16 +22,18 @@ if(mode==='prepare'){
  let stage='adc';
  try{
   const access=(await credential.getAccessToken()).access_token;
+  if(mode==='preflight')console.log('ADC: credencial obtida');
   const json=async(url,options={})=>{
    const response=await fetch(url,{redirect:'error',signal:AbortSignal.timeout(20000),...options});
    if(!response.ok)throw Error('http_'+response.status);
    return response.json();
   };
-  const google=url=>json(url,{headers:{Authorization:'Bearer '+access,'x-goog-user-project':project}});
+  const google=url=>json(url,{headers:googleHeaders(url,access)});
   stage='operator_identity';
-  const principal=await google('https://www.googleapis.com/oauth2/v2/userinfo');
+  const principal=await google(operatorUserinfoUrl);
   const user=await auth.getUser(operator);
   assertOperator(user,principal,mode!=='cleanup');
+  if(mode==='preflight')console.log('Identidade: operador verificado e desativado');
   if(mode==='cleanup'){
    await closeOperator(auth);
    console.log('OPERADOR DESATIVADO, CLAIMS REMOVIDAS, SESSOES REVOGADAS');
@@ -41,6 +44,7 @@ if(mode==='prepare'){
    const rs=await google('https://firebaserules.googleapis.com/v1/'+release.rulesetName);
    fail(rs.source?.files?.length===1,'unexpected_rules_files');
    const rules=classifyRules(release.rulesetName,rs.source.files[0].content);
+   if(mode==='preflight')console.log('Ruleset: '+rules);
    const doc=path=>db.doc(path).get();
    const readAge=uid=>doc('users/'+uid+'/chatAgeEligibility/current');
    const readAdmission=uid=>doc('users/'+uid+'/chatPushAdmission/current');
