@@ -221,6 +221,29 @@ test('mesmos documentos para Rules e Worker de Conversas do piloto DM #199',asyn
     });
   }
 
+  await t.test('diagnóstico de falha OAuth é sanitizado e conserva HTTP 503',async sub=>{
+    await seed();
+    const fresh=(await import('data:text/javascript;base64,'+
+      Buffer.from(workerSource+'\n// fresh diagnostic fixture').toString('base64'))).default;
+    const fixture=useExternalFixtures(sub);
+    const warnings=sub.mock.method(console,'warn',()=>{});
+    const current=globalThis.fetch;
+    sub.mock.method(globalThis,'fetch',async(input,init)=>{
+      if(new URL(input).origin==='https://oauth2.googleapis.com')
+        return Response.json({error:'fixture-secret-must-not-leak'},{status:400});
+      return current(input,init);
+    });
+    const result=await fresh.fetch(requestNotice(),fixture.env);
+    assert.equal(result.status,503);
+    assert.deepEqual(await result.json(),{status:'notice_unavailable'});
+    assert.deepEqual(warnings.mock.calls.map(call=>call.arguments[0]),[
+      {event:'qa_push_diagnostic',stage:'oauth_http',status:400},
+      {event:'qa_push_diagnostic',stage:'notice_oauth',status:0},
+    ]);
+    assert.equal(fixture.stats().reserved,0);
+    assert.equal(fixture.stats().sent,0);
+  });
+
   await t.test('recibo FCM do emissor produz o mesmo SHA-256 da #426 sem expor o ID',async sub=>{
     await seed();
     const fixture=useExternalFixtures(sub);

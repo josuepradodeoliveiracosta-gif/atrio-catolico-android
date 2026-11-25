@@ -144,10 +144,13 @@ async function qaLogFcmSendResponse(status, messageId) {
 async function qaReadConversationNotice(request, env, configured) {
   if (env.PUSH_ENABLED!=='true') return response(503,'disabled');
   if (!configured) return response(503,'not_configured');
+  let stage='notice_auth';
   try {
     const recipient=await verifyIdentity(request,env,PROJECT);
     if (!recipient) return response(401,'unauthorized');
+    stage='notice_oauth';
     const token=await oauth(env,PROJECT);
+    stage='notice_firestore';
     const pending=await firestoreGet(token,'users/'+enc(recipient)+'/chatPushPending/current');
     const sender=stringField(pending,'senderUid');
     const event={
@@ -159,7 +162,7 @@ async function qaReadConversationNotice(request, env, configured) {
       return response(404,'no_notice');
     return Response.json({conversationId:event.chatId,messageId:event.messageId,senderUid:sender},
       {headers:{'Cache-Control':'no-store'}});
-  } catch { return response(503,'notice_unavailable'); }
+  } catch { qaPilotDiagnostic(stage,0); return response(503,'notice_unavailable'); }
 }
 
 `;
@@ -207,5 +210,24 @@ export function renderConversationPushPilotWorker(mainWorker) {
             accepted++;
             await qaLogFcmSendResponse(result.status, receipt.name.slice(prefix.length));
           } else {`);
+  // Instrument only the generated QA pilot. No raw error, URL, token, body,
+  // identity, private key, document path or request headers are logged.
+  replace("const qaNoRedirectFetch = (url, init={}) => fetch(url,{...init,redirect:'error'});", 
+    'const qaPilotDiagnostic = (stage,status) => {\n'+
+    "  if (!['auth_http','oauth_http','firestore_http','fcm_http','other_http','notice_auth','notice_oauth','notice_firestore','event_auth','event_oauth','event_firestore'].includes(stage)) return;\n"+
+    "  try { console.warn({event:'qa_push_diagnostic',stage,status:Number.isInteger(status)&&status>=100&&status<=599?status:0}); } catch {}\n"+
+    '};\n'+
+    'const qaNoRedirectFetch = async (url, init={}) => {\n'+
+    '  const origin = new URL(url).origin;\n'+
+    "  const stage = origin==='https://oauth2.googleapis.com'?'oauth_http':origin==='https://identitytoolkit.googleapis.com'?'auth_http':origin==='https://firestore.googleapis.com'?'firestore_http':origin==='https://fcm.googleapis.com'?'fcm_http':'other_http';\n"+
+    "  try { const r=await fetch(url,{...init,redirect:'error'}); if(!r.ok && !(stage==='firestore_http' && r.status===404)) qaPilotDiagnostic(stage,r.status); return r; }\n"+
+    "  catch(error) { qaPilotDiagnostic(stage,0); throw error; }\n"+
+    '};');
+  replace("    if(Number(request.headers.get('content-length')||'0')>512)\n      return response(413,'too_large');\n    try {",
+    "    if(Number(request.headers.get('content-length')||'0')>512)\n      return response(413,'too_large');\n    let stage='event_auth';\n    try {");
+  replace("      const uid=await verifyIdentity(request,env);\n      if(!uid) return response(401,'unauthorized');\n      const token=await oauth(env);",
+    "      const uid=await verifyIdentity(request,env);\n      if(!uid) return response(401,'unauthorized');\n      stage='event_oauth';\n      const token=await oauth(env);\n      stage='event_firestore';");
+  replace("      // Não registrar ID tokens, chaves, UID, FCM tokens nem payloads em logs.\n      return response(503,'unavailable');",
+    "      // Diagnóstico de etapa fixo, nunca dados da requisição.\n      qaPilotDiagnostic(stage,0);\n      return response(503,'unavailable');");
   return code;
 }

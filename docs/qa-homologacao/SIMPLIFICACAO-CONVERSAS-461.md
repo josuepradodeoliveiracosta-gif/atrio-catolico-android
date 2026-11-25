@@ -46,3 +46,8 @@ A verificação histórica de Item 13 permanece inalterada e vermelha: 11 dos 12
 ### Diagnóstico de relógio do executor (25/11)
 
 A primeira restauração real abortou com `admission_verification_failed`; o pré-voo seguinte confirmou operador fechado e ambas elegibilidades revogadas. Alice teve a admissão revogada pela compensação, Bob manteve a admissão histórica inválida. O Firestore apresentou horário de leitura adiantado em relação ao dispositivo (estimativas de 1337 e 609 ms incluindo latência). A causa específica ainda não foi comprovada. A validação administrativa usa `readTime` do Firestore, mantém ordem estrita por nanossegundos, exige metadados e recusa horários futuros, provas revogadas/expiradas e gerações divergentes. Em falha, somente nomes de predicados são informados. Teste simula relógio local atrasado e negativas. Não altera ruleset, Worker ou APK 44 já instalado.
+
+
+### HTTP 503 do Worker QA — diagnóstico
+
+Em 25/11 a pendência Bob → Alice foi publicada, mas o Android recebeu 503. `/health` responde 200 e `/notice` sem sessão 401. O cliente Python padrão recebeu 403/1010 do Cloudflare; curl autenticado reproduziu `503 notice_unavailable` e `503 unavailable` com mensagem inexistente. D1 não tem reserva de entrega ou contador de disparo. A conta de serviço tem chave cadastrada; isso não comprova o segredo publicado. O candidato de instrumentação registra apenas etapa predefinida e código HTTP numérico em console.warn, sem credenciais, IDs, corpos, URLs ou paths. Não muda resposta externa, políticas, destinatário, limites nem deduplicação. Publicação e habilitação de logs do Worker existente requerem aprovação separada, após testes e comparação de módulos com a versão publicada.
