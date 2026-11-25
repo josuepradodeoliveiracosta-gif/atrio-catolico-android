@@ -7,7 +7,8 @@ import java.net.Proxy
 import java.net.URL
 import javax.net.ssl.HttpsURLConnection
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.CancellationException
 import org.json.JSONObject
@@ -41,7 +42,12 @@ internal suspend fun sendSimpleDirectQaEvent(
         BuildConfig.ATRIO_QA_CONVERSATION_NOTICE_ORIGIN != QA_GERAL_PUSH_RELAY_URL)
         return "Sessão QA inválida."
     return try {
-        val token = actor.getIdToken(false).await().token ?: return "Sessão não autenticada."
+        val token = suspendCancellableCoroutine<String?> { continuation ->
+            actor.getIdToken(false).addOnCompleteListener { task ->
+                if (continuation.isActive) continuation.resume(
+                    if (task.isSuccessful) task.result?.token else null)
+            }
+        } ?: return "Sessão não autenticada."
         withContext(Dispatchers.IO) {
             if (auth.currentUser !== actor) return@withContext "Sessão alterada."
             val connection = URL("$QA_GERAL_PUSH_RELAY_URL/event")
