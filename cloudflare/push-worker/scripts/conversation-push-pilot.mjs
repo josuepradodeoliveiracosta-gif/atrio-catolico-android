@@ -220,8 +220,11 @@ export function renderConversationPushPilotWorker(mainWorker) {
     'const qaNoRedirectFetch = async (url, init={}) => {\n'+
     '  const origin = new URL(url).origin;\n'+
     "  const stage = origin==='https://oauth2.googleapis.com'?'oauth_http':origin==='https://identitytoolkit.googleapis.com'?'auth_http':origin==='https://firestore.googleapis.com'?'firestore_http':origin==='https://fcm.googleapis.com'?'fcm_http':'other_http';\n"+
-    "  try { const r=await fetch(url,{...init,redirect:'error'}); if(!r.ok && !(stage==='firestore_http' && r.status===404)) qaPilotDiagnostic(stage,r.status); return r; }\n"+
+    // workerd supports manual/follow, not error. Never follow or expose Location.
+    "  let r; try { r=await fetch(url,{...init,redirect:'manual'}); }\n"+
     "  catch(error) { qaPilotDiagnostic(stage,0); throw error; }\n"+
+    "  if(r.type==='opaqueredirect' || r.status===0 || (r.status>=300 && r.status<400)) { qaPilotDiagnostic(stage,r.status); throw Error('qa_redirect_denied'); }\n"+
+    "  if(!r.ok && !(stage==='firestore_http' && r.status===404)) qaPilotDiagnostic(stage,r.status); return r;\n"+
     '};');
   replace("    if(Number(request.headers.get('content-length')||'0')>512)\n      return response(413,'too_large');\n    try {",
     "    if(Number(request.headers.get('content-length')||'0')>512)\n      return response(413,'too_large');\n    let stage='event_auth';\n    try {");
