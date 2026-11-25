@@ -25,6 +25,7 @@ jobs:
         with:
           node-version: '22'
       - run: npm test --prefix cloudflare/push-worker
+      - run: node --test scripts/qa-conversas-rules-preflight.test.mjs
       - name: Gerar e empacotar candidato sem publicar
         env:
           CLOUDFLARE_API_TOKEN: ''
