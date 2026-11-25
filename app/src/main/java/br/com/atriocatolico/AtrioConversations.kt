@@ -432,6 +432,7 @@ private fun AtrioConversationsForSession(
                     deleteWindowMinutes = deleteWindowMinutes,
                     managedBlocks = managedBlocks,
                     managedMessages = managedMessages,
+                    simpleDirect = simpleDirect && directPeer,
                     onContactConflict = { retryInbox++ })
             }
         } else {
@@ -620,6 +621,7 @@ private fun AtrioChatThread(
     editWindowMinutes: Int, deleteWindowMinutes: Int,
     managedBlocks: AtrioManagedBlocks?,
     managedMessages: AtrioManagedMessages?,
+    simpleDirect: Boolean,
     onContactConflict: () -> Unit
 ) {
     val legacyWrites = !BuildConfig.ATRIO_QA_INBOX_DISCOVERY
@@ -656,6 +658,8 @@ private fun AtrioChatThread(
     var pendingAttemptText by remember(uid, chatId) { mutableStateOf("") }
     var saving by remember(uid, chatId) { mutableStateOf(false) }
     var info by remember(uid, chatId) { mutableStateOf("") }
+    var pushBusy by remember(uid, chatId) { mutableStateOf(false) }
+    var pushResult by remember(uid, chatId) { mutableStateOf("") }
     var replyingTo by remember(uid, chatId) { mutableStateOf<ChatItem?>(null) }
     var reactingTo by remember(uid, chatId) { mutableStateOf<ChatItem?>(null) }
     var editingMessage by remember(uid, chatId) { mutableStateOf<ChatItem?>(null) }
@@ -1046,6 +1050,24 @@ private fun AtrioChatThread(
                 Text("Aguardando aceite do destinatário.", Modifier.padding(12.dp), color = Muted)
             } else if (chat?.status == "declined") {
                 Text("Solicitação recusada.", Modifier.padding(12.dp), color = Muted)
+            }
+            val last = chat?.lastMessageId
+            val ownLast = messages.lastOrNull { it.id == last && it.uid == uid && !it.pending && !it.deletedForAll }
+            if (simpleDirect && chat?.status == "accepted" && ownLast != null &&
+                chatId == AtrioSimpleDirectQa.CHAT_ID && blockedByMe == false) {
+                TextButton(enabled = !pushBusy, modifier = Modifier.testTag("atrio-qa-push-trigger"), onClick = {
+                    val actor = FirebaseAuth.getInstance(db.app).currentUser
+                    if (actor?.uid != uid || !atrioSimpleDirectIdentity(db, actor)) return@TextButton
+                    pushBusy = true
+                    pushResult = "Consultando relay QA..."
+                    scope.launch {
+                        try {
+                            val result = sendSimpleDirectQaEvent(db, actor, chatId, ownLast.id)
+                            if (FirebaseAuth.getInstance(db.app).currentUser === actor) pushResult = result
+                        } finally { pushBusy = false }
+                    }
+                }) { Text("Testar Push QA da última mensagem") }
+                if (pushResult.isNotBlank()) Text(pushResult, Modifier.padding(horizontal = 12.dp), fontSize = 12.sp)
             }
             if (hiddenMessageIds.isNotEmpty()) {
                 TextButton(onClick = { showHiddenMessages = !showHiddenMessages },
