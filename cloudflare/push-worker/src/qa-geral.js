@@ -1,4 +1,5 @@
-import {handleQaPush, readEventBody, verifyIdentity} from './index.js';
+import {handleQaPush, readEventBody} from './index.js';
+import {verifyQaInboxIdentity} from './qa-inbox-auth.js';
 
 const QA_PROJECT = 'atrio-catolico-qa-general';
 const CONVERSATIONS_PREFIX = '/v1/qa/conversations/';
@@ -38,7 +39,7 @@ export function createQaRelay(conversationWorker, conversationsApi) {
           FIREBASE_SERVICE_ACCOUNT_JSON: env.QA_FIREBASE_SERVICE_ACCOUNT_JSON,
         };
         try {
-          const uid = await verifyIdentity(request, qaEnv, QA_PROJECT);
+          const uid = await verifyQaInboxIdentity(request, qaEnv);
           if (!uid) return conversationsError('conversations_access_denied', 403);
           const response = await conversationsApi.fetch(request, {
             uid,
