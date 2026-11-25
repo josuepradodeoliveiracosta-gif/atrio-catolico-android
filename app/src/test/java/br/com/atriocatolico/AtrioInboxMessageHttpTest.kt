@@ -103,6 +103,35 @@ class AtrioInboxMessageHttpTest {
         }
     }
 
+    @Test fun decisionRetryPreservesIntentAndRequiresMatchingCommit() = runBlocking {
+        MockWebServer().use { host ->
+            val client = AtrioInboxMessageHttp({ "qa-id-token" }, host.url("/v1/qa/conversations/").toUrl())
+            var current = true
+            val messages = AtrioManagedMessages({ current }, client::submit, client::submitDecision)
+            val chat = "clara__miguel"
+            host.enqueue(MockResponse().setResponseCode(503))
+            host.enqueue(MockResponse().setBody("""{"committed":true,"chatId":"other","status":"accepted"}"""))
+            host.enqueue(MockResponse().setBody("""{"committed":true,"chatId":"clara__miguel","status":"accepted"}"""))
+            assertEquals(AtrioDecisionReply.Pending, messages.decide(chat, "accepted"))
+            assertNull(messages.decide(chat, "declined"))
+            assertEquals(AtrioDecisionReply.Pending, messages.decide(chat, "accepted"))
+            assertEquals(AtrioDecisionReply.Committed, messages.decide(chat, "accepted"))
+            assertNull(messages.decide(chat, "declined"))
+            current = false
+            assertNull(messages.decide(chat, "accepted"))
+            assertNull(messages.decision(chat))
+            val requests = List(3) { requireNotNull(host.takeRequest(2, TimeUnit.SECONDS)) }
+            assertEquals(3, host.requestCount)
+            assertEquals(1, requests.map { it.getHeader("Idempotency-Key") }.toSet().size)
+            requests.forEach {
+                assertEquals("/v1/qa/conversations/chats/$chat/decision", it.path)
+                assertEquals("POST", it.method)
+                assertEquals("Bearer qa-id-token", it.getHeader("Authorization"))
+                assertEquals("accepted", JSONObject(it.body.readUtf8()).getString("status"))
+            }
+        }
+    }
+
     private fun ok(chatId: String, messageId: String) = MockResponse().setBody(
         """{"committed":true,"replayed":false,"chatId":"$chatId","messageId":"$messageId"}"""
     )

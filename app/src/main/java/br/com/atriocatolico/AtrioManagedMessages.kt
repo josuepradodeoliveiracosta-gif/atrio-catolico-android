@@ -13,7 +13,8 @@ import kotlinx.coroutines.ensureActive
 
 internal class AtrioManagedMessages(
     private val sameSession: () -> Boolean,
-    private val write: suspend (AtrioMessageIntent) -> AtrioMessageReply
+    private val write: suspend (AtrioMessageIntent) -> AtrioMessageReply,
+    private val writeDecision: (suspend (AtrioDecisionIntent) -> AtrioDecisionReply)? = null
 ) {
     data class Draft(
         val text: String = "",
@@ -25,6 +26,35 @@ internal class AtrioManagedMessages(
         val sending get() = intent != null && result == null
         val pending get() = result == AtrioMessageReply.Pending || retryAtMs != null
         val locked get() = sending || pending
+    }
+
+    data class Decision(val intent: AtrioDecisionIntent, val result: AtrioDecisionReply? = null) {
+        fun canChoose(status: String): Boolean =
+            result == AtrioDecisionReply.Rejected ||
+                (result == AtrioDecisionReply.Pending && intent.status == status)
+    }
+
+    private val decisions = mutableStateMapOf<String, Decision>()
+    val supportsDecision get() = sameSession() && writeDecision != null
+    fun decision(chatId: String): Decision? = if (sameSession()) decisions[chatId] else null
+
+    suspend fun decide(chatId: String, status: String): AtrioDecisionReply? {
+        val submit = writeDecision ?: return null
+        if (!sameSession() || status !in listOf("accepted", "declined")) return null
+        val old = decision(chatId)
+        if (old != null && !old.canChoose(status)) return null
+        val intent = if (old?.result == AtrioDecisionReply.Pending) old.intent
+            else AtrioDecisionIntent(UUID.randomUUID().toString(), chatId, status)
+        decisions[chatId] = Decision(intent)
+        val reply = try {
+            submit(intent).also { currentCoroutineContext().ensureActive() }
+        } catch (cancelled: CancellationException) {
+            if (sameSession()) decisions[chatId] = Decision(intent, AtrioDecisionReply.Pending)
+            throw cancelled
+        }
+        if (!sameSession()) return null
+        decisions[chatId] = Decision(intent, reply)
+        return reply
     }
 
     private val drafts = mutableStateMapOf<String, Draft>()
@@ -88,6 +118,6 @@ internal fun rememberAtrioManagedMessages(
 ): AtrioManagedMessages? = remember(auth, user, db) {
     if (!isAtrioManagedInboxQa(db)) null else {
         val service = AtrioInboxMessageHttp(token = { atrioQaInboxToken(auth, user) })
-        AtrioManagedMessages({ auth.currentUser === user }, service::submit)
+        AtrioManagedMessages({ auth.currentUser === user }, service::submit, service::submitDecision)
     }
 }

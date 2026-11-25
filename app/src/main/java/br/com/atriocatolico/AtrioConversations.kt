@@ -976,16 +976,32 @@ private fun AtrioChatThread(
             if (chat?.incomingRequest(uid) == true) {
                 Text("Apenas aceitar autoriza uma nova conversa. Visualizar não significa aceitar.",
                     Modifier.padding(12.dp), fontSize = 14.sp, color = Wine)
+                val decision = managedMessages?.decision(chatId)
+                fun enabledFor(status: String) = legacyWrites ||
+                    (managedMessages?.supportsDecision == true && blockedByMe == false &&
+                        (decision == null || decision.canChoose(status)))
+                fun choose(status: String) {
+                    if (legacyWrites) {
+                        ref.update("status", status, "updatedAt", FieldValue.serverTimestamp())
+                            .addOnSuccessListener { if (status == "declined") onBack() }
+                            .addOnFailureListener { info = "Decisão não confirmada." }
+                    } else {
+                        val service = managedMessages ?: return
+                        if (!enabledFor(status)) return
+                        scope.launch {
+                            when (service.decide(chatId, status)) {
+                                AtrioDecisionReply.Committed -> info = "Decisão confirmada. Sincronizando conversa."
+                                AtrioDecisionReply.Pending -> info = "Decisão não confirmada. Tente a mesma opção novamente."
+                                AtrioDecisionReply.Conflict -> info = "Estado alterado. Aguarde a sincronização."
+                                AtrioDecisionReply.Rejected -> info = "Não foi possível autorizar a decisão."
+                                null -> Unit
+                            }
+                        }
+                    }
+                }
                 Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(enabled = legacyWrites, onClick = {
-                        ref.update("status", "accepted", "updatedAt", FieldValue.serverTimestamp())
-                            .addOnFailureListener { info = "Aceite não confirmado." }
-                    }) { Text("Aceitar") }
-                    OutlinedButton(enabled = legacyWrites, onClick = {
-                        ref.update("status", "declined", "updatedAt", FieldValue.serverTimestamp())
-                            .addOnSuccessListener { onBack() }
-                            .addOnFailureListener { info = "Recusa não confirmada." }
-                    }) { Text("Recusar") }
+                    Button(enabled = enabledFor("accepted"), onClick = { choose("accepted") }) { Text("Aceitar") }
+                    OutlinedButton(enabled = enabledFor("declined"), onClick = { choose("declined") }) { Text("Recusar") }
                 }
             } else if (chat?.status == "pending") {
                 Text("Aguardando aceite do destinatário.", Modifier.padding(12.dp), color = Muted)
