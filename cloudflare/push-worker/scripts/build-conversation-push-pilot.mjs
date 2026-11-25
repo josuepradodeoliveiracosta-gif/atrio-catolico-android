@@ -15,6 +15,7 @@ const schema = renderQaSchema(baseProject, databaseId)
   .replace("'atrio-qa-geral', '" + baseProject + "'", "'atrio-qa-conversations-pilot', '" + projectId + "'");
 const config = readFileSync(new URL('../wrangler.qa-geral.example.toml', import.meta.url), 'utf8')
   .replace('main = "src/qa-geral.js"', 'main = "entry.mjs"')
+  .replace('preview_urls = false', 'preview_urls = false\ncompatibility_flags = ["nodejs_compat"]')
   .replace('00000000-0000-4000-8000-000000000000', databaseId);
 const source = readFileSync(new URL('../src/index.js', import.meta.url), 'utf8');
 const worker = renderConversationPushPilotWorker(source);
@@ -27,6 +28,7 @@ writeFileSync(new URL('wrangler.toml', directory), config);
 writeFileSync(new URL('entry.mjs', directory), `
 import {createQaRelay} from '../../src/qa-geral.js';
 import conversationWorker from './worker.mjs';
+import conversationsApi from '../../src/qa-conversations-api.js';
 
-export default createQaRelay(conversationWorker);
+export default createQaRelay(conversationWorker, conversationsApi);
 `.trimStart());

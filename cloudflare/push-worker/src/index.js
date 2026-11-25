@@ -75,6 +75,10 @@ function serviceAccount(env, project) {
   return service;
 }
 
+export function getQaFirestoreAccessToken(env) {
+  return oauth(env, QA_PROJECT);
+}
+
 async function oauth(env, project = PROJECT) {
   const cached = cachedCredentials.get(project);
   const credential = env.FIREBASE_SERVICE_ACCOUNT_JSON;
