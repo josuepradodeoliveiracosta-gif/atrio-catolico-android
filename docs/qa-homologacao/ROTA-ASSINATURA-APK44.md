@@ -1,0 +1,5 @@
+# Rota protegida APK 44 — QA Geral Celular
+
+Proposta independente da PR #461; não integra o código de Conversas à main. Fonte fixa `20ee96fab69ce1dbf9678a57c057cef6070c2e74`, árvore `13d2718d22683ef2a3d54465dd3b7be6bfd0eb33`, ensaios APK 44 e regressão do Item 13 aprovados. A trava histórica do Item 13 continua inalterada. A versão instalada deve ser confirmada e inferior a 44. A existência de uma compilação anterior de código 44 fora da PR não foi auditada integralmente.
+
+A rota é uma adaptação da rota 43 protegida, com os scripts 44 já testados. A execução real exige main protegida, fundador, primeira tentativa, SHA aprovado, confirmação explícita da entrega e código instalado inferior a 44. O código do assinador e do verificador provém da main após revisão; a fonte candidata permanece isolada no usuário descartável do build. Transferência cifrada entre runners, SHA-256 conferido, certificado QA fixado, entrega cifrada por um dia. PR testa somente contratos sem segredos. Não há assinatura, entrega, OTA, deploy Firebase ou Cloudflare automáticos. A integração desta PR de ferramentas e a execução real exigem autorização específica.
