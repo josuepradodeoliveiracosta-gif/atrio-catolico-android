@@ -132,6 +132,27 @@ class AtrioInboxMessageHttpTest {
         }
     }
 
+    @Test fun inboxTransportIsPinnedToLoopbackOrExactQaHttps() {
+        fun remote(origin: String = QA_GERAL_PUSH_RELAY_URL, project: String = "atrio-catolico-qa-general",
+                   host: String = "firestore.googleapis.com", ssl: Boolean = true,
+                   round: Boolean = true, enabled: Boolean = true) =
+            atrioInboxBaseFor(enabled, true, round, project, host, ssl, origin)
+        assertEquals("http://127.0.0.1:8091/v1/qa/conversations/",
+            atrioInboxBaseFor(true, false, false, "demo-atrio-v11", "127.0.0.1:8089", false, "")?.toExternalForm())
+        assertEquals("$QA_GERAL_PUSH_RELAY_URL/v1/qa/conversations/", remote()?.toExternalForm())
+        assertNull(remote(origin = "https://atrio-push.atrio-catolico.workers.dev"))
+        assertNull(remote(origin = "$QA_GERAL_PUSH_RELAY_URL/"))
+        assertNull(remote(origin = "http://127.0.0.1:8091"))
+        assertNull(remote(origin = "$QA_GERAL_PUSH_RELAY_URL.example.invalid"))
+        assertNull(remote(project = "atrio-catolico"))
+        assertNull(remote(host = "127.0.0.1:8089"))
+        assertNull(remote(ssl = false))
+        assertNull(remote(round = false))
+        assertNull(remote(enabled = false))
+        assertNull(atrioInboxBaseFor(true, false, false, "atrio-catolico-qa-general",
+            "127.0.0.1:8089", false, ""))
+    }
+
     private fun ok(chatId: String, messageId: String) = MockResponse().setBody(
         """{"committed":true,"replayed":false,"chatId":"$chatId","messageId":"$messageId"}"""
     )

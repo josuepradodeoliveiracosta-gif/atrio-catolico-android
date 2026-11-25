@@ -29,8 +29,10 @@ require((!atrioQaScopedCaseLab && atrioQaScopedCaseOrigin.isBlank()) ||
 }
 
 val atrioQaInboxDiscovery = System.getenv("ATRIO_QA_INBOX_DISCOVERY") == "1"
-require(!atrioQaInboxDiscovery || (atrioQaGeralBuild && !atrioQaGeralRemote)) {
-    "A descoberta de Conversas exige o QA Geral local."
+val atrioQaInboxHttpsCandidate = System.getenv("ATRIO_QA_INBOX_HTTPS_CANDIDATE") == "1"
+require(!atrioQaInboxDiscovery || (atrioQaGeralBuild &&
+    (!atrioQaGeralRemote || atrioQaInboxHttpsCandidate))) {
+    "A descoberta de Conversas exige QA Geral local ou candidato HTTPS explicitamente selecionado."
 }
 val atrioQaGeralPush = System.getenv("ATRIO_QA_GERAL_PUSH_BUILD") == "1"
 val atrioQaConversationNoticeLab = System.getenv("ATRIO_QA_CONVERSATION_NOTICE_LAB") == "1"
@@ -54,6 +56,14 @@ require(listOf(atrioQaGeralCelularRound41, atrioQaGeralCelularRound42,
 val atrioQaGeralCelularRound =
     atrioQaGeralCelularRound41 || atrioQaGeralCelularRound42 || atrioQaGeralCelularRound43
 val atrioQaNoticeOrigin = System.getenv("ATRIO_QA_CONVERSATION_NOTICE_ORIGIN").orEmpty()
+require(!atrioQaInboxHttpsCandidate ||
+    (atrioQaInboxDiscovery && atrioQaGeralBuild && atrioQaGeralRemote &&
+        atrioQaGeralCelularFunctional && atrioQaGeralCelularRound43 &&
+        !atrioQaGeralCelularRoundFixture && !atrioQaConversationNoticeLab &&
+        !atrioQaGeralPush && atrioQaNoticeOrigin ==
+        "https://atrio-push-qa-general.atrio-catolico.workers.dev")) {
+    "Candidato HTTPS de Conversas: somente rodada funcional 43 e origem QA fixa."
+}
 if (atrioQaNoticeOrigin.isNotEmpty()) {
     require(atrioQaGeralBuild && atrioQaGeralCelularFunctional &&
         (atrioQaGeralCelularRound43 || atrioQaGeralCelularRound43Fixture) && !atrioQaConversationNoticeLab) {

@@ -116,8 +116,9 @@ internal fun atrioMessageClockMs(): Long = System.nanoTime() / 1_000_000
 internal fun rememberAtrioManagedMessages(
     auth: FirebaseAuth, user: FirebaseUser, db: FirebaseFirestore
 ): AtrioManagedMessages? = remember(auth, user, db) {
-    if (!isAtrioManagedInboxQa(db)) null else {
-        val service = AtrioInboxMessageHttp(token = { atrioQaInboxToken(auth, user) })
+    val base = atrioManagedInboxBase(db)
+    if (base == null) null else {
+        val service = AtrioInboxMessageHttp(token = { atrioQaInboxToken(auth, user) }, baseUrl = base)
         AtrioManagedMessages({ auth.currentUser === user }, service::submit, service::submitDecision)
     }
 }

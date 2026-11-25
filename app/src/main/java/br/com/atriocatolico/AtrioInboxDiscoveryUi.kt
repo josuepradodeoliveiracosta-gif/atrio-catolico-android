@@ -8,12 +8,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.firestore.FirebaseFirestore
+import java.net.URL
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
-import kotlin.coroutines.resume
 
 internal data class AtrioInboxNavigation(
     val result: AtrioInboxResult?,
@@ -44,24 +44,22 @@ internal fun rememberAtrioInboxNavigation(
         manager.registerDefaultNetworkCallback(callback, Handler(Looper.getMainLooper()))
         onDispose { manager.unregisterNetworkCallback(callback) }
     }
-    val client = remember { AtrioInboxDiscovery() }
+    val base = atrioManagedInboxBase(FirebaseFirestore.getInstance(auth.app))
+    val client = remember(base) { base?.let { AtrioInboxDiscovery(URL(it, "inbox")) } }
     var paging by remember(user, network, blockedPeers) { mutableStateOf(AtrioInboxPaging()) }
     var refresh by remember(user, network, blockedPeers) { mutableIntStateOf(0) }
     val cursors = paging.cursors
     val cursor = paging.cursor
     val requestRefresh = refresh
-    LaunchedEffect(user, network, blockedPeers, cursors, requestRefresh) {
+    LaunchedEffect(user, network, blockedPeers, cursors, requestRefresh, client) {
         if (network == null) return@LaunchedEffect
+        if (client == null) {
+            paging = paging.receive(AtrioInboxResult.Unavailable)
+            return@LaunchedEffect
+        }
         while (true) {
             val page = client.load(user.uid, cursor, sameSession = { auth.currentUser === user },
-                getToken = {
-                    suspendCancellableCoroutine { continuation ->
-                        user.getIdToken(false).addOnCompleteListener { task ->
-                            if (continuation.isActive)
-                                continuation.resume(if (task.isSuccessful) task.result?.token else null)
-                        }
-                    }
-                },
+                getToken = { atrioQaInboxToken(auth, user) },
                 request = { owner, token, next ->
                     withContext(Dispatchers.IO) { client.fetch(owner, token, next) }
                 }) ?: return@LaunchedEffect
