@@ -52,7 +52,7 @@ jobs:
           npm ci --ignore-scripts
           node prepare.mjs
           node ../../firebase/qa-general/compose-parity-rules.mjs
-          ./node_modules/.bin/firebase emulators:exec --only firestore,auth --project demo-atrio-v11 'node atrio-inbox-message-http.test.mjs'
+          ./node_modules/.bin/firebase emulators:exec --only firestore,auth --project demo-atrio-v11 'node atrio-inbox-message-http.test.mjs && node --test qa-push-receiver-rules.test.mjs'
   android:
     runs-on: ubuntu-latest
     timeout-minutes: 25
