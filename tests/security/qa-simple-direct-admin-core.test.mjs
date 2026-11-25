@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {Timestamp} from 'firebase-admin/firestore';
 import {project,operator,baseline,candidate,candidateHash,hash,prepare,classifyRules,assertNoEmulator,
- assertOperator,validAge,validAdmission,closeOperator,withOperator,googleHeaders,operatorUserinfoUrl} from './qa-simple-direct-admin-core.mjs';
+ assertOperator,validAge,validAdmission,admissionChecks,closeOperator,withOperator,googleHeaders,operatorUserinfoUrl} from './qa-simple-direct-admin-core.mjs';
 test('offline preparation and exact target, no deploy permission',()=>{
  const root=mkdtempSync(join(tmpdir(),'atrio-prep-'));
  try{
@@ -22,16 +22,28 @@ test('offline preparation and exact target, no deploy permission',()=>{
  }finally{rmSync(root,{recursive:true,force:true})}
 });
 test('admission needs current 18+ and strictly later generation timestamp',()=>{
- const now=Date.now(),t=Timestamp.fromMillis(now-1000);
- const proof={status:'eligible',minimumAge:18,policyVersion:'2026-11-18plus-qa-v1',reviewExpiresAt:Timestamp.fromMillis(now+1000)};
+ const now=Date.now(),t=Timestamp.fromMillis(now+1000);
+ // Simulated Firestore clock ahead of the handset. Use only server read time.
+ const readTime=Timestamp.fromMillis(now+2000);
+ const proof={status:'eligible',minimumAge:18,policyVersion:'2026-11-18plus-qa-v1',reviewExpiresAt:Timestamp.fromMillis(now+4000)};
  const a={status:'active',email:'alice.navegacao@qa.invalid',roundId:'qa-199-push-isolado',
  generation:'12345678-1234-4abc-8abc-123456789abc',admittedAt:t,expiresAt:null};
- const age={data:()=>proof,updateTime:new Timestamp(t.seconds,t.nanoseconds-1>=0?t.nanoseconds-1:0)};
  const prev=new Timestamp(t.seconds-1,999999999);
+ const age={data:()=>proof,updateTime:prev,readTime};
+ const doc={data:()=>a,readTime};
  assert.equal(validAge(proof,now),true);
- assert.equal(validAdmission({data:()=>a},{...age,updateTime:prev},'qa-nav-alice',now),true);
- assert.equal(validAdmission({data:()=>a},{...age,updateTime:t},'qa-nav-alice',now),false);
- assert.equal(validAdmission({data:()=>({...a,expiresAt:undefined})},{...age,updateTime:prev},'qa-nav-alice',now),false);
+ assert.ok(a.admittedAt.toMillis()>now);
+ assert.equal(validAdmission(doc,age,'qa-nav-alice'),true);
+ assert.equal(validAdmission(doc,{...age,updateTime:t},'qa-nav-alice'),false);
+ assert.equal(validAdmission({...doc,data:()=>({...a,expiresAt:undefined})},age,'qa-nav-alice'),false);
+ assert.equal(validAdmission({...doc,readTime:undefined},age,'qa-nav-alice'),false);
+ assert.equal(validAdmission(doc,{...age,readTime:undefined},'qa-nav-alice'),false);
+ assert.equal(validAdmission({...doc,readTime:new Timestamp(t.seconds,t.nanoseconds+1)},age,'qa-nav-alice'),true);
+ assert.equal(admissionChecks({...doc,readTime:prev},age,'qa-nav-alice').notFuture,false);
+ assert.equal(validAdmission(doc,{...age,data:()=>({...proof,reviewExpiresAt:readTime})},'qa-nav-alice'),false);
+ assert.equal(validAdmission(doc,age,'qa-nav-bob'),false);
+ assert.equal(validAdmission({...doc,data:()=>({...a,status:'revoked'})},age,'qa-nav-alice'),false);
+ assert.equal(validAdmission({...doc,data:()=>({...a,expiresAt:readTime})},age,'qa-nav-alice'),false);
 });
 test('operator refuses mismatched principal; failed sign-in always closes operator',async()=>{
  const principal={email:'operator@example.invalid',verified_email:true};

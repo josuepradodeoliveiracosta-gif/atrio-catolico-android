@@ -74,7 +74,7 @@ if(mode==='prepare'){
     directEnabled:cfg?.qaSimpleDirectEnabled===true,managedBoundary:controls.some(d=>d.exists),
     bilateralBlock:blocks.some(d=>d.exists),operatorDisabled:user.disabled,passwordEnabled,
     androidConfigVerified:true,accounts:records.map(r=>({uid:r.uid,age:r.age.data()?.status??'missing',
-     ageValid:validAge(r.age.data()),admissionValid:validAdmission(r.admission,r.age,r.uid),
+     ageValid:validAge(r.age.data(),r.age.readTime?.toMillis()??NaN),admissionValid:validAdmission(r.admission,r.age,r.uid),
      continuous:r.admission.data()?.expiresAt===null,deviceCount:r.deviceCount})),
     mode,remoteWrites:mode==='preflight'?false:'explicit_operation'},null,2));
    if(mode!=='preflight'){

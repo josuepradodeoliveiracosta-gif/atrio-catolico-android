@@ -67,14 +67,32 @@ export function validAge(proof,now=Date.now()){
   Object.keys(proof).sort().join('|')==='minimumAge|policyVersion|reviewExpiresAt|status'&&
   ms(proof.reviewExpiresAt)>now;
 }
-export function validAdmission(doc,age,uid,now=Date.now()){
+// Firestore readTime is authoritative for persisted server timestamps, not the
+// handset clock. Missing metadata fails closed; no future-time grace period.
+function timestampOrder(a,b){
+ if(!Number.isInteger(a?.seconds)||!Number.isInteger(b?.seconds)||
+    !Number.isInteger(a?.nanoseconds)||!Number.isInteger(b?.nanoseconds)||
+    a.nanoseconds<0||a.nanoseconds>=1e9||b.nanoseconds<0||b.nanoseconds>=1e9) return NaN;
+ return Math.sign(a.seconds-b.seconds||a.nanoseconds-b.nanoseconds);
+}
+export function admissionChecks(doc,age,uid){
  const a=doc?.data(),p=age?.data();
- return !!(validAge(p,now)&&a?.status==='active'&&a.email===identity.accounts[uid]&&
-   a.roundId===identity.roundId&&uuid(a.generation)&&ms(a.admittedAt)<=now&&
-   age.updateTime&&a.admittedAt&&
-   (age.updateTime.seconds<a.admittedAt.seconds||
-    (age.updateTime.seconds===a.admittedAt.seconds&&age.updateTime.nanoseconds<a.admittedAt.nanoseconds))&&
-   (a.expiresAt===null||ms(a.expiresAt)>now));
+ const now=Math.max(ms(doc?.readTime),ms(age?.readTime));
+ return {
+  serverReadTime:Number.isFinite(now),
+  ageValid:Number.isFinite(now)&&validAge(p,now),
+  active:a?.status==='active',
+  identity:Object.hasOwn(identity.accounts,uid)&&a?.email===identity.accounts[uid],
+  round:a?.roundId===identity.roundId,
+  generation:uuid(a?.generation),
+  notFuture:timestampOrder(a?.admittedAt,doc?.readTime)<=0,
+  proofNotFuture:timestampOrder(age?.updateTime,age?.readTime)<=0,
+  newerThanProof:timestampOrder(age?.updateTime,a?.admittedAt)<0,
+  expiry:Number.isFinite(now)&&(a?.expiresAt===null||ms(a?.expiresAt)>now),
+ };
+}
+export function validAdmission(doc,age,uid){
+ return Object.values(admissionChecks(doc,age,uid)).every(Boolean);
 }
 export function assertOperator(user,principal,requireDisabled=true){
  requireOk(user?.uid===operator&&user.emailVerified===true&&principal?.verified_email===true&&
@@ -127,7 +145,11 @@ export async function restorePair({execute,readAge,readAdmission,now=Date.now()}
    const previous=await readAdmission(uid);
    const result=await execute('admit',{uid,operationKey:randomUUID(),expectedGeneration:previous.data()?.generation??null,expiresAt:null});
    admissions.push({uid,generation:result.generation});
-   requireOk(validAdmission(await readAdmission(uid),await readAge(uid),uid),'admission_verification_failed');
+   const current=await readAdmission(uid),proof=await readAge(uid);
+   const checks=admissionChecks(current,proof,uid);
+   const failures=Object.keys(checks).filter(key=>!checks[key]);
+   if(current.data()?.generation!==result.generation)failures.push('expectedGeneration');
+   requireOk(failures.length===0,'admission_verification_failed_'+failures.join('_'));
   }
   return {restored:uids,reviewExpiresAt:reviewExpiresAt.toISOString(),admission:'continuous'};
  }catch(e){
