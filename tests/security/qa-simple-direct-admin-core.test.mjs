@@ -39,7 +39,7 @@ test('admission needs current 18+ and strictly later generation timestamp',()=>{
  assert.equal(validAdmission({...doc,readTime:undefined},age,'qa-nav-alice'),false);
  assert.equal(validAdmission(doc,{...age,readTime:undefined},'qa-nav-alice'),false);
  assert.equal(validAdmission({...doc,readTime:new Timestamp(t.seconds,t.nanoseconds+1)},age,'qa-nav-alice'),true);
- assert.equal(admissionChecks({...doc,readTime:prev},age,'qa-nav-alice').notFuture,false);
+ assert.equal(admissionChecks({...doc,readTime:prev},age,'qa-nav-alice').not_future,false);
  assert.equal(validAdmission(doc,{...age,data:()=>({...proof,reviewExpiresAt:readTime})},'qa-nav-alice'),false);
  assert.equal(validAdmission(doc,age,'qa-nav-bob'),false);
  assert.equal(validAdmission({...doc,data:()=>({...a,status:'revoked'})},age,'qa-nav-alice'),false);

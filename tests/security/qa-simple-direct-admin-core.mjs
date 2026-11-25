@@ -79,15 +79,15 @@ export function admissionChecks(doc,age,uid){
  const a=doc?.data(),p=age?.data();
  const now=Math.max(ms(doc?.readTime),ms(age?.readTime));
  return {
-  serverReadTime:Number.isFinite(now),
-  ageValid:Number.isFinite(now)&&validAge(p,now),
+  server_read_time:Number.isFinite(now),
+  age_valid:Number.isFinite(now)&&validAge(p,now),
   active:a?.status==='active',
   identity:Object.hasOwn(identity.accounts,uid)&&a?.email===identity.accounts[uid],
   round:a?.roundId===identity.roundId,
   generation:uuid(a?.generation),
-  notFuture:timestampOrder(a?.admittedAt,doc?.readTime)<=0,
-  proofNotFuture:timestampOrder(age?.updateTime,age?.readTime)<=0,
-  newerThanProof:timestampOrder(age?.updateTime,a?.admittedAt)<0,
+  not_future:timestampOrder(a?.admittedAt,doc?.readTime)<=0,
+  proof_not_future:timestampOrder(age?.updateTime,age?.readTime)<=0,
+  newer_than_proof:timestampOrder(age?.updateTime,a?.admittedAt)<0,
   expiry:Number.isFinite(now)&&(a?.expiresAt===null||ms(a?.expiresAt)>now),
  };
 }
@@ -148,8 +148,8 @@ export async function restorePair({execute,readAge,readAdmission,now=Date.now()}
    const current=await readAdmission(uid),proof=await readAge(uid);
    const checks=admissionChecks(current,proof,uid);
    const failures=Object.keys(checks).filter(key=>!checks[key]);
-   if(current.data()?.generation!==result.generation)failures.push('expectedGeneration');
-   requireOk(failures.length===0,'admission_verification_failed_'+failures.join('_'));
+   if(current.data()?.generation!==result.generation)failures.push('expected_generation');
+   requireOk(failures.length===0,'admission_verification_failed_'+failures[0]);
   }
   return {restored:uids,reviewExpiresAt:reviewExpiresAt.toISOString(),admission:'continuous'};
  }catch(e){
