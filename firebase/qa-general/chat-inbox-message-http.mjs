@@ -11,6 +11,7 @@ import {
 
 const REQUEST=/^\/v1\/qa\/conversations\/requests\/([A-Za-z0-9_-]{1,128})$/;
 const MESSAGE=/^\/v1\/qa\/conversations\/chats\/([A-Za-z0-9_-]{1,260})\/messages$/;
+const DECISION=/^\/v1\/qa\/conversations\/chats\/([A-Za-z0-9_-]{1,260})\/decision$/;
 const KEY=/^[A-Za-z0-9_-]{16,128}$/;
 const ID=/^[A-Za-z0-9_-]{1,128}$/;
 const FIRST_LINK=/(https?:\/\/|www\.)/i;
@@ -28,7 +29,7 @@ function response({status,body,headers}) {
   }});
 }
 
-async function readPayload(request,first) {
+async function readPayload(request,first,decision=false) {
   if(!request.body||!/^application\/json(?:\s*;\s*charset=utf-8)?$/i
     .test(request.headers.get('content-type')??''))return null;
   const stream=request.body.getReader();
@@ -46,6 +47,11 @@ async function readPayload(request,first) {
       chunks.push(value);
     }
     const input=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(Buffer.concat(chunks)));
+    if(decision) {
+      return input && typeof input==='object' && !Array.isArray(input) &&
+        Object.keys(input).length===1 && ['accepted','declined'].includes(input.status)
+        ? {status:input.status} : null;
+    }
     if(!input||typeof input!=='object'||Array.isArray(input)||
        Object.keys(input).some(key=>key!=='text'&&(first||key!=='replyToId'))||
        typeof input.text!=='string')return null;
@@ -113,14 +119,19 @@ async function sendOrigin(tx,{chat,actor,now,messageId,text,replyToId}) {
   return {origin:{...current,...fields},write:()=>tx.update(chat.ref,fields)};
 }
 
-async function execute(db,{actor,target,first,key,payload}) {
+function decisionSuccess(chatId,status,replayed) {
+  return {status:200,body:{committed:true,replayed,chatId,status}};
+}
+
+async function execute(db,{actor,target,first,decision,key,payload}) {
   const operation=createHash('sha256').update(JSON.stringify([actor,key])).digest('hex');
   const messageId='m-'+operation;
   const chatId=first?[actor,target].sort().join('__'):target;
   const chatRef=db.doc('chats/'+chatId);
   const receiptRef=db.doc('serverInboxMessageRequests/'+operation);
   const fingerprint=createHash('sha256')
-    .update(JSON.stringify([first,target,payload.text,payload.replyToId])).digest('hex');
+    .update(JSON.stringify(decision?['decision',target,payload.status]:
+      [first,target,payload.text,payload.replyToId])).digest('hex');
   return db.runTransaction(async tx=>{
     const [cfg,age,control,boundary,chat,receipt]=await tx.getAll(
       db.doc('app_config/conversations'),db.doc(inboxAgePath(actor)),
@@ -138,9 +149,23 @@ async function execute(db,{actor,target,first,key,payload}) {
     );
     if(forward.exists||reverse.exists||!validInboxAge(peerAge.data(),undefined,now.toMillis()))
       return denied();
+    // Only the authenticated recipient may decide; the sender cannot self-accept.
+    if(decision&&(!chat.exists||chat.data().recipientUid!==actor))return denied();
     if(receipt.exists) {
       if(receipt.get('fingerprint')!==fingerprint)return fail(409,'message_operation_conflict');
+      if(decision)return chat.data().status===payload.status
+        ? decisionSuccess(chatId,payload.status,true) : fail(409,'conversation_state_changed');
       return chat.exists?success(chatId,messageId,true):denied();
+    }
+    if(decision) {
+      const current=chat.data();
+      if(current.status!=='pending')return fail(409,'conversation_state_changed');
+      const fields={status:payload.status,updatedAt:now};
+      const project=await preparePeerInbox(db,tx,peerInboxEntries(chatId,{...current,...fields}));
+      tx.update(chatRef,fields);
+      project();
+      tx.create(receiptRef,{fingerprint});
+      return decisionSuccess(chatId,payload.status,false);
     }
     const input={chat,chatId,actor,peer,now,messageId,...payload};
     const plan=first?await contactOrigin(db,tx,input):await sendOrigin(tx,input);
@@ -165,7 +190,8 @@ export function createInboxMessageHttpHandler({db,verifyIdToken,enabled=false}={
     let url;
     try{url=new URL(request?.url);}catch{return response(fail(400,'invalid_request'));}
     const first=url.pathname.match(REQUEST)?.[1];
-    const target=first??url.pathname.match(MESSAGE)?.[1];
+    const decision=url.pathname.match(DECISION)?.[1];
+    const target=first??decision??url.pathname.match(MESSAGE)?.[1];
     if(!target||url.search)return response(fail(400,'invalid_request'));
     if(request.method!=='POST')return response({
       ...fail(405,'method_not_allowed'),headers:{Allow:'POST'}
@@ -177,9 +203,9 @@ export function createInboxMessageHttpHandler({db,verifyIdToken,enabled=false}={
     try{
       const actor=await authenticateInboxCaller(verifyIdToken,auth.slice(7));
       if(first&&actor===target)return response(fail(400,'invalid_request'));
-      const payload=await readPayload(request,Boolean(first));
+      const payload=await readPayload(request,Boolean(first),Boolean(decision));
       if(!payload)return response(fail(400,'invalid_request'));
-      return response(await execute(db,{actor,target,first:Boolean(first),key,payload}));
+      return response(await execute(db,{actor,target,first:Boolean(first),decision:Boolean(decision),key,payload}));
     }catch(error){
       return response(error instanceof InboxAccessDenied?denied():unavailable());
     }
