@@ -326,6 +326,7 @@ class AtrioPushService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
         if (QaConversationNotices.configured) {
+            val trace = QaReceiptDiagnostic.begin(applicationContext)
             if (message.data["signal"] == "refresh") {
                 val receivedAt = Instant.now()
                 val messageId = message.messageId
@@ -340,9 +341,10 @@ class AtrioPushService : FirebaseMessagingService() {
             // O callback do SDK roda em worker thread. Concluir o processamento
             // dentro do seu prazo preserva o ciclo de vida do serviço.
             runBlocking {
-                withTimeoutOrNull(12_000L) {
-                    QaConversationNotices.receive(applicationContext, message)
+                val completed = withTimeoutOrNull(12_000L) {
+                    QaConversationNotices.receive(applicationContext, message, trace)
                 }
+                if (completed == null) trace?.record(QaReceiptStage.TIMEOUT)
             }
             return
         }

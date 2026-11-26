@@ -65,6 +65,25 @@ class QaConversationNoticeHttpTest {
         })
     }
 
+    @Test fun diagnosticoInformaSomenteCodigoSemSeguirRedirect() {
+        val statuses = mutableListOf<Int>()
+        for (status in listOf(200, 401, 404, 503, 302)) {
+            val result = transport.readDiagnosed("token-do-ensaio", { statuses.add(it) }) { url ->
+                StubHttps(url, status, "https://other.example.invalid/notice").apply {
+                    verifyRequest = { assertFalse(instanceFollowRedirects) }
+                }
+            }
+            assertEquals(if (status == 200) "{}" else null, result)
+        }
+        assertEquals(listOf(200, 401, 404, 503, 302), statuses)
+        assertNull(transport.readDiagnosed("token-do-ensaio", { statuses.add(it) }) { url ->
+            StubHttps(url).apply {
+                verifyRequest = { throw SSLPeerUnverifiedException("fixture-secret") }
+            }
+        })
+        assertEquals(0, statuses.last())
+    }
+
     private class StubHttps(url: URL, private val status: Int = 200, private val location: String? = null) :
         HttpsURLConnection(url) {
         var verifyRequest: () -> Unit = {}

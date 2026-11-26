@@ -38,21 +38,28 @@ internal class QaConversationNoticeHttp private constructor(private val endpoint
     fun read(
         token: String,
         open: (URL) -> HttpURLConnection = { it.openConnection(Proxy.NO_PROXY) as HttpURLConnection }
+    ): String? = readDiagnosed(token, {}, open)
+
+    fun readDiagnosed(
+        token: String,
+        reportStatus: (Int) -> Unit,
+        open: (URL) -> HttpURLConnection = { it.openConnection(Proxy.NO_PROXY) as HttpURLConnection }
     ): String? = try {
         val connection = open(endpoint.toURL())
         try {
             // A conexão HTTPS usa a validação de certificado e host do Android.
             if (parseUri(connection.url.toExternalForm()) != endpoint ||
                 (endpoint.scheme == "https" && connection !is HttpsURLConnection)
-            ) null else readBody(connection, token)
+            ) null else readBody(connection, token, reportStatus)
         } finally {
             connection.disconnect()
         }
     } catch (_: IOException) {
+        runCatching { reportStatus(0) }
         null
     }
 
-    private fun readBody(connection: HttpURLConnection, token: String): String? {
+    private fun readBody(connection: HttpURLConnection, token: String, reportStatus: (Int) -> Unit): String? {
         connection.instanceFollowRedirects = false
         connection.useCaches = false
         connection.requestMethod = "GET"
@@ -61,7 +68,9 @@ internal class QaConversationNoticeHttp private constructor(private val endpoint
         connection.setRequestProperty("Accept", "application/json")
         connection.setRequestProperty("Cache-Control", "no-store")
         connection.setRequestProperty("Authorization", "Bearer $token")
-        if (connection.responseCode != HttpURLConnection.HTTP_OK) return null
+        val status = connection.responseCode
+        runCatching { reportStatus(if (status in 100..599) status else 0) }
+        if (status != HttpURLConnection.HTTP_OK) return null
         return connection.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
             val buffer = CharArray(MAX_BODY_CHARS + 1)
             var length = 0

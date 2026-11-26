@@ -46,6 +46,7 @@ internal fun PushSettings(
     var diagnosticsOpen by rememberSaveable(uid) { mutableStateOf(false) }
     var permissionForBackground by remember(uid) { mutableStateOf(false) }
     var lastRelayStatus by remember(uid) { mutableStateOf(InstantPushRelay.lastStatus(context, uid)) }
+    var receiptTrace by remember(uid) { mutableStateOf(QaReceiptDiagnostic.snapshot(context)) }
 
     fun turnOn() {
         busy = true
@@ -154,6 +155,19 @@ internal fun PushSettings(
                 Text(if (diagnosticsOpen) "Ocultar diagnóstico avançado" else "Diagnóstico avançado")
             }
             if (diagnosticsOpen) {
+                if (QaReceiptDiagnostic.available(context)) {
+                    Text("Recepção de Conversas QA 45", color = Wine,
+                        style = MaterialTheme.typography.titleMedium)
+                    Text("Último callback nesta instalação. HTTP 0 indica falha de transporte; " +
+                        "solicitação ao Android não comprova exibição.", color = Muted,
+                        fontSize = AtrioType.secondary)
+                    Text(receiptTrace, color = Wine, fontSize = AtrioType.secondary,
+                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                    OutlinedButton(onClick = {
+                        receiptTrace = QaReceiptDiagnostic.snapshot(context)
+                    }, modifier = Modifier.fillMaxWidth()) { Text("Atualizar recepção QA") }
+                    HorizontalDivider()
+                }
                 if (active) {
                     TextButton(onClick = {
                         FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
