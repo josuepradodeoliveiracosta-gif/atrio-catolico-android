@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {DatabaseSync} from 'node:sqlite';
+import {createFreeFlowLab} from '../../cloudflare/push-worker/scripts/qa-automatic-free-flow-lab.mjs';
 import {createFreeSnapshotLab} from '../../cloudflare/push-worker/scripts/qa-automatic-free-snapshot-lab.mjs';
 import {createFreePublicationLab} from '../../cloudflare/push-worker/scripts/qa-automatic-free-publication-lab.mjs';
 import {createFreeRestDiscoveryLab} from '../../cloudflare/push-worker/scripts/qa-automatic-free-rest-lab.mjs';
@@ -350,19 +351,20 @@ try{
   await absent('retry-expired');
  });
 
- await test('REST discovery and transactional publication through actual local emulator',async()=>{
+ await test('REST discovery and transactional publication through actual local emulator',async t=>{
   const host=process.env.FIRESTORE_EMULATOR_HOST;
   assert.match(host,/^127\.0\.0\.1:\d+$/);
   const remote='projects/'+projectId+'/databases/(default)/documents';
   const local='projects/demo-atrio-v11/databases/(default)/documents';
   const requests=[];
+  const localFetch=globalThis.fetch;
   const transport=async req=>{
    const u=new URL(req.url);
    assert.equal(u.origin,'https://firestore.googleapis.com');
    assert.ok(u.pathname.startsWith('/v1/'+remote));
    assert.equal(req.method,'POST');assert.equal(req.redirect,'error');
    requests.push({path:u.pathname,transaction:req.body.transaction});
-   const response=await fetch('http://'+host+u.pathname.replace(remote,local),{
+   const response=await localFetch('http://'+host+u.pathname.replace(remote,local),{
     method:'POST',redirect:'error',headers:{'Content-Type':'application/json',Authorization:'Bearer owner'},
     body:JSON.stringify(req.body).replaceAll(remote,local)});
    const raw=await response.text();
@@ -408,6 +410,28 @@ try{
    assert.equal((await pending.get()).exists,false);
    const totals=sql.prepare('SELECT * FROM qa_auto_daily_budget_lab').get();
    assert.equal(totals.discovery,2);assert.equal(totals.publication,3);
+   await seed('rest-worker');
+   const workerLab=await createWorkerLab(t,{db,auth,service});
+   const flow=createFreeFlowLab({enabled:true,activatedAt:input.activatedAt,discover,publish,
+    reserveTransport:budget.reserveTransport,dispatch:workerLab.dispatchInternal});
+   const publication=await flow.discoverAndPublish();
+   assert.equal(publication.status,'published_lab',JSON.stringify(publication));
+   const delivered=await flow.transport(publication);
+   assert.equal(delivered.status,'accepted_simulated',JSON.stringify(delivered));
+   assert.deepEqual(workerLab.stats(),{sends:1,reservations:1});
+   assert.equal((await outbox('rest-worker').get()).data().state,'accepted_simulated');
+   const measured=workerLab.metrics();
+   assert.ok(measured.externalRequests>0&&measured.externalRequests<=50,JSON.stringify(measured));
+   assert.ok(measured.firestoreRequests>0&&measured.d1Calls>0);
+   console.log('REST Worker lab operation counts (not billing or CPU): '+JSON.stringify(measured));
+   assert.equal((await flow.transport(publication)).reason,'not_pending');
+   assert.deepEqual(workerLab.stats(),{sends:1,reservations:1});
+   assert.equal((await flow.transport({status:'publication_unknown_lab',eventKey:publication.eventKey})).reason,'publication_not_confirmed');
+   const deniedFlow=createFreeFlowLab({enabled:true,activatedAt:input.activatedAt,discover,publish,
+    reserveTransport:async()=>false,dispatch:async()=>{throw Error('must not dispatch')}});
+   assert.equal((await deniedFlow.transport(publication)).reason,'transport_budget_unavailable');
+   assert.equal(sql.prepare('SELECT attempts FROM qa_auto_transport_budget_lab').get().attempts,2);
+
   }finally{sql.close()}
  });
 }finally{await deleteApp(app)}

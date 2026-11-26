@@ -8,6 +8,10 @@ export const FREE_BUDGET_SCHEMA=`CREATE TABLE IF NOT EXISTS qa_auto_daily_budget
  reads INTEGER NOT NULL CHECK(reads BETWEEN 0 AND 5280),
  writes INTEGER NOT NULL CHECK(writes BETWEEN 0 AND 300),
  requests INTEGER NOT NULL CHECK(requests BETWEEN 0 AND 3680)
+ );
+CREATE TABLE IF NOT EXISTS qa_auto_transport_budget_lab (
+ day TEXT PRIMARY KEY,
+ attempts INTEGER NOT NULL CHECK(attempts BETWEEN 0 AND 100)
 );`;
 const RESERVE=`INSERT INTO qa_auto_daily_budget_lab(day,discovery,publication,reads,writes,requests)
  VALUES(strftime('%Y-%m-%d','now'),?,?,?,?,?)
@@ -17,6 +21,9 @@ const RESERVE=`INSERT INTO qa_auto_daily_budget_lab(day,discovery,publication,re
  WHERE discovery+excluded.discovery<=1440 AND publication+excluded.publication<=100
  AND reads+excluded.reads<=5280 AND writes+excluded.writes<=300
  AND requests+excluded.requests<=3680`;
+const RESERVE_TRANSPORT=`INSERT INTO qa_auto_transport_budget_lab(day,attempts)
+ VALUES(strftime('%Y-%m-%d','now'),1)
+ ON CONFLICT(day) DO UPDATE SET attempts=attempts+1 WHERE attempts<100`;
 const discovery=Object.freeze([1,0,2,0,2]);
 const publication=Object.freeze([0,1,24,3,8]);
 export function createFreeBudgetLab({db,enabled=false}={}){
@@ -30,6 +37,13 @@ export function createFreeBudgetLab({db,enabled=false}={}){
  }
  return Object.freeze({
   reserveDiscovery:()=>reserve(discovery),
+  async reserveTransport(){
+   if(enabled!==true)return false;
+   try{
+    const r=await db.prepare(RESERVE_TRANSPORT).bind().run();
+    return r?.success===true&&r.meta?.changes===1;
+   }catch{return false}
+  },
   reservePublication:amount=>{
    if(!amount||Object.keys(amount).length!==3||amount.reads!==24||amount.writes!==3||amount.requests!==8)
     return Promise.resolve(false);

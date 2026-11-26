@@ -47,3 +47,15 @@ test('old daily row cannot reset current day; failed database operation closes',
  assert.equal(await broken.reserveDiscovery(),false);
  }finally{db.close()}
 });
+
+test('transport attempts use independent atomic daily cap and never refund',async()=>{
+ const db=new DatabaseSync(':memory:');try{
+ db.exec(FREE_BUDGET_SCHEMA);
+ const service=createFreeBudgetLab({enabled:true,db:bridge(db)});
+ const results=await Promise.all(Array.from({length:105},()=>service.reserveTransport()));
+ assert.equal(results.filter(Boolean).length,100);
+ assert.equal(await service.reserveTransport(),false);
+ assert.equal(db.prepare('SELECT attempts FROM qa_auto_transport_budget_lab').get().attempts,100);
+ assert.equal(await createFreeBudgetLab({db:bridge(db)}).reserveTransport(),false);
+ }finally{db.close()}
+});

@@ -52,12 +52,13 @@ export async function createWorkerLab(t,{db,auth,service,afterReservation=async(
   const a=await auth.getUser(uid);
   return [uid,{localId:a.uid,email:a.email,emailVerified:a.emailVerified,disabled:a.disabled}];
  })));
- let sends=0,reservations=0;
+ let sends=0,reservations=0,externalRequests=0,firestoreRequests=0,firestoreDocuments=0,d1Calls=0;
  const database={prepare(statement){
   return {bind(...params){
    return {
     async first(){return sql.prepare(statement).get(...params)},
     async run(){
+     d1Calls++;
      const result=sql.prepare(statement).run(...params);
      if(/^INSERT OR IGNORE INTO delivered/.test(statement)&&result.changes===1){
       reservations++;await afterReservation();
@@ -69,6 +70,7 @@ export async function createWorkerLab(t,{db,auth,service,afterReservation=async(
  }};
  t.mock.method(console,'info',()=>{});
  t.mock.method(globalThis,'fetch',async(input,init={})=>{
+  externalRequests++;
   const url=new URL(input);
   assert.equal(init.redirect,'manual');
   const headers=new Headers(init.headers);
@@ -89,6 +91,7 @@ export async function createWorkerLab(t,{db,auth,service,afterReservation=async(
    if(fcm==='rejected')return Response.json({error:{code:403}},{status:403});
    return Response.json({name:'projects/'+project+'/messages/synthetic-fcm-receipt'});
   }
+  firestoreRequests++;
   assert.equal(url.origin,'https://firestore.googleapis.com','all other remote requests forbidden');
   assert.ok(url.pathname.startsWith('/v1/'+remoteRoot));
   assert.equal(headers.get('Authorization'),'Bearer fixture-access-token');
@@ -96,24 +99,22 @@ export async function createWorkerLab(t,{db,auth,service,afterReservation=async(
   const body=init.body?.replaceAll(remoteRoot,demoRoot);
   const local=await originalFetch('http://'+host+url.pathname.replace(remoteRoot,demoRoot)+url.search,
    {...init,headers,body});
-  return new Response((await local.text()).replaceAll(demoRoot,remoteRoot),
-   {status:local.status,headers:{'Content-Type':'application/json'}});
+  const raw=(await local.text()).replaceAll(demoRoot,remoteRoot);
+  // Count returned documents, not billed reads: missing docs, index reads,
+  // retries and SDK claim/finish are not included in this metric.
+  try{
+   const data=JSON.parse(raw);
+   firestoreDocuments+=Array.isArray(data)?data.filter(x=>x.found||x.document).length:
+    Array.isArray(data.documents)?data.documents.length:data.name?.startsWith(remoteRoot+'/')?1:0;
+  }catch{}
+  return new Response(raw,{status:local.status,headers:{'Content-Type':'application/json'}});
  });
  const env={ATRIO_GENERAL_QA_MODE:'true',ATRIO_GENERAL_QA_PROJECT:project,
   ATRIO_QA_AGE_POLICY:identity.ageMode,PUSH_ENABLED:'true',FIREBASE_WEB_API_KEY:'fixture',
   FIREBASE_SERVICE_ACCOUNT_JSON:JSON.stringify({project_id:project,client_email:email,
    private_key:privateKey.export({type:'pkcs8',format:'pem'})}),PUSH_DB:database};
- return {
-  stats:()=>({sends,reservations}),
-  // Seed the real deduplication marker, emulating a previous manual delivery.
-  seedMarker(chat,message,recipient){
-   sql.prepare('INSERT INTO delivered(event_key,created_at) VALUES (?,?)')
-    .run('chat:'+chat+':'+message+':'+recipient,Date.now());
-  },
-  async dispatch(authorization,body){
-   const verified=await contract.authorize({authorization,body});
-   if(verified.status!=='authenticated_lab')return verified;
-   const claim=await service.claim(verified.eventKey);
+ async function dispatchClaimed(eventKey){
+   const claim=await service.claim(eventKey);
    if(claim.status!=='claimed_lab')return claim;
    let outcome='unknown',workerStatus='unavailable';
    try{
@@ -134,6 +135,25 @@ export async function createWorkerLab(t,{db,auth,service,afterReservation=async(
    }catch{/* any unexpected result is terminal unknown */}
    const result=await service.finish({...claim,outcome});
    return {...result,workerStatus};
+ }
+ return {
+  stats:()=>({sends,reservations}),
+  metrics:()=>({externalRequests,firestoreRequests,firestoreDocuments,d1Calls}),
+  seedMarker(chat,message,recipient){
+   sql.prepare('INSERT INTO delivered(event_key,created_at) VALUES (?,?)')
+    .run('chat:'+chat+':'+message+':'+recipient,Date.now());
+  },
+  async dispatch(authorization,body){
+   const verified=await contract.authorize({authorization,body});
+   if(verified.status!=='authenticated_lab')return verified;
+   return dispatchClaimed(verified.eventKey);
+  },
+  // A test-only private invocation, NOT a route or authentication bypass in
+  // the generated deployable Worker. No client-provided actor or recipient.
+  async dispatchInternal(eventKey){
+   if(!enabled||typeof eventKey!=='string'||!/^[a-f0-9]{64}$/.test(eventKey))
+    return {status:'ignored',reason:'invalid_internal_dispatch'};
+   return dispatchClaimed(eventKey);
   }
  };
 }
