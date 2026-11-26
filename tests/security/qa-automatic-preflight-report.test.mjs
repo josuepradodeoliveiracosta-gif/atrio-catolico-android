@@ -1,0 +1,31 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {spawnSync} from 'node:child_process';
+import {mkdtempSync,writeFileSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {evidenceTemplate,reportEvidence} from '../../cloudflare/push-worker/scripts/qa-automatic-preflight-report.mjs';
+const script=fileURLToPath(new URL('../../cloudflare/push-worker/scripts/qa-automatic-preflight-report.mjs',import.meta.url));
+test('offline preflight template is explicitly blocked and cannot authorize activation',()=>{
+ const result=spawnSync(process.execPath,[script,'--template'],{encoding:'utf8'});
+ assert.equal(result.status,0);
+ const e=JSON.parse(result.stdout),r=reportEvidence(e);
+ assert.deepEqual(e,evidenceTemplate());
+ assert.equal(r.status,'blocked');assert.equal(r.independentVerification,false);assert.equal(r.activationAuthorized,false);
+ assert.ok(r.missing.includes('freePlans')&&r.missing.includes('identityAndPolicy'));
+});
+test('offline report does not echo operator evidence, rejects unknown/structured fields',async t=>{
+ const dir=mkdtempSync(join(tmpdir(),'atrio-preflight-'));t.after(()=>rmSync(dir,{recursive:true,force:true}));
+ const file=join(dir,'evidence.json');
+ const e=evidenceTemplate();e.workersPlan='sentinel-never-echo';
+ writeFileSync(file,JSON.stringify(e));
+ const r=spawnSync(process.execPath,[script,file],{encoding:'utf8'});
+ assert.equal(r.status,2);assert.equal(JSON.parse(r.stdout).remoteWrites,false);
+ assert.ok(!r.stdout.includes('sentinel-never-echo'));
+ assert.throws(()=>reportEvidence({...e,private_key:'fake'}));
+ assert.throws(()=>reportEvidence({...e,workersPlan:{plan:'free'}}));
+ writeFileSync(file,JSON.stringify({...e,unknown:'sentinel-never-echo'}));
+ const invalid=spawnSync(process.execPath,[script,file],{encoding:'utf8'});
+ assert.equal(invalid.status,1);assert.ok(!invalid.stderr.includes('sentinel-never-echo'));
+});

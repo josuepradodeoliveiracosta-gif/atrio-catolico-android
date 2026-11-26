@@ -1,0 +1,9 @@
+# Marco 10L — integridade real do snapshot e montagem offline
+
+CI 45903510365 (revisão 7bdb885709dd33994bf08197561f52eb5ac4b900), consulta parcial: 217 contrato, 5 VM Web (incluindo 3 novos testes de montagem), 3 Workerd = 225 aprovados; emulador em execução. Não declarar CI integral antes de concluir.
+
+Reconsulta Cloudflare somente GET em 26/11/2026: deployment af89cc1b-2ef9-443a-a38d-e60673b2ad17, versão ativa 6fcc1921-05da-4395-ae36-b8215eff8d1b 100%, última versão igual. Validação do multipart real com mesmos critérios de framing, headers, lista de módulos e SHA-256 do utilitário 10K: oito de oito hashes idênticos, nenhuma parte adicional. Conteúdo não emitido. Isso comprova integridade do snapshot observado, não execução/compilação do grafo real pelo utilitário Node.
+
+Próxima ação do titular: no Debian usar checkout destacado da revisão 7bdb885709dd33994bf08197561f52eb5ac4b900, isolado do diretório de trabalho habitual; obter snapshot por GET /accounts/11f5b44f182f37b5b374330592c92b8c/workers/scripts/atrio-push-qa-general com token existente Workers Scripts Read, sem imprimir token nem corpo. Diretório privado via mktemp e umask 077. Executar Node 22 --experimental-vm-modules cloudflare/push-worker/scripts/qa-automatic-hosted-probe-package.mjs <snapshot> <destino-novo>. Esperado prepared_for_review, originalModules 8, deployable false, remoteWrites false. Enviar somente relatório resumido, não snapshot, módulos, token ou credenciais. Não ampliar permissões se GET retornar 403; possível obter snapshot por operador previamente autorizado. Não atualizar hashes para contornar drift. Nenhum upload, deploy, cron, SQL remoto, IAM, serviço pago ou novo disparo deliberado de CI. Preparação não autoriza ativação.
+
+A montagem real precisa ocorrer antes de revisar configuração de upload; permanecem bloqueios de pré-voo, CPU hospedada, revogação, antiabuso e homologação física.

@@ -1,0 +1,13 @@
+# Marco 10I — primeira janela diagnóstica sem envio automático
+
+CI anterior 45901962709: 213 contrato + 2 VM + 2 Workerd + 37 emulador = 254 aprovados, zero falhas. Agendamento anterior validado localmente.
+
+Primeira etapa hospedada proposta separada da entrega automática: novo pacote local --identity-probe-candidate, mutuamente exclusivo de --scheduled-candidate. Entry preserva relay HTTP manual existente e tem scheduled exclusivamente diagnóstico (sem candidato tick automático no entry). O scheduled exige flag diagnóstica explícita, início em minuto UTC, janela <=10min, Cron exato, atraso <=15s, modo automático e flag de envio automático ausentes, reserva D1 atômica consumed 0→1, margem de 120s, sem retry. Usa a sonda de quatro tentativas externas OAuth/readOnly begin/rollback/Auth lookup, limite de novas tentativas 45s, nenhuma escrita Firestore ou FCM pelo diagnóstico. Não garante interrupção de I/O já iniciado; rollback pode falhar e o diagnóstico então fica bloqueado. A rota manual existente continua funcional e pode enviar conforme fluxo anterior: manter publicador manual quiescente durante medição. Nenhuma configuração de implantação, nenhum INSERT de ativação, tabela de diagnóstico separada; não reutiliza época da entrega. Relatório booleano sanitizado. Quatro novos testes (3 handler e 1 pacote), CI pendente.
+
+## Sequência operacional proposta, NÃO executada
+1. Após CI, conferir compatibilidade do artefato, plano Free, saldos atuais, versão de rollback, capacidade de métricas e ausência de outros Cron. Confirmar janela com o titular, sem afetar produção.
+2. Preparar revisão exata de versão que preserve relay e bindings existentes, diagnóstico desarmado. Autorizar separadamente upload/implantação, schema diagnóstico, inicialização única e cron temporário. Não autorizar entrega automática nessa etapa. Nunca habilitar serviços pagos.
+3. Após autorização e implantação verificada, janela de até dez minutos; primeira execução fresca consome a reserva e não pode repetir. Nenhuma rota pública de diagnóstico. Inspecionar relatório redigido e métricas reais por versão, inclusive CPU do OAuth frio. Se 10ms não forem suficientes, interromper e otimizar; não migrar para Paid. Não confundir resultado do probe com CPU do tick positivo ou entrega física.
+4. Remover Cron, desarmar diagnóstico, confirmar drenagem e restaurar versão anterior. Preservar registro consumed e marcadores. Entrega automática em etapa posterior, com proteção contra abuso, prova de revogação, escopo IAM residual, pré-voo atualizado e autorização específica.
+
+Nenhum deploy, schema remoto, agendamento, IAM, alteração de faturamento ou merge nesta revisão. Progresso global anterior é estimativa, não conclusão da homologação.

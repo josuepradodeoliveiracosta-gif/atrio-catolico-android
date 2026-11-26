@@ -1,0 +1,7 @@
+# Marco 08C — transporte automático D1 (laboratório)
+
+CI 08B [45882140879](https://github.com/josuepradodeoliveiracosta-gif/atrio-catolico-android/actions/runs/45882140879): 169 contrato +36 emulador =205 aprovados. 59 requisições REST somente leitura, zero escrita do adaptador.
+
+Despachante interno desabilitado por padrão, orçamento reservado antes do claim, sem entrada HTTP nem representação de usuário. Seleciona exatamente um dispositivo elegível, reserva marcador compatível com manual (chat:chatId:messageId:recipient) no D1 fornecido, relê o dispositivo e a autorização depois da reserva, TTL FCM limitado ao menor entre 60s e prazo restante, sinal refresh sem conteúdo. Resultado ambíguo terminal; não limpa dispositivo nem apaga marcador. Teste em SQLite verifica marcador prévio manual e concorrência; emulador integra seleção real do Worker gerado em memória (export de devices apenas no teste), autorização REST/Auth, outbox D1 e FCM sintético. O transporte FCM é injetado, ainda não é fronteira implantável. O teste usa tabela delivered local compatível, não comprova compartilhamento remoto. Testes adversariais incluem revogação depois da reserva, mudança de dispositivo, excesso de dispositivos, recibo inválido e transporte incerto. CI pendente.
+
+Próximo 08D: autenticar /notice no modo automático e provar exclusividade de modos, compartilhamento de binding e limites. Sem ativação, cron, concessão IAM, alteração de regras, D1 remoto ou serviços pagos.

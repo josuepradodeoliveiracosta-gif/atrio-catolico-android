@@ -1,0 +1,9 @@
+# Push Automático 1.0 — etapa 03C: ensaio integrado
+
+Integração exclusivamente no processo de testes: OIDC sintético assinado, outbox Firestore emulado, claim exclusivo, Worker gerado pelo compositor existente, esquema SQL real executado em SQLite local e FCM interceptado. A única substituição no código gerado em memória é a resolução do ator do POST /event, por WeakMap privada do ensaio após autenticação/claim e leitura do outbox; não se fabrica token Firebase nem se expõe rota, artefato ou bypass implantável. O gerador original e /event /notice reais permanecem intactos. O laboratório não comprova entrada HTTP real, IAM ou Google JWKS.
+
+Verificações: autenticação incorreta e campos excedentes recusados; duas chamadas concorrentes geram um claim e um FCM simulado; marcador SQL compartilhado com o caminho manual bloqueia duplicidade; revogação após INSERT OR IGNORE impede FCM pela revalidação efetiva do Worker; resultado de transporte ambíguo termina unknown sem retry. Payload conferido exatamente signal=refresh e TTL 60s. Todo tráfego Google interceptado, Firestore restrito ao demo local; sem credenciais, D1 remoto ou FCM real. Auth lookup do Worker usa fixture derivada das contas emuladas; não prova corrida Auth real. SQLite exercita SQL e unicidade, não infraestrutura D1 distribuída.
+
+Gate próximo: resolver identidade/IAM e JWKS real, contrato de entrada serviço-serviço sem substituição de teste, acionador de criação e fila/retentativas limitadas antes de claim, autorização explícita de implantação QA. Nenhuma mudança remota.
+
+Uma interrupção de autorização pode ocorrer depois de um envio parcial para outro dispositivo; o resultado do outbox permanece unknown, mesmo quando o ensaio de revogação comprova zero chamadas ao FCM. O marcador não é removido.
