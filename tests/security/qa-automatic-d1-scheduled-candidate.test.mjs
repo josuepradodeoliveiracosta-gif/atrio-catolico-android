@@ -4,6 +4,7 @@ import {DatabaseSync} from 'node:sqlite';
 import {D1_OUTBOX_LAB_SCHEMA} from '../../cloudflare/push-worker/scripts/qa-automatic-d1-outbox-lab.mjs';
 import {D1_TRIAL_SCHEMA} from '../../cloudflare/push-worker/scripts/qa-automatic-d1-trial-lab.mjs';
 import {D1_SCHEDULE_SCHEMA,QA_AUTO_CRON,createQaScheduledCandidate} from '../../cloudflare/push-worker/scripts/qa-automatic-d1-scheduled-candidate.mjs';
+import {CONTINUOUS_SCHEMA} from '../../cloudflare/push-worker/scripts/qa-automatic-continuous-gate.mjs';
 function fixture(t){
  // SQL uses actual time. A minute may be older than 15s: freeze JS and
  // use an in-memory SQL clock overridden only in the test bridge.
@@ -63,4 +64,22 @@ test('crash after reservation never replays the minute and reports uncertainty',
  assert.equal(r.status,'failed');assert.equal(r.fcmAttempted,null);
  assert.equal((await run(f.controller,f.env)).reason,'schedule_reservation_unavailable');
  assert.equal(attempts,1);assert.ok(!JSON.stringify(r).includes('SENSITIVE'));
+});
+
+test('continuous minute reservation is distinct, once-only and quota-bound',async t=>{
+ const f=fixture(t),epoch=f.epoch+1000;
+ f.sql.exec(CONTINUOUS_SCHEMA+"CREATE TABLE atrio_qa_identity(project_id TEXT); INSERT INTO atrio_qa_identity VALUES('atrio-catolico-qa-general'); UPDATE qa_auto_d1_activation_lab SET enabled=0");
+ f.sql.prepare('INSERT INTO qa_auto_d1_continuous_epoch VALUES(?,1,?,?)').run(epoch,f.now-1000,f.now+600000);
+ f.sql.prepare('INSERT INTO qa_auto_d1_continuous_schedule(activated_at) VALUES(?)').run(epoch);
+ const env={...f.env,QA_AUTO_MODE:'continuous',QA_AUTO_ACTIVATED_AT:String(epoch)};
+ assert.equal((await f.run(f.controller,env)).reason,'schedule_disabled');
+ const armed={...env,QA_AUTO_CONTINUOUS_ENABLED:'true'};
+ f.sql.prepare('UPDATE qa_auto_d1_continuous_epoch SET quota_valid_until=?').run(f.now+60000);
+ assert.equal((await f.run(f.controller,armed)).reason,'schedule_reservation_unavailable');
+ f.sql.prepare('UPDATE qa_auto_d1_continuous_epoch SET quota_valid_until=?').run(f.now+600000);
+ const runs=await Promise.all(Array.from({length:8},()=>f.run(f.controller,armed)));
+ assert.equal(runs.filter(r=>r.status==='completed').length,1);
+ assert.equal(f.stats().ticks,1);
+ assert.equal(f.sql.prepare('SELECT last_scheduled_at FROM qa_auto_d1_schedule_lab').get().last_scheduled_at,0);
+ assert.equal(f.sql.prepare('SELECT last_scheduled_at FROM qa_auto_d1_continuous_schedule').get().last_scheduled_at,f.at);
 });

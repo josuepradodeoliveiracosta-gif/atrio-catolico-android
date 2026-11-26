@@ -4,28 +4,30 @@ import {createD1OutboxLab} from './qa-automatic-d1-outbox-lab.mjs';
 import {createD1DispatchLab} from './qa-automatic-d1-dispatch-lab.mjs';
 import {AUTO_CHAT} from '../../../firebase/qa-geral-celular/pilot/conversation-push-automatic-plan.mjs';
 import {conversationPushIdentity as identity} from '../../../firebase/qa-geral-celular/pilot/conversation-push-identity.mjs';
+import {continuousLeaseSql,noActiveContinuousEpoch} from './qa-automatic-continuous-gate.mjs';
 const uids=Object.keys(identity.accounts);
 const id=x=>typeof x==='string'&&/^[A-Za-z0-9_-]{1,128}$/.test(x);
 const json=(status,body)=>Response.json(body,{status,headers:{'Cache-Control':'no-store'}});
 const stopped=()=>({status:'ignored',reason:'mode_unavailable'});
 export function createD1ModeLab({db,mode='manual',activatedAt,manualWorker,verifyIdentity,
- readAuthorization,listDevices,sendRefresh,reserveAttempt}={}){
+ readAuthorization,listDevices,sendRefresh,reserveAttempt,continuous=false}={}){
  if(typeof db?.prepare!=='function'||typeof manualWorker?.fetch!=='function'||typeof verifyIdentity!=='function')
   throw Error('missing_lab_dependency');
  if(!['manual','automatic'].includes(mode))throw Error('invalid_lab_mode');
  const enabled=mode==='automatic'&&Number.isSafeInteger(activatedAt)&&activatedAt>0;
- const outbox=createD1OutboxLab({db,enabled,activatedAt,readAuthorization});
+ const outbox=createD1OutboxLab({db,enabled,activatedAt,readAuthorization,continuous});
  const dispatch=createD1DispatchLab({db,enabled,outbox,listDevices,sendRefresh,reserveAttempt});
  const query=(q,...args)=>db.prepare(q).bind(...args).first();
  async function modeCurrent(env){
   if(env?.PUSH_DB!==db||env.PUSH_ENABLED!=='true')return false;
   try{
+   if(mode==='automatic'&&continuous===true)return enabled&&!!await query(continuousLeaseSql(),activatedAt);
    const row=await query("SELECT activated_at,enabled FROM qa_auto_d1_activation_lab WHERE singleton=1");
    if(mode==='automatic')return enabled&&row?.enabled===1&&row.activated_at===activatedAt;
    // Manual mode requires explicit disarm AND drainage of all live slots.
    // Operator must quiesce both runtimes before switching, not rely on this
    // read as an atomic distributed lock around a subsequent network send.
-   if(row?.enabled!==0)return false;
+   if(row?.enabled!==0||!await noActiveContinuousEpoch(db,{required:continuous===true}))return false;
    const live=await query("SELECT event_key FROM qa_auto_d1_outbox_lab WHERE expires_at>CAST(unixepoch('subsec')*1000 AS INTEGER) LIMIT 1");
    return !live;
   }catch{return false}

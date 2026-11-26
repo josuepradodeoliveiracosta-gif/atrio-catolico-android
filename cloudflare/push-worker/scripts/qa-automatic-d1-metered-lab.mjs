@@ -7,11 +7,12 @@ import {createD1ModeLab} from './qa-automatic-d1-mode-lab.mjs';
 import {createFreeRestDiscoveryLab} from './qa-automatic-free-rest-lab.mjs';
 import {AUTO_CHAT} from '../../../firebase/qa-geral-celular/pilot/conversation-push-automatic-plan.mjs';
 import {conversationPushIdentity as identity} from '../../../firebase/qa-geral-celular/pilot/conversation-push-identity.mjs';
+import {continuousLeaseSql} from './qa-automatic-continuous-gate.mjs';
 const stop=reason=>({status:'ignored',reason});
 const keyFor=async e=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',
  new TextEncoder().encode(JSON.stringify([identity.roundId,AUTO_CHAT,e.messageId])))),b=>b.toString(16).padStart(2,'0')).join('');
 export function createMeteredD1Lab({db,enabled=false,activatedAt,transport,lookupAccounts,
- manualWorker,verifyIdentity,listDevices,sendRefresh}={}){
+ manualWorker,verifyIdentity,listDevices,sendRefresh,continuous=false}={}){
  if(typeof db?.prepare!=='function'||typeof manualWorker?.fetch!=='function'||
  [transport,lookupAccounts,verifyIdentity,listDevices,sendRefresh].some(x=>typeof x!=='function'))throw Error('missing_lab_dependency');
  const ready=env=>enabled===true&&Number.isSafeInteger(activatedAt)&&activatedAt>0&&env?.PUSH_DB===db&&
@@ -28,7 +29,7 @@ export function createMeteredD1Lab({db,enabled=false,activatedAt,transport,looku
    }}};
   }};
   const scopedEnv={...env,PUSH_DB:measuredDb};
-  const reserve=createD1DailyBudgetLab({db:measuredDb,enabled:true});
+  const reserve=createD1DailyBudgetLab({db:measuredDb,enabled:true,continuous,activatedAt});
   const measuredTransport=async req=>{meter.chargeExternal();return transport(req)};
   const readAuthorization=createD1ReadAuthorizationLab({transport:measuredTransport,lookupAccounts:async uids=>{
    meter.chargeExternal(uids.length);return lookupAccounts(uids);
@@ -36,7 +37,7 @@ export function createMeteredD1Lab({db,enabled=false,activatedAt,transport,looku
   // Work is reserved before either publication or claim. The dispatch callback
   // spends that same reservation exactly once rather than a second daily slot.
   let workReserved=false,dispatchUsed=false;
-  const activeWorker=createD1ModeLab({db:measuredDb,mode:'automatic',activatedAt,manualWorker,
+  const activeWorker=createD1ModeLab({db:measuredDb,mode:'automatic',activatedAt,manualWorker,continuous,
    verifyIdentity:async(...args)=>{meter.chargeExternal();return verifyIdentity(...args)},
    readAuthorization,listDevices:async uid=>{meter.chargeExternal();return listDevices(uid)},
    sendRefresh:async(message,expiresAt)=>{meter.chargeExternal();return sendRefresh(message,expiresAt)},
@@ -53,8 +54,9 @@ export function createMeteredD1Lab({db,enabled=false,activatedAt,transport,looku
    let result;
    try{
     // No external work if the persistent mode/epoch is not current.
-    const a=await i.measuredDb.prepare('SELECT activated_at,enabled FROM qa_auto_d1_activation_lab WHERE singleton=1').bind().first();
-    if(a?.enabled!==1||a.activated_at!==activatedAt)result=stop('mode_unavailable');
+    const a=continuous===true?await i.measuredDb.prepare(continuousLeaseSql(120000)).bind(activatedAt).first():
+     await i.measuredDb.prepare('SELECT activated_at,enabled FROM qa_auto_d1_activation_lab WHERE singleton=1').bind().first();
+    if(continuous===true?!a:(a?.enabled!==1||a.activated_at!==activatedAt))result=stop('mode_unavailable');
     else{
      const c=await i.discover({enabled:true,projectId:identity.projectId,activatedAt});
      if(c.status!=='candidate')result=c;

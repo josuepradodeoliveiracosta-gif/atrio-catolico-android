@@ -6,6 +6,8 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {D1_OUTBOX_LAB_SCHEMA,createD1OutboxLab} from '../../cloudflare/push-worker/scripts/qa-automatic-d1-outbox-lab.mjs';
 import {conversationPushIdentity as identity} from '../../firebase/qa-geral-celular/pilot/conversation-push-policy.mjs';
+import {CONTINUOUS_SCHEMA} from '../../cloudflare/push-worker/scripts/qa-automatic-continuous-gate.mjs';
+import {D1_TRIAL_SCHEMA} from '../../cloudflare/push-worker/scripts/qa-automatic-d1-trial-lab.mjs';
 const {projectId,databaseId,roundId,ageMode}=identity;
 const alice='qa-nav-alice',bob='qa-nav-bob',chat=alice+'__'+bob;
 const gen=i=>'00000000-0000-4000-8000-00000000000'+i;
@@ -121,4 +123,26 @@ test('ambiguous publication can recover exact unclaimed record; ambiguous claim 
  assert.equal((await lost.claim(r.event_key)).status,'claim_unknown_lab');
  assert.equal((await f.make().claim(r.event_key)).reason,'not_pending');
  assert.equal(f.row(r.event_key).state,'claimed_lab');
+});
+
+test('continuous outbox preserves exclusive claim and disarm forces terminal unknown',async t=>{
+ const f=fixture(t),now=Date.now();
+ f.db.exec(D1_TRIAL_SCHEMA+CONTINUOUS_SCHEMA+"CREATE TABLE atrio_qa_identity(project_id TEXT); INSERT INTO atrio_qa_identity VALUES('atrio-catolico-qa-general'); UPDATE qa_auto_d1_activation_lab SET enabled=0");
+ f.db.prepare('INSERT INTO qa_auto_d1_continuous_epoch VALUES(?,1,?,?)').run(f.activatedAt,now,now+600000);
+ const w=f.make({continuous:true}),legacy=f.make();
+ assert.equal((await legacy.publish(f.candidate())).status,'ignored');
+ const results=await Promise.all([w.publish(f.candidate()),w.publish(f.candidate())]);
+ assert.equal(results.filter(r=>r.status==='published_lab').length,1);
+ const p=results.find(r=>r.status==='published_lab');
+ const claims=await Promise.all([w.claim(p.eventKey),w.claim(p.eventKey)]);
+ assert.equal(claims.filter(r=>r.status==='claimed_lab').length,1);
+ const c=claims.find(r=>r.status==='claimed_lab');
+ assert.equal((await w.authorizeClaim(c)).status,'authorized_lab');
+ f.db.exec('UPDATE qa_auto_d1_continuous_epoch SET enabled=0');
+ assert.equal((await w.authorizeClaim(c)).status,'ignored');
+ assert.equal((await w.readNotice(alice)).status,'ignored');
+ assert.equal((await w.finish({...c,outcome:'accepted_simulated'})).status,'terminal_lab');
+ assert.equal(f.row(p.eventKey).state,'unknown');
+ assert.equal((await w.publish(f.candidate('new'))).status,'ignored');
+ assert.equal(f.db.prepare('SELECT count(*) AS n FROM qa_auto_d1_outbox_lab').get().n,1);
 });

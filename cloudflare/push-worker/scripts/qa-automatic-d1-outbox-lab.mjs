@@ -2,6 +2,7 @@
 // public route or Firestore write. Authorization remains an injected trusted read.
 import {AUTO_CHAT,planAutomaticNotice} from '../../../firebase/qa-geral-celular/pilot/conversation-push-automatic-plan.mjs';
 import {conversationPushIdentity as identity} from '../../../firebase/qa-geral-celular/pilot/conversation-push-identity.mjs';
+import {continuousActiveSql} from './qa-automatic-continuous-gate.mjs';
 const {projectId,databaseId,roundId}=identity;
 const uids=Object.keys(identity.accounts);
 const clock="CAST(unixepoch('subsec')*1000 AS INTEGER)";
@@ -40,9 +41,11 @@ const stamp=x=>time(x?.seconds)&&Number.isInteger(x.nanoseconds)&&x.nanoseconds>
 const ms=x=>x.seconds*1000+Math.floor(x.nanoseconds/1e6);
 const same=(a,b)=>stamp(a)&&stamp(b)&&a.seconds===b.seconds&&a.nanoseconds===b.nanoseconds;
 const deny=reason=>({status:'ignored',reason});
-const active="EXISTS (SELECT 1 FROM qa_auto_d1_activation_lab a WHERE a.singleton=1 AND a.enabled=1 AND a.activated_at=?)";
+const trialActive="EXISTS (SELECT 1 FROM qa_auto_d1_activation_lab a WHERE a.singleton=1 AND a.enabled=1 AND a.activated_at=?)";
 const fresh="? BETWEEN "+clock+"-5000 AND "+clock+"+1000";
 const margin=clock+"+10000";
+function statements(continuous){
+const active=continuous===true?continuousActiveSql():trialActive;
 const insert="INSERT INTO qa_auto_d1_outbox_lab(event_key,activated_at,sender_uid,recipient_uid,message_id,sender_generation,recipient_generation,creation_seconds,creation_nanos,expires_at,state) "+
  "SELECT ?,?,?,?,?,?,?,?,?,?,'pending_transport' WHERE "+active+" AND "+fresh+" AND ?>="+margin+
  " AND NOT EXISTS (SELECT 1 FROM qa_auto_d1_outbox_lab WHERE recipient_uid=? AND expires_at>"+clock+")"+
@@ -52,6 +55,8 @@ const claimSql="UPDATE qa_auto_d1_outbox_lab SET state='claimed_lab',claim_id=?,
  " WHERE event_key=? AND activated_at=? AND state='pending_transport' AND expires_at>="+margin+" AND "+active+" AND "+fresh;
 const finishSql="UPDATE qa_auto_d1_outbox_lab SET state=CASE WHEN expires_at>"+clock+" AND "+active+" THEN ? ELSE 'unknown' END,finished_at="+clock+
  " WHERE event_key=? AND activated_at=? AND state='claimed_lab' AND claim_id=?";
+return {active,insert,select,claimSql,finishSql};
+}
 const expireSql="UPDATE qa_auto_d1_outbox_lab SET state='unknown',finished_at="+clock+
  " WHERE event_key=? AND activated_at=? AND state='claimed_lab' AND expires_at<="+clock;
 async function eventKey(e){
@@ -63,9 +68,10 @@ const eventFor=r=>({type:'created',projectId,databaseId,chatId:AUTO_CHAT,message
 const validEvent=e=>e?.type==='created'&&e.projectId===projectId&&e.databaseId===databaseId&&e.chatId===AUTO_CHAT&&id(e.messageId)&&stamp(e.expectedCreateTime);
 const changed=r=>r?.success===true&&r.meta?.changes===1;
 const sameRow=(a,b)=>!!a&&!!b&&['event_key','activated_at','sender_uid','recipient_uid','message_id','sender_generation','recipient_generation','creation_seconds','creation_nanos','expires_at','state','claim_id','claimed_at','finished_at'].every(k=>a[k]===b[k]);
-export function createD1OutboxLab({db,enabled=false,activatedAt,readAuthorization}={}){
+export function createD1OutboxLab({db,enabled=false,activatedAt,readAuthorization,continuous=false}={}){
  if(typeof db?.prepare!=='function'||typeof readAuthorization!=='function')throw Error('missing_lab_dependency');
  const open=enabled===true&&time(activatedAt);
+ const {active,insert,select,claimSql,finishSql}=statements(continuous);
  const first=(q,...args)=>db.prepare(q).bind(...args).first();
  const run=(q,...args)=>db.prepare(q).bind(...args).run();
  const load=k=>first(select,k,activatedAt,activatedAt);
