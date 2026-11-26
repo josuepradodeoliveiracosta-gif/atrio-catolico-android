@@ -14,3 +14,11 @@ Contrato offline de operação contínua separado da época do ensaio. Schema ad
 4. Migrar aditivamente apenas D1 QA dedicado, armar uma nova época com evidências atuais e aplicar somente no Worker QA; verificar estado e critérios de parada. Não ampliar IAM, não vincular faturamento, não tocar produção/main, não publicar APK.
 
 A PR não autoriza ativação remota até a implementação e validação completas. A aprovação física anterior não é certificação de CPU hospedada, origem do Cron ou disponibilidade de cotas futuras.
+
+## Etapa 2 — integração do candidato
+
+O modo explícito continuous exige QA_AUTO_CONTINUOUS_ENABLED=true, além dos controles já existentes. O relay, o medidor, as operações atômicas da outbox e a reserva de minuto compartilham o predicado da nova época. O modo experimental conserva sua tabela e limite de vida. O candidato manual bloqueia enquanto houver época contínua habilitada ou slot vivo; para voltar à versão manual histórica, desarmar, retirar Cron e aguardar drenagem. Não há API de ativação ou renovação. O pacote local agendado inclui as tabelas vazias.
+
+Os testes adicionais cobrem concorrência de publicação/claim, desarme e estado terminal unknown, reserva de minuto sem replay, bloqueio de modo manual, expiração da cota, schema sem ativação e ausência de disparo público. A CI deve validar esta revisão antes de qualquer integração.
+
+**Ainda não implantável remotamente:** reavaliar teto diário na janela Pacific do Firestore, orçamento de D1 por linha e invocação, consumo compartilhado, identidade real da base e renovação de evidência de cota; testar a composição contínua de ponta a ponta no runtime local com transporte sintético. A autorização remota não se deduz do sucesso dos testes de contrato.
