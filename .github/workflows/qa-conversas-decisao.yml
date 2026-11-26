@@ -13,6 +13,14 @@ on:
       - 'app/build.gradle.kts'
       - 'scripts/qa_geral_celular_*44*'
       - 'scripts/test_qa_geral_celular_round44.py'
+      - 'scripts/qa_geral_celular_*45*'
+      - 'scripts/test_qa_geral_celular_round45.py'
+      - 'app/src/main/java/br/com/atriocatolico/QaReceiptDiagnostic.kt'
+      - 'app/src/main/java/br/com/atriocatolico/QaConversationNotice*.kt'
+      - 'app/src/main/java/br/com/atriocatolico/AtrioPushService.kt'
+      - 'app/src/main/java/br/com/atriocatolico/PushSettings.kt'
+      - 'app/src/test/java/br/com/atriocatolico/QaReceiptSignalTest.kt'
+      - 'app/src/test/java/br/com/atriocatolico/QaConversationNoticeHttpTest.kt'
       - '.github/workflows/qa-conversas-decisao.yml'
 permissions:
   contents: read
@@ -74,7 +82,7 @@ jobs:
           gradle-version: '8.13'
           cache-disabled: true
       - run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
-      - run: gradle :app:testDebugUnitTest --tests br.com.atriocatolico.AtrioInboxMessageHttpTest --tests br.com.atriocatolico.AtrioSimpleDirectQaTest --no-daemon
+      - run: gradle :app:testDebugUnitTest --tests br.com.atriocatolico.AtrioInboxMessageHttpTest --tests br.com.atriocatolico.AtrioSimpleDirectQaTest --tests br.com.atriocatolico.QaReceiptSignalTest --tests br.com.atriocatolico.QaConversationNoticeHttpTest --no-daemon
 
   round44-fixture:
     name: APK 44 HTTPS — ensaio sem segredos
@@ -153,3 +161,84 @@ jobs:
             echo 'A rodada antiga aceitou a versão nova.' >&2; exit 1
           fi
           echo 'Rodada 44 comprovada com certificado descartável; sem publicação, assinatura definitiva ou FCM real.'
+
+  round45-fixture:
+    name: APK 45 HTTPS — ensaio sem segredos
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'qa/conversas-decisao-20261125'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      QA_ORIGIN: https://atrio-push-qa-general.atrio-catolico.workers.dev
+      CANDIDATE_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: candidate
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@be39fa834029ff78f1a45aa3bb0819b8fc2bd8fd
+        with:
+          packages: platform-tools platforms;android-36 build-tools;36.0.0
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a
+        with:
+          gradle-version: '8.13'
+          cache-disabled: true
+      - name: Validar contratos existentes e compilar com configuração descartável
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          tree="$(git -C candidate rev-parse HEAD^{tree})"
+          python3 -m unittest scripts.test_qa_geral_celular_round43 scripts.test_qa_geral_celular_round44 scripts.test_qa_geral_celular_round45 scripts.test_qa_geral_celular_apk43_route -v
+          bash -n scripts/qa_geral_celular_build45_https.sh
+          fixture="$(python3 - <<'PY'
+          import json
+          from scripts.qa_geral_remote_build_gate import QA_PROJECT, REGISTERED_APP_ID, fixture
+          config = fixture(QA_PROJECT, REGISTERED_APP_ID)
+          config["client"][0]["api_key"][0]["current_key"] = "qa45-fixture-sem-credencial-remota"
+          print(json.dumps(config))
+          PY
+          )"
+          ATRIO_QA_CELULAR_GOOGLE_SERVICES_JSON="$fixture" \
+            bash scripts/qa_geral_celular_build45_https.sh candidate "$CANDIDATE_SHA" \
+              "$tree" "$RUNNER_TEMP/qa45-unsigned.apk" "$QA_ORIGIN"
+          unset fixture
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          unsigned="$RUNNER_TEMP/qa45-unsigned.apk"
+          "$tools/zipalign" -c -P 16 4 "$unsigned"
+          if "$tools/apksigner" verify "$unsigned" >/dev/null 2>&1; then exit 1; fi
+          python3 -m scripts.qa_geral_celular_round45 metadata "$unsigned" --build-tools "$tools"
+          work="$(mktemp -d)"
+          trap 'rm -rf -- "$work"; rm -f -- "$unsigned"' EXIT
+          export ATRIO_QA_CELULAR_STORE_PASSWORD=qa45-descartavel
+          export ATRIO_QA_CELULAR_KEY_PASSWORD="$ATRIO_QA_CELULAR_STORE_PASSWORD"
+          export ATRIO_QA_CELULAR_KEY_ALIAS=fixture45
+          keytool -genkeypair -keystore "$work/fixture.p12" -storetype PKCS12 \
+            -storepass:env ATRIO_QA_CELULAR_STORE_PASSWORD -alias "$ATRIO_QA_CELULAR_KEY_ALIAS" \
+            -keyalg RSA -keysize 2048 -validity 1 -dname CN=QA45-fixture
+          cert_sha="$(keytool -exportcert -keystore "$work/fixture.p12" \
+            -storepass:env ATRIO_QA_CELULAR_STORE_PASSWORD -alias "$ATRIO_QA_CELULAR_KEY_ALIAS" | sha256sum | cut -d' ' -f1)"
+          bash scripts/qa_geral_celular_manual.sh sign "$unsigned" "$work/signed.apk" "$work/fixture.p12"
+          rm -f -- "$work/fixture.p12"
+          unset ATRIO_QA_CELULAR_STORE_PASSWORD ATRIO_QA_CELULAR_KEY_PASSWORD ATRIO_QA_CELULAR_KEY_ALIAS
+          signed_sha="$(sha256sum < "$work/signed.apk" | cut -d' ' -f1)"
+          python3 -m scripts.qa_geral_celular_round45 proof candidate "$CANDIDATE_SHA" "$tree" \
+            "$signed_sha" "$cert_sha" "$work/signed.apk" --build-tools "$tools"
+          if python3 -m scripts.qa_geral_celular_round43 metadata "$work/signed.apk" \
+              --build-tools "$tools" --notice-https; then
+            echo 'A rodada antiga aceitou a versão nova.' >&2; exit 1
+          fi
+          if python3 -m scripts.qa_geral_celular_round44 metadata "$work/signed.apk" --build-tools "$tools"; then
+            echo 'A rodada 44 aceitou a versão 45.' >&2; exit 1
+          fi
+          echo 'Rodada 45 comprovada com certificado descartável; sem publicação, assinatura definitiva ou FCM real.'
