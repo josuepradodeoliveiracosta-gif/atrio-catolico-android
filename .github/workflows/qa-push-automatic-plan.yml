@@ -1,0 +1,22 @@
+name: QA Push automático — contrato local
+on:
+  pull_request:
+    branches: [qa/apk46-clock-skew-20261126]
+    paths:
+      - 'firebase/qa-geral-celular/pilot/conversation-push-automatic-plan.mjs'
+      - 'tests/security/qa-push-automatic-plan.test.mjs'
+      - '.github/workflows/qa-push-automatic-plan.yml'
+permissions:
+  contents: read
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - run: node --test tests/security/qa-push-automatic-plan.test.mjs
