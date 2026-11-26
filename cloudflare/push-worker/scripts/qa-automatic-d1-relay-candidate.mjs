@@ -29,10 +29,10 @@ export function createQaAutomaticCandidateRelay({manualWorker,conversationsApi,f
   const current=async()=>continuous?await gate('notice')===end:await trialCurrent(db,activatedAt,end)&&await noActiveContinuousEpoch(db);
   const flow=createD1HttpCandidateLab({db,enabled:true,activatedAt,manualWorker,continuous,
    beforeSend:async()=>Date.now()<cutoff&&await current()&&Date.now()<cutoff,
-   fetchImpl:async(url,init)=>{
+   fetchImpl:(url,init)=>{
     // No network attempt after the finite trial deadline. Prior authorization
     // and the outbox deadline still apply; no cross-store atomicity.
-    if(Date.now()>=cutoff||(continuous&&!await current())||Date.now()>=cutoff)throw Error('activation_expired');
+    if(Date.now()>=cutoff)throw Error('activation_expired');
     return fetchImpl(url,init);
    }});
   return {flow,end,cutoff,db,activatedAt,current,env:{PUSH_DB:db,PUSH_ENABLED:'true',FIREBASE_WEB_API_KEY:env.QA_FIREBASE_WEB_API_KEY,
