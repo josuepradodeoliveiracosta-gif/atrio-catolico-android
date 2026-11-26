@@ -352,7 +352,7 @@ try{
 
  await test('REST discovery and transactional publication through actual local emulator',async()=>{
   const host=process.env.FIRESTORE_EMULATOR_HOST;
-  assert.match(host,/^127\\.0\\.0\\.1:\\d+$/);
+  assert.match(host,/^127\.0\.0\.1:\d+$/);
   const remote='projects/'+projectId+'/databases/(default)/documents';
   const local='projects/demo-atrio-v11/databases/(default)/documents';
   const requests=[];
@@ -366,7 +366,11 @@ try{
     method:'POST',redirect:'error',headers:{'Content-Type':'application/json',Authorization:'Bearer owner'},
     body:JSON.stringify(req.body).replaceAll(remote,local)});
    const raw=await response.text();
-   return {status:response.status,body:JSON.parse(raw.replaceAll(local,remote))};
+   let body;
+   try{body=JSON.parse(raw.replaceAll(local,remote))}catch{body=null}
+   // Diagnostics only: no document contents, credentials or transaction token.
+   requests.at(-1).status=response.status;
+   return {status:response.status,body};
   };
   const lookupAccounts=async uids=>Object.fromEntries(await Promise.all(uids.map(async uid=>{
    const a=await auth.getUser(uid);
@@ -384,9 +388,9 @@ try{
    const input={enabled:true,projectId,activatedAt:Date.now()-10000};
    await seed('rest-real');
    const candidate=await discover(input);
-   assert.equal(candidate.status,'candidate',JSON.stringify(candidate));
+   assert.equal(candidate.status,'candidate',JSON.stringify({result:candidate,requests:requests.map(({path,status})=>({path,status}))}));
    const result=await publish({enabled:true,candidate});
-   assert.equal(result.status,'published_lab',JSON.stringify(result));
+   assert.equal(result.status,'published_lab',JSON.stringify({result,requests:requests.map(({path,status})=>({path,status}))}));
    assert.equal((await pending.get()).data().messageId,'rest-real');
    assert.equal((await receipt('rest-real').get()).exists,true);
    assert.equal((await outbox('rest-real').get()).data().state,'pending_transport');
