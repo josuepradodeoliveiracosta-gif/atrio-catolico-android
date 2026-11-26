@@ -1,0 +1,7 @@
+# Marco 09B — pacote local e instrumentação D1
+
+CI 09A 45893040321: contrato 196/196, VM 2/2, Workerd 1/1 aprovados; emulador ainda em execução na consulta. Não alterar percentual pela CI parcial.
+
+Novo gerador local separado, sem argumentos ou UUID remoto, saída temporária ignorada em .wrangler/automatic-candidate-*. Reutiliza renderizador QA atual, relay candidato e API existente. Manifesto com hashes dos arquivos gerados, não dos módulos transitivos; exige checkout. Schema aditivo de outbox, orçamento e ensaio, sem INSERT de ativação nem alteração de delivered. Não gera configuração Wrangler, não é pacote autônomo publicável, não registra scheduled nem expõe tick. Default off, teste carrega entry real, verifica ausência de rede, preservação de marcador existente e idempotência do schema. Nenhum builder/configuração oficial modificado.
+
+Probe Workerd local agora usa D1 com 60 registros expirados retidos, mede meta.rows_read e rows_written, incluindo índices conforme emulador, conta chamadas; usa .all() para leituras instrumentadas sem modificar SQL ou resultado lógico de .first(). Teto de regressão local 1000 linhas lidas/100 escritas no probe concorrente (não orçamento de produção). Valores reais aguardam CI. Não mede todo o ciclo HTTP no Workerd, não mede CPU hospedada nem cotas da conta. Próximo: verificar CI, documentar valores, testar ciclo completo através do relay e completar pré-voo; autorização explícita antes de qualquer ação remota. Nenhuma ativação, cron, migração, IAM, billing ou serviço pago.

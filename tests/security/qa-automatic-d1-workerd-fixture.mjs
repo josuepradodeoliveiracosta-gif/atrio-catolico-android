@@ -12,7 +12,22 @@ const check=(ok,code)=>{if(!ok)throw Error(code)};
 export default {async fetch(req,env){
  if(env.LAB_ONLY!=='true'||new URL(req.url).pathname!=='/probe'||req.method!=='GET')return new Response(null,{status:404});
  try{
-  const db=env.PUSH_DB,activatedAt=Number(env.ACTIVATED_AT),created=Number(env.CREATED_AT);
+  // Diagnostics only: .all() exposes meta for SELECT whereas .first() does not.
+  // Every measured query remains identical; never log SQL, bind values or IDs.
+  const units={calls:0,rowsRead:0,rowsWritten:0};
+  function meter(result){
+   const m=result?.meta;
+   check(Number.isSafeInteger(m?.rows_read)&&m.rows_read>=0&&Number.isSafeInteger(m?.rows_written)&&m.rows_written>=0,'missing_d1_row_meta');
+   units.calls++;units.rowsRead+=m.rows_read;units.rowsWritten+=m.rows_written;
+   return result;
+  }
+  const db={prepare(q){return {bind(...args){
+   const statement=env.PUSH_DB.prepare(q).bind(...args);
+   return {async run(){return meter(await statement.run())},async first(){
+    const r=meter(await statement.all());return r.results[0]??null
+   }};
+  }}}};
+  const activatedAt=Number(env.ACTIVATED_AT),created=Number(env.CREATED_AT);
   const {projectId,databaseId,roundId,ageMode}=identity;
   const noIO=async()=>{throw Error('unexpected_io')};
   const disabled=createD1HttpCandidateLab({db,fetchImpl:noIO,manualWorker:{fetch:noIO}});
@@ -62,6 +77,6 @@ export default {async fetch(req,env){
   const n=await outbox.readNotice(alice);
   check(n.status==='notice_lab'&&n.messageId===event.messageId,'notice');
   check((await outbox.readNotice(bob)).reason==='no_notice','recipient');
-  return Response.json({status:'passed',signals,httpCalls,eventKey:winner.eventKey});
+  return Response.json({status:'passed',signals,httpCalls,units,eventKey:winner.eventKey});
  }catch(e){return Response.json({status:'failed',reason:String(e.message).slice(0,100)},{status:500})}
 }};
