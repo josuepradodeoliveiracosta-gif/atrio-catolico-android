@@ -49,23 +49,24 @@ val atrioQaGeralCelularRound42 = System.getenv("ATRIO_QA_GERAL_CELULAR_RODADA42"
 val atrioQaGeralCelularRound43 = System.getenv("ATRIO_QA_GERAL_CELULAR_RODADA43") == "1"
 val atrioQaGeralCelularRound44 = System.getenv("ATRIO_QA_GERAL_CELULAR_RODADA44") == "1"
 val atrioQaGeralCelularRound45 = System.getenv("ATRIO_QA_GERAL_CELULAR_RODADA45") == "1"
+val atrioQaGeralCelularRound46 = System.getenv("ATRIO_QA_GERAL_CELULAR_RODADA46") == "1"
 val atrioQaGeralCelularRound43Fixture = System.getenv("ATRIO_QA_GERAL_CELULAR_RODADA43_FIXTURE") == "1"
 val atrioQaGeralCelularRound43NoticeLab = System.getenv("ATRIO_QA_GERAL_CELULAR_RODADA43_NOTICE_LAB") == "1"
 require(listOf(atrioQaGeralCelularRound41, atrioQaGeralCelularRound42,
-    atrioQaGeralCelularRound43, atrioQaGeralCelularRound44, atrioQaGeralCelularRound45).count { it } <= 1) {
+    atrioQaGeralCelularRound43, atrioQaGeralCelularRound44, atrioQaGeralCelularRound45, atrioQaGeralCelularRound46).count { it } <= 1) {
     "Escolha somente uma rodada de QA Geral Celular."
 }
 val atrioQaGeralCelularRound =
     atrioQaGeralCelularRound41 || atrioQaGeralCelularRound42 || atrioQaGeralCelularRound43 ||
-        atrioQaGeralCelularRound44 || atrioQaGeralCelularRound45
+        atrioQaGeralCelularRound44 || atrioQaGeralCelularRound45 || atrioQaGeralCelularRound46
 val atrioQaNoticeOrigin = System.getenv("ATRIO_QA_CONVERSATION_NOTICE_ORIGIN").orEmpty()
-require(!(atrioQaGeralCelularRound44 || atrioQaGeralCelularRound45) ||
+require(!(atrioQaGeralCelularRound44 || atrioQaGeralCelularRound45 || atrioQaGeralCelularRound46) ||
     (atrioQaGeralBuild && atrioQaGeralRemote && atrioQaGeralCelularFunctional &&
         !atrioQaGeralCelularFicticio && !atrioQaGeralCelularRoundFixture &&
         !atrioQaConversationNoticeLab && !atrioQaInboxDiscovery && !atrioQaInboxHttpsCandidate &&
         !atrioQaGeralPush && atrioQaNoticeOrigin ==
         "https://atrio-push-qa-general.atrio-catolico.workers.dev")) {
-    "Rodadas 44 e 45: somente QA físico funcional de Conversas diretas, origem fixa e sem descoberta gerenciada."
+    "Rodadas 44, 45 e 46: somente QA físico funcional de Conversas diretas, origem fixa e sem descoberta gerenciada."
 }
 require(!atrioQaInboxHttpsCandidate ||
     (atrioQaInboxDiscovery && atrioQaGeralBuild && atrioQaGeralRemote &&
@@ -78,7 +79,7 @@ require(!atrioQaInboxHttpsCandidate ||
 if (atrioQaNoticeOrigin.isNotEmpty()) {
     require(atrioQaGeralBuild && atrioQaGeralCelularFunctional &&
         (atrioQaGeralCelularRound43 || atrioQaGeralCelularRound43Fixture ||
-            atrioQaGeralCelularRound44 || atrioQaGeralCelularRound45) && !atrioQaConversationNoticeLab) {
+            atrioQaGeralCelularRound44 || atrioQaGeralCelularRound45 || atrioQaGeralCelularRound46) && !atrioQaConversationNoticeLab) {
         "A origem do Worker de avisos exige a rodada funcional do QA Geral Celular."
     }
     val host = runCatching { URI(atrioQaNoticeOrigin).host }.getOrNull().orEmpty()
@@ -371,6 +372,7 @@ android {
         buildConfigField("boolean", "ATRIO_QA_GERAL_PUSH", "false")
         buildConfigField("boolean", "ATRIO_QA_CONVERSATION_NOTICE_LAB", "false")
         buildConfigField("boolean", "ATRIO_QA_RECEIPT_DIAGNOSTIC", "false")
+        buildConfigField("boolean", "ATRIO_QA_RECEIPT_CLOCK_SKEW", "false")
         buildConfigField("String", "ATRIO_QA_CONVERSATION_NOTICE_ORIGIN", "\"\"")
         buildConfigField("String", "ATRIO_QA_CONVERSATION_NOTICE_LAB_URL", "\"\"")
         buildConfigField("String", "ATRIO_QA_GERAL_PROJECT_ID", "\"\"")
@@ -464,7 +466,8 @@ android {
             }
             buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"$qaName\"")
             buildConfigField("boolean", "ATRIO_QA_CONVERSATION_NOTICE_LAB", atrioQaConversationNoticeLab.toString())
-            buildConfigField("boolean", "ATRIO_QA_RECEIPT_DIAGNOSTIC", atrioQaGeralCelularRound45.toString())
+            buildConfigField("boolean", "ATRIO_QA_RECEIPT_DIAGNOSTIC", (atrioQaGeralCelularRound45 || atrioQaGeralCelularRound46).toString())
+            buildConfigField("boolean", "ATRIO_QA_RECEIPT_CLOCK_SKEW", atrioQaGeralCelularRound46.toString())
             buildConfigField("String", "ATRIO_QA_CONVERSATION_NOTICE_ORIGIN", "\"$atrioQaNoticeOrigin\"")
             if (atrioQaConversationNoticeLab) {
                 buildConfigField("String", "ATRIO_QA_CONVERSATION_NOTICE_LAB_URL", "\"http://127.0.0.1:8092/notice\"")
@@ -551,6 +554,7 @@ androidComponents {
                 "qa-geral-celular" else "qa-geral"
             val pairSuffix = if (atrioQaGeralCelularPairCode.isEmpty()) "" else "-$atrioQaGeralCelularPairCode"
             val functionalSuffix = when {
+                atrioQaGeralCelularRound46 -> "-rodada-46"
                 atrioQaGeralCelularRound45 -> "-rodada-45"
                 atrioQaGeralCelularRound44 -> "-rodada-44"
                 atrioQaGeralCelularRound43 || atrioQaGeralCelularRound43Fixture ||
@@ -562,6 +566,7 @@ androidComponents {
             }
             output.versionName.set("$atrioDebugVersionName-$suffix$pairSuffix$functionalSuffix")
             val code = when {
+                atrioQaGeralCelularRound46 -> 46
                 atrioQaGeralCelularRound45 -> 45
                 atrioQaGeralCelularRound44 -> 44
                 atrioQaGeralCelularRound43 || atrioQaGeralCelularRound43Fixture ||

@@ -156,7 +156,8 @@ internal fun PushSettings(
             }
             if (diagnosticsOpen) {
                 if (QaReceiptDiagnostic.available(context)) {
-                    Text("Recepção de Conversas QA 45", color = Wine,
+                    Text(if (BuildConfig.ATRIO_QA_RECEIPT_CLOCK_SKEW) "Recepção de Conversas QA 46"
+                        else "Recepção de Conversas QA 45", color = Wine,
                         style = MaterialTheme.typography.titleMedium)
                     Text("Último callback nesta instalação. HTTP 0 indica falha de transporte; " +
                         "solicitação ao Android não comprova exibição.", color = Muted,

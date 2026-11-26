@@ -12,6 +12,7 @@ internal enum class QaReceiptStage(val label: String) {
     TTL_REJECTED("TTL inválido"),
     SENT_TIME_MISSING("Horário de envio ausente"),
     CLOCK_FUTURE("Sinal no futuro pelo relógio local"),
+    CLOCK_COMPARISON("Diferença FCM menos relógio local (ms)"),
     EXPIRED("Sinal expirado"),
     SIGNAL_VALID("Sinal válido"),
     SESSION_REJECTED("Sessão ausente ou alterada"),
@@ -32,19 +33,26 @@ internal enum class QaReceiptStage(val label: String) {
     TIMEOUT("Prazo de processamento esgotado")
 }
 
-/** Same admission conditions as APK 44; diagnostic classification only. */
-internal fun qaReceiptSignalProblem(payloadValid: Boolean, ttl: Int, sent: Long, now: Long): QaReceiptStage? =
+private const val MAX_FUTURE_SKEW_MS = 2_000L
+
+/** Strict by default; only the physical QA round 46 opts into bounded future skew. */
+internal fun qaReceiptSignalProblem(
+    payloadValid: Boolean, ttl: Int, sent: Long, now: Long, allowClockSkew: Boolean = false
+): QaReceiptStage? =
     when {
         !payloadValid -> QaReceiptStage.PAYLOAD_REJECTED
         ttl !in 1..60 -> QaReceiptStage.TTL_REJECTED
         sent <= 0 -> QaReceiptStage.SENT_TIME_MISSING
-        now < sent -> QaReceiptStage.CLOCK_FUTURE
+        now <= 0 -> QaReceiptStage.CLOCK_FUTURE
+        now < sent && sent - now > (if (allowClockSkew) MAX_FUTURE_SKEW_MS else 0L) ->
+            QaReceiptStage.CLOCK_FUTURE
         now - sent > ttl * 1000L -> QaReceiptStage.EXPIRED
         else -> null
     }
 
 internal object QaReceiptDiagnostic {
-    private const val PREFS = "atrio_qa_receipt_diagnostic45"
+    private val PREFS = if (BuildConfig.ATRIO_QA_RECEIPT_CLOCK_SKEW)
+        "atrio_qa_receipt_diagnostic46" else "atrio_qa_receipt_diagnostic45"
     private val lock = Any()
     private val active = mutableMapOf<String, Trace>()
 
@@ -88,12 +96,16 @@ internal object QaReceiptDiagnostic {
 
         // The previous trace is replaced, not appended to indefinitely.
         // Diagnostic failures must never affect authorization or presentation.
-        fun record(stage: QaReceiptStage, status: Int? = null) {
+        fun record(stage: QaReceiptStage, status: Int? = null, deltaMs: Long? = null) {
             try {
                 synchronized(lock) {
                     if (active[key] !== this || slot(context) != key || steps.size >= 24) return
-                    val suffix = if (stage == QaReceiptStage.HTTP_RESPONSE &&
-                        status != null && (status == 0 || status in 100..599)) " ($status)" else ""
+                    val suffix = when {
+                        stage == QaReceiptStage.HTTP_RESPONSE && status != null &&
+                            (status == 0 || status in 100..599) -> " ($status)"
+                        stage == QaReceiptStage.CLOCK_COMPARISON && deltaMs != null -> ": $deltaMs"
+                        else -> ""
+                    }
                     steps.add(stage.label + suffix)
                     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
                         .putString(key, (listOf("UTC: " + startedAt) + steps).joinToString("\n")).apply()

@@ -1,0 +1,11 @@
+# Marco 10B — saldos observados e auditoria de acesso efetivo
+
+Evidências enviadas pelo titular, 26/11/2026:
+- Firestore Monitoring, banco (default), desde meia-noite Pacific: 3 séries, partial false, reads 12518. Saldo aritmético estimado 37482 de 50000. Métrica não é medidor completo de faturamento (índices, atraso, etc.).
+- Cloudflare GraphQL agregado da conta no dia UTC: d1AnalyticsAdaptiveGroups sum rowsRead 76, rowsWritten 62; workersInvocationsAdaptive sum requests 109, errors 0; errors null. Saldos aritméticos estimados Free: 4999924 linhas lidas, 99938 escritas, 99891 requests. Analytics adaptativo pode ser estimado e ter atraso. Não é garantia de saldo no momento da futura ativação.
+- Margens do checklist atendidas pelos valores observados. Billing Firebase False já confirmado nesta sessão. Revalidar dados antes de eventual ensaio. Não repetir comando de billing agora.
+
+## Verificação complementar IAM
+Solicitada avaliação somente leitura pelo Policy Troubleshooter REST v3beta, com credencial gcloud do operador, principal atrio-qa-general-push@atrio-catolico-qa-general.iam.gserviceaccount.com e recurso banco QA (default), projeto QA para Auth, FCM e IAM. A API POST iam:troubleshoot é diagnóstico, não escrita de dados/políticas. Nunca ativar API nem ampliar privilégios para contornar erro. Saída filtrada: permissão, overallAccessState, status do erro. Esperado CAN_ACCESS para datastore.entities.get/list, datastore.databases.get, firebaseauth.users.get, cloudmessaging.messages.create; CANNOT_ACCESS para datastore.entities.create/update/delete, firebaseauth.users.update, resourcemanager.projects.setIamPolicy. UNKNOWN_INFO, UNKNOWN_CONDITIONAL, erro, recurso não suportado ou resposta ausente bloqueiam conclusão. Referência https://docs.cloud.google.com/policy-intelligence/docs/reference/policytroubleshooter/rest/v3beta/iam/troubleshoot.
+
+Esse conjunto é avaliação pontual, não prova ausência de todas as permissões em todos os projetos/recursos, nem identidade do secret no Worker. Continuam pendentes análise de privilégios transversais, revogação Auth real, proteção antiabuso, CPU hospedada, quiescência e autorização explícita. Sem deploy, SQL remoto, alteração IAM, serviço pago ou novo disparo deliberado de workflow. CI local 246/246.

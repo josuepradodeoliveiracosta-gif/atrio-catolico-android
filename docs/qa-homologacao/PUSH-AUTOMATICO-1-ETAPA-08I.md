@@ -1,0 +1,7 @@
+# Marco 08I — prova local Workerd/D1
+
+CI 08H 45889632775: contrato 191/191 e VM 2/2 aprovados; emulador ainda pendente ao iniciar esta revisão. Candidato continua isolado do builder e da configuração remota.
+
+Adicionado job workerd-local com Miniflare 4.20260730.0 (versão estável fixada, sem instalação no pacote do aplicativo; dependências transitivas ainda sem lock próprio). Módulos ES reais sem nodejs_compat, D1 local efêmero, cf desabilitado, outbound negado, chave RSA efêmera e callbacks sintéticos. Prova do relógio SQL unixepoch('subsec'), success/meta.changes, publicação concorrente, claim e marcador compartilhado, envio único simulado, leitura por destinatário e reserva diária. Exercita WebCrypto OAuth e transporte read-only com resposta sintética; não é teste integral Firestore dentro do Workerd, que continua no job emulador separado.
+
+Ambiente do assistente não possui workerd/miniflare e npm registry retornou EAI_AGAIN; não executado localmente. Nova CI pendente. Data de compatibilidade local 2026-07-30 escolhida para versão fixada, não igual à hospedada 2026-10-26. Prova local não mede CPU do plano Free, cobrança ou disponibilidade real do D1. Nenhum deploy, cron, migração remota, IAM ou serviço pago. Após CI, consolidar gates restantes e preparar ensaio hospedado somente mediante autorização explícita. Referências: https://developers.cloudflare.com/workers/testing/miniflare/core/modules/ e https://developers.cloudflare.com/workers/testing/miniflare/storage/d1/.
