@@ -32,3 +32,14 @@ test('candidate allocation leaves external margin and accounts for UTC overlap',
  assert.equal(FREE_DAILY_ENVELOPE.writes,1000);
  assert.ok(FREE_DAILY_ENVELOPE.reads*2<50000);
 });
+
+test('preparation stages have independent caps and cannot consume finish allowance',()=>{
+ const m=createFreeInvocationMeter();
+ m.charge('discovery',{requests:2,reads:2});
+ assert.throws(()=>m.charge('discovery',{requests:1}),/qa_free_invocation_budget/);
+ m.charge('recovery',{requests:1,reads:1});
+ m.charge('publication',{requests:8,reads:24,writes:3});
+ assert.throws(()=>m.charge('publication',{writes:1}),/qa_free_invocation_budget/);
+ m.charge('finish',{requests:3,reads:1,writes:1});
+ assert.equal(m.snapshot().finish.writes,1);
+});

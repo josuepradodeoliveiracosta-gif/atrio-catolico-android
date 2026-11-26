@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {DatabaseSync} from 'node:sqlite';
+import {createFreeInvocationMeter} from '../../cloudflare/push-worker/scripts/qa-automatic-free-meter-lab.mjs';
 import {createFreeClaimLab} from '../../cloudflare/push-worker/scripts/qa-automatic-free-claim-lab.mjs';
 import {createFreeRecoveryLab} from '../../cloudflare/push-worker/scripts/qa-automatic-free-recovery-lab.mjs';
 import {createFreeFlowLab} from '../../cloudflare/push-worker/scripts/qa-automatic-free-flow-lab.mjs';
@@ -414,30 +415,81 @@ try{
    const totals=sql.prepare('SELECT * FROM qa_auto_daily_budget_lab').get();
    assert.equal(totals.discovery,2);assert.equal(totals.publication,3);
    await seed('rest-worker');
-   const workerLab=await createWorkerLab(t,{db,auth,service:restClaim});
+   const meteredTransport=(meter,stage)=>async req=>{
+    meter.beforeHttp(stage,req.url,req);
+    return transport(req);
+   };
+   // Auth SDK calls are charged as logical requests before invocation;
+   // underlying SDK retry traffic is not measured by this lab.
+   const meteredAccounts=(meter,stage)=>async uids=>{
+    meter.charge(stage,{requests:uids.length});
+    return lookupAccounts(uids);
+   };
+   const createMeteredService=meter=>{
+    const claimTransport=meteredTransport(meter,'claim');
+    const finTransport=meteredTransport(meter,'finish');
+    const claimService=createFreeClaimLab({enabled:true,transport:claimTransport,
+     readSnapshot:createFreeSnapshotLab({transport:claimTransport,lookupAccounts:meteredAccounts(meter,'claim')})});
+    const finishService=createFreeClaimLab({enabled:true,transport:finTransport,readSnapshot});
+    return {claim:claimService.claim,finish:finishService.finish};
+   };
+   const readClaimed=async(claim,meter)=>{
+    const name=remote+'/qaPushAutomaticOutbox/'+claim.eventKey;
+    const r=await meteredTransport(meter,'worker')({url:'https://firestore.googleapis.com/v1/'+remote+':batchGet',
+     method:'POST',redirect:'error',body:{documents:[name],mask:{fieldPaths:['state','claimId','expiresAt','conversationId','messageId','senderUid']}}});
+    const row=r.body?.[0],f=row?.found?.fields;
+    if(r.status!==200||r.body.length!==1||row.found?.name!==name||!f)return null;
+    return {state:f.state?.stringValue,claimId:f.claimId?.stringValue,expiresAt:Date.parse(f.expiresAt?.timestampValue),
+     conversationId:f.conversationId?.stringValue,messageId:f.messageId?.stringValue,senderUid:f.senderUid?.stringValue};
+   };
+   const workerLab=await createWorkerLab(t,{db,auth,service:restClaim,createMeteredService,readClaimed});
+   let prepMeter=createFreeInvocationMeter();
+   const prepDiscover=async input=>createFreeRestDiscoveryLab({transport:meteredTransport(prepMeter,'discovery'),reserveDiscovery:budget.reserveDiscovery})(input);
+   const prepRecover=async input=>createFreeRecoveryLab({transport:meteredTransport(prepMeter,'recovery'),reserveRecovery:budget.reserveRecovery})(input);
+   const prepPublish=async input=>{
+    const pubTransport=meteredTransport(prepMeter,'publication');
+    return createFreePublicationLab({transport:pubTransport,reserveBudget:budget.reservePublication,
+     readSnapshot:createFreeSnapshotLab({transport:pubTransport,lookupAccounts:meteredAccounts(prepMeter,'publication')})})(input);
+   };
    const recover=createFreeRecoveryLab({transport,reserveRecovery:budget.reserveRecovery});
-   const flow=createFreeFlowLab({enabled:true,activatedAt:input.activatedAt,discover,publish,recover,
+   const flow=createFreeFlowLab({enabled:true,activatedAt:input.activatedAt,discover:prepDiscover,publish:prepPublish,recover:prepRecover,
     reserveTransport:budget.reserveTransport,dispatch:workerLab.dispatchInternal});
    const publication=await flow.discoverAndPublish();
    assert.equal(publication.status,'published_lab',JSON.stringify(publication));
    // Simulated interruption after durable commit, before claim. Reopen the
    // orchestrator; recover the exact outbox without republishing.
-   const restarted=createFreeFlowLab({enabled:true,activatedAt:input.activatedAt,discover,publish,recover,
+   const firstPrep=prepMeter.snapshot();
+   assert.equal(firstPrep.discovery.reads,2);assert.equal(firstPrep.recovery.reads,1);
+   assert.equal(firstPrep.publication.writes,3);assert.ok(firstPrep.publication.requests<=8);
+   prepMeter=createFreeInvocationMeter();
+   const restarted=createFreeFlowLab({enabled:true,activatedAt:input.activatedAt,discover:prepDiscover,publish:prepPublish,recover:prepRecover,
     reserveTransport:budget.reserveTransport,dispatch:workerLab.dispatchInternal});
    const recovered=await restarted.discoverAndPublish();
    assert.deepEqual(recovered,publication);
+   const recoveryPrep=prepMeter.snapshot();
+   assert.equal(recoveryPrep.publication.requests,0);
+   const cpuStart=process.cpuUsage();
    const delivered=await restarted.transport(recovered);
+   const cpu=process.cpuUsage(cpuStart);
    assert.equal(delivered.status,'accepted_simulated',JSON.stringify(delivered));
    assert.deepEqual(workerLab.stats(),{sends:1,reservations:1});
    assert.equal((await outbox('rest-worker').get()).data().state,'accepted_simulated');
    const measured=workerLab.metrics();
    const metered=workerLab.budget();
-   assert.equal(metered.worker.requests,measured.externalRequests);
+   assert.equal(metered.worker.requests,measured.externalRequests+1);
+   assert.equal(metered.worker.d1,measured.d1Calls);
+   assert.equal(metered.claim.writes,1);assert.equal(metered.finish.writes,1);
+   assert.ok(metered.claim.reads>0&&metered.finish.reads===1);
+   const totalHttp=metered.claim.requests+metered.worker.requests+metered.finish.requests;
+   assert.ok(totalHttp<=45,JSON.stringify(metered));
+   console.log('REST transport lab total reserved (logical Auth, not billing): '+JSON.stringify(metered));
+   console.log('Node host process CPU diagnostic microseconds (NOT Workers CPU): '+JSON.stringify(cpu));
    assert.ok(metered.worker.reads>=measured.firestoreDocuments);
    console.log('Worker lab reserved operation units: '+JSON.stringify(metered.worker));
    assert.ok(measured.externalRequests>0&&measured.externalRequests<=50,JSON.stringify(measured));
    assert.ok(measured.firestoreRequests>0&&measured.d1Calls>0);
    console.log('REST Worker lab operation counts (not billing or CPU): '+JSON.stringify(measured));
+   prepMeter=createFreeInvocationMeter();
    assert.equal((await restarted.discoverAndPublish()).reason,'not_recoverable');
    assert.equal((await flow.transport(publication)).reason,'not_pending');
    assert.deepEqual(workerLab.stats(),{sends:1,reservations:1});

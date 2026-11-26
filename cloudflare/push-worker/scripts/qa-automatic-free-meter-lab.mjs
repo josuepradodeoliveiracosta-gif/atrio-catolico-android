@@ -6,6 +6,12 @@ export const FREE_TRANSPORT_LIMITS=Object.freeze({
  worker:Object.freeze({requests:32,reads:76,writes:5,d1:8}),
  finish:Object.freeze({requests:4,reads:1,writes:1,d1:0})
 });
+export const FREE_PREPARATION_LIMITS=Object.freeze({
+ discovery:Object.freeze({requests:2,reads:2,writes:0,d1:0}),
+ recovery:Object.freeze({requests:1,reads:1,writes:0,d1:0}),
+ publication:Object.freeze({requests:8,reads:24,writes:3,d1:0})
+});
+const allLimits=Object.freeze({...FREE_PREPARATION_LIMITS,...FREE_TRANSPORT_LIMITS});
 const project='atrio-catolico-qa-general';
 const root='/v1/projects/'+project+'/databases/(default)/documents';
 const keys=['requests','reads','writes','d1'];
@@ -41,9 +47,9 @@ function classify(url,init){
  return units;
 }
 export function createFreeInvocationMeter(){
- const used=Object.fromEntries(Object.keys(FREE_TRANSPORT_LIMITS).map(s=>[s,Object.fromEntries(keys.map(k=>[k,0]))]));
+ const used=Object.fromEntries(Object.keys(allLimits).map(s=>[s,Object.fromEntries(keys.map(k=>[k,0]))]));
  function charge(stage,units){
-  const cap=FREE_TRANSPORT_LIMITS[stage],row=used[stage];
+  const cap=allLimits[stage],row=used[stage];
   if(!cap||!units||Object.keys(units).some(k=>!keys.includes(k)))stop();
   for(const k of keys){const n=units[k]??0;if(!integer(n)||row[k]+n>cap[k])stop()}
   for(const k of keys)row[k]+=units[k]??0;

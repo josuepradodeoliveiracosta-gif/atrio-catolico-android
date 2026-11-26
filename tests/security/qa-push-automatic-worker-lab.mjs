@@ -41,7 +41,7 @@ const originalFetch=globalThis.fetch;
 const remoteRoot='projects/'+project+'/databases/(default)/documents';
 const demoRoot='projects/'+demo+'/databases/(default)/documents';
 
-export async function createWorkerLab(t,{db,auth,service,afterReservation=async()=>{},fcm='accepted',enabled=true}){
+export async function createWorkerLab(t,{db,auth,service,createMeteredService,readClaimed,afterReservation=async()=>{},fcm='accepted',enabled=true}){
  assert.equal(db.projectId,demo);
  assert.equal(auth.app.options.projectId,demo);
  const contract=createAutomaticServiceContract({enabled,subject,email,resolveKey:async id=>id===kid?jwk:null});
@@ -58,7 +58,7 @@ export async function createWorkerLab(t,{db,auth,service,afterReservation=async(
  const database={prepare(statement){
   return {bind(...params){
    return {
-    async first(){return sql.prepare(statement).get(...params)},
+    async first(){workerMeter?.charge('worker',{d1:1});d1Calls++;return sql.prepare(statement).get(...params)},
     async run(){
      workerMeter?.charge('worker',{d1:1});d1Calls++;
      const result=sql.prepare(statement).run(...params);
@@ -116,15 +116,14 @@ export async function createWorkerLab(t,{db,auth,service,afterReservation=async(
   ATRIO_QA_AGE_POLICY:identity.ageMode,PUSH_ENABLED:'true',FIREBASE_WEB_API_KEY:'fixture',
   FIREBASE_SERVICE_ACCOUNT_JSON:JSON.stringify({project_id:project,client_email:email,
    private_key:privateKey.export({type:'pkcs8',format:'pem'})}),PUSH_DB:database};
- async function dispatchClaimed(eventKey){
-   const claim=await service.claim(eventKey);
+ async function dispatchClaimed(eventKey,activeService=service,meter=null){
+   const claim=await activeService.claim(eventKey);
    if(claim.status!=='claimed_lab')return claim;
    let outcome='unknown',workerStatus='unavailable';
    try{
-    const snap=await db.doc('qaPushAutomaticOutbox/'+claim.eventKey).get();
-    const o=snap.data();
+    const o=meter&&readClaimed?await readClaimed(claim,meter):(await db.doc('qaPushAutomaticOutbox/'+claim.eventKey).get()).data();
     if(o?.state==='claimed_lab'&&o.claimId===claim.claimId&&
-       o.expiresAt.toMillis()>Date.now()){
+       (typeof o.expiresAt==='number'?o.expiresAt:o.expiresAt.toMillis())>Date.now()){
      const req=bindLabActor(new Request('https://qa.invalid/event',{method:'POST',
       body:JSON.stringify({type:'chat_message',chatId:o.conversationId,messageId:o.messageId})}),o.senderUid);
      const res=await worker.fetch(req,env);
@@ -136,7 +135,7 @@ export async function createWorkerLab(t,{db,auth,service,afterReservation=async(
      // Treat it and HTTP/transport errors as unknown rather than claim no delivery.
     }
    }catch{/* any unexpected result is terminal unknown */}
-   const result=await service.finish({...claim,outcome});
+   const result=await activeService.finish({...claim,outcome});
    return {...result,workerStatus};
  }
  return {
@@ -159,7 +158,7 @@ export async function createWorkerLab(t,{db,auth,service,afterReservation=async(
     return {status:'ignored',reason:'invalid_internal_dispatch'};
    if(workerMeter)return {status:'ignored',reason:'internal_invocation_busy'};
    workerMeter=createFreeInvocationMeter();
-   try{return await dispatchClaimed(eventKey)}
+   try{return await dispatchClaimed(eventKey,createMeteredService?createMeteredService(workerMeter):service,workerMeter)}
    finally{lastWorkerBudget=workerMeter.snapshot();workerMeter=null}
   }
  };
