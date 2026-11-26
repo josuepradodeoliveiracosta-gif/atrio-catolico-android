@@ -153,11 +153,11 @@ export async function createWorkerLab(t,{db,auth,service,createMeteredService,re
   },
   // A test-only private invocation, NOT a route or authentication bypass in
   // the generated deployable Worker. No client-provided actor or recipient.
-  async dispatchInternal(eventKey){
+  async dispatchInternal(eventKey,sharedMeter=null){
    if(!enabled||typeof eventKey!=='string'||!/^[a-f0-9]{64}$/.test(eventKey))
     return {status:'ignored',reason:'invalid_internal_dispatch'};
    if(workerMeter)return {status:'ignored',reason:'internal_invocation_busy'};
-   workerMeter=createFreeInvocationMeter();
+   workerMeter=sharedMeter??createFreeInvocationMeter();
    try{return await dispatchClaimed(eventKey,createMeteredService?createMeteredService(workerMeter):service,workerMeter)}
    finally{lastWorkerBudget=workerMeter.snapshot();workerMeter=null}
   }

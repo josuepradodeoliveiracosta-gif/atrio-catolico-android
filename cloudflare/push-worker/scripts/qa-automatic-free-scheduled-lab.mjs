@@ -1,7 +1,11 @@
 // Cron policy experiment only. No registered scheduled handler or network.
 // Fresh publication and delivery must never share one invocation. A later
 // tick can recover only the latest, still valid, never-claimed outbox.
-import {FREE_PREPARATION_LIMITS,FREE_TRANSPORT_LIMITS} from './qa-automatic-free-meter-lab.mjs';
+import {createFreeInvocationMeter,FREE_PREPARATION_LIMITS,FREE_TRANSPORT_LIMITS} from './qa-automatic-free-meter-lab.mjs';
+import {createFreeRestDiscoveryLab} from './qa-automatic-free-rest-lab.mjs';
+import {createFreeRecoveryLab} from './qa-automatic-free-recovery-lab.mjs';
+import {createFreePublicationLab} from './qa-automatic-free-publication-lab.mjs';
+import {createFreeSnapshotLab} from './qa-automatic-free-snapshot-lab.mjs';
 const projectId='atrio-catolico-qa-general';
 const key=x=>typeof x==='string'&&/^[a-f0-9]{64}$/.test(x);
 const time=x=>Number.isSafeInteger(x)&&x>0;
@@ -37,5 +41,37 @@ export function createFreeScheduledTickLab({enabled=false,activatedAt,discover,r
    if(existing?.status!=='published_lab'||!key(existing.eventKey))return existing;
    return await transport(existing);
   }catch{return stop('scheduled_tick_unavailable')}
+ };
+}
+
+// Internal composition for emulator tests. One scheduled meter is shared by
+// preparation, dispatch and finish; no public route or default credentials.
+// The injected dispatcher MUST use the supplied meter for every operation.
+export function createMeteredScheduledTickLab({enabled=false,activatedAt,budget,transport,lookupAccounts,dispatch}={}){
+ if([transport,lookupAccounts,dispatch,budget?.reserveDiscovery,budget?.reserveRecovery,
+  budget?.reservePublication,budget?.reserveTransport].some(x=>typeof x!=='function'))
+   throw Error('missing_lab_dependency');
+ return async function tick(){
+  const meter=createFreeInvocationMeter({mode:'scheduled'});
+  const measured=stage=>async req=>{
+   meter.beforeHttp(stage,req.url,req);
+   return transport(req);
+  };
+  const pubTransport=measured('publication');
+  const readSnapshot=createFreeSnapshotLab({transport:pubTransport,lookupAccounts:async uids=>{
+   // Logical emulator Auth requests, not a measurement of SDK retry traffic.
+   meter.charge('publication',{requests:uids.length});
+   return lookupAccounts(uids);
+  }});
+  const run=createFreeScheduledTickLab({enabled,activatedAt,
+   discover:createFreeRestDiscoveryLab({transport:measured('discovery'),reserveDiscovery:budget.reserveDiscovery}),
+   recover:createFreeRecoveryLab({transport:measured('recovery'),reserveRecovery:budget.reserveRecovery}),
+   publish:createFreePublicationLab({transport:pubTransport,readSnapshot,reserveBudget:budget.reservePublication}),
+   transport:async publication=>{
+    try{if(await budget.reserveTransport()!==true)return stop('transport_budget_unavailable')}
+    catch{return stop('transport_budget_unavailable')}
+    return dispatch(publication.eventKey,meter);
+   }});
+  return {result:await run(),usage:meter.snapshot()};
  };
 }

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createFreeScheduledTickLab,FREE_SCHEDULED_ENVELOPE as envelope} from '../../cloudflare/push-worker/scripts/qa-automatic-free-scheduled-lab.mjs';
+import {createMeteredScheduledTickLab,createFreeScheduledTickLab,FREE_SCHEDULED_ENVELOPE as envelope} from '../../cloudflare/push-worker/scripts/qa-automatic-free-scheduled-lab.mjs';
 const eventKey='a'.repeat(64),candidate={status:'candidate',deadline:1800000000000,event:{}};
 function fixture(){
  const calls=[];let exists=false,eligible=true;
@@ -42,4 +42,13 @@ test('disabled or missing activation makes no calls',async()=>{
  assert.equal((await createFreeScheduledTickLab({...f.deps,enabled:false})()).reason,'automation_disabled');
  assert.equal((await createFreeScheduledTickLab({...f.deps,activatedAt:null})()).reason,'automation_disabled');
  assert.deepEqual(f.calls,[]);
+});
+
+test('metered composition is disabled by default and performs no I/O or reservations',async()=>{
+ const denied=()=>{throw Error('unexpected_io')};
+ const tick=createMeteredScheduledTickLab({transport:denied,lookupAccounts:denied,dispatch:denied,
+  budget:{reserveDiscovery:denied,reserveRecovery:denied,reservePublication:denied,reserveTransport:denied}});
+ const r=await tick();
+ assert.equal(r.result.reason,'automation_disabled');
+ assert.equal(Object.values(r.usage).reduce((n,v)=>n+v.requests,0),0);
 });

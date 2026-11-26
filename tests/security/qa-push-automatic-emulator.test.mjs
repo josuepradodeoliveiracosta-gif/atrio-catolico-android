@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {DatabaseSync} from 'node:sqlite';
+import {createMeteredScheduledTickLab} from '../../cloudflare/push-worker/scripts/qa-automatic-free-scheduled-lab.mjs';
 import {createFreeInvocationMeter} from '../../cloudflare/push-worker/scripts/qa-automatic-free-meter-lab.mjs';
 import {createFreeClaimLab} from '../../cloudflare/push-worker/scripts/qa-automatic-free-claim-lab.mjs';
 import {createFreeRecoveryLab} from '../../cloudflare/push-worker/scripts/qa-automatic-free-recovery-lab.mjs';
@@ -450,34 +451,29 @@ try{
      conversationId:f.conversationId?.stringValue,messageId:f.messageId?.stringValue,senderUid:f.senderUid?.stringValue};
    };
    const workerLab=await createWorkerLab(t,{db,auth,service:restClaim,createMeteredService,readClaimed});
-   let prepMeter=createFreeInvocationMeter();
-   const prepDiscover=async input=>createFreeRestDiscoveryLab({transport:meteredTransport(prepMeter,'discovery'),reserveDiscovery:budget.reserveDiscovery})(input);
-   const prepRecover=async input=>createFreeRecoveryLab({transport:meteredTransport(prepMeter,'recovery'),reserveRecovery:budget.reserveRecovery})(input);
-   const prepPublish=async input=>{
-    const pubTransport=meteredTransport(prepMeter,'publication');
-    return createFreePublicationLab({transport:pubTransport,reserveBudget:budget.reservePublication,
-     readSnapshot:createFreeSnapshotLab({transport:pubTransport,lookupAccounts:meteredAccounts(prepMeter,'publication')})})(input);
-   };
    const recover=createFreeRecoveryLab({transport,reserveRecovery:budget.reserveRecovery});
-   const flow=createFreeFlowLab({enabled:true,activatedAt:input.activatedAt,discover:prepDiscover,publish:prepPublish,recover:prepRecover,
-    reserveTransport:budget.reserveTransport,dispatch:workerLab.dispatchInternal});
-   const publication=await flow.discoverAndPublish();
-   assert.equal(publication.status,'published_lab',JSON.stringify(publication));
-   // Simulated interruption after durable commit, before claim. Reopen the
-   // orchestrator; recover the exact outbox without republishing.
-   const firstPrep=prepMeter.snapshot();
-   assert.equal(firstPrep.discovery.reads,2);assert.equal(firstPrep.recovery.reads,1);
-   assert.equal(firstPrep.publication.writes,3);assert.ok(firstPrep.publication.requests<=8);
-   prepMeter=createFreeInvocationMeter();
-   const restarted=createFreeFlowLab({enabled:true,activatedAt:input.activatedAt,discover:prepDiscover,publish:prepPublish,recover:prepRecover,
-    reserveTransport:budget.reserveTransport,dispatch:workerLab.dispatchInternal});
-   const recovered=await restarted.discoverAndPublish();
-   assert.deepEqual(recovered,publication);
-   const recoveryPrep=prepMeter.snapshot();
-   assert.equal(recoveryPrep.publication.requests,0);
+   const tickDeps={enabled:true,activatedAt:input.activatedAt,budget,transport,lookupAccounts,
+    dispatch:workerLab.dispatchInternal};
+   const first=await createMeteredScheduledTickLab(tickDeps)();
+   assert.equal(first.result.status,'published_waiting_next_tick_lab',JSON.stringify(first));
+   const publication={status:'published_lab',eventKey:first.result.eventKey};
+   assert.equal(first.usage.discovery.reads,2);assert.equal(first.usage.recovery.reads,1);
+   assert.equal(first.usage.publication.writes,3);
+   assert.equal(first.usage.claim.requests+first.usage.worker.requests+first.usage.finish.requests,0);
+   assert.ok(Object.values(first.usage).reduce((n,v)=>n+v.requests,0)<=13);
+   assert.deepEqual(workerLab.stats(),{sends:0,reservations:0});
+   // New tick and meter; persistent SQL/outbox survive the boundary.
+   const restarted=createMeteredScheduledTickLab(tickDeps);
    const cpuStart=process.cpuUsage();
-   const delivered=await restarted.transport(recovered);
+   const second=await restarted();
    const cpu=process.cpuUsage(cpuStart);
+   const delivered=second.result;
+   assert.equal(second.usage.publication.requests,0);
+   assert.equal(second.usage.discovery.reads,2);assert.equal(second.usage.recovery.reads,1);
+   assert.ok(Object.values(second.usage).reduce((n,v)=>n+v.requests,0)<=50,JSON.stringify(second.usage));
+   console.log('Scheduled lab publication and delivery units: '+JSON.stringify({first:first.usage,second:second.usage}));
+   const flow=createFreeFlowLab({enabled:true,activatedAt:input.activatedAt,discover,publish,recover,
+    reserveTransport:budget.reserveTransport,dispatch:workerLab.dispatchInternal});
    assert.equal(delivered.status,'accepted_simulated',JSON.stringify(delivered));
    assert.deepEqual(workerLab.stats(),{sends:1,reservations:1});
    assert.equal((await outbox('rest-worker').get()).data().state,'accepted_simulated');
@@ -496,8 +492,7 @@ try{
    assert.ok(measured.externalRequests>0&&measured.externalRequests<=50,JSON.stringify(measured));
    assert.ok(measured.firestoreRequests>0&&measured.d1Calls>0);
    console.log('REST Worker lab operation counts (not billing or CPU): '+JSON.stringify(measured));
-   prepMeter=createFreeInvocationMeter();
-   assert.equal((await restarted.discoverAndPublish()).reason,'not_recoverable');
+   assert.equal((await restarted()).result.reason,'not_recoverable');
    assert.equal((await flow.transport(publication)).reason,'not_pending');
    assert.deepEqual(workerLab.stats(),{sends:1,reservations:1});
    assert.equal((await flow.transport({status:'publication_unknown_lab',eventKey:publication.eventKey})).reason,'publication_not_confirmed');
