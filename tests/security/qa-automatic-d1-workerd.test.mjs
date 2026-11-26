@@ -92,3 +92,40 @@ test('generated QA entry in local workerd preserves shutdown and trial rejection
   assert.deepEqual(await db.prepare('SELECT ticks,notices FROM qa_auto_d1_trial_lab').first(),{ticks:0,notices:0});
  }finally{await mf.dispose();rmSync(folder,{recursive:true,force:true})}
 });
+
+test('generated identity-only entry in local workerd rejects stale and future scheduled diagnostics without public route', {timeout:60000},async()=>{
+ const root=process.env.ATRIO_MINIFLARE_ROOT;assert.ok(root);
+ const {Miniflare}=createRequire(resolve(root,'package.json'))('miniflare');
+ const repo=fileURLToPath(new URL('../../',import.meta.url));
+ const folder=buildLocalAutomaticCandidate({identityProbeCandidate:true});
+ // Start in the preceding minute so the first event is always stale.
+ const start=Math.floor(Date.now()/60000)*60000-60000;
+ let outbound=0;
+ const mf=new Miniflare({modules:true,modulesRoot:repo,scriptPath:resolve(folder,'entry.mjs'),
+  modulesRules:[{type:'ESModule',include:['**/*.js'],fallthrough:true}],
+  compatibilityDate:'2026-07-30',compatibilityFlags:['nodejs_compat'],cf:false,host:'127.0.0.1',port:0,
+  d1Databases:{QA_PUSH_DB:'atrio-identity-entry-local-test'},d1Persist:false,
+  bindings:{QA_PUSH_ENABLED:'false',QA_CONVERSATION_PUSH_ENABLED:'false',QA_IDENTITY_PROBE_ENABLED:'true',QA_IDENTITY_PROBE_START:String(start)},
+  outboundService:async()=>{outbound++;return new Response('network denied',{status:403})}});
+ try{
+  const db=await mf.getD1Database('QA_PUSH_DB');
+  const schema=readFileSync(resolve(folder,'schema-candidate.sql'),'utf8').replace(/^--[^\n]*\n/,'');
+  for(const sql of schema.split(';').map(s=>s.trim()).filter(Boolean))await db.prepare(sql).run();
+  await db.prepare('INSERT INTO qa_auto_identity_probe_lab(singleton,starts_at,ends_at) VALUES(1,?,?)').bind(start,start+600000).run();
+  const worker=await mf.getWorker();
+  const res=await worker.scheduled({cron:'* * * * *',scheduledTime:new Date(start)});
+  assert.equal(res.outcome,'ok');
+  assert.equal((await db.prepare('SELECT consumed FROM qa_auto_identity_probe_lab').first()).consumed,0);
+  assert.equal((await mf.dispatchFetch('http://localhost/tick')).status,404);
+  assert.equal((await mf.dispatchFetch('http://localhost/notice')).status,503);
+  assert.equal(outbound,0);
+  // Deterministic reservation validation for a real scheduled event: obtain
+  // the next minute only if needed, but never sleep in CI. Future/stale event
+  // rejection is the runtime assertion; the concurrent positive reservation
+  // is covered by the SQLite handler tests.
+  const future=await worker.scheduled({cron:'* * * * *',scheduledTime:new Date(Date.now()+3600000)});
+  assert.equal(future.outcome,'ok');
+  assert.equal((await db.prepare('SELECT consumed FROM qa_auto_identity_probe_lab').first()).consumed,0);
+  assert.equal(outbound,0);
+ }finally{await mf.dispose();rmSync(folder,{recursive:true,force:true})}
+});

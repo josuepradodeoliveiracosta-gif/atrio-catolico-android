@@ -39,7 +39,7 @@ export function buildLocalAutomaticCandidate({scheduledCandidate=false,identityP
  "// Only the existing HTTP routes; no scheduled handler or public tick.",
  "export default {fetch:(req,env)=>candidate.fetch(req,env)};"
  ]),
- ""].join('\n');
+ ""]).join('\n');
  const schema='-- Additive candidate schema only. No activation or data changes.\n'+(identityProbeCandidate?D1_PROBE_SCHEDULE_SCHEMA+'\n':D1_OUTBOX_LAB_SCHEMA+'\n'+D1_LAB_BUDGET_SCHEMA+'\n'+D1_TRIAL_SCHEMA+'\n'+(scheduledCandidate?D1_SCHEDULE_SCHEMA+'\n':''));
  const files={'entry.mjs':entry,'worker.mjs':worker,'schema-candidate.sql':schema};
  for(const [name,content] of Object.entries(files))writeFileSync(resolve(output,name),content,{flag:'wx'});
