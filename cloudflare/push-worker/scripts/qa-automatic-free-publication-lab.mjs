@@ -3,6 +3,7 @@
 // the bounded device query using this exact transaction. No caller snapshots.
 import {planAutomaticNotice,AUTO_CHAT} from '../../../firebase/qa-geral-celular/pilot/conversation-push-automatic-plan.mjs';
 import {conversationPushIdentity as identity} from '../../../firebase/qa-geral-celular/pilot/conversation-push-policy.mjs';
+import {assertQaPublicationWrites} from './qa-automatic-free-write-guard-lab.mjs';
 const project=identity.projectId,db=identity.databaseId;
 const root='projects/'+project+'/databases/'+db+'/documents/';
 const endpoint='https://firestore.googleapis.com/v1/projects/'+project+'/databases/'+db+'/documents:';
@@ -82,8 +83,10 @@ export function createFreePublicationLab({transport,readSnapshot,reserveBudget}=
    const n={...decision.notice,expiresAt:new Date(Math.min(decision.notice.expiresAt.getTime(),limit))};
    if(n.expiresAt.getTime()-state.now<10000)return deny('notice_window_too_short');
    const writes=encodeWrites(n,key,state.creation,state.pendingVersion);
+   const body={transaction,writes};
+   assertQaPublicationWrites(body,{transaction,eventKey:key,notice:n,creation:state.creation,pendingVersion:state.pendingVersion});
    commitAttempted=true;
-   const committed=await call('commit',{transaction,writes});
+   const committed=await call('commit',body);
    if(committed?.status!==200||!Array.isArray(committed.body?.writeResults)||
       committed.body.writeResults.length!==3||typeof committed.body.commitTime!=='string')
      return {status:'publication_unknown_lab'};

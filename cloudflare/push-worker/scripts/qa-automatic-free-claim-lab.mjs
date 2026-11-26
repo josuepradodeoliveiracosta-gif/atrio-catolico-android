@@ -2,6 +2,7 @@
 // scheduling or public route. The caller must reserve transport budget first.
 import {planAutomaticNotice,AUTO_CHAT} from '../../../firebase/qa-geral-celular/pilot/conversation-push-automatic-plan.mjs';
 import {conversationPushIdentity as identity} from '../../../firebase/qa-geral-celular/pilot/conversation-push-policy.mjs';
+import {assertQaTransitionWrite} from './qa-automatic-free-write-guard-lab.mjs';
 const {projectId,databaseId,roundId}=identity;
 const root='projects/'+projectId+'/databases/'+databaseId+'/documents';
 const endpoint='https://firestore.googleapis.com/v1/'+root+':';
@@ -62,11 +63,14 @@ export function createFreeClaimLab({enabled=false,transport,readSnapshot}={}){
    const decision=await work({o,f,now,transaction,version:doc.updateTime});
    if(!decision?.write)return decision??ignored('invalid_decision');
    const {fields,transforms,result}=decision.write;
-   commitAttempted=true;
-   const c=await call('commit',{transaction,writes:[{update:{name,fields},
+   const body={transaction,writes:[{update:{name,fields},
     updateMask:{fieldPaths:Object.keys(fields)},currentDocument:{updateTime:doc.updateTime},
-    updateTransforms:transforms}]});
-   if(c?.status!==200||c.body?.writeResults?.length!==1||!Number.isSafeInteger(ms(c.body.commitTime)))
+    updateTransforms:transforms}]};
+   assertQaTransitionWrite(body,{transaction,eventKey,updateTime:doc.updateTime,previousState:o.state,
+    claimId:o.state==='pending_transport'?result.claimId:text(f.claimId),outcome:result.status});
+   commitAttempted=true;
+   const c=await call('commit',body);
+   if(c?.status!==200||!Array.isArray(c.body?.writeResults)||c.body.writeResults.length!==1||!Number.isSafeInteger(ms(c.body.commitTime)))
     return {status:unknownStatus};
    return result;
   }catch{return commitAttempted?{status:unknownStatus}:ignored('transaction_unavailable')}
