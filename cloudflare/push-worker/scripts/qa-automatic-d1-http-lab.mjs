@@ -180,12 +180,12 @@ export function createD1HttpLab({enabled=false,kind,fetchImpl,serviceAccount,web
  });
 }
 // Private composition only. No fetch default or route registration.
-export function createD1HttpCandidateLab({db,enabled=false,activatedAt,fetchImpl,manualWorker,beforeSend}={}){
+export function createD1HttpCandidateLab({db,enabled=false,activatedAt,fetchImpl,manualWorker,beforeSend,continuous=false}={}){
  function scoped(kind,env){
   let serviceAccount;
   if(enabled===true){try{serviceAccount=JSON.parse(env?.FIREBASE_SERVICE_ACCOUNT_JSON??'null')}catch{serviceAccount=null}}
   const http=createD1HttpLab({enabled,kind,fetchImpl,serviceAccount,webApiKey:env?.FIREBASE_WEB_API_KEY,beforeSend});
-  const flow=createMeteredD1Lab({db,enabled,activatedAt,manualWorker,transport:http.transport,
+  const flow=createMeteredD1Lab({db,enabled,activatedAt,manualWorker,continuous,transport:http.transport,
    lookupAccounts:http.lookupAccounts,verifyIdentity:http.verifyIdentity,listDevices:http.listDevices,sendRefresh:http.sendRefresh});
   return {http,flow};
  }
