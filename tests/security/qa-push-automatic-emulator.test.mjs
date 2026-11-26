@@ -1,5 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import {DatabaseSync} from 'node:sqlite';
+import {createFreeSnapshotLab} from '../../cloudflare/push-worker/scripts/qa-automatic-free-snapshot-lab.mjs';
+import {createFreePublicationLab} from '../../cloudflare/push-worker/scripts/qa-automatic-free-publication-lab.mjs';
+import {createFreeRestDiscoveryLab} from '../../cloudflare/push-worker/scripts/qa-automatic-free-rest-lab.mjs';
+import {FREE_BUDGET_SCHEMA,createFreeBudgetLab} from '../../cloudflare/push-worker/scripts/qa-automatic-free-budget-lab.mjs';
 import {createHash} from 'node:crypto';
 import {initializeApp,deleteApp} from 'firebase-admin/app';
 import {getAuth} from 'firebase-admin/auth';
@@ -343,5 +348,62 @@ try{
   assert.equal((await service.retry(first.eventKey)).reason,'retry_expired');
   assert.equal((await retryRow('retry-expired').get()).data().state,'stopped_lab');
   await absent('retry-expired');
+ });
+
+ await test('REST discovery and transactional publication through actual local emulator',async()=>{
+  const host=process.env.FIRESTORE_EMULATOR_HOST;
+  assert.match(host,/^127\\.0\\.0\\.1:\\d+$/);
+  const remote='projects/'+projectId+'/databases/(default)/documents';
+  const local='projects/demo-atrio-v11/databases/(default)/documents';
+  const requests=[];
+  const transport=async req=>{
+   const u=new URL(req.url);
+   assert.equal(u.origin,'https://firestore.googleapis.com');
+   assert.ok(u.pathname.startsWith('/v1/'+remote));
+   assert.equal(req.method,'POST');assert.equal(req.redirect,'error');
+   requests.push({path:u.pathname,transaction:req.body.transaction});
+   const response=await fetch('http://'+host+u.pathname.replace(remote,local),{
+    method:'POST',redirect:'error',headers:{'Content-Type':'application/json',Authorization:'Bearer owner'},
+    body:JSON.stringify(req.body).replaceAll(remote,local)});
+   const raw=await response.text();
+   return {status:response.status,body:JSON.parse(raw.replaceAll(local,remote))};
+  };
+  const lookupAccounts=async uids=>Object.fromEntries(await Promise.all(uids.map(async uid=>{
+   const a=await auth.getUser(uid);
+   return [uid,{uid:a.uid,email:a.email,emailVerified:a.emailVerified,disabled:a.disabled}];
+  })));
+  const sql=new DatabaseSync(':memory:');
+  try{
+   sql.exec(FREE_BUDGET_SCHEMA);
+   const budget=createFreeBudgetLab({enabled:true,db:{prepare(q){return {bind(...args){return {async run(){
+    const result=sql.prepare(q).run(...args);return {success:true,meta:{changes:result.changes}};
+   }}}}}}});
+   const discover=createFreeRestDiscoveryLab({transport,reserveDiscovery:budget.reserveDiscovery});
+   const publish=createFreePublicationLab({transport,reserveBudget:budget.reservePublication,
+    readSnapshot:createFreeSnapshotLab({transport,lookupAccounts})});
+   const input={enabled:true,projectId,activatedAt:Date.now()-10000};
+   await seed('rest-real');
+   const candidate=await discover(input);
+   assert.equal(candidate.status,'candidate',JSON.stringify(candidate));
+   const result=await publish({enabled:true,candidate});
+   assert.equal(result.status,'published_lab',JSON.stringify(result));
+   assert.equal((await pending.get()).data().messageId,'rest-real');
+   assert.equal((await receipt('rest-real').get()).exists,true);
+   assert.equal((await outbox('rest-real').get()).data().state,'pending_transport');
+   assert.equal((await service.claim(result.eventKey)).status,'claimed_lab');
+   const txRequests=requests.filter(r=>r.transaction);
+   assert.equal(txRequests.length,4);
+   assert.equal(new Set(txRequests.map(r=>r.transaction)).size,1);
+   assert.equal((await publish({enabled:true,candidate})).status,'ignored');
+   await seed('rest-revoked');
+   const denied=await discover(input);
+   assert.equal(denied.status,'candidate');
+   await d('users/'+bob+'/chatPushAdmission/current').update({status:'revoked'});
+   assert.equal((await publish({enabled:true,candidate:denied})).status,'ignored');
+   await absent('rest-revoked');
+   assert.equal((await pending.get()).exists,false);
+   const totals=sql.prepare('SELECT * FROM qa_auto_daily_budget_lab').get();
+   assert.equal(totals.discovery,2);assert.equal(totals.publication,3);
+  }finally{sql.close()}
  });
 }finally{await deleteApp(app)}
