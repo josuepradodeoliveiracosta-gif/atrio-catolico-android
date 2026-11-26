@@ -6,6 +6,7 @@ import {getAuth} from 'firebase-admin/auth';
 import {getFirestore,FieldValue} from 'firebase-admin/firestore';
 import {createAutomaticPushEmulator} from '../../firebase/qa-geral-celular/pilot/conversation-push-automatic-emulator.mjs';
 import {conversationPushIdentity as identity} from '../../firebase/qa-geral-celular/pilot/conversation-push-policy.mjs';
+import {createWorkerLab,labBearer} from './qa-push-automatic-worker-lab.mjs';
 import {AUTO_CHAT} from '../../firebase/qa-geral-celular/pilot/conversation-push-automatic-plan.mjs';
 
 assert.match(process.env.FIRESTORE_EMULATOR_HOST??'',/^127\.0\.0\.1:\d+$/);
@@ -159,5 +160,48 @@ try{
   assert.equal((await service.expireClaim(crash.eventKey)).status,'unknown');
   assert.equal((await service.claim(crash.eventKey)).reason,'not_pending');
   assert.equal((await service.finish({...c,outcome:'accepted_simulated'})).reason,'claim_mismatch');
+ });
+
+ await test('integrated service authentication -> exclusive claim -> actual generated Worker -> simulated FCM',async t=>{
+  await seed('integrated');const pub=await service.handle(event('integrated'));
+  assert.equal(pub.status,'published_lab');
+  const lab=await createWorkerLab(t,{db,auth,service});
+  const body={eventKey:pub.eventKey};
+  assert.equal((await lab.dispatch(labBearer({aud:'https://wrong.invalid'}),body)).status,'unauthorized');
+  assert.equal((await lab.dispatch(labBearer(),{...body,senderUid:bob})).status,'unauthorized');
+  assert.equal((await outbox('integrated').get()).data().state,'pending_transport');
+  const results=await Promise.all([lab.dispatch(labBearer(),body),lab.dispatch(labBearer(),body)]);
+  assert.equal(results.filter(r=>r.status==='accepted_simulated').length,1,JSON.stringify(results));
+  assert.deepEqual(lab.stats(),{sends:1,reservations:1});
+  assert.equal((await outbox('integrated').get()).data().state,'accepted_simulated');
+  assert.equal((await lab.dispatch(labBearer(),body)).reason,'not_pending');
+  assert.deepEqual(lab.stats(),{sends:1,reservations:1});
+ });
+ await test('shared Worker SQL marker blocks prior manual delivery',async t=>{
+  await seed('prior-marker');const pub=await service.handle(event('prior-marker'));
+  const lab=await createWorkerLab(t,{db,auth,service});
+  lab.seedMarker(AUTO_CHAT,'prior-marker',alice);
+  const result=await lab.dispatch(labBearer(),{eventKey:pub.eventKey});
+  assert.equal(result.workerStatus,'no_devices_or_duplicate');
+  assert.equal(result.status,'rejected_simulated');
+  assert.deepEqual(lab.stats(),{sends:0,reservations:0});
+ });
+ await test('real Worker revalidates authorization after SQL reservation',async t=>{
+  await seed('after-sql');const pub=await service.handle(event('after-sql'));
+  const lab=await createWorkerLab(t,{db,auth,service,afterReservation:()=>d('users/'+bob+'/chatPushAdmission/current').update({status:'revoked'})});
+  const result=await lab.dispatch(labBearer(),{eventKey:pub.eventKey});
+  assert.equal(result.workerStatus,'authorization_interrupted');
+  assert.equal(result.status,'rejected_simulated');
+  assert.deepEqual(lab.stats(),{sends:0,reservations:1});
+ });
+ await test('ambiguous FCM transport never retried',async t=>{
+  await seed('ambiguous-fcm');const pub=await service.handle(event('ambiguous-fcm'));
+  const lab=await createWorkerLab(t,{db,auth,service,fcm:'unknown'});
+  const body={eventKey:pub.eventKey};
+  const result=await lab.dispatch(labBearer(),body);
+  assert.equal(result.workerStatus,'delivery_transport_unknown');
+  assert.equal(result.status,'unknown');
+  assert.equal((await lab.dispatch(labBearer(),body)).reason,'not_pending');
+  assert.deepEqual(lab.stats(),{sends:1,reservations:1});
  });
 }finally{await deleteApp(app)}
