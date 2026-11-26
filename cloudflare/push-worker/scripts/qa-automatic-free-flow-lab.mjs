@@ -4,8 +4,8 @@
 const projectId='atrio-catolico-qa-general';
 const validKey=x=>typeof x==='string'&&/^[a-f0-9]{64}$/.test(x);
 const ignored=reason=>({status:'ignored',reason});
-export function createFreeFlowLab({enabled=false,activatedAt,discover,publish,reserveTransport,dispatch}={}){
- if([discover,publish,reserveTransport,dispatch].some(x=>typeof x!=='function'))throw Error('missing_lab_dependency');
+export function createFreeFlowLab({enabled=false,activatedAt,discover,publish,recover,reserveTransport,dispatch}={}){
+ if([discover,publish,recover,reserveTransport,dispatch].some(x=>typeof x!=='function'))throw Error('missing_lab_dependency');
  const open=enabled===true&&Number.isSafeInteger(activatedAt)&&activatedAt>0;
  return Object.freeze({
   async discoverAndPublish(){
@@ -13,6 +13,8 @@ export function createFreeFlowLab({enabled=false,activatedAt,discover,publish,re
    try{
     const candidate=await discover({enabled:true,projectId,activatedAt});
     if(candidate?.status!=='candidate')return candidate;
+    const existing=await recover({enabled:true,candidate,activatedAt});
+    if(existing?.status!=='absent_lab')return existing;
     return await publish({enabled:true,candidate});
    }catch{return ignored('publication_unavailable')}
   },

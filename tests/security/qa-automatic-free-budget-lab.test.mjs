@@ -59,3 +59,14 @@ test('transport attempts use independent atomic daily cap and never refund',asyn
  assert.equal(await createFreeBudgetLab({db:bridge(db)}).reserveTransport(),false);
  }finally{db.close()}
 });
+
+test('recovery reads use independent durable reservation capped at 1440',async()=>{
+ const db=new DatabaseSync(':memory:');try{
+ db.exec(FREE_BUDGET_SCHEMA);
+ const service=createFreeBudgetLab({enabled:true,db:bridge(db)});
+ const results=await Promise.all(Array.from({length:1450},()=>service.reserveRecovery()));
+ assert.equal(results.filter(Boolean).length,1440);
+ assert.equal(await service.reserveRecovery(),false);
+ assert.equal(db.prepare('SELECT attempts FROM qa_auto_recovery_budget_lab').get().attempts,1440);
+ }finally{db.close()}
+});

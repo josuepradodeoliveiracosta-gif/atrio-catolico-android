@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {DatabaseSync} from 'node:sqlite';
+import {createFreeRecoveryLab} from '../../cloudflare/push-worker/scripts/qa-automatic-free-recovery-lab.mjs';
 import {createFreeFlowLab} from '../../cloudflare/push-worker/scripts/qa-automatic-free-flow-lab.mjs';
 import {createFreeSnapshotLab} from '../../cloudflare/push-worker/scripts/qa-automatic-free-snapshot-lab.mjs';
 import {createFreePublicationLab} from '../../cloudflare/push-worker/scripts/qa-automatic-free-publication-lab.mjs';
@@ -412,11 +413,18 @@ try{
    assert.equal(totals.discovery,2);assert.equal(totals.publication,3);
    await seed('rest-worker');
    const workerLab=await createWorkerLab(t,{db,auth,service});
-   const flow=createFreeFlowLab({enabled:true,activatedAt:input.activatedAt,discover,publish,
+   const recover=createFreeRecoveryLab({transport,reserveRecovery:budget.reserveRecovery});
+   const flow=createFreeFlowLab({enabled:true,activatedAt:input.activatedAt,discover,publish,recover,
     reserveTransport:budget.reserveTransport,dispatch:workerLab.dispatchInternal});
    const publication=await flow.discoverAndPublish();
    assert.equal(publication.status,'published_lab',JSON.stringify(publication));
-   const delivered=await flow.transport(publication);
+   // Simulated interruption after durable commit, before claim. Reopen the
+   // orchestrator; recover the exact outbox without republishing.
+   const restarted=createFreeFlowLab({enabled:true,activatedAt:input.activatedAt,discover,publish,recover,
+    reserveTransport:budget.reserveTransport,dispatch:workerLab.dispatchInternal});
+   const recovered=await restarted.discoverAndPublish();
+   assert.deepEqual(recovered,publication);
+   const delivered=await restarted.transport(recovered);
    assert.equal(delivered.status,'accepted_simulated',JSON.stringify(delivered));
    assert.deepEqual(workerLab.stats(),{sends:1,reservations:1});
    assert.equal((await outbox('rest-worker').get()).data().state,'accepted_simulated');
@@ -424,13 +432,16 @@ try{
    assert.ok(measured.externalRequests>0&&measured.externalRequests<=50,JSON.stringify(measured));
    assert.ok(measured.firestoreRequests>0&&measured.d1Calls>0);
    console.log('REST Worker lab operation counts (not billing or CPU): '+JSON.stringify(measured));
+   assert.equal((await restarted.discoverAndPublish()).reason,'not_recoverable');
    assert.equal((await flow.transport(publication)).reason,'not_pending');
    assert.deepEqual(workerLab.stats(),{sends:1,reservations:1});
    assert.equal((await flow.transport({status:'publication_unknown_lab',eventKey:publication.eventKey})).reason,'publication_not_confirmed');
-   const deniedFlow=createFreeFlowLab({enabled:true,activatedAt:input.activatedAt,discover,publish,
+   const deniedFlow=createFreeFlowLab({enabled:true,activatedAt:input.activatedAt,discover,publish,recover,
     reserveTransport:async()=>false,dispatch:async()=>{throw Error('must not dispatch')}});
    assert.equal((await deniedFlow.transport(publication)).reason,'transport_budget_unavailable');
    assert.equal(sql.prepare('SELECT attempts FROM qa_auto_transport_budget_lab').get().attempts,2);
+   assert.equal(sql.prepare('SELECT attempts FROM qa_auto_recovery_budget_lab').get().attempts,3);
+   assert.equal(sql.prepare('SELECT publication FROM qa_auto_daily_budget_lab').get().publication,4);
 
   }finally{sql.close()}
  });
