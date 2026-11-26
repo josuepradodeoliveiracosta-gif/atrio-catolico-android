@@ -7,6 +7,8 @@ on:
       - 'tests/security/qa-push-automatic-plan.test.mjs'
       - 'firebase/qa-geral-celular/pilot/conversation-push-automatic-emulator.mjs'
       - 'tests/security/qa-push-automatic-emulator.test.mjs'
+      - 'cloudflare/push-worker/scripts/qa-automatic-service-contract.mjs'
+      - 'tests/security/qa-automatic-service-contract.test.mjs'
       - '.github/workflows/qa-push-automatic-plan.yml'
 permissions:
   contents: read
@@ -21,7 +23,7 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
-      - run: node --test tests/security/qa-push-automatic-plan.test.mjs
+      - run: node --test tests/security/qa-push-automatic-plan.test.mjs tests/security/qa-automatic-service-contract.test.mjs
 
   emulator:
     runs-on: ubuntu-latest
