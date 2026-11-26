@@ -1,7 +1,7 @@
 // Read-only canonical authorization adapter, laboratory only.
 // No default fetch, credentials, deployment or caller-controlled URLs.
 import {createFreeSnapshotLab} from './qa-automatic-free-snapshot-lab.mjs';
-import {conversationPushIdentity as identity} from '../../../firebase/qa-geral-celular/pilot/conversation-push-policy.mjs';
+import {conversationPushIdentity as identity} from '../../../firebase/qa-geral-celular/pilot/conversation-push-identity.mjs';
 import {AUTO_CHAT} from '../../../firebase/qa-geral-celular/pilot/conversation-push-automatic-plan.mjs';
 const root='https://firestore.googleapis.com/v1/projects/'+identity.projectId+'/databases/'+identity.databaseId+'/documents';
 const token=x=>typeof x==='string'&&/^[A-Za-z0-9+/=_-]{1,4096}$/.test(x);

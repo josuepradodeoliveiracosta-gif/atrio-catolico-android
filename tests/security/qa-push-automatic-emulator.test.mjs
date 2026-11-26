@@ -567,7 +567,7 @@ try{
    assert.equal((await restClaim.claim(typed.eventKey)).status,'ignored');
    assert.equal((await outbox('rest-type-claim').get()).data().state,'pending_transport');
 
-   await t.test('D1 outbox uses only read-only Firestore transactions and real emulator Auth',async()=>{
+   await t.test('D1 outbox uses only read-only Firestore transactions and real emulator Auth',async d1t=>{
     sql.exec(D1_OUTBOX_LAB_SCHEMA);
     const activatedAt=Date.now()-10000;
     sql.prepare('INSERT INTO qa_auto_d1_activation_lab VALUES(1,?,1)').run(activatedAt);
@@ -720,7 +720,7 @@ try{
      console.log('D1 single tick reserved units: '+JSON.stringify({tick:tick.usage,notice:n.usage}));
     }finally{globalThis.fetch=previousFetch}
 
-    await t.test('full HTTP candidate: cold OAuth, read-only emulator, D1 and synthetic FCM',async()=>{
+    await d1t.test('full HTTP candidate: cold OAuth, read-only emulator, D1 and synthetic FCM',async()=>{
      const keys=generateKeyPairSync('rsa',{modulusLength:2048});
      const email='atrio-qa-general-push@'+projectId+'.iam.gserviceaccount.com';
      const serviceAccount={project_id:projectId,client_email:email,private_key:keys.privateKey.export({type:'pkcs8',format:'pem'})};

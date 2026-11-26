@@ -1,7 +1,7 @@
 // Internal experimental dispatch. Never route client identity or event payload
 // through the manual /event handler. All dependencies are explicit and trusted.
 import {AUTO_CHAT} from '../../../firebase/qa-geral-celular/pilot/conversation-push-automatic-plan.mjs';
-import {conversationPushIdentity as identity} from '../../../firebase/qa-geral-celular/pilot/conversation-push-policy.mjs';
+import {conversationPushIdentity as identity} from '../../../firebase/qa-geral-celular/pilot/conversation-push-identity.mjs';
 const uids=Object.keys(identity.accounts);
 const key=x=>typeof x==='string'&&/^[a-f0-9]{64}$/.test(x);
 const id=x=>typeof x==='string'&&/^[A-Za-z0-9_-]{1,128}$/.test(x);

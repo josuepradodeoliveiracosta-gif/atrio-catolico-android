@@ -1,7 +1,7 @@
 // Pure decision contract. No network, SDK, credentials, or privileged operations.
 // Only an authenticated server adapter may supply the normalized snapshot.
 // This is NOT an authorization endpoint or a replacement for Worker rechecks.
-import {conversationPushIdentity as identity} from './conversation-push-policy.mjs';
+import {conversationPushIdentity as identity} from './conversation-push-identity.mjs';
 
 export const AUTO_CHAT = 'qa-nav-alice__qa-nav-bob';
 const MAX_NOTICE_MS = 120_000;

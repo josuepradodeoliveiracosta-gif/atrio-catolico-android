@@ -1,7 +1,7 @@
 // Private D1/SQLite experiment. No migration, network, default binding, scheduler,
 // public route or Firestore write. Authorization remains an injected trusted read.
 import {AUTO_CHAT,planAutomaticNotice} from '../../../firebase/qa-geral-celular/pilot/conversation-push-automatic-plan.mjs';
-import {conversationPushIdentity as identity} from '../../../firebase/qa-geral-celular/pilot/conversation-push-policy.mjs';
+import {conversationPushIdentity as identity} from '../../../firebase/qa-geral-celular/pilot/conversation-push-identity.mjs';
 const {projectId,databaseId,roundId}=identity;
 const uids=Object.keys(identity.accounts);
 const clock="CAST(unixepoch('subsec')*1000 AS INTEGER)";

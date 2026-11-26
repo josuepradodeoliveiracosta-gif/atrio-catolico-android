@@ -4,6 +4,9 @@ on:
     branches: [qa/apk46-clock-skew-20261126]
     paths:
       - 'firebase/qa-geral-celular/pilot/conversation-push-automatic-plan.mjs'
+      - 'firebase/qa-geral-celular/pilot/conversation-push-identity.mjs'
+      - 'firebase/qa-geral-celular/pilot/conversation-push-policy.mjs'
+      - 'tests/security/qa-automatic-d1-runtime-lab.test.mjs'
       - 'tests/security/qa-push-automatic-plan.test.mjs'
       - 'firebase/qa-geral-celular/pilot/conversation-push-automatic-emulator.mjs'
       - 'firebase/qa-geral-celular/pilot/conversation-push-automatic-retry-plan.mjs'
@@ -70,6 +73,8 @@ jobs:
         with:
           node-version: '22'
       - run: node --test tests/security/qa-push-automatic-plan.test.mjs tests/security/qa-automatic-service-contract.test.mjs tests/security/qa-push-automatic-retry-plan.test.mjs tests/security/qa-automatic-free-discovery.test.mjs tests/security/qa-automatic-free-rest-lab.test.mjs tests/security/qa-automatic-free-publication-lab.test.mjs tests/security/qa-automatic-free-budget-lab.test.mjs tests/security/qa-automatic-free-recovery-lab.test.mjs tests/security/qa-automatic-free-meter-lab.test.mjs tests/security/qa-automatic-free-scheduled-lab.test.mjs tests/security/qa-automatic-lab-isolation.test.mjs tests/security/qa-push-automatic-iam-audit.test.mjs tests/security/qa-automatic-free-write-guard-lab.test.mjs tests/security/qa-automatic-d1-outbox-lab.test.mjs tests/security/qa-automatic-d1-dispatch-lab.test.mjs tests/security/qa-automatic-d1-mode-lab.test.mjs tests/security/qa-automatic-d1-budget-lab.test.mjs tests/security/qa-automatic-d1-http-lab.test.mjs
+
+      - run: node --experimental-vm-modules --test tests/security/qa-automatic-d1-runtime-lab.test.mjs
 
   emulator:
     runs-on: ubuntu-latest

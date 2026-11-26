@@ -3,7 +3,7 @@
 import {createD1OutboxLab} from './qa-automatic-d1-outbox-lab.mjs';
 import {createD1DispatchLab} from './qa-automatic-d1-dispatch-lab.mjs';
 import {AUTO_CHAT} from '../../../firebase/qa-geral-celular/pilot/conversation-push-automatic-plan.mjs';
-import {conversationPushIdentity as identity} from '../../../firebase/qa-geral-celular/pilot/conversation-push-policy.mjs';
+import {conversationPushIdentity as identity} from '../../../firebase/qa-geral-celular/pilot/conversation-push-identity.mjs';
 const uids=Object.keys(identity.accounts);
 const id=x=>typeof x==='string'&&/^[A-Za-z0-9_-]{1,128}$/.test(x);
 const json=(status,body)=>Response.json(body,{status,headers:{'Cache-Control':'no-store'}});

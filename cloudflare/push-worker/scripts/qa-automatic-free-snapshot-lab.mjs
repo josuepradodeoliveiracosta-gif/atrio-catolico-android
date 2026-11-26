@@ -2,7 +2,7 @@
 // All document reads use the supplied transaction; Auth is separately rechecked
 // by the transport boundary before sending. No data is logged.
 import {AUTO_CHAT} from '../../../firebase/qa-geral-celular/pilot/conversation-push-automatic-plan.mjs';
-import {conversationPushIdentity as identity} from '../../../firebase/qa-geral-celular/pilot/conversation-push-policy.mjs';
+import {conversationPushIdentity as identity} from '../../../firebase/qa-geral-celular/pilot/conversation-push-identity.mjs';
 const {projectId,databaseId}=identity;
 const uids=Object.keys(identity.accounts);
 const root='projects/'+projectId+'/databases/'+databaseId+'/documents';

@@ -3,7 +3,7 @@
 import {createMeteredD1Lab} from './qa-automatic-d1-metered-lab.mjs';
 import {D1_LAB_ENVELOPE} from './qa-automatic-d1-budget-lab.mjs';
 import {AUTO_CHAT} from '../../../firebase/qa-geral-celular/pilot/conversation-push-automatic-plan.mjs';
-import {conversationPushIdentity as identity} from '../../../firebase/qa-geral-celular/pilot/conversation-push-policy.mjs';
+import {conversationPushIdentity as identity} from '../../../firebase/qa-geral-celular/pilot/conversation-push-identity.mjs';
 const project=identity.projectId,root='projects/'+project+'/databases/'+identity.databaseId+'/documents';
 const fs='https://firestore.googleapis.com/v1/'+root;
 const oauth='https://oauth2.googleapis.com/token';

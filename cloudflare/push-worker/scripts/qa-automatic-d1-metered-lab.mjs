@@ -6,7 +6,7 @@ import {createD1ReadAuthorizationLab} from './qa-automatic-d1-read-lab.mjs';
 import {createD1ModeLab} from './qa-automatic-d1-mode-lab.mjs';
 import {createFreeRestDiscoveryLab} from './qa-automatic-free-rest-lab.mjs';
 import {AUTO_CHAT} from '../../../firebase/qa-geral-celular/pilot/conversation-push-automatic-plan.mjs';
-import {conversationPushIdentity as identity} from '../../../firebase/qa-geral-celular/pilot/conversation-push-policy.mjs';
+import {conversationPushIdentity as identity} from '../../../firebase/qa-geral-celular/pilot/conversation-push-identity.mjs';
 const stop=reason=>({status:'ignored',reason});
 const keyFor=async e=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',
  new TextEncoder().encode(JSON.stringify([identity.roundId,AUTO_CHAT,e.messageId])))),b=>b.toString(16).padStart(2,'0')).join('');
