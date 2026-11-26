@@ -62,3 +62,19 @@ test('missing room uses one read',async()=>{
 });
 
 test('budget refusal prevents all discovery reads',async()=>{const f=fixture();const tick=createDiscovery({...f,reserveDiscovery:async()=>false});assert.equal((await tick(f.input)).reason,'budget_unavailable');assert.equal(f.requests.length,0)});
+
+test('stale room metadata skips canonical message read without authorizing anything',async()=>{
+ for(const [updated,activatedAt] of [[now-111000,now-200000],[now-90000,now-90000]]){
+  const f=fixture();f.docs[0].updateTime=iso(updated);
+  assert.deepEqual(await createFreeRestDiscoveryLab(f)({...f.input,activatedAt}),
+   {status:'ignored',reason:'room_outside_useful_window',reads:1});
+  assert.equal(f.requests.length,1);
+ }
+});
+test('fresh or malformed room metadata still requires canonical message',async()=>{
+ for(const updated of [iso(now-30000),'invalid',iso(now+1000)]){
+  const f=fixture();f.docs[0].updateTime=updated;
+  assert.equal((await createFreeRestDiscoveryLab(f)(f.input)).status,'candidate');
+  assert.equal(f.requests.length,2);
+ }
+});

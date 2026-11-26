@@ -377,10 +377,14 @@ try{
    requests.at(-1).status=response.status;
    return {status:response.status,body};
   };
-  const lookupAccounts=async uids=>Object.fromEntries(await Promise.all(uids.map(async uid=>{
-   const a=await auth.getUser(uid);
-   return [uid,{uid:a.uid,email:a.email,emailVerified:a.emailVerified,disabled:a.disabled}];
-  })));
+  let accountLookups=0;
+  const lookupAccounts=async uids=>{
+   accountLookups+=uids.length;
+   return Object.fromEntries(await Promise.all(uids.map(async uid=>{
+    const a=await auth.getUser(uid);
+    return [uid,{uid:a.uid,email:a.email,emailVerified:a.emailVerified,disabled:a.disabled}];
+   })));
+  };
   const sql=new DatabaseSync(':memory:');
   try{
    sql.exec(FREE_BUDGET_SCHEMA);
@@ -409,7 +413,10 @@ try{
    const denied=await discover(input);
    assert.equal(denied.status,'candidate');
    await d('users/'+bob+'/chatPushAdmission/current').update({status:'revoked'});
+   const beforeDenied=requests.length,beforeAccounts=accountLookups;
    assert.equal((await publish({enabled:true,candidate:denied})).status,'ignored');
+   assert.equal(accountLookups,beforeAccounts,'revoked admission must not query Auth');
+   assert.equal(requests.slice(beforeDenied).some(r=>r.path.endsWith(':runQuery')),false,'revoked admission must not query devices');
    await absent('rest-revoked');
    assert.equal((await pending.get()).exists,false);
    const totals=sql.prepare('SELECT * FROM qa_auto_daily_budget_lab').get();

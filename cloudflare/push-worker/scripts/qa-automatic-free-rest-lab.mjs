@@ -49,6 +49,14 @@ export function createFreeRestDiscoveryLab({transport,reserveDiscovery}={}){
    const r=await read(roomPath,roomFields);
    if(r.missing)return stop('room_missing',reads);
    if(activatedAt>r.readTime)return stop('invalid_environment',reads);
+   // The room and latest message are updated atomically by the QA sender.
+   // An old room update cannot authorize a fresh notice. This is a
+   // conservative skip only; never use room metadata to authorize sending.
+   // If metadata is absent/malformed, keep the original canonical check.
+   const roomUpdated=millis(stamp(r.doc.updateTime));
+   if(time(roomUpdated)&&roomUpdated<=r.readTime&&
+      (roomUpdated<=activatedAt||r.readTime-roomUpdated>110000))
+    return stop('room_outside_useful_window',reads);
    const f=r.doc.fields;
    const room={path:roomPath,status:string(f.status),lastMessageId:string(f.lastMessageId),
     lastSenderUid:string(f.lastSenderUid),requesterUid:string(f.requesterUid),

@@ -35,7 +35,9 @@ function value(v){
  // Unused field types must not turn into an authorization value.
  return undefined;
 }
-const pick=(x,keys)=>Object.fromEntries(keys.filter(k=>Object.hasOwn(x,k)).map(k=>[k,x[k]]));
+// Decode only fields used by the pure decision for large room/message docs.
+const selected=(doc,keys)=>doc?fields(Object.fromEntries(keys.filter(k=>Object.hasOwn(doc.fields??{},k))
+ .map(k=>[k,doc.fields[k]]))):null;
 export function createFreeSnapshotLab({transport,lookupAccounts}={}){
  if(typeof transport!=='function'||typeof lookupAccounts!=='function')throw Error('missing_lab_dependency');
  return async function readSnapshot({transaction,event,eventKey}={}){
@@ -79,13 +81,34 @@ export function createFreeSnapshotLab({transport,lookupAccounts}={}){
     'users/'+uid+'/chatAgeEligibility/current','users/'+uid+'/blockedMembers/'+uids.find(x=>x!==uid)])
   ]);
   const row=d=>d?fields(d.fields??{}):null;
-  const message=messageDoc?pick(row(messageDoc),['uid','kind','createdAt','deletedForAll']):null;
-  if(!uids.includes(message?.uid))fail();
+  const message=selected(messageDoc,['uid','kind','createdAt','deletedForAll']);
+  const room=selected(roomDoc,['status','lastMessageId','lastSenderUid','participants','requesterUid','recipientUid','unreadRequester','unreadRecipient']);
+  const config=row(configDoc);
+  // Negative-only gates: none authorizes or replaces the full plan.
+  // Avoid downstream work for clearly impossible candidates.
+  if(writeBoundary||pagination||config?.enabled!==true||config?.qaSimpleDirectEnabled!==true||
+     config?.minorPolicyApproved!==true||config?.pushPilot?.enabled!==true||
+     !uids.includes(message?.uid)||!['text','post'].includes(message?.kind)||
+     Object.hasOwn(message??{},'deletedForAll')||!Number.isSafeInteger(message?.createdAt)||
+     message.createdAt>now||message.createdAt+120000-now<10000||
+     room?.status!=='accepted'||room.lastMessageId!==event.messageId||room.lastSenderUid!==message.uid)
+   fail();
   const sender=message.uid,recipient=uids.find(x=>x!==sender),user='users/'+recipient;
   const [mute,receipt,pending,outbox,retry]=await batch([
    user+'/chatBox/'+AUTO_CHAT,user+'/chatPushPublicationReceipts/'+eventKey,
    user+'/chatPushPending/current','qaPushAutomaticOutbox/'+eventKey,'qaPushAutomaticRetries/'+eventKey
   ]);
+  const admissions={},eligibility={},blocked={};
+  for(const [i,uid] of uids.entries()){
+   const a=row(others[i*3]),proof=row(others[i*3+1]);
+   admissions[uid]=a;
+   eligibility[uid]=proof&&Object.keys(proof).sort().join('|')==='minimumAge|policyVersion|reviewExpiresAt|status'
+    ?{...proof,updatedAt:ms(others[i*3+1].updateTime)}:null;
+   blocked[uid]=others[i*3+2]!==null;
+  }
+  const muted=mute!==null&&row(mute)?.muted!==false;
+  if(muted||uids.some(uid=>blocked[uid]||admissions[uid]?.status!=='active'||
+     eligibility[uid]?.status!=='eligible'))fail();
   // At most five returned device documents; count empty query as one reserved read.
   reads+=5;if(reads>24)fail();
   const devices=await call('/'+user+':runQuery',{structuredQuery:{
@@ -103,19 +126,12 @@ export function createFreeSnapshotLab({transport,lookupAccounts}={}){
    const f=row(r.document);
    if(typeof f.token==='string'&&f.token.length>0&&Number.isSafeInteger(f.updatedAt))deviceEligible=true;
   }
+  if(!deviceEligible)fail();
   const accounts=await lookupAccounts([...uids]);
-  const admissions={},eligibility={},blocked={};
-  for(const [i,uid] of uids.entries()){
-   const a=row(others[i*3]),proof=row(others[i*3+1]);
-   admissions[uid]=a;
-   eligibility[uid]=proof&&Object.keys(proof).sort().join('|')==='minimumAge|policyVersion|reviewExpiresAt|status'
-    ?{...proof,updatedAt:ms(others[i*3+1].updateTime)}:null;
-   blocked[uid]=others[i*3+2]!==null;
-  }
   return {transaction,creation:stamp(messageDoc.createTime),now,outbox:row(outbox),retry:row(retry),
    pendingVersion:pending?.updateTime??null,outboxVersion:outbox?.updateTime??null,snapshot:{projectId,databaseId,chatId:AUTO_CHAT,messageId:event.messageId,
-    managedBoundary:writeBoundary!==null||pagination!==null,config:row(configDoc),
-    room:row(roomDoc),message,accounts,admissions,eligibility,blocked,
-    muted:mute!==null&&row(mute)?.muted!==false,deviceEligible,receipt:row(receipt),pending:row(pending)}};
+    managedBoundary:writeBoundary!==null||pagination!==null,config,
+    room,message,accounts,admissions,eligibility,blocked,
+    muted,deviceEligible,receipt:row(receipt),pending:row(pending)}};
  };
 }
