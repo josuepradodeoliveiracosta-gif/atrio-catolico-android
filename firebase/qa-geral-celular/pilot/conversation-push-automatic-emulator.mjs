@@ -41,6 +41,11 @@ export function createAutomaticPushEmulator({db,auth,serverTimestamp,enabled=fal
           tx.get(doc('users/'+uid+'/blockedMembers/'+uids.find(x=>x!==uid))),
         ])
       ]);
+      // A delayed creation event must not authorize a newly recreated document.
+      if(event.expectedCreateTime!==undefined&&
+          (message.createTime?.seconds!==event.expectedCreateTime?.seconds||
+           message.createTime?.nanoseconds!==event.expectedCreateTime?.nanoseconds))
+        return null;
       const rawMessage=row(message);
       if (!rawMessage||!uids.includes(rawMessage.uid))
         return null;

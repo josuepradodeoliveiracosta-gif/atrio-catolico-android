@@ -7,6 +7,7 @@ import {getFirestore,FieldValue} from 'firebase-admin/firestore';
 import {createAutomaticPushEmulator} from '../../firebase/qa-geral-celular/pilot/conversation-push-automatic-emulator.mjs';
 import {conversationPushIdentity as identity} from '../../firebase/qa-geral-celular/pilot/conversation-push-policy.mjs';
 import {createWorkerLab,labBearer} from './qa-push-automatic-worker-lab.mjs';
+import {createAutomaticTriggerLab,LAB_DOCUMENT} from '../../firebase/qa-geral-celular/pilot/conversation-push-automatic-trigger-lab.mjs';
 import {AUTO_CHAT} from '../../firebase/qa-geral-celular/pilot/conversation-push-automatic-plan.mjs';
 
 assert.match(process.env.FIRESTORE_EMULATOR_HOST??'',/^127\.0\.0\.1:\d+$/);
@@ -203,5 +204,39 @@ try{
   assert.equal(result.status,'unknown');
   assert.equal((await lab.dispatch(labBearer(),body)).reason,'not_pending');
   assert.deepEqual(lab.stats(),{sends:1,reservations:1});
+ });
+
+ await test('v2 creation adapter uses exact canonical creation and never reads event content',async()=>{
+  await seed('trigger');
+  const snap=await room.collection('messages').doc('trigger').get();
+  const makeEvent=(patch={})=>({type:'google.cloud.firestore.document.v1.created',
+    project:'demo-atrio-v11',database:databaseId,id:'synthetic-cloud-event',
+    document:snap.ref.path,params:{messageId:'trigger'},data:{ref:{path:snap.ref.path},
+      createTime:snap.createTime,data(){throw Error('event content must not be read')}},...patch});
+  const handler=createAutomaticTriggerLab({enabled:true,service});
+  assert.equal(LAB_DOCUMENT,'chats/'+AUTO_CHAT+'/messages/{messageId}');
+  assert.equal((await createAutomaticTriggerLab()(makeEvent())).reason,'automation_disabled');
+  for(const patch of [
+    {project:projectId},{database:'other'},{type:'google.cloud.firestore.document.v1.updated'},
+    {params:{messageId:'../invalid'}},{document:'posts/trigger'},{data:undefined},
+    {data:{ref:{path:snap.ref.path},createTime:{seconds:snap.createTime.seconds,nanoseconds:-1}}}
+  ])assert.equal((await handler(makeEvent(patch))).status,'ignored');
+  await absent('trigger');
+  const result=await handler(makeEvent());
+  assert.equal(result.status,'published_lab');
+  assert.equal((await handler(makeEvent({id:'different-delivery-id'}))).status,'ignored');
+  assert.equal((await outbox('trigger').get()).data().state,'pending_transport');
+ });
+ await test('late creation event cannot authorize recreated document at same path',async()=>{
+  await seed('recreated');
+  const ref=room.collection('messages').doc('recreated'),old=await ref.get();
+  await ref.delete();await pause();await newMessage('recreated');
+  const handler=createAutomaticTriggerLab({enabled:true,service});
+  const envelope=createTime=>({type:'google.cloud.firestore.document.v1.created',
+   project:'demo-atrio-v11',database:databaseId,id:'fixture',document:ref.path,
+   params:{messageId:'recreated'},data:{ref:{path:ref.path},createTime}});
+  assert.equal((await handler(envelope(old.createTime))).status,'ignored');
+  await absent('recreated');
+  assert.equal((await handler(envelope((await ref.get()).createTime))).status,'published_lab');
  });
 }finally{await deleteApp(app)}
