@@ -431,6 +431,10 @@ try{
    assert.deepEqual(workerLab.stats(),{sends:1,reservations:1});
    assert.equal((await outbox('rest-worker').get()).data().state,'accepted_simulated');
    const measured=workerLab.metrics();
+   const metered=workerLab.budget();
+   assert.equal(metered.worker.requests,measured.externalRequests);
+   assert.ok(metered.worker.reads>=measured.firestoreDocuments);
+   console.log('Worker lab reserved operation units: '+JSON.stringify(metered.worker));
    assert.ok(measured.externalRequests>0&&measured.externalRequests<=50,JSON.stringify(measured));
    assert.ok(measured.firestoreRequests>0&&measured.d1Calls>0);
    console.log('REST Worker lab operation counts (not billing or CPU): '+JSON.stringify(measured));

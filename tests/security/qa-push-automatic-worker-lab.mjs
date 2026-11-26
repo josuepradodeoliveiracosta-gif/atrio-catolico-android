@@ -3,6 +3,7 @@
 // event identity boundary: a process-local WeakMap binds the trusted canonical
 // actor after OIDC verification + exclusive claim. No fabricated Firebase JWT.
 import assert from 'node:assert/strict';
+import {createFreeInvocationMeter} from '../../cloudflare/push-worker/scripts/qa-automatic-free-meter-lab.mjs';
 import {readFileSync} from 'node:fs';
 import {generateKeyPairSync,sign} from 'node:crypto';
 import {DatabaseSync} from 'node:sqlite';
@@ -53,12 +54,13 @@ export async function createWorkerLab(t,{db,auth,service,afterReservation=async(
   return [uid,{localId:a.uid,email:a.email,emailVerified:a.emailVerified,disabled:a.disabled}];
  })));
  let sends=0,reservations=0,externalRequests=0,firestoreRequests=0,firestoreDocuments=0,d1Calls=0;
+ let workerMeter=null,lastWorkerBudget=null;
  const database={prepare(statement){
   return {bind(...params){
    return {
     async first(){return sql.prepare(statement).get(...params)},
     async run(){
-     d1Calls++;
+     workerMeter?.charge('worker',{d1:1});d1Calls++;
      const result=sql.prepare(statement).run(...params);
      if(/^INSERT OR IGNORE INTO delivered/.test(statement)&&result.changes===1){
       reservations++;await afterReservation();
@@ -70,6 +72,7 @@ export async function createWorkerLab(t,{db,auth,service,afterReservation=async(
  }};
  t.mock.method(console,'info',()=>{});
  t.mock.method(globalThis,'fetch',async(input,init={})=>{
+  workerMeter?.beforeHttp('worker',input,init);
   externalRequests++;
   const url=new URL(input);
   assert.equal(init.redirect,'manual');
@@ -139,6 +142,7 @@ export async function createWorkerLab(t,{db,auth,service,afterReservation=async(
  return {
   stats:()=>({sends,reservations}),
   metrics:()=>({externalRequests,firestoreRequests,firestoreDocuments,d1Calls}),
+  budget:()=>lastWorkerBudget,
   seedMarker(chat,message,recipient){
    sql.prepare('INSERT INTO delivered(event_key,created_at) VALUES (?,?)')
     .run('chat:'+chat+':'+message+':'+recipient,Date.now());
@@ -153,7 +157,10 @@ export async function createWorkerLab(t,{db,auth,service,afterReservation=async(
   async dispatchInternal(eventKey){
    if(!enabled||typeof eventKey!=='string'||!/^[a-f0-9]{64}$/.test(eventKey))
     return {status:'ignored',reason:'invalid_internal_dispatch'};
-   return dispatchClaimed(eventKey);
+   if(workerMeter)return {status:'ignored',reason:'internal_invocation_busy'};
+   workerMeter=createFreeInvocationMeter();
+   try{return await dispatchClaimed(eventKey)}
+   finally{lastWorkerBudget=workerMeter.snapshot();workerMeter=null}
   }
  };
 }
