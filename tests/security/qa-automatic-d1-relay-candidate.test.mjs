@@ -106,7 +106,7 @@ test('continuous mode is explicit, blocks manual during lease and rejects expire
  assert.deepEqual(f.stats(),{manual:1,network:0});
 });
 
-test('continuous scheduled relay sends one synthetic refresh, reads notice, and fails closed after disarm',async t=>{
+for(const permanent of [false,true])test((permanent?'permanent':'finite')+' continuous scheduled relay sends one synthetic refresh, reads notice, and fails closed after disarm',async t=>{
  const at=Math.floor(Date.now()/60000)*60000,now=at+5000,activatedAt=at-60000,created=at-1000;
  t.mock.method(Date,'now',()=>now);
  const sql=new DatabaseSync(':memory:');t.after(()=>sql.close());
@@ -114,7 +114,8 @@ test('continuous scheduled relay sends one synthetic refresh, reads notice, and 
   "CREATE TABLE atrio_qa_identity(project_id TEXT); INSERT INTO atrio_qa_identity VALUES('atrio-catolico-qa-general'); CREATE TABLE delivered(event_key TEXT PRIMARY KEY,created_at INTEGER NOT NULL);");
  sql.prepare('INSERT INTO qa_auto_d1_activation_lab VALUES(1,?,0)').run(activatedAt-600000);
  sql.prepare('INSERT INTO qa_auto_d1_trial_lab(singleton,activated_at,ends_at) VALUES(1,?,?)').run(activatedAt-600000,activatedAt-300000);
- sql.prepare('INSERT INTO qa_auto_d1_continuous_epoch VALUES(?,1,?,?)').run(activatedAt,now,now+600000);
+ sql.prepare('INSERT INTO qa_auto_d1_continuous_epoch VALUES(?,1,?,?)').run(activatedAt,permanent?activatedAt:now,permanent?now-1:now+600000);
+ if(permanent)sql.prepare('INSERT INTO qa_auto_d1_permanent_authorization VALUES(?,?,1)').run(activatedAt,now);
  sql.prepare('INSERT INTO qa_auto_d1_continuous_schedule(activated_at) VALUES(?)').run(activatedAt);
  const db={prepare(q){return {bind(...args){return {
   async first(){return sql.prepare(q.replaceAll("CAST(unixepoch('subsec')*1000 AS INTEGER)",String(now))).get(...args)??null},
