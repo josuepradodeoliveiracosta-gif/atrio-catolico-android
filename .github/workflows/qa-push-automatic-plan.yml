@@ -50,6 +50,8 @@ on:
       - 'cloudflare/push-worker/scripts/qa-automatic-d1-trial-lab.mjs'
       - 'cloudflare/push-worker/scripts/qa-automatic-d1-relay-candidate.mjs'
       - 'cloudflare/push-worker/scripts/build-automatic-candidate-local.mjs'
+      - 'cloudflare/push-worker/scripts/qa-automatic-d1-scheduled-candidate.mjs'
+      - 'tests/security/qa-automatic-d1-scheduled-candidate.test.mjs'
       - 'tests/security/qa-automatic-d1-package.test.mjs'
       - 'tests/security/qa-automatic-d1-relay-candidate.test.mjs'
       - 'tests/security/qa-automatic-d1-http-lab.test.mjs'
@@ -86,7 +88,7 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
-      - run: node --test tests/security/qa-push-automatic-plan.test.mjs tests/security/qa-automatic-service-contract.test.mjs tests/security/qa-push-automatic-retry-plan.test.mjs tests/security/qa-automatic-free-discovery.test.mjs tests/security/qa-automatic-free-rest-lab.test.mjs tests/security/qa-automatic-free-publication-lab.test.mjs tests/security/qa-automatic-free-budget-lab.test.mjs tests/security/qa-automatic-free-recovery-lab.test.mjs tests/security/qa-automatic-free-meter-lab.test.mjs tests/security/qa-automatic-free-scheduled-lab.test.mjs tests/security/qa-automatic-lab-isolation.test.mjs tests/security/qa-push-automatic-iam-audit.test.mjs tests/security/qa-automatic-free-write-guard-lab.test.mjs tests/security/qa-automatic-d1-outbox-lab.test.mjs tests/security/qa-automatic-d1-dispatch-lab.test.mjs tests/security/qa-automatic-d1-mode-lab.test.mjs tests/security/qa-automatic-d1-budget-lab.test.mjs tests/security/qa-automatic-d1-http-lab.test.mjs tests/security/qa-automatic-d1-relay-candidate.test.mjs tests/security/qa-automatic-d1-package.test.mjs tests/security/qa-automatic-preflight-review.test.mjs tests/security/qa-automatic-preflight-report.test.mjs tests/security/qa-automatic-d1-identity-probe-lab.test.mjs
+      - run: node --test tests/security/qa-push-automatic-plan.test.mjs tests/security/qa-automatic-service-contract.test.mjs tests/security/qa-push-automatic-retry-plan.test.mjs tests/security/qa-automatic-free-discovery.test.mjs tests/security/qa-automatic-free-rest-lab.test.mjs tests/security/qa-automatic-free-publication-lab.test.mjs tests/security/qa-automatic-free-budget-lab.test.mjs tests/security/qa-automatic-free-recovery-lab.test.mjs tests/security/qa-automatic-free-meter-lab.test.mjs tests/security/qa-automatic-free-scheduled-lab.test.mjs tests/security/qa-automatic-lab-isolation.test.mjs tests/security/qa-push-automatic-iam-audit.test.mjs tests/security/qa-automatic-free-write-guard-lab.test.mjs tests/security/qa-automatic-d1-outbox-lab.test.mjs tests/security/qa-automatic-d1-dispatch-lab.test.mjs tests/security/qa-automatic-d1-mode-lab.test.mjs tests/security/qa-automatic-d1-budget-lab.test.mjs tests/security/qa-automatic-d1-http-lab.test.mjs tests/security/qa-automatic-d1-relay-candidate.test.mjs tests/security/qa-automatic-d1-package.test.mjs tests/security/qa-automatic-preflight-review.test.mjs tests/security/qa-automatic-preflight-report.test.mjs tests/security/qa-automatic-d1-identity-probe-lab.test.mjs tests/security/qa-automatic-d1-scheduled-candidate.test.mjs
 
       - run: node --experimental-vm-modules --test tests/security/qa-automatic-d1-runtime-lab.test.mjs
 

@@ -31,3 +31,20 @@ test('generated package contains no deploy config or activation; real relay is c
  assert.equal((await worker.fetch(new Request('https://qa.invalid/tick'),env)).status,404);
  assert.equal(network.mock.callCount(),0);
 });
+
+test('optional scheduled package has no config, activation, or public tick',async t=>{
+ const folder=buildLocalAutomaticCandidate({scheduledCandidate:true});t.after(()=>rmSync(folder,{recursive:true,force:true}));
+ const manifest=JSON.parse(readFileSync(resolve(folder,'manifest.json'),'utf8'));
+ assert.equal(manifest.deployable,false);assert.equal(manifest.scheduledCandidate,true);
+ assert.deepEqual(readdirSync(folder).sort(),['entry.mjs','manifest.json','schema-candidate.sql','worker.mjs']);
+ const sql=new DatabaseSync(':memory:');t.after(()=>sql.close());
+ sql.exec(readFileSync(resolve(folder,'schema-candidate.sql'),'utf8'));
+ for(const table of ['qa_auto_d1_activation_lab','qa_auto_d1_trial_lab','qa_auto_d1_schedule_lab'])
+  assert.equal(sql.prepare('SELECT count(*) AS n FROM '+table).get().n,0);
+ const {default:w}=await import(pathToFileURL(resolve(folder,'entry.mjs')).href);
+ assert.deepEqual(Object.keys(w).sort(),['fetch','scheduled']);
+ const net=t.mock.method(globalThis,'fetch',()=>assert.fail('unexpected network'));
+ assert.equal((await w.scheduled({cron:'* * * * *',scheduledTime:Date.now()},{})).reason,'schedule_disabled');
+ assert.equal((await w.fetch(new Request('https://qa.invalid/tick'),{})).status,404);
+ assert.equal(net.mock.callCount(),0);
+});
