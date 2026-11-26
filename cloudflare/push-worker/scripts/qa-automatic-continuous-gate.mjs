@@ -10,12 +10,18 @@ CREATE UNIQUE INDEX IF NOT EXISTS qa_auto_d1_continuous_one_active ON qa_auto_d1
 CREATE TABLE IF NOT EXISTS qa_auto_d1_continuous_schedule (
  activated_at INTEGER PRIMARY KEY CHECK(activated_at>0),
  last_scheduled_at INTEGER NOT NULL DEFAULT 0 CHECK(last_scheduled_at>=0 AND last_scheduled_at%60000=0)
+);
+CREATE TABLE IF NOT EXISTS qa_auto_d1_permanent_authorization (
+ activated_at INTEGER PRIMARY KEY CHECK(activated_at>0) REFERENCES qa_auto_d1_continuous_epoch(activated_at),
+ approved_at INTEGER NOT NULL CHECK(approved_at>=activated_at),
+ enabled INTEGER NOT NULL DEFAULT 0 CHECK(enabled IN (0,1))
 );`;
 const clock = "CAST(unixepoch('subsec')*1000 AS INTEGER)";
 const positive = n => Number.isSafeInteger(n) && n > 0;
 // The caller must also enforce existing daily and per-invocation budgets,
 // authentication, admission, canonical expiry, and shared delivery dedup.
-// A quota lease is evidence of headroom, not a subscription or automatic renewal.
+// A finite lease and explicit permanent authorization are separate mechanisms.
+// Permanent authorization is an operator decision, never evidence of quota.
 export function createContinuousGate({db, activatedAt, enabled=false}={}) {
  if(typeof db?.prepare!=='function') throw Error('missing_continuous_db');
  return async kind => {
@@ -28,18 +34,23 @@ export function createContinuousGate({db, activatedAt, enabled=false}={}) {
  };
 }
 
+// Internal return value only: no artificial expiry is stored in D1.
+// The relay independently limits each invocation to 45s (tick) or 15s (notice).
+const permanent = `EXISTS (SELECT 1 FROM qa_auto_d1_permanent_authorization p
+ WHERE p.activated_at=c.activated_at AND p.enabled=1 AND p.approved_at>=c.activated_at AND p.approved_at<=${clock})`;
+const finite = margin => `c.quota_checked_at>=c.activated_at AND c.quota_checked_at<=${clock}
+ AND c.quota_valid_until>=${clock}+${margin} AND c.quota_valid_until<=c.quota_checked_at+86400000`;
 const eligibility = margin => {
  if(![10000,120000].includes(margin)) throw Error('invalid_continuous_margin');
  return `c.activated_at=? AND c.enabled=1 AND c.activated_at<=${clock}
- AND c.quota_checked_at>=c.activated_at AND c.quota_checked_at<=${clock}
- AND c.quota_valid_until>=${clock}+${margin} AND c.quota_valid_until<=c.quota_checked_at+86400000
+ AND (${permanent} OR (${finite(margin)} AND NOT EXISTS (SELECT 1 FROM qa_auto_d1_permanent_authorization p WHERE p.activated_at=c.activated_at)))
  AND EXISTS (SELECT 1 FROM atrio_qa_identity WHERE project_id='atrio-catolico-qa-general')
  AND NOT EXISTS (SELECT 1 FROM atrio_qa_identity WHERE project_id<>'atrio-catolico-qa-general')
  AND NOT EXISTS (SELECT 1 FROM qa_auto_d1_activation_lab WHERE enabled=1)
  AND NOT EXISTS (SELECT 1 FROM qa_auto_d1_trial_lab WHERE activated_at=c.activated_at)`;
 };
 export const continuousLeaseSql = (margin=10000) =>
- 'SELECT c.quota_valid_until AS until_ms FROM qa_auto_d1_continuous_epoch c WHERE '+eligibility(margin);
+ 'SELECT CASE WHEN '+permanent+' THEN 9007199254740991 ELSE c.quota_valid_until END AS until_ms FROM qa_auto_d1_continuous_epoch c WHERE '+eligibility(margin);
 // Same predicate inside atomic outbox and schedule statements. Exactly one bind.
 export const continuousActiveSql = (margin=10000) => 'EXISTS ('+continuousLeaseSql(margin)+')';
 export async function noActiveContinuousEpoch(db,{required=false}={}) {

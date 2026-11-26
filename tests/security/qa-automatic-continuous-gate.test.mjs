@@ -42,3 +42,30 @@ test('historical epoch and unavailable database never authorize',async t=>{
  assert.equal(await createContinuousGate({db:f.db,activatedAt:f.old,enabled:true})('tick'),null);
  assert.equal(await createContinuousGate({db:{prepare(){throw Error('unavailable')}},activatedAt:f.epoch,enabled:true})('tick'),null);
 });
+
+test('permanent authorization has no deadline, preserves original quota evidence and remains revocable',async t=>{
+ const f=fixture(t);f.arm();
+ f.sql.prepare('UPDATE qa_auto_d1_continuous_epoch SET quota_valid_until=?').run(f.now-1);
+ assert.equal(await f.gate('tick'),null);
+ f.sql.prepare('INSERT INTO qa_auto_d1_permanent_authorization VALUES(?,?,1)').run(f.epoch,f.now);
+ assert.equal(await f.gate('tick'),Number.MAX_SAFE_INTEGER);
+ assert.equal(await f.gate('notice'),Number.MAX_SAFE_INTEGER);
+ assert.equal(f.sql.prepare('SELECT quota_valid_until FROM qa_auto_d1_continuous_epoch').get().quota_valid_until,f.now-1);
+ f.sql.exec('UPDATE qa_auto_d1_permanent_authorization SET enabled=0');
+ assert.equal(await f.gate('tick'),null);
+ f.sql.exec('UPDATE qa_auto_d1_permanent_authorization SET enabled=1; UPDATE qa_auto_d1_continuous_epoch SET enabled=0');
+ assert.equal(await f.gate('notice'),null);
+});
+test('permanent opt-in is epoch-specific, never bypasses scope or trial isolation, revoked row never falls back to finite',async t=>{
+ const f=fixture(t);f.arm();
+ f.sql.prepare('INSERT INTO qa_auto_d1_permanent_authorization VALUES(?,?,0)').run(f.epoch,f.now);
+ assert.equal(await f.gate('tick'),null);
+ f.sql.prepare('UPDATE qa_auto_d1_permanent_authorization SET enabled=1,approved_at=?').run(f.now+1);
+ assert.equal(await f.gate('tick'),null);
+ f.sql.prepare('UPDATE qa_auto_d1_permanent_authorization SET approved_at=?').run(f.now);
+ assert.equal(await f.gate('tick'),Number.MAX_SAFE_INTEGER);
+ f.sql.exec("UPDATE atrio_qa_identity SET project_id='prod'");
+ assert.equal(await f.gate('notice'),null);
+ f.sql.exec("UPDATE atrio_qa_identity SET project_id='atrio-catolico-qa-general'; UPDATE qa_auto_d1_activation_lab SET enabled=1");
+ assert.equal(await f.gate('tick'),null);
+});

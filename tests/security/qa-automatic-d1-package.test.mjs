@@ -39,7 +39,7 @@ test('optional scheduled package has no config, activation, or public tick',asyn
  assert.deepEqual(readdirSync(folder).sort(),['entry.mjs','manifest.json','schema-candidate.sql','worker.mjs']);
  const sql=new DatabaseSync(':memory:');t.after(()=>sql.close());
  sql.exec(readFileSync(resolve(folder,'schema-candidate.sql'),'utf8'));
- for(const table of ['qa_auto_d1_activation_lab','qa_auto_d1_trial_lab','qa_auto_d1_schedule_lab','qa_auto_d1_continuous_epoch','qa_auto_d1_continuous_schedule'])
+ for(const table of ['qa_auto_d1_activation_lab','qa_auto_d1_trial_lab','qa_auto_d1_schedule_lab','qa_auto_d1_continuous_epoch','qa_auto_d1_continuous_schedule','qa_auto_d1_permanent_authorization'])
   assert.equal(sql.prepare('SELECT count(*) AS n FROM '+table).get().n,0);
  const {default:w}=await import(pathToFileURL(resolve(folder,'entry.mjs')).href);
  assert.deepEqual(Object.keys(w).sort(),['fetch','scheduled']);
