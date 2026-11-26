@@ -1,0 +1,14 @@
+# Marco 10D — matriz IAM observada e identidade do Worker
+
+## Evidências 26/11/2026
+Titular executou gcloud policy-troubleshoot iam no recurso //cloudresourcemanager.googleapis.com/projects/atrio-catolico-qa-general, principal atrio-qa-general-push@atrio-catolico-qa-general.iam.gserviceaccount.com. Resultado access (v1):
+- GRANTED: datastore.entities.get/list, datastore.databases.get, firebaseauth.users.get, cloudmessaging.messages.create.
+- NOT_GRANTED: datastore.entities.create/update/delete, firebaseauth.users.update, resourcemanager.projects.setIamPolicy.
+Dez resultados esperados. Console também mostrou ausência de concessão para create no projeto, sem deny/PAB observados nessa avaliação. Não confundir access v1 com overallAccessState v3beta; recurso banco foi rejeitado pelo console. Permissões condicionais por banco, membros de grupos, outros projetos e escopo completo de IAM não certificados. Firestore usa políticas de projeto com possíveis condições de recurso; referência https://docs.cloud.google.com/firestore/native/docs/manage-databases. Nenhuma alteração IAM.
+
+## Inspeção somente leitura do Cloudflare
+Deployment af89cc1b-2ef9-443a-a38d-e60673b2ad17; versão 6fcc1921-05da-4395-ae36-b8215eff8d1b 100%, compatibilidade 2026-10-26, mensagem QA #461 redirect manual e recusa 3xx. API de binding secret QA_FIREBASE_SERVICE_ACCOUNT_JSON confirma secret_text; valor omitido. Download de código atualmente hospedado analisado sem imprimir conteúdo: contém QA_PROJECT fixo atrio-catolico-qa-general, QA_SERVICE_EMAIL construído como atrio-qa-general-push@ + QA_PROJECT + .iam.gserviceaccount.com; rejeita service.project_id divergente e service.client_email !== QA_SERVICE_EMAIL, usa iss/sub da conta para OAuth, mapeia QA_FIREBASE_SERVICE_ACCOUNT_JSON. Evidência forte de guard no Worker atual; não prova que secret contém credencial válida ou que emissão FCM futura ocorrerá. Candidato automático também valida projeto/email. Não ler, rotacionar ou expor chave.
+
+## Corroboração opcional sem escrita
+Consultar Cloud Audit Logs existentes do projeto com gcloud logging read, filtro principalEmail da conta dedicada, services firestore.googleapis.com, datastore.googleapis.com, identitytoolkit.googleapis.com, fcm.googleapis.com, últimos 7 dias; saída apenas timestamp, serviceName, methodName, status.code. Sem logs pode significar auditoria Data Access desabilitada, retenção, falta de acesso ou ausência de operações; não habilitar logging adicional para esta prova. Eventos da conta corroboram uso, não atribuem por si sós cada evento ao Worker ou versão. Não testar escrita real nem impersonar conta. 
+GO laboratório 246/246; NO-GO remoto até revisão residual e autorização específica. Saldos anteriores com folga, revalidar na janela. Ainda faltam evidência de revogação real, proteção antiabuso, CPU, quiescência, pacote operacional e homologação física. Nenhum deploy, cron, IAM, SQL remoto, serviço pago ou workflow deliberado.
