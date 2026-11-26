@@ -1,5 +1,6 @@
 // Private scheduled candidate: not wired into the official deployment.
 // No public HTTP trigger, no default network or remote migration.
+import {continuousConfigured,continuousActiveSql} from './qa-automatic-continuous-gate.mjs';
 export const QA_AUTO_CRON='* * * * *';
 const clock="CAST(unixepoch('subsec')*1000 AS INTEGER)";
 export const D1_SCHEDULE_SCHEMA=`CREATE TABLE IF NOT EXISTS qa_auto_d1_schedule_lab (
@@ -11,7 +12,7 @@ const positive=x=>Number.isSafeInteger(x)&&x>0;
 const stop=reason=>({status:'ignored',reason,externalAttempts:0,fcmAttempted:false});
 const epoch=env=>typeof env?.QA_AUTO_ACTIVATED_AT==='string'&&/^[1-9]\d{0,15}$/.test(env.QA_AUTO_ACTIVATED_AT)?Number(env.QA_AUTO_ACTIVATED_AT):null;
 function ready(env){
- return env?.QA_AUTO_SCHEDULE_ENABLED==='true'&&env.QA_AUTO_MODE==='automatic'&&
+ return env?.QA_AUTO_SCHEDULE_ENABLED==='true'&&(env.QA_AUTO_MODE==='automatic'||continuousConfigured(env))&&
   env.QA_PUSH_ENABLED==='true'&&env.QA_CONVERSATION_PUSH_ENABLED==='true'&&
   positive(epoch(env))&&typeof env.QA_PUSH_DB?.prepare==='function'&&
   !!env.QA_FIREBASE_SERVICE_ACCOUNT_JSON&&!!env.QA_FIREBASE_WEB_API_KEY;
@@ -28,7 +29,7 @@ export function createQaScheduledCandidate({candidate,report=()=>{}}={}){
     else{
      // One durable reservation per minute, monotonically increasing; no
      // refund on crash, no replay, and no schedule-created activation row.
-     const r=await env.QA_PUSH_DB.prepare("UPDATE qa_auto_d1_schedule_lab SET last_scheduled_at=? WHERE singleton=1 AND activated_at=? AND last_scheduled_at<? AND ? BETWEEN "+clock+"-15000 AND "+clock+" AND EXISTS (SELECT 1 FROM qa_auto_d1_trial_lab t JOIN qa_auto_d1_activation_lab a ON a.singleton=t.singleton WHERE t.singleton=1 AND t.activated_at=? AND a.activated_at=t.activated_at AND a.enabled=1 AND t.activated_at<=? AND t.ends_at>="+clock+"+120000 AND t.ticks<60)")
+     const r=continuousConfigured(env)?await env.QA_PUSH_DB.prepare("UPDATE qa_auto_d1_continuous_schedule SET last_scheduled_at=? WHERE activated_at=? AND last_scheduled_at<? AND ? BETWEEN "+clock+"-15000 AND "+clock+" AND "+continuousActiveSql(120000)).bind(at,activatedAt,at,at,activatedAt).run():await env.QA_PUSH_DB.prepare("UPDATE qa_auto_d1_schedule_lab SET last_scheduled_at=? WHERE singleton=1 AND activated_at=? AND last_scheduled_at<? AND ? BETWEEN "+clock+"-15000 AND "+clock+" AND EXISTS (SELECT 1 FROM qa_auto_d1_trial_lab t JOIN qa_auto_d1_activation_lab a ON a.singleton=t.singleton WHERE t.singleton=1 AND t.activated_at=? AND a.activated_at=t.activated_at AND a.enabled=1 AND t.activated_at<=? AND t.ends_at>="+clock+"+120000 AND t.ticks<60)")
       .bind(at,activatedAt,at,at,activatedAt,at).run();
      if(r?.success!==true||r.meta?.changes!==1)result=stop('schedule_reservation_unavailable');
      else if(!fresh(at,Date.now()))result=stop('schedule_expired');
